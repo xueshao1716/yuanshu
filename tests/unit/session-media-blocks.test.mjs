@@ -25,6 +25,11 @@ test('落盘改写：assistant 内容里的附件块必须变成纯文本，工�
   assert.match(sdkSafeAssistantBlocks([{ type: 'video', url: '/v.mp4' }])[0].text, /!\[视频\]\(\/v\.mp4\)/);
   assert.match(sdkSafeAssistantBlocks([{ type: 'file', path: 'a.txt' }])[0].text, /\[文件\] a\.txt/);
 
+  // 例外：带 name 的 file 块原样保留——估算器读 block.name.length（有 name 就安全），
+  // 而界面靠 type:"file" 渲染文件卡片，转成文本会把卡片弄丢。
+  const named = { type: 'file', name: 'a.txt', path: 'a.txt', size: 1, mime: 'text/plain' };
+  assert.deepEqual(sdkSafeAssistantBlocks([named]), [named]);
+
   // 全被丢掉时也要留一个合法块：空 content 在 SDK 那边同样是脏数据
   assert.deepEqual(sdkSafeAssistantBlocks([{ type: 'nonsense' }]), [{ type: 'text', text: '' }]);
   assert.deepEqual(sdkSafeAssistantBlocks([]), [{ type: 'text', text: '' }]);

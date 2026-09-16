@@ -29,6 +29,11 @@ import { settleTurnMemory } from "./engine/turn-memory.mjs";
 // 连续失败计数（2026-09-16）：pi 通道的失败不抛异常，只落一条 stopReason=error 的记录；
 // 没有状态码的失败（TypeError、协议不兼容）此前没人管，用户只看到"它不说话"。
 import { noteModelFailure, clearModelFailures, modelFailureState } from "./engine/model-failures.mjs";
+// 会话里 assistant 消息的落盘统一要"SDK 安全化"：image/audio/video 块会让 pi 通道重放历史时
+// 抛 TypeError（estimate.js:42 把它们当工具调用读 block.name.length）。
+// 2026-09-16 复查发现：出图兜底交付那条（下面 settledMedia 的 appendMessage）**绕过了**这道闸，
+// 于是"这一轮出了图 → 切到 deepseek → 下一句就不回"——这才是残留的第二处来源。
+import { sdkSafeAssistantBlocks } from "./engine/yuanshu-session.mjs";
 import { advanceGoalTurn, noteGoalError, goalPrompt, listGoals, createGoal, armGoal, pauseGoal, settleGoal, disarmAllGoals } from "./engine/goals.mjs";
 import { sandboxModeView, recordSandboxMode } from "./engine/sandbox-session.mjs";
 import { sweepInterruptedRuns } from "./engine/story-store.mjs";
@@ -1562,10 +1567,9 @@ async function handleChat(req, res, body) {
             fresh.forEach(f => pushedSet.add(f.path));
             pushedArtifacts.set(sessKey, pushedSet);
             try {
-              const fw = fresh.slice(0, 5).map(f => ({ type: "file", name: f.name, path: f.path, size: f.size, mime: f.mime }));
-              // ⚠️ 2026-08-19 修复：不再写"（交付文件）"文本标记——模型会把它当回复模板复读（正文全空）；
+              const fw = fresh.slice(0, 5).map(f => ({ type: "file", name: f.name, path: f.path, size: f.size, mime: f.mime }));              // ⚠️ 2026-08-19 修复：不再写"（交付文件）"文本标记——模型会把它当回复模板复读（正文全空）；
               //    file 块本身前端就能识别渲染（extractFiles → m.files），无需占位文本。
-              await entry.sm.appendMessage({ role: "assistant", content: fw });
+              await entry.sm.appendMessage({ role: "assistant", content: sdkSafeAssistantBlocks(fw) });
             } catch {}
             files = fresh;
           } else {
@@ -1589,7 +1593,9 @@ async function handleChat(req, res, body) {
       try {
         entry.sm.appendMessage({
           role: "assistant",
-          content: assistantContentWithMedia("", settledMedia),
+          // ⚠️ 必须过 sdkSafeAssistantBlocks：settledMedia 会产出 {type:"image",url} 块，
+          // 直接落盘就等于亲手写一条"下次走 pi 通道必崩"的记录（复现见 CHANGELOG 2026-09-16）。
+          content: sdkSafeAssistantBlocks(assistantContentWithMedia("", settledMedia)),
         });
       } catch {}
     }

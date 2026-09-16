@@ -8,6 +8,41 @@
 
 ## [Unreleased]
 
+## [2.49.0] - 2026-09-16
+
+### 修复（③残留）：出图交付那条记录绕过了安全检查——"出过图之后切 deepseek 就不回话"的第二处来源
+
+v2.45.0 修的是**元枢循环**写会话的那条路（`persistYuanshuAssistant`）。这次把残留钉死了：
+
+- 出图兜底交付时，server 会补一条 assistant 记录：
+  `content: assistantContentWithMedia("", settledMedia)` —— 里面是 `{type:"image",url}` 块，
+  **完全绕过了 `sdkSafeAssistantBlocks`**。
+- 于是只要这个会话**出过图**，用户一切到 `opencode-go/deepseek`（引擎换 pi）→ 下一句重放历史时，
+  pi-ai 的 token 估算器又把 image 块当工具调用读 `block.name.length` →
+  `TypeError: Cannot read properties of undefined (reading 'length')` → 那一轮什么都不回（①已让它显示出来）。
+
+**端到端复现（修复前）**：
+
+```
+第 1 轮「帮我画一张赛博朋克风格的猫…」 → 出图 1 张，会话里 assistant 块 = ["thinking,text","text","image"]
+切模型 → opencode-go/deepseek-v4.1-flash（引擎换 pi）
+第 2 轮「在吗？一句话回我」            → error 1：Cannot read properties of undefined (reading 'length')
+```
+
+**修复后同一条路径**：第 1 轮落盘块变成 `["thinking,text","text","text"]`（图以 markdown 进正文），
+第 2 轮 **delta 11 / error 0** —— 正常回答。
+
+改动：
+
+- `server.mjs`：媒体交付与文件交付两处 `appendMessage` 都过 `sdkSafeAssistantBlocks`。
+- `sdkSafeAssistantBlocks`：带 `name` 的 `file` 块**原样保留**（估算器读的是 `block.name.length`，
+  有 name 就安全；而界面靠 `type:"file"` 渲染文件卡片，转文本会把卡片弄丢）；
+  没有 name 的 file 块与图/音/视频块一样必须转文本——这一条用 SDK 的估算器实测过：
+  `file(有name) ✅ / file(无name) ❌ / image ❌ / toolCall ✅`。
+
+测试：在**既有**用例里补了一条断言（带 name 的 file 块必须原样保留），用例数不变：**1351 全绿**。
+（更正：本条最初写成"1351 → 1352"，实际没新增用例。）
+至此 ③ 的两处来源（元枢循环落盘 + 出图交付落盘）都封住，且历史 34 个会话已修复。
 ## [2.48.0] - 2026-09-16
 
 ### 修复（④出图兜底）：续画也要出图——"再换个词的出一下"以前什么都不画

@@ -51,9 +51,13 @@ export function sdkSafeAssistantBlocks(blocks = []) {
     if (ATTACHMENT_BLOCK_TYPES.has(type)) {
       const label = type === "image" ? "图片" : type === "video" ? "视频" : type === "audio" ? "音频" : "文件";
       const url = typeof b.url === "string" ? b.url : "";
+      // 例外：带 name 的 file 块**保持原样**。估算器读的是 block.name.length，有 name 就安全，
+      // 而界面靠 type:"file" 渲染文件卡片（extractFiles）——转成文本会把卡片弄丢。
+      // 没有 name 的 file 块和不带 name 的图/音视频块一样会抛 TypeError，必须转文本。
+      if (type === "file" && typeof b.name === "string" && b.name) { out.push(b); continue; }
       if (url) out.push({ type: "text", text: `![${label}](${url})` });
       else if (b.path || b.name) out.push({ type: "text", text: `[${label}] ${b.path || b.name}` });
-      continue;   // 附件绝不以块的形式留在 content 里：宁可少一条附件，也不能让整段会话不可重放
+      continue;   // 其余附件块绝不留在 content 里：宁可少一条附件，也不能让整段会话不可重放
     }
     if (typeof b.text === "string" && b.text) out.push({ type: "text", text: b.text });
   }
