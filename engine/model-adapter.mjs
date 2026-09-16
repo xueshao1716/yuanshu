@@ -7,6 +7,7 @@
 //   不注入则用 Node 原生 fetch（Node 25+）。
 import { normalizeToolArgs, normalizeToolCallArguments } from "./tool-args.mjs";
 import { describeHttpError, sessionAffinityHeaders } from "./http.mjs";
+import { clampOutputTokens, maxTokensFieldOf } from "./output-budget.mjs";
 
 // ── ModelAdapter 接口契约 ──
 // async chat(model, messages, opts) → {
@@ -74,8 +75,9 @@ export class HttpModelAdapter {
         messages: normalizeToolCallArguments(history),
         ...(toolDefs ? { tools: toolDefs, tool_choice: "auto" } : {}),
         stream: false,
-        max_tokens: Math.min(mdef?.maxTokens || opts.maxTokens || 8192, 8192),
       };
+      // 单次输出预算同样按模型声明给（以前写死 8192，一条大文件的工具调用必被截断）
+      body[maxTokensFieldOf(compat)] = clampOutputTokens(mdef, { fallback: Number(opts.maxTokens) || undefined });
       if (opts.params) {
         if (typeof opts.params.temperature === "number" && opts.params.temperature >= 0 && opts.params.temperature <= 1) body.temperature = opts.params.temperature;
         if (typeof opts.params.top_p === "number" && opts.params.top_p > 0 && opts.params.top_p <= 1) body.top_p = opts.params.top_p;

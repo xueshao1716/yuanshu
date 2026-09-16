@@ -8,6 +8,7 @@ import { execFile } from "node:child_process";
 import { json, readBody } from "./http-utils.mjs";
 import { markModelBlocked, isAuthErrorStatus, pickFallbackDefault, pickFallbackExcluding, routeProCandidate, routeForAuto } from "./model-router.mjs";
 import { classifyAnomaly, recordReply, lastAssistantReply } from "./output-guard.mjs";
+import { clampOutputTokens, escalateOutputTokens, maxTokensFieldOf } from "./output-budget.mjs";
 import { shrinkToolResult, NEEDS_PRO_RE, scavengeToolCalls, projectToolResult } from "./reasonix-tools.mjs";
 import { normalizeToolArgs } from "./tool-args.mjs";
 import { extractMessages, extractText } from "./session-utils.mjs";
@@ -362,8 +363,10 @@ export async function unifiedChat(model, messages, opts = {}) {
       messages: history,
       ...(toolDefs ? { tools: normTools(toolDefs), tool_choice: "auto" } : {}),
       stream: wantStream,
-      max_tokens: Math.min(mdef?.maxTokens || 8192, 8192),
     };
+    // 单次输出预算（2026-09-16）：以前写死 8192，比模型声明的 32k~384k 低一个数量级，
+    // 结果是"一次写完一个大文件"必然被截断 → 守卫报 truncated → 甩锅给用户"请把任务拆小"。
+    body[maxTokensFieldOf(compat)] = outputBudget;
     // 模型参数（借鉴 Open WebUI 参数面板）：temperature / top_p 可调
     if (opts.params) {
       if (typeof opts.params.temperature === "number" && opts.params.temperature >= 0 && opts.params.temperature <= 2) body.temperature = opts.params.temperature;
@@ -386,6 +389,8 @@ export async function unifiedChat(model, messages, opts = {}) {
     signal: opts.signal, // P2: 客户端断开时取消 fetch
   });
   let usedThinking = thinkingParam !== null;
+  // 单次输出预算：起步 = min(模型声明, 32k)，命中截断时往上抬（见 escalateOutputTokens）
+  let outputBudget = clampOutputTokens(mdef);
   // A checkpointed snapshot already represents the completed model turns.
   // Continue numbering from it so effect keys remain stable across recovery.
   let turn = Number.isInteger(opts.resumeSnapshot?.turn) ? opts.resumeSnapshot.turn : 0;
@@ -499,6 +504,12 @@ export async function unifiedChat(model, messages, opts = {}) {
         return { error: TRUNCATED_TOOL_ERROR, history, text: lastPartialAssistantText(history), streamed };
       }
       truncatedToolRetries += 1;
+      // 截断多半是"这次要写的东西超过了预算"→ 先把预算抬上去再重试，别急着让用户拆任务
+      const bumped = escalateOutputTokens(outputBudget, mdef);
+      if (bumped > outputBudget) {
+        console.log(`[元枢] 工具调用被截断 → 单次输出预算 ${outputBudget} → ${bumped} token，重试`);
+        outputBudget = bumped;
+      }
       const validCalls = inspected.calls || [];
       if (validCalls.length) {
         if (!roundStreamed) {

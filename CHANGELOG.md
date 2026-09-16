@@ -8,6 +8,45 @@
 
 ## [Unreleased]
 
+## [2.54.0] - 2026-09-16
+
+### 修复：单次输出被我们自己压死在 8192 token —— "任务太长，请拆分"的真因
+
+用户现象："经常报任务太长了，让拆分。"那句提示是 `TRUNCATED_TOOL_ERROR`，
+但**根因不是任务长，是我们把输出上限写死了**：
+
+```js
+max_tokens: Math.min(mdef?.maxTokens || 8192, 8192)   // unified-chat.mjs 与 model-adapter.mjs 都是这句
+```
+
+模型声明的输出上限本来是 **32k~384k**（`deepseek-v4-pro` 384000、`zai/glm-4.7` 131072、
+`workbuddy/hy4-preview` 32768…），而元枢一律只给 **8192**。于是"一次写完一个大文件/长脚本"
+必然在 8192 处被砍断，工具调用参数断成半个 JSON → `inspectToolCalls` 判 truncated →
+重试两次 → 回一句「请把任务拆小再试」，**把锅甩给了用户**。
+
+**改了什么**
+
+- 新增 `engine/output-budget.mjs`：
+  - `clampOutputTokens(mdef)` —— 起步按模型声明给，但有保险丝（32k；声明更小就用声明）；
+  - `escalateOutputTokens(current, mdef)` —— 命中截断就把预算翻倍重试，上限为模型声明的量；
+  - `maxTokensFieldOf(compat)` —— 字段名走 compat（有的通道要 `max_completion_tokens`，
+    以前一律发 `max_tokens`，那类通道等于没生效）。
+- `unified-chat.mjs`：请求体用 `body[field] = outputBudget`；截断重试时先抬预算再重试（并在日志里写明抬了多少）。
+- `model-adapter.mjs`：同样按声明给、同样认字段名。
+- `TRUNCATED_TOOL_ERROR` 文案重写：说清"系统已经把上限抬到模型允许的最大值重试过了"，
+  这时才建议分块写（回一句「分块写」我按段追加），不再一上来就让人拆任务。
+
+**真机验证（把模型 baseUrl 指到本地桩，直接看发出去的请求体）**
+
+```
+声明 32k 的模型 → max_tokens = 32768      （旧代码恒为 8192）
+声明 4k  的模型 → max_tokens = 4096       （旧代码会超发成 8192）
+compat 要 max_completion_tokens → 该字段 = 16000（旧代码发的是没用的 max_tokens）
+```
+
+测试：+4（起步预算与保险丝、截断后抬预算、字段名走 compat、两条路径不许再写死 8192），
+1369 → **1373 全绿**；另把 `unified-chat-recovery` 里写死的错误文案断言改成引用常量。
+
 ## [2.53.0] - 2026-09-16
 
 ### 修复：全新会话首轮被误判"复读"、然后静默换模型（用户原话："静默换成 agnes 3.0"）
