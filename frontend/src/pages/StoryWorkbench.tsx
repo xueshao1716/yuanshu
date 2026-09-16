@@ -564,7 +564,7 @@ export function StoryPanel() {
             {lineTimeline && lineTimeline.lines.length > 0 && <div className="story-line-timeline">
               <p className="story-hint">
                 台词时间轴 · 共 {lineTimeline.total}s（{lineTimeline.lines.length} 句，按 {lineTimeline.rate} 字/秒估）
-                —— 秒数是**估计**，锚点才是真的：改一句，只有它和它之后会移动，前面的不动。
+                —— 秒数是估计，锚点才是真的：改一句，只有它和它之后会移动，前面的不动。
               </p>
               <ol>{lineTimeline.lines.map(line => (
                 <li key={line.id}>
