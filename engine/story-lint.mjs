@@ -10,6 +10,7 @@
 // 现在并进体检：不花钱就能看到"这一句 37 字，最快也要 7.4 秒，而这段只有 5 秒"。
 import { dialogueAudit, auditEngine, repeatCheck } from './story-craft.mjs';
 import { beatAction } from './story-screenplay.mjs';
+import { resolveColorCard } from './color-cards.mjs';
 
 const text = value => String(value ?? '').trim();
 const list = value => (Array.isArray(value) ? value : []);
@@ -70,6 +71,23 @@ export function lintStoryProject(project, { kind = 'image', capabilities = null 
   }
 
   const portraits = characters.filter(c => text(c?.refImage) || text(c?.ref)).length;
+
+  // ── 配色体检（2026-09-16）──
+  // 配色卡一旦选了，它就该在画面上说了算；**破格是要有意识的**，不能悄悄发生。
+  // 这里只抓"明显打架"：段落自己写的色调里出现高饱和/荧光/霓虹这类词，而整片是低饱和高级灰。
+  // 不抓"色调和配色不完全一样"——同色系微调是正常的创作，全抓等于把体检变成噪声。
+  const card = resolveColorCard(project?.colorCardId);
+  if (card) {
+    const CONFLICT = /(荧光|霓虹|高饱和|饱和度高|大红大绿|撞色|糖果色|赛博朋克|高对比)/;
+    for (const scene of scenes) {
+      const title = text(scene?.title) || text(scene?.id) || '未命名场景';
+      list(scene?.beats).forEach((beat, index) => {
+        const hit = text(beat?.shot?.tone).match(CONFLICT)?.[1];
+        if (!hit) return;
+        add('warn', 'color-card-conflict', `「${title}」第 ${index + 1} 段的色调写了「${hit}」，和整片配色（莫兰迪高级灰 · ${card.name}，低饱和）打架：要么改这一段，要么换一套配色`);
+      });
+    }
+  }
 
   // ── 台词体检（不花钱的那部分）──
   // 只对"有话可说的段落"报：没台词的段落不该被扣分。

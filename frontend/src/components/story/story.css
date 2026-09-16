@@ -306,6 +306,14 @@
 .story-color-card-name { font-size: 11px; color: var(--pi-dim2); line-height: 1.4; }
 .story-color-card-none { align-self: stretch; padding: 6px 10px; font-size: 12px; border: 1px solid var(--pi-border); border-radius: var(--pi-radius-sm, 6px); background: var(--pi-bg1); color: var(--pi-dim); cursor: pointer; }
 .story-color-card-none.is-active { border-color: var(--pi-accent); color: var(--pi-accent); }
+/* 配色卡示意缩略图：把一组 hex 变回"一眼能看见的色"，并分清"按整片"与"这一段破格" */
+.story-color-chip { display: flex; align-items: center; gap: 10px; margin: 8px 0; padding: 8px 10px; border: 1px solid var(--pi-border-soft); border-radius: var(--pi-radius-sm, 6px); background: var(--pi-bg1); }
+.story-color-chip-swatch { flex: 0 0 56px; height: 34px; border-radius: 4px; border: 1px solid var(--pi-border-soft); }
+.story-color-chip-text { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.story-color-chip-text strong { font-size: 12px; color: var(--pi-text); }
+.story-color-chip-hex { font-size: 11px; color: var(--pi-dim2); font-family: var(--pi-font-mono); }
+.story-color-chip-inherit { font-size: 11px; color: var(--pi-dim); font-style: normal; }
+.story-color-chip-override { font-size: 11px; color: var(--pi-warn, var(--pi-accent)); font-style: normal; }
 .story-recipe-save { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 8px; }
 .story-recipe-save input { min-height: 32px; font-size: 12px; flex: 1 1 160px; }
 .story-recipe-save .btn-ghost { padding: 6px 10px; font-size: 11px; }

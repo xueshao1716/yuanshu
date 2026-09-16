@@ -5,6 +5,7 @@ import type { Model, StoryBeat, StoryCharacter, StoryGenerationRun, StoryLineTim
 import { applyStoryDraft, bibleText, editedBible } from '../lib/story-draft'
 import StoryStart from '../components/story/StoryStart'
 import StorySettings from '../components/story/StorySettings'
+import StoryColorCardChip from '../components/story/StoryColorCardChip'
 import StoryResults from '../components/story/StoryResults'
 import StoryProducts from '../components/story/StoryProducts'
 import StoryMaterials from '../components/story/StoryMaterials'
@@ -70,7 +71,7 @@ export function StoryPanel() {
   const [actionDraft, setActionDraft] = useState('')
   // 镜头规格（景别/机位/运镜/光线/落幅/承接）：发往视频模型的"镜头语言"。
   // 以前只存在于提示词散文里，模型爱写不写；现在是可编辑字段，编译时放在提示词最前面。
-  const [shotDraft, setShotDraft] = useState<{ size: string; angle: string; move: string; light: string; ending: string; carry: string }>({ size: '', angle: '', move: '', light: '', ending: '', carry: '' })
+  const [shotDraft, setShotDraft] = useState<{ size: string; angle: string; move: string; light: string; tone: string; ending: string; carry: string }>({ size: '', angle: '', move: '', light: '', tone: '', ending: '', carry: '' })
   const [transitionDraft, setTransitionDraft] = useState('')
   const [slugDraft, setSlugDraft] = useState<{ interior: string; location: string; timeOfDay: string }>({ interior: 'interior', location: '', timeOfDay: '' })
   const [compiled, setCompiled] = useState('')
@@ -88,7 +89,7 @@ export function StoryPanel() {
   const hydrateBible = (p: StoryProject) => setBibleDraft(bibleText(p.bible))
   const update = (p: StoryProject) => { setProject(p); setProjects(items => [p, ...items.filter(item => item.id !== p.id)]) }
   const choose = (p: StoryProject | null) => { setProject(p); setSelected(p?.scenes[0]?.beats[0]?.id || ''); if (p) hydrateBible(p); setAssistResult(null); setCompiled(''); setError(''); setNotice('') }
-  useEffect(() => { if (beat) { setSelectedKind(beat.kind); setPromptDraft(beat.prompt); setDialogueDraft(beat.dialogue || ''); setInputDrafts(beat.inputs || []); setNegativeDraft(beat.negative || ''); setSeedDraft(''); setRefDraft(normalizeRefStrategy((beat as any).reference, beat.kind)); setActionDraft(beat.action || ''); setTransitionDraft(beat.transition || ''); const sh = (beat.shot || {}) as any; setShotDraft({ size: sh.size || '', angle: sh.angle || '', move: sh.move || '', light: sh.light || '', ending: sh.ending || '', carry: sh.carry || '' }) } setAssistResult(null); setCompiled('') }, [project?.id, beat?.id, beat?.kind, beat?.prompt, beat?.dialogue, beat?.inputs, beat?.negative, beat?.action, beat?.transition, (beat as any)?.shot])
+  useEffect(() => { if (beat) { setSelectedKind(beat.kind); setPromptDraft(beat.prompt); setDialogueDraft(beat.dialogue || ''); setInputDrafts(beat.inputs || []); setNegativeDraft(beat.negative || ''); setSeedDraft(''); setRefDraft(normalizeRefStrategy((beat as any).reference, beat.kind)); setActionDraft(beat.action || ''); setTransitionDraft(beat.transition || ''); const sh = (beat.shot || {}) as any; setShotDraft({ size: sh.size || '', angle: sh.angle || '', move: sh.move || '', light: sh.light || '', tone: sh.tone || '', ending: sh.ending || '', carry: sh.carry || '' }) } setAssistResult(null); setCompiled('') }, [project?.id, beat?.id, beat?.kind, beat?.prompt, beat?.dialogue, beat?.inputs, beat?.negative, beat?.action, beat?.transition, (beat as any)?.shot])
   // 场景标题三要素跟着场景走
   useEffect(() => { const s = scene?.slug; setSlugDraft({ interior: s?.interior || 'interior', location: s?.location || '', timeOfDay: s?.timeOfDay || '' }) }, [project?.id, scene?.id, scene?.slug?.interior, scene?.slug?.location, scene?.slug?.timeOfDay])
   // 切换输出类型时，参考图策略的默认值跟着类型走（画面 1 张素材优先 / 视频 4 张定妆照优先）——
@@ -579,7 +580,10 @@ export function StoryPanel() {
             <label>机位<select aria-label="机位" disabled={Boolean(busy)} value={shotDraft.angle} onChange={e=>{setShotDraft({...shotDraft, angle:e.target.value});setCompiled('')}}><option value="">不指定</option>{['平视','俯拍','仰拍','斜角','过肩','主观'].map(v=><option key={v} value={v}>{v}</option>)}</select></label>
             <label>运镜<select aria-label="运镜" disabled={Boolean(busy)} value={shotDraft.move} onChange={e=>{setShotDraft({...shotDraft, move:e.target.value});setCompiled('')}}><option value="">不指定</option>{['固定','缓缓推近','拉远','横移','跟拍','摇镜','升降','环绕','手持'].map(v=><option key={v} value={v}>{v}</option>)}</select></label>
             <label>光线<input aria-label="光线" disabled={Boolean(busy)} value={shotDraft.light} onChange={e=>{setShotDraft({...shotDraft, light:e.target.value});setCompiled('')}} placeholder="例如 窗外折射的柔和自然光" /></label>
+            {/* 色调：留空 = 按整片配色卡的色调走；写了 = 这一镜有意识地破格（体检会盯"明显打架"的那种） */}
+            <label>色调<input aria-label="色调" disabled={Boolean(busy)} value={shotDraft.tone} onChange={e=>{setShotDraft({...shotDraft, tone:e.target.value});setCompiled('')}} placeholder="留空就是整片配色；写了就是这一镜破格" /></label>
           </div>
+          {project.colorCardId && <StoryColorCardChip colorCardId={project.colorCardId} toneOverride={shotDraft.tone} note="镜头规格里的「色调」留空时，这一镜就按整片配色走" />}
           <div className="story-form-row story-shot-spec">
             <label>落幅<textarea aria-label="落幅" disabled={Boolean(busy)} rows={2} value={shotDraft.ending} onChange={e=>{setShotDraft({...shotDraft, ending:e.target.value});setCompiled('')}} placeholder="这一镜最后定格在哪，例如 落幅定格在她落寞无助的侧脸（不写，剪起来就是跳的）" /></label>
             <label>承接<textarea aria-label="承接" disabled={Boolean(busy)} rows={2} value={shotDraft.carry} onChange={e=>{setShotDraft({...shotDraft, carry:e.target.value});setCompiled('')}} placeholder="从上一镜的哪个落点接起，例如 承接上一镜她关上冰柜门的落点" /></label>
@@ -588,6 +592,7 @@ export function StoryPanel() {
           </details>
           </>}
           {compiled && <details open><summary>本次生成输入</summary>
+            {project.colorCardId && <StoryColorCardChip colorCardId={project.colorCardId} />}
             {plan.length > 0 && <div className="story-plan">
               <p className="story-hint">这条链路就是接下来真正会执行的东西（预览与实跑共用同一份计算，不是另算一遍给你看的）。</p>
               <dl>{plan.map(step => <div key={step.label} className="story-plan-row"><dt>{step.label}</dt><dd>{step.detail}</dd></div>)}</dl>

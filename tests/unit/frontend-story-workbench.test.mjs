@@ -172,3 +172,18 @@ test('配色卡必须留在制作台上，并且真的存进项目', () => {
   assert.match(source, /colorCardId=\{project\.colorCardId\}/, '要把项目上的配色传给设置面板');
   assert.match(source, /StoryApi\.patchProject\(project\.id, \{ colorCardId \}\)/, '选完立刻存进项目（不跟设定文本框一起等保存）');
 });
+
+// 示意缩略图（2026-09-16）：一组 hex 看不出"落在画面里什么感觉"，
+// 提示词面板里要有一块真的渐变，并且分清"按整片配色"和"这一段破格"。
+test('提示词面板要有配色示意缩略图，且分清按整片 / 这一段破格', () => {
+  const chip = fs.readFileSync('frontend/src/components/story/StoryColorCardChip.tsx', 'utf8');
+  assert.match(chip, /colorCardGradient/, '缩略图要用共享渐变函数');
+  assert.match(chip, /story-color-chip-swatch/, '要有真的色块，而不是一行字');
+  assert.match(chip, /本段破格|这一段破格/, '破格必须显式标出');
+  assert.match(chip, /本片配色/, '没破格时要说清是按整片配色');
+  assert.match(chip, /resolveColorCard\(colorCardId\)/, '没选配色就什么都不渲染');
+
+  assert.match(source, /<StoryColorCardChip /, '提示词面板要挂上它');
+  assert.match(source, /aria-label="色调"/, '镜头规格要能写这一镜的色调（留空=按整片配色）');
+  assert.match(source, /tone: sh\.tone \|\| ''/, '色调要跟着段落读回来，不能只写不读');
+});

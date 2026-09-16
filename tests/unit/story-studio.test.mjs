@@ -205,3 +205,33 @@ test('成片合成：真的用 ffmpeg 把两段拼成一条（无 ffmpeg 则跳�
     await fs.promises.rm(dir, { recursive: true, force: true });
   }
 });
+
+// ── 配色体检（2026-09-16）──────────────────────────────────────────────
+// 配色卡选了就该在画面上说了算。这里只抓"明显打架"：低饱和高级灰的片子里某一段写高饱和/荧光。
+// 同色系微调是正常创作，不能报——体检一变成噪声就没人看了。
+test('体检：段落色调和整片配色明显打架要报，同色系微调不报', () => {
+  const base = {
+    logline: '一个拳手',
+    colorCardId: 'morandi-violet-pink',
+    bible: { characters: [{ id: 'c1', name: '阿宁', appearance: '黑发，宽肩，身高 172' }] },
+    scenes: [{ id: 's1', title: '巷口', summary: '她回头', beats: [
+      { id: 'b1', kind: 'image', prompt: '开场' },
+      { id: 'b2', kind: 'image', prompt: '继续', shot: { tone: '冷调高饱和霓虹' } },
+    ] }],
+  };
+  const hit = lintStoryProject(base);
+  const conflicts = hit.issues.filter(i => i.code === 'color-card-conflict');
+  assert.equal(conflicts.length, 1, '明显打架的只该报一条');
+  assert.match(conflicts[0].message, /第 2 段/);
+  assert.match(conflicts[0].message, /高饱和/);
+  assert.match(conflicts[0].message, /蓝紫粉/);
+  assert.equal(conflicts[0].level, 'warn');
+
+  // 同色系微调：不报
+  const fine = lintStoryProject({ ...base, scenes: [{ id: 's1', title: '巷口', summary: '她回头', beats: [{ id: 'b1', kind: 'image', prompt: 'x', shot: { tone: '冷调、局部暖色提示' } }] }] });
+  assert.equal(fine.issues.filter(i => i.code === 'color-card-conflict').length, 0);
+
+  // 没选配色：一个字都不报（不许替用户立规矩）
+  const noCard = lintStoryProject({ ...base, colorCardId: '' });
+  assert.equal(noCard.issues.filter(i => i.code === 'color-card-conflict').length, 0);
+});
