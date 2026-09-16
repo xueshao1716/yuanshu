@@ -438,6 +438,13 @@ export const ThemeApi = {
   },
 }
 
+// ── 全局创作配色卡（2026-09-16）：选一套，所有出图/出片入口都按它写「色调」──
+// 与主题偏好分开：主题管界面，这张卡管画面。项目要单独覆盖走 story 的 colorCardId。
+export const ColorApi = {
+  get: () => api<{ colorCardId: string }>('/api/color-prefs', { timeoutMs: 2500 }),
+  save: (colorCardId: string) => api<{ colorCardId: string }>('/api/color-prefs', { method: 'POST', body: { colorCardId } }),
+}
+
 // ── 出图（自动落盘生成物/图片/日期，资产库联动）──
 export const MediaApi = {
   image: (body: { provider: string; modelId: string; prompt: string; size?: string }) =>

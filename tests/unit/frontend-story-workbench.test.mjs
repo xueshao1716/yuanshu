@@ -163,7 +163,7 @@ test('story smart fill applies bible, scene and shot in one save', () => {
 // 配色卡（2026-09-16）：台前必须有入口，否则"选了配色才进提示词"这件事根本没法发生
 test('配色卡必须留在制作台上，并且真的存进项目', () => {
   const settings = fs.readFileSync('frontend/src/components/story/StorySettings.tsx', 'utf8');
-  assert.match(settings, /MORANDI_CARDS/, '设置面板要列出色卡');
+  assert.match(settings, /COLOR_CARDS/, '设置面板要列出色卡（两套 18 组）');
   assert.match(settings, /colorCardGradient/, '色块用共享渐变函数，页面不自己拼 CSS');
   assert.match(settings, /onColorCard\?\.\(card\.id\)/, '点色卡要把 id 交出去');
   assert.match(settings, /不指定/, '要能取消——选了就必须能退回"没有配色"');
@@ -180,7 +180,7 @@ test('提示词面板要有配色示意缩略图，且分清按整片 / 这一�
   assert.match(chip, /colorCardGradient/, '缩略图要用共享渐变函数');
   assert.match(chip, /story-color-chip-swatch/, '要有真的色块，而不是一行字');
   assert.match(chip, /本段破格|这一段破格/, '破格必须显式标出');
-  assert.match(chip, /本片配色/, '没破格时要说清是按整片配色');
+  assert.match(chip, /跟随全局/, '跟随全局的要标出来');
   assert.match(chip, /resolveColorCard\(colorCardId\)/, '没选配色就什么都不渲染');
 
   assert.match(source, /<StoryColorCardChip /, '提示词面板要挂上它');

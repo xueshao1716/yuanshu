@@ -1,6 +1,6 @@
 import { withFileToken } from '../../api'
 import { STYLE_PRESETS, stylePresetById } from '../../lib/story-styles'
-import { MORANDI_CARDS, colorCardGradient } from '../../theme/colorcards.mjs'
+import { COLOR_CARDS, CARD_FAMILIES, colorCardGradient, resolveColorCard } from '../../theme/colorcards.mjs'
 import type { StoryCharacter } from '../../types'
 
 type AssetKind = 'character' | 'location' | 'prop'
@@ -17,7 +17,7 @@ interface RefAsset { id: string; name?: string; refImage?: string }
 // 2026-09-16：参考图也是"产物"，所以**同样受本地化契约约束**（docs/NAMING.md 第三节）——
 // 入库时下载失败的会留下外站临时链接，定妆照挂在会过期的地址上，几天后人物一致性就悄悄失效。
 // 这里标出哪些还是外链，并给一个把外站产物都拉到本地的入口。
-export default function StorySettings({ values, busy, characters, locations = [], props = [], externalAssets = 0, colorCardId = '', onPortrait, onAssetRef, onLocalizeAll, onColorCard, onChange, onSave }: {
+export default function StorySettings({ values, busy, characters, locations = [], props = [], externalAssets = 0, colorCardId = '', globalColorCardId = '', onPortrait, onAssetRef, onLocalizeAll, onColorCard, onChange, onSave }: {
   values: Record<string, string>
   busy: boolean
   characters: StoryCharacter[]
@@ -25,6 +25,7 @@ export default function StorySettings({ values, busy, characters, locations = []
   props?: RefAsset[]
   externalAssets?: number
   colorCardId?: string
+  globalColorCardId?: string
   onPortrait: (character: StoryCharacter, lookName?: string) => void
   onAssetRef?: (assetType: AssetKind, asset: RefAsset) => void
   onLocalizeAll?: () => void
@@ -108,36 +109,47 @@ export default function StorySettings({ values, busy, characters, locations = []
       <span className="story-hint">预置了 {STYLE_PRESETS.length} 种画风，选完仍可手改</span>
     </div>
     {/* 配色卡（2026-09-16）：画风决定"长什么样"，配色决定"是什么颜色"。
-        选中的卡会写进 project.colorCardId，由编排层编译进每一段的「色调」槽——
-        所以它是整部戏的，不是某一段的；不选就什么都不加，绝不替用户默认一套。 */}
+        项目自选 > **全局那张卡**（主题页选的，绘画/视频工坊也吃它）——所以这里第一项是
+        「跟随全局」：项目没选就跟全局走，选了就这一部戏单独用。 */}
     <div className="story-color-cards">
       <div className="story-color-cards-head">
         <strong>配色卡</strong>
         <span className="story-hint">
           {colorCardId
-            ? `已选「${MORANDI_CARDS.find(c => c.id === colorCardId)?.name || colorCardId}」，每一镜的提示词都会按它写色调`
-            : `莫兰迪高级灰 ${MORANDI_CARDS.length} 组，选了就写进画面/视频提示词的「色调」`}
+            ? `这一部戏单独用「${resolveColorCard(colorCardId)?.name || colorCardId}」，每一镜的提示词都会按它写色调`
+            : (globalColorCardId
+              ? `跟随全局「${resolveColorCard(globalColorCardId)?.name || globalColorCardId}」（在主题页「创作配色卡」里改）`
+              : `两套 ${COLOR_CARDS.length} 组，选了就写进画面/视频提示词的「色调」`)}
         </span>
       </div>
       <div className="story-color-card-list">
         <button type="button" className={`story-color-card-none${colorCardId ? '' : ' is-active'}`} disabled={busy}
-          aria-pressed={!colorCardId} onClick={() => onColorCard?.('')}>不指定</button>
-        {MORANDI_CARDS.map(card => {
-          const active = colorCardId === card.id
-          return <button
-            key={card.id}
-            type="button"
-            disabled={busy}
-            aria-pressed={active}
-            aria-label={`配色卡 ${card.name}：${card.top} 到 ${card.bottom}`}
-            title={`${card.top} → ${card.bottom}`}
-            className={`story-color-card${active ? ' is-active' : ''}`}
-            onClick={() => onColorCard?.(card.id)}
-          >
-            <span className="story-color-card-swatch" style={{ background: colorCardGradient(card) }} />
-            <span className="story-color-card-name">{card.name}</span>
-          </button>
-        })}
+          aria-pressed={!colorCardId} onClick={() => onColorCard?.('')}>
+          {globalColorCardId ? `跟随全局（${resolveColorCard(globalColorCardId)?.name || globalColorCardId}）` : '不指定'}
+        </button>
+        {Object.values(CARD_FAMILIES).map(family => (
+          <div key={family.id} className="story-color-card-group">
+            <span className="story-color-card-group-name">{family.name}</span>
+            <div className="story-color-card-list">
+              {COLOR_CARDS.filter(c => c.family === family.id).map(card => {
+                const active = colorCardId === card.id
+                return <button
+                  key={card.id}
+                  type="button"
+                  disabled={busy}
+                  aria-pressed={active}
+                  aria-label={`配色卡 ${card.name}：${card.top} 到 ${card.bottom}`}
+                  title={`${card.top} → ${card.bottom}`}
+                  className={`story-color-card${active ? ' is-active' : ''}`}
+                  onClick={() => onColorCard?.(card.id)}
+                >
+                  <span className="story-color-card-swatch" style={{ background: colorCardGradient(card) }} />
+                  <span className="story-color-card-name">{card.name}</span>
+                </button>
+              })}
+            </div>
+          </div>
+        ))}
       </div>
     </div>
     <div className="story-settings-grid">{[['characters','人物与外貌'],['locations','场景'],['wardrobe','服装'],['props','道具'],['rules','必须遵守的规则'],['style','文字与画面风格']].map(([key,label]) => <label key={key}>{label}<textarea value={values[key] || ''} rows={3} disabled={busy} onChange={e => onChange({ ...values, [key]: e.target.value })} placeholder={`补充${label}`} /></label>)}</div>

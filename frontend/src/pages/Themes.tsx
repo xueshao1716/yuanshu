@@ -3,9 +3,9 @@ import { Check, ChevronDown, Code2, Download, RotateCcw, Trash2, Upload } from '
 import { generateTheme, SEEDS } from '../theme/generate.mjs'
 import { applyTheme, currentTheme } from '../theme/apply'
 import { persistWallpaper, currentWallpaper } from '../theme/wallpaper.mjs'
-import { MORANDI_CARDS, colorCardGradient } from '../theme/colorcards.mjs'
+import { COLOR_CARDS, CARD_FAMILIES, colorCardGradient, resolveColorCard } from '../theme/colorcards.mjs'
 import { THEME_CATALOG } from '../theme/palettes'
-import { ThemeApi } from '../api'
+import { ThemeApi, ColorApi } from '../api'
 import PageHeader from '../components/PageHeader'
 import SectionHeader from '../components/SectionHeader'
 import { toast } from '../components/Toast'
@@ -81,7 +81,25 @@ export default function Themes() {
   const [accent, setAccent] = useState(init.current.accent)
   const [density, setDensity] = useState<number>(() => ((SEEDS as any)[init.current.theme]?.step) || 0.043)
   const [wallpaper, setWallpaper] = useState(() => currentWallpaper())
+  // 全局创作配色卡：服务端一份，所有出图/出片入口共用（项目要单独覆盖在项目里指定）
+  const [colorCardId, setColorCardId] = useState('')
   const fileRef = useRef<HTMLInputElement>(null)
+
+  useEffect(() => {
+    ColorApi.get().then(r => setColorCardId(r?.colorCardId || '')).catch(() => {})
+  }, [])
+  const saveColorCard = async (id: string) => {
+    const prev = colorCardId
+    setColorCardId(id) // 先反馈，再落盘；失败回滚并说清
+    try {
+      const r = await ColorApi.save(id)
+      setColorCardId(r?.colorCardId ?? '')
+      toast(r?.colorCardId ? `创作配色已保存：所有出图/出片都会按「${resolveColorCard(r.colorCardId)?.name || r.colorCardId}」写色调` : '已取消创作配色', 'ok')
+    } catch {
+      setColorCardId(prev)
+      toast('配色保存失败', 'error')
+    }
+  }
 
   // AppLayout owns remote hydration; this page only applies explicit edits.
   const selectTheme = (next: string) => { setTheme(next); applyTheme(next, accent) }
@@ -236,47 +254,98 @@ export default function Themes() {
 
               <div>
                 <div className="text-[12px] text-pi-dim2 font-semibold mb-2">
-                  配色卡{' '}
+                  创作配色卡{' '}
                   <span className="text-[11px] text-pi-dim font-normal">
-                    莫兰迪高级灰 9 组 · 点一下直接套成壁纸，点色点连同主色一起换
+                    全局 · 两套 18 组：选了之后**所有出图/出片**（绘画、视频、连续创作、聊天里出图）都按它写「色调」；
+                    单个项目要不一样，在项目里单独指定
                   </span>
                 </div>
-                <div className="grid grid-cols-3 gap-2">
-                  {MORANDI_CARDS.map(card => {
-                    const gradient = colorCardGradient(card)
-                    const active = wallpaper === gradient
-                    return (
-                      <div
-                        key={card.id}
-                        className={`relative rounded-pi-md border overflow-hidden transition-colors ${active ? 'border-pi-accent' : 'border-pi-border hover:border-pi-border-hi'}`}
-                      >
-                        <button
-                          type="button"
-                          onClick={() => setWallpaper(gradient)}
-                          aria-pressed={active}
-                          aria-label={`配色卡 ${card.name}：${card.top} 到 ${card.bottom}`}
-                          title={`原图标注 ${card.from} / ${card.to}；渐变从上到下`}
-                          className="block w-full text-left"
-                        >
-                          <span className="block h-14" style={{ background: gradient }} />
-                          <span className="block px-2 py-1.5 bg-pi-bg1">
-                            <span className="block text-[11px] text-pi-text truncate">{card.name}</span>
-                            <span className="block text-[11px] text-pi-dim2 font-mono">{card.top}</span>
-                            <span className="block text-[11px] text-pi-dim2 font-mono">{card.bottom}</span>
-                          </span>
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => selectAccent(card.top)}
-                          aria-label={`把主色换成 ${card.name} 的深端 ${card.top}`}
-                          title={`主色换成 ${card.top}`}
-                          className={`absolute top-1 right-1 w-4 h-4 rounded-full border border-white/70 shadow ${accent.toLowerCase() === card.top.toLowerCase() ? 'ring-2 ring-pi-accent' : ''}`}
-                          style={{ background: card.top }}
-                        />
-                      </div>
-                    )
-                  })}
+                <div className="flex flex-wrap gap-1.5 mb-2">
+                  <button
+                    type="button"
+                    aria-pressed={!colorCardId}
+                    onClick={() => void saveColorCard('')}
+                    className={`px-2.5 py-1.5 rounded-pi-sm text-[12px] transition-colors ${!colorCardId ? 'bg-pi-accent-soft text-pi-accent' : 'hover:bg-pi-bg3 text-pi-dim'}`}
+                  >
+                    不指定
+                  </button>
+                  {colorCardId && <span className="text-[11px] text-pi-dim self-center">当前：{CARD_FAMILIES[resolveColorCard(colorCardId)?.family || 'morandi']?.short} · {resolveColorCard(colorCardId)?.name}</span>}
                 </div>
+                {Object.values(CARD_FAMILIES).map(family => (
+                  <div key={family.id} className="mb-2">
+                    <div className="text-[11px] text-pi-dim mb-1">{family.name}（{family.rule}）</div>
+                    <div className="grid grid-cols-3 gap-2">
+                      {COLOR_CARDS.filter(c => c.family === family.id).map(card => {
+                        const gradient = colorCardGradient(card)
+                        const active = colorCardId === card.id
+                        return (
+                          <button
+                            key={card.id}
+                            type="button"
+                            onClick={() => void saveColorCard(card.id)}
+                            aria-pressed={active}
+                            aria-label={`创作配色卡 ${card.name}：${card.top} 到 ${card.bottom}`}
+                            title={`${card.top} → ${card.bottom}`}
+                            className={`rounded-pi-md border overflow-hidden text-left transition-colors ${active ? 'border-pi-accent ring-1 ring-pi-accent' : 'border-pi-border hover:border-pi-border-hi'}`}
+                          >
+                            <span className="block h-8" style={{ background: gradient }} />
+                            <span className="block px-2 py-1 bg-pi-bg1 text-[11px] text-pi-text truncate">{card.name}</span>
+                          </button>
+                        )
+                      })}
+                    </div>
+                  </div>
+                ))}
+              </div>
+
+              <div>
+                <div className="text-[12px] text-pi-dim2 font-semibold mb-2">
+                  配色卡壁纸{' '}
+                  <span className="text-[11px] text-pi-dim font-normal">
+                    两套 18 组 · 点一下套成壁纸，点色点连同主色一起换
+                  </span>
+                </div>
+                {Object.values(CARD_FAMILIES).map(family => (
+                  <div key={family.id} className="mb-2">
+                    <div className="text-[11px] text-pi-dim mb-1">{family.name}</div>
+                    <div className="grid grid-cols-3 gap-2">
+                      {COLOR_CARDS.filter(c => c.family === family.id).map(card => {
+                        const gradient = colorCardGradient(card)
+                        const active = wallpaper === gradient
+                        return (
+                          <div
+                            key={card.id}
+                            className={`relative rounded-pi-md border overflow-hidden transition-colors ${active ? 'border-pi-accent' : 'border-pi-border hover:border-pi-border-hi'}`}
+                          >
+                            <button
+                              type="button"
+                              onClick={() => setWallpaper(gradient)}
+                              aria-pressed={active}
+                              aria-label={`配色卡壁纸 ${card.name}：${card.top} 到 ${card.bottom}`}
+                              title={`原图标注 ${card.from} / ${card.to}；渐变从上到下`}
+                              className="block w-full text-left"
+                            >
+                              <span className="block h-12" style={{ background: gradient }} />
+                              <span className="block px-2 py-1.5 bg-pi-bg1">
+                                <span className="block text-[11px] text-pi-text truncate">{card.name}</span>
+                                <span className="block text-[11px] text-pi-dim2 font-mono">{card.top}</span>
+                                <span className="block text-[11px] text-pi-dim2 font-mono">{card.bottom}</span>
+                              </span>
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => selectAccent(card.top)}
+                              aria-label={`把主色换成 ${card.name} 的深端 ${card.top}`}
+                              title={`主色换成 ${card.top}`}
+                              className={`absolute top-1 right-1 w-4 h-4 rounded-full border border-white/70 shadow ${accent.toLowerCase() === card.top.toLowerCase() ? 'ring-2 ring-pi-accent' : ''}`}
+                              style={{ background: card.top }}
+                            />
+                          </div>
+                        )
+                      })}
+                    </div>
+                  </div>
+                ))}
               </div>
 
               <div>

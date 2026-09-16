@@ -306,6 +306,9 @@
 .story-color-card-name { font-size: 11px; color: var(--pi-dim2); line-height: 1.4; }
 .story-color-card-none { align-self: stretch; padding: 6px 10px; font-size: 12px; border: 1px solid var(--pi-border); border-radius: var(--pi-radius-sm, 6px); background: var(--pi-bg1); color: var(--pi-dim); cursor: pointer; }
 .story-color-card-none.is-active { border-color: var(--pi-accent); color: var(--pi-accent); }
+/* 两套卡分组显示：18 组平铺会把"这套是高级灰、那套是高饱和"混掉 */
+.story-color-card-group { flex: 1 1 100%; }
+.story-color-card-group-name { display: block; margin: 4px 0 4px; font-size: 11px; color: var(--pi-dim); }
 /* 配色卡示意缩略图：把一组 hex 变回"一眼能看见的色"，并分清"按整片"与"这一段破格" */
 .story-color-chip { display: flex; align-items: center; gap: 10px; margin: 8px 0; padding: 8px 10px; border: 1px solid var(--pi-border-soft); border-radius: var(--pi-radius-sm, 6px); background: var(--pi-bg1); }
 .story-color-chip-swatch { flex: 0 0 56px; height: 34px; border-radius: 4px; border: 1px solid var(--pi-border-soft); }

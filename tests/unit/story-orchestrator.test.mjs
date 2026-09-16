@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { negotiateCapabilities, createGenerationRun, appendRun, createStoryOrchestrator } from '../../engine/story-orchestrator.mjs';
 import { createProject, writeProject, readProject, sweepInterruptedRuns } from '../../engine/story-store.mjs';
+import { initColorPrefs, saveColorPrefs } from '../../engine/color-prefs.mjs';
 import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
@@ -372,4 +373,37 @@ test('配色卡：这一次显式传的优先，且不改项目的选择', async
   assert.match(r.context.prompt, /粉红加米/);
   assert.doesNotMatch(r.context.prompt, /蓝紫粉/);
   assert.equal((await api.get('p-override')).colorCardId, 'morandi-violet-pink', '一次覆盖不该改项目上的选择');
+});
+
+// 2026-09-16：配色卡"不够全局"——项目没选就跟全局走（绘画/视频工坊吃的是同一份全局偏好）
+test('配色卡：项目没选就跟全局，项目选了就压过全局', async t => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'yuanshu-colorcard-global-'));
+  t.after(() => fs.rm(root, { recursive: true, force: true }));
+  const file = path.join(root, 'color-prefs.json');
+  initColorPrefs(file);
+  saveColorPrefs({ colorCardId: 'vivid-red-green' });
+  try {
+    const project = createProject({
+      title: '跟随全局',
+      scenes: [{ id: 's1', beats: [{ id: 'b1', kind: 'image', prompt: '巷口', references: [] }] }],
+    }, { id: () => 'p-follow' });
+    await writeProject(root, project);
+    const api = createStoryOrchestrator({ root });
+    const followed = await api.previewRun('p-follow', { sceneId: 's1', beatId: 'b1', kind: 'image' });
+    assert.match(followed.context.prompt, /红绿撞色/, '项目没选就跟全局');
+    assert.match(followed.context.prompt, /呈现正红 #FF3730/, '全局那张卡要落进色调槽');
+
+    // 项目自己选了就压过全局
+    const own = createProject({
+      title: '自己有',
+      colorCardId: 'morandi-taupe-cream',
+      scenes: [{ id: 's1', beats: [{ id: 'b1', kind: 'image', prompt: '巷口', references: [] }] }],
+    }, { id: () => 'p-own' });
+    await writeProject(root, own);
+    const r = await createStoryOrchestrator({ root }).previewRun('p-own', { sceneId: 's1', beatId: 'b1', kind: 'image' });
+    assert.match(r.context.prompt, /灰褐米/);
+    assert.doesNotMatch(r.context.prompt, /红绿撞色/);
+  } finally {
+    initColorPrefs('');
+  }
 });

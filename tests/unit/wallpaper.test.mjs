@@ -130,7 +130,7 @@ test("配色卡：渐变必须原样交给 wallpaperCssImage（包成 url() 就�
 
 test("主题页用共享配色卡模块，不许自己另抄一份色值", () => {
   const themes = read("frontend", "src", "pages", "Themes.tsx");
-  assert.ok(themes.includes("MORANDI_CARDS"), "主题页必须从共享模块取配色卡");
+  assert.ok(themes.includes("COLOR_CARDS"), "主题页必须从共享模块取配色卡（两套 18 组）");
   assert.ok(themes.includes("colorCardGradient("), "渐变要由共享函数生成，页面不自己拼");
   // 页面里出现卡片色值 = 又抄了一份，抄错没人发现
   for (const [, from, to] of VERIFIED_CARDS) {

@@ -7,6 +7,8 @@ import { saveArtifact, WS_ROOT } from "./workspace-api.mjs"; // saveArtifact 定
 import { videoCreateBody, videoPollPath, repairVideoRequest } from "./video-request.mjs";
 import { materializeMedia, materializeVideoBody } from "./media-inline.mjs";
 import { extractPlayableMedia } from "./media-embed.mjs";
+import { colorCardStyleLine, hasColorCardMark } from "./color-cards.mjs";
+import { currentColorCard } from "./color-prefs.mjs";
 
 let _resolveAuth = null, _readJsonFile = null, _modelsPath = "", _authPath = "", _getModelList = () => [];
 export function initMediaApi({ resolveAuth = null, readJsonFile = null, modelsPath = "", authPath = "", getModelList = null } = {}) {
@@ -250,6 +252,19 @@ export async function generateTTS(text) {
   } catch { return null; }
 }
 
+// 全局创作配色（2026-09-16）：配色卡以前只挂在连续创作项目上，绘画/视频工坊吃不到。
+// 这里在**所有出图/出片的出口**补一行色调——这是"选一套色，整个工作台都按它走"的落点。
+// 故事层已经在提示词里写过配色（## 配色方案 / 【本片配色】）时不重复追加。
+export function withGlobalPalette(prompt) {
+  const text = String(prompt || "");
+  if (!text.trim()) return prompt;
+  if (hasColorCardMark(text)) return prompt;
+  const card = currentColorCard();
+  if (!card) return prompt;
+  const line = colorCardStyleLine(card);
+  return line ? `${text}\n配色：${line}` : prompt;
+}
+
 // 绘图：返回图片数据（供 handleChat 绘图模型通道复用）
 // image 参数为可选的参考图（URL 或 data URI）→ 图生图/参考锁定。
 // opts.seed / opts.negative 是 2026-09-15 补的：在此之前 seed **根本没有上送**——
@@ -257,6 +272,7 @@ export async function generateTTS(text) {
 // 而 model-probe 却对每个图/视频模型声明 caps.seed=true，于是界面上"固定 seed"是一项
 // 声称支持、实际一次都没生效的能力。参数要么真的生效，要么别说。
 export async function generateImage(provider, modelId, prompt, size, image, opts = {}) {
+  prompt = withGlobalPalette(prompt);
   const resolved = _resolveAuth(provider);
   // 配置问题也要说清是哪一种：以前这里 return null，界面只剩一句
   // "图像模型未返回图片"，跟"上游拒绝了参数"长得一模一样。
@@ -572,6 +588,7 @@ export function explainVideoHttp(status, text = "") {
 
 // 只创建、立刻返回。工坊走这条，避免 Cloudflare 100s 掐成 524。
 export async function startVideoJob(provider, modelId, prompt, body = {}) {
+  prompt = withGlobalPalette(prompt);
   const auth = resolveVideoAuth(provider, modelId);
   if (auth.error) return auth;
   try {

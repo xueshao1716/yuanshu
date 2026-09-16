@@ -1,11 +1,12 @@
 import { useEffect, useState } from 'react'
 import useSWR from 'swr'
-import { ModelsApi, StoryApi, withFileToken } from '../api'
+import { ModelsApi, StoryApi, ColorApi, withFileToken } from '../api'
 import type { Model, StoryBeat, StoryCharacter, StoryGenerationRun, StoryLineTimeline, StoryPlanStep, StoryProject, StoryRecipe } from '../types'
 import { applyStoryDraft, bibleText, editedBible } from '../lib/story-draft'
 import StoryStart from '../components/story/StoryStart'
 import StorySettings from '../components/story/StorySettings'
 import StoryColorCardChip from '../components/story/StoryColorCardChip'
+import { resolveColorCard } from '../theme/colorcards.mjs'
 import StoryResults from '../components/story/StoryResults'
 import StoryProducts from '../components/story/StoryProducts'
 import StoryMaterials from '../components/story/StoryMaterials'
@@ -274,13 +275,21 @@ export function StoryPanel() {
     update(r.project); setSelected(next.id)
     await requestDraft(r.project, `为下一段构思具体情节：${next.prompt}\n之前的段落和实际产出：${JSON.stringify(currentScene).slice(-10000)}`, selectedKind)
   })
+  // 这一部戏**实际生效**的配色：项目自己选了就用项目的，否则跟全局走（主题页那张卡）
+  const effectiveCardId = project?.colorCardId || globalCardId || ''
   const saveBible = () => action('正在保存设定', async () => { if (project) { const r=await StoryApi.patchProject(project.id,{bible:editedBible(project.bible,bibleDraft)});update(r.project);hydrateBible(r.project);setNotice('设定已保存') } })
   // 配色卡（engine/color-cards.mjs）：项目级选择，写进 project.colorCardId。
+  // 空 = 跟随全局（主题页选的那张）；全局也没选就什么都不加。
   // 点一下立即存——配色是"整部戏的底色"，不该跟设定文本框一起等一次「保存设定」。
+  const [globalCardId, setGlobalCardId] = useState('')
+  useEffect(() => { ColorApi.get().then(r => setGlobalCardId(r?.colorCardId || '')).catch(() => {}) }, [])
   const setColorCard = (colorCardId: string) => action('正在保存配色', async () => {
     const r = await StoryApi.patchProject(project.id, { colorCardId })
     update(r.project)
-    setNotice(colorCardId ? '配色已保存：这一部戏的画面提示词会按它写「色调」' : '已取消配色卡，画面色调回到画风默认')
+    const name = resolveColorCard(colorCardId)?.name
+    setNotice(colorCardId
+      ? `配色已保存：这一部戏的画面提示词会按「${name}」写「色调」`
+      : (globalCardId ? `已改为跟随全局配色（${resolveColorCard(globalCardId)?.name || globalCardId}）` : '已取消配色卡，画面色调回到画风默认'))
   })
   // 角色定妆照：生成一张可复用的形象参考图并写回设定；
   // 之后生成画面/视频时编排层会自动把它作为真实参考图注入。
@@ -583,7 +592,7 @@ export function StoryPanel() {
             {/* 色调：留空 = 按整片配色卡的色调走；写了 = 这一镜有意识地破格（体检会盯"明显打架"的那种） */}
             <label>色调<input aria-label="色调" disabled={Boolean(busy)} value={shotDraft.tone} onChange={e=>{setShotDraft({...shotDraft, tone:e.target.value});setCompiled('')}} placeholder="留空就是整片配色；写了就是这一镜破格" /></label>
           </div>
-          {project.colorCardId && <StoryColorCardChip colorCardId={project.colorCardId} toneOverride={shotDraft.tone} note="镜头规格里的「色调」留空时，这一镜就按整片配色走" />}
+          {effectiveCardId && <StoryColorCardChip colorCardId={effectiveCardId} toneOverride={shotDraft.tone} note="镜头规格里的「色调」留空时，这一镜就按整片配色走" />}
           <div className="story-form-row story-shot-spec">
             <label>落幅<textarea aria-label="落幅" disabled={Boolean(busy)} rows={2} value={shotDraft.ending} onChange={e=>{setShotDraft({...shotDraft, ending:e.target.value});setCompiled('')}} placeholder="这一镜最后定格在哪，例如 落幅定格在她落寞无助的侧脸（不写，剪起来就是跳的）" /></label>
             <label>承接<textarea aria-label="承接" disabled={Boolean(busy)} rows={2} value={shotDraft.carry} onChange={e=>{setShotDraft({...shotDraft, carry:e.target.value});setCompiled('')}} placeholder="从上一镜的哪个落点接起，例如 承接上一镜她关上冰柜门的落点" /></label>
@@ -592,7 +601,7 @@ export function StoryPanel() {
           </details>
           </>}
           {compiled && <details open><summary>本次生成输入</summary>
-            {project.colorCardId && <StoryColorCardChip colorCardId={project.colorCardId} />}
+            {effectiveCardId && <StoryColorCardChip colorCardId={effectiveCardId} global={!project.colorCardId} />}
             {plan.length > 0 && <div className="story-plan">
               <p className="story-hint">这条链路就是接下来真正会执行的东西（预览与实跑共用同一份计算，不是另算一遍给你看的）。</p>
               <dl>{plan.map(step => <div key={step.label} className="story-plan-row"><dt>{step.label}</dt><dd>{step.detail}</dd></div>)}</dl>
@@ -612,7 +621,7 @@ export function StoryPanel() {
             </div>}
           </details>}
         </section>{scene && beat && <StoryResults scene={scene} beat={beat} busy={Boolean(busy)} onRerun={rerun} onCheck={checkOne} onDelete={deleteRun} onLocalize={localizeRun} onAdopt={adopt} canAdopt={selectedKind === 'video'} />}</div>
-        <StorySettings values={bibleDraft} busy={Boolean(busy)} characters={project.bible.characters || []} locations={(project.bible.locations || []) as any} props={(project.bible.props || []) as any} externalAssets={externalAssets} onPortrait={portrait} onAssetRef={assetRef} onLocalizeAll={localizeAll} colorCardId={project.colorCardId} onColorCard={setColorCard} onChange={setBibleDraft} onSave={saveBible} />
+        <StorySettings values={bibleDraft} busy={Boolean(busy)} characters={project.bible.characters || []} locations={(project.bible.locations || []) as any} props={(project.bible.props || []) as any} externalAssets={externalAssets} onPortrait={portrait} onAssetRef={assetRef} onLocalizeAll={localizeAll} colorCardId={project.colorCardId} globalColorCardId={globalCardId} onColorCard={setColorCard} onChange={setBibleDraft} onSave={saveBible} />
         <StoryProducts project={project} onPick={setSelected} />
       </main>
     </div></>}

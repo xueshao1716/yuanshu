@@ -26,6 +26,7 @@ import { normalizeEpisodes, createEpisode, groupScenesByEpisode, episodeStats, a
 // 创作方法包（Skill）：程序性知识，跨项目复用。见 engine/story-methods.mjs 开头的研究结论。
 import { listMethods, methodOf, saveMethod, deleteMethod, captureFromProject, methodBrief, reasoningBudget } from './story-methods.mjs';
 import { resolveColorCard } from './color-cards.mjs';
+import { currentColorCard } from './color-prefs.mjs';
 import { json } from './http-utils.mjs';
 
 const makeId = () => crypto.randomUUID();
@@ -278,9 +279,10 @@ export function createStoryOrchestrator({ root, clock = {}, adapters = {}, gener
     // 负向提示词（段落级 > 项目默认配方）。先写进提示词块（所有通道都吃、都看得见），
     // 再作为 negative 传给图像通道——上游认不认那个字段是另一回事，但请求里必须看得见。
     const negative = String(input.negative ?? beat.negative ?? defaultRecipe?.negative ?? '').trim();
-    // 配色卡（engine/color-cards.mjs）：这一次显式传的 > 段落上的 > 项目选的 > 没有。
-    // 它落在镜头提示词的③色调槽——同一部戏的每一镜因此同色，不会这一镜暖那一镜冷。
-    const colorCard = resolveColorCard(input?.colorCard ?? beat?.colorCard ?? project?.colorCardId ?? '');
+    // 配色卡（engine/color-cards.mjs）：这一次显式传的 > 段落上的 > 项目选的 > **全局选的**。
+    // 全局那一层是 2026-09-16 补的：以前只认项目，于是"选了一套色"只有那一个项目里的画面按它走，
+    // 绘画/视频工坊完全吃不到。现在项目没选就跟全局走，项目要单独指定仍然优先。
+    const colorCard = resolveColorCard(input?.colorCard ?? beat?.colorCard ?? project?.colorCardId ?? currentColorCard() ?? '');
     // 镜头规格（story-shot-prompt.mjs）：把景别/机位/运镜/光线/落幅/承接 + 风格库 + @资产引用
     // 编译成一条提示词，放在提示词最前面。只对画面/视频做——文字段落要的是故事状态文档。
     // 整段包在 try 里：**编译失败不许影响生成**，这只是"更好"，不是"必须"。
@@ -907,7 +909,7 @@ export function createStoryOrchestrator({ root, clock = {}, adapters = {}, gener
       const methodScenes = method?.scenesPerEpisode && method?.beatsPerScene
         ? `\n\n【本片方法】按每场约 ${method.beatsPerScene} 段组织，整场同一种 kind 更连贯。`
         : '';
-      const basePrompt = buildStoryboardPrompt({ title: project.title, logline: project.logline, idea, current: project.bible, count, colorCard: resolveColorCard(project.colorCardId) })
+      const basePrompt = buildStoryboardPrompt({ title: project.title, logline: project.logline, idea, current: project.bible, count, colorCard: resolveColorCard(project.colorCardId) || currentColorCard() })
         + (brief ? `\n\n${brief}` : '') + methodScenes;
       // 少于一半才算"明显不足"：模型偶尔给 count-1 段是正常波动，不该为它多烧一次调用。
       const short = n => n < Math.max(2, Math.ceil(count / 2));

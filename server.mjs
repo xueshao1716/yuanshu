@@ -68,6 +68,7 @@ import { createRunManager } from "./engine/run-manager.mjs";
 import { createRunEffects } from "./engine/run-effects.mjs";
 import { createRunApi } from "./engine/run-api.mjs";
 import { initThemePrefs, loadThemePrefs, saveThemePrefs } from "./engine/theme-prefs.mjs";
+import { initColorPrefs, loadColorPrefs, saveColorPrefs } from "./engine/color-prefs.mjs";
 import { initEnginePair, loadEnginePair, saveEnginePair, swapEnginePair, resolveLead, describePair, leadNote } from "./engine/engine-pair.mjs";
 import { decorateEngineStatus, pluginFromBody, isCorePlugin } from "./engine/engine-panel.mjs";
 import { initWorkspaceApi, WS_ROOT, findWorkspaceFiles, wsSafePath, saveArtifact, saveArtifactFromFile, handleWsTree, handleWsFile, handleWsRead, handleWsPreview, handleWsWrite, handleWsArtifacts, wsNextVersion, wsCopyDir, handleWsDeliver, handleWsPackage, handleWsDeliveries, handleWsRename, handleWsDelete, handleWsSearch, handleWsProjectCreate, handleWsConvert } from "./engine/workspace-api.mjs";
@@ -279,6 +280,7 @@ try {
   if (reg?.length) console.log(`[sdk-providers] agent 通道已注册: ${reg.join(", ")}`);
 } catch (e) { console.log(`[sdk-providers] 注册失败: ${String(e?.message || e).slice(0, 150)}`); }
 initThemePrefs(path.join(AGENT_DIR, "theme-prefs.json")); // 主题偏好跨端同步
+initColorPrefs(path.join(AGENT_DIR, "color-prefs.json")); // 全局创作配色卡：所有出图/出片入口共用一份
 initEnginePair(path.join(AGENT_DIR, "engine-pair.json")); // 主次引擎对，下一条消息生效
 initYuanshuWorkmem(path.join(AGENT_DIR, "yuanshu-work")); // 每会话 task_plan/findings/progress
 initMediaApi({ resolveAuth, readJsonFile, modelsPath: MODELS_PATH, authPath: AUTH_PATH, getModelList: () => modelList }); // 媒体生成层注入
@@ -2047,6 +2049,8 @@ const API_ROUTES = [
   }],
   ["GET", "/api/theme-prefs", (res) => json(res, 200, loadThemePrefs())],
   ["POST", "/api/theme-prefs", async (res, req) => { const b = await readBody(req, 12); return json(res, 200, saveThemePrefs(b || {})) }],
+  ["GET", "/api/color-prefs", (res) => json(res, 200, loadColorPrefs())],
+  ["POST", "/api/color-prefs", async (res, req) => { const b = await readBody(req, 12); return json(res, 200, saveColorPrefs(b || {})) }],
   ["GET", "/api/system/info", (res) => json(res, 200, buildSystemInfo(WS_ROOT, AGENT_DIR))],
   ["POST", "/api/system/network", async (res, req) => {
     const b = await readBody(req);
