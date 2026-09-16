@@ -41,18 +41,44 @@ test('体检：缺外貌/缺定妆照/未继承前文/模型不支持参考图�
 test('体检：条件齐备时不报 warn，且文本段落不因参考图能力报警', () => {
   const project = {
     logline: '有梗概',
-    bible: { characters: [{ id: 'c1', name: '阿宁', appearance: '黑发', refImage: '/signed/p.png' }] },
+    bible: { characters: [{ id: 'c1', name: '阿宁', appearance: '宽肩、头肩比好，黑发', refImage: '/signed/p.png' }] },
     scenes: [{ id: 's1', title: '第一场', summary: '摘要', beats: [{ id: 'b1', kind: 'novel', prompt: '开场' }] }],
   };
   const clean = lintStoryProject(project, { kind: 'image', capabilities: { reference: true } });
   // 2026-09-16：原来断言 `issues` 全空。现在"还没有深度构思"会以 **info** 出现
   //（它确实值得提醒，但不该吓人）——所以这里锁的是原本的意图：**不报 warn、总级别 ok**。
+  // 同一天还多了"外貌缺身体结构"这条 info：既然这个用例的场景是"条件齐备"，
+  // 外貌就补上结构词（宽肩/头肩比），否则它当然有资格提这一条。
   assert.deepEqual(clean.issues.filter(i => i.level === 'warn'), []);
   assert.deepEqual(clean.issues.map(i => i.code), ['no-craft']);
   assert.equal(clean.summary.level, 'ok');
   // 文本段落不该因为参考图能力被告警
   const novel = lintStoryProject(project, { kind: 'novel', capabilities: { reference: false } });
   assert.ok(!novel.issues.some(i => i.code === 'model-no-reference'));
+});
+
+// 2026-09-16：身体结构锚点（借 hypit 的 Person 段写法）。这条只提示、不阻塞——
+// 一句话设定的角色也得出得了图，但得让人知道半身像容易出"窄肩配大脑袋"。
+test('体检：外貌只有笼统赞美时提示缺身体结构，且只算 info 不拉高级别', () => {
+  const base = { logline: '有梗概', scenes: [{ id: 's1', title: '第一场', summary: '摘要', beats: [{ id: 'b1', kind: 'novel', prompt: '开场' }] }] };
+  const vague = lintStoryProject(
+    { ...base, bible: { characters: [{ id: 'c1', name: '阿宁', appearance: '气质出众', refImage: '/signed/p.png' }] } },
+    { kind: 'image', capabilities: { reference: true } },
+  );
+  const issue = vague.issues.find(i => i.code === 'character-no-structure');
+  assert.ok(issue, '只有"气质出众"这类笼统词必须提示缺结构');
+  assert.equal(issue.level, 'info', '这是建议不是阻塞');
+  // 说清楚真实行为：info 会把总级别从 ok 抬到 info（和既有的 no-craft 一样），
+  // 但**不会**报 warn。这里锁的是"不阻塞"，不是"级别不变"——写测试时我一开始
+  // 断言的是 ok，跑出来才发现 info 分级是这么算的。
+  assert.equal(vague.summary.level, 'info');
+  assert.deepEqual(vague.issues.filter(i => i.level === 'warn'), [], '建议不该升级成警告');
+
+  const solid = lintStoryProject(
+    { ...base, bible: { characters: [{ id: 'c1', name: '阿宁', appearance: '宽肩、头肩比好，短发', refImage: '/signed/p.png' }] } },
+    { kind: 'image', capabilities: { reference: true } },
+  );
+  assert.ok(!solid.issues.some(i => i.code === 'character-no-structure'), '写了结构就不该再提示');
 });
 
 test('签名产物 URL 能解出磁盘路径，且拒绝越界与外链', () => {

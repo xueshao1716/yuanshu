@@ -82,3 +82,30 @@ test('定妆照提示词限定单人正面纯色背景并可复用，避免生�
   assert.match(text, /胶片颗粒/, '统一视觉风格必须带进去');
   assert.match(text, /左脸有痣/, '角色自身设定必须带进去');
 });
+
+// 2026-09-16（借 hypit 的 Person/Shot 写法）：半身像最容易毁在"窄肩配大脑袋"，
+// 而"身形挺拔/气质出众"这种笼统赞美对模型等于没说。所以提示词里必须有**可量的结构**
+// 与**明确的镜头**，并且要显式禁止用笼统词代替结构描述。
+test('定妆照提示词带身体结构锚点与镜头写法，并禁止笼统赞美', () => {
+  // 故意**不**在 appearance 里写结构词，否则断言会被角色设定本身的文字满足，
+  // 测不到新加的段落——这是这条用例存在的意义。
+  const text = buildPortraitPrompt({ bible: {}, character: { id: 'c1', name: '阿宁', appearance: '25岁东亚男性，短发' } });
+  assert.match(text, /## 身体比例/, '要有独立的身体比例段');
+  assert.match(text, /肩要宽/, '肩宽是最关键的结构锚点');
+  assert.match(text, /头肩比/, '头肩比要写出来');
+  assert.match(text, /## 镜头/, '要有独立的镜头段');
+  assert.match(text, /85mm/, '焦距写具体，模型对镜头很敏感');
+  assert.match(text, /不要用"身形挺拔\/气质出众\/well presented"/, '必须显式反对笼统赞美');
+});
+
+test('定妆照带形象变体时：形象名在提示词里，且"换装不换脸"的约束不能丢', () => {
+  const text = buildPortraitPrompt({
+    bible: { style: { visual: '胶片颗粒' } },
+    character: { id: 'c1', name: '阿宁', appearance: '黑发', wardrobe: '灰色卫衣' },
+    look: { id: 'l2', name: '战斗装束', refImage: '/signed/l2.png' },
+  });
+  assert.match(text, /战斗装束/, '这一张的形象名必须在提示词里');
+  assert.match(text, /这一张的服装与装备以「战斗装束」为准/, '形象是这一张服装的权威来源');
+  assert.match(text, /同一张脸的不同形象/, '换装不能换脸');
+  assert.match(text, /肩要宽/, '换装也一样受身体结构约束');
+});

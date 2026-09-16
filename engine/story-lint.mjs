@@ -44,6 +44,12 @@ export function lintStoryProject(project, { kind = 'image', capabilities = null 
     if (!text(character?.refImage) && !text(character?.ref) && !hasLookImage) {
       add('info', 'character-no-portrait', `角色「${name}」还没有定妆照：生成时只能用文字描述`);
     }
+    // 身体结构锚点：定妆照是半身像，没有肩宽/头肩比/体型这几个词，模型就自由发挥比例，
+    // 最常见的翻车是"窄肩配大脑袋"。只提示、不阻塞——一句话的角色设定也能出图。
+    const STRUCT = /(宽肩|窄肩|肩宽|头肩比|肩线|身高|体型|身材|微胖|偏瘦|清瘦|魁梧|壮实|矮小|高挑|娇小|驼背|佝偻|肌肉)/;
+    if (text(character?.appearance) && !STRUCT.test(text(character.appearance))) {
+      add('info', 'character-no-structure', `角色「${name}」的外貌缺身体结构（肩宽/头肩比/身高体型）：半身像容易出"窄肩配大脑袋"`);
+    }
   }
 
   for (const scene of scenes) {
