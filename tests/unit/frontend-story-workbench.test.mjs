@@ -159,3 +159,16 @@ test('story smart fill applies bible, scene and shot in one save', () => {
   assert.match(source, /hydrateBible/);
   assert.ok(!source.includes('fixed inset-x-3 bottom-20'));
 });
+
+// 配色卡（2026-09-16）：台前必须有入口，否则"选了配色才进提示词"这件事根本没法发生
+test('配色卡必须留在制作台上，并且真的存进项目', () => {
+  const settings = fs.readFileSync('frontend/src/components/story/StorySettings.tsx', 'utf8');
+  assert.match(settings, /MORANDI_CARDS/, '设置面板要列出色卡');
+  assert.match(settings, /colorCardGradient/, '色块用共享渐变函数，页面不自己拼 CSS');
+  assert.match(settings, /onColorCard\?\.\(card\.id\)/, '点色卡要把 id 交出去');
+  assert.match(settings, /不指定/, '要能取消——选了就必须能退回"没有配色"');
+  assert.match(settings, /aria-label=\{`配色卡 \$\{card\.name\}/, '色块要有可读的名字（无障碍 + 真机核对靠它定位）');
+
+  assert.match(source, /colorCardId=\{project\.colorCardId\}/, '要把项目上的配色传给设置面板');
+  assert.match(source, /StoryApi\.patchProject\(project\.id, \{ colorCardId \}\)/, '选完立刻存进项目（不跟设定文本框一起等保存）');
+});

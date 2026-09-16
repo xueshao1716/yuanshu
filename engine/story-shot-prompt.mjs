@@ -24,6 +24,8 @@
 //      而不是要求用户重新生成一遍分镜。
 //   3. **认不出来就什么都不加**，绝不编造一个不存在的机位——宁缺勿编。
 
+import { resolveColorCard, colorCardTone } from './color-cards.mjs';
+
 // ── 风格库 ──
 // 每条 = 这个风格"长什么样"的四句话：质感(look) / 光线(light) / 色调(tone) / 附带约束(tail)。
 // 风格不是形容词堆砌：它要能落在"用什么镜头、什么颗粒、什么光比"上。
@@ -208,8 +210,9 @@ export function assetRefsForShot({ bible = {}, scene = null, text = '', limit = 
 // 输出顺序（照同行那份有效提示词的顺序，不再自创）：
 //   ① 景别 + 机位  ② 光线  ③ 色调  ④ 质感/镜头  ⑤ 场景与人物动作（含 @引用）
 //   ⑥ 运镜  ⑦ 落幅  ⑧ 承接  然后另起短行给 台词 / 全局约束 / 必须避免
-export function compileShotPrompt({ style = null, shot = {}, refs = [], kind = 'video', durationSec = null, negative = '' } = {}) {
+export function compileShotPrompt({ style = null, shot = {}, refs = [], kind = 'video', durationSec = null, negative = '', colorCard = null } = {}) {
   const st = typeof style === 'string' ? resolveStyle(style) : style;
+  const card = typeof colorCard === 'string' ? resolveColorCard(colorCard) : colorCard;
   const s = shot || {};
   const sent = [];
   const j = (...parts) => parts.map(p => String(p || '').trim()).filter(Boolean).join('，');
@@ -218,8 +221,11 @@ export function compileShotPrompt({ style = null, shot = {}, refs = [], kind = '
   const framing = j(s.size, s.angle ? `${s.angle}机位` : '');
   if (framing) sent.push(`${framing}。`);
   // ②③④ 光线 / 色调 / 质感
+  // 优先级：这一段显式写的 > 项目选的配色卡 > 风格库自带的色调。
+  // 配色卡之所以排第二：它是用户**这一部戏**的选择，比风格的通用色调更具体；
+  // 但段落自己写了 tone 就说明那一镜要破格，破格优先。
   const light = j(s.light || st?.light);
-  const tone = j(s.tone || st?.tone);
+  const tone = j(s.tone || (card ? colorCardTone(card) : '') || st?.tone);
   const look = j(s.texture || st?.look, st?.tail);
   const lookParts = [light ? `画面采用${light}` : '', tone ? `呈现${tone}的色调` : '', look ? `具有${look}` : ''].filter(Boolean);
   if (lookParts.length) sent.push(`${lookParts.join('，')}。`);
@@ -260,10 +266,12 @@ export function splitRefs(refs = [], sceneName = '') {
 }
 
 // 面向人的一行说明（界面提示用）：这次编译到底补上了什么
-export function describeShotCompile({ style = null, shot = {}, refs = [] } = {}) {
+export function describeShotCompile({ style = null, shot = {}, refs = [], colorCard = null } = {}) {
   const st = typeof style === 'string' ? resolveStyle(style) : style;
+  const card = typeof colorCard === 'string' ? resolveColorCard(colorCard) : colorCard;
   const bits = [];
   if (st) bits.push(`风格：${st.name}`);
+  if (card) bits.push(`配色：${card.name}（${card.top} → ${card.bottom}）`);
   for (const [k, label] of [['size', '景别'], ['angle', '机位'], ['move', '运镜'], ['light', '光线'], ['ending', '落幅'], ['carry', '承接']]) {
     if (String(shot?.[k] || '').trim()) bits.push(`${label}：${shot[k]}`);
   }

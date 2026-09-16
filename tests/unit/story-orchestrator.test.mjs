@@ -310,3 +310,66 @@ test('assembleFilm records the film in project.films and persists it', async t =
   assert.equal(reread.films.length, 1);
   assert.equal(reread.films[0].url, '/api/ws/file?path=films%2Ffilm-1.mp4');
 });
+
+// ── 配色卡接进创作流（2026-09-16）────────────────────────────────────────
+// 端到端走一遍预览：项目上选了配色卡，这一段的提示词里必须同时看到
+// ①「## 配色方案」块（给模型看的）②③色调槽里的那套色（给上游画面模型看的）。
+test('配色卡进提示词：预览里能同时看到配色块和色调槽', async t => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'yuanshu-colorcard-'));
+  t.after(() => fs.rm(root, { recursive: true, force: true }));
+  const project = createProject({
+    title: '配色测试',
+    colorCardId: 'morandi-violet-pink',
+    scenes: [{ id: 's1', beats: [{ id: 'b1', kind: 'image', prompt: '她站在巷口回头', references: [] }] }],
+  }, { id: () => 'p-color' });
+  await writeProject(root, project);
+  const api = createStoryOrchestrator({ root });
+  const r = await api.previewRun('p-color', { sceneId: 's1', beatId: 'b1', kind: 'image' });
+  assert.match(r.context.prompt, /## 配色方案（莫兰迪高级灰 · 蓝紫粉）/, '模型要看到配色块');
+  assert.match(r.context.prompt, /呈现蓝紫 #6453A1 过渡到浅粉 #FDDCE4/, '色调槽要落上这套色');
+  assert.match(r.context.prompt, /不要荧光色与高饱和撞色/);
+
+  // 没选配色的项目：一个字都不加（绝不替用户默认一套）
+  const plain = createProject({
+    title: '没配色',
+    scenes: [{ id: 's1', beats: [{ id: 'b1', kind: 'image', prompt: '她站在巷口回头', references: [] }] }],
+  }, { id: () => 'p-plain' });
+  await writeProject(root, plain);
+  const r2 = await createStoryOrchestrator({ root }).previewRun('p-plain', { sceneId: 's1', beatId: 'b1', kind: 'image' });
+  assert.doesNotMatch(r2.context.prompt, /配色方案/);
+  assert.doesNotMatch(r2.context.prompt, /#6453A1/);
+});
+
+// 一键分镜那一刻就要带上配色：等生成时再覆盖 shot.tone 只是打补丁，分镜里的画面描述已经写歪了
+test('一键分镜：项目选了配色卡，分镜提示词里带上配色', async t => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'yuanshu-storyboard-color-'));
+  t.after(() => fs.rm(root, { recursive: true, force: true }));
+  const project = createProject({ title: '配色分镜', colorCardId: 'morandi-pink-rice' }, { id: () => 'p-sb-color' });
+  await writeProject(root, project);
+  const prompts = [];
+  const api = createStoryOrchestrator({
+    root,
+    directChat: async (model, prompt) => { prompts.push(prompt); return { text: JSON.stringify({ scenes: [{ title: 's', beats: [{ kind: 'video', prompt: '开场', dialogue: '甲：一' }, { kind: 'video', prompt: '第二段', dialogue: '甲：二' }] }] }) } },
+    getModelList: () => [],
+  });
+  await api.storyboard('p-sb-color', { idea: '试', count: 2 });
+  assert.match(prompts[0], /【本片配色】莫兰迪高级灰 · 粉红加米/);
+  assert.match(prompts[0], /#E16668/);
+});
+
+// 一次生成可以临时换配色（input.colorCard），但项目上那份不能被悄悄改掉
+test('配色卡：这一次显式传的优先，且不改项目的选择', async t => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'yuanshu-colorcard2-'));
+  t.after(() => fs.rm(root, { recursive: true, force: true }));
+  const project = createProject({
+    title: '覆盖测试',
+    colorCardId: 'morandi-violet-pink',
+    scenes: [{ id: 's1', beats: [{ id: 'b1', kind: 'image', prompt: '巷口', references: [] }] }],
+  }, { id: () => 'p-override' });
+  await writeProject(root, project);
+  const api = createStoryOrchestrator({ root });
+  const r = await api.previewRun('p-override', { sceneId: 's1', beatId: 'b1', kind: 'image', colorCard: 'morandi-pink-rice' });
+  assert.match(r.context.prompt, /粉红加米/);
+  assert.doesNotMatch(r.context.prompt, /蓝紫粉/);
+  assert.equal((await api.get('p-override')).colorCardId, 'morandi-violet-pink', '一次覆盖不该改项目上的选择');
+});

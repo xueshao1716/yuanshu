@@ -136,7 +136,13 @@ test("主题页用共享配色卡模块，不许自己另抄一份色值", () =>
   for (const [, from, to] of VERIFIED_CARDS) {
     assert.ok(!themes.includes(from) && !themes.includes(to), `Themes.tsx 不该硬编码 ${from}/${to}`);
   }
+  // 数据源只有 engine/color-cards.mjs 一份：前端模块只转出，自己也别抄
   const cards = read("frontend", "src", "theme", "colorcards.mjs");
-  assert.ok(cards.includes("linear-gradient(180deg"), "渐变方向要和原图一致（竖向）");
+  assert.ok(cards.includes("engine/color-cards.mjs"), "前端配色卡必须转出引擎那一份");
+  for (const [, from, to] of VERIFIED_CARDS) {
+    assert.ok(!cards.includes(from) && !cards.includes(to), `前端模块不该再抄一份 ${from}/${to}`);
+  }
+  const source = read("engine", "color-cards.mjs");
+  assert.ok(source.includes("linear-gradient(180deg"), "渐变方向要和原图一致（竖向）");
 });
 

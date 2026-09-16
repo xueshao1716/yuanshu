@@ -314,7 +314,7 @@ export interface StoryFlow {
   failed_recovery_actions: string[] | null
   headline: string
 }
-export interface StoryProject { id: string; title: string; logline?: string; bible: StoryBible; scenes: StoryScene[]; films?: StoryFilm[]; episodes?: StoryEpisode[]; adaptations?: StoryAdaptation[]; methodId?: string; craft?: StoryCraftEngine; activeSceneId?: string; defaultRecipeId?: string; createdAt: string; updatedAt: string; flow?: StoryFlow }
+export interface StoryProject { id: string; title: string; logline?: string; bible: StoryBible; scenes: StoryScene[]; films?: StoryFilm[]; episodes?: StoryEpisode[]; adaptations?: StoryAdaptation[]; methodId?: string; craft?: StoryCraftEngine; activeSceneId?: string; defaultRecipeId?: string; colorCardId?: string; createdAt: string; updatedAt: string; flow?: StoryFlow }
 
 // 交付物（/api/ws/deliveries）条目
 export interface AssetDelivery {

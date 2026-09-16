@@ -173,3 +173,26 @@ test('describeShotCompile 给人看的说明：补了什么一眼可见', () => 
   assert.ok(bits.some(b => /落幅/.test(b)));
   assert.ok(bits.some(b => /资产引用 1 个/.test(b)));
 });
+
+// ── 配色卡（2026-09-16）──────────────────────────────────────────────────
+// 配色卡落在③色调槽：同一部戏的每一镜因此同色，不会这一镜暖那一镜冷。
+test('配色卡：没写 tone 的镜头用配色卡的色调，段落自己写了 tone 就听段落的', () => {
+  const card = 'morandi-violet-pink';
+  const auto = compileShotPrompt({ shot: { size: '近景', content: '她抬头' }, kind: 'image', colorCard: card });
+  assert.match(auto, /呈现蓝紫 #6453A1 过渡到浅粉 #FDDCE4/);
+  assert.match(auto, /竖向渐变、上深下浅/);
+
+  // 段落显式写了色调 = 这一镜要破格，破格优先于整片配色
+  const override = compileShotPrompt({ shot: { size: '近景', content: '她抬头', tone: '冷绿' }, kind: 'image', colorCard: card });
+  assert.match(override, /呈现冷绿的色调/);
+  assert.doesNotMatch(override, /#6453A1/);
+
+  // 没选配色卡时不许凭空加色调
+  const none = compileShotPrompt({ shot: { size: '近景', content: '她抬头' }, kind: 'image' });
+  assert.doesNotMatch(none, /呈现/);
+});
+
+test('配色卡：说明里要写清这次用的是哪一套', () => {
+  const bits = describeShotCompile({ shot: { size: '中景' }, colorCard: 'morandi-pink-rice' });
+  assert.ok(bits.some(b => /配色：粉红加米（#E16668 → #FFF4DD）/.test(b)), bits.join(' / '));
+});

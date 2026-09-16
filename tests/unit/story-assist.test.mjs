@@ -1,6 +1,19 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { buildStoryAssistPrompt, parseStoryAssist } from '../../engine/story-assist.mjs';
+import { buildStoryAssistPrompt, parseStoryAssist, buildStoryboardPrompt } from '../../engine/story-assist.mjs';
+
+// 配色卡要在**分镜那一刻**就进提示词：等生成时再覆盖 shot.tone 只是打补丁，
+// 分镜里写的画面描述已经歪了。
+test('一键分镜：项目选了配色卡就写进分镜提示词，没选就不占位置', () => {
+  const withCard = buildStoryboardPrompt({ title: '雾海列车', count: 4, colorCard: 'morandi-violet-pink' });
+  assert.match(withCard, /【本片配色】莫兰迪高级灰 · 蓝紫粉/);
+  assert.match(withCard, /#6453A1/);
+  assert.match(withCard, /shot\.tone/, '要说清往哪个字段写，否则模型只会写进 prompt 散文里');
+  assert.match(withCard, /不要荧光色与高饱和撞色/);
+
+  const without = buildStoryboardPrompt({ title: '雾海列车', count: 4 });
+  assert.doesNotMatch(without, /【本片配色】/);
+});
 
 test('story assist prompt clearly assigns AI draft and human approval', () => {
   const prompt = buildStoryAssistPrompt({ title: '雾海列车', idea: '一场跨海追逐' });

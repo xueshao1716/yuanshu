@@ -31,6 +31,9 @@ export function createProject(input = {}, clock = {}) {
     // 深度构思（情绪契约 / 人物四件套 / 矛盾单元 / 分集地图 / 因果节拍 / 四账台账）。
     // 同一个铁律第四次了：新字段不在这里登记，写进去就读不回来。
     ...(input.craft ? { craft: input.craft } : {}),
+    // 这一部戏用的配色卡（engine/color-cards.mjs 的 9 组莫兰迪高级灰）。
+    // 同样是那个铁律第五次：不在这里登记，写进去就读不回来，提示词里的「色调」会悄悄退回风格默认。
+    ...(input.colorCardId ? { colorCardId: String(input.colorCardId) } : {}),
     activeSceneId: input.activeSceneId,
     createdAt: now,
     updatedAt: now,

@@ -1,3 +1,5 @@
+import { colorCardPromptBlock } from './color-cards.mjs';
+
 const list = (value) => Array.isArray(value) ? value : [];
 
 export function normalizeBible(input = {}) {
@@ -60,7 +62,7 @@ export function negativeBlock(negative) {
   return lines ? `## 必须避免\n- 以下内容**不要**出现在这一段的成品里：\n${lines}` : '';
 }
 
-export function compileStoryPrompt({ bible, scene, beat, inherited, negative, shotSpec = '' } = {}) {
+export function compileStoryPrompt({ bible, scene, beat, inherited, negative, shotSpec = '', colorCard = null } = {}) {
   const b = normalizeBible(bible);
   const refs = [];
   for (const item of [...(inherited?.referenceIds || []), ...(beat?.references || [])]) {
@@ -79,6 +81,10 @@ export function compileStoryPrompt({ bible, scene, beat, inherited, negative, sh
     section('道具', b.props),
     section('服装', b.wardrobe),
     style ? `## 视觉与叙事风格\n- ${style}` : '',
+    // 配色卡（engine/color-cards.mjs）：项目上选了配色就写进提示词，让"这部戏是什么颜色"
+    // 和画风一样成为可选项——散在各段的形容词里，人物锁得再准也救不回色调漂移。
+    // 没选就是空块，不占位置、也不替用户选。
+    colorCardPromptBlock(colorCard),
     section('连续性规则', b.rules),
     scene?.title ? `## 当前场景\n- 标题: ${scene.title}\n- 摘要: ${scene.summary || '无'}` : '',
     // 全剧至今（story-context.mjs）：接得上前面，但不能变成复述比赛

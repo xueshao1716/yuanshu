@@ -26,6 +26,15 @@ test('validateProject rejects duplicate scene indexes', () => {
   assert.throws(() => validateProject({ id: 'p1', title: 'x', scenes: [{ id: 's1', index: 1 }, { id: 's2', index: 1 }] }), /index/);
 });
 
+// createProject 是白名单式构造：新字段不在这里登记，写进去就读不回来。
+// 这条铁律已经被踩过四次（默认配方/分集/改编史/方法包/深度构思），配色卡是第五个。
+test('配色卡：createProject 必须登记 colorCardId，否则写进去读不回来', () => {
+  const withCard = createProject({ title: 'x', colorCardId: 'morandi-violet-pink' });
+  assert.equal(withCard.colorCardId, 'morandi-violet-pink');
+  const without = createProject({ title: 'x' });
+  assert.equal('colorCardId' in without, false, '没选配色就不该凭空多一个字段');
+});
+
 // 一键分镜会产出多个场景，第 2 场第 1 段承接第 1 场末段。原先校验只在本场景内查 id，
 // 于是这种跨场景续写会被拒。跨场景连续性本来就该成立，这里锁住它。
 test('跨场景继承：校验通过，且前文能从 owning scene 取到', () => {

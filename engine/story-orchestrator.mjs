@@ -25,6 +25,7 @@ import { runRoleplay, normalizePlayground } from './story-playground.mjs';
 import { normalizeEpisodes, createEpisode, groupScenesByEpisode, episodeStats, assignSceneToEpisode, removeEpisode, renumberEpisodes } from './story-episodes.mjs';
 // 创作方法包（Skill）：程序性知识，跨项目复用。见 engine/story-methods.mjs 开头的研究结论。
 import { listMethods, methodOf, saveMethod, deleteMethod, captureFromProject, methodBrief, reasoningBudget } from './story-methods.mjs';
+import { resolveColorCard } from './color-cards.mjs';
 import { json } from './http-utils.mjs';
 
 const makeId = () => crypto.randomUUID();
@@ -277,6 +278,9 @@ export function createStoryOrchestrator({ root, clock = {}, adapters = {}, gener
     // 负向提示词（段落级 > 项目默认配方）。先写进提示词块（所有通道都吃、都看得见），
     // 再作为 negative 传给图像通道——上游认不认那个字段是另一回事，但请求里必须看得见。
     const negative = String(input.negative ?? beat.negative ?? defaultRecipe?.negative ?? '').trim();
+    // 配色卡（engine/color-cards.mjs）：这一次显式传的 > 段落上的 > 项目选的 > 没有。
+    // 它落在镜头提示词的③色调槽——同一部戏的每一镜因此同色，不会这一镜暖那一镜冷。
+    const colorCard = resolveColorCard(input?.colorCard ?? beat?.colorCard ?? project?.colorCardId ?? '');
     // 镜头规格（story-shot-prompt.mjs）：把景别/机位/运镜/光线/落幅/承接 + 风格库 + @资产引用
     // 编译成一条提示词，放在提示词最前面。只对画面/视频做——文字段落要的是故事状态文档。
     // 整段包在 try 里：**编译失败不许影响生成**，这只是"更好"，不是"必须"。
@@ -288,7 +292,7 @@ export function createStoryOrchestrator({ root, clock = {}, adapters = {}, gener
         const found = assetRefsForShot({ bible: project.bible, scene, text: `${beat?.prompt || ''} ${beat?.dialogue || ''} ${scene?.title || ''}` });
         const refs = splitRefs(found, scene?.title);
         return compileShotPrompt({
-          style: resolveStyle(rawStyle), shot, refs, kind,
+          style: resolveStyle(rawStyle), shot, refs, kind, colorCard,
           // 时长：这一次显式传的 > 段落上存的。它不只是提示词里的一行字，
           // 也是配音/剪辑对表的依据（【时长】4s）。
           durationSec: Number(input?.params?.seconds ?? beat?.params?.seconds ?? defaultRecipe?.params?.seconds) || null,
@@ -296,7 +300,7 @@ export function createStoryOrchestrator({ root, clock = {}, adapters = {}, gener
         });
       } catch { return ''; }
     })();
-    const compiled = compileStoryPrompt({ bible: project.bible, scene, beat, inherited: context, negative, shotSpec });
+    const compiled = compileStoryPrompt({ bible: project.bible, scene, beat, inherited: context, negative, shotSpec, colorCard });
     // seed 不再靠运气：用户没指定就现掷一个**并记下来**，这条 run 因此可复现。
     // 以前 run.seed 恒为 undefined，而能力声明却写着支持固定 seed——声称支持却从未生效。
     //
@@ -903,7 +907,7 @@ export function createStoryOrchestrator({ root, clock = {}, adapters = {}, gener
       const methodScenes = method?.scenesPerEpisode && method?.beatsPerScene
         ? `\n\n【本片方法】按每场约 ${method.beatsPerScene} 段组织，整场同一种 kind 更连贯。`
         : '';
-      const basePrompt = buildStoryboardPrompt({ title: project.title, logline: project.logline, idea, current: project.bible, count })
+      const basePrompt = buildStoryboardPrompt({ title: project.title, logline: project.logline, idea, current: project.bible, count, colorCard: resolveColorCard(project.colorCardId) })
         + (brief ? `\n\n${brief}` : '') + methodScenes;
       // 少于一半才算"明显不足"：模型偶尔给 count-1 段是正常波动，不该为它多烧一次调用。
       const short = n => n < Math.max(2, Math.ceil(count / 2));

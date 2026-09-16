@@ -1,3 +1,5 @@
+import { colorCardStoryboardNote } from './color-cards.mjs';
+
 export function buildStoryAssistPrompt({ title = '', logline = '', idea = '', current = {} } = {}) {
   return `你是元枢连续创作的故事设定助手。请根据用户想法生成一份“可编辑草稿”，由人类确认后才会保存。不要改写既有设定，只补充空缺。\n\n项目：${String(title).trim() || '未命名故事'}\n梗概：${String(logline).trim() || '暂无'}\n用户想法：${String(idea).trim() || '请补齐一个可拍摄的开端'}\n已有状态：${JSON.stringify(current).slice(0, 5000)}\n\n要求：\n1. **重视对话**：beat.dialogue 写这一段的实际台词，要具体、有语气和潜台词，能看出说话人是谁；不要写“他们交谈了几句”这种概述。\n2. beat.prompt 只写画面与动作（构图、光线、人物动作），不要把台词塞进画面描述。\n3. 内容要具体、可执行；kind 只能是 novel/image/video。\n\n只返回 JSON，不要 Markdown：{"characters":[{"name":"","appearance":""}],"locations":[{"name":"","description":""}],"props":[{"name":"","description":""}],"wardrobe":[{"name":"","description":""}],"style":{"visual":"","tone":""},"rules":[{"text":""}],"scene":{"title":"","summary":""},"beat":{"kind":"image","prompt":"","dialogue":""}}。`;
 }
@@ -95,14 +97,16 @@ export function firstDialogue(source) {
 // 只出段落不建角色库的话，「定妆照」和「参考图锁定」都拿不到数据——功能在界面上存在却用不了。
 // 2026-09-15：每段必须带**台词**。此前提示词只要求"动作/构图/镜头/光线"，
 // 出来的是一串漂亮的画面说明、一句人话都没有——戏不成戏，后续配音也没东西可念。
-export function buildStoryboardPrompt({ title = '', logline = '', idea = '', current = {}, count = 6 } = {}) {
+export function buildStoryboardPrompt({ title = '', logline = '', idea = '', current = {}, count = 6, colorCard = null } = {}) {
   const n = Math.max(2, Math.min(12, Number(count) || 6));
+  const colorNote = colorCardStoryboardNote(colorCard);
   return `你是元枢连续创作的**编剧兼分镜师**。请把故事拆成 ${n} 段可直接生成的分镜，并登记其中出现的人物与场景。
 
 项目：${String(title).trim() || '未命名故事'}
 梗概：${String(logline).trim() || '暂无'}
 用户想法：${String(idea).trim() || '请补齐一个可拍摄的开场'}
 已有设定：${JSON.stringify(current).slice(0, 4000)}
+${colorNote ? `\n${colorNote}\n` : ''}
 
 要求：
 1. **重视对话创作**：每段都要写 dialogue——这一段**真正说出来**的台词，一行一句，写成「角色名：台词」。
