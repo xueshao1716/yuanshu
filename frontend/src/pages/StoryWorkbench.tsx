@@ -468,7 +468,15 @@ export function StoryPanel() {
             <span className="story-lint-head">连续性体检 · 角色 {lint.summary.characters}（定妆照 {lint.summary.portraits}）· {lint.summary.scenes} 场 {lint.summary.beats} 段</span>
             {lint.issues.length === 0
               ? <span className="story-lint-ok">条件齐备，可以开始生成。</span>
-              : <ul>{lint.issues.slice(0, 6).map(i=><li key={`${i.code}-${i.message}`} className={`story-lint-item story-lint-item-${i.level}`}>{i.message}</li>)}</ul>}
+              : <>
+                {/* 默认只摆前 2 条：一串红字会把整块染红、也把"要先改哪一条"淹掉。
+                    其余折进 details——数量写在 summary 上，不藏信息，只是不抢注意力。 */}
+                <ul>{lint.issues.slice(0, 2).map(i=><li key={`${i.code}-${i.message}`} className={`story-lint-item story-lint-item-${i.level}`}>{i.message}</li>)}</ul>
+                {lint.issues.length > 2 && <details className="story-lint-more">
+                  <summary>还有 {lint.issues.length - 2} 条</summary>
+                  <ul>{lint.issues.slice(2, 12).map(i=><li key={`${i.code}-${i.message}`} className={`story-lint-item story-lint-item-${i.level}`}>{i.message}</li>)}</ul>
+                </details>}
+              </>}
           </div>}
         </section>
         <div className="story-editor-layout"><section className="story-editor">
