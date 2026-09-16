@@ -77,7 +77,12 @@ export function filmPlan(project, wsRoot, { localPathOf = localPathFromArtifactU
   for (const scene of list(project?.scenes)) {
     for (const beat of list(scene?.beats)) {
       beatNo += 1;
-      const runs = list(scene?.outputs).filter(r => r?.beatId === beat.id);
+      // 先按生成先后排**全部** runs（含失败/排队），再挑出能进片子的：
+      // 版本号要跟「本段结果」里对得上——那边是"总数 - 从新到旧的位置"，换成从旧到数就是"位置+1"。
+      // 只按可用候选编号的话，一段失败过两版，唯一能用的那版会在一处叫第 1 版、另一处叫第 3 版。
+      const runs = list(scene?.outputs)
+        .filter(r => r?.beatId === beat.id)
+        .sort((a, b) => String(a.createdAt || '').localeCompare(String(b.createdAt || '')));
       const candidates = runs
         .filter(r => ['succeeded', 'degraded'].includes(r.status))
         .map(r => {
@@ -88,13 +93,14 @@ export function filmPlan(project, wsRoot, { localPathOf = localPathFromArtifactU
           const downloadable = /^(https?:|data:)/i.test(url);
           return {
             runId: r.id, status: r.status, seed: r.seed ?? null, createdAt: r.createdAt, url,
+            // 第几版：按这一段的全部版本（含失败的）从旧到新数，最新的号最大
+            versionNo: runs.indexOf(r) + 1,
             exists, external: /^https?:/i.test(url), downloadable,
             // 可用 = 本地已有，或是个能下载的外链（合成时会先下载到本地）
             localable: exists || downloadable,
             degradation: r.degradation || [],
           };
-        })
-        .sort((a, b) => String(a.createdAt || '').localeCompare(String(b.createdAt || '')));
+        });
       const usable = candidates.filter(c => c.localable);
       // 默认推荐：① 用户在「本段结果」里**采用**过的那一版（他挑过就别再替他挑）
       // ② 否则最新的一个可用版本（与"快速合成"一致，用户不改就是原来那版）
@@ -114,6 +120,109 @@ export function filmPlan(project, wsRoot, { localPathOf = localPathFromArtifactU
   return { beats, usable: beats.filter(b => b.usableCount > 0).length, total: beats.length };
 }
 
+
+// ── 时长探测（时间轴要报"每段多长、合计多长"）───────────────────────────────
+//
+// 产物记录里**没有时长**：上游只回一个地址，没回秒数。所以时长只能现探——
+// 但探测要 spawn 一个进程，而 filmPlan 每次打开面板都会被调，默认绝不能带上它：
+// 只有显式 `?durations=1` 才走这条路（见 story-orchestrator 的 filmPlan）。
+//
+// 两种输出都要认：`ffprobe -show_entries format=duration` 只吐一个裸数字，
+// `ffmpeg -i` 吐的是 "Duration: 00:00:05.18"。有些机器只装了 ffmpeg 没有 ffprobe，
+// 退回解析 stderr 是唯一还能拿到时长的路（顺带：ffmpeg -i 对没有音轨的文件会"报错"，
+// 但那一行 Duration 照样在 stderr 里，所以下面连失败分支也要拿去解析）。
+const round1 = value => Math.round(Number(value) * 10) / 10;
+
+export function parseDurationSeconds(text) {
+  const raw = String(text || '');
+  const clock = raw.match(/Duration:\s*(\d+):(\d{2}):(\d{2}(?:\.\d+)?)/);
+  if (clock) return round1(Number(clock[1]) * 3600 + Number(clock[2]) * 60 + Number(clock[3]));
+  const bare = raw.trim().match(/^(\d+(?:\.\d+)?)$/);
+  return bare ? round1(Number(bare[1])) : null;
+}
+
+// 只收 stdout/stderr，**不抛**：探不到时长不是错误，是"这一版没有时长数据"，
+// 时间轴如实写"时长未知"就行，不能因为探时长把整张清单带崩。
+function execCapture(cmd, args, { timeout = 20000 } = {}) {
+  return new Promise(resolve => {
+    execFile(cmd, args, { timeout, windowsHide: true, encoding: 'utf8', maxBuffer: 4 * 1024 * 1024 }, (err, stdout, stderr) => resolve({ err, stdout, stderr }));
+  });
+}
+
+export async function probeDurationSeconds(file, { capture = execCapture } = {}) {
+  if (!file) return null;
+  const probed = await capture('ffprobe', ['-v', 'error', '-show_entries', 'format=duration', '-of', 'default=nw=1:nk=1', file]);
+  const fromProbe = parseDurationSeconds(probed?.stdout);
+  if (fromProbe != null) return fromProbe;
+  const fell = await capture('ffmpeg', ['-hide_banner', '-i', file]);
+  return parseDurationSeconds(`${fell?.stderr || ''}\n${fell?.stdout || ''}`);
+}
+
+// 时长缓存：键带上 size+mtime，文件被重写（重跑一版、做过后处理）就自动失效——
+// 拿着旧时长报数比不报数更糟。上限纯粹是防项目多了把内存养大。
+const durationCache = new Map();
+const DURATION_CACHE_MAX = 2000;
+
+export async function cachedDurationSeconds(file, opts = {}) {
+  let key = String(file || '');
+  try {
+    const st = await fsp.stat(file);
+    key = `${key}|${st.size}|${st.mtimeMs}`;
+  } catch { return null; } // 文件不在了就如实返回"不知道"
+  if (durationCache.has(key)) return durationCache.get(key);
+  const value = await probeDurationSeconds(file, opts);
+  if (durationCache.size >= DURATION_CACHE_MAX) durationCache.clear();
+  durationCache.set(key, value);
+  return value;
+}
+
+export function clearDurationCache() { durationCache.clear(); }
+
+async function mapLimit(items, limit, worker) {
+  const queue = [...items];
+  const size = Math.max(1, Math.min(limit, queue.length));
+  await Promise.all(Array.from({ length: size }, async () => {
+    while (queue.length) await worker(queue.shift());
+  }));
+}
+
+// filmPlan + 时长：给每一版候选补 `durationSec`，再算一遍**默认成片**的总时长。
+// 只探**已经在本地**的候选：外链还没下载，为了一个时长去网络拉整支片子，
+// 就不是 filmPlan 该干的事了（本地化契约里，下载只发生在合成前）。
+//
+// 逐条 `durationSec` 才是界面的主数据：用户换一版，总时长要跟着变。
+// 段上的 `durationSec` 只是"默认那一版多长"，加上 totalDurationSec 一起给只读消费者用。
+export async function filmPlanWithDurations(project, wsRoot, { durationOf = cachedDurationSeconds, localPathOf = localPathFromArtifactUrl, concurrency = 4 } = {}) {
+  const plan = filmPlan(project, wsRoot, { localPathOf });
+  const targets = new Map(); // file → 候选数组：同一文件被两版指向时只探一次
+  for (const beat of plan.beats) {
+    for (const c of beat.candidates) {
+      // 显式写 null 而不是不写：界面要能分清"探过、没有"与"根本没探"（比如老接口给的数据）
+      c.durationSec = null;
+      if (!c.exists) continue;
+      const file = localPathOf(c.url, wsRoot);
+      if (!file) continue;
+      if (!targets.has(file)) targets.set(file, []);
+      targets.get(file).push(c);
+    }
+  }
+  await mapLimit([...targets.entries()], concurrency, async ([file, cands]) => {
+    const sec = await durationOf(file);
+    if (sec == null) return;
+    for (const c of cands) c.durationSec = sec;
+  });
+
+  let total = 0; let known = 0; let unknown = 0;
+  for (const beat of plan.beats) {
+    const rec = beat.candidates.find(c => c.runId === beat.recommendedRunId);
+    beat.durationSec = rec?.durationSec ?? null;
+    if (!beat.usableCount) continue; // 没有可用版本的段不进总时长，也不该被算成"时长未知"
+    // 直接加**已经四舍五入到 0.1 秒**的那一份：界面上一段写 5.2 秒，合计就该等于这几段的 5.2 相加，
+    // 而不是拿原始 5.184 求和再舍入（那样用户自己一加就会发现对不上：4×5.2=20.8 ≠ 20.7）。
+    if (beat.durationSec == null) unknown += 1; else { total += beat.durationSec; known += 1; }
+  }
+  return { ...plan, totalDurationSec: known ? round1(total) : null, durationKnownBeats: known, durationUnknownBeats: unknown };
+}
 
 export function runFfmpeg(args, { timeout = 900000 } = {}) {
   return new Promise((resolve, reject) => {

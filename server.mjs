@@ -1744,8 +1744,9 @@ const API_ROUTES = [
   // 成片合成：按分镜顺序把成功的视频片段拼成长片并落盘为正式产物。
   // 传 saveArtifact 是因为**外链片段要先下载到本地**（本地化契约），ffmpeg 只认本地文件。
   ["POST", /^\/api\/story\/projects\/([^/]+)\/film$/, async (res, req, url, m) => handleStoryFilm({ root: WS_ROOT, saveArtifact, saveArtifactFromFile }, res, m[1], await readBody(req, 8))],
-  // 合成前的候选清单（只读）：同一段生成过好几版镜头时，挑哪一版、要哪几段、什么顺序
-  ["GET", /^\/api\/story\/projects\/([^/]+)\/film-plan$/, (res, req, url, m) => handleStoryFilmPlan({ root: WS_ROOT }, res, m[1])],
+  // 合成前的候选清单（只读）：同一段生成过好几版镜头时，挑哪一版、要哪几段、什么顺序。
+  // 带 durations=1 时额外探每一版的时长（要 spawn ffprobe，所以只在时间轴要合计时带上）
+  ["GET", /^\/api\/story\/projects\/([^/]+)\/film-plan$/, (res, req, url, m) => handleStoryFilmPlan({ root: WS_ROOT }, res, m[1], { durations: url.searchParams.get('durations') === '1' })],
   // 删掉某一版产出：记录必删，文件只在**没有别处引用**时才删（删文件不可逆，宁可多留）
   ["POST", /^\/api\/story\/projects\/([^/]+)\/run-delete$/, async (res, req, url, m) => handleStoryRunDelete({ root: WS_ROOT }, res, m[1], await readBody(req, 8))],
   // 把某一版还挂在外站的产物下载到本地（本地化契约的重试入口：只补下载，不重新生成）

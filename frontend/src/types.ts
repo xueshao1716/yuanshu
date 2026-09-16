@@ -150,7 +150,13 @@ export interface StoryEpisodeGroup { episode: StoryEpisode | null; scenes: { id:
 export interface StoryScene { id: string; index: number; title: string; summary: string; beats: StoryBeat[]; outputs: StoryGenerationRun[]; activeRunId?: string; slug?: StorySceneSlug; episodeId?: string }
 export interface StoryFilm { id: string; url: string; clipCount: number; method: string; beatIds: string[]; picks?: { beatId: string; runId: string }[]; createdAt: string }
 // 合成前的候选清单：同一段可能生成过好几版镜头，用户要能挑哪一版、要哪几段、什么顺序。
-export interface StoryFilmCandidate { runId: string; status: string; seed: number | null; createdAt?: string; url: string; exists: boolean; external?: boolean; downloadable?: boolean; localable?: boolean; degradation?: string[]; chosen?: boolean }
+export interface StoryFilmCandidate { runId: string; status: string; seed: number | null; createdAt?: string; url: string; exists: boolean; external?: boolean; downloadable?: boolean; localable?: boolean; degradation?: string[]; chosen?: boolean;
+  // 第几版：按这一段的**全部**版本（含失败的）从旧到新数，最新的号最大。
+  // 编号由引擎给，前端不自己数——否则时间轴和「本段结果」会给同一个镜头两个号。
+  versionNo?: number
+  // 时长（秒）。只有带 durations=1 拉清单、且这一版已经落到本地时才探得到；
+  // 外链没下载、ffprobe 也没有的，一律 null——界面据此如实写"时长未知"，不猜。
+  durationSec?: number | null }
 export interface StoryFilmBeat {
   beatId: string; sceneId: string; sceneTitle: string; beatNo: number
   kind: string; title: string
@@ -159,8 +165,17 @@ export interface StoryFilmBeat {
   externalCount?: number
   recommendedRunId: string
   chosenRunId?: string
+  // 默认会进片子的那一版（recommendedRunId）多长；没有可用版本或探不到就是 null
+  durationSec?: number | null
 }
 export interface StoryFilmPlan { beats: StoryFilmBeat[]; usable: number; total: number }
+// 时间轴用的清单：filmPlan + 时长合计。合计算的是**默认成片**（每段用 recommendedRunId）；
+// 用户换版本之后，界面按每一版自己的 durationSec 现算，不拿这个数当"当前成片时长"糊弄人。
+export interface StoryTimelinePlan extends StoryFilmPlan {
+  totalDurationSec?: number | null
+  durationKnownBeats?: number
+  durationUnknownBeats?: number
+}
 export interface StoryRunDeleteResult {
   project: StoryProject
   deletedRunId: string; kind: string; status: string

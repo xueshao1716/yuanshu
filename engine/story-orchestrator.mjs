@@ -12,7 +12,7 @@ import { buildStoryAssistPrompt, parseStoryAssist, buildStoryboardPrompt, parseS
 import { dialogueAudit, auditEngine, buildDialogueDoctorPrompt, parseDialogueDoctor, buildStoryEnginePrompt, parseStoryEngine, CRAFT_NOTES } from './story-craft.mjs';
 import { parseDialogueLines } from './story-screenplay.mjs';
 import { lintStoryProject } from './story-lint.mjs';
-import { concatClips, filmPlan, localPathFromArtifactUrl } from './story-film.mjs';
+import { concatClips, filmPlan, filmPlanWithDurations, localPathFromArtifactUrl } from './story-film.mjs';
 import { materializeMedia } from './media-inline.mjs';
 // seed 的合法区间由上游接口决定（Agnes 图像是 -1..999），权威定义在 media-api 里——
 // 编排层不许自己猜一个范围：上一版就是自己掷了个 2^31 的数，把画面生成全线打挂。
@@ -1123,7 +1123,12 @@ export function createStoryOrchestrator({ root, clock = {}, adapters = {}, gener
     },
     // 合成前的候选清单（只读）：每段有哪些版本能进片子、各自什么状态。
     // 用户常常同一段生成好几版镜头，只让他"按分镜顺序自动拼"等于把挑片子的权利拿走了。
-    filmPlan: async (id) => filmPlan(await readProject(root, id), root),
+    // durations=true 才会去探每一版的时长（要 spawn ffprobe）。别默认开：
+    // 打开面板就得等它，而不带时长的清单本来就是老行为——时间轴要合计时长时才多这一步。
+    filmPlan: async (id, opts = {}) => {
+      const project = await readProject(root, id);
+      return opts.durations ? filmPlanWithDurations(project, root) : filmPlan(project, root);
+    },
     // 成片合成：按分镜顺序把**成功**的视频片段拼成一条长片，并落盘为正式产物。
     // 界面此前明确写着「暂不自动拼成长片」，这里把它做掉。
     //
@@ -1702,8 +1707,8 @@ export async function handleStoryFilm(ctx, res, id, body) {
   try { return json(res, 200, await createStoryOrchestrator(ctx).assembleFilm(id, bodyOrEmpty(body))); } catch (e) { return sendError(res, e); }
 }
 
-export async function handleStoryFilmPlan(ctx, res, id) {
-  try { return json(res, 200, await createStoryOrchestrator(ctx).filmPlan(id)); } catch (e) { return sendError(res, e); }
+export async function handleStoryFilmPlan(ctx, res, id, opts = {}) {
+  try { return json(res, 200, await createStoryOrchestrator(ctx).filmPlan(id, opts)); } catch (e) { return sendError(res, e); }
 }
 
 // ── 台词与深度构思 ──

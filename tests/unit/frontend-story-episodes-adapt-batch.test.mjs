@@ -155,7 +155,9 @@ test('删掉不要的那几版：确认块 + 「文件留不留」必须给用�
 });
 
 test('挑片段合成：默认还是原来那套，改了才按你的；挑不出来要逐条说明', () => {
-  const film = read('frontend/src/components/story/StoryFilm.tsx')
+  // 成片面板拆成两半：StoryFilm 管状态与合成动作，StoryTimeline 管"由哪几段、多长、用第几版"的画法。
+  // 这里的规矩两条文件一起看——规矩本身没变，只是换了个文件承载。
+  const film = read('frontend/src/components/story/StoryFilm.tsx') + read('frontend/src/components/story/StoryTimeline.tsx')
   assert.match(workbench, /StoryFilm/, '挑片段面板要挂在制作台里');
   assert.match(film, /StoryApi\.filmPlan/, '要先拿到候选清单');
   assert.match(film, /StoryApi\.film\(project\.id, \{ clips: picks \}\)/, '合成时把挑好的版本与顺序送上去');
@@ -163,14 +165,15 @@ test('挑片段合成：默认还是原来那套，改了才按你的；挑不�
   assert.match(film, /先下载到本地再拼/, '外链片段要先下载到本地，这是本地化契约');
   assert.match(film, /c\.localable/, '可选的版本按"本地已有或能下载"来判，不能只认本地文件');
   assert.match(film, /外链（合成时先下载到本地）/, '界面要标出哪一版是外链');
-  assert.match(film, /aria-label=\{`第 \$\{b\.beatNo\} 段用哪一版`\}/, '每一段要能换版本');
+  assert.match(film, /aria-label=\{`第 \$\{beat\.beatNo\} 段用哪一版`\}/, '每一段要能换版本');
   assert.match(film, /上移|下移/, '顺序就是成片里的先后，要能调');
   assert.match(film, /整段不要/, '要能整段排除');
   assert.match(film, /按这个顺序合成/, '按钮要说清"按这个顺序"');
   assert.match(film, /没拼进去/, '拼不进去的段要如实回报，不能静默少一段');
   assert.match(film, /本地都找不到片子了|先给它生成一段视频/, '文件不在/没生成要给不同的说法');
   assert.match(film, /记下用了哪几段的哪一版/, '成片要能追溯用了哪一版镜头');
-  assert.match(css, /\.story-film-pick/);
+  // 类名不能叫 story-timeline：那个名字已经被左侧「分镜时间线」占着，会互相污染样式
+  assert.match(css, /\.story-film-timeline/);
   assert.match(api, /film-plan/);
   assert.match(server, /film-plan\$/);
   assert.match(orchestrator, /filmPlan: async/);
