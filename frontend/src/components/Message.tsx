@@ -320,6 +320,14 @@ export default function Message({ msg, onEdit, onRetry }: { msg: ChatMessage & {
                 主驾 {ENGINE_LABEL[msg.engine] || msg.engine}
               </span>
             )}
+            {/* 回答被重写/换模型过：必须显眼（用户原话："静默换成 agnes 3.0"）。
+                同一模型重写 = 「已重写」；换了模型 = 「兜底 <模型>」，title 里写清原因和原本选的模型。 */}
+            {msg.switchedModel && (
+              <span className="px-1.5 py-0.5 rounded-pi-pill bg-amber-400/15 text-amber-300 text-[10px] font-medium"
+                title={`${msg.switchedModel.reason || '回答被重写'}${msg.model ? `（你选的是 ${msg.model.provider}/${msg.model.id}）` : ''}`}>
+                {msg.switchedModel.sameModel ? '已重写' : `兜底 ${msg.switchedModel.id}`}
+              </span>
+            )}
             {msg.model && <span className="px-1.5 py-0.5 rounded-pi-pill bg-pi-bg3 text-pi-dim2 text-[10px]" title={`${msg.model.provider}/${msg.model.id}`}>{msg.model.id}</span>}
           </div>
         )}

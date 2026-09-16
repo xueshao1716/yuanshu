@@ -39,6 +39,8 @@ interface StreamState {
   // 本轮主驾引擎（服务端 engine_selected 事件）：yuanshu / pi / dsh + 原因
   engine?: string
   engineReason?: string
+  // 本轮回答被"重写/换模型"过（服务端 model_switched 事件）：复读修正、空回复兜底、守卫换模型都会推
+  switchedModel?: { provider: string; id: string; sameModel: boolean; reason: string }
 }
 
 const emptyStream = (): StreamState => ({ text: '', think: '', thinkDone: false, conclusion: '', tools: [], notes: [], files: [], images: [], audios: [], videos: [] })
@@ -190,6 +192,8 @@ export default function ChatArea({ compactHeader, rightPanel, onRightPanel }: {
           error: m.error,
           stopReason: m.stopReason,
           engine: m.engine,
+
+          switchedModel: m.switchedModel,
           engineReason: m.engineReason,
           synced: !m.isDraft,
           draft: !!m.isDraft,
@@ -214,6 +218,8 @@ export default function ChatArea({ compactHeader, rightPanel, onRightPanel }: {
         stopReason: lm.stopReason,
         // ② 引擎角标：服务端的 engine_selected 只活在流式状态里，本地库这一份负责刷新后还能看见
         engine: (lm as any).engine,
+
+        switchedModel: (lm as any).switchedModel,
         engineReason: (lm as any).engineReason,
         streaming: lm.streaming,
         isDraft: lm.draft,
@@ -242,6 +248,8 @@ export default function ChatArea({ compactHeader, rightPanel, onRightPanel }: {
         model: msg.model,
         ts: msg.ts,
         engine: msg.engine,
+
+        switchedModel: msg.switchedModel,
         engineReason: msg.engineReason,
         synced: !msg.streaming && !msg.isDraft,
         draft: !!msg.isDraft || !!msg.streaming,
@@ -454,6 +462,8 @@ export default function ChatArea({ compactHeader, rightPanel, onRightPanel }: {
         ...(s.error ? { error: friendlyStreamError(s.error), stopReason: 'error' } : {}),
         // ② 主驾引擎随消息存下来（"这条回复是谁在干活"要能回看）
         ...(s.engine ? { engine: s.engine, engineReason: s.engineReason || '' } : {}),
+        // 被重写/换模型也要随消息存下来（刷新后仍然看得见"这段不是原模型写的"）
+        ...(s.switchedModel ? { switchedModel: s.switchedModel } : {}),
         ...(model ? { model } : {}),
       })
       // 完成提示音：双声"叮叮"（800Hz 0.1s + 1000Hz 0.15s）
@@ -508,6 +518,17 @@ export default function ChatArea({ compactHeader, rightPanel, onRightPanel }: {
         // 但前端以前把它丢了——于是"切个模型怎么连引擎和脾气都变了"全靠猜。
         const engine = String(d.engine || '')
         if (engine) updStream(p => ({ ...p, engine, engineReason: String(d.reason || '') }))
+        break
+      }
+      case 'model_switched': {
+        // 回答被重写/换模型了，必须让用户看见（他原话："静默换成 agnes 3.0"）
+        const id = String(d.id || '')
+        if (id) {
+          updStream(p => ({
+            ...p,
+            switchedModel: { provider: String(d.provider || ''), id, sameModel: d.sameModel === true, reason: String(d.reason || '') },
+          }))
+        }
         break
       }
       case 'delta':
@@ -1014,6 +1035,8 @@ export default function ChatArea({ compactHeader, rightPanel, onRightPanel }: {
                     think: stream.think, tools: stream.tools, notes: stream.notes,
                     // ② 流式期间就带上主驾引擎，回复途中也能看见"这一轮谁在干活"
                     engine: stream.engine, engineReason: stream.engineReason,
+
+                    switchedModel: stream.switchedModel,
                     files: stream.files, images: stream.images, audios: stream.audios, videos: stream.videos,
                     streaming: true,
                   }} />

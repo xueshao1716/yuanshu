@@ -7,7 +7,7 @@ import path from "node:path";
 import { execFile } from "node:child_process";
 import { json, readBody } from "./http-utils.mjs";
 import { markModelBlocked, isAuthErrorStatus, pickFallbackDefault, pickFallbackExcluding, routeProCandidate, routeForAuto } from "./model-router.mjs";
-import { classifyAnomaly, recordReply } from "./output-guard.mjs";
+import { classifyAnomaly, recordReply, lastAssistantReply } from "./output-guard.mjs";
 import { shrinkToolResult, NEEDS_PRO_RE, scavengeToolCalls, projectToolResult } from "./reasonix-tools.mjs";
 import { normalizeToolArgs } from "./tool-args.mjs";
 import { extractMessages, extractText } from "./session-utils.mjs";
@@ -797,6 +797,11 @@ export async function handleUnifiedChat(res, entry, message, sessionId, params, 
   let engineInitError = null;
   try { await ensureEngineInit(); } catch (e) { engineInitError = e || new Error("engine_init_failed"); }
   const taskId = taskKey || sessionId;
+  // 复读基准必须在**开跑前**取（2026-09-16 修首轮误判）：本轮回复可能中途就落盘，
+  // 事后读文件会拿自己跟自己比 → 全新会话首轮必判复读 → 静默换模型重写。
+  const replyBaseline = (() => {
+    try { return lastAssistantReply({ sessionFile: entry?.sm?.sessionFile, tree: entry?.sm?.getTree?.() }); } catch { return null; }
+  })();
   // 兕底通道用安全模型（opencode-go 429 标记期间避开）；用户显式选中的非原生模型优先（2026-08-29 修复：
   // 之前无论选什么都用 pickFallbackDefault，导致选中 hy4-preview/claude-relay 等被静默换成商汤）
   let chatModel = pickFallbackDefault();
@@ -1128,7 +1133,7 @@ export async function handleUnifiedChat(res, entry, message, sessionId, params, 
   }
   // 输出质量守卫（2026-08-19 机制化）：兑底通道统一检测 空回复/纯思考/复读 → 自动切 fallback 重试
   const rkU = sessionId || _findKeyByEntry(entry) || "new";
-  const anomaly = classifyAnomaly({ sessionKey: rkU, text, think: result.think || "", sessionFile: entry.sm?.sessionFile });
+  const anomaly = classifyAnomaly({ sessionKey: rkU, text, think: result.think || "", sessionFile: entry.sm?.sessionFile, baseline: replyBaseline });
   // 2026-08-31 修复重复回话：守卫检测到异常（复读/空/纯思考/marker/amnesia）后，若备用模型也失败
   //    （fallback 无文本 / 无可用备用通道），text 仍是异常原文——此时绝不能把它写入会话，否则
   //    重复/空文本落盘，下次被当历史喂回模型 → 复读死循环。标记异常未解决，跳过 assistant 落盘。
@@ -1140,8 +1145,11 @@ export async function handleUnifiedChat(res, entry, message, sessionId, params, 
       writer.push("note", { text: `⚠️ ${anomaly.reason}，自动切换 ${fbModel.provider}/${fbModel.id} 重试…` });
       const fb = await directChat(fbModel, message, fallbackHistoryForDirectChat(history), { signal });
       if (fb?.text) {
-        text = fb.text;
+        // 落盘时要带标记（2026-09-16）：只推事件不落盘的话，刷新/换设备就变回"静默换模型"了
+        text = `（已切换 ${fbModel.provider}/${fbModel.id} 重新生成的回复）\n${fb.text}`;
         recordReply(rkU, text);
+        // 静默换模型是用户最直接的"乱做"体感（原话："静默换成 agnes 3.0"）：显式推事件，界面标出兜底模型
+        try { writer.push("model_switched", { provider: fbModel.provider, id: fbModel.id, sameModel: false, reason: `${anomaly.reason} → 自动切换重试` }); } catch {}
       } else {
         anomalyUnresolved = true;
         writer.push("note", { text: "⚠️ 输出守卫触发，但备用模型也无回复（请手动切换模型或重试）" });

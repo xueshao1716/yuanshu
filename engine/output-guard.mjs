@@ -46,6 +46,29 @@ export function lastReplyOf(sessionKey, sessionFile) {
   return null;
 }
 
+// 本轮**开跑之前**的基准（2026-09-16 修首轮误判）。
+// 真机现象：全新会话的第一轮就报「与上一条完整回复完全相同」，然后静默换模型重写。
+// 原因：pi 通道在本轮中就把回复写进了会话文件，而守卫 miss 内存后**读文件**当基准——
+// 读到的是它自己刚写的那条 → 必然"复读"。
+// 所以基准必须在**动笔之前**取好；取不到就是 null（首轮无基准 = 不可能复读）。
+export function lastAssistantReply({ sessionFile = null, tree = null } = {}) {
+  try {
+    const roots = Array.isArray(tree) ? tree : [];
+    if (roots.length) {
+      const flat = [];
+      const walk = (n) => { if (!n) return; if (n.entry) flat.push(n.entry); const kids = n.children instanceof Map ? [...n.children.values()] : n.children; if (Array.isArray(kids)) for (const c of kids) walk(c); };
+      for (const r of roots) walk(r);
+      for (let i = flat.length - 1; i >= 0; i--) {
+        const m = flat[i]?.message;
+        if (m?.role !== "assistant") continue;
+        const n = normReply(extractText(m.content) || "");
+        if (n.length >= 30) return n;
+      }
+    }
+  } catch {}
+  return lastReplyOf("", sessionFile);
+}
+
 /** 复读判定：与上一条完整回复（归一化后）完全相同；短回复(<30字符)不判防误伤 */
 // 2026-08-21 清理模型输出里的 undefined 污染（独创好能力：模型把 JS 占位符拼进回复）
 // 只清"孤立"的 undefined（前后是空白/标点），不误删用户内容
@@ -61,12 +84,14 @@ export function sanitizeUndefined(text) {
     .trim();
 }
 
-export function isRepeatReply(sessionKey, text, sessionFile) {
+// baseline：本轮开跑前取好的"上一条回复"（见 lastAssistantReply）。传入时不看内存/文件——
+// 因为本轮自己的回复可能已经落盘了，再看文件就成了"拿自己跟自己比"。
+export function isRepeatReply(sessionKey, text, sessionFile, baseline = undefined) {
   if (!text || normReply(text).length < 30) return false;
   // 2026-08-21 修复误判：身份类固定格式回答（"我叫小语/当前使用模型是"）天然重复（连续问"你是谁"回答一致）
   // 不算复读——身份格式回答重复是预期行为，守卫只针对"内容循环"（复读机）
   if (/我叫小语|当前使用模型是|当前使用模型：/.test(normReply(text))) return false;
-  const last = lastReplyOf(sessionKey, sessionFile);
+  const last = baseline !== undefined ? baseline : lastReplyOf(sessionKey, sessionFile);
   return !!last && last === normReply(text);
 }
 
@@ -78,7 +103,7 @@ const MARKER_ONLY_RE = /^[\(（\s]*(?:交付文件|文件交付|已交付|交付
  * @param {{sessionKey:string, text:string, think:string, sessionFile:string}} p
  * @returns {{type:'repeat'|'think-only'|'empty'|'marker'|'none', reason:string}}
  */
-export function classifyAnomaly({ sessionKey, text, think = "", sessionFile }) {
+export function classifyAnomaly({ sessionKey, text, think = "", sessionFile, baseline = undefined }) {
   const n = normReply(text);
   if (!n) {
     if (normReply(think).length >= 10) return { type: "think-only", reason: "正文为空，回答全在思考里" };
@@ -89,7 +114,7 @@ export function classifyAnomaly({ sessionKey, text, think = "", sessionFile }) {
   const AMNESIA_RE = /(这是(我们)?对话的开始|没有看到之前|无法看到之前的对话|消息似乎不太完整|我是(一个)?纯文本(对话)?助手|我无法调用其他模型|(由|by)\s*(Z\.ai|OpenAI|Anthropic|Google DeepMind)\s*训练)/i;
   if (n.length < 600 && AMNESIA_RE.test(n)) return { type: "amnesia", reason: "失忆回复：疑似池化模型未携带上下文" };
   if (/undefined/.test(n)) return { type: "undefined-leak", reason: "输出含 undefined 占位符（模型拼错/异常泄漏）" };
-  if (isRepeatReply(sessionKey, text, sessionFile)) return { type: "repeat", reason: "与上一条完整回复完全相同（repetition loop）" };
+  if (isRepeatReply(sessionKey, text, sessionFile, baseline)) return { type: "repeat", reason: "与上一条完整回复完全相同（repetition loop）" };
   return { type: "none", reason: "" };
 }
 

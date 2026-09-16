@@ -11,7 +11,7 @@ import { pathToFileURL } from "node:url";
 import { fileURLToPath } from "node:url";
 
 // ── 输出质量守卫（Output Guard）：模型不可靠是默认假设（借鉴 dsh repeat-tool-reminder）──
-import { bindOutputGuardDeps, classifyAnomaly, isRepeatReply, normReply, recordReply, sanitizeUndefined } from "./engine/output-guard.mjs";
+import { bindOutputGuardDeps, classifyAnomaly, isRepeatReply, normReply, recordReply, sanitizeUndefined, lastAssistantReply } from "./engine/output-guard.mjs";
 import { initOutputInspector, inspectOutput } from "./engine/output-inspector.mjs";
 import { initModelProbe, probeModel, pickHealthyModel } from "./engine/model-health.mjs";
 import { rateLimit, rateLimitKey } from "./engine/rate-limit.mjs";
@@ -393,9 +393,12 @@ async function retryRepeatWithFallback(message, sessionKey, writer, busEmit, cur
 （复读修正后的新回复）
 ${corrected.text}`;
     try { writer.push("delta", { text: add }); if (busEmit) busEmit("delta", { text: add }); } catch {}
+    // 让用户看得见"这段是重写来的"（2026-09-16）：以前只在正文里塞一行小字，气泡上的模型角标还是原模型
+    try { writer.push("model_switched", { provider: currentModel?.provider || "", id: currentModel?.id || "", sameModel: true, reason: "复读判定成立，同模型重写了一遍" }); } catch {}
     recordReply(sessionKey, corrected.text);
     // #229 修复：修正文本此前不落盘，会话历史里仍是旧异常回复，下轮模型看着旧回复继续复读
-    try { entry?.sm?.appendMessage({ role: "assistant", content: [{ type: "text", text: corrected.text }] }); } catch {}
+    // 2026-09-16 补：落盘时**带上"这是重写来的"标记**——只推前端不落盘的话，刷新/换设备就变回"静默"了。
+    try { entry?.sm?.appendMessage({ role: "assistant", content: [{ type: "text", text: `（复读修正后的新回复）\n${corrected.text}` }] }); } catch {}
     console.log(`[元枢] 复读引导修正成功（同模型 ${currentModel?.provider}/${currentModel?.id}）`);
     return corrected.text;
   }
@@ -409,8 +412,12 @@ ${corrected.text}`;
       // #229 修复：换模型分支此前只 recordReply 不推前端，用户看到的仍是旧异常回复；同样落盘修正文本
       const add = `\n\n（已切换 ${fbModel.provider}/${fbModel.id} 重新生成的回复）\n${fb.text}`;
       try { writer.push("delta", { text: add }); if (busEmit) busEmit("delta", { text: add }); } catch {}
+      // 静默换模型是用户最直接的"乱做"体感（他原话："静默换成 agnes 3.0"）——现在显式推一条事件，
+      // 界面会在气泡上标出「兜底 <模型>（你选的是 X）」
+      try { writer.push("model_switched", { provider: fbModel.provider, id: fbModel.id, sameModel: false, reason: "复读判断成立且同模型修正失败，已换模型重生成" }); } catch {}
       recordReply(sessionKey, fb.text);
-      try { entry?.sm?.appendMessage({ role: "assistant", content: [{ type: "text", text: fb.text }] }); } catch {}
+      // 同上：落盘也要带标记，刷新后仍然看得到"这段是兜底模型写的"（用户原话："静默换成 agnes 3.0"）
+      try { entry?.sm?.appendMessage({ role: "assistant", content: [{ type: "text", text: `（已切换 ${fbModel.provider}/${fbModel.id} 重新生成的回复）\n${fb.text}` }] }); } catch {}
       return fb.text;
     }
   }
@@ -787,6 +794,12 @@ async function handleChat(req, res, body) {
   const thisGen = entry.gen;
   entry.busy = true;
   entry.busySince = Date.now();
+  // 复读守卫的基准：**必须在动笔之前取**（2026-09-16 修首轮误判）。
+  // pi 通道会在本轮中途就把回复写进会话文件；事后读文件当基准 = 拿自己跟自己比 → 全新会话首轮必判复读，
+  // 然后静默换模型重写。取不到就是 null：首轮没有"上一条"，不可能复读。
+  const replyBaseline = (() => {
+    try { return lastAssistantReply({ sessionFile: entry.sm?.sessionFile, tree: entry.sm?.getTree?.() }); } catch { return null; }
+  })();
 
   // /compact 手动压缩命令（Claude Code /compact 借鉴）：强制对早前历史生成结构化摘要，不消耗模型回合
   // 用法：/compact 或 /compact focus on <主题>；压缩结果写入会话（compaction 条目），返回摘要供前端展示
@@ -1439,6 +1452,7 @@ async function handleChat(req, res, body) {
         console.log(`[元枢] 空回复兜底成功: ${fbModel.provider}/${fbModel.id}`);
         // 兜底回答没带历史，必须在界面上说清楚，别让用户以为主模型变傻了
         try { writer.push("note", { text: `上面这句来自备用通道 ${fbModel.provider}/${fbModel.id}（本轮主模型空回复，兜底不带对话历史）` }); } catch {}
+        try { writer.push("model_switched", { provider: fbModel.provider, id: fbModel.id, sameModel: false, reason: "主模型空回复，走了备用通道（不带对话历史）" }); } catch {}
       } else {
         console.log(`[元枢] 空回复兜底失败: ${fbModel?.provider}/${fbModel?.id}`);
         // 明确提示：报用户选定的模型（兜底链模型只是替死鬼，报它会让用户莫名其妙）
@@ -1449,7 +1463,7 @@ async function handleChat(req, res, body) {
     //（空回复/纯思考由 sawDelta 兜底处理；此处统一 classifyAnomaly 判定，避免双重兜底）
     const rk = sessionId || findKeyByEntry(entry) || "new";
     if (sawDelta && collected) {
-      const anom = classifyAnomaly({ sessionKey: rk, text: collected, think: "", sessionFile: entry.sm?.sessionFile });
+      const anom = classifyAnomaly({ sessionKey: rk, text: collected, think: "", sessionFile: entry.sm?.sessionFile, baseline: replyBaseline });
       if (anom.type === "undefined-leak") {
         // undefined 污染：直接清理后接受（内容大部分正常，只清占位符，不打断）
         const clean = sanitizeUndefined(collected);

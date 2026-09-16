@@ -55,6 +55,8 @@ export interface ChatMessage {
   // 本轮主驾引擎（②2026-09-16）：yuanshu=元枢自制循环 / pi=兼容适配器 / dsh=外部执行引擎，另附原因
   engine?: string
   engineReason?: string
+  // 本轮回答被重写/换模型过（服务端 model_switched 事件）——"静默换成 agnes"要让用户看得见
+  switchedModel?: { provider: string; id: string; sameModel: boolean; reason: string }
   streaming?: boolean // 是否正在流式生成中
   isDraft?: boolean   // 是否是本地未同步的草稿（刷新/卡住恢复用）
 }

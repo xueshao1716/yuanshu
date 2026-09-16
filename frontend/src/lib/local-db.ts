@@ -27,6 +27,8 @@ export interface LocalMessage {
   // 本轮主驾引擎 + 原因（②2026-09-16）
   engine?: string
   engineReason?: string
+  // 本轮回答被重写/换模型过（刷新后也要看得见）
+  switchedModel?: { provider: string; id: string; sameModel: boolean; reason: string }
   ts: string                    // ISO 时间戳
   synced: boolean               // 是否已同步到服务端（message_end 后标记 true）
   draft: boolean                // 是否是未完成的草稿（流式中标记 true，完成后改 false）
