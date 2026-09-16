@@ -24,6 +24,9 @@ export interface LocalMessage {
   // 本地库也存一份，刷新后错误条同样能显示出来。
   error?: string
   stopReason?: string | null
+  // 本轮主驾引擎 + 原因（②2026-09-16）
+  engine?: string
+  engineReason?: string
   ts: string                    // ISO 时间戳
   synced: boolean               // 是否已同步到服务端（message_end 后标记 true）
   draft: boolean                // 是否是未完成的草稿（流式中标记 true，完成后改 false）

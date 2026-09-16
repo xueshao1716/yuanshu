@@ -52,6 +52,9 @@ export interface ChatMessage {
   // 以前它被静默丢掉，用户只看到"它不说话"。现在后端会带上原因，界面渲染成可重试的错误条。
   error?: string
   stopReason?: string | null
+  // 本轮主驾引擎（②2026-09-16）：yuanshu=元枢自制循环 / pi=兼容适配器 / dsh=外部执行引擎，另附原因
+  engine?: string
+  engineReason?: string
   streaming?: boolean // 是否正在流式生成中
   isDraft?: boolean   // 是否是本地未同步的草稿（刷新/卡住恢复用）
 }

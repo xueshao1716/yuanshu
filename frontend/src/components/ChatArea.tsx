@@ -36,6 +36,9 @@ interface StreamState {
   audios: string[]
   videos: string[]
   error?: string
+  // 本轮主驾引擎（服务端 engine_selected 事件）：yuanshu / pi / dsh + 原因
+  engine?: string
+  engineReason?: string
 }
 
 const emptyStream = (): StreamState => ({ text: '', think: '', thinkDone: false, conclusion: '', tools: [], notes: [], files: [], images: [], audios: [], videos: [] })
@@ -184,6 +187,10 @@ export default function ChatArea({ compactHeader, rightPanel, onRightPanel }: {
           videos: m.videos,
           model: m.model,
           ts: m.ts,
+          error: m.error,
+          stopReason: m.stopReason,
+          engine: m.engine,
+          engineReason: m.engineReason,
           synced: !m.isDraft,
           draft: !!m.isDraft,
           streaming: m.streaming,
@@ -205,6 +212,9 @@ export default function ChatArea({ compactHeader, rightPanel, onRightPanel }: {
         // 失败记录必须活到界面上（2026-09-16）：后端 extractMessages 现在会带 error/stopReason
         error: lm.error,
         stopReason: lm.stopReason,
+        // ② 引擎角标：服务端的 engine_selected 只活在流式状态里，本地库这一份负责刷新后还能看见
+        engine: (lm as any).engine,
+        engineReason: (lm as any).engineReason,
         streaming: lm.streaming,
         isDraft: lm.draft,
       } as ChatMessage))
@@ -231,6 +241,8 @@ export default function ChatArea({ compactHeader, rightPanel, onRightPanel }: {
         videos: msg.videos,
         model: msg.model,
         ts: msg.ts,
+        engine: msg.engine,
+        engineReason: msg.engineReason,
         synced: !msg.streaming && !msg.isDraft,
         draft: !!msg.isDraft || !!msg.streaming,
         streaming: msg.streaming,
@@ -440,6 +452,8 @@ export default function ChatArea({ compactHeader, rightPanel, onRightPanel }: {
         // 失败原因单独存一份（2026-09-16）：以前只把它拼进 text，于是"失败"看起来只是回复里的一句话；
         // 现在本地库也留 error，刷新后仍渲染成可重试的失败条
         ...(s.error ? { error: friendlyStreamError(s.error), stopReason: 'error' } : {}),
+        // ② 主驾引擎随消息存下来（"这条回复是谁在干活"要能回看）
+        ...(s.engine ? { engine: s.engine, engineReason: s.engineReason || '' } : {}),
         ...(model ? { model } : {}),
       })
       // 完成提示音：双声"叮叮"（800Hz 0.1s + 1000Hz 0.15s）
@@ -489,6 +503,13 @@ export default function ChatArea({ compactHeader, rightPanel, onRightPanel }: {
     const d = event.data || {}
 
     switch (event.type) {
+      case 'engine_selected': {
+        // ② 每轮标出"主驾引擎 + 原因"（2026-09-16）：服务端一直有这个事件，
+        // 但前端以前把它丢了——于是"切个模型怎么连引擎和脾气都变了"全靠猜。
+        const engine = String(d.engine || '')
+        if (engine) updStream(p => ({ ...p, engine, engineReason: String(d.reason || '') }))
+        break
+      }
       case 'delta':
       case 'message': {
         const text = d.text || d.delta?.text || ''
@@ -991,6 +1012,8 @@ export default function ChatArea({ compactHeader, rightPanel, onRightPanel }: {
                     text: hasConclusion ? preToolText : stream.text + errTail,
                     conclusion: hasConclusion ? stream.conclusion + errTail : undefined,
                     think: stream.think, tools: stream.tools, notes: stream.notes,
+                    // ② 流式期间就带上主驾引擎，回复途中也能看见"这一轮谁在干活"
+                    engine: stream.engine, engineReason: stream.engineReason,
                     files: stream.files, images: stream.images, audios: stream.audios, videos: stream.videos,
                     streaming: true,
                   }} />

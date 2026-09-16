@@ -7,6 +7,13 @@ function LazyMarkdown({ text }: { text: string }) {
   return <Suspense fallback={<div className="text-pi-dim2 text-xs py-2">渲染中…</div>}><Markdown text={text} /></Suspense>
 }
 
+// ② 引擎标签：与 engine/engine-pair.mjs 里的名字保持一致，别在这里另起一套叫法
+const ENGINE_LABEL: Record<string, string> = {
+  yuanshu: '元枢自制循环',
+  pi: '兼容适配器(pi)',
+  dsh: '外部执行引擎(dsh)',
+}
+
 import { downloadApiFile, withFileToken } from '../api'
 import { scrapeVideos, dedupeMediaUrls, mediaPathKey } from '../lib/media-embed'
 import { artifactName, fileNameFromUrl } from '../lib/artifact-name'
@@ -235,6 +242,13 @@ export default function Message({ msg, onEdit, onRetry }: { msg: ChatMessage & {
       <div className="w-7 h-7 rounded-lg bg-pi-accent flex items-center justify-center text-white text-[11px] font-bold flex-shrink-0 mt-0.5"
         style={{ boxShadow: 'var(--pi-shadow-sm)' }}>语</div>
       <div className="min-w-0 flex-1">
+        {/* ② 流式期间就把"谁在干活"摆出来：换模型换引擎这件事，不该等回复完了才知道 */}
+        {streaming && msg.engine && (
+          <div className="mb-1.5">
+            <span className="px-1.5 py-0.5 rounded-pi-pill bg-pi-accent/10 text-pi-accent text-[10px]"
+              title={msg.engineReason || '本轮由这个引擎主驾'}>主驾 {ENGINE_LABEL[msg.engine] || msg.engine}</span>
+          </div>
+        )}
         {/* 工作流可视化：只在流式中显示 */}
         {streaming && phase !== 'idle' && (
           <div className="mb-3">
@@ -298,6 +312,14 @@ export default function Message({ msg, onEdit, onRetry }: { msg: ChatMessage & {
         {msg.ts && !streaming && (
           <div className="hov-reveal text-[11px] text-pi-dim2 mt-1 transition-opacity flex items-center gap-2">
             <span title={new Date(msg.ts).toLocaleString('zh-CN', { hour12: false })}>{fmtMsgTime(msg.ts)}</span>
+            {/* ② 主驾引擎：换模型会换引擎（非原生通道走元枢自制循环，原生通道走 pi 适配器），
+                这件事用户以前完全看不见，只能感觉"它脾气变了"。原因放 title。 */}
+            {msg.engine && (
+              <span className="px-1.5 py-0.5 rounded-pi-pill bg-pi-accent/10 text-pi-accent text-[10px]"
+                title={msg.engineReason || '本轮由这个引擎主驾'}>
+                主驾 {ENGINE_LABEL[msg.engine] || msg.engine}
+              </span>
+            )}
             {msg.model && <span className="px-1.5 py-0.5 rounded-pi-pill bg-pi-bg3 text-pi-dim2 text-[10px]" title={`${msg.model.provider}/${msg.model.id}`}>{msg.model.id}</span>}
           </div>
         )}
