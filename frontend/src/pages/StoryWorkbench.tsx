@@ -450,7 +450,9 @@ export function StoryPanel() {
       <div className="story-layout">
       <details open={timelineOpen} onToggle={e=>setTimelineOpen(e.currentTarget.open)} className="story-timeline"><summary>分镜时间线 · {project.scenes.reduce((n,s)=>n+s.beats.length,0)} 段</summary><ol>{project.scenes.flatMap(s=>(s.beats.length?s.beats:[emptyBeat]).map(b=>({s,b}))).map(({s,b},i)=>{
         const latest=s.outputs?.filter(r=>r.beatId===b.id).slice(-1)[0]
-        return <li key={b.id}><button disabled={Boolean(busy)} aria-current={beat?.id===b.id?'step':undefined} onClick={()=>setSelected(b.id)}><span>第 {i+1} 段 · {kindLabel[b.kind]}{b.dialogue?' · 有台词':''}{b.inputs?.length?` · 素材 ${b.inputs.length}`:''}</span><strong>{b.prompt?.slice(0,48) || b.dialogue?.split('\n')[0]?.slice(0,48) || '等待开场'}</strong><span>{latest?.status==='failed'?'生成失败':latest?.outputAssets?.length?'已有成品':latest?.status==='running'?'正在生成':'待生成'}{b.inheritFromBeatId?' · 承接前文':''}</span></button></li>
+        return <li key={b.id}><button disabled={Boolean(busy)} aria-current={beat?.id===b.id?'step':undefined} onClick={()=>setSelected(b.id)} title={b.prompt || b.dialogue || ''}><span>第 {i+1} 段 · {kindLabel[b.kind]}{b.dialogue?' · 有台词':''}{b.inputs?.length?` · 素材 ${b.inputs.length}`:''}</span>{/* 时间线只留一行：48 字塞进 200px 宽的列，一行只放得下 14 字，于是每段 3~4 行、
+    7 段撑出 2216px 的一面文字墙（真机量过）。正文进 title，想细看就点开这一段去编辑区看。 */}
+    <strong>{b.prompt?.slice(0,14) || b.dialogue?.split('\n')[0]?.slice(0,14) || '等待开场'}</strong><span>{latest?.status==='failed'?'生成失败':latest?.outputAssets?.length?'已有成品':latest?.status==='running'?'正在生成':'待生成'}{b.inheritFromBeatId?' · 承接前文':''}</span></button></li>
       })}</ol></details>
       <main className="story-main">
         <div className="story-steps"><span className="is-ready">1 想法已建立</span><span className={project.bible.characters?.length?'is-ready':''}>2 确定人物与设定</span><span className={hasOutput?'is-ready':''}>3 生成并预览</span></div>
@@ -537,8 +539,8 @@ export function StoryPanel() {
             <label>光线<input aria-label="光线" disabled={Boolean(busy)} value={shotDraft.light} onChange={e=>{setShotDraft({...shotDraft, light:e.target.value});setCompiled('')}} placeholder="例如 窗外折射的柔和自然光" /></label>
           </div>}
           {selectedKind !== 'novel' && <div className="story-form-row story-shot-spec">
-            <label>落幅 · 这一镜最后定格在哪<textarea aria-label="落幅" disabled={Boolean(busy)} rows={2} value={shotDraft.ending} onChange={e=>{setShotDraft({...shotDraft, ending:e.target.value});setCompiled('')}} placeholder="例如 落幅定格在她落寞无助的侧脸（不写，剪起来就是跳的）" /></label>
-            <label>承接 · 从上一镜的哪个落点接起<textarea aria-label="承接" disabled={Boolean(busy)} rows={2} value={shotDraft.carry} onChange={e=>{setShotDraft({...shotDraft, carry:e.target.value});setCompiled('')}} placeholder="例如 承接上一镜她关上冰柜门的落点" /></label>
+            <label>落幅<textarea aria-label="落幅" disabled={Boolean(busy)} rows={2} value={shotDraft.ending} onChange={e=>{setShotDraft({...shotDraft, ending:e.target.value});setCompiled('')}} placeholder="这一镜最后定格在哪，例如 落幅定格在她落寞无助的侧脸（不写，剪起来就是跳的）" /></label>
+            <label>承接<textarea aria-label="承接" disabled={Boolean(busy)} rows={2} value={shotDraft.carry} onChange={e=>{setShotDraft({...shotDraft, carry:e.target.value});setCompiled('')}} placeholder="从上一镜的哪个落点接起，例如 承接上一镜她关上冰柜门的落点" /></label>
           </div>}
           <p className="story-hint">镜头规格会编译成提示词最前面那几句（景别+机位 → 光线/色调/质感 → 画面 → 运镜 → 落幅 → 承接）。留空不编造；点「检查生成输入」能看到编译后的全文。</p>
           <div className="story-actions"><button className="btn-primary" disabled={Boolean(busy)||!promptDraft.trim()} onClick={run}>生成当前{kindLabel[selectedKind]}</button><button className="btn-ghost" disabled={Boolean(busy)||!promptDraft.trim()} onClick={preview}>检查生成输入</button><button className="btn-ghost" disabled={Boolean(busy)||!hasOutput} onClick={continueFromBeat}>从此处继续 · AI 构思下一段</button></div>

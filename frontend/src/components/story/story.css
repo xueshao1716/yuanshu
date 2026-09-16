@@ -31,9 +31,11 @@
 .story-timeline summary { cursor: pointer; font-size: 13px; padding-block: 12px; border-bottom: 1px solid var(--pi-border-soft); }
 .story-timeline ol { list-style: none; padding: 0; }
 .story-timeline li { border-bottom: 1px solid var(--pi-border-soft); }
-.story-timeline button { width: 100%; padding: 14px 10px; text-align: left; border-radius: var(--pi-r-sm); }
+.story-timeline button { width: 100%; padding: 8px 10px; text-align: left; border-radius: var(--pi-r-sm); }
 .story-timeline button[aria-current="step"] { background: var(--pi-accent-soft); color: var(--pi-accent); }
-.story-timeline strong { display: block; font-size: 13px; margin: 6px 0; line-height: 1.5; }
+/* 时间线一行化：正文只留一行（JSX 截 14 字），完整内容在按钮 title 里。
+   改前：padding 14px + 13px/1.5 + 48 字换行 ≈ 每段 316px，7 段撑出 2216px（真机量过）。 */
+.story-timeline strong { display: block; margin: 3px 0; font-size: 12px; line-height: 1.4; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .story-timeline span { color: var(--pi-dim); font-size: 12px; }
 .story-main { min-width: 0; }
 .story-main > * + * { margin-top: 24px; }
@@ -401,7 +403,7 @@
 /* ── 流水线状态条（engine/story-flow.mjs 下发的状态机）──
    四步胶囊 + 一句人话总状态 + 推荐动作；被挡住的动作折进 details，点开才看原因。
    为什么不做成一排灰按钮：灰按钮不解释原因，用户只能猜；这里必须给出话。 */
-.story-flow { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 16px; padding: 12px 14px; margin-bottom: 14px; border: 1px solid var(--pi-border-soft); border-radius: var(--pi-r-md); background: var(--pi-bg1); }
+.story-flow { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 12px; padding: 8px 12px; margin-bottom: 14px; border: 1px solid var(--pi-border-soft); border-radius: var(--pi-r-md); background: var(--pi-bg1); }
 .story-flow-steps { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
 .story-flow-step { display: inline-flex; align-items: center; gap: 6px; padding: 4px 10px; border-radius: 999px; font-size: 12px; color: var(--pi-dim); background: var(--pi-bg2); }
 .story-flow-step b { font-weight: 600; opacity: .75; }
@@ -409,8 +411,10 @@
 .story-flow-step.is-current { color: var(--pi-text); background: var(--pi-accent-soft); }
 .story-flow-chevron { font-style: normal; color: var(--pi-dim); margin-left: 4px; }
 .story-flow-body { flex: 1 1 260px; min-width: 0; }
-.story-flow-headline { margin: 0; font-size: 13px; color: var(--pi-text); }
-.story-flow-progress { margin: 2px 0 0; font-size: 12px; color: var(--pi-dim); }
+.story-flow-headline { margin: 0; font-size: 13px; color: var(--pi-text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* 进度数字不再单独占一行：它与胶囊表达的是同一件事，重复一行只会把状态条撑高（真机 124px）。
+   完整明细仍在胶囊与 headline 的 title 里，需要时悬停即可。 */
+.story-flow-progress { margin: 0; font-size: 11px; color: var(--pi-dim); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .story-flow-actions { display: flex; gap: 8px; flex-wrap: wrap; }
 .story-flow-blocked { flex: 1 1 100%; font-size: 12px; color: var(--pi-dim); }
 .story-flow-blocked summary { cursor: pointer; }
