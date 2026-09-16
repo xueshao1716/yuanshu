@@ -7,7 +7,9 @@ export {
   MORANDI_CARDS,
   VIVID_CARDS,
   CARD_FAMILIES,
+  SHELL_TINT,
   colorCardGradient,
   colorCardRule,
+  colorCardShellVars,
   resolveColorCard,
 } from '../../../engine/color-cards.mjs'

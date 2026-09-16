@@ -4,6 +4,7 @@ import { generateTheme, SEEDS } from '../theme/generate.mjs'
 import { applyTheme, currentTheme } from '../theme/apply'
 import { persistWallpaper, currentWallpaper } from '../theme/wallpaper.mjs'
 import { COLOR_CARDS, CARD_FAMILIES, colorCardGradient, resolveColorCard } from '../theme/colorcards.mjs'
+import { persistColorCardShell } from '../theme/colorcard-shell.mjs'
 import { THEME_CATALOG } from '../theme/palettes'
 import { ThemeApi, ColorApi } from '../api'
 import PageHeader from '../components/PageHeader'
@@ -93,8 +94,11 @@ export default function Themes() {
     setColorCardId(id) // 先反馈，再落盘；失败回滚并说清
     try {
       const r = await ColorApi.save(id)
-      setColorCardId(r?.colorCardId ?? '')
-      toast(r?.colorCardId ? `创作配色已保存：所有出图/出片都会按「${resolveColorCard(r.colorCardId)?.name || r.colorCardId}」写色调` : '已取消创作配色', 'ok')
+      const next = r?.colorCardId ?? ''
+      setColorCardId(next)
+      // 壳层（左栏/右栏/面板头）跟着换色纱：不这么做，"全局"就只有出图变了
+      persistColorCardShell(next)
+      toast(next ? `创作配色已保存：左栏/右栏与所有出图/出片都按「${resolveColorCard(next)?.name || next}」走` : '已取消创作配色，左右栏与出图回到主题默认', 'ok')
     } catch {
       setColorCardId(prev)
       toast('配色保存失败', 'error')

@@ -337,7 +337,7 @@ export default function AppLayout() {
             <T.Trigger asChild>
               <button aria-label={n.label} aria-current={route === n.route ? 'page' : undefined} title={n.label}
                 className={`desktop-rail-item rounded-pi-md flex items-center gap-2 relative transition-[background-color,color,border-color,box-shadow,transform] duration-200 ${
-                  route === n.route ? 'bg-pi-accent text-pi-on-accent shadow-md shadow-pi-accent/25' : 'text-pi-dim2 hover:text-pi-text hover:bg-pi-bg3'}`}
+                  route === n.route ? 'bg-pi-accent text-pi-on-accent shadow-md shadow-pi-accent/25' : 'text-pi-dim hover:text-pi-text hover:bg-pi-bg3'}`}
                 onClick={() => nav(n.route)}>
                 <n.icon className="w-[18px] h-[18px]" strokeWidth={1.8} />
                 <span className="desktop-rail-label">{n.label}</span>

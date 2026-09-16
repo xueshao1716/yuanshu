@@ -50,6 +50,29 @@ export const VIVID_CARDS = Object.freeze([
 
 export const COLOR_CARDS = Object.freeze([...MORANDI_CARDS, ...VIVID_CARDS])
 
+// 全局配色卡"带上界面"的浓度（左栏/右栏/面板头各一层色纱）。
+// 为什么这么低：壳层的字色 token 一个都没改，色纱是叠在底色**之上**的——浓度越高，正文掉得越多。
+// 这几个数是按"18 张卡 × 11 套主题，各自面上真正会出现的最弱字色仍 ≥4.5"解出来的（实测上限）：
+//   左/右栏底下有 dim2 小字（会话摘要）→ 上限 6%；
+//   面板头只有标题与 dim 按钮 → 上限 11%；
+//   剩下那点视觉分量交给**不压字**的装饰（边缘一道卡色、当前项描边）。
+export const SHELL_TINT = Object.freeze({ left: 0.06, right: 0.06, top: 0.11, edge: 0.5 })
+
+// 壳层要用的 CSS 变量：左栏/右栏/面板头各一层同色系纱，主色/底色/边缘色也给出来。
+export function colorCardShellVars(card) {
+  const c = typeof card === 'string' ? resolveColorCard(card) : card;
+  if (!c) return {};
+  const pct = (v) => `${Math.round(v * 100)}%`;
+  return {
+    '--pi-card-top': c.top,
+    '--pi-card-bottom': c.bottom,
+    '--pi-card-shell-left': `linear-gradient(168deg, color-mix(in srgb, ${c.top} ${pct(SHELL_TINT.left)}, transparent) 0%, transparent 72%)`,
+    '--pi-card-shell-right': `linear-gradient(200deg, color-mix(in srgb, ${c.bottom} ${pct(SHELL_TINT.right)}, transparent) 0%, transparent 76%)`,
+    '--pi-card-shell-top': `linear-gradient(90deg, color-mix(in srgb, ${c.top} ${pct(SHELL_TINT.top)}, transparent) 0%, transparent 60%)`,
+    '--pi-card-edge': `color-mix(in srgb, ${c.top} ${pct(SHELL_TINT.edge)}, transparent)`,
+  };
+}
+
 // 认 id、认中文名、认别名；**认不出来返回 null**——绝不硬塞一个默认配色，
 // 那会把"用户没选配色"变成"系统替他选了一套"。
 export function resolveColorCard(input) {

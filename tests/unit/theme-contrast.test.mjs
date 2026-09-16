@@ -14,6 +14,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { SEEDS, generateTheme, contrast } from '../../frontend/src/theme/generate.mjs';
+import { COLOR_CARDS, SHELL_TINT } from '../../engine/color-cards.mjs';
 
 const ROOT = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
 const read = (...p) => fs.readFileSync(path.join(ROOT, ...p), 'utf8');
@@ -22,6 +23,8 @@ const hexToRgb = (hex) => { const h = hex.replace('#', ''); return [0, 2, 4].map
 const rgbToHex = (rgb) => '#' + rgb.map(c => Math.round(Math.max(0, Math.min(1, c)) * 255).toString(16).padStart(2, '0')).join('');
 // 半透明色叠在底色上之后是什么颜色（组件的"软底"都这么算）
 const blend = (fg, alpha, bg) => rgbToHex(hexToRgb(fg).map((c, i) => c * alpha + hexToRgb(bg)[i] * (1 - alpha)));
+// 色纱：把卡片颜色按浓度叠到主题底色上
+const blendTint = (cardHex, alpha, baseHex) => blend(cardHex, alpha, baseHex);
 const isHex = (v) => /^#[0-9a-f]{6}$/i.test(String(v || ''));
 
 const THEMES = Object.entries(SEEDS).map(([name, seed]) => [name, generateTheme(seed), seed]);
@@ -91,4 +94,47 @@ test('不许再写死"主色底 + 白字"（各主题主色明度不同，白字
   // 主题页预览气泡同理（写死 --pi-bg 当字色）
   const themes = read('frontend', 'src', 'pages', 'Themes.tsx');
   assert.ok(!themes.includes("color: 'var(--pi-bg)'"), '主色底上的字要走 --pi-on-accent');
+});
+
+// ── 全局配色卡的壳层色纱（2026-09-16）────────────────────────────────────
+// 用户问"全局不应该左侧栏、右侧栏也带一些效果吗"。做法是给左栏/右栏/面板头叠一层低浓度色纱
+// （字色 token 一个都不动），浓度取的是**实测上限**：左/右栏底下有 dim2 小字 → 6%；
+// 面板头只有标题与 dim 按钮 → 11%。这条测试算最坏情况：18 张卡 × 11 套主题，
+// 每个面上真正会出现的最弱字色叠完色纱之后是否仍在 AA 线以上。谁调高浓度这里就红。
+test('壳层色纱：18 张卡 × 11 套主题，叠上去之后文字仍然读得清', () => {
+  const fails = [];
+  for (const [name, v] of THEMES) {
+    for (const card of COLOR_CARDS) {
+      // 左栏用卡的上端色、右栏用下端色；渐变从起点淡出，所以按起点（浓度最高处）算
+      const surfaces = [
+        ['左栏', blendTint(card.top, SHELL_TINT.left, v['--pi-bg1']), ['--pi-text', '--pi-dim', '--pi-dim2']],
+        ['右栏', blendTint(card.bottom, SHELL_TINT.right, v['--pi-bg1']), ['--pi-text', '--pi-dim', '--pi-dim2']],
+        ['面板头', blendTint(card.top, SHELL_TINT.top, v['--pi-bg1']), ['--pi-text', '--pi-dim']],
+      ]
+      for (const [surface, bg, tokens] of surfaces) {
+        for (const fgKey of tokens) {
+          const cr = contrast(v[fgKey], bg);
+          if (cr < 4.5) fails.push(`${name} + ${card.name}：${surface} ${fgKey} = ${cr.toFixed(2)} < 4.5`);
+        }
+      }
+    }
+  }
+  assert.deepEqual(fails.slice(0, 12), [], `色纱把文字压到线下了（前 12 条）：\n  ${fails.slice(0, 12).join('\n  ')}`);
+  assert.ok(SHELL_TINT.left <= 0.06 && SHELL_TINT.right <= 0.06, '左右栏色纱不该超过 6%（dim2 小字就在上面）');
+  assert.ok(SHELL_TINT.top <= 0.11, '面板头色纱不该超过 11%');
+});
+
+test('壳层色纱要真的贴到左栏/右栏/面板头，且由全局卡的开关控制', () => {
+  const css = read('frontend', 'src', 'styles.css');
+  assert.match(css, /body\.has-color-card \.col-sidebar\s*\{[^}]*background-image:\s*var\(--pi-card-shell-left\)/, '左栏要有色纱');
+  assert.match(css, /body\.has-color-card \.col-right\s*\{[^}]*background-image:\s*var\(--pi-card-shell-right\)/, '右栏要有色纱');
+  assert.match(css, /body\.has-color-card \.utility-panel-header\s*\{[^}]*background-image:\s*var\(--pi-card-shell-top\)/, '面板头要有色纱');
+  assert.match(css, /body\.has-color-card nav\.desktop-rail\s*\{[^}]*border-right-color:\s*var\(--pi-card-edge\)/, '左栏边缘要带卡色（不压字的装饰）');
+  const shell = read('frontend', 'src', 'theme', 'colorcard-shell.mjs');
+  assert.match(shell, /classList\.add\('has-color-card'\)/, '选中要挂上 has-color-card');
+  assert.match(shell, /classList\.remove\('has-color-card'\)/, '取消要把类摘掉');
+  const hook = read('frontend', 'src', 'hooks', 'useThemePreferences.ts');
+  assert.match(hook, /persistColorCardShell/, '水合时要应用壳层色纱（否则会闪一下原来的灰）');
+  const themes = read('frontend', 'src', 'pages', 'Themes.tsx');
+  assert.match(themes, /persistColorCardShell\(next\)/, '主题页保存后要立刻生效');
 });
