@@ -239,7 +239,8 @@ const NATIVE_PROVIDERS = new Set([
 ]);
 
 let defaultModel = undefined; // 在启动模型列表构建后初始化（见下）
-
+// ④ 会话级的"上一轮出过什么图、提示词是什么"（续画用；不落盘，重启即忘，够用且不污染会话文件）
+const lastMediaBySession = new Map();
 // ── 会话管理 ───────────────────────────────────────────────────────
 const activeSessions = new Map();   // id -> { agent, sm, busy }
 const skillCatalogSent = new Set(); // 已注入过「元枢内置技能库」目录的会话（每会话一次，别每轮灌一遍）
@@ -1013,10 +1014,15 @@ async function handleChat(req, res, body) {
 
   let sawDelta = false; // 是否产生过文本输出（用于空回复兜底）
   let collected = "";   // 收集主模型输出（用于媒体路由的配图/配音内容）
-  const mediaIntents = detectMediaIntents(message);
+  // ④ 续画上下文（2026-09-16）：用户上一轮在出图，这一轮只说"再换个词的出一下"——
+  // 关键词检测必然漏，宿主旁路不出图、模型又不主动调工具 → 表现就是"经常不画"。
+  const mediaKey = sessionId || findKeyByEntry(entry) || "new";
+  const lastMedia = lastMediaBySession.get(mediaKey) || null;
+  const mediaIntents = detectMediaIntents(message, { lastMediaType: lastMedia?.type, lastPrompt: lastMedia?.prompt });
+  const mediaPromptOf = (it) => extractMediaPrompt(message, { followUp: it.followUp, lastPrompt: lastMedia?.prompt });
   // 并行启动全部媒体生成（不阻塞主模型文字流式）
   let mediaPromise = mediaIntents.length
-    ? Promise.all(mediaIntents.map(it => generateMediaAsync(it, extractMediaPrompt(message))))
+    ? Promise.all(mediaIntents.map(it => generateMediaAsync(it, mediaPromptOf(it))))
     : Promise.resolve([]);
   let settledMedia = [];
   const mediaDelivered = mediaIntents.length
@@ -1040,6 +1046,15 @@ async function handleChat(req, res, body) {
           try { writer.push("media", mr); busEmit("media", mr); } catch {}
         }
         settledMedia = items;
+        // ④ 记住"这个会话上一轮出过图、用的是什么提示词"，供续画（"再换个词"）使用
+        if (items.some(i => i.type === "image")) {
+          const used = mediaIntents[0]?.followUp ? (lastMedia?.prompt || extractMediaPrompt(message)) : extractMediaPrompt(message);
+          lastMediaBySession.set(mediaKey, { type: "image", prompt: used, at: Date.now() });
+        }
+        if (items.length && mediaIntents.some(i => i.followUp)) {
+          const why = "按你上一张的要求又画了一张（宿主旁路出图：不依赖模型自己想起来调工具）";
+          try { writer.push("note", { text: why }); busEmit("note", { text: why }); } catch {}
+        }
         const notice = mediaReadyNotice(items);
         if (notice) {
           try {
@@ -1104,9 +1119,23 @@ async function handleChat(req, res, body) {
         } else if (text) {
           try {
             const scraped = extractPlayableMedia(text);
-            for (const url of scraped.videos) { writer.push("media", { type: "video", url }); busEmit("media", { type: "video", url }); }
-            for (const url of scraped.images) { writer.push("media", { type: "image", url }); busEmit("media", { type: "image", url }); }
-            for (const url of scraped.audios) { writer.push("media", { type: "audio", url }); busEmit("media", { type: "audio", url }); }
+            // 2026-09-16：从工具输出里刮出来的媒体也要走**本地化契约**。
+            // 以前是原样推给前端：真机验证时就看到一条 platform-outputs.agnes-ai.space 的外站链接
+            // 直接进了对话——那种链接会过期，图和视频迟早变裂图。这里统一 saveArtifact 后再推。
+            const pushScraped = async (type, url) => {
+              let finalUrl = url;
+              let localizeError = "";
+              try {
+                const saved = await saveArtifact({ type, url });
+                if (saved?.url) finalUrl = saved.url;
+                if (saved && !saved.local) localizeError = saved.reason || "下载失败";
+              } catch (e) { localizeError = String(e?.message || e).slice(0, 120); }
+              const payload = { type, url: finalUrl, ...(localizeError ? { localizeError } : {}) };
+              try { writer.push("media", payload); busEmit("media", payload); } catch {}
+            };
+            for (const url of scraped.videos) void pushScraped("video", url);
+            for (const url of scraped.images) void pushScraped("image", url);
+            for (const url of scraped.audios) void pushScraped("audio", url);
           } catch {}
         }
       } else if (event.type === "turn_end") {

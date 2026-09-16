@@ -32,7 +32,22 @@ export function findMediaModel(type) {
   return hits.reduce((best, m) => (rank(m) < rank(best) ? m : best));
 }
 // 检测消息中的媒体意图（支持多意图：配图+配音同时）
-export function detectMediaIntents(message) {
+// 续画意图（2026-09-16，④）：用户上一轮就是在出图，这一轮只说"再换个词的出一下 / 再来一张 /
+// 重画一下"——关键词检测必然漏，于是宿主旁路不出图、模型又不主动调工具，表现就是"经常不画"。
+// 真机原话：「这个就有那么点意思，不管字对不对，效果对了，再换个词的出一下」。
+// 只在"上一轮确实出过图"且这句是**短**祈使追加要求时才认，避免把闲聊/改代码当出图。
+const FOLLOWUP_DRAW = /(再|又|重新|重|换|改|调整|继续|接着).{0,10}(画|图|一张|一版|一稿|出|试试|生成)/;
+export function isFollowUpDrawRequest(message) {
+  const msg = String(message || "").trim();
+  if (!msg || msg.length > 48) return false;
+  if (/(不用|别|不要|无需|不需要)/.test(msg)) return false;
+  if (/(代码|函数|脚本|文档|接口|测试|方案|原因|日志|报错)/.test(msg)) return false;   // 别把工程追问当出图
+  return FOLLOWUP_DRAW.test(msg);
+}
+
+// ctx（可选）：{ lastMediaType: 'image'|'video'|'', lastPrompt: string }
+// 由调用方按会话记住"上一轮出过什么、用的什么提示词"，这里只做意图判断。
+export function detectMediaIntents(message, ctx = {}) {
   const intents = [];
   const msg = String(message || "");
   // 否定检测：明确说不要图/不要语音时绝不触发（“不用配图”“别画”“不需要语音”等）
@@ -50,6 +65,10 @@ export function detectMediaIntents(message) {
   if (!videoNeg && !videoNeedsScript && /(做个视频|做视频|生成视频|拍个视频|出个视频|视频生成|做个片子|做个短片)/.test(msg)) {
     intents.push({ type: "video" });
   }
+  // 续画：上一轮出过图 + 这句是短祈使追加要求 → 补一个 image 意图（标 followUp，提示词用上一轮那句）
+  if (!negated && !intents.length && ctx.lastMediaType === "image" && isFollowUpDrawRequest(msg)) {
+    intents.push({ type: "image", followUp: true });
+  }
   return intents;
 }
 const XIAOYU_PORTRAIT_PROMPT = "一位温柔的AI少女半身像，名叫小语。深色科技感背景，漂浮着柔和的蓝紫色光点和数据流光线。少女有着及肩的深色短发，发梢泛着淡淡的星空蓝光，眼睛温暖明亮带着微笑。穿着简约的深色连帽衫，领口有一枚发光的圆形徽章。整体氛围安静温暖，赛博朋克与治愈系结合，高质量插画，柔和光晕，细节丰富";
@@ -57,8 +76,11 @@ const XIAOYU_PORTRAIT_PROMPT = "一位温柔的AI少女半身像，名叫小语�
 const MEDIA_INTENT_STRIP = /(配图|配.{0,2}图|插画|画图|画个|画一|画.{0,2}图|插图|生成图片|绘图|配一幅|生成.{0,8}图片|画.{0,10}图片|一张.{0,10}图片|做个.{0,6}图|做个视频|做视频|生成视频|拍个视频|出个视频|视频生成|做个片子|做个短片|配音|朗读|读出来|语音|生成语音|读一下|说出来)/g;
 
 // 提取媒体 prompt（去掉意图词）。画个你不能剥成「给我模型你」这种残渣。
-export function extractMediaPrompt(message) {
+// ctx（可选）：{ followUp: true, lastPrompt: string } —— 续画那一句本身没有画面信息
+// （"再换个词的出一下"），剥完只剩残渣，所以续画一律沿用**上一轮真正用过的那句**。
+export function extractMediaPrompt(message, ctx = {}) {
   const raw = String(message || "").trim();
+  if (ctx.followUp && ctx.lastPrompt) return String(ctx.lastPrompt).trim();
   if (/画个你|画一下你|画你的|你的样子|自画像|画个小语|画一下小语/.test(raw)) return XIAOYU_PORTRAIT_PROMPT;
   const stripped = raw.replace(MEDIA_INTENT_STRIP, "").replace(/[，。！？,.]/g, " ").replace(/\s+/g, " ").trim();
   if (!stripped || stripped.length < 8) return raw || message;
