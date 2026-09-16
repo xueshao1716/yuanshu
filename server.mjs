@@ -34,6 +34,8 @@ import { noteModelFailure, clearModelFailures, modelFailureState } from "./engin
 // 2026-09-16 复查发现：出图兜底交付那条（下面 settledMedia 的 appendMessage）**绕过了**这道闸，
 // 于是"这一轮出了图 → 切到 deepseek → 下一句就不回"——这才是残留的第二处来源。
 import { sdkSafeAssistantBlocks } from "./engine/yuanshu-session.mjs";
+// @文件引用里的二进制文件不能内联（2026-09-16，外部机器安装检查第 4 个 bug）：见 engine/file-inline.mjs
+import { isBinaryReference, binaryReferenceNote } from "./engine/file-inline.mjs";
 import { advanceGoalTurn, noteGoalError, goalPrompt, listGoals, createGoal, armGoal, pauseGoal, settleGoal, disarmAllGoals } from "./engine/goals.mjs";
 import { sandboxModeView, recordSandboxMode } from "./engine/sandbox-session.mjs";
 import { sweepInterruptedRuns } from "./engine/story-store.mjs";
@@ -665,6 +667,14 @@ async function handleChat(req, res, body) {
     const parts = [];
     for (const f of body.files.slice(0, 20)) {
       if (!f?.path || typeof f.content !== "string") continue;
+      // 二进制文件不内联（2026-09-16，外部机器安装检查的第 4 个 bug）：
+      // xlsx/docx/pdf/zip/图片的字节拼进 prompt 就是一堆乱码——费 token、污染对话，
+      // 模型还会照着乱码猜内容。换成一条"按路径解析"的提示（/api/parse-file 支持 docx/xlsx/pptx）。
+      if (isBinaryReference(f)) {
+        console.log(`[chat] 跳过二进制参考文件内联: ${f.path}`);
+        parts.push(binaryReferenceNote(f.path));
+        continue;
+      }
       if (f.content.length > 150000) f.content = f.content.slice(0, 150000) + "\n…[已截断]";
       parts.push(`参考文件 ${f.path}：\n\`\`\`\n${f.content}\n\`\`\``);
     }

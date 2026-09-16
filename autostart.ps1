@@ -13,7 +13,9 @@
 # 会把脚本原文当输出打出来并且静默失败（2026-09-14 在 restart-pi-web.ps1 上踩过）。
 $ErrorActionPreference = 'Stop'
 
-$root     = 'D:\pi-web'
+# 不写死盘符（2026-09-16，外部机器安装检查的第 2 个 bug）：本脚本所在目录就是仓库根。
+# $PSScriptRoot 在以 `powershell -File` 方式运行时可用；粘贴执行时可能为空，退回当前目录。
+$root     = if ($PSScriptRoot) { $PSScriptRoot } else { (Get-Location).Path }
 $user     = "$env:USERDOMAIN\$env:USERNAME"
 $nodeArgs = '-WindowStyle Hidden -NoProfile -Command "& node ' + (Join-Path $root 'watchdog.cjs') + '"'
 

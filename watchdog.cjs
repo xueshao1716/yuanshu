@@ -5,7 +5,9 @@ const path = require("path");
 const fs = require("fs");
 
 const PORT = 8787;
-const WEB_DIR = "D:/pi-web";
+// 不写死盘符（2026-09-16，外部机器安装检查的第 1 个 bug）：脚本自身所在目录就是仓库根，
+// 换盘、迁移、换机器都不用改。写死 "D:/pi-web" 时 watchdog 找不到 server.mjs，服务拉不起来。
+const WEB_DIR = __dirname;
 const LOCK = path.join(WEB_DIR, ".watchdog.lock");
 const LOG = path.join(WEB_DIR, "watchdog.log");
 let restartCount = 0;

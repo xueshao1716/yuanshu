@@ -8,6 +8,51 @@
 
 ## [Unreleased]
 
+## [2.50.0] - 2026-09-16
+
+### 修复：外部机器安装检查的 4 个问题全部收进上游（换盘/换机器不再需要本地补丁）
+
+来源：另一台电脑（项目在 `C:\Users\xue-x\pi-web`）装完后发现 4 个问题，一直靠一份**本地补丁**
+（`pi-web本地补丁.patch`）在每次 `git pull` 后重打。这次全部直接修进上游，补丁可以退休了。
+
+**1. `watchdog.cjs`：守护进程不再写死盘符**
+`const WEB_DIR = "D:/pi-web"` → `__dirname`（脚本自身目录）。写死时换盘/换机器就找不到 `server.mjs`，服务拉不起来。
+
+**2. `autostart.ps1`：开机自启任务指向脚本自身所在目录**
+`$root = 'D:\pi-web'` → `$root = if ($PSScriptRoot) { $PSScriptRoot } else { (Get-Location).Path }`。
+
+**3. `scripts/restart-pi-web.ps1`：重启脚本同理**
+`$root` → `Split-Path -Parent $PSScriptRoot`（它在 `scripts/` 下，上一级才是仓库根）。
+两个 `.ps1` 都**保持 UTF-8 with BOM**（编辑后逐一校验字节 `EF BB BF`——没有 BOM 时
+`powershell -File` 会把脚本原文当输出打出来并静默失败，这是 9-14 踩过的坑）。
+真机验证：用 `powershell -NoProfile -File .\scripts\restart-pi-web.ps1` 跑了一次，它按 `$root`
+找到了 `server.mjs` 并重启成功（`元枢已就绪：8787 /api/health = 200`）。
+
+**4. `server.mjs`：@文件引用的二进制文件不再内联进对话（这台机器最在意的那个）**
+xlsx/docx/pdf/zip/图片的字节拼进 prompt 就是乱码——费 token、污染对话，模型还会照着乱码猜内容。
+新增 `engine/file-inline.mjs`：
+- `isBinaryReference(file)`：先看扩展名（xlsx/docx/pdf/zip/图片/音视频/字体/数据库…），
+  再看**内容控制字符比例**（>5% 判为二进制，挡住"被改名成 .txt 的二进制"）；
+- 命中就不拼字节，改成一条**可执行**的提示：按路径用 `POST /api/parse-file`（支持 docx/xlsx/pptx）解析，
+  不要凭空猜测内容；
+- **反向防误判**：`.txt/.md/.json/.csv/.svg/.log/.xml` 等文本一律照旧内联——误判比乱码更糟，
+  模型会以为文件是空的然后开始编。
+
+真机验证（带真附件跑一轮，读回会话里的用户消息）：
+
+```
+附 sample.xlsx（含 NUL 字节）
+  → prompt 里是：「参考文件 …sample.xlsx：（二进制文件，原始内容不适合内联到对话，已跳过。
+     请按此路径用文件解析工具读取——POST /api/parse-file 支持 docx/xlsx/pptx…）」
+  → 原始字节/NUL：0 处
+对照附 sample-note.txt → 全文照旧内联 ✅
+```
+
+测试：+4（扩展名判定与防误判、内容嗅探、提示文案、`server.mjs` 必须在内联之前判定），1351 → **1355 全绿**。
+
+> 另一台机器怎么收：`cd C:\Users\xue-x\pi-web` → `git checkout -- watchdog.cjs autostart.ps1 scripts/restart-pi-web.ps1 server.mjs`
+> （丢掉本地改动）→ `git pull` → `node --check server.mjs` → 重启 8787。
+> 之后 `pi-web本地补丁.patch` 与那份说明可以留着做备份，但**不需要再打**了。
 ## [2.49.0] - 2026-09-16
 
 ### 修复（③残留）：出图交付那条记录绕过了安全检查——"出过图之后切 deepseek 就不回话"的第二处来源

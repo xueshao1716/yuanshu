@@ -1,6 +1,8 @@
 ﻿$ErrorActionPreference = 'Stop'
 
-$root = 'D:\pi-web'
+# 不写死盘符（2026-09-16，外部机器安装检查的第 3 个 bug）：本脚本在 scripts/ 下，
+# 它的上一级就是仓库根。$PSScriptRoot 在以 `powershell -File` 运行时可用，否则退回当前目录。
+$root = if ($PSScriptRoot) { Split-Path -Parent $PSScriptRoot } else { (Get-Location).Path }
 $port = 8787
 $healthUrl = "http://127.0.0.1:$port/api/health"
 $server = Join-Path $root 'server.mjs'
