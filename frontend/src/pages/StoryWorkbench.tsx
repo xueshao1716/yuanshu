@@ -16,6 +16,7 @@ import StoryAdapt from '../components/story/StoryAdapt'
 import StoryMethod from '../components/story/StoryMethod'
 import StoryFilm from '../components/story/StoryFilm'
 import StoryProjects from '../components/story/StoryProjects'
+import StorySkeleton from '../components/story/StorySkeleton'
 import StoryCraft from '../components/story/StoryCraft'
 import StoryDialogue from '../components/story/StoryDialogue'
 import StoryBatch from '../components/story/StoryBatch'
@@ -35,6 +36,8 @@ const capable = (m: Model, kind: StoryBeat['kind']) => Boolean(m.capabilities?.[
 export function StoryPanel() {
   const [projects, setProjects] = useState<StoryProject[]>([])
   const [project, setProject] = useState<StoryProject | null>(null)
+  // 首屏：项目列表还在路上时用骨架占位，而不是先渲染「开始一个故事」再跳走
+  const [loading, setLoading] = useState(true)
   const [selected, setSelected] = useState('')
   const [busy, setBusy] = useState('')
   const [error, setError] = useState('')
@@ -95,7 +98,7 @@ export function StoryPanel() {
   const load = async () => {
     setBusy('正在加载故事'); setError('')
     try { const r = await StoryApi.listProjects(); setProjects(r.projects); choose(r.projects.find(p => p.id === project?.id) || r.projects[0] || null) }
-    catch (e: any) { setError(e.message || '加载失败，请刷新重试') } finally { setBusy('') }
+    catch (e: any) { setError(e.message || '加载失败，请刷新重试') } finally { setBusy(''); setLoading(false) }
   }
   useEffect(() => { void load(); void ModelsApi.list().then(r => setModels(r.models || [])).catch(() => setError('模型列表加载失败，请刷新页面重试')) }, [])
   const action = async (label: string, fn: () => Promise<void>) => {
@@ -442,9 +445,11 @@ export function StoryPanel() {
       onNotice={setNotice}
       onError={setError}
     />
-    <div aria-live="polite">{busy && <p role="status" className="story-notice">{busy}…</p>}{notice && <p role="status" className="story-notice">{notice}</p>}</div>
+    {/* 加载时不再叠一行「正在加载故事…」：骨架已经把这件事说清楚了，
+        文字盖在上面只是噪音（真机截图里它正好压在骨架第一行上）。 */}
+    <div aria-live="polite">{busy && !loading && <p role="status" className="story-notice">{busy}…</p>}{notice && <p role="status" className="story-notice">{notice}</p>}</div>
     {error && <p role="alert" className="story-notice story-error">{error}</p>}
-    {!project ? <StoryStart busy={Boolean(busy)} onStart={start}><label className="story-model-select">构思模型<select value={planningModel} disabled={Boolean(busy)} onChange={e=>setPlanningModel(e.target.value)}><option value="">自动选择文本模型</option>{models.filter(m=>capable(m,'novel')).map(m=><option key={modelKey(m)} value={modelKey(m)}>{m.name || m.id}</option>)}</select></label></StoryStart> : <>
+    {loading ? <StorySkeleton /> : !project ? <StoryStart busy={Boolean(busy)} onStart={start}><label className="story-model-select">构思模型<select value={planningModel} disabled={Boolean(busy)} onChange={e=>setPlanningModel(e.target.value)}><option value="">自动选择文本模型</option>{models.filter(m=>capable(m,'novel')).map(m=><option key={modelKey(m)} value={modelKey(m)}>{m.name || m.id}</option>)}</select></label></StoryStart> : <>
       {/* 状态条必须放在 .story-layout **外面**：那是个两列网格（时间线 | 编辑器），
           当成第一个 grid 子元素塞进去，它自己会占掉 200px 的时间线列，
           把时间线、编辑器、结果整列挤偏——真机上的"排版乱了"就是这么来的。 */}

@@ -89,7 +89,20 @@ const railItem = (route: (typeof RAIL_PRIMARY)[number] | (typeof RAIL_MORE)[numb
 }
 
 function PageLoader() {
-  return <div className="flex-1 flex items-center justify-center text-pi-dim2 text-sm">加载中…</div>
+  // 路由懒加载的兜底（2026-09-16 视觉整理）：以前是一行居中的「加载中…」。
+  // 文字闪一下不如用灰块把"这一页正在成型"先画出来——它发生在**任何**页面，
+  // 包括连续创作（那条路径下用户最容易以为"我的故事没了"）。
+  return (
+    <div className="flex-1 min-w-0 p-6 space-y-4" role="status" aria-label="加载中">
+      <div className="h-6 w-40 rounded-pi-sm bg-pi-bg2 animate-pulse" />
+      <div className="h-24 rounded-pi-md bg-pi-bg2 animate-pulse" />
+      <div className="grid grid-cols-2 gap-4">
+        <div className="h-16 rounded-pi-md bg-pi-bg2 animate-pulse" />
+        <div className="h-16 rounded-pi-md bg-pi-bg2 animate-pulse" />
+      </div>
+      <div className="h-4 w-1/2 rounded-pi-sm bg-pi-bg2 animate-pulse" />
+    </div>
+  )
 }
 
 // 元枢壳框架：顶部自绘标题栏（浏览器里渲染为 null 不占位）+ 内容区占满剩余高度

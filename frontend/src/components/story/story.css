@@ -300,9 +300,10 @@
 .story-settings-grid { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 16px; margin: 16px 0; }
 /* 角色定妆照：形象参考图，后续画面/视频会真的带上它 */
 .story-portraits { margin: 16px 0; padding: 12px; border: 1px solid var(--pi-border-soft); border-radius: var(--pi-r-md); background: var(--pi-bg1); }
-.story-portraits-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 8px; margin-bottom: 10px; }
-.story-portrait-list { display: grid; grid-template-columns: repeat(auto-fill,minmax(140px,1fr)); gap: 12px; }
-.story-portrait-card { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+.story-portraits-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 8px; margin-bottom: 8px; }
+/* 8px 刻度：卡片之间 16（区块间），卡片内部 8（块内）。原来 12/6 是"看着差不多"，眼睛读不出层级。 */
+.story-portrait-list { display: grid; grid-template-columns: repeat(auto-fill,minmax(140px,1fr)); gap: 16px; }
+.story-portrait-card { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
 .story-portrait-card img { width: 100%; aspect-ratio: 1; object-fit: cover; border-radius: var(--pi-r-sm); border: 1px solid var(--pi-border-soft); background: var(--pi-bg2); }
 /* 外站临时链接会过期：参考图也是产物，同样受本地化契约约束 */
 .story-external { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin: 12px 0; padding: 10px 12px; border: 1px solid var(--pi-warn, #d08770); border-radius: var(--pi-r-sm); background: var(--pi-bg2); font-size: 12px; }
@@ -463,3 +464,31 @@
 .story-look.is-done { background: var(--pi-accent-soft); }
 .story-look-btn { border: 0; background: transparent; color: var(--pi-text); font-size: 12px; padding: 2px 8px; cursor: pointer; border-radius: 999px; }
 .story-look-btn:disabled { opacity: .6; cursor: default; }
+/* 形象自成一组（2026-09-16）：标题 + 芯片 + 「新增形象」同排，和「重新生成」分开。
+   8px 刻度：组内 8、与上一块（缩略图/名字）间距 8，靠虚线分隔出"这是一个子分组"。 */
+.story-look-row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: 8px 0 0; padding-top: 8px; border-top: 1px dashed var(--pi-border-soft); }
+.story-look-title { font-size: 11px; letter-spacing: .08em; color: var(--pi-dim2); }
+.story-look-add { border: 1px dashed var(--pi-border); background: transparent; color: var(--pi-dim); font-size: 12px; padding: 2px 8px; border-radius: 999px; cursor: pointer; }
+.story-look-add:hover:not(:disabled) { color: var(--pi-text); border-color: var(--pi-accent); }
+.story-look-add:disabled { opacity: .6; cursor: default; }
+
+/* 首屏骨架：项目列表还在路上时，用灰块把**真实版式**先占住（状态条 / 左时间线 /
+   中编辑器 / 右结果），数据到了原地替换，不发生重排。
+   为什么值得写：以前这一段渲染的是「开始一个故事」，会先闪一屏"你没有故事"再跳走。 */
+.story-skeleton { display: grid; gap: 16px; }
+.story-skeleton-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 8px 12px; border: 1px solid var(--pi-border-soft); border-radius: var(--pi-r-md); background: var(--pi-bg1); }
+.story-skeleton-pill { width: 64px; height: 24px; border-radius: 999px; }
+.story-skeleton-layout { display: grid; grid-template-columns: 200px minmax(0,1fr) 320px; gap: 28px; align-items: start; }
+.story-skeleton-col { display: grid; gap: 8px; padding: 12px; border: 1px solid var(--pi-border-soft); border-radius: var(--pi-r-md); background: var(--pi-bg1); }
+.story-skeleton-line { height: 12px; border-radius: var(--pi-r-sm); }
+.story-skeleton-line.is-title { height: 16px; width: 40%; }
+.story-skeleton-line.is-short { width: 60%; }
+.story-skeleton-line.is-wide { flex: 1 1 200px; }
+.story-skeleton-block { height: 96px; border-radius: var(--pi-r-sm); }
+.story-skeleton-block.is-thumb { height: auto; aspect-ratio: 1; }
+.story-skeleton :is(.story-skeleton-pill,.story-skeleton-line,.story-skeleton-block) { background: var(--pi-bg2); animation: story-skeleton-pulse 1.6s ease-in-out infinite; }
+@keyframes story-skeleton-pulse { 0%, 100% { opacity: 1 } 50% { opacity: .55 } }
+/* 动效是装饰，不是信息：系统要求减少动态时就关掉 */
+@media (prefers-reduced-motion: reduce) { .story-skeleton :is(.story-skeleton-pill,.story-skeleton-line,.story-skeleton-block) { animation: none } }
+@media (max-width: 1100px) { .story-skeleton-layout { grid-template-columns: 160px minmax(0,1fr); } }
+@media (max-width: 720px) { .story-skeleton-layout { grid-template-columns: minmax(0,1fr); } }

@@ -61,21 +61,33 @@ export default function StorySettings({ values, busy, characters, locations = []
             <strong title={item.name || item.id}>{item.name || item.id}</strong>
             {looks.length > 0 && <span className="story-hint">已添加形象 {done}/{looks.length}</span>}
             {isExternal(item.refImage) && <span className="story-portrait-warn">外链 · 会过期</span>}
-            {looks.length > 0 && <div className="story-look-list">{looks.map(l => (
-              <span key={l.id || l.name} className={`story-look${l.refImage ? ' is-done' : ''}`} title={l.refImage ? '已生成' : '还没生成'}>
-                <button type="button" className="story-look-btn" disabled={busy}
-                  onClick={() => onPortrait(item as StoryCharacter, l.name)}>{l.name || '形象'}</button>
-              </span>
-            ))}</div>}
+            {/* 形象自成一组（2026-09-16 视觉整理）：标题 + 形象芯片 + 「新增形象」同排，
+                和下面的「重新生成」分开。混在一行时看不出"哪几个是形象、哪个是新增"，
+                也看不出点一下是重新生成**哪一张**。 */}
+            {g.key === 'character' && <div className="story-look-row">
+              <span className="story-look-title">形象</span>
+              <div className="story-look-list">
+                {looks.map(l => (
+                  <span key={l.id || l.name} className={`story-look${l.refImage ? ' is-done' : ''}`} title={l.refImage ? '已生成' : '还没生成'}>
+                    <button type="button" className="story-look-btn" disabled={busy}
+                      onClick={() => onPortrait(item as StoryCharacter, l.name)}>{l.name || '形象'}</button>
+                  </span>
+                ))}
+                {looks.length === 0 && <span className="story-hint">还没有形象变体</span>}
+                <button type="button" className="story-look-add" disabled={busy}
+                  title="换装、雨夜、便装……每种形象各生成一张；换装段落才有一致的参考图"
+                  onClick={() => { const name = window.prompt('新形象叫什么？（例如：战斗装束 / 便装 / 雨夜）', ''); if (name && name.trim()) onPortrait(item as StoryCharacter, name.trim()) }}>
+                  ＋ 新增形象
+                </button>
+              </div>
+              {looks.length > 0 && <span className="story-hint">已生成 {done}/{looks.length}</span>}
+            </div>}
             <div className="story-actions">
               <button type="button" className="btn-ghost" disabled={busy}
+                title={g.key === 'character' ? '重新生成基础形象（脸与体格的那张基准图）' : undefined}
                 onClick={() => (g.key === 'character' ? onPortrait(item as StoryCharacter) : onAssetRef?.(g.key, item))}>
                 {item.refImage ? '重新生成' : g.cta}
               </button>
-              {g.key === 'character' && <button type="button" className="btn-ghost" disabled={busy}
-                onClick={() => { const name = window.prompt('新形象叫什么？（例如：战斗装束 / 便装 / 雨夜）', ''); if (name && name.trim()) onPortrait(item as StoryCharacter, name.trim()) }}>
-                新增形象
-              </button>}
             </div>
           </div>
         })}</div>
