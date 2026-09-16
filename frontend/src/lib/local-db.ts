@@ -20,6 +20,10 @@ export interface LocalMessage {
   audios?: string[]
   videos?: string[]
   model?: { provider: string; id: string }
+  // 本轮失败原因（2026-09-16）：pi 通道失败只落一条 stopReason=error 的记录，
+  // 本地库也存一份，刷新后错误条同样能显示出来。
+  error?: string
+  stopReason?: string | null
   ts: string                    // ISO 时间戳
   synced: boolean               // 是否已同步到服务端（message_end 后标记 true）
   draft: boolean                // 是否是未完成的草稿（流式中标记 true，完成后改 false）
@@ -270,6 +274,12 @@ export function mergeMessages(localMsgs: LocalMessage[], serverMsgs: any[]): Loc
     const matchIndex = findMessageIndex(server, serverId)
     if (matchIndex >= 0) {
       merged[matchIndex] = mergeServerMessage(merged[matchIndex], server)
+      // 服务端知道"这一轮失败了"而本地旧副本不知道（2026-09-16）：
+      // 本地优先策略会把 error 字段盖掉，于是失败条永远不显示——缺就补上。
+      if (server.error && !merged[matchIndex].error) {
+        merged[matchIndex].error = server.error
+        merged[matchIndex].stopReason = server.stopReason || 'error'
+      }
       indexAt(matchIndex, merged[matchIndex])
       continue
     }
@@ -287,6 +297,8 @@ export function mergeMessages(localMsgs: LocalMessage[], serverMsgs: any[]): Loc
       audios: server.audios,
       videos: server.videos,
       model: server.model,
+      error: server.error,
+      stopReason: server.stopReason,
       ts: server.ts,
       synced: true,
       draft: false,

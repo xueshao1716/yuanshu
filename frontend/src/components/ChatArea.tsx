@@ -202,6 +202,9 @@ export default function ChatArea({ compactHeader, rightPanel, onRightPanel }: {
         videos: lm.videos,
         model: lm.model,
         ts: lm.ts,
+        // 失败记录必须活到界面上（2026-09-16）：后端 extractMessages 现在会带 error/stopReason
+        error: lm.error,
+        stopReason: lm.stopReason,
         streaming: lm.streaming,
         isDraft: lm.draft,
       } as ChatMessage))
@@ -434,6 +437,9 @@ export default function ChatArea({ compactHeader, rightPanel, onRightPanel }: {
         files: s.files, images: s.images, audios: s.audios, videos,
         ts: new Date().toISOString(),
         streaming: false, isDraft: false,
+        // 失败原因单独存一份（2026-09-16）：以前只把它拼进 text，于是"失败"看起来只是回复里的一句话；
+        // 现在本地库也留 error，刷新后仍渲染成可重试的失败条
+        ...(s.error ? { error: friendlyStreamError(s.error), stopReason: 'error' } : {}),
         ...(model ? { model } : {}),
       })
       // 完成提示音：双声"叮叮"（800Hz 0.1s + 1000Hz 0.15s）
@@ -688,6 +694,16 @@ export default function ChatArea({ compactHeader, rightPanel, onRightPanel }: {
       finalize()
     }
     scroll()
+  }
+
+  // 失败重试（2026-09-16）：这一轮的 assistant 报错了，就把它前面最近那条用户消息重发一次。
+  // 之前失败是"静默"的：记录被后端滤掉、界面什么都不显示，用户只能自己猜着重打一遍。
+  const retryFailed = (m: ChatMessage) => {
+    const i = messages.findIndex(x => x.id === m.id)
+    for (let j = (i < 0 ? messages.length : i) - 1; j >= 0; j--) {
+      const prev = messages[j]
+      if (prev.role === 'user' && (prev.text || '').trim()) { void send(prev.text); return }
+    }
   }
 
   const stop = async () => {
@@ -963,6 +979,7 @@ export default function ChatArea({ compactHeader, rightPanel, onRightPanel }: {
               )}
               <TurnList
                 messages={normalMessages}
+                onRetry={retryFailed}
                 streamingNode={stream ? (() => {
                   // 阶段分区渲染：工具前文字在上、结论在工具卡后（conclusion 存在即启用分区）；
                   // 错误信息拼在最后一块，避免重复展示

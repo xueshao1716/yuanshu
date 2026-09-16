@@ -26,6 +26,9 @@ import { initFileLock, usingSharedFileQueue } from "./engine/file-lock.mjs";
 import { promptTimeText } from "./engine/yuanshu-seams.mjs";
 import { readActivityRhythm } from "./engine/activity-rhythm.mjs";
 import { settleTurnMemory } from "./engine/turn-memory.mjs";
+// 连续失败计数（2026-09-16）：pi 通道的失败不抛异常，只落一条 stopReason=error 的记录；
+// 没有状态码的失败（TypeError、协议不兼容）此前没人管，用户只看到"它不说话"。
+import { noteModelFailure, clearModelFailures, modelFailureState } from "./engine/model-failures.mjs";
 import { advanceGoalTurn, noteGoalError, goalPrompt, listGoals, createGoal, armGoal, pauseGoal, settleGoal, disarmAllGoals } from "./engine/goals.mjs";
 import { sandboxModeView, recordSandboxMode } from "./engine/sandbox-session.mjs";
 import { sweepInterruptedRuns } from "./engine/story-store.mjs";
@@ -597,6 +600,46 @@ try {
 // Pi 失败降级时也被跳过；而引擎目录声明的恰恰相反。现在由两个分支的 finally 各调一次。
 
 // 统一对话循环：openai 兼容 API → tool_calls 循环 → 思考提取
+// 本轮上游到底失败没有？pi 通道的失败**不抛异常**：它落成一条
+// { role:"assistant", content:[], stopReason:"error", errorMessage } 的记录。
+//
+// ⚠️ 必须**先看 SDK 的内存树**再看文件：失败记录是这一轮结束才落盘的，
+// 只读文件会读到上一轮的旧消息（第一版就是这么漏判的，于是又走了无历史兜底）。
+function lastTurnUpstreamError(entry) {
+  const pick = (m) => (m && m.role === "assistant" && m.stopReason === "error")
+    ? { errorMessage: String(m.errorMessage || m.error || "未给出原因"), model: m.model || "", provider: m.provider || "" }
+    : null;
+  try {
+    const roots = entry?.sm?.getTree?.();
+    if (Array.isArray(roots) && roots.length) {
+      const flat = [];
+      const walk = (node) => {
+        if (!node) return;
+        if (node.entry) flat.push(node.entry);
+        const kids = node.children instanceof Map ? [...node.children.values()] : node.children;
+        if (Array.isArray(kids)) for (const c of kids) walk(c);
+      };
+      for (const r of roots) walk(r);
+      for (let i = flat.length - 1; i >= 0; i--) {
+        const m = flat[i]?.message;
+        if (!m || m.role !== "assistant") continue;
+        return pick(m);   // 最近一条 assistant：报错就报错，没报错就是本轮正常
+      }
+    }
+  } catch {}
+  try {
+    const sf = entry?.sm?.getSessionFile?.() || entry?.sm?.sessionFile;
+    if (!sf || !fs.existsSync(sf)) return null;
+    const entries = parseSessionFile(sf) || [];
+    for (let i = entries.length - 1; i >= 0; i--) {
+      const m = entries[i]?.message;
+      if (!m || m.role !== "assistant") continue;
+      return pick(m);
+    }
+  } catch {}
+  return null;
+}
+
 async function handleChat(req, res, body) {
   let message = typeof body.message === "string" ? body.message.trim() : "";
   const sessionId = typeof body.sessionId === "string" ? body.sessionId : null;
@@ -1321,7 +1364,28 @@ async function handleChat(req, res, body) {
       }
     }
     // 空回复兜底：agent 完成但无任何文本输出（部分推理模型偶发把回答全放 <think>）→ 直调模型接口补一次
-    if (!sawDelta) {
+    // ⚠️ 2026-09-16：先分清"上游**报错**"和"模型真的空回复"——这两件事此前的处理一样，
+    // 于是上游报错时走了 directChat 无历史兜底，用户看到一句没有上下文的回答，
+    // 只能得出"它失忆了、变傻了"（真机上就是这么被误解的）。
+    const upstream = lastTurnUpstreamError(entry);
+    if (sawDelta) {
+      clearModelFailures(effModel);
+    } else if (upstream) {
+      console.log(`[元枢] 本轮上游失败 ${effModel?.provider}/${effModel?.id} → ${upstream.errorMessage}`);
+      const f = noteModelFailure(effModel, upstream.errorMessage);
+      const st = modelFailureState(effModel);
+      if (f.blocked) {
+        try { markModelBlocked(effModel, { reason: `连续 ${st?.count || f.count} 次上游失败：${f.reason}` }); } catch {}
+        console.log(`[元枢] ${f.key} 连续失败 ${st?.count || f.count} 次 → 已标冷却，后续轮次自动避开`);
+      }
+      const label = effModel ? `${effModel.provider}/${effModel.id}` : "当前模型";
+      const why = String(upstream.errorMessage || "未给出原因").slice(0, 300);
+      const note = f.blocked
+        ? `本轮 ${label} 调用失败：${why}。已连续 ${st?.count || f.count} 次失败，**已把这条路标冷却**，下一轮会自动避开它。`
+        : `本轮 ${label} 调用失败：${why}。再失败一次就会自动避开这条路。`;
+      try { writer.push("error", { message: note, retryable: true, model: label, reason: why, blocked: !!f.blocked }); busEmit("error", { message: note }); } catch {}
+    }
+    if (!sawDelta && !upstream) {
       // （重试中提前标冷却已在 auto_retry_start 事件里处理，这里只负责换备选提供回答）
       // 修复 B：空回复兕底用安全模型（避开 opencode-go 429 且排除当前模型，不再死磕 defaultModel）
       const fbModel = pickFallbackExcluding(effModel);
@@ -1329,10 +1393,12 @@ async function handleChat(req, res, body) {
       if (fallback?.text) {
         writer.push("delta", { text: fallback.text });
         console.log(`[元枢] 空回复兜底成功: ${fbModel.provider}/${fbModel.id}`);
+        // 兜底回答没带历史，必须在界面上说清楚，别让用户以为主模型变傻了
+        try { writer.push("note", { text: `上面这句来自备用通道 ${fbModel.provider}/${fbModel.id}（本轮主模型空回复，兜底不带对话历史）` }); } catch {}
       } else {
         console.log(`[元枢] 空回复兜底失败: ${fbModel?.provider}/${fbModel?.id}`);
         // 明确提示：报用户选定的模型（兜底链模型只是替死鬼，报它会让用户莫名其妙）
-        try { writer.push("error", { message: `模型 ${effModel?.provider}/${effModel?.id} 无回复（已自动尝试备用通道 ${fbModel?.provider}/${fbModel?.id} 也失败）——可能是 API Key 失效/额度不足/网络代理问题，请到模型管理检查配置` }); } catch {}
+        try { writer.push("error", { message: `模型 ${effModel?.provider}/${effModel?.id} 无回复（已自动尝试备用通道 ${fbModel?.provider}/${fbModel?.id} 也失败）——可能是 API Key 失效/额度不足/网络代理问题，请到模型管理检查配置`, retryable: true, model: `${effModel?.provider}/${effModel?.id}` }); } catch {}
       }
     }
     // 输出质量守卫：主模型输出异常（复读/纯标记/空回复）→ 自动切 fallback 重试

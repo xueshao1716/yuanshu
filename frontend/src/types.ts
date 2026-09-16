@@ -48,6 +48,10 @@ export interface ChatMessage {
   conclusion?: string // 流式阶段分区：工具开始后的结论文字（text 仍为完整逻辑文本；仅流式中传，历史消息不存）
   ts?: string
   model?: { provider: string; id: string } // provenance：实际使用的模型（Auto 路由时前端可见）
+  // 失败要留在历史里（2026-09-16）：pi 通道失败会落一条 stopReason=error 的记录，
+  // 以前它被静默丢掉，用户只看到"它不说话"。现在后端会带上原因，界面渲染成可重试的错误条。
+  error?: string
+  stopReason?: string | null
   streaming?: boolean // 是否正在流式生成中
   isDraft?: boolean   // 是否是本地未同步的草稿（刷新/卡住恢复用）
 }

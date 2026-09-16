@@ -161,7 +161,7 @@ function Attachments({ msg }: { msg: ChatMessage }) {
   )
 }
 
-export default function Message({ msg, onEdit }: { msg: ChatMessage & { streaming?: boolean }; onEdit?: (text: string) => void } & { [k: string]: any }) {
+export default function Message({ msg, onEdit, onRetry }: { msg: ChatMessage & { streaming?: boolean }; onEdit?: (text: string) => void; onRetry?: (msg: ChatMessage) => void } & { [k: string]: any }) {
   const isUser = msg.role === 'user'
   const isSystem = msg.role === 'system'
   const streaming = !!(msg as any).streaming
@@ -277,6 +277,24 @@ export default function Message({ msg, onEdit }: { msg: ChatMessage & { streamin
             </div>
           )}
         <Attachments msg={msg} />
+        {/* 失败可见（2026-09-16）：pi 通道的失败不抛异常，只落一条 stopReason=error 的记录。
+            以前它被静默丢掉，用户只看到"它不说话 / 变傻了"。现在原因留在历史里并可重试。 */}
+        {msg.error ? (
+          <div className="my-2 rounded-pi-md border border-pi-danger/40 bg-pi-danger/10 px-3 py-2">
+            <div className="flex items-start gap-2">
+              <X className="w-3.5 h-3.5 text-pi-danger mt-0.5 flex-shrink-0" aria-hidden="true" />
+              <div className="min-w-0">
+                <div className="text-[12px] text-pi-text break-words">本轮失败：{msg.error}</div>
+                <div className="text-[11px] text-pi-dim2 mt-0.5">失败不藏起来——同一个模型连续失败会自动标冷却，下一轮避开它。</div>
+              </div>
+            </div>
+            {onRetry && (
+              <button type="button"
+                className="mt-2 inline-flex items-center gap-1 text-[12px] px-2.5 py-1 rounded-pi-sm border border-pi-border-soft hover:border-pi-border text-pi-text"
+                onClick={() => onRetry(msg)}><RefreshCw className="w-3 h-3" aria-hidden="true" /> 重试这一条</button>
+            )}
+          </div>
+        ) : null}
         {msg.ts && !streaming && (
           <div className="hov-reveal text-[11px] text-pi-dim2 mt-1 transition-opacity flex items-center gap-2">
             <span title={new Date(msg.ts).toLocaleString('zh-CN', { hour12: false })}>{fmtMsgTime(msg.ts)}</span>

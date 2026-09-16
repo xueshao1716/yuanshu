@@ -40,14 +40,20 @@ const excerpt = (s: string, n = 64) => {
   return t.length > n ? t.slice(0, n) + '…' : t
 }
 
-function TurnRow({ turn, index, open, onToggle }: { turn: Turn; index: number; open: boolean; onToggle: () => void }) {
+function TurnRow({ turn, index, open, onToggle, onRetry }: { turn: Turn; index: number; open: boolean; onToggle: () => void; onRetry?: (msg: ChatMessage) => void }) {
   const { tools, artifacts } = turnStats(turn)
   const q = turn.user ? excerpt(turn.user.text || '(附件消息)') : '(系统提示)'
   const answer = turn.rest.find(m => m.role === 'assistant')
   const aExcerpt = answer?.text ? excerpt(answer.text, 80) : ''
-  // 轮次状态：有错误→红 / 有回复→绿 / 无回复（被打断）→灰
-  const hasError = turn.rest.some(m => m.tools?.some(t => t.isError))
-  const status = hasError ? { c: 'bg-pi-red', t: '有工具报错' } : answer ? { c: 'bg-emerald-400', t: '已完成' } : { c: 'bg-pi-dim2', t: '无回复' }
+  // 轮次状态：本轮失败（assistant.error）/有工具报错→红 / 有回复→绿 / 无回复（被打断）→灰
+  // 2026-09-16：assistant.error 是 pi 通道失败留下的记录，以前完全没进这个判断，
+  // 于是失败的一轮在折叠列表里看着跟"已完成"一样。
+  const assistantError = turn.rest.find(m => m.error)
+  const hasToolError = turn.rest.some(m => m.tools?.some(t => t.isError))
+  const status = assistantError
+    ? { c: 'bg-pi-red', t: `本轮失败：${assistantError.error}` }
+    : hasToolError ? { c: 'bg-pi-red', t: '有工具报错' }
+    : answer ? { c: 'bg-emerald-400', t: '已完成' } : { c: 'bg-pi-dim2', t: '无回复' }
   return (
     <div className="turn-history-row">
       <button onClick={onToggle}
@@ -59,6 +65,11 @@ function TurnRow({ turn, index, open, onToggle }: { turn: Turn; index: number; o
           {aExcerpt && <span className="text-pi-dim"> <span className="text-pi-accent2/60">→</span> {aExcerpt}</span>}
         </span>
         <span className="flex items-center gap-1.5 flex-shrink-0 text-[10px] text-pi-dim2">
+          {/* 失败在折叠状态下也要看得见（2026-09-16）：不然"本轮失败"要展开才知道 */}
+          {assistantError && (
+            <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded-pi-pill bg-pi-danger/15 text-pi-danger font-medium"
+              title={`本轮失败：${assistantError.error}`}>⚠️ 本轮失败</span>
+          )}
           {tools > 0 && <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded-pi-pill bg-white/[0.04]" title={`${tools} 次工具调用`}><Wrench className="w-3 h-3" />{tools}</span>}
           {artifacts > 0 && <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded-pi-pill bg-white/[0.04]" title={`${artifacts} 个产物`}><Package className="w-3 h-3" />{artifacts}</span>}
           {turn.user?.ts && <span className="hidden sm:inline">{new Date(turn.user.ts).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit', hour12: false })}</span>}
@@ -68,7 +79,7 @@ function TurnRow({ turn, index, open, onToggle }: { turn: Turn; index: number; o
       {open && (
         <div className="turn-expanded-content">
           {turn.user && <Message msg={turn.user} />}
-          {turn.rest.map(m => <Message key={m.id} msg={m} />)}
+          {turn.rest.map(m => <Message key={m.id} msg={m} onRetry={onRetry} />)}
         </div>
       )}
     </div>
@@ -81,9 +92,11 @@ interface TurnListProps {
   streamingNode?: React.ReactNode
   // 默认展开最近几轮（其余折叠）
   keepExpanded?: number
+  // 失败重试：把这一轮的用户消息重发一次（2026-09-16）
+  onRetry?: (msg: ChatMessage) => void
 }
 
-export default function TurnList({ messages, streamingNode, keepExpanded = 1 }: TurnListProps) {
+export default function TurnList({ messages, streamingNode, keepExpanded = 1, onRetry }: TurnListProps) {
   const turns = useMemo(() => groupTurns(messages), [messages])
   const [expanded, setExpanded] = useState<Set<string>>(new Set())
   const [showAll, setShowAll] = useState(false)
@@ -121,7 +134,7 @@ export default function TurnList({ messages, streamingNode, keepExpanded = 1 }: 
                 <span className="chat-day-divider-line" />
               </div>
             )}
-            <TurnRow turn={t} index={i} open={isOpen(t, i)}
+            <TurnRow turn={t} index={i} open={isOpen(t, i)} onRetry={onRetry}
               onToggle={() => setExpanded(prev => {
                 const next = new Set(prev)
                 if (lastKeys.has(t.key)) return next // 最后一轮默认展开，不折叠

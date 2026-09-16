@@ -151,7 +151,13 @@ export function extractMessages(entries, leafId) {
           }
         }
       }
-      if (text || files.length || images.length || videos.length || audios.length || tools.length || think) out.push({ role: "assistant", text, files, images, videos, audios, tools, think, ts: e.timestamp, id: e.id });
+      // 失败也要看得见（2026-09-16）：pi 通道的失败会落成一条 content 空、stopReason=error 的记录。
+      // 此前它不满足任何推送条件 → 被静默丢弃 → 用户只看到"它不说话/变傻了"。
+      const stopReason = m.stopReason || null;
+      const error = stopReason === "error"
+        ? String(m.errorMessage || m.error || "本轮失败（未给出原因）")
+        : stopReason === "aborted" && !text ? "本轮已停止（没有产出内容）" : "";
+      if (text || files.length || images.length || videos.length || audios.length || tools.length || think || error) out.push({ role: "assistant", text, files, images, videos, audios, tools, think, error, stopReason, ts: e.timestamp, id: e.id });
     }
   }
   return out;

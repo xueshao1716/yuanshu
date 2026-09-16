@@ -8,6 +8,49 @@
 
 ## [Unreleased]
 
+## [2.46.0] - 2026-09-16
+
+### 修复（①失败可见）：上游失败不再被藏起来，也不再拿"无历史的兜底回答"糊过去
+
+用户原话："切换到 deepseek 后，上下文记忆都没有了，还变得很傻。"——查出来是两件坏事叠在一起：
+
+1. **失败被静默丢掉**：pi 通道调用失败不抛异常，只落一条 `{role:"assistant", content:[], stopReason:"error", errorMessage}`。
+   这条记录不满足 `extractMessages` 的任何推送条件 → 整条被过滤 → 界面上什么都没发生。
+2. **兜底回答不带历史**：`!sawDelta` 分支会用 `directChat(备用模型, 当前这句话)` 补一句。
+   这条路**只发当前这一句**（没有对话历史），所以用户拿到的是一句"失忆"的回答，
+   加上第 1 条把失败藏了，观感就是"它变傻了"。
+
+改了什么：
+
+- `engine/session-utils.mjs`：`extractMessages` 把 `error` / `stopReason` 带给前端；
+  另外 `stopReason=aborted` 且无正文时标记为"本轮已停止（没有产出内容）"。
+- `server.mjs`：新增 `lastTurnUpstreamError()`，**先看 SDK 的内存树再看文件**
+  （失败记录是本轮结束才落盘，只读文件会读到上一轮的旧消息——第一版就是这么漏判的）；
+  识别到上游报错时：
+  · 日志打出真实原因；· 走 `noteModelFailure` 计数；· **不再**走无历史兜底；
+  · 推一个 `retryable` 的 error 事件，写清"哪条路失败、再失败一次就自动避开"。
+  成功一轮即 `clearModelFailures` 清零。
+- `engine/model-failures.mjs`（新）：同一条路 10 分钟内连续失败 2 次 → blocked，
+  调用方据此 `markModelBlocked`（此前只有带 HTTP 状态码的失败会被标冷却，
+  像 TypeError 这种**没有状态码**的失败根本没人管）。
+- 前端：`Message` 渲染失败条（原因 + 「重试这一条」）；`TurnList` 折叠状态下也显示红色状态点与
+  「⚠️ 本轮失败」徽标（不然要展开才知道）；`ChatArea` 的重试 = 把这一轮前面最近那条用户消息重发；
+  `mergeMessages` 补上服务端的 error 字段（本地优先策略会把失败盖掉）。
+
+真机证据（CDP，目标会话里就有一条真实的失败记录）：
+
+```
+本轮失败：Cannot read properties of undefined (reading 'length')
+失败不藏起来——同一个模型连续失败会自动标冷却，下一轮避开它。
+[重试这一条]                                  ← 都在聊天里渲染出来了
+折叠列表该轮：bg-pi-red 状态点 + 「⚠️ 本轮失败」徽标
+点「重试这一条」→ 立刻开始新一轮（streaming=true）
+```
+
+服务端同一次也留了痕：`[元枢] 本轮上游失败 opencode-go/deepseek-v4.1-flash → Cannot read properties of undefined (reading 'length')`，
+并且 `/api/sessions/:id/messages` 现在能带出这条失败记录（以前是查不到的）。
+
+测试：+3（连续失败计数/清零、失败记录必须留在历史里、上游报错不许无历史兜底），1342 → **1345 全绿**。
 ## [2.45.0] - 2026-09-16
 
 ### 修复：assistant 消息里的附件块会让整段会话不可重放（"切到 deepseek 后一句话都不回"的真因）
