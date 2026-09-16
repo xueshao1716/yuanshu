@@ -3,6 +3,7 @@ import { Check, ChevronDown, Code2, Download, RotateCcw, Trash2, Upload } from '
 import { generateTheme, SEEDS } from '../theme/generate.mjs'
 import { applyTheme, currentTheme } from '../theme/apply'
 import { persistWallpaper, currentWallpaper } from '../theme/wallpaper.mjs'
+import { MORANDI_CARDS, colorCardGradient } from '../theme/colorcards.mjs'
 import { THEME_CATALOG } from '../theme/palettes'
 import { ThemeApi } from '../api'
 import PageHeader from '../components/PageHeader'
@@ -229,6 +230,51 @@ export default function Themes() {
                   onChange={e => setDensity(parseFloat(e.target.value))}
                   className="w-full accent-pi-accent"
                 />
+              </div>
+
+              <div>
+                <div className="text-[12px] text-pi-dim2 font-semibold mb-2">
+                  配色卡{' '}
+                  <span className="text-[11px] text-pi-dim font-normal">
+                    莫兰迪高级灰 9 组 · 点一下直接套成壁纸，点色点连同主色一起换
+                  </span>
+                </div>
+                <div className="grid grid-cols-3 gap-2">
+                  {MORANDI_CARDS.map(card => {
+                    const gradient = colorCardGradient(card)
+                    const active = wallpaper === gradient
+                    return (
+                      <div
+                        key={card.id}
+                        className={`relative rounded-pi-md border overflow-hidden transition-colors ${active ? 'border-pi-accent' : 'border-pi-border hover:border-pi-border-hi'}`}
+                      >
+                        <button
+                          type="button"
+                          onClick={() => setWallpaper(gradient)}
+                          aria-pressed={active}
+                          aria-label={`配色卡 ${card.name}：${card.top} 到 ${card.bottom}`}
+                          title={`原图标注 ${card.from} / ${card.to}；渐变从上到下`}
+                          className="block w-full text-left"
+                        >
+                          <span className="block h-14" style={{ background: gradient }} />
+                          <span className="block px-2 py-1.5 bg-pi-bg1">
+                            <span className="block text-[11px] text-pi-text truncate">{card.name}</span>
+                            <span className="block text-[11px] text-pi-dim2 font-mono">{card.top}</span>
+                            <span className="block text-[11px] text-pi-dim2 font-mono">{card.bottom}</span>
+                          </span>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => selectAccent(card.top)}
+                          aria-label={`把主色换成 ${card.name} 的深端 ${card.top}`}
+                          title={`主色换成 ${card.top}`}
+                          className={`absolute top-1 right-1 w-4 h-4 rounded-full border border-white/70 shadow ${accent.toLowerCase() === card.top.toLowerCase() ? 'ring-2 ring-pi-accent' : ''}`}
+                          style={{ background: card.top }}
+                        />
+                      </div>
+                    )
+                  })}
+                </div>
               </div>
 
               <div>
