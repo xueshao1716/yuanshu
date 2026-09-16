@@ -13,13 +13,41 @@ export function extractText(content) {
 
 // 从消息 content 提取图片附件（type: image 的块）
 // 旁路出图落的是 url；会话里 read 出来的图仍可能是 data + mimeType。base64 过大（>2.5MB）省略。
+//
+// 2026-09-16：assistant 消息里的附件块一律在落盘前改写成 markdown 图片
+// （见 engine/yuanshu-session.mjs 的 sdkSafeAssistantBlocks：附件块会让 pi SDK 重放历史时
+// 抛 TypeError，整段会话不可用）。所以这里必须**同时**认文本里的 markdown 图片，
+// 否则"修好了重放"就会变成"界面上的图没了"。
+const MARKDOWN_IMAGE = /!\[[^\]]*\]\(([^)\s]+)\)/g;
+
+function imagesFromText(text) {
+  const s = typeof text === "string" ? text : "";
+  if (!s || s.indexOf("![") < 0) return [];
+  const out = [];
+  for (const m of s.matchAll(MARKDOWN_IMAGE)) if (m[1]) out.push({ url: m[1] });
+  return out;
+}
+
 export function extractImages(content) {
+  if (typeof content === "string") return imagesFromText(content);
   if (!Array.isArray(content)) return [];
   const out = [];
+  const seen = new Set();
+  const push = (img) => {
+    const key = img.url || `${img.mimeType || ""}:${String(img.data || "").slice(0, 32)}`;
+    if (seen.has(key)) return;
+    seen.add(key);
+    out.push(img);
+  };
   for (const b of content) {
-    if (!b || b.type !== "image") continue;
-    if (typeof b.url === "string" && b.url) out.push({ url: b.url });
-    else if (b.data && b.mimeType && String(b.data).length <= 2.5 * 1024 * 1024) out.push({ data: b.data, mimeType: b.mimeType });
+    if (!b) continue;
+    if (b.type === "image") {
+      if (typeof b.url === "string" && b.url) push({ url: b.url });
+      else if (b.data && b.mimeType && String(b.data).length <= 2.5 * 1024 * 1024) push({ data: b.data, mimeType: b.mimeType });
+      continue;
+    }
+    // 文本块里的 markdown 图片（落盘改写后的形态）
+    if (b.type === "text") for (const img of imagesFromText(b.text)) push(img);
   }
   return out;
 }

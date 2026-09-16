@@ -25,10 +25,47 @@ export function persistYuanshuUser(sm, message) {
   sm.appendMessage({ role: "user", content: [{ type: "text", text: String(message || "") }] });
 }
 
+// 会话里的 assistant 消息会被 pi SDK **原样重放**（切模型、或 agent 重建时读整段历史）。
+// 而 SDK 的 token 估算器只认 text / thinking 两类块，其余一律当"工具调用"去读
+// block.name.length（pi-ai/dist/utils/estimate.js:42）——于是 assistant 消息里只要有一个
+// {type:"image",url} 块，就在**发请求之前**抛
+//   TypeError: Cannot read properties of undefined (reading 'length')
+// 而且这条会话此后每次重放都崩：真机上"出图交付"那条消息把整段会话带崩，
+// 用户看到的是"切到 deepseek 后一句话都不说"（usage 0/0 + stopReason=error 被界面吞掉）。
+//
+// 所以落盘前统一做"SDK 安全化"：附件块（image/video/audio/file）改写成纯文本 markdown
+// 图片；工具调用/思考块原样保留（SDK 要靠它们配 toolResult）；其它不认识的块降级成文本或丢弃。
+// 注意：这**只**影响会话文件里 assistant 的 content，界面照样能看到图——
+// engine/session-utils.mjs 的 extractImages 会从文本里把这些 markdown 图片再抠出来。
+const SDK_SAFE_BLOCK_TYPES = new Set(["text", "thinking", "redacted_thinking", "toolCall", "tool_call", "toolResult", "tool_result", "toolUse", "tool_use"]);
+const ATTACHMENT_BLOCK_TYPES = new Set(["image", "video", "audio", "file"]);
+
+export function sdkSafeAssistantBlocks(blocks = []) {
+  const list = Array.isArray(blocks) ? blocks : [{ type: "text", text: String(blocks ?? "") }];
+  const out = [];
+  for (const b of list) {
+    if (typeof b === "string") { if (b) out.push({ type: "text", text: b }); continue; }
+    if (!b || typeof b !== "object") continue;
+    const type = String(b.type || "");
+    if (SDK_SAFE_BLOCK_TYPES.has(type)) { out.push(b); continue; }
+    if (ATTACHMENT_BLOCK_TYPES.has(type)) {
+      const label = type === "image" ? "图片" : type === "video" ? "视频" : type === "audio" ? "音频" : "文件";
+      const url = typeof b.url === "string" ? b.url : "";
+      if (url) out.push({ type: "text", text: `![${label}](${url})` });
+      else if (b.path || b.name) out.push({ type: "text", text: `[${label}] ${b.path || b.name}` });
+      continue;   // 附件绝不以块的形式留在 content 里：宁可少一条附件，也不能让整段会话不可重放
+    }
+    if (typeof b.text === "string" && b.text) out.push({ type: "text", text: b.text });
+  }
+  if (!out.length) out.push({ type: "text", text: "" });
+  return out;
+}
+
 export function persistYuanshuAssistant(sm, text, mediaItems = []) {
   if (!sm?.appendMessage) return;
   const body = typeof text === "string" ? [{ type: "text", text }] : text;
-  sm.appendMessage({ role: "assistant", content: Array.isArray(body) ? body : [{ type: "text", text: String(text || "") }] });
+  const content = sdkSafeAssistantBlocks(Array.isArray(body) ? body : [{ type: "text", text: String(text || "") }]);
+  sm.appendMessage({ role: "assistant", content });
   void mediaItems;
 }
 

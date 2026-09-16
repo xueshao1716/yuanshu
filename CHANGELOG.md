@@ -8,6 +8,51 @@
 
 ## [Unreleased]
 
+## [2.45.0] - 2026-09-16
+
+### 修复：assistant 消息里的附件块会让整段会话不可重放（"切到 deepseek 后一句话都不回"的真因）
+
+用户现象：用 Agnes 聊天出图，切到 deepseek 之后"上下文全没了、还很傻"，并且注意到"引擎也变成 pi"。
+
+查下来的链条（每一环都有证据）：
+
+1. **换模型确实会换引擎**：`server.mjs` 的 `resolveLead` 对**非原生通道**强制走元枢自制循环，
+   原生通道（`NATIVE_PROVIDERS` 里有 `opencode-go`）才走 pi 兼容适配器。
+   Agnes 不在名单里 → 元枢循环；切到 `opencode-go/deepseek-v4.1-flash` → **主驾换 pi**。界面没告诉用户。
+2. **pi 通道每次调用都失败**，失败记录是 `content: [] / usage 0-0 / stopReason: "error"`，
+   而失败原因被界面吞掉（空 content 的消息不进列表），所以看起来像"它不说话"。
+3. **失败原因定位到行**（这次是复现出来的，不是猜的）：
+
+   ```
+   TypeError: Cannot read properties of undefined (reading 'length')
+     at estimateMessageTokens (pi-ai/dist/utils/estimate.js:42:33)
+     at estimateMessages (…/estimate.js:80:19)
+     at estimateContextTokens (…/estimate.js:94:22)
+     at clampMaxTokensToContext (…/api/simple-options.js:7:45)
+     at buildBaseOptions (…/api/simple-options.js:17:20)
+     at streamSimple (…/api/openai-completions.js:536:12)
+   ```
+
+   SDK 的 token 估算器只认 `text` / `thinking` 两类块，其余一律当"工具调用"读
+   `block.name.length`。而元枢把旁路出图的交付图**以 `{type:"image",url}` 块写进了 assistant 消息**，
+   于是这段历史一旦被 pi 通道重放（切模型重建 agent 时必然重放），**在发请求之前**就抛错——
+   而且这条会话此后每次都崩。用真实历史做对照：原样重放 = 抛错；去掉那条消息 / 把图块改写 = 通过。
+
+修的什么：
+
+- `engine/yuanshu-session.mjs`：新增 `sdkSafeAssistantBlocks()`，落盘前把附件块（image/video/audio/file）
+  改写成 markdown 纯文本，工具调用/思考块原样保留（SDK 要靠它们配 toolResult）。`persistYuanshuAssistant` 走它。
+- `engine/session-utils.mjs`：`extractImages` 同时认文本里的 markdown 图片（并去重），
+  所以"修好重放"不会变成"界面上的图没了"。普通文件链接不会被误当图片。
+- `scripts/fix-session-image-blocks.mjs`：历史数据修复（默认 dry-run，`--apply` 才写盘，每个文件先备份）。
+  **已在本机执行**：358 个会话文件里 34 个命中，共 50 条 assistant 消息被改写，36 份 `.bak-<时间戳>` 备份。
+  这不是个例——8 月以来的会话里都有，任何一条遇上 pi 通道都会崩。
+
+测试：+2（改写规则与"界面仍取得到图"互相牵制），1340 → **1342 全绿**。
+
+**还没完全了结**：把修好的历史放回元枢自己的链路重放，仍然复现同一个报错文本——
+说明还有**第二处**会产生同样 TypeError 的形状（我没拿到那一次的栈：服务端没记栈）。
+下一步先做①"失败可见"（把错误+栈显示出来/记下来），再借它把第二处钉死。
 ## [2.44.0] - 2026-09-16
 
 ### 优化：中间栏按用途折叠——写作核心常开，配置与工具组默认收起
