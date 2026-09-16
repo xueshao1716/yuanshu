@@ -66,6 +66,11 @@
 .story-draft { padding-block: 16px; border-block: 1px solid var(--pi-border-soft); }
 .story-draft p { margin-block: 8px; line-height: 1.7; white-space: pre-wrap; }
 .story-results { min-width: 0; padding-left: 24px; border-left: 1px solid var(--pi-border-soft); }
+/* 并排对比时这一列不够宽（真机量过 424px 要塞 2~4 张大图 + 元数据表）：
+   把外层两列收成一列，对比网格整宽显示；退出对比（少于 2 版）自动恢复两列。
+   用 :has() 而不是往上层层传状态——省得为了一个样式把 selected 状态提到 StoryWorkbench。 */
+.story-editor-layout:has(.story-results.is-compare) { grid-template-columns: minmax(0,1fr); }
+.story-editor-layout:has(.story-results.is-compare) .story-results { padding-left: 0; border-left: 0; border-top: 1px solid var(--pi-border-soft); padding-top: 24px; }
 .story-output img, .story-output video { width: 100%; max-height: 480px; object-fit: contain; background: var(--pi-bg2); border-radius: 12px; margin-top: 12px; }
 .story-output-empty { padding: 36px 16px; background: var(--pi-bg2); color: var(--pi-dim); border-radius: 12px; font-size: 13px; line-height: 1.8; }
 .story-prose { white-space: pre-wrap; line-height: 1.9; font-size: 15px; max-height: 640px; overflow: auto; overflow-wrap: anywhere; padding: 16px 0; }

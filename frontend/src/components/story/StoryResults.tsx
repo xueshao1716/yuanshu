@@ -66,7 +66,7 @@ export default function StoryResults({ scene, beat, busy, onRerun, onCheck, onDe
     finally { setSaving(false) }
   }
   const versionNo = (run: StoryGenerationRun) => runs.length - runs.findIndex(r => r.id === run.id)
-  return <section className="story-results" aria-label="生成预览">
+  return <section className={`story-results${compared.length >= 2 ? ' is-compare' : ''}`} aria-label="生成预览">
     <div className="story-section-head">
       <h2>本段结果</h2>
       <span>{runs.length ? `${runs.length} 个版本 · 全部保留，新的在最上面` : '还没有成品'}</span>
