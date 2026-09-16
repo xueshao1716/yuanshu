@@ -67,6 +67,39 @@ test("execFileAbortable：abort 必须杀掉已启动的子进程", async () => 
   assert.ok(Date.now() - started < 8000, "断开后不能再等满超时");
 });
 
+// 2026-09-16：命令是经 shell 包一层起的（cmd /c 或 bash -lc），真正干活的是**孙子进程**。
+// 只杀 shell 会把它变成孤儿继续跑——真机上表现成"点了停止还在跑"、临时目录删不掉、
+// 以及 abort 用例被拖到 30s。这里用命令行里的唯一标记去查它是否真的没了。
+test("execFileAbortable：abort 要连孙子进程一起杀（cmd / bash 包一层也不留孤儿）", { skip: process.platform !== "win32" }, async () => {
+  const { execFile } = await import("node:child_process");
+  const { detectBashShell } = await import("../../engine/tools/unified-tools.mjs");
+  const marker = `piweb-orphan-${process.pid}-${Date.now()}`;
+  const survivors = (needle) => new Promise((resolve) => {
+    // 必须排掉 powershell 自己：这条查询的命令行里就带着 needle，会自己匹配自己。
+    execFile("powershell", ["-NoProfile", "-NonInteractive", "-Command",
+      `(Get-CimInstance Win32_Process | Where-Object { $_.Name -ne 'powershell.exe' -and $_.Name -ne 'pwsh.exe' -and $_.CommandLine -like '*${needle}*' } | Measure-Object).Count`],
+      (err, out) => resolve(err ? -1 : Number(String(out).trim())));
+  });
+  // cmd 下不能给 node -e 加引号（libuv 的转义 cmd 不认，命令会立刻以 1 退出），所以 cmd 用 ping。
+  // 两个坑：① cmd 会把 ping 的命令行拼成 `ping  -n 30 <ip>`（两个空格），拿完整命令去 -like 匹配不到；
+  // ② 不能拿 127.0.0.1 当 needle——本机的服务进程命令行里到处都是它，会自己撞上自己。
+  const cases = [["cmd", process.env.ComSpec || "cmd.exe", ["/c", "ping -n 30 127.0.0.99"], "127.0.0.99"]];
+  const bash = detectBashShell();
+  if (bash) cases.push(["bash", bash, ["-lc", `${process.execPath} -e "setTimeout(()=>{},30000)//${marker}"`], marker]);
+  for (const [label, file, args, needle] of cases) {
+    const ac = new AbortController();
+    const p = execFileAbortable(file, args, { timeout: 300000, windowsHide: true, signal: ac.signal });
+    setTimeout(() => ac.abort(), 400); // 等孙子进程真的起来再断
+    await assert.rejects(p, (e) => e?.aborted === true || e?.killed === true || /abort/i.test(String(e?.message || e)));
+    let left = await survivors(needle);
+    for (let i = 0; i < 20 && left !== 0; i++) {
+      await new Promise((r) => setTimeout(r, 250));
+      left = await survivors(needle);
+    }
+    assert.equal(left, 0, `${label}：abort 5s 后还有孤儿进程在跑`);
+  }
+});
+
 test("unifiedChat 必须接上空回合重试、截断停、工具 abort", () => {
   const chat = read("engine", "unified-chat.mjs");
   const loop = read("engine", "yuanshu-loop.mjs");

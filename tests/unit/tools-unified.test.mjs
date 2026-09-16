@@ -10,6 +10,18 @@ import {
 import { matchDenyRule, isProtectedPath, safeJoin, DANGEROUS_CMD_RE, INTERACTIVE_CMD_RE } from "../../engine/tools/security.mjs";
 import { commandTouchesSensitive } from "../../engine/tools/secrets-guard.mjs";
 
+// Windows：刚被 kill 的 shell 会攥着它当初的 cwd（临时目录）几百毫秒，期间 rmSync 报 EPERM。
+async function rmTempDir(dir, timeoutMs = 8000) {
+  const started = Date.now();
+  for (;;) {
+    try { fs.rmSync(dir, { recursive: true, force: true }); return; } catch (err) {
+      const retriable = ["EPERM", "EBUSY", "ENOTEMPTY", "EACCES"].includes(err?.code);
+      if (!retriable || Date.now() - started > timeoutMs) throw err;
+      await new Promise((r) => setTimeout(r, 150));
+    }
+  }
+}
+
 test("engine/tools 安全线（security.mjs）", (t) => {
   t.test("deny 规则：隧道/强推git/系统篡改/密钥写入命中", () => {
     assert.equal(matchDenyRule("cloudflared tunnel run")?.id, "no-tunnel");
@@ -118,7 +130,10 @@ test("engine/tools 工具集（unified-tools.mjs）", (t) => {
 
 test("engine/tools 执行器工厂（createUnifiedToolExecutor）", (t) => {
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "piweb-tools-"));
-  t.after(() => fs.rmSync(tmp, { recursive: true, force: true }));
+  // Windows 上刚被 kill 的 shell（cwd 就是这个临时目录）要几百毫秒才放开目录句柄；
+  // 期间 rmSync 直接 EPERM（实测 bash/cmd 都会，跟孤儿进程无关）。Node 自带的 maxRetries
+  // 在这个错误路径上并不吃重试，所以这里自己轮询。
+  t.after(() => rmTempDir(tmp));
   const exec = createUnifiedToolExecutor({
     cwd: () => tmp,
     safePath: (p) => safeJoin(tmp, p),

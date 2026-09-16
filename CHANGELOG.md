@@ -8,6 +8,71 @@
 
 ## [Unreleased]
 
+## [2.55.0] - 2026-09-16
+
+### 修复：同一个模型，自研循环的工具调用比 pi 多一半——因为两边"能用什么命令"不一样
+
+起因是"感觉 pi 跟 dsh 都强，我们的元枢不行"。做了一次同模型双引擎对照
+（`PI_USE_AGENT=0` 强制走自研循环，模型固定 `opencode-go/deepseek-v4.1-flash`，三个可机检任务）：
+
+| 阶段 | 引擎 | 结果 | 工具调用 | 耗时 |
+|---|---|---|---|---|
+| A | pi（兼容适配器） | 6/6 | 10 | 103s |
+| B | 元枢自研循环 | 4/6 | 16 | 251s |
+
+把工具轨迹逐条摊开：pi 一条 `grep -n` 就拿到答案（1 次调用），循环里的**同一个模型**在猜
+`findstr` / `dir /b`，试 5~7 次还有失败。所以差距不在模型，在工具语义：pi 通道走 git-bash，
+自研循环固定走 cmd.exe。
+
+**改了什么**
+
+- `engine/tools/unified-tools.mjs`：新增 `detectBashShell()`（git-bash 优先；明确不认
+  `System32\bash.exe` 那个 WSL 启动器，MSYS 风格 `/d/...` 路径进去必失败）与 `bashToolDescription()`；
+  bash 工具的描述改成**按真实 shell 动态生成**（getter）——描述说 cmd、实际给 bash 这种错配，
+  正是模型两边各试一套命令的来源。
+- 执行器：有 bash 就走 `bash -lc`，没有才回 `cmd /c`；`ensureCommandDirectories`（cmd 专用的
+  中文目录兜底）只在没有 bash 时跑。
+- 内联代码改写（`node -e` / `python -c` → 临时文件）**两条路都做**。bash 下做它不是为了引号
+  （bash 引号没问题），而是为了 abort：`bash -lc 'node -e …'` 被杀时死的是 bash，node 变孤儿
+  继续跑。顺带把 bash 探测收窄到 `usr\bin\bash.exe`——`bin\bash.exe` 只是启动器，会再 re-exec
+  出真 bash，白多一层进程。
+- 新增 `tests/unit/tool-shell-parity.test.mjs`：把"优先真 bash、描述随 shell 走、执行器真的用
+  `bash -lc`、内联代码两条路都改写"锁成回归测试。
+
+### 修复：点"停止"停不干净——abort 只杀直接子进程，孙子进程变孤儿
+
+真机现象：abort 用例被拖到 30s 才失败；被中断命令的工作目录几百毫秒内删不掉（EPERM）；
+界面上点了停止，命令还在跑。
+
+根因两条，缺一条都停不干净：
+
+1. `execFileAbortable` 只在 `execFile` 的回调里落地，而回调要等 **stdio 管道关闭**。命令是经
+   shell 包一层起的，孙子进程攥着 stdout 句柄 → "等 abort" 变成"等命令自己跑完"（实测正好 30s）。
+   现在 abort 时**立刻落地**，不再管子进程的管道。
+2. Windows 上 `child.kill()` 只杀直接子进程。现在先 `taskkill /T /F` 枚举整棵树，再补一把
+   "CIM 快照 + 由深到浅逐个点名"的扫尾——`ParentProcessId` 即使父进程已经死了也还在，所以
+   孤儿照样摸得到（taskkill 枚举树和 git-bash 启动器 re-exec 之间有竞态，实测 3 次漏 1 次）。
+
+**真机验证（红绿对照，不是"看着对"）**
+
+- 新增回归用例「abort 要连孙子进程一起杀（cmd / bash 包一层也不留孤儿）」：把树杀退回"只杀
+  直接子进程"，用例 3/3 红（`ping` 孤儿还在跑）；有树杀时绿。
+- abort 用例本身：30000ms 超时 → **120ms** 返回。
+- 校准测量仪器时踩了两个坑，已写进用例注释：`-like` 匹配 `ping` 的完整命令行匹配不到
+  （cmd 会拼成 `ping  -n 30 …`，中间是两个空格）；也不能拿 `127.0.0.1` 当 needle
+  （本机服务进程的命令行里到处都是它，会自己撞上自己）。
+- Windows 上刚被 kill 的 shell 会攥着它当初的 cwd 几百毫秒，这期间 `rmSync` 报 EPERM 是**瞬态**：
+  测试清理改成自己轮询（Node 的 `maxRetries` 在这条错误路径上并不吃重试）。
+
+测试：**1377 全绿**（净增 2 条）。
+
+### 修复：HTTP 报错被截到 150 字，诊断只能靠猜
+
+- `engine/unified-chat.mjs` 的错误文案改走 `describeHttpError`：优先摘出
+  `msg` / `displayMsg.zh` / `extError.code`，原文留 600 字。原来只留 150 字——
+  opencode-go 的 `RegionError` 正好被截在 `requires explicit opt `，
+  "到底要开什么"完全看不出来，排查只能靠猜。
+
 ## [2.54.0] - 2026-09-16
 
 ### 修复：单次输出被我们自己压死在 8192 token —— "任务太长，请拆分"的真因

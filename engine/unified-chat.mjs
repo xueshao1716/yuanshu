@@ -13,7 +13,7 @@ import { shrinkToolResult, NEEDS_PRO_RE, scavengeToolCalls, projectToolResult } 
 import { normalizeToolArgs } from "./tool-args.mjs";
 import { extractMessages, extractText } from "./session-utils.mjs";
 import { createSseWriter } from "./sse.mjs";
-import { httpJsonFetch, httpRawFetch, sessionAffinityHeaders } from "./http.mjs";
+import { httpJsonFetch, httpRawFetch, sessionAffinityHeaders, describeHttpError } from "./http.mjs";
 import { PRODUCT_VERSION } from "./version.mjs";
 import { createGateway } from "./gateway.mjs";
 import { CodeRuntime } from "../code-mode/code-runtime.mjs";
@@ -480,7 +480,10 @@ export async function unifiedChat(model, messages, opts = {}) {
       // 健康冷却（2026-08-20 泛化）：401/402/403/429/529 标记 30 分钟，Auto 路由与兜底链自动避开该模型
       if (isAuthErrorStatus(r.status)) markModelBlocked(model, { reason: `HTTP ${r.status} ${String(errBody).slice(0, 60)}` });
       else if (model.provider === "opencode-go" && /GoUsageLimit/i.test(errBody)) markModelBlocked(model, { reason: errBody });
-      return { error: `HTTP ${r.status}: ${String(errBody).slice(0, 150)}` };
+      // 用 describeHttpError：摘出 msg/displayMsg.zh/extError.code，原文留 600 字。
+      // 2026-09-16：这里原来只留 150 字，opencode-go 的 RegionError 正好被截在 "requires explicit opt "——
+      // 到底要开什么完全看不出来，诊断只能靠猜。
+      return { error: `HTTP ${r.status}: ${describeHttpError(errBody)}` };
     }
     usedModel = { provider: model.provider, id: model.id }; // provenance：本轮实际模型
     let roundStreamed = false;

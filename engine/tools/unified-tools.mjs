@@ -33,7 +33,9 @@ import { execFileAbortable } from "../yuanshu-stability.mjs";
 
 // ── 工具 schema（OpenAI function 格式）──
 export const BASE_TOOL_SCHEMAS = [
-  { type: "function", function: { name: "bash", description: "运行 Windows cmd.exe（不是 bash/PowerShell）。优先使用工作空间相对路径，媒体下载先 mkdir 再 curl/ffmpeg；不要依赖 cd /d 切换中文绝对路径。用 dir、type；中文搜文件用 node 读 UTF-8，不要 findstr。出图/视频/配音用 generate_image / generate_video / generate_tts，不要读 auth.json/.token。重定向写 2>nul。不要 curl 本机 /api/image，不要启动 Vite 5173 或第二份 8787。", parameters: { type: "object", properties: { command: { type: "string", description: "要运行的命令" } }, required: ["command"] } } },
+  // 描述由 bashToolDescription() 动态给：实际用哪个 shell 就写哪个，别再让模型自己猜
+  // （真机：描述写 cmd 而 pi 用 bash，同一个模型在两边各试一套命令，循环里白白多花 4~6 次调用）。
+  { type: "function", function: { name: "bash", get description() { return bashToolDescription() + "出图/视频/配音用 generate_image / generate_video / generate_tts，不要读 auth.json/.token。不要 curl 本机 /api/image，不要启动 Vite 5173 或第二份 8787。" }, parameters: { type: "object", properties: { command: { type: "string", description: "要运行的命令" } }, required: ["command"] } } },
   { type: "function", function: { name: "read", description: "读取文件内容（工作空间内相对路径，或磁盘上的绝对路径如 D:/proj/file.json）", parameters: { type: "object", properties: { path: { type: "string", description: "文件路径" } }, required: ["path"] } } },
   { type: "function", function: { name: "write", description: "写入文件（自动创建目录）", parameters: { type: "object", properties: { path: { type: "string", description: "文件路径（相对工作空间）" }, content: { type: "string", description: "文件内容" } }, required: ["path", "content"] } } },
   { type: "function", function: { name: "edit", description: "用精确文本替换修改文件（先 read 再 edit）", parameters: { type: "object", properties: { path: { type: "string" }, oldText: { type: "string" }, newText: { type: "string" } }, required: ["path", "oldText", "newText"] } } },
@@ -148,6 +150,43 @@ export async function webSearchTool(query, httpFetch = httpJsonFetch) {
 //   timeEngine   () => engine|null         time_task 时间引擎（可选）
 //   httpFetch    (url, opts)               web_search 用的 HTTP 客户端（可选，默认 engine/http）
 //   onLog        (msg) => void             日志回调（可选，默认 console.log）
+// ── shell 探测（2026-09-16）──────────────────────────────────────────────
+// 自研循环原本固定用 cmd.exe，而 pi 通道用的是 git-bash：同一个模型在两边的"能用什么命令"
+// 完全不同 → 在循环里它只能猜 findstr/dir，浪费 4~6 次调用。这里优先找 git-bash 对齐 pi。
+// 明确**不认** C:\Windows\System32\bash.exe（那是 WSL 启动器，MSYS 风格路径 /d/... 进去会失败）。
+// 优先 usr\bin\bash.exe（真正的 bash 本体）：bin\bash.exe 只是个启动器，会再 re-exec 出
+// usr\bin\bash.exe——多一层进程，abort/超时时就多一个杀不干净的孤儿（2026-09-16 实测：只杀启动器时
+// 真 bash 攥着工作目录不放，临时目录删都删不掉）。
+const GIT_ROOT_HINTS = [
+  process.env.ProgramFiles ? `${process.env.ProgramFiles}\\Git` : "C:\\Program Files\\Git",
+  process.env["ProgramFiles(x86)"] ? `${process.env["ProgramFiles(x86)"]}\\Git` : "C:\\Program Files (x86)\\Git",
+  process.env.LOCALAPPDATA ? `${process.env.LOCALAPPDATA}\\Programs\\Git` : null,
+].filter(Boolean);
+const BASH_CANDIDATES = [
+  process.env.YUANSHU_BASH, process.env.PI_BASH,
+  ...GIT_ROOT_HINTS.map((root) => `${root}\\usr\\bin\\bash.exe`),
+  ...GIT_ROOT_HINTS.map((root) => `${root}\\bin\\bash.exe`),
+].filter(Boolean);
+let _bashShell = undefined; // undefined=没探过 / string=用这个 / null=只能用 cmd
+
+export function detectBashShell({ refresh = false } = {}) {
+  if (!refresh && _bashShell !== undefined) return _bashShell;
+  if (process.platform !== "win32") { _bashShell = process.env.SHELL || "/bin/bash"; return _bashShell; }
+  for (const p of BASH_CANDIDATES) {
+    try { if (p && fs.existsSync(p)) { _bashShell = p; return _bashShell } } catch {}
+  }
+  _bashShell = null;
+  return _bashShell;
+}
+
+// 给模型看的描述必须和真实 shell 一致——描述说 cmd、实际给 bash（或反过来）都会让它乱试命令。
+export function bashToolDescription() {
+  const shell = detectBashShell();
+  return shell
+    ? "运行 bash（git-bash / MINGW64，Unix 语法）。用 grep -n / ls -1 | wc -l / find / sed 这类命令；工作空间路径写 /d/pi-workspace/... 或 D:/pi-workspace/... 都可以。不要用 cmd 的 findstr/dir/type(search 用 grep)。"
+    : "运行 Windows cmd.exe（不是 bash/PowerShell）。优先使用工作空间相对路径，媒体下载先 mkdir 再 curl/ffmpeg；不要用 grep/ls（用 findstr/dir）。";
+}
+
 export function createUnifiedToolExecutor(deps = {}) {
   const getCwd = deps.cwd || (() => process.cwd());
   const safePath = deps.safePath || ((p) => path.resolve(getCwd(), p || ""));
@@ -225,10 +264,18 @@ export function createUnifiedToolExecutor(deps = {}) {
         }
         // 其他常见的无输出交互命令直接拦截（避免挂起）：
         if (INTERACTIVE_CMD_RE.test(cmd)) return { text: `⚠️ 拒绝执行交互式命令（${cmd.slice(0, 40)}），可能挂起等待输入`, isError: true };
-        const runCmd = process.platform === "win32" ? rewriteCmdForWin32(cmd) : cmd;
+        // 2026-09-16：**优先用真正的 bash（git-bash / MINGW）**，与 pi 通道对齐。
+        // 真机量测：同一个模型在 pi 通道一条 `grep -n` 就拿到答案（1 次调用），
+        // 在自研循环里因为拿到的是 cmd.exe，只能猜 `findstr`/`dir /b`，试 5~7 次还有失败——
+        // 「自研循环工具调用翻倍、更慢」的主因就是这个工具语义不一致。
+        const shell = detectBashShell();
+        const runCmd = shell ? cmd : (process.platform === "win32" ? rewriteCmdForWin32(cmd) : cmd);
         // Windows cmd 引号问题修复：node -e / python -c 内联代码含换行或嵌套引号时，cmd 会拆坏代码（典型错误 "const ^^^^"）
-        // 自动改写为「写临时文件再执行」，让模型的内联脚本稳定运行，消除工具重试循环的根源
-        const fixed = rewriteInlineCode(runCmd);
+        // 自动改写为「写临时文件再执行」，让模型的内联脚本稳定运行，消除工具重试循环的根源。
+        // ⚠️ 2026-09-16：**bash 也要走这条改写**。不是为了引号（bash 引号没问题），而是为了 abort——
+        // `bash -lc 'node -e …'` 被 abort 时杀掉的是 bash，node 变成孤儿继续跑（真机把 abort 用例拖到 30s 失败）。
+        // 改写成 `execFile(node, [tmp])` 后，abort 杀的就是解释器本身，行为和以前一致。
+        const fixed = rewriteInlineCode(shell ? cmd : runCmd);
         if (fixed) {
           onLog(`[tools] 内联代码改写: ${cmd.slice(0, 60)}... -> ${fixed.file}`);
           try { fs.writeFileSync(fixed.file, fixed.code, "utf8"); } catch {}
@@ -238,10 +285,12 @@ export function createUnifiedToolExecutor(deps = {}) {
         // 非零退出码也返回输出（如 grep 无匹配、git status 非干净状态），让模型自行判断；仅超时/被 kill 视为异常
         // 注意：改写后的内联代码必须绕过 cmd（cmd 会把带引号的绝对路径与 cwd 拼接，导致 MODULE_NOT_FOUND），直接 execFile 解释器
         const runOpts = { encoding: "buffer", timeout: 300000, cwd: getCwd(), windowsHide: true, maxBuffer: 16 * 1024 * 1024, signal: ctx.signal };
-        if (process.platform === "win32") ensureCommandDirectories(runCmd);
+        if (process.platform === "win32" && !shell) ensureCommandDirectories(runCmd);
         const run = fixed
           ? execFileAbortable(fixed.interp, [fixed.file], runOpts)
-          : execFileAbortable(process.env.ComSpec || "cmd.exe", ["/c", runCmd], runOpts);
+          : shell
+            ? execFileAbortable(shell, ["-lc", cmd], runOpts)
+            : execFileAbortable(process.env.ComSpec || "cmd.exe", ["/c", runCmd], runOpts);
         try {
           const { stdout, stderr, exitCode } = await run;
           cleanup?.();
