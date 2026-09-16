@@ -65,6 +65,10 @@ export interface Artifact {
 }
 
 export interface StoryAssetRef { id: string; role?: string; weight?: number; type?: string; url?: string; text?: string; prompt?: string; name?: string }
+// 台词时间轴：锚点是**语义位置**、秒数由文本估出来（estimated），所以改一句台词只会让它与它之后
+// 的时间变，前面的不动。语速常量只有引擎那一份（story-craft 的 SPEECH），前端不重算。
+export interface StoryLine { id: string; anchor: number; speaker: string; text: string; chars: number; seconds: number; start: number; end: number }
+export interface StoryLineTimeline { total: number; rate: number; estimated: boolean; lines: StoryLine[] }
 export interface StoryCharacterLook { id?: string; name?: string; refImage?: string }
 export interface StoryCharacter { id: string; name: string; refImage?: string; appearance?: string; wardrobe?: string; looks?: StoryCharacterLook[]; [key: string]: unknown }
 export interface StoryLocation { id: string; name: string; [key: string]: unknown }

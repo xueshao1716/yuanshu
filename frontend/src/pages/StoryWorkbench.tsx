@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import useSWR from 'swr'
 import { ModelsApi, StoryApi, withFileToken } from '../api'
-import type { Model, StoryBeat, StoryCharacter, StoryGenerationRun, StoryPlanStep, StoryProject, StoryRecipe } from '../types'
+import type { Model, StoryBeat, StoryCharacter, StoryGenerationRun, StoryLineTimeline, StoryPlanStep, StoryProject, StoryRecipe } from '../types'
 import { applyStoryDraft, bibleText, editedBible } from '../lib/story-draft'
 import StoryStart from '../components/story/StoryStart'
 import StorySettings from '../components/story/StorySettings'
@@ -56,6 +56,8 @@ export function StoryPanel() {
   const [variantsDraft, setVariantsDraft] = useState('1')
   // 「这次到底会做什么」——预览与实跑共用同一个 plan，界面照它显示，而不是只给一段提示词
   const [plan, setPlan] = useState<StoryPlanStep[]>([])
+  // 台词时间轴（服务端算好随预览下发）：句子的稳定 id + 由文本估出的起止秒。
+  const [lineTimeline, setLineTimeline] = useState<StoryLineTimeline | null>(null)
   // 工艺参数（尺寸 / 时长）。以前 params 是个**没人填的空字段**——配方要携带它，就必须先有它。
   const [paramDraft, setParamDraft] = useState<Record<string, string>>({})
   // 参考图策略：用几张、谁优先。以前这条策略硬编码在编排层里，用户在界面上既看不到也改不了。
@@ -241,7 +243,7 @@ export function StoryPanel() {
   const preview = () => action('正在检查生成输入', async () => {
     const saved = await persist()
     const r = await StoryApi.previewRun(saved.project.id, {sceneId:saved.sceneId,beatId:saved.beatId,kind:selectedKind,model:selectedModelInfo || {provider:'auto',id:'auto'}, ...runExtras()})
-    setCompiled(r.context.prompt); setPlan(r.plan || []); setNotice('以下是「实际将执行」的完整链路与提示词；尚未调用生成模型。')
+    setCompiled(r.context.prompt); setPlan(r.plan || []); setLineTimeline(r.timeline || null); setNotice('以下是「实际将执行」的完整链路与提示词；尚未调用生成模型。')
   })
   // 照这一版重跑：同模型 / 同 seed / 同负向 / 同参数。ComfyUI 里这是"再跑一次同样的图"，
   // 有了它，一次偶然的好结果才算真的可复现。
@@ -559,6 +561,18 @@ export function StoryPanel() {
               <dl>{plan.map(step => <div key={step.label} className="story-plan-row"><dt>{step.label}</dt><dd>{step.detail}</dd></div>)}</dl>
             </div>}
             <details><summary>编译后的提示词全文</summary><div className="story-prose">{compiled}</div></details>
+            {lineTimeline && lineTimeline.lines.length > 0 && <div className="story-line-timeline">
+              <p className="story-hint">
+                台词时间轴 · 共 {lineTimeline.total}s（{lineTimeline.lines.length} 句，按 {lineTimeline.rate} 字/秒估）
+                —— 秒数是**估计**，锚点才是真的：改一句，只有它和它之后会移动，前面的不动。
+              </p>
+              <ol>{lineTimeline.lines.map(line => (
+                <li key={line.id}>
+                  <code>{line.start.toFixed(1)}–{line.end.toFixed(1)}s</code>
+                  <b>{line.speaker}</b><span>{line.text}</span><i title="稳定身份：同一句改标点也不变，删别句也不影响它">{line.id}</i>
+                </li>
+              ))}</ol>
+            </div>}
           </details>}
         </section>{scene && beat && <StoryResults scene={scene} beat={beat} busy={Boolean(busy)} onRerun={rerun} onCheck={checkOne} onDelete={deleteRun} onLocalize={localizeRun} onAdopt={adopt} canAdopt={selectedKind === 'video'} />}</div>
         <StorySettings values={bibleDraft} busy={Boolean(busy)} characters={project.bible.characters || []} locations={(project.bible.locations || []) as any} props={(project.bible.props || []) as any} externalAssets={externalAssets} onPortrait={portrait} onAssetRef={assetRef} onLocalizeAll={localizeAll} onChange={setBibleDraft} onSave={saveBible} />

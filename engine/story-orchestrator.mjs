@@ -6,6 +6,7 @@ import { createProject, listProjects, readProject, writeProject, validateProject
 import { compileStoryPrompt, buildPortraitPrompt, buildAssetPrompt } from './story-prompts.mjs';
 import { compileShotPrompt, shotFieldsFromBeat, assetRefsForShot, splitRefs, resolveStyle } from './story-shot-prompt.mjs';
 import { storyFlow } from './story-flow.mjs';
+import { syncLines, computeTimeline } from './story-lines.mjs';
 import { createImageAdapter, createNovelAdapter, createVideoAdapter } from './story-adapters.mjs';
 import { buildStoryAssistPrompt, parseStoryAssist, buildStoryboardPrompt, parseStoryboard, buildAdaptPrompt, parseAdapt, extractJsonObjects } from './story-assist.mjs';
 // 台词与深度构思的"手艺"：机检规则 + 提示词 + 宽容解析（见 story-craft.mjs 开头的研究结论）
@@ -498,7 +499,11 @@ export function createStoryOrchestrator({ root, clock = {}, adapters = {}, gener
       // 「检查生成输入」显示的就不是真正会发出去的东西了（这正是它以前只敢显示提示词的原因）。
       const plan = buildRunPlan(project, scene, beat, input, await loadDefaultRecipe(project));
       const run = createGenerationRun({ ...input, kind: plan.kind, model: withCatalogCapabilities(plan.model), projectId: id, sceneId: scene.id, beatId: beat.id, seed: plan.seed, params: plan.params, inputAssets: input?.inputAssets || plan.compiled.referenceIds.map(assetId => ({ id: assetId, role: 'reference' })) }, clock);
-      return { project, run, context: { ...plan.compiled, prompt: plan.compiled.text }, plan: describeRunPlan(plan, run) };
+      // 台词时间轴随预览一起下发：语速常量只有一份（story-craft 的 SPEECH），
+      // 前端**不许**自己再实现一套——否则体检说"说不完"、界面说"还富余"，用户不知道信谁。
+      // 只读、纯计算，不写盘：预览本来就是"这次会发出去什么"的窗口。
+      const timeline = computeTimeline(syncLines(beat).lines);
+      return { project, run, context: { ...plan.compiled, prompt: plan.compiled.text }, timeline, plan: describeRunPlan(plan, run) };
     },
     runGeneration: async (id, input = {}) => {
       const project = await readProject(root, id);
