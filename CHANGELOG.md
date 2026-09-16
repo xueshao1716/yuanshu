@@ -24,6 +24,23 @@
 `findstr` / `dir /b`，试 5~7 次还有失败。所以差距不在模型，在工具语义：pi 通道走 git-bash，
 自研循环固定走 cmd.exe。
 
+**修后复测（同模型 `zai/glm-4.7`，同样三个任务，A/B 各跑一遍）**
+
+| 阶段 | 引擎 | 结果 | 工具调用 | 耗时 |
+|---|---|---|---|---|
+| A | pi（兼容适配器） | 3/3 | 4 | 54s |
+| B | 元枢自研循环 | 3/3 | 5 | 69s |
+
+工具命令也从"猜 cmd"变成了和 pi 同一族：`grep -n '/api/parse-file' /d/pi-web/server.mjs`、
+`ls -1 /d/pi-web/tests/unit/*.test.mjs | wc -l`。
+
+> 复测有两个坑记在这儿：① 换模型是因为 `opencode-go/deepseek-v4.1-flash` 后来报了
+> 403 RegionError（"only available hosted in China and requires explicit opt in"），
+> 而几分钟前 pi 通道跑同一个模型还是通的——两边取 key 的来源不同（SDK 走
+> `OPENCODE_API_KEY`，循环走 `~/.pi/agent/auth.json`），还没定论；
+> ② 第一次跑 B 阶段时 T2/T4 报 `fetch failed`（当时手动重启服务时杀重了实例），
+> 原样重跑即 3/3，属于环境噪声不是引擎问题。
+
 **改了什么**
 
 - `engine/tools/unified-tools.mjs`：新增 `detectBashShell()`（git-bash 优先；明确不认
