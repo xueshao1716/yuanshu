@@ -415,6 +415,10 @@
 /* 进度数字不再单独占一行：它与胶囊表达的是同一件事，重复一行只会把状态条撑高（真机 124px）。
    完整明细仍在胶囊与 headline 的 title 里，需要时悬停即可。 */
 .story-flow-progress { margin: 0; font-size: 11px; color: var(--pi-dim); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* 「其他动作」折起来：状态条上只留一个主按钮，次要动作点开才出现 */
+.story-flow-more { position: relative; font-size: 12px; }
+.story-flow-more > summary { cursor: pointer; color: var(--pi-dim); padding: 4px 2px; }
+.story-flow-more-list { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 6px; }
 .story-flow-actions { display: flex; gap: 8px; flex-wrap: wrap; }
 .story-flow-blocked { flex: 1 1 100%; font-size: 12px; color: var(--pi-dim); }
 .story-flow-blocked summary { cursor: pointer; }
