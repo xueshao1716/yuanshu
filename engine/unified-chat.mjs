@@ -12,7 +12,7 @@ import { shrinkToolResult, NEEDS_PRO_RE, scavengeToolCalls, projectToolResult } 
 import { normalizeToolArgs } from "./tool-args.mjs";
 import { extractMessages, extractText } from "./session-utils.mjs";
 import { createSseWriter } from "./sse.mjs";
-import { httpJsonFetch, httpRawFetch } from "./http.mjs";
+import { httpJsonFetch, httpRawFetch, sessionAffinityHeaders } from "./http.mjs";
 import { PRODUCT_VERSION } from "./version.mjs";
 import { createGateway } from "./gateway.mjs";
 import { CodeRuntime } from "../code-mode/code-runtime.mjs";
@@ -318,7 +318,9 @@ export async function unifiedChat(model, messages, opts = {}) {
   const store = _readJsonFile(_modelsPath);
   const mdef = (store[model.provider]?.models || []).find(m => m.id === model.id)
     || _getModelList().find(m => m.provider === model.provider && m.id === model.id);
-  const baseUrl = resolved?.baseUrl || mdef?.baseUrl || model.baseUrl;
+  // 2026-09-16：**模型定义里的 baseUrl 优先**。auth.json 那份是账号级的，端点未必相同：
+  // 真机上 auth 记的是 zen/v1、模型定义是 zen/go/v1，用 auth 那份直接 401 "Model … is not supported"。
+  const baseUrl = mdef?.baseUrl || resolved?.baseUrl || model.baseUrl;
   if (!baseUrl) return { error: "无 baseUrl" };
   const base = (baseUrl || "").replace(/\/+$/, "");
   const baseNoV1 = base.endsWith("/v1") ? base.slice(0, -3) : base;
@@ -372,7 +374,13 @@ export async function unifiedChat(model, messages, opts = {}) {
   };
   const mkReq = (u, withThinking, wantStream = true) => httpRawFetch(u, {
     method: "POST",
-    headers: { "Content-Type": "application/json", Authorization: `Bearer ${key}`, Accept: "text/event-stream" },
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${key}`,
+      Accept: "text/event-stream",
+      // 会话亲和头：原生通道（opencode-go 等）缺它会 400 MissingSessionID / 认不出模型
+      ...sessionAffinityHeaders({ provider: model.provider, compat, sessionId: opts.executionContext?.sessionId || opts.sessionId }),
+    },
     body: JSON.stringify(buildBody(withThinking, wantStream)),
     timeout: 300000,
     signal: opts.signal, // P2: 客户端断开时取消 fetch

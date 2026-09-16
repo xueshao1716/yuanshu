@@ -6,7 +6,7 @@
 // 依赖注入：httpFetch 由宿主注入（元枢注入 httpJsonFetch 以复用系统代理栈），
 //   不注入则用 Node 原生 fetch（Node 25+）。
 import { normalizeToolArgs, normalizeToolCallArguments } from "./tool-args.mjs";
-import { describeHttpError } from "./http.mjs";
+import { describeHttpError, sessionAffinityHeaders } from "./http.mjs";
 
 // ── ModelAdapter 接口契约 ──
 // async chat(model, messages, opts) → {
@@ -35,7 +35,9 @@ export class HttpModelAdapter {
     const mdef = (store[model.provider]?.models || []).find((m) => m.id === model.id)
       || null;
     const resolved = this.resolveAuth(model.provider);
-    const baseUrl = resolved?.baseUrl || mdef?.baseUrl || model.baseUrl;
+    // 2026-09-16：模型定义里的 baseUrl 优先（auth.json 里那份是账号级的，端点可能不同——
+    // 真机：auth 是 zen/v1、模型定义是 zen/go/v1，用 auth 那份直接 401 "Model … is not supported"）。
+    const baseUrl = mdef?.baseUrl || resolved?.baseUrl || model.baseUrl;
     return { mdef, baseUrl, base: (baseUrl || "").replace(/\/+$/, "") };
   }
 
@@ -84,7 +86,11 @@ export class HttpModelAdapter {
 
     const mkReq = (u, withThinking) => this.httpFetch(u, {
       method: "POST",
-      headers: { "Content-Type": "application/json", Authorization: `Bearer ${key}` },
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${key}`,
+        ...sessionAffinityHeaders({ provider: model.provider, compat, sessionId: opts.sessionId }),
+      },
       body: JSON.stringify(buildBody(withThinking)),
       timeout: opts.timeout || 300000,
     });

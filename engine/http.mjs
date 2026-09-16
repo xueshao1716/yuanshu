@@ -161,6 +161,25 @@ export function describeHttpError(text, { max = 600 } = {}) {
   return raw.length > max ? `${raw.slice(0, max)}…（原文 ${raw.length} 字，已截断）` : raw;
 }
 
+// 会话亲和头（2026-09-16）。
+// 真机：opencode-go 的模型定义在 zen/go/v1，而 auth.json 里记的是 zen/v1；自研循环又优先用 auth 那份，
+// 于是 401 "Model ... is not supported"；把端点修对之后，缺 x-opencode-session 还会 400 MissingSessionID。
+// pi 通道由 SDK 自己发这类头，自研循环原本一个都不发——这是"自研引擎打不动原生强模型"的直接原因之一。
+const AFFINITY_HEADER = { "opencode-go": "x-opencode-session", opencode: "x-opencode-session", openrouter: "x-session-id" };
+let _affinityFallback = "";
+
+export function sessionAffinityHeaders({ provider = "", compat = {}, sessionId = "" } = {}) {
+  const declared = compat?.sendSessionAffinityHeaders === true;
+  const fmt = compat?.sessionAffinityFormat || "";
+  const header = AFFINITY_HEADER[provider] || (declared ? (fmt === "openrouter" ? "x-session-id" : "x-opencode-session") : "");
+  if (!header) return {};
+  // 没有会话 id 也要发：这条头是"路由/计费"用的，缺了直接 400（真机 MissingSessionID）。
+  // 探针实测随便一个稳定值就能路由（'ab-test-session-1' → 200），所以退回一个进程级稳定值，
+  // 总比把整轮请求打失败强。同进程内保持稳定，便于上游缓存命中。
+  const sid = String(sessionId || "").trim() || (_affinityFallback ||= `yuanshu-${process.pid}-${Date.now().toString(36)}`);
+  return { [header]: sid };
+}
+
 export async function httpJsonFetch(url, options = {}) {  const r = await rawFetch(url, options);
   // body 只读一次后缓存——与旧 python 版语义一致（json()/text() 可重复调用，互不冲突）
   const text = await r.text();
