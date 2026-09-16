@@ -491,6 +491,15 @@ export function StoryPanel() {
           <div className="story-form-row"><label>输出类型<select aria-label="选择输出类型" disabled={Boolean(busy)} value={selectedKind} onChange={e=>setGenerationKind(e.target.value as StoryBeat['kind'])}><option value="novel">小说段落</option><option value="image">故事画面</option><option value="video">视频片段</option></select></label><label>生成模型<select aria-label="选择模型" disabled={Boolean(busy)} value={selectedModel} onChange={e=>setSelectedModel(e.target.value)}><option value="">自动选择模型</option>{availableModels.map(m=><option key={modelKey(m)} value={modelKey(m)}>{m.name || m.id}</option>)}</select></label></div>
           <label>本段内容<textarea aria-label="本段内容" disabled={Boolean(busy)} value={promptDraft} onChange={e=>{setPromptDraft(e.target.value);setCompiled('')}} rows={6} placeholder="写下本段想发生的事，或让 AI 帮你完善" /></label>
           <label>本段台词 · 对白<textarea aria-label="本段台词" disabled={Boolean(busy)} value={dialogueDraft} onChange={e=>{setDialogueDraft(e.target.value);setCompiled('')}} rows={4} placeholder={'一行一句，写成「角色名：台词」。这是故事的骨头——人物说了什么，比镜头怎么推更重要。'} /></label>
+          {/* 主按钮跟在"写内容 / 写台词"后面，不压在一堆折叠行底下：
+              写完就能按，不用先滚过七组配置去找按钮。 */}
+          <div className="story-form-row"><label>构思模型<select value={planningModel} disabled={Boolean(busy)} onChange={e=>setPlanningModel(e.target.value)}><option value="">自动选择文本模型</option>{models.filter(m=>capable(m,'novel')).map(m=><option key={modelKey(m)} value={modelKey(m)}>{m.name || m.id}</option>)}</select></label><div className="story-actions"><button className="btn-ghost" disabled={Boolean(busy)} onClick={assist}>让 AI 完善本段</button></div></div>
+          <div className="story-actions"><button className="btn-primary" disabled={Boolean(busy)||!promptDraft.trim()} onClick={run}>生成当前{kindLabel[selectedKind]}</button><button className="btn-ghost" disabled={Boolean(busy)||!promptDraft.trim()} onClick={preview}>检查生成输入</button><button className="btn-ghost" disabled={Boolean(busy)||!hasOutput} onClick={continueFromBeat}>从此处继续 · AI 构思下一段</button></div>
+          {!hasOutput && <p className="story-hint">先生成本段成品，再继续下一段。结果不满意时可以修改内容重新生成，旧版本会保留。</p>}
+          {assistResult && <div className="story-draft"><h3>AI 草稿 · 确认后一起保存</h3><p>{assistResult.scene?.summary}</p><p>{assistResult.beat?.prompt}</p><p className="story-hint">人物：{assistResult.characters?.map((c:any)=>[c.name,c.appearance].filter(Boolean).join(' · ')).join('；') || '沿用既有设定'}</p><div className="story-actions"><button className="btn-primary" disabled={Boolean(busy)} onClick={applyAssist}>采用并保存设定</button><button className="btn-ghost" disabled={Boolean(busy)} onClick={()=>setAssistResult(null)}>暂不采用</button></div></div>}
+          {/* 中间栏太长（真机量过：编辑器 3000+ px）。真正要动手的只有"写内容 / 写台词"，
+              其余按用途折成几组，默认收起；summary 上写明里面是什么，不必先展开一圈找。 */}
+          <details className="story-fold"><summary>场景 · 动作<span>内外景 / 地点 / 时间 / 转场</span></summary>
           <div className="story-form-row">
             <label>本段动作 · 剧本动作行<input aria-label="本段动作" disabled={Boolean(busy)} value={actionDraft} onChange={e=>{setActionDraft(e.target.value);setCompiled('')}} placeholder="留空则导出时用「本段内容」（画面描述）兜底" /></label>
             <label>转场<input aria-label="转场" disabled={Boolean(busy)} value={transitionDraft} onChange={e=>setTransitionDraft(e.target.value)} placeholder="例如 切至 / CUT TO:" /></label>
@@ -500,6 +509,8 @@ export function StoryPanel() {
             <label>地点<input aria-label="场景地点" disabled={Boolean(busy)} value={slugDraft.location} onChange={e=>setSlugDraft({...slugDraft, location:e.target.value})} placeholder="留空用场景名" /></label>
             <label>时间<input aria-label="场景时间" disabled={Boolean(busy)} value={slugDraft.timeOfDay} onChange={e=>setSlugDraft({...slugDraft, timeOfDay:e.target.value})} placeholder="例如 夜 / 清晨" /></label>
           </div>
+          </details>
+          <details className="story-fold"><summary>生成参数 · 素材<span>参考图 / 负向提示 / seed / 尺寸</span></summary>
           <StoryMaterials materials={inputDrafts} busy={Boolean(busy)} onChange={next => { setInputDrafts(next); setCompiled('') }} />
           <label>本段负向提示词 · 不要出现什么<textarea aria-label="本段负向提示词" disabled={Boolean(busy)} value={negativeDraft} onChange={e=>{setNegativeDraft(e.target.value);setCompiled('')}} rows={2} placeholder="一行一条，例如：多余的手指、文字水印、现代服装" /></label>
           <div className="story-form-row">
@@ -514,6 +525,8 @@ export function StoryPanel() {
             <label>谁优先<select aria-label="参考图优先" disabled={Boolean(busy) || refDraft.images === 0} value={refDraft.prefer} onChange={e=>setRefDraft({ ...refDraft, prefer: e.target.value as 'material' | 'portrait' })}><option value="material">挂载素材优先</option><option value="portrait">定妆照优先</option></select></label>
             <span className="story-hint">当前：{refStrategyLabel(selectedKind, refDraft)}</span>
           </div>}
+          </details>
+          <details className="story-fold"><summary>剧本 · 分集 · 配方<span>导出剧本 / 分集结构 / 生成配方</span></summary>
           <StoryRecipes
             current={{ kind: selectedKind, model: selectedModelInfo || { provider: 'auto', id: 'auto' }, params: paramDraft, negative: negativeDraft.trim(), reference: refDraft, seed: seedDraft.trim() ? Number(seedDraft.trim()) : null, variants: Number(variantsDraft) || 1 }}
             busy={Boolean(busy)}
@@ -526,12 +539,18 @@ export function StoryPanel() {
           />
           <StoryScript project={project} busy={Boolean(busy)} onPatchProject={() => void load()} />
           <StoryEpisodes project={project} busy={Boolean(busy)} onDone={update} onPickScene={setSelected} />
+          </details>
+          <details className="story-fold"><summary>构思 · 方法 · 台词<span>深度构思 / 创作方法 / 台词专科</span></summary>
           <StoryMethod project={project} busy={Boolean(busy)} onDone={update} />
           <StoryCraft project={project} busy={Boolean(busy)} onDone={update} onNotice={setNotice} onError={setError} />
           <StoryDialogue project={project} sceneId={scene?.id} busy={Boolean(busy)} onDone={update} onNotice={setNotice} onError={setError} />
+          </details>
+          <details className="story-fold"><summary>成片 · 改编 · 批量<span>合成成片 / 小说改编 / 批量生成</span></summary>
           <StoryFilm project={project} busy={Boolean(busy)} onDone={update} onNotice={setNotice} onError={setError} />
           <StoryAdapt project={project} busy={Boolean(busy)} onDone={update} />
           <StoryBatch project={project} selectedSceneId={scene?.id} busy={Boolean(busy)} onDone={update} />
+          </details>
+          <details className="story-fold"><summary>排练场<span>让角色自己演一遍，看台词顺不顺</span></summary>
           {scene && beat && <StoryPlayground
             project={project}
             sceneId={scene.id}
@@ -541,25 +560,26 @@ export function StoryPanel() {
             busy={Boolean(busy)}
             onDone={update}
           />}
-          <div className="story-form-row"><label>构思模型<select value={planningModel} disabled={Boolean(busy)} onChange={e=>setPlanningModel(e.target.value)}><option value="">自动选择文本模型</option>{models.filter(m=>capable(m,'novel')).map(m=><option key={modelKey(m)} value={modelKey(m)}>{m.name || m.id}</option>)}</select></label><div className="story-actions"><button className="btn-ghost" disabled={Boolean(busy)} onClick={assist}>让 AI 完善本段</button></div></div>
-          {assistResult && <div className="story-draft"><h3>AI 草稿 · 确认后一起保存</h3><p>{assistResult.scene?.summary}</p><p>{assistResult.beat?.prompt}</p><p className="story-hint">人物：{assistResult.characters?.map((c:any)=>[c.name,c.appearance].filter(Boolean).join(' · ')).join('；') || '沿用既有设定'}</p><div className="story-actions"><button className="btn-primary" disabled={Boolean(busy)} onClick={applyAssist}>采用并保存设定</button><button className="btn-ghost" disabled={Boolean(busy)} onClick={()=>setAssistResult(null)}>暂不采用</button></div></div>}
-          <p className="story-hint">{selectedKind==='novel'?'续写会带上已保存的设定和继承段落的实际正文。':`已生成的定妆照会作为真实参考图注入（画面走图生图、视频走 reference），用来锁住人物外貌；还没有定妆照的角色只能靠文字描述。当前 ${portraitCount}/${(project.bible.characters||[]).length} 个角色有定妆照。`}{selectedKind==='video'?' 每次生成一个视频片段，攒够成功的片段后用左侧「合成成片」拼成长片。':''}</p>
+          </details>
+          <div className="story-form-row story-fold-tip"><span className="story-hint">{selectedKind==='novel'?'续写会带上已保存的设定和继承段落的实际正文。':`已生成的定妆照会作为真实参考图注入（画面走图生图、视频走 reference），用来锁住人物外貌；还没有定妆照的角色只能靠文字描述。当前 ${portraitCount}/${(project.bible.characters||[]).length} 个角色有定妆照。`}{selectedKind==='video'?' 每次生成一个视频片段，攒够成功的片段后用左侧「合成成片」拼成长片。':''}</span></div>
           {/* 镜头规格：这六格是**发往视频模型的镜头语言**，编译时排在提示词最前面。
               以前它们只存在于提示词散文里（模型爱写不写），于是出片"像 AI 图动了一下"——
               同一句话创意，人家写全了景别/机位/光线/落幅才像电影。落幅尤其别省。 */}
-          {selectedKind !== 'novel' && <div className="story-form-row story-shot-spec">
+          {selectedKind !== 'novel' && <>
+          <details className="story-fold"><summary>镜头规格<span>景别 / 机位 / 运镜 / 光线 / 落幅（画面与视频用）</span></summary>
+          <div className="story-form-row story-shot-spec">
             <label>景别<select aria-label="景别" disabled={Boolean(busy)} value={shotDraft.size} onChange={e=>{setShotDraft({...shotDraft, size:e.target.value});setCompiled('')}}><option value="">不指定</option>{['大远景','远景','全景','中全景','中景','中近景','近景','特写','大特写'].map(v=><option key={v} value={v}>{v}</option>)}</select></label>
             <label>机位<select aria-label="机位" disabled={Boolean(busy)} value={shotDraft.angle} onChange={e=>{setShotDraft({...shotDraft, angle:e.target.value});setCompiled('')}}><option value="">不指定</option>{['平视','俯拍','仰拍','斜角','过肩','主观'].map(v=><option key={v} value={v}>{v}</option>)}</select></label>
             <label>运镜<select aria-label="运镜" disabled={Boolean(busy)} value={shotDraft.move} onChange={e=>{setShotDraft({...shotDraft, move:e.target.value});setCompiled('')}}><option value="">不指定</option>{['固定','缓缓推近','拉远','横移','跟拍','摇镜','升降','环绕','手持'].map(v=><option key={v} value={v}>{v}</option>)}</select></label>
             <label>光线<input aria-label="光线" disabled={Boolean(busy)} value={shotDraft.light} onChange={e=>{setShotDraft({...shotDraft, light:e.target.value});setCompiled('')}} placeholder="例如 窗外折射的柔和自然光" /></label>
-          </div>}
-          {selectedKind !== 'novel' && <div className="story-form-row story-shot-spec">
+          </div>
+          <div className="story-form-row story-shot-spec">
             <label>落幅<textarea aria-label="落幅" disabled={Boolean(busy)} rows={2} value={shotDraft.ending} onChange={e=>{setShotDraft({...shotDraft, ending:e.target.value});setCompiled('')}} placeholder="这一镜最后定格在哪，例如 落幅定格在她落寞无助的侧脸（不写，剪起来就是跳的）" /></label>
             <label>承接<textarea aria-label="承接" disabled={Boolean(busy)} rows={2} value={shotDraft.carry} onChange={e=>{setShotDraft({...shotDraft, carry:e.target.value});setCompiled('')}} placeholder="从上一镜的哪个落点接起，例如 承接上一镜她关上冰柜门的落点" /></label>
-          </div>}
+          </div>
           <p className="story-hint">镜头规格会编译成提示词最前面那几句（景别+机位 → 光线/色调/质感 → 画面 → 运镜 → 落幅 → 承接）。留空不编造；点「检查生成输入」能看到编译后的全文。</p>
-          <div className="story-actions"><button className="btn-primary" disabled={Boolean(busy)||!promptDraft.trim()} onClick={run}>生成当前{kindLabel[selectedKind]}</button><button className="btn-ghost" disabled={Boolean(busy)||!promptDraft.trim()} onClick={preview}>检查生成输入</button><button className="btn-ghost" disabled={Boolean(busy)||!hasOutput} onClick={continueFromBeat}>从此处继续 · AI 构思下一段</button></div>
-          {!hasOutput && <p className="story-hint">先生成本段成品，再继续下一段。结果不满意时可以修改内容重新生成，旧版本会保留。</p>}
+          </details>
+          </>}
           {compiled && <details open><summary>本次生成输入</summary>
             {plan.length > 0 && <div className="story-plan">
               <p className="story-hint">这条链路就是接下来真正会执行的东西（预览与实跑共用同一份计算，不是另算一遍给你看的）。</p>

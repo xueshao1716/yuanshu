@@ -36,3 +36,26 @@ test('「形象」自成一组：标题、形象芯片、「新增形象」同�
   assert.ok(!/新增形象/.test(actionsBlock), '「新增形象」不该再混在操作行里');
   assert.match(css, /\.story-look-row \{/);
 });
+
+// 用户原话："中间栏那个当前场景设定那一栏下面那些板块做个可折叠功能，有些次要的默认折叠，
+// 要不然太长了"。真机量过：编辑器一栏 3000+ px。这里锁两件意图：
+//   ① 次要分组默认**收起**（不带 open）；② 写作核心（本段内容 / 本段台词）不许被折起来。
+test('中间栏按用途折叠：写作核心常开，配置与工具组默认收起', () => {
+  const foldCount = (workbench.match(/<details className="story-fold"/g) || []).length;
+  assert.ok(foldCount >= 6, `次要分组要折成多组，实际只有 ${foldCount} 组`);
+  assert.ok(!/<details className="story-fold" open/.test(workbench), '次要分组默认必须是收起的');
+  for (const label of ['场景 · 动作', '生成参数 · 素材', '镜头规格', '剧本 · 分集 · 配方', '构思 · 方法 · 台词', '成片 · 改编 · 批量', '排练场']) {
+    assert.ok(workbench.includes(label), `要有「${label}」这一组，并且 summary 上写清里面是什么`);
+  }
+  const firstFold = workbench.indexOf('<details className="story-fold"');
+  assert.ok(workbench.indexOf('aria-label="本段内容"') < firstFold, '本段内容要常开：它是这一步真正要动的东西');
+  assert.ok(workbench.indexOf('aria-label="本段台词"') < firstFold, '本段台词要常开');
+  assert.ok(workbench.indexOf('aria-label="选择输出类型"') < firstFold, '输出类型/模型要常开');
+  const primaryAt = workbench.indexOf('>生成当前{kindLabel');
+  assert.ok(primaryAt > 0, '生成按钮还在');
+  assert.ok(primaryAt < firstFold, '主按钮要在折叠组之前：写完就能按，不必滚过一堆折叠行');
+  // 挪块时真的差点把「AI 草稿」这块挪丢（tsc 不会报：少渲染一个条件块是合法的），
+  // 所以在这里钉一条：草稿面板必须还在。
+  assert.match(workbench, /assistResult && <div className="story-draft"/, 'AI 草稿面板不能被挪丢');
+  assert.match(css, /\.story-fold > summary/, '折叠要有统一观感，不能再各写一套');
+});

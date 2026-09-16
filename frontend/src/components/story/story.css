@@ -295,6 +295,18 @@
 .story-recipe-save { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 8px; }
 .story-recipe-save input { min-height: 32px; font-size: 12px; flex: 1 1 160px; }
 .story-recipe-save .btn-ghost { padding: 6px 10px; font-size: 11px; }
+/* 中间栏的分组折叠（2026-09-16，用户："太长了，次要的默认折起来"）。
+   一屏里真正要动手的只有"写内容 / 写台词"，其余是配置和工具：默认折起来，
+   summary 上写明里面是什么、有什么，想找的东西一眼能看见，不用先展开一圈。
+   与 .story-settings 同一套观感（上边框 + 14px 标题 + 12px 灰色说明）。 */
+.story-fold { margin: 16px 0; border-top: 1px solid var(--pi-border-soft); }
+.story-fold > summary { cursor: pointer; font-size: 14px; line-height: 1.7; padding-block: 8px; color: var(--pi-text); }
+.story-fold > summary span { font-size: 12px; color: var(--pi-dim); margin-left: 8px; }
+.story-fold > summary:hover { color: var(--pi-accent); }
+.story-fold[open] > summary { color: var(--pi-text); }
+.story-fold > .story-form-row:first-of-type,
+.story-fold > :not(summary) { margin-top: 8px; }
+.story-fold > :last-child { margin-bottom: 8px; }
 .story-settings summary { cursor: pointer; font-size: 14px; line-height: 1.7; padding-block: 10px; }
 .story-settings summary span { font-size: 12px; color: var(--pi-dim); margin-left: 8px; }
 .story-settings-grid { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 16px; margin: 16px 0; }
