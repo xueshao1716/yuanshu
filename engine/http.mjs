@@ -143,8 +143,25 @@ async function rawFetch(url, options = {}) {
   }
 }
 
-export async function httpJsonFetch(url, options = {}) {
-  const r = await rawFetch(url, options);
+// 把上游的错误体翻成人能读的一句话（2026-09-16）。
+// 真机教训：原来只留 150 字符，正好截在 `"extError":{"code"` 处——用户看到半截 JSON，
+// 既不知道是什么错、也不知道谁拒的。现在优先摘出 msg / displayMsg.zh / extError.code，
+// 再附一段够长的原文（默认 600 字），并在截断时说明原文有多长。
+export function describeHttpError(text, { max = 600 } = {}) {
+  const raw = String(text ?? "").trim();
+  if (!raw) return "(空响应体)";
+  try {
+    const j = JSON.parse(raw);
+    const msg = j.msg || j.message || j.error?.message || (typeof j.error === "string" ? j.error : "");
+    const zh = j.displayMsg?.zh || "";
+    const code = j.extError?.code || j.code || "";
+    const head = [msg, zh].filter(Boolean).join("｜");
+    if (head) return `${code ? `[${code}] ` : ""}${String(head).slice(0, max)}`;
+  } catch {}
+  return raw.length > max ? `${raw.slice(0, max)}…（原文 ${raw.length} 字，已截断）` : raw;
+}
+
+export async function httpJsonFetch(url, options = {}) {  const r = await rawFetch(url, options);
   // body 只读一次后缓存——与旧 python 版语义一致（json()/text() 可重复调用，互不冲突）
   const text = await r.text();
   return {

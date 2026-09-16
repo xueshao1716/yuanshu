@@ -9,6 +9,7 @@ import { json, readBody } from "./http-utils.mjs";
 import { markModelBlocked, isAuthErrorStatus, pickFallbackDefault, pickFallbackExcluding, routeProCandidate, routeForAuto } from "./model-router.mjs";
 import { classifyAnomaly, recordReply } from "./output-guard.mjs";
 import { shrinkToolResult, NEEDS_PRO_RE, scavengeToolCalls, projectToolResult } from "./reasonix-tools.mjs";
+import { normalizeToolArgs } from "./tool-args.mjs";
 import { extractMessages, extractText } from "./session-utils.mjs";
 import { createSseWriter } from "./sse.mjs";
 import { httpJsonFetch, httpRawFetch } from "./http.mjs";
@@ -65,7 +66,9 @@ export function sanitizeToolCallList(tcs) {
       if (!tc || typeof tc !== "object") return null;
       if (!tc.id || !tc.function || typeof tc.function !== "object") return null;
       if (!tc.function.name) return null;
-      return { id: tc.id, type: "function", function: { name: tc.function.name, arguments: repairToolArgs(String(tc.function.arguments ?? "{}")) } };
+      // 2026-09-16：arguments 必须能 parse 成**对象**。历史上出现过双重编码
+      // （字符串里再套一层 JSON 字符串），上游直接 400 把整轮打死 —— 见 engine/tool-args.mjs。
+      return { id: tc.id, type: "function", function: { name: tc.function.name, arguments: normalizeToolArgs(tc.function.arguments) } };
     })
     .filter(Boolean);
 }
@@ -183,7 +186,9 @@ export function formatSessionHistory(hist = [], { projectTool = projectToolResul
     out.push({
       role: "assistant",
       content: text || null,
-      tool_calls: tools.map(t => ({ id: String(t.id), type: "function", function: { name: String(t.name), arguments: JSON.stringify(t.args || {}) } })),
+      // 2026-09-16：args 本来就是字符串时，JSON.stringify 会二次编码成 `"{\"…\"}"`，
+      // 上游要求 arguments 能 parse 成对象 → 双重编码就 400（真机事故）。统一走 normalizeToolArgs。
+      tool_calls: tools.map(t => ({ id: String(t.id), type: "function", function: { name: String(t.name), arguments: normalizeToolArgs(t.args) } })),
     });
     for (const tool of tools) {
       out.push({ role: "tool", tool_call_id: String(tool.id), content: project(tool) });

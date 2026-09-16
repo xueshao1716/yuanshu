@@ -8,6 +8,51 @@
 
 ## [Unreleased]
 
+## [2.51.0] - 2026-09-16
+
+### 修复：工具调用参数双重编码把整轮请求打死（"怎么又调用失败" / HTTP 400 code 11133 的真因）
+
+用户现场：聊天报 `执行失败 · HTTP 400 {"code":11133,"msg":"the request parameters were rejected by
+the model provider",…,"extError":{"code"…`，界面还把它截断在 `"extError":{"code"` 处——看不出是什么错。
+执行引擎是元枢自建循环，模型 `workbuddy/hy4-preview`（本地中转 127.0.0.1:8910）。
+
+**怎么查的**：中转日志里留着那次的原始请求体，把它原样重放 → 稳定复现 400。然后逐项拆：
+
+| 改动 | 结果 |
+|---|---|
+| 原样重放那一对 `assistant(tool_calls)+tool` | ❌ 400 |
+| 把 `arguments` 换成 `{}` | ✅ 200 |
+| 把 `arguments` 换成 550 个 `a`（不是合法 JSON） | ❌ 400 |
+| 把 `arguments` 换成 550 字的**合法 JSON 对象** | ✅ 200 |
+| 只留最后一句 user（不带任何 tool_calls） | ✅ 200 |
+
+**根因**：那条 tool_call 的 `arguments` 是**双重编码**——
+`"{\"program\": \"const fs = require('fs')…"}`：它本身是一个 JSON **字符串**字面量，
+`JSON.parse` 出来是 string 而不是 object。OpenAI 兼容端要求 `arguments` 必须能 parse 成**对象**，
+于是整轮请求被拒（同一批历史在 opencode-go 上表现为 `Messages with role 'tool'`）。
+来源是历史里的 `args` 本来就是字符串，`formatSessionHistory` 又 `JSON.stringify` 了一次
+（`JSON.stringify(t.args)` → 带引号的字符串）；流式分片也可能拼成数组/字符串。
+
+**改了什么**：
+
+- 新增 `engine/tool-args.mjs`：`normalizeToolArgs()` 统一把参数规范成**合法对象 JSON**——
+  解多层字符串包裹、剥脏前缀（`{}{"path":…}`）、数组分片缝合；实在救不回来就包成 `{raw: …}`，
+  **绝不让一条坏记录把整轮请求打死**（历史里那次调用早就执行完了，重放只需要语法合法）。
+- `unified-chat.formatSessionHistory`、`sanitizeToolCallList`、`model-adapter.sanitizeTcsLocal`
+  全部改走它；`model-adapter.buildBody` 再加一道**发送前最后闸**：`normalizeToolCallArguments(history)`。
+  存量会话（包括用户那条 01a0a830）不改文件也能恢复——发出去之前就地修好。
+- `engine/http.mjs` 新增 `describeHttpError()`：把 `msg / displayMsg.zh / extError.code` 摘成一句话，
+  原文最多留 600 字并注明截断。原来只留 150 字，正好截在关键处——这正是"看不出是啥错"的原因。
+
+真机证据：
+
+```
+修复前：原样重放那次请求        → 400 {"code":11133,…}
+修复后：同一份请求走一遍规范化  → 200 ✅（18 条 tool_call 的参数被修好，parse 出来是 object/键 program）
+应用级：元枢里用 workbuddy/hy4-preview 真发一轮 → 3s 回「好」，error 0
+```
+
+测试：+5（双重编码、脏前缀、数组分片、整段历史就地规范化、错误文案人话化），1355 → **1360 全绿**。
 ## [2.50.0] - 2026-09-16
 
 ### 修复：外部机器安装检查的 4 个问题全部收进上游（换盘/换机器不再需要本地补丁）

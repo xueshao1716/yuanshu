@@ -5,6 +5,8 @@
 //   自动适配：baseUrl 带不带 /v1、reasoning_effort 降级重试、5xx 重试、流式关闭。
 // 依赖注入：httpFetch 由宿主注入（元枢注入 httpJsonFetch 以复用系统代理栈），
 //   不注入则用 Node 原生 fetch（Node 25+）。
+import { normalizeToolArgs, normalizeToolCallArguments } from "./tool-args.mjs";
+import { describeHttpError } from "./http.mjs";
 
 // ── ModelAdapter 接口契约 ──
 // async chat(model, messages, opts) → {
@@ -65,7 +67,9 @@ export class HttpModelAdapter {
     const buildBody = (withThinking) => {
       const body = {
         model: model.id,
-        messages: history,
+        // 最后一道闸（2026-09-16）：不管历史从哪来，发出去之前把 tool_call 的 arguments 都规范成合法对象。
+        // 真机事故：一条双重编码的 arguments 让整轮请求 400（code 11133）。
+        messages: normalizeToolCallArguments(history),
         ...(toolDefs ? { tools: toolDefs, tool_choice: "auto" } : {}),
         stream: false,
         max_tokens: Math.min(mdef?.maxTokens || opts.maxTokens || 8192, 8192),
@@ -110,7 +114,8 @@ export class HttpModelAdapter {
       }
       if (!r.ok) {
         const errBody = await r.text().catch(() => "");
-        return { error: `HTTP ${r.status}: ${String(errBody).slice(0, 150)}` };
+        // 用 describeHttpError：把 msg / displayMsg.zh / extError.code 摘出来（原来只留 150 字，正好截在关键处）
+        return { error: `HTTP ${r.status}: ${describeHttpError(errBody)}` };
       }
       const data = await r.json();
       const msg = data.choices?.[0]?.message || {};
@@ -129,7 +134,8 @@ function sanitizeTcsLocal(tcs) {
   if (!Array.isArray(tcs)) return [];
   return tcs
     .filter(tc => tc && typeof tc === "object" && tc.id && tc.function && typeof tc.function === "object" && tc.function.name)
-    .map(tc => ({ id: tc.id, type: "function", function: { name: tc.function.name, arguments: String(tc.function.arguments ?? "{}") } }));
+    // 2026-09-16：arguments 统一规范化（双重编码 / 非对象 / 非法 JSON 都会被上游 400 拒绝，见 engine/tool-args.mjs）
+    .map(tc => ({ id: tc.id, type: "function", function: { name: tc.function.name, arguments: normalizeToolArgs(tc.function.arguments) } }));
 }
 export function extractModelReply(msg, history) {
   const raw = msg.tool_calls;
