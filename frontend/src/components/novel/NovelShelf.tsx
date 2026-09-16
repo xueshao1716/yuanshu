@@ -47,7 +47,7 @@ export default function NovelShelf({ onOpen }: { onOpen: (id: string) => void })
         <div className="flex gap-1 overflow-x-auto pb-0.5 sm:ml-auto">
           {STATUS.map(([k, l]) => (
             <button key={k || 'all'} onClick={() => setFilter(k)}
-              className={`px-3 min-h-11 rounded-full text-[11px] border whitespace-nowrap ${filter === k ? 'bg-pi-accent text-white border-pi-accent' : 'text-pi-dim border-pi-border-soft'}`}>{l}</button>
+              className={`px-3 min-h-11 rounded-full text-[11px] border whitespace-nowrap ${filter === k ? 'bg-pi-accent text-pi-on-accent border-pi-accent' : 'text-pi-dim border-pi-border-soft'}`}>{l}</button>
           ))}
         </div>
       </div>

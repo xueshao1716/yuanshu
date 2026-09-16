@@ -431,8 +431,11 @@ body {
 .col-right { background: var(--pi-bg); }
 
 /* 有壁纸时让壳层半透明，否则实底会把 #pi-wallpaper 完全盖住 */
+/* 2026-09-16：底色这一层**不能撤**。此前这里是 background: transparent，
+   于是没有自己画底的地方（欢迎页那一列文字、整条左导航）直接露在画布默认色上——
+   壁纸一深、主题一变，字就没了。壁纸是叠在底色之上的图层，不是底色的替代品。 */
 body.has-wallpaper {
-  background: transparent;
+  background: var(--pi-bg);
 }
 body.has-wallpaper #pi-wallpaper {
   opacity: 0.22;
@@ -2344,11 +2347,19 @@ html[data-theme="liquid-glass"] { color-scheme: light; }
   [data-theme="liquid-glass"] .col-right { background: #f6f9fd; backdrop-filter: none; -webkit-backdrop-filter: none; }
 }
 
-/* 壁纸层级收口：主画布是 z-10，必须退透明才能看到 z-0 壁纸；欢迎页保持完整透出。 */
+/* 壁纸层级收口：主画布是 z-10，必须退透明才能看到 z-0 壁纸。
+   但**放字的区域必须有自己的可读底**：欢迎页那一列文字当初被整块撤成透明，
+   结果字直接压在壁纸上——壁纸一深就整片糊掉（"背景色把文字盖了"）。
+   这里给它一层主题色纱：壁纸仍然透出来，字保证读得清。 */
 body.has-wallpaper .chat-canvas,
 body.has-wallpaper .mobile-chat-root {
   background: transparent;
 }
 body.has-wallpaper .chat-welcome {
   background: transparent;
+}
+body.has-wallpaper .chat-welcome .chat-reading-column {
+  background: color-mix(in srgb, var(--pi-bg) 88%, transparent);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
 }

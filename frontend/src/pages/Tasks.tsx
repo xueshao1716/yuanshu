@@ -349,7 +349,7 @@ export default function Tasks() {
             <div className="flex rounded-pi-md overflow-hidden border border-pi-border">
               {(['daily', 'weekly', 'once'] as const).map(tp => (
                 <button key={tp} onClick={() => setForm(f => ({ ...f, type: tp }))}
-                  className={`text-xs px-3 py-1.5 transition-colors ${form.type === tp ? 'bg-pi-accent text-white' : 'bg-pi-bg2 text-pi-dim hover:text-pi-text'}`}>
+                  className={`text-xs px-3 py-1.5 transition-colors ${form.type === tp ? 'bg-pi-accent text-pi-on-accent' : 'bg-pi-bg2 text-pi-dim hover:text-pi-text'}`}>
                   {TYPE_LABEL[tp]}
                 </button>
               ))}

@@ -218,7 +218,7 @@ export default function Message({ msg, onEdit, onRetry }: { msg: ChatMessage & {
             </>
           )}
         </div>
-        <div className="w-6 h-6 rounded-lg bg-pi-accent text-white flex items-center justify-center text-[11px] font-bold flex-shrink-0 mt-0.5">我</div>
+        <div className="w-6 h-6 rounded-lg bg-pi-accent text-pi-on-accent flex items-center justify-center text-[11px] font-bold flex-shrink-0 mt-0.5">我</div>
       </div>
     )
   }

@@ -215,7 +215,7 @@ export default function Board({ initialView = 'overview' }: { initialView?: Boar
         <div data-slot="board-next" className="panel p-3 flex flex-col gap-2">
           <div className="text-[12px] font-semibold text-pi-text px-1">接下来做什么</div>
           <div className="flex flex-wrap gap-2">
-            <button type="button" className="min-h-11 px-3 rounded-pi-md bg-pi-accent text-white text-[12px] font-medium" onClick={continueLast}>
+            <button type="button" className="min-h-11 px-3 rounded-pi-md bg-pi-accent text-pi-on-accent text-[12px] font-medium" onClick={continueLast}>
               {lastSession ? `继续「${lastSession.name || '上次对话'}」` : '开始对话'}
             </button>
             <button type="button" className="min-h-11 px-3 rounded-pi-md bg-pi-bg3 text-pi-text text-[12px] hover:bg-pi-bg-hover" onClick={() => { location.hash = '#/workshop' }}>

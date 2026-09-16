@@ -932,7 +932,7 @@ export default function ChatArea({ compactHeader, rightPanel, onRightPanel }: {
             onClick={() => { if (rightPanel !== 'chat') onRightPanel('chat'); onRightPanel('tui') }}
             className={`text-[11px] px-2.5 py-1 rounded-pi-sm border flex items-center gap-1 flex-shrink-0 transition-colors duration-150 ${
               rightPanel === 'tui'
-                ? 'bg-pi-accent text-white border-pi-accent'
+                ? 'bg-pi-accent text-pi-on-accent border-pi-accent'
                 : 'border-pi-border-soft bg-pi-bg2/60 text-pi-dim hover:text-pi-text'}`}
           >TUI</button>
         )}
@@ -944,7 +944,7 @@ export default function ChatArea({ compactHeader, rightPanel, onRightPanel }: {
             onClick={() => onRightPanel(rightPanel === 'chat' ? 'workspace' : 'chat')}
             className={`text-[11px] px-2.5 py-1 rounded-pi-sm border flex items-center gap-1 flex-shrink-0 transition-colors duration-150 ${
               rightPanel && rightPanel !== 'chat'
-                ? 'bg-pi-accent text-white border-pi-accent'
+                ? 'bg-pi-accent text-pi-on-accent border-pi-accent'
                 : 'border-pi-border-soft bg-pi-bg2/60 text-pi-dim hover:text-pi-text glow-hover'}`}
             >
             <PanelRight className="w-3 h-3" strokeWidth={2} />

@@ -34,7 +34,9 @@ test("拟态木进入色板、种子、主题页，apply 写 data-theme，翠绿
   assert.ok(palettes.includes("id: 'wood'"), "色板缺少 wood");
   assert.ok(palettes.includes("name: '拟木'"), "切换器名称必须是拟木");
   assert.ok(generate.includes("wood:"), "生成器缺少 wood 种子");
-  assert.ok(generate.includes("accent: '#0B8A54'"), "拟木主色必须是翠绿 #0B8A54");
+  // 2026-09-16：主色从 #0B8A54 压深到 #007D4B——同一个绿在枫木底（#ddc9a8）上只有 2.72，
+  // 而主色到处被当文字用（芯片/链接/状态）。仍然是翠绿，只是够读了。
+  assert.ok(/accent: '#0[07]7[dD]4[bB]'/.test(generate), "拟木主色必须还是翠绿（现为 #007d4b，压深过）");
   assert.ok(apply.includes("'wood'"), "applyThemeVars 必须给 wood 写 data-theme");
   assert.ok(themes.includes("THEME_CATALOG"), "主题页必须读统一目录");
   assert.ok(css.includes('[data-theme="wood"]'), "styles 必须有 wood 区块");

@@ -72,7 +72,7 @@ export default function SetupWizard({ onDone }: { onDone: () => void }) {
           {['选择服务商', '填入密钥', '完成'].map((label, i) => (
             <div key={label} className="flex items-center gap-2">
               <span className={`w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-bold ${
-                step > i + 1 ? 'bg-pi-green text-white' : step === i + 1 ? 'bg-pi-accent text-white' : 'bg-pi-bg3 text-pi-dim2'}`}>
+                step > i + 1 ? 'bg-pi-green text-pi-on-green' : step === i + 1 ? 'bg-pi-accent text-pi-on-accent' : 'bg-pi-bg3 text-pi-dim2'}`}>
                 {step > i + 1 ? '✓' : i + 1}
               </span>
               <span className={step === i + 1 ? 'text-pi-text' : 'text-pi-dim2'}>{label}</span>

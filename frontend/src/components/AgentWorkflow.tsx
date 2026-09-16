@@ -20,7 +20,7 @@ export function AgentWorkflow({ phase, thinking, toolsRunning = 0, toolsTotal = 
     <div className="flex items-center gap-3 py-3 px-4 border border-pi-border-soft bg-pi-bg1 rounded-pi-lg">
       {/* 阶段 1: 思考 */}
       <div className={`flex items-center gap-2 ${phase === 'thinking' ? 'opacity-100' : 'opacity-40'}`}>
-        <div className={`w-6 h-6 rounded-full flex items-center justify-center ${phase === 'thinking' ? 'bg-pi-accent text-white' : 'bg-pi-bg2 text-pi-dim2'}`}>
+        <div className={`w-6 h-6 rounded-full flex items-center justify-center ${phase === 'thinking' ? 'bg-pi-accent text-pi-on-accent' : 'bg-pi-bg2 text-pi-dim2'}`}>
           <Brain className={`w-3.5 h-3.5 ${phase === 'thinking' && thinking ? 'animate-pulse' : ''}`} />
         </div>
         <span className="text-xs text-pi-dim font-medium">思考</span>
@@ -32,7 +32,7 @@ export function AgentWorkflow({ phase, thinking, toolsRunning = 0, toolsTotal = 
 
       {/* 阶段 2: 工具调用 */}
       <div className={`flex items-center gap-2 ${phase === 'tools' ? 'opacity-100' : 'opacity-40'}`}>
-        <div className={`w-6 h-6 rounded-full flex items-center justify-center ${phase === 'tools' ? 'bg-pi-accent text-white' : 'bg-pi-bg2 text-pi-dim2'}`}>
+        <div className={`w-6 h-6 rounded-full flex items-center justify-center ${phase === 'tools' ? 'bg-pi-accent text-pi-on-accent' : 'bg-pi-bg2 text-pi-dim2'}`}>
           <Wrench className={`w-3.5 h-3.5 ${phase === 'tools' ? 'animate-pulse' : ''}`} />
         </div>
         <span className="text-xs text-pi-dim font-medium">

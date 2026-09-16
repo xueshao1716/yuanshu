@@ -55,7 +55,9 @@ function ThemeCard({ id, active, onApply }: { id: string; active: boolean; onApp
         <div className="self-start max-w-[80%] px-2.5 py-1 text-[11px] rounded-pi-md" style={{ background: 'var(--pi-bg2)', color: 'var(--pi-text)' }}>
           你好，小语在
         </div>
-        <div className="self-end max-w-[80%] px-2.5 py-1 text-[11px] rounded-pi-md" style={{ background: 'var(--pi-accent)', color: 'var(--pi-bg)' }}>
+        {/* 预览气泡的前景必须走 on-accent：写死 --pi-bg 在 kraft/wood/liquid-glass 上
+            只有 3.0~3.85，11px 小字读不清（真机逐元素量出来的）。 */}
+        <div className="self-end max-w-[80%] px-2.5 py-1 text-[11px] rounded-pi-md" style={{ background: 'var(--pi-accent)', color: 'var(--pi-on-accent)' }}>
           切到这个主题
         </div>
       </div>
@@ -174,12 +176,12 @@ export default function Themes() {
                 <div className="max-w-[82%] px-3 py-2 text-[13px] rounded-pi-md" style={{ background: 'var(--pi-bg2)', color: 'var(--pi-text)' }}>
                   主题不只是换色，底色层级、文字对比和阴影色相会一起派生。
                 </div>
-                <div className="ml-auto max-w-[82%] px-3 py-2 text-[13px] rounded-pi-md" style={{ background: 'var(--pi-accent)', color: 'var(--pi-bg)' }}>
+                <div className="ml-auto max-w-[82%] px-3 py-2 text-[13px] rounded-pi-md" style={{ background: 'var(--pi-accent)', color: 'var(--pi-on-accent)' }}>
                   当前精调会在这里实时呈现。
                 </div>
                 <div className="flex gap-2 pt-1">
                   <span className="flex-1 h-9 rounded-pi-md border px-3 flex items-center text-[12px]" style={{ borderColor: 'var(--pi-border)', background: 'var(--pi-field)', color: 'var(--pi-dim2)' }}>输入消息…</span>
-                  <span className="px-3 h-9 rounded-pi-md flex items-center text-[12px] font-medium" style={{ background: 'var(--pi-accent)', color: 'var(--pi-bg)' }}>发送</span>
+                  <span className="px-3 h-9 rounded-pi-md flex items-center text-[12px] font-medium" style={{ background: 'var(--pi-accent)', color: 'var(--pi-on-accent)' }}>发送</span>
                 </div>
               </div>
             </div>
@@ -191,7 +193,7 @@ export default function Themes() {
               <div>
                 <div className="text-[12px] text-pi-dim2 font-semibold mb-2">主色</div>
                 <div className="flex flex-wrap items-center gap-2">
-                  <button type="button" className={`w-8 h-8 rounded-full border-2 text-[11px] flex items-center justify-center ${!accent ? 'border-pi-accent' : 'border-pi-border'}`} style={{ background: (SEEDS as any)[theme]?.accent, color: 'var(--pi-bg)' }} onClick={() => selectAccent('')} title="主题默认主色">默认</button>
+                  <button type="button" className={`w-8 h-8 rounded-full border-2 text-[11px] flex items-center justify-center ${!accent ? 'border-pi-accent' : 'border-pi-border'}`} style={{ background: (SEEDS as any)[theme]?.accent, color: 'var(--pi-on-accent)' }} onClick={() => selectAccent('')} title="主题默认主色">默认</button>
                   {ACCENT_SWATCHES.map(c => (
                     <button
                       type="button"

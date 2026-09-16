@@ -72,7 +72,25 @@ function solveLForContrast(baseHex, bgHex, target) {
     if (cr < target) { if (dir > 0) lo = mid; else hi = mid } else { if (dir > 0) hi = mid; else lo = mid }
   }
   const L = (lo + hi) / 2
-  return rgbToHex(oklchToRgb(safeOklch({ ...ch, L })))
+  let out = rgbToHex(oklchToRgb(safeOklch({ ...ch, L })))
+  // 二分收敛在中点，可能刚好差一点点（实测会落在 3.17 / 4.49 这种"看着达标其实没有"的值）。
+  // 定稿前按目标方向再走几步——这里是保底，不是"差不多"。
+  for (let i = 0; i < 40 && contrast(out, bgHex) < target; i++) {
+    const stepped = Math.max(0, Math.min(1, L + (dir > 0 ? 0.002 * (i + 1) : -0.002 * (i + 1))))
+    out = rgbToHex(oklchToRgb(safeOklch({ ...ch, L: stepped })))
+  }
+  return out
+}
+// 不够读就按对比度解一个够读的回来（保持色相/彩度），够读就原样返回。
+// 越界（解不出来）时取二分的中点，也不至于把颜色搞成纯黑纯白。
+function legibleOn(hex, bgHex, target) {
+  return contrast(hex, bgHex) >= target ? hex : solveLForContrast(hex, bgHex, target)
+}
+// 半透明色叠在底色上之后是什么颜色（组件的"软底"都这么算出来）
+function blendHex(fgHex, alpha, bgHex) {
+  const fg = hexToRgb(fgHex).map(c => c * 255)
+  const bg = hexToRgb(bgHex).map(c => c * 255)
+  return rgbToHex(fg.map((c, i) => (c * alpha + bg[i] * (1 - alpha)) / 255))
 }
 
 // ── Seed：每套主题只有这几个设计意图输入 ──
@@ -147,7 +165,9 @@ export const SEEDS = {
               '--pi-shadow-lg': '0 4px 16px rgba(35,60,42,.10), 0 2px 6px rgba(35,60,42,.06)',
             } },
   // 拟态木（09-04）：枫木台面 + 翠绿镶嵌。木纹/斜面见 styles.css 手写特化区
-  wood: { bg: '#E8D4B2', text: '#2A2118', accent: '#0B8A54', light: true, step: 0.033,
+  // 2026-09-16：主色从 #0B8A54 压深到 #007d4b——同一个绿在枫木底（#ddc9a8）上只有 2.72，
+  // 而主色到处被当**文字**用（芯片、链接、状态），2.72 就是"看得见但费劲"。
+  wood: { bg: '#E8D4B2', text: '#2A2118', accent: '#007d4b', light: true, step: 0.033,
             overrides: {
               '--pi-green': '#0B8A54', '--pi-red': '#B24A3A', '--pi-yellow': '#C4A046',
               '--pi-accent2': '#2BB56E', '--pi-accent-deep': '#086B42',
@@ -249,6 +269,20 @@ export function generateTheme(seed) {
     '--pi-glow-purple': 'rgba(139,92,246,0.18)', '--pi-glow-cyan': 'rgba(56,189,248,0.10)',
   }, seed.overrides || {})
 
+  // ── 语义色的可读性兜底（2026-09-16）──
+  // 这三个色会被当**文字/图标**画在面板上（bg1）：只按"好看"选色会出现
+  // wood 的警告色对比度 1.54（几乎看不见）、highLum 2.55、水墨/竹影 2.67。
+  // 这里保持色相彩度，只把明度解到面板上够读；本来就够读的原样不动。
+  for (const key of ['--pi-green', '--pi-red', '--pi-yellow']) {
+    if (/^#[0-9a-f]{6}$/i.test(v[key])) v[key] = legibleOn(v[key], v['--pi-bg1'], 3.2)
+  }
+  // 语义色**当底**时的前景（步骤条上的对勾、状态芯片）：和 on-accent 同一套规则——
+  // 白字还是黑字，取对比度高的那个。写死 text-white 在亮绿底上只有 1.9（等于没有字）。
+  for (const key of ['green', 'red', 'yellow']) {
+    const c = v[`--pi-${key}`]
+    if (/^#[0-9a-f]{6}$/i.test(c)) v[`--pi-on-${key}`] = contrast('#ffffff', c) >= contrast('#000000', c) ? '#ffffff' : '#000000'
+  }
+
   // ── 语义层级 token（HeroUI surface/overlay/field 三层体系）──
   // surface: 抬起的面板（如卡片、侧边栏行）
   v['--pi-surface'] = v['--pi-bg1']
@@ -267,7 +301,10 @@ export function generateTheme(seed) {
   v['--pi-danger'] = v['--pi-red']
   // accent soft 背景（组件用）
   v['--pi-accent-soft'] = mixAlpha(seed.accent, 0.12)
-  v['--pi-accent-soft-fg'] = seed.accent
+  // accent 当**文字**画在 accent-soft 上时（badge、状态芯片）只有 ~3.2：
+  // soft 底是"accent 12% 叠在 bg1 上"，所以按真实叠出来的那个色解对比度，
+  // 而不是拿 accent 跟 bg1 比（那会算出一个不存在的读数）。
+  v['--pi-accent-soft-fg'] = legibleOn(seed.accent, blendHex(seed.accent, 0.12, v['--pi-bg1']), 4.5)
 
   // 三档阴影 token（08-26 立体感体系）：组件类只引用变量，主题可覆写浓淡与色调
   const shadowTint = seed.light ? 'rgba(15,23,42,' : 'rgba(0,0,0,'
@@ -309,13 +346,13 @@ export function generateTheme(seed) {
   v['--pi-dialog-bg'] = v['--pi-bg2']
   v['--pi-dialog-border'] = v['--pi-border']
   v['--pi-badge-bg'] = v['--pi-accent-soft']
-  v['--pi-badge-fg'] = v['--pi-accent']
+  v['--pi-badge-fg'] = v['--pi-accent-soft-fg']
   v['--pi-badge-border'] = 'transparent'
   v['--pi-glass-bg'] = seed.light ? 'rgba(255,255,255,0.72)' : 'rgba(255,255,255,0.06)'
   v['--pi-glass-border'] = seed.light ? 'rgba(0,0,0,0.06)' : 'rgba(255,255,255,0.08)'
   v['--pi-info'] = '#3b82f6'
   v['--pi-info-fg'] = '#ffffff'
-  v['--pi-muted'] = solveLForContrast(dimBase, seed.bg, 3.0)
+  v['--pi-muted'] = solveLForContrast(dimBase, seed.bg, 3.2)
 
   // 图表/序列色（高区分度，固定；主题 only 影响可读性不重映射）
   const CHART = ['#5470f7', '#23c399', '#f0b64a', '#2fb4d6', '#b06cf2']

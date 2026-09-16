@@ -135,7 +135,7 @@ export default function NovelWorkbench({ id, onBack }: { id: string; onBack: () 
               <div className="flex flex-wrap gap-1 lg:flex-col lg:gap-0.5">
                 {pipeline.filter(n => n.phase === phase).map(n => (
                   <button key={n.id} onClick={() => setNodeId(n.id)}
-                    className={`px-2.5 min-h-11 rounded-pi-md text-[12px] whitespace-nowrap lg:w-full lg:text-left ${nodeId === n.id ? 'bg-pi-accent text-white' : 'text-pi-dim hover:text-pi-text bg-pi-bg2/50 lg:bg-transparent'}`}>
+                    className={`px-2.5 min-h-11 rounded-pi-md text-[12px] whitespace-nowrap lg:w-full lg:text-left ${nodeId === n.id ? 'bg-pi-accent text-pi-on-accent' : 'text-pi-dim hover:text-pi-text bg-pi-bg2/50 lg:bg-transparent'}`}>
                     <span className={`inline-block w-1.5 h-1.5 rounded-full mr-1.5 ${n.ready ? 'bg-emerald-400' : 'bg-pi-dim2'}`} />
                     {n.ready ? n.label : `${n.label} · 待生成`}
                   </button>

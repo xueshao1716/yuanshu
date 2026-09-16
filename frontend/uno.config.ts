@@ -23,6 +23,10 @@ export default defineConfig({
       'pi-green': 'var(--pi-green)',
       'pi-red': 'var(--pi-red)',
       'pi-yellow': 'var(--pi-yellow)',
+      // 语义色**当底**时的前景（和 on-accent 同一套规则）：不许再写死 text-white
+      'pi-on-green': 'var(--pi-on-green)',
+      'pi-on-red': 'var(--pi-on-red)',
+      'pi-on-yellow': 'var(--pi-on-yellow)',
       // 语义层级 token（HeroUI surface/overlay/field）
       'pi-surface': 'var(--pi-surface)',
       'pi-surface-fg': 'var(--pi-surface-fg)',

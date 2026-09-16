@@ -25,7 +25,7 @@ export default function DesktopMoreMenu({
         aria-current={moreActive ? 'page' : undefined}
         title="更多"
         className={`desktop-rail-item rounded-pi-md flex items-center gap-2 relative transition-[background-color,color,border-color,box-shadow,transform] duration-200 ${
-          moreActive || open ? 'bg-pi-accent text-white shadow-md shadow-pi-accent/25' : 'text-pi-dim2 hover:text-pi-text hover:bg-pi-bg3'}`}
+          moreActive || open ? 'bg-pi-accent text-pi-on-accent shadow-md shadow-pi-accent/25' : 'text-pi-dim2 hover:text-pi-text hover:bg-pi-bg3'}`}
       >
         <Ellipsis className="w-[18px] h-[18px]" strokeWidth={1.8} />
         <span className="desktop-rail-label">{items.find(item => item.route === route)?.label || '更多'}</span>

@@ -61,7 +61,7 @@ export default function Workshop({ initialTab }: { initialTab?: Tab } = {}) {
           {TABS.map(([k, Icon, label]) => (
             <button key={k} onClick={() => chooseTab(k)}
               className={`flex items-center justify-center gap-1.5 min-h-11 px-2 sm:px-3.5 text-xs rounded-pi-md transition-colors duration-fast ${
-                tab === k ? 'bg-pi-accent text-white font-medium' : 'text-pi-dim hover:text-pi-text'}`}>
+                tab === k ? 'bg-pi-accent text-pi-on-accent font-medium' : 'text-pi-dim hover:text-pi-text'}`}>
               <Icon className="w-3.5 h-3.5" strokeWidth={1.8} />
               <span className="truncate">{label}</span>
             </button>

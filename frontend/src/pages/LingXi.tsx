@@ -156,7 +156,7 @@ export default function LingXi() {
             <div className="flex rounded-pi-md overflow-hidden border border-pi-border">
               {([['user', '我的', User], ['xiaoyu', '小语的', Bot]] as const).map(([k, label, Icon]) => (
                 <button key={k} onClick={() => setDraftSource(k)}
-                  className={`flex items-center gap-1 px-3 py-1.5 text-xs transition-colors ${draftSource === k ? 'bg-pi-accent text-white' : 'text-pi-dim hover:text-pi-text hover:bg-pi-bg3'}`}>
+                  className={`flex items-center gap-1 px-3 py-1.5 text-xs transition-colors ${draftSource === k ? 'bg-pi-accent text-pi-on-accent' : 'text-pi-dim hover:text-pi-text hover:bg-pi-bg3'}`}>
                   <Icon className="w-3.5 h-3.5" />{label}
                 </button>
               ))}

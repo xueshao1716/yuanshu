@@ -50,7 +50,7 @@ const Tags = ({ items, value, onChange }: { items: [string, string][]; value: st
   <div className="flex flex-wrap gap-1.5">
     {items.map(([k, label]) => (
       <button key={k} onClick={() => onChange(k)}
-        className={`px-2.5 py-1 rounded-full text-[11px] border transition-colors duration-fast ${value === k ? 'bg-pi-accent text-white border-pi-accent font-medium' : 'bg-transparent text-pi-dim border-pi-border-soft hover:text-pi-text hover:border-pi-dim'}`}>
+        className={`px-2.5 py-1 rounded-full text-[11px] border transition-colors duration-fast ${value === k ? 'bg-pi-accent text-pi-on-accent border-pi-accent font-medium' : 'bg-transparent text-pi-dim border-pi-border-soft hover:text-pi-text hover:border-pi-dim'}`}>
         {label}
       </button>
     ))}
@@ -217,7 +217,7 @@ export default function WanXiang({ onUsePrompt }: { onUsePrompt?: (prompt: strin
           <div className="flex flex-wrap gap-1.5">
             {GRAMMAR_KEYS.map(k => (
               <button key={k} type="button" onClick={() => pickGrammar(k)}
-                className={`px-2.5 min-h-11 rounded-full text-[11px] border transition-colors duration-fast ${scene === k ? 'bg-pi-accent text-white border-pi-accent font-medium' : 'bg-transparent text-pi-dim border-pi-border-soft hover:text-pi-text hover:border-pi-dim'}`}>
+                className={`px-2.5 min-h-11 rounded-full text-[11px] border transition-colors duration-fast ${scene === k ? 'bg-pi-accent text-pi-on-accent border-pi-accent font-medium' : 'bg-transparent text-pi-dim border-pi-border-soft hover:text-pi-text hover:border-pi-dim'}`}>
                 {IMAGE_GRAMMARS[k].icon} {IMAGE_GRAMMARS[k].name}
               </button>
             ))}
@@ -229,7 +229,7 @@ export default function WanXiang({ onUsePrompt }: { onUsePrompt?: (prompt: strin
           <div className="flex flex-wrap gap-1.5">
             {EXAMPLE_KEYS.map(k => (
               <button key={k} type="button" onClick={() => pickExample(k)}
-                className={`px-2.5 min-h-11 rounded-full text-[11px] border transition-colors duration-fast ${scene === k ? 'bg-pi-accent text-white border-pi-accent font-medium' : 'bg-transparent text-pi-dim border-pi-border-soft hover:text-pi-text hover:border-pi-dim'}`}>
+                className={`px-2.5 min-h-11 rounded-full text-[11px] border transition-colors duration-fast ${scene === k ? 'bg-pi-accent text-pi-on-accent border-pi-accent font-medium' : 'bg-transparent text-pi-dim border-pi-border-soft hover:text-pi-text hover:border-pi-dim'}`}>
                 {IMAGE_EXAMPLES[k].icon} {IMAGE_EXAMPLES[k].name}
               </button>
             ))}
@@ -288,7 +288,7 @@ export default function WanXiang({ onUsePrompt }: { onUsePrompt?: (prompt: strin
           <div className="flex flex-wrap gap-1.5 mt-1.5">
             {LIGHTS.map((l) => (
               <button key={l} type="button" onClick={() => setLighting(l)}
-                className={`px-2 py-1 rounded-full text-[11px] border ${lighting === l ? 'bg-pi-accent text-white border-pi-accent' : 'bg-transparent text-pi-dim border-pi-border-soft'}`}>{l}</button>
+                className={`px-2 py-1 rounded-full text-[11px] border ${lighting === l ? 'bg-pi-accent text-pi-on-accent border-pi-accent' : 'bg-transparent text-pi-dim border-pi-border-soft'}`}>{l}</button>
             ))}
           </div>
         </Field>
@@ -297,7 +297,7 @@ export default function WanXiang({ onUsePrompt }: { onUsePrompt?: (prompt: strin
           <div className="flex flex-wrap gap-1.5 mt-1.5">
             {MOODS.map((m) => (
               <button key={m} type="button" onClick={() => setMood(m)}
-                className={`px-2 py-1 rounded-full text-[11px] border ${mood === m ? 'bg-pi-accent text-white border-pi-accent' : 'bg-transparent text-pi-dim border-pi-border-soft'}`}>{m}</button>
+                className={`px-2 py-1 rounded-full text-[11px] border ${mood === m ? 'bg-pi-accent text-pi-on-accent border-pi-accent' : 'bg-transparent text-pi-dim border-pi-border-soft'}`}>{m}</button>
             ))}
           </div>
         </Field>
@@ -306,7 +306,7 @@ export default function WanXiang({ onUsePrompt }: { onUsePrompt?: (prompt: strin
           <div className="flex flex-wrap gap-1.5 mt-1.5">
             {STYLES.map((st) => (
               <button key={st} type="button" onClick={() => setStyle(st)}
-                className={`px-2 py-1 rounded-full text-[11px] border ${style === st ? 'bg-pi-accent text-white border-pi-accent' : 'bg-transparent text-pi-dim border-pi-border-soft'}`}>{st}</button>
+                className={`px-2 py-1 rounded-full text-[11px] border ${style === st ? 'bg-pi-accent text-pi-on-accent border-pi-accent' : 'bg-transparent text-pi-dim border-pi-border-soft'}`}>{st}</button>
             ))}
           </div>
         </Field>
@@ -325,7 +325,7 @@ export default function WanXiang({ onUsePrompt }: { onUsePrompt?: (prompt: strin
         <Field label="输出平台">
           <div className="flex gap-1.5">
             {[['dreamina', '即梦'], ['mj', 'MJ'], ['sd', 'SD']].map(([k, l]) => (
-              <button key={k} onClick={() => setPlatform(k)} className={`px-2.5 py-1 rounded-full text-[11px] border transition-colors duration-fast ${platform === k ? 'bg-pi-accent text-white border-pi-accent' : 'bg-transparent text-pi-dim border-pi-border-soft hover:text-pi-text'}`}>{l}</button>
+              <button key={k} onClick={() => setPlatform(k)} className={`px-2.5 py-1 rounded-full text-[11px] border transition-colors duration-fast ${platform === k ? 'bg-pi-accent text-pi-on-accent border-pi-accent' : 'bg-transparent text-pi-dim border-pi-border-soft hover:text-pi-text'}`}>{l}</button>
             ))}
           </div>
         </Field>

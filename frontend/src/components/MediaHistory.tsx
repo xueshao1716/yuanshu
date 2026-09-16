@@ -17,7 +17,8 @@ export default function MediaHistory({ kind, onPick }: {
       <div className="flex items-center gap-1.5 text-[11px] text-pi-dim2">
         <History className="w-3.5 h-3.5" />
         <span>往期</span>
-        <span className="text-pi-dim2/70">点开回看，有提示词会填回</span>
+        {/* 70% 的 dim2 在浅底上只有 2.8（真机量的），11px 小字不该再打折 */}
+        <span className="text-pi-dim2">点开回看，有提示词会填回</span>
       </div>
       <div className="flex gap-2 overflow-x-auto pb-1">
         {items.map(a => (

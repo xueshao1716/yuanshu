@@ -172,7 +172,7 @@ function SkillsView() {
           </div>
           {categories.length > 0 && <div className="flex items-center gap-2 flex-wrap" aria-label="按用途筛选">
             <span className="text-[11px] text-pi-dim2 mr-0.5">用途</span>
-            <button type="button" aria-pressed={categoryFilter === 'all'} onClick={() => setCategoryFilter('all')} className={`min-h-9 px-2.5 rounded-pi-pill border text-[12px] transition-colors ${categoryFilter === 'all' ? 'bg-pi-accent text-white border-pi-accent' : 'text-pi-dim border-pi-border-soft hover:text-pi-text hover:border-pi-border'}`}>全部</button>
+            <button type="button" aria-pressed={categoryFilter === 'all'} onClick={() => setCategoryFilter('all')} className={`min-h-9 px-2.5 rounded-pi-pill border text-[12px] transition-colors ${categoryFilter === 'all' ? 'bg-pi-accent text-pi-on-accent border-pi-accent' : 'text-pi-dim border-pi-border-soft hover:text-pi-text hover:border-pi-border'}`}>全部</button>
             {categories.map(([category, count]) => <button key={category} type="button" aria-pressed={categoryFilter === category} onClick={() => setCategoryFilter(category)} className={`min-h-9 px-2.5 rounded-pi-pill border text-[12px] transition-colors ${categoryFilter === category ? 'bg-pi-accent-soft text-pi-accent border-pi-accent/30' : 'text-pi-dim border-pi-border-soft hover:text-pi-text hover:border-pi-border'}`}>{categoryLabels[category]} <span className="tabular-nums opacity-70">{count}</span></button>)}
           </div>}
         </div>

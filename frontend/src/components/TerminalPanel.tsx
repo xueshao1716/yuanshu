@@ -81,7 +81,7 @@ export default function TerminalPanel() {
       {/* 运行条 */}
       <div className="flex items-center gap-2 px-3 py-2 border-b border-pi-border-soft flex-shrink-0">
         <button onClick={run} disabled={running}
-          className={`h-7 px-4 rounded-pi-md text-xs font-medium inline-flex items-center gap-1.5 transition-colors ${running ? 'bg-red-500/90 text-white animate-pulse' : 'bg-pi-accent text-white hover:bg-pi-accent2'}`}>
+          className={`h-7 px-4 rounded-pi-md text-xs font-medium inline-flex items-center gap-1.5 transition-colors ${running ? 'bg-red-500/90 text-white animate-pulse' : 'bg-pi-accent text-pi-on-accent hover:bg-pi-accent2'}`}>
           {running ? (<><Square className="w-3 h-3 fill-current" /> 运行中 {elapsed}s</>) : (<><Play className="w-3.5 h-3.5 fill-current" /> 运行</>)}
         </button>
         <button className="btn-ghost text-xs whitespace-nowrap px-2.5" onClick={() => setProgram(SAMPLE)} disabled={running}>示例</button>

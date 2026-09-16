@@ -221,7 +221,7 @@ export default function WorkshopView({ kind }: { kind: Kind }) {
             <div className="inline-flex rounded-pi-md border border-pi-border-soft overflow-hidden w-full sm:w-auto">
               {([['html', '设计稿'], ['classic', '经典 PPT']] as const).map(([k, label]) => (
                 <button key={k} onClick={() => setEngine(k)}
-                  className={`flex-1 sm:flex-none min-h-11 px-3 text-[11px] transition-colors ${engine === k ? 'bg-pi-accent text-white font-medium' : 'text-pi-dim hover:text-pi-text hover:bg-pi-bg-hover'}`}>
+                  className={`flex-1 sm:flex-none min-h-11 px-3 text-[11px] transition-colors ${engine === k ? 'bg-pi-accent text-pi-on-accent font-medium' : 'text-pi-dim hover:text-pi-text hover:bg-pi-bg-hover'}`}>
                   {label}
                 </button>
               ))}
