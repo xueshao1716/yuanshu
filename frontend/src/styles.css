@@ -2409,3 +2409,84 @@ body.has-color-card .col-right::before {
 }
 body.has-color-card nav.desktop-rail::after { right: 0; }
 body.has-color-card .col-right::before { left: 0; }
+
+/* ── 悬浮药丸（2026-09-16）──────────────────────────────────────────────
+   用户给的参考图（"3colors combination"）里那种一层层浮起来的胶囊：
+   关键不是圆角，是**投影带着自己的颜色**——同色系、低透明度、偏下偏移，
+   再叠一层内侧高光，于是看起来是浮在底上，而不是贴了一道灰边。
+   颜色全走变量：--float-bg 底、--float-fg 字、--float-tint 投影色。
+   字色由 engine/color-cards.mjs 的 colorCardOn() 按对比度挑（浅色卡上不能写死白字）。 */
+.float-pill {
+  --float-bg: var(--pi-bg1);
+  --float-fg: var(--pi-text);
+  --float-tint: var(--pi-accent);
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 11px 16px;
+  border: 0;
+  border-radius: 999px;
+  background: var(--float-bg);
+  color: var(--float-fg);
+  text-align: left;
+  cursor: pointer;
+  transition: transform .18s var(--pi-ease), box-shadow .18s var(--pi-ease), filter .18s var(--pi-ease);
+  box-shadow:
+    0 10px 20px -6px color-mix(in srgb, var(--float-tint) 42%, transparent),
+    0 3px 8px -2px color-mix(in srgb, var(--float-tint) 26%, transparent),
+    inset 0 1px 0 color-mix(in srgb, #fff 42%, transparent);
+  filter: saturate(1);
+}
+.float-pill:hover:not(:disabled) {
+  transform: translateY(-2px);
+  box-shadow:
+    0 16px 28px -8px color-mix(in srgb, var(--float-tint) 50%, transparent),
+    0 5px 12px -3px color-mix(in srgb, var(--float-tint) 30%, transparent),
+    inset 0 1px 0 color-mix(in srgb, #fff 52%, transparent);
+}
+.float-pill:active:not(:disabled) {
+  transform: translateY(1px) scale(.99);
+  box-shadow:
+    0 5px 12px -5px color-mix(in srgb, var(--float-tint) 38%, transparent),
+    0 1px 4px -1px color-mix(in srgb, var(--float-tint) 24%, transparent),
+    inset 0 1px 0 color-mix(in srgb, #fff 32%, transparent);
+}
+.float-pill:disabled { opacity: .55; cursor: not-allowed; }
+.float-pill[data-active="true"] {
+  box-shadow:
+    0 14px 26px -7px color-mix(in srgb, var(--float-tint) 58%, transparent),
+    0 4px 10px -2px color-mix(in srgb, var(--float-tint) 34%, transparent),
+    inset 0 0 0 1px color-mix(in srgb, #fff 55%, transparent);
+}
+/* 左侧那枚同色小圆点：参考图里每颗胶囊左边都有一个色点，用来认"这是哪一色" */
+.float-pill-dot {
+  flex: 0 0 auto;
+  width: 12px;
+  height: 12px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--float-tint) 88%, #fff);
+  box-shadow: 0 1px 3px color-mix(in srgb, var(--float-tint) 45%, transparent);
+}
+.float-pill-text { display: flex; align-items: baseline; gap: 10px; min-width: 0; }
+.float-pill-label { font-size: 12px; font-weight: 600; letter-spacing: .01em; }
+.float-pill-value { font-size: 11px; font-family: var(--pi-font-mono); opacity: .78; }
+/* 配色卡列表：一行一枚，像参考图那样摞起来 */
+.float-pill-list { display: flex; flex-direction: column; gap: 10px; }
+.float-pill-list .float-pill { box-shadow: 0 10px 20px -6px color-mix(in srgb, var(--float-tint) 42%, transparent), 0 3px 8px -2px color-mix(in srgb, var(--float-tint) 26%, transparent), inset 0 1px 0 color-mix(in srgb, #fff 42%, transparent); }
+
+/* 主按钮也借用同一套"浮起来"的观感（投影是主色系的，不是灰的） */
+.btn-primary {
+  box-shadow:
+    0 8px 16px -6px color-mix(in srgb, var(--pi-accent) 45%, transparent),
+    0 2px 5px -1px color-mix(in srgb, var(--pi-accent) 25%, transparent);
+}
+.btn-primary:hover:not(:disabled) {
+  box-shadow:
+    0 12px 22px -7px color-mix(in srgb, var(--pi-accent) 52%, transparent),
+    0 3px 8px -2px color-mix(in srgb, var(--pi-accent) 28%, transparent);
+}
+.btn-primary:active:not(:disabled) {
+  box-shadow: 0 4px 10px -5px color-mix(in srgb, var(--pi-accent) 40%, transparent);
+}

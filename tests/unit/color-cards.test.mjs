@@ -6,12 +6,20 @@
 //   ④ 交给模型/上游的文字里必须带色值和约束
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import {
   COLOR_CARDS, MORANDI_CARDS, VIVID_CARDS, CARD_FAMILIES,
   resolveColorCard, colorCardGradient, colorCardTone, colorCardRule, colorCardStyleLine,
   colorCardPromptBlock, colorCardStoryboardNote, hasColorCardMark,
+  colorCardOn, colorCardPillVars,
 } from '../../engine/color-cards.mjs';
 import { COLOR_CARDS as FRONT_CARDS } from '../../frontend/src/theme/colorcards.mjs';
+import { contrast } from '../../frontend/src/theme/generate.mjs';
+
+const ROOT = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
+const read = (...p) => fs.readFileSync(path.join(ROOT, ...p), 'utf8');
 
 // 第一套：莫兰迪高级灰（id / 名 / 左标签 / 右标签）
 const VERIFIED_MORANDI = [
@@ -127,4 +135,38 @@ test('已经带过配色的提示词要认得出来（媒体层不许再追加�
   assert.equal(hasColorCardMark(colorCardStoryboardNote('蓝紫粉')), true);
   assert.equal(hasColorCardMark('一个女孩站在巷口'), false);
   assert.equal(hasColorCardMark(''), false);
+});
+
+// ── 悬浮药丸（2026-09-16，用户给的 "3colors combination" 参考图）──────────
+// 药丸的底就是卡的身份色，字色必须按对比度挑：写死白字的话，米白/浅青那几张直接看不清。
+test('悬浮药丸：18 张卡当底时，字色都够读（不写死白字）', () => {
+  for (const card of COLOR_CARDS) {
+    const on = colorCardOn(card);
+    assert.match(on, /^#(ffffff|000000)$/i, `${card.id} 的字色只该是白或黑`);
+    const cr = contrast(on, card.top);
+    assert.ok(cr >= 4.5, `${card.name}：${on} on ${card.top} = ${cr.toFixed(2)} < 4.5`);
+    // 挑的必须是**更优**的那个
+    const other = on.toLowerCase() === '#ffffff' ? '#000000' : '#ffffff';
+    assert.ok(cr >= contrast(other, card.top), `${card.name} 挑错了字色`);
+  }
+  // 药丸要用的三件（底/字/投影色）都在
+  const vars = colorCardPillVars('红绿撞色');
+  assert.equal(vars['--float-bg'], '#FF3730');
+  assert.equal(vars['--float-tint'], '#FF3730');
+  assert.equal(vars['--float-tint-2'], '#D2FFD2');
+  assert.deepEqual(colorCardPillVars(''), {});
+});
+
+test('悬浮药丸的样式：投影必须带自己的颜色，且有悬停抬起/按下压回', () => {
+  const css = read('frontend', 'src', 'styles.css');
+  assert.match(css, /\.float-pill\s*\{[^}]*--float-tint:\s*var\(--pi-accent\)/, '药丸要有投影色变量');
+  assert.match(css, /\.float-pill\s*\{[^}]*box-shadow:[^}]*color-mix\(in srgb, var\(--float-tint\)/, '投影要掺自己的颜色（这是"浮起来"的关键）');
+  assert.match(css, /\.float-pill:hover[^{]*\{[^}]*translateY\(-2px\)/, '悬停要抬起来');
+  assert.match(css, /\.float-pill:active[^{]*\{[^}]*translateY\(1px\)/, '按下要压回去');
+  assert.match(css, /\.float-pill-dot\s*\{/, '左侧要有同色小圆点');
+  const themes = read('frontend', 'src', 'pages', 'Themes.tsx');
+  assert.match(themes, /<FloatPill/, '主题页的配色卡要用悬浮药丸渲染');
+  assert.match(themes, /fg=\{colorCardOn\(card\)\}/, '药丸字色要按对比度算，不能写死');
+  const component = read('frontend', 'src', 'components', 'FloatPill.tsx');
+  assert.match(component, /aria-pressed=\{active\}/, '药丸是可点的选择控件，要有 aria-pressed');
 });

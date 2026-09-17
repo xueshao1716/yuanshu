@@ -3,8 +3,9 @@ import { Check, ChevronDown, Code2, Download, RotateCcw, Trash2, Upload } from '
 import { generateTheme, SEEDS } from '../theme/generate.mjs'
 import { applyTheme, currentTheme } from '../theme/apply'
 import { persistWallpaper, currentWallpaper } from '../theme/wallpaper.mjs'
-import { COLOR_CARDS, CARD_FAMILIES, colorCardGradient, resolveColorCard } from '../theme/colorcards.mjs'
+import { COLOR_CARDS, CARD_FAMILIES, colorCardGradient, colorCardOn, resolveColorCard } from '../theme/colorcards.mjs'
 import { persistColorCardShell } from '../theme/colorcard-shell.mjs'
+import FloatPill from '../components/FloatPill'
 import { THEME_CATALOG } from '../theme/palettes'
 import { ThemeApi, ColorApi } from '../api'
 import PageHeader from '../components/PageHeader'
@@ -288,25 +289,20 @@ export default function Themes() {
                   {colorCardId && <span className="ml-auto text-[11px] text-pi-dim">当前：{resolveColorCard(colorCardId)?.name}</span>}
                 </div>
                 <div className="text-[11px] text-pi-dim mb-2">{CARD_FAMILIES[cardFamily].rule}</div>
-                <div className="grid grid-cols-3 gap-2">
-                  {COLOR_CARDS.filter(c => c.family === cardFamily).map(card => {
-                    const gradient = colorCardGradient(card)
-                    const active = colorCardId === card.id
-                    return (
-                      <button
-                        key={card.id}
-                        type="button"
-                        onClick={() => void saveColorCard(card.id)}
-                        aria-pressed={active}
-                        aria-label={`创作配色卡 ${card.name}：${card.top} 到 ${card.bottom}`}
-                        title={`${card.top} → ${card.bottom}`}
-                        className={`rounded-pi-md border overflow-hidden text-left transition-colors ${active ? 'border-pi-accent ring-1 ring-pi-accent' : 'border-pi-border hover:border-pi-border-hi'}`}
-                      >
-                        <span className="block h-8" style={{ background: gradient }} />
-                        <span className="block px-2 py-1 bg-pi-bg1 text-[11px] text-pi-text truncate">{card.name}</span>
-                      </button>
-                    )
-                  })}
+                <div className="float-pill-list">
+                  {COLOR_CARDS.filter(c => c.family === cardFamily).map(card => (
+                    <FloatPill
+                      key={card.id}
+                      label={card.name}
+                      value={card.top}
+                      bg={card.top}
+                      fg={colorCardOn(card)}
+                      tint={card.top}
+                      active={colorCardId === card.id}
+                      title={`${card.top} → ${card.bottom}`}
+                      onClick={() => void saveColorCard(card.id)}
+                    />
+                  ))}
                 </div>
               </div>
 

@@ -117,6 +117,42 @@ export function colorCardStyleLine(card) {
   return rule ? `${c.tone}；${rule}` : c.tone;
 }
 
+// 悬浮药丸（float pill）要用的三样：底色、字色、投影色。
+// 底色用卡的上端色（那才是这套色的"身份色"），字色按对比度在白/黑里挑——
+// 写死白字的话，浅色那几张（米白/浅青）会直接看不清。
+export function colorCardOn(card) {
+  const c = typeof card === 'string' ? resolveColorCard(card) : card;
+  if (!c) return '#ffffff';
+  return wcagPickOn(c.top);
+}
+
+// 同一套规则：哪个对比度高用哪个（on-accent / on-green 都是这么算的）
+function wcagPickOn(hex) {
+  return contrastRatio('#ffffff', hex) >= contrastRatio('#000000', hex) ? '#ffffff' : '#000000';
+}
+
+// 故意不引主题生成器（那边依赖更重），这里只要一个能用的 WCAG 对比度
+function contrastRatio(a, b) {
+  const lum = (h) => {
+    const rgb = [0, 2, 4].map(i => parseInt(String(h).replace('#', '').slice(i, i + 2), 16) / 255)
+      .map(v => (v <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4));
+    return 0.2126 * rgb[0] + 0.7152 * rgb[1] + 0.0722 * rgb[2];
+  };
+  const [x, y] = [lum(a), lum(b)].sort((m, n) => n - m);
+  return (x + 0.05) / (y + 0.05);
+}
+
+export function colorCardPillVars(card) {
+  const c = typeof card === 'string' ? resolveColorCard(card) : card;
+  if (!c) return {};
+  return {
+    '--float-bg': c.top,
+    '--float-fg': colorCardOn(c),
+    '--float-tint': c.top,
+    '--float-tint-2': c.bottom,
+  };
+}
+
 // 给模型看的配色块（compileStoryPrompt）：画面/视频生成前，模型先看到这条。
 export function colorCardPromptBlock(card) {
   const c = typeof card === 'string' ? resolveColorCard(card) : card;
