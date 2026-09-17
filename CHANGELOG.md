@@ -8,6 +8,46 @@
 
 ## [Unreleased]
 
+## [2.66.0] - 2026-09-17
+
+### 修复：连续创作整页白屏 —— `Cannot access 'nt' before initialization`（我上一版埋的）
+
+真机报错："连续创作 页面暂时无法显示 / 错误详情 Cannot access 'nt' before initialization"。
+`nt` 是压缩后的变量名，翻回源码是：
+
+```js
+const effectiveCardId = project?.colorCardId || globalCardId || ''   // ← 这里读 globalCardId
+const saveBible = ...
+const [globalCardId, setGlobalCardId] = useState('')                  // ← 它却声明在下面
+```
+
+**这是我 v2.57.0（配色卡进创作流）埋的**：派生常量写在了 state 声明之前，渲染时读到还没初始化的绑定
+（TDZ），整个连续创作页直接白屏。已把 state 与派生常量的顺序摆正；真机复验：控制台零异常、
+分镜时间线正常渲染。
+
+**为什么没被拦住 → 补一条硬线**
+
+vite build 不做类型检查，eslint 也没接，这类"先用后声明"只有 tsc 拦得住（TS2448/TS2454），
+而它一出就是整页白屏。所以：
+
+- 新增 `tests/unit/frontend-typecheck.test.mjs`：跑 `tsc --noEmit`，有错就红（没装 typescript 时跳过）。
+  **这条线第一次跑就报出 8 个错**，其中就有这次的 TDZ。
+- 新增 `frontend/src/theme/colorcards.d.mts`：给配色卡模块补类型合同（前端只在这里消费这些 `.mjs`，
+  没有声明文件时 TS 把它们当 unknown，`Object.values(CARD_FAMILIES).map(f => f.id)` 会报错）。
+- `frontend-story-workbench.test.mjs` 里钉死这两个声明的**先后顺序**，防止再写回去。
+
+### 调整：合并两个重叠的技能（"那你合并"）
+
+- `daily-retrospective` ← 并入 `daily-self-retrospective`：保留六段结构（全景表 / 逐件归因 /
+  **会话盘点 vs 记忆留痕落差** / 做得好的 / 待办 / 一句话）+ 两边全部可执行条目
+  （排他性归因、口诀趁热沉淀、留痕不分技术含量、红线主动自证、用户约定当分钟落档）。
+- `verify-before-delivery` ← 并入 `evidence-first-delivery`：四条验证清单（存在性 / 可达性 /
+  内容真实性 / 完整落句）+ 三条铁律（宣称=证据、空输出≠成功、顺序不能反）+ 动手前 4 步检查。
+- 删掉被并入的两个目录；匹配器里"纪律族"的正则同步收窄到存活的名字。
+  技能总数 23 → **21**，注入目录仍在 4000 字以内。
+
+测试：**1413 → 1415 全绿**。
+
 ## [2.65.0] - 2026-09-17
 
 ### 新增：agent 自己沉淀的 6 个技能进仓库 + 让匹配器认得出它们

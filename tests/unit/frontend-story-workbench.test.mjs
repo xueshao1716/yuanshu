@@ -187,3 +187,14 @@ test('提示词面板要有配色示意缩略图，且分清按整片 / 这一�
   assert.match(source, /aria-label="色调"/, '镜头规格要能写这一镜的色调（留空=按整片配色）');
   assert.match(source, /tone: sh\.tone \|\| ''/, '色调要跟着段落读回来，不能只写不读');
 });
+
+// 2026-09-17 真机白屏：effectiveCardId 写在 globalCardId 的 useState 之前，
+// 渲染时读到未初始化的绑定 → ReferenceError: Cannot access 'nt' before initialization（整个连续创作页白屏）。
+// 这条把两者的**声明顺序**钉死（类型检查那条是通用网，这条写清具体踩点在哪儿）。
+test('连续创作：派生常量必须声明在它依赖的 state 之后（曾经 TDZ 白屏）', () => {
+  const state = source.indexOf("const [globalCardId, setGlobalCardId] = useState('')");
+  const derived = source.indexOf('const effectiveCardId =');
+  assert.ok(state > -1, 'globalCardId 的 useState 必须还在');
+  assert.ok(derived > -1, 'effectiveCardId 必须还在');
+  assert.ok(derived > state, 'effectiveCardId 必须写在 globalCardId 之后，否则渲染时 TDZ（Cannot access before initialization）');
+});

@@ -275,14 +275,16 @@ export function StoryPanel() {
     update(r.project); setSelected(next.id)
     await requestDraft(r.project, `为下一段构思具体情节：${next.prompt}\n之前的段落和实际产出：${JSON.stringify(currentScene).slice(-10000)}`, selectedKind)
   })
-  // 这一部戏**实际生效**的配色：项目自己选了就用项目的，否则跟全局走（主题页那张卡）
-  const effectiveCardId = project?.colorCardId || globalCardId || ''
-  const saveBible = () => action('正在保存设定', async () => { if (project) { const r=await StoryApi.patchProject(project.id,{bible:editedBible(project.bible,bibleDraft)});update(r.project);hydrateBible(r.project);setNotice('设定已保存') } })
   // 配色卡（engine/color-cards.mjs）：项目级选择，写进 project.colorCardId。
   // 空 = 跟随全局（主题页选的那张）；全局也没选就什么都不加。
-  // 点一下立即存——配色是"整部戏的底色"，不该跟设定文本框一起等一次「保存设定」。
+  // 状态声明必须留在**这一堆 state 里**：2026-09-17 真机上踩过一次 TDZ——
+  // 「实际生效的配色」这个派生常量当时写在 setColorCard 之后，而 globalCardId 的 useState
+  // 更靠后，于是渲染时先读了还没初始化的 globalCardId：
+  // `Cannot access 'nt' before initialization`，整个连续创作页白屏。
   const [globalCardId, setGlobalCardId] = useState('')
   useEffect(() => { ColorApi.get().then(r => setGlobalCardId(r?.colorCardId || '')).catch(() => {}) }, [])
+  // 这一部戏**实际生效**的配色：项目自己选了就用项目的，否则跟全局走（主题页那张卡）
+  const effectiveCardId = project?.colorCardId || globalCardId || ''
   const setColorCard = (colorCardId: string) => action('正在保存配色', async () => {
     const r = await StoryApi.patchProject(project.id, { colorCardId })
     update(r.project)
@@ -291,6 +293,7 @@ export function StoryPanel() {
       ? `配色已保存：这一部戏的画面提示词会按「${name}」写「色调」`
       : (globalCardId ? `已改为跟随全局配色（${resolveColorCard(globalCardId)?.name || globalCardId}）` : '已取消配色卡，画面色调回到画风默认'))
   })
+  const saveBible = () => action('正在保存设定', async () => { if (project) { const r=await StoryApi.patchProject(project.id,{bible:editedBible(project.bible,bibleDraft)});update(r.project);hydrateBible(r.project);setNotice('设定已保存') } })
   // 角色定妆照：生成一张可复用的形象参考图并写回设定；
   // 之后生成画面/视频时编排层会自动把它作为真实参考图注入。
   const portrait = (character: StoryCharacter, lookName?: string) => action(`正在生成「${character.name || character.id}」${lookName ? `的「${lookName}」形象` : '的定妆照'}`, async () => {
