@@ -45,6 +45,27 @@ test('匹配器必须认得出内置技能里那两族"概念名"（实测曾经
   assert.deepEqual(matchSkillsForTask('谢谢', list), []);
 });
 
+// 2026-09-17：agent 自己沉淀的那批"工作纪律"技能（复盘 / 交付前验证 / 排障 / 收尾沉淀）
+// 也是纯概念名，名字是英文 slug、描述是整句中文，分词永远命中不了。补了四条窄规则，
+// 同时给它们关掉"媒体域"那几条加分——否则「做个视频」会因为描述里出现"视频"把它们也带上（实测噪声）。
+test('匹配器要认得出"工作纪律"类技能，且不被媒体域规则误伤', () => {
+  const list = loadSkillIndex();
+  const top = m => matchSkillsForTask(m, list)[0]?.name || '';
+  const names = m => matchSkillsForTask(m, list).map(s => s.name);
+  assert.equal(top('今天复盘一下'), 'daily-retrospective');
+  assert.ok(names('服务起不来帮我排障').includes('misleading-error-debugging'), '排障要命中排障守则');
+  assert.ok(names('这个会话收尾沉淀一下').includes('delivery-session-closeout-review'), '收尾沉淀要命中收尾检查');
+  assert.ok(names('这条链接真的能用吗，先验证再交付').includes('verify-before-delivery'), '先验证再交付要命中');
+  // 纯媒体任务不许被纪律技能沾上
+  for (const q of ['做个视频', '画一张海报']) {
+    assert.ok(!names(q).some(n => /retrospective|closeout|evidence-first|verify-before-delivery|misleading-error/.test(n)), `${q} 不该命中纪律技能：${names(q).join('、')}`);
+  }
+  // 但"做视频 + 交付前验证"这种复合诉求要两个都点出来
+  const mixed = names('做个视频，交付前先验证');
+  assert.ok(mixed.includes('aigc-video-production'), '复合诉求仍要命中对口技能');
+  assert.ok(mixed.includes('verify-before-delivery'), '复合诉求也该带出交付纪律');
+});
+
 test('handleChat 必须把内置技能目录注入 Pi SDK 会话（否则页面列着、模型看不见）', () => {
   const src = fs.readFileSync('server.mjs', 'utf8');
   assert.match(src, /skills: loadSkillIndex\(\)|const builtinSkills = loadSkillIndex\(\)/, 'handleChat 要取内置技能索引');

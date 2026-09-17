@@ -8,6 +8,42 @@
 
 ## [Unreleased]
 
+## [2.65.0] - 2026-09-17
+
+### 新增：agent 自己沉淀的 6 个技能进仓库 + 让匹配器认得出它们
+
+你审批了那 6 个技能（`daily-retrospective`、`daily-self-retrospective`、
+`delivery-session-closeout-review`、`evidence-first-delivery`、`misleading-error-debugging`、
+`verify-before-delivery`），已经收进仓库（`c19a391a`）。
+
+我当时只补了它们 `description` 的触发语（原稿没写"什么时候用"，踩了仓库自己的技能契约）。这次顺手把
+**匹配器**也补齐——因为发现它们虽然进了目录（23 个技能、注入 2308 字，仍在上限 4000 内），
+但 `matchSkillsForTask` 对它们**零命中**：
+
+- 它们的名字是英文 slug、描述是整句中文，而匹配器是按名字/描述分词匹配的——「今天复盘一下」
+  「先验证再交付」这种最典型的说法一条都命不中（抽掉"什么时候该用"最明确的一类技能，最可惜）。
+- 按仓库里已有的做法（"纯概念名"那两族就是这么补的）加了四条窄规则：复盘 / 交付前验证 / 排障 /
+  收尾沉淀，各自要求"任务句 + 技能族"两边都命中。
+- 同时给这族技能**关掉"媒体域"那几条加分**：否则「做个视频」会因为它们的描述里出现"视频"
+  被一起带上（实测确实带上了 `verify-before-delivery`，纯噪声——纪律技能关心的是"怎么做"，
+  不是"做什么"）。
+
+真机（离线跑真实索引）：
+
+```
+「今天复盘一下」          → daily-retrospective、daily-self-retrospective
+「服务起不来帮我排障」    → misleading-error-debugging
+「这个会话收尾沉淀一下」  → delivery-session-closeout-review 等
+「做个视频」              → aigc-video-production、seedance-25、shortform-genesis（不再沾纪律技能）
+「做个视频，交付前先验证」→ aigc-video-production、verify-before-delivery（复合诉求两个都点出来）
+「嗯」                    → 零命中
+```
+
+测试：**1412 → 1413 全绿**（新增一条：纪律类技能必须命中、纯媒体任务不许被沾上、复合诉求两个都带）。
+
+> 留一条观察：`daily-retrospective` 与 `daily-self-retrospective` 结构重合约七成，
+> `evidence-first-delivery` 与 `verify-before-delivery` 也在讲同一件事。要不要合并成两个，你说一声。
+
 ## [2.64.0] - 2026-09-17
 
 ### 调整：工坊的选择芯片也换上悬浮手感（"你做个试试"）
