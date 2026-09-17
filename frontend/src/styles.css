@@ -2366,10 +2366,15 @@ body.has-wallpaper .chat-welcome .chat-reading-column {
 
 /* ── 全局创作配色卡带上壳层（2026-09-16）──────────────────────────────
    选了配色卡，左栏/右栏/面板头也带一层同色系的纱——不然"全局"只有出图变了，界面还是原来的灰。
-   浓度见 engine/color-cards.mjs 的 SHELL_TINT（左/右 6%，面板头 11%）：壳层字色 token 一个都没改，
-   所以对比度那条线仍然成立（theme-contrast 测试按 18 张卡 × 11 套主题守着最坏情况）。
+   浓度见 engine/color-cards.mjs 的 SHELL_TINT（三个面都是 11%，实测上限）。
+   为了拿到这 11%：壳层里的三级文字在左/右栏内提升为二级（下面那条 token 别名）——
+   既给色纱腾出对比度额度，本身也是可读性更好的方向（导航与会话摘要不该是三级信息）。
    剩下那点视觉分量交给**不压字**的装饰：边缘一道卡色、当前项描边。
    放在文件最后：前面的壁纸规则用了 background 简写，会把这层 background-image 清掉。 */
+.col-sidebar,
+.col-right {
+  --pi-dim2: var(--pi-dim);
+}
 body.has-color-card .col-sidebar {
   background-image: var(--pi-card-shell-left);
 }
@@ -2386,8 +2391,8 @@ body.has-color-card .utility-panel-header {
 body.has-color-card .desktop-rail-item[aria-current="page"] {
   box-shadow: inset 0 0 0 1px var(--pi-card-edge);
 }
-/* 6% 的纱只在"大面上"看得出来；真正让人一眼看出"这套色带上界面了"的是这两条**不压字**的边：
-   左栏右缘、右栏左缘各一条卡色渐变（和配色卡缩略图同一套色），位置在文字之外，不影响任何对比度。 */
+/* 11% 的纱要有分量，除了面上的色，还得有两道**不压字**的边：
+   左栏右缘、右栏左缘各一条卡色渐变（和配色卡缩略图同一套色），位置在文字之外。 */
 body.has-color-card nav.desktop-rail,
 body.has-color-card .col-right {
   position: relative;

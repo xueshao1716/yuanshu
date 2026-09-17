@@ -84,6 +84,8 @@ export default function Themes() {
   const [wallpaper, setWallpaper] = useState(() => currentWallpaper())
   // 全局创作配色卡：服务端一份，所有出图/出片入口共用（项目要单独覆盖在项目里指定）
   const [colorCardId, setColorCardId] = useState('')
+  // 两套卡（高级灰 / 高饱和）用切换而不是一次全铺：18 组平铺会把这一栏拉得很长，排版也乱
+  const [cardFamily, setCardFamily] = useState<'morandi' | 'vivid'>('morandi')
   const fileRef = useRef<HTMLInputElement>(null)
 
   useEffect(() => {
@@ -260,11 +262,10 @@ export default function Themes() {
                 <div className="text-[12px] text-pi-dim2 font-semibold mb-2">
                   创作配色卡{' '}
                   <span className="text-[11px] text-pi-dim font-normal">
-                    全局 · 两套 18 组：选了之后**所有出图/出片**（绘画、视频、连续创作、聊天里出图）都按它写「色调」；
-                    单个项目要不一样，在项目里单独指定
+                    全局：选了之后所有出图/出片（绘画、视频、连续创作）都按它写「色调」
                   </span>
                 </div>
-                <div className="flex flex-wrap gap-1.5 mb-2">
+                <div className="flex flex-wrap items-center gap-1.5 mb-2">
                   <button
                     type="button"
                     aria-pressed={!colorCardId}
@@ -273,83 +274,85 @@ export default function Themes() {
                   >
                     不指定
                   </button>
-                  {colorCardId && <span className="text-[11px] text-pi-dim self-center">当前：{CARD_FAMILIES[resolveColorCard(colorCardId)?.family || 'morandi']?.short} · {resolveColorCard(colorCardId)?.name}</span>}
+                  {Object.values(CARD_FAMILIES).map(family => (
+                    <button
+                      key={family.id}
+                      type="button"
+                      aria-pressed={cardFamily === family.id}
+                      onClick={() => setCardFamily(family.id)}
+                      className={`px-2.5 py-1.5 rounded-pi-sm text-[12px] transition-colors ${cardFamily === family.id ? 'bg-pi-bg3 text-pi-text' : 'text-pi-dim hover:bg-pi-bg3'}`}
+                    >
+                      {family.name}
+                    </button>
+                  ))}
+                  {colorCardId && <span className="ml-auto text-[11px] text-pi-dim">当前：{resolveColorCard(colorCardId)?.name}</span>}
                 </div>
-                {Object.values(CARD_FAMILIES).map(family => (
-                  <div key={family.id} className="mb-2">
-                    <div className="text-[11px] text-pi-dim mb-1">{family.name}（{family.rule}）</div>
-                    <div className="grid grid-cols-3 gap-2">
-                      {COLOR_CARDS.filter(c => c.family === family.id).map(card => {
-                        const gradient = colorCardGradient(card)
-                        const active = colorCardId === card.id
-                        return (
-                          <button
-                            key={card.id}
-                            type="button"
-                            onClick={() => void saveColorCard(card.id)}
-                            aria-pressed={active}
-                            aria-label={`创作配色卡 ${card.name}：${card.top} 到 ${card.bottom}`}
-                            title={`${card.top} → ${card.bottom}`}
-                            className={`rounded-pi-md border overflow-hidden text-left transition-colors ${active ? 'border-pi-accent ring-1 ring-pi-accent' : 'border-pi-border hover:border-pi-border-hi'}`}
-                          >
-                            <span className="block h-8" style={{ background: gradient }} />
-                            <span className="block px-2 py-1 bg-pi-bg1 text-[11px] text-pi-text truncate">{card.name}</span>
-                          </button>
-                        )
-                      })}
-                    </div>
-                  </div>
-                ))}
+                <div className="text-[11px] text-pi-dim mb-2">{CARD_FAMILIES[cardFamily].rule}</div>
+                <div className="grid grid-cols-3 gap-2">
+                  {COLOR_CARDS.filter(c => c.family === cardFamily).map(card => {
+                    const gradient = colorCardGradient(card)
+                    const active = colorCardId === card.id
+                    return (
+                      <button
+                        key={card.id}
+                        type="button"
+                        onClick={() => void saveColorCard(card.id)}
+                        aria-pressed={active}
+                        aria-label={`创作配色卡 ${card.name}：${card.top} 到 ${card.bottom}`}
+                        title={`${card.top} → ${card.bottom}`}
+                        className={`rounded-pi-md border overflow-hidden text-left transition-colors ${active ? 'border-pi-accent ring-1 ring-pi-accent' : 'border-pi-border hover:border-pi-border-hi'}`}
+                      >
+                        <span className="block h-8" style={{ background: gradient }} />
+                        <span className="block px-2 py-1 bg-pi-bg1 text-[11px] text-pi-text truncate">{card.name}</span>
+                      </button>
+                    )
+                  })}
+                </div>
               </div>
 
               <div>
                 <div className="text-[12px] text-pi-dim2 font-semibold mb-2">
                   配色卡壁纸{' '}
                   <span className="text-[11px] text-pi-dim font-normal">
-                    两套 18 组 · 点一下套成壁纸，点色点连同主色一起换
+                    点一下套成壁纸，点色点连同主色一起换
                   </span>
                 </div>
-                {Object.values(CARD_FAMILIES).map(family => (
-                  <div key={family.id} className="mb-2">
-                    <div className="text-[11px] text-pi-dim mb-1">{family.name}</div>
-                    <div className="grid grid-cols-3 gap-2">
-                      {COLOR_CARDS.filter(c => c.family === family.id).map(card => {
-                        const gradient = colorCardGradient(card)
-                        const active = wallpaper === gradient
-                        return (
-                          <div
-                            key={card.id}
-                            className={`relative rounded-pi-md border overflow-hidden transition-colors ${active ? 'border-pi-accent' : 'border-pi-border hover:border-pi-border-hi'}`}
-                          >
-                            <button
-                              type="button"
-                              onClick={() => setWallpaper(gradient)}
-                              aria-pressed={active}
-                              aria-label={`配色卡壁纸 ${card.name}：${card.top} 到 ${card.bottom}`}
-                              title={`原图标注 ${card.from} / ${card.to}；渐变从上到下`}
-                              className="block w-full text-left"
-                            >
-                              <span className="block h-12" style={{ background: gradient }} />
-                              <span className="block px-2 py-1.5 bg-pi-bg1">
-                                <span className="block text-[11px] text-pi-text truncate">{card.name}</span>
-                                <span className="block text-[11px] text-pi-dim2 font-mono">{card.top}</span>
-                                <span className="block text-[11px] text-pi-dim2 font-mono">{card.bottom}</span>
-                              </span>
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => selectAccent(card.top)}
-                              aria-label={`把主色换成 ${card.name} 的深端 ${card.top}`}
-                              title={`主色换成 ${card.top}`}
-                              className={`absolute top-1 right-1 w-4 h-4 rounded-full border border-white/70 shadow ${accent.toLowerCase() === card.top.toLowerCase() ? 'ring-2 ring-pi-accent' : ''}`}
-                              style={{ background: card.top }}
-                            />
-                          </div>
-                        )
-                      })}
-                    </div>
-                  </div>
-                ))}
+                <div className="grid grid-cols-3 gap-2">
+                  {COLOR_CARDS.filter(c => c.family === cardFamily).map(card => {
+                    const gradient = colorCardGradient(card)
+                    const active = wallpaper === gradient
+                    return (
+                      <div
+                        key={card.id}
+                        className={`relative rounded-pi-md border overflow-hidden transition-colors ${active ? 'border-pi-accent' : 'border-pi-border hover:border-pi-border-hi'}`}
+                      >
+                        <button
+                          type="button"
+                          onClick={() => setWallpaper(gradient)}
+                          aria-pressed={active}
+                          aria-label={`配色卡壁纸 ${card.name}：${card.top} 到 ${card.bottom}`}
+                          title={`原图标注 ${card.from} / ${card.to}；渐变从上到下`}
+                          className="block w-full text-left"
+                        >
+                          <span className="block h-12" style={{ background: gradient }} />
+                          <span className="block px-2 py-1.5 bg-pi-bg1">
+                            <span className="block text-[11px] text-pi-text truncate">{card.name}</span>
+                            <span className="block text-[11px] text-pi-dim2 font-mono truncate">{card.top}</span>
+                            <span className="block text-[11px] text-pi-dim2 font-mono truncate">{card.bottom}</span>
+                          </span>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => selectAccent(card.top)}
+                          aria-label={`把主色换成 ${card.name} 的深端 ${card.top}`}
+                          title={`主色换成 ${card.top}`}
+                          className={`absolute top-1 right-1 w-4 h-4 rounded-full border border-white/70 shadow ${accent.toLowerCase() === card.top.toLowerCase() ? 'ring-2 ring-pi-accent' : ''}`}
+                          style={{ background: card.top }}
+                        />
+                      </div>
+                    )
+                  })}
+                </div>
               </div>
 
               <div>

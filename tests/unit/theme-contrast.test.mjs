@@ -97,18 +97,19 @@ test('不许再写死"主色底 + 白字"（各主题主色明度不同，白字
 });
 
 // ── 全局配色卡的壳层色纱（2026-09-16）────────────────────────────────────
-// 用户问"全局不应该左侧栏、右侧栏也带一些效果吗"。做法是给左栏/右栏/面板头叠一层低浓度色纱
-// （字色 token 一个都不动），浓度取的是**实测上限**：左/右栏底下有 dim2 小字 → 6%；
-// 面板头只有标题与 dim 按钮 → 11%。这条测试算最坏情况：18 张卡 × 11 套主题，
+// 用户问"全局不应该左侧栏、右侧栏也带一些效果吗"。做法是给左栏/右栏/面板头叠一层色纱。
+// 浓度是**实测上限**：左/右栏里的三级文字先在作用域内提升为二级（styles.css 的 token 别名），
+// 换来 11% 的额度（原来是 6%）。这条测试算最坏情况：18 张卡 × 11 套主题，
 // 每个面上真正会出现的最弱字色叠完色纱之后是否仍在 AA 线以上。谁调高浓度这里就红。
 test('壳层色纱：18 张卡 × 11 套主题，叠上去之后文字仍然读得清', () => {
   const fails = [];
   for (const [name, v] of THEMES) {
     for (const card of COLOR_CARDS) {
-      // 左栏用卡的上端色、右栏用下端色；渐变从起点淡出，所以按起点（浓度最高处）算
+      // 左右栏内的 dim2 已被提升为 dim，所以最弱字色按 dim 算；右栏也用卡的上端色
+      // （下端色多为米白，叠在暗色主题上会把面板提亮，dim 的对比度掉得很快）
       const surfaces = [
-        ['左栏', blendTint(card.top, SHELL_TINT.left, v['--pi-bg1']), ['--pi-text', '--pi-dim', '--pi-dim2']],
-        ['右栏', blendTint(card.bottom, SHELL_TINT.right, v['--pi-bg1']), ['--pi-text', '--pi-dim', '--pi-dim2']],
+        ['左栏', blendTint(card.top, SHELL_TINT.left, v['--pi-bg1']), ['--pi-text', '--pi-dim']],
+        ['右栏', blendTint(card.top, SHELL_TINT.right, v['--pi-bg1']), ['--pi-text', '--pi-dim']],
         ['面板头', blendTint(card.top, SHELL_TINT.top, v['--pi-bg1']), ['--pi-text', '--pi-dim']],
       ]
       for (const [surface, bg, tokens] of surfaces) {
@@ -120,8 +121,10 @@ test('壳层色纱：18 张卡 × 11 套主题，叠上去之后文字仍然读�
     }
   }
   assert.deepEqual(fails.slice(0, 12), [], `色纱把文字压到线下了（前 12 条）：\n  ${fails.slice(0, 12).join('\n  ')}`);
-  assert.ok(SHELL_TINT.left <= 0.06 && SHELL_TINT.right <= 0.06, '左右栏色纱不该超过 6%（dim2 小字就在上面）');
-  assert.ok(SHELL_TINT.top <= 0.11, '面板头色纱不该超过 11%');
+  assert.ok(SHELL_TINT.left <= 0.11 && SHELL_TINT.right <= 0.11 && SHELL_TINT.top <= 0.11, '色纱不该超过 11%（实测上限）');
+  // 拿到这 11% 的前提：壳层里的三级文字被提升为二级。这条别被顺手删掉。
+  const css = read('frontend', 'src', 'styles.css');
+  assert.match(css, /\.col-sidebar,\s*\.col-right\s*\{\s*--pi-dim2:\s*var\(--pi-dim\);\s*\}/, '左右栏内的三级文字要先提升为二级');
 });
 
 test('壳层色纱要真的贴到左栏/右栏/面板头，且由全局卡的开关控制', () => {
