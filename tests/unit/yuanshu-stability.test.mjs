@@ -69,34 +69,46 @@ test("execFileAbortable：abort 必须杀掉已启动的子进程", async () => 
 
 // 2026-09-16：命令是经 shell 包一层起的（cmd /c 或 bash -lc），真正干活的是**孙子进程**。
 // 只杀 shell 会把它变成孤儿继续跑——真机上表现成"点了停止还在跑"、临时目录删不掉、
-// 以及 abort 用例被拖到 30s。这里用命令行里的唯一标记去查它是否真的没了。
+// 以及 abort 用例被拖到 30s。
+//
+// 2026-09-17 修过一次本身的 flaky：cmd 那支原来 ping 的是 127.0.0.99，本机会立刻回
+// "Destination host unreachable"，命令 400ms 内就跑完了 → abort 还没发，promise 已经 resolve，
+// 断言报 "Missing expected rejection"（全量里偶发）。改成：
+//   · cmd 支 ping **回环地址**（30 次 ≈ 30s，稳定长跑），查存活用 PING.EXE 数量差（不加引号、不需标记）；
+//   · bash 支仍用命令行里的唯一标记（bash 引号没问题，能直接跑 node -e）。
 test("execFileAbortable：abort 要连孙子进程一起杀（cmd / bash 包一层也不留孤儿）", { skip: process.platform !== "win32" }, async () => {
   const { execFile } = await import("node:child_process");
   const { detectBashShell } = await import("../../engine/tools/unified-tools.mjs");
   const marker = `piweb-orphan-${process.pid}-${Date.now()}`;
-  const survivors = (needle) => new Promise((resolve) => {
-    // 必须排掉 powershell 自己：这条查询的命令行里就带着 needle，会自己匹配自己。
-    execFile("powershell", ["-NoProfile", "-NonInteractive", "-Command",
-      `(Get-CimInstance Win32_Process | Where-Object { $_.Name -ne 'powershell.exe' -and $_.Name -ne 'pwsh.exe' -and $_.CommandLine -like '*${needle}*' } | Measure-Object).Count`],
+  const count = (psQuery) => new Promise((resolve) => {
+    execFile("powershell", ["-NoProfile", "-NonInteractive", "-Command", psQuery],
       (err, out) => resolve(err ? -1 : Number(String(out).trim())));
   });
-  // cmd 下不能给 node -e 加引号（libuv 的转义 cmd 不认，命令会立刻以 1 退出），所以 cmd 用 ping。
-  // 两个坑：① cmd 会把 ping 的命令行拼成 `ping  -n 30 <ip>`（两个空格），拿完整命令去 -like 匹配不到；
-  // ② 不能拿 127.0.0.1 当 needle——本机的服务进程命令行里到处都是它，会自己撞上自己。
-  const cases = [["cmd", process.env.ComSpec || "cmd.exe", ["/c", "ping -n 30 127.0.0.99"], "127.0.0.99"]];
+  const pingCount = () => count(`(Get-Process ping -ErrorAction SilentlyContinue | Measure-Object).Count`);
+  const survivors = (needle) => count(
+    // 必须排掉 powershell 自己：这条查询的命令行里就带着 needle，会自己匹配自己。
+    `(Get-CimInstance Win32_Process | Where-Object { $_.Name -ne 'powershell.exe' -and $_.Name -ne 'pwsh.exe' -and $_.CommandLine -like '*${needle}*' } | Measure-Object).Count`);
+
+  const cases = [["cmd", process.env.ComSpec || "cmd.exe", ["/c", "ping -n 30 127.0.0.1"], pingCount]];
   const bash = detectBashShell();
-  if (bash) cases.push(["bash", bash, ["-lc", `${process.execPath} -e "setTimeout(()=>{},30000)//${marker}"`], marker]);
-  for (const [label, file, args, needle] of cases) {
+  // bash 里含空格的 Windows 路径**必须加引号**：`C:\Program Files\nodejs\node.exe` 不加引号会被
+  // bash 拆成 `C:\Program` + `Files\...`，命令 360ms 就以 127（command not found）退出——
+  // abort 还没发就 resolve，断言于是报 "Missing expected rejection"（这个用例偶发红就是这么来的）。
+  const nodeExe = `"${process.execPath}"`;
+  if (bash) cases.push(["bash", bash, ["-lc", `${nodeExe} -e "setTimeout(()=>{},30000)//${marker}"`], () => survivors(marker)]);
+
+  for (const [label, file, args, alive] of cases) {
+    const before = await alive();
     const ac = new AbortController();
     const p = execFileAbortable(file, args, { timeout: 300000, windowsHide: true, signal: ac.signal });
     setTimeout(() => ac.abort(), 400); // 等孙子进程真的起来再断
     await assert.rejects(p, (e) => e?.aborted === true || e?.killed === true || /abort/i.test(String(e?.message || e)));
-    let left = await survivors(needle);
-    for (let i = 0; i < 20 && left !== 0; i++) {
+    let left = await alive();
+    for (let i = 0; i < 20 && left > before; i++) {
       await new Promise((r) => setTimeout(r, 250));
-      left = await survivors(needle);
+      left = await alive();
     }
-    assert.equal(left, 0, `${label}：abort 5s 后还有孤儿进程在跑`);
+    assert.ok(left <= before, `${label}：abort 5s 后还有孤儿进程在跑（${left} > 基线 ${before}）`);
   }
 });
 

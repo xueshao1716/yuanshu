@@ -8,6 +8,45 @@
 
 ## [Unreleased]
 
+## [2.67.0] - 2026-09-17
+
+### 调整：类型检查接进构建流水线（"接"）
+
+上一版把 `tsc --noEmit` 接进了测试线，但**发版走的不是测试线**——`npm run build:frontend` 仍然是
+裸的 `vite build`。于是本地测试绿了、线上产物里照样可能是白屏（连续创作那次就是这么出去的）。
+
+现在：
+
+- `frontend/package.json`：新增独立脚本 `typecheck`（`tsc --noEmit -p tsconfig.json`），
+  `build` 变成 `npm run typecheck && vite build`。
+- 根目录 `build:frontend` 仍然只走 `npm --prefix frontend run build`，**没有任何旁路**；
+  `build:mobile:web` 也因此自动带上。
+- 新增一条测试盯住这条链（typecheck 脚本在、build 先跑它、根脚本不许绕过）——
+  否则哪天有人图快把它改回裸 `vite build`，白屏 bug 又会静默回到产物里。
+
+**红绿对照（真造一个错验过）**
+
+- 故意写一个"先用后声明"（`export const probeA = probeB; const probeB = 1`）→
+  `npm run build:frontend` **6.9s 失败退出（码 2）**，报错正是
+  `error TS2448: Block-scoped variable 'probeB' used before its declaration`（与那次白屏同一类）。
+- 删掉探针 → 构建恢复（9.9s，其中类型检查约 7s；原来裸 vite build 约 2.5s）。
+  构建变慢约 7 秒，换掉一整类"整页白屏"的可能，值。
+
+测试：**1415 → 1416 全绿**。
+
+### 修复：abort 孤儿用例偶发红（它自己有两个毛病，跟产品无关）
+
+全量跑时那条"abort 要连孙子进程一起杀"偶发报 `Missing expected rejection`。查下来是**用例本身**：
+
+1. cmd 支原来 ping 的是 `127.0.0.99`——本机会立刻回 "Destination host unreachable"，命令 400ms 内
+   就跑完了，abort 还没发就 resolve。改成 ping **回环地址**（30 次 ≈ 30s，稳定长跑），
+   存活判定也从"命令行标记"改成"`PING.EXE` 数量差"（cmd 下不加引号、也不需要标记）。
+2. bash 支把 `process.execPath` 直接裸写进命令：`C:\Program Files\nodejs\node.exe` 被 bash 拆成
+   `C:\Program` + `Files\...`，360ms 以 **127 command not found** 退出——同样是"abort 之前就结束"。
+   加上引号即可（这条更隐蔽：stderr 里只有一行 `C:/Program: command not found`）。
+
+两处都把踩点写进了用例注释；连跑 4 次稳定绿，孤儿用例耗时 ~2.5s。
+
 ## [2.66.0] - 2026-09-17
 
 ### 修复：连续创作整页白屏 —— `Cannot access 'nt' before initialization`（我上一版埋的）

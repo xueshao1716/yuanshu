@@ -1,11 +1,12 @@
 {
   "name": "yuanshu-frontend",
   "private": true,
-  "version": "2.66.0",
+  "version": "2.67.0",
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "vite build",
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "build": "npm run typecheck && vite build",
     "preview": "vite preview",
     "lint:design": "impeccable detect src/",
     "check:theme": "node scripts/check-theme.mjs",
