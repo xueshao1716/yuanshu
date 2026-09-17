@@ -479,3 +479,23 @@ test('消息视觉只使用 pi 语义色，并保留角色、Markdown、Thinking
     assert.ok(message.includes(branch), `消息逻辑分支必须保留：${branch}`)
   }
 })
+
+// 工坊的选择芯片（绘画/视频的光影、风格、运镜、平台那几排）改成了"选中=主色投影浮起"。
+// 这里是"你做个试试"那次改动的锁：两支状态类必须在、投影必须掺主色、且**尺寸类不许被吃掉**
+// （min-h-11 是触摸目标，曾经有一次差点把它们换掉）。
+test('工坊选择芯片：选中=主色投影，未选中安静，触摸目标不许变小', () => {
+  const css = read('styles.css')
+  assert.match(css, /\.chip-pill\.is-on\s*\{[^}]*background:\s*var\(--pi-accent\)/, '选中要有主色底')
+  assert.match(css, /\.chip-pill\.is-on\s*\{[^}]*box-shadow:[^}]*color-mix\(in srgb, var\(--pi-accent\)/, '选中投影要掺主色（这是"浮起来"的关键）')
+  assert.match(css, /\.chip-pill\.is-on:hover[^{]*\{[^}]*translateY\(-1px\)/, '选中悬停要抬一下')
+  assert.match(css, /\.chip-pill\.is-on:active[^{]*\{[^}]*translateY\(1px\)/, '选中按下要压回去')
+  assert.match(css, /\.chip-pill\.is-off\s*\{[^}]*background:\s*transparent/, '没选中的保持安静')
+  for (const file of [['components', 'WanXiang.tsx'], ['components', 'VideoPrompt.tsx']]) {
+    const src = read(...file)
+    assert.match(src, /chip-pill is-on/, `${file[1]} 的选中态要走 chip-pill is-on`)
+    assert.match(src, /chip-pill is-off/, `${file[1]} 的未选中态要走 chip-pill is-off`)
+    assert.doesNotMatch(src, /bg-pi-accent text-pi-on-accent border-pi-accent/, `${file[1]} 不该再自己拼选中态样式`)
+    for (const m of src.matchAll(/rounded-full text-\[11px\] chip border/g)) assert.ok(m, '尺寸类要保留')
+    assert.match(src, /(?:px-2\.5 min-h-11|px-2\.5 py-1|px-2 py-1) rounded-full text-\[11px\] chip border/, '尺寸/触摸目标类不许被吃掉')
+  }
+})

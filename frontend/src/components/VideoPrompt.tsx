@@ -108,7 +108,7 @@ export default function VideoPrompt({ onUsePrompt, onSpecChange }: {
           <div className="flex flex-wrap gap-1.5">
             {GRAMMAR_KEYS.map((k) => (
               <button key={k} type="button" onClick={() => pickGrammar(k)}
-                className={`px-2.5 min-h-11 rounded-full text-[11px] border transition-colors duration-fast ${scene === k ? 'bg-pi-accent text-pi-on-accent border-pi-accent font-medium' : 'bg-transparent text-pi-dim border-pi-border-soft hover:text-pi-text hover:border-pi-dim'}`}>
+                className={`px-2.5 min-h-11 rounded-full text-[11px] chip border transition-colors duration-fast ${scene === k ? 'chip-pill is-on font-medium' : 'chip-pill is-off'}`}>
                 {VIDEO_GRAMMARS[k].icon} {VIDEO_GRAMMARS[k].name}
               </button>
             ))}
@@ -120,7 +120,7 @@ export default function VideoPrompt({ onUsePrompt, onSpecChange }: {
           <div className="flex flex-wrap gap-1.5">
             {EXAMPLE_KEYS.map((k) => (
               <button key={k} type="button" onClick={() => pickExample(k)}
-                className={`px-2.5 min-h-11 rounded-full text-[11px] border transition-colors duration-fast ${scene === k ? 'bg-pi-accent text-pi-on-accent border-pi-accent font-medium' : 'bg-transparent text-pi-dim border-pi-border-soft hover:text-pi-text hover:border-pi-dim'}`}>
+                className={`px-2.5 min-h-11 rounded-full text-[11px] chip border transition-colors duration-fast ${scene === k ? 'chip-pill is-on font-medium' : 'chip-pill is-off'}`}>
                 {VIDEO_EXAMPLES[k].icon} {VIDEO_EXAMPLES[k].name}
               </button>
             ))}
@@ -155,7 +155,7 @@ export default function VideoPrompt({ onUsePrompt, onSpecChange }: {
         <div className="flex gap-1.5">
           {([['lite', '精简'], ['standard', '标准']] as const).map(([k, label]) => (
             <button key={k} type="button" onClick={() => setRichness(k)}
-              className={`px-2.5 py-1 rounded-full text-[11px] border ${richness === k ? 'bg-pi-accent text-pi-on-accent border-pi-accent' : 'bg-transparent text-pi-dim border-pi-border-soft'}`}>{label}</button>
+              className={`px-2.5 py-1 rounded-full text-[11px] chip border ${richness === k ? 'chip-pill is-on' : 'chip-pill is-off'}`}>{label}</button>
           ))}
         </div>
         {richness === 'standard' && (

@@ -2476,6 +2476,38 @@ body.has-color-card .col-right::before { left: 0; }
 .float-pill-list { display: flex; flex-direction: column; gap: 10px; }
 .float-pill-list .float-pill { box-shadow: 0 10px 20px -6px color-mix(in srgb, var(--float-tint) 42%, transparent), 0 3px 8px -2px color-mix(in srgb, var(--float-tint) 26%, transparent), inset 0 1px 0 color-mix(in srgb, #fff 42%, transparent); }
 
+/* 工坊里的"选择芯片"（绘画/视频的光影、风格、运镜、平台那几排）也借用同一套手感：
+   选中时投影是主色系的、按下去有分量；没选中的保持安静（每颗都浮起来会吵）。
+   尺寸/触摸目标仍由 Tailwind 的 px-* / min-h-11 管，这里只管颜色、投影与动效。 */
+.chip { transition: transform .18s var(--pi-ease), box-shadow .18s var(--pi-ease), color .14s var(--pi-ease), border-color .14s var(--pi-ease), background-color .14s var(--pi-ease); }
+.chip-pill.is-off {
+  background: transparent;
+  color: var(--pi-dim);
+  border-color: var(--pi-border-soft);
+}
+.chip-pill.is-off:hover {
+  color: var(--pi-text);
+  border-color: var(--pi-dim);
+}
+.chip-pill.is-on {
+  background: var(--pi-accent);
+  color: var(--pi-on-accent);
+  border-color: var(--pi-accent);
+  box-shadow:
+    0 8px 16px -6px color-mix(in srgb, var(--pi-accent) 45%, transparent),
+    0 2px 5px -1px color-mix(in srgb, var(--pi-accent) 25%, transparent);
+}
+.chip-pill.is-on:hover {
+  transform: translateY(-1px);
+  box-shadow:
+    0 12px 22px -7px color-mix(in srgb, var(--pi-accent) 52%, transparent),
+    0 3px 8px -2px color-mix(in srgb, var(--pi-accent) 28%, transparent);
+}
+.chip-pill.is-on:active {
+  transform: translateY(1px) scale(.985);
+  box-shadow: 0 3px 8px -4px color-mix(in srgb, var(--pi-accent) 40%, transparent);
+}
+
 /* 主按钮也借用同一套"浮起来"的观感（投影是主色系的，不是灰的） */
 .btn-primary {
   box-shadow:
