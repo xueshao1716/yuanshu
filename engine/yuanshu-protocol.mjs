@@ -30,7 +30,7 @@ export function matchSkillsForTask(message, skills = [], limit = 3) {
     for (const tok of desc.split(/[\s,，、/]/)) {
       if (tok.length >= 2 && msg.includes(tok)) score += 2;
     }
-    const isDiscipline = /retrospective|closeout|evidence-first|verify-before-delivery|misleading-error/.test(name);
+    const isDiscipline = /retrospective|closeout|verify-before-delivery|misleading-error/.test(name);
     if (!isDiscipline && /视频|分镜|出片|短片/.test(msg) && /video|视频|seedance|aigc|分镜/.test(`${name}${desc}`)) score += 4;
     if (!isDiscipline && /图|海报|写真|配图/.test(msg) && /image|图|写真|海报|wanxiang/.test(`${name}${desc}`)) score += 3;
     if (!isDiscipline && /ppt|幻灯片|演示|汇报/i.test(msg) && /ppt|幻灯片|演示|presentation/i.test(`${name}${desc}`)) score += 4;
@@ -45,7 +45,7 @@ export function matchSkillsForTask(message, skills = [], limit = 3) {
     // 名字是英文 slug、描述是整句中文，分词匹配永远命中不了（实测「今天复盘一下」「先验证再交付」都零命中，
     // 而这几个技能恰恰是"什么时候该用"最明确的一类，漏掉最可惜）。按同一条思路补四条窄规则。
     if (/复盘|回顾今天|总结今天|今日总结/.test(msg) && /retrospective|复盘/.test(`${name}${desc}`)) score += 6;
-    if (/验证|实测|证据|先跑一遍|真的能用|别忽悠|别吹/.test(msg) && /verify-before-delivery|evidence-first|验证|证据/.test(`${name}${desc}`)) score += 5;
+    if (/验证|实测|证据|先跑一遍|真的能用|别忽悠|别吹/.test(msg) && /verify-before-delivery|验证|证据/.test(`${name}${desc}`)) score += 5;
     if (/排障|排查|报错|起不来|错误信息|误导/.test(msg) && /misleading-error|排障|错误信息/.test(`${name}${desc}`)) score += 5;
     if (/沉淀|收尾|漏了什么|登记产物|经验没留/.test(msg) && /closeout|沉淀|收尾/.test(`${name}${desc}`)) score += 5;
     if (score) scored.push({ name, desc, score });

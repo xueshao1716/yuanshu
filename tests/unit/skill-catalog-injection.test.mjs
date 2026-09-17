@@ -58,7 +58,7 @@ test('匹配器要认得出"工作纪律"类技能，且不被媒体域规则误
   assert.ok(names('这条链接真的能用吗，先验证再交付').includes('verify-before-delivery'), '先验证再交付要命中');
   // 纯媒体任务不许被纪律技能沾上
   for (const q of ['做个视频', '画一张海报']) {
-    assert.ok(!names(q).some(n => /retrospective|closeout|evidence-first|verify-before-delivery|misleading-error/.test(n)), `${q} 不该命中纪律技能：${names(q).join('、')}`);
+    assert.ok(!names(q).some(n => /retrospective|closeout|verify-before-delivery|misleading-error/.test(n)), `${q} 不该命中纪律技能：${names(q).join('、')}`);
   }
   // 但"做视频 + 交付前验证"这种复合诉求要两个都点出来
   const mixed = names('做个视频，交付前先验证');
