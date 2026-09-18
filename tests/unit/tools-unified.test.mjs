@@ -195,6 +195,34 @@ test("engine/tools 执行器工厂（createUnifiedToolExecutor）", (t) => {
     assert.equal(r.isError, true);
     assert.match(r.text, /受保护文件/);
   });
+  t.test("write：超长内容被分段闸门拦下（并给出分块写法）", async () => {
+    // 约 3 万汉字 ≈ 4.5 万 token，超过单次安全写入上限 → 必须拦，否则参数会断在 JSON 中间
+    const huge = "中".repeat(30000);
+    const r = await exec("write", { path: "big.md", content: huge });
+    assert.equal(r.isError, true);
+    assert.match(r.text, /拒绝写入 \[分段\]/);
+    assert.match(r.text, /append:true/, "要告诉模型怎么分块，不能只说「太大了」");
+    assert.equal(fs.existsSync(path.join(tmp, "big.md")), false, "被拦下就不许落盘（半截文件比失败更糟）");
+  });
+  t.test("write：分块写 —— 首块写入 + append 追加，拼出来必须与原内容一致", async () => {
+    const block1 = "第一块：".repeat(200);
+    const block2 = "第二块：".repeat(200);
+    const w1 = await exec("write", { path: "chunked.txt", content: block1 });
+    assert.equal(w1.isError, false);
+    const w2 = await exec("write", { path: "chunked.txt", content: block2, append: true });
+    assert.equal(w2.isError, false);
+    assert.match(w2.text, /已追加/);
+    assert.equal((await exec("read", { path: "chunked.txt" })).text, block1 + block2);
+    // append 下的幂等检查不能误伤：同一段内容重复追加是合法的（分段重试），必须真追加
+    const w3 = await exec("write", { path: "chunked.txt", content: block2, append: true });
+    assert.equal(w3.isError, false);
+    assert.equal((await exec("read", { path: "chunked.txt" })).text, block1 + block2 + block2);
+  });
+  t.test("write：schema 里说明了分块协议（模型看得见 append 参数）", () => {
+    const w = BASE_TOOL_SCHEMAS.find((s) => s.function.name === "write");
+    assert.ok(w.function.parameters.properties.append, "write 必须有 append 参数");
+    assert.match(w.function.description, /分块|append/);
+  });
   t.test("read：不存在的文件报错", async () => {
     const r = await exec("read", { path: "nope.txt" });
     assert.equal(r.isError, true);

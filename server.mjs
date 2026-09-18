@@ -1435,6 +1435,14 @@ async function handleChat(req, res, body) {
         );
       } catch {}
     }
+    // 大文件分块写（2026-09-18）：Pi 通道用的是 SDK 内置 write（元枢拦不到它的参数），
+    // 只能把写法写进每轮上下文；元枢自制循环那边有硬闸门（engine/tools/unified-tools.mjs）。
+    try {
+      await entry.agent?.sendCustomMessage?.(
+        { customType: "context", content: [{ type: "text", text: "【大文件分块写】一次 write 的内容就是你的输出，超过约 2 万 token 会被单次输出上限截断（参数断在 JSON 中间，整轮白费）。要写长文件就分块：第一块 write，后续块在同一路径上用 bash 追加重定向（>>）或 edit 续写；每块控制在 1.5 万 token 以内。" }] },
+        { deliverAs: "nextTurn" }
+      );
+    } catch {}
     // 元枢内置技能库（仓库根 skills/）：Pi SDK 会话的技能发现只看 `cwd/skills` 与
     // `agentDir/skills` 两个根，**仓库里的 skills/ 不在它的扫描范围内**——于是「元枢技能」
     // 页面上列得出来、模型却看不见，`activate_skill` 也就永远等不到调用。

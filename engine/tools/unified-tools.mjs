@@ -32,6 +32,7 @@ import { yuanshuExecutor } from "../yuanshu-loop.mjs";
 import { execFileAbortable } from "../yuanshu-stability.mjs";
 import { withUtf8CodePage, decodeWindowsOutput, looksMojibake, riskyForCmdShell } from "../windows-shell.mjs";
 import { isCanonicalTarget, stageWrite } from "../memory-stages.mjs";
+import { checkWriteSegments } from "../context-headroom.mjs";
 
 // ── 工具 schema（OpenAI function 格式）──
 export const BASE_TOOL_SCHEMAS = [
@@ -39,7 +40,7 @@ export const BASE_TOOL_SCHEMAS = [
   // （真机：描述写 cmd 而 pi 用 bash，同一个模型在两边各试一套命令，循环里白白多花 4~6 次调用）。
   { type: "function", function: { name: "bash", get description() { return bashToolDescription() + "出图/视频/配音用 generate_image / generate_video / generate_tts，不要读 auth.json/.token。不要 curl 本机 /api/image，不要启动 Vite 5173 或第二份 8787。" }, parameters: { type: "object", properties: { command: { type: "string", description: "要运行的命令" } }, required: ["command"] } } },
   { type: "function", function: { name: "read", description: "读取文件内容（工作空间内相对路径，或磁盘上的绝对路径如 D:/proj/file.json）", parameters: { type: "object", properties: { path: { type: "string", description: "文件路径" } }, required: ["path"] } } },
-  { type: "function", function: { name: "write", description: "写入文件（自动创建目录）", parameters: { type: "object", properties: { path: { type: "string", description: "文件路径（相对工作空间）" }, content: { type: "string", description: "文件内容" } }, required: ["path", "content"] } } },
+  { type: "function", function: { name: "write", description: "写入文件（自动创建目录）。文件很大时**必须分块**：第一块不带 append，后面的块带 append:true 追加（一次写太大的文件会被单次输出上限截断，整轮白费）", parameters: { type: "object", properties: { path: { type: "string", description: "文件路径（相对工作空间）" }, content: { type: "string", description: "文件内容（分块时是这一块的内容）" }, append: { type: "boolean", description: "true = 追加到文件末尾（分块写后续块用）；不传 = 覆盖写" } }, required: ["path", "content"] } } },
   { type: "function", function: { name: "edit", description: "用精确文本替换修改文件（先 read 再 edit）", parameters: { type: "object", properties: { path: { type: "string" }, oldText: { type: "string" }, newText: { type: "string" } }, required: ["path", "oldText", "newText"] } } },
   { type: "function", function: { name: "web_search", description: "联网搜索（Bing，无需 key）。未知事实、时效新闻才搜；独白/剧本/本会话已说过的事先按判断写。一次一两个查询，锁不到人就动手并汇报假设。", parameters: { type: "object", properties: { query: { type: "string", description: "搜索关键词（中文/英文均可）" } }, required: ["query"] } } },
 ];
@@ -373,16 +374,28 @@ export function createUnifiedToolExecutor(deps = {}) {
         if (!p) return { text: "路径越权（write 仅限工作空间与系统目录内）", isError: true };
         if (isProtectedPath(p)) return { text: `⛔ 拒绝写入 [仓库法律]：${args?.path} 是受保护文件（人格/宪法/凭据），只读不写`, isError: true };
         const content = String(args?.content ?? "");
+        const append = args?.append === true;
+        // 分段闸门（2026-09-18）：内容就是模型的输出，一次写太大必然被输出上限截断，
+        // 参数断在 JSON 中间整轮白费。这里提前拦下来，并给出分块写法。
+        const seg = checkWriteSegments({ content, append });
+        if (!seg.ok) return { text: `⛔ 拒绝写入 [分段]：${args?.path}\n${seg.hint}`, isError: true };
         // 规范区闸门（2026-09-18）：skills/** 与做梦的现役配置**不许直接写**——先落草案区，
         // 等独立验证 PASS 或人批准才真正落地。真机事故：一个没验证过的技能直接进了 skills/
         // （闸装在提案池上，没装在工具层，而 agent 手里就有 write）。纪律挡不住，在这里挡。
-        const stagedWrite = stageIfCanonical(p, content, "技能/规则属于长期记忆");
+        // 追加模式下要送**合并后的内容**进草案区，否则草案里只有半块。
+        const existing = (() => { try { return fs.existsSync(p) ? fs.readFileSync(p, "utf8") : ""; } catch { return ""; } })();
+        const stagedWrite = stageIfCanonical(p, append ? existing + content : content, "技能/规则属于长期记忆");
         if (stagedWrite) return stagedWrite;
         // 与 Pi 的写工具共用同一把按文件队列，外层再套跨进程锁文件：
         // Pi 的 edit 是 async 的，不共用时"元枢 edit"与"Pi edit"打同一文件会交错；
         // 跨进程锁则挡住 dsh 子智能体 / headless 入口 / 外部脚本。
         return await lockedWrite(p, args?.path, async () => {
           fs.mkdirSync(path.dirname(p), { recursive: true });
+          if (append) {
+            fs.appendFileSync(p, content, "utf8");
+            const total = (() => { try { return fs.statSync(p).size; } catch { return 0; } })();
+            return { text: `✅ 已追加 ${args?.path}（+${content.length} 字符，现 ${total} 字节）`, isError: false };
+          }
           if (fs.existsSync(p)) {
             try {
               const current = fs.readFileSync(p, "utf8");

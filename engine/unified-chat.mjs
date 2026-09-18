@@ -554,7 +554,7 @@ export async function unifiedChat(model, messages, opts = {}) {
       }
       history.push({
         role: "system",
-        content: "上一轮工具调用参数不完整，系统已丢弃半截调用。请继续当前任务，并把每次 write/edit/bash 的参数保持简短；大文件分段写入，禁止把超长脚本塞进一次工具调用。",
+        content: "上一轮工具调用参数不完整，系统已丢弃半截调用。请继续当前任务，并把每次 write/edit/bash 的参数保持简短；大文件分段写入（第一块 write，后续块 write + append:true），禁止把超长脚本塞进一次工具调用。",
       });
       continue;
     }

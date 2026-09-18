@@ -110,3 +110,33 @@ export function budgetWithinWindow({ declaredMaxTokens = 0, contextWindow = 0, u
   if (!Number.isFinite(room)) return base;
   return Math.max(floor, Math.min(base, room));
 }
+
+// ── 单次写入的分段闸门（2026-09-18）────────────────────────────────────
+// 为什么要有它：一次 write 的内容是**模型的输出**（工具调用参数）。写太大的文件 = 让模型在
+// 一次输出里吐完整个文件，一旦超过单次输出上限，参数就会在 JSON 中间断掉，整轮白费
+// （真机现象："工具调用被截断"）。
+// 起步上限按 32k 输出算（见 output-budget.mjs），这里给写入留一部分余量：超过就拦下来，
+// 让模型分块写（第一次 write，之后 write + append:true）。
+export const WRITE_SEGMENT_TOKEN_LIMIT = 20000;
+export const WRITE_SEGMENT_SUGGEST_TOKENS = 15000;
+
+/** 估算一次 write 的内容要花多少输出 token，并给出"要不要分段"的判定 + 人话指引 */
+export function checkWriteSegments({ content = "", append = false, limit = WRITE_SEGMENT_TOKEN_LIMIT, suggest = WRITE_SEGMENT_SUGGEST_TOKENS } = {}) {
+  const text = typeof content === "string" ? content : String(content ?? "");
+  const tokens = estimateTokensFromText(text);
+  const chars = text.length;
+  if (tokens <= limit) return { ok: true, tokens, chars, limit, hint: "" };
+  const blocks = Math.max(2, Math.ceil(tokens / suggest));
+  const how = append
+    ? `这一块本身还是太大（约 ${tokens} token）`
+    : `请拆成约 ${blocks} 块，每块 ≤ ${suggest} token（≈${Math.floor(suggest / 1.5)} 汉字）`;
+  return {
+    ok: false,
+    tokens,
+    chars,
+    limit,
+    blocks,
+    hint: `内容约 ${tokens} token（${chars} 字符），超过单次安全写入上限 ${limit}——一次写完会被单次输出上限截断，参数断在 JSON 中间、整轮白费。`
+      + `\n${how}：第一块用 write（不带 append），后面的块用 write + append:true 逐段追加；也可以 bash 用 heredoc/追加重定向。`,
+  };
+}
