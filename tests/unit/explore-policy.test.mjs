@@ -9,7 +9,8 @@ import {
   exploreCandidates, replayExplore, replayExploreAcross, explorePolicyPath,
 } from '../../engine/explore-policy.mjs';
 import { runOnTheSpotFix } from '../../engine/reflection-exec.mjs';
-import { openTrace, addNode, closeTrace, loadTrace, listTraces } from '../../engine/trace.mjs';
+import { grant, revoke } from '../../engine/autonomy.mjs';
+import { openTrace, addNode, closeTrace, loadTrace, listTraces, recordDelegation } from '../../engine/trace.mjs';
 
 const tmp = () => fs.mkdtempSync(path.join(os.tmpdir(), 'yuanshu-explore-'));
 
@@ -98,6 +99,47 @@ test('当场修真的按旋钮重试：失败两次、第三次成功 → 轨迹
   assert.equal(t.nodes.length, 3, '每次尝试都要单独落节点（否则"试几次"没法回放）');
   assert.deepEqual(t.nodes.map((n) => n.outcome), ['failed', 'failed', 'done']);
   assert.equal(t.closed.score, 1);
+});
+
+test('端到端：同一目标的多次尝试落进同一棵树 → 回放选出赢家 → 授权状自决并改旋钮 → 可撤销', async () => {
+  const root = tmp();
+  // 同一段的 5 次重跑：都必须落进**同一棵树**（否则"该重试几次"没法比较——这是我在端到端证明里撞到的坑）
+  for (const ok of [false, false, false, false, false]) {
+    recordDelegation(root, { kind: 'story-video', task: '第 7 段 · 主角回头', durationMs: 2000, ok, digest: ok ? '有产出' : '' });
+  }
+  recordDelegation(root, { kind: 'story-video', task: '第 7 段 · 主角回头', durationMs: 2000, ok: false, digest: '' });
+  const traces = listTraces(root, { limit: 20 }).map((t) => loadTrace(root, t.id));
+  assert.equal(traces.length, 1, '同一目标的多次尝试必须在同一棵树里');
+  assert.equal(traces[0].nodes.length, 6, '6 次尝试 = 6 个节点');
+
+  // 再加一段"第二次就成"的分镜：这条会**否掉 no-retry**（它省成本但丢成绩）——
+  // 只有两条形状凑在一起，"该重试几次"才有唯一答案。
+  recordDelegation(root, { kind: 'story-image', task: '第 2 段 · 空镜', durationMs: 2000, ok: false, digest: '' });
+  recordDelegation(root, { kind: 'story-image', task: '第 2 段 · 空镜', durationMs: 2000, ok: true, digest: '有产出' });
+  const all = listTraces(root, { limit: 20 }).map((t) => loadTrace(root, t.id));
+  assert.equal(all.length, 2, '不同目标 = 不同的树');
+
+  // 现役设成过冲（再试 3 次）：在"怎么试都不成"的树上纯烧成本 → 更省的策略应该赢
+  promoteExplorePolicy(root, 'recorded', { retryOnFailure: 3 });
+  const ex = replayExploreAcross(all, { incumbentId: 'recorded', incumbent: { retryOnFailure: 3 }, candidates: exploreCandidates() });
+  assert.ok(ex.winner, '应该能选出赢家（否则闭环没合上）');
+  assert.equal(ex.table.find((t) => t.id === 'no-retry').decision, 'reject', '省成本但丢了第二次的成功 → 必须拒绝（赢家不可能更差）');
+  assert.equal(ex.winner, 'retry-1');
+
+  // 走授权状：这类满足"可回放 + 可回滚 + 不碰红线" → 自决上线（不是交给人）
+  let applied = null;
+  const auth = await grant(
+    { kind: 'config', text: `探索策略从 recorded 换成 ${ex.winner}` },
+    { replayable: true, episodes: ex.traces, noWorse: true, betterCount: 1, reversible: true, scope: 'config' },
+    { wsRoot: root, previous: 'recorded', apply: async () => { applied = promoteExplorePolicy(root, ex.winner, exploreCandidates().find((c) => c.id === ex.winner)); return { undo: 'explore:recorded', ...applied } } },
+  );
+  assert.equal(auth.decided, true, '技术参数 + 有证据 + 可回滚 → 自己定，不该再来问人');
+  assert.match(auth.human.what, /探索策略/);
+  assert.equal(currentExplorePolicy(root).retryOnFailure, 1, '旋钮真的被改了');
+
+  const rv = await revoke(root, { revert: async () => { fs.unlinkSync(explorePolicyPath(root)); return { reset: true } } });
+  assert.equal(rv.ok, true);
+  assert.equal(currentExplorePolicy(root).retryOnFailure, DEFAULT_EXPLORE_POLICY.retryOnFailure, '一键退回出厂默认');
 });
 
 test('旋钮设为 0 时不再重试（省成本的那一侧也要真的生效）', async () => {

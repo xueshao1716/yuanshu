@@ -19,6 +19,7 @@
 // 边界写清楚：只能算"结果已记录"的那些节点——没走过的分支算不出来，也不会瞎猜（那正是做梦的边界）。
 import fs from "node:fs";
 import path from "node:path";
+import { createHash } from "node:crypto";
 import { atomicWriteText } from "./atomic-io.mjs";
 
 const DIR = () => ["记忆", "做梦", "轨迹"];
@@ -151,25 +152,49 @@ export function replayTrace(trace, policy = {}) {
 }
 
 /**
- * 记一次**派活**（delegate_task / delegate_fork / 分镜重跑这类"多路探索"）。
+ * 记一次**尝试**，并且**落到同一个逻辑目标的同一棵树上**（2026-09-18 第二轮修正）。
  *
- * 当场修那条链是单线的（试一次→验证）；真正有"分支"的是派活：一次派几个子任务、
- * 哪个失败了、花了多久。这些正是"该怎么探索"要回放的对象，所以形状还是同一棵树：
- * 一次派活 = 一个节点，cost = 秒，outcome = ok/error，score = 结果摘要长度（有产出才好过空手）。
+ * 为什么必须这样：第一版每次尝试都开一棵**新的单节点树**，于是回放器看到的是
+ * "8 棵树各 1 个节点"——而"该重试几次"这件事只有在**一棵树里有多个节点**时才可比较。
+ * 我在端到端证明里当场撞上：五条策略全 tie、没有赢家、闭环合不上。
+ *
+ * 所以按 `traceKey`（默认 kind::task）派生**稳定 id**：同一段的第 1 次、第 2 次、第 5 次重跑，
+ * 都追加到同一棵树里。形状统一，回放器一行不用改。
  */
-export function recordDelegation(wsRoot, { kind = "delegate", task = "", durationMs = 0, ok = false, digest = "", now = new Date(), fsMod = fs } = {}) {
-  const opened = openTrace(wsRoot, { kind, goal: String(task).slice(0, 300) || "(未写任务)", now, fsMod });
-  if (!opened?.ok) return opened;
+export function traceIdForKey(key) {
+  const h = createHash("sha256").update(String(key || "trace"), "utf8").digest("hex").slice(0, 12);
+  return `k-${h}`;
+}
+
+export function recordAttempt(wsRoot, { kind = "attempt", task = "", traceKey = "", durationMs = 0, ok = false, digest = "", now = new Date(), fsMod = fs } = {}) {
+  const key = traceKey || `${kind}::${String(task).slice(0, 120)}`;
+  const id = traceIdForKey(key);
+  const existing = loadTrace(wsRoot, id, fsMod);
+  if (!existing) {
+    const opened = openTrace(wsRoot, { kind, goal: String(task).slice(0, 300) || "(未写任务)", id, now, fsMod });
+    if (!opened?.ok) return opened;
+  }
   const cost = Number((Number(durationMs) / 1000).toFixed(2));
-  const node = addNode(wsRoot, opened.trace.id, {
-    action: kind,
+  const node = addNode(wsRoot, id, {
+    action: `${kind}#${(existing?.nodes?.length || 0) + 1}`,
     input: String(task).slice(0, 500),
     cost,
     outcome: ok ? "ok" : "error",
     score: ok ? Math.min(1, String(digest).length / 400) : 0,
   }, { now, fsMod });
-  closeTrace(wsRoot, opened.trace.id, { result: String(digest).slice(0, 200), score: node?.node?.score ?? 0, cost, now, fsMod });
-  return { ok: true, id: opened.trace.id, cost };
+  const after = loadTrace(wsRoot, id, fsMod);
+  closeTrace(wsRoot, id, {
+    result: String(digest).slice(0, 200),
+    score: Math.max(0, ...(after?.nodes || []).map((n) => Number(n.score) || 0)),
+    cost: Number((after?.nodes || []).reduce((s, n) => s + (Number(n.cost) || 0), 0).toFixed(2)),
+    now, fsMod,
+  });
+  return { ok: true, id, node: node?.node, attempts: after?.nodes?.length || 1, cost };
+}
+
+/** 兼容旧名（派活/分镜都走它）：一次派活 = 往那棵树上追加一个节点。 */
+export function recordDelegation(wsRoot, { kind = "delegate", task = "", durationMs = 0, ok = false, digest = "", traceKey = "", now = new Date(), fsMod = fs } = {}) {
+  return recordAttempt(wsRoot, { kind, task, traceKey, durationMs, ok, digest, now, fsMod });
 }
 
 /** 常用策略集：把"当时的做法"和几个替代做法放在一起比（现役必须在候选里）。 */
