@@ -93,7 +93,7 @@ import { initModelClient, directChat, handleThink, handleDirectChat, maybeCompac
 import { initSelfHeal, createRepairCheckpoint, handleUpdateCheck, handleUpdateApply, handleRepair, handleDesignerGenerate, handleDesignerSave, handleCompare } from "./engine/self-heal.mjs";
 import { initImproveApi, analyzeImprovements, openImprovements, getImprovementDiagnostics, setImprovementStatus } from "./engine/improve-api.mjs";
 import { initEvolutionApi, proposeEvolution, applyEvolution, listEvolution, dismissEvolution, nudgeSkill, applySkillNudge, dismissSkillNudge, listSkillNudges, evaluateProposal, proposeMemoryNudge, listMemoryNudges, applyMemoryNudge, dismissMemoryNudge, analyzeMemoryCompress, proposeMemoryCompress, listMemoryCompress, applyMemoryCompress, dismissMemoryCompress } from "./engine/evolution-api.mjs";
-import { initSessionManager, createSession, evictInactiveSessions, slimSessionImages, compactSession, openSession, initSearchTool, initShareTool, createSessionAgent, ensureAgent, isFirstTurn, deleteSession } from "./engine/session-manager.mjs";
+import { initSessionManager, createSession, evictInactiveSessions, slimSessionImages, compactSession, openSession, initSearchTool, initShareTool, createSessionAgent, ensureAgent, isFirstTurn, deleteSession, setOnTheSpotFixRunner } from "./engine/session-manager.mjs";
 import { initUnifiedChat, unifiedChat, engineCurrentModel, initEngine, getCodeRuntime, getCodeMode, toolBindingDesc, toolBindingArgs, toolBindingArgsObj, handleNotices, handleUnifiedChat, touchTask, clearTask, taskProgress, handleAgentEventIn, handleAgentEventOut } from "./engine/unified-chat.mjs";
 import { createApprovalInterceptor } from "./engine/tools/approval.mjs";
 import * as confirmRegistry from "./engine/tools/confirm-registry.mjs";
@@ -107,7 +107,7 @@ import { CodeRuntime } from "./code-mode/code-runtime.mjs";
 import { createCodeMode } from "./code-mode/code-mode.mjs";
 import { createTimeEngine } from "./engine/time-engine.mjs";
 import { composeTimeTaskMessages, timeTaskReadTools, recordReflectionActions, yesterdayYmd } from "./engine/time-task-run.mjs";
-import { planReflectionExecution, buildActionExecutionPrompt, parseActionResult, recordActionAttempt, summarizeExecution } from "./engine/reflection-exec.mjs";
+import { planReflectionExecution, buildActionExecutionPrompt, parseActionResult, recordActionAttempt, summarizeExecution, runOnTheSpotFix } from "./engine/reflection-exec.mjs";
 import { sanitizeSessionFile } from "./engine/session-sanitize.mjs";
 import { createCorsPolicy } from "./engine/cors-policy.mjs";
 import { initSessionDb, handleDbList, handleDbRebuild, handleDbSanitize, handleDbMeta, handleDbStats, handleDbSweep, sweepSessionsNow, ensureSessionSequence } from "./engine/session-db.mjs";
@@ -511,6 +511,26 @@ async function handleStatic(req, res) {
 // ══ 统一模型接入层：所有模型一视同仁（对话 + 工具循环 + 思考提取）══
 // 基础工具 schema（bash/read/write/edit/web_search）已抽到 engine/tools/unified-tools.mjs；
 // 此处组合 server 特有的工具（技能激活 + 外部思考）
+// ══ 当场修（fix_problem，2026-09-17）══
+// 用户的原话："任务中的自我反思，是抓了一堆问题，但是没有主动执行能力了"。
+// 复盘那条链是"事后"的（定时任务到点才跑）；这个工具把同一套规则搬到**任务过程中**：
+// agent 干活时发现当场能修的问题，调一次，就派一个执行轮真去修，拿到证据回到它手里。
+// 边界与复盘那条完全一致：红线不碰、每会话 10 分钟最多 3 次、必须交证据、做不了就说做不了。
+// 声明必须在 UNIFIED_TOOLS **之前**：那个数组是模块求值时立刻构造的，写反了就是
+// `Cannot access 'FIX_PROBLEM_TOOL' before initialization`（进程根本起不来，我已经踩过一次，
+// 现在由 tests/unit/module-scope-order.test.mjs 盯着）。
+const FIX_PROBLEM_TOOL = {
+  type: "function",
+  function: {
+    name: "fix_problem",
+    description: "干活时发现一个当场能修的问题（代码/测试/配置/文档/脚本的小毛病），用这个工具当场派一轮去修，并拿到证据。不要用它做需要人拍板的事（权限/密钥/部署/推送/删数据/花钱）——那些写进结论交给用户。同一个会话 10 分钟内最多 3 次。",
+    parameters: {
+      type: "object",
+      properties: { problem: { type: "string", description: "要修什么，一句话，具体到可核查（≤60 字）" } },
+      required: ["problem"],
+    },
+  },
+};
 const UNIFIED_TOOLS = [
   ...BASE_TOOL_SCHEMAS,
   ...MEDIA_TOOL_SCHEMAS,
@@ -519,6 +539,7 @@ const UNIFIED_TOOLS = [
   ACTIVATE_SKILL_TOOL,
   DELEGATE_TASK_TOOL,
   DELEGATE_FORK_TOOL,
+  FIX_PROBLEM_TOOL,
 ];
 // ══ 外部思考工具（externalThinking 调试开关，默认关）══
 // 思路：关闭模型原生隐藏思考后，给它一张外部"草稿纸"（think 工具），
@@ -551,10 +572,33 @@ const executeUnifiedTool = createUnifiedToolExecutorGuarded({
     ...planFilesExtraExecutors(),
     delegate_task: execDelegateTask,
     delegate_fork: execDelegateFork,
+    // 当场修：把"发现问题"接到"动手做掉"（逻辑在 engine/reflection-exec.mjs，与复盘那条共用规则）。
+    // 执行轮用完整工具集（这一步才发可写工具），一轮只做这一条，必须交证据。
+    fix_problem: async (args, ctx) => {
+      const out = await runOnTheSpotFix({
+        problem: args?.problem,
+        sessionKey: ctx?.sessionKey || ctx?.sessionId || "anon",
+        runTurn: async (prompt) => {
+          const r = await unifiedChat(defaultModel, [{ role: "user", content: prompt }], { tools: UNIFIED_TOOLS });
+          return r?.text || r?.content || "";
+        },
+      });
+      return { text: out.text, isError: !out.ok };
+    },
   },
 });
 
 initSessionManager({ cwd: CONFIG.cwd, sessionsDir: SESSIONS_DIR, tools: CONFIG.tools, piPackage: CONFIG.piPackage, isModelBlocked, createAgentSessionServices, createAgentSessionFromServices, getModelRuntime: () => modelRuntime, loadSessionModelKey, getModelList: () => modelList, getDefaultModel: () => defaultModel, activeSessions, SessionManager, SettingsManager, DefaultResourceLoader, getAgentDir, readJsonFile, writeJsonFile, isExternalThinking, THINK_TOOL, modelCapabilities, bindOutputGuardDeps, extractMessages, createSseWriter, unifiedChat, generateMediaAsync, onSessionCreated: ensureSessionSequence }); // 会话管理注入
+// 当场修的执行器：Pi 会话里的 fix_problem 与统一引擎里的同名工具走**同一套规则**
+// （engine/reflection-exec.mjs：红线不碰 / 每会话 10 分钟最多 3 次 / 必须交证据）。
+setOnTheSpotFixRunner(({ problem, sessionKey }) => runOnTheSpotFix({
+  problem,
+  sessionKey,
+  runTurn: async (prompt) => {
+    const r = await unifiedChat(defaultModel, [{ role: "user", content: prompt }], { tools: UNIFIED_TOOLS });
+    return r?.text || r?.content || "";
+  },
+}));
 initUnifiedChat({
   executeUnifiedTool, findKeyByEntry, readJsonFile,
   getModelList: () => modelList, getDefaultModel: () => defaultModel,
@@ -1334,7 +1378,18 @@ async function handleChat(req, res, body) {
           );
         }
       }
-      const matchedSkills = matchSkillsForTask(message, builtinSkills);
+    // 当场修护栏（2026-09-17）：Pi 会话的提示词不是统一引擎那份协议，工具光注册了模型不会用。
+    // 每会话注入一次（与技能目录同一个口子、同一个 Set），把"发现问题就当场修"讲清楚。
+    if (!skillCatalogSent.has(`${sessKey}::fix`)) {
+      skillCatalogSent.add(`${sessKey}::fix`);
+      try {
+        await entry.agent?.sendCustomMessage?.(
+          { customType: "context", content: [{ type: "text", text: "【发现问题就当场修】干活时发现**当场能修**的小毛病（代码/测试/配置/文档/脚本），别只在结论里写一条「建议修复」——用 fix_problem 当场派一轮修掉、拿回证据再继续（同一会话 10 分钟内最多 3 次）。需要人拍板的（权限/密钥/部署/推送/删数据/花钱）不要碰，写进结论说清等谁做哪一步。修不成如实说卡在哪。" }] },
+          { deliverAs: "nextTurn" }
+        );
+      } catch {}
+    }
+    const matchedSkills = matchSkillsForTask(message, builtinSkills);
       if (matchedSkills.length) {
         await entry.agent?.sendCustomMessage?.(
           { customType: "context", content: [{ type: "text", text: `本轮任务可能匹配元枢内置技能：${matchedSkills.map(s => s.name).join("、")}。对得上就 activate_skill 加载全文，对不上按你的判断继续。` }] },

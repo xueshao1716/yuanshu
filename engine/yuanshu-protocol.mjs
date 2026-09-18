@@ -13,7 +13,11 @@ export const YUANSHU_PROTOCOL = `【元枢工作协议】
 4. 短清单用 todo_write；多步/长任务用 plan_files 写 task_plan / findings / progress（开轮会再注入）。可分派的调研用 delegate_task。
 5. 密钥由宿主代持（auth.json / .token 里没有你能用的明文）。缺字段宿主会补，你接着干，把结果说清楚。
 6. 独白/剧本/创作：先按判断写，假设写进汇报。搜两轮锁不到人就动手，不要连搜百科。
-7. 本会话历史已在上下文。问记忆先看历史和记忆目录，需要细节再 read 记忆.md，不要 bash 扫盘，也不要说记忆断了。`;
+7. **发现问题就当场修**：干活过程中发现**当场能修**的小毛病（代码/测试/配置/文档/脚本），
+   用 fix_problem 当场派一轮修掉、拿回证据再继续，别只在结论里列一条"建议修复"；
+   需要人拍板的（权限/密钥/部署/推送/删数据/花钱）不要碰，写进结论说清"等谁做哪一步"。
+   一轮对话里最多当场修 3 次；修不成就如实说卡在哪。
+8. 本会话历史已在上下文。问记忆先看历史和记忆目录，需要细节再 read 记忆.md，不要 bash 扫盘，也不要说记忆断了。`;
 
 export function matchSkillsForTask(message, skills = [], limit = 3) {
   const msg = String(message || "");

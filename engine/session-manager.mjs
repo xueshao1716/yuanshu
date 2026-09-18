@@ -323,6 +323,11 @@ export async function initSearchTool() {
 // 之前只把技能摘要写进 system prompt，却没有把工具传给 AgentSession，模型于是把
 // <tool_call> 当普通文本吐出，PPT 等需要技能正文的任务会停在计划阶段。
 let activateSkillToolDef = null;
+// 当场修（fix_problem）：执行器由 server 注入（它才知道用哪个模型、哪套工具跑执行轮）。
+let fixProblemToolDef = null;
+let _runOnTheSpotFix = null;
+export function setOnTheSpotFixRunner(fn) { _runOnTheSpotFix = typeof fn === "function" ? fn : null; }
+
 export async function initActivateSkillTool() {
   if (activateSkillToolDef) return activateSkillToolDef;
   try {
@@ -459,6 +464,40 @@ export async function initPiMediaTools() {
   return piMediaTools;
 }
 
+export async function initFixProblemTool() {
+  if (fixProblemToolDef) return fixProblemToolDef;
+  if (typeof _runOnTheSpotFix !== "function") return null; // 没注入执行器就不注册（fail-closed）
+  try {
+    const { createRequire } = await import("node:module");
+    const req2 = createRequire(_piPackage);
+    const { Type } = req2("typebox");
+    fixProblemToolDef = {
+      name: "fix_problem",
+      label: "当场修",
+      description: "干活时发现一个当场能修的问题（代码/测试/配置/文档/脚本的小毛病），调它当场派一轮去修并拿回证据。需要人拍板的事（权限/密钥/部署/推送/删数据/花钱）不要用它——写进结论交给用户。同一会话 10 分钟内最多 3 次。",
+      promptSnippet: "发现问题就当场修（fix_problem），别只在结论里列一条建议",
+      promptGuidelines: [
+        "When you notice a problem you can fix right now in this workspace, call fix_problem once with a concrete one-line description instead of only listing it in your answer.",
+        "Never use fix_problem for things needing human approval (permissions, secrets, deploys, pushes, deleting data, spending money) — report those instead.",
+      ],
+      parameters: Type.Object({
+        problem: Type.String({ description: "要修什么，一句话，具体到可核查（≤60 字）" }),
+      }),
+      async execute(toolCallId, params, ctx) {
+        const out = await _runOnTheSpotFix({
+          problem: params?.problem,
+          sessionKey: ctx?.sessionKey || ctx?.sessionId || "anon",
+        });
+        return { content: [{ type: "text", text: String(out?.text || "（没有结果）") }], isError: !out?.ok };
+      },
+    };
+    return fixProblemToolDef;
+  } catch (e) {
+    console.log(`[元枢] fix_problem 工具初始化失败: ${String(e?.message || e).slice(0, 80)}`);
+    return null;
+  }
+}
+
 export async function createSessionAgent(sm, model) {
   const cwd = (typeof sm.getCwd === "function" && sm.getCwd()) || _cwd;
   const settingsManager = _SettingsManager.create(cwd, _getAgentDir());
@@ -471,6 +510,9 @@ export async function createSessionAgent(sm, model) {
   if (Array.isArray(mediaTools)) customTools.push(...mediaTools);
   const skillTool = await initActivateSkillTool();
   if (skillTool) customTools.push(skillTool);
+  // 当场修：把"干活时发现问题"接到"当场做掉"（同一个核心，见 engine/reflection-exec.mjs）
+  const fixTool = await initFixProblemTool();
+  if (fixTool) customTools.push(fixTool);
   // 双引擎：dsh（DeepSeek Harness）作为执行臂——pi 主引擎派单，dsh 干代码/沙箱活，pi 验收
   const dt = await _initDshTool();
   if (dt) customTools.push(dt);

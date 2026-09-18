@@ -156,3 +156,72 @@ export function summarizeExecution(rows = []) {
   if (failed) parts.push(`失败 ${failed}`);
   return parts.join("，");
 }
+
+// ── 任务中当场修（2026-09-17 第二轮）──────────────────────────────────────
+//
+// 复盘那条链是"事后"的：定时任务到点才跑。用户在任务里看到的现象是——发现问题写进结论，
+// 但不当场动手。这一节把同一套规则搬到**任务过程中**：agent 干活时发现可修的问题，
+// 调 fix_problem 当场派一个执行轮，拿到证据再继续（结果直接回到它手里，它能接着汇报）。
+//
+// 边界与复盘那条完全一致，另外加一条**预算**：同一个会话 10 分钟内最多 3 次，
+// 免得"顺手修"变成把用户的一轮对话拖成一串自动执行。
+
+/** 每个会话的"当场修"预算（内存态，进程重启即清零——它约束的是对话节奏，不是账本）。 */
+const budgets = new Map();
+export const ON_THE_SPOT_MAX = 3;
+export const ON_THE_SPOT_WINDOW_MS = 10 * 60 * 1000;
+
+/** 纯函数版预算判定：够就 true 并记账；不够就 false（reason 说明为什么）。 */
+export function takeOnTheSpotBudget(key, { max = ON_THE_SPOT_MAX, windowMs = ON_THE_SPOT_WINDOW_MS, now = Date.now(), store = budgets } = {}) {
+  const k = String(key || "anon");
+  const cur = store.get(k);
+  const fresh = cur && now - cur.at < windowMs ? cur : { at: now, n: 0 };
+  if (fresh.n >= max) {
+    store.set(k, fresh);
+    return { ok: false, reason: `同一会话 ${Math.round(windowMs / 60000)} 分钟内最多当场修 ${max} 次（已达上限）` };
+  }
+  store.set(k, { at: fresh.at, n: fresh.n + 1 });
+  return { ok: true, used: fresh.n + 1, max };
+}
+
+/**
+ * 当场修一条问题。核心逻辑（可单测）：红线 → 拒绝；预算 → 判定；执行轮 → 解析结果。
+ * `runTurn(prompt)` 由调用方注入（server 里是 unifiedChat），这样这一层不依赖任何引擎。
+ */
+export async function runOnTheSpotFix({ problem, runTurn, sessionKey = "anon", now = Date.now(), store = budgets, max = ON_THE_SPOT_MAX, windowMs = ON_THE_SPOT_WINDOW_MS } = {}) {
+  const text = String(problem || "").trim();
+  const cls = classifyAction({ text, kind: "fix" });
+  if (!cls.executable) {
+    // 红线与"要人拍板"的，一律不自动动手；把该说的话交回给模型，让它去汇报。
+    return {
+      ok: false,
+      refused: true,
+      reason: cls.reason,
+      text: `这条不能当场自动修（${cls.reason}）。请把它写进给用户的结论里，并说明需要谁来做哪一步。`,
+    };
+  }
+  const budget = takeOnTheSpotBudget(sessionKey, { max, windowMs, now, store });
+  if (!budget.ok) return { ok: false, refused: true, reason: budget.reason, text: `${budget.reason}。请把这条问题写进结论里交给用户决定。` };
+  let result = null;
+  try {
+    const reply = await runTurn(buildActionExecutionPrompt({ text }, { ymd: "" }));
+    result = parseActionResult(reply);
+  } catch (e) {
+    result = { status: "failed", evidence: `执行轮异常：${String(e?.message || e).slice(0, 140)}`, files: [], summary: "" };
+  }
+  if (!result) result = { status: "failed", evidence: "执行轮没有按契约给出结果（缺 JSON 块或 status 不合法）", files: [], summary: "" };
+  const label = { done: "已当场修好", blocked: "没做成（受阻）", failed: "没做成（失败）" }[result.status] || result.status;
+  return {
+    ok: result.status === "done",
+    status: result.status,
+    evidence: result.evidence,
+    files: result.files,
+    summary: result.summary,
+    text: [
+      `${label}：${text}`,
+      `证据：${result.evidence || "（无）"}`,
+      result.files?.length ? `改动：${result.files.join("、")}` : "",
+      result.status === "done" ? "汇报时可以据实说这条已经修掉并给出上面的证据。" : "汇报时如实说这条没做成、卡在哪，不要含糊过去。",
+    ].filter(Boolean).join("\n"),
+  };
+}
