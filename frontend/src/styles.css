@@ -1513,6 +1513,12 @@ body.has-wallpaper .mobile-composer {
 .status-tile__label { color: var(--pi-dim2); font-size: var(--pi-fs-xs); line-height: var(--pi-lh-xs); }
 .status-tile__detail { color: var(--pi-dim2); font-size: var(--pi-fs-sm); line-height: var(--pi-lh-sm); }
 .status-tile__value { overflow-wrap: anywhere; color: var(--pi-text); font-size: var(--pi-fs-lg); line-height: var(--pi-lh-lg); font-weight: 650; }
+/* 键值说明（版本那一格用）：把"哪一项是什么"写清楚，而不是把两个版本号并排放着让人猜 */
+.status-tile__facts { display: grid; gap: 2px; margin: 2px 0 0; }
+.status-tile__fact { display: flex; align-items: baseline; gap: 6px; min-width: 0; }
+.status-tile__fact dt { flex: 0 0 auto; color: var(--pi-dim2); font-size: var(--pi-fs-xs); line-height: var(--pi-lh-xs); }
+.status-tile__fact dt::after { content: '：'; }
+.status-tile__fact dd { min-width: 0; margin: 0; overflow-wrap: anywhere; color: var(--pi-dim); font-size: var(--pi-fs-sm); line-height: var(--pi-lh-sm); font-family: var(--pi-font-mono); }
 .status-tile[data-tone="success"] .status-tile__icon { background: color-mix(in oklab, var(--pi-success) 14%, transparent); color: var(--pi-success); }
 .status-tile[data-tone="warning"] .status-tile__icon { background: color-mix(in oklab, var(--pi-warning) 14%, transparent); color: var(--pi-warning); }
 .status-tile[data-tone="danger"] .status-tile__icon { background: color-mix(in oklab, var(--pi-danger) 14%, transparent); color: var(--pi-danger); }

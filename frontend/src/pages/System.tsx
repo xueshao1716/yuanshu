@@ -51,6 +51,14 @@ export default function System() {
   const lanEntryCount = (info.network?.lanIPs || []).length
   const domainEntryCount = domains.filter(row => row.domain.trim()).length
   const networkEntryCount = lanEntryCount + domainEntryCount
+  // 主入口：优先带描述的那条域名（通常就是"工作台主入口"），否则第一条域名，最后才是局域网 IP
+  const primaryEntry: string = (() => {
+    const named = domains.find(row => row.domain.trim() && /主入口|主站|工作台/.test(row.desc || ''))
+    const first = named || domains.find(row => row.domain.trim())
+    if (first) return first.domain.trim()
+    const ip = (info.network?.lanIPs || [])[0]
+    return ip ? `http://${ip}:${port}` : ''
+  })()
 
   const editRow = (i: number, key: keyof DomainRow, v: string) =>
     setRows(domains.map((r, idx) => (idx === i ? { ...r, [key]: v } : r)))
@@ -85,13 +93,22 @@ export default function System() {
               label="服务状态"
               value={serviceReady ? '运行中' : '加载中'}
               detail={info.name || '元枢个人智能系统'}
+              facts={[
+                { k: '监听端口', v: info.port ? String(info.port) : '—' },
+                { k: '数据目录', v: info.wsRoot || '—' },
+              ]}
               icon={Server}
               tone={serviceReady ? 'success' : 'neutral'}
             />
+            {/* 版本这一格以前只把 Node 版本当副标题裸放着，读者分不清 v2.70.0 和 v25.8.2 各是什么。
+                现在大字是应用版本，下面逐条标出"运行时/平台"——不再重复写一遍应用版本。 */}
             <StatusTile
               label="版本"
-              value={info.version ? `v${info.version}` : '—'}
-              detail={info.node || '等待服务信息'}
+              value={info.version ? `元枢 v${info.version}` : '—'}
+              facts={[
+                { k: '运行时', v: info.node ? `Node ${info.node}` : '—' },
+                { k: '平台', v: info.platform || '—' },
+              ]}
               icon={GitBranch}
               tone="info"
             />
@@ -106,6 +123,7 @@ export default function System() {
               label="网络状态"
               value={data ? networkEntryCount > 0 ? '已发现入口' : '未发现入口' : '—'}
               detail={data ? `${networkEntryCount} 个入口 · ${lanEntryCount} 个局域网 · ${domainEntryCount} 个公网域名` : '等待系统信息'}
+              facts={primaryEntry ? [{ k: '主入口', v: primaryEntry }] : undefined}
               icon={Wifi}
               tone={data && networkEntryCount > 0 ? 'info' : 'neutral'}
             />
