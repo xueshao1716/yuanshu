@@ -8,6 +8,43 @@
 
 ## [Unreleased]
 
+## [2.84.7] - 2026-09-18
+
+## [2.84.7] - 2026-09-18
+
+### 修复：手机上点开图片回不去（`window.open` 在安卓 WebView 里把你带走了）
+
+你说的"点开就回不去"，病根在 `Message.tsx`：点图片走的是 `window.open(src, '_blank')`。
+浏览器里会开新标签、返回键能回来；但**原生壳（Tauri/Capacitor 安卓 WebView）**里，
+`'_blank'` 往往被**同一个 webview 直接导航过去**——没有地址栏、没有返回键、也没有关闭按钮，
+人就卡在图上出不来了。
+
+改成**应用内查看器**（`frontend/src/components/ImageViewer.tsx`），三条回去的路都给上：
+
+- 右上角**关闭按钮** 44×44，压在安全区之下（`env(safe-area-inset-top)`）；
+- **点背景**关闭；**下滑 >90px** 关闭；
+- **安卓返回键/返回手势**：打开时 `history.pushState` 一条，`popstate` 关掉查看器
+  （而不是退出应用）；关闭时把这条历史吃掉，不会出现"关完还要按两次返回"。
+- 打开期间锁底层滚动（`body overflow hidden`），Esc 也能关（桌面）。
+- 顺带给了**保存原图**（原生壳里没有"另存为"）：复用 `downloadApiFile`，不用再去开新标签。
+
+**两个真机上才暴露的坑，一起修了**：
+
+1. 查看器一开始是内联渲染的，`z-index` 再高也压不过底部 TabBar —— ChatArea 外层有 `z-10` 的
+   **层叠上下文**，TabBar 的 `z-20` 在它之外比较。改成 `createPortal` 挂到 `body`，
+   并用现成的 `--pi-z-viewer`（120）。
+2. 图片被底部"保存原图"压住：改成 `flex-col` 布局（图片区 `flex-1 min-h-0`），底部控制条不悬浮。
+
+**核对（11/11，CDP 手机视口 390×844 量的）**：`tmp/verify-image-viewer.mjs`
+```
+点缩略图      → 查看器打开，图 374×374 显示出来，路由不变（还在会话页）
+盖满视口      → elementFromPoint(底部那条) 命中的是查看器，不是 TabBar
+不压图        → 图片 bottom=594 < 控制条 top=766
+关闭按钮      → top=10、44×44（安全区之下、够大）
+① 点关闭 → 关掉   ② 点背景 → 关掉   ③ history.back()（安卓返回）→ 关掉且页面没被导航走
+```
+截图：`tmp/ui-imgviewer.png`。
+
 ### 修复（工具）：安卓打包脚本秒退——环境里 HTTP_PROXY / http_proxy 重名
 
 要给手机重新打包才发现：`app/run-android-build.ps1` 在**本机环境**里跑不起来，
