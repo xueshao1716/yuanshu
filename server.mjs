@@ -108,6 +108,8 @@ import { createCodeMode } from "./code-mode/code-mode.mjs";
 import { createTimeEngine } from "./engine/time-engine.mjs";
 import { composeTimeTaskMessages, timeTaskReadTools, recordReflectionActions, yesterdayYmd } from "./engine/time-task-run.mjs";
 import { planReflectionExecution, buildActionExecutionPrompt, parseActionResult, recordActionAttempt, summarizeExecution, runOnTheSpotFix } from "./engine/reflection-exec.mjs";
+import { appendEpisodes, loadEpisodes, dream, writeDreamLog, skillEpisodesFromSessions, dreamPaths } from "./engine/dream.mjs";
+import { MATCH_WEIGHTS } from "./engine/yuanshu-protocol.mjs";
 import { sanitizeSessionFile } from "./engine/session-sanitize.mjs";
 import { createCorsPolicy } from "./engine/cors-policy.mjs";
 import { initSessionDb, handleDbList, handleDbRebuild, handleDbSanitize, handleDbMeta, handleDbStats, handleDbSweep, sweepSessionsNow, ensureSessionSequence } from "./engine/session-db.mjs";
@@ -1899,6 +1901,18 @@ function readStoryNovelBook({ bookId, files } = {}) {
   return { bookId: id, title: String(detail.meta?.title || ''), chapters };
 }
 
+// 做梦用的候选策略表（2026-09-18）：现役 = 当前 MATCH_WEIGHTS；候选只动**权重数字**，
+// 不动匹配规则本身（规则是行为契约，改它要人拍板；调权重才是可回放、可比较的部分）。
+const DREAM_POLICIES = {
+  incumbent: "matcher-current",
+  candidates: [
+    { id: "matcher-domainx1.5", weights: { ...MATCH_WEIGHTS, video: 6, image: 4.5, ppt: 6, novel: 4.5 } },
+    { id: "matcher-name-hit-up", weights: { ...MATCH_WEIGHTS, nameHit: 8, nameToken: 3 } },
+    { id: "matcher-concept-up", weights: { ...MATCH_WEIGHTS, concept: 8, discipline: { retro: 8, verify: 7, diag: 7, settle: 7 } } },
+    { id: "matcher-desc-down", weights: { ...MATCH_WEIGHTS, descToken: 1 } },
+  ],
+};
+
 const API_ROUTES = [
   // ── 连续创作编排（阶段一：项目/Story Bible/镜头运行记录）──
   ["GET", "/api/story/projects", (res) => handleStoryProjects({ root: WS_ROOT }, res)],
@@ -2015,6 +2029,66 @@ const API_ROUTES = [
     // 结清只能由人给结论；这里不接受任何自动判定，也没有定时任务会调它
     const r = closePromise(WS_ROOT, String(b.id), { status: b.status === "dropped" ? "dropped" : "kept", evidence: b.evidence || null });
     json(res, r?.ok ? 200 : 400, r);
+  }],
+  // 做梦用的候选策略表（2026-09-18）：现役 = 当前 MATCH_WEIGHTS；候选只动**权重数字**，
+  // 不动匹配规则本身（规则是行为契约，改它要人拍板；调权重才是可回放、可比较的部分）。
+  // 表本身声明在文件顶部（DREAM_POLICIES），这里只挂路由。
+
+// ── 做梦（2026-09-18）：拿历史当模拟器，离线评估"要不要改" ──
+  // 第一片可做梦的搜索空间是技能匹配器的权重表（输入=当时的任务句，真值=当时真的 activate 了哪个技能）。
+  ["GET", "/api/dream/status", (res) => {
+    const skillEps = loadEpisodes(WS_ROOT, { kind: "skill-match" });
+    let logTail = "";
+    try { logTail = fs.readFileSync(dreamPaths(WS_ROOT).log, "utf8").split("\n").slice(-40).join("\n"); } catch {}
+    json(res, 200, {
+      ok: true,
+      kinds: [{ kind: "skill-match", episodes: skillEps.length, incumbent: DREAM_POLICIES.incumbent, candidates: DREAM_POLICIES.candidates.map((c) => c.id) }],
+      lastEpisodes: skillEps.slice(-5).map((e) => ({ at: e.at, input: String(e.input).slice(0, 60), choice: e.choice })),
+      logTail,
+    });
+  }],
+  ["POST", "/api/dream/collect", async (res) => {
+    // 回填：把会话文件里"当时真的 activate 了哪个技能"挖出来做成 episode
+    let files = [];
+    try { files = fs.readdirSync(SESSIONS_DIR).filter((f) => f.endsWith(".jsonl")).map((f) => path.join(SESSIONS_DIR, f)); } catch {}
+    const eps = skillEpisodesFromSessions(files);
+    const r = appendEpisodes(WS_ROOT, eps);
+    json(res, 200, { ok: true, scanned: files.length, found: eps.length, added: r?.added || 0 });
+  }],
+  ["POST", "/api/dream/run", async (res) => {
+    // 做梦：回放现役 + 候选。只产出提案（写进承诺账当 ask），不自动改行为。
+    let files = [];
+    try { files = fs.readdirSync(SESSIONS_DIR).filter((f) => f.endsWith(".jsonl")).map((f) => path.join(SESSIONS_DIR, f)); } catch {}
+    appendEpisodes(WS_ROOT, skillEpisodesFromSessions(files));
+    const episodes = loadEpisodes(WS_ROOT, { kind: "skill-match" });
+    const skills = loadSkillIndex();
+    const rank = (ep, policy) => matchSkillsForTask(ep.input, skills, 3, policy.weights).map((s) => s.name);
+    const result = dream({
+      kind: "skill-match", episodes,
+      incumbentId: DREAM_POLICIES.incumbent,
+      candidates: DREAM_POLICIES.candidates,
+      rank,
+    });
+    if (result.ok) {
+      writeDreamLog(WS_ROOT, "skill-match", result);
+      if (result.proposal) {
+        // 改匹配权重 = 改产品行为 → 按元枢的红线规矩走"请人拍板"，不自动上线
+        try {
+          recordPromises(WS_ROOT, [{
+            id: `d_${Date.now().toString(36)}`,
+            at: new Date().toISOString(),
+            sessionId: "dream",
+            text: result.proposal.text,
+            kind: "ask",
+            due: null,
+            status: "pending",
+            evidence: null,
+            closedAt: null,
+          }]);
+        } catch {}
+      }
+    }
+    json(res, 200, result);
   }],
   // ── 会话级沙箱模式：append-only 日志 + fold，收紧随时可以、放宽必须给理由 ──
   // ── 会话级沙箱模式：append-only 日志 + fold，收紧随时可以、放宽必须给理由 ──

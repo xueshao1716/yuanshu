@@ -19,7 +19,18 @@ export const YUANSHU_PROTOCOL = `【元枢工作协议】
    一轮对话里最多当场修 3 次；修不成就如实说卡在哪。
 8. 本会话历史已在上下文。问记忆先看历史和记忆目录，需要细节再 read 记忆.md，不要 bash 扫盘，也不要说记忆断了。`;
 
-export function matchSkillsForTask(message, skills = [], limit = 3) {
+/** 匹配器权重（2026-09-18 抽出来）：默认值就是今天在用的这套，行为一字不改。
+ *  用途见 engine/dream.mjs——"做梦"要让候选策略在**历史任务**上离线回放对比，
+ *  而权重表正是元枢里少有的、能在历史数据上精确回放的决策函数（输入=任务句，
+ *  真值=当时真的 activate 了哪个技能）。 */
+export const MATCH_WEIGHTS = Object.freeze({
+  nameHit: 5, nameToken: 2, descToken: 2,
+  video: 4, image: 3, ppt: 4, novel: 3, concept: 6,
+  discipline: { retro: 6, verify: 5, diag: 5, settle: 5 },
+});
+
+export function matchSkillsForTask(message, skills = [], limit = 3, weights = MATCH_WEIGHTS) {
+  const W = { ...MATCH_WEIGHTS, ...(weights || {}), discipline: { ...MATCH_WEIGHTS.discipline, ...(weights?.discipline || {}) } };
   const msg = String(message || "");
   if (!msg.trim() || msg.length < 2 || /^(嗯|好|哦|哈|啊|继续|谢谢)$/.test(msg.trim())) return [];
   const scored = [];
@@ -27,31 +38,31 @@ export function matchSkillsForTask(message, skills = [], limit = 3) {
     const name = String(s.name || "");
     const desc = String(s.desc || "");
     let score = 0;
-    if (msg.includes(name)) score += 5;
+    if (msg.includes(name)) score += W.nameHit;
     for (const tok of name.split(/[-_]/)) {
-      if (tok.length >= 4 && msg.toLowerCase().includes(tok.toLowerCase())) score += 2;
+      if (tok.length >= 4 && msg.toLowerCase().includes(tok.toLowerCase())) score += W.nameToken;
     }
     for (const tok of desc.split(/[\s,，、/]/)) {
-      if (tok.length >= 2 && msg.includes(tok)) score += 2;
+      if (tok.length >= 2 && msg.includes(tok)) score += W.descToken;
     }
     const isDiscipline = /retrospective|closeout|verify-before-delivery|misleading-error/.test(name);
-    if (!isDiscipline && /视频|分镜|出片|短片/.test(msg) && /video|视频|seedance|aigc|分镜/.test(`${name}${desc}`)) score += 4;
-    if (!isDiscipline && /图|海报|写真|配图/.test(msg) && /image|图|写真|海报|wanxiang/.test(`${name}${desc}`)) score += 3;
-    if (!isDiscipline && /ppt|幻灯片|演示|汇报/i.test(msg) && /ppt|幻灯片|演示|presentation/i.test(`${name}${desc}`)) score += 4;
-    if (!isDiscipline && /小说|连载|故事/.test(msg) && /novel|小说|forge/.test(`${name}${desc}`)) score += 3;
+    if (!isDiscipline && /视频|分镜|出片|短片/.test(msg) && /video|视频|seedance|aigc|分镜/.test(`${name}${desc}`)) score += W.video;
+    if (!isDiscipline && /图|海报|写真|配图/.test(msg) && /image|图|写真|海报|wanxiang/.test(`${name}${desc}`)) score += W.image;
+    if (!isDiscipline && /ppt|幻灯片|演示|汇报/i.test(msg) && /ppt|幻灯片|演示|presentation/i.test(`${name}${desc}`)) score += W.ppt;
+    if (!isDiscipline && /小说|连载|故事/.test(msg) && /novel|小说|forge/.test(`${name}${desc}`)) score += W.novel;
     // 「工作纪律」类技能只吃上面那四条窄规则：否则「做个视频」会因为描述里出现"视频"而把它们也带上
     // （实测确实带上了 verify-before-delivery，纯噪声——它们关心的是"怎么做"，不是"做什么"）。
     // 元枢内置技能里有两族是"纯概念名"，光靠名字/描述分词永远匹配不到
     // （2026-09-15 实测：问"用提示词架构师的办法…"零命中，问"用多AI角色扮演系统…"命中的是无关技能）。
-    if (/角色扮演|多\s*AI|多智能体|听证|红队|多方视角/.test(msg) && /roleplay|角色扮演|多\s*AI|多智能体|multi-agent/i.test(`${name}${desc}`)) score += 6;
-    if (/提示词架构|结构化的?提示词|六段式|角色卡/.test(msg) && /prompt-architect|提示词架构师|六段式/.test(`${name}${desc}`)) score += 6;
+    if (/角色扮演|多\s*AI|多智能体|听证|红队|多方视角/.test(msg) && /roleplay|角色扮演|多\s*AI|多智能体|multi-agent/i.test(`${name}${desc}`)) score += W.concept;
+    if (/提示词架构|结构化的?提示词|六段式|角色卡/.test(msg) && /prompt-architect|提示词架构师|六段式/.test(`${name}${desc}`)) score += W.concept;
     // 2026-09-17：agent 自己沉淀的那批"工作纪律"技能也是纯概念名——复盘 / 交付前验证 / 排障 / 收尾沉淀。
     // 名字是英文 slug、描述是整句中文，分词匹配永远命中不了（实测「今天复盘一下」「先验证再交付」都零命中，
     // 而这几个技能恰恰是"什么时候该用"最明确的一类，漏掉最可惜）。按同一条思路补四条窄规则。
-    if (/复盘|回顾今天|总结今天|今日总结/.test(msg) && /retrospective|复盘/.test(`${name}${desc}`)) score += 6;
-    if (/验证|实测|证据|先跑一遍|真的能用|别忽悠|别吹/.test(msg) && /verify-before-delivery|验证|证据/.test(`${name}${desc}`)) score += 5;
-    if (/排障|排查|报错|起不来|错误信息|误导/.test(msg) && /misleading-error|排障|错误信息/.test(`${name}${desc}`)) score += 5;
-    if (/沉淀|收尾|漏了什么|登记产物|经验没留/.test(msg) && /closeout|沉淀|收尾/.test(`${name}${desc}`)) score += 5;
+    if (/复盘|回顾今天|总结今天|今日总结/.test(msg) && /retrospective|复盘/.test(`${name}${desc}`)) score += W.discipline.retro;
+    if (/验证|实测|证据|先跑一遍|真的能用|别忽悠|别吹/.test(msg) && /verify-before-delivery|验证|证据/.test(`${name}${desc}`)) score += W.discipline.verify;
+    if (/排障|排查|报错|起不来|错误信息|误导/.test(msg) && /misleading-error|排障|错误信息/.test(`${name}${desc}`)) score += W.discipline.diag;
+    if (/沉淀|收尾|漏了什么|登记产物|经验没留/.test(msg) && /closeout|沉淀|收尾/.test(`${name}${desc}`)) score += W.discipline.settle;
     if (score) scored.push({ name, desc, score });
   }
   return scored.sort((a, b) => b.score - a.score).slice(0, limit);

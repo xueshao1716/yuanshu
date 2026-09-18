@@ -52,7 +52,9 @@ test('匹配器要认得出"工作纪律"类技能，且不被媒体域规则误
   const list = loadSkillIndex();
   const top = m => matchSkillsForTask(m, list)[0]?.name || '';
   const names = m => matchSkillsForTask(m, list).map(s => s.name);
-  assert.equal(top('今天复盘一下'), 'daily-retrospective');
+  // 复盘类技能现在有两个（daily-retrospective 与它自己后来沉淀的 daily-retro-exec-loop），
+  // 断言锁"这一族要命中"，不锁具体哪个——否则元枢每沉淀一个新技能，这条就得改一次。
+  assert.match(top('今天复盘一下'), /^daily-retro/, '复盘类任务要命中复盘技能');
   assert.ok(names('服务起不来帮我排障').includes('misleading-error-debugging'), '排障要命中排障守则');
   assert.ok(names('这个会话收尾沉淀一下').includes('delivery-session-closeout-review'), '收尾沉淀要命中收尾检查');
   assert.ok(names('这条链接真的能用吗，先验证再交付').includes('verify-before-delivery'), '先验证再交付要命中');
