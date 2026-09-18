@@ -8,6 +8,20 @@
 
 ## [Unreleased]
 
+### 桌面客户端：重新打包 + 重装（v2.84.10）
+
+- 打包：`tauri build --bundles nsis` → `元枢_2.84.10_x64-setup.exe`（5.46 MB，文件版本 2.84.10），
+  已归档到 `D:\pi-workspace\交付\元枢桌面客户端\` 与 `.build-cache\cargo\release\bundle\nsis\`。
+- 重装：先关掉在跑的客户端（`%LOCALAPPDATA%\元枢\yuanshu.exe`），再 `/S` 静默安装（退出码 0），
+  装完路径不变、版本 2.84.10；**核对**：`yuanshu.exe` 里含当前 `app/dist` 的入口分块名
+  `index-B-LRf593.js`（即 2.84.10 的前端），进程已拉起，窗口标题「元枢 · 个人智能系统」，
+  截图里能看到这版新写的"单次输出被截断……第一块用 write，后续 append:true"文案（`tmp/ui-desktop-printwindow.png`）。
+- 顺手修打包脚本一个坑：`nsis-build-child.ps1` 直接跑（不经 `run-nsis-build.ps1` 包一层）时
+  `CARGO_TARGET_DIR` 是空的 → tauri 把产物打进 `src-tauri\target`，而脚本只查 `.build-cache`，
+  于是**构建成功却报 "installer was not generated"**。现在脚本自己兜底设好，两种入口一致。
+  另外这个脚本刻意保持**纯 ASCII**（中文注释在 PS5 下会被按 ANSI 读坏，同日已在 android 脚本上踩过一次，
+  那个是改存 UTF-8 with BOM，这个更简单——写英文注释）。
+
 ### 运维：外网域名 502 的诊断结论 + 外网入口守护
 
 你问"外网域名咋打不开"。实测结论：**隧道本身是好的，坏的是它指向的本地服务**——

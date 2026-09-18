@@ -2,6 +2,14 @@ $ErrorActionPreference = 'Stop'
 $dir = $PSScriptRoot
 $workspaceRoot = if ($env:PI_WORKSPACE) { $env:PI_WORKSPACE } else { 'D:\pi-workspace' }
 $cacheRoot = Join-Path $workspaceRoot '.build-cache'
+# Running this file directly (without run-nsis-build.ps1) leaves CARGO_TARGET_DIR empty,
+# so tauri writes the bundle into src-tauri\target while the check below only looks in
+# .build-cache -> a successful build is reported as "installer was not generated"
+# (hit on 2026-09-18). Default it here so both entry points behave the same.
+# NOTE: keep this file ASCII-only; wscript/powershell reads .ps1 as ANSI, and Chinese
+# without a BOM breaks parsing (same trap as run-android-build.ps1).
+if (-not $env:CARGO_TARGET_DIR) { $env:CARGO_TARGET_DIR = Join-Path $cacheRoot 'cargo' }
+if (-not $env:CARGO_HOME) { $env:CARGO_HOME = Join-Path $cacheRoot 'cargo-home' }
 $log = Join-Path $dir 'tauri-build.log'
 $errorLog = Join-Path $dir 'tauri-build-stderr.log'
 $exitFile = Join-Path $dir 'tauri-build.exit'
