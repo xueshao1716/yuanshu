@@ -111,6 +111,7 @@ import { planReflectionExecution, buildActionExecutionPrompt, parseActionResult,
 import { appendEpisodes, loadEpisodes, dream, writeDreamLog, skillEpisodesFromSessions, dreamPaths, currentWeights, promoteWeights, resetWeights, recordSkillChoice } from "./engine/dream.mjs";
 import { grant, revoke, loadCharter, autoUsedToday, loadLedger } from "./engine/autonomy.mjs";
 import { listTraces, loadTrace, replayAcrossTraces, candidatePolicies, recordDelegation } from "./engine/trace.mjs";
+import { heartbeat, liveInstances, portOwner, recordStartup, recentStartups, selfCheck } from "./engine/runtime-registry.mjs";
 import { MATCH_WEIGHTS } from "./engine/yuanshu-protocol.mjs";
 import { sanitizeSessionFile } from "./engine/session-sanitize.mjs";
 import { createCorsPolicy } from "./engine/cors-policy.mjs";
@@ -1939,6 +1940,12 @@ function readStoryNovelBook({ bookId, files } = {}) {
 // 而工具执行器拿不到对话上下文——所以在收到消息时就记下来，键与会话一致。
 const lastUserBySession = new Map();
 
+// 版本号唯一来源：仓库根 version.json（与系统页同源，别再各读各的）。
+const APP_VERSION = (() => {
+  try { return String(JSON.parse(fs.readFileSync(path.join(__dirname, "version.json"), "utf8")).version || ""); }
+  catch { return ""; }
+})();
+
 // 做梦用的候选策略表（2026-09-18）：现役 = 当前 MATCH_WEIGHTS；候选只动**权重数字**，
 // 不动匹配规则本身（规则是行为契约，改它要人拍板；调权重才是可回放、可比较的部分）。
 const DREAM_POLICIES = {
@@ -2155,6 +2162,17 @@ const API_ROUTES = [
   ["POST", "/api/dream/run", async (res) => {
     // 与定时器共用同一份逻辑（runDreamCycle），不重复实现第二遍
     json(res, 200, await runDreamCycle());
+  }],
+  // ── 运行时实例（2026-09-18）：有几份在跑、谁持有端口、最近几次启动成没成 ──
+  ["GET", "/api/system/instances", (res) => {
+    const live = liveInstances(WS_ROOT, {});
+    json(res, 200, {
+      ok: true,
+      me: { pid: process.pid, version: String(APP_VERSION), port: CONFIG.port },
+      live: live.map((x) => ({ pid: x.pid, version: x.version, port: x.port, ownsPort: x.ownsPort, startedAt: x.startedAt, ageMs: x.ageMs })),
+      owner: portOwner(WS_ROOT, {})?.pid || null,
+      recentStartups: recentStartups(WS_ROOT, { limit: 10 }),
+    });
   }],
   // ── 探索轨迹（2026-09-18）：把"试了哪些路、花了多少、结果如何"记成可回放的树 ──
   // 做梦的头一版只能回放"选哪个技能"，因为探索过程没留下结构化轨迹；这一版补上那一半。
@@ -2878,6 +2896,19 @@ try {
 let listenAttempt = 0;
 // error listener 只挂一次（避免重试时叠加，MaxListenersExceededWarning 根因）
 server.on("error", (err) => {
+  if (err.code === "EADDRINUSE") {
+    // 被占用时先问一句"谁在服务"：同版本实例在服务 → 这份是重复实例，干净退出（别空转 30×2 秒）。
+    // 版本不同 → 也说清楚，但**绝不替用户杀进程**（那是红线）；空转等待交回给原来的重试逻辑。
+    try {
+      const chk = selfCheck(WS_ROOT, { myPid: process.pid, myVersion: String(APP_VERSION) });
+      console.log(`  [实例自检] ${chk.note}`);
+      recordStartup(WS_ROOT, { version: String(APP_VERSION), port: CONFIG.port, ownsPort: false, duplicate: chk.duplicate, reason: chk.note, listening: false });
+      if (chk.duplicate && process.env.YUANSHU_ALLOW_DUPLICATE !== "1") {
+        console.log("  [实例自检] 重复实例：退出（已有同版本在服务；要强制并跑请设 YUANSHU_ALLOW_DUPLICATE=1）");
+        process.exit(0);
+      }
+    } catch {}
+  }
   if (err.code === "EADDRINUSE" && listenAttempt < 30) {
     listenAttempt++;
     console.log(`[元枢] 端口 ${CONFIG.port} 占用，等待释放 (${listenAttempt}/30)…`);
@@ -2891,6 +2922,14 @@ function startServer() {
   // async：启动收尾里有需要 await 的清理（例如连续创作的孤儿运行）
   server.listen(CONFIG.port, CONFIG.host, async () => {
     listenAttempt = 0; // 监听成功 → 重置重试计数
+    // 实例登记（2026-09-18）：此刻起"这份就是持有端口的那一份"，写进心跳让外面看得见。
+    try {
+      const startedAt = new Date().toISOString();
+      heartbeat(WS_ROOT, { pid: process.pid, version: String(APP_VERSION), port: CONFIG.port, ownsPort: true, startedAt });
+      const others = liveInstances(WS_ROOT, {}).filter((x) => x.pid !== process.pid);
+      console.log(`  [实例自检] pid ${process.pid} · v${APP_VERSION} · 持有端口 ${CONFIG.port} · 其它存活实例 ${others.length}${others.length ? "（" + others.map((o) => `pid ${o.pid} v${o.version}`).join("、") + "）" : ""}`);
+      setInterval(() => heartbeat(WS_ROOT, { pid: process.pid, version: String(APP_VERSION), port: CONFIG.port, ownsPort: true, startedAt }), 30000).unref?.();
+    } catch (e) { console.log("  [实例自检] 登记失败:", String(e?.message || e).slice(0, 100)); }
     try { initTuiBridge(server, { token: CONFIG.token, cwd: WS_ROOT }); console.log("  TUI 桥接: ws://…/ws/tui 已就绪"); } catch {}
     console.log("");
     console.log("╭──────────────────────────────────────────────╮");
@@ -3021,6 +3060,10 @@ ${rows.map((r) => `- [${r.status}${r.closed ? "/已结清" : ""}] ${r.text}\n  �
       console.log("  [dream] 做梦周期已挂上（启动 2 分钟后首跑，之后每 6 小时）");
     } catch (e) { console.log("[dream] 周期挂载失败:", String(e?.message || e).slice(0, 100)); }
     console.log(`  会话目录: ${SESSIONS_DIR}`);
+    // 机器可读的启动事实：不受重定向日志 GBK 乱码影响，验证时直接读 jsonl（今天就是在这栽的）
+    try {
+      recordStartup(WS_ROOT, { version: String(APP_VERSION), port: CONFIG.port, ownsPort: true, listening: true, dreamTimerMounted: true, sessionsDir: String(SESSIONS_DIR) });
+    } catch {}
     // 发现文件：写入运行时目录，让本机 Agent 会话能发现元枢入口
     try {
       const discoverDir = path.join(getAgentDir());
