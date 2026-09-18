@@ -6,7 +6,7 @@ import os from "node:os";
 import { fileURLToPath } from "node:url";
 import { execFile } from "node:child_process";
 import { json } from "./http-utils.mjs";
-import { scanSessionFiles, parseSessionFile, getSessionList, readEntriesFromFile, invalidateSessionCache } from "./session-files.mjs";
+import { scanSessionFiles, parseSessionFile, getSessionList, findSession, readEntriesFromFile, invalidateSessionCache } from "./session-files.mjs";
 import { extractMessages } from "./session-utils.mjs";
 import { sanitizeText } from "./sanitize.mjs";
 
@@ -684,7 +684,7 @@ try {
   ({ sanitizeContent } = await import("./sanitize.mjs"));
 } catch {}
 export async function handleExport(res, id, format) {
-  const found = getSessionList().find(s => s.id === id);
+  const found = findSession(id);
   if (!found || !found.file || !fs.existsSync(found.file)) return json(res, 404, { error: "会话不存在" });
   const entries = readEntriesFromFile(found.file);
   const msgs = extractMessages(entries);

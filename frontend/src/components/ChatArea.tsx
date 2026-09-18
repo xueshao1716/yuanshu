@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import useSWR from 'swr'
 import { useApp } from '../store'
 import { MessagesSquare, BrainCircuit, Wrench, FolderClosed, Plus, SquareTerminal, Command, ChevronDown, ChevronRight, PanelRight, ShieldAlert, ImagePlus, Presentation, Clock4, Database, Download, FileText, Code2 } from 'lucide-react'
@@ -669,7 +669,7 @@ export default function ChatArea({ compactHeader, rightPanel, onRightPanel }: {
 
   const runCommand = async (cmd: string) => {
     if (cmd === '/new') {
-      try { const d = await SessionsApi.create(); await refreshSessions(); selectSession(d.id) } catch { toast('新建会话失败，请重试', 'error') }
+      try { const d = await SessionsApi.create(); sessionIdRef.current = d.id; selectSession(d.id); void refreshSessions() } catch { toast('新建会话失败，请重试', 'error') }
       return
     }
     if (cmd === '/legacy') { window.location.href = '/?legacy=1'; return }
@@ -687,7 +687,7 @@ export default function ChatArea({ compactHeader, rightPanel, onRightPanel }: {
     if (!sid) {
       // 尚无会话：先建会话并选中，等切会话的 effect 跑完（清流式态）再继续，
       // 否则乐观更新的用户消息会落空、后续 SSE 事件会被 effect 清掉
-      try { const d = await SessionsApi.create(); await refreshSessions(); selectSession(d.id); sid = d.id; sessionIdRef.current = d.id } catch { return }
+      try { const d = await SessionsApi.create(); sid = d.id; sessionIdRef.current = d.id; selectSession(d.id); void refreshSessions() } catch { return }
       await new Promise(r => setTimeout(r, 80))
     }
     // 灵犀速记：/lx 灵感内容 → 记入「我的灵感」，不进对话流、不发给模型
@@ -808,9 +808,29 @@ export default function ChatArea({ compactHeader, rightPanel, onRightPanel }: {
   }
 
   // 首页：不做空洞欢迎卡，直接给高频任务入口。
+  // ⚠️ 先 selectSession，再后台刷新列表：原先 `await refreshSessions()` 挡在 selectSession 前面，
+  //    列表刷新一慢（会话多时 /api/sessions 要扫盘），currentSessionId 就有几秒是空的——
+  //    这几秒里点附件上传就会不带 sessionId（服务端只能猜 → 卡片落到别的会话 → "传上去看不见"）。
   const newSession = async () => {
-    try { const d = await SessionsApi.create(); await refreshSessions(); selectSession(d.id) } catch { toast('新建会话失败，请重试', 'error') }
+    try {
+      const d = await SessionsApi.create()
+      sessionIdRef.current = d.id
+      selectSession(d.id)
+      void refreshSessions()
+    } catch { toast('新建会话失败，请重试', 'error') }
   }
+  // 会话就绪兜底：state 还没落地时，上传/发送前问这里要一个真实 id（新建+选中后立刻返回）
+  const ensureSessionId = useCallback(async (): Promise<string | null> => {
+    if (sessionIdRef.current) return sessionIdRef.current
+    if (currentSessionId) { sessionIdRef.current = currentSessionId; return currentSessionId }
+    try {
+      const d = await SessionsApi.create()
+      sessionIdRef.current = d.id
+      selectSession(d.id)
+      void refreshSessions()
+      return d.id
+    } catch { return null }
+  }, [currentSessionId, refreshSessions, selectSession])
   const openPanel = (p: string) => window.dispatchEvent(new CustomEvent('pi-open-panel', { detail: p }))
   const openWorkshop = (tab: 'image' | 'ppt') => {
     try { localStorage.setItem('pi_workshop_tab', tab) } catch {}
@@ -1100,7 +1120,15 @@ export default function ChatArea({ compactHeader, rightPanel, onRightPanel }: {
         <div className="chat-reading-column mx-auto">
           <SendBox key={currentSessionId ?? 'none'} streaming={!!stream} onStop={stop} onSend={send} onCommand={runCommand}
             voiceBusy={voiceBusy} onVoice={handleVoice} onVoiceTextReady={fn => { voiceTextRef.current = fn }}
-            sessionId={currentSessionId} onUploaded={() => { void mutateMsgs() }} />
+            sessionId={currentSessionId} ensureSession={ensureSessionId}
+            onUploaded={(r) => {
+              // 服务端说"这次是猜的"（只可能来自没带 sessionId 的调用方）→ 如实告诉用户卡片挂哪儿了，
+              // 别让人对着"传上去了但看不见"发呆。
+              if (r?.guessedSession) toast(`文件已挂到会话 ${String(r.attachedTo || '').slice(0, 8)}…（当前会话还没就绪），刷新会话列表可见`, 'error')
+              else if (r?.attachedTo && r.attachedTo !== sessionIdRef.current) toast('文件挂到了别的会话，请刷新后重试', 'error')
+              void mutateMsgs()
+              void refreshSessions()
+            }} />
         </div>
       </div>
     </div>

@@ -179,6 +179,19 @@ export function getSessionList() {
 }
 export function invalidateSessionCache() { sessionListCache = null; }
 
+// 按 id 查会话：缓存里没有就强制重扫一次再查。
+// 为什么必须自愈（2026-09-18 真机 bug）：新建会话的 JSONL 是**懒落盘**的（SDK 在出现 assistant
+// 消息前不写文件）。缓存可能在这之前就建好了，于是文件已经在盘上、列表里却没有它 →
+// /api/sessions/<id>/messages 直接 404"会话不存在" → 前端上传后刷新消息拿不到 →
+// 用户看到的就是"文件传上去了，聊天里没有"。
+export function findSession(id) {
+  if (!id) return null;
+  const hit = getSessionList().find(s => s.id === id);
+  if (hit) return hit;
+  invalidateSessionCache();
+  return getSessionList().find(s => s.id === id) || null;
+}
+
 // 轻量读取会话文件 entries（只解析 JSONL 首部信息）
 export function readEntriesFromFile(file) {
   const lines = fs.readFileSync(file, "utf8").split("\n").filter(Boolean);

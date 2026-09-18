@@ -24,8 +24,14 @@ interface Props {
   onVoiceTextReady?: (fn: (t: string) => void) => void
   /** 当前会话：上传必须带上它，否则文件会被挂到别的会话上（真机 bug：传上去聊天里不显示） */
   sessionId?: string | null
-  /** 上传成功后通知外层刷新消息列表，让文件卡片立刻出现在对话里 */
-  onUploaded?: () => void
+  /**
+   * 会话还没就绪时向宿主索要一个真实会话 id（新建+切过去并返回）。
+   * 真机复现（2026-09-18）：点「新建对话」后立刻传文件，`currentSessionId` 还没落地（列表刷新
+   * 还在路上）→ 上传不带 sessionId → 服务端只能猜 → 卡片落到别的会话 → "传上去了但看不见"。
+   */
+  ensureSession?: () => Promise<string | null>
+  /** 上传成功后通知外层刷新消息列表，让文件卡片立刻出现在对话里；参数是服务端回执 */
+  onUploaded?: (r: { attachedTo?: string | null; guessedSession?: boolean }) => void
 }
 
 async function blobToWavBase64(blob: Blob): Promise<string> {
@@ -66,7 +72,7 @@ async function blobToWavBase64(blob: Blob): Promise<string> {
   return btoa(bin)
 }
 
-export default function SendBox({ streaming, onStop, onSend, onCommand, onVoice, voiceBusy, onVoiceTextReady, sessionId, onUploaded }: Props) {
+export default function SendBox({ streaming, onStop, onSend, onCommand, onVoice, voiceBusy, onVoiceTextReady, sessionId, ensureSession, onUploaded }: Props) {
   const taRef = useRef<HTMLTextAreaElement>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
   const [value, setValue] = useState('')
@@ -197,12 +203,15 @@ export default function SendBox({ streaming, onStop, onSend, onCommand, onVoice,
       const buf = await f.arrayBuffer()
       let bin = ''; const bytes = new Uint8Array(buf)
       for (let i = 0; i < bytes.length; i += 0x8000) bin += String.fromCharCode(...bytes.subarray(i, i + 0x8000))
-      const d = await WsApi.upload(f.name, btoa(bin), sessionId || undefined)
+      // 会话 id 必须真实：state 里还没有就问宿主要一个（新建+选中），绝不发空 id 让服务端猜
+      let sid = sessionId || null
+      if (!sid && ensureSession) { try { sid = await ensureSession() } catch {} }
+      const d = await WsApi.upload(f.name, btoa(bin), sid || undefined)
       if (d.path) {
         const rd = await WsApi.read(d.path)
         setFiles(prev => [...prev, { path: d.path!, content: rd.content || '' }])
         // 服务端刚往这个会话追加了一条带 file 的消息 → 让外层立刻刷新，卡片才会出现在对话里
-        try { onUploaded?.() } catch {}
+        try { onUploaded?.({ attachedTo: d.attachedTo ?? d.sessionId ?? null, guessedSession: !!d.guessedSession }) } catch {}
       }
     } catch {} finally { setUploading(false); if (fileInputRef.current) fileInputRef.current.value = '' }
   }

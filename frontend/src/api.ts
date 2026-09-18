@@ -878,8 +878,8 @@ export const WsApi = {
   deliver: (sourcePath: string, name?: string) => api<{ ok: boolean; path: string; version: number }>('/api/ws/deliver', { method: 'POST', body: { sourcePath, name } }),
   rename: (oldPath: string, newName: string) => api<{ ok: boolean; path: string }>('/api/ws/rename', { method: 'POST', body: { oldPath, newName } }),
   delete: (path: string) => api<{ ok: boolean }>('/api/ws/delete', { method: 'POST', body: { path, confirmed: true } }),
-  // 上传：base64 写入工作空间并推送到会话（sessionId 可空）
-  upload: (name: string, data: string, sessionId?: string) => api<{ ok?: boolean; path?: string }>('/api/files/upload', { method: 'POST', body: { name, data, sessionId: sessionId || '' }, timeoutMs: 120000 }),
+  // 上传：base64 写入工作空间并推送到会话（sessionId 可空，但为空时服务端只能"猜"挂到哪个会话）
+  upload: (name: string, data: string, sessionId?: string) => api<{ ok?: boolean; path?: string; sessionId?: string | null; attachedTo?: string | null; guessedSession?: boolean }>('/api/files/upload', { method: 'POST', body: { name, data, sessionId: sessionId || '' }, timeoutMs: 120000 }),
 }
 
 // ── 模型管理 ──

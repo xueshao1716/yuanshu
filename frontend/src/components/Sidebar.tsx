@@ -33,7 +33,9 @@ export default function Sidebar({ onNavigated, onCollapse }: { onNavigated?: () 
   useRestoreFocus(!!renaming)
 
   const handleNew = async () => {
-    try { const d = await SessionsApi.create(); await refreshSessions(); selectSession(d.id); onNavigated?.() }
+    // 先切会话、再后台刷新列表：刷新挡在前面会让 currentSessionId 空几秒，
+    // 那几秒里上传附件不带 sessionId → 卡片落到别的会话（真机 bug）。
+    try { const d = await SessionsApi.create(); selectSession(d.id); onNavigated?.(); void refreshSessions() }
     catch {}
   }
   const handleRename = async () => {

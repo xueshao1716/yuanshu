@@ -3,7 +3,7 @@
 // 依赖注入：initSessionManager({ cwd, sessionsDir, getModelList, getDefaultModel, activeSessions, SessionManager, SettingsManager, DefaultResourceLoader, getAgentDir, readJsonFile, writeJsonFile, initSearchTool, initShareTool, initDshTool, isExternalThinking, THINK_TOOL, modelCapabilities, bindOutputGuardDeps, extractMessages, createSseWriter, unifiedChat })
 import fs from "node:fs";
 import path from "node:path";
-import { invalidateSessionCache, getSessionList } from "./session-files.mjs";
+import { invalidateSessionCache, getSessionList, findSession } from "./session-files.mjs";
 import { appendSessionGroup } from "./session-groups.mjs";
 import { appendArchiveJsonl, archivePathFor } from "./yuanshu-compact.mjs";
 import { execActivateSkill } from "./context-loader.mjs";
@@ -15,14 +15,16 @@ let _cwd = "", _sessionsDir = "", _tools = [], _getModelList = () => [], _getDef
     _SessionManager = null, _SettingsManager = null, _DefaultResourceLoader = null, _getAgentDir = () => "", _readJsonFile = null, _writeJsonFile = null, _piPackage = "", _isModelBlocked = () => false,
     _initSearchTool = async () => null, _initShareTool = async () => null, _initDshTool = async () => null, _isExternalThinking = () => false, _THINK_TOOL = null,
     _generateMediaAsync = null,
-    _modelCapabilities = null, _bindOutputGuardDeps = null, _extractMessages = null, _createSseWriter = null, _unifiedChat = null, _loadSessionModelKey = null, _onSessionCreated = null;
-export function initSessionManager({ cwd = "", sessionsDir = "", tools = [], piPackage = "", isModelBlocked = null, getModelList = null, getDefaultModel = null, activeSessions = null, SessionManager = null, SettingsManager = null, DefaultResourceLoader = null, getAgentDir = null, readJsonFile = null, writeJsonFile = null, initSearchTool = null, initShareTool = null, initDshTool = null, isExternalThinking = null, THINK_TOOL = null, modelCapabilities = null, bindOutputGuardDeps = null, extractMessages = null, createSseWriter = null, unifiedChat = null, createAgentSessionServices = null, createAgentSessionFromServices = null, getModelRuntime = null, loadSessionModelKey = null, generateMediaAsync = null, onSessionCreated = null } = {}) {
+    _modelCapabilities = null, _bindOutputGuardDeps = null, _extractMessages = null, _createSseWriter = null, _unifiedChat = null, _loadSessionModelKey = null, _onSessionCreated = null,
+    _repairSessionFile = null;
+export function initSessionManager({ cwd = "", sessionsDir = "", tools = [], piPackage = "", isModelBlocked = null, getModelList = null, getDefaultModel = null, activeSessions = null, SessionManager = null, SettingsManager = null, DefaultResourceLoader = null, getAgentDir = null, readJsonFile = null, writeJsonFile = null, initSearchTool = null, initShareTool = null, initDshTool = null, isExternalThinking = null, THINK_TOOL = null, modelCapabilities = null, bindOutputGuardDeps = null, extractMessages = null, createSseWriter = null, unifiedChat = null, createAgentSessionServices = null, createAgentSessionFromServices = null, getModelRuntime = null, loadSessionModelKey = null, generateMediaAsync = null, onSessionCreated = null, repairSessionFile = null } = {}) {
   _cwd = cwd; _sessionsDir = sessionsDir; _tools = tools; _piPackage = piPackage; if (isModelBlocked) _isModelBlocked = isModelBlocked; _activeSessions = activeSessions; _SessionManager = SessionManager; _SettingsManager = SettingsManager; _DefaultResourceLoader = DefaultResourceLoader; _readJsonFile = readJsonFile; _writeJsonFile = writeJsonFile;
   if (createAgentSessionServices) _createAgentSessionServices = createAgentSessionServices; if (createAgentSessionFromServices) _createAgentSessionFromServices = createAgentSessionFromServices; if (getModelRuntime) _getModelRuntime = getModelRuntime; if (loadSessionModelKey) _loadSessionModelKey = loadSessionModelKey;
   if (getModelList) _getModelList = getModelList; if (getDefaultModel) _getDefaultModel = getDefaultModel; if (getAgentDir) _getAgentDir = getAgentDir;
   if (initSearchTool) _initSearchTool = initSearchTool; if (initShareTool) _initShareTool = initShareTool; if (initDshTool) _initDshTool = initDshTool; if (isExternalThinking) _isExternalThinking = isExternalThinking; if (THINK_TOOL) _THINK_TOOL = THINK_TOOL;
   if (generateMediaAsync) _generateMediaAsync = generateMediaAsync;
   if (typeof onSessionCreated === "function") _onSessionCreated = onSessionCreated;
+  if (typeof repairSessionFile === "function") _repairSessionFile = repairSessionFile;
   if (modelCapabilities) _modelCapabilities = modelCapabilities; if (bindOutputGuardDeps) _bindOutputGuardDeps = bindOutputGuardDeps; if (extractMessages) _extractMessages = extractMessages; if (createSseWriter) _createSseWriter = createSseWriter; if (unifiedChat) _unifiedChat = unifiedChat;
 }
 
@@ -254,8 +256,13 @@ export async function openSession(id) {
     return hit;
   }
   evictInactiveSessions();
-  const found = getSessionList().find(s => s.id === id);
+  const found = findSession(id);
   if (!found) return null; // 08-29 修复：不存在的 id 直接 null（原来 found.file 直接炸 TypeError，调用方 404 分支永远走不到）
+  // SDK 安全化（2026-09-18）：老会话里可能躺着 {type:"file"} / {type:"image",url} 这类块，
+  // pi 的 provider 适配会把用户消息里的非 text 块写成 image_url(data:;base64,undefined) →
+  // 整段会话每轮 400（assistant 里的附件块则让 token 估算器在发请求前 TypeError）。
+  // 必须在 _SessionManager.open **之前**修，否则 SDK 读到的还是坏数据。
+  if (_repairSessionFile) { try { _repairSessionFile(found.file); } catch {} }
   // DEBUG（2026-08-22 会话不存在排查）：临时日志
   // 超大会话先瘦身（避免加载 20MB+ 历史）
   await slimSessionImages(found.file);
@@ -610,7 +617,7 @@ export async function deleteSession(id) {
     try { entry.agent.dispose(); } catch {}
     _activeSessions.delete(id);
   }
-  const found = getSessionList().find(s => s.id === id);
+  const found = findSession(id);
   if (found?.file) {
     // 软删除：移入回收站目录（.trash），误删可找回
     const trashDir = path.join(path.dirname(found.file), ".trash");

@@ -11,7 +11,7 @@ import { classifyAnomaly, recordReply, lastAssistantReply } from "./output-guard
 import { clampOutputTokens, escalateOutputTokens, maxTokensFieldOf } from "./output-budget.mjs";
 import { shrinkToolResult, NEEDS_PRO_RE, scavengeToolCalls, projectToolResult } from "./reasonix-tools.mjs";
 import { normalizeToolArgs } from "./tool-args.mjs";
-import { extractMessages, extractText } from "./session-utils.mjs";
+import { extractMessages, extractText, attachmentLines } from "./session-utils.mjs";
 import { createSseWriter } from "./sse.mjs";
 import { httpJsonFetch, httpRawFetch, sessionAffinityHeaders, describeHttpError } from "./http.mjs";
 import { PRODUCT_VERSION } from "./version.mjs";
@@ -174,7 +174,12 @@ export function formatSessionHistory(hist = [], { projectTool = projectToolResul
   for (const item of Array.isArray(hist) ? hist : []) {
     if (!item?.role) continue;
     if (item.role === "user") {
-      out.push({ role: "user", content: String(item.text || "") });
+      // 附件在盘上是文本标记、在 extractMessages 里已经被剥成 files；这里还原成一行给模型，
+      // 顺便修掉"只有附件没有正文"的空用户消息（空 content 在部分上游直接 400）。
+      const lines = attachmentLines(item.files);
+      const text = [String(item.text || ""), ...lines].filter(s => s && s.trim()).join("\n");
+      if (!text) continue;
+      out.push({ role: "user", content: text });
       continue;
     }
     if (item.role !== "assistant") continue;

@@ -1,4 +1,5 @@
 // 元枢会话连续性：打断也留痕，有历史就不许装新开。
+import { attachmentText } from "./session-utils.mjs";
 
 export function sessionContinuityNote(hist = []) {
   const n = Array.isArray(hist) ? hist.length : 0;
@@ -58,6 +59,48 @@ export function sdkSafeAssistantBlocks(blocks = []) {
       if (url) out.push({ type: "text", text: `![${label}](${url})` });
       else if (b.path || b.name) out.push({ type: "text", text: `[${label}] ${b.path || b.name}` });
       continue;   // 其余附件块绝不留在 content 里：宁可少一条附件，也不能让整段会话不可重放
+    }
+    if (typeof b.text === "string" && b.text) out.push({ type: "text", text: b.text });
+  }
+  if (!out.length) out.push({ type: "text", text: "" });
+  return out;
+}
+
+// ══ 用户消息的 SDK 安全化（2026-09-18 真机事故）══════════════════════
+// 与 assistant 的坑不是同一个，后果却更重：
+//   pi-ai 的 openai-completions 适配器处理**用户消息**时，content 数组里只要有一块不是
+//   {type:"text"}，就无条件写成 image_url：
+//     url = `data:${item.mimeType};base64,${item.data}`
+//   上传路由落的 {type:"file",name,path,size,mime:""} 于是变成
+//     data:;base64,undefined
+//   → 上游 400「You have uploaded an unsupported image」，而且这条坏消息**已经落盘**，
+//     此后每一轮重放都 400，整个会话作废。
+// 规矩：用户消息里只留 text 和**真图**（有 data + mimeType）；文件附件改写成一行文本标记，
+//   界面靠 session-utils.extractFiles 解析标记，文件卡片照旧。
+export function sdkSafeUserBlocks(blocks = []) {
+  const list = Array.isArray(blocks) ? blocks : [{ type: "text", text: String(blocks ?? "") }];
+  const out = [];
+  for (const b of list) {
+    if (typeof b === "string") { if (b) out.push({ type: "text", text: b }); continue; }
+    if (!b || typeof b !== "object") continue;
+    const type = String(b.type || "");
+    if (type === "text") { if (typeof b.text === "string" && b.text) out.push(b); continue; }
+    if (type === "file") {
+      const name = String(b.name || (b.path ? String(b.path).split(/[\\/]/).pop() : ""));
+      if (name || b.path) out.push({ type: "text", text: attachmentText({ ...b, name }) });
+      continue;
+    }
+    if (type === "image") {
+      // 真图（有 base64 + mimeType）是 SDK 唯一支持的附件形态，原样保留
+      if (typeof b.data === "string" && b.data && typeof b.mimeType === "string" && b.mimeType) { out.push(b); continue; }
+      if (typeof b.url === "string" && b.url) { out.push({ type: "text", text: `![图片](${b.url})` }); continue; }
+      continue;
+    }
+    if (type === "video" || type === "audio") {
+      const label = type === "video" ? "视频" : "音频";
+      const where = b.url || b.path || b.name || "";
+      if (where) out.push({ type: "text", text: `[${label}] ${where}` });
+      continue;
     }
     if (typeof b.text === "string" && b.text) out.push({ type: "text", text: b.text });
   }

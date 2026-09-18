@@ -33,7 +33,7 @@ import { noteModelFailure, clearModelFailures, modelFailureState } from "./engin
 // 抛 TypeError（estimate.js:42 把它们当工具调用读 block.name.length）。
 // 2026-09-16 复查发现：出图兜底交付那条（下面 settledMedia 的 appendMessage）**绕过了**这道闸，
 // 于是"这一轮出了图 → 切到 deepseek → 下一句就不回"——这才是残留的第二处来源。
-import { sdkSafeAssistantBlocks } from "./engine/yuanshu-session.mjs";
+import { sdkSafeAssistantBlocks, sdkSafeUserBlocks } from "./engine/yuanshu-session.mjs";
 // @文件引用里的二进制文件不能内联（2026-09-16，外部机器安装检查第 4 个 bug）：见 engine/file-inline.mjs
 import { isBinaryReference, binaryReferenceNote } from "./engine/file-inline.mjs";
 import { advanceGoalTurn, noteGoalError, goalPrompt, listGoals, createGoal, armGoal, pauseGoal, settleGoal, disarmAllGoals } from "./engine/goals.mjs";
@@ -43,7 +43,7 @@ import { extractPromises, recordPromises, loadPromises, pendingPromises, closePr
 import { createSoilReader } from "./engine/aibody-soil.mjs";
 // ── 会话解析纯函数（拆模块）：消息/文本/图片/文件提取 ──
 import { extractMessages, extractText, extractImages, extractFiles, resolveLeafId, windowMessages } from "./engine/session-utils.mjs";
-import { initSessionFiles, scanSessionFiles, parseSessionFile, parseSessionFileCached, readEntriesFromFile, getSessionList, invalidateSessionCache, extractMessageFiles, extractMessageImages } from "./engine/session-files.mjs";
+import { initSessionFiles, scanSessionFiles, parseSessionFile, parseSessionFileCached, readEntriesFromFile, getSessionList, findSession, invalidateSessionCache, extractMessageFiles, extractMessageImages } from "./engine/session-files.mjs";
 // ── 统一 HTTP 客户端（拆模块）：原生 fetch + 自动系统代理（env → Windows 注册表），替代 python 子进程 ──
 import { httpJsonFetch, httpBufferFetch } from "./engine/http.mjs";
 // ── 统一工具集（拆模块）：schema + 执行器；安全线（deny/危险命令/受保护路径/路径越权）在 engine/tools/security.mjs ──
@@ -118,6 +118,7 @@ import { MATCH_WEIGHTS } from "./engine/yuanshu-protocol.mjs";
 import { sanitizeSessionFile } from "./engine/session-sanitize.mjs";
 import { createCorsPolicy } from "./engine/cors-policy.mjs";
 import { initSessionDb, handleDbList, handleDbRebuild, handleDbSanitize, handleDbMeta, handleDbStats, handleDbSweep, sweepSessionsNow, ensureSessionSequence } from "./engine/session-db.mjs";
+import { repairSessionFile, repairSessionDir } from "./engine/session-repair.mjs";
 import { isListedGroup } from "./engine/session-groups.mjs";
 import { createAIBodyRuntime } from "./engine/aibody-runtime.mjs";
 import { createAIBodyHost } from "./engine/aibody-host.mjs";
@@ -622,7 +623,7 @@ const executeUnifiedTool = createUnifiedToolExecutorGuarded({
   },
 });
 
-initSessionManager({ cwd: CONFIG.cwd, sessionsDir: SESSIONS_DIR, tools: CONFIG.tools, piPackage: CONFIG.piPackage, isModelBlocked, createAgentSessionServices, createAgentSessionFromServices, getModelRuntime: () => modelRuntime, loadSessionModelKey, getModelList: () => modelList, getDefaultModel: () => defaultModel, activeSessions, SessionManager, SettingsManager, DefaultResourceLoader, getAgentDir, readJsonFile, writeJsonFile, isExternalThinking, THINK_TOOL, modelCapabilities, bindOutputGuardDeps, extractMessages, createSseWriter, unifiedChat, generateMediaAsync, onSessionCreated: ensureSessionSequence }); // 会话管理注入
+initSessionManager({ cwd: CONFIG.cwd, sessionsDir: SESSIONS_DIR, tools: CONFIG.tools, piPackage: CONFIG.piPackage, isModelBlocked, createAgentSessionServices, createAgentSessionFromServices, getModelRuntime: () => modelRuntime, loadSessionModelKey, getModelList: () => modelList, getDefaultModel: () => defaultModel, activeSessions, SessionManager, SettingsManager, DefaultResourceLoader, getAgentDir, readJsonFile, writeJsonFile, isExternalThinking, THINK_TOOL, modelCapabilities, bindOutputGuardDeps, extractMessages, createSseWriter, unifiedChat, generateMediaAsync, onSessionCreated: ensureSessionSequence, repairSessionFile }); // 会话管理注入
 // 当场修的执行器：Pi 会话里的 fix_problem 与统一引擎里的同名工具走**同一套规则**
 // （engine/reflection-exec.mjs：红线不碰 / 每会话 10 分钟最多 3 次 / 必须交证据）。
 setOnTheSpotFixRunner(({ problem, sessionKey }) => runOnTheSpotFix({
@@ -1809,7 +1810,9 @@ function latestSessionId() {
 
 // GET /api/sessions/:id/messages
 async function handleMessages(res, id, req, url) {
-  const found = getSessionList().find(s => s.id === id);
+  // findSession 而不是 getSessionList().find：新建会话的文件是懒落盘的，列表缓存可能比它早，
+  // 直接查缓存会 404"会话不存在"——前端上传后刷新消息就卡在这里（真机 bug：卡片不显示）。
+  const found = findSession(id);
   if (!found || !found.file || !fs.existsSync(found.file)) return json(res, 404, { error: "会话不存在" });
   const entries = readEntriesFromFile(found.file);
   const leafId = resolveLeafId(entries, url?.searchParams?.get("leafId") || null);
@@ -1822,7 +1825,7 @@ async function handleMessages(res, id, req, url) {
 
 // POST /api/sessions/:id/messages —— 持久化用户消息到 JSONL（防 network error 丢消息）
 async function handleAppendMessage(res, id, body) {
-  const found = getSessionList().find(s => s.id === id);
+  const found = findSession(id);
   if (!found || !found.file) return json(res, 404, { error: "会话不存在" });
   const file = found.file;
   let parentId = "";
@@ -2466,6 +2469,17 @@ const API_ROUTES = [
     const id = await createSession(body.name, { group });
     return json(res, 200, { id, name: body.name || "新会话", group });
   }],
+  // 存量会话 SDK 安全化：手动触发（启动时也会自动扫一遍）。body.sessionId 只修一个会话。
+  ["POST", "/api/sessions/repair", async (res, req) => {
+    const body = await readBody(req);
+    const sid = String(body.sessionId || "");
+    if (sid) {
+      const found = findSession(sid);
+      if (!found) return json(res, 404, { error: "会话不存在" });
+      return json(res, 200, { ok: true, result: repairSessionFile(found.file) });
+    }
+    return json(res, 200, { ok: true, summary: repairSessionDir(SESSIONS_DIR) });
+  }],
   // ── 工作空间 ──
   ["GET", "/api/prompts", (res) => handlePrompts(res)],
   ["GET", "/api/ws/tree", (res, req, url) => handleWsTree(res, url.searchParams.get("path") || "")],
@@ -2541,9 +2555,16 @@ const API_ROUTES = [
       if (!entry) { try { const nid = await createSession(); entry = activeSessions.get(nid); } catch {} }
       if (entry) {
         try {
-          await entry.sm.appendMessage({ role: "user", content: [{ type: "file", name, path: rel, size: buf.length, mime: body.mime || "" }] });
+          // ⚠️ 2026-09-18 真机事故：这里原先落 {type:"file"} 块 → SDK 的 openai-completions
+          //   把用户消息里的非 text 块无条件写成 image_url(data:;base64,undefined) →
+          //   上游 400「unsupported image」，且此后每轮重放都 400（会话作废）。
+          //   必须过 sdkSafeUserBlocks：文件附件落成一行文本标记，界面靠 extractFiles 照样出卡片。
+          await entry.sm.appendMessage({ role: "user", content: sdkSafeUserBlocks([{ type: "file", name, path: rel, size: buf.length, mime: body.mime || "" }]) });
           // 触发落盘：兼容适配器在出现 assistant 消息前不写文件，追加一条空 assistant 强制 flush（空消息渲染时被过滤，不影响显示）
-          await entry.sm.appendMessage({ role: "assistant", content: [] });
+          await entry.sm.appendMessage({ role: "assistant", content: sdkSafeAssistantBlocks([]) });
+          // 会话文件刚刚才真正落盘（SDK 懒写），列表缓存里可能还没有这个会话 →
+          // 不失效的话前端按 id 拉消息会 404「会话不存在」，卡片就永远不显示。
+          invalidateSessionCache();
         } catch {}
       }
       // 2026-09-18：没带 sessionId 时服务端只能"猜"挂到哪个会话（最近未命名 / 新建一个），
@@ -3132,6 +3153,18 @@ ${rows.map((r) => `- [${r.status}${r.closed ? "/已结清" : ""}] ${r.text}\n  �
       console.log("  [dream] 做梦周期已挂上（启动 2 分钟后首跑，之后每 6 小时）");
     } catch (e) { console.log("[dream] 周期挂载失败:", String(e?.message || e).slice(0, 100)); }
     console.log(`  会话目录: ${SESSIONS_DIR}`);
+    // 存量会话 SDK 安全化（2026-09-18）：上传文件曾经给用户消息落 {type:"file"} 块，
+    // pi 的 provider 适配会把它写成 image_url(data:;base64,undefined) → 该会话此后每轮都
+    // 400「unsupported image」。修写入路径救不回已经在盘上的会话，所以启动时扫一遍。
+    // 放 listen 之后异步跑：修会话不是启动前提，不能拖慢或拖挂服务。
+    setTimeout(() => {
+      try {
+        const t0 = Date.now();
+        const r = repairSessionDir(SESSIONS_DIR);
+        if (r.repaired) console.log(`[session-repair] 修复 ${r.repaired} 个会话（${r.lines} 条消息，扫描 ${r.scanned} 个文件，${Date.now() - t0}ms）`);
+        else console.log(`[session-repair] 无需修复（扫描 ${r.scanned} 个文件，${Date.now() - t0}ms）`);
+      } catch (e) { console.log(`[session-repair] 扫描异常: ${String(e?.message || e).slice(0, 120)}`); }
+    }, 3000).unref?.();
     // 机器可读的启动事实：不受重定向日志 GBK 乱码影响，验证时直接读 jsonl（今天就是在这栽的）
     try {
       recordStartup(WS_ROOT, { version: String(APP_VERSION), port: CONFIG.port, ownsPort: true, listening: true, dreamTimerMounted: true, sessionsDir: String(SESSIONS_DIR) });

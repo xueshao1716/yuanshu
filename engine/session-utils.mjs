@@ -60,10 +60,73 @@ export function imageSrc(img) {
   return "";
 }
 
-// 从消息 content 提取文件附件（type: file 的块）
+// ── 附件标记（2026-09-18）─────────────────────────────────────────────
+// 真机事故：上传任意文件后，该会话**此后每一轮**都 400
+//   Upstream request failed: .messages[11]: You have uploaded an unsupported image.
+// 根因不在元枢的组装层，而在兼容适配器 SDK 的 provider 适配：
+//   @earendil-works/pi-ai/dist/api/openai-completions.js 对**用户消息**的 content 数组
+//   只认 type==="text"，其余（file / image 无 data / …）一律写成
+//   {type:"image_url", image_url:{url:`data:${item.mimeType};base64,${item.data}`}}
+//   → "data:;base64,undefined" → 上游按"坏图"拒绝，而这条消息已经落盘，永久毒化整个会话。
+//   （纯文本模型看不到：transform-messages 的 downgradeUnsupportedImages 会把图降级成占位文本，
+//     所以只有 input 含 image 的模型才复现——复现脚本见 D:\pi-workspace\tmp\repro-file-poison.mjs）
+// 结论：用户消息里**只允许 text / 真图(data+mimeType)**。文件附件改用一行文本标记承载，
+//   markdown/JSONL 里可读、SDK 安全；界面靠 extractFiles 解析这行照样渲染文件卡片。
+export const ATTACHMENT_MARK = "📎 附件:";
+const ATTACHMENT_LINE = /^📎 附件:\s*name="([^"]*)"\s+path="([^"]*)"(?:\s+size=(\d+))?(?:\s+mime="([^"]*)")?/gm;
+
+// 生成一行附件标记（name/path/mime 里的引号统一替换，保证可被上面的正则精确还原）
+export function attachmentText(block = {}) {
+  const clean = (v) => String(v ?? "").replace(/"/g, "'");
+  const size = Number(block.size) || 0;
+  return `${ATTACHMENT_MARK} name="${clean(block.name)}" path="${clean(block.path)}" size=${size} mime="${clean(block.mime)}"`;
+}
+
+// 从文本里抠出附件（兼容旧会话的 type:"file" 块与新的文本标记两种形态）
+export function filesFromText(text) {
+  const s = typeof text === "string" ? text : "";
+  if (!s || s.indexOf(ATTACHMENT_MARK) < 0) return [];
+  const out = [];
+  for (const m of s.matchAll(ATTACHMENT_LINE)) {
+    if (!m[1] && !m[2]) continue;
+    out.push({ name: m[1], path: m[2], size: m[3] ? Number(m[3]) : 0, mime: m[4] || "" });
+  }
+  return out;
+}
+
+// 给界面/摘要用的纯显示文本：附件标记由文件卡片呈现，不重复显示成文字
+export function stripAttachmentMarks(text) {
+  const s = typeof text === "string" ? text : "";
+  if (!s || s.indexOf(ATTACHMENT_MARK) < 0) return s;
+  return s.replace(ATTACHMENT_LINE, "").replace(/\n{3,}/g, "\n\n").trim();
+}
+
+// 把 files 列表还原成附件标记行（模型侧重建历史用；界面侧由文件卡片呈现）
+export function attachmentLines(files = []) {
+  return (Array.isArray(files) ? files : [])
+    .filter(f => f && (f.path || f.name))
+    .map(f => attachmentText(f));
+}
+
+// 从消息 content 提取文件附件（type: file 的块 + 文本标记两种形态）
 export function extractFiles(content) {
-  if (!Array.isArray(content)) return [];
-  return content.filter(b => b.type === "file").map(b => ({ name: b.name, path: b.path, size: b.size, mime: b.mime }));
+  const out = [];
+  const seen = new Set();
+  const push = (f) => {
+    if (!f || (!f.name && !f.path)) return;
+    const key = `${f.path || f.name}`;
+    if (seen.has(key)) return;
+    seen.add(key);
+    out.push({ name: f.name || "", path: f.path || "", size: Number(f.size) || 0, mime: f.mime || "" });
+  };
+  if (typeof content === "string") { for (const f of filesFromText(content)) push(f); return out; }
+  if (!Array.isArray(content)) return out;
+  for (const b of content) {
+    if (!b) continue;
+    if (b.type === "file") push({ name: b.name, path: b.path, size: b.size, mime: b.mime });
+    else if (b.type === "text" || typeof b.text === "string") for (const f of filesFromText(b.text)) push(f);
+  }
+  return out;
 }
 
 export function extractVideos(content) {
@@ -127,7 +190,8 @@ export function extractMessages(entries, leafId) {
     const m = e.message;
     if (!m) continue;
     if (m.role === "user") {
-      const text = extractText(m.content);
+      // 显示文本剥掉附件标记（卡片负责呈现）；模型侧由 formatSessionHistory 把 files 还原成文字
+      const text = stripAttachmentMarks(extractText(m.content));
       const files = extractFiles(m.content);
       const images = extractImages(m.content).map(imageSrc).filter(Boolean);
       const videos = extractVideos(m.content);

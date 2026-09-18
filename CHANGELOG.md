@@ -8,6 +8,97 @@
 
 ## [Unreleased]
 
+## [2.84.2] - 2026-09-18
+
+### 修复：上传文件既会把会话毒成 400，又"传上去了看不见"（同一件事的两半）
+
+你贴的那条报错，我在真机上接通了整条链（不是"看着对"）：
+
+```
+400: invalid_request_error  .messages[11]: You have uploaded an unsupported image.
+     Please make sure your image is valid and has one of the following formats: webp, png, jpeg, and gif.
+```
+
+**根因不在元枢的拼装层，在兼容适配器的 provider 适配里**（所以只看我们的代码会觉得很干净）：
+
+1. 上传路由给 **user** 消息落的是 `{type:"file",name,path,size,mime:""}`（界面靠它渲染文件卡片）；
+2. `pi-ai/dist/api/openai-completions.js` 处理**用户消息**的 content 数组时**只认 `type:"text"`**，
+   其余块一律无条件写成
+   `{type:"image_url", image_url:{url: \`data:${item.mimeType};base64,${item.data}\`}}`
+   → 我们这边就是 `data:;base64,undefined` → 上游按"坏图"拒绝，400；
+3. 这条坏消息**已经落盘**，于是此后每一轮重放都 400 —— 会话作废（你那条会话就是这么废的）。
+
+顺带解释"为什么不是每次都报"：纯文本模型不会复现 —— SDK 的 `downgradeUnsupportedImages`
+会先把图降级成占位文本；只有 input 含 image 的模型（如 `opencode-go/deepseek-v4.1-flash`）才撞上去。
+（这个坑我自己也踩了一次：第一版复现脚本用 Auto 路由到纯文本模型，"复现失败"。）
+
+**复现（真机）**：`tmp/repro-file-poison.mjs` —— 建会话 → 上传文件（mime 为空，与前端同形）→
+指定 `opencode-go/deepseek-v4.1-flash` 发一句话 → SSE 里出现 `unsupported image`；换纯文本模型则不报。
+
+**修法（三处，缺一不可）**：
+
+1. **不许再写坏块**：新增 `sdkSafeUserBlocks()`（与 assistant 侧的 `sdkSafeAssistantBlocks` 对称）——
+   用户消息里只留 `text` 和**真图**（有 `data` + `mimeType`）；文件附件改写成一行文本标记
+   `📎 附件: name="…" path="…" size=… mime="…"`；上传路由改成过这道闸。
+2. **已经躺在盘上的会话要能修回来**：新增 `engine/session-repair.mjs` —— 把历史会话里
+   ① user 的非 text 块、② assistant 的附件块（那个会让 token 估算器在**发请求前**
+   `TypeError: Cannot read properties of undefined (reading 'length')`）就地改写成文本形态；
+   改前留 `.bak-sdk-safe`、原子写（临时文件 + rename）；`toolResult` 里的图不碰（那是 SDK 支持的形态）。
+   启动时扫一遍（在 listen 之后异步跑，不拖慢启动）、打开会话前再修一次（必须在 SDK 读文件之前），
+   另有 `POST /api/sessions/repair` 可手动触发。
+3. **卡片不能丢**：`extractFiles` 同时认文本标记与老的 `file` 块；界面照旧渲染文件卡片；
+   显示文本剥掉标记（`stripAttachmentMarks`），标记只在"给模型的历史"里还原（`formatSessionHistory`），
+   顺带修掉"只有附件、没有正文"的空用户消息（部分上游对空 content 直接 400）。
+
+**核对（API 级，走真实服务 8787）**：
+
+```
+上传（带 sessionId）  → 落盘 user content = [{"type":"text","text":"📎 附件: name=\"repro-poison2.png\" path=\"…\" size=70 mime=\"\""}]
+                     → GET /api/sessions/<id>/messages：role=user, text="", files=[{name,path,size,mime}] ✅（卡片还在）
+                     → 指定 opencode-go/deepseek-v4.1-flash 发一轮：SSE 无 unsupported image ✅（修复前同一路径必报）
+老会话（已中毒）      → 启动修复 → 同一轮不再 400 ✅（14 个存量会话被修，各留 .bak-sdk-safe）
+```
+
+### 修复：「传上去聊天里看不见」——第二个根因（这次是把界面点到底了）
+
+上一版我只核到 API 层就交付了，你仍然看不见。这次用 CDP 驱动**真实页面**走了一遍
+（`tmp/verify-ui-upload3.mjs`：点界面上的「新建对话」→ 走真实附件控件上传 → 看对话流），
+抓到两个各自都能让卡片消失的原因：
+
+1. **前端竞态：上传时还不知道自己在哪个会话。** 「新建对话」里 `await refreshSessions()`
+   排在 `selectSession()` 前面，列表刷新一慢，`currentSessionId` 就有几秒是空的；
+   这几秒里点附件，请求里的 `sessionId` 是空串 → 服务端只能猜 → 卡片落进别的会话。
+   实测抓到的请求体：`POST /api/files/upload | sessionId":""`。
+   修法：先把会话切过去、列表刷新丢后台；`SendBox` 增加 `ensureSession` 兜底
+   （state 还没落地就当场建一个并返回 id，绝不发空 id）；服务端若回 `guessedSession`，
+   界面**如实提示**"文件挂到哪儿了"而不是让人对着空气发呆。
+2. **服务端缓存：新会话的文件是懒落盘的。** SDK 在出现 assistant 消息前不写 JSONL，
+   而 `/api/sessions` 的列表缓存可能在这之前就建好了；文件后来落盘、缓存却没失效 →
+   `/api/sessions/<id>/messages` 直接 404「会话不存在」→ 前端那一次刷新拿不到消息 → 卡片不显示。
+   修法：新增 `findSession(id)`（缓存里没有就强制重扫一次再查，自愈）；上传路由写完立刻
+   `invalidateSessionCache()`；所有按 id 查会话的地方（messages / append / openSession / stats）都改用它。
+
+**核对（界面级，7/7 全绿 + 截图）**：
+
+```
+点界面「新建对话」        → 会话 01a0b35a…，界面已切过去 ✅
+走真实附件控件上传        → POST /api/files/upload 带 sessionId=01a0b35a…（不再是空串）✅
+界面自己拉回的消息        → apiFiles=["ui-card3-mu6mcrqg.txt"]，上传后重新拉列表 4 次 ✅
+对话流里的卡片            → .chat-scroll-region 内出现卡片节点，欢迎页被消息列表替换 ✅
+截图                      → D:\pi-workspace\tmp\ui-card3-1789715444270.png
+```
+
+**诚实交代**：核对过程中我往你那条真实会话（`01a0b32b…`）发了一轮"修复核对"，
+那一轮里**你正在跑的 agent 顺手把 `models-store.json` 里 `opencode-go/deepseek-v4.1-flash`
+的 `input` 从 `["text","image"]` 改成了 `["text"]`**（它认为"上游不认图"）。
+那个推断站不住：当时发出去的唯一图片是 `data:;base64,undefined`（坏数据），
+不能用来证明模型看不见图；真正的原因是我们的坏块，已按上面第 1、2 条修掉。
+所以我把这次改动**回滚**了（`input` 恢复 `["text","image"]`；它的备份
+`models-store.json.bak-202609181450` 仍在，要回退直接拷回）。
+
+测试：1501 全绿（新增 8 条：user 块安全性、"标记 ↔ 卡片"往返、界面/模型两条文本路径、
+坏会话修复的幂等与备份、会话列表缓存自愈、两条源码闸门）。
+
 ## [2.84.1] - 2026-09-18
 
 ### 修复：上传的文件在聊天里不显示（根因是上传时没带会话 id）
