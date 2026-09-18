@@ -1,0 +1,158 @@
+// engine/reflection-exec.mjs —— 复盘 → 执行（2026-09-17）
+//
+// 用户的观察："任务中的自我反思，是抓了一堆问题，但是没有主动执行能力了"。
+// 查下来确实如此，而且是**结构性的**：定时复盘那一轮只拿到只读工具
+// （`timeTaskReadTools` 只留 read/web_search/search_files），它能做的唯一一件事就是
+// 在结尾写一份行动清单；清单进承诺账之后，"结清"又只等人给结论。闭环断在最后一米：
+// 问题抓了一堆，动作一条没做。
+//
+// 这个模块补上那一米，但**不拆掉人那道闸**：
+//   · 复盘的行动自报 `kind`：fix（当场能修的）/ track（要跨天跟踪）/ ask（要人拍板）；
+//   · 只有 fix、且不碰红线（密钥/权限/部署/推送/删数据/花钱）的才进自动执行；
+//   · 每轮**最多 3 条**，每条一次执行轮，必须交证据（命令 + 输出摘要 + 改动文件）；
+//   · 交不出证据就不算完成：状态只有 done / blocked / failed，原话进账本；
+//   · 证据齐了才结清（`closePromise(status:"kept", evidence)`）——这是承诺账头部写明的
+//     "由人**或证据**结清"，不是"大概做了吧"的自动判定。
+import fs from "node:fs";
+import { atomicWriteText } from "./atomic-io.mjs";
+import { promisePaths, loadPromises, closePromise } from "./promises.mjs";
+
+export const ACTION_KINDS = Object.freeze(["fix", "track", "ask"]);
+
+/** 每轮自动执行上限：再多就不是"顺手做掉"，而是把复盘变成一个大工程。 */
+export const MAX_AUTO_FIX = 3;
+
+/**
+ * 不许自动碰的东西。命中就降级成 ask（要人拍板），连试都不试——
+ * 这些动作要么不可回滚，要么动的是权限与外部世界。
+ */
+const FORBIDDEN = /密钥|token|密码|api\s?key|凭据|账号|支付|付费|充值|采购|删除|清库|部署|上线|发布|推送|\bpush\b|\bdeploy\b|重启|改端口|防火墙|安装依赖|npm i\b|yarn add|pnpm add|注册|申请|外部/i;
+
+/** 行动清单里的 kind 只认这三档；没写按 track 处理（保守：不猜它想立刻动手）。 */
+export function normalizeActionKind(value) {
+  const k = String(value || "").trim().toLowerCase();
+  return ACTION_KINDS.includes(k) ? k : "track";
+}
+
+/**
+ * 分类一条行动：能不能自动执行。
+ * 返回 `{ kind, executable, reason }`——reason 会写进日志，让"为什么没自动做"是可见的，
+ * 而不是悄悄跳过。
+ */
+export function classifyAction(action) {
+  const text = String(action?.text || "").trim();
+  const kind = normalizeActionKind(action?.kind);
+  if (kind !== "fix") return { kind, executable: false, reason: kind === "ask" ? "要人拍板" : "跨天跟踪" };
+  // 红线先判：短到不足以执行的**红线动作**也必须标成 ask（否则「删除旧数据」这种
+  // 七个字会被"描述太短"盖过去，挂着 kind=fix 看着像能自动做）。
+  const hit = text.match(FORBIDDEN);
+  if (hit) return { kind: "ask", executable: false, reason: `碰红线（${hit[0]}），转人工` };
+  if (text.length < 8) return { kind, executable: false, reason: "描述太短，不足以执行" };
+  return { kind, executable: true, reason: "" };
+}
+
+/** 把一批行动分派成"现在执行的"和"留下的"（留下的保留原 kind，账本照旧追踪）。 */
+export function planReflectionExecution(actions, { max = MAX_AUTO_FIX } = {}) {
+  const list = Array.isArray(actions) ? actions : [];
+  const executable = [];
+  const deferred = [];
+  for (const action of list) {
+    const c = classifyAction(action);
+    if (c.executable && executable.length < max) executable.push({ ...action, kind: "fix" });
+    else deferred.push({ ...action, kind: c.kind, reason: c.executable ? `本轮已到 ${max} 条上限` : c.reason });
+  }
+  return { executable, deferred };
+}
+
+/** 执行轮提示词：一次一条、必须有证据、做不了就说做不了、结尾交 JSON。 */
+export function buildActionExecutionPrompt(action, { ymd = "" } = {}) {
+  const text = String(action?.text || "").trim();
+  return `你在执行复盘给出的一条行动（${ymd || "今天"}）。这是**动手轮**，不是再写一份计划。
+
+行动：${text}
+
+硬约束：
+- **只做这一条**。顺手发现别的问题，写进结尾的 summary，不要在这一轮里改。
+- 允许 read / write / edit / bash（限工作区内）；改完要能自证：跑测试、跑构建、跑检查命令。
+- **证据 = 命令 + 输出摘要 + 改动的文件路径**。没有证据就不许说"已完成"。
+- 做不了就如实说：缺什么（blocked）、试过什么、报什么错（failed）。宁可 blocked，不要假装做完。
+- 不许碰：密钥/凭据/权限、部署与发布、推远端仓库、重启服务、删除数据、装依赖、花钱。
+  需要这些就报 blocked，并写明"需要人来做哪一步"。
+- 结尾必须再附一个 JSON 代码块（只能是 JSON，前后不要解释）：
+\`\`\`json
+{"status":"done|blocked|failed","evidence":"命令与输出摘要（≤200字）","files":["改动或检查过的文件"],"summary":"一句话结论"}
+\`\`\``;
+}
+
+/** 解析执行轮结果：取**最后**一个 json 块；status 不认识就返回 null（不猜成功）。 */
+export function parseActionResult(text) {
+  const blocks = [...String(text || "").matchAll(/```json\s*([\s\S]*?)```/g)];
+  for (let i = blocks.length - 1; i >= 0; i--) {
+    try {
+      const d = JSON.parse(blocks[i][1]);
+      const status = ["done", "blocked", "failed"].includes(d?.status) ? d.status : null;
+      if (!status) continue;
+      return {
+        status,
+        evidence: String(d.evidence || "").trim().slice(0, 400),
+        files: (Array.isArray(d.files) ? d.files : []).map((f) => String(f).slice(0, 200)).slice(0, 20),
+        summary: String(d.summary || "").trim().slice(0, 200),
+      };
+    } catch { /* 试上一块 */ }
+  }
+  return null;
+}
+
+/** 证据够不够结清：done 且给了证据才算。 */
+export function isCloseable(result) {
+  return result?.status === "done" && String(result?.evidence || "").trim().length >= 8;
+}
+
+const keyOf = (text) => String(text || "").replace(/\s+/g, "").slice(0, 40);
+
+/**
+ * 把一次执行的结果记回承诺账。
+ * · 账上找不到对应承诺（比如复盘那轮没入库）→ not-found，不新建（账本只该记承诺）。
+ * · done+证据 → 结清并写下证据；blocked/failed → 留着 pending，把这次尝试记进 `attempts`，
+ *   下一轮复盘带着"上次试过什么"继续追问，而不是从头再来。
+ */
+export function recordActionAttempt(wsRoot, action, result, { now = new Date(), fsMod = fs } = {}) {
+  const text = String(action?.text || "").trim();
+  const at = (now instanceof Date ? now : new Date()).toISOString();
+  const list = loadPromises(wsRoot, fsMod);
+  const hit = list.find((p) => keyOf(p.text) === keyOf(text));
+  if (!hit) return { ok: false, reason: "承诺账里没有这条行动", id: null };
+  const attempt = {
+    at,
+    status: result?.status || "failed",
+    evidence: String(result?.evidence || "").slice(0, 400),
+    files: Array.isArray(result?.files) ? result.files.slice(0, 20) : [],
+    summary: String(result?.summary || "").slice(0, 200),
+  };
+  hit.attempts = [...(Array.isArray(hit.attempts) ? hit.attempts : []), attempt].slice(-10);
+  // 先写 attempts 再结清：closePromise 会重新读文件，顺序反了会把 attempts 覆盖掉。
+  try {
+    fsMod.mkdirSync(promisePaths(wsRoot).dir, { recursive: true });
+    atomicWriteText(promisePaths(wsRoot).file, JSON.stringify(list, null, 2));
+  } catch (e) {
+    return { ok: false, reason: String(e?.message || e).slice(0, 80), id: hit.id };
+  }
+  if (isCloseable(result)) {
+    closePromise(wsRoot, hit.id, { status: "kept", evidence: attempt.evidence, now }, fsMod);
+    return { ok: true, id: hit.id, closed: true, status: attempt.status };
+  }
+  return { ok: true, id: hit.id, closed: false, status: attempt.status };
+}
+
+/** 一轮执行之后给人看的一句话（写进时间引擎日志与台前）。 */
+export function summarizeExecution(rows = []) {
+  const list = Array.isArray(rows) ? rows : [];
+  if (!list.length) return "";
+  const done = list.filter((r) => r.status === "done").length;
+  const blocked = list.filter((r) => r.status === "blocked").length;
+  const failed = list.filter((r) => r.status === "failed" || !r.status).length;
+  const parts = [`本自动执行 ${list.length} 条：完成 ${done}`];
+  if (blocked) parts.push(`受阻 ${blocked}`);
+  if (failed) parts.push(`失败 ${failed}`);
+  return parts.join("，");
+}

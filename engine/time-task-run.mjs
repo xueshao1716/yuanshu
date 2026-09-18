@@ -14,6 +14,7 @@ import { splitLogBlocks } from "./memory-facts.mjs";
 import { readEntriesFromFile } from "./session-files.mjs";
 import { extractMessages } from "./session-utils.mjs";
 import { loadPromises, recordPromises } from "./promises.mjs";
+import { normalizeActionKind } from "./reflection-exec.mjs";
 
 const READ_TOOLS = new Set(["read", "web_search", "search_files"]);
 const CLIP_CAP = 6000;
@@ -171,9 +172,18 @@ ${memory}
 
 结尾必须再附一个 JSON 代码块（只能是 JSON，前后不要解释），列出你今天要做的行动：
 \`\`\`json
-{"actions":[{"text":"要做什么（≤60字，具体到可核查）","due":"可选，ISO 日期，没有就空"}]}
+{"actions":[{"text":"要做什么（≤60字，具体到可核查）","kind":"fix|track|ask","due":"可选，ISO 日期，没有就空"}]}
 \`\`\`
-3-7 条。只写你确实打算做的。写下来就会进承诺账，下一轮复盘会被追问兑现。`;
+3-7 条。只写你确实打算做的。写下来就会进承诺账，下一轮复盘会被追问兑现。
+
+**kind 怎么填（2026-09-17 起，这决定了谁会去做）**：
+- \`fix\`：当场能修好的（改代码/补测试/改配置/补文档/沉淀技能），**新一轮会自动挑最多 3 条去执行**，
+  执行轮必须交证据（命令 + 输出 + 改动文件）。所以 kind=fix 的动作要写成**可直接动手**的一句话，
+  不要写"考虑一下""评估是否"这类没法验收的。
+- \`track\`：要跨天跟踪、依赖别的进展、或一次做不完的。
+- \`ask\`：需要人拍板的（改产品行为、权限、外部账号、花钱、删数据、部署发布）。
+写错 kind 的代价是双向的：把该问人的写成 fix，会被自动执行轮挡回 blocked；把能当场做的写成 track，
+就永远是清单上的一条。`;
 }
 
 export function composeTimeTaskMessages(task, ctx) {
@@ -197,7 +207,13 @@ export function parseReflectionActions(text) {
       return d.actions
         .filter((a) => a && String(a.text || "").trim().length >= 4)
         .slice(0, 10)
-        .map((a) => ({ text: String(a.text).trim().slice(0, 120), due: a.due ? String(a.due) : null }));
+        .map((a) => ({
+          text: String(a.text).trim().slice(0, 120),
+          due: a.due ? String(a.due) : null,
+          // 2026-09-17：行动自报能不能当场做（fix / track / ask）。没写按 track，
+          // 由 engine/reflection-exec.mjs 决定谁进自动执行、谁留给人和跨天跟踪。
+          kind: normalizeActionKind(a.kind),
+        }));
     } catch { /* 试上一块 */ }
   }
   return [];
@@ -210,7 +226,7 @@ export function parseReflectionActions(text) {
  */
 export function recordReflectionActions(wsRoot, text, { taskId = "", now = new Date(), fsMod = fs } = {}) {
   const actions = parseReflectionActions(text);
-  if (!actions.length) return { ok: false, reason: "复盘没有给出可解析的行动清单", added: 0 };
+  if (!actions.length) return { ok: false, reason: "复盘没有给出可解析的行动清单", added: 0, actions: [] };
   const at = (now instanceof Date ? now : new Date()).toISOString();
   const stamp = Date.now().toString(36);
   const list = actions.map((a, i) => {
@@ -221,6 +237,8 @@ export function recordReflectionActions(wsRoot, text, { taskId = "", now = new D
       sessionId: REFLECTION_SOURCE,
       taskId: taskId || null,
       text: a.text,
+      // kind 也落账：下一轮"上次兑现"能看出哪条本该当场做掉却没做
+      kind: a.kind,
       due: due && !Number.isNaN(due.getTime()) ? due.toISOString() : null,
       status: "pending",
       evidence: null,
@@ -228,5 +246,5 @@ export function recordReflectionActions(wsRoot, text, { taskId = "", now = new D
     };
   });
   const r = recordPromises(wsRoot, list, fsMod);
-  return { ok: true, parsed: actions.length, added: r?.added || 0 };
+  return { ok: true, parsed: actions.length, added: r?.added || 0, actions };
 }

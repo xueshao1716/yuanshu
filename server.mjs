@@ -106,7 +106,8 @@ import { createStaticServer } from "./lib/static.mjs";
 import { CodeRuntime } from "./code-mode/code-runtime.mjs";
 import { createCodeMode } from "./code-mode/code-mode.mjs";
 import { createTimeEngine } from "./engine/time-engine.mjs";
-import { composeTimeTaskMessages, timeTaskReadTools, recordReflectionActions } from "./engine/time-task-run.mjs";
+import { composeTimeTaskMessages, timeTaskReadTools, recordReflectionActions, yesterdayYmd } from "./engine/time-task-run.mjs";
+import { planReflectionExecution, buildActionExecutionPrompt, parseActionResult, recordActionAttempt, summarizeExecution } from "./engine/reflection-exec.mjs";
 import { sanitizeSessionFile } from "./engine/session-sanitize.mjs";
 import { createCorsPolicy } from "./engine/cors-policy.mjs";
 import { initSessionDb, handleDbList, handleDbRebuild, handleDbSanitize, handleDbMeta, handleDbStats, handleDbSweep, sweepSessionsNow, ensureSessionSequence } from "./engine/session-db.mjs";
@@ -2732,7 +2733,39 @@ ${String(out).slice(0, 16000)}
           try {
             const rec = recordReflectionActions(CONFIG.cwd, out, { taskId: task.id });
             if (rec?.ok) console.log(`[time-engine] 任务 ${task.id} 的行动清单 → 承诺账：解析 ${rec.parsed} 条，新增 ${rec.added} 条`);
-          } catch {}
+            // 2026-09-17：清单不再止于清单——kind=fix 且不碰红线的，当场派一个执行轮做掉，
+            // 做完带证据结清；做不了就 blocked/failed 留在账上（下一轮复盘会带着"上次试过什么"追问）。
+            // 复盘那轮只有只读工具（这是刻意的），执行轮才发可写工具，且一次只做一条、最多 3 条。
+            const { executable, deferred } = planReflectionExecution(rec?.actions || []);
+            if (deferred.length) {
+              console.log(`[time-engine] 留给跟踪/人工 ${deferred.length} 条：${deferred.map((a) => `${a.kind}(${a.reason || "-"})`).join('、').slice(0, 160)}`);
+            }
+            const rows = [];
+            for (const action of executable) {
+              let result = null;
+              try {
+                const prompt = buildActionExecutionPrompt(action, { ymd: yesterdayYmd() });
+                const rr = await unifiedChat(defaultModel, [{ role: "user", content: prompt }], { tools: UNIFIED_TOOLS });
+                result = parseActionResult(rr?.text || rr?.content || "");
+              } catch (e) {
+                result = { status: "failed", evidence: `执行轮异常：${String(e?.message || e).slice(0, 120)}`, files: [], summary: "" };
+              }
+              const rec2 = recordActionAttempt(CONFIG.cwd, action, result);
+              rows.push({ text: action.text, status: result?.status || "failed", closed: rec2?.closed, evidence: result?.evidence || "" });
+              console.log(`[time-engine] 自动执行「${String(action.text).slice(0, 40)}」→ ${result?.status || "failed"}${rec2?.closed ? "（已结清）" : ""}：${String(result?.evidence || "").slice(0, 100)}`);
+            }
+            if (rows.length) {
+              const logLine = `
+#### 自动执行（${summarizeExecution(rows)}）
+${rows.map((r) => `- [${r.status}${r.closed ? "/已结清" : ""}] ${r.text}\n  证据：${r.evidence || "（无）"}`).join("\n")}
+`;
+              try { fs.appendFileSync(logFile, logLine); } catch (e) { console.log(`[time-engine] 自动执行小节写入日志失败: ${String(e?.message || e).slice(0, 120)}`); }
+            }
+          } catch (e) {
+            // 不要静默：这条链上任何一步失败（派发/执行/回账/写日志）都必须留下痕迹，
+            // 否则"复盘说要做、实际没做"会以"什么都没发生"的形式藏起来——正是这个项目在治的病。
+            console.log(`[time-engine] 复盘→执行阶段异常: ${String(e?.stack || e?.message || e).slice(0, 300)}`);
+          }
           console.log(`[time-engine] 任务 ${task.id} 完成，已记录到 ${logFile}`);
         } catch (e) {
           console.log(`[time-engine] 任务 ${task.id} 异常: ${String(e?.message || e).slice(0, 100)}`);
