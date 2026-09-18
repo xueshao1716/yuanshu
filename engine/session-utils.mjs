@@ -21,11 +21,25 @@ export function extractText(content) {
 // 否则"修好了重放"就会变成"界面上的图没了"。
 const MARKDOWN_IMAGE = /!\[[^\]]*\]\(([^)\s]+)\)/g;
 
+// 媒体 URL 判别（2026-09-18 真机 bug："刷新或换终端后，之前会话里的图片、视频就看不到了"）：
+// 落盘把附件块改写成 markdown 时，视频也写成 `![视频](x.mp4)`，于是：
+//   ① extractImages 会把 .mp4 当成图片 → 界面渲染一个裂图；
+//   ② 真正的视频/音频 URL 又只在 videos/audios 里，看着像"丢了"。
+// 所以按扩展名分流：视频/音频不算图片。
+const VIDEO_EXT_RE = /\.(mp4|m4v|mov|webm|mkv|avi|flv|wmv|m3u8)(?:$|[?#])/i;
+const AUDIO_EXT_RE = /\.(mp3|m4a|wav|ogg|oga|flac|aac|opus)(?:$|[?#])/i;
+export function isVideoUrl(u) { return VIDEO_EXT_RE.test(String(u || "")); }
+export function isAudioUrl(u) { return AUDIO_EXT_RE.test(String(u || "")); }
+
 function imagesFromText(text) {
   const s = typeof text === "string" ? text : "";
   if (!s || s.indexOf("![") < 0) return [];
   const out = [];
-  for (const m of s.matchAll(MARKDOWN_IMAGE)) if (m[1]) out.push({ url: m[1] });
+  for (const m of s.matchAll(MARKDOWN_IMAGE)) {
+    const url = m[1];
+    if (!url || isVideoUrl(url) || isAudioUrl(url)) continue;   // `![视频](x.mp4)` 不是图片
+    out.push({ url });
+  }
   return out;
 }
 
@@ -43,7 +57,7 @@ export function extractImages(content) {
   for (const b of content) {
     if (!b) continue;
     if (b.type === "image") {
-      if (typeof b.url === "string" && b.url) push({ url: b.url });
+      if (typeof b.url === "string" && b.url) { if (!isVideoUrl(b.url) && !isAudioUrl(b.url)) push({ url: b.url }); }
       else if (b.data && b.mimeType && String(b.data).length <= 2.5 * 1024 * 1024) push({ data: b.data, mimeType: b.mimeType });
       continue;
     }
@@ -52,6 +66,41 @@ export function extractImages(content) {
   }
   return out;
 }
+
+// ── 工具结果里的媒体（2026-09-18）────────────────────────────────────
+// 旁路出图/出片的结果是**工具结果**（`✅ 已生成 image：https://…/xx.png`），
+// 而工具结果不进历史 → 刷新/换终端后那些图就没了（真机现象）。
+// 这里只认"媒体工具"的结果，并且**只收 URL**（不收 base64：太重，且 read 出来的图不该回灌）；
+// web_search 之类的普通结果不扫，免得把 bing 的分享图当产物。
+const MEDIA_TOOL_RE = /^(?:generate_image|generate_video|generate_tts|image_gen|video_gen|tts)\b/i;
+const MEDIA_URL_RE = /(?:https?:\/\/[^\s"'<>)\]}]+|\/api\/ws\/file\?path=[^\s"'<>)\]}]+?)\.(?:png|jpe?g|gif|webp|bmp|svg|avif|mp4|m4v|mov|webm|mkv|mp3|m4a|wav|ogg|flac)(?:[?#&][^\s"'<>)\]}]*)?/gi;
+
+export function isMediaTool(name) { return MEDIA_TOOL_RE.test(String(name || "")); }
+
+/** 从工具结果里捞媒体 URL（按扩展名分到 images/videos/audios，去重） */
+export function mediaFromToolResult(content) {
+  const out = { images: [], videos: [], audios: [] };
+  const seen = new Set();
+  const add = (u) => {
+    const url = String(u || "").trim();
+    if (!url || seen.has(url)) return;
+    seen.add(url);
+    if (isVideoUrl(url)) out.videos.push(url);
+    else if (isAudioUrl(url)) out.audios.push(url);
+    else out.images.push(url);
+  };
+  const scan = (s) => { if (typeof s === "string" && s) for (const m of s.matchAll(MEDIA_URL_RE)) add(m[0]); };
+  if (typeof content === "string") scan(content);
+  else if (Array.isArray(content)) {
+    for (const b of content) {
+      if (!b) continue;
+      if (b.type === "image" || b.type === "video" || b.type === "audio") { if (typeof b.url === "string") add(b.url); continue; }
+      if (b.type === "text") scan(b.text);
+    }
+  }
+  return out;
+}
+
 
 export function imageSrc(img) {
   if (!img) return "";
@@ -183,7 +232,7 @@ export function extractMessages(entries, leafId, { resolveWindow = null } = {}) 
     if (e.type !== "message" || !e.message) continue;
     const m = e.message;
     if (m.role === "toolResult" && m.toolCallId) {
-      toolResults.set(m.toolCallId, { output: extractText(m.content), isError: !!m.isError });
+      toolResults.set(m.toolCallId, { output: extractText(m.content), isError: !!m.isError, media: mediaFromToolResult(m.content) });
     }
   }
   const out = [];
@@ -208,16 +257,33 @@ export function extractMessages(entries, leafId, { resolveWindow = null } = {}) 
       const audios = extractAudios(m.content);
       const tools = [];
       let think = "";
+      // 媒体工具的结果回灌到这条 assistant 上：旁路出图/出片的产物在 toolResult 里，
+      // 而 toolResult 不进历史 → 刷新/换终端就"图没了"（真机 bug 2026-09-18）。
+      const fromTools = { images: [], videos: [], audios: [] };
       if (Array.isArray(m.content)) {
         for (const b of m.content) {
           if (b.type === "toolCall" && b.id && b.name) {
             const r = toolResults.get(b.id) || {};
             tools.push({ id: b.id, name: b.name, args: b.arguments || null, output: r.output || "", isError: !!r.isError });
+            if (r.media && isMediaTool(b.name)) {
+              fromTools.images.push(...r.media.images);
+              fromTools.videos.push(...r.media.videos);
+              fromTools.audios.push(...r.media.audios);
+            }
           } else if (b.type === "thinking" && (b.thinking || b.text)) {
             think += (b.thinking || b.text || "");
           }
         }
       }
+      const mergeMedia = (own, extra) => {
+        const seen = new Set(own);
+        const merged = [...own];
+        for (const u of extra) if (u && !seen.has(u)) { seen.add(u); merged.push(u); }
+        return merged;
+      };
+      const allImages = mergeMedia(images, fromTools.images);
+      const allVideos = mergeMedia(videos, fromTools.videos);
+      const allAudios = mergeMedia(audios, fromTools.audios);
       // 失败也要看得见（2026-09-16）：pi 通道的失败会落成一条 content 空、stopReason=error 的记录。
       // 此前它不满足任何推送条件 → 被静默丢弃 → 用户只看到"它不说话/变傻了"。
       const stopReason = m.stopReason || null;
@@ -235,7 +301,7 @@ export function extractMessages(entries, leafId, { resolveWindow = null } = {}) 
             declaredMaxTokens: Number(win.maxOutputTokens) || Number(win.declaredMaxTokens) || Number(m.maxOutputTokens) || 0,
           })
         : "";
-      if (text || files.length || images.length || videos.length || audios.length || tools.length || think || error || truncated) out.push({ role: "assistant", text, files, images, videos, audios, tools, think, error, truncated, stopReason, ts: e.timestamp, id: e.id });
+      if (text || files.length || allImages.length || allVideos.length || allAudios.length || tools.length || think || error || truncated) out.push({ role: "assistant", text, files, images: allImages, videos: allVideos, audios: allAudios, tools, think, error, truncated, stopReason, ts: e.timestamp, id: e.id });
     }
   }
   return out;

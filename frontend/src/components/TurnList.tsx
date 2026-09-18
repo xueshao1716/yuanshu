@@ -1,6 +1,7 @@
 import { useMemo, useState } from 'react'
-import { Wrench, Package, ChevronRight, ListFilter } from 'lucide-react'
+import { Wrench, Package, ChevronRight, ListFilter, Play } from 'lucide-react'
 import Message from './Message'
+import { withFileToken } from '../api'
 import { dayLabel, sameDayStr } from '../lib/fmt-time'
 import type { ChatMessage } from '../types'
 
@@ -35,6 +36,37 @@ function turnStats(turn: Turn) {
   return { tools, artifacts }
 }
 
+// 本轮里的媒体（2026-09-18）：折叠状态下也要看得见"这轮有图/有视频"。
+// 真机反馈"刷新后之前会话里的图片、视频看不到了"——数据在，只是被折叠在轮次里没露头。
+function turnMedia(turn: Turn) {
+  const images: string[] = []
+  const videos: string[] = []
+  for (const m of turn.rest) {
+    for (const u of m.images || []) if (u && !images.includes(u)) images.push(u)
+    for (const u of m.videos || []) if (u && !videos.includes(u)) videos.push(u)
+  }
+  return { images, videos }
+}
+
+// 折叠行右侧的小缩略图：最多 3 张图 + 一个视频角标（纯展示，点它等于点整行展开）
+function MediaThumbs({ images, videos }: { images: string[]; videos: string[] }) {
+  const shown = images.slice(0, 3)
+  if (!shown.length && !videos.length) return null
+  return (
+    <span className="flex items-center gap-1 flex-shrink-0">
+      {shown.map((u, i) => (
+        <img key={'t' + i} src={withFileToken(u)} alt="" loading="lazy"
+          className="w-8 h-8 rounded-pi-sm object-cover border border-pi-border-soft bg-pi-bg2" />
+      ))}
+      {videos.length > 0 && (
+        <span className="w-8 h-8 rounded-pi-sm border border-pi-border-soft bg-pi-bg2 flex items-center justify-center text-pi-dim"
+          title={`${videos.length} 个视频`}><Play className="w-3 h-3" /></span>
+      )}
+      {images.length > 3 && <span className="text-[10px] text-pi-dim2">+{images.length - 3}</span>}
+    </span>
+  )
+}
+
 const excerpt = (s: string, n = 64) => {
   const t = s.replace(/\s+/g, ' ').trim()
   return t.length > n ? t.slice(0, n) + '…' : t
@@ -42,6 +74,7 @@ const excerpt = (s: string, n = 64) => {
 
 function TurnRow({ turn, index, open, onToggle, onRetry }: { turn: Turn; index: number; open: boolean; onToggle: () => void; onRetry?: (msg: ChatMessage) => void }) {
   const { tools, artifacts } = turnStats(turn)
+  const media = turnMedia(turn)
   const q = turn.user ? excerpt(turn.user.text || '(附件消息)') : '(系统提示)'
   const answer = turn.rest.find(m => m.role === 'assistant')
   const aExcerpt = answer?.text ? excerpt(answer.text, 80) : ''
@@ -65,6 +98,8 @@ function TurnRow({ turn, index, open, onToggle, onRetry }: { turn: Turn; index: 
           {aExcerpt && <span className="text-pi-dim"> <span className="text-pi-accent2/60">→</span> {aExcerpt}</span>}
         </span>
         <span className="flex items-center gap-1.5 flex-shrink-0 text-[10px] text-pi-dim2">
+          {/* 折叠状态下也把媒体露出来（2026-09-18）：不然刷新后"图/视频不见了" */}
+          {!open && <MediaThumbs images={media.images} videos={media.videos} />}
           {/* 失败在折叠状态下也要看得见（2026-09-16）：不然"本轮失败"要展开才知道 */}
           {assistantError && (
             <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded-pi-pill bg-pi-danger/15 text-pi-danger font-medium"
@@ -105,12 +140,27 @@ export default function TurnList({ messages, streamingNode, keepExpanded = 1, on
   const lastKeys = new Set(turns.slice(-keepExpanded).map(t => t.key))
   const isOpen = (t: Turn, i: number) => showAll || lastKeys.has(t.key) || expanded.has(t.key)
   const collapsedCount = turns.filter(t => !lastKeys.has(t.key) && !expanded.has(t.key)).length
+  // 收起的那几轮里有多少图/视频——直接说出来，别让用户以为"图没了"
+  const hiddenMedia = (() => {
+    let images = 0, videos = 0
+    for (const t of turns) {
+      if (lastKeys.has(t.key) || expanded.has(t.key)) continue
+      const m = turnMedia(t)
+      images += m.images.length
+      videos += m.videos.length
+    }
+    return { images, videos }
+  })()
 
   return (
     <div className="chat-turn-list">
       {!showAll && collapsedCount > 0 && (
         <div className="chat-history-head">
-          <span><ListFilter className="w-3.5 h-3.5" /> 已收起较早的 {collapsedCount} 轮</span>
+          <span><ListFilter className="w-3.5 h-3.5" /> 已收起较早的 {collapsedCount} 轮
+            {(hiddenMedia.images > 0 || hiddenMedia.videos > 0) && (
+              <span className="text-pi-dim"> （含 {hiddenMedia.images > 0 ? `${hiddenMedia.images} 张图` : ''}{hiddenMedia.images > 0 && hiddenMedia.videos > 0 ? ' / ' : ''}{hiddenMedia.videos > 0 ? `${hiddenMedia.videos} 个视频` : ''}）</span>
+            )}
+          </span>
           <button onClick={() => setShowAll(true)}>展开全部 {turns.length} 轮</button>
         </div>
       )}
