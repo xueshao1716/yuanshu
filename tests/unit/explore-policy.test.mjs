@@ -80,24 +80,31 @@ test('当场修真的按旋钮重试：失败两次、第三次成功 → 轨迹
   const root = tmp();
   promoteExplorePolicy(root, 'retry-2', { retryOnFailure: 2 });
   let calls = 0;
+  let verifies = 0;
   const out = await runOnTheSpotFix({
     problem: '把那个偶发失败的用例稳下来',
     wsRoot: root,
     store: new Map(),
-    runTurn: async () => {
+    runTurn: async (prompt = '') => {
+      // 验证轮（engine/verifier.mjs）也要走同一个 runTurn：它必须拿到 verdict JSON
+      if (/独立验证者/.test(prompt)) { verifies++; return '```json\n{"verdict":"PASS","evidence":"node --test → 12/12 pass"}\n```' }
       calls++;
       return calls < 3
         ? '```json\n{"status":"failed","evidence":"这次没成"}\n```'
         : '```json\n{"status":"done","evidence":"node --test → 12/12 pass"}\n```';
     },
   });
-  assert.equal(calls, 3, '旋钮说再试 2 次，就该被调用 3 次');
+  assert.equal(calls, 3, '旋钮说再试 2 次，执行轮就该被调用 3 次');
+  assert.equal(verifies, 1, '成功后要派一次独立验证');
   assert.equal(out.status, 'done');
   const traces = listTraces(root, { kind: 'fix-attempt' });
   assert.equal(traces.length, 1);
   const t = loadTrace(root, traces[0].id);
-  assert.equal(t.nodes.length, 3, '每次尝试都要单独落节点（否则"试几次"没法回放）');
-  assert.deepEqual(t.nodes.map((n) => n.outcome), ['failed', 'failed', 'done']);
+  // 3 个执行节点 + 1 个验证节点
+  assert.equal(t.nodes.length, 4, '每次尝试都要单独落节点，验证也要落一条');
+  assert.deepEqual(t.nodes.slice(0, 3).map((n) => n.outcome), ['failed', 'failed', 'done']);
+  assert.equal(t.nodes[3].action, '独立验证');
+  assert.equal(t.nodes[3].outcome, 'PASS');
   assert.equal(t.closed.score, 1);
 });
 

@@ -18,6 +18,7 @@ import { atomicWriteText } from "./atomic-io.mjs";
 import { promisePaths, loadPromises, closePromise } from "./promises.mjs";
 import { openTrace, addNode, closeTrace } from "./trace.mjs";
 import { currentExplorePolicy, DEFAULT_EXPLORE_POLICY } from "./explore-policy.mjs";
+import { verifyArtifacts } from "./verifier.mjs";
 
 export const ACTION_KINDS = Object.freeze(["fix", "track", "ask"]);
 
@@ -252,10 +253,35 @@ export async function runOnTheSpotFix({ problem, runTurn, sessionKey = "anon", n
       closeTrace(wsRoot, traceId, { result: result.summary || result.status, score: result.status === "done" ? 1 : 0, cost: Number(((Date.now() - startedAt) / 1000).toFixed(2)) });
     } catch { /* 记录失败不影响结论 */ }
   }
-  const label = { done: "已当场修好", blocked: "没做成（受阻）", failed: "没做成（失败）" }[result.status] || result.status;
+  // 独立验证（2026-09-18）：执行轮说 done **不算数**——再派一个只看产物、看不到执行者推理的验证轮。
+  // 不过验证就不许当成功（这正是 RSIAgent 那条"执行者不能自宣成功"）。
+  let verification = null;
+  if (result.status === "done" && typeof runTurn === "function") {
+    const artifacts = Array.isArray(result.files) && result.files.length ? result.files : [];
+    try {
+      verification = await verifyArtifacts({
+        wsRoot, traceId,
+        claim: `${text}（执行轮自述：${result.evidence || "无证据"}）`,
+        artifacts,
+        runTurn,
+      });
+    } catch (e) {
+      verification = { verdict: "UNVERIFIED", evidence: `验证轮异常：${String(e?.message || e).slice(0, 120)}`, checks: [], tampered: false, changed: [] };
+    }
+    if (verification.verdict !== "PASS") {
+      result = {
+        ...result,
+        status: verification.verdict === "FAIL" ? "failed" : "blocked",
+        evidence: `独立验证未通过（${verification.verdict}）：${verification.evidence}`,
+        summary: result.summary,
+      };
+    }
+  }
+  const label = { done: "已当场修好（独立验证 PASS）", blocked: "没做成（受阻）", failed: "没做成（失败）" }[result.status] || result.status;
   return {
     ok: result.status === "done",
     status: result.status,
+    verification,
     evidence: result.evidence,
     files: result.files,
     summary: result.summary,

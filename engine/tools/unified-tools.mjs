@@ -31,6 +31,7 @@ import { formatSensitiveHint } from "../media-channels.mjs";
 import { yuanshuExecutor } from "../yuanshu-loop.mjs";
 import { execFileAbortable } from "../yuanshu-stability.mjs";
 import { withUtf8CodePage, decodeWindowsOutput, looksMojibake, riskyForCmdShell } from "../windows-shell.mjs";
+import { isCanonicalTarget, stageWrite } from "../memory-stages.mjs";
 
 // ── 工具 schema（OpenAI function 格式）──
 export const BASE_TOOL_SCHEMAS = [
@@ -355,6 +356,16 @@ export function createUnifiedToolExecutor(deps = {}) {
         const c = fs.readFileSync(p, "utf8");
         return { text: c.slice(0, 50000), isError: false };
       }
+      // 规范区（skills/** 与做梦的现役配置）不许直接写：先落草案区，等独立验证 PASS 或人批准。
+      // 2026-09-18 真机事故：一个没验证过的技能直接进了 skills/（闸装在提案池上，没装在工具层，
+      // 而 agent 手里就有 write）。纪律挡不住，只能在这里挡。
+      const stageIfCanonical = (targetPath, content, why) => {
+        if (process.env.YUANSHU_STAGE_GUARD === "0") return null;
+        if (!isCanonicalTarget(targetPath, { wsRoot: getCwd() })) return null;
+        const st = stageWrite(getCwd(), { target: targetPath, content, reason: why });
+        if (!st?.ok) return null;
+        return { text: `📥 这是规范区（${why}），已进草案区：${st.stagedPath}\n目标：${st.target}\n要通过独立验证（或人来批准）才会写进去；草案 id=${st.id}`, isError: false };
+      };
       if (name === "write") {
         // ① 凭据防护 + 双根白名单（自进化：系统本体可写）
         if (isSensitivePath(String(args?.path || ""))) return { text: `⛔ 拒绝写入 [凭据防护]：${args?.path} 是敏感凭据文件`, isError: true };
@@ -362,6 +373,11 @@ export function createUnifiedToolExecutor(deps = {}) {
         if (!p) return { text: "路径越权（write 仅限工作空间与系统目录内）", isError: true };
         if (isProtectedPath(p)) return { text: `⛔ 拒绝写入 [仓库法律]：${args?.path} 是受保护文件（人格/宪法/凭据），只读不写`, isError: true };
         const content = String(args?.content ?? "");
+        // 规范区闸门（2026-09-18）：skills/** 与做梦的现役配置**不许直接写**——先落草案区，
+        // 等独立验证 PASS 或人批准才真正落地。真机事故：一个没验证过的技能直接进了 skills/
+        // （闸装在提案池上，没装在工具层，而 agent 手里就有 write）。纪律挡不住，在这里挡。
+        const stagedWrite = stageIfCanonical(p, content, "技能/规则属于长期记忆");
+        if (stagedWrite) return stagedWrite;
         // 与 Pi 的写工具共用同一把按文件队列，外层再套跨进程锁文件：
         // Pi 的 edit 是 async 的，不共用时"元枢 edit"与"Pi edit"打同一文件会交错；
         // 跨进程锁则挡住 dsh 子智能体 / headless 入口 / 外部脚本。

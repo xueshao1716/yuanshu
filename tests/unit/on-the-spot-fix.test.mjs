@@ -4,7 +4,13 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import { runOnTheSpotFix, takeOnTheSpotBudget, ON_THE_SPOT_MAX } from '../../engine/reflection-exec.mjs';
 
-const fakeTurn = (reply) => async () => reply;
+const fakeTurn = (reply) => async (prompt = '') =>
+  // 2026-09-18 起，当场修在 done 之后会**再派一个独立验证轮**（engine/verifier.mjs）：
+  // 所以假 runTurn 要按提示词区分"执行轮"与"验证轮"，否则验证轮会拿到执行轮的结果、
+  // 解析不出 verdict → UNVERIFIED → 把 done 降级（这正是它该做的）。
+  (/独立验证者/.test(prompt)
+    ? '```json\n{"verdict":"PASS","evidence":"ls -l 看到文件存在，cat 内容与声明一致","checks":["ls -l","cat"]}\n```'
+    : reply);
 const doneReply = (evidence = 'node --test tests/unit/x.test.mjs → pass 12/12') =>
   `修好了\n\`\`\`json\n{"status":"done","evidence":"${evidence}","files":["tests/unit/x.test.mjs"],"summary":"补了守卫"}\n\`\`\``;
 
@@ -15,15 +21,33 @@ test('当场修：能修的就真派一轮，并把证据回给模型', async ()
   const out = await runOnTheSpotFix({
     problem: '给 abort 用例的 bash 路径加引号',
     store: freshStore(),
-    runTurn: async (prompt) => { asked = prompt; return doneReply(); },
+    runTurn: async (prompt) => { if (!/独立验证者/.test(prompt)) asked = prompt; return fakeTurn(doneReply())(prompt); },
   });
   assert.equal(out.ok, true);
   assert.equal(out.status, 'done');
+  assert.equal(out.verification?.verdict, 'PASS', '执行轮说 done 要过独立验证才算数');
   assert.match(asked, /只做这一条/, '执行轮提示词要带上硬约束');
   assert.match(asked, /给 abort 用例的 bash 路径加引号/);
   assert.match(out.text, /已当场修好/);
   assert.match(out.text, /pass 12\/12/, '证据要回到模型手里，它才能据实汇报');
   assert.match(out.text, /据实说这条已经修掉/);
+});
+
+test('当场修：执行轮说 done，但独立验证没过 → 不许当成功', async () => {
+  let verifyAsked = false;
+  const out = await runOnTheSpotFix({
+    problem: '把那个配置项改对',
+    store: freshStore(),
+    runTurn: async (prompt) => {
+      if (/独立验证者/.test(prompt)) { verifyAsked = true; return '```json\n{"verdict":"FAIL","evidence":"cat 看到的还是旧值"}\n```' }
+      return doneReply();
+    },
+  });
+  assert.equal(verifyAsked, true, 'done 之后必须真的派了验证轮');
+  assert.equal(out.status, 'failed', 'FAIL → 降级为 failed');
+  assert.equal(out.ok, false);
+  assert.match(out.evidence, /独立验证未通过（FAIL）/);
+  assert.match(out.text, /如实说这条没做成/);
 });
 
 test('当场修：红线一律不动手，把该说的话交回模型', async () => {
