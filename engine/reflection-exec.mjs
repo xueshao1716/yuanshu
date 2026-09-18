@@ -17,6 +17,7 @@ import fs from "node:fs";
 import { atomicWriteText } from "./atomic-io.mjs";
 import { promisePaths, loadPromises, closePromise } from "./promises.mjs";
 import { openTrace, addNode, closeTrace } from "./trace.mjs";
+import { currentExplorePolicy, DEFAULT_EXPLORE_POLICY } from "./explore-policy.mjs";
 
 export const ACTION_KINDS = Object.freeze(["fix", "track", "ask"]);
 
@@ -215,17 +216,39 @@ export async function runOnTheSpotFix({ problem, runTurn, sessionKey = "anon", n
       if (opened?.ok) traceId = opened.trace.id;
     } catch { /* 记录失败不影响修 */ }
   }
-  const startedAt = Date.now();
-  try {
-    const reply = await runTurn(buildActionExecutionPrompt({ text }, { ymd: "" }));
-    result = parseActionResult(reply);
-  } catch (e) {
-    result = { status: "failed", evidence: `执行轮异常：${String(e?.message || e).slice(0, 140)}`, files: [], summary: "" };
+  // 探索策略（engine/explore-policy.mjs）：失败后**要不要再试、再试几次**是运行时旋钮，
+  // 由做梦/授权状改。每次尝试都单独落一个轨迹节点 —— 这样"试几次"这件事才有可回放的数据。
+  let retryTimes = DEFAULT_EXPLORE_POLICY.retryOnFailure;
+  if (wsRoot) {
+    try { retryTimes = Math.max(0, Number(currentExplorePolicy(wsRoot).retryOnFailure) || 0); } catch {}
   }
-  if (!result) result = { status: "failed", evidence: "执行轮没有按契约给出结果（缺 JSON 块或 status 不合法）", files: [], summary: "" };
+  const startedAt = Date.now();
+  for (let attempt = 0; attempt <= retryTimes; attempt++) {
+    let attemptResult = null;
+    const t0 = Date.now();
+    try {
+      const reply = await runTurn(buildActionExecutionPrompt({ text }, { ymd: "" }));
+      attemptResult = parseActionResult(reply);
+    } catch (e) {
+      attemptResult = { status: "failed", evidence: `执行轮异常：${String(e?.message || e).slice(0, 140)}`, files: [], summary: "" };
+    }
+    if (!attemptResult) attemptResult = { status: "failed", evidence: "执行轮没有按契约给出结果（缺 JSON 块或 status 不合法）", files: [], summary: "" };
+    result = attemptResult;
+    if (traceId) {
+      try {
+        addNode(wsRoot, traceId, {
+          action: attempt === 0 ? "执行轮" : `执行轮·重试${attempt}`,
+          input: text,
+          cost: Number(((Date.now() - t0) / 1000).toFixed(2)),
+          outcome: attemptResult.status,
+          score: attemptResult.status === "done" ? 1 : 0,
+        });
+      } catch { /* 记录失败不影响结论 */ }
+    }
+    if (attemptResult.status === "done") break;      // 成了就不再来
+  }
   if (traceId) {
     try {
-      addNode(wsRoot, traceId, { action: "执行轮", input: text, cost: Number(((Date.now() - startedAt) / 1000).toFixed(2)), outcome: result.status, score: result.status === "done" ? 1 : 0 });
       closeTrace(wsRoot, traceId, { result: result.summary || result.status, score: result.status === "done" ? 1 : 0, cost: Number(((Date.now() - startedAt) / 1000).toFixed(2)) });
     } catch { /* 记录失败不影响结论 */ }
   }

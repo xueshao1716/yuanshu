@@ -112,6 +112,7 @@ import { appendEpisodes, loadEpisodes, dream, writeDreamLog, skillEpisodesFromSe
 import { grant, revoke, loadCharter, autoUsedToday, loadLedger } from "./engine/autonomy.mjs";
 import { listTraces, loadTrace, replayAcrossTraces, candidatePolicies, recordDelegation } from "./engine/trace.mjs";
 import { heartbeat, liveInstances, portOwner, recordStartup, recentStartups, selfCheck } from "./engine/runtime-registry.mjs";
+import { currentExplorePolicy, promoteExplorePolicy, resetExplorePolicy, replayExploreAcross } from "./engine/explore-policy.mjs";
 import { MATCH_WEIGHTS } from "./engine/yuanshu-protocol.mjs";
 import { sanitizeSessionFile } from "./engine/session-sanitize.mjs";
 import { createCorsPolicy } from "./engine/cors-policy.mjs";
@@ -2014,6 +2015,41 @@ async function runDreamCycle() {
   } else {
     console.log(`[dream] 回放 ${result.episodes} 条 episode：没有'每条都不更差'的赢家，保持不变`);
   }
+
+  // 第二类：探索策略（"失败后再试几次"）。数据源是当场修/派活落下的轨迹。
+  // 这一类同样满足 A/B 级条件（可回放、可回滚、不碰红线），所以赢家自动上线——
+  // 这正是"别什么都让我批"要的效果：技术参数自己定，价值判断才找人。
+  try {
+    const traces = listTraces(WS_ROOT, { limit: 50 }).map((t) => loadTrace(WS_ROOT, t.id)).filter((t) => t?.nodes?.length);
+    const cur = currentExplorePolicy(WS_ROOT);
+    const ex = replayExploreAcross(traces, { incumbentId: "recorded", incumbent: { retryOnFailure: cur.retryOnFailure } });
+    if (!ex.ok) {
+      console.log(`[dream] 探索策略：${ex.reason}`);
+    } else {
+      result.explore = ex;
+      if (ex.winner) {
+        const row = ex.table.find((t) => t.id === ex.winner);
+        const inc = ex.table.find((t) => t.role === "incumbent");
+        const chosen = exploreCandidates().find((c) => c.id === ex.winner);
+        const auth = await grant(
+          { kind: "config", text: `探索策略从「${cur.id}」换成「${ex.winner}」（失败后再试 ${chosen?.retryOnFailure} 次）` },
+          { replayable: true, episodes: ex.traces, noWorse: (row?.worse || 0) === 0, betterCount: row?.better || 0, reversible: true, scope: "config", text: `回放 ${ex.traces} 棵轨迹：成本 ${inc?.cost} → ${row?.cost}` },
+          { wsRoot: WS_ROOT, previous: cur.id, apply: async () => { const r = promoteExplorePolicy(WS_ROOT, ex.winner, chosen || {}); return { undo: `explore:${cur.id}`, ...r }; } },
+        );
+        result.exploreAutonomy = auth;
+        console.log(`[dream] 探索策略：${auth.decided ? auth.message : "待你拍板：" + (auth.human?.ask || "")}`);
+        if (!auth.decided) {
+          try {
+            recordPromises(WS_ROOT, [{ id: `d_${Date.now().toString(36)}`, at: new Date().toISOString(), sessionId: "dream", text: auth.human?.ask || ex.proposal.text, kind: "ask", due: null, status: "pending", evidence: null, closedAt: null }]);
+          } catch {}
+        }
+      } else {
+        console.log(`[dream] 探索策略：回放 ${ex.traces} 棵轨迹，没有'每条都不更差'的赢家，保持不变`);
+      }
+    }
+  } catch (e) {
+    console.log(`[dream] 探索策略回放异常: ${String(e?.message || e).slice(0, 140)}`);
+  }
   return result;
 }
 
@@ -2196,6 +2232,7 @@ const API_ROUTES = [
       charter: loadCharter(WS_ROOT),
       usedToday: autoUsedToday(WS_ROOT),
       activeWeights: currentWeights(WS_ROOT),
+      explorePolicy: currentExplorePolicy(WS_ROOT),
       recent: loadLedger(WS_ROOT).slice(-10).reverse(),
     });
   }],
@@ -2204,11 +2241,15 @@ const API_ROUTES = [
     const r = await revoke(WS_ROOT, {
       at: b?.at || null,
       revert: async (row) => {
-        // 撤销点：优先回到记录里的上一版；没有就清掉覆盖，回到代码里的默认权重
-        const back = String(row?.undo || "").replace(/^weights:/, "");
-        const cand = DREAM_POLICIES.candidates.find((c) => c.id === back);
+        // 撤销点：优先回到记录里的上一版；没有就清掉覆盖，回到代码里的默认。
+        // undo 有两类前缀：weights:* 是技能权重，explore:* 是探索策略（"失败后再试几次"）。
+        const raw = String(row?.undo || "");
+        const back = raw.replace(/^(weights|explore):/, "");
+        const cand = raw.startsWith("explore:") ? null : DREAM_POLICIES.candidates.find((c) => c.id === back);
         if (cand) return promoteWeights(WS_ROOT, cand.id, cand.weights);
-        return resetWeights(WS_ROOT);
+        const ex = exploreCandidates().find((c) => c.id === back);
+        if (ex) return promoteExplorePolicy(WS_ROOT, ex.id, ex);
+        return raw.startsWith("explore:") ? resetExplorePolicy(WS_ROOT) : resetWeights(WS_ROOT);
       },
     });
     json(res, r.ok ? 200 : 400, r);
