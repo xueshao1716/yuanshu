@@ -113,6 +113,7 @@ import { grant, revoke, loadCharter, autoUsedToday, loadLedger } from "./engine/
 import { listTraces, loadTrace, replayAcrossTraces, candidatePolicies, recordDelegation } from "./engine/trace.mjs";
 import { heartbeat, liveInstances, portOwner, recordStartup, recentStartups, selfCheck, reconcileInstances } from "./engine/runtime-registry.mjs";
 import { currentExplorePolicy, promoteExplorePolicy, resetExplorePolicy, replayExploreAcross } from "./engine/explore-policy.mjs";
+import { verifyArtifacts } from "./engine/verifier.mjs";
 import { MATCH_WEIGHTS } from "./engine/yuanshu-protocol.mjs";
 import { sanitizeSessionFile } from "./engine/session-sanitize.mjs";
 import { createCorsPolicy } from "./engine/cors-policy.mjs";
@@ -3066,6 +3067,26 @@ ${String(out).slice(0, 16000)}
                 result = parseActionResult(rr?.text || rr?.content || "");
               } catch (e) {
                 result = { status: "failed", evidence: `执行轮异常：${String(e?.message || e).slice(0, 120)}`, files: [], summary: "" };
+              }
+              // 独立验证（2026-09-18）：执行轮自称 done 不算数——再派一个只看产物、
+              // 看不到执行者推理的验证轮；不过验证就把结果降级，绝不让"自证成功"进账。
+              if (result?.status === "done") {
+                try {
+                  const v = await verifyArtifacts({
+                    claim: `${action.text}（执行轮自述：${result.evidence || "无证据"}）`,
+                    artifacts: Array.isArray(result.files) ? result.files : [],
+                    runTurn: async (prompt) => {
+                      const rr = await unifiedChat(defaultModel, [{ role: "user", content: prompt }], { tools: timeTaskReadTools(UNIFIED_TOOLS) });
+                      return rr?.text || rr?.content || "";
+                    },
+                  });
+                  if (v.verdict !== "PASS") {
+                    result = { ...result, status: v.verdict === "FAIL" ? "failed" : "blocked", evidence: `独立验证未通过（${v.verdict}）：${v.evidence}` };
+                  }
+                  console.log(`[time-engine] 独立验证「${String(action.text).slice(0, 30)}」→ ${v.verdict}`);
+                } catch (e) {
+                  result = { ...result, status: "blocked", evidence: `验证轮异常：${String(e?.message || e).slice(0, 120)}` };
+                }
               }
               const rec2 = recordActionAttempt(CONFIG.cwd, action, result);
               rows.push({ text: action.text, status: result?.status || "failed", closed: rec2?.closed, evidence: result?.evidence || "" });

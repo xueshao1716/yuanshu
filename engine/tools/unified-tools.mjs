@@ -411,6 +411,12 @@ export function createUnifiedToolExecutor(deps = {}) {
             return { text: "未找到 oldText 片段（可能已修改）", isError: true };
           }
           const next = c.replace(oldT, newT);
+          // 规范区闸门（2026-09-18，补 write 那一版的缺口）：edit 同样不许直接改 skills/** 与做梦现役配置。
+          // 上一版只挡了 write，等于"锁了前门没锁后门"——所以这里把**改完之后的内容**送进草案区。
+          {
+            const stagedEdit = stageIfCanonical(p, next, "技能/规则属于长期记忆");
+            if (stagedEdit) return stagedEdit;
+          }
           // 锁只挡得住元枢自己的写工具，挡不住外部进程。写回前再核对一次，
           // 内容变了就如实拒绝——覆盖掉别人刚写的东西是静默数据丢失，比失败更糟。
           try {
