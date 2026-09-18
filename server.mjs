@@ -111,7 +111,7 @@ import { planReflectionExecution, buildActionExecutionPrompt, parseActionResult,
 import { appendEpisodes, loadEpisodes, dream, writeDreamLog, skillEpisodesFromSessions, dreamPaths, currentWeights, promoteWeights, resetWeights, recordSkillChoice } from "./engine/dream.mjs";
 import { grant, revoke, loadCharter, autoUsedToday, loadLedger } from "./engine/autonomy.mjs";
 import { listTraces, loadTrace, replayAcrossTraces, candidatePolicies, recordDelegation } from "./engine/trace.mjs";
-import { heartbeat, liveInstances, portOwner, recordStartup, recentStartups, selfCheck } from "./engine/runtime-registry.mjs";
+import { heartbeat, liveInstances, portOwner, recordStartup, recentStartups, selfCheck, reconcileInstances } from "./engine/runtime-registry.mjs";
 import { currentExplorePolicy, promoteExplorePolicy, resetExplorePolicy, replayExploreAcross } from "./engine/explore-policy.mjs";
 import { MATCH_WEIGHTS } from "./engine/yuanshu-protocol.mjs";
 import { sanitizeSessionFile } from "./engine/session-sanitize.mjs";
@@ -2201,12 +2201,15 @@ const API_ROUTES = [
   }],
   // ── 运行时实例（2026-09-18）：有几份在跑、谁持有端口、最近几次启动成没成 ──
   ["GET", "/api/system/instances", (res) => {
-    const live = liveInstances(WS_ROOT, {});
+    // 用"这次请求落在谁身上"校正心跳里的自称——登记不许说谎（详见 reconcileInstances）
+    const rec = reconcileInstances(liveInstances(WS_ROOT, {}), { servingPid: process.pid });
     json(res, 200, {
       ok: true,
       me: { pid: process.pid, version: String(APP_VERSION), port: CONFIG.port },
-      live: live.map((x) => ({ pid: x.pid, version: x.version, port: x.port, ownsPort: x.ownsPort, startedAt: x.startedAt, ageMs: x.ageMs })),
-      owner: portOwner(WS_ROOT, {})?.pid || null,
+      live: rec.list.map((x) => ({ pid: x.pid, version: x.version, port: x.port, ownsPort: x.ownsPort, staleClaim: x.staleClaim, startedAt: x.startedAt, ageMs: x.ageMs })),
+      owner: rec.owner,
+      ownerNote: rec.note,
+      staleClaims: rec.staleClaims,
       recentStartups: recentStartups(WS_ROOT, { limit: 10 }),
     });
   }],

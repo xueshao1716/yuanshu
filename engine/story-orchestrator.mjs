@@ -1,4 +1,5 @@
 import crypto from 'node:crypto';
+import { recordDelegation } from "./trace.mjs";
 import fsp from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
@@ -112,6 +113,21 @@ export function appendRun(scene, run) {
   if (!Array.isArray(scene.outputs)) scene.outputs = [];
   scene.outputs.push(run);
   scene.activeRunId = run.id;
+  // 探索轨迹（2026-09-18）：分镜出片/重跑是元枢里**真正的多路探索**——同一段反复重跑、
+  // 一次派多条、带 parentRunId 的天然分支。这里落一个节点，"该重跑几次/先跑哪条"将来就能
+  // 在既有轨迹上离线回放比较（当场修那条是单线的，这条才有分叉）。
+  try {
+    const ok = !['failed', 'error', 'stopped', 'interrupted'].includes(String(run?.status || ''));
+    const ms = Number(run?.durationMs)
+      || (run?.createdAt && run?.finishedAt ? (new Date(run.finishedAt).getTime() - new Date(run.createdAt).getTime()) : 0);
+    recordDelegation(scene?.__wsRoot || process.cwd(), {
+      kind: `story-${run?.kind || 'image'}`,
+      task: [scene?.title, run?.beatNo ? `第 ${run.beatNo} 段` : '', run?.beatId || ''].filter(Boolean).join(' · ') || run?.id || '',
+      durationMs: ms,
+      ok,
+      digest: String(run?.degradation || run?.error || run?.status || ''),
+    });
+  } catch { /* 记录失败不影响出片 */ }
   return scene;
 }
 

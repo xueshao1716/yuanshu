@@ -114,3 +114,30 @@ export function selfCheck(wsRoot, { myPid = process.pid, myVersion = "", now = D
         : `已有实例（pid ${owner.pid}，版本 ${owner.version || "未知"}）在服务 8787：这份版本是 ${myVersion}`,
   };
 }
+
+/**
+ * 校正"谁在服务"（2026-09-18）。**登记不许说谎。**
+ *
+ * 问题：ownsPort 是进程自己写在心跳里的，进程被强杀时来不及改，心跳会继续声称持有端口
+ * （真机上就出现过"两份都标着 ownsPort"）。这种残留会让"谁在服务"这句话变成假话。
+ *
+ * 校正依据不用猜：**这次请求落在谁身上，谁就是真的在服务**。所以由服务端把 servingPid 传进来，
+ * 其余自称持有端口的一律标 staleClaim（并把自称保留在 claim 字段里，不删证据）。
+ */
+export function reconcileInstances(instances = [], { servingPid = 0 } = {}) {
+  const list = (Array.isArray(instances) ? instances : []).map((x) => {
+    const claims = !!x.ownsPort;
+    const isServing = Number(x.pid) === Number(servingPid);
+    return { ...x, claim: claims, ownsPort: claims && isServing, staleClaim: claims && !isServing };
+  });
+  const verifiedOwner = list.find((x) => x.ownsPort) || null;
+  const stale = list.filter((x) => x.staleClaim);
+  return {
+    list,
+    owner: verifiedOwner?.pid ?? null,
+    staleClaims: stale.map((x) => x.pid),
+    note: verifiedOwner
+      ? `当前在服务的是 pid ${verifiedOwner.pid}${stale.length ? `；另有 ${stale.length} 份心跳仍自称持有端口（残留，等过期自动清掉）` : ""}`
+      : "没有心跳自称持有端口（可能刚启动或端口由外部进程持有）",
+  };
+}
