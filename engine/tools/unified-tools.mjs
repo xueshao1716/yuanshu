@@ -30,6 +30,7 @@ async function lockedWrite(targetPath, argsPath, run) {
 import { formatSensitiveHint } from "../media-channels.mjs";
 import { yuanshuExecutor } from "../yuanshu-loop.mjs";
 import { execFileAbortable } from "../yuanshu-stability.mjs";
+import { withUtf8CodePage, decodeWindowsOutput, looksMojibake, riskyForCmdShell } from "../windows-shell.mjs";
 
 // ── 工具 schema（OpenAI function 格式）──
 export const BASE_TOOL_SCHEMAS = [
@@ -180,11 +181,13 @@ export function detectBashShell({ refresh = false } = {}) {
 }
 
 // 给模型看的描述必须和真实 shell 一致——描述说 cmd、实际给 bash（或反过来）都会让它乱试命令。
+// 2026-09-18：把"编码 / 引号"这两条真机上反复咬人的规矩直接写进描述（写在工具里比写在记忆里可靠）。
+const SHELL_HYGIENE = " 规矩：① 写中文内容一律用 write 工具，不要 `echo 中文 > f.txt`（cmd 会按 GBK 落盘，回头读就是乱码；本工具已替你切 chcp 65001，但别赌）；② 内联代码（node -e / python -c）会含引号与换行——本工具会自动改写成临时脚本，你也可以自己先写文件再跑；③ 路径带空格必须加引号（`\"C:\\Program Files\\...\"`），否则 cmd 会拆成两段。";
 export function bashToolDescription() {
   const shell = detectBashShell();
   return shell
-    ? "运行 bash（git-bash / MINGW64，Unix 语法）。用 grep -n / ls -1 | wc -l / find / sed 这类命令；工作空间路径写 /d/pi-workspace/... 或 D:/pi-workspace/... 都可以。不要用 cmd 的 findstr/dir/type(search 用 grep)。"
-    : "运行 Windows cmd.exe（不是 bash/PowerShell）。优先使用工作空间相对路径，媒体下载先 mkdir 再 curl/ffmpeg；不要用 grep/ls（用 findstr/dir）。";
+    ? "运行 bash（git-bash / MINGW64，Unix 语法）。用 grep -n / ls -1 | wc -l / find / sed 这类命令；工作空间路径写 /d/pi-workspace/... 或 D:/pi-workspace/... 都可以。不要用 cmd 的 findstr/dir/type(search 用 grep)。" + SHELL_HYGIENE
+    : "运行 Windows cmd.exe（不是 bash/PowerShell）。优先使用工作空间相对路径，媒体下载先 mkdir 再 curl/ffmpeg；不要用 grep/ls（用 findstr/dir）。" + SHELL_HYGIENE;
 }
 
 export function createUnifiedToolExecutor(deps = {}) {
@@ -270,12 +273,16 @@ export function createUnifiedToolExecutor(deps = {}) {
         // 「自研循环工具调用翻倍、更慢」的主因就是这个工具语义不一致。
         const shell = detectBashShell();
         const runCmd = shell ? cmd : (process.platform === "win32" ? rewriteCmdForWin32(cmd) : cmd);
+        // 编码（2026-09-18）：cmd 默认代码页 936(GBK)，输出与 `>` 重定向都按 GBK 走。
+        // 进 cmd 前先切 65001，让 `echo 中文 > f.txt` 这类写出来就是 UTF-8（否则回头 read 全是乱码）。
+        // chcp 只在 cmd 这一支加：bash 本来就是 UTF-8，PowerShell 另有 -Encoding 一套规矩。
+        const cmdWithCodepage = withUtf8CodePage(runCmd, { shell });
         // Windows cmd 引号问题修复：node -e / python -c 内联代码含换行或嵌套引号时，cmd 会拆坏代码（典型错误 "const ^^^^"）
         // 自动改写为「写临时文件再执行」，让模型的内联脚本稳定运行，消除工具重试循环的根源。
         // ⚠️ 2026-09-16：**bash 也要走这条改写**。不是为了引号（bash 引号没问题），而是为了 abort——
         // `bash -lc 'node -e …'` 被 abort 时杀掉的是 bash，node 变成孤儿继续跑（真机把 abort 用例拖到 30s 失败）。
         // 改写成 `execFile(node, [tmp])` 后，abort 杀的就是解释器本身，行为和以前一致。
-        const fixed = rewriteInlineCode(shell ? cmd : runCmd);
+        const fixed = rewriteInlineCode(shell ? cmd : cmdWithCodepage);
         if (fixed) {
           onLog(`[tools] 内联代码改写: ${cmd.slice(0, 60)}... -> ${fixed.file}`);
           try { fs.writeFileSync(fixed.file, fixed.code, "utf8"); } catch {}
@@ -285,26 +292,30 @@ export function createUnifiedToolExecutor(deps = {}) {
         // 非零退出码也返回输出（如 grep 无匹配、git status 非干净状态），让模型自行判断；仅超时/被 kill 视为异常
         // 注意：改写后的内联代码必须绕过 cmd（cmd 会把带引号的绝对路径与 cwd 拼接，导致 MODULE_NOT_FOUND），直接 execFile 解释器
         const runOpts = { encoding: "buffer", timeout: 300000, cwd: getCwd(), windowsHide: true, maxBuffer: 16 * 1024 * 1024, signal: ctx.signal };
-        if (process.platform === "win32" && !shell) ensureCommandDirectories(runCmd);
+        if (process.platform === "win32" && !shell) ensureCommandDirectories(cmdWithCodepage);
         const run = fixed
           ? execFileAbortable(fixed.interp, [fixed.file], runOpts)
           : shell
             ? execFileAbortable(shell, ["-lc", cmd], runOpts)
-            : execFileAbortable(process.env.ComSpec || "cmd.exe", ["/c", runCmd], runOpts);
+            : execFileAbortable(process.env.ComSpec || "cmd.exe", ["/c", cmdWithCodepage], runOpts);
         try {
           const { stdout, stderr, exitCode } = await run;
           cleanup?.();
-          let text = stdout.toString("utf8");
-          if (/\uFFFD/.test(text)) {
-            try { text = new TextDecoder("gbk").decode(stdout); } catch {}
-          }
+          let text = decodeWindowsOutput(stdout);
           if (stderr && stderr.length) {
-            let es = stderr.toString("utf8");
-            if (/\uFFFD/.test(es)) { try { es = new TextDecoder("gbk").decode(stderr); } catch {} }
+            const es = decodeWindowsOutput(stderr);
             text += (text ? "\n" : "") + es;
           }
+          // 输出里还带乱码就顺手提示一句：这是**环境**问题，不该让模型一直重试
+          if (looksMojibake(text)) text += "\n（输出里有乱码：可能是命令按 GBK 打印。写文件请用 write 工具，跑脚本请落成文件再执行。）";
           const exitMark = exitCode ? `\n[退出码 ${exitCode}]` : "";
-          return { text: (text.replace(/\r\n/g, "\n") || "(无输出)") + exitMark, isError: exitCode ? true : false };
+          // 失败且这条命令本来就"过不了 cmd"时，直接说清是哪一类问题，省掉几轮瞎试
+          let hint = "";
+          if (exitCode && !shell) {
+            const risk = riskyForCmdShell(cmd);
+            if (risk) hint = `\n（这条命令过 cmd 有风险：${risk}）`;
+          }
+          return { text: (text.replace(/\r\n/g, "\n") || "(无输出)") + exitMark + hint, isError: exitCode ? true : false };
         } catch (e) {
           cleanup?.();
           if (e?.aborted || ctx.signal?.aborted) return { text: "客户端已断开，命令已中止", isError: true };

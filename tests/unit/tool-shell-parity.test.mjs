@@ -40,7 +40,9 @@ test('执行器：有 bash 就用 bash -lc，没有才 cmd /c；内联代码仍�
   assert.match(src, /const shell = detectBashShell\(\)/);
   assert.match(src, /execFileAbortable\(shell, \["-lc", cmd\]/, '要真的用 bash 跑命令');
   // bash 下也要做内联代码改写：`bash -lc 'node -e …'` 被 abort 时只杀 bash，node 成孤儿（真机把 abort 用例拖到 30s）
-  assert.match(src, /const fixed = rewriteInlineCode\(shell \? cmd : runCmd\)/, '两种 shell 都要能改写内联代码');
+  // cmd 那一支走的是**切过代码页**的命令（2026-09-18：cmd 默认 936，输出与重定向都按 GBK 走）
+  assert.match(src, /const fixed = rewriteInlineCode\(shell \? cmd : cmdWithCodepage\)/, '两种 shell 都要能改写内联代码');
+  assert.match(src, /cmdWithCodepage = withUtf8CodePage\(runCmd, \{ shell \}\)/, 'cmd 分支要切 UTF-8 代码页');
   assert.match(src, /if \(process\.platform === "win32" && !shell\) ensureCommandDirectories/, 'bash 不需要 cmd 的目录兜底');
-  assert.match(src, /execFileAbortable\(process\.env\.ComSpec \|\| "cmd\.exe", \["\/c", runCmd\]/, '没 bash 时仍要能退回 cmd');
+  assert.match(src, /execFileAbortable\(process\.env\.ComSpec \|\| "cmd\.exe", \["\/c", cmdWithCodepage\]/, '没 bash 时仍要能退回 cmd（并带上代码页）');
 });
