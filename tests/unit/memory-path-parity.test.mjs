@@ -72,7 +72,8 @@ describe("两个分支都要结算", () => {
 
 describe("只认本轮新追加的助手回复", () => {
   test("按字节偏移切片，而不是整份回读", () => {
-    assert.match(server, /const sessionBytesBefore = \(\(\) =>/, "本轮开始前必须记录会话文件偏移");
+    // let 而不是 const：上下文余量闸门压缩会话后会改写文件，偏移必须能重算
+    assert.match(server, /let sessionBytesBefore = \(\(\) =>/, "本轮开始前必须记录会话文件偏移");
     assert.match(turnMemory, /export function readAppendedAssistantText\(file, fromByte/);
   });
 

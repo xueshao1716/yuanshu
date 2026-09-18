@@ -6,6 +6,7 @@ import path from "node:path";
 import { invalidateSessionCache, getSessionList, findSession } from "./session-files.mjs";
 import { appendSessionGroup } from "./session-groups.mjs";
 import { appendArchiveJsonl, archivePathFor } from "./yuanshu-compact.mjs";
+import { headroomCheck, estimateTokensFromText } from "./context-headroom.mjs";
 import { execActivateSkill } from "./context-loader.mjs";
 import { httpJsonFetch } from "./http.mjs";
 import { wsSafePath } from "./workspace-api.mjs";
@@ -148,6 +149,9 @@ export async function compactSession(file, model, force = false, focus = "") {
     keepFrom = Math.max(4, Math.min(keepFrom, msgs.length - 2)); // 至少留 2 条，最多压到剩 4 条以下
     const cutMsg = msgs[Math.min(keepFrom, msgs.length - 1)];
     const toSummarize = msgs.slice(0, keepFrom);
+    // 保留预算把全部消息都盖住了 → 没有可压的历史。以前 force 会绕过下面的长度检查，
+    // 于是"压了个空摘要、消息一条没少"，白花一次模型调用（核对时真出现过 0 条被压）。
+    if (!toSummarize.length) return { skip: true, reason: "没有可压缩的历史（保留预算内已覆盖全部消息）" };
     if (!force && toSummarize.length < 6) return; // 手动 /compact 无条件压缩（force）
     // 组装摘要输入（截断到合理长度）
     const parts = [];
@@ -283,6 +287,114 @@ export async function openSession(id) {
   if (savedKey) entry.modelKey = savedKey;
   _activeSessions.set(id, entry);
   return entry;
+}
+
+// 压缩后的上下文规模：**不能**再拿上一条 assistant 的 usage 当数——
+// compaction 保留了最近的消息，那条老记录里的 totalTokens（199k）还在，照着报就成了
+// "压缩后可输出 0 token"（核对时真报出过这个假数）。
+// 正确做法：从最后一条 compaction 往后的内容重新估（摘要 + 保留消息），与 compactSession
+// 的阈值用同一套系数。
+export function estimateCompactedTokens(file) {
+  try {
+    if (!file || !fs.existsSync(file)) return 0;
+    const entries = fs.readFileSync(file, "utf8").split("\n").filter(Boolean).map((l) => { try { return JSON.parse(l); } catch { return null; } }).filter(Boolean);
+    let cut = -1;
+    for (let i = entries.length - 1; i >= 0; i--) if (entries[i].type === "compaction") { cut = i; break; }
+    const from = cut >= 0 ? entries.slice(cut) : entries;
+    let n = 0;
+    for (const e of from) {
+      if (e.type === "compaction") { n += estimateTokensFromText(String(e.summary || "")); continue; }
+      if (e.type !== "message") continue;
+      const m = e.message || {};
+      const c = m.content;
+      if (typeof c === "string") n += estimateTokensFromText(c);
+      else if (Array.isArray(c)) for (const b of c) n += estimateTokensFromText(typeof b === "string" ? b : (b?.text || b?.thinking || ""));
+    }
+    return Math.round(n);
+  } catch { return 0; }
+}
+
+// ══ 上下文余量闸门（2026-09-18）══════════════════════════════════════
+// 真机事故：会话涨到 195k/200k 时，兼容适配器给模型的输出预算只剩 ~400 token，
+// 答案在 387 token 被 length 截断，SDK 又把半截答案删掉重试（重试只吐 1 token）——
+// 用户看到"说到一半被打断"。
+// 这里在**开跑前**把会话压到有输出余量为止，然后重开会话让 SDK 读到压缩后的历史
+// （压缩是改文件，内存里的 SessionManager 树不会自己刷新，必须重新 open）。
+// 返回 { entry, before, after, compacted, reason }：entry 可能换成新的那个。
+export async function ensureContextHeadroom(id, entry, model, { minOutput = 8192 } = {}) {
+  const out = { entry, before: null, after: null, compacted: false, reason: "" };
+  try {
+    const found = findSession(id);
+    const file = entry?.sm?.getSessionFile?.() || found?.file;
+    if (!file || !fs.existsSync(file)) return out;
+    const ctx = Number(model?.contextWindow) || 0;
+    if (ctx <= 0) return out;                             // 不知道窗口就别乱压
+    const used = lastTurnContextTokens(entry, file);
+    out.before = { contextWindow: ctx, usedTokens: used };
+    const before = headroomCheck({ contextWindow: ctx, usedTokens: used, declaredMaxTokens: model?.maxTokens, minOutput });
+    if (!before.tight) return out;
+    console.log(`[headroom] ${id}: 上下文 ${used}/${ctx}（占 ${Math.round(before.ratio * 100)}%），输出余量仅 ${before.room} token → 先压缩`);
+    const r = await compactSession(file, model, true);
+    out.compacted = !r?.skip;
+    if (r?.skip) out.reason = r.reason || "compact-skip";
+    // 压缩后重开会话：否则内存里的历史还是旧的，SDK 照样按满上下文发请求
+    try { entry?.agent?.dispose?.(); } catch {}
+    _activeSessions.delete(id);
+    const reopened = await openSession(id);
+    if (reopened) out.entry = reopened;
+    const est = out.compacted ? estimateCompactedTokens(file) : 0;
+    const used2 = out.compacted && est > 0 ? est : lastTurnContextTokens(out.entry, file);
+    out.after = { contextWindow: ctx, usedTokens: used2 };
+    out.freed = Math.max(0, (out.before?.usedTokens || 0) - used2);
+    const after = headroomCheck({ contextWindow: ctx, usedTokens: used2, declaredMaxTokens: model?.maxTokens, minOutput });
+    out.roomAfter = after.room;
+    if (!out.compacted && !r?.skip) out.reason = "compact-null";
+    console.log(`[headroom] ${id}: 压缩${out.compacted ? "完成" : "跳过(" + out.reason + ")"} → 上下文 ${used2}/${ctx}，输出余量 ${after.room} token`);
+  } catch (e) {
+    out.reason = String(e?.message || e).slice(0, 120);
+    console.log(`[headroom] 余量闸门异常（不阻断本轮）: ${out.reason}`);
+  }
+  return out;
+}
+
+// 会话最后一条 assistant 记录的上下文规模（provider 的 totalTokens，含 cacheRead）
+// 内存树优先（刚跑完的那轮就在里面），读不到再退回文件尾部。
+export function lastTurnContextTokens(entry, file = "") {
+  const pick = (m) => {
+    const u = m?.usage;
+    if (!u) return 0;
+    const n = Number(u.totalTokens) || (Number(u.input) || 0) + (Number(u.output) || 0) + (Number(u.cacheRead) || 0) + (Number(u.cacheWrite) || 0);
+    return Number.isFinite(n) ? n : 0;
+  };
+  try {
+    const roots = entry?.sm?.getTree?.();
+    const flat = [];
+    const walk = (n) => {
+      if (!n) return;
+      if (n.entry) flat.push(n.entry);
+      const kids = n.children instanceof Map ? [...n.children.values()] : n.children;
+      if (Array.isArray(kids)) for (const c of kids) walk(c);
+    };
+    if (Array.isArray(roots)) for (const r of roots) walk(r);
+    for (let i = flat.length - 1; i >= 0; i--) {
+      const m = flat[i]?.message;
+      if (m?.role !== "assistant") continue;
+      return pick(m);
+    }
+  } catch {}
+  try {
+    const f = file || entry?.sm?.getSessionFile?.();
+    if (!f || !fs.existsSync(f)) return 0;
+    const lines = fs.readFileSync(f, "utf8").split("\n");
+    for (let i = lines.length - 1; i >= 0; i--) {
+      if (!lines[i]) continue;
+      let e; try { e = JSON.parse(lines[i]); } catch { continue; }
+      const m = e?.message;
+      if (m?.role !== "assistant") continue;
+      return pick(m);
+    }
+  } catch {}
+  return 0;
 }
 
 // 创建 agent（pi CLI 同款 services 方式：正确注册工具 + 完整 model 触发工具调用）

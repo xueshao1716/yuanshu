@@ -24,6 +24,9 @@ export interface LocalMessage {
   // 本地库也存一份，刷新后错误条同样能显示出来。
   error?: string
   stopReason?: string | null
+  // 输出被上限截断的人话说明（2026-09-18）：服务端每轮算好带过来，本地库留一份，
+  // 刷新后琥珀色"被截断"提示条照样在。
+  truncated?: string
   // 本轮主驾引擎 + 原因（②2026-09-16）
   engine?: string
   engineReason?: string
@@ -223,6 +226,7 @@ function mergeServerMessage(local: LocalMessage, server: any): LocalMessage {
     audios: local.audios?.length ? local.audios : server.audios,
     videos: local.videos?.length ? local.videos : server.videos,
     model: local.model || server.model,
+    truncated: local.truncated || server.truncated,
     // 本地消息的 draft/streaming/synced 状态描述本地生命周期，不能被服务端副本抹掉。
     draft: local.draft,
     streaming: local.streaming,

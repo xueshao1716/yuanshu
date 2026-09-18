@@ -1,6 +1,6 @@
 import { lazy, Suspense, useMemo, useState } from 'react'
 import { TOOL_COLORS, COLOR_ERROR, COLOR_TOOL_FALLBACK } from '../theme/palettes'
-import { Brain, FileText, Check, X, Pencil, ChevronRight, Square, Info, Download, RefreshCw } from 'lucide-react'
+import { Brain, FileText, Check, X, Pencil, ChevronRight, Square, Info, Download, RefreshCw, Scissors } from 'lucide-react'
 const Markdown = lazy(() => import('./Markdown'))
 
 function LazyMarkdown({ text }: { text: string }) {
@@ -307,6 +307,19 @@ export default function Message({ msg, onEdit, onRetry }: { msg: ChatMessage & {
                 className="mt-2 inline-flex items-center gap-1 text-[12px] px-2.5 py-1 rounded-pi-sm border border-pi-border-soft hover:border-pi-border text-pi-text"
                 onClick={() => onRetry(msg)}><RefreshCw className="w-3 h-3" aria-hidden="true" /> 重试这一条</button>
             )}
+          </div>
+        ) : null}
+        {/* 被输出上限截断（2026-09-18）：不是失败，也不是"它不想写了"——是上下文占满、留给输出的
+            余量不够。以前这种情况界面上什么都不显示，只剩半句话，看着就像"被打断"。 */}
+        {msg.truncated ? (
+          <div className="my-2 rounded-pi-md border border-pi-warn/40 bg-pi-warn/10 px-3 py-2">
+            <div className="flex items-start gap-2">
+              <Scissors className="w-3.5 h-3.5 text-pi-warn mt-0.5 flex-shrink-0" aria-hidden="true" />
+              <div className="min-w-0">
+                <div className="text-[12px] text-pi-text break-words">{msg.truncated}</div>
+                <div className="text-[11px] text-pi-dim2 mt-0.5">上限 = min(模型声明, 上下文窗口 − 已占用 − 安全余量)；占得越满，单次能写的越少。</div>
+              </div>
+            </div>
           </div>
         ) : null}
         {msg.ts && !streaming && (

@@ -191,6 +191,7 @@ export default function ChatArea({ compactHeader, rightPanel, onRightPanel }: {
           ts: m.ts,
           error: m.error,
           stopReason: m.stopReason,
+          truncated: m.truncated,
           engine: m.engine,
 
           switchedModel: m.switchedModel,
@@ -216,6 +217,7 @@ export default function ChatArea({ compactHeader, rightPanel, onRightPanel }: {
         // 失败记录必须活到界面上（2026-09-16）：后端 extractMessages 现在会带 error/stopReason
         error: lm.error,
         stopReason: lm.stopReason,
+        truncated: lm.truncated,
         // ② 引擎角标：服务端的 engine_selected 只活在流式状态里，本地库这一份负责刷新后还能看见
         engine: (lm as any).engine,
 

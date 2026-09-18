@@ -52,6 +52,9 @@ export interface ChatMessage {
   // 以前它被静默丢掉，用户只看到"它不说话"。现在后端会带上原因，界面渲染成可重试的错误条。
   error?: string
   stopReason?: string | null
+  // 输出被上限截断（2026-09-18）：stopReason=length 以前什么都不显示，用户只看到"半句话像是被打断"。
+  // 后端把这轮的用量算成人话放这里，界面用琥珀条呈现（不是错误，是可续写的截断）。
+  truncated?: string
   // 本轮主驾引擎（②2026-09-16）：yuanshu=元枢自制循环 / pi=兼容适配器 / dsh=外部执行引擎，另附原因
   engine?: string
   engineReason?: string

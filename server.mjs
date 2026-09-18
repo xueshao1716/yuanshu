@@ -93,7 +93,7 @@ import { initModelClient, directChat, handleThink, handleDirectChat, maybeCompac
 import { initSelfHeal, createRepairCheckpoint, handleUpdateCheck, handleUpdateApply, handleRepair, handleDesignerGenerate, handleDesignerSave, handleCompare } from "./engine/self-heal.mjs";
 import { initImproveApi, analyzeImprovements, openImprovements, getImprovementDiagnostics, setImprovementStatus } from "./engine/improve-api.mjs";
 import { initEvolutionApi, proposeEvolution, applyEvolution, listEvolution, dismissEvolution, nudgeSkill, applySkillNudge, dismissSkillNudge, listSkillNudges, evaluateProposal, proposeMemoryNudge, listMemoryNudges, applyMemoryNudge, dismissMemoryNudge, analyzeMemoryCompress, proposeMemoryCompress, listMemoryCompress, applyMemoryCompress, dismissMemoryCompress } from "./engine/evolution-api.mjs";
-import { initSessionManager, createSession, evictInactiveSessions, slimSessionImages, compactSession, openSession, initSearchTool, initShareTool, createSessionAgent, ensureAgent, isFirstTurn, deleteSession, setOnTheSpotFixRunner } from "./engine/session-manager.mjs";
+import { initSessionManager, createSession, evictInactiveSessions, slimSessionImages, compactSession, openSession, initSearchTool, initShareTool, createSessionAgent, ensureAgent, isFirstTurn, deleteSession, setOnTheSpotFixRunner, ensureContextHeadroom } from "./engine/session-manager.mjs";
 import { initUnifiedChat, unifiedChat, engineCurrentModel, initEngine, getCodeRuntime, getCodeMode, toolBindingDesc, toolBindingArgs, toolBindingArgsObj, handleNotices, handleUnifiedChat, touchTask, clearTask, taskProgress, handleAgentEventIn, handleAgentEventOut } from "./engine/unified-chat.mjs";
 import { createApprovalInterceptor } from "./engine/tools/approval.mjs";
 import * as confirmRegistry from "./engine/tools/confirm-registry.mjs";
@@ -119,6 +119,7 @@ import { sanitizeSessionFile } from "./engine/session-sanitize.mjs";
 import { createCorsPolicy } from "./engine/cors-policy.mjs";
 import { initSessionDb, handleDbList, handleDbRebuild, handleDbSanitize, handleDbMeta, handleDbStats, handleDbSweep, sweepSessionsNow, ensureSessionSequence } from "./engine/session-db.mjs";
 import { repairSessionFile, repairSessionDir } from "./engine/session-repair.mjs";
+import { outputRoomTokens, headroomNote } from "./engine/context-headroom.mjs";
 import { isListedGroup } from "./engine/session-groups.mjs";
 import { createAIBodyRuntime } from "./engine/aibody-runtime.mjs";
 import { createAIBodyHost } from "./engine/aibody-host.mjs";
@@ -996,7 +997,7 @@ async function handleChat(req, res, body) {
   // 必须在分支之前认领，这样 pi 与 yuanshu 两条路径看到的是同一个轮号。
   const goalTurn = advanceGoalTurn(CONFIG.cwd);
   // 本轮开始前的会话文件大小：收尾结算时按这个偏移切片，只认本轮新追加的助手回复
-  const sessionBytesBefore = (() => { try { return fs.statSync(entry.sm.sessionFile).size; } catch { return 0; } })();
+  let sessionBytesBefore = (() => { try { return fs.statSync(entry.sm.sessionFile).size; } catch { return 0; } })();
   if (forceResumeUnified || engineDecision.lead === "dsh" || (defaultModel && !useAgent)) {
     const hb2 = startSseHeartbeat(res);
     // 打断支持：客户端断开 SSE 时中止 unifiedChat / dsh 子进程
@@ -1056,6 +1057,28 @@ async function handleChat(req, res, body) {
   })();
   if (autoRoute?.auto && autoRoute.model) markSticky(sessionId, autoRoute.model); // 会话粘性：10min 内 simple 轮不降档
   entry.autoRoute = autoRoute; // 供 SSE 播报与日志
+  // ⚠️ 上下文余量闸门必须放在"agent 重建"之前（2026-09-18 真机事故）：
+  //   会话涨到 195k/200k 时，SDK 按 min(模型声明, 窗口−输入−安全余量) 只肯给模型 ~400 token 输出，
+  //   答案在 387 token 处被 length 截断，SDK 又删掉半截答案压缩重试（重试只吐 1 token）——
+  //   用户看到"说到一半被打断"。这里先压缩+重开会话，让本轮就有输出余量。
+  let headroom = null;
+  if (sessionId && (entry.sm?.sessionFile || entry.sm?.getSessionFile?.())) {
+    try {
+      const h = await ensureContextHeadroom(sessionId, entry, effModel);
+      if (h?.entry && h.entry !== entry) entry = h.entry;
+      headroom = h;
+    } catch (e) { console.log(`[headroom] 闸门失败(不阻断): ${String(e?.message || e).slice(0, 100)}`); }
+  }
+  // 压缩改写会让基线错位（chatBaseline/sessionBytesBefore 都用行数/字节数当锚）→ 重算
+  if (headroom?.compacted) {
+    try {
+      const sf = entry.sm.sessionFile;
+      if (sf && fs.existsSync(sf)) {
+        chatBaseline = fs.readFileSync(sf, "utf8").split("\n").filter(Boolean).length;
+        sessionBytesBefore = fs.statSync(sf).size;
+      }
+    } catch {}
+  }
   // agent 绑定模型与本次生效模型（会话级切换 或 Auto 路由实时决策）不一致 → 重建 agent
   // ⚠️ 2026-08-19：原来只在 entry.modelKey 存在时重建，Auto 路由下 agent 仍绑创建时的 defaultModel（429 中）
   //    → 主请求失败、兕底文本回复、无思考无工具。改为与 effModel 全量对齐。
@@ -1081,6 +1104,20 @@ async function handleChat(req, res, body) {
   const writer = createSseWriter(res); // 背压控制：慢网络时事件排队等 drain，不丢不堆
   try { const selected = entry.agentModel || effModel; writer.push("model_selected", { model: { provider: selected?.provider, id: selected?.id } }); } catch {}
   try { writer.push("note", { text: leadNote(engineDecision) }); } catch {}
+  // 上下文余量如实播报：真腾出余量就报"压完还剩多少"；没腾出来就直说，别拿 🧹 糊弄
+  try {
+    if (headroom?.after?.contextWindow) {
+      const used = headroom.after.usedTokens || headroom.before?.usedTokens || 0;
+      const room = Number.isFinite(headroom.roomAfter) ? headroom.roomAfter : outputRoomTokens({ contextWindow: headroom.after.contextWindow, usedTokens: used });
+      const modelName = `${effModel?.provider}/${effModel?.id}`;
+      if (headroom.compacted && room >= 8192) {
+        writer.push("note", { text: headroomNote({ contextWindow: headroom.after.contextWindow, usedTokens: used, room, compressed: true, model: modelName }) });
+      } else if (room < 8192) {
+        const why = !headroom.compacted && headroom.reason ? `（压缩没成功：${headroom.reason}）` : "";
+        writer.push("note", { text: headroomNote({ contextWindow: headroom.after.contextWindow, usedTokens: used, room, model: modelName }) + why });
+      }
+    }
+  } catch {}
   // Cursor Router 播报：Auto 路由决策对用户透明（取 Cursor 可用性长板，可解释）
   if (autoRoute && autoRoute.auto && effModel) {
     const routeBadge = autoRoute.level === "complex" ? "🛰️ 复杂任务" : "⚡ 日常任务";
@@ -1816,7 +1853,16 @@ async function handleMessages(res, id, req, url) {
   if (!found || !found.file || !fs.existsSync(found.file)) return json(res, 404, { error: "会话不存在" });
   const entries = readEntriesFromFile(found.file);
   const leafId = resolveLeafId(entries, url?.searchParams?.get("leafId") || null);
-  const all = extractMessages(entries, leafId);
+  // 带上模型窗口：这样"被上限截断"的提示能说清"上下文占了多少 / 模型声明多少"（2026-09-18）
+  const all = extractMessages(entries, leafId, {
+    resolveWindow: (id, provider) => {
+      // 必须带上 provider：同一个 id 可能挂在多个通道下（glm-5.3-flash 在 zhipu-paid 是 200k 窗口、
+      // 在 opencode-go 是 1000k），只按 id 找会说错占比（核对时踩过）。
+      const m = modelList.find(x => x.id === id && provider && x.provider === provider)
+        || modelList.find(x => x.id === id);
+      return m ? { contextWindow: m.contextWindow, maxOutputTokens: m.maxTokens } : null;
+    },
+  });
   const tailRaw = url?.searchParams?.get("tail");
   const tail = tailRaw == null || tailRaw === "" ? 80 : parseInt(tailRaw, 10);
   const win = windowMessages(all, Number.isFinite(tail) ? tail : 80);

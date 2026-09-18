@@ -1,6 +1,7 @@
 // ══ 会话解析纯函数（2026-08-19 拆模块：从 server.mjs 抽出）══
 // extractMessages / extractText / extractImages / extractFiles —— 无 server 内部依赖，可单测可复用。
 import { extractPlayableMedia } from "./media-embed.mjs";
+import { lengthStopNote } from "./context-headroom.mjs";
 
 // 从消息 content 提取文本（type: text 的块）
 export function extractText(content) {
@@ -166,7 +167,9 @@ export function windowMessages(messages, tail) {
 }
 
 // 从会话 entries 中提取消息（供历史渲染；指定 leafId 时只返回该分支路径上的消息）
-export function extractMessages(entries, leafId) {
+// opts.resolveWindow(modelId) → { contextWindow, maxOutputTokens }：查模型窗口用，
+// 有了它，"被截断"提示才能说清"上下文占了多少 / 模型声明多少"（查不到就只说用量）。
+export function extractMessages(entries, leafId, { resolveWindow = null } = {}) {
   // 若指定 leafId：只返回该分支路径上的消息（沿 parentId 回溯）
   const byId = new Map(entries.filter(e => e.id).map(e => [e.id, e]));
   const pathIds = new Set();
@@ -221,7 +224,18 @@ export function extractMessages(entries, leafId) {
       const error = stopReason === "error"
         ? String(m.errorMessage || m.error || "本轮失败（未给出原因）")
         : stopReason === "aborted" && !text ? "本轮已停止（没有产出内容）" : "";
-      if (text || files.length || images.length || videos.length || audios.length || tools.length || think || error) out.push({ role: "assistant", text, files, images, videos, audios, tools, think, error, stopReason, ts: e.timestamp, id: e.id });
+      // 输出被上限截断（2026-09-18）：stopReason=length 以前什么都不显示，用户只看到"半句话，
+      // 像是被打断"。现在如实写成人话（含用量），界面用琥珀色提示条呈现。
+      const win = (() => { try { return (typeof resolveWindow === "function" ? resolveWindow(m.model, m.provider) : null) || {}; } catch { return {}; } })();
+      const truncated = stopReason === "length"
+        ? lengthStopNote({
+            outputTokens: m.usage?.output ?? m.usage?.outputTokens ?? 0,
+            usedTokens: m.usage?.totalTokens ?? ((Number(m.usage?.input) || 0) + (Number(m.usage?.cacheRead) || 0)),
+            contextWindow: Number(win.contextWindow) || Number(m.contextWindow) || 0,
+            declaredMaxTokens: Number(win.maxOutputTokens) || Number(win.declaredMaxTokens) || Number(m.maxOutputTokens) || 0,
+          })
+        : "";
+      if (text || files.length || images.length || videos.length || audios.length || tools.length || think || error || truncated) out.push({ role: "assistant", text, files, images, videos, audios, tools, think, error, truncated, stopReason, ts: e.timestamp, id: e.id });
     }
   }
   return out;

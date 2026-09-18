@@ -8,7 +8,8 @@ import { execFile } from "node:child_process";
 import { json, readBody } from "./http-utils.mjs";
 import { markModelBlocked, isAuthErrorStatus, pickFallbackDefault, pickFallbackExcluding, routeProCandidate, routeForAuto } from "./model-router.mjs";
 import { classifyAnomaly, recordReply, lastAssistantReply } from "./output-guard.mjs";
-import { clampOutputTokens, escalateOutputTokens, maxTokensFieldOf } from "./output-budget.mjs";
+import { clampOutputTokens, escalateOutputTokens, maxTokensFieldOf, OUTPUT_TOKEN_FALLBACK } from "./output-budget.mjs";
+import { budgetWithinWindow, estimateHistoryTokens } from "./context-headroom.mjs";
 import { shrinkToolResult, NEEDS_PRO_RE, scavengeToolCalls, projectToolResult } from "./reasonix-tools.mjs";
 import { normalizeToolArgs } from "./tool-args.mjs";
 import { extractMessages, extractText, attachmentLines } from "./session-utils.mjs";
@@ -394,8 +395,16 @@ export async function unifiedChat(model, messages, opts = {}) {
     signal: opts.signal, // P2: 客户端断开时取消 fetch
   });
   let usedThinking = thinkingParam !== null;
-  // 单次输出预算：起步 = min(模型声明, 32k)，命中截断时往上抬（见 escalateOutputTokens）
-  let outputBudget = clampOutputTokens(mdef);
+  // 单次输出预算：起步 = min(模型声明, 32k)，命中截断时往上抬（见 escalateOutputTokens）。
+  // 2026-09-18 补：还要受**剩余窗口**约束——上下文快满时向窗口装不下的量要输出，
+  // 上游要么 400，要么提前截断（"说到一半被打断"）。窗口未知时不算，保持原样。
+  const historyTokens = estimateHistoryTokens(history);
+  let outputBudget = budgetWithinWindow({
+    declaredMaxTokens: clampOutputTokens(mdef),
+    contextWindow: Number(mdef?.contextWindow) || 0,
+    usedTokens: historyTokens,
+    fallback: OUTPUT_TOKEN_FALLBACK,
+  });
   // A checkpointed snapshot already represents the completed model turns.
   // Continue numbering from it so effect keys remain stable across recovery.
   let turn = Number.isInteger(opts.resumeSnapshot?.turn) ? opts.resumeSnapshot.turn : 0;
