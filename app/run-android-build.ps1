@@ -1,5 +1,15 @@
-param([switch]$ResumePackaging)
+﻿param([switch]$ResumePackaging)
 $ErrorActionPreference = 'Stop'
+# 环境重名清理（2026-09-18 真机排查）：Windows 里 HTTP_PROXY 和 http_proxy 是同一个键，
+# 但环境块里可能两份都在（本机都是 http://127.0.0.1:7890）→ PowerShell 5.1 的 Start-Process
+# 复制环境时抛 "Item has already been added. Key: 'HTTP_PROXY' / Key being added: 'http_proxy'"，
+# 表现就是"双击跑了、但一两秒就退出，什么都没发生"。统一只留大写一份再往下走。
+foreach ($pair in @(@('http_proxy', 'HTTP_PROXY'), @('https_proxy', 'HTTPS_PROXY'), @('no_proxy', 'NO_PROXY'))) {
+  $lowerVal = [Environment]::GetEnvironmentVariable($pair[0], 'Process')
+  $upperVal = [Environment]::GetEnvironmentVariable($pair[1], 'Process')
+  try { Remove-Item -LiteralPath "Env:$($pair[0])" -ErrorAction SilentlyContinue } catch {}
+  if (-not $upperVal -and $lowerVal) { [Environment]::SetEnvironmentVariable($pair[1], $lowerVal, 'Process') }
+}
 $dir = $PSScriptRoot
 $workspaceRoot = if ($env:PI_WORKSPACE) { $env:PI_WORKSPACE } else { 'D:\pi-workspace' }
 $cacheRoot = Join-Path $workspaceRoot '.build-cache'

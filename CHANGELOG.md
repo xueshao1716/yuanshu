@@ -8,6 +8,25 @@
 
 ## [Unreleased]
 
+### 修复（工具）：安卓打包脚本秒退——环境里 HTTP_PROXY / http_proxy 重名
+
+要给手机重新打包才发现：`app/run-android-build.ps1` 在**本机环境**里跑不起来，
+一两秒就退出、什么都没发生：
+
+```
+Start-Process : Item has already been added. Key in dictionary: 'HTTP_PROXY'
+                Key being added: 'http_proxy'
+```
+
+Windows 环境变量不区分大小写，但环境块里两份都在（本机都是 `http://127.0.0.1:7890`），
+PowerShell 5.1 的 `Start-Process` 复制环境时直接抛异常。（手机上那份 APK 还是 9/12 打的，
+前端改了在手机上一直看不到，根子就在这。）
+
+- 脚本开头统一只留大写一份（小写的值在时补到大写，值不丢）。
+- 顺带修了我自己刚踩的坑：给这个**纯 ASCII** 的脚本加中文注释后，PS 5.1 按 GBK 解 UTF-8，
+  中文的尾字节把换行吃掉 → `Unexpected token '}'`。按 `restart-pi-web.ps1` 的做法改成**带 BOM** 保存。
+- 核对：`ParseFile` 解析通过；`Start-Process` 能起来（`echo spawn-ok` 回显正常）；随后真机重打包一次。
+
 ## [2.84.6] - 2026-09-18
 
 ## [2.84.6] - 2026-09-18
