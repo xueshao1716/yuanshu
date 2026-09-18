@@ -240,9 +240,9 @@ html[data-app-shell="1"] .mobile-safe-top {
   .quick-action-item { min-height: 68px; padding: 11px 12px; }
   .quick-action-icon { width: 30px; height: 30px; flex-basis: 30px; }
   /* 窄屏把"标题 + 右侧动作"竖排只对长标题的区块有意义；工作台这一行必须保持一行，
-     否则"开始工作"和"搜索"被拆成两行，看着散（真机反馈 2026-09-18）。 */
+     而且"开始工作"和"搜索"要挨在一起（2026-09-18 真机反馈：一个贴左一个贴右，离太远）。 */
   .chat-section-head:not(.workstart-head) { align-items: flex-start; flex-direction: column; gap: 3px; }
-  .chat-section-head.workstart-head { flex-direction: row; align-items: center; gap: 6px; margin-bottom: 2px; }
+  .chat-section-head.workstart-head { flex-direction: row; align-items: center; justify-content: flex-start; gap: 6px; margin-bottom: 2px; }
   .chat-history-head { align-items: flex-start; flex-direction: column; gap: 5px; }
   .turn-history-button { padding-inline: 2px; }
   .turn-expanded-content { margin-left: 8px; padding-left: 10px; }
@@ -539,8 +539,8 @@ body.has-wallpaper .mobile-composer {
 .workstart-identity h1 { color: var(--pi-text); font-size: 28px; line-height: 1.2; font-weight: 650; letter-spacing: 0; }
 .workstart-identity p { margin-top: 3px; color: var(--pi-dim); font-size: 13.5px; }
 .workstart-actions { border-top: 1px solid var(--pi-border); padding-top: 10px; }
-.workstart-head { align-items: center; gap: 8px; margin-bottom: 4px; }
-.workstart-search { display: flex; align-items: center; gap: 5px; min-height: 30px; padding: 0 8px; margin-right: -4px; border-radius: var(--pi-r-sm); font-size: 12px; color: var(--pi-dim); flex-shrink: 0; white-space: nowrap; }
+.workstart-head { align-items: center; justify-content: flex-start; gap: 8px; margin-bottom: 4px; }
+.workstart-search { display: flex; align-items: center; gap: 4px; min-height: 28px; padding: 0 7px; border-radius: var(--pi-r-sm); font-size: 11.5px; color: var(--pi-dim); flex: 0 0 auto; white-space: nowrap; }
 .workstart-search:hover { color: var(--pi-text); background: var(--pi-bg2); }
 .workstart-command-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 4px 8px; }
 .workstart-command { min-width: 0; min-height: 50px; display: flex; align-items: center; gap: 10px; padding: 0 12px; border-bottom: 1px solid var(--pi-border-soft); border-radius: var(--pi-r-sm); background: transparent; text-align: left; color: var(--pi-text); font-size: 13px; transition: background-color var(--pi-motion-fast), color var(--pi-motion-fast); }
@@ -556,7 +556,7 @@ body.has-wallpaper .mobile-composer {
   .engine-detail > summary { gap: 8px; min-height: 64px; }
   .engine-detail-title { font-size: 13px; }
   .engine-detail-hint { max-width: 32%; font-size: 11px; }
-  .chat-workstart { padding: 14px 0 20px; }
+  .chat-workstart { padding: 14px 14px 20px; }
   .workstart-command-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 2px 8px; }
   .workstart-command { min-height: 48px; padding-inline: 8px; }
   .workstart-identity { margin-bottom: 14px; gap: 12px; }
