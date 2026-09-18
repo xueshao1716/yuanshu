@@ -239,10 +239,12 @@ html[data-app-shell="1"] .mobile-safe-top {
   .quick-action-grid { grid-template-columns: 1fr; }
   .quick-action-item { min-height: 68px; padding: 11px 12px; }
   .quick-action-icon { width: 30px; height: 30px; flex-basis: 30px; }
-  /* 窄屏把"标题 + 右侧动作"竖排只对长标题的区块有意义；工作台这一行必须保持一行，
-     而且"开始工作"和"搜索"要挨在一起（2026-09-18 真机反馈：一个贴左一个贴右，离太远）。 */
+  /* 窄屏：工作台这一行的标题/搜索各自缩小（位置仍是标题左、搜索右），不再竖排 */
   .chat-section-head:not(.workstart-head) { align-items: flex-start; flex-direction: column; gap: 3px; }
-  .chat-section-head.workstart-head { flex-direction: row; align-items: center; justify-content: flex-start; gap: 6px; margin-bottom: 2px; }
+  .chat-section-head.workstart-head { flex-direction: row; align-items: center; justify-content: space-between; gap: 6px; margin-bottom: 2px; }
+  .chat-section-head.workstart-head h2 { font-size: 12px; }
+  .workstart-search { min-height: 24px; padding: 0 5px; font-size: 10.5px; }
+  .workstart-search svg { width: 13px; height: 13px; }
   .chat-history-head { align-items: flex-start; flex-direction: column; gap: 5px; }
   .turn-history-button { padding-inline: 2px; }
   .turn-expanded-content { margin-left: 8px; padding-left: 10px; }
@@ -539,8 +541,12 @@ body.has-wallpaper .mobile-composer {
 .workstart-identity h1 { color: var(--pi-text); font-size: 28px; line-height: 1.2; font-weight: 650; letter-spacing: 0; }
 .workstart-identity p { margin-top: 3px; color: var(--pi-dim); font-size: 13.5px; }
 .workstart-actions { border-top: 1px solid var(--pi-border); padding-top: 10px; }
-.workstart-head { align-items: center; justify-content: flex-start; gap: 8px; margin-bottom: 4px; }
-.workstart-search { display: flex; align-items: center; gap: 4px; min-height: 28px; padding: 0 7px; border-radius: var(--pi-r-sm); font-size: 11.5px; color: var(--pi-dim); flex: 0 0 auto; white-space: nowrap; }
+/* 位置回到"标题左、搜索右"（用户要的是把这俩**缩小**，不是挤到一起）；
+   缩的是字号/高度：标题 13px（手机 12px）、搜索按钮 26px 高 / 11px 字。 */
+.workstart-head { align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 4px; }
+.workstart-head h2 { font-size: 13px; font-weight: 600; }
+.workstart-search { display: flex; align-items: center; gap: 4px; min-height: 26px; padding: 0 6px; border-radius: var(--pi-r-sm); font-size: 11px; color: var(--pi-dim); flex: 0 0 auto; white-space: nowrap; }
+.workstart-search svg { width: 14px; height: 14px; }
 .workstart-search:hover { color: var(--pi-text); background: var(--pi-bg2); }
 .workstart-command-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 4px 8px; }
 .workstart-command { min-width: 0; min-height: 50px; display: flex; align-items: center; gap: 10px; padding: 0 12px; border-bottom: 1px solid var(--pi-border-soft); border-radius: var(--pi-r-sm); background: transparent; text-align: left; color: var(--pi-text); font-size: 13px; transition: background-color var(--pi-motion-fast), color var(--pi-motion-fast); }
