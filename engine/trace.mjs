@@ -150,6 +150,28 @@ export function replayTrace(trace, policy = {}) {
   return { policyId: policy.id || `${order}/max${policy.maxAttempts ?? "∞"}/stop${policy.stopAfterFailures ?? "∞"}`, nodes: used, cost: Number(cost.toFixed(3)), best, stopped };
 }
 
+/**
+ * 记一次**派活**（delegate_task / delegate_fork / 分镜重跑这类"多路探索"）。
+ *
+ * 当场修那条链是单线的（试一次→验证）；真正有"分支"的是派活：一次派几个子任务、
+ * 哪个失败了、花了多久。这些正是"该怎么探索"要回放的对象，所以形状还是同一棵树：
+ * 一次派活 = 一个节点，cost = 秒，outcome = ok/error，score = 结果摘要长度（有产出才好过空手）。
+ */
+export function recordDelegation(wsRoot, { kind = "delegate", task = "", durationMs = 0, ok = false, digest = "", now = new Date(), fsMod = fs } = {}) {
+  const opened = openTrace(wsRoot, { kind, goal: String(task).slice(0, 300) || "(未写任务)", now, fsMod });
+  if (!opened?.ok) return opened;
+  const cost = Number((Number(durationMs) / 1000).toFixed(2));
+  const node = addNode(wsRoot, opened.trace.id, {
+    action: kind,
+    input: String(task).slice(0, 500),
+    cost,
+    outcome: ok ? "ok" : "error",
+    score: ok ? Math.min(1, String(digest).length / 400) : 0,
+  }, { now, fsMod });
+  closeTrace(wsRoot, opened.trace.id, { result: String(digest).slice(0, 200), score: node?.node?.score ?? 0, cost, now, fsMod });
+  return { ok: true, id: opened.trace.id, cost };
+}
+
 /** 常用策略集：把"当时的做法"和几个替代做法放在一起比（现役必须在候选里）。 */
 export function candidatePolicies(extra = []) {
   return [

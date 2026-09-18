@@ -7,7 +7,7 @@ import os from 'node:os';
 import path from 'node:path';
 import {
   openTrace, addNode, closeTrace, loadTrace, listTraces, replayTrace, nodeSucceeded,
-  candidatePolicies, replayAcrossTraces, tracePath,
+  candidatePolicies, replayAcrossTraces, tracePath, recordDelegation,
 } from '../../engine/trace.mjs';
 
 const tmp = () => fs.mkdtempSync(path.join(os.tmpdir(), 'yuanshu-trace-'));
@@ -112,4 +112,25 @@ test('轨迹文件落在工作区的 记忆/做梦/轨迹 下（不写进代码�
   const t = buildTrace(root);
   assert.ok(tracePath(root, t.id).startsWith(path.join(root, '记忆', '做梦', '轨迹')));
   assert.ok(fs.existsSync(tracePath(root, t.id)));
+});
+
+test('派活记一条：一次 delegate 就是一个节点（cost=秒，outcome=ok/error）', () => {
+  const root = tmp();
+  const ok = recordDelegation(root, { kind: 'delegate_task', task: '调研 A 方案', durationMs: 4200, ok: true, digest: '结论：A 可行' });
+  assert.equal(ok.ok, true);
+  const t = loadTrace(root, ok.id);
+  assert.equal(t.kind, 'delegate_task');
+  assert.equal(t.nodes[0].cost, 4.2);
+  assert.equal(t.nodes[0].outcome, 'ok');
+  assert.ok(t.nodes[0].score > 0, '有产出的派活分数应大于 0');
+  assert.equal(t.closed.cost, 4.2);
+
+  const bad = recordDelegation(root, { kind: 'delegate_task', task: '调研 B 方案', durationMs: 1000, ok: false, digest: '' });
+  assert.equal(loadTrace(root, bad.id).nodes[0].score, 0, '空手而归 = 0 分');
+
+  // 派活轨迹也能进回放（形状与当场修一致，回放器不用改）
+  const r = replayAcrossTraces([loadTrace(root, ok.id), loadTrace(root, bad.id)], candidatePolicies(), { incumbentId: 'recorded' });
+  assert.equal(r.ok, true);
+  assert.equal(r.traces, 2);
+  assert.equal(r.table.find((x) => x.id === 'recorded').decision, 'keep');
 });

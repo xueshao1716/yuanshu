@@ -108,9 +108,9 @@ import { createCodeMode } from "./code-mode/code-mode.mjs";
 import { createTimeEngine } from "./engine/time-engine.mjs";
 import { composeTimeTaskMessages, timeTaskReadTools, recordReflectionActions, yesterdayYmd } from "./engine/time-task-run.mjs";
 import { planReflectionExecution, buildActionExecutionPrompt, parseActionResult, recordActionAttempt, summarizeExecution, runOnTheSpotFix } from "./engine/reflection-exec.mjs";
-import { appendEpisodes, loadEpisodes, dream, writeDreamLog, skillEpisodesFromSessions, dreamPaths, currentWeights, promoteWeights, resetWeights } from "./engine/dream.mjs";
+import { appendEpisodes, loadEpisodes, dream, writeDreamLog, skillEpisodesFromSessions, dreamPaths, currentWeights, promoteWeights, resetWeights, recordSkillChoice } from "./engine/dream.mjs";
 import { grant, revoke, loadCharter, autoUsedToday, loadLedger } from "./engine/autonomy.mjs";
-import { listTraces, loadTrace, replayAcrossTraces, candidatePolicies } from "./engine/trace.mjs";
+import { listTraces, loadTrace, replayAcrossTraces, candidatePolicies, recordDelegation } from "./engine/trace.mjs";
 import { MATCH_WEIGHTS } from "./engine/yuanshu-protocol.mjs";
 import { sanitizeSessionFile } from "./engine/session-sanitize.mjs";
 import { createCorsPolicy } from "./engine/cors-policy.mjs";
@@ -559,7 +559,16 @@ const executeUnifiedTool = createUnifiedToolExecutorGuarded({
   cwd: () => CONFIG.cwd,
   systemDir: __dirname, // 双根白名单：系统本体目录（自进化可写）
   safePath: wsSafePath,
-  activateSkill: (name) => execActivateSkill(name),
+  activateSkill: (name) => {
+      // 在线记一条技能选择 episode：做梦/授权状全靠这个喂数据，不然机制建好了也永远没证据。
+      // 输入 = 该会话最后一条用户消息；真值 = 这次真的激活了哪个技能。
+      try {
+        const sid = globalThis.__yuanshuLastSessionKey || "";
+        const msg = lastUserBySession.get(sid) || "";
+        if (msg) recordSkillChoice(WS_ROOT, { input: msg, skill: name });
+      } catch {}
+      return execActivateSkill(name);
+    },
   timeEngine: () => timeEngine,
   sensitiveHint: () => formatSensitiveHint(listHostChannels({ getModelList: () => modelList })),
   // 外部自定义工具执行器：dsh_task（pi 格式 execute → unified 结果格式）+ 宿主媒体密文通道
@@ -574,8 +583,26 @@ const executeUnifiedTool = createUnifiedToolExecutorGuarded({
     ...mediaExtraExecutors({ getModelList: () => modelList, generateMediaAsync }),
     ...todoExtraExecutors(),
     ...planFilesExtraExecutors(),
-    delegate_task: execDelegateTask,
-    delegate_fork: execDelegateFork,
+    // 派活 = 元枢里真正的"多路探索"：一次派几个子任务、哪个失败、花了多久。
+    // 记成轨迹节点后，"该怎么探索"才有可回放的对象（当场修那条是单线的）。
+    delegate_task: async (args, ctx) => {
+      const t0 = Date.now();
+      const r = await execDelegateTask(args, ctx);
+      try {
+        const text = typeof r === "string" ? r : (r?.text || "");
+        recordDelegation(WS_ROOT, { kind: "delegate_task", task: args?.task || args?.prompt || "", durationMs: Date.now() - t0, ok: !r?.isError, digest: text });
+      } catch {}
+      return r;
+    },
+    delegate_fork: async (args, ctx) => {
+      const t0 = Date.now();
+      const r = await execDelegateFork(args, ctx);
+      try {
+        const text = typeof r === "string" ? r : (r?.text || "");
+        recordDelegation(WS_ROOT, { kind: "delegate_fork", task: args?.task || args?.prompt || "", durationMs: Date.now() - t0, ok: !r?.isError, digest: text });
+      } catch {}
+      return r;
+    },
     // 当场修：把"发现问题"接到"动手做掉"（逻辑在 engine/reflection-exec.mjs，与复盘那条共用规则）。
     // 执行轮用完整工具集（这一步才发可写工具），一轮只做这一条，必须交证据。
     fix_problem: async (args, ctx) => {
@@ -1281,6 +1308,9 @@ async function handleChat(req, res, body) {
   try {
     // 情绪感知：更新会话情绪状态，注入行为指令（用 nextTurn 机制，不写入会话历史）
     const sessKey = sessionId || findKeyByEntry(entry) || "new";
+    // 记下这条消息与当前会话：activate_skill 发生时用它当 episode 的输入（工具执行器没有对话上下文）
+    globalThis.__yuanshuLastSessionKey = sessKey;
+    if (message) lastUserBySession.set(sessKey, String(message).slice(0, 500));
     // ⚠️ 必须在 updateEmotion **之前**取：它会把 lastTalk 刷成本轮，之后差值恒为 0
     const prevTalkAt = (() => { try { return Number(emotion.getSnapshot(sessKey)?.lastTalk) || 0; } catch { return 0; } })();
     emotion.updateEmotion(sessKey, message);
@@ -1635,6 +1665,8 @@ async function handleChat(req, res, body) {
         }
         if (files.length) {
           const sessKey = sessionId || "new";
+    globalThis.__yuanshuLastSessionKey = sessKey;
+    if (message) lastUserBySession.set(sessKey, String(message).slice(0, 500));
           const pushedSet = pushedArtifacts.get(sessKey) || new Set();
           const fresh = files.filter(f => !pushedSet.has(f.path));
           // 同名去重：同名文件只保留最新一份（避免同一文件从不同目录重复交付）
@@ -1903,6 +1935,10 @@ function readStoryNovelBook({ bookId, files } = {}) {
   return { bookId: id, title: String(detail.meta?.title || ''), chapters };
 }
 
+// 每个会话最后一条用户消息（2026-09-18 第二轮）：activate_skill 发生时要知道"这是在回答哪个任务"，
+// 而工具执行器拿不到对话上下文——所以在收到消息时就记下来，键与会话一致。
+const lastUserBySession = new Map();
+
 // 做梦用的候选策略表（2026-09-18）：现役 = 当前 MATCH_WEIGHTS；候选只动**权重数字**，
 // 不动匹配规则本身（规则是行为契约，改它要人拍板；调权重才是可回放、可比较的部分）。
 const DREAM_POLICIES = {
@@ -1914,6 +1950,65 @@ const DREAM_POLICIES = {
     { id: "matcher-desc-down", weights: { ...MATCH_WEIGHTS, descToken: 1 } },
   ],
 };
+
+/**
+ * 做梦周期（2026-09-18 第三轮）：不再等人点接口。
+ * 你上次说得对——"全让我回答，我不是给她打工了吗"：自决的意义就是**它自己会跑**。
+ * 这个函数由启动后延迟 + 每 6 小时定时调用一次；有赢家就走授权状（A/B 自决 / C 转人话提案）。
+ */
+async function runDreamCycle() {
+  let files = [];
+  try { files = fs.readdirSync(SESSIONS_DIR).filter((f) => f.endsWith(".jsonl")).map((f) => path.join(SESSIONS_DIR, f)); } catch {}
+  appendEpisodes(WS_ROOT, skillEpisodesFromSessions(files));
+  const episodes = loadEpisodes(WS_ROOT, { kind: "skill-match" });
+  if (!episodes.length) return { ok: false, reason: "还没有历史 episode（在线记录已接上，等真实使用发生）" };
+  const skills = loadSkillIndex();
+  const active = currentWeights(WS_ROOT);
+  const incumbentId = active.id || DREAM_POLICIES.incumbent;
+  const incumbentWeights = active.weights || null;
+  const maxRank = (ep, policy) => matchSkillsForTask(ep.input, skills, 3, policy.id === incumbentId ? incumbentWeights : policy.weights).map((s) => s.name);
+  const result = dream({
+    kind: "skill-match", episodes,
+    incumbentId,
+    candidates: [{ id: DREAM_POLICIES.incumbent, weights: null }, ...DREAM_POLICIES.candidates].filter((c) => c.id !== incumbentId),
+    rank: maxRank,
+  });
+  if (!result.ok) return result;
+  writeDreamLog(WS_ROOT, "skill-match", result);
+  if (result.winner) {
+    const winnerRow = result.table.find((t) => t.id === result.winner);
+    const inc = result.table.find((t) => t.role === "incumbent");
+    const chosen = DREAM_POLICIES.candidates.find((c) => c.id === result.winner);
+    const auth = await grant(
+      { kind: "config", text: `把技能匹配权重从 ${incumbentId} 换成 ${result.winner}` },
+      {
+        replayable: true, episodes: result.episodes,
+        noWorse: (winnerRow?.worse || 0) === 0, betterCount: winnerRow?.better || 0,
+        reversible: true, scope: "config",
+        text: `回放历史准确率 ${inc?.accuracy} → ${winnerRow?.accuracy}`,
+      },
+      {
+        wsRoot: WS_ROOT,
+        previous: incumbentId,
+        apply: async () => ({ undo: `weights:${incumbentId}`, ...(promoteWeights(WS_ROOT, result.winner, chosen?.weights || {}) || {}) }),
+      },
+    );
+    result.autonomy = auth;
+    if (!auth.decided) {
+      try {
+        recordPromises(WS_ROOT, [{
+          id: `d_${Date.now().toString(36)}`, at: new Date().toISOString(), sessionId: "dream",
+          text: auth.human?.ask || result.proposal.text, kind: "ask", due: null, status: "pending", evidence: null, closedAt: null,
+        }]);
+      } catch {}
+    } else {
+      console.log(`[dream] 自决上线：${auth.message}`);
+    }
+  } else {
+    console.log(`[dream] 回放 ${result.episodes} 条 episode：没有'每条都不更差'的赢家，保持不变`);
+  }
+  return result;
+}
 
 const API_ROUTES = [
   // ── 连续创作编排（阶段一：项目/Story Bible/镜头运行记录）──
@@ -2058,68 +2153,8 @@ const API_ROUTES = [
     json(res, 200, { ok: true, scanned: files.length, found: eps.length, added: r?.added || 0 });
   }],
   ["POST", "/api/dream/run", async (res) => {
-    // 做梦：回放现役 + 候选。只产出提案（写进承诺账当 ask），不自动改行为。
-    let files = [];
-    try { files = fs.readdirSync(SESSIONS_DIR).filter((f) => f.endsWith(".jsonl")).map((f) => path.join(SESSIONS_DIR, f)); } catch {}
-    appendEpisodes(WS_ROOT, skillEpisodesFromSessions(files));
-    const episodes = loadEpisodes(WS_ROOT, { kind: "skill-match" });
-    const skills = loadSkillIndex();
-    // 现役 = 工作区里存档的那套（自决上线会写它）；没有存档才是出厂默认。
-    // 这样下一轮做梦的基线永远是"现在真的在跑什么"，而不是代码里的默认值。
-    const active = currentWeights(WS_ROOT);
-    const incumbentId = active.id || DREAM_POLICIES.incumbent;
-    const incumbentWeights = active.weights || null;
-    const maxRank = (ep, policy) => matchSkillsForTask(ep.input, skills, 3, policy.id === incumbentId ? incumbentWeights : policy.weights).map((s) => s.name);
-    const result = dream({
-      kind: "skill-match", episodes,
-      incumbentId,
-      candidates: [{ id: DREAM_POLICIES.incumbent, weights: null }, ...DREAM_POLICIES.candidates].filter((c) => c.id !== incumbentId),
-      rank: maxRank,
-    });
-    if (result.ok) {
-      writeDreamLog(WS_ROOT, "skill-match", result);
-      // 2026-09-18：赢家不再一律塞给人批——按授权状分级（engine/autonomy.mjs）：
-      //   A/B 级（技术参数 + 有回放证据 + 可回滚 + 不碰红线）→ 元枢自己定，写账 + 留撤销点；
-      //   C 级（红线/口味/外部世界/不可回放）→ 只产出人话版提案，等一句"行/不行"。
-      if (result.winner) {
-        const winnerRow = result.table.find((t) => t.id === result.winner);
-        const inc = result.table.find((t) => t.role === "incumbent");
-        const chosen = DREAM_POLICIES.candidates.find((c) => c.id === result.winner);
-        const auth = await grant(
-          { kind: "config", text: `把技能匹配权重从 ${DREAM_POLICIES.incumbent} 换成 ${result.winner}` },
-          {
-            replayable: true, episodes: result.episodes,
-            noWorse: (winnerRow?.worse || 0) === 0, betterCount: winnerRow?.better || 0,
-            reversible: true, scope: "config",
-            text: `回放历史准确率 ${inc?.accuracy} → ${winnerRow?.accuracy}`,
-          },
-          {
-            wsRoot: WS_ROOT,
-            previous: DREAM_POLICIES.incumbent,
-            apply: async () => ({ undo: `weights:${DREAM_POLICIES.incumbent}`, ...(promoteWeights(WS_ROOT, result.winner, chosen?.weights || {}) || {}) }),
-          },
-        );
-        result.autonomy = auth;
-        if (!auth.decided) {
-          try {
-            recordPromises(WS_ROOT, [{
-              id: `d_${Date.now().toString(36)}`,
-              at: new Date().toISOString(),
-              sessionId: "dream",
-              text: auth.human?.ask || result.proposal.text,
-              kind: "ask",
-              due: null,
-              status: "pending",
-              evidence: null,
-              closedAt: null,
-            }]);
-          } catch {}
-        } else {
-          console.log(`[dream] 自决上线：${auth.message}`);
-        }
-      }
-    }
-    json(res, 200, result);
+    // 与定时器共用同一份逻辑（runDreamCycle），不重复实现第二遍
+    json(res, 200, await runDreamCycle());
   }],
   // ── 探索轨迹（2026-09-18）：把"试了哪些路、花了多少、结果如何"记成可回放的树 ──
   // 做梦的头一版只能回放"选哪个技能"，因为探索过程没留下结构化轨迹；这一版补上那一半。
@@ -2974,6 +3009,17 @@ ${rows.map((r) => `- [${r.status}${r.closed ? "/已结清" : ""}] ${r.text}\n  �
       }, { onTaskDone: (info) => nudgeSkill(info) }); // 技能自主沉淀钩子（09-03，Hermes 闭环）
       timeEngine.start();
     } catch (e) { console.log("[time-engine] 启动失败:", String(e?.message || e).slice(0, 100)); }
+    // 做梦周期：自己跑，不等用户点接口（自决的意义就在这）。失败不影响服务。
+    try {
+      const DREAM_EVERY_MS = 6 * 60 * 60 * 1000;
+      const kickDream = () => runDreamCycle().then((r) => {
+        if (r?.ok) console.log(`[dream] 周期完成：回放 ${r.episodes} 条，赢家 ${r.winner || "无"}`);
+        else console.log(`[dream] 周期跳过：${r?.reason || "无可用数据"}`);
+      }).catch((e) => console.log(`[dream] 周期异常: ${String(e?.message || e).slice(0, 120)}`));
+      setTimeout(kickDream, 120000).unref?.();
+      setInterval(kickDream, DREAM_EVERY_MS).unref?.();
+      console.log("  [dream] 做梦周期已挂上（启动 2 分钟后首跑，之后每 6 小时）");
+    } catch (e) { console.log("[dream] 周期挂载失败:", String(e?.message || e).slice(0, 100)); }
     console.log(`  会话目录: ${SESSIONS_DIR}`);
     // 发现文件：写入运行时目录，让本机 Agent 会话能发现元枢入口
     try {

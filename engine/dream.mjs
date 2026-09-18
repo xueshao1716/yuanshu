@@ -200,6 +200,21 @@ export function writeDreamLog(wsRoot, kind, result, { now = new Date(), fsMod = 
   } catch (e) { return { ok: false, error: String(e?.message || e).slice(0, 120) }; }
 }
 
+/**
+ * **在线**记一条技能选择（2026-09-18 第二轮）。
+ *
+ * 为什么要在线记：头一版只能"回填"——扫会话文件把历史里的 activate_skill 挖出来。
+ * 结果是**数据饿死**：做梦、授权状、回放全都建好了，却因为只有 1~2 条 episode 而永远得不出结论。
+ * 机制不缺，缺的是"每次真发生过的事都被记下来"。这里就是那个记录点：
+ * 谁在什么任务句上激活了哪个技能，发生时立刻落一条。
+ */
+export function recordSkillChoice(wsRoot, { input, skill, source = "live", at = new Date(), fsMod = fs } = {}) {
+  const msg = String(input || "").trim();
+  const name = String(skill || "").trim();
+  if (!msg || !name) return { ok: false, reason: "缺 input 或 skill" };
+  return appendEpisodes(wsRoot, [{ kind: "skill-match", at: new Date(at).toISOString(), input: msg.slice(0, 500), choice: name, choices: [name], source }], fsMod);
+}
+
 /** 从会话文件里把"当时真的 activate 了哪个技能"挖出来，做成可回放的 episode。
  *  同一个任务句上激活了多个技能时**合并成一条**（真值是一组，不是一条）。 */
 export function skillEpisodesFromSessions(sessionFiles, { readFile = (f) => fs.readFileSync(f, "utf8"), limit = 500 } = {}) {
