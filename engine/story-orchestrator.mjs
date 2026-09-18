@@ -1,5 +1,11 @@
 import crypto from 'node:crypto';
 import { recordDelegation } from "./trace.mjs";
+
+// 轨迹要落到**工作区**，不是进程 cwd（server 的 cwd 是产品仓库本身）。
+// 2026-09-18 真机事故：这里用 process.cwd() 兜底，把 8 个分镜轨迹写进了 D:\pi-web\记忆\。
+// 现在改成显式注入：没注入就不记（宁缺勿错）。
+let _traceWsRoot = "";
+export function initStoryTrace({ wsRoot = "" } = {}) { _traceWsRoot = String(wsRoot || ""); }
 import fsp from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
@@ -120,7 +126,7 @@ export function appendRun(scene, run) {
     const ok = !['failed', 'error', 'stopped', 'interrupted'].includes(String(run?.status || ''));
     const ms = Number(run?.durationMs)
       || (run?.createdAt && run?.finishedAt ? (new Date(run.finishedAt).getTime() - new Date(run.createdAt).getTime()) : 0);
-    recordDelegation(scene?.__wsRoot || process.cwd(), {
+    recordDelegation(scene?.__wsRoot || _traceWsRoot || "", {
       kind: `story-${run?.kind || 'image'}`,
       task: [scene?.title, run?.beatNo ? `第 ${run.beatNo} 段` : '', run?.beatId || ''].filter(Boolean).join(' · ') || run?.id || '',
       durationMs: ms,

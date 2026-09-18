@@ -37,6 +37,7 @@ export function isCanonicalTarget(targetPath, { wsRoot = "" } = {}) {
 const idFor = (target) => `s-${crypto.createHash("sha256").update(String(target)).digest("hex").slice(0, 10)}`;
 
 export function stageWrite(wsRoot, { target, content, reason = "", now = new Date(), fsMod = fs } = {}) {
+  if (!wsRoot) return { ok: false, error: "缺 wsRoot：不确定工作区时不许落草案" };
   const t = path.resolve(String(target || ""));
   if (!t) return { ok: false, error: "缺 target" };
   const dir = stagingDir(wsRoot);

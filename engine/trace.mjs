@@ -167,6 +167,9 @@ export function traceIdForKey(key) {
 }
 
 export function recordAttempt(wsRoot, { kind = "attempt", task = "", traceKey = "", durationMs = 0, ok = false, digest = "", now = new Date(), fsMod = fs } = {}) {
+  // 没给工作区就**不写**：process.cwd() 兜底曾经把分镜轨迹写进了产品仓库（真机发现）。
+  // 宁可少记一条，也不许写错地方。
+  if (!wsRoot) return { ok: false, error: "缺 wsRoot：不确定工作区时不许落轨迹" };
   const key = traceKey || `${kind}::${String(task).slice(0, 120)}`;
   const id = traceIdForKey(key);
   const existing = loadTrace(wsRoot, id, fsMod);
