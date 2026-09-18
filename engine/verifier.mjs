@@ -84,6 +84,73 @@ export function parseVerdict(text) {
 }
 
 /**
+ * **确定性**产物验证（不需要模型）：文件存在 / 体积合理 / 文件头对得上。
+ *
+ * 为什么要有它：模型验证轮适合判"做法对不对"，但"产物到底是不是一张真图/真视频"
+ * 不需要模型——查字节就够，而且**比模型可靠**（模型看不到像素，这是我在真机上学到的：
+ * 曾宣称"字全对"却被用户当场戳穿）。分镜出片这种长任务就该用这一层兜。
+ *
+ * 判据（都来自实测的坑）：0 字节 / 几百字节的错误页 → FAIL；扩展名与魔数不符 → FAIL；
+ * 视频过小（<10KB）基本是截断流 → FAIL；文件缺失 → FAIL。
+ */
+export const MAGIC = Object.freeze({
+  png: [0x89, 0x50, 0x4e, 0x47],
+  jpg: [0xff, 0xd8, 0xff],
+  gif: [0x47, 0x49, 0x46],
+  webp: [0x52, 0x49, 0x46, 0x46],
+  mp4: [0x00, 0x00, 0x00],          // ftyp 在偏移 4，下面单独看
+  webm: [0x1a, 0x45, 0xdf, 0xa3],
+  wav: [0x52, 0x49, 0x46, 0x46],
+  mp3: [0x49, 0x44, 0x33],
+});
+
+export function verifyArtifactFiles(paths = [], { minBytes = 1024, videoMinBytes = 10 * 1024, fsMod = fs } = {}) {
+  const checks = [];
+  const failures = [];
+  let verified = 0;
+  for (const raw of paths) {
+    const p = String(raw || "");
+    if (!p) continue;
+    // URL 不在这一层的职责里（要验就得真抓一次）：跳过并如实标注，不判成"文件不存在"——
+    // 那是把"我没能力验"说成"东西是坏的"，两种错不是一回事。
+    if (/^https?:\/\//i.test(p)) { checks.push(`跳过 ${p}（这层只验本地文件，URL 需另抓）`); continue }
+    const ext = (p.split(".").pop() || "").toLowerCase();
+    const isVideo = ["mp4", "webm", "mov", "mkv"].includes(ext);
+    const floor = isVideo ? videoMinBytes : minBytes;
+    let st = null;
+    try { st = fsMod.statSync(p); } catch { failures.push(`${p}：文件不存在`); checks.push(`stat ${p} → ENOENT`); continue }
+    if (st.isDirectory()) { failures.push(`${p}：是目录不是文件`); continue }
+    if (st.size < floor) { failures.push(`${p}：只有 ${st.size} 字节（${isVideo ? "视频" : "文件"}至少要有 ${floor}）`); checks.push(`size ${p} = ${st.size}`); continue }
+    let head = null;
+    try { head = fsMod.readFileSync(p).subarray(0, 12) } catch { failures.push(`${p}：读不出内容`); continue }
+    const looks = {
+      png: MAGIC.png.every((b, i) => head[i] === b),
+      jpg: MAGIC.jpg.every((b, i) => head[i] === b),
+      gif: MAGIC.gif.every((b, i) => head[i] === b),
+      webp: MAGIC.webp.every((b, i) => head[i] === b),
+      webm: MAGIC.webm.every((b, i) => head[i] === b),
+      mp4: head.subarray(4, 8).toString("ascii") === "ftyp",
+      mov: head.subarray(4, 8).toString("ascii") === "ftyp",
+      wav: MAGIC.wav.every((b, i) => head[i] === b),
+      mp3: MAGIC.mp3.every((b, i) => head[i] === b),
+    };
+    if (looks[ext] === false) {
+      failures.push(`${p}：扩展名 .${ext} 与文件头不符（可能是错误页或被改名）`);
+      checks.push(`magic ${p} = ${[...head.subarray(0, 4)].map((b) => b.toString(16)).join(" ")}`);
+      continue;
+    }
+    checks.push(`ok ${p}（${st.size} 字节${looks[ext] === true ? `，.${ext} 文件头对得上` : "，未知类型未校验头"}）`);
+    verified++;
+  }
+  return {
+    verdict: failures.length ? "FAIL" : verified > 0 ? "PASS" : "UNVERIFIED",
+    evidence: failures.length ? failures.join("；") : checks.join("；") || "没有可验证的产物路径",
+    checks,
+    failures,
+  };
+}
+
+/**
  * 跑一次独立验证。
  * `runTurn(prompt)` 由调用方注入（server 里是 unifiedChat）；wsRoot + traceId 给了就落一个验证节点。
  * 返回 { ok, verdict, evidence, checks, tampered, changed:[...] }。

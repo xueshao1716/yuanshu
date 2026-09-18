@@ -1,5 +1,6 @@
 import crypto from 'node:crypto';
 import { recordDelegation } from "./trace.mjs";
+import { verifyArtifactFiles } from "./verifier.mjs";
 
 // 轨迹要落到**工作区**，不是进程 cwd（server 的 cwd 是产品仓库本身）。
 // 2026-09-18 真机事故：这里用 process.cwd() 兜底，把 8 个分镜轨迹写进了 D:\pi-web\记忆\。
@@ -131,7 +132,7 @@ export function appendRun(scene, run) {
       task: [scene?.title, run?.beatNo ? `第 ${run.beatNo} 段` : '', run?.beatId || ''].filter(Boolean).join(' · ') || run?.id || '',
       durationMs: ms,
       ok,
-      digest: String(run?.degradation || run?.error || run?.status || ''),
+      digest: String(verifyNote || run?.degradation || run?.error || run?.status || ''),
     });
   } catch { /* 记录失败不影响出片 */ }
   return scene;
