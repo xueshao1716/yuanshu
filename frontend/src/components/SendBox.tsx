@@ -22,6 +22,10 @@ interface Props {
   onVoice?: (dataB64: string, format: string) => void
   voiceBusy?: boolean
   onVoiceTextReady?: (fn: (t: string) => void) => void
+  /** 当前会话：上传必须带上它，否则文件会被挂到别的会话上（真机 bug：传上去聊天里不显示） */
+  sessionId?: string | null
+  /** 上传成功后通知外层刷新消息列表，让文件卡片立刻出现在对话里 */
+  onUploaded?: () => void
 }
 
 async function blobToWavBase64(blob: Blob): Promise<string> {
@@ -62,7 +66,7 @@ async function blobToWavBase64(blob: Blob): Promise<string> {
   return btoa(bin)
 }
 
-export default function SendBox({ streaming, onStop, onSend, onCommand, onVoice, voiceBusy, onVoiceTextReady }: Props) {
+export default function SendBox({ streaming, onStop, onSend, onCommand, onVoice, voiceBusy, onVoiceTextReady, sessionId, onUploaded }: Props) {
   const taRef = useRef<HTMLTextAreaElement>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
   const [value, setValue] = useState('')
@@ -193,10 +197,12 @@ export default function SendBox({ streaming, onStop, onSend, onCommand, onVoice,
       const buf = await f.arrayBuffer()
       let bin = ''; const bytes = new Uint8Array(buf)
       for (let i = 0; i < bytes.length; i += 0x8000) bin += String.fromCharCode(...bytes.subarray(i, i + 0x8000))
-      const d = await WsApi.upload(f.name, btoa(bin))
+      const d = await WsApi.upload(f.name, btoa(bin), sessionId || undefined)
       if (d.path) {
         const rd = await WsApi.read(d.path)
         setFiles(prev => [...prev, { path: d.path!, content: rd.content || '' }])
+        // 服务端刚往这个会话追加了一条带 file 的消息 → 让外层立刻刷新，卡片才会出现在对话里
+        try { onUploaded?.() } catch {}
       }
     } catch {} finally { setUploading(false); if (fileInputRef.current) fileInputRef.current.value = '' }
   }

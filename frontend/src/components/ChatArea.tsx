@@ -1099,7 +1099,8 @@ export default function ChatArea({ compactHeader, rightPanel, onRightPanel }: {
       <div className="mobile-composer border-t border-pi-border bg-pi-bg1 px-3 sm:px-4 py-2.5 flex-shrink-0">
         <div className="chat-reading-column mx-auto">
           <SendBox key={currentSessionId ?? 'none'} streaming={!!stream} onStop={stop} onSend={send} onCommand={runCommand}
-            voiceBusy={voiceBusy} onVoice={handleVoice} onVoiceTextReady={fn => { voiceTextRef.current = fn }} />
+            voiceBusy={voiceBusy} onVoice={handleVoice} onVoiceTextReady={fn => { voiceTextRef.current = fn }}
+            sessionId={currentSessionId} onUploaded={() => { void mutateMsgs() }} />
         </div>
       </div>
     </div>

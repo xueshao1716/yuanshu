@@ -2546,7 +2546,11 @@ const API_ROUTES = [
           await entry.sm.appendMessage({ role: "assistant", content: [] });
         } catch {}
       }
-      return json(res, 200, { ok: true, name, path: rel, size: buf.length, url: `/api/ws/file?path=${encodeURIComponent(rel)}`, sessionId: entry?.sm?.getSessionId() || null });
+      // 2026-09-18：没带 sessionId 时服务端只能"猜"挂到哪个会话（最近未命名 / 新建一个），
+      // 猜错的后果就是**文件卡片落进用户没看的那个会话**——真机 bug"传上去聊天界面不显示"。
+      // 猜的规则不能改（TUI 等调用方依赖它），但要把"挂到哪儿、是不是猜的"如实返回，
+      // 让调用方能判断"这不是我这个会话的附件"，而不是靠猜。
+      return json(res, 200, { ok: true, name, path: rel, size: buf.length, url: `/api/ws/file?path=${encodeURIComponent(rel)}`, sessionId: entry?.sm?.getSessionId() || null, attachedTo: entry?.sm?.getSessionId() || null, guessedSession: !sessionId });
     } catch (e) { return json(res, 500, { error: String(e.message || e).slice(0, 100) }); }
   }],
   // ── 技能/搜索/Git/文件 ──
