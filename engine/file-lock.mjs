@@ -123,6 +123,30 @@ export const LOCK_WAIT_MS = 15_000;    // 等锁上限；超了就如实失败
 const LOCK_POLL_MIN_MS = 40;
 const LOCK_POLL_MAX_MS = 160;
 
+// ── 2026-09-18：两处加固，都是从"5 个子进程都成功、计数器却少 1"那次事故里来的 ──
+//
+// 那次的形态是：所有子进程退出码都是 0（都以为自己写成功），计数器只有 4。
+// 说明互斥**真的被破了一次**，不是"慢"。两条可疑路径都堵上：
+//   ① **慢持有者被当成死的偷走**：陈旧判定看的是锁文件 mtime，机器一忙，
+//      持有者在临界区里被挂起，mtime 不更新就"变老"了。现在持有者每 5 秒**摸一下 mtime**
+//      （心跳），活着就不会被判成陈旧。
+//   ② **释放时误删别人的锁**：原来只比对 pid/host，理论上存在"读到我 → 别人接管 → 我删掉他的"
+//      这种 TOCTOU 窗口。现在每次加锁带一个随机 token，释放时**只删 token 还是自己的那一把**。
+// 另外留了 `lockStats()`：万一再犯，能立刻看出走的是哪条路径，不用再猜。
+let _staleSteals = 0;
+let _timeouts = 0;
+const _stealReasons = [];
+
+/** 诊断用：陈旧接管 / 等锁超时的次数（进程内累计），以及最近几次接管的**理由**。 */
+export function lockStats() {
+  return { staleSteals: _staleSteals, timeouts: _timeouts, stealReasons: _stealReasons.slice(-5) };
+}
+
+/** 心跳间隔：跟着陈旧阈值走，测试里把 staleMs 调小时心跳也跟着变快。 */
+function heartbeatMs(staleMs) {
+  return Math.max(200, Math.min(5_000, Math.floor(staleMs / 3)));
+}
+
 export class FileLockTimeoutError extends Error {
   constructor(target, holder) {
     super(`等锁超时：另一个进程正在写这个文件${holder ? `（pid ${holder.pid}，${holder.at}）` : ""}，请稍后重试`);
@@ -147,7 +171,7 @@ function sleep(ms) {
 function readHolder(lockFile) {
   try {
     const j = JSON.parse(fs.readFileSync(lockFile, "utf8"));
-    return { pid: Number(j.pid) || 0, host: String(j.host || ""), at: String(j.at || ""), target: String(j.target || "") };
+    return { pid: Number(j.pid) || 0, host: String(j.host || ""), at: String(j.at || ""), target: String(j.target || ""), token: String(j.token || "") };
   } catch { return null; }
 }
 
@@ -164,16 +188,41 @@ function holderAlive(holder) {
  * 加锁是先 openSync(wx) 创建、后写元数据，两步之间别的进程会看到一个空锁文件。
  * 第一版把空文件判成陈旧并删掉，结果两个进程同时持锁——多进程测试当场抓到。
  * 所以元数据缺失一律按"正在初始化"处理，只有够老（或同机 pid 确实不在）才接管。
+ *
+ * 返回**理由**而不只是布尔：2026-09-18 那次"两把锁都进去了"就是靠理由才定位到的。
  */
 function lockIsStale(lockFile, holder, staleMs) {
   let age = Infinity;
-  try { age = Date.now() - fs.statSync(lockFile).mtimeMs; } catch { return true; } // 锁文件没了
-  if (age > staleMs) return true;
-  if (!holder) return false;
-  return !holderAlive(holder);
+  try { age = Date.now() - fs.statSync(lockFile).mtimeMs; } catch { return { stale: true, reason: "锁文件已不存在", ageMs: null, token: null, nothingToSteal: true }; }
+  if (age > staleMs) return { stale: true, reason: "超过陈旧阈值", ageMs: age, token: holder?.token || "" };
+  if (!holder) return { stale: false, reason: "元数据还没写完（按初始化中处理）", ageMs: age, token: "" };
+  const alive = holderAlive(holder);
+  return alive
+    ? { stale: false, reason: "持有者还活着", ageMs: age, token: holder.token || "" }
+    : { stale: true, reason: "持有者已不在（同机 pid 查不到）", ageMs: age, token: holder.token || "" };
 }
 
-function tryAcquire(lockFile, target) {
+/**
+ * 判定"该不该删这把陈旧锁"。**这一步单独抽出来是因为它是 2026-09-18 那次丢更新的真凶**：
+ *
+ *   进程 A 释放 → 锁文件消失；进程 B 恰好在判定"陈旧"（statSync 抛 ENOENT → 判成陈旧）→
+ *   B 无条件 `unlinkSync(lockFile)`；而这期间进程 C 已经抢到了新锁 →
+ *   **B 把 C 刚创建的锁删了** → B 再抢一次就成功了 → B 与 C 同时进临界区 → 丢一次更新。
+ *   症状正是"两个进程都记了一次接管、都读到同一个 n"。
+ *
+ * 规矩：① 文件本来就不存在 → **什么都别删**，直接回去重抢（O_EXCL 会决出唯一赢家）；
+ *      ② 确实有一把陈旧锁 → 删之前再确认它还是**刚才判定的那一把**（token 一致），
+ *         否则说明它已经被别人替换成了新锁，碰不得。
+ */
+export function stealAction({ verdict, currentHolder }) {
+  if (!verdict?.stale) return "wait";
+  if (verdict.nothingToSteal) return "skip-unlink";          // ① 没有锁可删，绝不 unlink
+  const judged = verdict.token || "";
+  const now = currentHolder?.token || "";
+  return judged === now ? "unlink" : "skip-unlink";          // ② 只删自己判定过的那一把
+}
+
+function tryAcquire(lockFile, target, token) {
   let fd;
   try {
     fd = fs.openSync(lockFile, "wx", 0o600);   // O_CREAT|O_EXCL|O_WRONLY，各平台原子
@@ -182,7 +231,7 @@ function tryAcquire(lockFile, target) {
     throw error;
   }
   try {
-    fs.writeSync(fd, JSON.stringify({ pid: process.pid, host: os.hostname(), at: new Date().toISOString(), target }));
+    fs.writeSync(fd, JSON.stringify({ pid: process.pid, host: os.hostname(), at: new Date().toISOString(), target, token }));
   } finally {
     fs.closeSync(fd);
   }
@@ -193,36 +242,68 @@ function tryAcquire(lockFile, target) {
  * 跨进程互斥。拿不到锁超时后**抛 FileLockTimeoutError**，交给上层如实告诉用户；
  * 绝不在没拿到锁的情况下闷头写——那正是要防的事。
  */
-export async function withCrossProcessLock(targetPath, work, { waitMs = 0, staleMs = LOCK_STALE_MS } = {}) {
+export async function withCrossProcessLock(targetPath, work, { waitMs = 0, staleMs = LOCK_STALE_MS, heartbeat = true } = {}) {
   const budget = waitMs > 0 ? waitMs : (_waitMs > 0 ? _waitMs : LOCK_WAIT_MS);
   const lockFile = crossProcessLockPath(targetPath);
   fs.mkdirSync(path.dirname(lockFile), { recursive: true, mode: 0o700 });
   const deadline = Date.now() + budget;
+  const token = crypto.randomUUID();
   let lastHolder = null;
 
   for (;;) {
-    if (tryAcquire(lockFile, targetPath).ok) break;
+    if (tryAcquire(lockFile, targetPath, token).ok) break;
 
     const holder = readHolder(lockFile);
     lastHolder = holder || lastHolder;
     // 陈旧接管：持有者可能崩了。删掉再抢——抢仍然是 O_EXCL 原子，
     // 两个进程同时判定陈旧也只有一个能创建成功。
-    if (lockIsStale(lockFile, holder, staleMs)) {
-      try { fs.unlinkSync(lockFile); } catch {}
+    const verdict = lockIsStale(lockFile, holder, staleMs);
+    if (verdict.stale) {
+      _staleSteals++;
+      const reason = {
+        at: new Date().toISOString(),
+        why: verdict.reason,
+        ageMs: verdict.ageMs,
+        holder: holder ? { pid: holder.pid, host: holder.host, at: holder.at } : null,
+        selfPid: process.pid,
+      };
+      _stealReasons.push(reason);
+      if (_stealReasons.length > 20) _stealReasons.shift();
+      // 删之前按规矩再确认一次（见 stealAction 的注释：无条件 unlink 会删掉别人刚建的锁）
+      const action = stealAction({ verdict, currentHolder: readHolder(lockFile) });
+      if (action === "unlink") {
+        console.log(`[file-lock] 接管陈旧锁 ${path.basename(lockFile)}：${verdict.reason}（age=${verdict.ageMs}ms, holder=${holder ? `pid ${holder.pid}@${holder.host}` : "无元数据"}, 目标 ${path.basename(String(targetPath))}）`);
+        try { fs.unlinkSync(lockFile); } catch {}
+      } else {
+        console.log(`[file-lock] 判定陈旧但不删（${verdict.reason} → ${action}）：lock=${path.basename(lockFile)} 目标 ${path.basename(String(targetPath))}`);
+      }
       continue;                       // 立刻重抢，不睡
     }
-    if (Date.now() >= deadline) throw new FileLockTimeoutError(targetPath, holder);
+    if (Date.now() >= deadline) {
+      _timeouts++;
+      throw new FileLockTimeoutError(targetPath, holder);
+    }
     await sleep(LOCK_POLL_MIN_MS + Math.floor(Math.random() * (LOCK_POLL_MAX_MS - LOCK_POLL_MIN_MS)));
+  }
+
+  // 心跳：持有期间持续摸 mtime，免得"我只是慢"被判成"我死了"而被别人接管。
+  let beat = null;
+  if (heartbeat) {
+    beat = setInterval(() => {
+      try { const now = new Date(); fs.utimesSync(lockFile, now, now); } catch { /* 锁已被接管就算了 */ }
+    }, heartbeatMs(staleMs));
+    beat.unref?.();
   }
 
   try {
     return await work();
   } finally {
-    // 只删自己创建的：万一被陈旧接管过，别把新持有者的锁删了
+    if (beat) clearInterval(beat);
+    // 只删**自己这一把**：按 token 认，比 pid/host 更严格（pid 可能被复用，
+    // 也可能出现"我读到的是自己的锁、但期间已被接管"的窗口）。
     const holder = readHolder(lockFile);
-    if (!holder || (holder.pid === process.pid && holder.host === os.hostname())) {
-      try { fs.unlinkSync(lockFile); } catch {}
-    }
+    const mine = holder ? (holder.token ? holder.token === token : (holder.pid === process.pid && holder.host === os.hostname())) : false;
+    if (mine) { try { fs.unlinkSync(lockFile); } catch {} }
   }
 }
 

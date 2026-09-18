@@ -14,7 +14,7 @@ import { pathToFileURL } from "node:url";
 
 import {
   initFileLock, withFileLock, canonicalFilePath, usingSharedFileQueue, activeFileLockCount,
-  withCrossProcessLock, crossProcessLockPath, FileLockTimeoutError, lockDir,
+  withCrossProcessLock, crossProcessLockPath, FileLockTimeoutError, lockDir, lockStats, stealAction,
 } from "../../engine/file-lock.mjs";
 import { spawn } from "node:child_process";
 import { createUnifiedToolExecutor } from "../../engine/tools/unified-tools.mjs";
@@ -192,23 +192,56 @@ const LOCK_MODULE_URL = new URL("../../engine/file-lock.mjs", import.meta.url).h
 
 /** 子进程脚本：在锁保护下做 读 → 睡一会儿 → 写 的非原子自增。
  *  必须等起跑线（startAt）再动手，否则 spawn 间隔比工作窗口还长，几个进程压根不会重叠，
- *  "对照"就证明不了任何东西（第一版正是这么失败的）。 */
+ *  "对照"就证明不了任何东西（第一版正是这么失败的）。
+ *
+ *  2026-09-18 补：每个子进程把自己"读到什么、写了什么、窗口是几号到几号、用的哪个锁文件"
+ *  追加进 trace 文件。这条用例偶尔会在机器很忙时红一次（形态：5 个进程都退出码 0，
+ *  计数器却只有 4），而**光看"4 !== 5"什么都诊断不出来**——所以把现场留下来，
+ *  断言失败时把 trace 一并打出来。 */
 function childScript({ useLock }) {
   return `
 import fs from 'node:fs';
-import { withFileLock, initFileLock } from ${JSON.stringify(LOCK_MODULE_URL)};
-const [counter, lockDir, startAtRaw] = process.argv.slice(1);
+import { withFileLock, initFileLock, crossProcessLockPath, lockStats } from ${JSON.stringify(LOCK_MODULE_URL)};
+const [counter, lockDir, startAtRaw, trace] = process.argv.slice(1);
 initFileLock({ dir: lockDir });
+const traceLog = (o) => { if (!trace) return; try { fs.appendFileSync(trace, JSON.stringify(o) + '\\n'); } catch {} };
+traceLog({ ev: 'boot', pid: process.pid, lockPath: crossProcessLockPath(counter) });
 const startAt = Number(startAtRaw);
 while (Date.now() < startAt) await new Promise(r => setTimeout(r, 2));   // 等起跑线
 const bump = async () => {
+  const t0 = Date.now();
   const n = Number(fs.readFileSync(counter, 'utf8') || '0');
   await new Promise(r => setTimeout(r, 60));   // 交错窗口
   fs.writeFileSync(counter, String(n + 1));
+  traceLog({ ev: 'write', pid: process.pid, t0, t1: Date.now(), read: n, wrote: n + 1 });
 };
-if (${useLock}) await withFileLock(counter, bump);
-else await bump();
+try {
+  if (${useLock}) await withFileLock(counter, bump);
+  else await bump();
+  traceLog({ ev: 'done', pid: process.pid, ok: true, stats: lockStats() });
+} catch (e) {
+  traceLog({ ev: 'done', pid: process.pid, ok: false, err: String(e && e.message || e).slice(0, 140), stats: lockStats() });
+  process.exitCode = 1;
+}
 `;
+}
+
+/** trace 的读法：失败时给出一眼能看的现场（锁路径是否唯一、有没有窗口重叠）。 */
+function readTrace(trace) {
+  try {
+    const lines = fs.readFileSync(trace, "utf8").trim().split("\n").filter(Boolean).map(l => JSON.parse(l));
+    const writes = lines.filter(l => l.ev === "write").sort((a, b) => a.t0 - b.t0);
+    const lockPaths = [...new Set(lines.filter(l => l.ev === "boot").map(l => l.lockPath))];
+    const overlaps = [];
+    for (let i = 0; i < writes.length; i++) for (let j = i + 1; j < writes.length; j++) {
+      const a = writes[i], b = writes[j];
+      if (a.t0 < b.t1 && b.t0 < a.t1) overlaps.push(`pid ${a.pid}(读${a.read}) × pid ${b.pid}(读${b.read})`);
+    }
+    return `锁文件 ${lockPaths.length} 种${lockPaths.length > 1 ? "（← 两把锁！）" : ""}；`
+      + `写入序列 ${writes.map(w => `${w.pid}:读${w.read}→写${w.wrote}`).join(" ") || "（没有写入）"}；`
+      + `窗口重叠 ${overlaps.length ? overlaps.join("、") : "无"}；`
+      + `结束 ${lines.filter(l => l.ev === "done").map(d => `${d.pid}:ok=${d.ok}${d.stats?.staleSteals ? `/接管${d.stats.staleSteals}[${(d.stats.stealReasons || []).map(r => r.why).join("+")}]` : ""}`).join(" ") || "（没有结束记录，可能有进程没跑完）"}`;
+  } catch (e) { return `（trace 读不出来：${String(e?.message || e).slice(0, 60)}）`; }
 }
 
 function runChildren(script, args, count) {
@@ -224,16 +257,135 @@ function runChildren(script, args, count) {
 /** 起跑线留足时间让所有子进程都启动完并进入等待。 */
 const startLine = () => String(Date.now() + 2000);
 
+// ── 2026-09-18：从"5 个子进程都成功、计数器却少 1"那次事故里补的三条 ──
+//
+// 那条用例只在机器加载很高时才红，说明是**把慢持有者当成死的接管了**。
+// 这里不用"等机器变忙"来复现，而是把陈旧阈值调小到几百毫秒、让临界区比它长——
+// 同一个机制被放大到必然发生，然后验证两件事：有心跳就不会被接管；没心跳就会（对照）。
+
+test("跨进程锁：临界区比陈旧阈值长时，有心跳就没人能接管（慢 ≠ 死）", async () => {
+  const dir = tmpdir("hb");
+  try {
+    fs.writeFileSync(path.join(dir, "counter.txt"), "0");
+    const target = path.join(dir, "counter.txt");
+    const order = [];
+    const before = lockStats().staleSteals;
+    // 第一把：临界区 1200ms，陈旧阈值 300ms —— 没有心跳时它 300ms 后就会被判"死了"
+    const first = withCrossProcessLock(target, async () => {
+      order.push("A-start");
+      await new Promise((r) => setTimeout(r, 1200));
+      order.push("A-end");
+    }, { staleMs: 300, waitMs: 8000 });
+    await new Promise((r) => setTimeout(r, 150));
+    const second = withCrossProcessLock(target, async () => { order.push("B-start"); }, { staleMs: 300, waitMs: 8000 });
+    await Promise.all([first, second]);
+    assert.deepEqual(order, ["A-start", "A-end", "B-start"], "B 必须等 A 走完（心跳保住了慢持有者）");
+    assert.equal(lockStats().staleSteals, before, "不该发生任何陈旧接管");
+  } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+});
+
+test("跨进程锁：对照——关掉心跳，同样的慢持有者确实会被接管（说明心跳不是摆设）", async () => {
+  const dir = tmpdir("hb-control");
+  try {
+    fs.writeFileSync(path.join(dir, "counter.txt"), "0");
+    const target = path.join(dir, "counter.txt");
+    const order = [];
+    const first = withCrossProcessLock(target, async () => {
+      order.push("A-start");
+      await new Promise((r) => setTimeout(r, 900));
+      order.push("A-end");
+    }, { staleMs: 250, heartbeat: false, waitMs: 8000 });
+    await new Promise((r) => setTimeout(r, 150));
+    const second = withCrossProcessLock(target, async () => { order.push("B-start"); }, { staleMs: 250, heartbeat: false, waitMs: 8000 });
+    await Promise.all([first, second]);
+    assert.ok(order.indexOf("B-start") < order.indexOf("A-end"), `没有心跳时 B 会在 A 结束前进来（实测顺序 ${order.join("→")}）`);
+  } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+});
+
+test("跨进程锁：释放只删自己那一把（token 认领），不误删别人的锁", async () => {
+  const dir = tmpdir("token");
+  try {
+    fs.writeFileSync(path.join(dir, "counter.txt"), "0");
+    const target = path.join(dir, "counter.txt");
+    const lockFile = crossProcessLockPath(target);
+    await withCrossProcessLock(target, async () => {
+      // 模拟"我持有期间锁被别人接管"：把锁文件换成另一个 token
+      fs.writeFileSync(lockFile, JSON.stringify({ pid: 999999, host: "other-host", at: new Date().toISOString(), target, token: "foreign" }));
+    });
+    assert.ok(fs.existsSync(lockFile), "别人那把锁必须还在——不能被我的 finally 删掉");
+    const holder = JSON.parse(fs.readFileSync(lockFile, "utf8"));
+    assert.equal(holder.token, "foreign");
+    fs.unlinkSync(lockFile);
+  } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+});
+
+test("跨进程锁：陈旧锁（持有者已死且够老）仍要能被接管，并记账", async () => {
+  const dir = tmpdir("stale");
+  try {
+    fs.writeFileSync(path.join(dir, "counter.txt"), "0");
+    const target = path.join(dir, "counter.txt");
+    const lockFile = crossProcessLockPath(target);
+    fs.mkdirSync(path.dirname(lockFile), { recursive: true });
+    fs.writeFileSync(lockFile, JSON.stringify({ pid: 999999, host: os.hostname(), at: "2000-01-01T00:00:00.000Z", target, token: "dead" }));
+    const old = new Date(Date.now() - 60_000);
+    fs.utimesSync(lockFile, old, old);
+    const before = lockStats().staleSteals;
+    let ran = false;
+    await withCrossProcessLock(target, async () => { ran = true; }, { staleMs: 300, waitMs: 5000 });
+    assert.equal(ran, true, "死掉持有者的锁必须能被接管，否则文件永远写不进去");
+    assert.equal(lockStats().staleSteals, before + 1, "接管要记账（下次再出问题能看出走的是哪条路径）");
+  } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+});
+
+// ── 2026-09-18 丢更新的真凶：接管分支**无条件**删锁 ──
+//
+// 现场（trace 抓到的）：两个子进程都记了一次"接管"，且都读到同一个 n，最终少 1。
+// 机制：A 释放 → 锁文件消失；B 恰好在判定陈旧（statSync 抛 ENOENT → 判成陈旧）→ 无条件
+// `unlinkSync(lockFile)`；而这期间 C 已经抢到了新锁 → B 把 C 刚建的锁删了 → B 再抢就成功 →
+// B 与 C 同时进临界区。修法是"没锁可删就别删；要删先确认还是刚才判定过的那个 token"。
+test("接管决策：没有锁可删时绝不 unlink（这就是丢更新的真凶）", () => {
+  assert.equal(stealAction({ verdict: { stale: false }, currentHolder: null }), "wait");
+  // statSync 抛 ENOENT：没有锁可删 —— 老代码在这里无条件 unlink，删掉了别人刚建的新锁
+  assert.equal(stealAction({ verdict: { stale: true, nothingToSteal: true, token: null }, currentHolder: null }), "skip-unlink");
+  assert.equal(stealAction({ verdict: { stale: true, nothingToSteal: true, token: null }, currentHolder: { token: "brand-new" } }), "skip-unlink");
+  // 真有一把陈旧锁：只在"还是刚才那一把"时才删
+  assert.equal(stealAction({ verdict: { stale: true, token: "old" }, currentHolder: { token: "old" } }), "unlink");
+  assert.equal(stealAction({ verdict: { stale: true, token: "old" }, currentHolder: { token: "new" } }), "skip-unlink");
+});
+
+test("跨进程锁：别人持有的新鲜锁绝不能被删（不变量）", async () => {
+  const dir = tmpdir("fresh");
+  try {
+    fs.writeFileSync(path.join(dir, "counter.txt"), "0");
+    const target = path.join(dir, "counter.txt");
+    const lockFile = crossProcessLockPath(target);
+    fs.mkdirSync(path.dirname(lockFile), { recursive: true });
+    // 一个"活着"的持有者（用本进程 pid，pid 查得到 → 不该被判陈旧）
+    fs.writeFileSync(lockFile, JSON.stringify({ pid: process.pid, host: os.hostname(), at: new Date().toISOString(), target, token: "fresh" }));
+    await assert.rejects(
+      withCrossProcessLock(target, async () => { throw new Error("不该进来"); }, { waitMs: 600, staleMs: 30_000 }),
+      (e) => e instanceof FileLockTimeoutError,
+      "持有者还活着时必须等锁超时，而不是接管",
+    );
+    assert.ok(fs.existsSync(lockFile), "超时退出也不能删掉别人的锁");
+    assert.equal(JSON.parse(fs.readFileSync(lockFile, "utf8")).token, "fresh");
+    fs.unlinkSync(lockFile);
+  } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+});
+
+
 test("跨进程互斥：多个进程各做一次非原子自增，一个都不丢", async () => {
   const dir = tmpdir("xproc");
   try {
     const lockRoot = path.join(dir, "locks");
     const counter = path.join(dir, "counter.txt");
+    const trace = path.join(dir, "trace.jsonl");
     fs.writeFileSync(counter, "0");
     const N = 5;
-    await runChildren(childScript({ useLock: true }), [counter, lockRoot, startLine()], N);
-    assert.equal(Number(fs.readFileSync(counter, "utf8")), N,
-      `${N} 个子进程都应成功自增；少于 ${N} 说明锁没挡住跨进程交错`);
+    await runChildren(childScript({ useLock: true }), [counter, lockRoot, startLine(), trace], N);
+    const final = Number(fs.readFileSync(counter, "utf8"));
+    assert.equal(final, N,
+      `${N} 个子进程都应成功自增；少于 ${N} 说明锁没挡住跨进程交错。\n现场：${readTrace(trace)}`);
   } finally { fs.rmSync(dir, { recursive: true, force: true }); }
 });
 
