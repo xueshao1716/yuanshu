@@ -110,6 +110,7 @@ import { composeTimeTaskMessages, timeTaskReadTools, recordReflectionActions, ye
 import { planReflectionExecution, buildActionExecutionPrompt, parseActionResult, recordActionAttempt, summarizeExecution, runOnTheSpotFix } from "./engine/reflection-exec.mjs";
 import { appendEpisodes, loadEpisodes, dream, writeDreamLog, skillEpisodesFromSessions, dreamPaths, currentWeights, promoteWeights, resetWeights } from "./engine/dream.mjs";
 import { grant, revoke, loadCharter, autoUsedToday, loadLedger } from "./engine/autonomy.mjs";
+import { listTraces, loadTrace, replayAcrossTraces, candidatePolicies } from "./engine/trace.mjs";
 import { MATCH_WEIGHTS } from "./engine/yuanshu-protocol.mjs";
 import { sanitizeSessionFile } from "./engine/session-sanitize.mjs";
 import { createCorsPolicy } from "./engine/cors-policy.mjs";
@@ -2119,6 +2120,21 @@ const API_ROUTES = [
       }
     }
     json(res, 200, result);
+  }],
+  // ── 探索轨迹（2026-09-18）：把"试了哪些路、花了多少、结果如何"记成可回放的树 ──
+  // 做梦的头一版只能回放"选哪个技能"，因为探索过程没留下结构化轨迹；这一版补上那一半。
+  ["GET", "/api/trace/status", (res) => {
+    const traces = listTraces(WS_ROOT, { limit: 50 });
+    json(res, 200, { ok: true, count: traces.length, recent: traces.slice(0, 10) });
+  }],
+  ["POST", "/api/trace/replay", async (res, req) => {
+    // 在**已记录的轨迹**上回放候选探索策略（现役 = 当时真这么做的那条）：
+    // 只有"每条轨迹都不更差、且至少一条更省"才算赢——与技能那版同一套规矩。
+    const b = await readBody(req).catch(() => ({}));
+    const ids = Array.isArray(b?.ids) ? b.ids : listTraces(WS_ROOT, { limit: 50 }).map((t) => t.id);
+    const traces = ids.map((id) => loadTrace(WS_ROOT, id)).filter(Boolean);
+    const result = replayAcrossTraces(traces, candidatePolicies(), { incumbentId: "recorded" });
+    json(res, 200, { ...result, tracesUsed: traces.length });
   }],
   // ── 授权状（2026-09-18）：元枢自己判断"这件事我能不能自己定" ──
   ["GET", "/api/autonomy", (res) => {

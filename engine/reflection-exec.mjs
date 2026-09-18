@@ -16,6 +16,7 @@
 import fs from "node:fs";
 import { atomicWriteText } from "./atomic-io.mjs";
 import { promisePaths, loadPromises, closePromise } from "./promises.mjs";
+import { openTrace, addNode, closeTrace } from "./trace.mjs";
 
 export const ACTION_KINDS = Object.freeze(["fix", "track", "ask"]);
 
@@ -187,8 +188,12 @@ export function takeOnTheSpotBudget(key, { max = ON_THE_SPOT_MAX, windowMs = ON_
 /**
  * 当场修一条问题。核心逻辑（可单测）：红线 → 拒绝；预算 → 判定；执行轮 → 解析结果。
  * `runTurn(prompt)` 由调用方注入（server 里是 unifiedChat），这样这一层不依赖任何引擎。
+ *
+ * 2026-09-18：顺手记一条**探索轨迹**（engine/trace.mjs）——"试了什么动作、花了多久、结果如何"
+ * 落成可回放的节点。有了它，"试几次就放弃/先试哪条"这类探索策略才有可能离线回放比较；
+ * 只写文本日志是回放不了的。wsRoot 没给就跳过记录（纯单测场景）。
  */
-export async function runOnTheSpotFix({ problem, runTurn, sessionKey = "anon", now = Date.now(), store = budgets, max = ON_THE_SPOT_MAX, windowMs = ON_THE_SPOT_WINDOW_MS } = {}) {
+export async function runOnTheSpotFix({ problem, runTurn, sessionKey = "anon", now = Date.now(), store = budgets, max = ON_THE_SPOT_MAX, windowMs = ON_THE_SPOT_WINDOW_MS, wsRoot = "" } = {}) {
   const text = String(problem || "").trim();
   const cls = classifyAction({ text, kind: "fix" });
   if (!cls.executable) {
@@ -203,6 +208,14 @@ export async function runOnTheSpotFix({ problem, runTurn, sessionKey = "anon", n
   const budget = takeOnTheSpotBudget(sessionKey, { max, windowMs, now, store });
   if (!budget.ok) return { ok: false, refused: true, reason: budget.reason, text: `${budget.reason}。请把这条问题写进结论里交给用户决定。` };
   let result = null;
+  let traceId = "";
+  if (wsRoot) {
+    try {
+      const opened = openTrace(wsRoot, { kind: "fix-attempt", goal: text });
+      if (opened?.ok) traceId = opened.trace.id;
+    } catch { /* 记录失败不影响修 */ }
+  }
+  const startedAt = Date.now();
   try {
     const reply = await runTurn(buildActionExecutionPrompt({ text }, { ymd: "" }));
     result = parseActionResult(reply);
@@ -210,6 +223,12 @@ export async function runOnTheSpotFix({ problem, runTurn, sessionKey = "anon", n
     result = { status: "failed", evidence: `执行轮异常：${String(e?.message || e).slice(0, 140)}`, files: [], summary: "" };
   }
   if (!result) result = { status: "failed", evidence: "执行轮没有按契约给出结果（缺 JSON 块或 status 不合法）", files: [], summary: "" };
+  if (traceId) {
+    try {
+      addNode(wsRoot, traceId, { action: "执行轮", input: text, cost: Number(((Date.now() - startedAt) / 1000).toFixed(2)), outcome: result.status, score: result.status === "done" ? 1 : 0 });
+      closeTrace(wsRoot, traceId, { result: result.summary || result.status, score: result.status === "done" ? 1 : 0, cost: Number(((Date.now() - startedAt) / 1000).toFixed(2)) });
+    } catch { /* 记录失败不影响结论 */ }
+  }
   const label = { done: "已当场修好", blocked: "没做成（受阻）", failed: "没做成（失败）" }[result.status] || result.status;
   return {
     ok: result.status === "done",
