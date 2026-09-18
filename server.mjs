@@ -108,7 +108,8 @@ import { createCodeMode } from "./code-mode/code-mode.mjs";
 import { createTimeEngine } from "./engine/time-engine.mjs";
 import { composeTimeTaskMessages, timeTaskReadTools, recordReflectionActions, yesterdayYmd } from "./engine/time-task-run.mjs";
 import { planReflectionExecution, buildActionExecutionPrompt, parseActionResult, recordActionAttempt, summarizeExecution, runOnTheSpotFix } from "./engine/reflection-exec.mjs";
-import { appendEpisodes, loadEpisodes, dream, writeDreamLog, skillEpisodesFromSessions, dreamPaths } from "./engine/dream.mjs";
+import { appendEpisodes, loadEpisodes, dream, writeDreamLog, skillEpisodesFromSessions, dreamPaths, currentWeights, promoteWeights, resetWeights } from "./engine/dream.mjs";
+import { grant, revoke, loadCharter, autoUsedToday, loadLedger } from "./engine/autonomy.mjs";
 import { MATCH_WEIGHTS } from "./engine/yuanshu-protocol.mjs";
 import { sanitizeSessionFile } from "./engine/session-sanitize.mjs";
 import { createCorsPolicy } from "./engine/cors-policy.mjs";
@@ -1391,7 +1392,7 @@ async function handleChat(req, res, body) {
         );
       } catch {}
     }
-    const matchedSkills = matchSkillsForTask(message, builtinSkills);
+    const matchedSkills = matchSkillsForTask(message, builtinSkills, 3, currentWeights(WS_ROOT).weights || undefined);
       if (matchedSkills.length) {
         await entry.agent?.sendCustomMessage?.(
           { customType: "context", content: [{ type: "text", text: `本轮任务可能匹配元枢内置技能：${matchedSkills.map(s => s.name).join("、")}。对得上就 activate_skill 加载全文，对不上按你的判断继续。` }] },
@@ -2062,33 +2063,86 @@ const API_ROUTES = [
     appendEpisodes(WS_ROOT, skillEpisodesFromSessions(files));
     const episodes = loadEpisodes(WS_ROOT, { kind: "skill-match" });
     const skills = loadSkillIndex();
-    const rank = (ep, policy) => matchSkillsForTask(ep.input, skills, 3, policy.weights).map((s) => s.name);
+    // 现役 = 工作区里存档的那套（自决上线会写它）；没有存档才是出厂默认。
+    // 这样下一轮做梦的基线永远是"现在真的在跑什么"，而不是代码里的默认值。
+    const active = currentWeights(WS_ROOT);
+    const incumbentId = active.id || DREAM_POLICIES.incumbent;
+    const incumbentWeights = active.weights || null;
+    const maxRank = (ep, policy) => matchSkillsForTask(ep.input, skills, 3, policy.id === incumbentId ? incumbentWeights : policy.weights).map((s) => s.name);
     const result = dream({
       kind: "skill-match", episodes,
-      incumbentId: DREAM_POLICIES.incumbent,
-      candidates: DREAM_POLICIES.candidates,
-      rank,
+      incumbentId,
+      candidates: [{ id: DREAM_POLICIES.incumbent, weights: null }, ...DREAM_POLICIES.candidates].filter((c) => c.id !== incumbentId),
+      rank: maxRank,
     });
     if (result.ok) {
       writeDreamLog(WS_ROOT, "skill-match", result);
-      if (result.proposal) {
-        // 改匹配权重 = 改产品行为 → 按元枢的红线规矩走"请人拍板"，不自动上线
-        try {
-          recordPromises(WS_ROOT, [{
-            id: `d_${Date.now().toString(36)}`,
-            at: new Date().toISOString(),
-            sessionId: "dream",
-            text: result.proposal.text,
-            kind: "ask",
-            due: null,
-            status: "pending",
-            evidence: null,
-            closedAt: null,
-          }]);
-        } catch {}
+      // 2026-09-18：赢家不再一律塞给人批——按授权状分级（engine/autonomy.mjs）：
+      //   A/B 级（技术参数 + 有回放证据 + 可回滚 + 不碰红线）→ 元枢自己定，写账 + 留撤销点；
+      //   C 级（红线/口味/外部世界/不可回放）→ 只产出人话版提案，等一句"行/不行"。
+      if (result.winner) {
+        const winnerRow = result.table.find((t) => t.id === result.winner);
+        const inc = result.table.find((t) => t.role === "incumbent");
+        const chosen = DREAM_POLICIES.candidates.find((c) => c.id === result.winner);
+        const auth = await grant(
+          { kind: "config", text: `把技能匹配权重从 ${DREAM_POLICIES.incumbent} 换成 ${result.winner}` },
+          {
+            replayable: true, episodes: result.episodes,
+            noWorse: (winnerRow?.worse || 0) === 0, betterCount: winnerRow?.better || 0,
+            reversible: true, scope: "config",
+            text: `回放历史准确率 ${inc?.accuracy} → ${winnerRow?.accuracy}`,
+          },
+          {
+            wsRoot: WS_ROOT,
+            previous: DREAM_POLICIES.incumbent,
+            apply: async () => ({ undo: `weights:${DREAM_POLICIES.incumbent}`, ...(promoteWeights(WS_ROOT, result.winner, chosen?.weights || {}) || {}) }),
+          },
+        );
+        result.autonomy = auth;
+        if (!auth.decided) {
+          try {
+            recordPromises(WS_ROOT, [{
+              id: `d_${Date.now().toString(36)}`,
+              at: new Date().toISOString(),
+              sessionId: "dream",
+              text: auth.human?.ask || result.proposal.text,
+              kind: "ask",
+              due: null,
+              status: "pending",
+              evidence: null,
+              closedAt: null,
+            }]);
+          } catch {}
+        } else {
+          console.log(`[dream] 自决上线：${auth.message}`);
+        }
       }
     }
     json(res, 200, result);
+  }],
+  // ── 授权状（2026-09-18）：元枢自己判断"这件事我能不能自己定" ──
+  ["GET", "/api/autonomy", (res) => {
+    json(res, 200, {
+      ok: true,
+      charter: loadCharter(WS_ROOT),
+      usedToday: autoUsedToday(WS_ROOT),
+      activeWeights: currentWeights(WS_ROOT),
+      recent: loadLedger(WS_ROOT).slice(-10).reverse(),
+    });
+  }],
+  ["POST", "/api/autonomy/revoke", async (res, req) => {
+    const b = await readBody(req);
+    const r = await revoke(WS_ROOT, {
+      at: b?.at || null,
+      revert: async (row) => {
+        // 撤销点：优先回到记录里的上一版；没有就清掉覆盖，回到代码里的默认权重
+        const back = String(row?.undo || "").replace(/^weights:/, "");
+        const cand = DREAM_POLICIES.candidates.find((c) => c.id === back);
+        if (cand) return promoteWeights(WS_ROOT, cand.id, cand.weights);
+        return resetWeights(WS_ROOT);
+      },
+    });
+    json(res, r.ok ? 200 : 400, r);
   }],
   // ── 会话级沙箱模式：append-only 日志 + fold，收紧随时可以、放宽必须给理由 ──
   // ── 会话级沙箱模式：append-only 日志 + fold，收紧随时可以、放宽必须给理由 ──

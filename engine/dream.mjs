@@ -33,7 +33,31 @@ export const MAX_EPISODES = 2000;
 
 export function dreamPaths(wsRoot) {
   const dir = path.join(wsRoot, ...DIR());
-  return { dir, episodes: path.join(dir, EPISODES_FILE), log: path.join(dir, "做梦日志.md") };
+  return { dir, episodes: path.join(dir, EPISODES_FILE), log: path.join(dir, "做梦日志.md"), active: path.join(dir, "现役策略.json") };
+}
+
+// ── 现役策略的存档：做梦赢了要能"真的生效"，也要能"一键退回" ──────────────
+// 存在工作区（不是代码里）：自决上线改的是这份存档，代码里的 MATCH_WEIGHTS 永远是出厂默认，
+// 所以"退回"就是删掉/改回这份存档，绝不会把源码改脏。
+export function currentWeights(wsRoot, fsMod = fs) {
+  try {
+    const j = JSON.parse(fsMod.readFileSync(dreamPaths(wsRoot).active, "utf8"));
+    if (j && typeof j.weights === "object") return { id: String(j.id || ""), weights: j.weights, at: j.at || null };
+  } catch { /* 没有存档 = 用出厂默认 */ }
+  return { id: "", weights: null, at: null };
+}
+
+export function promoteWeights(wsRoot, id, weights, { now = new Date(), fsMod = fs } = {}) {
+  try {
+    fsMod.mkdirSync(path.dirname(dreamPaths(wsRoot).active), { recursive: true });
+    atomicWriteText(dreamPaths(wsRoot).active, JSON.stringify({ id, weights, at: new Date(now).toISOString() }, null, 2));
+    return { ok: true, id };
+  } catch (e) { return { ok: false, error: String(e?.message || e).slice(0, 120) }; }
+}
+
+export function resetWeights(wsRoot, { fsMod = fs } = {}) {
+  try { fsMod.unlinkSync(dreamPaths(wsRoot).active); return { ok: true, id: "", weights: null }; }
+  catch { return { ok: true, id: "", weights: null } }
 }
 
 function ensureDir(wsRoot) {
