@@ -21,10 +21,16 @@ html, body, #root { height: 100%; }
   padding-right: env(safe-area-inset-right, 0px);
 }
 .mobile-safe-top {
-  /* 顶部安全距离（2026-09-18）：只写 env() 的话，在"状态栏不报 inset 的 webview/安卓全屏"里
-     会退化成 0 → 顶部标题行直接压在状态栏上（真机反馈）。这里给一个最小值兜底，
-     有刘海/状态栏时取更大的那个。 */
-  padding-top: max(env(safe-area-inset-top, 0px), 10px);
+  /* 顶部安全距离（2026-09-18，真机截图后重做）：
+     ① 网页/浏览器里 env(safe-area-inset-top) 是准的（Safari/Chrome 会报刘海高度），用它；
+     ② 但**原生壳**（Tauri Android / Capacitor / 全屏 PWA）边到边绘制时，安卓 WebView
+        只报"屏幕挖孔"，不报状态栏 → env() 退化成 0 → 标题"小语"直接压在时钟上。
+        这种壳由 html[data-app-shell] 标出来，兜底一个状态栏高度（28px，安卓 24~28dp 量级），
+        刘海机型仍取 env() 里更大的那个。 */
+  padding-top: var(--pi-safe-top, env(safe-area-inset-top, 0px));
+}
+html[data-app-shell="1"] .mobile-safe-top {
+  --pi-safe-top: max(env(safe-area-inset-top, 0px), 28px);
 }
 
 /* ── 文字密集场景：稳定阅读列，不用卡片墙承载长内容 ── */

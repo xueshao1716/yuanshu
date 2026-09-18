@@ -8,6 +8,34 @@
 
 ## [Unreleased]
 
+## [2.84.6] - 2026-09-18
+
+## [2.84.6] - 2026-09-18
+
+### 手机端顶部压状态栏：壳里要自己留出状态栏高度（你的真机截图后重做）
+
+你那张截图信息很有用，看出两件事：
+
+1. **截图里是旧包**：图上「开始工作」和「⌘ 搜索」还是两行、首页还是贴顶——那正是 2.84.5 之前的排版。
+   手机上的 APK 是 **9/12** 打的（`app/src-tauri/gen/android/…/app-arm64-release-unsigned.apk`），
+   Tauri 把网页资源**打进包里**，不重新打包，前端改了在手机上就看不到。
+2. **状态栏是真重合**：图上"小语"和那排图标压在时钟那一行上。原因是安卓 WebView **边到边绘制**时
+   **只报屏幕挖孔、不报状态栏**，`env(safe-area-inset-top)` 直接是 0（上一版兜的 10px 也不够，
+   按你截图量状态栏约 33px）。
+
+**改法**：不再无条件猜一个数字，先分清"在不在原生壳里"——
+
+- 网页/浏览器：`env(safe-area-inset-top)` 是准的（Safari/Chrome 会报刘海），继续用它，不加多余空白。
+- 原生壳（Tauri / Capacitor / 全屏 PWA）：`AppLayout` 打上 `html[data-app-shell="1"]`
+  （看 `window.__TAURI__` / `window.Capacitor` / UA / `display-mode: standalone|fullscreen`），
+  CSS 兜底 `--pi-safe-top: max(env(safe-area-inset-top, 0px), 28px)`；刘海机型仍取 env() 里更大的那个。
+
+**真机核对（5/5，CDP 模拟两种环境量的，不是"看着对"）**：`tmp/verify-safe-top.mjs`
+```
+壳环境（注入 window.__TAURI__，env=0）→ data-app-shell=1，root padding-top=28px，顶栏 top=28（不再贴 0）
+普通浏览器（env=0）                  → 不标记 app-shell，padding-top=0（不凭空加空白）
+```
+
 ## [2.84.5] - 2026-09-18
 
 ## [2.84.5] - 2026-09-18

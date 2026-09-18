@@ -135,6 +135,19 @@ export default function AppLayout() {
     KeysApi.status().then((s: any) => { if (s && Array.isArray(s.pi) && s.pi.length === 0) setNeedsSetup(true) }).catch(() => {})
   }, [authed])
   const isMobile = useIsMobile()
+  // 原生壳标记（2026-09-18，真机截图后加）：安卓 WebView/Tauri 边到边绘制时**不报**状态栏
+  // 高度（env(safe-area-inset-top) 退化成 0），标题会压在时钟上。这里标出"我在壳里"，
+  // 让 CSS 兜一个状态栏高度（见 styles.css 的 html[data-app-shell]）。
+  useEffect(() => {
+    try {
+      const w = window as any
+      const inShell = !!w.__TAURI__ || !!w.__TAURI_INTERNALS__ || !!w.Capacitor
+        || /Capacitor|Tauri/i.test(navigator.userAgent)
+        || window.matchMedia('(display-mode: standalone)').matches
+        || window.matchMedia('(display-mode: fullscreen)').matches
+      if (inShell) document.documentElement.dataset.appShell = '1'
+    } catch {}
+  }, [])
   const [route, nav] = useHashRoute(APP_ROUTES)
   // 桌面会话栏折叠（08-26）：持久化到 localStorage
   const [sidebarCollapsed, setSidebarCollapsed] = useState(() => {
