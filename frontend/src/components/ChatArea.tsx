@@ -854,7 +854,7 @@ export default function ChatArea({ compactHeader, rightPanel, onRightPanel }: {
           <div><h1>元枢</h1><p>小语的工作空间</p></div>
         </div>
         <section className="workstart-actions" aria-labelledby="quick-actions-title">
-          <div className="chat-section-head">
+          <div className="chat-section-head workstart-head">
             <h2 id="quick-actions-title">开始工作</h2>
             <button type="button" className="workstart-search" onClick={() => window.dispatchEvent(new Event('pi-open-palette'))} title="搜索命令"><Command className="w-4 h-4" />搜索</button>
           </div>
@@ -938,8 +938,8 @@ export default function ChatArea({ compactHeader, rightPanel, onRightPanel }: {
         style={pull.indicatorStyle}>
         <RefreshCw className={`w-4 h-4 text-pi-dim ${pull.spin ? 'animate-spin' : ''}`} strokeWidth={2} />
       </div>
-      {/* 顶栏 */}
-      <div className="flex items-center px-5 h-14 border-b border-pi-border bg-pi-bg1 flex-shrink-0 gap-2">
+      {/* 顶栏：手机端 48px（原来 56px 加上状态栏显得顶部过高），≥640px 回到 56px */}
+      <div className="flex items-center px-4 sm:px-5 h-12 sm:h-14 border-b border-pi-border bg-pi-bg1 flex-shrink-0 gap-2">
         <div className="font-medium text-[15px] text-pi-text min-w-0 truncate">{compactHeader ? '小语' : '对话'}</div>
         <div className="ml-auto" />
         {/* 执行状态（对标老版 .status-pill；aria-live 让屏幕阅读器感知流式开始/结束）*/}

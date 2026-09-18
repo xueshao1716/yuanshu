@@ -21,7 +21,10 @@ html, body, #root { height: 100%; }
   padding-right: env(safe-area-inset-right, 0px);
 }
 .mobile-safe-top {
-  padding-top: env(safe-area-inset-top, 0px);
+  /* 顶部安全距离（2026-09-18）：只写 env() 的话，在"状态栏不报 inset 的 webview/安卓全屏"里
+     会退化成 0 → 顶部标题行直接压在状态栏上（真机反馈）。这里给一个最小值兜底，
+     有刘海/状态栏时取更大的那个。 */
+  padding-top: max(env(safe-area-inset-top, 0px), 10px);
 }
 
 /* ── 文字密集场景：稳定阅读列，不用卡片墙承载长内容 ── */
@@ -230,7 +233,10 @@ html, body, #root { height: 100%; }
   .quick-action-grid { grid-template-columns: 1fr; }
   .quick-action-item { min-height: 68px; padding: 11px 12px; }
   .quick-action-icon { width: 30px; height: 30px; flex-basis: 30px; }
-  .chat-section-head { align-items: flex-start; flex-direction: column; gap: 3px; }
+  /* 窄屏把"标题 + 右侧动作"竖排只对长标题的区块有意义；工作台这一行必须保持一行，
+     否则"开始工作"和"搜索"被拆成两行，看着散（真机反馈 2026-09-18）。 */
+  .chat-section-head:not(.workstart-head) { align-items: flex-start; flex-direction: column; gap: 3px; }
+  .chat-section-head.workstart-head { flex-direction: row; align-items: center; gap: 6px; margin-bottom: 2px; }
   .chat-history-head { align-items: flex-start; flex-direction: column; gap: 5px; }
   .turn-history-button { padding-inline: 2px; }
   .turn-expanded-content { margin-left: 8px; padding-left: 10px; }
@@ -516,16 +522,22 @@ body.has-wallpaper .mobile-composer {
 .engine-detail-content { padding: 0 0 16px; }
 .engine-detail-content > section:first-child { border-top: 0; padding-top: 4px; }
 
-.chat-workstart { min-height: 100%; display: flex; align-items: flex-start; padding: clamp(48px, 10vh, 96px) 8px 36px; }
-.workstart-identity { display: flex; align-items: center; gap: 16px; margin-bottom: 28px; }
-.workstart-identity img { flex: 0 0 48px; border-radius: var(--pi-r-lg); }
-.workstart-identity h1 { color: var(--pi-text); font-size: 30px; line-height: 1.2; font-weight: 650; letter-spacing: 0; }
-.workstart-identity p { margin-top: 4px; color: var(--pi-dim); font-size: 14px; }
-.workstart-actions { border-top: 1px solid var(--pi-border); padding-top: 14px; }
-.workstart-search { display: flex; align-items: center; gap: 6px; min-height: 36px; font-size: 12px; color: var(--pi-dim); }
-.workstart-search:hover { color: var(--pi-text); }
-.workstart-command-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
-.workstart-command { min-width: 0; min-height: 56px; display: flex; align-items: center; gap: 10px; padding: 0 12px; border-bottom: 1px solid var(--pi-border-soft); border-radius: var(--pi-r-sm); background: transparent; text-align: left; color: var(--pi-text); font-size: 13px; transition: background-color var(--pi-motion-fast), color var(--pi-motion-fast); }
+/* 首页工作台：整块在可用高度里居中（2026-09-18 真机反馈"离框架太近、又太分散"——
+   贴顶 + 底下一大片空地，两头都不舒服）。用 auto margin 而不是 align-items:center，
+   这样内容比容器高时不会把顶部裁掉（flex 居中溢出的经典坑）。 */
+.chat-workstart { min-height: 100%; display: flex; align-items: flex-start; padding: clamp(28px, 6vh, 56px) clamp(16px, 3vw, 32px) 28px; }
+.chat-workstart > .chat-reading-column { margin-block: auto; }
+/* 身份块与动作区收紧成一组（2026-09-18：原来是 28px + 14px + 40px 三段空白，看着"太分散"） */
+.workstart-identity { display: flex; align-items: center; gap: 14px; margin-bottom: 16px; }
+.workstart-identity img { flex: 0 0 46px; border-radius: var(--pi-r-lg); }
+.workstart-identity h1 { color: var(--pi-text); font-size: 28px; line-height: 1.2; font-weight: 650; letter-spacing: 0; }
+.workstart-identity p { margin-top: 3px; color: var(--pi-dim); font-size: 13.5px; }
+.workstart-actions { border-top: 1px solid var(--pi-border); padding-top: 10px; }
+.workstart-head { align-items: center; gap: 8px; margin-bottom: 4px; }
+.workstart-search { display: flex; align-items: center; gap: 5px; min-height: 30px; padding: 0 8px; margin-right: -4px; border-radius: var(--pi-r-sm); font-size: 12px; color: var(--pi-dim); flex-shrink: 0; white-space: nowrap; }
+.workstart-search:hover { color: var(--pi-text); background: var(--pi-bg2); }
+.workstart-command-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 4px 8px; }
+.workstart-command { min-width: 0; min-height: 50px; display: flex; align-items: center; gap: 10px; padding: 0 12px; border-bottom: 1px solid var(--pi-border-soft); border-radius: var(--pi-r-sm); background: transparent; text-align: left; color: var(--pi-text); font-size: 13px; transition: background-color var(--pi-motion-fast), color var(--pi-motion-fast); }
 .workstart-command > svg { flex-shrink: 0; color: var(--pi-dim); }
 .workstart-command:hover { background: var(--pi-bg2); }
 .workstart-command > .workstart-chevron { margin-left: auto; width: 14px; color: var(--pi-dim2); }
@@ -538,14 +550,16 @@ body.has-wallpaper .mobile-composer {
   .engine-detail > summary { gap: 8px; min-height: 64px; }
   .engine-detail-title { font-size: 13px; }
   .engine-detail-hint { max-width: 32%; font-size: 11px; }
-  .chat-workstart { padding: 24px 0; }
-  .workstart-command-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 4px 8px; }
-  .workstart-command { padding-inline: 8px; }
-  .workstart-identity { margin-bottom: 28px; }
+  .chat-workstart { padding: 14px 0 20px; }
+  .workstart-command-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 2px 8px; }
+  .workstart-command { min-height: 48px; padding-inline: 8px; }
+  .workstart-identity { margin-bottom: 14px; gap: 12px; }
+  .workstart-identity img { flex-basis: 42px; }
+  .workstart-identity h1 { font-size: 26px; }
 }
 
 @media (min-width: 769px) and (max-width: 1100px) {
-  .workstart-command-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 4px 8px; }
+  .workstart-command-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 2px 8px; }
   .workstart-command { padding-inline: 8px; }
 }
 
