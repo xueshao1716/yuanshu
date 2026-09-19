@@ -57,7 +57,9 @@ for p in labels["parts"]:
     else:
         cx, cy = bw / 2, 0
     meta["parts"][p["id"]] = {"file": fn, "x": px0, "y": py0, "w": px1 - px0, "h": py1 - py0,
-                              "pivot": [round(cx, 1), round(cy, 1)], "z": {"head": 5, "armL": 1, "armR": 1, "torso": 3, "legL": 2, "legR": 2}.get(p["id"], 2)}
+                              "pivot": [round(cx, 1), round(cy, 1)], "z": {"head": 6, "torso": 4,
+                               "upperArmL": 1, "foreArmL": 2, "upperArmR": 1, "foreArmR": 2,
+                               "thighL": 3, "shinL": 3, "thighR": 3, "shinR": 3}.get(p["id"], 2)}
 open(out + "/puppet.json", "w", encoding="utf-8").write(json.dumps(meta, ensure_ascii=False, indent=2))
 print("parts:", ", ".join(meta["parts"].keys()))
 `

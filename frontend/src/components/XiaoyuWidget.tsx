@@ -43,7 +43,7 @@ const LINES = ['在。有活就说。', '我盯着任务呢，跑完会汇报。
 //   ② 没有 → 退回"整图横向切片 + 弯曲曲线"的形变（四肢不独立，但至少有体态）。
 // 两条都是纯代码，不需要 Live2D / Rive 之类 GUI 编辑器。
 type PuppetPart = { file: string; x: number; y: number; w: number; h: number; pivot: [number, number]; z: number }
-function PuppetCanvas({ src, walking, hover, face, label }: { src: string; walking: boolean; hover: boolean; face: number; label: string }) {
+function PuppetCanvas({ src, walking, hover, face, label, waving }: { src: string; walking: boolean; hover: boolean; face: number; label: string; waving: boolean }) {
   const ref = useRef<HTMLCanvasElement | null>(null)
   const imgRef = useRef<HTMLImageElement | null>(null)
   const [ready, setReady] = useState(false)
@@ -88,32 +88,54 @@ function PuppetCanvas({ src, walking, hover, face, label }: { src: string; walki
       ctx.clearRect(0, 0, W, H)
       const P = partsRef.current
       if (P && Object.keys(P.imgs).length >= 4) {
-        // ── 部件 + 骨骼 ──
+        // ── 部件 + **骨骼树**（父节点旋转带动子节点：走路时大腿带小腿、上臂带小臂）──
         const s = W / P.size[0]
-        const bob = walking ? Math.sin(t * 12.4) * 1.6 : Math.sin(t * 1.1) * 0.5
-        const lean = walking ? Math.sin(t * 6.2) * 2.0 : Math.sin(t * 0.7) * 0.6            // 躯干前后倾
-        const swing = walking ? Math.sin(t * 6.2) : 0                                      // 迈步相位
+        const swing = walking ? Math.sin(t * 6.2) : 0                       // 迈步相位
         const breathe = 1 + Math.sin(t * 1.1) * 0.01
+        const bob = walking ? Math.sin(t * 12.4) * 1.6 : Math.sin(t * 1.1) * 0.5
+        const lean = walking ? Math.sin(t * 6.2) * 1.6 : Math.sin(t * 0.7) * 0.5
         const angles: Record<string, number> = {
-          head: (hover ? 3 : 1.2 * Math.sin(t * 1.15)) + lean * 0.25,
-          armL: walking ? swing * 14 : Math.sin(t * 1.0) * 1.5,
-          armR: walking ? -swing * 14 : -Math.sin(t * 1.0) * 1.5,
-          legL: walking ? -swing * 15 : 0,
-          legR: walking ? swing * 15 : 0,
           torso: lean,
+          head: (hover ? 3 : 1.2 * Math.sin(t * 1.15)) + lean * 0.3,
+          // 手臂：走路时前后摆（上臂大、小臂带相位延迟）；挥手时右臂抬起画弧
+          upperArmL: walking ? swing * 15 : Math.sin(t * 1.0) * 1.5,
+          foreArmL: walking ? swing * 9 : Math.sin(t * 1.0 + 0.5) * 1.2,
+          upperArmR: waving ? -62 + Math.sin(t * 7.5) * 6 : walking ? -swing * 15 : -Math.sin(t * 1.0) * 1.5,
+          foreArmR: waving ? Math.sin(t * 7.5 + 0.6) * 26 : walking ? -swing * 9 : -Math.sin(t * 1.0 + 0.5) * 1.2,
+          // 腿：大腿摆、小臂小腿跟着带相位差（比同相摆动自然得多）
+          thighL: walking ? -swing * 17 : 0,
+          shinL: walking ? Math.max(0, swing) * 22 : 0,
+          thighR: walking ? swing * 17 : 0,
+          shinR: walking ? Math.max(0, -swing) * 22 : 0,
+        }
+        const parent: Record<string, string> = {
+          head: 'torso', upperArmL: 'torso', foreArmL: 'upperArmL', upperArmR: 'torso', foreArmR: 'upperArmR',
+          thighL: 'torso', shinL: 'thighL', thighR: 'torso', shinR: 'thighR',
+        }
+        const hipY = P.parts.torso ? P.parts.torso.y + P.parts.torso.pivot[1] : P.size[1]
+        // 两遍就能算出正运动学：第一遍父节点，第二遍子节点
+        const world: Record<string, { x: number; y: number; rot: number }> = {}
+        const ids = Object.keys(P.parts).sort((a, b) => (parent[a] ? 1 : 0) - (parent[b] ? 1 : 0))
+        for (const id of ids) {
+          const p = P.parts[id]
+          const ax = p.x + p.pivot[0], ay = p.y + p.pivot[1]
+          const pa = parent[id]
+          const pw = pa && world[pa]
+          const rot = ((angles[id] || 0) * Math.PI) / 180
+          if (!pw) { world[id] = { x: ax, y: ay, rot }; continue }
+          const dx = ax - world[pa].x, dy = ay - world[pa].y
+          const c = Math.cos(world[pa].rot), sn = Math.sin(world[pa].rot)
+          world[id] = { x: world[pa].x + dx * c - dy * sn, y: world[pa].y + dx * sn + dy * c, rot: world[pa].rot + rot }
         }
         ctx.save()
         ctx.translate(W / 2, H - bob)
-        const order = Object.entries(P.parts).sort((a, b) => a[1].z - b[1].z)
-        for (const [k, p] of order) {
+        for (const [k, p] of Object.entries(P.parts).sort((a, b) => a[1].z - b[1].z)) {
           const im = P.imgs[k]
-          if (!im) continue
-          const ax = p.x + p.pivot[0], ay = p.y + p.pivot[1]
-          // 躯干下端（髋）作为整体原点：把所有部件都相对髋定位
-          const hipY = (P.parts.torso ? P.parts.torso.y + P.parts.torso.pivot[1] : P.size[1])
+          const w = world[k]
+          if (!im || !w) continue
           ctx.save()
-          ctx.translate((ax - P.size[0] / 2) * s, (ay - hipY) * s)
-          ctx.rotate(((angles[k] || 0) * Math.PI) / 180)
+          ctx.translate((w.x - P.size[0] / 2) * s, (w.y - (parent[k] ? hipY : hipY)) * s)
+          ctx.rotate(w.rot)
           if (k === 'torso') ctx.scale(1, breathe)
           ctx.scale(s * face, s)
           ctx.drawImage(im, -p.pivot[0], -p.pivot[1])
@@ -144,7 +166,7 @@ function PuppetCanvas({ src, walking, hover, face, label }: { src: string; walki
     }
     raf = requestAnimationFrame(draw)
     return () => cancelAnimationFrame(raf)
-  }, [ready, walking, hover, face])
+  }, [ready, walking, hover, face, waving])
 
   return <canvas ref={ref} width={Math.round((partsRef.current?.size?.[0] || 192) * 0.9)} height={Math.round((partsRef.current?.size?.[1] || 224) * 0.9)}
     aria-label={label} data-puppet="1" data-puppet-mode={partsRef.current ? 'parts' : 'strips'} className="h-20 w-auto sm:h-24" />
@@ -177,6 +199,7 @@ export default function XiaoyuWidget() {
   const [pos, setPos] = useState<{ x: number; y: number; face: number } | null>(null)
   const [hover, setHover] = useState(false)
   const [walking, setWalking] = useState(false)
+  const [waving, setWaving] = useState(false)   // 挥手：点她时抬右臂画弧，1.4 秒后放下
   const [walkIdx, setWalkIdx] = useState(0)
   const walkClock = useRef(0)
   const [sparks, setSparks] = useState<{ id: number; x: number; y: number }[]>([])
@@ -328,6 +351,8 @@ export default function XiaoyuWidget() {
   const frames = (SKINS[skin] || SKINS.chibi).frames
 
   const speak = () => {
+    setWaving(true)
+    setTimeout(() => setWaving(false), 1400)
     setLine(LINES[Math.floor(Math.random() * LINES.length)])
     setOpen((v) => !v)
     setFrame('wave')
@@ -445,7 +470,7 @@ export default function XiaoyuWidget() {
       >
         {skin === 'puppet' ? (
           <PuppetCanvas src={walking && (SKINS[skin] || SKINS.chibi).walk[walkIdx] ? (SKINS[skin] || SKINS.chibi).walk[walkIdx] : frames[frame]}
-            walking={walking} hover={hover} face={mode === 'roam' && pos ? pos.face : 1} label={label} />
+            walking={walking} hover={hover} waving={waving} face={mode === 'roam' && pos ? pos.face : 1} label={label} />
         ) : (
           <img src={walking && (SKINS[skin] || SKINS.chibi).walk[walkIdx] ? (SKINS[skin] || SKINS.chibi).walk[walkIdx] : frames[frame]} alt={label} draggable={false} className="h-20 w-auto sm:h-24" />
         )}
