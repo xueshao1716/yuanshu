@@ -24,6 +24,17 @@ const LINES = [
 ]
 const TALK_CYCLE: FrameKey[] = ['open', 'happy', 'open', 'thinking', 'happy', 'open']
 const IDLE_FACES: FrameKey[] = ['happy', 'thinking', 'sleepy', 'focused']
+const IDLE_SLEEP_MS = 3 * 60 * 1000   // 3 分钟没交互 → 打哈欠
+
+// 真实状态 → 表情：任务在跑=认真，跑完=开心一下，久未交互=困
+function runningCount(raw: any): number {
+  const list = Array.isArray(raw) ? raw : (raw?.tasks || raw?.items || raw?.list || [])
+  if (!Array.isArray(list)) return 0
+  return list.filter((t: any) => {
+    const s = String(t?.status || t?.state || '').toLowerCase()
+    return t?.running === true || ['running', 'in_progress', 'executing', 'working'].includes(s)
+  }).length
+}
 
 export default function XiaoyuWidget() {
   const [frame, setFrame] = useState<FrameKey>('wave')   // 先挥手出场
@@ -67,6 +78,44 @@ export default function XiaoyuWidget() {
     loop()
     return () => clearTimeout(t)
   }, [open])
+
+  // 真实状态：轮询任务队列 → 在跑就认真脸，刚从"跑"变"不跑"就开心 2.5 秒
+  const [busyCount, setBusyCount] = useState(0)
+  const lastBusy = useRef(false)
+  useEffect(() => {
+    let alive = true
+    const tick = async () => {
+      try {
+        const r = await fetch('/api/tasks', { headers: { Authorization: 'Bearer ' + (localStorage.getItem('yuanshu_access_token') || '') } })
+        const j = await r.json()
+        const n = runningCount(j)
+        if (!alive) return
+        setBusyCount(n)
+        const busy = n > 0
+        if (busy && !talkingRef.current) setFrame('focused')
+        else if (!busy && lastBusy.current && !talkingRef.current) {
+          setFrame('happy')
+          setTimeout(() => { if (!talkingRef.current) setFrame('open') }, 2500)
+        }
+        lastBusy.current = busy
+      } catch {}
+    }
+    tick()
+    const t = setInterval(tick, 5000)
+    return () => { alive = false; clearInterval(t) }
+  }, [])
+
+  // 久未交互 → 困
+  useEffect(() => {
+    let last = Date.now()
+    const touch = () => { last = Date.now() }
+    for (const ev of ['mousemove', 'keydown', 'click', 'touchstart', 'scroll'] as const) window.addEventListener(ev, touch, { passive: true })
+    const t = setInterval(() => {
+      if (talkingRef.current) return
+      if (Date.now() - last > IDLE_SLEEP_MS) setFrame((f) => (f === 'closed' ? f : 'sleepy'))
+    }, 20000)
+    return () => { for (const ev of ['mousemove', 'keydown', 'click', 'touchstart', 'scroll'] as const) window.removeEventListener(ev, touch); clearInterval(t) }
+  }, [])
 
   // 名字/年龄读定义
   useEffect(() => {
@@ -118,6 +167,7 @@ export default function XiaoyuWidget() {
         title={label}
         onClick={speak}
         data-frame={frame}
+        data-tasks={busyCount}
         className="xiaoyu-widget block h-14 w-14 overflow-hidden rounded-full border-2 border-pi-border bg-pi-bg2 shadow-lg transition-transform duration-150 hover:scale-105 active:scale-95"
       >
         <img src={FRAMES[frame]} alt={label} draggable={false} className="h-full w-full object-cover" />
