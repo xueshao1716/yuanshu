@@ -2582,6 +2582,22 @@ const API_ROUTES = [
     } catch (e) { return json(res, 500, { error: String(e?.message || e).slice(0, 120) }); }
     return json(res, 200, { ok: true, file, parts: parts.length });
   }],
+  // 天团取正文（2026-09-20）：/api/think 返回的是**思考文本**（真机抓到的是英文内心独白），
+  // 角色要的是 assistant 的**正文**，所以走 directChat（它把 text 与 think 分开返回）。
+  ["POST", "/api/team/complete", async (res, req) => {
+    const body = await readBody(req, 12);
+    const provider = String((body && body.provider) || "");
+    const modelId = String((body && body.modelId) || "");
+    const message = String((body && body.message) || "");
+    if (!provider || !modelId || !message) return json(res, 400, { error: "provider/modelId/message 必填" });
+    const maxTokens = Number(body && body.maxTokens) > 0 ? Number(body.maxTokens) : undefined;
+    try {
+      const r = await directChat({ provider, id: modelId }, message, [], maxTokens ? { maxTokens } : {});
+      if (!r) return json(res, 502, { error: "模型调用失败（渠道/密钥/超时）" });
+      return json(res, 200, { text: String(r.text || ""), thinkLen: String(r.think || "").length, note: r.text ? "ok" : "只有思考、没有正文" });
+    } catch (e) { return json(res, 500, { error: String(e && e.message || e).slice(0, 120) }); }
+  }],
+
   // 天团触发（2026-09-20）：**只允许**跑白名单里的那一个脚本（不接任意命令），带单实例锁。
   // 这样"她自己开天团"是可控的一条路，而不是一个万能后门。
   ["POST", "/api/team/run", async (res, req) => {
