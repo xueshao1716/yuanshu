@@ -128,3 +128,23 @@ export function initPersonaDef({ wsRoot = "", agentDir = "" } = {}) {
   const { def, source, problems } = loadPersonaDefinition(wsRoot);
   return { def, source, problems, wsRoot, agentDir };
 }
+
+// ── 字段级核对（2026-09-19）：定义里写了的，渲染出来必须逐条落地 ──
+// 年龄那条是真机上被抓出来的（问"你多大"她按记忆自己推），所以其它字段也用同一把尺子量：
+// 声明了称呼/禁忌/边界/语气，就必须能在人格段里找到，不是"写了就算数"。
+export function auditPersona(def = {}, rendered = "") {
+  const d = { ...DEFAULT_DEFINITION, ...(def || {}) };
+  const text = String(rendered || renderPersonaSection(d));
+  const has = (s) => !!String(s || "").trim() && text.includes(String(s).trim());
+  const checks = [
+    { field: "name", value: d.name, ok: has(d.name) },
+    { field: "age", value: d.age, ok: new RegExp(`${Number(d.age)}\\s*岁`).test(text) },
+    { field: "called", value: d.called, ok: has(d.called) },
+    { field: "tone", value: (d.tone || []).length, ok: (d.tone || []).every(has) },
+    { field: "values", value: (d.values || []).length, ok: (d.values || []).every(has) },
+    { field: "boundaries", value: (d.boundaries || []).length, ok: (d.boundaries || []).every(has) },
+    { field: "taboos", value: (d.taboos || []).length, ok: (d.taboos || []).every(has) },
+    { field: "authority", value: "身份裁决", ok: text.includes("身份事实以本段为准") },
+  ];
+  return { checks, ok: checks.every((c) => c.ok), missing: checks.filter((c) => !c.ok).map((c) => c.field) };
+}

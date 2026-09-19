@@ -2520,6 +2520,30 @@ const API_ROUTES = [
   ["POST", "/api/memcompress/apply", async (res, req) => { const b = await readBody(req); return json(res, 200, applyMemoryCompress(b.id)); }],
   ["POST", "/api/memcompress/dismiss", async (res, req) => { const b = await readBody(req); return json(res, 200, dismissMemoryCompress(b.id)); }],
   ["GET", "/api/sessions", (res) => json(res, 200, { sessions: getSessionList().filter(s => isListedGroup(s.group)) })],
+  // 批准后的回写（2026-09-19）：这条是**人**的通道——agent 工具只能落草案区，落地走这里。
+  // 校验通过才写；写前留 .bak-apply，写后审计一行到 记忆/授权记录.jsonl，并同步 APPEND_SYSTEM.md 的人格块。
+  ["POST", "/api/persona/apply", async (res, req) => {
+    const body = await readBody(req);
+    const incoming = body?.definition && typeof body.definition === "object" ? body.definition : null;
+    if (!incoming) return json(res, 400, { error: "缺 definition" });
+    const cur = loadPersonaDefinition(CONFIG.cwd);
+    const next = { ...cur.def, ...incoming, setBy: String(body.by || "human"), updatedAt: new Date().toISOString() };
+    const problems = (await import("./engine/persona-def.mjs")).validatePersonaDefinition(next);
+    if (problems.length) return json(res, 400, { error: "定义不合法: " + problems.join("；"), problems });
+    const file = personaFilePath(CONFIG.cwd);
+    try {
+      if (fs.existsSync(file)) fs.writeFileSync(file + ".bak-apply", fs.readFileSync(file, "utf8"), "utf8");
+      fs.writeFileSync(file, JSON.stringify(next, null, 2) + "\n", "utf8");
+    } catch (e) { return json(res, 500, { error: String(e?.message || e).slice(0, 120) }); }
+    // 审计留痕：谁在什么时候把定义改成了什么（只记关键字段，不写全文）
+    try {
+      fs.appendFileSync(path.join(CONFIG.cwd, "记忆", "授权记录.jsonl"), JSON.stringify({ at: new Date().toISOString(), kind: "persona-apply", by: next.setBy, changed: Object.keys(incoming), name: next.name, age: next.age }) + "\n", "utf8");
+    } catch {}
+    let synced = null;
+    try { synced = syncAppendSystemPersona(next, { agentDir: getAgentDir() }); } catch {}
+    return json(res, 200, { ok: true, definition: next, synced: !!synced?.ok, changed: !!synced?.changed });
+  }],
+
   // 人格定义（2026-09-18）：一份定义决定人格——把定义与渲染结果如实暴露出来，便于核对。
   ["GET", "/api/persona", (res) => {
     const pd = loadPersonaDefinition(CONFIG.cwd);

@@ -8,6 +8,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import {
+  auditPersona,
   DEFAULT_DEFINITION, loadPersonaDefinition, validatePersonaDefinition, renderPersonaSection,
   syncAppendSystemPersona, renderAppendSystemPersona, PERSONA_BEGIN, PERSONA_END, personaFilePath,
 } from '../../engine/persona-def.mjs';
@@ -82,4 +83,15 @@ test('人格定义受保护：工具层只读 + 必须走草案区（人格不�
   assert.equal(isProtectedPath('D:\\pi-workspace\\记忆\\记忆日志.md'), false);
   assert.equal(isCanonicalTarget('D:\\pi-workspace\\记忆\\人格定义.json', { wsRoot: 'D:\\pi-workspace' }), true);
   assert.equal(isCanonicalTarget('D:\\pi-workspace\\记忆\\记忆日志.md', { wsRoot: 'D:\\pi-workspace' }), false);
+});
+
+test('字段级核对：定义里声明的每一项都必须在人格段里落地（年龄/称呼/语气/价值观/边界/禁忌/裁决）', () => {
+  const def = { ...DEFAULT_DEFINITION, name: '小语', age: 20, tone: ['只说重点'], taboos: ['不说套话'] };
+  const okAudit = auditPersona(def);
+  assert.equal(okAudit.ok, true, JSON.stringify(okAudit.missing));
+  // 有人把渲染器改坏（比如漏掉禁忌）→ 逐字段核对必须报出来
+  const broken = auditPersona(def, '【人格】我是小语，20 岁的 AI 工作伙伴。');
+  assert.equal(broken.ok, false);
+  assert.ok(broken.missing.includes('tone') && broken.missing.includes('taboos'), JSON.stringify(broken.missing));
+  assert.ok(broken.missing.includes('authority'), '没有身份裁决也算没落地');
 });

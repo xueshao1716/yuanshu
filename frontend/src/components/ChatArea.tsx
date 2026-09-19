@@ -100,6 +100,9 @@ export default function ChatArea({ compactHeader, rightPanel, onRightPanel }: {
   onRightPanel?: (p: any) => void
 } = {}) {
   const { currentSessionId, currentModel, sessions, refreshSessions, selectSession } = useApp()
+  // 人格定义（2026-09-19）：顶栏显示"名字 · 年龄"，让定义在界面上看得见（改定义这里跟着变）
+  const { data: personaData } = useSWR('persona', () => fetch('/api/persona', { headers: { Authorization: 'Bearer ' + (localStorage.getItem('yuanshu_access_token') || '') } }).then(r => r.json()))
+  const personaLabel = (() => { const d = personaData?.definition; return d?.name ? `${d.name} · ${d.age}岁` : '小语' })()
   const sessionIdRef = useRef(currentSessionId)
   sessionIdRef.current = currentSessionId
   const [stream, setStream] = useState<StreamState | null>(null)
@@ -940,7 +943,7 @@ export default function ChatArea({ compactHeader, rightPanel, onRightPanel }: {
       </div>
       {/* 顶栏：手机端 48px（原来 56px 加上状态栏显得顶部过高），≥640px 回到 56px */}
       <div className="flex items-center px-4 sm:px-5 h-12 sm:h-14 border-b border-pi-border bg-pi-bg1 flex-shrink-0 gap-2">
-        <div className="font-medium text-[15px] text-pi-text min-w-0 truncate">{compactHeader ? '小语' : '对话'}</div>
+        <div className="font-medium text-[15px] text-pi-text min-w-0 truncate">{compactHeader ? personaLabel : '对话'}</div>
         <div className="ml-auto" />
         {/* 执行状态（对标老版 .status-pill；aria-live 让屏幕阅读器感知流式开始/结束）*/}
         <div role="status" aria-live="polite" className={`status-pill text-[11px] text-pi-dim flex items-center gap-1.5 px-2.5 py-1 rounded-full border bg-pi-bg2/50 ${liveCls}`}>
