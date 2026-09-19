@@ -2032,7 +2032,30 @@ const DREAM_POLICIES = {
 async function runDreamCycle() {
   let files = [];
   try { files = fs.readdirSync(SESSIONS_DIR).filter((f) => f.endsWith(".jsonl")).map((f) => path.join(SESSIONS_DIR, f)); } catch {}
-  appendEpisodes(WS_ROOT, skillEpisodesFromSessions(files));
+  // ── 增量 + 让出事件循环（2026-09-19）────────────────────────────────────────
+  // 原来这里一次性同步读**全部**会话文件再 appendEpisodes：服务启动后 2 分钟的首跑会把事件循环
+  // 整段占住（真机实测单次停顿 12.5s，数据更多时到过 82–95s），期间 /api/health 都超时。
+  // 现在：只处理"游标之后改动过的会话"，且每 5 个文件 await setImmediate 让出一次。
+  const __dreamCursor = path.join(WS_ROOT, "记忆", "运行时", "做梦游标.json");
+  let __cursorMs = 0;
+  try { __cursorMs = JSON.parse(fs.readFileSync(__dreamCursor, "utf8")).mtimeMs || 0; } catch {}
+  let __fresh = [];
+  try {
+    __fresh = files
+      .map((f) => ({ f, m: (() => { try { return fs.statSync(f).mtimeMs; } catch { return 0; } })() }))
+      .filter((x) => x.m > __cursorMs)
+      .sort((a, b) => a.m - b.m);
+  } catch {}
+  let __done = 0;
+  for (const __it of __fresh) {
+    try { appendEpisodes(WS_ROOT, skillEpisodesFromSessions([__it.f])); } catch {}
+    __done++;
+    if (__done % 5 === 0) await new Promise((r) => setImmediate(r));
+  }
+  if (__fresh.length) {
+    try { fs.writeFileSync(__dreamCursor, JSON.stringify({ mtimeMs: __fresh[__fresh.length - 1].m, at: new Date().toISOString(), files: __fresh.length })); } catch {}
+    console.log(`[dream] 增量摄取 ${__fresh.length} 个新会话（游标 ${__cursorMs ? new Date(__cursorMs).toISOString() : "首次全量"}）`);
+  }
   const episodes = loadEpisodes(WS_ROOT, { kind: "skill-match" });
   if (!episodes.length) return { ok: false, reason: "还没有历史 episode（在线记录已接上，等真实使用发生）" };
   const skills = loadSkillIndex();

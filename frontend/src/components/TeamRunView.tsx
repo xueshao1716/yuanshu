@@ -1,4 +1,4 @@
-﻿// ── 工作台「天团」视图（只读，2026-09-19）──────────────────────────────────────
+// ── 工作台「天团」视图（只读，2026-09-19）──────────────────────────────────────
 // 数据来源：GET /api/team/run → 工程/多AI角色扮演系统/team-run.json（八阶 runner 产出）
 // 定位：母体（aibody）仪表盘里的"角色层"窗口——谁上场、什么档位、每阶到哪、清单对没对上。
 // 只读：这里不改任何运行逻辑，也不把天团塞进对话提示词（那会污染前台）。
@@ -35,11 +35,18 @@ export function TeamRunView() {
   const cfg = run.spec?.config || {}
   return (
     <div className="flex flex-col gap-3">
-      {run.mode === 'dry-run' && (
-        <div className="panel px-3 py-2 text-[11px] text-pi-dim border-l-2 border-pi-accent">
-          演练模式（dry-run）：档位 / 上场名单 / 清单对账 / 信号都是真的，<b className="text-pi-text">各阶产物仍是占位</b>——真版接模型调用后同一张视图不用改。
-        </div>
-      )}
+      <div className="panel px-3 py-2 text-[11px] text-pi-dim border-l-2 border-pi-accent">
+        {run.mode === 'real' ? (
+          <>
+            真跑（real）：下面每一阶的产物都是**模型真实产出**，清单也是按条目逐条对账的；
+            <b className="text-pi-text">未通过的条目会留在清单里</b>，不会被"抹平"。
+          </>
+        ) : (
+          <>
+            演练模式（dry-run）：档位 / 上场名单 / 清单对账 / 信号都是真的，<b className="text-pi-text">各阶产物仍是占位</b>——真版接模型调用后同一张视图不用改。
+          </>
+        )}
+      </div>
 
       {/* 一趟运行：任务 + 三维配置 + 档位 */}
       <div className="panel p-3 flex flex-col gap-2">
@@ -94,6 +101,50 @@ export function TeamRunView() {
         </div>
       </div>
 
+      {/* 产物：每个角色交付了什么（真跑时是模型原文；点开看全量） */}
+      {!!(run.artifacts || []).length && (
+        <div className="panel p-3 flex flex-col gap-2">
+          <div className="text-[12px] font-semibold text-pi-text">产物（{(run.artifacts || []).length} 份）</div>
+          {(run.artifacts || []).map((a, i) => (
+            <details key={i} className="rounded-pi-md bg-pi-bg3 p-2">
+              <summary className="text-[11px] text-pi-text cursor-pointer">
+                <b>{a.role}</b>
+                {a.kind ? ` · ${a.kind}` : ''}
+                <span className="text-pi-dim">（{String(a.text || '').length} 字，点开看）</span>
+              </summary>
+              <pre className="mt-2 whitespace-pre-wrap break-all text-[11px] text-pi-dim max-h-72 overflow-auto">{a.text}</pre>
+            </details>
+          ))}
+        </div>
+      )}
+
+      {/* 清单未通过项（不许被抹平：一条条留在这里） */}
+      {!!(run.checklistFailed || []).length && (
+        <div className="panel p-3 flex flex-col gap-2">
+          <div className="text-[12px] font-semibold text-pi-text">清单未通过（{(run.checklistFailed || []).length} 条）</div>
+          {run.checklistNote && <div className="text-[11px] text-pi-accent">{run.checklistNote}</div>}
+          {(run.checklistFailed || []).map((c) => (
+            <div key={c.id} className="text-[11px] text-pi-dim">
+              <span className={c.severity === 'block' ? 'text-pi-accent' : 'text-pi-text'}>{c.id}</span> {c.name}
+              {c.note ? ` · ${c.note}` : ''}
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* 待你定（天团不替人做决定：未决项原样摆出来） */}
+      {!!(run.unresolved || []).length && (
+        <div className="panel p-3 flex flex-col gap-2">
+          <div className="text-[12px] font-semibold text-pi-text">待你定（{(run.unresolved || []).length} 项）</div>
+          {(run.unresolved || []).map((u, i) => (
+            <div key={i} className="text-[11px] text-pi-dim">
+              <span className="text-pi-text">{u.item}</span>
+              {u.options?.length ? ` —— ${u.options.join(' / ')}` : ''}
+            </div>
+          ))}
+        </div>
+      )}
+
       <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
         {/* 改动经验（这次运行沉淀了什么） */}
         <div className="panel p-3 flex flex-col gap-2">
@@ -125,8 +176,12 @@ type TeamRun = {
   spec?: { kind?: string; complexity?: string; config?: Record<string, string>; caste?: string; phase?: string }
   concurrencyCap?: number
   roster?: { id: string; cn: string; tier: string; duty: string; mode?: string }[]
-  stages?: { id: string; cn: string; owner: string; note?: string }[]
+  stages?: { id: string; cn: string; owner: string; note?: string; output?: string }[]
   checklist?: { tier?: string; total?: number; passed?: number }
+  checklistFailed?: { id: string; name: string; note?: string; severity?: string }[]
+  checklistNote?: string
+  unresolved?: { item: string; options?: string[] }[]
+  artifacts?: { role: string; kind?: string; text: string }[]
   experiences?: { from: string; text: string }[]
   pheromone?: { type: string; from: string; hint: string; intensity: number }[]
 }
