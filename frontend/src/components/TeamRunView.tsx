@@ -65,6 +65,12 @@ export function TeamRunView() {
           <span className="text-[11px] px-2 py-0.5 rounded-pi-pill bg-pi-bg3 text-pi-dim">
             清单 {run.checklist?.passed}/{run.checklist?.total}（{run.checklist?.tier}）
           </span>
+          {run.model && <span className="text-[11px] px-2 py-0.5 rounded-pi-pill bg-pi-bg2 text-pi-dim">模型 {run.model}</span>}
+          {run.drivenBy && (
+            <span className="text-[11px] px-2 py-0.5 rounded-pi-pill bg-pi-bg2 text-pi-dim" title={run.drivenBy}>
+              驱动 {String(run.drivenBy).includes('team-run-live') ? '元枢自己（服务端）' : '外部驱动'}
+            </span>
+          )}
         </div>
       </div>
 
@@ -172,6 +178,8 @@ export function TeamRunView() {
 
 type TeamRun = {
   mode?: string
+  drivenBy?: string
+  model?: string
   task?: string
   spec?: { kind?: string; complexity?: string; config?: Record<string, string>; caste?: string; phase?: string }
   concurrencyCap?: number

@@ -2582,6 +2582,32 @@ const API_ROUTES = [
     } catch (e) { return json(res, 500, { error: String(e?.message || e).slice(0, 120) }); }
     return json(res, 200, { ok: true, file, parts: parts.length });
   }],
+  // 天团触发（2026-09-20）：**只允许**跑白名单里的那一个脚本（不接任意命令），带单实例锁。
+  // 这样"她自己开天团"是可控的一条路，而不是一个万能后门。
+  ["POST", "/api/team/run", async (res, req) => {
+    const body = await readBody(req, 4);
+    const task = String((body && body.task) || "").slice(0, 300) || "写一个 10 秒飞天舞者视频脚本";
+    const script = path.join(WS_ROOT, "工程", "多AI角色扮演系统", "scripts", "team-run-live.mjs");
+    if (!fs.existsSync(script)) return json(res, 404, { error: "team-run-live.mjs 不存在" });
+    const lock = path.join(WS_ROOT, "记忆", "运行时", "天团运行锁.json");
+    try {
+      const cur = JSON.parse(fs.readFileSync(lock, "utf8"));
+      const ageMs = Date.now() - Date.parse(cur.at || 0);
+      if (cur.pid && ageMs < 20 * 60 * 1000) {
+        let alive = true; try { process.kill(cur.pid, 0); } catch { alive = false; }
+        if (alive) return json(res, 409, { error: "已有一趟天团在跑", since: cur.at, pid: cur.pid, task: cur.task });
+      }
+    } catch {}
+    try {
+      const { spawn } = await import("node:child_process");
+      const child = spawn(process.execPath, [script, task], { cwd: WS_ROOT, detached: true, stdio: "ignore", windowsHide: true });
+      child.unref();
+      fs.writeFileSync(lock, JSON.stringify({ at: new Date().toISOString(), pid: child.pid, task }), "utf8");
+      console.log(`[team] 天团已开跑：pid ${child.pid}｜${task}`);
+      return json(res, 200, { ok: true, started: true, pid: child.pid, task, note: "跑完写 工程/多AI角色扮演系统/team-run.json，工作台「天团」视图会自动刷新" });
+    } catch (e) { return json(res, 500, { error: String(e?.message || e).slice(0, 120) }); }
+  }],
+
   // 天团运行态（2026-09-19）：只读暴露 工程/多AI角色扮演系统/team-run.json（工作台「天团」视图的数据源）。
   ["GET", "/api/team/run", (res) => {
     const p = path.join(CONFIG.cwd, "工程", "多AI角色扮演系统", "team-run.json");
