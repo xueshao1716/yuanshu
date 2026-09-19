@@ -3,18 +3,20 @@
 // 这就是那篇文章说的"引擎"：一次性出一张好图没有价值，能一条改动传导到全套物料才叫资产。
 //
 // 用法：
-//   node scripts/visual-engine.mjs <战役目录> [--check] [--only kv] [--force] [--model agnes/agnes-image-2.0-flash]
-// 做的事（每个物料）：
-//   ① 用 visual-system.json 组装提示词（主体 → 质感/材质/色彩 → 版式/装置/网格 → 负面清单 → 无字硬约束）
-//   ② 调 /api/image 出【无字底图】（绝不交给模型写中文，必错字）
-//   ③ ffmpeg 缩放裁切到目标画幅 + 程序叠字（标题/口号，微软雅黑）→ <id>-final.png
-//   ④ 写 out/manifest.json（谁、什么模型、什么提示词、什么产物）——可复现、可对比
+//   node scripts/visual-engine.mjs <战役目录> [--check] [--only kv] [--force] [--model agnes/agnes-image-2.0-flash] [--keep-html]
+// 每个物料：
+//   ① 组装提示词（主体 → 张力 → 材质/色彩 → 构图/装置 → 负面清单；**排版与网格不进图像提示词**）
+//   ② 调 /api/image 出【无字底图】
+//   ③ 叠字：HTML/CSS 版式（宋体 + 字距 + 渐变遮罩 + 细横线 + 角标）→ 用已在跑的 Chrome(:9222) 按容器尺寸截图
+//      渲染器不可用时自动退回 ffmpeg drawtext
+//   ④ 写 out/manifest.json（模型 / 提示词全文 / 渲染器 / 时间）—— 可复现、可对比
 import fs from 'node:fs'
 import path from 'node:path'
 import { execFileSync } from 'node:child_process'
 
 const BASE = process.env.PI_BASE || 'http://127.0.0.1:8787'
 const TOKEN = process.env.PI_TOKEN || 'love#1126469194'
+const CDP = process.env.PI_CDP || 'http://127.0.0.1:9222'
 const FFMPEG = process.env.FFMPEG || 'ffmpeg'
 const FONT = process.env.PI_FONT || 'C:/Windows/Fonts/msyhbd.ttc'
 const RATIOS = { '16:9': [1280, 720], '3:4': [1080, 1440], '1:1': [1080, 1080], '9:16': [1080, 1920], '4:5': [1080, 1350] }
@@ -33,12 +35,11 @@ const [provider, modelId] = model.includes('/') ? [model.split('/')[0], model.sp
 const outDir = path.join(dir, 'out')
 fs.mkdirSync(outDir, { recursive: true })
 
-// ── 组装提示词：张力在前，画面在后；负面清单收尾（原文最值钱的两条）──
+// ── 提示词：张力在前，画面在后；排版/网格刻意不进（它们属于叠字段）──
 function buildPrompt(m) {
   const neg = [
     ...(vs.negatives || []),
-    // 真机教训（2026-09-19）：中文负面词挡不住模型画"像汉字的符号"，英文硬清单更管用；
-    // 一旦底图里出现伪汉字/招牌，叠字再漂亮也废——所以这一条是硬约束。
+    // 真机教训：中文负面词挡不住模型画"像汉字的符号"，英文硬清单更管用
     'no text', 'no words', 'no letters', 'no numbers', 'no logo', 'no watermark', 'no signature',
     'no Chinese characters', 'no calligraphy', 'no signage', 'no signboard', 'no poster text',
   ]
@@ -47,11 +48,10 @@ function buildPrompt(m) {
     vs.tension ? `核心张力：${vs.tension.a} × ${vs.tension.b}${vs.tension.why ? `（${vs.tension.why}）` : ''}` : '',
     vs.material ? `材质与质感：${vs.material}` : '',
     vs.palette ? `色彩：${vs.palette}` : '',
-    // 故意**不**把 vs.typography / vs.grid 塞进图像提示词：那是叠字段（见 skills/image-to-engine）
     vs.device ? `标志性视觉装置：${vs.device}` : '',
     vs.composition ? `构图：${vs.composition}` : '',
     m.extra || '',
-    RATIOS[m.ratio || vs.ratio || '3:4'] ? `画幅 ${m.ratio || vs.ratio}，主体居中偏下，上方大片留白（留白里什么都不要画，不要任何笔触或书法）` : '主体居中偏下，上方大片留白（留白里什么都不要画）',
+    `画幅 ${m.ratio || vs.ratio || '3:4'}，主体居中偏下，上方大片留白（留白里什么都不要画，不要任何笔触或书法）`,
     `不要出现：${neg.join('、')}`,
   ].filter(Boolean)
   return parts.join('；')
@@ -70,24 +70,83 @@ async function generate(prompt) {
   return Buffer.from(raw.includes(',') ? raw.split(',').pop() : raw, 'base64')
 }
 
-function overlay(baseFile, m, finalFile, size) {
+// ── 叠字①：HTML/CSS 版式（字距呼吸 + 渐变遮罩 + 细横线 + 角标）──
+function buildHtml(baseFile, m, size) {
+  const [w, h] = size
+  const b64 = fs.readFileSync(baseFile).toString('base64')
   const title = m.title || ''
   const slogan = m.slogan || ''
-  if (!title && !slogan) { fs.copyFileSync(baseFile, finalFile); return '（无文字，直接复制）' }
-  const tf = path.join(outDir, `.${m.id}.txt`)
-  fs.writeFileSync(tf, [title, slogan].filter(Boolean).join('\n'), 'utf8')
+  const fam = m.serif === false
+    ? '"Microsoft YaHei","PingFang SC",system-ui,sans-serif'
+    : '"Noto Serif SC","Source Han Serif SC","Songti SC",SimSun,"Microsoft YaHei",serif'
+  const ts = Math.round(w * (m.titleSize || 0.082))
+  const ss = Math.round(w * (m.sloganSize || 0.030))
+  const y = (m.textY ?? 0.68) * 100
+  const rule = '<div class="rule"></div>'
+  return `<!DOCTYPE html><html lang="zh-CN"><head><meta charset="utf-8"><style>
+*{margin:0;padding:0;box-sizing:border-box}
+html,body{width:${w}px;height:${h}px;overflow:hidden}
+.kv{position:relative;width:${w}px;height:${h}px;background:#111 url(data:image/png;base64,${b64}) center/cover no-repeat}
+.veil{position:absolute;inset:0;background:linear-gradient(to bottom,rgba(0,0,0,.18) 0%,rgba(0,0,0,0) 28%,rgba(0,0,0,.10) 52%,rgba(0,0,0,.64) 100%)}
+.text{position:absolute;left:0;right:0;top:${y}%;padding:0 ${Math.round(w * 0.075)}px;color:#fff;text-shadow:0 3px 20px rgba(0,0,0,.5)}
+.title{font-family:${fam};font-weight:700;font-size:${ts}px;letter-spacing:${Math.round(ts * 0.16)}px;line-height:1.18}
+.rule{width:${Math.round(w * 0.13)}px;height:2px;background:rgba(255,255,255,.78);margin:${Math.round(ts * 0.32)}px 0 ${Math.round(ts * 0.26)}px}
+.slogan{font-family:${fam};font-weight:400;font-size:${ss}px;letter-spacing:${Math.round(ss * 0.34)}px;opacity:.94}
+.meta{position:absolute;right:${Math.round(w * 0.075)}px;bottom:${Math.round(h * 0.045)}px;color:rgba(255,255,255,.8);font-family:${fam};font-size:${Math.round(w * 0.017)}px;letter-spacing:3px}
+</style></head><body><div class="kv"><div class="veil"></div>
+<div class="text">${title ? `<div class="title">${title}</div>` : ''}${title && slogan ? rule : ''}${slogan ? `<div class="slogan">${slogan}</div>` : ''}</div>
+<div class="meta">${m.meta || vs.campaign || ''}</div></div></body></html>`
+}
+
+async function renderViaCdp(htmlFile, finalFile, size) {
   const [w, h] = size
-  const fs2 = Math.round(w * (m.titleSize || 0.085))
-  const fs3 = Math.round(w * (m.sloganSize || 0.035))
-  // 中文字幕：用 textfile= 传文本，避开命令行里中文/引号的转义地狱
+  const t = await (await fetch(CDP + '/json/new?about:blank', { method: 'PUT' })).json()
+  const ws = new WebSocket(t.webSocketDebuggerUrl)
+  await new Promise((res, rej) => { ws.addEventListener('open', res); ws.addEventListener('error', () => rej(new Error('CDP 连不上'))) })
+  let id = 0
+  const q = new Map()
+  ws.addEventListener('message', (e) => { const msg = JSON.parse(e.data); const sl = msg.id && q.get(msg.id); if (sl) { q.delete(msg.id); msg.error ? sl.rej(new Error(JSON.stringify(msg.error))) : sl.res(msg.result) } })
+  const send = (method, params = {}) => new Promise((res, rej) => { const i = ++id; q.set(i, { res, rej }); ws.send(JSON.stringify({ id: i, method, params })) })
+  await send('Page.enable')
+  await send('Emulation.setDeviceMetricsOverride', { width: w, height: h, deviceScaleFactor: 2, mobile: false, screenWidth: w, screenHeight: h })
+  await send('Page.navigate', { url: 'file:///' + htmlFile.split(path.sep).join('/').replace(/^\//, '') })
+  await new Promise((r) => setTimeout(r, 1400))   // 等 data URI 底图解码 + 字体就位
+  const shot = await send('Page.captureScreenshot', { format: 'png' })
+  fs.writeFileSync(finalFile, Buffer.from(shot.data, 'base64'))
+  try { ws.close() } catch {}
+  return 'Chrome 截图'
+}
+
+// ── 叠字②：ffmpeg drawtext（兜底，版式能力有限）──
+function overlayFfmpeg(baseFile, m, finalFile, size) {
+  const tf = path.join(outDir, `.${m.id}.txt`)
+  fs.writeFileSync(tf, [m.title, m.slogan].filter(Boolean).join('\n'), 'utf8')
+  const [w, h] = size
+  const fz = Math.round(w * (m.titleSize || 0.085))
   const vf = [
     `scale=${w}:${h}:force_original_aspect_ratio=increase`,
     `crop=${w}:${h}`,
-    `drawtext=fontfile=${FONT.replace(/:/g, '\\\\:')}:textfile=${tf.replace(/\\/g, '/').replace(/:/g, '\\\\:')}:fontcolor=white:fontsize=${fs2}:line_spacing=${Math.round(fs2 * 0.3)}:x=(w-text_w)/2:y=h*${m.textY ?? 0.72}:shadowcolor=black@0.55:shadowx=3:shadowy=3`,
+    `drawtext=fontfile=${FONT.replace(/:/g, '\\:')}:textfile=${tf.split(path.sep).join('/').replace(/:/g, '\\:')}:fontcolor=white:fontsize=${fz}:line_spacing=${Math.round(fz * 0.3)}:x=(w-text_w)/2:y=h*${m.textY ?? 0.72}:shadowcolor=black@0.55:shadowx=3:shadowy=3`,
   ].join(',')
   execFileSync(FFMPEG, ['-y', '-loglevel', 'error', '-i', baseFile, '-vf', vf, finalFile], { stdio: 'inherit' })
   fs.rmSync(tf, { force: true })
-  return '底图 + 程序叠字'
+  return 'ffmpeg drawtext（兜底）'
+}
+
+async function overlay(baseFile, m, finalFile, size) {
+  if (!m.title && !m.slogan) { fs.copyFileSync(baseFile, finalFile); return '（无文字）' }
+  if (m.renderer !== 'ffmpeg') {
+    try {
+      const htmlFile = path.join(outDir, `.${m.id}.html`)
+      fs.writeFileSync(htmlFile, buildHtml(baseFile, m, size), 'utf8')
+      const how = await renderViaCdp(htmlFile, finalFile, size)
+      if (!flag('keep-html')) fs.rmSync(htmlFile, { force: true })
+      return 'HTML 版式 + ' + how
+    } catch (e) {
+      console.log(`    · HTML 渲染不可用（${String(e?.message || e).slice(0, 60)}），退回 ffmpeg`)
+    }
+  }
+  return overlayFfmpeg(baseFile, m, finalFile, size)
 }
 
 const materials = (vs.materials || []).filter((m) => !opt('only') || m.id === opt('only'))
@@ -107,11 +166,12 @@ for (const m of materials) {
   const t0 = Date.now()
   try {
     let reused = false
-    if (fs.existsSync(baseFile) && !flag('force')) { reused = true } else { const buf = await generate(prompt); fs.writeFileSync(baseFile, buf) }
-    const how = overlay(baseFile, m, finalFile, size)
+    if (fs.existsSync(baseFile) && !flag('force')) reused = true
+    else fs.writeFileSync(baseFile, await generate(prompt))
+    const how = await overlay(baseFile, m, finalFile, size)
     const kb = Math.round(fs.statSync(finalFile).size / 1024)
     console.log(`  ✓ ${m.id}: ${reused ? '复用底图' : '新出底图'} + ${how} → ${path.basename(finalFile)}（${kb}KB, ${((Date.now() - t0) / 1000).toFixed(1)}s）`)
-    manifest.push({ id: m.id, ratio: m.ratio || vs.ratio, file: finalFile, prompt, model: `${provider}/${modelId}`, at: new Date().toISOString() })
+    manifest.push({ id: m.id, ratio: m.ratio || vs.ratio, file: finalFile, renderer: how, prompt, model: `${provider}/${modelId}`, at: new Date().toISOString() })
   } catch (e) {
     console.log(`  ✗ ${m.id}: ${String(e?.message || e).slice(0, 140)}`)
     manifest.push({ id: m.id, error: String(e?.message || e).slice(0, 200) })
@@ -119,7 +179,7 @@ for (const m of materials) {
 }
 if (!flag('check')) {
   const mf = path.join(outDir, 'manifest.json')
-  const old = fs.existsSync(mf) ? JSON.parse(fs.readFileSync(mf, 'utf8')) : []
-  fs.writeFileSync(mf, JSON.stringify({ campaign: vs.campaign, visualSystem: vs, runs: [...old.runs || [], { at: new Date().toISOString(), items: manifest }] }, null, 2), 'utf8')
+  const old = fs.existsSync(mf) ? JSON.parse(fs.readFileSync(mf, 'utf8')) : {}
+  fs.writeFileSync(mf, JSON.stringify({ campaign: vs.campaign, visualSystem: vs, runs: [...(old.runs || []), { at: new Date().toISOString(), items: manifest }] }, null, 2), 'utf8')
   console.log(`清单: ${mf}（改 visual-system.json 里任意一条，重跑即可全套更新）`)
 }

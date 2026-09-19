@@ -8,6 +8,26 @@
 
 ## [Unreleased]
 
+## [2.88.1] - 2026-09-19
+
+### 叠字段升级：ffmpeg drawtext → HTML/CSS 版式 + Chrome 截图
+
+`visual-engine` 的叠字从"只会画一行大字"升级成真正的版式层（和 `xiaoyu-poster-prompt` 里徐霞客那套对齐）：
+
+- **HTML/CSS 文字层**：宋体系字族（Noto Serif SC / 思源宋体 / 宋体 回退）、标题 `letter-spacing:0.16em`、
+  标题下细横线、口号 `0.34em` 宽字距、右下角标（战役名）、自上而下的**渐变遮罩**（任何底图上都读得清）；
+- **渲染**：用已经在跑的 Chrome(:9222) 走 CDP，`setDeviceMetricsOverride` 把视口设成容器尺寸
+  （1080×1440 / 1280×720 / 1080×1080），`deviceScaleFactor:2` → 出 **2160×2880** 二倍图，可直接印刷；
+- **兜底**：CDP 不可用时自动退回 ffmpeg drawtext（不硬失败），`manifest.json` 记明每个物料用了哪个渲染器；
+- 参数：`--keep-html` 保留中间 HTML 便于改版式。
+
+**真机结果**（示例战役三个物料全部走 HTML 渲染）：
+```
+kv     ✓ 新出底图 + HTML 版式 + Chrome 截图 → kv-final.png（1801KB, 18.0s）
+poster ✓ 新出底图 + HTML 版式 + Chrome 截图 → poster-final.png（2549KB, 19.1s）
+square ✓ 新出底图 + HTML 版式 + Chrome 截图 → square-final.png（2152KB, 17.0s）
+```
+
 ## [2.88.0] - 2026-09-19
 
 ### 视觉引擎：一张参考图 → 一台能反复启动的引擎（image-to-engine 落地）
