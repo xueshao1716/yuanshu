@@ -10,14 +10,15 @@ const OUT = i >= 0 ? args[i + 1] : 'D:\\pi-workspace\\交付\\小语贴纸包'
 const STK = path.join(OUT, 'stickers')
 fs.mkdirSync(STK, { recursive: true })
 
-// 只收"抠过底"的：xiaoyu-*-t.png（Q版七帧）+ doll-*.png（盲盒公仔）；跳过 256 缩略图
-const files = fs.readdirSync(SRC).filter((f) => /\.png$/i.test(f) && (/^xiaoyu-.+-t\.png$/i.test(f) || /^doll-\d+\.png$/i.test(f)))
+// 只收"抠过底"的：xiaoyu-*-t.png（Q版七帧）+ walk-*.png（走路帧）+ doll-*.png（盲盒公仔）；跳过 256 缩略图
+const files = fs.readdirSync(SRC).filter((f) => /\.png$/i.test(f) && (/^xiaoyu-.+-t\.png$/i.test(f) || /^doll-\d+\.png$/i.test(f) || /^walk-\d+\.png$/i.test(f)))
+const groupOf = (f) => (/^walk-0[5-8]/i.test(f) ? 'Q版小语 · 走路' : /^walk-/i.test(f) ? '盲盒公仔 · 走路' : /^doll/i.test(f) ? '盲盒公仔' : 'Q版小语')
 const items = []
 for (const f of files.sort()) {
   const src = path.join(SRC, f)
   const buf = fs.readFileSync(src)
   fs.writeFileSync(path.join(STK, f), buf)
-  items.push({ file: f, kb: Math.round(buf.length / 1024), group: /^doll/i.test(f) ? '盲盒公仔' : 'Q版小语' })
+  items.push({ file: f, kb: Math.round(buf.length / 1024), group: groupOf(f) })
 }
 
 const card = (it) => `  <figure>
@@ -49,7 +50,9 @@ figcaption a{color:#6ee7b7}
 <h1>小语贴纸包</h1>
 <div class="lead">共 <b>${items.length}</b> 张透明 PNG（格子底＝透明区域）。直接拖进 PPT / 网页 / 微信表情都能用；网页用法：<code>&lt;img src="stickers/xxx.png"&gt;</code></div>
 ${group('Q版小语')}
+${group('Q版小语 · 走路')}
 ${group('盲盒公仔')}
+${group('盲盒公仔 · 走路')}
 </body></html>`
 fs.writeFileSync(path.join(OUT, 'index.html'), html, 'utf8')
 fs.writeFileSync(path.join(OUT, 'README.md'), `# 小语贴纸包

@@ -7,12 +7,14 @@ import { useEffect, useRef, useState } from 'react'
 // 所以这里做的模式是：角落待命（默认）⇄ 自由漫游（在视口里飘着走，避开输入区）。
 // 手势：单击=反应说话 · 双击=换装 · 拖动=抓起来（松手掉到下方再继续飘）· 悬停=注视你。
 const S = '/static/branding'
-const V = '?v=6'
+const V = '?v=7'
 type FrameKey = 'open' | 'closed' | 'happy' | 'focused' | 'thinking' | 'sleepy' | 'wave'
 
-const SKINS: Record<string, { label: string; frames: Record<FrameKey, string> }> = {
+const SKINS: Record<string, { label: string; frames: Record<FrameKey, string>; walk: string[] }> = {
   chibi: {
     label: 'Q版',
+    // 走路循环 4 帧（侧身迈步→并拢→迈步→并拢），漫游时按移动速度播放
+    walk: [`${S}/walk-05-256.png${V}`, `${S}/walk-06-256.png${V}`, `${S}/walk-07-256.png${V}`, `${S}/walk-08-256.png${V}`],
     frames: {
       open: `${S}/xiaoyu-open-t.png${V}`,
       closed: `${S}/xiaoyu-closed-t.png${V}`,
@@ -25,6 +27,7 @@ const SKINS: Record<string, { label: string; frames: Record<FrameKey, string> }>
   },
   doll: {
     label: '盲盒公仔',
+    walk: [`${S}/walk-01-256.png${V}`, `${S}/walk-02-256.png${V}`, `${S}/walk-03-256.png${V}`, `${S}/walk-04-256.png${V}`],
     frames: {
       open: `${S}/doll-02.png${V}`, closed: `${S}/doll-02.png${V}`, happy: `${S}/doll-01.png${V}`,
       focused: `${S}/doll-02.png${V}`, thinking: `${S}/doll-02.png${V}`, sleepy: `${S}/doll-02.png${V}`, wave: `${S}/doll-01.png${V}`,
@@ -57,6 +60,9 @@ export default function XiaoyuWidget() {
   const [mode, setMode] = useState<'corner' | 'roam'>(() => { try { return (localStorage.getItem('xiaoyu_mode') as any) || 'corner' } catch { return 'corner' } })
   const [pos, setPos] = useState<{ x: number; y: number; face: number } | null>(null)
   const [hover, setHover] = useState(false)
+  const [walking, setWalking] = useState(false)
+  const [walkIdx, setWalkIdx] = useState(0)
+  const walkClock = useRef(0)
   const [sparks, setSparks] = useState<{ id: number; x: number; y: number }[]>([])
   const [persona, setPersona] = useState<{ name?: string; age?: number } | null>(null)
   const [line, setLine] = useState(LINES[0])
@@ -65,10 +71,11 @@ export default function XiaoyuWidget() {
   const boxRef = useRef<HTMLDivElement | null>(null)
   const talkingRef = useRef(false)
   const hoverRef = useRef(false)   // 悬停时"注视"要压过眨眼/漫游的换帧（真机核对里被漫游覆盖过）
+  const walkRef = useRef(false)
   const dragRef = useRef<{ dx: number; dy: number; moved: boolean } | null>(null)
   const phys = useRef({ x: 0, y: 0, vx: 0, vy: 0, tx: 0, ty: 0, falling: false, nextThink: 0, face: 1 })
 
-  useEffect(() => { for (const s of Object.values(SKINS)) for (const src of Object.values(s.frames)) { const i = new Image(); i.src = src } }, [])
+  useEffect(() => { for (const s of Object.values(SKINS)) for (const src of [...Object.values(s.frames), ...s.walk]) { const i = new Image(); i.src = src } }, [])
   useEffect(() => { const t = setTimeout(() => setFrame('open'), 1800); return () => clearTimeout(t) }, [])
 
   // 眨眼
@@ -178,10 +185,14 @@ export default function XiaoyuWidget() {
           const vx = (dx / dist) * SPEED, vy = (dy / dist) * SPEED
           if (Math.abs(vx) > 6) q.face = vx > 0 ? 1 : -1
           q.x += vx * dt; q.y += vy * dt
+          const moving = dist > 12
+          if (moving !== walkRef.current) { walkRef.current = moving; setWalking(moving) }
+          if (moving) { walkClock.current += dt; if (walkClock.current > 0.18) { walkClock.current = 0; setWalkIdx((i) => (i + 1) % 4) } }
         }
       }
       q.x = Math.max(8, Math.min(vw() - W - 8, q.x))
       q.y = Math.max(8, Math.min(vh() - H - 8, q.y))
+      if (!q.falling && Math.hypot(q.tx - q.x, q.ty - q.y) < 10 && walkRef.current) { walkRef.current = false; setWalking(false) }
       setPos({ x: q.x, y: q.y, face: q.face })
       raf = requestAnimationFrame(step)
     }
@@ -305,7 +316,7 @@ export default function XiaoyuWidget() {
         onPointerUp={onPointerUp}
         onMouseEnter={() => { setHover(true); hoverRef.current = true; if (!talkingRef.current) setFrame('focused') }}
         onMouseLeave={() => { setHover(false); hoverRef.current = false; if (!talkingRef.current) setFrame('open') }}
-        data-frame={frame}
+        data-frame={walking ? 'walk' + (walkIdx + 1) : frame}
         data-skin={skin}
         data-mode={mode}
         data-tasks={busyCount}
@@ -315,7 +326,7 @@ export default function XiaoyuWidget() {
           transform: `${mode === 'roam' && pos ? `scaleX(${pos.face})` : ''} ${hover ? 'translateY(-2px)' : ''}`.trim() || undefined,
         }}
       >
-        <img src={frames[frame]} alt={label} draggable={false} className="h-20 w-auto sm:h-24" />
+        <img src={walking && (SKINS[skin] || SKINS.chibi).walk[walkIdx] ? (SKINS[skin] || SKINS.chibi).walk[walkIdx] : frames[frame]} alt={label} draggable={false} className="h-20 w-auto sm:h-24" />
       </button>
     </div>
   )
