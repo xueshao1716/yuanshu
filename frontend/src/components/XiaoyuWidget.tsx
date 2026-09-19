@@ -43,7 +43,7 @@ const LINES = ['在。有活就说。', '我盯着任务呢，跑完会汇报。
 //   ② 没有 → 退回"整图横向切片 + 弯曲曲线"的形变（四肢不独立，但至少有体态）。
 // 两条都是纯代码，不需要 Live2D / Rive 之类 GUI 编辑器。
 type PuppetPart = { file: string; x: number; y: number; w: number; h: number; pivot: [number, number]; z: number }
-function PuppetCanvas({ src, walking, hover, face, label, waving, lookX, patting, rig, blinking, talking2 }: { src: string; walking: boolean; hover: boolean; face: number; label: string; waving: boolean; lookX: number; patting: boolean; rig: string; blinking: boolean; talking2: boolean }) {
+function PuppetCanvas({ src, walking, hover, face, label, waving, lookX, patting, rig, blinking, talking2, pose, dragged }: { src: string; walking: boolean; hover: boolean; face: number; label: string; waving: boolean; lookX: number; patting: boolean; rig: string; blinking: boolean; talking2: boolean; pose: string; dragged: boolean }) {
   const ref = useRef<HTMLCanvasElement | null>(null)
   const imgRef = useRef<HTMLImageElement | null>(null)
   const [ready, setReady] = useState(false)
@@ -113,6 +113,14 @@ function PuppetCanvas({ src, walking, hover, face, label, waving, lookX, patting
           handR: waving ? Math.sin(t * 7.5 + 0.3) * 24 : walking ? -swing * 10 : -Math.sin(t * 1.3) * 2,
           footL: walking ? Math.max(0, swing) * 14 : 0,
           footR: walking ? Math.max(0, -swing) * 14 : 0,
+          // 坐：大腿抬起、小腿回折、脚放平；被拎起来：四肢乱蹬；蹦：收腿
+          ...(pose === 'sit' ? { thighL: 58, thighR: 58, shinL: -86, shinR: -86, footL: 26, footR: 26,
+                                upperArmL: 16, upperArmR: 16, foreArmL: 22, foreArmR: 22, torso: 6 } : {}),
+          ...(pose === 'hop' ? { thighL: -22, thighR: -22, shinL: 34, shinR: 34, upperArmL: -18, upperArmR: -18 } : {}),
+          ...(dragged ? { upperArmL: Math.sin(t * 16) * 34 - 20, upperArmR: -Math.sin(t * 16) * 34 + 20,
+                          foreArmL: Math.sin(t * 16 + 1) * 30, foreArmR: -Math.sin(t * 16 + 1) * 30,
+                          thighL: Math.sin(t * 14) * 26, thighR: -Math.sin(t * 14) * 26,
+                          shinL: Math.abs(Math.sin(t * 14)) * 30, shinR: Math.abs(Math.sin(t * 14)) * 30 } : {}),
         }
         const parent: Record<string, string> = {
           head: 'torso', upperArmL: 'torso', foreArmL: 'upperArmL', upperArmR: 'torso', foreArmR: 'upperArmR',
@@ -135,7 +143,9 @@ function PuppetCanvas({ src, walking, hover, face, label, waving, lookX, patting
           world[id] = { x: world[pa].x + dx * c - dy * sn, y: world[pa].y + dx * sn + dy * c, rot: world[pa].rot + rot }
         }
         ctx.save()
-        ctx.translate(W / 2, H - bob)
+        const sitDrop = pose === 'sit' ? H * 0.16 : 0
+        const hopLift = pose === 'hop' ? -Math.abs(Math.sin(t * 9)) * H * 0.10 : 0
+        ctx.translate(W / 2, H - bob + sitDrop + hopLift)
         for (const [k, p] of Object.entries(P.parts).sort((a, b) => a[1].z - b[1].z)) {
           const im = P.imgs[k]
           const w = world[k]
@@ -193,7 +203,7 @@ function PuppetCanvas({ src, walking, hover, face, label, waving, lookX, patting
     }
     raf = requestAnimationFrame(draw)
     return () => cancelAnimationFrame(raf)
-  }, [ready, walking, hover, face, waving, lookX, patting, blinking, talking2])
+  }, [ready, walking, hover, face, waving, lookX, patting, blinking, talking2, pose, dragged])
 
   return <canvas ref={ref} width={Math.round((partsRef.current?.size?.[0] || 192) * 0.9)} height={Math.round((partsRef.current?.size?.[1] || 224) * 0.9)}
     aria-label={label} data-puppet="1" data-puppet-mode={partsRef.current ? 'parts' : 'strips'} className="h-20 w-auto sm:h-24" />
@@ -233,7 +243,9 @@ export default function XiaoyuWidget() {
   const [lookX, setLookX] = useState(0)      // 视线跟随：鼠标相对她的水平位置 -1..1
   const [patting, setPatting] = useState(false)
   const [blinking, setBlinking] = useState(false)   // 眨眼节拍（3.5~6s 闭一次 130ms）
-  const [talking2, setTalking2] = useState(false)   // 说话中（口型开合）   // 挥手：点她时抬右臂画弧，1.4 秒后放下
+  const [talking2, setTalking2] = useState(false)   // 说话中（口型开合）
+  const [pose, setPose] = useState('stand')         // stand | sit | hop
+  const [dragged, setDragged] = useState(false)     // 被拎起来（四肢乱蹬）   // 挥手：点她时抬右臂画弧，1.4 秒后放下
   const [walkIdx, setWalkIdx] = useState(0)
   const walkClock = useRef(0)
   const [sparks, setSparks] = useState<{ id: number; x: number; y: number }[]>([])
@@ -242,7 +254,7 @@ export default function XiaoyuWidget() {
   const [busyCount, setBusyCount] = useState(0)
 
   const boxRef = useRef<HTMLDivElement | null>(null)
-  const lastMouse = useRef({ x: 0, y: 0 })
+  const lastMouse = useRef({ x: 0, y: 0, t: 0 })
   const talkingRef = useRef(false)
   const hoverRef = useRef(false)   // 悬停时"注视"要压过眨眼/漫游的换帧（真机核对里被漫游覆盖过）
   const walkRef = useRef(false)
@@ -252,7 +264,7 @@ export default function XiaoyuWidget() {
   // 视线跟随 + 记住鼠标位置：鼠标在页面哪边她就往哪边看；漫游时有几率朝你走
   useEffect(() => {
     const onMove = (e: MouseEvent) => {
-      lastMouse.current = { x: e.clientX, y: e.clientY }
+      lastMouse.current = { x: e.clientX, y: e.clientY, t: Date.now() }
       const r = boxRef.current?.getBoundingClientRect()
       if (!r) return
       const cx = r.left + r.width / 2
@@ -410,7 +422,18 @@ export default function XiaoyuWidget() {
   const label = persona?.name ? `${persona.name}${persona.age ? ` · ${persona.age}岁` : ''}` : '小语'
   const frames = (SKINS[skin] || SKINS.chibi).frames
 
+  // 久不动 → 坐下；有人理她 / 开始走 → 站起来
+  useEffect(() => {
+    const idle = setInterval(() => {
+      const quiet = Date.now() - (lastMouse.current.t || 0) > 60000
+      if (quiet && !walking && !open) setPose((p) => (p === 'stand' ? 'sit' : p))
+    }, 10000)
+    return () => clearInterval(idle)
+  }, [walking, open])
+  useEffect(() => { if (walking && pose === 'sit') setPose('stand') }, [walking, pose])
+
   const speak = (e?: React.MouseEvent) => {
+    setPose('hop'); setTimeout(() => setPose('stand'), 900)
     const r = boxRef.current?.getBoundingClientRect()
     const onHead = !!(r && e && e.clientY - r.top < r.height * 0.38)
     if (onHead) { setPatting(true); setTimeout(() => setPatting(false), 900); setLine('嗯？在的。'); setOpen(true); return }
@@ -464,6 +487,7 @@ export default function XiaoyuWidget() {
     const rect = boxRef.current?.getBoundingClientRect()
     if (!rect) return
     dragRef.current = { dx: e.clientX - rect.left, dy: e.clientY - rect.top, moved: false }
+    setDragged(true)
     ;(e.target as HTMLElement).setPointerCapture?.(e.pointerId)
   }
   const onPointerMove = (e: React.PointerEvent) => {
@@ -478,6 +502,7 @@ export default function XiaoyuWidget() {
   const onPointerUp = (e: React.PointerEvent) => {
     const d = dragRef.current
     dragRef.current = null
+    setDragged(false)
     if (!d) return
     if (d.moved) {
       try { localStorage.setItem('xiaoyu_pos', JSON.stringify({ x: pos?.x ?? 0, y: pos?.y ?? 0 })) } catch {}
@@ -544,7 +569,7 @@ export default function XiaoyuWidget() {
       >
         {skin === 'puppet' || skin === 'doll-puppet' ? (
           <PuppetCanvas src={walking && (SKINS[skin] || SKINS.chibi).walk[walkIdx] ? (SKINS[skin] || SKINS.chibi).walk[walkIdx] : frames[frame]}
-            walking={walking} hover={hover} waving={waving} lookX={lookX} patting={patting} blinking={blinking} talking2={talking2}
+            walking={walking} hover={hover} waving={waving} lookX={lookX} patting={patting} blinking={blinking} talking2={talking2} pose={pose} dragged={dragged}
             rig={RIG_OF[skin] || RIG_OF.puppet} face={mode === 'roam' && pos ? pos.face : 1} label={label} />
         ) : (
           <img src={walking && (SKINS[skin] || SKINS.chibi).walk[walkIdx] ? (SKINS[skin] || SKINS.chibi).walk[walkIdx] : frames[frame]} alt={label} draggable={false} className="h-20 w-auto sm:h-24" />
