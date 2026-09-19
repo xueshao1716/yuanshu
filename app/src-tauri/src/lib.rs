@@ -30,7 +30,8 @@ pub fn run() {
                     "main",
                     tauri::WebviewUrl::External(url.parse().expect("bad url")),
                 )
-                .title("元枢 · 个人智能系统")
+                // 标题栏带版本号：跟 Cargo.toml 的 version 走（version:bump 会同步，装了就能看见自己是哪一版）
+                .title(format!("元枢 · 个人智能系统 v{}", env!("CARGO_PKG_VERSION")))
                 .inner_size(1280.0, 820.0)
                 .min_inner_size(420.0, 360.0)
                 .decorations(false)   // 去系统标题栏：前端自绘（TitleBar.tsx）跟随主题

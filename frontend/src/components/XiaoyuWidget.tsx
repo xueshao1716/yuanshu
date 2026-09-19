@@ -252,6 +252,8 @@ export default function XiaoyuWidget() {
   const [persona, setPersona] = useState<{ name?: string; age?: number } | null>(null)
   const [line, setLine] = useState(LINES[0])
   const [busyCount, setBusyCount] = useState(0)
+  const [appVersion, setAppVersion] = useState('')
+  const [updateMsg, setUpdateMsg] = useState('')
 
   const boxRef = useRef<HTMLDivElement | null>(null)
   const lastMouse = useRef({ x: 0, y: 0, t: 0 })
@@ -310,6 +312,20 @@ export default function XiaoyuWidget() {
     loop()
     return () => clearTimeout(t)
   }, [open])
+
+  // 版本号 + 更新状态（用户要求：程序里也要能看见自己是哪一版）
+  useEffect(() => {
+    fetch('/api/system/info', { headers: { Authorization: 'Bearer ' + (localStorage.getItem('yuanshu_access_token') || '') } })
+      .then((r) => r.json()).then((j) => setAppVersion(String(j?.version || ''))).catch(() => {})
+  }, [])
+  const checkUpdate = async () => {
+    setUpdateMsg('检查中…')
+    try {
+      const r = await fetch('/api/update/check', { headers: { Authorization: 'Bearer ' + (localStorage.getItem('yuanshu_access_token') || '') } })
+      const j = await r.json()
+      setUpdateMsg(j?.upToDate ? `已是最新（${String(j.local || '').slice(0, 7)}）` : `落后 ${j.behind} 个提交（远端 ${String(j.remote || '').slice(0, 7)}）`)
+    } catch { setUpdateMsg('检查失败') }
+  }
 
   // 名字/年龄读人格定义
   useEffect(() => {
@@ -528,6 +544,12 @@ export default function XiaoyuWidget() {
             <span className="inline-block h-1.5 w-1.5 rounded-full bg-emerald-400" />
             {label}
             <span className="ml-auto text-[10px] text-pi-dim2">{(SKINS[skin] || SKINS.chibi).label} · {mode === 'roam' ? '自由活动中' : '角落待命'}</span>
+          </div>
+          <div className="mb-1 flex items-center gap-1.5 text-[10px] text-pi-dim2">
+            <span>v{appVersion || '—'}</span>
+            <button type="button" onClick={(e) => { e.stopPropagation(); checkUpdate() }}
+              className="rounded-pi-pill bg-white/[0.06] px-1.5 py-0.5 hover:bg-white/[0.12]">检查更新</button>
+            {updateMsg && <span className="truncate">{updateMsg}</span>}
           </div>
           <div>{line}</div>
           <div className="mt-2 flex flex-wrap gap-1">
