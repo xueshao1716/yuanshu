@@ -8,6 +8,34 @@
 
 ## [Unreleased]
 
+## [2.89.0] - 2026-09-19
+
+### 视觉引擎：四种版式 + 竖排印章 + 多语言（同一张底图出多版）
+
+`visual-engine` 的叠字层补齐三件事，全部真机跑通：
+
+1. **版式预设**（`layout`，物料可覆盖）：`bottom`（默认）／`topLeft`／`bottomRight`／`center`／
+   **`verticalRight`（竖排 + 印章位）**；每种预设决定文字块位置、对齐与**渐变遮罩方向**（文字在左下就往下压暗，在右侧就往左压暗）。
+2. **印章**：`stamp:"语"` —— 纯 CSS 画的朱砂小方章（圆角 + 旋转 -3° + 阴影），不依赖任何图片资源。
+3. **多语言**：`alt:{en:{title,slogan}}` → 同一张底图**不重新出图**，再叠一版 `<id>-en.png`（拉丁字族自动切 Georgia/Times）。
+
+**渲染器也换了**（真机踩了三轮）：
+```
+CDP 逐物料开新页      → 第 3 个物料开始卡住（unsettled top-level await）
+CDP 复用单页          → 第 2 个物料起每次超时 30s
+chrome --headless --screenshot → 中文路径 + profile 锁，产出不稳定
+playwright screenshot CLI     → ✅ 每次全新进程、viewport 直接给目标像素、中文路径无碍
+```
+现在顺序是 **playwright CLI → Chrome CLI → CDP(30s 超时) → ffmpeg drawtext**，任一步失败自动降级、绝不挂住；
+二倍图不再依赖 `device-scale-factor`，而是**按 2 倍尺寸画 HTML + 2 倍 viewport**。
+
+**真机结果**（示例战役，全部 playwright 渲染，5 秒/张）：
+```
+kv      ✓ bottomRight  → kv-final.png  2560×1440（1966KB）+ ↳ en → kv-en.png
+poster  ✓ verticalRight + 印章「语」 → poster-final.png 2160×2880（3651KB）+ ↳ en → poster-en.png
+square  ✓ center       → square-final.png 2160×2160（2209KB）
+```
+
 ## [2.88.1] - 2026-09-19
 
 ### 叠字段升级：ffmpeg drawtext → HTML/CSS 版式 + Chrome 截图
