@@ -7,6 +7,7 @@ import { usePullToRefresh } from '../hooks/usePullToRefresh'
 import { RunsApi, SessionsApi, AsrApi, AgentStatusApi, streamSession, LingXiApi, ConfirmApi, downloadApiFile, type RunSummary } from '../api'
 import Message from './Message'
 import SendBox from './SendBox'
+import XiaoyuWidget from './XiaoyuWidget'
 import TurnList from './TurnList'
 import ChatRunStatus from './ChatRunStatus'
 import { useAutoScroll } from '../hooks/useAutoScroll'
@@ -1136,6 +1137,7 @@ export default function ChatArea({ compactHeader, rightPanel, onRightPanel }: {
             }} />
         </div>
       </div>
-    </div>
+          <XiaoyuWidget />
+</div>
   )
 }

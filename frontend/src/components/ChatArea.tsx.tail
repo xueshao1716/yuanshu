@@ -1,0 +1,9 @@
+toast('文件挂到了别的会话，请刷新后重试', 'error')
+              void mutateMsgs()
+              void refreshSessions()
+            }} />
+        </div>
+      </div>
+    </div>
+  )
+}
