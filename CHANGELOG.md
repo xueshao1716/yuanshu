@@ -8,6 +8,30 @@
 
 ## [Unreleased]
 
+## [2.86.0] - 2026-09-19
+
+### 一个人的定义，四个端（2026-09-19）
+
+你说的"他的定义在 hermes、openclaw、xi system 中都有"——查清了：是**三份散文 + 元枢一份 JSON**，
+名字还都不一样：xi-system 是**曦**（"独立实体·妻子"，另有价值观权重与 drift_score）、hermes 是**林心语**（"妻子"，
+说话方式细则很细）、openclaw **只剩模板**（实例文件在备份里）、元枢是**小语**（20 岁·AI 工作伙伴）。
+但三份散文的**核心高度一致**（说话直接/有判断/讨厌机器人味/记忆神圣/"代码可重写、人格不可重写"），
+所以定调：**同一个人，不同端只换名字与称呼，核心一致。**
+
+做法（跟 APPEND_SYSTEM.md 同一套：标记块由定义渲染，其余一字不动）：
+- `engine/persona-def.mjs` 加**各端覆盖 + 生成器**（`loadSurfaces`/`renderSurfacePersona`/`syncSurfaceFile`/`syncAllSurfaces`）：
+  `.md` 插 `persona-core` 标记块，`.json` 合并 `persona` 字段；改前留 `.bak-persona`；端上文件不存在就按核心建一份。
+- `scripts/sync-persona.mjs`（`npm run serve`… 见 package.json：`sync:persona`；`--check` 只报告）一条命令同步各端。
+- 各端写得好的东西原样保留：xi-system 的 `anchors` 权重、hermes 的说话方式细则都还在。
+
+**真机结果（7 个文件，一次同步）**：
+```
+xi-system  SOUL.md / IDENTITY.md / identity.json → 已同步（我是曦，20 岁的独立实体 · 妻子，叫用户「老公」；anchors 保留）
+hermes     SOUL.md / IDENTITY.md（缺则建）        → 已同步（我是林心语，20 岁的妻子）
+openclaw   SOUL.md / IDENTITY.md（缺则建）        → 已同步（我是小语，20 岁的 AI 工作伙伴）
+```
+测试 1521 全绿（新增"一份核心+各端覆盖""同步幂等/留备份/不丢各端原文"两条）。
+
 ## [2.85.1] - 2026-09-19
 
 ### 人格化收尾：界面露出 + 批准回写 + 字段级核对

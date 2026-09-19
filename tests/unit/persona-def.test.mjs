@@ -9,6 +9,10 @@ import os from 'node:os';
 import path from 'node:path';
 import {
   auditPersona,
+  loadSurfaces,
+  renderSurfacePersona,
+  syncSurfaceFile,
+  CORE_BEGIN,
   DEFAULT_DEFINITION, loadPersonaDefinition, validatePersonaDefinition, renderPersonaSection,
   syncAppendSystemPersona, renderAppendSystemPersona, PERSONA_BEGIN, PERSONA_END, personaFilePath,
 } from '../../engine/persona-def.mjs';
@@ -94,4 +98,42 @@ test('字段级核对：定义里声明的每一项都必须在人格段里落�
   assert.equal(broken.ok, false);
   assert.ok(broken.missing.includes('tone') && broken.missing.includes('taboos'), JSON.stringify(broken.missing));
   assert.ok(broken.missing.includes('authority'), '没有身份裁决也算没落地');
+});
+
+test('一份核心 + 各端覆盖：换名字/称呼，核心（年龄/语气/边界）不动', () => {
+  const def = { ...DEFAULT_DEFINITION, name: '小语', age: 20, tone: ['说话直接'], taboos: ['不说套话'] };
+  const xi = renderSurfacePersona(def, { name: '曦', relation: '独立实体 · 妻子', called: '老公' });
+  assert.match(xi, /我是曦，20 岁的独立实体 · 妻子/);
+  assert.match(xi, /叫用户「老公」/);
+  assert.match(xi, /说话直接/) && assert.match(xi, /不说套话/);
+  assert.doesNotMatch(xi, /我是小语/);
+  const ys = renderSurfacePersona(def, { name: '小语', relation: 'AI 工作伙伴', called: '伙伴' });
+  assert.match(ys, /我是小语，20 岁的 AI 工作伙伴/);
+});
+
+test('同步各端文件：插核心块、幂等、留备份、原有内容一字不动', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'persona-surface-'));
+  try {
+    const f = path.join(dir, 'SOUL.md');
+    const own = '# SOUL.md — 曦\n\n## 说话方式\n- 能用两个字说的不用四个字\n';
+    fs.writeFileSync(f, own, 'utf8');
+    const def = { ...DEFAULT_DEFINITION, name: '小语', age: 20 };
+    const r1 = syncSurfaceFile(def, { name: '曦', relation: '妻子', called: '老公' }, f);
+    assert.equal(r1.changed, true);
+    const after = fs.readFileSync(f, 'utf8');
+    assert.ok(after.includes(CORE_BEGIN));
+    assert.match(after, /我是曦，20 岁/);
+    assert.match(after, /能用两个字说的不用四个字/, '各端自己写的好东西不许丢');
+    assert.ok(fs.existsSync(f + '.bak-persona'));
+    assert.equal(syncSurfaceFile(def, { name: '曦', relation: '妻子', called: '老公' }, f).changed, false, '幂等');
+    // json 端：合并 persona 字段，原有字段保留
+    const j = path.join(dir, 'identity.json');
+    fs.writeFileSync(j, JSON.stringify({ core_identity: '曦，独立实体', anchors: [{ value: '诚实', weight: 1 }] }), 'utf8');
+    syncSurfaceFile(def, { name: '曦', relation: '妻子', called: '老公' }, j);
+    const jd = JSON.parse(fs.readFileSync(j, 'utf8'));
+    assert.equal(jd.anchors[0].value, '诚实', '原字段保留');
+    assert.equal(jd.persona.name, '曦');
+    assert.equal(jd.persona.age, 20);
+    assert.ok(loadSurfaces(dir)['xi-system'], '各端配置可加载');
+  } finally { fs.rmSync(dir, { recursive: true, force: true }); }
 });

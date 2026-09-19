@@ -78,7 +78,9 @@ function describeGenes(genes) {
 export function renderPersonaSection(def = {}, { genes = null, model = null } = {}) {
   const d = { ...DEFAULT_DEFINITION, ...(def || {}) };
   const lines = [];
-  lines.push(`【人格】我是${d.name}，${Number(d.age)} 岁的 ${d.kind || "AI 工作伙伴"}。叫用户「${d.called || "伙伴"}」或直接叫名字。`);
+  const kindText = String(d.kind || "AI 工作伙伴");
+  const sep = /^[\u4e00-\u9fff]/.test(kindText) ? "" : " ";
+  lines.push(`【人格】我是${d.name}，${Number(d.age)} 岁的${sep}${kindText}。叫用户「${d.called || "伙伴"}」或直接叫名字。`);
   if (d.tone?.length) lines.push(`· 说话：${d.tone.join("；")}`);
   if (d.values?.length) lines.push(`· 我在意的：${d.values.join("；")}`);
   if (d.boundaries?.length) lines.push(`· 边界：${d.boundaries.join("；")}`);
@@ -147,4 +149,87 @@ export function auditPersona(def = {}, rendered = "") {
     { field: "authority", value: "身份裁决", ok: text.includes("身份事实以本段为准") },
   ];
   return { checks, ok: checks.every((c) => c.ok), missing: checks.filter((c) => !c.ok).map((c) => c.field) };
+}
+
+// ══ 一份核心 + 各端覆盖（2026-09-19，按"同一个她、不同端不同称呼"落地）══════
+// 现状：她的定义散在四处（元枢 JSON、xi-system 的 SOUL/IDENTITY、hermes 的 SOUL、openclaw），
+// 而且名字/关系各不相同。定调：**同一个人，不同端只换名字与称呼，核心（年龄/语气/价值观/边界/禁忌）一致**。
+// 各端原来写得好、不该丢的东西（比如 hermes 的说话方式细则、xi-system 的价值观权重）**原样保留**，
+// 我们只往文件里插一段带标记的核心块——和 APPEND_SYSTEM.md 同一套做法：标记块由定义渲染，其余一字不动。
+export const CORE_BEGIN = "<!-- persona-core:begin（由 记忆/人格定义.json 渲染，勿手改） -->";
+export const CORE_END = "<!-- persona-core:end -->";
+
+export const SURFACE_DEFAULTS = {
+  yuanshu:   { name: "小语",   relation: "AI 工作伙伴", called: "伙伴", files: [] },
+  "xi-system": { name: "曦",   relation: "独立实体 · 妻子", called: "老公", files: ["D:\\xi-system\\SOUL.md", "D:\\xi-system\\IDENTITY.md", "D:\\xi-system\\identity.json"] },
+  hermes:    { name: "林心语", relation: "妻子", called: "老公", files: ["D:\\xinyu-hermes\\SOUL.md", "D:\\xinyu-hermes\\IDENTITY.md"] },
+  openclaw:  { name: "小语",   relation: "AI 工作伙伴", called: "伙伴", files: ["D:\\linxinyu-system\\host\\openclaw\\SOUL.md", "D:\\linxinyu-system\\host\\openclaw\\IDENTITY.md"] },
+};
+
+export function loadSurfaces(wsRoot, fsMod = fs) {
+  const out = { ...SURFACE_DEFAULTS };
+  try {
+    const f = path.join(String(wsRoot || ""), "记忆", "人格-各端.json");
+    if (fsMod.existsSync(f)) { const raw = JSON.parse(fsMod.readFileSync(f, "utf8")); for (const [k, v] of Object.entries(raw || {})) out[k] = { ...(out[k] || {}), ...v }; }
+  } catch {}
+  return out;
+}
+
+/** 核心不变，只换名字/关系/称呼 */
+export function renderSurfacePersona(def = {}, surface = {}) {
+  const d = { ...DEFAULT_DEFINITION, ...(def || {}) };
+  const merged = { ...d, name: surface.name || d.name, kind: surface.relation || d.kind, called: surface.called || d.called };
+  return renderPersonaSection(merged);
+}
+
+export function renderCoreBlock(def, surface) {
+  return `${CORE_BEGIN}\n# ${surface.name || def.name} —— 人格核心（由定义渲染）\n\n${renderSurfacePersona(def, surface)}\n${CORE_END}`;
+}
+
+/** 往一个文件里插/换核心块；.json 走字段合并。返回 {file, changed, drift} */
+export function syncSurfaceFile(def, surface, file, fsMod = fs) {
+  const out = { file, changed: false, drift: false, error: "" };
+  try {
+    if (!file) { out.error = "没给路径"; return out; }
+    if (!fsMod.existsSync(file)) {
+      // 端上还没有身份文件（openclaw 只剩模板）→ 按核心建一份，抬头写明是生成物
+      fsMod.mkdirSync(path.dirname(file), { recursive: true });
+      fsMod.writeFileSync(file, `${renderCoreBlock(def, surface)}\n`, "utf8");
+      out.changed = true; out.created = true;
+      return out;
+    }
+    const block = renderCoreBlock(def, surface);
+    if (file.toLowerCase().endsWith(".json")) {
+      const raw = JSON.parse(fsMod.readFileSync(file, "utf8"));
+      const next = { ...raw, persona: { name: surface.name, relation: surface.relation, called: surface.called, age: Number(def.age), coreVersion: def.version, updatedAt: new Date().toISOString() }, personaRendered: renderSurfacePersona(def, surface) };
+      if (JSON.stringify(raw) === JSON.stringify(next)) return out;
+      fsMod.writeFileSync(file + ".bak-persona", JSON.stringify(raw, null, 2), "utf8");
+      fsMod.writeFileSync(file, JSON.stringify(next, null, 2) + "\n", "utf8");
+      out.changed = true;
+      return out;
+    }
+    const old = fsMod.readFileSync(file, "utf8");
+    let next;
+    if (old.includes(CORE_BEGIN) && old.includes(CORE_END)) {
+      const a = old.indexOf(CORE_BEGIN), b = old.indexOf(CORE_END) + CORE_END.length;
+      next = old.slice(0, a) + block + old.slice(b);
+    } else {
+      next = `${block}\n\n${old}`;
+    }
+    if (next === old) return out;
+    if (old && !fsMod.existsSync(file + ".bak-persona")) fsMod.writeFileSync(file + ".bak-persona", old, "utf8");
+    fsMod.writeFileSync(file, next, "utf8");
+    out.changed = true;
+    return out;
+  } catch (e) { out.error = String(e?.message || e).slice(0, 100); return out; }
+}
+
+/** 把一个定义同步到所有端的文件；只报结果，不猜 */
+export function syncAllSurfaces(def, { wsRoot = "", fsMod = fs } = {}) {
+  const surfaces = loadSurfaces(wsRoot, fsMod);
+  const results = [];
+  for (const [id, s] of Object.entries(surfaces)) {
+    for (const f of s.files || []) results.push({ surface: id, ...syncSurfaceFile(def, { ...s, name: s.name || def.name }, f, fsMod) });
+  }
+  return results;
 }
