@@ -8,6 +8,29 @@
 
 ## [Unreleased]
 
+## [2.88.0] - 2026-09-19
+
+### 视觉引擎：一张参考图 → 一台能反复启动的引擎（image-to-engine 落地）
+
+把公众号那篇（@AmirMushich 的 Gucci × Crocs 流程）拆出来的方法**做成了能跑的东西**，不是笔记：
+
+- 新技能 `image-to-engine`：张力前置 → 参考系统提取 → moodboard → 一页 brief → 主视觉 KV → 全套物料；
+  四条硬护栏（负面清单 / 用已有标准当尺子 / 减量换密度 / 文字与画面分离）。
+- 新引擎 `scripts/visual-engine.mjs`（`npm run visual:run <战役目录>`）：一个战役 = 一个目录 + 一份 `visual-system.json`
+  （张力/材质/色彩/构图/装置/网格/负面清单/物料清单）。每个物料：组装提示词 → 出**无字底图** →
+  ffmpeg 裁到目标画幅 → **程序叠字**（微软雅黑）→ 写 `out/manifest.json`（模型/提示词/时间全留痕）。
+  参数：`--check` / `--only` / `--force` / `--model`；**底图复用**（只改文案时跳过出图，0.8s）。
+- `xiaoyu-poster-prompt` 并入三条：**张力前置**（第负一步）、**两层负面清单**、**用已有标准当尺子**。
+
+**真机跑通 + 抓到一个真问题**（试了 3 轮、两个模型）：
+```
+第 1 轮  1:1 出图 → 裁 3:4 + 叠字：底图左侧出现一大块"像汉字的符号"（伪汉字招牌）
+第 2 轮  补英文硬清单 no Chinese characters / no calligraphy / no signage → 还有（agnes-2.0 / 2.5 都试）
+第 3 轮  根因不是模型：是我们自己把 vs.typography / vs.grid 写进了**图像**提示词，等于要求它"画排版"。
+         把排版/网格移出图像提示词（它们属于叠字段）→ 底图干净了
+```
+产出：`D:\pi-workspace\工程\视觉引擎示例\out\{kv,poster,square}-final.png` + `manifest.json`。
+
 ## [2.87.0] - 2026-09-19
 
 ### 小语挂件：表情接上真实状态 + 桌面端重打包

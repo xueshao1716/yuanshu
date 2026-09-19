@@ -1,6 +1,6 @@
 {
   "name": "yuanshu",
-  "version": "2.87.0",
+  "version": "2.88.0",
   "private": true,
   "description": "元枢个人智能系统 · Web 工作台（SSE 对话与自建引擎）",
   "type": "module",
@@ -21,7 +21,8 @@
     "sync:frontend": "node scripts/sync-frontend.mjs",
     "build:mobile:web": "npm run build:frontend && npm run sync:frontend",
     "serve:public": "node scripts/serve-public-entries.mjs",
-    "sync:persona": "node scripts/sync-persona.mjs"
+    "sync:persona": "node scripts/sync-persona.mjs",
+    "visual:run": "node scripts/visual-engine.mjs"
   },
   "bin": {
     "yuanshu": "bin/pi-web.mjs",
