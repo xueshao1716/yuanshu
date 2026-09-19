@@ -2554,3 +2554,7 @@ body.has-color-card .col-right::before { left: 0; }
 .btn-primary:active:not(:disabled) {
   box-shadow: 0 4px 10px -5px color-mix(in srgb, var(--pi-accent) 40%, transparent);
 }
+
+/* 小语挂件：点她冒的小星星（2026-09-19） */
+@keyframes xiaoyu-spark { 0% { opacity:0; transform:translateY(0) scale(.6); } 30% { opacity:1; } 100% { opacity:0; transform:translateY(-22px) scale(1.1); } }
+.xiaoyu-spark { color:#ffd76a; animation:xiaoyu-spark .9s ease-out forwards; }
