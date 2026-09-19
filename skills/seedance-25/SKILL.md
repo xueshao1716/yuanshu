@@ -32,6 +32,7 @@ Use this path for most requests.
 | Single clip, image-to-video, first/last frame, character prompt | [references/prompting.md](references/prompting.md) |
 | Exact limits, formats, durations, resolution, language support | [references/capabilities.md](references/capabilities.md) |
 | 30-second story, 30–180s ultra-long video, native extension, timestamp script | [references/long-video.md](references/long-video.md) |
+| Writing the 14-栏 multi-shot script itself (5+ shots, day-in-life, timed HARD CUTs) | 用 `timed-multishot-script` 技能（剧本格式层，与本技能互补） |
 | Smart/advanced/video edit, BGM removal, green screen, viewpoint, creative transfer, seamless transition | [references/editing.md](references/editing.md) |
 | Several images/videos/audio clips, audio-only input, identity or role conflicts | [references/references.md](references/references.md) |
 | White model, Maya/Blender preview, multi-panel storyboard | [references/white-model-storyboard.md](references/white-model-storyboard.md) |

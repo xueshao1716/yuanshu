@@ -77,6 +77,15 @@ export default function SendBox({ streaming, onStop, onSend, onCommand, onVoice,
   const fileInputRef = useRef<HTMLInputElement>(null)
   const [value, setValue] = useState('')
   const [files, setFiles] = useState<FileAttachment[]>([])
+  // 切会话就把上一条会话的附件清掉（2026-09-19 真机 bug：附件是本地 state，
+  // 切换会话没清 → 在新会话里发出的消息会带上旧会话的图片，看着就是"不相干的图跑进来了"）。
+  // 注意：只在"两个非空会话之间"切换时清，避免新建会话瞬间（null → 新 id）把刚附加的文件抹掉。
+  const prevSid = useRef<string | null | undefined>(sessionId)
+  useEffect(() => {
+    const prev = prevSid.current
+    if (prev && sessionId && prev !== sessionId) setFiles([])
+    prevSid.current = sessionId
+  }, [sessionId])
   const [uploading, setUploading] = useState(false)
   const [slashQuery, setSlashQuery] = useState<string | null>(null)
   const [slashHi, setSlashHi] = useState(0)
