@@ -2544,6 +2544,20 @@ const API_ROUTES = [
     return json(res, 200, { ok: true, definition: next, synced: !!synced?.ok, changed: !!synced?.changed });
   }],
 
+  // 木偶部件标注存盘（2026-09-19）：标注页 /static/label.html 点"保存"走这里，
+  // 落到 工程/小语木偶/labels.json，随后 `node scripts/puppet-build.mjs` 切成件 + 生成骨骼。
+  ["POST", "/api/puppet/labels", async (res, req) => {
+    const body = await readBody(req);
+    const parts = Array.isArray(body?.parts) ? body.parts : null;
+    if (!parts || !parts.length) return json(res, 400, { error: "缺 parts" });
+    const dir = path.join(CONFIG.cwd, "工程", "小语木偶");
+    const file = path.join(dir, "labels.json");
+    try {
+      fs.mkdirSync(dir, { recursive: true });
+      fs.writeFileSync(file, JSON.stringify({ ...body, savedAt: new Date().toISOString() }, null, 2), "utf8");
+    } catch (e) { return json(res, 500, { error: String(e?.message || e).slice(0, 120) }); }
+    return json(res, 200, { ok: true, file, parts: parts.length });
+  }],
   // 人格定义（2026-09-18）：一份定义决定人格——把定义与渲染结果如实暴露出来，便于核对。
   ["GET", "/api/persona", (res) => {
     const pd = loadPersonaDefinition(CONFIG.cwd);

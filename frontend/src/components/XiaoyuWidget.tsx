@@ -37,13 +37,17 @@ const SKINS: Record<string, { label: string; frames: Record<FrameKey, string>; w
 
 const LINES = ['在。有活就说。', '我盯着任务呢，跑完会汇报。', '要查什么、要写什么，直接说。', '我自己溜达一会儿，有事叫我。']
 
-// 第三套皮肤：**可动（木偶）**。不用 Live2D、不用任何 GUI 编辑器——
-// 把整张透明立绘按横向细条切片，按"弯曲曲线"给每条加水平偏移，就是平滑的弯腰/摆腿形变；
-// 再叠上走路帧与呼吸缩放。这就是"用代码做骨骼"的最小可用版：零编辑器、纯脚本可复现。
+// 第三套皮肤：**可动（木偶）**。两条渲染路径，取决于有没有人工标注：
+//   ① 有 /static/puppet/puppet.json（标注页拖框 → `node scripts/puppet-build.mjs` 切出来的部件）
+//      → **按部件 + 骨骼渲染**：头/双臂/双腿各有自己的枢轴，可以独立旋转（点头、摆手、迈步、身体前倾）；
+//   ② 没有 → 退回"整图横向切片 + 弯曲曲线"的形变（四肢不独立，但至少有体态）。
+// 两条都是纯代码，不需要 Live2D / Rive 之类 GUI 编辑器。
+type PuppetPart = { file: string; x: number; y: number; w: number; h: number; pivot: [number, number]; z: number }
 function PuppetCanvas({ src, walking, hover, face, label }: { src: string; walking: boolean; hover: boolean; face: number; label: string }) {
   const ref = useRef<HTMLCanvasElement | null>(null)
   const imgRef = useRef<HTMLImageElement | null>(null)
   const [ready, setReady] = useState(false)
+  const partsRef = useRef<{ size: [number, number]; parts: Record<string, PuppetPart>; imgs: Record<string, HTMLImageElement> } | null>(null)
 
   useEffect(() => {
     const im = new Image()
@@ -51,6 +55,23 @@ function PuppetCanvas({ src, walking, hover, face, label }: { src: string; walki
     im.onload = () => { imgRef.current = im; setReady(true) }
     im.src = src
   }, [src])
+
+  // 拉骨骼清单（有就用部件渲染）
+  useEffect(() => {
+    let alive = true
+    fetch('/static/puppet/puppet.json?t=' + Math.floor(Date.now() / 60000))
+      .then((r) => (r.ok ? r.json() : null))
+      .then(async (j) => {
+        if (!alive || !j?.parts) return
+        const imgs: Record<string, HTMLImageElement> = {}
+        await Promise.all(Object.entries(j.parts as Record<string, PuppetPart>).map(([k, p]) => new Promise<void>((res) => {
+          const im = new Image(); im.onload = () => { imgs[k] = im; res() }; im.onerror = () => res(); im.src = '/static/puppet/' + p.file
+        })))
+        if (alive) partsRef.current = { size: j.size, parts: j.parts, imgs }
+      })
+      .catch(() => {})
+    return () => { alive = false }
+  }, [])
 
   useEffect(() => {
     if (!ready) return
@@ -62,30 +83,62 @@ function PuppetCanvas({ src, walking, hover, face, label }: { src: string; walki
     const t0 = performance.now()
     const STRIPS = 22
     const draw = (now: number) => {
-      const im = imgRef.current
-      if (!im || !ctx) return
       const t = (now - t0) / 1000
       const W = cv.width, H = cv.height
       ctx.clearRect(0, 0, W, H)
-      const breathe = 1 + Math.sin(t * 1.1) * 0.006
-      const lean = walking ? Math.sin(t * 6.2) * 1.0 : Math.sin(t * 0.7) * 0.35   // 身体前后微摆（别太大，会像布在飘）
-      const sh = H / STRIPS
-      for (let i = 0; i < STRIPS; i++) {
-        const y = i * sh
-        const p = i / (STRIPS - 1)                                            // 0=头 1=脚
-        // 形变要**集中在下半身**（髋以下才摆），上半身只做极轻的摆动——
-        // 真机第一版把 bend 按 p 线性放大到脚，结果整条人像"波浪扭曲"，像旗子不像人。
-        const legPart = Math.max(0, p - 0.5) / 0.5
-        const bend = walking ? Math.sin(t * 6.2 + p * 2.4) * 1.8 * legPart : Math.sin(t * 0.9 + p * 1.6) * 0.5 * legPart
-        const sway = Math.sin(t * 1.15) * 0.5 * (1 - p)                        // 头部轻微左右
-        const dx = bend + lean * (1 - p) + sway
-        const scaleY = breathe
-        ctx.drawImage(im, 0, (im.height * y) / H, im.width, (im.height * sh) / H,
-          dx, y + (H - H * scaleY) / 2, W, sh * scaleY + 0.6)
+      const P = partsRef.current
+      if (P && Object.keys(P.imgs).length >= 4) {
+        // ── 部件 + 骨骼 ──
+        const s = W / P.size[0]
+        const bob = walking ? Math.sin(t * 12.4) * 1.6 : Math.sin(t * 1.1) * 0.5
+        const lean = walking ? Math.sin(t * 6.2) * 2.0 : Math.sin(t * 0.7) * 0.6            // 躯干前后倾
+        const swing = walking ? Math.sin(t * 6.2) : 0                                      // 迈步相位
+        const breathe = 1 + Math.sin(t * 1.1) * 0.01
+        const angles: Record<string, number> = {
+          head: (hover ? 3 : 1.2 * Math.sin(t * 1.15)) + lean * 0.25,
+          armL: walking ? swing * 14 : Math.sin(t * 1.0) * 1.5,
+          armR: walking ? -swing * 14 : -Math.sin(t * 1.0) * 1.5,
+          legL: walking ? -swing * 15 : 0,
+          legR: walking ? swing * 15 : 0,
+          torso: lean,
+        }
+        ctx.save()
+        ctx.translate(W / 2, H - bob)
+        const order = Object.entries(P.parts).sort((a, b) => a[1].z - b[1].z)
+        for (const [k, p] of order) {
+          const im = P.imgs[k]
+          if (!im) continue
+          const ax = p.x + p.pivot[0], ay = p.y + p.pivot[1]
+          // 躯干下端（髋）作为整体原点：把所有部件都相对髋定位
+          const hipY = (P.parts.torso ? P.parts.torso.y + P.parts.torso.pivot[1] : P.size[1])
+          ctx.save()
+          ctx.translate((ax - P.size[0] / 2) * s, (ay - hipY) * s)
+          ctx.rotate(((angles[k] || 0) * Math.PI) / 180)
+          if (k === 'torso') ctx.scale(1, breathe)
+          ctx.scale(s * face, s)
+          ctx.drawImage(im, -p.pivot[0], -p.pivot[1])
+          ctx.restore()
+        }
+        ctx.restore()
+      } else if (imgRef.current) {
+        // ── 退回：整图切片形变 ──
+        const im = imgRef.current
+        const breathe = 1 + Math.sin(t * 1.1) * 0.006
+        const lean = walking ? Math.sin(t * 6.2) * 1.0 : Math.sin(t * 0.7) * 0.35
+        const sh = H / STRIPS
+        for (let i = 0; i < STRIPS; i++) {
+          const y = i * sh
+          const p = i / (STRIPS - 1)
+          const legPart = Math.max(0, p - 0.5) / 0.5
+          const bend = walking ? Math.sin(t * 6.2 + p * 2.4) * 1.8 * legPart : Math.sin(t * 0.9 + p * 1.6) * 0.5 * legPart
+          const sway = Math.sin(t * 1.15) * 0.5 * (1 - p)
+          ctx.drawImage(im, 0, (im.height * y) / H, im.width, (im.height * sh) / H,
+            bend + lean * (1 - p) + sway, y + (H - H * breathe) / 2, W, sh * breathe + 0.6)
+        }
       }
-      if (hover) {                                                            // 悬停：头顶一点点高光提示
-        ctx.save(); ctx.globalAlpha = 0.18; ctx.fillStyle = '#fff'
-        ctx.beginPath(); ctx.ellipse(W / 2, H * 0.16, W * 0.22, H * 0.05, 0, 0, Math.PI * 2); ctx.fill(); ctx.restore()
+      if (hover) {
+        ctx.save(); ctx.globalAlpha = 0.16; ctx.fillStyle = '#fff'
+        ctx.beginPath(); ctx.ellipse(W / 2, H * 0.14, W * 0.2, H * 0.045, 0, 0, Math.PI * 2); ctx.fill(); ctx.restore()
       }
       raf = requestAnimationFrame(draw)
     }
@@ -93,7 +146,8 @@ function PuppetCanvas({ src, walking, hover, face, label }: { src: string; walki
     return () => cancelAnimationFrame(raf)
   }, [ready, walking, hover, face])
 
-  return <canvas ref={ref} width={192} height={224} aria-label={label} data-puppet="1" className="h-20 w-auto sm:h-24" />
+  return <canvas ref={ref} width={Math.round((partsRef.current?.size?.[0] || 192) * 0.9)} height={Math.round((partsRef.current?.size?.[1] || 224) * 0.9)}
+    aria-label={label} data-puppet="1" data-puppet-mode={partsRef.current ? 'parts' : 'strips'} className="h-20 w-auto sm:h-24" />
 }
 
 // 皮肤表：puppet 复用 Q版的素材（同一批透明图），只是渲染方式换成上面的切片形变

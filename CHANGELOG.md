@@ -8,6 +8,34 @@
 
 ## [Unreleased]
 
+## [2.97.0] - 2026-09-19
+
+### 部件标注页：你拖 6 个框 → 我切成件 → 四肢真的能独立动
+
+你说"那你做"——标注工具做了，端到端跑通：
+
+- **标注页**：`http://127.0.0.1:8787/static/label.html`（源码 `frontend/public/label.{html,css,js}`）：
+  6 个彩色框（头/左臂/右臂/躯干/左腿/右腿），拖＝移动、右下角小方块＝缩放、可换素材图、
+  「自动猜一次」给一版差不多、「复制 JSON」、「**保存到工作区**」。
+- **保存接口**：`POST /api/puppet/labels` → 落 `工程/小语木偶/labels.json`。
+- **切件 + 骨骼**：`node scripts/puppet-build.mjs` → 按标的框切成 6 个部件（2% 重叠 + 羽化不留缝），
+  写 `frontend/public/puppet/{6 个部件}.png` + `puppet.json`（含 x/y/w/h/pivot/z），并出部件对照图。
+- **挂件自动切换**：`PuppetCanvas` 先拉 `/static/puppet/puppet.json`，有就**按部件 + 骨骼渲染**
+  （头/双臂/双腿各自绕枢轴旋转：走路时手臂反向摆 ±14°、腿 ±15°、躯干前后倾 ±2°、整体上下 bob），
+  没有就退回整图切片形变。`data-puppet-mode` 可核对（parts / strips）。
+
+**真机核对**：
+```
+标注页：6 个框渲染 ✅ 立绘加载 ✅ 拖动后 JSON 变化 ✅ 保存回执「已保存：…\labels.json」✅（4/4）
+切件：parts: head, armL, armR, torso, legL, legR；puppet.json 已生成
+挂件：data-puppet-mode=parts，canvas 212×461，像素签名 23363 → 25746（骨骼动画在跑）✅
+```
+**踩的坑**：第一版把 JS 内联写在 HTML 里，站点 CSP 是 `script-src 'self'`，浏览器直接拦住
+（`Executing inline script violates … script-src 'self'`）→ 拆成外链 `label.js` + `label.css` 才跑起来。
+
+**还差你一步**：现在这份 labels.json 是"自动猜 + 核对时测试拖动"存的，框还没贴合肢体
+（躯干框把手也包进去了）。你打开标注页把 6 个框拖到贴合、点保存，我再跑一次切件——四肢就干净了。
+
 ## [2.96.0] - 2026-09-19
 
 ### "可动版"皮肤：不用 Live2D、不用任何编辑器，关节是代码做的
