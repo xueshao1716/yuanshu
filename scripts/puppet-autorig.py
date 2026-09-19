@@ -11,6 +11,8 @@ ap.add_argument("--image", default="")
 ap.add_argument("--tol", type=int, default=24)
 ap.add_argument("--elbow", type=float, default=0.55, help="上臂占手臂长度的比例（从肩端算）")
 ap.add_argument("--knee", type=float, default=0.52, help="大腿占腿长的比例（从髋端算）")
+ap.add_argument("--wrist", type=float, default=0.84, help="手腕位置（从肩端算，占手臂长度）")
+ap.add_argument("--ankle", type=float, default=0.86, help="脚踝位置（从髋端算，占腿长）")
 args = ap.parse_args()
 
 im = Image.open(args.src).convert("RGBA")
@@ -57,25 +59,29 @@ def add(pid, bx0, by0, bx1, by1, pivot, exclude=None):
     parts.append({"id": pid, "box": [bx0, by0, bx1, by1], "pivot": pivot, "auto": True, **({"exclude": exclude} if exclude else {})})
 
 add("head", x0, y0, x1, neck, [0.5, 1.0])
-add("torso", x0, neck, x1, hip, [0.5, 1.0], exclude=["upperArmL", "foreArmL", "upperArmR", "foreArmR"])
+add("torso", x0, neck, x1, hip, [0.5, 1.0], exclude=["upperArmL", "foreArmL", "handL", "upperArmR", "foreArmR", "handR"])
 
 for side, ax0, ax1 in (("L", x0, body_x0), ("R", body_x1, x1)):
     w = ax1 - ax0
-    if side == "L":
-        upx0, upx1 = ax1 - int(w * args.elbow), ax1
-        fox0, fox1 = ax0, ax1 - int(w * args.elbow) + 4
-        up_pivot, fo_pivot = [1.0, 0.5], [1.0, 0.5]
-    else:
-        upx0, upx1 = ax0, ax0 + int(w * args.elbow)
-        fox0, fox1 = ax0 + int(w * args.elbow) - 4, ax1
-        up_pivot, fo_pivot = [0.0, 0.5], [0.0, 0.5]
-    add(f"upperArm{side}", upx0, arm_top, upx1, arm_bottom, up_pivot)
-    add(f"foreArm{side}", fox0, arm_top, fox1, arm_bottom, fo_pivot)
+    if side == "L":   # 肩在右端
+        wsh = ax1 - int(w * args.wrist)                 # 手腕 x
+        elb = ax1 - int(w * args.elbow)                 # 肘 x
+        add(f"upperArm{side}", elb, arm_top, ax1, arm_bottom, [1.0, 0.5])
+        add(f"foreArm{side}", wsh - 4, arm_top, elb + 4, arm_bottom, [1.0, 0.5])
+        add(f"hand{side}", ax0, arm_top, wsh + 4, arm_bottom, [1.0, 0.5])
+    else:             # 肩在左端
+        wsh = ax0 + int(w * args.wrist)
+        elb = ax0 + int(w * args.elbow)
+        add(f"upperArm{side}", ax0, arm_top, elb, arm_bottom, [0.0, 0.5])
+        add(f"foreArm{side}", elb - 4, arm_top, wsh + 4, arm_bottom, [0.0, 0.5])
+        add(f"hand{side}", wsh - 4, arm_top, ax1, arm_bottom, [0.0, 0.5])
 
 for side, lx0, lx1 in (("L", x0, seam), ("R", seam, x1)):
     knee = hip + int((y1 - hip) * args.knee)
+    ankle = hip + int((y1 - hip) * args.ankle)
     add(f"thigh{side}", lx0, hip, lx1, knee + 4, [0.5, 0.0])
-    add(f"shin{side}", lx0, knee - 4, lx1, y1, [0.5, 0.0])
+    add(f"shin{side}", lx0, knee - 4, lx1, ankle + 4, [0.5, 0.0])
+    add(f"foot{side}", lx0, ankle - 4, lx1, y1, [0.5, 0.0])
 
 out = {"image": args.image or "", "size": [W, H], "parts": []}
 for p in parts:

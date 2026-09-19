@@ -43,7 +43,7 @@ const LINES = ['在。有活就说。', '我盯着任务呢，跑完会汇报。
 //   ② 没有 → 退回"整图横向切片 + 弯曲曲线"的形变（四肢不独立，但至少有体态）。
 // 两条都是纯代码，不需要 Live2D / Rive 之类 GUI 编辑器。
 type PuppetPart = { file: string; x: number; y: number; w: number; h: number; pivot: [number, number]; z: number }
-function PuppetCanvas({ src, walking, hover, face, label, waving, lookX, patting, rig }: { src: string; walking: boolean; hover: boolean; face: number; label: string; waving: boolean; lookX: number; patting: boolean; rig: string }) {
+function PuppetCanvas({ src, walking, hover, face, label, waving, lookX, patting, rig, blinking, talking2 }: { src: string; walking: boolean; hover: boolean; face: number; label: string; waving: boolean; lookX: number; patting: boolean; rig: string; blinking: boolean; talking2: boolean }) {
   const ref = useRef<HTMLCanvasElement | null>(null)
   const imgRef = useRef<HTMLImageElement | null>(null)
   const [ready, setReady] = useState(false)
@@ -108,10 +108,16 @@ function PuppetCanvas({ src, walking, hover, face, label, waving, lookX, patting
           shinL: walking ? Math.max(0, swing) * 22 : 0,
           thighR: walking ? swing * 17 : 0,
           shinR: walking ? Math.max(0, -swing) * 22 : 0,
+          // 手/脚：小幅次级运动（挥手时甩手、走路时脚掌落地角）
+          handL: waving ? Math.sin(t * 7.5 + 0.9) * 22 : walking ? swing * 10 : Math.sin(t * 1.3) * 2,
+          handR: waving ? Math.sin(t * 7.5 + 0.3) * 24 : walking ? -swing * 10 : -Math.sin(t * 1.3) * 2,
+          footL: walking ? Math.max(0, swing) * 14 : 0,
+          footR: walking ? Math.max(0, -swing) * 14 : 0,
         }
         const parent: Record<string, string> = {
           head: 'torso', upperArmL: 'torso', foreArmL: 'upperArmL', upperArmR: 'torso', foreArmR: 'upperArmR',
           thighL: 'torso', shinL: 'thighL', thighR: 'torso', shinR: 'thighR',
+          handL: 'foreArmL', handR: 'foreArmR', footL: 'shinL', footR: 'shinR',
         }
         const hipY = P.parts.torso ? P.parts.torso.y + P.parts.torso.pivot[1] : P.size[1]
         // 两遍就能算出正运动学：第一遍父节点，第二遍子节点
@@ -140,6 +146,26 @@ function PuppetCanvas({ src, walking, hover, face, label, waving, lookX, patting
           if (k === 'torso') ctx.scale(1, breathe)
           ctx.scale(s * face, s)
           ctx.drawImage(im, -p.pivot[0], -p.pivot[1])
+          if (k === 'head') {
+            // 程序化眨眼/口型：眼睛在头部件的 ~46% 高、左右各 ±19% 宽处
+            const io = imgRef.current  // 头部图尺寸
+            const w0 = im.width, h0 = im.height
+            ctx.save()
+            ctx.translate(-p.pivot[0], -p.pivot[1])
+            if (blinking) {
+              ctx.strokeStyle = 'rgba(40,30,28,0.9)'; ctx.lineWidth = Math.max(1.2, w0 * 0.012); ctx.lineCap = 'round'
+              for (const dx of [-0.19, 0.19]) {
+                const ex = w0 * (0.5 + dx), ey = h0 * 0.46
+                ctx.beginPath(); ctx.moveTo(ex - w0 * 0.055, ey); ctx.quadraticCurveTo(ex, ey + h0 * 0.03, ex + w0 * 0.055, ey); ctx.stroke()
+              }
+            }
+            if (talking2) {
+              const mw = w0 * 0.05, mh = h0 * (0.02 + 0.02 * Math.abs(Math.sin(t * 12)))
+              ctx.fillStyle = 'rgba(120,50,55,0.85)'
+              ctx.beginPath(); ctx.ellipse(w0 * 0.5, h0 * 0.63, mw, mh, 0, 0, Math.PI * 2); ctx.fill()
+            }
+            ctx.restore()
+          }
           ctx.restore()
         }
         ctx.restore()
@@ -167,7 +193,7 @@ function PuppetCanvas({ src, walking, hover, face, label, waving, lookX, patting
     }
     raf = requestAnimationFrame(draw)
     return () => cancelAnimationFrame(raf)
-  }, [ready, walking, hover, face, waving, lookX, patting])
+  }, [ready, walking, hover, face, waving, lookX, patting, blinking, talking2])
 
   return <canvas ref={ref} width={Math.round((partsRef.current?.size?.[0] || 192) * 0.9)} height={Math.round((partsRef.current?.size?.[1] || 224) * 0.9)}
     aria-label={label} data-puppet="1" data-puppet-mode={partsRef.current ? 'parts' : 'strips'} className="h-20 w-auto sm:h-24" />
@@ -205,7 +231,9 @@ export default function XiaoyuWidget() {
   const [walking, setWalking] = useState(false)
   const [waving, setWaving] = useState(false)
   const [lookX, setLookX] = useState(0)      // 视线跟随：鼠标相对她的水平位置 -1..1
-  const [patting, setPatting] = useState(false)   // 挥手：点她时抬右臂画弧，1.4 秒后放下
+  const [patting, setPatting] = useState(false)
+  const [blinking, setBlinking] = useState(false)   // 眨眼节拍（3.5~6s 闭一次 130ms）
+  const [talking2, setTalking2] = useState(false)   // 说话中（口型开合）   // 挥手：点她时抬右臂画弧，1.4 秒后放下
   const [walkIdx, setWalkIdx] = useState(0)
   const walkClock = useRef(0)
   const [sparks, setSparks] = useState<{ id: number; x: number; y: number }[]>([])
@@ -236,6 +264,11 @@ export default function XiaoyuWidget() {
 
   useEffect(() => { for (const s of Object.values(SKINS)) for (const src of [...Object.values(s.frames), ...s.walk]) { const i = new Image(); i.src = src } }, [])
   useEffect(() => { const t = setTimeout(() => setFrame('open'), 1800); return () => clearTimeout(t) }, [])
+  useEffect(() => {
+    let t1: ReturnType<typeof setTimeout>, t2: ReturnType<typeof setTimeout>
+    const loop = () => { t1 = setTimeout(() => { setBlinking(true); t2 = setTimeout(() => { setBlinking(false); loop() }, 130) }, 3500 + Math.random() * 2500) }
+    loop(); return () => { clearTimeout(t1); clearTimeout(t2) }
+  }, [])
 
   // 眨眼
   useEffect(() => {
@@ -382,7 +415,9 @@ export default function XiaoyuWidget() {
     const onHead = !!(r && e && e.clientY - r.top < r.height * 0.38)
     if (onHead) { setPatting(true); setTimeout(() => setPatting(false), 900); setLine('嗯？在的。'); setOpen(true); return }
     setWaving(true)
+    setTalking2(true)
     setTimeout(() => setWaving(false), 1400)
+    setTimeout(() => setTalking2(false), 1800)
     setLine(LINES[Math.floor(Math.random() * LINES.length)])
     setOpen((v) => !v)
     setFrame('wave')
@@ -509,7 +544,7 @@ export default function XiaoyuWidget() {
       >
         {skin === 'puppet' || skin === 'doll-puppet' ? (
           <PuppetCanvas src={walking && (SKINS[skin] || SKINS.chibi).walk[walkIdx] ? (SKINS[skin] || SKINS.chibi).walk[walkIdx] : frames[frame]}
-            walking={walking} hover={hover} waving={waving} lookX={lookX} patting={patting}
+            walking={walking} hover={hover} waving={waving} lookX={lookX} patting={patting} blinking={blinking} talking2={talking2}
             rig={RIG_OF[skin] || RIG_OF.puppet} face={mode === 'roam' && pos ? pos.face : 1} label={label} />
         ) : (
           <img src={walking && (SKINS[skin] || SKINS.chibi).walk[walkIdx] ? (SKINS[skin] || SKINS.chibi).walk[walkIdx] : frames[frame]} alt={label} draggable={false} className="h-20 w-auto sm:h-24" />
