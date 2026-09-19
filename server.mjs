@@ -6,6 +6,7 @@ import tls from "node:tls";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { monitorEventLoopDelay } from "node:perf_hooks";
 import { execFile, execFileSync, spawn } from "node:child_process";
 import { pathToFileURL } from "node:url";
 import { fileURLToPath } from "node:url";
@@ -3098,7 +3099,31 @@ server.on("error", (err) => {
   if (err.code === "EADDRINUSE" && listenAttempt < 30) {
     listenAttempt++;
     console.log(`[元枢] 端口 ${CONFIG.port} 占用，等待释放 (${listenAttempt}/30)…`);
-    setTimeout(() => { try { server.close(); } catch {} startServer(); }, 2000);
+    setTimeout(() => { try { server.close(); } catch {} // ── 事件循环停顿监测（2026-09-19）────────────────────────────────────────────
+// 背景：真机实测服务端出现过一次 ~90 秒的整段阻塞（/api/health 连续三次 30s 超时，之后恢复 12ms）。
+// 阻塞时任何接口都会跟着卡（"电脑感觉卡"里有一部分就是它）。先装仪表，卡了留证据，再修。
+try {
+  const lag = monitorEventLoopDelay({ resolution: 20 });
+  lag.enable();
+  const lagFile = path.join(WS_ROOT, "记忆", "运行时", "事件循环停顿.jsonl");
+  try { fs.appendFileSync(lagFile, JSON.stringify({ at: new Date().toISOString(), pid: process.pid, mounted: true, note: "loop-lag 监测已挂上（>500ms 记一条）" }) + "\n"); } catch {}
+  setInterval(() => {
+    const maxMs = Math.round(lag.max / 1e6);
+    if (maxMs > 500) {
+      const line = JSON.stringify({
+        at: new Date().toISOString(), pid: process.pid, maxMs,
+        meanMs: Math.round(lag.mean / 1e6), p99Ms: Math.round(lag.percentile(99) / 1e6),
+        rssMB: Math.round(process.memoryUsage().rss / 1048576),
+      });
+      try { fs.appendFileSync(lagFile, line + "\n"); } catch {}
+      console.log("[loop-lag]", line);
+    }
+    lag.reset();
+  }, 30000).unref?.();
+  console.log("  [loop-lag] 事件循环停顿监测已挂上（>500ms 记一条：记忆/运行时/事件循环停顿.jsonl）");
+} catch (e) { console.log("[loop-lag] 挂载失败:", String(e?.message || e).slice(0, 100)); }
+
+startServer(); }, 2000);
   } else {
     console.error("[元枢] 启动失败:", err.message);
     process.exit(1);
@@ -3347,4 +3372,5 @@ setTimeout(sweepSessionsQuietly, 2 * 60 * 1000);
 setInterval(sweepSessionsQuietly, SWEEP_MS);
 
 startServer();
+
 
