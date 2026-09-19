@@ -22,7 +22,7 @@ fs.mkdirSync(out, { recursive: true })
 // 用 Pillow 切（Python 里有精确的 alpha 处理）；把框转成像素坐标交给它
 const py = `
 import json, sys
-from PIL import Image, ImageFilter
+from PIL import Image, ImageFilter, ImageDraw, ImageChops
 labels = json.loads(sys.argv[1]); src = sys.argv[2]; out = sys.argv[3]
 im = Image.open(src).convert("RGBA"); W, H = im.size
 meta = {"size": [W, H], "image": labels.get("image"), "parts": {}}
@@ -32,14 +32,30 @@ for p in labels["parts"]:
     px0, py0 = max(0, int((x0 - ov) * W)), max(0, int((y0 - ov) * H))
     px1, py1 = min(W, int((x1 + ov) * W)), min(H, int((y1 + ov) * H))
     piece = im.crop((px0, py0, px1, py1))
+    # exclude：把别的部件占的区域在本件里抠掉（躯干要抠掉双臂，否则会"四条胳膊"）
+    for other in p.get("exclude", []) or []:
+        o = next((q for q in labels["parts"] if q["id"] == other), None)
+        if not o: continue
+        ox0, oy0, ox1, oy1 = o["box"]
+        ex0, ey0 = int(ox0 * W) - px0, int(oy0 * H) - py0
+        ex1, ey1 = int(ox1 * W) - px0, int(oy1 * H) - py0
+        if ex1 > ex0 and ey1 > ey0:
+            m = Image.new("L", piece.size, 255)
+            ImageDraw.Draw(m).rectangle([ex0, ey0, ex1 - 1, ey1 - 1], fill=0)
+            piece.putalpha(ImageChops.multiply(piece.getchannel("A"), m))
     a = piece.getchannel("A").filter(ImageFilter.GaussianBlur(0.6))
     piece.putalpha(a)
     fn = f'{p["id"]}.png'
     piece.save(out + "/" + fn)
-    # pivot：bottom-center（头/躯干）或 top-center（四肢），换算成部件内坐标
+    # pivot：支持 [x,y]（框内归一化，精确到肩/髋/颈）或 top-center / bottom-center 这类笼统写法
     pv = p.get("pivot", "top-center")
-    cx = (px1 - px0) / 2
-    cy = (py1 - py0) if pv == "bottom-center" else 0
+    bw, bh = px1 - px0, py1 - py0
+    if isinstance(pv, (list, tuple)):
+        cx, cy = bw * float(pv[0]), bh * float(pv[1])
+    elif pv == "bottom-center":
+        cx, cy = bw / 2, bh
+    else:
+        cx, cy = bw / 2, 0
     meta["parts"][p["id"]] = {"file": fn, "x": px0, "y": py0, "w": px1 - px0, "h": py1 - py0,
                               "pivot": [round(cx, 1), round(cy, 1)], "z": {"head": 5, "armL": 1, "armR": 1, "torso": 3, "legL": 2, "legR": 2}.get(p["id"], 2)}
 open(out + "/puppet.json", "w", encoding="utf-8").write(json.dumps(meta, ensure_ascii=False, indent=2))
