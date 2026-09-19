@@ -8,6 +8,30 @@
 
 ## [Unreleased]
 
+## [2.90.0] - 2026-09-19
+
+### 视觉引擎：闲章 / 分栏页码 / 一图多尺寸 / brief 页（第 4 条 prompt 也进引擎了）
+
+四条一起上，示例战役现在一次跑出 **9 张**成品：
+
+1. **印章升级**：`stamp`（主章）+ `stampAlt`（**闲章**，小一号排在一起）+ `stampFont`（换字体）+ `stampShape:"round"`（圆章）。
+2. **分栏 + 页码**：`columns:2` 走 CSS 多栏正文（`body` 字段），`pageNo:"03"` 左下页码（带细横线）。
+3. **一图多尺寸**：`exports:[{suffix:"story",ratio:"9:16"}]` —— **同底图不重新出图**，换画幅/版式再出一版（`kv-story.png` 2160×3840、`poster-sq.png` 2160×2160）。
+4. **brief 页进引擎**（原文第 4 条 prompt）：物料 `kind:"brief"` **跳过出图**，按 `vs.brief.rows[]`（BRIEF/IDEA/TONE）+ `goals[]` 出一页纸面
+   （浅色纸底 + 衬线大字 + 细横线 + 圆角目标条 + 页码右上）。
+
+**真机抓到的两个版式 bug（已修）**：
+- brief 页目标条**溢出被切**、页码压在目标条上 → 加 `padding-bottom:14.5%`、页码在 brief 页移到右上、内容按条数自动缩号（>4 条缩到 0.84）；
+- 自己写的变量名 `briefRows` 与后面的内容行数重名 → `SyntaxError`，改名 `briefWeight`（同一坑一天踩两次，都是"手写完整文件"的代价）。
+
+**真机结果**：
+```
+brief  ✓ [brief] 3200×2000（557KB，不出图）          pageNo 00 → 右上
+kv     ✓ bottomRight 2560×1440 + en + story(9:16) 2160×3840
+poster ✓ verticalRight 印章「语 + 云顶」 2160×2880 + en + sq(1:1) 2160×2160
+square ✓ center（2 栏正文）2160×2160
+```
+
 ## [2.89.0] - 2026-09-19
 
 ### 视觉引擎：四种版式 + 竖排印章 + 多语言（同一张底图出多版）
