@@ -1,18 +1,19 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 
-// 小语挂件（2026-09-19 v2：会动了）
-// 立绘来自 记忆/人格定义.json 约束的角色设定，用 app 自己的出图通道生成（agnes-image-2.0-flash）。
-// 动作全是"最省的那一档"：多帧切换 + CSS 形变，没有骨骼/建模——
-// 呼吸(3.6s) + 眨眼(3.5~6s) + 空闲时偶尔换个表情(15~25s) + 点她"说话"时快速切帧 + 首次出场挥手。
+// 小语挂件（2026-09-19 v3：透明立绘，能像贴纸一样浮在页面上）
+// 立绘来自 记忆/人格定义.json 约束的角色设定，用 app 自己的出图通道生成（agnes-image-2.0-flash），
+// 再用 Pillow 从四角种子做 floodfill 抠底（`tmp/cutout-xiaoyu.py`）→ 透明 PNG（*-t.png）。
+// 动作仍是最省那档：多帧切换 + CSS 形变（呼吸 / 眨眼 / 空闲换表情 / 点她说话切帧 / 出场挥手）。
 const S = '/static/branding'
+const V = '?v=4'
 const FRAMES = {
-  open: `${S}/xiaoyu-open.png?v=3`,
-  closed: `${S}/xiaoyu-closed.png?v=3`,
-  happy: `${S}/xiaoyu-happy.png?v=3`,
-  focused: `${S}/xiaoyu-focused.png?v=3`,
-  thinking: `${S}/xiaoyu-thinking.png?v=3`,
-  sleepy: `${S}/xiaoyu-sleepy.png?v=3`,
-  wave: `${S}/xiaoyu-wave.png?v=3`,
+  open: `${S}/xiaoyu-open-t.png${V}`,
+  closed: `${S}/xiaoyu-closed-t.png${V}`,
+  happy: `${S}/xiaoyu-happy-t.png${V}`,
+  focused: `${S}/xiaoyu-focused-t.png${V}`,
+  thinking: `${S}/xiaoyu-thinking-t.png${V}`,
+  sleepy: `${S}/xiaoyu-sleepy-t.png${V}`,
+  wave: `${S}/xiaoyu-wave-t.png${V}`,
 }
 type FrameKey = keyof typeof FRAMES
 
@@ -168,9 +169,10 @@ export default function XiaoyuWidget() {
         onClick={speak}
         data-frame={frame}
         data-tasks={busyCount}
-        className="xiaoyu-widget block h-14 w-14 overflow-hidden rounded-full border-2 border-pi-border bg-pi-bg2 shadow-lg transition-transform duration-150 hover:scale-105 active:scale-95"
+        className="xiaoyu-widget block transition-transform duration-150 hover:scale-105 active:scale-95"
+        style={{ filter: 'drop-shadow(0 6px 14px rgba(0,0,0,.45))' }}
       >
-        <img src={FRAMES[frame]} alt={label} draggable={false} className="h-full w-full object-cover" />
+        <img src={FRAMES[frame]} alt={label} draggable={false} className="h-20 w-auto sm:h-24" />
       </button>
     </div>
   )
