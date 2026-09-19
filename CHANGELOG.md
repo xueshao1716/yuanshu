@@ -8,6 +8,30 @@
 
 ## [Unreleased]
 
+## [2.93.0] - 2026-09-19
+
+### 小语挂件：换装 + 可拖动 + 贴纸包（三件都试了）
+
+1. **第二套皮肤：盲盒公仔**。抠底遇到真问题——这套素材是**渐变/带纹理**背景（取样到 (158,126,116)），
+   纯色 floodfill 抠不干净（一片片残留）。改用 **rembg（u2net）真抠图**，一次成功（连小纸盒道具都留着）。
+   现在的抠底链条：**纯色底 → `scripts/cutout-art.py`（floodfill，秒级）；渐变底 → rembg**。
+   脚本也改成通用参数版（`--src/--out/--prefix/--tol/--sizes/--max`），换素材改一行命令。
+2. **换装**：双击立绘在 Q版 ⇄ 盲盒公仔 之间切换（同一套帧名映射到两套素材），选择记在 `localStorage`。
+3. **拖动**：pointer 事件拖到屏幕任意位置（6px 阈值区分点击/拖动），位置存 `localStorage`，**刷新后还在**；
+   单击=说话、双击=换装、拖动=挪位置，三种手势互不打架。
+4. **贴纸包导出**：`scripts/export-stickers.mjs` → `交付/小语贴纸包/`（`stickers/` 9 张透明 PNG + `index.html` 预览页 + README），
+   方便拖进 PPT/微信/别处网页用。
+
+**真机核对（5/5）**：
+```
+初始: skin=chibi src=xiaoyu-open-t.png?v=5 ok=true
+换装后: skin=doll src=doll-01.png?v=5 stored=doll        ✅ 双击换装 + 记住
+刷新后: left=40 top=200 skin=doll                        ✅ 位置与皮肤都还在
+预览页: 9 张图全部加载成功（count=9 ok=9）
+```
+（核对脚本第一版自己踩了坑：`addScriptToEvaluateOnNewDocument` 每次导航都会清 localStorage，
+把被测状态一起清了 → 第二次导航前先 `removeScriptToEvaluateOnNewDocument`，5/5 才是真的。）
+
 ## [2.92.0] - 2026-09-19
 
 ### 小语立绘抠底：透明背景，像贴纸一样浮在页面上
