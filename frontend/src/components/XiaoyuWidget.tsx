@@ -1,36 +1,74 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 
-// 小语挂件（2026-09-19）：右下角的她——立绘来自 app 自己的出图通道，
-// 说的话受 记忆/人格定义.json 约束（名字/年龄从 /api/persona 读，语气按定义来：不套话、不滥用感叹号）。
-// 动效刻意只做最省的两下：呼吸（CSS）+ 眨眼（睁眼/闭眼两张图切换）——这就是那类"娃娃"效果的全部成本。
+// 小语挂件（2026-09-19 v2：会动了）
+// 立绘来自 记忆/人格定义.json 约束的角色设定，用 app 自己的出图通道生成（agnes-image-2.0-flash）。
+// 动作全是"最省的那一档"：多帧切换 + CSS 形变，没有骨骼/建模——
+// 呼吸(3.6s) + 眨眼(3.5~6s) + 空闲时偶尔换个表情(15~25s) + 点她"说话"时快速切帧 + 首次出场挥手。
+const S = '/static/branding'
+const FRAMES = {
+  open: `${S}/xiaoyu-open.png?v=3`,
+  closed: `${S}/xiaoyu-closed.png?v=3`,
+  happy: `${S}/xiaoyu-happy.png?v=3`,
+  focused: `${S}/xiaoyu-focused.png?v=3`,
+  thinking: `${S}/xiaoyu-thinking.png?v=3`,
+  sleepy: `${S}/xiaoyu-sleepy.png?v=3`,
+  wave: `${S}/xiaoyu-wave.png?v=3`,
+}
+type FrameKey = keyof typeof FRAMES
+
 const LINES = [
   '在。有活就说。',
   '我盯着任务呢，跑完会汇报。',
   '要查什么、要写什么，直接说。',
   '累了就歇会儿，活可以明天干。',
 ]
+const TALK_CYCLE: FrameKey[] = ['open', 'happy', 'open', 'thinking', 'happy', 'open']
+const IDLE_FACES: FrameKey[] = ['happy', 'thinking', 'sleepy', 'focused']
 
 export default function XiaoyuWidget() {
-  const [blink, setBlink] = useState(false)
+  const [frame, setFrame] = useState<FrameKey>('wave')   // 先挥手出场
   const [open, setOpen] = useState(false)
   const [persona, setPersona] = useState<{ name?: string; age?: number } | null>(null)
   const [line, setLine] = useState(LINES[0])
   const boxRef = useRef<HTMLDivElement | null>(null)
+  const talkingRef = useRef(false)
 
-  // 眨眼：每 4–6 秒闭一次，闭 140ms
+  // 预加载：免得切帧时闪空白
+  useEffect(() => { for (const src of Object.values(FRAMES)) { const i = new Image(); i.src = src } }, [])
+
+  // 出场挥手 → 回到常态
+  useEffect(() => { const t = setTimeout(() => setFrame('open'), 1800); return () => clearTimeout(t) }, [])
+
+  // 眨眼
   useEffect(() => {
-    let t1: any, t2: any
+    let t1: ReturnType<typeof setTimeout>, t2: ReturnType<typeof setTimeout>
     const loop = () => {
       t1 = setTimeout(() => {
-        setBlink(true)
-        t2 = setTimeout(() => { setBlink(false); loop() }, 140)
-      }, 4000 + Math.random() * 2000)
+        if (!talkingRef.current) setFrame('closed')
+        t2 = setTimeout(() => { if (!talkingRef.current) setFrame('open'); loop() }, 130)
+      }, 3500 + Math.random() * 2500)
     }
     loop()
     return () => { clearTimeout(t1); clearTimeout(t2) }
   }, [])
 
-  // 名字/年龄读定义（改定义，挂件跟着变）
+  // 空闲时偶尔换个表情（1.6 秒），让它看着"活着"
+  useEffect(() => {
+    let t: ReturnType<typeof setTimeout>
+    const loop = () => {
+      t = setTimeout(() => {
+        if (!talkingRef.current && !open) {
+          setFrame(IDLE_FACES[Math.floor(Math.random() * IDLE_FACES.length)])
+          setTimeout(() => { if (!talkingRef.current) setFrame('open') }, 1600)
+        }
+        loop()
+      }, 15000 + Math.random() * 10000)
+    }
+    loop()
+    return () => clearTimeout(t)
+  }, [open])
+
+  // 名字/年龄读定义
   useEffect(() => {
     let alive = true
     fetch('/api/persona', { headers: { Authorization: 'Bearer ' + (localStorage.getItem('yuanshu_access_token') || '') } })
@@ -50,6 +88,18 @@ export default function XiaoyuWidget() {
 
   const label = persona?.name ? `${persona.name}${persona.age ? ` · ${persona.age}岁` : ''}` : '小语'
 
+  // 点她 → 说一句话，并且"动嘴"（快速切帧）
+  const speak = () => {
+    setLine(LINES[Math.floor(Math.random() * LINES.length)])
+    setOpen((v) => !v)
+    talkingRef.current = true
+    let i = 0
+    const timer = setInterval(() => {
+      setFrame(TALK_CYCLE[i % TALK_CYCLE.length]); i++
+      if (i > TALK_CYCLE.length + 1) { clearInterval(timer); talkingRef.current = false; setFrame('happy') }
+    }, 180)
+  }
+
   return (
     <div ref={boxRef} className="fixed right-3 bottom-[calc(env(safe-area-inset-bottom,0px)+72px)] sm:bottom-6 z-[var(--pi-z-topbar)] select-none">
       {open && (
@@ -66,15 +116,11 @@ export default function XiaoyuWidget() {
         type="button"
         aria-label={`${label}（点一下说话）`}
         title={label}
-        onClick={() => { setLine(LINES[Math.floor(Math.random() * LINES.length)]); setOpen((v) => !v) }}
+        onClick={speak}
+        data-frame={frame}
         className="xiaoyu-widget block h-14 w-14 overflow-hidden rounded-full border-2 border-pi-border bg-pi-bg2 shadow-lg transition-transform duration-150 hover:scale-105 active:scale-95"
       >
-        <img
-          src={`/static/branding/xiaoyu-${blink ? 'closed' : 'open'}.png?v=2`}
-          alt={label}
-          draggable={false}
-          className="h-full w-full object-cover"
-        />
+        <img src={FRAMES[frame]} alt={label} draggable={false} className="h-full w-full object-cover" />
       </button>
     </div>
   )
