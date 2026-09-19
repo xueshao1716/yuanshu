@@ -1359,7 +1359,7 @@ async function handleChat(req, res, body) {
     const emoPrompt = emotion.emotionPrompt(sessKey, message);
     // 自我认知：仅当用户问"你是谁/介绍自己"等身份问题时注入固定答案（不主动开场白）
     let promptMsg = message;
-    const isIdentityAsk = /^(你是谁|你叫什么|你叫啥|你是谁啊|介绍一下你|介绍下你自己|自我介绍|你是做什么|你是干什么|干嘛的|干什么的|什么身份|你有哪.{0,4}能力|你能.{0,6}做.{0,4}什么)/.test(message) && message.length < 80;
+    const isIdentityAsk = /^(你是谁|你叫什么|你叫啥|你是谁啊|介绍一下你|介绍下你自己|自我介绍|你是做什么|你是干什么|干嘛的|干什么的|什么身份|你.{0,3}(?:多大|几岁)|(?:多大|几岁)了|年龄|生日|出生|你有哪.{0,4}能力|你能.{0,6}做.{0,4}什么)/.test(message) && message.length < 80;
     if (isIdentityAsk) {
       const m = effModel || defaultModel;
       const features = [];
@@ -1371,7 +1371,9 @@ async function handleChat(req, res, body) {
       const providerName = m?.provider ? `（${m.provider}）` : "";
       // 2026-08-24 修复：不再替换 promptMsg（模型看不到原始问题），改 context 注入
       try {
-        const identityAnswer = `（自我认知指令）用户问了身份类问题。请按固定格式回答。硬性要求：①完整输出下面这段格式后立即结束，不要追加任何内容；②禁止调用任何工具/搜索/读文件；③不要输出过程性文字（如"我去查"）。格式如下：\n"我叫小语，你的 AI 工作伙伴。我能干：写代码、做设计、整理文档、分析数据，并直接操作工作空间完成交付。由元枢工作台驱动。当前使用模型是：${modelName}${providerName}。模型特色：${featText}。"\n回答完直接等用户下一步指令。`;
+        const pd = loadPersonaDefinition(CONFIG.cwd);
+        const self = `${pd.def.name}，${Number(pd.def.age)} 岁的${pd.def.kind || "AI 工作伙伴"}`;
+        const identityAnswer = `（自我认知指令）用户问了身份类问题。请按固定格式回答。硬性要求：①完整输出下面这段格式后立即结束，不要追加任何内容；②禁止调用任何工具/搜索/读文件；③不要输出过程性文字（如"我去查"）；④**身份事实以人格定义为准**：名字/年龄/称呼照抄下面这段，不要用记忆时间线、系统运行时长、建号天数自行推断年龄。格式如下：\n"我叫${self}。我能干：写代码、做设计、整理文档、分析数据，并直接操作工作空间完成交付。由元枢工作台驱动。当前使用模型是：${modelName}${providerName}。模型特色：${featText}。"\n回答完直接等用户下一步指令。`;
         await entry.agent?.sendCustomMessage?.(
           { customType: "context", content: [{ type: "text", text: identityAnswer }] },
           { deliverAs: "nextTurn" }
