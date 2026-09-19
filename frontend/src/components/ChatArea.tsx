@@ -103,7 +103,9 @@ export default function ChatArea({ compactHeader, rightPanel, onRightPanel }: {
   const { currentSessionId, currentModel, sessions, refreshSessions, selectSession } = useApp()
   // 人格定义（2026-09-19）：顶栏显示"名字 · 年龄"，让定义在界面上看得见（改定义这里跟着变）
   const { data: personaData } = useSWR('persona', () => fetch('/api/persona', { headers: { Authorization: 'Bearer ' + (localStorage.getItem('yuanshu_access_token') || '') } }).then(r => r.json()))
-  const personaLabel = (() => { const d = personaData?.definition; return d?.name ? `${d.name} · ${d.age}岁` : '小语' })()
+  // 顶栏只显示名字（用户 2026-09-19：手机端左上角写「小语」就行，别带「· 20岁」；
+  // 年龄仍然在挂件气泡里能看到——那是"定义驱动"该露的地方，不是标题栏）
+  const personaLabel = (() => { const d = personaData?.definition; return d?.name || '小语' })()
   const sessionIdRef = useRef(currentSessionId)
   sessionIdRef.current = currentSessionId
   const [stream, setStream] = useState<StreamState | null>(null)
