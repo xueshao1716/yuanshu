@@ -1,6 +1,7 @@
 // 元枢循环接缝：插件贡献能力，主聊天仍是 unifiedChat（不是 Gateway 循环）
 import { buildYuanshuSections } from "./yuanshu-prompt.mjs";
 import { rhythmPhrase } from "./activity-rhythm.mjs";
+import { loadPersonaDefinition, renderPersonaSection } from "./persona-def.mjs";
 
 export const SEAM_PROMPT = "prompt-section";
 
@@ -67,8 +68,7 @@ export function promptTimeText(now = new Date(), { since = 0, sessionStart = 0, 
   return `${base}\n${lines.join("\n")}`;
 }
 
-export function promptPersonaText(model) {
-  if (!model?.id) return "";
+export function promptPersonaText(model) {  if (!model?.id) return "";
   return `本轮由 ${model.provider} 通道的 ${model.id} 模型驱动，运行在元枢工作台（助手角色：小语）。用户问及你的模型/版本/能力时，以此如实回答；不要自称其他产品名。`;
 }
 
@@ -118,7 +118,16 @@ export function assembleYuanshuSystem(baseOpts = {}, registry = null, ctx = {}) 
   );
   if (!String(merged.time || "").trim()) merged.time = promptTimeText(ctx.now, { since: ctx.since, sessionStart: ctx.sessionStart });
   if (!String(merged.persona || "").trim()) {
-    const persona = promptPersonaText(ctx.model);
+    // 人格段由**定义**渲染（记忆/人格定义.json），而不是只报"本轮哪个模型在驱动"。
+    // 真机 bug（2026-09-18）：元枢自制循环这条路上，小语的人格几乎没被注入过——
+    // 只有一句模型来源，所以她在这条路上的"是谁"是不确定的。
+    let persona = "";
+    try {
+      const wsRoot = ctx.wsRoot || process.env.PI_WORKSPACE || process.cwd();
+      const { def } = loadPersonaDefinition(wsRoot);
+      persona = renderPersonaSection(def, { genes: ctx.genes || null, model: ctx.model });
+    } catch {}
+    if (!persona) persona = promptPersonaText(ctx.model);
     if (persona) merged.persona = persona;
   }
   return merged;

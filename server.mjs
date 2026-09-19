@@ -120,6 +120,7 @@ import { createCorsPolicy } from "./engine/cors-policy.mjs";
 import { initSessionDb, handleDbList, handleDbRebuild, handleDbSanitize, handleDbMeta, handleDbStats, handleDbSweep, sweepSessionsNow, ensureSessionSequence } from "./engine/session-db.mjs";
 import { repairSessionFile, repairSessionDir } from "./engine/session-repair.mjs";
 import { outputRoomTokens, headroomNote } from "./engine/context-headroom.mjs";
+import { loadPersonaDefinition, renderPersonaSection, syncAppendSystemPersona, personaFilePath } from "./engine/persona-def.mjs";
 import { isListedGroup } from "./engine/session-groups.mjs";
 import { createAIBodyRuntime } from "./engine/aibody-runtime.mjs";
 import { createAIBodyHost } from "./engine/aibody-host.mjs";
@@ -2517,6 +2518,15 @@ const API_ROUTES = [
   ["POST", "/api/memcompress/apply", async (res, req) => { const b = await readBody(req); return json(res, 200, applyMemoryCompress(b.id)); }],
   ["POST", "/api/memcompress/dismiss", async (res, req) => { const b = await readBody(req); return json(res, 200, dismissMemoryCompress(b.id)); }],
   ["GET", "/api/sessions", (res) => json(res, 200, { sessions: getSessionList().filter(s => isListedGroup(s.group)) })],
+  // 人格定义（2026-09-18）：一份定义决定人格——把定义与渲染结果如实暴露出来，便于核对。
+  ["GET", "/api/persona", (res) => {
+    const pd = loadPersonaDefinition(CONFIG.cwd);
+    const genes = (() => { try { return emotion.getGenome(); } catch { return null; } })();
+    json(res, 200, {
+      definition: pd.def, source: pd.source, file: personaFilePath(CONFIG.cwd), problems: pd.problems,
+      rendered: renderPersonaSection(pd.def, { genes }),
+    });
+  }],
   ["POST", "/api/sessions", async (res, req) => {
     const body = await readBody(req);
     const group = body.group === "test" || body.group === "terminal" ? body.group : "workspace";
@@ -3207,6 +3217,13 @@ ${rows.map((r) => `- [${r.status}${r.closed ? "/已结清" : ""}] ${r.text}\n  �
       console.log("  [dream] 做梦周期已挂上（启动 2 分钟后首跑，之后每 6 小时）");
     } catch (e) { console.log("[dream] 周期挂载失败:", String(e?.message || e).slice(0, 100)); }
     console.log(`  会话目录: ${SESSIONS_DIR}`);
+    // 人格定义 → 人格化（2026-09-18）：把定义的渲染结果同步进 pi 通道读的 APPEND_SYSTEM.md
+    // （幂等，只替换标记块），这样两条通道上"她是谁"来自同一份定义。
+    try {
+      const pd = loadPersonaDefinition(CONFIG.cwd);
+      const r = syncAppendSystemPersona(pd.def, { agentDir: getAgentDir() });
+      console.log(`  [persona] ${pd.def.name}（${pd.def.age} 岁，来源 ${pd.source}${pd.problems.length ? "，有问题：" + pd.problems.join("；") : ""}）→ APPEND_SYSTEM.md ${r.changed ? "已同步" : "已是最新"}${r.error ? "（失败：" + r.error + "）" : ""}`);
+    } catch (e) { console.log(`  [persona] 同步失败（不阻断启动）: ${String(e?.message || e).slice(0, 100)}`); }
     // 存量会话 SDK 安全化（2026-09-18）：上传文件曾经给用户消息落 {type:"file"} 块，
     // pi 的 provider 适配会把它写成 image_url(data:;base64,undefined) → 该会话此后每轮都
     // 400「unsupported image」。修写入路径救不回已经在盘上的会话，所以启动时扫一遍。

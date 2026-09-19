@@ -31,6 +31,8 @@ export function isCanonicalTarget(targetPath, { wsRoot = "" } = {}) {
   const rel = root && p.startsWith(root) ? path.relative(root, p).replace(/\\/g, "/") : p.replace(/\\/g, "/");
   if (/(^|\/)skills\//.test(rel) || rel.startsWith("skills/")) return true;
   if (/^记忆\/做梦\/(授权状|现役策略|现役探索策略)\.json$/.test(rel)) return true;
+  // 人格定义（2026-09-18）：一份定义决定人格 → 不许直接落盘，先落草案区等人批准。
+  if (/^记忆\/人格定义\.json$/.test(rel)) return true;
   return false;
 }
 
