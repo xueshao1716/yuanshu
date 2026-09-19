@@ -1,10 +1,8 @@
 import { useMemo, useState } from 'react'
 import useSWR from 'swr'
-import {
-  MessagesSquare, Clock4, Wallet, Activity as ActivityIcon, Package,
+import {MessagesSquare, Clock4, Wallet, Activity as ActivityIcon, Package,
   Play, Pause, CheckCircle2, AlertTriangle, ArrowRight,
-  LayoutDashboard, GitCompare,
-} from 'lucide-react'
+  LayoutDashboard, GitCompare, Users } from 'lucide-react'
 import { SessionsApi, TasksApi, StatsApi, WsApi, SubagentApi, EmotionApi, RunApi, type TimeTask, type SubagentRun } from '../api'
 import { useApp } from '../store'
 import PageHeader from '../components/PageHeader'
@@ -15,6 +13,7 @@ import { useXiaoyuEmotion } from '../lib/useXiaoyuEmotion'
 import HealthBadge from '../components/HealthBadge'
 import WorkExplanationList from '../components/WorkExplanationList'
 import { ReviewPanel } from './ReviewWorkbench'
+import { TeamRunView } from '../components/TeamRunView'
 
 // ── 工作台（2026-09-03，Phase 1）：概览卡 ×4 + 三列泳道 + 活动时间线 ──
 // 布局借鉴 SaaS 项目看板；数据全部来自现有 API（sessions/time-tasks/stats/agent-events）
@@ -133,13 +132,14 @@ function SubagentCard({ r }: { r: SubagentRun }) {
   )
 }
 
-type BoardView = 'overview' | 'review'
+type BoardView = 'overview' | 'review' | 'team'
 
 // 页内多视图（沿用 Apps.tsx 的模式）：概览 = 运行态总览；改动验收 = 原独立页，
 // 因其板块与工作台重复（近期工作说明、子智能体记录）而并入，不再占独立主栏入口。
 const BOARD_VIEWS: { key: BoardView; label: string; icon: typeof MessagesSquare }[] = [
   { key: 'overview', label: '概览', icon: LayoutDashboard },
   { key: 'review', label: '改动验收', icon: GitCompare },
+  { key: 'team', label: '天团', icon: Users },   // 多AI角色扮演系统：运行态只读窗口
 ]
 
 export default function Board({ initialView = 'overview' }: { initialView?: BoardView }) {
@@ -207,6 +207,8 @@ export default function Board({ initialView = 'overview' }: { initialView?: Boar
         </nav>
 
         {view === 'review' && <ReviewPanel />}
+
+        {view === 'team' && <TeamRunView />}
 
         {view === 'overview' && <>
         {/* 近期工作说明：只在概览视图渲染一份。原先工作台与改动验收各用一个 SWR key

@@ -801,6 +801,11 @@ export interface AIBodyOverview {
   companionship?: { continuity: string; memory: string; boundary: string }
   evolution?: { mode: string; humanApproval: boolean; rollback: boolean; scope: string[]; protected: string[] }
 }
+// 天团运行态（2026-09-19）：工作台「天团」视图读这个（只读，来自 工程/多AI角色扮演系统/team-run.json）
+export const TeamRunApi = {
+  get: () => api<{ ok: boolean; run: Record<string, unknown> | null; hint?: string }>('/api/team/run'),
+}
+
 export const AIBodyApi = {
   overview: () => api<AIBodyOverview>('/api/aibody'),
 }

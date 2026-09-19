@@ -8,6 +8,35 @@
 
 ## [Unreleased]
 
+## [2.102.0] - 2026-09-19
+
+### 工作台新增「天团」视图：多AI角色扮演系统落地第一步（v26 规范 → 可执行数据）
+
+伙伴给的《多AI角色扮演系统》四份规范（V18 / V20 / V23 / V26，≈19.9 万字）全文读完（两位读全文的分析员，逐条带行号），
+按伙伴定的切入点，**从工作台长出来**（母体之上生长的逻辑），不动对话页、不动「改动经验」现有显示。
+
+- **规范数据化** `工程/多AI角色扮演系统/spec/`：21 角色（决策3/协调6/执行12，V26 表3-1 逐格）、4 种姓、三相、
+  阈值单一真值源（16 条）、八阶工作流；每条带 `provenance` 出处。7 个 V26 里只有名字的角色（DOC/UI/UX/DATA/OPS/SEC/QA）
+  先给占位定义并标 `draft`。
+- **consistency 体检** `scripts/verify-spec.mjs`：真跑结果「错误 0 / 提醒 4」——分层计数 3/6/12、阈值 key 唯一、
+  八阶顺序完整；并报出文档里"提到但没定义"的 8 个值（`EVAPORATION_RATE`/`DIFFUSION_COEFF`/`potency`/`SANCTIFICATION_THRESHOLD`/θ/MVS…）。
+- **八阶 dry-run runner** `scripts/team-run.mjs`：VIDEO/SIMP → 配置 B-Standard-Standard、档位 WarmCurrent/LIQUID（并发上限 5）、
+  上场 VIDEO/ANALYST/REVIEWER/GUARDIAN、清单 28/28，产物写 `team-run.json` + 信号黑板 `pheromone.jsonl`。
+  **诚实标注 `mode:"dry-run"`**：档位/名单/清单/信号是真的，各阶产物仍是占位。
+- **新接口** `GET /api/team/run`（只读）+ **工作台第三个视图「天团」**（`Board.tsx` 的 BoardView 联合类型 + BOARD_VIEWS + 渲染分支；
+  新组件 `components/TeamRunView.tsx`）：任务/配置徽标、上场名单（层级配色 + 影子标记）、八阶节点条、
+  清单对账、改动经验、信号黑板、dry-run 提示。
+
+**真机核对 7/7**（CDP，1280×900，跑完自动关掉自己开的标签页）：
+```
+视图列表含「天团」✅｜上场名单（4 人）✅｜八阶工作流 ✅｜种姓 WarmCurrent · 三相 LIQUID ✅
+清单 28/28（Standard）✅｜改动经验+信号黑板 ✅｜dry-run 诚实标注 ✅
+```
+
+**过程中两个真实教训**：① 视图一开始走共享 `api()` 助手，在本上下文里没带上鉴权头 → 接口返回空、页面一直显示"还没有运行记录"；
+  改成显式带 `Authorization` 的 fetch（与 ChatArea/小语挂件同一套写法）后 7/7 通过。② 该只读接口在页面内实测**首请求 82 秒**
+  （第二次毫秒级）——服务端事件循环被别的任务占住的迹象，这条单独记下，跟"电脑感觉卡"是同一类问题，下一步查。
+
 ### 手机顶栏只写「小语」
 
 用户：手机端左上角写个小语就行，为啥还加个小语·20岁。
