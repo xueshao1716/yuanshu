@@ -70,7 +70,7 @@ export default function XiaoyuWidget() {
         className="xiaoyu-widget block h-14 w-14 overflow-hidden rounded-full border-2 border-pi-border bg-pi-bg2 shadow-lg transition-transform duration-150 hover:scale-105 active:scale-95"
       >
         <img
-          src={`/static/branding/xiaoyu-${blink ? 'closed' : 'open'}.png?v=1`}
+          src={`/static/branding/xiaoyu-${blink ? 'closed' : 'open'}.png?v=2`}
           alt={label}
           draggable={false}
           className="h-full w-full object-cover"
