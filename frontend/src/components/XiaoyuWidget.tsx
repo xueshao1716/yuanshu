@@ -36,6 +36,68 @@ const SKINS: Record<string, { label: string; frames: Record<FrameKey, string>; w
 }
 
 const LINES = ['在。有活就说。', '我盯着任务呢，跑完会汇报。', '要查什么、要写什么，直接说。', '我自己溜达一会儿，有事叫我。']
+
+// 第三套皮肤：**可动（木偶）**。不用 Live2D、不用任何 GUI 编辑器——
+// 把整张透明立绘按横向细条切片，按"弯曲曲线"给每条加水平偏移，就是平滑的弯腰/摆腿形变；
+// 再叠上走路帧与呼吸缩放。这就是"用代码做骨骼"的最小可用版：零编辑器、纯脚本可复现。
+function PuppetCanvas({ src, walking, hover, face, label }: { src: string; walking: boolean; hover: boolean; face: number; label: string }) {
+  const ref = useRef<HTMLCanvasElement | null>(null)
+  const imgRef = useRef<HTMLImageElement | null>(null)
+  const [ready, setReady] = useState(false)
+
+  useEffect(() => {
+    const im = new Image()
+    im.crossOrigin = 'anonymous'
+    im.onload = () => { imgRef.current = im; setReady(true) }
+    im.src = src
+  }, [src])
+
+  useEffect(() => {
+    if (!ready) return
+    const cv = ref.current
+    if (!cv) return
+    const ctx = cv.getContext('2d')
+    if (!ctx) return
+    let raf = 0
+    const t0 = performance.now()
+    const STRIPS = 22
+    const draw = (now: number) => {
+      const im = imgRef.current
+      if (!im || !ctx) return
+      const t = (now - t0) / 1000
+      const W = cv.width, H = cv.height
+      ctx.clearRect(0, 0, W, H)
+      const breathe = 1 + Math.sin(t * 1.1) * 0.006
+      const lean = walking ? Math.sin(t * 6.2) * 1.0 : Math.sin(t * 0.7) * 0.35   // 身体前后微摆（别太大，会像布在飘）
+      const sh = H / STRIPS
+      for (let i = 0; i < STRIPS; i++) {
+        const y = i * sh
+        const p = i / (STRIPS - 1)                                            // 0=头 1=脚
+        // 形变要**集中在下半身**（髋以下才摆），上半身只做极轻的摆动——
+        // 真机第一版把 bend 按 p 线性放大到脚，结果整条人像"波浪扭曲"，像旗子不像人。
+        const legPart = Math.max(0, p - 0.5) / 0.5
+        const bend = walking ? Math.sin(t * 6.2 + p * 2.4) * 1.8 * legPart : Math.sin(t * 0.9 + p * 1.6) * 0.5 * legPart
+        const sway = Math.sin(t * 1.15) * 0.5 * (1 - p)                        // 头部轻微左右
+        const dx = bend + lean * (1 - p) + sway
+        const scaleY = breathe
+        ctx.drawImage(im, 0, (im.height * y) / H, im.width, (im.height * sh) / H,
+          dx, y + (H - H * scaleY) / 2, W, sh * scaleY + 0.6)
+      }
+      if (hover) {                                                            // 悬停：头顶一点点高光提示
+        ctx.save(); ctx.globalAlpha = 0.18; ctx.fillStyle = '#fff'
+        ctx.beginPath(); ctx.ellipse(W / 2, H * 0.16, W * 0.22, H * 0.05, 0, 0, Math.PI * 2); ctx.fill(); ctx.restore()
+      }
+      raf = requestAnimationFrame(draw)
+    }
+    raf = requestAnimationFrame(draw)
+    return () => cancelAnimationFrame(raf)
+  }, [ready, walking, hover, face])
+
+  return <canvas ref={ref} width={192} height={224} aria-label={label} data-puppet="1" className="h-20 w-auto sm:h-24" />
+}
+
+// 皮肤表：puppet 复用 Q版的素材（同一批透明图），只是渲染方式换成上面的切片形变
+SKINS.puppet = { label: 'Q版·可动', frames: SKINS.chibi.frames, walk: SKINS.chibi.walk }
 const TALK_CYCLE: FrameKey[] = ['open', 'happy', 'open', 'thinking', 'happy', 'open']
 const IDLE_FACES: FrameKey[] = ['happy', 'thinking', 'sleepy', 'focused']
 const IDLE_SLEEP_MS = 3 * 60 * 1000
@@ -229,10 +291,11 @@ export default function XiaoyuWidget() {
   }
 
   const switchSkin = () => {
-    const next = skin === 'chibi' ? 'doll' : 'chibi'
+    const order = ['chibi', 'doll', 'puppet']
+    const next = order[(order.indexOf(skin) + 1) % order.length]
     setSkin(next)
     try { localStorage.setItem('xiaoyu_skin', next) } catch {}
-    setLine(next === 'doll' ? '换好衣服了。盲盒公仔。' : '换回来了。Q版。')
+    setLine(next === 'doll' ? '换好衣服了。盲盒公仔。' : next === 'puppet' ? '这套是"可动版"：不切帧，是代码给她做关节。' : '换回来了。Q版。')
     setOpen(true)
   }
 
@@ -326,7 +389,12 @@ export default function XiaoyuWidget() {
           transform: `${mode === 'roam' && pos ? `scaleX(${pos.face})` : ''} ${hover ? 'translateY(-2px)' : ''}`.trim() || undefined,
         }}
       >
-        <img src={walking && (SKINS[skin] || SKINS.chibi).walk[walkIdx] ? (SKINS[skin] || SKINS.chibi).walk[walkIdx] : frames[frame]} alt={label} draggable={false} className="h-20 w-auto sm:h-24" />
+        {skin === 'puppet' ? (
+          <PuppetCanvas src={walking && (SKINS[skin] || SKINS.chibi).walk[walkIdx] ? (SKINS[skin] || SKINS.chibi).walk[walkIdx] : frames[frame]}
+            walking={walking} hover={hover} face={mode === 'roam' && pos ? pos.face : 1} label={label} />
+        ) : (
+          <img src={walking && (SKINS[skin] || SKINS.chibi).walk[walkIdx] ? (SKINS[skin] || SKINS.chibi).walk[walkIdx] : frames[frame]} alt={label} draggable={false} className="h-20 w-auto sm:h-24" />
+        )}
       </button>
     </div>
   )
