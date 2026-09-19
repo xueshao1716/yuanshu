@@ -1,0 +1,67 @@
+{
+  "base": "生成物/图片/2026-09-19-电影海报模板1撕纸/01-第七个夏天-无字底图.png",
+  "out": "生成物/图片/2026-09-19-电影海报模板1撕纸/02-第七个夏天-艺术字成品.png",
+  "canvas": [1080, 1680],
+  "paper_sample_rows": 120,
+  "elements": [
+    {
+      "type": "text",
+      "text": "SEPT ÉTÉS",
+      "font": "msyh",
+      "size": 32,
+      "tracking": 20,
+      "color": "#1B4F9C",
+      "xy": [540, 1160],
+      "anchor": "mm",
+      "ghost": { "color": "#E8A33D", "offset": [5, -4], "alpha": 165, "blur": 0.6 }
+    },
+    {
+      "type": "text",
+      "text": "第七个夏天",
+      "font": "simhei",
+      "size": 148,
+      "tracking": 10,
+      "color": "#C1121F",
+      "xy": [540, 1345],
+      "anchor": "mm",
+      "inkbleed": 0.30,
+      "jitter": { "rot": 1.1, "dx": 3, "dy": 4 },
+      "shadow": { "color": "#3A2A18", "offset": [3, 5], "alpha": 60, "blur": 3 },
+      "ghost": { "color": "#1B4F9C", "offset": [-9, 8], "alpha": 200, "blur": 0.8 }
+    },
+    {
+      "type": "text",
+      "text": "那年夏天，我们把告别练习了七次",
+      "font": "msyh",
+      "size": 36,
+      "tracking": 6,
+      "color": "#2B2B2B",
+      "xy": [540, 1490],
+      "anchor": "mm"
+    },
+    {
+      "type": "rule",
+      "xy": [[170, 1555], [910, 1555]],
+      "width": 2,
+      "color": "#2B2B2B",
+      "alpha": 110
+    },
+    {
+      "type": "text",
+      "text": "四季影业　出品　·　初秋公映",
+      "font": "msyh",
+      "size": 27,
+      "tracking": 10,
+      "color": "#4A4A4A",
+      "xy": [540, 1600],
+      "anchor": "mm"
+    },
+    {
+      "type": "specks",
+      "box": [140, 1520, 940, 1650],
+      "count": 46,
+      "color": "#2B2B2B",
+      "alpha": 60
+    }
+  ]
+}

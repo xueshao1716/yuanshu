@@ -2558,6 +2558,15 @@ const API_ROUTES = [
     } catch (e) { return json(res, 500, { error: String(e?.message || e).slice(0, 120) }); }
     return json(res, 200, { ok: true, file, parts: parts.length });
   }],
+  // 天团运行态（2026-09-19）：只读暴露 工程/多AI角色扮演系统/team-run.json（工作台「天团」视图的数据源）。
+  ["GET", "/api/team/run", (res) => {
+    const p = path.join(CONFIG.cwd, "工程", "多AI角色扮演系统", "team-run.json");
+    try {
+      if (!fs.existsSync(p)) return json(res, 200, { ok: true, run: null, hint: "还没有运行记录：node 工程/多AI角色扮演系统/scripts/team-run.mjs \"任务\"" });
+      return json(res, 200, { ok: true, run: JSON.parse(fs.readFileSync(p, "utf8")) });
+    } catch (e) { return json(res, 500, { error: String(e?.message || e).slice(0, 120) }); }
+  }],
+
   // 人格定义（2026-09-18）：一份定义决定人格——把定义与渲染结果如实暴露出来，便于核对。
   ["GET", "/api/persona", (res) => {
     const pd = loadPersonaDefinition(CONFIG.cwd);
