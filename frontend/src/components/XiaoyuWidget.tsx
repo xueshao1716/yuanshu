@@ -43,7 +43,7 @@ const LINES = ['在。有活就说。', '我盯着任务呢，跑完会汇报。
 //   ② 没有 → 退回"整图横向切片 + 弯曲曲线"的形变（四肢不独立，但至少有体态）。
 // 两条都是纯代码，不需要 Live2D / Rive 之类 GUI 编辑器。
 type PuppetPart = { file: string; x: number; y: number; w: number; h: number; pivot: [number, number]; z: number }
-function PuppetCanvas({ src, walking, hover, face, label, waving }: { src: string; walking: boolean; hover: boolean; face: number; label: string; waving: boolean }) {
+function PuppetCanvas({ src, walking, hover, face, label, waving, lookX, patting, rig }: { src: string; walking: boolean; hover: boolean; face: number; label: string; waving: boolean; lookX: number; patting: boolean; rig: string }) {
   const ref = useRef<HTMLCanvasElement | null>(null)
   const imgRef = useRef<HTMLImageElement | null>(null)
   const [ready, setReady] = useState(false)
@@ -59,7 +59,8 @@ function PuppetCanvas({ src, walking, hover, face, label, waving }: { src: strin
   // 拉骨骼清单（有就用部件渲染）
   useEffect(() => {
     let alive = true
-    fetch('/static/puppet/puppet.json?t=' + Math.floor(Date.now() / 60000))
+    partsRef.current = null
+    fetch(rig + '?t=' + Math.floor(Date.now() / 60000))
       .then((r) => (r.ok ? r.json() : null))
       .then(async (j) => {
         if (!alive || !j?.parts) return
@@ -71,7 +72,7 @@ function PuppetCanvas({ src, walking, hover, face, label, waving }: { src: strin
       })
       .catch(() => {})
     return () => { alive = false }
-  }, [])
+  }, [rig])
 
   useEffect(() => {
     if (!ready) return
@@ -96,7 +97,7 @@ function PuppetCanvas({ src, walking, hover, face, label, waving }: { src: strin
         const lean = walking ? Math.sin(t * 6.2) * 1.6 : Math.sin(t * 0.7) * 0.5
         const angles: Record<string, number> = {
           torso: lean,
-          head: (hover ? 3 : 1.2 * Math.sin(t * 1.15)) + lean * 0.3,
+          head: (hover ? 3 : 1.2 * Math.sin(t * 1.15)) + lean * 0.3 + lookX * 7 + (patting ? Math.sin(t * 14) * 6 : 0),
           // 手臂：走路时前后摆（上臂大、小臂带相位延迟）；挥手时右臂抬起画弧
           upperArmL: walking ? swing * 15 : Math.sin(t * 1.0) * 1.5,
           foreArmL: walking ? swing * 9 : Math.sin(t * 1.0 + 0.5) * 1.2,
@@ -166,7 +167,7 @@ function PuppetCanvas({ src, walking, hover, face, label, waving }: { src: strin
     }
     raf = requestAnimationFrame(draw)
     return () => cancelAnimationFrame(raf)
-  }, [ready, walking, hover, face, waving])
+  }, [ready, walking, hover, face, waving, lookX, patting])
 
   return <canvas ref={ref} width={Math.round((partsRef.current?.size?.[0] || 192) * 0.9)} height={Math.round((partsRef.current?.size?.[1] || 224) * 0.9)}
     aria-label={label} data-puppet="1" data-puppet-mode={partsRef.current ? 'parts' : 'strips'} className="h-20 w-auto sm:h-24" />
@@ -174,6 +175,9 @@ function PuppetCanvas({ src, walking, hover, face, label, waving }: { src: strin
 
 // 皮肤表：puppet 复用 Q版的素材（同一批透明图），只是渲染方式换成上面的切片形变
 SKINS.puppet = { label: 'Q版·可动', frames: SKINS.chibi.frames, walk: SKINS.chibi.walk }
+SKINS['doll-puppet'] = { label: '公仔·可动', frames: SKINS.doll.frames, walk: SKINS.doll.walk }
+// 每套可动皮肤对应的骨骼清单（脚本 puppet-build --out 生成）
+const RIG_OF: Record<string, string> = { puppet: '/static/puppet/puppet.json', 'doll-puppet': '/static/puppet-doll/puppet.json' }
 const TALK_CYCLE: FrameKey[] = ['open', 'happy', 'open', 'thinking', 'happy', 'open']
 const IDLE_FACES: FrameKey[] = ['happy', 'thinking', 'sleepy', 'focused']
 const IDLE_SLEEP_MS = 3 * 60 * 1000
@@ -199,7 +203,9 @@ export default function XiaoyuWidget() {
   const [pos, setPos] = useState<{ x: number; y: number; face: number } | null>(null)
   const [hover, setHover] = useState(false)
   const [walking, setWalking] = useState(false)
-  const [waving, setWaving] = useState(false)   // 挥手：点她时抬右臂画弧，1.4 秒后放下
+  const [waving, setWaving] = useState(false)
+  const [lookX, setLookX] = useState(0)      // 视线跟随：鼠标相对她的水平位置 -1..1
+  const [patting, setPatting] = useState(false)   // 挥手：点她时抬右臂画弧，1.4 秒后放下
   const [walkIdx, setWalkIdx] = useState(0)
   const walkClock = useRef(0)
   const [sparks, setSparks] = useState<{ id: number; x: number; y: number }[]>([])
@@ -208,11 +214,25 @@ export default function XiaoyuWidget() {
   const [busyCount, setBusyCount] = useState(0)
 
   const boxRef = useRef<HTMLDivElement | null>(null)
+  const lastMouse = useRef({ x: 0, y: 0 })
   const talkingRef = useRef(false)
   const hoverRef = useRef(false)   // 悬停时"注视"要压过眨眼/漫游的换帧（真机核对里被漫游覆盖过）
   const walkRef = useRef(false)
   const dragRef = useRef<{ dx: number; dy: number; moved: boolean } | null>(null)
   const phys = useRef({ x: 0, y: 0, vx: 0, vy: 0, tx: 0, ty: 0, falling: false, nextThink: 0, face: 1 })
+
+  // 视线跟随 + 记住鼠标位置：鼠标在页面哪边她就往哪边看；漫游时有几率朝你走
+  useEffect(() => {
+    const onMove = (e: MouseEvent) => {
+      lastMouse.current = { x: e.clientX, y: e.clientY }
+      const r = boxRef.current?.getBoundingClientRect()
+      if (!r) return
+      const cx = r.left + r.width / 2
+      setLookX(Math.max(-1, Math.min(1, (e.clientX - cx) / (window.innerWidth * 0.35))))
+    }
+    window.addEventListener('mousemove', onMove, { passive: true })
+    return () => window.removeEventListener('mousemove', onMove)
+  }, [])
 
   useEffect(() => { for (const s of Object.values(SKINS)) for (const src of [...Object.values(s.frames), ...s.walk]) { const i = new Image(); i.src = src } }, [])
   useEffect(() => { const t = setTimeout(() => setFrame('open'), 1800); return () => clearTimeout(t) }, [])
@@ -296,6 +316,13 @@ export default function XiaoyuWidget() {
     const safeBottom = () => (vw() < 700 ? 200 : 140)          // 手机避开输入区
     const pick = () => {
       const p = phys.current
+      // 30% 概率朝鼠标走（"跟着你"），其余随机漫游
+      if (Math.random() < 0.3 && lastMouse.current.x > 0) {
+        p.tx = Math.max(20, Math.min(vw() - W - 20, lastMouse.current.x - W / 2))
+        p.ty = Math.max(20, Math.min(vh() - H - safeBottom(), lastMouse.current.y - H / 2))
+        p.nextThink = performance.now() + 4000
+        return
+      }
       p.tx = 30 + Math.random() * Math.max(60, vw() - W - 60)
       p.ty = 60 + Math.random() * Math.max(60, vh() - H - safeBottom() - 60)
       p.nextThink = performance.now() + 3000 + Math.random() * 4000
@@ -350,7 +377,10 @@ export default function XiaoyuWidget() {
   const label = persona?.name ? `${persona.name}${persona.age ? ` · ${persona.age}岁` : ''}` : '小语'
   const frames = (SKINS[skin] || SKINS.chibi).frames
 
-  const speak = () => {
+  const speak = (e?: React.MouseEvent) => {
+    const r = boxRef.current?.getBoundingClientRect()
+    const onHead = !!(r && e && e.clientY - r.top < r.height * 0.38)
+    if (onHead) { setPatting(true); setTimeout(() => setPatting(false), 900); setLine('嗯？在的。'); setOpen(true); return }
     setWaving(true)
     setTimeout(() => setWaving(false), 1400)
     setLine(LINES[Math.floor(Math.random() * LINES.length)])
@@ -369,12 +399,21 @@ export default function XiaoyuWidget() {
     setTimeout(() => setSparks((s) => s.filter((x) => !add.some((a) => a.id === x.id))), 900)
   }
 
+  // 拍头：上半身热区（比在 onClick 里算坐标稳，真机核对时坐标版没触发）
+  const patHead = (e: React.MouseEvent) => {
+    e.stopPropagation()
+    setPatting(true)
+    setTimeout(() => setPatting(false), 900)
+    setLine('嗯？在的。')
+    setOpen(true)
+  }
+
   const switchSkin = () => {
-    const order = ['chibi', 'doll', 'puppet']
+    const order = ['chibi', 'doll', 'puppet', 'doll-puppet']
     const next = order[(order.indexOf(skin) + 1) % order.length]
     setSkin(next)
     try { localStorage.setItem('xiaoyu_skin', next) } catch {}
-    setLine(next === 'doll' ? '换好衣服了。盲盒公仔。' : next === 'puppet' ? '这套是"可动版"：不切帧，是代码给她做关节。' : '换回来了。Q版。')
+    setLine(next === 'doll' ? '换好衣服了。盲盒公仔。' : next === 'puppet' ? '这套是"可动版"：不切帧，是代码给她做关节。' : next === 'doll-puppet' ? '公仔也会动了。' : '换回来了。Q版。')
     setOpen(true)
   }
 
@@ -451,7 +490,7 @@ export default function XiaoyuWidget() {
         type="button"
         aria-label={`${label}（单击说话 · 双击换装 · 可拖动）`}
         title={`${label}｜单击说话 · 双击换装 · 拖我换位置`}
-        onClick={speak}
+        onClick={(e) => speak(e)}
         onDoubleClick={switchSkin}
         onPointerDown={onPointerDown}
         onPointerMove={onPointerMove}
@@ -468,13 +507,17 @@ export default function XiaoyuWidget() {
           transform: `${mode === 'roam' && pos ? `scaleX(${pos.face})` : ''} ${hover ? 'translateY(-2px)' : ''}`.trim() || undefined,
         }}
       >
-        {skin === 'puppet' ? (
+        {skin === 'puppet' || skin === 'doll-puppet' ? (
           <PuppetCanvas src={walking && (SKINS[skin] || SKINS.chibi).walk[walkIdx] ? (SKINS[skin] || SKINS.chibi).walk[walkIdx] : frames[frame]}
-            walking={walking} hover={hover} waving={waving} face={mode === 'roam' && pos ? pos.face : 1} label={label} />
+            walking={walking} hover={hover} waving={waving} lookX={lookX} patting={patting}
+            rig={RIG_OF[skin] || RIG_OF.puppet} face={mode === 'roam' && pos ? pos.face : 1} label={label} />
         ) : (
           <img src={walking && (SKINS[skin] || SKINS.chibi).walk[walkIdx] ? (SKINS[skin] || SKINS.chibi).walk[walkIdx] : frames[frame]} alt={label} draggable={false} className="h-20 w-auto sm:h-24" />
         )}
       </button>
+      {/* 拍头热区：盖住她上半身；点这里=拍头反应，点其它地方=挥手说话 */}
+      <div className="xiaoyu-pet-zone absolute left-1/4 right-1/4 top-0 h-[38%] cursor-pointer"
+        onClick={patHead} title="摸摸头" />
     </div>
   )
 }
