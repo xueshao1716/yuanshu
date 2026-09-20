@@ -133,6 +133,8 @@ export default function ChatArea({ compactHeader, rightPanel, onRightPanel }: {
   const asmRef = useRef<StreamAssembler | null>(null)
   const lastEventAtRef = useRef(0)
   const assistantMsgIdRef = useRef<string | null>(null) // 本轮 assistant 消息的固定 id，流式期间快照与最终写入用同一 id（避免重复）
+  // 同一轮只收尾一次（finalize 有 6 个调用点，重复触发会造成"消息出现两次"）
+  const finalizedStreamRef = useRef<any>(null)
   const wasBackgroundRef = useRef(false) // 本轮流式期间是否曾去过后台（哪怕又切回来了），放宽通知触发条件用
 
   // ── 消息缓存：正常阅读不反复重载；跨端切回、断线重连时允许 SWR 取最新正文。
@@ -309,7 +311,14 @@ export default function ChatArea({ compactHeader, rightPanel, onRightPanel }: {
   // 追加一条消息：同时写入 SWR 乘机缓存 + IndexedDB 本地持久化。
   // 写本地 IndexedDB 与服务端 JSONL 完全独立，不会产生重复写入问题，因此用户消息也可以安全地立即存本地。
   const appendMessage = (msg: ChatMessage) => {
-    updateMessages(prev => [...prev, msg])
+    // 去重（2026-09-20）：同 id 覆盖；同角色 + 同长文本（>120 字）视为同一份，跳过。
+    // 这一层是兜底——即使 finalize 被重复触发，也不会在屏幕上出现两份。
+    updateMessages(prev => {
+      const i = prev.findIndex(m => m.id === msg.id)
+      if (i >= 0) { const next = [...prev]; next[i] = msg; return next }
+      if (msg.text && msg.text.length > 120 && prev.some(m => m.role === msg.role && m.text === msg.text)) return prev
+      return [...prev, msg]
+    })
     saveToLocal(msg)
   }
 
@@ -447,6 +456,10 @@ export default function ChatArea({ compactHeader, rightPanel, onRightPanel }: {
     const active = activeRunRef.current
     const s = streamRef.current
     const finalId = assistantMsgIdRef.current
+    // 2026-09-20：同一轮只收尾一次。finalize 有 6 个调用点（SSE done/error/abort/运行终态…），
+    // 重复触发时第一次已把 assistantMsgIdRef 清空，第二次会生成新 id → 追加出**第二条同内容消息**（屏幕上就是"消息出现两次"）。
+    if (finalizedStreamRef.current === s) return
+    finalizedStreamRef.current = s
     streamCloseRef.current?.()
     streamCloseRef.current = null
     assistantMsgIdRef.current = null
