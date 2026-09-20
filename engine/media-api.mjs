@@ -4,7 +4,7 @@ import { json } from "./http-utils.mjs";
 import { httpJsonFetch, httpBufferFetch } from "./http.mjs";
 import { modelCapabilities } from "./model-probe.mjs";
 import { saveArtifact, WS_ROOT } from "./workspace-api.mjs"; // saveArtifact 定义在 workspace-api（工作空间块拆分时随走）
-import { videoCreateBody, videoPollPath, repairVideoRequest } from "./video-request.mjs";
+import { videoCreateBody, videoPollPath, repairVideoRequest, decodeAgnesVideoId } from "./video-request.mjs";
 import { materializeMedia, materializeVideoBody } from "./media-inline.mjs";
 import { extractPlayableMedia } from "./media-embed.mjs";
 import { colorCardStyleLine, hasColorCardMark } from "./color-cards.mjs";
@@ -617,7 +617,12 @@ export async function startVideoJob(provider, modelId, prompt, body = {}) {
       }
     }
     const created = await createR.json();
-    const taskId = created.task_id || created.id || created.video_id || created.data?.task_id;
+    let taskId = created.task_id || created.id || created.video_id || created.data?.task_id;
+    // v2.0 通道：轮询键用解码后的 video_id（task_ id 会 404 死锁，2026-09-20 实测）；2.5 通道仍用 task_id
+    if (!/2\.5/.test(String(modelId || ""))) {
+      const decoded = decodeAgnesVideoId(created.video_id);
+      if (decoded) taskId = decoded;
+    }
     const url = created.url || created.video_url || created.output?.url || created.data?.url;
     if (url) return { video: url, task_id: taskId, notes };
     if (!taskId) return { error: "视频接口未返回任务 ID", notes };

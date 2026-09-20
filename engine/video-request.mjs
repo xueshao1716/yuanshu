@@ -35,8 +35,24 @@ export function videoCreateBody(modelId, prompt, extra = {}) {
 
 export function videoPollPath(taskId, modelId) {
   const q = new URLSearchParams({ video_id: String(taskId || "") });
-  if (videoNeedsMode(modelId) && modelId) q.set("model_name", String(modelId));
+  // 2026-09-20 实测：v2.0 轮询带 model_name 也通过（2.5 必需），有 modelId 就带，无害
+  if (modelId) q.set("model_name", String(modelId));
   return `/agnesapi?${q}`;
+}
+
+// agnes 创建响应的 video_id 是 litellm 包装的 base64：
+// video_bGl0ZWxsbTp... 解码后内含 "video_id:video_c07d544..."，那才是 v2.0 通道的轮询键。
+// （2026-09-20 实测：v2.0 用 task_id 轮询 404 会被当 pending 永久死锁；2.5 通道仍用 task_id。）
+export function decodeAgnesVideoId(rawVideoId) {
+  try {
+    const s = String(rawVideoId || "");
+    if (!s.startsWith("video_")) return "";
+    let b64 = s.slice(6);
+    b64 += "=".repeat((4 - (b64.length % 4)) % 4);
+    const decoded = Buffer.from(b64, "base64").toString("utf8");
+    const m = decoded.match(/video_id:([^;\s]+)/);
+    return m ? m[1] : "";
+  } catch { return ""; }
 }
 
 // 创建 400 时由宿主补缺字段再试一次，不要把坑丢回给模型猜。

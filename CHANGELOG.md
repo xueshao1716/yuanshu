@@ -8,6 +8,55 @@
 
 ## [Unreleased]
 
+## [2.109.2] - 2026-09-20
+
+### 修 agnes v2.0 视频轮询死锁：轮询键要用解码后的 video_id
+
+创建响应里的 `video_id` 是 litellm 包装过的 base64（`video_bGl0ZWxsbTp…`），解码后内含
+`video_id:video_c07d544…`——**那才是 v2.0 通道的轮询键**。拿 `task_id` 去轮询会 404，
+而轮询逻辑把 404 当"还没好"，于是任务永久挂在 pending 上**死锁**。
+
+- `decodeAgnesVideoId()`：base64 解码 + 取 `video_id:` 后的真值（`engine/video-request.mjs`）；
+- 只在**非 2.5 通道**替换轮询键（按模型名 `/2\.5/` 判定），2.5 通道继续用 `task_id`；
+- `videoPollPath` 改为"有 modelId 就带 `model_name`"——原来只在 `videoNeedsMode` 时带，
+  实测 v2.0 带了也通过、2.5 必需，统一带上少一条分支。
+
+（2026-09-20 真机实测：v2.0 用 task_id 轮询 404 会被当 pending 永久死锁。）
+
+### 技能目录契约回归：4 个技能描述违规 + 1 处死链
+
+`skills-contract` / `skill-catalog-injection` 两条契约测试红了。逐条查出真实原因（原测试断言
+首个失败即中止，会藏住后面的，所以先写了个"一次报全部"的审计脚本再动手）：
+
+| 技能 | 问题 | 修法 |
+|---|---|---|
+| `timed-multishot-script` | description **212 字**（限 120），触发语落在第 110 字 | 触发语提到开头，压到 116 字 |
+| `short-drama-prompt-mining` | 134 字超限；且引用的 `pavo提示词库_打标签.json` 是**死链** | 压到 87 字；改成真实绝对路径（494KB 那份） |
+| `poster-typeset` | 写的是"时使用"，不匹配「使用时/当用户/当需要」→ 目录里等于没有触发语 | 改成「当用户…时使用」 |
+| `retro-review-method` | 通篇无触发语（31 字） | 补「当用户要复盘…时使用」 |
+
+审计复查：26 个技能、81 处文件引用 → 超长 **0**、缺触发语 **0**、死链 **0**。
+
+### 修 `module-scope-order` 判据的误报（判据自身的 bug）
+
+这条测试的注释写着"函数体不算（它们晚于求值才执行）"，但实现是在**整段字面量文本**上抓标识符，
+于是把 `["GET", "/api/pending", (res) => pendingApi.list(res)]` 里的 `pendingApi` 误报成
+"先用后声明"（它在 3081 行声明，而 `API_ROUTES` 在 2148 行）——那种写法求值期只创建一个闭包、
+根本不读 `pendingApi`，服务实测也正常。
+
+- 按注释的本意加了 `valueIdents()`：箭头/函数体整体跳过，字符串与注释里的名字不算引用；
+- 同时**给判据本身加一道门**（新增一条测试）：证明它抓得住真事故那种裸标识符
+  （`const A = [FIX_PROBLEM_TOOL, () => later]`），又不会被闭包/字符串带偏——
+  免得"修误报"修成"没保护"。
+
+测试：1521 → **1522**，全绿（新增的 1 条就是上面那道门）。
+
+### `models.example.json` 的 Agnes 清单与线上对齐
+
+随仓库分发的示例文件里还写着已退役的 `agnes-2.0-flash`（9-20 下线）与 `agnes-2.5-pro`，
+会误导后来者（它随仓库走，不是死文件）。已改为线上真实的 4 款：`agnes-2.5-flash` /
+`agnes-3.0-flash` / `agnes-image-2.5-flash` / `agnes-video-2.5-flash`（JSON 已验合法）。
+
 ## [2.109.1] - 2026-09-20
 
 ### 修「会话消息出现两次」：finalize 幂等 + 追加去重

@@ -10,6 +10,11 @@
 //
 // 判据刻意收窄，避免误报：只看**顶层多行数组/对象字面量**（`const X = [` 开头、行首 `]`/`}` 收尾）。
 // 这类初始化是模块求值时立刻执行的，里面的标识符必须已经声明；函数体不算（它们晚于求值才执行）。
+//
+// 2026-09-20 修一次误报：上面的"函数体不算"原来只是注释，代码却在整段字面量文本上抓标识符，
+// 于是 `["GET", "/api/pending", (res) => pendingApi.list(res)]` 里的 `pendingApi`（3081 行声明）
+// 被误报成"先用后声明"。那种写法求值期只创建一个闭包、根本不读 pendingApi，服务实测也正常。
+// 现在按注释的本意解析：箭头/函数体、字符串、注释里的名字都不算引用；裸标识符照旧要抓。
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
@@ -35,6 +40,85 @@ function literalSpans(lines) {
   return spans;
 }
 
+/** 跳过从 i 开始的字符串/模板串，返回结束后的下标。 */
+function skipString(text, i) {
+  const q = text[i];
+  i++;
+  while (i < text.length) {
+    if (text[i] === '\\') { i += 2; continue; }
+    if (text[i] === q) return i + 1;
+    i++;
+  }
+  return text.length;
+}
+
+/** 跳过从 open（'{'）开始的花括号块，返回结束后的下标。 */
+function skipBlock(text, open) {
+  let depth = 0;
+  for (let i = open; i < text.length; i++) {
+    const c = text[i];
+    if (c === '"' || c === "'" || c === '`') { i = skipString(text, i) - 1; continue; }
+    if (c === '/' && text[i + 1] === '/') { while (i < text.length && text[i] !== '\n') i++; continue; }
+    if (c === '{') depth++;
+    else if (c === '}') { depth--; if (depth === 0) return i + 1; }
+  }
+  return text.length;
+}
+
+/**
+ * 取字面量里**求值期真的会被读到**的标识符。
+ * 函数体（`=> …` 与 `function …`）晚于求值才执行，字符串与注释里的名字也不是引用。
+ */
+function valueIdents(text) {
+  const out = [];
+  let i = 0;
+  while (i < text.length) {
+    const c = text[i];
+    if (c === '"' || c === "'" || c === '`') { i = skipString(text, i); continue; }
+    if (c === '/' && text[i + 1] === '/') { while (i < text.length && text[i] !== '\n') i++; continue; }
+    if (c === '=' && text[i + 1] === '>') { // 箭头函数：整个函数体不是求值期代码
+      i += 2;
+      while (i < text.length && /\s/.test(text[i])) i++;
+      if (text[i] === '{') i = skipBlock(text, i);
+      else while (i < text.length && text[i] !== '\n') i++;
+      continue;
+    }
+    if (text.startsWith('function', i) && !/[\w$]/.test(text[i - 1] || '')) {
+      const b = text.indexOf('{', i);
+      i = b === -1 ? text.length : skipBlock(text, b);
+      continue;
+    }
+    if (/[A-Za-z_$]/.test(c)) {
+      let j = i;
+      while (j < text.length && /[\w$]/.test(text[j])) j++;
+      out.push(text.slice(i, j));
+      i = j;
+      continue;
+    }
+    i++;
+  }
+  return out;
+}
+
+// 判据自身的门：先证明它抓得住真事故、又不会被闭包/字符串带偏——否则"修误报"可能修成"没保护"。
+test('判据本身：裸标识符要抓，函数体/字符串里的名字不抓', () => {
+  const literal = [
+    'const A = [',
+    '  FIX_PROBLEM_TOOL,',
+    '  (res) => pendingApi.list(res),',
+    '  () => laterApi.go(),',
+    '  { h: () => nestedLater },',
+    '  "laterInString",',
+    "  'laterInSingle',",
+    ']',
+  ].join('\n');
+  const ids = valueIdents(literal);
+  assert.ok(ids.includes('FIX_PROBLEM_TOOL'), '裸标识符必须被抓住（否则真事故会漏）');
+  for (const name of ['pendingApi', 'laterApi', 'nestedLater', 'laterInString', 'laterInSingle']) {
+    assert.ok(!ids.includes(name), `${name} 在函数体/字符串里，不该被判为求值期引用`);
+  }
+});
+
 test('engine/server 顶层字面量不得引用更靠后声明的常量（模块求值期就会炸）', () => {
   const bad = [];
   for (const rel of FILES) {
@@ -47,7 +131,7 @@ test('engine/server 顶层字面量不得引用更靠后声明的常量（模块
       if (m && !declLine.has(m[1])) declLine.set(m[1], i);
     });
     for (const span of literalSpans(lines)) {
-      for (const id of new Set(span.text.match(/[A-Za-z_$][\w$]*/g) || [])) {
+      for (const id of new Set(valueIdents(span.text))) {
         const at = declLine.get(id);
         if (at !== undefined && at > span.start) {
           bad.push(`${rel}: ${span.name}（第 ${span.start + 1} 行）引用了第 ${at + 1} 行才声明的 ${id}`);

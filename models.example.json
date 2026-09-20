@@ -194,19 +194,6 @@
   "Agnes": {
     "models": [
       {
-        "id": "agnes-2.0-flash",
-        "name": "agnes-2.0-flash",
-        "api": "openai-completions",
-        "provider": "",
-        "baseUrl": "https://apihub.agnes-ai.com",
-        "reasoning": true,
-        "input": [
-          "text"
-        ],
-        "contextWindow": 128000,
-        "maxTokens": 32768
-      },
-      {
         "id": "agnes-2.5-flash",
         "name": "agnes-2.5-flash",
         "api": "openai-completions",
@@ -220,8 +207,8 @@
         "maxTokens": 32768
       },
       {
-        "id": "agnes-2.5-pro",
-        "name": "agnes-2.5-pro",
+        "id": "agnes-3.0-flash",
+        "name": "agnes-3.0-flash",
         "api": "openai-completions",
         "provider": "",
         "baseUrl": "https://apihub.agnes-ai.com",
@@ -231,6 +218,32 @@
         ],
         "contextWindow": 128000,
         "maxTokens": 32768
+      },
+      {
+        "id": "agnes-image-2.5-flash",
+        "name": "agnes-image-2.5-flash",
+        "api": "openai-completions",
+        "provider": "",
+        "baseUrl": "https://apihub.agnes-ai.com",
+        "reasoning": false,
+        "input": [
+          "text"
+        ],
+        "contextWindow": 8000,
+        "maxTokens": 8000
+      },
+      {
+        "id": "agnes-video-2.5-flash",
+        "name": "agnes-video-2.5-flash",
+        "api": "openai-completions",
+        "provider": "",
+        "baseUrl": "https://apihub.agnes-ai.com",
+        "reasoning": false,
+        "input": [
+          "text"
+        ],
+        "contextWindow": 8000,
+        "maxTokens": 8000
       }
     ]
   },
