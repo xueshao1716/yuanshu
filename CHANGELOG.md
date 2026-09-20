@@ -8,6 +8,21 @@
 
 ## [Unreleased]
 
+### P1 第一项完成：工作区共享上下文（OpenWriter 的 workspace context 思路）
+
+**约定**：`工程/<项目>/context.md`（人写：背景/角色/术语/禁忌/交付标准）+ 可选 `context.json`（结构化）。
+agent（含天团）每次开工先读它，同一批设定不再在每条提示词里重复声明。
+
+- `scripts/project-context.mjs`：`--list`（哪些项目有上下文）· `--show <项目>` · `--compose <项目> <任务>`；
+- `team-run-live.mjs`：任务里出现项目名、或显式 `--project <名>` 时，把上下文注入每个角色的提示词前（日志打「已注入项目上下文：X」）；
+- 演示项目：`工程/飞天舞者/context.md`（唐风敦煌基调 / 人物 / 9:16 / 禁忌），`--list` 与 `--compose` 均已实测。
+
+**同轮的性能小项（含一条如实说明）**：
+- 工作台与侧栏的 sessions SWR key 已统一为 `sessions`；**但侧栏走的是 `store` 的命令式 `refreshSessions()`（不是 SWR）**，
+  所以实测仍是 2 次请求 —— 要真正省掉得把 store 改成 SWR，规模较大，留待后面；
+- 活动流本来就**在标签页不可见时不空转**（代码里已有 `document.visibilityState` 判断），无需再改；
+- 首屏 /api 请求数维持 13（此前 19 → 15 → 13）。
+
 ## [2.107.2] - 2026-09-20
 
 ## [2.107.1] - 2026-09-20
