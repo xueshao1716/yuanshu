@@ -147,11 +147,11 @@ export default function Board({ initialView = 'overview' }: { initialView?: Boar
   const { selectSession } = useApp()
   const { data: sessData } = useSWR('board-sessions', () => SessionsApi.list(), { refreshInterval: 30_000 })
   const { data: taskData } = useSWR('board-tasks', () => TasksApi.list(), { refreshInterval: 15_000 })
-  const { data: statData } = useSWR('board-stats', () => StatsApi.providers(), { refreshInterval: 60_000 })
+  const { data: statData } = useSWR('board-stats', () => StatsApi.providers(), { refreshInterval: 120_000 })
   const { data: delivData } = useSWR('board-deliveries', () => WsApi.deliveries(), { refreshInterval: 60_000 })
   const { data: dailyData } = useSWR('board-daily', () => StatsApi.daily(), { refreshInterval: 120_000 })
   const { data: saData } = useSWR('board-subagent', () => SubagentApi.runs(), { refreshInterval: 20_000 })
-  const { data: runData, error: runError } = useSWR('board-run-overview', () => RunApi.overview(), { refreshInterval: 8_000 })
+  const { data: runData, error: runError } = useSWR('board-run-overview', () => RunApi.overview(), { refreshInterval: 20_000 })   // 8s→20s：这条接口本身要几秒，轮太密等于一直在飞
 
   const sessions = sessData?.sessions || []
   const tasks = taskData?.tasks || []

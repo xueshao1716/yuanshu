@@ -38,10 +38,20 @@ function lastSeqOf(manager, runId) {
 }
 
 export function createRunApi({ manager, json, readContext = null }) {
+  // explain 记忆（2026-09-20）：/api/run/overview 冷启 8.9s，大头是对每个可见 run 重算 explain
+  //（readContext 要读上下文）。同一 run 的同一末序号（lastSeq）结果不变，直接复用。
+  const explainCache = new Map()
   const explain = async (run, events) => {
+    const lastSeq = Array.isArray(events) && events.length ? (events[events.length - 1]?.seq || 0) : 0
+    const key = `${run && run.id}:${lastSeq}`
+    const hit = explainCache.get(key)
+    if (hit) return hit
     let context = {}
     try { context = await readContext?.(run) || {} } catch { context = { unavailable: true } }
-    return buildWorkExplanation(run, events, context)
+    const built = buildWorkExplanation(run, events, context)
+    if (explainCache.size > 200) explainCache.clear()
+    explainCache.set(key, built)
+    return built
   }
   return {
     async overview(res, _req, url) {

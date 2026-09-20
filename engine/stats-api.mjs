@@ -20,6 +20,43 @@ export function initStatsApi({ getAgentDir = null, cwd = "", DefaultResourceLoad
   if (subagentHistoryProvider) _subagentHistoryProvider = subagentHistoryProvider;
 }
 
+// ── 逐文件用量缓存（2026-09-20）────────────────────────────────────────────────
+// 背景：工作台加载要打 /api/stats/providers（真机 4.3s）与 /api/run/overview（10.5s），
+// 根因是这里把每个会话文件整读 + 逐行 JSON.parse，而页面每 8–60 秒还会再打一次。
+// 做法：按 mtime+size 判"没变就复用上次的解析结果"，并把结果统一成 entries 供两个接口共用。
+const __usageCache = new Map(); // file -> { mtimeMs, size, entries }
+function sessionUsageEntries(file) {
+  let st; try { st = fs.statSync(file); } catch { return null; }
+  const hit = __usageCache.get(file);
+  if (hit && hit.mtimeMs === st.mtimeMs && hit.size === st.size) return hit.entries;
+  const entries = [];
+  try {
+    const lines = fs.readFileSync(file, "utf8").split("\n");
+    for (const line of lines) {
+      if (!line) continue;
+      let e; try { e = JSON.parse(line); } catch { continue; }
+      if (!e || e.type !== "message" || e.message?.role !== "assistant" || !e.message?.usage) continue;
+      const u = e.message.usage;
+      let c = u.cost;
+      if (c && typeof c === "object") c = c.total || c.input || 0;
+      entries.push({
+        provider: e.message.provider || "unknown",
+        model: e.message.model || "unknown",
+        input: u.input || 0, output: u.output || 0,
+        cacheRead: u.cacheRead || 0, cacheWrite: u.cacheWrite || 0,
+        cost: typeof c === "number" ? c : 0,
+      });
+    }
+  } catch {}
+  __usageCache.set(file, { mtimeMs: st.mtimeMs, size: st.size, entries });
+  return entries;
+}
+function pruneUsageCache(files) {
+  if (__usageCache.size <= files.length * 2 + 64) return;
+  const keep = new Set(files);
+  for (const k of [...__usageCache.keys()]) if (!keep.has(k)) __usageCache.delete(k);
+}
+
 export async function handleGlobalStats(res) {
   const files = scanSessionFiles();
   const rows = [];
@@ -27,28 +64,19 @@ export async function handleGlobalStats(res) {
   for (const file of files) {
     const info = parseSessionFile(file);
     const t = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, cost: 0, messages: 0 };
-    try {
-      const lines = fs.readFileSync(file, "utf8").split("\n").filter(Boolean);
-      for (const line of lines) {
-        let e; try { e = JSON.parse(line); } catch { continue; }
-        if (!e || e.type !== "message" || e.message?.role !== "assistant" || !e.message?.usage) continue;
-        const u = e.message.usage;
-        t.input += u.input || 0;
-        t.output += u.output || 0;
-        t.cacheRead += u.cacheRead || 0;
-        t.cacheWrite += u.cacheWrite || 0;
-        const c = u.cost;
-        if (typeof c === "number") t.cost += c;
-        else if (c && typeof c === "object") t.cost += (c.total || c.input || 0);
-        t.messages++;
-      }
-    } catch {}
+    const entries = sessionUsageEntries(file) || [];
+    for (const e of entries) {
+      t.input += e.input; t.output += e.output;
+      t.cacheRead += e.cacheRead; t.cacheWrite += e.cacheWrite;
+      t.cost += e.cost; t.messages++;
+    }
     if (!t.messages) continue;
     totals.input += t.input; totals.output += t.output;
     totals.cacheRead += t.cacheRead; totals.cacheWrite += t.cacheWrite;
     totals.cost += t.cost; totals.messages += t.messages;
     rows.push({ id: info.id, name: info.name || "新会话", updatedAt: info.updatedAt, tokens: t });
   }
+  pruneUsageCache(files);
   rows.sort((a, b) => b.tokens.cost - a.tokens.cost);
   json(res, 200, { sessions: rows, totals, count: rows.length });
 }
@@ -58,27 +86,19 @@ export async function handleProviderStats(res) {
   const files = scanSessionFiles();
   const provMap = new Map(); // provider -> { input, output, cacheRead, cost, messages, models: Map(model -> {input,output,cost,messages}) }
   for (const file of files) {
-    try {
-      const lines = fs.readFileSync(file, "utf8").split("\n").filter(Boolean);
-      for (const line of lines) {
-        let e; try { e = JSON.parse(line); } catch { continue; }
-        if (!e || e.type !== "message" || e.message?.role !== "assistant" || !e.message?.usage) continue;
-        const prov = e.message.provider || "unknown";
-        const model = e.message.model || "unknown";
-        const u = e.message.usage;
-        let c = u.cost;
-        if (c && typeof c === "object") c = c.total || c.input || 0;
-        c = typeof c === "number" ? c : 0;
-        const p = provMap.get(prov) || { provider: prov, input: 0, output: 0, cacheRead: 0, cost: 0, messages: 0, models: new Map() };
-        p.input += u.input || 0; p.output += u.output || 0; p.cacheRead += u.cacheRead || 0;
-        p.cost += c; p.messages++;
-        const mm = p.models.get(model) || { model, input: 0, output: 0, cost: 0, messages: 0 };
-        mm.input += u.input || 0; mm.output += u.output || 0; mm.cost += c; mm.messages++;
-        p.models.set(model, mm);
-        provMap.set(prov, p);
-      }
-    } catch {}
+    const entries = sessionUsageEntries(file) || [];
+    for (const e of entries) {
+      const prov = e.provider, model = e.model, c = e.cost;
+      const p = provMap.get(prov) || { provider: prov, input: 0, output: 0, cacheRead: 0, cost: 0, messages: 0, models: new Map() };
+      p.input += e.input; p.output += e.output; p.cacheRead += e.cacheRead;
+      p.cost += c; p.messages++;
+      const mm = p.models.get(model) || { model, input: 0, output: 0, cost: 0, messages: 0 };
+      mm.input += e.input; mm.output += e.output; mm.cost += c; mm.messages++;
+      p.models.set(model, mm);
+      provMap.set(prov, p);
+    }
   }
+  pruneUsageCache(files);
   const providers = [...provMap.values()]
     .map(p => ({
       provider: p.provider, input: p.input, output: p.output, cacheRead: p.cacheRead,

@@ -8,6 +8,35 @@
 
 ## [Unreleased]
 
+## [2.105.2] - 2026-09-20
+
+### 修「网页变慢」：首屏那三条聚合接口不再把页面拖住
+
+**实测（改前）**：
+```
+/api/run/overview    9472ms   ← 工作台加载就打它，而且前端每 8 秒轮一次 → 页面永远在等
+/api/stats/providers 5342ms   ← 同理，60 秒一轮
+/api/sessions         4685ms   ← 冷启（之后 80–170ms）
+```
+**根因**：这三条都要**扫全部会话文件**（`readFileSync` + 逐行 `JSON.parse`）或读所有运行日志；轮询间隔又短，于是"页面永远在等一个几秒的请求"。
+
+**改法（四处）**：
+1. `engine/stats-api.mjs`：**逐文件 mtime+size 缓存** —— 文件没变就复用上次解析结果（providers 冷启 4962→1650ms，热 14ms）；
+2. `server.mjs`：聚合接口加**响应级 TTL 缓存**（`withCache`，带 `X-Cache: HIT/MISS` 便于核对）—— run/overview 60s、stats/providers 60s；
+3. `engine/run-api.mjs`：`explain` 按 `run+lastSeq` 记忆（overview 冷启里对每个可见 run 的重算）；
+4. `server.mjs`：**启动预热**三条接口（run/overview · stats/providers · sessions，延迟 4 秒自打一遍）→ 冷启开销从"第一屏"挪到"启动后"；
+5. 前端轮询放宽：工作台 `RunApi.overview()` **8s→20s**、`StatsApi.providers()` **60s→120s**。
+
+**改后实测（预热完成后，模拟首屏加载顺序）**：
+```
+/api/sessions        135ms      /api/run/overview     23ms (HIT)
+/api/stats/providers  12ms(HIT) /api/ws/deliveries   28ms
+/api/subagent/runs   455ms      /api/aibody           89ms
+/api/persona          14ms      /  (index.html)       14ms   /assets/index-*.js 319ms
+```
+**如实说明**：服务**刚起来的前几秒**这三条仍要 1.6–9 秒（预热正在跑），之后才是毫秒级；
+`/api/run/overview` 的冷启大头是"读所有运行日志"，还没做增量，属于下一步（现在只做了缓存与记忆）。
+
 ## [2.105.1] - 2026-09-20
 
 ### 天团定案：Q1–Q5 按推荐选项批准 + 装配规则落成可单测的函数

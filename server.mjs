@@ -2233,7 +2233,7 @@ const API_ROUTES = [
   ["POST", "/api/sessions/db/sweep", async (res, req) => handleDbSweep(res, await readBody(req))],
   // ── 会话 ──
   ["GET", "/api/emotion", (res, req, url) => handleEmotion(res, url)],
-  ["GET", "/api/run/overview", (res, req, url) => runApi.overview(res, req, url)],
+  ["GET", "/api/run/overview", withCache(60000, "run-overview", (res, req, url) => runApi.overview(res, req, url))],
   ["GET", "/api/emotion/tide", (res) => json(res, 200, { tide: emotion.getTide(300) })],
   ["GET", "/api/emotion/feelings", (res) => json(res, 200, { feelings: emotion.getFeelings(50) })],
   ["GET", "/api/agent-status", (res) => handleAgentStatus(res)],
@@ -2519,7 +2519,7 @@ const API_ROUTES = [
   ["GET", "/api/improvements", (res) => json(res, 200, { improvements: openImprovements(), diagnostics: getImprovementDiagnostics() })],
   ["POST", "/api/improvements/analyze", (res) => json(res, 200, { improvements: analyzeImprovements(), diagnostics: getImprovementDiagnostics() })],
   ["POST", /^\/api\/improvements\/([^/]+)\/status$/, async (res, req, url, m) => json(res, 200, setImprovementStatus(decodeURIComponent(m[1]), (await readBody(req)).status || "dismissed"))],
-  ["GET", "/api/stats/providers", (res) => handleProviderStats(res)],
+  ["GET", "/api/stats/providers", withCache(60000, "stats-providers", (res) => handleProviderStats(res))],
   ["GET", "/api/stats/daily", (res) => handleDailyStats(res)],
   ["GET", "/api/subagent/runs", (res) => handleSubagentRuns(res)],
   ["GET", "/api/subagent/history", (res) => handleSubagentHistory(res)],
@@ -3025,6 +3025,32 @@ const API_ROUTES = [
 
 const corsPolicy = createCorsPolicy(CONFIG.corsOrigins);
 
+// 聚合接口的响应级 TTL 缓存（2026-09-20）：/api/stats/providers 要扫全部会话文件（实测 5.3s）、
+// /api/run/overview 9.5s，而前端每 8 秒轮一次 → 页面永远在等。这里把"同样的聚合结果"缓存 TTL 秒，
+// 只对**明确列出的只读 GET** 生效（不碰流式/写接口），并且带上 X-Cache: HIT/MISS 便于核对。
+const __respCache = new Map();
+function withCache(ttlMs, key, handler) {
+  return async (res, req, url, m) => {
+    const hit = __respCache.get(key);
+    if (hit && Date.now() - hit.at < ttlMs) {
+      try { res.writeHead(200, { "Content-Type": "application/json; charset=utf-8", "X-Cache": "HIT", "X-Cache-Age": String(Math.round((Date.now() - hit.at) / 1000)) }); } catch {}
+      return res.end(hit.body);
+    }
+    const parts = [];
+    const shim = {
+      writeHead: (...a) => res.writeHead(...a),
+      setHeader: (...a) => { try { res.setHeader(...a); } catch {} },
+      getHeader: (...a) => { try { return res.getHeader(...a); } catch { return undefined; } },
+      write: (b) => { parts.push(b); return true; },
+      end: (b) => { if (b) parts.push(b); const body = parts.join(""); __respCache.set(key, { at: Date.now(), body }); try { res.setHeader("X-Cache", "MISS"); } catch {} res.end(body); },
+      get statusCode() { return res.statusCode; },
+      set statusCode(v) { res.statusCode = v; },
+      get headersSent() { return res.headersSent; },
+    };
+    return handler(shim, req, url, m);
+  };
+}
+
 const server = http.createServer(async (req, res) => {
   // 请求级 request-id：排查并发问题时能关联同一次请求的日志（小米 4.13）
   const reqId = Date.now().toString(36) + "-" + Math.random().toString(36).slice(2, 8);
@@ -3436,6 +3462,19 @@ try {
   }, 30000).unref?.();
   console.log("  [loop-lag] 事件循环停顿监测已挂上（>500ms 记一条：记忆/运行时/事件循环停顿.jsonl）");
 } catch (e) { console.log("[loop-lag] 挂载失败:", String(e?.message || e).slice(0, 100)); }
+
+// 预热重接口（2026-09-20）：/api/run/overview 与 /api/stats/providers 第一次算要 5–9 秒
+//（要扫全部会话文件/运行日志），原来这笔开销由"第一屏"承担。启动后延迟几秒在本机自己打一遍，
+// 把响应缓存填上；预热失败只记一行日志，绝不影响启动。
+setTimeout(() => {
+  const paths = ["/api/run/overview", "/api/stats/providers", "/api/sessions"];
+  for (const p of paths) {
+    const req = http.request({ host: "127.0.0.1", port: CONFIG.port, path: p, method: "GET", headers: { Authorization: `Bearer ${CONFIG.token}` } }, (r) => { r.resume(); });
+    req.on("error", () => {});
+    req.end();
+  }
+  console.log("[预热重接口] 已触发 /api/run/overview · /api/stats/providers · /api/sessions");
+}, 4000).unref?.();
 
 startServer();
 
