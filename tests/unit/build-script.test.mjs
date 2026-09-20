@@ -20,6 +20,9 @@ test('NSIS build launcher parses and starts its hidden child script', { skip: pr
   assert.match(launcherText, /-File.*\$child/)
   assert.ok(childText.includes('--bundles nsis --ci'))
   assert.ok(childText.includes('$build.WaitForExit()'), 'Wait for the compiler process directly; PS5 job waiting can hang after NSIS exits')
+  // 代理变量重名（NO_PROXY/no_proxy）会让 PS5.1 的 Start-Process 抛错，构建一两秒就退出。
+  // 桌面这条链必须点源共享的去重脚本——缺了它，构建会在真正开始前就死掉（2026-09-20 撞过）。
+  assert.match(childText, /ps-env-dedupe\.ps1/, 'nsis-build-child.ps1 必须先点源 ps-env-dedupe.ps1');
 })
 
 test('NSIS build treats compiler stderr as output and only delivers the current version', { skip: process.platform !== 'win32' }, () => {
@@ -32,6 +35,8 @@ test('NSIS build treats compiler stderr as output and only delivers the current 
     fs.mkdirSync(path.join(app, 'src-tauri'), { recursive: true })
     fs.mkdirSync(bundles, { recursive: true })
     fs.copyFileSync(new URL('../../app/nsis-build-child.ps1', import.meta.url), path.join(app, 'nsis-build-child.ps1'))
+    // 子脚本会点源同目录的去重脚本：孤零零放一个 child 是跑不起来的，夹具要带上它
+    fs.copyFileSync(new URL('../../app/ps-env-dedupe.ps1', import.meta.url), path.join(app, 'ps-env-dedupe.ps1'))
     fs.writeFileSync(path.join(app, 'src-tauri/tauri.conf.json'), JSON.stringify({ version: '0.2.4', productName: '元枢' }))
     fs.writeFileSync(path.join(app, 'node_modules/.bin/tauri.cmd'), '@echo off\r\necho compiler warning 1>&2\r\nexit /b 0\r\n')
     fs.writeFileSync(path.join(bundles, '元枢_0.2.4_x64-setup.exe'), 'MZcurrent')
@@ -39,7 +44,10 @@ test('NSIS build treats compiler stderr as output and only delivers the current 
     const stale = new Date(Date.now() + 60000)
     fs.utimesSync(path.join(bundles, '元枢_0.2.2_x64-setup.exe'), stale, stale)
     try {
-      execFileSync('powershell.exe', ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', path.join(app, 'nsis-build-child.ps1')], { env: { ...process.env, PI_WORKSPACE: workspace }, stdio: 'pipe' })
+      // 故意同时塞大小写两份代理变量：这正是 2026-09-20 真机上把构建卡死的那种环境
+      // （PS5.1 的 Start-Process 复制环境块时抛"已添加项"）。有了 ps-env-dedupe.ps1 才跑得下去。
+      const env = { ...process.env, PI_WORKSPACE: workspace, NO_PROXY: '127.0.0.1', no_proxy: '127.0.0.1' }
+      execFileSync('powershell.exe', ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', path.join(app, 'nsis-build-child.ps1')], { env, stdio: 'pipe' })
     } catch (error) {
       const logs = ['tauri-build.log', 'tauri-build-stderr.log'].map(name => {
         const file = path.join(app, name)

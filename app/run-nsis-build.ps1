@@ -1,4 +1,7 @@
 $ErrorActionPreference = 'Stop'
+
+# Proxy env vars may exist twice (NO_PROXY/no_proxy); PS5.1 Start-Process throws on that. Dedupe first.
+. (Join-Path $PSScriptRoot 'ps-env-dedupe.ps1')
 $dir = $PSScriptRoot
 $workspaceRoot = if ($env:PI_WORKSPACE) { $env:PI_WORKSPACE } else { 'D:\pi-workspace' }
 $cacheRoot = Join-Path $workspaceRoot '.build-cache'

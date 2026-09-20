@@ -31,6 +31,29 @@ PowerShell 5.1 于是按 ANSI(GBK) 解码中文注释，解析报错在**第 9 �
 仓库 2026-09-14 就有 `tests/unit/powershell-encoding.test.mjs` 守着这条，跑一下就能当场抓到。
 教训：改完 .ps1 先跑这条测试；`pwsh 7` 默认 UTF-8，测不出这个问题，要用 `powershell`（5.1）验。
 
+### 桌面安装包构建被代理变量重名卡死：抽成共享的 env 去重
+
+`run-nsis-build.ps1` / `nsis-build-child.ps1` 一点就跑完、退出码 1，日志里只有一句：
+
+```
+Start-Process : 已添加项。字典中的关键字:"NO_PROXY"所添加的关键字:"no_proxy"
+```
+
+Windows 里 `NO_PROXY` 与 `no_proxy` 是同一个键，但进程环境块里可能两份都在；
+PowerShell 5.1 的 `Start-Process` 复制环境块时直接抛异常，表现是"脚本一两秒就退出、什么都没发生"。
+这个坑 2026-09-18 在安卓构建上撞过，`run-android-build.ps1` 里留了一份内联处理，
+而桌面这条链没有，于是同一天又撞第二次。
+
+- 新增 `app/ps-env-dedupe.ps1`（含中文说明，UTF-8 with BOM），两个桌面脚本开头点源它；
+- 两个桌面脚本保持**纯 ASCII、无 BOM** 的原设计（`nsis-build-child.ps1` 头部本来就写着这条约束），
+  所以插进去的注释用英文，中文说明集中在共享文件里；
+- 中途被 `tests/unit/powershell-encoding.test.mjs` 抓了一次：我第一版往这两个 ASCII 脚本里塞了中文注释。
+
+结果：`元枢_2.109.3_x64-setup.exe`（8.66MB，FileVersion / ProductVersion 均为 2.109.3，产品名 元枢），
+bundle 与交付副本 SHA256 一致，`release\yuanshu.exe` 内嵌 `index-B9t6GsBD`（即 2.109.3 的 bundle）。
+
+桌面包此前停在 **2.101.0**（09-19），落后 8 个版本；本次一并补齐。
+
 ### 身份回答完整化：她不只是"能干"，还是"是谁"
 
 问"你是谁"，答的是一份能力清单（"我能干：写代码、做设计…"），性别、关系、内心一个都没有。
