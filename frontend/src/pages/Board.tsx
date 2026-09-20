@@ -151,7 +151,7 @@ export default function Board({ initialView = 'overview' }: { initialView?: Boar
   // 下面每条仍保留自己的轮询（数据各自刷新），但用 fallbackData 先把首屏喂饱、且挂载时不重复请求。
   const { data: bootData } = useSWR('board-bootstrap', () => fetch('/api/board/bootstrap', { headers: { Authorization: 'Bearer ' + (localStorage.getItem('yuanshu_access_token') || '') } }).then((r) => r.json()), { refreshInterval: 60_000 })
   const bootFb = (pick: (b: any) => any) => { try { const v = bootData ? pick(bootData) : undefined; return v && (Array.isArray(v) ? v.length >= 0 : true) ? v : undefined } catch { return undefined } }
-  const { data: sessData } = useSWR('board-sessions', () => SessionsApi.list(), { refreshInterval: 30_000, fallbackData: bootFb((d: any) => (d.sessions ? { sessions: d.sessions } : undefined)), revalidateOnMount: false })
+  const { data: sessData } = useSWR('sessions', () => SessionsApi.list(), { refreshInterval: 30_000, fallbackData: bootFb((d: any) => (d.sessions ? { sessions: d.sessions } : undefined)), revalidateOnMount: false })
   const { data: taskData } = useSWR('board-tasks', () => TasksApi.list(), { refreshInterval: 15_000 })
   const { data: statData } = useSWR('board-stats', () => StatsApi.providers(), { refreshInterval: 120_000, fallbackData: bootFb((d: any) => d.providers), revalidateOnMount: false })
   const { data: delivData } = useSWR('board-deliveries', () => WsApi.deliveries(), { refreshInterval: 60_000, fallbackData: bootFb((d: any) => d.deliveries), revalidateOnMount: false })
