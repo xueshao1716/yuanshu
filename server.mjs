@@ -3051,7 +3051,26 @@ function withCache(ttlMs, key, handler) {
   };
 }
 
+// 静态缓存语义（2026-09-20 重做版）：只设头、不 return、不动分支；
+// 目的：让 Cloudflare 与浏览器敢长期缓存带哈希的资源（外网实测以前每次 REVALIDATED 都要穿隧道 ~1s）。
+function __applyStaticCache(req, res) {
+  try {
+    const pathOnly = String(req.url || "").split("?")[0];
+    const immutable = /^\/(assets|icons)\//.test(pathOnly) || /\.(?:woff2?|ttf|otf|png|jpe?g|webp|svg|mp4|webm|ico)$/i.test(pathOnly);
+    const cc = immutable ? "public, max-age=31536000, immutable" : "no-cache";
+    const origWriteHead = res.writeHead.bind(res);
+    res.setHeader("Cache-Control", cc);
+    res.writeHead = (code, headers, ...rest) => {
+      let h = headers;
+      if (h && typeof h === "object") h = { ...h, "Cache-Control": cc };
+      else { try { res.setHeader("Cache-Control", cc); } catch {} }
+      return origWriteHead(code, h, ...rest);
+    };
+  } catch {}
+}
 const server = http.createServer(async (req, res) => {
+  __applyStaticCache(req, res);
+
   // 请求级 request-id：排查并发问题时能关联同一次请求的日志（小米 4.13）
   const reqId = Date.now().toString(36) + "-" + Math.random().toString(36).slice(2, 8);
   res.setHeader("X-Request-Id", reqId);

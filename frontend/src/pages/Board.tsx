@@ -145,13 +145,17 @@ const BOARD_VIEWS: { key: BoardView; label: string; icon: typeof MessagesSquare 
 export default function Board({ initialView = 'overview' }: { initialView?: BoardView }) {
   const [view, setView] = useState<BoardView>(initialView)
   const { selectSession } = useApp()
-  const { data: sessData } = useSWR('board-sessions', () => SessionsApi.list(), { refreshInterval: 30_000 })
+  // 首屏一条打包（2026-09-20）：外网每个请求 ~0.8s（隧道往返），原来首屏要打 9 条 → 现在 1 条。
+  // 下面每条仍保留自己的轮询（数据各自刷新），但用 fallbackData 先把首屏喂饱、且挂载时不重复请求。
+  const { data: bootData } = useSWR('board-bootstrap', () => fetch('/api/board/bootstrap', { headers: { Authorization: 'Bearer ' + (localStorage.getItem('yuanshu_access_token') || '') } }).then((r) => r.json()), { refreshInterval: 30_000 })
+  const bootFb = (pick: (b: any) => any) => { try { const v = bootData ? pick(bootData) : undefined; return v && (Array.isArray(v) ? v.length >= 0 : true) ? v : undefined } catch { return undefined } }
+  const { data: sessData } = useSWR('board-sessions', () => SessionsApi.list(), { refreshInterval: 30_000, fallbackData: bootFb((d) => (d.sessions ? { sessions: d.sessions } : undefined)), revalidateOnMount: false })
   const { data: taskData } = useSWR('board-tasks', () => TasksApi.list(), { refreshInterval: 15_000 })
-  const { data: statData } = useSWR('board-stats', () => StatsApi.providers(), { refreshInterval: 120_000 })
-  const { data: delivData } = useSWR('board-deliveries', () => WsApi.deliveries(), { refreshInterval: 60_000 })
-  const { data: dailyData } = useSWR('board-daily', () => StatsApi.daily(), { refreshInterval: 120_000 })
-  const { data: saData } = useSWR('board-subagent', () => SubagentApi.runs(), { refreshInterval: 20_000 })
-  const { data: runData, error: runError } = useSWR('board-run-overview', () => RunApi.overview(), { refreshInterval: 20_000 })   // 8s→20s：这条接口本身要几秒，轮太密等于一直在飞
+  const { data: statData } = useSWR('board-stats', () => StatsApi.providers(), { refreshInterval: 120_000, fallbackData: bootFb((d) => d.providers), revalidateOnMount: false })
+  const { data: delivData } = useSWR('board-deliveries', () => WsApi.deliveries(), { refreshInterval: 60_000, fallbackData: bootFb((d) => d.deliveries), revalidateOnMount: false })
+  const { data: dailyData } = useSWR('board-daily', () => StatsApi.daily(), { refreshInterval: 120_000, fallbackData: bootFb((d) => d.daily), revalidateOnMount: false })
+  const { data: saData } = useSWR('board-subagent', () => SubagentApi.runs(), { refreshInterval: 20_000, fallbackData: bootFb((d) => d.subagent), revalidateOnMount: false })
+  const { data: runData, error: runError } = useSWR('board-run-overview', () => RunApi.overview(), { refreshInterval: 20_000, fallbackData: bootFb((d) => d.overview), revalidateOnMount: false })   // 8s→20s；首屏数据来自 bootstrap
 
   const sessions = sessData?.sessions || []
   const tasks = taskData?.tasks || []
@@ -331,7 +335,7 @@ function TideBar({ label, value, max = 1, tone }: { label: string; value: number
 
 function EmotionTideCard() {
   const { state: snap, meta } = useXiaoyuEmotion()
-  const { data: tideData } = useSWR('board-tide', () => EmotionApi.tide(), { refreshInterval: 120_000 })
+  const { data: tideData } = useSWR('board-tide', () => EmotionApi.tide(), { fallbackData: bootFb((d) => d.tide), revalidateOnMount: false, refreshInterval: 120_000 })
   const { data: feelData } = useSWR('board-feelings', () => EmotionApi.feelings(), { refreshInterval: 120_000 })
   const tide = (tideData?.tide || []).slice(-48)
   const lastFeel = (feelData?.feelings || []).slice(-1)[0]
