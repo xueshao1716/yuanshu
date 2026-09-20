@@ -15,6 +15,7 @@ import HealthBadge from '../components/HealthBadge'
 import WorkExplanationList from '../components/WorkExplanationList'
 import { ReviewPanel } from './ReviewWorkbench'
 import { PendingChanges } from '../components/PendingChanges'
+import { HistoryPanel } from '../components/HistoryPanel'
 import { TeamRunView } from '../components/TeamRunView'
 
 // ── 工作台（2026-09-03，Phase 1）：概览卡 ×4 + 三列泳道 + 活动时间线 ──
@@ -146,7 +147,7 @@ const BOARD_VIEWS: { key: BoardView; label: string; icon: typeof MessagesSquare 
 
 export default function Board({ initialView = 'overview' }: { initialView?: BoardView }) {
   const [view, setView] = useState<BoardView>(initialView)
-  const { selectSession } = useApp()
+  const { selectSession, sessions: appSessions } = useApp()
   // 首屏一条打包（2026-09-20）：外网每个请求 ~0.8s（隧道往返），原来首屏要打 9 条 → 现在 1 条。
   // 下面每条仍保留自己的轮询（数据各自刷新），但用 fallbackData 先把首屏喂饱、且挂载时不重复请求。
   const { data: bootData } = useSWR('board-bootstrap', () => fetch('/api/board/bootstrap', { headers: { Authorization: 'Bearer ' + (localStorage.getItem('yuanshu_access_token') || '') } }).then((r) => r.json()), { refreshInterval: 60_000 })
@@ -214,6 +215,7 @@ export default function Board({ initialView = 'overview' }: { initialView?: Boar
 
         {view === 'review' && <>
           <PendingChanges />
+          <HistoryPanel />
           <ReviewPanel />
         </>}
 

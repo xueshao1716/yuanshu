@@ -2143,6 +2143,7 @@ async function runDreamCycle() {
 
 import { createPendingApi } from "./engine/pending-api.mjs";
 import { createBoardApi } from "./engine/board-api.mjs";
+import { createHistoryApi } from "./engine/history-api.mjs";
 
 const API_ROUTES = [
   // 待审改动（2026-09-20，借 openwriter 的"agent 写字、人审阅"）：改文件先落待审区，接受才写盘。
@@ -3078,6 +3079,7 @@ function __applyStaticCache(req, res) {
   } catch {}
 }
 const pendingApi = createPendingApi({ wsRoot: WS_ROOT, json, readBody });
+const historyApi = createHistoryApi({ wsRoot: WS_ROOT, json, readBody });
 const boardApi = createBoardApi({
   json,
   handlers: { handleProviderStats, handleDailyStats, handleSubagentRuns, handleWsDeliveries },
@@ -3187,6 +3189,10 @@ API_ROUTES.push(["GET", "/api/emotion/summary", withCache(20000, "emotion-summar
   ]);
   return json(res, 200, { emotion: live, tide: tide && tide.tide, feelings: feelings && feelings.feelings, at: new Date().toISOString() });
 })]);
+
+// 版本回溯（2026-09-20）：列出所有 .bak* 备份 + 天团运行快照；一键回滚（回滚前再存一份）+ 审计。
+API_ROUTES.push(["GET", "/api/history", (res) => historyApi.list(res)]);
+API_ROUTES.push(["POST", "/api/history/rollback", async (res, req) => historyApi.rollback(res, await readBody(req, 8))]);
 
 for (const [method, matcher, handler] of API_ROUTES) {
       if (req.method !== method) continue;
