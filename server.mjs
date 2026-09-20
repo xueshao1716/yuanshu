@@ -2141,7 +2141,15 @@ async function runDreamCycle() {
   return result;
 }
 
+import { createPendingApi } from "./engine/pending-api.mjs";
+
 const API_ROUTES = [
+  // 待审改动（2026-09-20，借 openwriter 的"agent 写字、人审阅"）：改文件先落待审区，接受才写盘。
+  ["GET", "/api/pending", (res) => pendingApi.list(res)],
+  ["POST", "/api/pending", async (res, req) => pendingApi.create(res, await readBody(req, 12))],
+  ["GET", /^\/api\/pending\/([^/]+)$/, (res, req, url, m) => pendingApi.get(res, m[1])],
+  ["POST", /^\/api\/pending\/([^/]+)\/accept$/, (res, req, url, m) => pendingApi.accept(res, m[1])],
+  ["POST", /^\/api\/pending\/([^/]+)\/reject$/, async (res, req, url, m) => pendingApi.reject(res, m[1], await readBody(req, 4))],
   // ── 连续创作编排（阶段一：项目/Story Bible/镜头运行记录）──
   ["GET", "/api/story/projects", (res) => handleStoryProjects({ root: WS_ROOT }, res)],
   ["POST", "/api/story/projects", async (res, req) => handleStoryProjects({ root: WS_ROOT }, res, await readBody(req, 4))],
@@ -3068,6 +3076,8 @@ function __applyStaticCache(req, res) {
     };
   } catch {}
 }
+const pendingApi = createPendingApi({ wsRoot: WS_ROOT, json, readBody });
+
 const server = http.createServer(async (req, res) => {
   __applyStaticCache(req, res);
 
