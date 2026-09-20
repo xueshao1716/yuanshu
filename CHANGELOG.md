@@ -8,6 +8,27 @@
 
 ## [Unreleased]
 
+## [2.107.0] - 2026-09-20
+
+### P0 完成：工作台首屏「9 条接口 → 1 条」（外网首屏不再累计等 6 秒）
+
+**做法（这次用稳法，不再动请求链路）**：
+- `engine/board-api.mjs`：复用同一批 handler（shim 捕获它们写的 JSON）合并成一条响应，不重写业务逻辑；
+- `server.mjs`：**在 API_ROUTES 构建完成之后用 `API_ROUTES.push(...)` 注册**（上次我用正则改数组字面量，把请求链路带歪过 → 这次每步复验）；
+- 前端 `Board.tsx`：一条 `board-bootstrap` SWR + 6 条面板用 `fallbackData` + `revalidateOnMount:false`（首屏不再各拉一遍，各自轮询照旧）；
+- 顺带把**活动流轮询 2s → 5s**（外网每请求 ~0.8s，2 秒轮等于请求永远在飞）。
+
+**真机实测（工作台首屏 /api 请求）**：
+```
+改前：19 条（board 面板自己 9 条 + 活动流 14 秒里 7 次 + 其余）
+改后：15 条，其中 board/bootstrap = 1，board 面板的 stats/providers、ws/deliveries、stats/daily、subagent/runs、run/overview 全部消失（已在打包里）
+     活动流 7 次 → 3 次
+```
+**一步一验的记录**：注册后立刻复测 `/api/sessions` 200（125KB）、`/api/persona` 200、`/api/board/bootstrap` 200（240KB，含 9 份数据）。
+
+**如实说明**：首屏仍有约 10 条**外壳级**请求（侧栏会话列表 · 主题/配色偏好 · keys 状态 · agent 状态 · 情绪指示 ×2 · 活动流 · 任务列表），
+这些不在工作台面板里，属下一批微优化（方向：情绪三合一、侧栏与 board 共用同一个 sessions SWR key 去重）。
+
 ## [2.106.0] - 2026-09-20
 
 ### 工坊升级第一批：待审改动（借 OpenWriter）+ 天团终稿进审 + 分发包

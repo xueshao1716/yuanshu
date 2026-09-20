@@ -56,7 +56,9 @@ export default function ActivityFeed() {
       } catch { if (alive) setErr(true) }
     }
     load()
-    timer.current = setInterval(load, 2000)
+    // 2026-09-20：2s → 5s。外网每个请求 ~0.8s（隧道往返），2 秒轮等于请求永远在飞；
+    // 5 秒观感仍是实时的，外网负担降到 1/2.5。
+    timer.current = setInterval(load, 5000)
     return () => { alive = false; if (timer.current) clearInterval(timer.current) }
   }, [])
 

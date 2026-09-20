@@ -2142,6 +2142,7 @@ async function runDreamCycle() {
 }
 
 import { createPendingApi } from "./engine/pending-api.mjs";
+import { createBoardApi } from "./engine/board-api.mjs";
 
 const API_ROUTES = [
   // 待审改动（2026-09-20，借 openwriter 的"agent 写字、人审阅"）：改文件先落待审区，接受才写盘。
@@ -3077,6 +3078,11 @@ function __applyStaticCache(req, res) {
   } catch {}
 }
 const pendingApi = createPendingApi({ wsRoot: WS_ROOT, json, readBody });
+const boardApi = createBoardApi({
+  json,
+  handlers: { handleProviderStats, handleDailyStats, handleSubagentRuns, handleWsDeliveries },
+  runApi, emotion, getSessionList, isListedGroup,
+});
 
 const server = http.createServer(async (req, res) => {
   __applyStaticCache(req, res);
@@ -3156,7 +3162,11 @@ const server = http.createServer(async (req, res) => {
     }
 
     // API（路由表匹配）
-    for (const [method, matcher, handler] of API_ROUTES) {
+    // 首屏打包（2026-09-20）：**在数组构建完成之后**用 push 注册 —— 上次用正则改数组字面量把请求链路带歪过，
+// 这次一步一验：老接口 /api/sessions 必须仍是 200。
+API_ROUTES.push(["GET", "/api/board/bootstrap", withCache(15000, "board-bootstrap", (res) => boardApi.bootstrap(res))]);
+
+for (const [method, matcher, handler] of API_ROUTES) {
       if (req.method !== method) continue;
       let m = null;
       if (typeof matcher === "string") {
