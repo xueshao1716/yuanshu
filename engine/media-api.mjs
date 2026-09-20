@@ -58,7 +58,10 @@ export function detectMediaIntents(message, ctx = {}) {
   const STRONG = /(配图|画图|画个|画一|插画|生成图片|绘图|配一幅|做个.{0,4}(图|插画)|配个图)/;
   // 弱意图词：可能误触发的模糊表达，仅在前 30 字内触发（指令通常在开头）
   const WEAK = /(画.{0,8}(图|图片)|生成.{0,6}(图|图片)|一张.{0,8}(图|图片)|配.{0,3}(图|图片)|插图|配图)/;
-  if (!negated && (STRONG.test(msg) || (msg.slice(0, 30).match(WEAK)))) intents.push({ type: "image" });
+  // 贴文污染防护（2026-09-20）：用户复制界面文本贴回来时，消息里会夹着历史出图指令词
+  // （"做个图""画这个"）和 UI 痕迹（📎 交付路径/思考过程标签/工具卡）——这类长贴文不该触发自动出图。
+  const looksLikeQuotedDump = msg.length > 300 && /(📎|思考过程|pi-workspace|localhost:8787)/.test(msg);
+  if (!negated && !looksLikeQuotedDump && (STRONG.test(msg) || (msg.slice(0, 30).match(WEAK)))) intents.push({ type: "image" });
   const ttsNeg = /(不用|别|不要|无需|不需要).{0,6}(朗读|配音|语音|读出来)/.test(msg);
   if (!ttsNeg && /(配音|朗读|读出来|生成语音|配个音|读一下|配个音)/.test(msg)) intents.push({ type: "tts" });
   const videoNeg = /(不用|别|不要|无需|不需要).{0,6}(视频|片子|短片)/.test(msg);
@@ -244,11 +247,39 @@ export async function generateTTS(text) {
       }),
       timeout: 90000,
     });
+    if (r.ok) {
+      const data = await r.json();
+      const audio = data.choices?.[0]?.message?.audio?.data;
+      if (audio) return `data:audio/wav;base64,${audio}`;
+    }
+    // mimo 失败/未返回音频 → 阶跃备用
+    return await stepfunTtsFallback(text);
+  } catch {
+    return await stepfunTtsFallback(text);
+  }
+}
+
+// 阶跃备用 TTS（2026-09-20 接入）：mimo 主通道失败/未配置时走 step_plan 真人级 TTS。
+// 音色 cixingnansheng（慈溪男声）实测可用；返回 data:audio/mpeg;base64,... 或 null。
+async function stepfunTtsFallback(text) {
+  try {
+    const resolved = _resolveAuth?.("stepfun-plan");
+    if (!resolved?.key) return null;
+    const r = await httpBufferFetch("https://api.stepfun.com/step_plan/v1/audio/speech", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${resolved.key}` },
+      body: JSON.stringify({
+        model: "stepaudio-2.5-tts",
+        input: String(text).slice(0, 2000),
+        voice: "cixingnansheng",
+        response_format: "mp3",
+      }),
+      timeout: 120000,
+    });
     if (!r.ok) return null;
-    const data = await r.json();
-    const audio = data.choices?.[0]?.message?.audio?.data;
-    if (!audio) return null;
-    return `data:audio/wav;base64,${audio}`;
+    const bytes = r.buffer();
+    if (!bytes || bytes.length < 100) return null;
+    return `data:audio/mpeg;base64,${bytes.toString("base64")}`;
   } catch { return null; }
 }
 
