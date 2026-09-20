@@ -15,7 +15,8 @@ function liveSnap(data: any) {
 
 export function useXiaoyuEmotion() {
   const { data } = useSWR(EMO_LIVE_KEY, () => EmotionApi.get(), {
-    refreshInterval: 8000,
+    // 2026-09-20：8s → 20s。外网每请求 ~0.8s（隧道往返），8 秒轮等于请求永远在飞。
+    refreshInterval: 20000,
     revalidateOnFocus: true,
     dedupingInterval: 2000,
   })

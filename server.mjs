@@ -3164,7 +3164,29 @@ const server = http.createServer(async (req, res) => {
     // API（路由表匹配）
     // 首屏打包（2026-09-20）：**在数组构建完成之后**用 push 注册 —— 上次用正则改数组字面量把请求链路带歪过，
 // 这次一步一验：老接口 /api/sessions 必须仍是 200。
-API_ROUTES.push(["GET", "/api/board/bootstrap", withCache(15000, "board-bootstrap", (res) => boardApi.bootstrap(res))]);
+API_ROUTES.push(["GET", "/api/board/bootstrap", withCache(60000, "board-bootstrap", (res) => boardApi.bootstrap(res))]);
+
+// 情绪一条打包（2026-09-20）：实时情绪 + 潮汐 + 感受，工作台与小语挂件共用一条（前端用同一个 SWR key 去重）。
+API_ROUTES.push(["GET", "/api/emotion/summary", withCache(20000, "emotion-summary", async (res) => {
+  const cap = async (fn) => {
+    const parts = [];
+    const shim = {
+      writeHead: () => {}, setHeader: () => {}, getHeader: () => undefined,
+      write: (b) => { parts.push(b); return true; },
+      end: (b) => { if (b) parts.push(b); },
+      get statusCode() { return 200; }, set statusCode(_v) {}, get headersSent() { return false; },
+    };
+    try { await fn(shim); } catch (e) { return { __error: String((e && e.message) || e).slice(0, 100) }; }
+    try { return JSON.parse(parts.join("")); } catch { return null; }
+  };
+  const base = new URL("http://local/api/emotion");
+  const [live, tide, feelings] = await Promise.all([
+    cap((x) => handleEmotion(x, base)),
+    cap((x) => json(x, 200, { tide: emotion.getTide(300) })),
+    cap((x) => json(x, 200, { feelings: emotion.getFeelings(50) })),
+  ]);
+  return json(res, 200, { emotion: live, tide: tide && tide.tide, feelings: feelings && feelings.feelings, at: new Date().toISOString() });
+})]);
 
 for (const [method, matcher, handler] of API_ROUTES) {
       if (req.method !== method) continue;

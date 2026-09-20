@@ -8,6 +8,24 @@
 
 ## [Unreleased]
 
+## [2.107.1] - 2026-09-20
+
+### P0 收尾：情绪三合一 + 轮询再放宽（首屏 /api 19 → 13）
+
+- 新增 GET /api/emotion/summary（实时情绪 + 潮汐 + 感受，一条返回；注册走 API_ROUTES.push，每步复验老接口）；
+- 前端新增共享 hook lib/useEmotionSummary.ts：工作台的潮汐与感受两条 → 一条（同 key 自动去重，挂件以后也能复用）；
+- 小语心情轮询 **8s → 20s**、活动流已是 5s（外网每请求 ~0.8s，频繁轮询等于请求永远在飞）；
+- oard/bootstrap 缓存 **15s → 60s**（首屏快照，避免每 15 秒重算一次聚合）。
+
+**真机实测（工作台首屏 /api 请求数）**：
+`
+改前 19 → 首屏打包后 15 → 本轮 13
+明细：models 1 · sessions 2 · color/theme-prefs 2 · keys/status 1 · emotion 1 · emotion/summary 1 · board/bootstrap 1 · time/tasks 1 · agent/events 3
+`
+**一步一验**：改动后立刻复测 /api/sessions 200 · /api/persona 200 · /api/board/bootstrap 200 · /api/emotion/summary 200（54KB：emotion+tide 300+feelings 50）。
+
+剩余（下一批）：sessions 两处共用同一 SWR key、agent/events 轮询再放宽、情绪指示并入摘要。
+
 ## [2.107.0] - 2026-09-20
 
 ### P0 完成：工作台首屏「9 条接口 → 1 条」（外网首屏不再累计等 6 秒）
