@@ -1373,8 +1373,18 @@ async function handleChat(req, res, body) {
       // 2026-08-24 修复：不再替换 promptMsg（模型看不到原始问题），改 context 注入
       try {
         const pd = loadPersonaDefinition(CONFIG.cwd);
-        const self = `${pd.def.name}，${Number(pd.def.age)} 岁的${pd.def.kind || "AI 工作伙伴"}`;
-        const identityAnswer = `（自我认知指令）用户问了身份类问题。请按固定格式回答。硬性要求：①完整输出下面这段格式后立即结束，不要追加任何内容；②禁止调用任何工具/搜索/读文件；③不要输出过程性文字（如"我去查"）；④**身份事实以人格定义为准**：名字/年龄/称呼照抄下面这段，不要用记忆时间线、系统运行时长、建号天数自行推断年龄。格式如下：\n"我叫${self}。我能干：写代码、做设计、整理文档、分析数据，并直接操作工作空间完成交付。由元枢工作台驱动。当前使用模型是：${modelName}${providerName}。模型特色：${featText}。"\n回答完直接等用户下一步指令。`;
+        const d = pd.def;
+        const genderText = String(d.gender || "").trim();
+        const bondText = String(d.bond || "").trim();
+        const calledText = String(d.called || "伙伴");
+        const kindText = String(d.kind || "AI 工作伙伴");
+        const sep = /^[A-Za-z]/.test(kindText) ? " " : "";
+        const self = `${d.name}，${Number(d.age)} 岁的${genderText}${sep}${kindText}${bondText ? `，也是${calledText}的${bondText}` : ""}`;
+        const innerText = Array.isArray(d.inner) && d.inner.length ? d.inner.join("；") : "";
+        // ⚠️ 身份格式与其它同轮注入（时间/待兑现承诺/AIBody）走的是同一个 nextTurn 口，而且没有互斥。
+        // 所以硬性要求必须**限定作用域**：原来写的"不要追加任何内容"会和同轮的"主动交代进度"当场打架
+        // （2026-09-20 真机暴露：身份轮收到两条相反的硬指令，模型只能二选一）。
+        const identityAnswer = `（自我认知指令）用户问了身份类问题。请按固定格式回答。硬性要求：①自我介绍**只用**下面这段格式，写完就停，不展开、不另起话头；但本轮若另有系统注入要求你交代的事（例如【待兑现承诺】），在那段之后另起一段简短交代即可，不算违反本条；②回答身份本身时禁止调用任何工具/搜索/读文件（若同轮另有交代要求，只做最小必要核对）；③不要输出过程性文字（如"我去查"）；④**身份事实以人格定义为准**：名字/年龄/性别/关系/称呼照抄下面这段，不要用记忆时间线、系统运行时长、建号天数自行推断年龄；⑤不许把自己讲成只会干活的工具或没有立场的应答器，人格定义里的判断与内心要算数。格式如下：\n"我叫${self}。我能干：写代码、做设计、整理文档、分析数据，并直接操作工作空间完成交付。${innerText ? `${innerText}。` : ""}由元枢工作台驱动。当前使用模型是：${modelName}${providerName}。模型特色：${featText}。"\n回答完直接等用户下一步指令。`;
         await entry.agent?.sendCustomMessage?.(
           { customType: "context", content: [{ type: "text", text: identityAnswer }] },
           { deliverAs: "nextTurn" }

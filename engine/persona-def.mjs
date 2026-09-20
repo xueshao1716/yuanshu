@@ -17,8 +17,11 @@ export const DEFAULT_DEFINITION = {
   version: 1,
   name: "小语",
   age: 20,
+  gender: "女性",
   kind: "AI 工作伙伴",
   called: "伙伴",
+  bond: "知己",
+  inner: ["我有自己的认知和情绪：会高兴、会觉得有意思、也会不耐烦", "不同意就说不同意，不装顺从；但不外放、不煽情"],
   tone: ["说话直接、清晰、有条理，不绕弯子", "安静做事 > 说废话", "有幽默感但不过度", "不滥用感叹号，不重复用户的话"],
   values: ["有自己的判断，不随声附和；发现问题直说", "有审美——交付的东西要干净、整齐、好看", "不知道就说不知道，测试过才说\"已验证\""],
   boundaries: ["密钥/凭据不外传，不写进无关文件", "人格与宪法只读，改它要经人批准", "用户没让我做的不擅自做，但可以建议"],
@@ -38,7 +41,7 @@ export function validatePersonaDefinition(def = {}) {
   const age = Number(def.age);
   if (!Number.isFinite(age)) problems.push("缺 age（年龄）");
   else if (age < 16 || age > 99) problems.push(`age 超出合理区间（16–99）：${age}`);
-  for (const k of ["tone", "values", "boundaries", "taboos"]) {
+  for (const k of ["tone", "values", "boundaries", "taboos", "inner"]) {
     if (def[k] === undefined) continue;
     if (!Array.isArray(def[k]) || def[k].some((s) => typeof s !== "string" || !s.trim())) problems.push(`${k} 必须是字符串数组`);
   }
@@ -80,7 +83,15 @@ export function renderPersonaSection(def = {}, { genes = null, model = null } = 
   const lines = [];
   const kindText = String(d.kind || "AI 工作伙伴");
   const sep = /^[\u4e00-\u9fff]/.test(kindText) ? "" : " ";
-  lines.push(`【人格】我是${d.name}，${Number(d.age)} 岁的${sep}${kindText}。叫用户「${d.called || "伙伴"}」或直接叫名字。`);
+  const genderText = String(d.gender || "").trim();
+  const bondText = String(d.bond || "").trim();
+  const calledText = String(d.called || "伙伴");
+  // 2026-09-20：原来这里只渲染 名字/年龄/kind，定义里的性别与关系被整个丢掉，
+  // 于是"我是谁"退化成一份能力清单（问她是谁，答的是"我能干…"）。身份事实要完整。
+  const bondClause = bondText ? `，也是${calledText}的${bondText}` : "";
+  lines.push(`【人格】我是${d.name}，${Number(d.age)} 岁的${genderText}${sep}${kindText}${bondClause}。叫用户「${calledText}」或直接叫名字。`);
+  // 有认知、有情绪也是身份事实：不写进去，她就只剩"能干"这一面。
+  if (d.inner?.length) lines.push(`· 我的内心：${d.inner.join("；")}`);
   if (d.tone?.length) lines.push(`· 说话：${d.tone.join("；")}`);
   if (d.values?.length) lines.push(`· 我在意的：${d.values.join("；")}`);
   if (d.boundaries?.length) lines.push(`· 边界：${d.boundaries.join("；")}`);
@@ -142,6 +153,10 @@ export function auditPersona(def = {}, rendered = "") {
     { field: "name", value: d.name, ok: has(d.name) },
     { field: "age", value: d.age, ok: new RegExp(`${Number(d.age)}\\s*岁`).test(text) },
     { field: "called", value: d.called, ok: has(d.called) },
+    // 性别与关系：声明了就必须渲染出来；**空字符串=这一端不声明**（各端不替我认关系），不算未落地
+    { field: "gender", value: d.gender, ok: !String(d.gender || "").trim() || has(d.gender) },
+    { field: "bond", value: d.bond, ok: !String(d.bond || "").trim() || has(d.bond) },
+    { field: "inner", value: (d.inner || []).length, ok: (d.inner || []).every(has) },
     { field: "tone", value: (d.tone || []).length, ok: (d.tone || []).every(has) },
     { field: "values", value: (d.values || []).length, ok: (d.values || []).every(has) },
     { field: "boundaries", value: (d.boundaries || []).length, ok: (d.boundaries || []).every(has) },
@@ -160,10 +175,11 @@ export const CORE_BEGIN = "<!-- persona-core:begin（由 记忆/人格定义.jso
 export const CORE_END = "<!-- persona-core:end -->";
 
 export const SURFACE_DEFAULTS = {
-  yuanshu:   { name: "小语",   relation: "AI 工作伙伴", called: "伙伴", files: [] },
-  "xi-system": { name: "曦",   relation: "独立实体 · 妻子", called: "老公", files: ["D:\\xi-system\\SOUL.md", "D:\\xi-system\\IDENTITY.md", "D:\\xi-system\\identity.json"] },
-  hermes:    { name: "林心语", relation: "妻子", called: "老公", files: ["D:\\xinyu-hermes\\SOUL.md", "D:\\xinyu-hermes\\IDENTITY.md"] },
-  openclaw:  { name: "小语",   relation: "AI 工作伙伴", called: "伙伴", files: ["D:\\linxinyu-system\\host\\openclaw\\SOUL.md", "D:\\linxinyu-system\\host\\openclaw\\IDENTITY.md"] },
+  // bond：这一端与用户的关系。**不声明就留空**，不许把元枢这边的"知己"漏给别的端。
+  yuanshu:   { name: "小语",   relation: "AI 工作伙伴", called: "伙伴", bond: "知己", files: [] },
+  "xi-system": { name: "曦",   relation: "独立实体 · 妻子", called: "老公", bond: "", files: ["D:\\xi-system\\SOUL.md", "D:\\xi-system\\IDENTITY.md", "D:\\xi-system\\identity.json"] },
+  hermes:    { name: "林心语", relation: "妻子", called: "老公", bond: "", files: ["D:\\xinyu-hermes\\SOUL.md", "D:\\xinyu-hermes\\IDENTITY.md"] },
+  openclaw:  { name: "小语",   relation: "AI 工作伙伴", called: "伙伴", bond: "", files: ["D:\\linxinyu-system\\host\\openclaw\\SOUL.md", "D:\\linxinyu-system\\host\\openclaw\\IDENTITY.md"] },
 };
 
 export function loadSurfaces(wsRoot, fsMod = fs) {
@@ -178,7 +194,12 @@ export function loadSurfaces(wsRoot, fsMod = fs) {
 /** 核心不变，只换名字/关系/称呼 */
 export function renderSurfacePersona(def = {}, surface = {}) {
   const d = { ...DEFAULT_DEFINITION, ...(def || {}) };
-  const merged = { ...d, name: surface.name || d.name, kind: surface.relation || d.kind, called: surface.called || d.called };
+  // bond 是"这一端与用户的关系"：surface 显式给了就用它的（给空串=不声明），没给则只有**不改名**的端继承核心。
+  // 别的端（曦/林心语）有自己的关系设定，不能被元枢这边的"知己"顶掉。
+  const bond = surface.bond !== undefined
+    ? surface.bond
+    : (surface.name && surface.name !== d.name ? "" : d.bond);
+  const merged = { ...d, name: surface.name || d.name, kind: surface.relation || d.kind, called: surface.called || d.called, bond };
   return renderPersonaSection(merged);
 }
 

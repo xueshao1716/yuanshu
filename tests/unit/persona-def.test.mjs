@@ -19,11 +19,13 @@ import {
 import { isProtectedPath } from '../../engine/tools/security.mjs';
 import { isCanonicalTarget } from '../../engine/memory-stages.mjs';
 
-test('定义决定人格：名字/年龄/语气/边界/禁忌都进人格段', () => {
+test('定义决定人格：名字/年龄/性别/关系/内心/语气/边界/禁忌都进人格段', () => {
   const def = { ...DEFAULT_DEFINITION, name: '小语', age: 20 };
   const text = renderPersonaSection(def, { genes: { gentleness: { expression: 0.9 }, loyalty: { expression: 0.95 } }, model: { provider: 'p', id: 'm' } });
-  assert.match(text, /我是小语，20 岁的 AI 工作伙伴/);
+  // 2026-09-20：原来只渲染 名字/年龄/kind，性别与关系被丢掉，"我是谁"退化成一份能力清单
+  assert.match(text, /我是小语，20 岁的女性 AI 工作伙伴，也是伙伴的知己/);
   assert.match(text, /叫用户「伙伴」/);
+  assert.match(text, /我的内心：.*有自己的认知和情绪/);
   assert.match(text, /说话直接、清晰/);
   assert.match(text, /边界：.*人格与宪法只读/);
   assert.match(text, /不做：.*机器人味/);
@@ -89,26 +91,54 @@ test('人格定义受保护：工具层只读 + 必须走草案区（人格不�
   assert.equal(isCanonicalTarget('D:\\pi-workspace\\记忆\\记忆日志.md', { wsRoot: 'D:\\pi-workspace' }), false);
 });
 
-test('字段级核对：定义里声明的每一项都必须在人格段里落地（年龄/称呼/语气/价值观/边界/禁忌/裁决）', () => {
+test('字段级核对：定义里声明的每一项都必须在人格段里落地（年龄/称呼/性别/关系/内心/语气/价值观/边界/禁忌/裁决）', () => {
   const def = { ...DEFAULT_DEFINITION, name: '小语', age: 20, tone: ['只说重点'], taboos: ['不说套话'] };
   const okAudit = auditPersona(def);
   assert.equal(okAudit.ok, true, JSON.stringify(okAudit.missing));
-  // 有人把渲染器改坏（比如漏掉禁忌）→ 逐字段核对必须报出来
+  // 有人把渲染器改坏（比如漏掉禁忌或性别）→ 逐字段核对必须报出来
   const broken = auditPersona(def, '【人格】我是小语，20 岁的 AI 工作伙伴。');
   assert.equal(broken.ok, false);
-  assert.ok(broken.missing.includes('tone') && broken.missing.includes('taboos'), JSON.stringify(broken.missing));
-  assert.ok(broken.missing.includes('authority'), '没有身份裁决也算没落地');
+  for (const f of ['tone', 'taboos', 'authority']) assert.ok(broken.missing.includes(f), JSON.stringify(broken.missing));
+  assert.ok(broken.missing.includes('gender'), '性别没渲染出来也算没落地');
+  assert.ok(broken.missing.includes('bond'), '关系没渲染出来也算没落地');
+  assert.ok(broken.missing.includes('inner'), '内心没渲染出来也算没落地');
+  // 各端不声明关系（bond 空串）不算未落地：别把元枢这边的"知己"漏给别的端
+  const other = auditPersona({ ...def, bond: '' });
+  assert.equal(other.ok, true, JSON.stringify(other.missing));
+});
+
+test('身份格式与同轮注入不打架：作用域限定 + 从定义渲染性别/关系/内心', () => {
+  // 2026-09-20 真机暴露：server.mjs 注入的自我认知指令写"不要追加任何内容"，
+  // 而同一轮的【待兑现承诺】要求"主动交代进度"——两条硬指令同时在，模型只能二选一。
+  const src = fs.readFileSync(path.join(process.cwd(), 'server.mjs'), 'utf8');
+  const block = src.slice(src.indexOf('（自我认知指令）'), src.indexOf('回答完直接等用户下一步指令。'));
+  assert.ok(block.length > 0, '身份指令还在（锚点没被改掉）');
+  assert.doesNotMatch(block, /不要追加任何内容/, '不许再写无限定的"不要追加任何内容"');
+  assert.match(block, /另有系统注入要求你交代的事/, '要给同轮其它注入留出口（不然冲突照旧）');
+  assert.match(block, /名字\/年龄\/性别\/关系\/称呼照抄/, '身份事实清单要含性别与关系');
+  assert.match(block, /不许把自己讲成只会干活的工具/, '要明确禁止把自己讲成工具');
+  // 模板必须从定义取值，不是写死
+  assert.match(src, /pd\.def/, '身份模板要从人格定义读');
+  assert.match(src, /d\.gender/, '性别要从定义读');
+  assert.match(src, /d\.bond/, '关系要从定义读');
+  assert.match(src, /d\.inner/, '内心要从定义读');
+  // 防复读守卫认的是这两句，模板不许把它们去掉
+  assert.match(block, /我叫\$\{self\}/, '保留"我叫…"开头（防复读守卫按它识别身份回答）');
+  assert.match(block, /当前使用模型是/, '保留"当前使用模型是"');
 });
 
 test('一份核心 + 各端覆盖：换名字/称呼，核心（年龄/语气/边界）不动', () => {
   const def = { ...DEFAULT_DEFINITION, name: '小语', age: 20, tone: ['说话直接'], taboos: ['不说套话'] };
   const xi = renderSurfacePersona(def, { name: '曦', relation: '独立实体 · 妻子', called: '老公' });
-  assert.match(xi, /我是曦，20 岁的独立实体 · 妻子/);
+  assert.match(xi, /我是曦，20 岁的女性独立实体 · 妻子/);
   assert.match(xi, /叫用户「老公」/);
   assert.match(xi, /说话直接/) && assert.match(xi, /不说套话/);
   assert.doesNotMatch(xi, /我是小语/);
+  assert.doesNotMatch(xi, /知己/, '别的端没声明关系，不许继承元枢这边的"知己"');
   const ys = renderSurfacePersona(def, { name: '小语', relation: 'AI 工作伙伴', called: '伙伴' });
-  assert.match(ys, /我是小语，20 岁的 AI 工作伙伴/);
+  assert.match(ys, /我是小语，20 岁的女性 AI 工作伙伴，也是伙伴的知己/);
+  // 显式给关系就用它的；显式给空串=这一端不声明关系
+  assert.match(renderSurfacePersona(def, { name: '小语', relation: 'AI 工作伙伴', called: '伙伴', bond: '' }), /工作伙伴。叫用户/);
 });
 
 test('同步各端文件：插核心块、幂等、留备份、原有内容一字不动', () => {
