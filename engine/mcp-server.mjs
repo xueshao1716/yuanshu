@@ -64,11 +64,45 @@ const TOOLS = [
     inputSchema: { type: "object", properties: { path: { type: "string" } } },
   },
   {
+    name: "pi_pending_list",
+    description: "列出待审改动（agent 提的文件改动，等人接受/拒绝）。任何改文件的 agent 都应先提议、由人决定。",
+    inputSchema: { type: "object", properties: {} },
+  },
+  {
+    name: "pi_pending_propose",
+    description: "提议一次文件改动（不写盘）：把目标路径与新内容登记进待审区，返回 diff 统计；人接受后才生效。",
+    inputSchema: { type: "object", properties: { target: { type: "string", description: "相对工作区的目标文件路径" }, content: { type: "string", description: "新的完整内容" }, note: { type: "string" } }, required: ["target", "content"] },
+  },
+  {
+    name: "pi_pending_accept",
+    description: "接受一条待审改动（真正写盘，覆盖前留 .bak-apply，并写审计）。",
+    inputSchema: { type: "object", properties: { id: { type: "string" } }, required: ["id"] },
+  },
+  {
+    name: "pi_pending_reject",
+    description: "拒绝一条待审改动（什么都不写，仅记录）。",
+    inputSchema: { type: "object", properties: { id: { type: "string" }, reason: { type: "string" } }, required: ["id"] },
+  },
+  {
+    name: "pi_history_list",
+    description: "列出所有版本回溯点（.bak* 备份 + 天团运行快照），用于「随时能退回去」。",
+    inputSchema: { type: "object", properties: {} },
+  },
+  {
+    name: "pi_history_rollback",
+    description: "回滚到某个备份（回滚前把当前内容另存 .bak-rollback-<时间>，并写审计）。",
+    inputSchema: { type: "object", properties: { backup: { type: "string", description: "备份文件相对路径（来自 pi_history_list）" } }, required: ["backup"] },
+  },
+  {
     name: "pi_deliver",
     description: "把工作空间文件标记为交付",
     inputSchema: { type: "object", properties: { path: { type: "string" } }, required: ["path"] },
   },
 ];
+
+// MCP 工具若要调用元枢自己的 HTTP 接口，需要本机基址与令牌（同进程，直接走 127.0.0.1）。
+function _base() { return "http://127.0.0.1:" + (process.env.PORT || 8787); }
+function _auth() { return { "Content-Type": "application/json", Authorization: "Bearer " + (process.env.YUANSHU_TOKEN || "love#1126469194") }; }
 
 // ── 工具执行 ──
 async function callTool(name, args, ctx) {
@@ -132,6 +166,36 @@ async function callTool(name, args, ctx) {
       const data = await r.json();
       return (data.items || []).slice(0, 20).map(i => `${i.isDir ? "📁" : "📄"} ${i.name}`).join("\n") || "(空目录)";
     }
+    case "pi_pending_list": {
+      const r = await fetch(_base() + "/api/pending", { headers: _auth() });
+      const j = await r.json();
+      const items = (j.items || []);
+      return items.length ? items.map((x) => `${x.id}  ${x.target}  +${x.added ?? "?"}/-${x.removed ?? "?"}  by ${x.by}`).join("\n") : "(没有待审改动)";
+    }
+    case "pi_pending_propose": {
+      const r = await fetch(_base() + "/api/pending", { method: "POST", headers: _auth(), body: JSON.stringify({ target: String(args.target || ""), content: String(args.content || ""), by: String(args.by || "mcp"), note: String(args.note || "") }) });
+      const j = await r.json();
+      return JSON.stringify(j);
+    }
+    case "pi_pending_accept": {
+      const r = await fetch(_base() + "/api/pending/" + encodeURIComponent(String(args.id)) + "/accept", { method: "POST", headers: _auth() });
+      return JSON.stringify(await r.json());
+    }
+    case "pi_pending_reject": {
+      const r = await fetch(_base() + "/api/pending/" + encodeURIComponent(String(args.id)) + "/reject", { method: "POST", headers: _auth(), body: JSON.stringify({ reason: String(args.reason || "mcp 拒绝") }) });
+      return JSON.stringify(await r.json());
+    }
+    case "pi_history_list": {
+      const r = await fetch(_base() + "/api/history", { headers: _auth() });
+      const j = await r.json();
+      const b = (j.backups || []).slice(0, 20).map((x) => `${x.backup}  →  ${x.target}`);
+      const runs = (j.runs || []).slice(0, 10).map((x) => `运行快照 ${x.id}（${(x.deliveries || []).length} 个交付）`);
+      return [...b, ...runs].join("\n") || "(没有回溯点)";
+    }
+    case "pi_history_rollback": {
+      const r = await fetch(_base() + "/api/history/rollback", { method: "POST", headers: _auth(), body: JSON.stringify({ backup: String(args.backup || "") }) });
+      return JSON.stringify(await r.json());
+    }
     case "pi_deliver": {
       const r = await ctx.api("/api/ws/deliver", { method: "POST", body: JSON.stringify({ path: String(args.path) }) });
       return JSON.stringify(await r.json());
@@ -161,7 +225,7 @@ export async function handleMcp(req, res, ctx) {
           result: {
             protocolVersion: rpc.params?.protocolVersion || "2024-11-05",
             capabilities: { tools: { listChanged: false } },
-            serverInfo: { name: "yuanshu (元枢)", version: "2.108.0" },
+            serverInfo: { name: "yuanshu (元枢)", version: "2.109.0" },
           },
         });
       case "notifications/initialized":

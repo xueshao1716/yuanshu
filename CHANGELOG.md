@@ -8,6 +8,25 @@
 
 ## [Unreleased]
 
+## [2.109.0] - 2026-09-20
+
+### P2 第一项完成：MCP 写作工具面（对标 OpenWriter 的 24 个文档工具）
+
+把「待审改动 + 版本回溯」暴露成 MCP 工具，任何 MCP 客户端（Claude Code / Cursor / Codex…）都能驱动元枢的写作工作流：
+**改前给 diff、由人接受/拒绝、随时能退回去**。实现上工具直接调用本机已有的 HTTP 接口（同一套逻辑，不重复实现）。
+
+| 新工具 | 作用 |
+|---|---|
+| `pi_pending_list` | 列出待审改动 |
+| `pi_pending_propose` | 提议一次文件改动（**不写盘**），返回 diff 统计 |
+| `pi_pending_accept` | 接受（真正写盘，留 `.bak-apply` + 审计） |
+| `pi_pending_reject` | 拒绝（什么都不写） |
+| `pi_history_list` | 列出所有回溯点（备份 + 天团运行快照） |
+| `pi_history_rollback` | 回滚到某备份（回滚前另存 `.bak-rollback-*` + 审计） |
+
+**真机验证**：`tools/list` 共 **14** 个工具、其中写作类 **6** 个 ✅；真调 `pi_pending_list` → 返回待审条目 ✅；
+真调 `pi_history_list` → 返回 **12** 行回溯点（备份 + 运行快照）✅；老接口 `/api/sessions`、`/api/pending` 复验 200 ✅。
+
 ## [2.108.0] - 2026-09-20
 
 ### P1 第二项完成：版本回溯（列出所有备份 + 一键回滚 + 审计）
