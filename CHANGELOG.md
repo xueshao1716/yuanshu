@@ -10,6 +10,27 @@
 
 ## [2.109.3] - 2026-09-20
 
+### 修安卓包「文件名与自称版本不一致」：构建前同步 tauri.properties
+
+`app/src-tauri/gen/android/app/tauri.properties` 是 `tauri android init` 生成的，而
+**`tauri android build` 不会重写它**。所以仓库升到 2.109.x 之后打出来的包，内部还停在旧版本。
+真机核对（`aapt2 dump badging`）：
+
+```
+元枢-v2.109.0-arm64.apk → versionName='2.108.0'  versionCode='2108000'
+```
+
+文件名说 2.109.0，APK 自称 2.108.0。安卓靠 `versionCode` 判更新，这个错会**卡住覆盖安装**。
+
+- `run-android-build.ps1` 构建前按仓库根 `version.json` 重写 `tauri.properties`
+  （`versionCode = major*1e6 + minor*1e3 + patch`），只在需要时写；
+- 本次结果：`versionName=2.109.3` / `versionCode=2109003`，与文件名一致。
+
+**顺带踩到并记下的坑**：这个 `.ps1` 原本是 UTF-8 **with BOM**，用编辑工具改完后 BOM 被丢掉，
+PowerShell 5.1 于是按 ANSI(GBK) 解码中文注释，解析报错在**第 9 行**（根本没动过的地方）。
+仓库 2026-09-14 就有 `tests/unit/powershell-encoding.test.mjs` 守着这条，跑一下就能当场抓到。
+教训：改完 .ps1 先跑这条测试；`pwsh 7` 默认 UTF-8，测不出这个问题，要用 `powershell`（5.1）验。
+
 ### 身份回答完整化：她不只是"能干"，还是"是谁"
 
 问"你是谁"，答的是一份能力清单（"我能干：写代码、做设计…"），性别、关系、内心一个都没有。
