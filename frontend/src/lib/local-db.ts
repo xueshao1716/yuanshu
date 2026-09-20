@@ -215,9 +215,16 @@ function mergeTools(localTools: any[] = [], serverTools: any[] = []): any[] {
 }
 
 function mergeServerMessage(local: LocalMessage, server: any): LocalMessage {
+  // text 覆盖规则（2026-09-20）：仅当服务端文本是本地文本的延长（本地为空，或服务端以本地为前缀且更长，
+  // 即流式半截场景）才取服务端全文；其余情况维持本地优先（同 id 等长文本等既有语义不变）。
+  const localText = local.text || ''
+  const serverText = server.text || ''
+  const text = !localText || (serverText.length > localText.length && serverText.startsWith(localText))
+    ? (serverText || localText)
+    : localText
   return {
     ...local,
-    text: local.text || server.text || '',
+    text,
     think: local.think || server.think,
     tools: mergeTools(local.tools, server.tools),
     notes: local.notes?.length ? local.notes : server.notes,
@@ -264,12 +271,26 @@ export function mergeMessages(localMsgs: LocalMessage[], serverMsgs: any[]): Loc
 
   const findMessageIndex = (server: any, serverId: string): number => {
     if (byId.has(serverId)) return byId.get(serverId) as number
+    const serverTs = new Date(server.ts).getTime()
     if (server.text?.trim()) {
       const key = contentKeyOf(server.role, server.text)
-      const serverTs = new Date(server.ts).getTime()
       for (const i of byContent.get(key) || []) {
         const message = merged[i]
         if (Math.abs(new Date(message.ts).getTime() - serverTs) < 120_000) return i
+      }
+      // 流式半截副本兜底（2026-09-20）：本地 IndexedDB 存的是断流时刻的 3s 快照（半截文本），
+      // 服务端是全文——id 不同（前端生成 vs 引擎 id）、前 300 字指纹对不上（半截不足 300 字）、
+      // ts 差超 2 分钟（带工具的长回合），三层全失配 → 同一段话出现两条（半截 + 全文）。
+      // 用前缀关系归并：同 role、一方是另一方前缀、较长方 ≥80 字（避免"你是谁"×2 这类真实短消息重复被误并）、ts 差 < 30 分钟。
+      const serverText = server.text.trim()
+      if (serverText.length >= 80) {
+        for (let i = 0; i < merged.length; i++) {
+          const m = merged[i]
+          const localText = m.text?.trim() || ''
+          if (m.role !== server.role || localText.length < 40) continue
+          if (Math.abs(new Date(m.ts).getTime() - serverTs) >= 1_800_000) continue
+          if (serverText.startsWith(localText) || localText.startsWith(serverText)) return i
+        }
       }
     }
     for (const tool of server.tools || []) {
