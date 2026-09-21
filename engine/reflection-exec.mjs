@@ -211,6 +211,7 @@ export async function runOnTheSpotFix({ problem, runTurn, sessionKey = "anon", n
   if (!budget.ok) return { ok: false, refused: true, reason: budget.reason, text: `${budget.reason}。请把这条问题写进结论里交给用户决定。` };
   let result = null;
   let traceId = "";
+  let attemptId = null;
   if (wsRoot) {
     try {
       const opened = openTrace(wsRoot, { kind: "fix-attempt", goal: text });
@@ -237,21 +238,17 @@ export async function runOnTheSpotFix({ problem, runTurn, sessionKey = "anon", n
     result = attemptResult;
     if (traceId) {
       try {
-        addNode(wsRoot, traceId, {
+        const recorded = addNode(wsRoot, traceId, {
           action: attempt === 0 ? "执行轮" : `执行轮·重试${attempt}`,
           input: text,
           cost: Number(((Date.now() - t0) / 1000).toFixed(2)),
           outcome: attemptResult.status,
-          score: attemptResult.status === "done" ? 1 : 0,
+          score: 0,
         });
+        attemptId = recorded?.node?.id || null;
       } catch { /* 记录失败不影响结论 */ }
     }
     if (attemptResult.status === "done") break;      // 成了就不再来
-  }
-  if (traceId) {
-    try {
-      closeTrace(wsRoot, traceId, { result: result.summary || result.status, score: result.status === "done" ? 1 : 0, cost: Number(((Date.now() - startedAt) / 1000).toFixed(2)) });
-    } catch { /* 记录失败不影响结论 */ }
   }
   // 独立验证（2026-09-18）：执行轮说 done **不算数**——再派一个只看产物、看不到执行者推理的验证轮。
   // 不过验证就不许当成功（这正是 RSIAgent 那条"执行者不能自宣成功"）。
@@ -260,8 +257,8 @@ export async function runOnTheSpotFix({ problem, runTurn, sessionKey = "anon", n
     const artifacts = Array.isArray(result.files) && result.files.length ? result.files : [];
     try {
       verification = await verifyArtifacts({
-        wsRoot, traceId,
-        claim: `${text}（执行轮自述：${result.evidence || "无证据"}）`,
+        wsRoot, traceId, attemptId,
+        claim: text,
         artifacts,
         runTurn,
       });
@@ -276,6 +273,10 @@ export async function runOnTheSpotFix({ problem, runTurn, sessionKey = "anon", n
         summary: result.summary,
       };
     }
+  }
+  if (traceId) {
+    closeTrace(wsRoot, traceId, { result: result.status, score: result.status === 'done' ? 1 : 0,
+      cost: Number(((Date.now() - startedAt) / 1000).toFixed(2)) });
   }
   const label = { done: "已当场修好（独立验证 PASS）", blocked: "没做成（受阻）", failed: "没做成（失败）" }[result.status] || result.status;
   return {

@@ -12,6 +12,8 @@ import { appendEpisodes, loadEpisodes, replayPolicy, dream, writeDreamLog, skill
 import { MATCH_WEIGHTS, matchSkillsForTask } from '../../engine/yuanshu-protocol.mjs';
 
 const tmp = () => fs.mkdtempSync(path.join(os.tmpdir(), 'yuanshu-dream-'));
+const verified = (ep, i) => ({ ...ep, runId: `fixture-${i}`,
+  verification: { source: 'human', verdict: 'PASS', reference: `isolated-review-${i}`, skillValidated: true } });
 
 test('episode 存取：同一任务句合并成一条（真值取并集）、按 kind 过滤、坏行不炸', () => {
   const root = tmp();
@@ -60,7 +62,7 @@ test('做梦：赢家不可能更差（现役在候选里，且有更差的一�
     return table[policy.id]?.[ep.input] || [];
   };
   const r = dream({
-    kind: 'skill-match', episodes: eps, incumbentId: 'incumbent',
+    kind: 'skill-match', episodes: eps.map(verified), incumbentId: 'incumbent',
     candidates: [{ id: 'better' }, { id: 'mixed' }], rank,
   });
   assert.equal(r.ok, true);
@@ -94,7 +96,8 @@ test('做梦真的跑在元枢的技能匹配器上：现役权重 vs 候选权�
   ];
   // 历史真值：当时 agent 真的 activate 了哪个（这里用现役匹配器的结果当"历史"，形状与真机一致）
   const inputs = ['帮我写个爆款短视频脚本', '给我画一张国风海报', '今天复盘一下'];
-  const episodes = inputs.map((m) => ({ kind: 'skill-match', input: m, choice: matchSkillsForTask(m, skills)[0].name }));
+  const expected = ['aigc-video-production', 'wanxiang-design', 'daily-retrospective'];
+  const episodes = inputs.map((m, i) => verified({ kind: 'skill-match', input: m, choice: expected[i] }, i));
   const rank = (ep, policy) => matchSkillsForTask(ep.input, skills, 3, policy.weights).map((s) => s.name);
   const r = dream({
     kind: 'skill-match', episodes, incumbentId: 'matcher-current',

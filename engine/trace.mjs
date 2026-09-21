@@ -21,6 +21,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { createHash } from "node:crypto";
 import { atomicWriteText } from "./atomic-io.mjs";
+import { evidenceNodes } from './trace-evidence.mjs';
 
 const DIR = () => ["记忆", "做梦", "轨迹"];
 export const MAX_TRACES = 300;
@@ -101,7 +102,7 @@ export function nodeSucceeded(n) {
 
 /** 记录的展开顺序（节点是按发生顺序落的，父指针只是个标记）。 */
 function recordedOrder(trace) {
-  return [...(trace?.nodes || [])];
+  return evidenceNodes(trace);
 }
 
 function orderNodes(trace, order) {

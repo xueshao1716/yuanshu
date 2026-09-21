@@ -12,6 +12,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { atomicWriteText } from "./atomic-io.mjs";
+import { evidenceNodes } from './trace-evidence.mjs';
 
 export const DEFAULT_EXPLORE_POLICY = Object.freeze({
   id: "recorded",
@@ -46,7 +47,7 @@ export function resetExplorePolicy(wsRoot, { fsMod = fs } = {}) {
   return { ok: true, id: DEFAULT_EXPLORE_POLICY.id, policy: { ...DEFAULT_EXPLORE_POLICY } };
 }
 
-/** 候选策略：现役 + 几个"少试/多试"的替代做法。回放时现役必须在内（赢家不可能更差）。 */
+/** 候选策略：现役 + 几个重试次数；历史比较必须包含现役，结论仅限已覆盖样本。 */
 export function exploreCandidates() {
   return [
     { id: "no-retry", retryOnFailure: 0 },
@@ -79,7 +80,7 @@ export function replayExploreAcross(traces, { incumbentId = "recorded", candidat
   const inc = table.find((t) => t.id === incumbentId);
   const scored = table.map((t) => {
     if (t.id === incumbentId) return { ...t, role: "incumbent", decision: "keep" };
-    const worse = t.rows.filter((r, i) => r.score < inc.rows[i].score || r.cost > inc.rows[i].cost).length;
+    const worse = t.rows.filter((r, i) => !r.covered || !inc.rows[i].covered || r.score < inc.rows[i].score || r.cost > inc.rows[i].cost).length;
     const better = t.rows.filter((r, i) => r.score >= inc.rows[i].score && r.cost < inc.rows[i].cost).length;
     return {
       ...t, role: "challenger", worse, better,
@@ -103,13 +104,16 @@ export function replayExploreAcross(traces, { incumbentId = "recorded", candidat
  */
 export function replayExplore(trace, policy = {}) {
   const retry = Math.max(0, Number(policy.retryOnFailure ?? DEFAULT_EXPLORE_POLICY.retryOnFailure));
-  const nodes = Array.isArray(trace?.nodes) ? trace.nodes : [];
+  const nodes = evidenceNodes(trace);
   let cost = 0, attempts = 0, score = 0;
+  let terminal = false;
   for (const n of nodes) {
     if (attempts >= retry + 1) break;
     attempts++;
     cost += Number(n.cost) || 0;
     if (Number(n.score) > 0) { score = 1; break }
+    if (n.terminal) { terminal = true; break; }
   }
-  return { traceId: trace?.id || "", policyId: policy.id || `retry-${retry}`, score, cost: Number(cost.toFixed(3)), attempts };
+  return { traceId: trace?.id || "", policyId: policy.id || `retry-${retry}`, score, cost: Number(cost.toFixed(3)), attempts,
+    covered: Boolean(score || terminal || attempts >= retry + 1) };
 }

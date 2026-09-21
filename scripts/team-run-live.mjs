@@ -13,6 +13,7 @@ import { loadTeamRuntimeConfig } from './team-runtime-config.mjs'
 import { rolesSpec, checklistSpec } from './team-video-profile.mjs'
 import { reviewStoragePath, reviewAtomicWrite } from '../engine/review-file-safety.mjs'
 import { createTeamCheckpoint } from '../engine/team-checkpoint.mjs'
+import { recordTeamEvidence } from '../engine/team-evolution-evidence.mjs'
 import { repairVideoFinal, formatShotSeconds } from './team-final-contract.mjs'
 
 const { wsRoot: WS_ROOT, teamRoot: ROOT, baseUrl: BASE, token: TOKEN } = loadTeamRuntimeConfig()
@@ -292,6 +293,7 @@ const run = {
   parentRunId: process.env.YUANSHU_TEAM_RUN_ID || null,
   sessionId: process.env.YUANSHU_TEAM_SESSION_ID || null,
   mode: 'real',
+  cost: { reservedCalls: checkpoint.snapshot().calls },
   profile: { id: 'yuanshu-video-legacy', version: '2' },
   delivery,
   drivenBy: 'yuanshu · scripts/team-run-live.mjs v2（服务端模型调用）',
@@ -335,6 +337,8 @@ const run = {
 
 const recordPath = name => reviewStoragePath(WS_ROOT, `工程/多AI角色扮演系统/${name}`)
 reviewAtomicWrite(recordPath('team-run.json'), JSON.stringify(run, null, 2))
+const evidenceRecord = recordTeamEvidence(WS_ROOT, run)
+if (!evidenceRecord.ok) console.warn('[天团] 进化证据存档失败：', evidenceRecord.reason)
 fs.appendFileSync(recordPath('pheromone.jsonl'), run.pheromone.map((p) => JSON.stringify(p)).join('\n') + '\n', 'utf8')
 reviewAtomicWrite(recordPath('runs/last-live-run.json'), JSON.stringify({ at: run.createdAt, model: run.model, task: TASK, checklist: run.checklist, dir: runDir, elapsedMs: run.elapsedMs, stages: run.stages.map((s) => `${s.id}:${s.status}`) }, null, 2))
 

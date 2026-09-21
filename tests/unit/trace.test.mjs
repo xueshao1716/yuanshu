@@ -17,7 +17,8 @@ function buildTrace(root, { thirdSucceeds = true } = {}) {
   const { trace } = openTrace(root, { kind: 'fix-attempt', goal: '把 X 修好' });
   addNode(root, trace.id, { action: 'try-A', input: '方案A', cost: 3, outcome: 'failed', score: 0 });
   addNode(root, trace.id, { action: 'try-B', input: '方案B', cost: 5, outcome: 'failed', score: 0 });
-  addNode(root, trace.id, { action: 'try-C', input: '方案C', cost: 2, outcome: thirdSucceeds ? 'done' : 'failed', score: thirdSucceeds ? 1 : 0 });
+  const attempt = addNode(root, trace.id, { action: 'try-C', input: '方案C', cost: 2, outcome: thirdSucceeds ? 'done' : 'failed', score: thirdSucceeds ? 1 : 0 });
+  if (thirdSucceeds) addNode(root, trace.id, { action: '独立验证', parent: attempt.node.id, cost: 0, outcome: 'PASS', score: 1 });
   closeTrace(root, trace.id, { result: thirdSucceeds ? '修好了' : '没修好', score: thirdSucceeds ? 1 : 0, cost: 10 });
   return loadTrace(root, trace.id);
 }
@@ -25,7 +26,7 @@ function buildTrace(root, { thirdSucceeds = true } = {}) {
 test('轨迹存取：开树、加节点、收尾；坏 id 不炸', () => {
   const root = tmp();
   const t = buildTrace(root);
-  assert.equal(t.nodes.length, 3);
+  assert.equal(t.nodes.length, 4);
   assert.equal(t.closed.score, 1);
   assert.equal(t.nodes[2].parent, null, '没写 parent 就是根级');
   assert.equal(listTraces(root).length, 1);

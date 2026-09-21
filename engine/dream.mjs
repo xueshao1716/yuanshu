@@ -1,31 +1,17 @@
 // engine/dream.mjs —— 做梦：拿历史当模拟器，离线评估"要不要改"
 // （2026-09-18，用户："openclaw、hermes 都有做梦，我觉得这是个重要方向"）
 //
-// ── 这篇模块只做一件被证明过的事 ───────────────────────────────────────────
-// Dream-RSI（Google/DeepMind/UMD/UVA，dream-rsi.com）的关键洞察是：
-// **一次真实探索留下的记录，本身就是那一片搜索空间的精确模拟器**——
-// 换一个策略在旧树上重走，每个节点的结果早就存在盘上了，所以回放**零真实执行**。
-// 它的边界同样清楚：**只有在历史真的走到过的地方才能做梦**，而且只有当"策略"是个
-// 确定性决策函数（给定已有结果 → 选下一步）时，回放才是精确的。
-//
-// 元枢里符合这个形状的东西不多，但有一个特别干净：
-//   **技能匹配器**（engine/yuanshu-protocol.mjs 的 matchSkillsForTask + MATCH_WEIGHTS）
-//   输入 = 当时的用户任务句；真值 = 当时真的 activate_skill 了哪个技能（会话文件里躺着）。
-//   权重表是纯确定性函数 → 完全可回放。**这就是元枢的第一片"可做梦"的搜索空间。**
-//
-// 别假装能模拟大模型：LLM 的输出不可精确回放，所以这里**不**做"换提示词预测效果"那种事，
-// 那只能靠真跑（A/B）。这里只回放"能由历史结果决定的决策"。
-//
-// ── 三条规矩（第二条是 Dream-RSI 最漂亮的一手）──────────────────────────────
-//   ① 候选里必须包含**现在正在用的那个策略**：赢家因此"不可能更差"（可证，不是感觉）。
-//   ② 只有在**每一条历史 episode 上都不更差**、且至少一条更好时才算赢——
-//      平均分提高但某几条倒退，不算赢（那正是"变强了但变坏了几处"的经典骗局）。
-//   ③ 做梦只产出**提案 + 证据**，不自动改产品行为：改匹配权重会改变元枢的行为，
-//      按元枢自己的红线规矩（权限/行为变更要人拍板）走人工审批。
+// 借鉴 Dream-RSI 的历史回放思路；这里只评估确定性技能匹配策略，
+// 不模拟新的模型回答，也不训练模型权重。
+// activate_skill 只证明选过这个技能；参与评分还需独立或人工核验的技能标签。
+// 候选与现役逐条比较，历史指标不退步且有收益才生成候选建议。
+// evolution-cycle 另做发现/保留集隔离、后续真实任务观察和治理检查，
+// 然后进入有期限试运行与可回滚监测。历史通过不保证未来改善。
 
 import fs from "node:fs";
 import path from "node:path";
 import { atomicWriteText } from "./atomic-io.mjs";
+import { verifiedSkillEpisode } from './trace-evidence.mjs';
 
 const DIR = () => ["记忆", "做梦"];
 export const EPISODES_FILE = "episodes.jsonl";
@@ -66,7 +52,7 @@ function ensureDir(wsRoot) {
   return dir;
 }
 
-/** episode 是"历史上真发生过的一次决策"：输入 + 当时的选择（真值）。 */
+/** episode 保存输入、当时的选择和可选核验信息；选择本身不是正确标签。 */
 export function appendEpisodes(wsRoot, episodes, fsMod = fs) {
   const list = (Array.isArray(episodes) ? episodes : []).filter((e) => e && e.kind && e.input);
   if (!list.length) return { ok: true, added: 0 };
@@ -83,8 +69,8 @@ export function loadEpisodes(wsRoot, { kind = "", limit = 0, fsMod = fs } = {}) 
   const file = dreamPaths(wsRoot).episodes;
   let raw = "";
   try { raw = fsMod.readFileSync(file, "utf8"); } catch { return []; }
-  // 同一个任务句只回放一次，而且**真值是并集**：历史上先记了单条、后来又记了别的技能，
-  // 合并成一条（choices 取并集），否则同一句话会被算成好几道题、正确答案还被判错。
+  // 仅合并同一运行/会话、同一输入且核验信息一致的记录。
+  // 不把跨会话的同名任务或未核验选择并入已核验标签。
   const byKey = new Map();
   for (const line of raw.split("\n")) {
     const t = line.trim();
@@ -93,7 +79,7 @@ export function loadEpisodes(wsRoot, { kind = "", limit = 0, fsMod = fs } = {}) 
     try { e = JSON.parse(t); } catch { continue }
     if (!e?.kind || !e.input) continue;
     if (kind && e.kind !== kind) continue;
-    const key = `${e.kind}\u0000${String(e.input).slice(0, 200)}`;
+    const key = JSON.stringify([e.kind, e.input, e.runId || '', e.sessionId || e.source || '', e.verification || null]);
     const cur = byKey.get(key) || { ...e, choices: [] };
     const add = [...(Array.isArray(e.choices) ? e.choices : []), e.choice].filter(Boolean);
     cur.choices = [...new Set([...(cur.choices || []), ...add])];
@@ -118,7 +104,7 @@ function compactEpisodes(wsRoot, fsMod = fs) {
  * 回放：把一套策略在历史 episode 上跑一遍。
  * `rank(episode, policy)` 由调用方给（元枢里就是"这套权重会把哪个技能排在第一位"）。
  *
- * 真值是**一组**选择而不是一个：同一个任务句上，agent 当时可能连着激活了两个技能
+ * 标签可以是一组技能：同一个任务可能需要多个技能。
  * （真机上就出现了 "现在可以好好画了吗" → image-generation + gpt-image-2）。
  * 按单一真值打分，正确答案会被算成错——所以 `ep.choices` 优先，`ep.choice` 兜底。
  * 得分口径：排第一且命中真值 1 分，进前三命中 0.5 分，否则 0 分。
@@ -127,7 +113,8 @@ export function replayPolicy(policy, episodes, { rank } = {}) {
   const eps = Array.isArray(episodes) ? episodes : [];
   const rows = eps.map((ep) => {
     const truth = (Array.isArray(ep.choices) && ep.choices.length ? ep.choices : [ep.choice]).filter(Boolean);
-    const list = (Array.isArray(rank(ep, policy)) ? rank(ep, policy) : []).slice(0, 3);
+    const ranked = rank(ep, policy);
+    const list = (Array.isArray(ranked) ? ranked : []).slice(0, 3);
     const top1Hit = list[0] && truth.includes(list[0]);
     const anyHit = list.some((n) => truth.includes(n));
     const score = top1Hit ? 1 : anyHit ? 0.5 : 0;
@@ -142,16 +129,17 @@ export function replayPolicy(policy, episodes, { rank } = {}) {
  * 返回提案，不改任何东西。
  */
 export function dream({ kind, episodes, incumbentId, candidates, rank }) {
-  const eps = Array.isArray(episodes) ? episodes : [];
-  if (!eps.length) return { ok: false, reason: "没有历史 episode 可回放（先积累记录，别急着做梦）", kind };
-  // 现役由这里**强制**塞进候选集：调用方忘了给也不会破坏"赢家不可能更差"。
-  // 缺的是"现役是谁"本身——那没法保证任何东西，直接拒绝。
-  if (!incumbentId) return { ok: false, reason: "必须给出现役策略 id（否则无法保证赢家不更差）", kind };
+  const observed = Array.isArray(episodes) ? episodes : [];
+  const eps = kind === 'skill-match' ? observed.filter(verifiedSkillEpisode) : observed;
+  if (!eps.length) return { ok: false, reason: observed.length ? "缺少已核验的技能标签；历史激活仅是观察记录" : "没有历史 episode 可回放", kind,
+    episodes: observed.length, eligibleEpisodes: 0, winner: null, table: [], proposal: null };
+  // 必须包含现役作为比较基准；历史比较结论不能外推到未来。
+  if (!incumbentId) return { ok: false, reason: "必须给出现役策略 id，才能比较历史指标", kind };
   const all = [incumbentId, ...(candidates || []).map((c) => c.id).filter((id) => id && id !== incumbentId)];
 
   const policies = new Map((candidates || []).map((c) => [c.id, c]));
   const evaluated = all.map((id) => {
-    const policy = id === incumbentId ? { id, weights: null } : policies.get(id) || { id };
+    const policy = policies.get(id) || { id, weights: null };
     const r = replayPolicy({ id, ...policy }, eps, { rank });
     return { id, ...r };
   });
@@ -174,13 +162,13 @@ export function dream({ kind, episodes, incumbentId, candidates, rank }) {
 
   const winner = verdicts.find((v) => v.decision === "promote") || null;
   return {
-    ok: true, kind, episodes: eps.length,
+    ok: true, kind, episodes: eps.length, eligibleEpisodes: eps.length,
     table: verdicts,
     winner: winner?.id || null,
     proposal: winner
       ? { kind: "ask", text: `把「${kind}」策略从 ${incumbentId} 换成 ${winner.id}（回放 ${eps.length} 条历史，每条都不更差、${winner.better} 条更好）`, due: null }
       : null,
-    note: "赢家不可能更差：现役也在候选里，且只在'每条都不更差且至少一条更好'时才提案。",
+    note: "仅表示已核验历史样本上的指标不退步；不能保证后续真实任务不退步。",
   };
 }
 
@@ -208,21 +196,21 @@ export function writeDreamLog(wsRoot, kind, result, { now = new Date(), fsMod = 
  * 机制不缺，缺的是"每次真发生过的事都被记下来"。这里就是那个记录点：
  * 谁在什么任务句上激活了哪个技能，发生时立刻落一条。
  */
-export function recordSkillChoice(wsRoot, { input, skill, source = "live", at = new Date(), fsMod = fs } = {}) {
+export function recordSkillChoice(wsRoot, { input, skill, source = "live", sessionId = '', runId = '', at = new Date(), fsMod = fs } = {}) {
   const msg = String(input || "").trim();
   const name = String(skill || "").trim();
   if (!msg || !name) return { ok: false, reason: "缺 input 或 skill" };
-  return appendEpisodes(wsRoot, [{ kind: "skill-match", at: new Date(at).toISOString(), input: msg.slice(0, 500), choice: name, choices: [name], source }], fsMod);
+  return appendEpisodes(wsRoot, [{ kind: "skill-match", at: new Date(at).toISOString(), input: msg.slice(0, 500), choice: name, choices: [name], source, sessionId, runId }], fsMod);
 }
 
-/** 从会话文件里把"当时真的 activate 了哪个技能"挖出来，做成可回放的 episode。
- *  同一个任务句上激活了多个技能时**合并成一条**（真值是一组，不是一条）。 */
+/** 从会话里提取技能选择观察；同一会话同一用户轮内合并，仍需另行核验。 */
 export function skillEpisodesFromSessions(sessionFiles, { readFile = (f) => fs.readFileSync(f, "utf8"), limit = 500 } = {}) {
   const byInput = new Map();
   for (const file of sessionFiles || []) {
     let raw = "";
     try { raw = readFile(file); } catch { continue }
     let lastUser = "";
+    let turn = 0;
     for (const line of raw.split("\n")) {
       const t = line.trim();
       if (!t) continue;
@@ -232,15 +220,15 @@ export function skillEpisodesFromSessions(sessionFiles, { readFile = (f) => fs.r
       if (!m) continue;
       if (m.role === "user") {
         const text = (Array.isArray(m.content) ? m.content : []).map((c) => c?.text || "").join(" ").trim();
-        if (text && !text.startsWith("【元枢内置技能库】")) lastUser = text.slice(0, 500);
+        if (text && !text.startsWith("【元枢内置技能库】")) { lastUser = text.slice(0, 500); turn++; }
         continue;
       }
       if (m.role === "toolResult" && m.toolName === "activate_skill") {
         const text = (Array.isArray(m.content) ? m.content : []).map((c) => c?.text || "").join(" ");
         const hit = text.match(/技能\s+([\w.-]+)\s+已加载/);
         if (!hit || !lastUser) continue;
-        const key = lastUser.slice(0, 200);
-        const cur = byInput.get(key) || { kind: "skill-match", at: e.timestamp || null, input: lastUser, choices: [], sources: [] };
+        const key = `${file}:${turn}`;
+        const cur = byInput.get(key) || { kind: "skill-match", runId: key, at: e.timestamp || null, input: lastUser, choices: [], sources: [] };
         if (!cur.choices.includes(hit[1])) cur.choices.push(hit[1]);
         const src = path.basename(String(file));
         if (!cur.sources.includes(src)) cur.sources.push(src);

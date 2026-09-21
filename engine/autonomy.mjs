@@ -154,7 +154,10 @@ export async function grant(proposal, evidence = {}, { wsRoot, charter, apply, n
   }
 
   let applied = null;
-  try { applied = typeof apply === "function" ? await apply() : null; } catch (e) {
+  try {
+    applied = typeof apply === "function" ? await apply() : null;
+    if (applied?.ok === false) throw new Error(applied.error || applied.reason || '配置未生效');
+  } catch (e) {
     appendLedger(wsRoot, { at: new Date(now).toISOString(), action: "apply-failed", level: verdict.level, text: proposal?.text || "", error: String(e?.message || e).slice(0, 160) }, fsMod);
     return { ok: false, level: verdict.level, decided: false, verdict, human, message: `自决失败：${String(e?.message || e).slice(0, 120)}` };
   }
@@ -180,6 +183,7 @@ export async function revoke(wsRoot, { at = null, revert, now = new Date(), fsMo
   if (!target) return { ok: false, reason: "没有可撤销的自决记录" };
   let reverted = null;
   try { reverted = typeof revert === "function" ? await revert(target) : null; } catch (e) { return { ok: false, reason: String(e?.message || e).slice(0, 140) } }
+  if (reverted?.ok === false) return { ok: false, reason: reverted.reason || reverted.error || '撤销未生效' };
   appendLedger(wsRoot, { at: new Date(now).toISOString(), action: "revoked", of: target.at, level: target.level, text: target.text, reverted }, fsMod);
   return { ok: true, revoked: target.at, text: target.text, reverted };
 }

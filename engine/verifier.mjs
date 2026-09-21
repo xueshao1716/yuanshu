@@ -155,7 +155,8 @@ export function verifyArtifactFiles(paths = [], { minBytes = 1024, videoMinBytes
  * `runTurn(prompt)` 由调用方注入（server 里是 unifiedChat）；wsRoot + traceId 给了就落一个验证节点。
  * 返回 { ok, verdict, evidence, checks, tampered, changed:[...] }。
  */
-export async function verifyArtifacts({ wsRoot = "", traceId = "", claim, artifacts = [], runTurn } = {}) {
+export async function verifyArtifacts({ wsRoot = "", traceId = "", attemptId = null, claim, artifacts = [], runTurn } = {}) {
+  const startedAt = Date.now();
   const before = artifactDigest(artifacts);
   let raw = "";
   let parsed = null;
@@ -173,7 +174,7 @@ export async function verifyArtifacts({ wsRoot = "", traceId = "", claim, artifa
   const evidence = tampered ? `验证过程改动了被验证的产物（${changed.join("、")}）——裁判不许改标的` : parsed.evidence;
   if (wsRoot && traceId) {
     try {
-      addNode(wsRoot, traceId, { action: "独立验证", input: String(claim || "").slice(0, 200), cost: 0, outcome: verdict, score: verdict === "PASS" ? 1 : 0 });
+      addNode(wsRoot, traceId, { parent: attemptId, action: "独立验证", input: String(claim || "").slice(0, 200), cost: (Date.now() - startedAt) / 1000, outcome: verdict, score: verdict === "PASS" ? 1 : 0 });
     } catch { /* 记录失败不影响结论 */ }
   }
   return { ok: verdict === "PASS", verdict, evidence, checks: parsed.checks, tampered, changed };

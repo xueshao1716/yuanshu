@@ -31,6 +31,10 @@ function fixTrace(root, { succeedAt, attempts = 3 }) {
   const { trace } = openTrace(root, { kind: 'fix-attempt', goal: '修 X' });
   for (let i = 1; i <= attempts; i++) {
     addNode(root, trace.id, { action: `执行轮·${i}`, cost: 2, outcome: i === succeedAt ? 'done' : 'failed', score: i === succeedAt ? 1 : 0 });
+    if (i === succeedAt) {
+      addNode(root, trace.id, { action: '独立验证', outcome: 'PASS', score: 1, cost: 0 });
+      break;
+    }
   }
   closeTrace(root, trace.id, { score: succeedAt ? 1 : 0, cost: attempts * 2 });
   return loadTrace(root, trace.id);

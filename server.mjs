@@ -115,10 +115,12 @@ import { createTimeEngine } from "./engine/time-engine.mjs";
 import { composeTimeTaskMessages, timeTaskReadTools, recordReflectionActions, yesterdayYmd } from "./engine/time-task-run.mjs";
 import { planReflectionExecution, buildActionExecutionPrompt, parseActionResult, recordActionAttempt, summarizeExecution, runOnTheSpotFix } from "./engine/reflection-exec.mjs";
 import { appendEpisodes, loadEpisodes, dream, writeDreamLog, skillEpisodesFromSessions, dreamPaths, currentWeights, promoteWeights, resetWeights, recordSkillChoice } from "./engine/dream.mjs";
+import { runEvolutionCycle, evolutionStatus, revertEvolution } from './engine/evolution-cycle.mjs';
+import { verifiedSkillEpisode } from './engine/trace-evidence.mjs';
 import { grant, revoke, loadCharter, autoUsedToday, loadLedger } from "./engine/autonomy.mjs";
 import { listTraces, loadTrace, replayAcrossTraces, candidatePolicies, recordDelegation } from "./engine/trace.mjs";
 import { heartbeat, liveInstances, portOwner, recordStartup, recentStartups, selfCheck, reconcileInstances } from "./engine/runtime-registry.mjs";
-import { currentExplorePolicy, promoteExplorePolicy, resetExplorePolicy, replayExploreAcross } from "./engine/explore-policy.mjs";
+import { currentExplorePolicy, promoteExplorePolicy, resetExplorePolicy, replayExploreAcross, exploreCandidates } from "./engine/explore-policy.mjs";
 import { verifyArtifacts } from "./engine/verifier.mjs";
 import { MATCH_WEIGHTS } from "./engine/yuanshu-protocol.mjs";
 import { sanitizeSessionFile } from "./engine/session-sanitize.mjs";
@@ -589,7 +591,7 @@ const executeUnifiedTool = createUnifiedToolExecutorGuarded({
       try {
         const sid = globalThis.__yuanshuLastSessionKey || "";
         const msg = lastUserBySession.get(sid) || "";
-        if (msg) recordSkillChoice(WS_ROOT, { input: msg, skill: name });
+        if (msg) recordSkillChoice(WS_ROOT, { input: msg, skill: name, sessionId: sid });
       } catch {}
       return execActivateSkill(name);
     },
@@ -2095,89 +2097,12 @@ async function runDreamCycle() {
     try { fs.writeFileSync(__dreamCursor, JSON.stringify({ mtimeMs: __fresh[__fresh.length - 1].m, at: new Date().toISOString(), files: __fresh.length })); } catch {}
     console.log(`[dream] 增量摄取 ${__fresh.length} 个新会话（游标 ${__cursorMs ? new Date(__cursorMs).toISOString() : "首次全量"}）`);
   }
-  const episodes = loadEpisodes(WS_ROOT, { kind: "skill-match" });
-  if (!episodes.length) return { ok: false, reason: "还没有历史 episode（在线记录已接上，等真实使用发生）" };
   const skills = loadSkillIndex();
-  const active = currentWeights(WS_ROOT);
-  const incumbentId = active.id || DREAM_POLICIES.incumbent;
-  const incumbentWeights = active.weights || null;
-  const maxRank = (ep, policy) => matchSkillsForTask(ep.input, skills, 3, policy.id === incumbentId ? incumbentWeights : policy.weights).map((s) => s.name);
-  const result = dream({
-    kind: "skill-match", episodes,
-    incumbentId,
-    candidates: [{ id: DREAM_POLICIES.incumbent, weights: null }, ...DREAM_POLICIES.candidates].filter((c) => c.id !== incumbentId),
-    rank: maxRank,
+  return runEvolutionCycle({ wsRoot: WS_ROOT,
+    candidates: [{ id: DREAM_POLICIES.incumbent, weights: null }, ...DREAM_POLICIES.candidates],
+    matcherContext: JSON.stringify(skills.map(s => [s.name, s.desc])),
+    rank: (ep, policy) => matchSkillsForTask(ep.input, skills, 3, policy.weights).map(s => s.name),
   });
-  if (!result.ok) return result;
-  writeDreamLog(WS_ROOT, "skill-match", result);
-  if (result.winner) {
-    const winnerRow = result.table.find((t) => t.id === result.winner);
-    const inc = result.table.find((t) => t.role === "incumbent");
-    const chosen = DREAM_POLICIES.candidates.find((c) => c.id === result.winner);
-    const auth = await grant(
-      { kind: "config", text: `把技能匹配权重从 ${incumbentId} 换成 ${result.winner}` },
-      {
-        replayable: true, episodes: result.episodes,
-        noWorse: (winnerRow?.worse || 0) === 0, betterCount: winnerRow?.better || 0,
-        reversible: true, scope: "config",
-        text: `回放历史准确率 ${inc?.accuracy} → ${winnerRow?.accuracy}`,
-      },
-      {
-        wsRoot: WS_ROOT,
-        previous: incumbentId,
-        apply: async () => ({ undo: `weights:${incumbentId}`, ...(promoteWeights(WS_ROOT, result.winner, chosen?.weights || {}) || {}) }),
-      },
-    );
-    result.autonomy = auth;
-    if (!auth.decided) {
-      try {
-        recordPromises(WS_ROOT, [{
-          id: `d_${Date.now().toString(36)}`, at: new Date().toISOString(), sessionId: "dream",
-          text: auth.human?.ask || result.proposal.text, kind: "ask", due: null, status: "pending", evidence: null, closedAt: null,
-        }]);
-      } catch {}
-    } else {
-      console.log(`[dream] 自决上线：${auth.message}`);
-    }
-  } else {
-    console.log(`[dream] 回放 ${result.episodes} 条 episode：没有'每条都不更差'的赢家，保持不变`);
-  }
-
-  // 第二类：探索策略（"失败后再试几次"）。数据源是当场修/派活落下的轨迹。
-  // 这一类同样满足 A/B 级条件（可回放、可回滚、不碰红线），所以赢家自动上线——
-  // 这正是"别什么都让我批"要的效果：技术参数自己定，价值判断才找人。
-  try {
-    const traces = listTraces(WS_ROOT, { limit: 50 }).map((t) => loadTrace(WS_ROOT, t.id)).filter((t) => t?.nodes?.length);
-    const cur = currentExplorePolicy(WS_ROOT);
-    const ex = replayExploreAcross(traces, { incumbentId: "recorded", incumbent: { retryOnFailure: cur.retryOnFailure } });
-    if (!ex.ok) {
-      console.log(`[dream] 探索策略：${ex.reason}`);
-    } else {
-      result.explore = ex;
-      if (ex.winner) {
-        const row = ex.table.find((t) => t.id === ex.winner);
-        const inc = ex.table.find((t) => t.role === "incumbent");
-        const chosen = exploreCandidates().find((c) => c.id === ex.winner);
-        const auth = await grant(
-          { kind: "config", text: `探索策略从「${cur.id}」换成「${ex.winner}」（失败后再试 ${chosen?.retryOnFailure} 次）` },
-          { replayable: true, episodes: ex.traces, noWorse: (row?.worse || 0) === 0, betterCount: row?.better || 0, reversible: true, scope: "config", text: `回放 ${ex.traces} 棵轨迹：成本 ${inc?.cost} → ${row?.cost}` },
-          { wsRoot: WS_ROOT, previous: cur.id, apply: async () => { const r = promoteExplorePolicy(WS_ROOT, ex.winner, chosen || {}); return { undo: `explore:${cur.id}`, ...r }; } },
-        );
-        result.exploreAutonomy = auth;
-        console.log(`[dream] 探索策略：${auth.decided ? auth.message : "待你拍板：" + (auth.human?.ask || "")}`);
-        if (!auth.decided) {
-          try {
-            recordPromises(WS_ROOT, [{ id: `d_${Date.now().toString(36)}`, at: new Date().toISOString(), sessionId: "dream", text: auth.human?.ask || ex.proposal.text, kind: "ask", due: null, status: "pending", evidence: null, closedAt: null }]);
-          } catch {}
-        }
-      } else {
-        console.log(`[dream] 探索策略：回放 ${ex.traces} 棵轨迹，没有'每条都不更差'的赢家，保持不变`);
-      }
-    }
-  } catch (e) {
-    console.log(`[dream] 探索策略回放异常: ${String(e?.message || e).slice(0, 140)}`);
-  }
-  return result;
 }
 
 import { createPendingApi } from "./engine/pending-api.mjs";
@@ -2324,7 +2249,9 @@ const API_ROUTES = [
     try { logTail = fs.readFileSync(dreamPaths(WS_ROOT).log, "utf8").split("\n").slice(-40).join("\n"); } catch {}
     json(res, 200, {
       ok: true,
-      kinds: [{ kind: "skill-match", episodes: skillEps.length, incumbent: DREAM_POLICIES.incumbent, candidates: DREAM_POLICIES.candidates.map((c) => c.id) }],
+      kinds: [{ kind: "skill-match", episodes: skillEps.length, eligibleEpisodes: skillEps.filter(verifiedSkillEpisode).length,
+        incumbent: currentWeights(WS_ROOT).id || DREAM_POLICIES.incumbent, candidates: DREAM_POLICIES.candidates.map((c) => c.id) }],
+      evolution: evolutionStatus(WS_ROOT),
       lastEpisodes: skillEps.slice(-5).map((e) => ({ at: e.at, input: String(e.input).slice(0, 60), choice: e.choice })),
       logTail,
     });
@@ -2389,6 +2316,7 @@ const API_ROUTES = [
         // 撤销点：优先回到记录里的上一版；没有就清掉覆盖，回到代码里的默认。
         // undo 有两类前缀：weights:* 是技能权重，explore:* 是探索策略（"失败后再试几次"）。
         const raw = String(row?.undo || "");
+        if (raw.startsWith('evolution:')) return revertEvolution(WS_ROOT, raw.slice('evolution:'.length), row.at);
         const back = raw.replace(/^(weights|explore):/, "");
         const cand = raw.startsWith("explore:") ? null : DREAM_POLICIES.candidates.find((c) => c.id === back);
         if (cand) return promoteWeights(WS_ROOT, cand.id, cand.weights);
@@ -3554,5 +3482,3 @@ setTimeout(() => {
 }, 4000).unref?.();
 
 startServer();
-
-
