@@ -7,6 +7,15 @@ import { execFileSync } from 'node:child_process'
 
 import { createMiscApi } from '../../engine/misc-api.mjs'
 
+test('review explicitly reports the file preview limit and total', async () => {
+  const fx = fixture(os.tmpdir(), async args => ({ ok: true, output: args[0] === 'status'
+    ? ['## main', ...Array.from({ length: 325 }, (_, i) => ` M file${i}.mjs`), ''].join('\0') : '' }));
+  await fx.api.handleGitReview({});
+  assert.equal(fx.response().body.files.length, 300);
+  assert.equal(fx.response().body.filesTotal, 325);
+  assert.equal(fx.response().body.filesTruncated, true);
+});
+
 function git(cwd, args) {
   return execFileSync('git', ['-C', cwd, ...args], { encoding: 'utf8' })
 }

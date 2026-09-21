@@ -18,6 +18,15 @@ function fakeJson(res, code, value) {
   res.end(JSON.stringify(value))
 }
 
+test('stop response never exposes persisted team context or private request', async () => {
+  const api = createRunApi({ manager: { stop: () => ({ id: 'r', status: 'stopping', request: { message: 'private' }, checkpoint: { team: { launchId: 'l', binding: { context: 'secret-history' } } } }) }, json: fakeJson })
+  const res = new FakeResponse()
+  await api.stop(res, 'r')
+  assert.ok(!res.text().includes('secret-history'))
+  assert.ok(!res.text().includes('private'))
+  assert.deepEqual(JSON.parse(res.text()).checkpoint.team, { launchId: 'l' })
+})
+
 test('会话筛选在近期截取之前执行，详情和概览共用说明', async () => {
   const runs = Array.from({ length: 12 }, (_, i) => ({ id: `r${i}`, sessionId: i === 0 ? 'old-session' : 'new-session', status: 'completed', updatedAt: new Date(1000000 + i * 1000).toISOString() }))
   const manager = { list: () => runs, get: id => runs.find(r => r.id === id), readAfter: () => [] }

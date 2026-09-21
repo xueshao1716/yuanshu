@@ -44,8 +44,9 @@ export function createSoilReader({ agentDir = "", cwd = "", emotion = null, fsMo
     ];
     const hit = candidates.map(p => ({ p, st: statOf(p) })).find(x => x.st && x.st.isFile());
     if (!hit) return null;
+    fsMod.readFileSync(hit.p, 'utf8');
     return {
-      summary: `系统人格附录 ${path.basename(hit.p)} 已加载（${fmtBytes(hit.st.size)}，${fmtTime(hit.st.mtime)} 更新）`,
+      summary: `人格附录 ${path.basename(hit.p)} 文件可读（${fmtBytes(hit.st.size)}，${fmtTime(hit.st.mtime)} 更新）；本轮加载情况未核实`,
       details: { file: path.basename(hit.p), bytes: hit.st.size, updatedAt: new Date(hit.st.mtime).toISOString() },
     };
   }
@@ -54,9 +55,10 @@ export function createSoilReader({ agentDir = "", cwd = "", emotion = null, fsMo
   function readGenes() {
     const genome = emotion?.getGenome?.();
     const genes = genome?.genes;
-    if (!genes || typeof genes !== "object") return null;
+    if (!genes || typeof genes !== "object" || Array.isArray(genes)) return null;
     const names = Object.keys(genes);
     if (!names.length) return null;
+    if (names.some(n => !Number.isFinite(genes[n]?.expression) || !Number.isFinite(genes[n]?.baseline))) return null;
     const drifted = names.filter(n => {
       const g = genes[n] || {};
       const e = Number(g.expression), b = Number(g.baseline);
@@ -78,8 +80,8 @@ export function createSoilReader({ agentDir = "", cwd = "", emotion = null, fsMo
     const label = st.primary || "未知";
     const intensity = Number.isFinite(Number(st.intensity)) ? Number(st.intensity) : null;
     return {
-      summary: `${label}${intensity != null ? ` · 强度 ${intensity}` : ""}${st.secondary ? ` · 次 ${st.secondary}` : ""}`,
-      details: { primary: label, secondary: st.secondary || null, intensity, lastTalk: new Date(st.lastTalk).toISOString() },
+      summary: `最近会话记录（${fmtTime(st.lastTalk)}）：${label}${intensity != null ? ` · 强度 ${intensity}` : ""}${st.secondary ? ` · 次 ${st.secondary}` : ""}`,
+      details: { sessionId: key, primary: label, secondary: st.secondary || null, intensity, lastTalk: new Date(st.lastTalk).toISOString() },
     };
   }
 
@@ -88,13 +90,10 @@ export function createSoilReader({ agentDir = "", cwd = "", emotion = null, fsMo
     const f = path.join(cwd || "", "记忆.md");
     const st = statOf(f);
     if (!st || !st.isFile()) return null;
-    let sections = 0;
-    try {
-      const text = fsMod.readFileSync(f, "utf8");
-      sections = (text.match(/^#{1,3}\s+/gm) || []).length;
-    } catch { sections = 0; }
+    const text = fsMod.readFileSync(f, "utf8");
+    const sections = (text.match(/^#{1,3}\s+/gm) || []).length;
     return {
-      summary: `固定记忆 ${fmtBytes(st.size)}${sections ? ` · ${sections} 个条目` : ""} · ${fmtTime(st.mtime)} 更新`,
+      summary: `固定记忆 ${fmtBytes(st.size)} · ${sections} 个标题 · ${fmtTime(st.mtime)} 更新（文件读数，不代表本轮已引用）`,
       details: { bytes: st.size, sections, updatedAt: new Date(st.mtime).toISOString() },
     };
   }
@@ -102,14 +101,14 @@ export function createSoilReader({ agentDir = "", cwd = "", emotion = null, fsMo
   // ⑤ 治理：**待人工确认的提案条数**，而不是"保持人工确认"这句常量
   function readGovernance() {
     const genome = emotion?.getGenome?.();
-    if (!genome) return null;
+    if (!genome || !Array.isArray(genome.proposals) || !Array.isArray(genome.reviews)) return null;
     const proposals = Array.isArray(genome.proposals) ? genome.proposals : [];
     const pending = proposals.filter(p => p && p.status === "pending");
     const reviews = Array.isArray(genome.reviews) ? genome.reviews : [];
     return {
       summary: pending.length
         ? `有 ${pending.length} 条人格/基因提案待人工确认（不自动批准），已审 ${reviews.length} 条`
-        : `无待批提案，已审 ${reviews.length} 条；高风险操作仍需人工确认`,
+        : `人格/基因无待批提案，已审 ${reviews.length} 条；不包含工具等其他审批队列`,
       details: { pending: pending.length, reviewed: reviews.length, geneNames: pending.map(p => p.gene).filter(Boolean).slice(0, 8) },
     };
   }

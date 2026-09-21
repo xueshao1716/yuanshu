@@ -87,6 +87,34 @@ for (const { file, re } of TARGETS) {
   results.push({ file, from: m[2], changed: true });
 }
 
+// 锁文件只同步根包声明；不刷新依赖、不联网、不改第三方版本。
+for (const file of ['package-lock.json', 'frontend/package-lock.json', 'app/package-lock.json', 'mcp-server/package-lock.json']) {
+  const full = path.join(ROOT, file);
+  const raw = fs.readFileSync(full, 'utf8');
+  const data = JSON.parse(raw);
+  const from = data.version;
+  const rootPackage = data.packages?.[''];
+  if (!rootPackage) fail(`${file} 缺少根包`);
+  const updated = JSON.stringify({ ...data, version: next, packages: { ...data.packages, '': { ...rootPackage, version: next } } }, null, 2) + '\n';
+  // Validate dependencies before writing.
+  const parsed = JSON.parse(updated);
+  if (parsed.packages[''].version !== next) fail(`${file} 根包版本未匹配`);
+  for (const [name, item] of Object.entries(data.packages)) {
+    if (name && JSON.stringify(item) !== JSON.stringify(parsed.packages[name])) fail(`${file} 意外触及依赖 ${name}`);
+  }
+  if (!dry) fs.writeFileSync(full, updated, 'utf8');
+  results.push({ file, from, changed: updated !== raw });
+}
+{
+  const file = 'app/src-tauri/Cargo.lock', full = path.join(ROOT, file);
+  const raw = fs.readFileSync(full, 'utf8');
+  const re = /(\[\[package\]\]\r?\nname = "yuanshu"\r?\nversion = ")[^"]+("\r?\n)/;
+  if (!re.test(raw)) fail(`${file} 找不到元枢根包`);
+  const updated = raw.replace(re, (_all, pre, post) => `${pre}${next}${post}`);
+  if (!dry) fs.writeFileSync(full, updated, 'utf8');
+  results.push({ file, from: current, changed: updated !== raw });
+}
+
 // CHANGELOG：把 [Unreleased] 收成正式版本，并留一个空的 [Unreleased] 在上面。
 // sync 只做对齐，不代表发版，所以不动 CHANGELOG。
 const today = new Date().toISOString().slice(0, 10);

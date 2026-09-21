@@ -5,6 +5,7 @@ import { attachSseAbort } from "./ppt-refine.mjs";
 import { findNode, FOUNDATION_NODES, isNodeReady } from "./workshop-novel-nodes.mjs";
 import { bookDetail, novelsDir, readChapter, writeNotes } from "./workshop-novel.mjs";
 import { pickWorkshopModel } from "./workshop-model.mjs";
+import { artifactSnapshot, changedArtifact } from './novel-run-evidence.mjs';
 
 function safeId(id) {
   const s = String(id || "");
@@ -39,7 +40,9 @@ async function runBookAgent(ctx, res, { note, prompt, timeoutMs, finishCheck, mo
     try { unsub?.(); } catch {}
     try { releaseAbort?.(); } catch {}
     clearTimeout(timer);
-    const result = finishCheck ? finishCheck() : { ok: !!okHint };
+    let result;
+    try { result = okHint && finishCheck ? finishCheck() : { ok: !!okHint, note: '任务中断或超时，不视为完成' }; }
+    catch { result = { ok: false, note: '产物检查失败，不视为完成' }; }
     if (result.ok) write("done", { ok: true, ...result });
     else {
       write("note", { text: result.note || "⚠️ 流程结束，但未检测到预期产物" });
@@ -71,6 +74,7 @@ async function runBookAgent(ctx, res, { note, prompt, timeoutMs, finishCheck, mo
     if (!finished) {
       finished = true;
       clearTimeout(timer);
+      try { unsub?.(); } catch {}
       try { releaseAbort?.(); } catch {}
       write("error", { message: String(e?.message || e).slice(0, 300) });
       try { res.end(); } catch {}
@@ -94,6 +98,7 @@ export async function handleBookWrite(ctx, res, body) {
   const chNo = detail.nextCh;
   const chName = `第${String(chNo).padStart(3, "0")}章.md`;
   const bd = path.join(novelsDir(), sid);
+  const before = artifactSnapshot(path.join(bd, 'chapters', chName));
   const workDirUri = bd.split("\\").join("/");
   const skillUri = skillPath.split("\\").join("/");
   const prompt = `你是 novel-forge-v10 技能的执行者。为书架中的既有作品续写第 ${chNo} 章。项目已初始化，**不要重做产品化/世界观构建**，直接执行本章循环（快照→生成→免疫→审计→修改）。
@@ -126,8 +131,7 @@ ${outline || "（无指定——先读 layers/outline.md 与真相文件，按�
     model: body?.model,
     finishCheck: () => {
       const chPath = path.join(bd, "chapters", chName);
-      if (!fs.existsSync(chPath)) return { ok: false };
-      return { ok: true, chapter: chName, no: chNo };
+      return { ...changedArtifact(chPath, before), chapter: chName, no: chNo };
     },
   });
 }
@@ -166,6 +170,7 @@ ${opinions}
 5. 回复三句：写了什么、还缺什么、建议下一节点
 
 所有文件操作必须在 ${workDirUri} 内。`;
+  const before = artifactSnapshot(path.join(bd, node.file));
   await runBookAgent(ctx, res, {
     note: `推进节点：${node.label}`,
     prompt,
@@ -173,9 +178,8 @@ ${opinions}
     timeoutMs: 8 * 60 * 1000,
     finishCheck: () => {
       const f = path.join(bd, node.file);
-      if (!fs.existsSync(f)) return { ok: false };
-      const n = fs.statSync(f).size;
-      return n > 40 ? { ok: true, node: node.id, bytes: n } : { ok: false };
+      const evidence = changedArtifact(f, before);
+      return evidence.ok && isNodeReady(node, artifactSnapshot(f)?.text || '') ? { ...evidence, node: node.id } : { ok: false, note: evidence.note || '节点仍未通过产物检查' };
     },
   });
 }
@@ -193,11 +197,12 @@ export async function handleBookRevise(ctx, res, body) {
   const opinions = persistAndReadNotes(sid, body?.note);
   const bd = path.join(novelsDir(), sid);
   const src = path.join(bd, "chapters", last.file);
+  const before = artifactSnapshot(src);
   const snap = path.join(bd, "snapshots", last.file.replace(".md", ".prev.md"));
   try {
     fs.mkdirSync(path.dirname(snap), { recursive: true });
     fs.copyFileSync(src, snap);
-  } catch {}
+  } catch { return json(res, 500, { error: '原章备份失败，未开始修订' }); }
   const workDirUri = bd.split("\\").join("/");
   const skillUri = skillPath.split("\\").join("/");
   const current = readChapter(sid, last.file).content || "";
@@ -220,7 +225,7 @@ ${current.slice(0, 12000)}
     note: `修订 ${last.file}`,
     prompt,
     model: body?.model,
-    finishCheck: () => fs.existsSync(src) ? { ok: true, chapter: last.file, no: last.no } : { ok: false },
+    finishCheck: () => ({ ...changedArtifact(src, before), chapter: last.file, no: last.no }),
   });
 }
 
@@ -277,11 +282,10 @@ ${files}
     timeoutMs: 15 * 60 * 1000,
     finishCheck: () => {
       try {
-        const product = findNode("product");
-        const outline = findNode("outline");
-        const p = product?.file ? fs.readFileSync(path.join(bd, product.file), "utf8") : "";
-        const o = outline?.file ? fs.readFileSync(path.join(bd, outline.file), "utf8") : "";
-        const ok = isNodeReady(product, p) && isNodeReady(outline, o);
+        const ok = FOUNDATION_NODES.every(id => {
+          const node = findNode(id);
+          return node?.file && isNodeReady(node, fs.readFileSync(path.join(bd, node.file), 'utf8'));
+        });
         return ok ? { ok: true } : { ok: false, note: "设定文件仍像占位，请看过程日志后重试" };
       } catch {
         return { ok: false };

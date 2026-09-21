@@ -533,7 +533,8 @@ export async function unifiedChat(model, messages, opts = {}) {
           const streamedRound = emitRoundStream(opts, msg);
           if (streamedRound.think || streamedRound.text) streamed = true;
         }
-        history.push({ role: "assistant", content: msg.content || null, tool_calls: validCalls });
+        history.push({ role: "assistant", content: msg.content || null, tool_calls: validCalls,
+          ...(typeof msg.reasoning_content === "string" ? { reasoning_content: msg.reasoning_content } : {}) });
         try { opts.onCheckpoint?.({ phase: "tool_plan", turn, toolPlan: toolPlanFor(validCalls), ...createRunHistorySnapshot(history, { turn }) }); } catch {}
         const recovered = await runYuanshuToolRound({
           toolCalls: validCalls, history, execute: _executeUnifiedTool, signal: opts.signal,
@@ -565,7 +566,8 @@ export async function unifiedChat(model, messages, opts = {}) {
         const streamedRound = emitRoundStream(opts, msg); // 立刻 opts.onThink / opts.onDelta
         if (streamedRound.think || streamedRound.text) streamed = true;
       }
-      history.push({ role: "assistant", content: msg.content || null, tool_calls: tcs });
+      history.push({ role: "assistant", content: msg.content || null, tool_calls: tcs,
+        ...(typeof msg.reasoning_content === "string" ? { reasoning_content: msg.reasoning_content } : {}) });
       try { opts.onCheckpoint?.({ phase: "tool_plan", turn, toolPlan: toolPlanFor(tcs), ...createRunHistorySnapshot(history, { turn }) }); } catch {}
       const official = await runYuanshuToolRound({
         toolCalls: tcs, history, execute: _executeUnifiedTool, signal: opts.signal,
@@ -588,7 +590,8 @@ export async function unifiedChat(model, messages, opts = {}) {
         if (streamedRound.think || streamedRound.text) streamed = true;
       }
       const scavCalls = scavenged.map(s => ({ id: s.id, type: "function", function: { name: s.name, arguments: JSON.stringify(s.args) } }));
-      history.push({ role: "assistant", content: msg.content || null, tool_calls: scavCalls });
+      history.push({ role: "assistant", content: msg.content || null, tool_calls: scavCalls,
+        ...(typeof msg.reasoning_content === "string" ? { reasoning_content: msg.reasoning_content } : {}) });
       try { opts.onCheckpoint?.({ phase: "tool_plan", turn, toolPlan: toolPlanFor(scavCalls), ...createRunHistorySnapshot(history, { turn }) }); } catch {}
       const scavengedRound = await runYuanshuToolRound({
         toolCalls: scavCalls, history, execute: _executeUnifiedTool, signal: opts.signal,
@@ -1051,8 +1054,10 @@ export async function handleUnifiedChat(res, entry, message, sessionId, params, 
     onDelta: (t) => { writer.push("delta", { text: t }); },
     params,
     signal,
+    // 纯生图请求由媒体旁路完成，主模型只做一次文本收口；复合生图仍须保留
+    // 工具循环，才能在图片完成的同时继续制作 PPT、网页或其它交付文件。
     tools: skipTools ? false : toolDefs,
-    maxTurns: toolLoopMaxTurns({ imageIntent, videoIntent }),
+    maxTurns: skipTools ? 1 : toolLoopMaxTurns({ imageIntent, videoIntent }),
     imageIntent,
     videoIntent,
     sandboxMode: effectiveSandboxMode(_getAgentDir?.() || "", sessionId, { planLock: isPlanLock }),

@@ -166,7 +166,7 @@ export function createAIBodyHost(runtime = {}) {
       const source = options.source === "scheduled" ? "scheduled" : "chat";
       let turn;
       try {
-        turn = runtime.beginTurn?.({ runId, sessionId, engine: options.engine || "yuanshu", source, message: text(options.message, 4_000) });
+        turn = runtime.beginTurn?.({ runId, sessionId, engine: options.engine || "yuanshu", source, message: text(options.message, 4_000), resume: options.resume === true });
       } catch { turn = null; }
       if (!turn || typeof turn !== "object") turn = { id: runId };
       const turnId = String(turn.id || turn.turnId || runId);

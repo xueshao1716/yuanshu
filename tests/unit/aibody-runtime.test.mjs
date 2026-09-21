@@ -18,6 +18,20 @@ function fixture(t, options = {}) {
 }
 const input = (overrides = {}) => ({ runId: 'r1', sessionId: 's1', engine: 'yuanshu', source: 'chat', message: '做一个定西洋芋宣传PPT', ...overrides })
 
+test('explicit resume reopens interrupted turn without erasing evidence or duplicating run', t => {
+  const { runtime } = fixture(t)
+  runtime.beginTurn(input())
+  runtime.observe('r1', 'subagent', { id: 'first', agent: 'VIDEO' })
+  runtime.finishTurn('r1', { status: 'interrupted' })
+  assert.equal(runtime.beginTurn(input()).status, 'interrupted')
+  assert.equal(runtime.beginTurn(input({ resume: true })).status, 'running')
+  runtime.observe('r1', 'subagent', { id: 'second', agent: 'CRITIC' })
+  assert.equal(runtime.getRun('r1').evidence.subagents, 2)
+  assert.equal(runtime.overview().totals.runs, 1)
+  runtime.finishTurn('r1')
+  assert.equal(runtime.beginTurn(input({ resume: true })).status, 'completed')
+})
+
 test('empty runtime reports no observations or invented provider values', t => {
   const { runtime } = fixture(t)
   const view = runtime.overview()
@@ -38,9 +52,10 @@ test('overview makes companionship and evolution governance explicit without cla
     boundary: '不模拟情感依赖，不替用户做价值判断',
   })
   assert.deepEqual(view.evolution, {
-    mode: '提案制迭代',
-    humanApproval: true,
-    rollback: true,
+    mode: '提案制迭代（设计约束，非验收结果）',
+    status: 'policy_only',
+    humanApproval: null,
+    rollback: null,
     scope: ['技能', '经验', '记忆', '工作方式'],
     protected: ['人格', '身份', '高风险权限'],
   })

@@ -43,7 +43,7 @@ export function buildWorkExplanation(run = {}, events = [], context = {}) {
     goal: clean(run.input?.messagePreview || body?.topic, 500) || '未记录任务目标',
     status: { code: run.status || 'unknown', label: STATUS[run.status] || '状态未记录', detail: ACTIVE.has(run.status) ? facts.current || '等待执行记录' : '执行状态与检查结果分别记录' },
     updatedAt: clean(run.updatedAt || run.createdAt || body?.updatedAt, 40),
-    executor: { engine: ENGINES[facts.engine] || facts.engine || '实际引擎未记录', model: facts.actualModel || '实际模型未记录' },
+    executor: { engine: ENGINES[facts.engine] || facts.engine || '实际引擎未记录', model: facts.actualModel || '实际模型未记录', mediaModels: facts.mediaModels },
     basis, tools: facts.tools, subagents: facts.subagents, artifacts: facts.artifacts, memory: facts.memory, verification: facts.verification,
     notes: facts.notes, problem, nextStep, coverage: context.unavailable ? '协作记录暂不可用，以下仅为可读取的运行事件。' : '仅说明已记录的事实；历史缺失信息不会补造。' }
 }

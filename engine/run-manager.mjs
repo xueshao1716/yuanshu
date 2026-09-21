@@ -209,6 +209,7 @@ export function createRunManager({ store, eventLog, executeChat, instanceId, onS
       ...(status === 'failed' ? { failedAt: new Date().toISOString(), error: data.message || 'run_failed' } : {}),
       ...(status === 'stopped' ? { stoppedAt: new Date().toISOString() } : {}),
       ...(status === 'failed' ? { resumeAvailable: current.resumeAvailable === true || resumableFailure } : {}),
+      ...(['failed', 'stopped'].includes(status) && current.checkpoint?.team?.launchId ? { resumeAvailable: true } : {}),
     })
     append(updated, status, data)
     const observability = deriveRunObservability(updated, eventLog.readAfter(runId, 0))

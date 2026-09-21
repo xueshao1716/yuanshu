@@ -777,9 +777,11 @@ export interface GitReview {
   /** Git root used by the review workbench (the application repository, not the content workspace). */
   root?: string
   files: GitReviewFile[]
+  filesTotal?: number
+  filesTruncated?: boolean
   diff: string
   diffTruncated: boolean
-  verification: { state: 'unknown' | 'running' | 'passed' | 'failed'; checks: { name?: string; state?: string }[] }
+  verification: { state: 'unknown' | 'running' | 'passed' | 'failed' | 'stale'; recordedAt?: string; checks: { name?: string; state?: string; durationMs?: number }[] }
 }
 export const GitReviewApi = {
   review: () => api<GitReview>('/api/git/review'),
@@ -797,13 +799,19 @@ export interface AIBodyModule {
 export interface AIBodyLayer { id: 'host' | 'organism' | 'expression' | string; label: string; summary: string; modules: AIBodyModule[] }
 export interface AIBodyTheory { id: string; label: string; detail: string; evidence: string[] }
 export interface AIBodyOverview {
-  updatedAt?: string; principle: string; theory: AIBodyTheory[]; layers: AIBodyLayer[]
+  updatedAt?: string; observedAt?: string; principle: string; theory: AIBodyTheory[]; layers: AIBodyLayer[]
+  observationContext?: { sessionId?: string; runId?: string; scope: string }
   companionship?: { continuity: string; memory: string; boundary: string }
-  evolution?: { mode: string; humanApproval: boolean; rollback: boolean; scope: string[]; protected: string[] }
+  evolution?: { mode: string; status?: string; humanApproval: boolean | null; rollback: boolean | null; scope: string[]; protected: string[] }
 }
 // 天团运行态（2026-09-19）：工作台「天团」视图读这个（只读，来自 工程/多AI角色扮演系统/team-run.json）
+export type TeamLaunch = { id?: string; status: string; task?: string; at?: string; endedAt?: string; note?: string; runId?: string; sessionId?: string }
+export type TeamAcceptance = { status: string; proposalId?: string; checkedAt?: string }
 export const TeamRunApi = {
-  get: () => api<{ ok: boolean; run: Record<string, unknown> | null; hint?: string }>('/api/team/run'),
+  start: (body: { task: string; sessionId: string; clientRequestId: string }) => api<{ runId: string; sessionId: string; status: string }>('/api/team/run', { method: 'POST', body }),
+  stop: (id: string) => api<{ ok: boolean }>('/api/team/stop', { method: 'POST', body: JSON.stringify({ id }) }),
+  resume: (id: string) => api<{ ok: boolean }>('/api/team/resume', { method: 'POST', body: JSON.stringify({ id }) }),
+  get: () => api<{ ok: boolean; run: Record<string, unknown> | null; snapshotKind?: 'current' | 'history' | 'none'; hint?: string; launch?: TeamLaunch | null; acceptance?: TeamAcceptance | null }>('/api/team/run'),
 }
 
 export const AIBodyApi = {

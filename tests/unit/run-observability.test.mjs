@@ -22,6 +22,9 @@ test('summarizeRun includes current phase and safe error preview', () => {
     messagePreview: '做个总结', toolCount: 1, memoryCount: 0, memoryPreview: null, error: '模型失败', resumeAvailable: false,
     durationMs: null,
     eventCounts: { failed: 1, run_started: 1, tool_started: 1 },
+    engine: null,
+    textModel: null,
+    mediaModels: [],
     lastModel: null,
     lastTool: { name: 'read', status: 'started' },
     failureCategory: 'model',
@@ -78,4 +81,21 @@ test('summarizeRun exposes serializable runtime metrics from the event ledger', 
   assert.deepEqual(summary.lastModel, { provider: 'p', id: 'm' })
   assert.deepEqual(summary.lastTool, { id: 'tool-1', name: 'read', status: 'completed' })
   assert.equal(summary.failureCategory, 'timeout')
+})
+
+test('separates execution engine, text model, and media models', async () => {
+  const { deriveRunObservability } = await import('../../engine/run-observability.mjs')
+  const out = deriveRunObservability(
+    { id: 'r-media', status: 'completed', input: { model: { provider: 'pi-provider', id: 'text-default' } } },
+    [
+      { type: 'engine_selected', data: { engine: 'yuanshu' } },
+      { type: 'model_selected', data: { model: { provider: 'pi-provider', id: 'text-live' } } },
+      { type: 'media', data: { type: 'image', url: '/api/media/1', model: 'agnes/agnes-image-2.5-flash' } },
+      { type: 'done', data: { model: { provider: 'pi-provider', id: 'text-live' } } },
+    ],
+  )
+  assert.equal(out.engine, 'yuanshu')
+  assert.deepEqual(out.textModel, { provider: 'pi-provider', id: 'text-live' })
+  assert.deepEqual(out.mediaModels, [{ provider: 'agnes', id: 'agnes-image-2.5-flash' }])
+  assert.deepEqual(out.lastModel, { provider: 'pi-provider', id: 'text-live' })
 })

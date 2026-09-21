@@ -23,6 +23,10 @@ export function createAIBodyRuntime({ rootDir, readState, now = () => new Date()
     const existing = store.get(runId)
     if (existing) {
       if (existing.sessionId !== sessionId) throw new Error('aibody_runId_conflict')
+      if (input.resume === true && ['interrupted', 'failed', 'cancelled'].includes(existing.status)) {
+        Object.assign(existing, { status: 'running', phase: 'executing', finishedAt: null, error: null, updatedAt: clock() })
+        store.save(existing)
+      }
       return { ...publicRun(existing), directive: directiveFor(existing, null, providerState(readState, { sessionId, runId })) }
     }
     const previous = store.list().filter(run => run.sessionId === sessionId).at(-1)
@@ -84,11 +88,11 @@ export function createAIBodyRuntime({ rootDir, readState, now = () => new Date()
     })
     const state = providerState(readState, context)
     const layers = [
-      { id: 'host', label: '宿主 / 运行层', summary: '模型、工具与运行时提供行动边界。', modules: engines.map(engine => ({ label: engine.name, path: engine.id, available: true })) },
+      { id: 'host', label: '宿主 / 运行层', summary: '保留记录中出现过的运行引擎，不代表当前在线。', modules: engines.map(engine => ({ label: engine.name, path: engine.id, available: true })) },
       { id: 'organism', label: '母体 / 进化层', summary: '身份、基因、记忆、情绪与治理形成连续性。', modules: Object.entries(state).map(([id, value]) => ({ key: id, label: SOIL_LABELS[id] || id, path: `aibody:${id}`, available: value.status === 'observed', status: value.status, statusLabel: SOIL_STATUS_LABELS[value.status] || value.status, summary: value.summary, details: value.details })) },
       { id: 'expression', label: '表现 / 具身层', summary: '对话、任务与交付把系统状态呈现出来。', modules: [{ label: '主任务协调', path: 'aibody-runtime', available: runs.length > 0 }] },
     ]
-    return { version: 1, observedAt: clock(), continuity: store.continuity(), state, currentRun, runs, roles, engines, totals,
+    return { version: 1, observedAt: clock(), observationContext: { ...context, scope: sessionId ? 'selected_session' : 'latest_recorded_session' }, continuity: store.continuity(), state, currentRun, runs, roles, engines, totals,
       principle: 'AIBody 贯穿人格、任务、记忆、角色协作与治理；验收页只是观察入口。',
       companionship: {
         continuity: '同一会话承接已记录主题与状态',
@@ -96,11 +100,11 @@ export function createAIBodyRuntime({ rootDir, readState, now = () => new Date()
         boundary: '不模拟情感依赖，不替用户做价值判断',
       },
       evolution: {
-        mode: '提案制迭代', humanApproval: true, rollback: true,
+        mode: '提案制迭代（设计约束，非验收结果）', status: 'policy_only', humanApproval: null, rollback: null,
         scope: ['技能', '经验', '记忆', '工作方式'], protected: ['人格', '身份', '高风险权限'],
       },
       theory: [
-        { id: 'continuity', label: '连续性', detail: '每轮承接同会话状态，重启后恢复未完成记录。', evidence: ['aibody-runtime', 'memory', 'emotion'] },
+        { id: 'continuity', label: '连续性', detail: '同会话可参考已记录主题；重启后恢复记录并将未完成项标为中断，不会自动续跑。', evidence: ['aibody-runtime', 'memory', 'emotion'] },
         { id: 'orchestration', label: '母体统筹', detail: '主角色负责规划与交付，子角色按需协作并受边界约束。', evidence: ['aibody-runtime', 'subagent-traces'] },
         { id: 'governance', label: '可治理', detail: '真实事件可追踪；人格与提案仍需原有人工审批。', evidence: ['gene', 'approval'] },
       ], layers }

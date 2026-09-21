@@ -5,13 +5,14 @@ import fs from "node:fs";
 import { atomicWriteText } from "./atomic-io.mjs";
 import path from "node:path";
 import os from "node:os";
+import { env } from "./env.mjs";
 
 // M1 路径外部化：工作空间根不再写死盘符——
-// 优先 initMemorySync(wsRoot) 注入（server.mjs），退回 PI_WEB_CWD 环境，再退回多盘符探测（与 config.defaultCwd 同策略）
+// 优先 initMemorySync(wsRoot) 注入，再读 YUANSHU_CWD / PI_WEB_CWD，最后探测默认目录。
 let _wsOverride = "";
 export function initMemorySync({ wsRoot } = {}) { if (wsRoot) _wsOverride = wsRoot; }
 function defaultWs() {
-  if (process.env.PI_WEB_CWD) return process.env.PI_WEB_CWD;
+  if (env("CWD")) return env("CWD");
   for (const drive of ["D:", "E:", "C:"]) {
     const p = path.join(drive, path.sep === "\\" ? "pi-workspace" : "pi-workspace");
     try { if (fs.statSync(p).isDirectory()) return p; } catch {}

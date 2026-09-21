@@ -4,6 +4,8 @@
 // 红线（Hermes 同款）：所有候选变体只进提案池，人工审批后才写回，写回前自动备份原版。
 import fs from "node:fs";
 import path from "node:path";
+import { createHash, randomUUID } from "node:crypto";
+import { reviewStoragePath } from "./review-file-safety.mjs";
 import { atomicWriteText } from "./atomic-io.mjs";
 import { scanSessionFiles, readEntriesFromFile } from "./session-files.mjs";
 
@@ -22,6 +24,11 @@ export function initEvolutionApi({ root = "", prompts = "", skills = "", chat = 
 }
 
 function poolFile() { return path.join(wsRoot, "工程/经验库/improvements.jsonl"); }
+const digestText = text => createHash('sha256').update(text).digest('hex');
+function promptPath(name) {
+  if (typeof name !== 'string' || !/^[\p{L}\p{N}_-]{1,100}$/u.test(name)) throw new Error('模板名称无效');
+  return reviewStoragePath(promptsDir, `${name}.md`);
+}
 function loadPool() {
   try {
     return fs.readFileSync(poolFile(), "utf8").split("\n").filter(Boolean)
@@ -81,7 +88,8 @@ function constraintGate(original, variant) {
 }
 
 export async function proposeEvolution({ name, model }) {
-  const tplPath = path.join(promptsDir, `${name}.md`);
+  let tplPath;
+  try { tplPath = promptPath(name); } catch { return { error: '模板路径不安全' }; }
   let original = "";
   try { original = fs.readFileSync(tplPath, "utf8"); } catch { return { error: `模板不存在: ${name}` }; }
   if (!llmChat) return { error: "LLM 通道未注入" };
@@ -106,13 +114,14 @@ export async function proposeEvolution({ name, model }) {
 
   // 进提案池（kind: evolution，state: open）——绝不直接改模板
   const pool = loadPool();
-  const propId = `evo-${Date.now()}`;
+  const propId = `evo-${randomUUID()}`;
   const proposal = {
     id: propId, kind: "evolution", target: { type: "prompt", name },
     analysis: parsed.analysis || "",
     traces: traces.length,
     variants: variants.map(v => ({ label: v.label, rationale: v.rationale, content: v.content })),
     originalPreview: original.slice(0, 300),
+    originalDigest: digestText(original),
     created: new Date().toISOString(), state: "open",
   };
   pool.push(proposal); savePool(pool);
@@ -125,14 +134,19 @@ export function applyEvolution(id, variantIndex = 0) {
   const p = pool.find(x => x.id === id && x.kind === "evolution");
   if (!p) return { error: "提案不存在" };
   if (p.state !== "open") return { error: `提案状态为 ${p.state}，不可应用` };
-  const v = p.variants[variantIndex];
+  const v = Number.isSafeInteger(variantIndex) && variantIndex >= 0 ? p.variants?.[variantIndex] : null;
   if (!v) return { error: "变体序号无效" };
-  const tplPath = path.join(promptsDir, `${p.target.name}.md`);
+  let tplPath;
+  try { tplPath = promptPath(p.target?.name); } catch { return { error: '模板路径不安全' }; }
   let original = "";
-  try { original = fs.readFileSync(tplPath, "utf8"); } catch {}
-  const bak = `${tplPath}.bak-${new Date().toISOString().replace(/[:.]/g, "-").slice(0, 19)}`;
-  try { if (original) fs.writeFileSync(bak, original, "utf8"); } catch {}
-  atomicWriteText(tplPath, v.content);
+  try { original = fs.readFileSync(tplPath, "utf8"); } catch { return { error: '原模板不可读取，未写回' }; }
+  if (!p.originalDigest || p.originalDigest !== digestText(original)) return { error: '原模板已变化或历史提案无基线，请重新生成提案' };
+  if (typeof v.content !== 'string' || constraintGate(original, v.content)) return { error: '变体未通过内容约束' };
+  const bak = `${tplPath}.bak-${randomUUID()}`;
+  try {
+    fs.writeFileSync(bak, original, { encoding: 'utf8', flag: 'wx' });
+    atomicWriteText(tplPath, v.content);
+  } catch { return { error: '备份或写入失败，未确认应用，请核对模板和备份' }; }
   p.state = "applied"; p.appliedAt = new Date().toISOString(); p.backup = path.basename(bak);
   savePool(pool);
   return { ok: true, backup: path.basename(bak) };
@@ -382,7 +396,8 @@ export async function evaluateProposal(id, model) {
   const p = pool.find(x => x.id === id && x.kind === "evolution");
   if (!p) return { error: "提案不存在" };
   if (!llmChat || !model) return { error: "LLM 未注入" };
-  const tplPath = path.join(promptsDir, `${p.target.name}.md`);
+  let tplPath;
+  try { tplPath = promptPath(p.target?.name); } catch { return { error: '模板路径不安全' }; }
   let original = "";
   try { original = fs.readFileSync(tplPath, "utf8"); } catch { return { error: "原模板已不存在" }; }
 

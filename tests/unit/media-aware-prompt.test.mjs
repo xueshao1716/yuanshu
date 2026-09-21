@@ -125,6 +125,16 @@ test("generateMediaAsync 必须把 prompt 变体交给 generateImage 并带进�
   assert.ok(fn.includes('"video"') || fn.includes("'video'"), "generateMediaAsync 必须有 video 分支");
 });
 
+test("图片意图应保留用户要求的画幅，并传给旁路生图", () => {
+  assert.equal(detectMediaIntents("制作一张16:9横版产品海报并生成图片")[0].size, "1472x832");
+  assert.equal(detectMediaIntents("画一张9:16竖版手机封面图")[0].size, "832x1472");
+  assert.equal(detectMediaIntents("帮我画一只猫")[0].size, undefined);
+  const src = readFileSync(join(dirname(fileURLToPath(import.meta.url)), "..", "..", "engine", "media-api.mjs"), "utf8");
+  const start = src.indexOf("export async function generateMediaAsync");
+  const fn = src.slice(start, start + 1700);
+  assert.ok(fn.includes("drawnPrompt, intent.size"), "旁路生图必须把 intent.size 传给 generateImage");
+});
+
 test("你自己写脚本做个视频 是视频意图，不要视频则不触发", () => {
   assert.ok(detectMediaIntents("你自己写脚本，做个视频，主题就是爱而不得").some(i => i.type === "video"));
   assert.ok(detectMediaIntents("生成视频：雨停之前").some(i => i.type === "video"));

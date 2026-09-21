@@ -27,6 +27,7 @@ function persistedRequest(input) {
     message: String(input.message || ''),
     model: input.model || null,
     params: input.params && typeof input.params === 'object' ? { ...input.params } : undefined,
+    workflow: input.workflow === 'team-video' ? 'team-video' : undefined,
     files: Array.isArray(input.files)
       ? input.files.map(file => ({ path: String(file?.path || '') })).filter(file => file.path)
       : undefined,
@@ -47,7 +48,7 @@ function checkpointFor(run, patch = {}) {
     attempt: Number.isInteger(patch.attempt) && patch.attempt >= 0 ? patch.attempt : (current.attempt || 0),
     updatedAt: patch.updatedAt || current.updatedAt || run?.updatedAt || run?.createdAt || null,
   }
-  for (const key of ['turn', 'lastEventSeq', 'pendingSteps', 'completedSteps', 'uncertainSteps', 'checkpointKind', 'toolPlan', 'historySnapshot', 'historyDigest', 'historyCount']) {
+  for (const key of ['team', 'turn', 'lastEventSeq', 'pendingSteps', 'completedSteps', 'uncertainSteps', 'checkpointKind', 'toolPlan', 'historySnapshot', 'historyDigest', 'historyCount']) {
     if (patch[key] !== undefined) checkpoint[key] = patch[key]
     else if (current[key] !== undefined) checkpoint[key] = current[key]
   }

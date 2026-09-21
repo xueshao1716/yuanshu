@@ -6,6 +6,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { execFile } from "node:child_process";
 import { fileURLToPath } from "node:url";
+import { createReviewVerification } from './review-verification.mjs';
 
 export function createMiscApi(deps) {
   const {
@@ -308,9 +309,11 @@ export function createMiscApi(deps) {
       root: reviewRoot,
       branch,
       files: [...files.values()].slice(0, 300),
+      filesTotal: files.size,
+      filesTruncated: files.size > 300,
       diff,
       diffTruncated,
-      verification: unknownVerification,
+      verification: createReviewVerification({ root: reviewRoot }).read(),
     });
   }
 

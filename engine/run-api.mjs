@@ -4,7 +4,8 @@ function publicRun(run) {
   if (!run) return run
   const { request, ...safe } = run
   if (safe.checkpoint && typeof safe.checkpoint === 'object') {
-    const { historySnapshot, ...checkpoint } = safe.checkpoint
+    const { historySnapshot, team, ...checkpoint } = safe.checkpoint
+    if (team) checkpoint.team = { launchId: team.launchId }
     if (Array.isArray(checkpoint.toolPlan)) {
       checkpoint.toolPlan = checkpoint.toolPlan.map(step => {
         if (!step || typeof step !== 'object') return step
@@ -132,7 +133,7 @@ export function createRunApi({ manager, json, readContext = null }) {
     },
     stop(res, runId) {
       try {
-        return json(res, 200, manager.stop(runId))
+        return json(res, 200, publicRun(manager.stop(runId)))
       } catch (error) {
         if (error?.code === 'run_not_found') return json(res, 404, { error: 'run_not_found' })
         throw error

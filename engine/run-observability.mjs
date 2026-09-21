@@ -83,6 +83,10 @@ export function deriveRunObservability(run, events = [], now = Date.now()) {
   const list = Array.isArray(events) ? events : []
   const eventCounts = {}
   let lastModel = safeModel(run?.observability?.lastModel) || safeModel(run?.input?.model)
+  let textModel = safeModel(run?.observability?.textModel) || safeModel(run?.input?.model)
+  let engine = String(run?.observability?.engine || '').trim() || null
+  const mediaModels = []
+  const mediaModelKeys = new Set()
   let lastTool = run?.observability?.lastTool || null
   let failureCategory = run?.observability?.failureCategory || null
   for (const event of list) {
@@ -90,8 +94,17 @@ export function deriveRunObservability(run, events = [], now = Date.now()) {
     if (!type) continue
     eventCounts[type] = (eventCounts[type] || 0) + 1
     const data = event?.data
+    if (type === 'engine_selected' && data?.engine) engine = String(data.engine).trim() || engine
     const model = safeModel(data?.model || data?.usedModel || (data?.provider && data?.id ? data : null))
-    if (model) lastModel = model
+    const mediaModel = safeModel(data?.media?.model || (['media', 'media_started', 'media_completed', 'image', 'video', 'audio'].includes(type) ? data?.model : null))
+    if (mediaModel) {
+      const key = `${mediaModel.provider}/${mediaModel.id}`
+      if (!mediaModelKeys.has(key)) { mediaModelKeys.add(key); mediaModels.push(mediaModel) }
+    }
+    if (model && !mediaModel) {
+      lastModel = model
+      if (['model_selected', 'done', 'completed'].includes(type) || !textModel) textModel = model
+    }
     const tool = safeTool(type, data)
     if (tool) lastTool = tool
     if (type === 'error' || type === 'failed') {
@@ -114,6 +127,9 @@ export function deriveRunObservability(run, events = [], now = Date.now()) {
   return {
     durationMs: Number.isFinite(durationMs) ? durationMs : null,
     eventCounts: Object.fromEntries(Object.entries(eventCounts).sort(([a], [b]) => a.localeCompare(b))),
+    engine,
+    textModel,
+    mediaModels,
     lastModel,
     lastTool,
     failureCategory: terminalFailure ? (failureCategory || classifyFailure(run?.error, run?.status)) : null,
@@ -157,6 +173,9 @@ export function summarizeRun(run, events = []) {
     resumeAvailable: run?.resumeAvailable === true,
     durationMs: observability.durationMs,
     eventCounts: observability.eventCounts,
+    engine: observability.engine,
+    textModel: observability.textModel,
+    mediaModels: observability.mediaModels,
     lastModel: observability.lastModel,
     lastTool: observability.lastTool,
     failureCategory: observability.failureCategory,

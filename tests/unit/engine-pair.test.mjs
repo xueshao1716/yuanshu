@@ -72,6 +72,14 @@ test("非原生通道只逼 pi 兑底元枢；PI_USE_AGENT=0 仍强制元枢；d
   assert.equal(resolveLead({ primary: "dsh", secondary: "pi" }).lead, "pi");
 });
 
+test("pi SDK 缺失时，保留配置但把实际主驾让给元枢", () => {
+  const d = resolveLead({ primary: "pi", secondary: "yuanshu" }, { piAvailable: false });
+  assert.equal(d.lead, "yuanshu");
+  assert.equal(d.reason, "unavailable");
+  assert.equal(d.deferred, "pi");
+  assert.match(leadNote(d), /pi 适配器不可用/);
+});
+
 test("引擎页能对调主次并写回后台", () => {
   const src = readFileSync(join(ROOT, "frontend", "src", "components", "engine", "EnginePairPanel.tsx"), "utf8");
   assert.ok(src.includes("主引擎"));

@@ -5,6 +5,17 @@ import { buildWorkExplanation } from '../../engine/work-explanation.mjs'
 const run = { id: 'r1', sessionId: 's1', status: 'completed', input: { messagePreview: '生成宣传视频', model: 'auto/auto' } }
 const event = (type, data = {}, seq = 1) => ({ type, data, seq, ts: '2026-09-12T10:00:00Z' })
 
+test('角色协作显示当前阶段和实际模型，已有主模型时不被子模型覆盖', () => {
+  const role = event('subagent_started', { id: 'c1', agent: 'ANALYST', model: 'p/role-model' })
+  const active = { ...run, status: 'running' }
+  const out = buildWorkExplanation(active, [role])
+  assert.equal(out.executor.model, 'p/role-model')
+  assert.match(out.status.detail, /ANALYST/)
+  assert.equal(buildWorkExplanation(active, [event('model_selected', { model: 'p/main' }), role]).executor.model, 'p/main')
+  const ended = buildWorkExplanation(active, [role, event('subagent_finished', { id: 'c1', agent: 'ANALYST', status: 'failed', model: 'p/role-model' }, 2)])
+  assert.match(ended.status.detail, /失败/)
+})
+
 test('结束、自报、真实检查通过和失败各自表达，不把回答当验收', () => {
   assert.equal(buildWorkExplanation(run).verification.state, 'not_observed')
   assert.equal(buildWorkExplanation(run, [event('verification', { verified: true, passed: true })]).verification.state, 'reported')
@@ -72,6 +83,17 @@ test('有执行模型时区分实际模型和请求选择，记录真实引擎�
   assert.equal(out.executor.model, 'p/m')
   assert.equal(out.executor.engine, '元枢自建引擎')
   assert.match(out.basis.join(' '), /从已保存步骤恢复/)
+})
+
+test('工作说明把媒体模型列为旁路模型，不覆盖文本执行模型', () => {
+  const out = buildWorkExplanation({ ...run, input: { messagePreview: '生成图片并做成网页' } }, [
+    event('engine_selected', { engine: 'yuanshu' }),
+    event('model_selected', { model: { provider: 'p', id: 'text-model' } }),
+    event('media', { type: 'image', model: 'agnes/image-model', url: '/api/media/1' }),
+    event('done', { model: { provider: 'p', id: 'text-model' } }),
+  ])
+  assert.equal(out.executor.model, 'p/text-model')
+  assert.deepEqual(out.executor.mediaModels, ['agnes/image-model'])
 })
 
 test('文件代理地址保留文件身份，多个不同产物不会合并为一个接口地址', () => {

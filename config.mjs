@@ -13,6 +13,7 @@ const TOKEN_FILE = path.join(__dirname, ".token");
 // 环境变量统一入口：新名 YUANSHU_* 优先，旧名 PI_WEB_* 继续认。
 // 实现在 engine/env.mjs，engine/ 下的模块也复用它（避免各写一份导致行为漂移）。
 import { env } from "./engine/env.mjs";
+import { defaultWorkspace } from "./engine/workspace-default.mjs";
 
 // 访问令牌：环境变量 YUANSHU_TOKEN（旧名 PI_WEB_TOKEN）优先，其次 .token 文件，否则生成一个并保存
 function loadToken() {
@@ -69,15 +70,7 @@ function resolvePiPackage() {
 // 默认工作空间：优先已存在的 pi-workspace（多盘符探测，兼容 C/D 盘部署）；否则退回启动目录
 function defaultCwd() {
   // 常见位置：D:\pi-workspace（本机真实工作空间）> 主目录/pi-workspace > 启动目录
-  const candidates = [];
-  if (process.platform === "win32") {
-    for (const drive of ["D:", "E:", "C:"]) candidates.push(path.join(drive, "pi-workspace"));
-  }
-  candidates.push(path.join(os.homedir(), "pi-workspace"));
-  for (const c of candidates) {
-    try { if (fs.statSync(c).isDirectory()) return c; } catch {}
-  }
-  return process.cwd();
+  return defaultWorkspace();
 }
 
 export const CONFIG = {

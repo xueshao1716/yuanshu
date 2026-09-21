@@ -84,6 +84,12 @@ export function resolveLead(pair, ctx = {}) {
   if (ctx.forceYuanshu) {
     return { lead: "yuanshu", wanted: p.primary, deferred: p.primary === "yuanshu" ? null : p.primary, reason: "force" };
   }
+  // 外置 Pi 适配器是可卸依赖。缺失时主次配置仍保留，实际主驾自动让给可用引擎。
+  if (p.primary === "pi" && ctx.piAvailable === false) {
+    const sec = ENGINE_CATALOG[p.secondary];
+    const lead = sec?.canLead ? p.secondary : "yuanshu";
+    return { lead, wanted: p.primary, deferred: p.primary, reason: "unavailable" };
+  }
   // 非 SDK 原生通道只让兼容适配器兜底；dsh / 元枢有自己的通道，不受模型下拉绑架
   if (ctx.nativeChannel === false && p.primary === "pi") {
     return { lead: "yuanshu", wanted: p.primary, deferred: "pi", reason: "non-native" };
@@ -99,6 +105,7 @@ export function leadNote(decision) {
   const names = { yuanshu: "元枢", pi: "兼容适配器", dsh: "dsh" };
   const lead = names[decision?.lead] || decision?.lead || "元枢";
   if (decision?.reason === "non-native") return `本轮主引擎 · ${lead}（该通道走自制循环）`;
+  if (decision?.reason === "unavailable") return `本轮主引擎 · ${lead}（pi 适配器不可用，已自动让路）`;
   if (decision?.deferred) {
     const other = names[decision.deferred] || decision.deferred;
     return `本轮主引擎 · ${lead}（${other} 主驾让路）`;

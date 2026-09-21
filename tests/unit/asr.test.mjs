@@ -11,6 +11,40 @@ function mockRes() {
 const okFetch = async () => ({ ok: true, json: async () => ({ choices: [{ message: { content: " 你好，世界 " } }] }), text: async () => "" });
 const failFetch = async () => ({ ok: false, status: 401, text: async () => "Unauthorized" });
 
+test('备用 ASR 必须按 JSON 解码转义字符，不得把诊断 text 当识别结果', async () => {
+  let calls = 0;
+  init(async () => ++calls === 1 ? failFetch() : {
+    ok: true,
+    text: async () => 'event: transcript\r\ndata: {"text":"他说：\\\"你好\\\"\\n路径 C:\\\\音频"}\r\n\r\n: {"text":"心跳不是正文"}\r\n\r\ndata: [DONE]\r\n\r\n',
+  });
+  const res = mockRes();
+  await handleAsr(res, { data: 'aGk=', format: 'wav' });
+  assert.equal(res.statusCode, 200);
+  assert.equal(res.body.text, '他说："你好"\n路径 C:\\音频');
+});
+
+test('主通道只返回空白时必须尝试备用 ASR', async () => {
+  let calls = 0;
+  init(async () => ++calls === 1
+    ? { ok: true, json: async () => ({ choices: [{ message: { content: '   ' } }] }) }
+    : { ok: true, text: async () => 'data: {"text":"备用结果"}\n\n' });
+  const res = mockRes();
+  await handleAsr(res, { data: 'aGk=', format: 'wav' });
+  assert.equal(res.body.text, '备用结果');
+  assert.equal(res.body.fallback, true);
+});
+
+test('只有备用通道配置了 key 时仍可以识别语音', async () => {
+  initAsrApi({
+    resolveAuth: p => p === 'stepfun-plan' ? { key: 'test-only' } : null,
+    httpJsonFetch: async () => ({ ok: true, text: async () => 'data: {"text":"备用识别"}\n\n' }),
+  });
+  const res = mockRes();
+  await handleAsr(res, { data: 'aGk=', format: 'wav' });
+  assert.equal(res.statusCode, 200);
+  assert.equal(res.body.text, '备用识别');
+});
+
 function init(fetchImpl) {
   initAsrApi({
     resolveAuth: (p) => ({ key: "tp-test", baseUrl: "" }),

@@ -32,6 +32,33 @@ function mockChat(payload) {
   return async () => ({ text: JSON.stringify(payload) });
 }
 
+test('evolution refuses traversal before invoking a model', async () => {
+  const { root, prompts, skills, original } = harness();
+  fs.writeFileSync(path.join(root, 'outside.md'), original);
+  let calls = 0;
+  initEvolutionApi({ root, prompts, skills, chat: async () => { calls++; return { text: '{}' }; } });
+  assert.ok((await proposeEvolution({ name: '../outside' })).error);
+  assert.equal(calls, 0);
+});
+
+test('evolution cannot overwrite a template edited after proposal creation', async () => {
+  const { root, prompts, skills, original } = harness();
+  initEvolutionApi({ root, prompts, skills, chat: mockChat({ variants: [{ label: 'A', content: original + ' Improved.' }] }) });
+  const proposal = await proposeEvolution({ name: 'demo' });
+  fs.writeFileSync(path.join(prompts, 'demo.md'), 'new user content');
+  assert.ok(applyEvolution(proposal.id).error);
+  assert.equal(fs.readFileSync(path.join(prompts, 'demo.md'), 'utf8'), 'new user content');
+  assert.equal(listEvolution()[0].state, 'open');
+});
+
+test('evolution refuses legacy proposals without a baseline digest', async () => {
+  const { root, prompts, skills, original } = harness();
+  initEvolutionApi({ root, prompts, skills });
+  fs.writeFileSync(path.join(root, '工程/经验库/improvements.jsonl'), JSON.stringify({ id: 'legacy', kind: 'evolution', state: 'open', target: { name: 'demo' }, variants: [{ content: original + ' Changed.' }] }));
+  assert.ok(applyEvolution('legacy').error);
+  assert.equal(fs.readFileSync(path.join(prompts, 'demo.md'), 'utf8'), original);
+});
+
 test("proposeEvolution：变体进提案池，不直接改模板", async () => {
   const { root, prompts, skills, original } = harness();
   initEvolutionApi({

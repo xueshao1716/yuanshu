@@ -24,6 +24,12 @@ test('console status remains legible with wallpaper and code mode retains its mo
   assert.ok(src.includes("terminalOpen ? 'flex"))
 })
 
+test('task inspector distinguishes historical failures from active work', () => {
+  const src = source('components/TaskInspector.tsx')
+  assert.match(src, /当前空闲 · 有历史异常/)
+  assert.match(src, /health\?\.activeCount/)
+})
+
 test('diagnostics filter actual failed states and navigate to the matching session', () => {
   const src = source('components/engine/EngineRunDiagnostics.tsx')
   for (const text of ["run.status === 'failed'", "run.status === 'interrupted'", '最近', 'onOpenSession(run.sessionId)', '<details', '<summary', 'run.error', 'RunTimeline']) {

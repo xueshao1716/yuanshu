@@ -23,7 +23,7 @@ const SKIP = /node_modules|[\\/]dist[\\/]|\.worktrees|build[\\/]intermediates|\.
 function walk(dir, out = []) {
   for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
     const full = path.join(dir, entry.name);
-    if (SKIP.test(full)) continue;
+    if (SKIP.test(path.sep + path.relative(ROOT, full) + path.sep)) continue;
     if (entry.isDirectory()) walk(full, out);
     else if (entry.name.toLowerCase().endsWith('.ps1')) out.push(full);
   }

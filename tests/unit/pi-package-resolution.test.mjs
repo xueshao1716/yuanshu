@@ -12,6 +12,7 @@ import { fileURLToPath } from "node:url";
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..");
 const serverSrc = fs.readFileSync(path.join(root, "server.mjs"), "utf8");
 const configSrc = fs.readFileSync(path.join(root, "config.mjs"), "utf8");
+const dshSrc = fs.readFileSync(path.join(root, "engine", "dsh-tool.mjs"), "utf8");
 
 test("server.mjs：piPackage 为空必须显式拦截，不得退化成目录导入崩溃", () => {
   assert.match(serverSrc, /if \(!CONFIG\.piPackage\)/, "缺少 piPackage 空值守卫");
@@ -38,4 +39,9 @@ test("config.mjs：必须有一条不依赖环境变量的全局根探测，且 
     /cwd: __dirname/,
     "npm root -g 未固定 cwd —— 无 prefix 时它会随调用方 cwd 漂移"
   );
+});
+
+test("dsh-tool：Pi SDK 缺失时跳过初始化，不把空路径交给 createRequire", () => {
+  assert.match(dshSrc, /if \(!piPackage\)/, "缺少 Pi SDK 缺失守卫");
+  assert.match(dshSrc, /跳过 dsh 工具初始化/, "缺失 SDK 时应留下明确且非致命的日志");
 });

@@ -7,6 +7,29 @@ import { fileURLToPath } from 'node:url'
 const root = fileURLToPath(new URL('../..', import.meta.url))
 const read = file => fs.readFileSync(path.join(root, file), 'utf8')
 
+test('review shows stale checks and explicitly labels a partial file preview', () => {
+  const page = read('frontend/src/pages/ReviewWorkbench.tsx');
+  assert.ok(page.includes('filesTruncated'));
+  assert.ok(page.includes('filesTotal'));
+  assert.ok(page.includes("verification.state === 'stale'"));
+  assert.ok(page.includes('verification.checks.map'));
+});
+
+test('review groups deployed asset snapshots as generated without hiding source files', () => {
+  const page = read('frontend/src/pages/ReviewWorkbench.tsx')
+  const body = page.split('function fileGroup(pathname: string) {')[1]?.split('\n}')[0]
+  assert.ok(body, 'file grouping implementation must remain testable')
+  const group = new Function('pathname', body)
+  for (const file of ['public/assets/Board-Ddv9U8gE.js', 'public/assets/index-EDZ7PhXj.css', 'PUBLIC\\ASSETS\\Board-123.js', 'frontend/dist/assets/index.js']) {
+    assert.equal(group(file), '生成物', file)
+  }
+  for (const file of ['frontend/src/pages/Board.tsx', 'engine/team-launch.mjs', 'public/app.js', 'public/assets-helper.js']) {
+    assert.equal(group(file), '源码', file)
+  }
+  assert.equal(group('docs/release.md'), '文档')
+  assert.equal(group('tmp/check.log'), '临时文件')
+})
+
 test('review workbench is wired as a route and exposes safe review states', () => {
   const page = read('frontend/src/pages/ReviewWorkbench.tsx')
   const board = read('frontend/src/pages/Board.tsx')

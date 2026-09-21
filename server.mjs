@@ -6,6 +6,10 @@ import tls from "node:tls";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { createTeamLauncher } from "./engine/team-launch.mjs";
+import { createTeamChat, isTeamRequest } from "./engine/team-chat.mjs";
+import { createTeamApi } from "./engine/team-api.mjs";
+import { createTeamRunRead } from "./engine/team-run-read.mjs";
 import { monitorEventLoopDelay } from "node:perf_hooks";
 import { execFile, execFileSync, spawn } from "node:child_process";
 import { pathToFileURL } from "node:url";
@@ -92,6 +96,7 @@ import { initDshKeys, dshResolveBin, handleDshStatus, handleDshWebStart, handleK
 import { initStatsApi, handleGlobalStats, handleProviderStats, handleDailyStats, handleSubagentRuns, handleSubagentHistory, safeSessionStats, handleStats, handleCompact, listBuiltinSkills, handleSkills, handleSkillRead, handleParseFile, escHtml, handleExport, resolveFsPath, handleFsList, handleFsRead, handleRename } from "./engine/stats-api.mjs";
 import { initModelClient, directChat, handleThink, handleDirectChat, maybeCompactHistory } from "./engine/model-client.mjs";
 import { initSelfHeal, createRepairCheckpoint, handleUpdateCheck, handleUpdateApply, handleRepair, handleDesignerGenerate, handleDesignerSave, handleCompare } from "./engine/self-heal.mjs";
+import { frontendVersionPayload } from "./engine/frontend-version.mjs";
 import { initImproveApi, analyzeImprovements, openImprovements, getImprovementDiagnostics, setImprovementStatus } from "./engine/improve-api.mjs";
 import { initEvolutionApi, proposeEvolution, applyEvolution, listEvolution, dismissEvolution, nudgeSkill, applySkillNudge, dismissSkillNudge, listSkillNudges, evaluateProposal, proposeMemoryNudge, listMemoryNudges, applyMemoryNudge, dismissMemoryNudge, analyzeMemoryCompress, proposeMemoryCompress, listMemoryCompress, applyMemoryCompress, dismissMemoryCompress } from "./engine/evolution-api.mjs";
 import { initSessionManager, createSession, evictInactiveSessions, slimSessionImages, compactSession, openSession, initSearchTool, initShareTool, createSessionAgent, ensureAgent, isFirstTurn, deleteSession, setOnTheSpotFixRunner, ensureContextHeadroom } from "./engine/session-manager.mjs";
@@ -126,6 +131,7 @@ import { isListedGroup } from "./engine/session-groups.mjs";
 import { createAIBodyRuntime } from "./engine/aibody-runtime.mjs";
 import { createAIBodyHost } from "./engine/aibody-host.mjs";
 import { initRecallApi, rebuildIndex, handleRecall, handleRecallAsk, handleSummaries, buildSummaries, recallStats } from "./engine/recall-api.mjs";
+import { createPiCompatFallback, defaultFallbackAgentDir } from "./engine/pi-compat-fallback.mjs";
 const memoryApi = await import("./engine/memory.mjs");
 const { initMemorySync } = await import("./engine/memory-sync.mjs");
 initMemorySync({ wsRoot: CONFIG.cwd }); // M1 路径外部化：记忆同步的工作空间根随配置注入
@@ -155,14 +161,25 @@ let timeEngine = null;
 // （2026-09-14 事故：NPM_CONFIG_PREFIX 缺失导致全局包探测全 miss，排查耗时很久）。
 // 这里显式拦截，并给出可执行指引；错误信息里带 "Cannot find module" 特征串，
 // 好让 watchdog 的回滚归因把它判为环境类崩溃而不是 server.mjs 的锅。
+let piSdk = null;
+let piSdkAvailable = false;
 if (!CONFIG.piPackage) {
   console.error("[元枢] 未能解析兼容适配器引擎：Cannot find module '@earendil-works/pi-coding-agent'。");
-  console.error("[元枢] 修复：npm i -g @earendil-works/pi-coding-agent ；或用 PI_PACKAGE 指定其 dist/index.js，然后重启。");
-  process.exit(1);
+  console.error("[元枢] 可选修复：npm i -g @earendil-works/pi-coding-agent ；或用 PI_PACKAGE 指定其 dist/index.js。当前继续以元枢统一引擎启动。");
+} else {
+  try {
+    piSdk = await import(pathToFileURL(CONFIG.piPackage).href);
+    piSdkAvailable = typeof piSdk?.ModelRuntime?.create === "function" && typeof piSdk?.SessionManager?.create === "function";
+    if (!piSdkAvailable) CONFIG.piPackage = "";
+  } catch (e) {
+    console.error(`[元枢] 兼容适配器加载失败：${String(e?.message || e).slice(0, 180)}`);
+    console.error("[元枢] 当前继续以元枢统一引擎启动，Pi 原生会话将自动让路。");
+    CONFIG.piPackage = "";
+  }
 }
-const { createAgentSession, createAgentSessionServices, createAgentSessionFromServices, SettingsManager, ModelRuntime, SessionManager, DefaultResourceLoader, getAgentDir, withFileMutationQueue } = await import(
-  pathToFileURL(CONFIG.piPackage).href
-);
+if (!piSdkAvailable) piSdk = createPiCompatFallback({ agentDir: defaultFallbackAgentDir() });
+const { createAgentSession, createAgentSessionServices, createAgentSessionFromServices, SettingsManager, ModelRuntime, SessionManager, DefaultResourceLoader, getAgentDir, withFileMutationQueue } = piSdk;
+if (!piSdkAvailable) console.log(`[元枢] Pi SDK 不可用，使用统一引擎兼容层；agent 目录 ${getAgentDir()}`);
 // ⚠️ initFileLock 必须放到 AGENT_DIR 声明之后（锁目录锚在 AGENT_DIR 上），
 // 放在这里会 TDZ 崩：Cannot access 'AGENT_DIR' before initialization（2026-09-14 踩过）。
 
@@ -747,6 +764,10 @@ async function handleChat(req, res, body) {
   if (!rateLimit(rateLimitKey(req, "chat"), 30, 60000)) {
     return json(res, 429, { error: "请求过于频繁（30次/分钟），请稍后再试" });
   }
+  if (isTeamRequest(body)) {
+    if (!body.__runContext) return json(res, 400, { error: '天团请通过会话任务入口 /api/runs 启动' });
+    return teamChat(req, res, body);
+  }
   // 外部思考调试开关：请求级 body.think=true 或全局 CONFIG.externalThinking
   const thinkOn = body.think === true || isExternalThinking();
   // 记录对话开始时会话行数（基线）：交付时只提取本轮新增的文件，避免历史文件重复推
@@ -822,12 +843,13 @@ async function handleChat(req, res, body) {
     : null;
   const engineDecision = resolveLead(loadEnginePair(), {
     forceYuanshu: process.env.PI_USE_AGENT === "0",
+    piAvailable: piSdkAvailable,
     nativeChannel: !reqProv || NATIVE_PROVIDERS.has(reqProv),
   });
   // 恢复任务必须走带 effects ledger 的统一工具循环；SDK agent 无法在
   // 内置 write/edit/bash 执行前可靠拦截，因此不能让恢复请求盲目重放。
   const forceResumeUnified = body.__runContext?.resume === true;
-  const useAgent = !!defaultModel && engineDecision.lead === "pi" && !forceResumeUnified;
+  const useAgent = piSdkAvailable && !!defaultModel && engineDecision.lead === "pi" && !forceResumeUnified;
   const observedEngine = forceResumeUnified ? "yuanshu" : engineDecision.lead === "dsh" ? "dsh" : useAgent ? "pi" : defaultModel ? "yuanshu" : "pi";
   // 在主聊天 SSE 外层接入 AIBody：同一条流观察计划、工具、子任务、记忆与产物，
   // 结束时自动持久化本轮状态；不会改变 SSE 内容或背压行为。
@@ -1973,6 +1995,12 @@ console.log(`  🔒 文件写队列: ${usingSharedFileQueue() ? "与 Pi 共用" 
 const runStore = createRunStore({ rootDir: RUNS_DIR });
 const runEventLog = createRunEventLog({ rootDir: RUNS_DIR });
 const runEffects = createRunEffects({ rootDir: RUNS_DIR });
+const teamLauncher = createTeamLauncher({ wsRoot: CONFIG.cwd, repoRoot: __dirname, port: CONFIG.port, token: CONFIG.token });
+const teamRunRead = createTeamRunRead({ wsRoot: CONFIG.cwd, json, getLaunch: () => teamLauncher.status() });
+const teamChat = createTeamChat({ launcher: teamLauncher, wsRoot: CONFIG.cwd, openSession, aibodyHost,
+  readMessages: entry => extractMessages(entry.sm.fileEntries, entry.sm.getLeafId?.() || resolveLeafId(entry.sm.fileEntries))
+    .map(message => ({ role: message.role, content: message.text })),
+});
 const runManager = createRunManager({
   store: runStore,
   eventLog: runEventLog,
@@ -1988,6 +2016,7 @@ const runApi = createRunApi({ manager: runManager, json, readContext: async (run
   bodyRun: aibodyRuntime.getRun(run.id),
   subagents: await subagent.getSubagentHistory({ sessionId: run.sessionId, runId: run.id, limit: 50 }),
 }) });
+const teamApi = createTeamApi({ launcher: teamLauncher, runApi, json });
 
 // 连续创作「原著改编」按书导入：从小说工坊读指定章节（不给就是全书）。
 // 放在 server 层而不是编排层：编排层不该知道小说工坊的文件布局，
@@ -2154,6 +2183,11 @@ async function runDreamCycle() {
 import { createPendingApi } from "./engine/pending-api.mjs";
 import { createBoardApi } from "./engine/board-api.mjs";
 import { createHistoryApi } from "./engine/history-api.mjs";
+import { createWithCache } from "./engine/resp-cache.mjs";
+
+// 聚合接口的响应级 TTL 缓存。**必须在 API_ROUTES 之前创建**：下面那个数组字面量在模块求值期
+// 就会调用 withCache(...)，放到数组之后就成"先用后声明"了（tests/unit/module-scope-order 守着这条）。
+const withCache = createWithCache();
 
 const API_ROUTES = [
   // 待审改动（2026-09-20，借 openwriter 的"agent 写字、人审阅"）：改文件先落待审区，接受才写盘。
@@ -2253,7 +2287,7 @@ const API_ROUTES = [
   ["POST", "/api/sessions/db/sweep", async (res, req) => handleDbSweep(res, await readBody(req))],
   // ── 会话 ──
   ["GET", "/api/emotion", (res, req, url) => handleEmotion(res, url)],
-  ["GET", "/api/run/overview", withCache(60000, "run-overview", (res, req, url) => runApi.overview(res, req, url))],
+  ["GET", "/api/run/overview", withCache(60000, "run-overview", (res, req, url) => runApi.overview(res, req, url), { bypass: (_req, url) => url.searchParams.has("session") })],
   ["GET", "/api/emotion/tide", (res) => json(res, 200, { tide: emotion.getTide(300) })],
   ["GET", "/api/emotion/feelings", (res) => json(res, 200, { feelings: emotion.getFeelings(50) })],
   ["GET", "/api/agent-status", (res) => handleAgentStatus(res)],
@@ -2611,46 +2645,33 @@ const API_ROUTES = [
     const message = String((body && body.message) || "");
     if (!provider || !modelId || !message) return json(res, 400, { error: "provider/modelId/message 必填" });
     const maxTokens = Number(body && body.maxTokens) > 0 ? Number(body.maxTokens) : undefined;
+    const controller = new AbortController();
+    const onClose = () => { if (!res.writableEnded) controller.abort(); };
+    res.once('close', onClose);
     try {
-      const r = await directChat({ provider, id: modelId }, message, [], maxTokens ? { maxTokens } : {});
+      const r = await directChat({ provider, id: modelId }, message, [], { maxTokens, signal: controller.signal });
       if (!r) return json(res, 502, { error: "模型调用失败（渠道/密钥/超时）" });
       return json(res, 200, { text: String(r.text || ""), thinkLen: String(r.think || "").length, note: r.text ? "ok" : "只有思考、没有正文" });
-    } catch (e) { return json(res, 500, { error: String(e && e.message || e).slice(0, 120) }); }
+    } catch (e) { if (!res.destroyed) return json(res, 500, { error: String(e && e.message || e).slice(0, 120) }); }
+    finally { res.off('close', onClose); }
   }],
 
   // 天团触发（2026-09-20）：**只允许**跑白名单里的那一个脚本（不接任意命令），带单实例锁。
   // 这样"她自己开天团"是可控的一条路，而不是一个万能后门。
   ["POST", "/api/team/run", async (res, req) => {
     const body = await readBody(req, 4);
-    const task = String((body && body.task) || "").slice(0, 300) || "写一个 10 秒飞天舞者视频脚本";
-    const script = path.join(WS_ROOT, "工程", "多AI角色扮演系统", "scripts", "team-run-live.mjs");
-    if (!fs.existsSync(script)) return json(res, 404, { error: "team-run-live.mjs 不存在" });
-    const lock = path.join(WS_ROOT, "记忆", "运行时", "天团运行锁.json");
-    try {
-      const cur = JSON.parse(fs.readFileSync(lock, "utf8"));
-      const ageMs = Date.now() - Date.parse(cur.at || 0);
-      if (cur.pid && ageMs < 20 * 60 * 1000) {
-        let alive = true; try { process.kill(cur.pid, 0); } catch { alive = false; }
-        if (alive) return json(res, 409, { error: "已有一趟天团在跑", since: cur.at, pid: cur.pid, task: cur.task });
-      }
-    } catch {}
-    try {
-      const { spawn } = await import("node:child_process");
-      const child = spawn(process.execPath, [script, task], { cwd: WS_ROOT, detached: true, stdio: "ignore", windowsHide: true });
-      child.unref();
-      fs.writeFileSync(lock, JSON.stringify({ at: new Date().toISOString(), pid: child.pid, task }), "utf8");
-      console.log(`[team] 天团已开跑：pid ${child.pid}｜${task}`);
-      return json(res, 200, { ok: true, started: true, pid: child.pid, task, note: "跑完写 工程/多AI角色扮演系统/team-run.json，工作台「天团」视图会自动刷新" });
-    } catch (e) { return json(res, 500, { error: String(e?.message || e).slice(0, 120) }); }
+    return teamApi.start(res, req, body);
   }],
 
   // 天团运行态（2026-09-19）：只读暴露 工程/多AI角色扮演系统/team-run.json（工作台「天团」视图的数据源）。
-  ["GET", "/api/team/run", (res) => {
-    const p = path.join(CONFIG.cwd, "工程", "多AI角色扮演系统", "team-run.json");
-    try {
-      if (!fs.existsSync(p)) return json(res, 200, { ok: true, run: null, hint: "还没有运行记录：node 工程/多AI角色扮演系统/scripts/team-run.mjs \"任务\"" });
-      return json(res, 200, { ok: true, run: JSON.parse(fs.readFileSync(p, "utf8")) });
-    } catch (e) { return json(res, 500, { error: String(e?.message || e).slice(0, 120) }); }
+  ["GET", "/api/team/run", (res) => teamRunRead(res)],
+  ["POST", "/api/team/stop", async (res, req) => {
+    const body = await readBody(req, 4);
+    return teamApi.stop(res, req, body);
+  }],
+  ["POST", "/api/team/resume", async (res, req) => {
+    const body = await readBody(req, 4);
+    return teamApi.resume(res, req, body);
   }],
 
   // 人格定义（2026-09-18）：一份定义决定人格——把定义与渲染结果如实暴露出来，便于核对。
@@ -2701,14 +2722,13 @@ const API_ROUTES = [
   ["GET", "/api/health", (res) => json(res, 200, { ok: true })],
   ["POST", "/api/repair", async (res, req) => handleRepair(res, await readBody(req))],
   ["GET", "/api/update/check", (res) => handleUpdateCheck(res)],
-  // 前端版本号（从 index.html 的 ?v= 提取）：供前端自动检测更新→自动刷新
+  // 前端版本号：优先兼容旧 index.html 的 ?v=，同时用产品版本兜底。
+  // Vite 产物使用 hash 文件名，不带 ?v=；只扫 query 会让更新接口永久返回 0。
   ["GET", "/api/frontend-version", async (res) => {
     try {
       const html = fs.readFileSync(path.join(__dirname, "public", "index.html"), "utf8");
-      let max = 0;
-      for (const m of html.matchAll(/[?&]v=(\d+)/g)) max = Math.max(max, parseInt(m[1], 10));
-      json(res, 200, { version: max });
-    } catch { json(res, 200, { version: 0 }); }
+      json(res, 200, frontendVersionPayload({ appVersion: APP_VERSION, html }));
+    } catch { json(res, 200, frontendVersionPayload({ appVersion: APP_VERSION })); }
   }],
   ["POST", "/api/update/apply", async (res, req) => handleUpdateApply(res, await readBody(req))],
   // ── 设计器 ──
@@ -2838,12 +2858,12 @@ const API_ROUTES = [
     } catch (e) { json(res, 500, { error: String(e?.message || e) }); }
   }],
   // ── Gateway 2.0 插件化引擎（dsh 设计沉淀）──
-  ["GET", "/api/engine/pair", async (res) => json(res, 200, await describePair())],
+  ["GET", "/api/engine/pair", async (res) => json(res, 200, await describePair(undefined, { piAvailable: piSdkAvailable }))],
   ["POST", "/api/engine/pair", async (res, req) => {
     try {
       const b = await readBody(req, 1);
-      if (b?.swap) return json(res, 200, await describePair(swapEnginePair()));
-      json(res, 200, await describePair(saveEnginePair(b || {})));
+      if (b?.swap) return json(res, 200, await describePair(swapEnginePair(), { piAvailable: piSdkAvailable }));
+      json(res, 200, await describePair(saveEnginePair(b || {}), { piAvailable: piSdkAvailable }));
     } catch (e) { json(res, 400, { error: String(e?.message || e).slice(0, 120) }); }
   }],
   ["GET", "/api/engine/status", async (res) => {
@@ -3048,29 +3068,9 @@ const corsPolicy = createCorsPolicy(CONFIG.corsOrigins);
 // 聚合接口的响应级 TTL 缓存（2026-09-20）：/api/stats/providers 要扫全部会话文件（实测 5.3s）、
 // /api/run/overview 9.5s，而前端每 8 秒轮一次 → 页面永远在等。这里把"同样的聚合结果"缓存 TTL 秒，
 // 只对**明确列出的只读 GET** 生效（不碰流式/写接口），并且带上 X-Cache: HIT/MISS 便于核对。
-const __respCache = new Map();
-function withCache(ttlMs, key, handler) {
-  return async (res, req, url, m) => {
-    const hit = __respCache.get(key);
-    if (hit && Date.now() - hit.at < ttlMs) {
-      try { res.writeHead(200, { "Content-Type": "application/json; charset=utf-8", "X-Cache": "HIT", "X-Cache-Age": String(Math.round((Date.now() - hit.at) / 1000)) }); } catch {}
-      return res.end(hit.body);
-    }
-    const parts = [];
-    const shim = {
-      writeHead: (...a) => res.writeHead(...a),
-      setHeader: (...a) => { try { res.setHeader(...a); } catch {} },
-      getHeader: (...a) => { try { return res.getHeader(...a); } catch { return undefined; } },
-      write: (b) => { parts.push(b); return true; },
-      end: (b) => { if (b) parts.push(b); const body = parts.join(""); __respCache.set(key, { at: Date.now(), body }); try { res.setHeader("X-Cache", "MISS"); } catch {} res.end(body); },
-      get statusCode() { return res.statusCode; },
-      set statusCode(v) { res.statusCode = v; },
-      get headersSent() { return res.headersSent; },
-    };
-    return handler(shim, req, url, m);
-  };
-}
-
+// 实现搬到 engine/resp-cache.mjs（那里有 2026-09-20 那次缓存键事故的完整说明），
+// withCache 的实例在 API_ROUTES 之前创建。
+//
 // 静态缓存语义（2026-09-20 重做版）：只设头、不 return、不动分支；
 // 目的：让 Cloudflare 与浏览器敢长期缓存带哈希的资源（外网实测以前每次 REVALIDATED 都要穿隧道 ~1s）。
 function __applyStaticCache(req, res) {

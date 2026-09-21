@@ -149,7 +149,8 @@ export function extractModelReply(msg, history) {
   const raw = msg.tool_calls;
   const tcs = raw && raw.length ? sanitizeTcsLocal(raw) : null;
   if (tcs && tcs.length) {
-    history.push({ role: "assistant", content: msg.content || null, tool_calls: tcs });
+    history.push({ role: "assistant", content: msg.content || null, tool_calls: tcs,
+      ...(typeof msg.reasoning_content === "string" ? { reasoning_content: msg.reasoning_content } : {}) });
     return { toolCalls: tcs, history };
   }
   const content = String(msg.content || "").trim();

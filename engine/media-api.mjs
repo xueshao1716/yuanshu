@@ -52,19 +52,31 @@ export function isFollowUpDrawRequest(message) {
 export function detectMediaIntents(message, ctx = {}) {
   const intents = [];
   const msg = String(message || "");
+  const imageSize = /(?:16\s*[:：]\s*9|横版|横屏|宽屏|宽幅)/i.test(msg)
+    ? "1472x832"
+    : /(?:9\s*[:：]\s*16|竖版|竖屏|纵版|长图)/i.test(msg)
+      ? "832x1472"
+      : undefined;
   // 否定检测：明确说不要图/不要语音时绝不触发（“不用配图”“别画”“不需要语音”等）
-  const negated = /(不用|别|不要|无需|不需要|别配|不配|不用画|别画|不需要配).{0,6}(图|画|图片|配图|配音|语音)/.test(msg);
+  const negated = /(?:不用|别|不要|无需|不需要)[^，。！？,;；\n]{0,6}(?:图|画)|不(?:再)?(?:生成?|制作|做|画|配|出)?(?:图|画)/.test(msg);
   // 强指令词：明确的祈使动词，任意位置都触发（如“配图”“画图”“生成图片”）
   const STRONG = /(配图|画图|画个|画一|插画|生成图片|绘图|配一幅|做个.{0,4}(图|插画)|配个图)/;
   // 弱意图词：可能误触发的模糊表达，仅在前 30 字内触发（指令通常在开头）
   const WEAK = /(画.{0,8}(图|图片)|生成.{0,6}(图|图片)|一张.{0,8}(图|图片)|配.{0,3}(图|图片)|插图|配图)/;
   // 贴文污染防护（2026-09-20）：用户复制界面文本贴回来时，消息里会夹着历史出图指令词
   // （"做个图""画这个"）和 UI 痕迹（📎 交付路径/思考过程标签/工具卡）——这类长贴文不该触发自动出图。
-  const looksLikeQuotedDump = msg.length > 300 && /(📎|思考过程|pi-workspace|localhost:8787)/.test(msg);
-  if (!negated && !looksLikeQuotedDump && (STRONG.test(msg) || (msg.slice(0, 30).match(WEAK)))) intents.push({ type: "image" });
-  const ttsNeg = /(不用|别|不要|无需|不需要).{0,6}(朗读|配音|语音|读出来)/.test(msg);
+  //
+  // 2026-09-20 二次修：判据只认**界面转录标记**。原来还拿 `pi-workspace` 与 `localhost:8787` 当判据，
+  // 但真实的长提示词里带本机路径或地址很常见（"画一张海报，参考 D:\pi-workspace\生成物\a.png"），
+  // 结果这类正常请求被静默吞掉——实测 462 字带路径的请求 detectMediaIntents 返回空，出图功能像丢了。
+  // 转录标记则是界面自己产出的字样，正常提示词里不会出现，做判据才准。
+  const looksLikeQuotedDump = msg.length > 300 && /(思考过程|📎\s*交付|本轮主引擎|工具卡)/.test(msg);
+  if (!negated && !looksLikeQuotedDump && (STRONG.test(msg) || (msg.slice(0, 30).match(WEAK)))) {
+    intents.push({ type: "image", ...(imageSize ? { size: imageSize } : {}) });
+  }
+  const ttsNeg = /(?:不用|别|不要|无需|不需要)[^，。！？,;；\n]{0,6}(?:朗读|配音|语音|读出来)|不(?:再)?(?:生成|做)?(?:朗读|配音|语音|读出来)/.test(msg);
   if (!ttsNeg && /(配音|朗读|读出来|生成语音|配个音|读一下|配个音)/.test(msg)) intents.push({ type: "tts" });
-  const videoNeg = /(不用|别|不要|无需|不需要).{0,6}(视频|片子|短片)/.test(msg);
+  const videoNeg = /(?:不用|别|不要|无需|不需要)[^，。！？,;；\n]{0,6}(?:视频|片子|短片)|不(?:再)?(?:生成|制作|做|出|拍)?(?:视频|片子|短片)/.test(msg);
   // 有「剧本」时交给 agent 写镜/对白再 generate_video；宿主旁路会把原话当 prompt，叠出废片。
   const videoNeedsScript = /剧本/.test(msg);
   if (!videoNeg && !videoNeedsScript && /(做个视频|做视频|生成视频|拍个视频|出个视频|视频生成|做个片子|做个短片)/.test(msg)) {
@@ -72,7 +84,7 @@ export function detectMediaIntents(message, ctx = {}) {
   }
   // 续画：上一轮出过图 + 这句是短祈使追加要求 → 补一个 image 意图（标 followUp，提示词用上一轮那句）
   if (!negated && !intents.length && ctx.lastMediaType === "image" && isFollowUpDrawRequest(msg)) {
-    intents.push({ type: "image", followUp: true });
+    intents.push({ type: "image", followUp: true, ...(imageSize ? { size: imageSize } : {}) });
   }
   return intents;
 }
@@ -198,7 +210,7 @@ export async function generateMediaAsync(intent, prompt) {
       const m = findMediaModel("image");
       if (!m) { console.log(`[元枢] 媒体: 无 image 模型`); return null; }
       const drawnPrompt = varyImagePrompt(prompt);
-      const url = await generateImage(m.provider, m.id, drawnPrompt);
+      const url = await generateImage(m.provider, m.id, drawnPrompt, intent.size);
       console.log(`[元枢] 媒体 image: ${url ? "成功" : "失败"} prompt=${String(drawnPrompt).slice(0,30)}`);
       return url ? { type: "image", url, model: `${m.provider}/${m.id}`, prompt: drawnPrompt } : { type: "image", error: "图像模型未返回图片" };
     }

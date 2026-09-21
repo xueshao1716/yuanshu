@@ -4,7 +4,7 @@ import { useApp } from '../store'
 import { MessagesSquare, BrainCircuit, Wrench, FolderClosed, Plus, SquareTerminal, Command, ChevronDown, ChevronRight, PanelRight, ShieldAlert, ImagePlus, Presentation, Clock4, Database, Download, FileText, Code2 } from 'lucide-react'
 import { RefreshCw } from 'lucide-react'
 import { usePullToRefresh } from '../hooks/usePullToRefresh'
-import { RunsApi, SessionsApi, AsrApi, AgentStatusApi, streamSession, LingXiApi, ConfirmApi, downloadApiFile, type RunSummary } from '../api'
+import { RunApi, RunsApi, SessionsApi, AsrApi, AgentStatusApi, streamSession, LingXiApi, ConfirmApi, downloadApiFile, type RunSummary } from '../api'
 import Message from './Message'
 import SendBox from './SendBox'
 import XiaoyuWidget from './XiaoyuWidget'
@@ -534,6 +534,10 @@ export default function ChatArea({ compactHeader, rightPanel, onRightPanel }: {
     const d = event.data || {}
 
     switch (event.type) {
+      case 'subagent_started':
+      case 'subagent_finished':
+        updStream(p => ({ ...p, notes: [...p.notes, `${d.agent || '角色'} · ${event.type === 'subagent_started' ? '开始协作' : d.status === 'failed' ? '执行失败' : '已返回，待最终检查'}`].slice(-40) }))
+        break
       case 'engine_selected': {
         // ② 每轮标出"主驾引擎 + 原因"（2026-09-16）：服务端一直有这个事件，
         // 但前端以前把它丢了——于是"切个模型怎么连引擎和脾气都变了"全靠猜。
@@ -665,10 +669,16 @@ export default function ChatArea({ compactHeader, rightPanel, onRightPanel }: {
 
   useEffect(() => {
     if (!currentSessionId) return
-    const record = loadActiveRun(currentSessionId)
-    if (!record) return
     let alive = true
-    RunsApi.get(record.runId).then(run => {
+    const restore = async () => {
+      let record = loadActiveRun(currentSessionId)
+      if (!record) {
+        const overview = await RunApi.overview(currentSessionId)
+        const active = overview.active.find(run => run.sessionId === currentSessionId)
+        if (!alive || activeRunRef.current || !active) return
+        record = { runId: active.id, sessionId: currentSessionId, status: 'running', lastSeq: 0, assistantMessageId: `run-${active.id}`, stream: emptyStream() }
+      }
+      const run = await RunsApi.get(record.runId)
       if (!alive) return
       if (isTerminalRunStatus(run.status) && run.lastSeq <= record.lastSeq) {
         activeRunRef.current = record
@@ -682,7 +692,8 @@ export default function ChatArea({ compactHeader, rightPanel, onRightPanel }: {
         return
       }
       connectRun({ ...record, status: run.status })
-    }).catch(() => {
+    }
+    restore().catch(() => {
       if (alive) clearActiveRun(currentSessionId)
     })
     return () => { alive = false; streamCloseRef.current?.(); streamCloseRef.current = null }

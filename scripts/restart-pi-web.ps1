@@ -12,7 +12,11 @@ $identity = [Security.Principal.WindowsIdentity]::GetCurrent()
 $principal = if ($identity) { New-Object Security.Principal.WindowsPrincipal($identity) } else { $null }
 if ($principal -and -not $principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) {
   $args = "-NoProfile -ExecutionPolicy Bypass -File `"$PSCommandPath`""
-  $elevated = Start-Process -FilePath 'powershell.exe' -Verb RunAs -ArgumentList $args -Wait -PassThru
+  # 不调用 WaitForExit：Windows PowerShell 在子进程继承句柄时可能把后台后代
+  # 也算进等待时间。轮询启动器自己的 HasExited，只等待提权脚本并保留退出码。
+  $elevated = Start-Process -FilePath 'powershell.exe' -Verb RunAs -ArgumentList $args -PassThru
+  while (-not $elevated.HasExited) { Start-Sleep -Milliseconds 100 }
+  $elevated.Refresh()
   exit $elevated.ExitCode
 }
 

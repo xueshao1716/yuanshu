@@ -21,7 +21,9 @@ function artifactLocation(data) {
 export function collectWorkEvents(events, terminal) {
   const tools = new Map(), subagents = new Map(), artifacts = new Map()
   const checks = [], notes = []
-  let writes = 0, memorySummary = '', actualModel = '', engine = '', reason = '', current = ''
+  let writes = 0, memorySummary = '', actualModel = '', childModel = '', engine = '', reason = '', current = ''
+  const mediaModels = []
+  const mediaModelKeys = new Set()
   events.forEach((event, index) => {
     const type = String(event?.type || '').replace(/^pi\//, '')
     const d = event?.data && typeof event.data === 'object' ? event.data : {}
@@ -40,6 +42,10 @@ export function collectWorkEvents(events, terminal) {
       const key = id || `child-record-${index}`
       const previous = subagents.get(key) || {}
       const state = status(d.status, type.includes('finish') || type.includes('end') ? 'completed' : 'running')
+      const role = clean(d.role || d.agent || previous.role, 80) || '子智能体'
+      childModel = modelName(d.model) || childModel
+      current = ['failed', 'error'].includes(state) ? `角色「${role}」执行失败`
+        : ['running', 'started'].includes(state) ? `角色「${role}」正在协作` : `已收到角色「${role}」的执行结果`
       subagents.set(key, { id: key, at, role: clean(d.role || d.agent || previous.role, 80) || '子智能体',
         task: clean(d.task || previous.task), model: modelName(d.model) || previous.model || '',
         status: terminal && ['running', 'started'].includes(state) ? 'not_observed' : state,
@@ -54,6 +60,8 @@ export function collectWorkEvents(events, terminal) {
       artifacts.set(key, { id: key, at, name: clean(d.name || d.title, 160) || locator.split(/[\\/]/).at(-1) || '已记录产物', path: locator,
         kind: clean(d.kind || d.type || d.mime, 60) || '文件' })
       current = '已记录产物，等待核实交付结果'
+      const mediaModel = modelName(d.model || d.media?.model)
+      if (mediaModel && !mediaModelKeys.has(mediaModel)) { mediaModelKeys.add(mediaModel); mediaModels.push(mediaModel) }
     }
     if (type === 'memory_written') {
       writes += Number.isFinite(d.count) && d.count >= 0 ? Math.floor(d.count) : 1
@@ -82,5 +90,5 @@ export function collectWorkEvents(events, terminal) {
   })
   const state = checks.some(c => c.state === 'failed') ? 'failed' : checks.some(c => c.state === 'passed') ? 'passed' : checks.length ? 'reported' : 'not_observed'
   return { tools: group([...tools.values()]), subagents: group([...subagents.values()]), artifacts: group([...artifacts.values()]),
-    verification: { state, ...group(checks) }, memory: { writes, summary: memorySummary }, notes: notes.slice(-4), actualModel, engine, reason, current }
+    verification: { state, ...group(checks) }, memory: { writes, summary: memorySummary }, notes: notes.slice(-4), actualModel: actualModel || childModel, mediaModels, engine, reason, current }
 }

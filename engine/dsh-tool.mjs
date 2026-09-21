@@ -110,6 +110,12 @@ export function createDshTool({ cwd, piPackage, loadSkillIndex, skillsDir, onLog
 
   async function initDshTool() {
     if (toolDef) return toolDef;
+    // Pi SDK 缺失时元枢仍可独立启动；不要把空路径交给 createRequire，
+    // 否则 Node 会把它当成当前目录并打印误导性的 filename 错误。
+    if (!piPackage) {
+      onLog("[dsh] Pi SDK 不可用，跳过 dsh 工具初始化");
+      return null;
+    }
     try {
       const { createRequire } = await import("node:module");
       const req2 = createRequire(piPackage);

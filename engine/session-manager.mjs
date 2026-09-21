@@ -618,6 +618,17 @@ export async function initFixProblemTool() {
 }
 
 export async function createSessionAgent(sm, model) {
+  // pi SDK 是可选适配器。缺失时给统一引擎一个轻量会话壳，保留会话文件、打断和模型切换接口，
+  // 避免“创建新会话”在真正进入元枢循环前就因 SDK 缺失崩溃。
+  if (!_piPackage || typeof _createAgentSessionServices !== "function" || typeof _createAgentSessionFromServices !== "function") {
+    return {
+      model,
+      subscribe() { return () => {}; },
+      async abort() {},
+      dispose() {},
+      async setModel(next) { this.model = next; },
+    };
+  }
   const cwd = (typeof sm.getCwd === "function" && sm.getCwd()) || _cwd;
   const settingsManager = _SettingsManager.create(cwd, _getAgentDir());
   const customTools = [];

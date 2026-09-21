@@ -1,9 +1,9 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import useSWR from 'swr'
 import {MessagesSquare, Clock4, Wallet, Activity as ActivityIcon, Package,
   Play, Pause, CheckCircle2, AlertTriangle, ArrowRight,
   LayoutDashboard, GitCompare, Users } from 'lucide-react'
-import { SessionsApi, TasksApi, StatsApi, WsApi, SubagentApi, EmotionApi, RunApi, type TimeTask, type SubagentRun } from '../api'
+import { api, SessionsApi, TasksApi, StatsApi, WsApi, SubagentApi, EmotionApi, RunApi, type TimeTask, type SubagentRun } from '../api'
 import { useApp } from '../store'
 import { useEmotionSummary } from '../lib/useEmotionSummary'
 import PageHeader from '../components/PageHeader'
@@ -150,20 +150,29 @@ export default function Board({ initialView = 'overview' }: { initialView?: Boar
   const { selectSession, sessions: appSessions } = useApp()
   // 首屏一条打包（2026-09-20）：外网每个请求 ~0.8s（隧道往返），原来首屏要打 9 条 → 现在 1 条。
   // 下面每条仍保留自己的轮询（数据各自刷新），但用 fallbackData 先把首屏喂饱、且挂载时不重复请求。
-  const { data: bootData } = useSWR('board-bootstrap', () => fetch('/api/board/bootstrap', { headers: { Authorization: 'Bearer ' + (localStorage.getItem('yuanshu_access_token') || '') } }).then((r) => r.json()), { refreshInterval: 60_000 })
-  const bootFb = (pick: (b: any) => any) => { try { const v = bootData ? pick(bootData) : undefined; return v && (Array.isArray(v) ? v.length >= 0 : true) ? v : undefined } catch { return undefined } }
-  const { data: sessData } = useSWR('sessions', () => SessionsApi.list(), { refreshInterval: 30_000, fallbackData: bootFb((d: any) => (d.sessions ? { sessions: d.sessions } : undefined)), revalidateOnMount: false })
+  const { data: bootData, error: bootError } = useSWR('board-bootstrap', () => api('/api/board/bootstrap'), { refreshInterval: 60_000 })
+  const bootFb = (pick: (b: any) => any) => { try { const v = bootData ? pick(bootData) : undefined; return v && !v.__error && !v.error ? v : undefined } catch { return undefined } }
+  const { data: sessData, mutate: refreshSessions } = useSWR('sessions', () => SessionsApi.list(), { refreshInterval: 30_000, fallbackData: bootFb((d: any) => (d.sessions ? { sessions: d.sessions } : undefined)), revalidateOnMount: false })
   const { data: taskData } = useSWR('board-tasks', () => TasksApi.list(), { refreshInterval: 15_000 })
-  const { data: statData } = useSWR('board-stats', () => StatsApi.providers(), { refreshInterval: 120_000, fallbackData: bootFb((d: any) => d.providers), revalidateOnMount: false })
-  const { data: delivData } = useSWR('board-deliveries', () => WsApi.deliveries(), { refreshInterval: 60_000, fallbackData: bootFb((d: any) => d.deliveries), revalidateOnMount: false })
-  const { data: dailyData } = useSWR('board-daily', () => StatsApi.daily(), { refreshInterval: 120_000, fallbackData: bootFb((d: any) => d.daily), revalidateOnMount: false })
-  const { data: saData } = useSWR('board-subagent', () => SubagentApi.runs(), { refreshInterval: 20_000, fallbackData: bootFb((d: any) => d.subagent), revalidateOnMount: false })
-  const { data: runData, error: runError } = useSWR('board-run-overview', () => RunApi.overview(), { refreshInterval: 20_000, fallbackData: bootFb((d: any) => d.overview), revalidateOnMount: false })   // 8s→20s：这条接口本身要几秒，轮太密等于一直在飞
+  const { data: statData, mutate: refreshStats } = useSWR('board-stats', () => StatsApi.providers(), { refreshInterval: 120_000, fallbackData: bootFb((d: any) => d.providers), revalidateOnMount: false })
+  const { data: delivData, mutate: refreshDeliveries } = useSWR('board-deliveries', () => WsApi.deliveries(), { refreshInterval: 60_000, fallbackData: bootFb((d: any) => d.deliveries), revalidateOnMount: false })
+  const { data: dailyData, mutate: refreshDaily } = useSWR('board-daily', () => StatsApi.daily(), { refreshInterval: 120_000, fallbackData: bootFb((d: any) => d.daily), revalidateOnMount: false })
+  const { data: saData, mutate: refreshSubagent } = useSWR('board-subagent', () => SubagentApi.runs(), { refreshInterval: 20_000, fallbackData: bootFb((d: any) => d.subagent), revalidateOnMount: false })
+  const { data: runData, error: runError, mutate: refreshRuns } = useSWR('board-run-overview', () => RunApi.overview(), { refreshInterval: 20_000, fallbackData: bootFb((d: any) => d.overview), revalidateOnMount: false })
+  const bootIncomplete = !!bootData && ['sessions', 'providers', 'deliveries', 'daily', 'subagent', 'overview'].some(k => !bootData[k] || bootData[k].__error || bootData[k].error)
+  useEffect(() => {
+    if (!bootError && !bootData) return
+    const sections = [['sessions', refreshSessions], ['providers', refreshStats], ['deliveries', refreshDeliveries], ['daily', refreshDaily], ['subagent', refreshSubagent], ['overview', refreshRuns]] as const
+    for (const [key, refresh] of sections) {
+      const value = bootData?.[key]
+      if (bootError || !value || value.__error || value.error) void refresh().catch(() => {})
+    }
+  }, [bootData, bootError, refreshSessions, refreshStats, refreshDeliveries, refreshDaily, refreshSubagent, refreshRuns])
 
   const sessions = sessData?.sessions || []
   const tasks = taskData?.tasks || []
   const providers = statData?.providers || []
-  const deliveries = (delivData?.deliveries || []) as { name: string; mtime?: string; type?: string }[]
+  const deliveries = [...(delivData?.deliveries || [])].sort((a, b) => String(b.mtime || '').localeCompare(String(a.mtime || ''))) as { name: string; mtime?: string; type?: string }[]
   const dailyDays = dailyData?.days || []
   const saRunning = (saData?.runs || []).filter(r => ['running', 'active', 'waiting'].includes(r.state))
   const activeRuns = runData?.active || []
@@ -192,7 +201,8 @@ export default function Board({ initialView = 'overview' }: { initialView?: Boar
   return (
     <div className="flex-1 overflow-y-auto">
       <div className="max-w-[1080px] mx-auto px-4 sm:px-6 py-5 flex flex-col gap-4">
-        <PageHeader title="工作台" description="接下来做什么：接着聊、去创作、看交付" meta={<HealthBadge status={runData?.health.status || 'idle'} label={activeRuns.length ? `${activeRuns.length} 个运行中` : undefined} />} />
+        <PageHeader title="工作台" description="接下来做什么：接着聊、去创作、看交付" meta={<HealthBadge status={runData?.health?.status || 'idle'} label={activeRuns.length ? `${activeRuns.length} 个运行中` : undefined} />} />
+        {(bootError || bootIncomplete) && <div role="alert" className="panel p-3 text-[12px] text-pi-text">概览部分数据未能加载，正在分项重试；当前数字可能不完整。</div>}
 
         {/* 视图切换：概览 / 改动验收（移动端 select，桌面分段按钮；沿用 Apps.tsx 的页内多视图模式） */}
         <select

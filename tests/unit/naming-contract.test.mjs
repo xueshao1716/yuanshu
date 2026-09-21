@@ -20,6 +20,16 @@ const read = (...p) => fs.readFileSync(path.join(ROOT, ...p), "utf8");
 
 const META = JSON.parse(read("version.json"));
 
+test('release locks track product version without changing dependency versions', () => {
+  for (const file of ['package-lock.json', 'frontend/package-lock.json', 'app/package-lock.json', 'mcp-server/package-lock.json']) {
+    const lock = JSON.parse(read(file));
+    assert.equal(lock.version, META.version, file);
+    assert.equal(lock.packages[''].version, META.version, file);
+  }
+  const cargo = read('app/src-tauri/Cargo.lock').split('[[package]]').find(block => block.includes('name = "yuanshu"'));
+  assert.ok(cargo.includes(`version = "${META.version}"`));
+});
+
 test("版本号唯一来源：所有声明都必须等于 version.json", () => {
   assert.match(META.version, /^\d+\.\d+\.\d+$/, "version.json 的 version 必须是 x.y.z");
 

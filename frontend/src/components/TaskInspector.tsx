@@ -149,6 +149,11 @@ export default function TaskInspector({ onOpenSession, onOpenReview }: { onOpenS
   const recent = !active ? runData?.recent?.[0] : undefined
   const run = active || recent
   const health = runData?.health
+  const healthLabel = health?.activeCount
+    ? '引擎工作中'
+    : health?.failedCount
+      ? '当前空闲 · 有历史异常'
+      : '引擎空闲'
 
   return <div className="flex min-h-0 flex-1 flex-col overflow-y-auto px-3 py-3" data-slot="task-inspector">
     <div className="mb-3 flex items-start gap-2">
@@ -157,7 +162,7 @@ export default function TaskInspector({ onOpenSession, onOpenReview }: { onOpenS
     </div>
     <div className="mb-3 flex items-center gap-2 rounded-pi-md border border-pi-border-soft bg-pi-bg2/50 px-2.5 py-2 text-[11px]">
       <span className={`h-2 w-2 rounded-full ${health?.status === 'busy' ? 'bg-pi-accent animate-pulse' : health?.status === 'degraded' ? 'bg-pi-warning' : 'bg-pi-dim2'}`} />
-      <span className="text-pi-text">{health?.status === 'busy' ? '引擎工作中' : health?.status === 'degraded' ? '有任务需要处理' : '引擎空闲'}</span>
+      <span className="text-pi-text">{healthLabel}</span>
       {health && <span className="ml-auto text-[10px] text-pi-dim2">{health.activeCount} 个执行中 · {health.failedCount} 个异常</span>}
     </div>
     {runError ? <div className="mb-3 rounded-pi-md border border-pi-error/25 bg-pi-error/5 px-3 py-2 text-[11px] text-pi-error">运行状态暂不可用，请稍后刷新。</div> : run ? <RunCard run={run} active={!!active} onOpenSession={onOpenSession} mutate={() => mutateRuns()} /> : <div className="mb-3 rounded-pi-lg border border-dashed border-pi-border-soft px-3 py-5 text-center text-[11px] text-pi-dim2"><Wrench className="mx-auto mb-2 h-5 w-5" />当前没有运行中的任务</div>}
