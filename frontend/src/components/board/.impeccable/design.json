@@ -1,0 +1,65 @@
+{
+  "schemaVersion": 2,
+  "generatedAt": "2026-09-23T17:21:05+08:00",
+  "title": "Design System: 元枢工作台概览",
+  "extensions": {
+    "shadows": [],
+    "motion": [],
+    "breakpoints": [{ "name": "board-single-column", "value": "640px" }],
+    "focus": { "outline": "2px solid var(--board-mint)", "outlineOffset": "4px" },
+    "sourceScope": "frontend/src/components/board；不替代全局设计约定"
+  },
+  "components": [
+    {
+      "name": "主操作",
+      "kind": "button",
+      "refersTo": "button-primary",
+      "description": "有会话时继续会话，无会话时新建对话。",
+      "html": "<button class=\"ds-primary\">继续会话</button>",
+      "css": ".ds-primary{display:inline-flex;align-items:center;justify-content:center;min-height:46px;padding:10px 18px;border-radius:8px;border:1px solid #b0e7df;background:#b0e7df;color:#09201f;font:550 14px var(--pi-font-sans,sans-serif);cursor:pointer}.ds-primary:focus-visible{outline:2px solid #b0e7df;outline-offset:4px}.ds-primary:disabled{opacity:.65;cursor:default}@media(hover:hover){.ds-primary:not(:disabled):hover{background:#c7f0ea}}"
+    },
+    {
+      "name": "次操作",
+      "kind": "button",
+      "refersTo": "button-secondary",
+      "description": "已有会话时的新建对话入口。",
+      "html": "<button class=\"ds-secondary\">新建对话</button>",
+      "css": ".ds-secondary{display:inline-flex;align-items:center;justify-content:center;min-height:46px;padding:10px 18px;border-radius:8px;border:1px solid #344c5e;background:transparent;color:#edf5f7;font:550 14px var(--pi-font-sans,sans-serif);cursor:pointer}.ds-secondary:focus-visible{outline:2px solid #b0e7df;outline-offset:4px}.ds-secondary:disabled{opacity:.65;cursor:default}@media(hover:hover){.ds-secondary:not(:disabled):hover{background:#213c4c}}"
+    },
+    {
+      "name": "快捷入口",
+      "kind": "nav",
+      "description": "入口示例；手机端隐藏补充说明。",
+      "html": "<nav aria-label=\"工作台快捷入口\"><a class=\"ds-shortcut\" href=\"#/workshop\"><span>去创作<small>把想法做成作品</small></span></a></nav>",
+      "css": ".ds-shortcut{display:flex;align-items:center;min-height:54px;padding:12px 4px;border-bottom:1px solid #344c5e;color:#edf5f7;font:14px var(--pi-font-sans,sans-serif);text-decoration:none}.ds-shortcut small{display:block;margin-top:3px;color:#b1c3ce;font-size:12px}.ds-shortcut:focus-visible{outline:2px solid #b0e7df;outline-offset:4px}@media(hover:hover){.ds-shortcut:hover{background:#213c4c}}@media(max-width:640px){.ds-shortcut{padding:10px 0}.ds-shortcut small{display:none}}"
+    },
+    {
+      "name": "状态面板",
+      "kind": "card",
+      "refersTo": "focus-panel",
+      "description": "不透明面板与边线；空闲结果只在数据已加载后出现。",
+      "html": "<section class=\"ds-panel\"><header>正在执行</header><div class=\"ds-empty\">当前没有正在执行的任务<p>开始对话或创作后，可在这里查看进展。</p></div></section>",
+      "css": ".ds-panel{padding:6px 16px 12px;border:1px solid #344c5e;border-radius:10px;background:#122234;color:#edf5f7;font-family:var(--pi-font-sans,sans-serif)}.ds-panel header{display:flex;align-items:center;min-height:52px;border-bottom:1px solid #344c5e;font-size:14px;font-weight:550}.ds-empty{padding:23px 0 14px;font-size:14px}.ds-empty p{margin-top:8px;font-size:13px;line-height:1.8;color:#b1c3ce}@media(max-width:640px){.ds-panel{padding-inline:12px}}"
+    },
+    {
+      "name": "运行记录行",
+      "kind": "custom",
+      "description": "文字承载任务与阶段；缺少会话关联时禁用。",
+      "html": "<button class=\"ds-row\" disabled><i aria-hidden=\"true\"></i><span><strong>会话任务</strong><small>执行中 · 会话</small></span></button>",
+      "css": ".ds-row{display:flex;align-items:center;width:100%;gap:12px;min-height:66px;padding:12px 2px;border:0;border-bottom:1px solid #344c5e;background:transparent;color:#edf5f7;text-align:left;font:13px var(--pi-font-sans,sans-serif)}.ds-row i{width:6px;height:6px;flex-shrink:0;border-radius:50%;background:#b0e7df}.ds-row span{flex:1;min-width:0}.ds-row strong{display:block;overflow:hidden;white-space:nowrap;text-overflow:ellipsis;font-weight:500}.ds-row small{display:block;margin-top:5px;font-size:12px;color:#b1c3ce}.ds-row:disabled{opacity:.65;cursor:default}.ds-row:focus-visible{outline:2px solid #b0e7df;outline-offset:4px}@media(hover:hover){.ds-row:not(:disabled):hover{background:#213c4c}}"
+    }
+  ],
+  "narrative": {
+    "overview": "已批准的方向是深蓝底色、薄荷青强调与安静的工作界面。本文件描述已实现的概览主区域，不设定新的品牌隐喻，不替代全局主题、聊天界面、改动验收或天团的视觉约定。",
+    "dos": [
+      "Do 保留区域内的颜色作用域，并继承用户的全局字体选择。",
+      "Do 区分加载、失败、缓存和真实空结果，保留可用的下一步入口。",
+      "Do 在手机端保持欢迎、状态面板、快捷入口的顺序与可触达尺寸。"
+    ],
+    "donts": [
+      "Don't 将这套局部配色推广为聊天或全局主题的强制要求。",
+      "Don't 把历史记录或请求失败呈现为当前执行状态或成功空结果。",
+      "Don't 在本记录中追加未实现的透明材质、字体、动画或品牌隐喻。"
+    ]
+  }
+}

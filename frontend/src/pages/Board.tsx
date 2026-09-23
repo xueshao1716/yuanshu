@@ -3,7 +3,7 @@ import useSWR from 'swr'
 import {MessagesSquare, Clock4, Wallet, Activity as ActivityIcon, Package,
   Play, Pause, CheckCircle2, AlertTriangle, ArrowRight,
   LayoutDashboard, GitCompare, Users } from 'lucide-react'
-import { api, SessionsApi, TasksApi, StatsApi, WsApi, SubagentApi, EmotionApi, RunApi, type TimeTask, type SubagentRun } from '../api'
+import { api, SessionsApi, TasksApi, StatsApi, WsApi, SubagentApi, EmotionApi, RunApi, type TimeTask } from '../api'
 import { useApp } from '../store'
 import { useEmotionSummary } from '../lib/useEmotionSummary'
 import PageHeader from '../components/PageHeader'
@@ -17,9 +17,12 @@ import { ReviewPanel } from './ReviewWorkbench'
 import { PendingChanges } from '../components/PendingChanges'
 import { HistoryPanel } from '../components/HistoryPanel'
 import { TeamRunView } from '../components/TeamRunView'
+import BoardWelcome, { BoardShortcuts } from '../components/board/BoardWelcome'
+import BoardFocus from '../components/board/BoardFocus'
+import { chooseResumeSession } from '../lib/board-home-state.mjs'
+import '../components/board/board-home.css'
 
-// ── 工作台（2026-09-03，Phase 1）：概览卡 ×4 + 三列泳道 + 活动时间线 ──
-// 布局借鉴 SaaS 项目看板；数据全部来自现有 API（sessions/time-tasks/stats/agent-events）
+// 概览优先呈现会话、真实执行状态和交付；详细记录与用量按需展开。
 
 const isToday = (iso?: string) => {
   if (!iso) return false
@@ -88,20 +91,6 @@ function TaskCard({ t, mode }: { t: TimeTask; mode: 'running' | 'scheduled' | 'd
   )
 }
 
-function DeliveryCard({ d }: { d: { name: string; mtime?: string; type?: string } }) {
-  return (
-    <div className="rounded-pi-md border border-pi-border-soft bg-pi-bg1 hover:border-pi-border transition-colors p-2.5">
-      <div className="flex items-center gap-1.5 min-w-0">
-        <Package className="w-3.5 h-3.5 text-pi-accent flex-shrink-0" strokeWidth={2} />
-        <span className="text-[12px] font-medium text-pi-text truncate">{d.name}</span>
-      </div>
-      <div className="flex items-center gap-1 mt-1 text-[10px] text-pi-dim2">
-        <CheckCircle2 className="w-3 h-3" />{d.mtime ? d.mtime.slice(5, 16).replace('T', ' ') : '刚刚'}
-      </div>
-    </div>
-  )
-}
-
 function UsageChart({ days }: { days: { label: string; input: number; output: number; cost: number; messages: number }[] }) {
   const max = Math.max(1, ...days.map(d => d.input + d.output))
   const totalCost = days.reduce((a, d) => a + d.cost, 0)
@@ -123,18 +112,6 @@ function UsageChart({ days }: { days: { label: string; input: number; output: nu
   )
 }
 
-function SubagentCard({ r }: { r: SubagentRun }) {
-  return (
-    <div className="rounded-pi-md border border-pi-border-soft bg-pi-bg1 hover:border-pi-border transition-colors p-2.5">
-      <div className="flex items-center gap-1.5 min-w-0">
-        <span className="w-1.5 h-1.5 rounded-full bg-pi-accent animate-pulse flex-shrink-0" />
-        <span className="text-[12px] font-medium text-pi-text truncate">{r.agent}</span>
-      </div>
-      <div className="text-[10px] text-pi-dim2 mt-1 truncate">{r.task || r.id}</div>
-    </div>
-  )
-}
-
 type BoardView = 'overview' | 'review' | 'team'
 
 // 页内多视图（沿用 Apps.tsx 的模式）：概览 = 运行态总览；改动验收 = 原独立页，
@@ -147,17 +124,17 @@ const BOARD_VIEWS: { key: BoardView; label: string; icon: typeof MessagesSquare 
 
 export default function Board({ initialView = 'overview' }: { initialView?: BoardView }) {
   const [view, setView] = useState<BoardView>(initialView)
-  const { selectSession, sessions: appSessions } = useApp()
+  const { selectSession } = useApp()
   // 首屏一条打包（2026-09-20）：外网每个请求 ~0.8s（隧道往返），原来首屏要打 9 条 → 现在 1 条。
   // 下面每条仍保留自己的轮询（数据各自刷新），但用 fallbackData 先把首屏喂饱、且挂载时不重复请求。
   const { data: bootData, error: bootError } = useSWR('board-bootstrap', () => api('/api/board/bootstrap'), { refreshInterval: 60_000 })
   const bootFb = (pick: (b: any) => any) => { try { const v = bootData ? pick(bootData) : undefined; return v && !v.__error && !v.error ? v : undefined } catch { return undefined } }
-  const { data: sessData, mutate: refreshSessions } = useSWR('sessions', () => SessionsApi.list(), { refreshInterval: 30_000, fallbackData: bootFb((d: any) => (d.sessions ? { sessions: d.sessions } : undefined)), revalidateOnMount: false })
-  const { data: taskData } = useSWR('board-tasks', () => TasksApi.list(), { refreshInterval: 15_000 })
+  const { data: sessData, error: sessError, mutate: refreshSessions } = useSWR('sessions', () => SessionsApi.list(), { refreshInterval: 30_000, fallbackData: bootFb((d: any) => (Array.isArray(d.sessions) ? { sessions: d.sessions } : undefined)), revalidateOnMount: false })
+  const { data: taskData, error: taskError } = useSWR('board-tasks', () => TasksApi.list(), { refreshInterval: 15_000 })
   const { data: statData, mutate: refreshStats } = useSWR('board-stats', () => StatsApi.providers(), { refreshInterval: 120_000, fallbackData: bootFb((d: any) => d.providers), revalidateOnMount: false })
-  const { data: delivData, mutate: refreshDeliveries } = useSWR('board-deliveries', () => WsApi.deliveries(), { refreshInterval: 60_000, fallbackData: bootFb((d: any) => d.deliveries), revalidateOnMount: false })
+  const { data: delivData, error: delivError, mutate: refreshDeliveries } = useSWR('board-deliveries', () => WsApi.deliveries(), { refreshInterval: 60_000, fallbackData: bootFb((d: any) => d.deliveries), revalidateOnMount: false })
   const { data: dailyData, mutate: refreshDaily } = useSWR('board-daily', () => StatsApi.daily(), { refreshInterval: 120_000, fallbackData: bootFb((d: any) => d.daily), revalidateOnMount: false })
-  const { data: saData, mutate: refreshSubagent } = useSWR('board-subagent', () => SubagentApi.runs(), { refreshInterval: 20_000, fallbackData: bootFb((d: any) => d.subagent), revalidateOnMount: false })
+  const { data: saData, error: saError, mutate: refreshSubagent } = useSWR('board-subagent', () => SubagentApi.runs(), { refreshInterval: 20_000, fallbackData: bootFb((d: any) => d.subagent), revalidateOnMount: false })
   const { data: runData, error: runError, mutate: refreshRuns } = useSWR('board-run-overview', () => RunApi.overview(), { refreshInterval: 20_000, fallbackData: bootFb((d: any) => d.overview), revalidateOnMount: false })
   const bootIncomplete = !!bootData && ['sessions', 'providers', 'deliveries', 'daily', 'subagent', 'overview'].some(k => !bootData[k] || bootData[k].__error || bootData[k].error)
   useEffect(() => {
@@ -172,10 +149,11 @@ export default function Board({ initialView = 'overview' }: { initialView?: Boar
   const sessions = sessData?.sessions || []
   const tasks = taskData?.tasks || []
   const providers = statData?.providers || []
-  const deliveries = [...(delivData?.deliveries || [])].sort((a, b) => String(b.mtime || '').localeCompare(String(a.mtime || ''))) as { name: string; mtime?: string; type?: string }[]
+  const deliveries = [...(delivData?.deliveries || [])].sort((a, b) => String(b.mtime || '').localeCompare(String(a.mtime || '')))
   const dailyDays = dailyData?.days || []
   const saRunning = (saData?.runs || []).filter(r => ['running', 'active', 'waiting'].includes(r.state))
   const activeRuns = runData?.active || []
+  const sectionError = (key: string, available: boolean) => !available && (bootError || bootData?.[key]?.__error || bootData?.[key]?.error)
 
   const stats = useMemo(() => {
     const todaySessions = sessions.filter(s => isToday(s.createdAt)).length
@@ -190,9 +168,7 @@ export default function Board({ initialView = 'overview' }: { initialView?: Boar
     return { todaySessions, activeMsgs, running, scheduled, finished, cost, tokens, msgs, todayDelivs, deliveries, saRunning, dailyDays }
   }, [sessions, tasks, providers, deliveries, dailyDays, saRunning])
 
-  const lastSession = useMemo(() => {
-    return [...sessions].sort((a, b) => String(b.createdAt || '').localeCompare(String(a.createdAt || '')))[0]
-  }, [sessions])
+  const lastSession = useMemo(() => chooseResumeSession(sessions), [sessions])
 
   const paused = tasks.filter(t => t.state === 'paused')
   const goChat = () => { location.hash = '#/chat' }
@@ -201,7 +177,7 @@ export default function Board({ initialView = 'overview' }: { initialView?: Boar
   return (
     <div className="flex-1 overflow-y-auto">
       <div className="max-w-[1080px] mx-auto px-4 sm:px-6 py-5 flex flex-col gap-4">
-        <PageHeader title="工作台" description="接下来做什么：接着聊、去创作、看交付" meta={<HealthBadge status={runData?.health?.status || 'idle'} label={activeRuns.length ? `${activeRuns.length} 个运行中` : undefined} />} />
+        <PageHeader title="工作台" description="会话、进展与交付，都在这里。" meta={runError || sectionError('overview', !!runData) ? <span role="status" className="text-xs text-pi-dim">运行状态暂不可用</span> : runData?.health?.status ? <HealthBadge status={runData.health.status} label={activeRuns.length ? `${activeRuns.length} 个运行中` : undefined} /> : <span role="status" className="text-xs text-pi-dim">正在读取状态…</span>} />
         {(bootError || bootIncomplete) && <div role="alert" className="panel p-3 text-[12px] text-pi-text">概览部分数据未能加载，正在分项重试；当前数字可能不完整。</div>}
 
         {/* 视图切换：概览 / 改动验收（移动端 select，桌面分段按钮；沿用 Apps.tsx 的页内多视图模式） */}
@@ -232,46 +208,31 @@ export default function Board({ initialView = 'overview' }: { initialView?: Boar
         {view === 'team' && <TeamRunView />}
 
         {view === 'overview' && <>
-        {/* 近期工作说明：只在概览视图渲染一份。原先工作台与改动验收各用一个 SWR key
-            拉同一份 RunApi.overview()，改动验收那份已删除，这里保留唯一一份。 */}
-        <WorkExplanationList data={runData} error={runError} onOpenSession={id => { selectSession(id); goChat() }} />
-        <div data-slot="board-next" className="panel p-3 flex flex-col gap-2">
-          <div className="text-[12px] font-semibold text-pi-text px-1">接下来做什么</div>
-          <div className="flex flex-wrap gap-2">
-            <button type="button" className="min-h-11 px-3 rounded-pi-md bg-pi-accent text-pi-on-accent text-[12px] font-medium" onClick={continueLast}>
-              {lastSession ? `继续「${lastSession.name || '上次对话'}」` : '开始对话'}
-            </button>
-            <button type="button" className="min-h-11 px-3 rounded-pi-md bg-pi-bg3 text-pi-text text-[12px] hover:bg-pi-bg-hover" onClick={() => { location.hash = '#/workshop' }}>
-              去创作
-            </button>
-            <button type="button" className="min-h-11 px-3 rounded-pi-md bg-pi-bg3 text-pi-text text-[12px] hover:bg-pi-bg-hover" onClick={() => { location.hash = stats.deliveries.length ? '#/assets' : '#/workshop' }}>
-              {stats.deliveries.length ? '看交付' : '还没有新作品'}
-            </button>
-            <button type="button" className="min-h-11 px-3 rounded-pi-md bg-pi-bg3 text-pi-text text-[12px] hover:bg-pi-bg-hover" onClick={() => { location.hash = '#/tasks' }}>
-              去任务
-            </button>
-          </div>
+        <div className="board-home">
+          <BoardWelcome session={lastSession} loaded={!!sessData} error={sessError || sectionError('sessions', !!sessData)} onContinue={continueLast} onNew={() => { selectSession(null); goChat() }} />
+          <BoardFocus runs={activeRuns} tasks={stats.running} agents={saRunning} deliveries={deliveries}
+            runLoaded={!!runData && !!taskData && !!saData} deliveryLoaded={!!delivData}
+            runError={runError || taskError || saError || sectionError('overview', !!runData) || sectionError('subagent', !!saData)}
+            deliveryError={delivError || sectionError('deliveries', !!delivData)}
+            onSession={id => { selectSession(id); goChat() }} onTeam={() => setView('team')} />
+          <BoardShortcuts onTeam={() => setView('team')} />
         </div>
+
+        <details className="panel p-4">
+          <summary className="min-h-11 cursor-pointer text-sm font-medium text-pi-text content-center">工作记录与用量</summary>
+          <div className="flex flex-col gap-4 pt-3">
+        <WorkExplanationList data={runData} error={runError} onOpenSession={id => { selectSession(id); goChat() }} />
 
         {/* 概览统计卡 */}
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
-          <StatCard icon={MessagesSquare} label="今日会话" value={String(stats.todaySessions)} hint={`全部 ${sessions.length} 个会话`} />
-          <StatCard icon={Clock4} label="进行中任务" value={String(stats.running.length)} hint={`调度中 ${stats.scheduled.length} · 暂停 ${paused.length}`} tone="accent" />
-          <StatCard icon={Wallet} label="累计模型成本" value={fmtCost(stats.cost)} hint={`${fmtTokens(stats.tokens)} tokens · ${stats.msgs} 次请求`} />
-          <StatCard icon={Package} label="今日交付" value={String(stats.todayDelivs.length)} hint={`共 ${stats.deliveries.length} 件`} tone="accent" />
+          <StatCard icon={MessagesSquare} label="今日会话" value={sessData ? String(stats.todaySessions) : '—'} hint={sessData ? `全部 ${sessions.length} 个会话` : '数据暂未就绪'} />
+          <StatCard icon={Clock4} label="定时任务执行中" value={taskData ? String(stats.running.length) : '—'} hint={taskData ? `调度中 ${stats.scheduled.length} · 暂停 ${paused.length}` : '数据暂未就绪'} tone="accent" />
+          <StatCard icon={Wallet} label="累计模型成本" value={statData ? fmtCost(stats.cost) : '—'} hint={statData ? `${fmtTokens(stats.tokens)} tokens · ${stats.msgs} 次请求` : '数据暂未就绪'} />
+          <StatCard icon={Package} label="今日交付" value={delivData ? String(stats.todayDelivs.length) : '—'} hint={delivData ? `共 ${stats.deliveries.length} 件` : '数据暂未就绪'} tone="accent" />
         </div>
 
         {/* 泳道看板 + 活动时间线 */}
-        <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
-          <Lane title="进行中" icon={Play} count={stats.running.length + stats.saRunning.length} accent>
-            {stats.running.length + stats.saRunning.length === 0
-              ? <div className="flex-1 grid place-items-center text-[11px] text-pi-dim2 py-6"><span>当前没有执行中的任务</span></div>
-              : <>
-                  {stats.saRunning.map(r => <SubagentCard key={r.id} r={r} />)}
-                  {stats.running.map(t => <TaskCard key={t.id} t={t} mode="running" />)}
-                </>}
-          </Lane>
-
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
           <Lane title="调度中" icon={Clock4} count={stats.scheduled.length}>
             {stats.scheduled.length === 0
               ? <div className="flex-1 grid place-items-center text-[11px] text-pi-dim2 py-6"><span>去「任务」页创建定时任务</span></div>
@@ -284,11 +245,6 @@ export default function Board({ initialView = 'overview' }: { initialView?: Boar
               : stats.finished.map(t => <TaskCard key={t.id} t={t} mode="done" />)}
           </Lane>
 
-          <Lane title="最近交付" icon={Package} count={stats.deliveries.length}>
-            {stats.deliveries.length === 0
-              ? <div className="flex-1 grid place-items-center text-[11px] text-pi-dim2 py-6"><span>还没有新作品，去创作里做一份</span></div>
-              : stats.deliveries.slice(0, 6).map(d => <DeliveryCard key={d.name} d={d} />)}
-          </Lane>
         </div>
 
         {/* 活动时间线 */}
@@ -327,6 +283,8 @@ export default function Board({ initialView = 'overview' }: { initialView?: Boar
         {!sessData && !taskData && (
           <EmptyState icon={Clock4} title="工作台" hint="正在拉取会话与任务数据…" />
         )}
+          </div>
+        </details>
         </>}
       </div>
     </div>

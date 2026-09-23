@@ -51,7 +51,7 @@ test('⌘K 能打开工作台、创作、主题、灵感、能力、会话库、
 })
 
 test('工作台先写接下来做什么，空交付不再说交付/ 目录', () => {
-  const board = read('pages', 'Board.tsx')
+  const board = read('pages', 'Board.tsx') + read('components', 'board', 'BoardWelcome.tsx') + read('components', 'board', 'BoardFocus.tsx')
   assert.ok(board.includes('data-slot="board-next"'), '工作台必须有下一步区块')
   assert.ok(board.includes('接下来做什么'), '页头或区块必须出现接下来做什么')
   assert.ok(!board.includes('交付/ 目录还是空的'), '空态不得再暴露目录名')
