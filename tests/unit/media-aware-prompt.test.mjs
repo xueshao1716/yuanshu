@@ -125,6 +125,25 @@ test("generateMediaAsync 必须把 prompt 变体交给 generateImage 并带进�
   assert.ok(fn.includes('"video"') || fn.includes("'video'"), "generateMediaAsync 必须有 video 分支");
 });
 
+test('普通海报提示词不混入小语肖像或伪 seed 文本', () => {
+  for (const prompt of ['一片叶子，纯白背景', '磨砂玻璃后的击剑者，瑞士网格海报', '小语二字的文字标志']) {
+    assert.equal(varyImagePrompt(prompt), prompt);
+  }
+});
+
+test('媒体完成提示与会话落盘保留请求和实际尺寸，近似比例不能说严格达标', () => {
+  const verification = { status: 'matched', requestedSize: '1472x832', requestedAspectRatio: '16:9', actualSize: '1312x736', exactSize: false, ratioExact: false };
+  const media = [{ type: 'image', url: '/leaf.png', verification }];
+  for (const text of [mediaAwarePrompt('画一张横版海报图', media), mediaReadyNotice(media)]) {
+    assert.match(text, /1312x736/);
+    assert.match(text, /近似/);
+    assert.match(text, /1472x832/);
+  }
+  assert.deepEqual(assistantContentWithMedia('已生成', media).find(b => b.type === 'image').verification, verification);
+  const bad = mediaReadyNotice([{ ...media[0], verification: { ...verification, status: 'mismatch' } }]);
+  assert.match(bad, /未达标/);
+});
+
 test("图片意图应保留用户要求的画幅，并传给旁路生图", () => {
   assert.equal(detectMediaIntents("制作一张16:9横版产品海报并生成图片")[0].size, "1472x832");
   assert.equal(detectMediaIntents("画一张9:16竖版手机封面图")[0].size, "832x1472");

@@ -77,9 +77,15 @@ test("协议和 pi 常驻提示讲能力和汇报，不写死播放方式", () =
   assert.doesNotMatch(loader, /视频播放【硬性】|禁止 bash start/);
 });
 
-test("聊天界面要从工具输出和正文捞片子，播放器不能只有 320 宽", () => {
+test("聊天界面只从助手正文补片子，不能把读文档的旧媒体当本轮产物", () => {
   const chat = readFileSync(join(ROOT, "frontend", "src", "components", "ChatArea.tsx"), "utf8");
-  assert.ok(chat.includes("scrapeVideos") || chat.includes("extractPlayable"), "tool_end/正文必须捞 mp4");
+  assert.ok(chat.includes("scrapeVideos(s.text)"), "只允许从助手交付正文补视频");
+  const toolEnd = chat.slice(chat.indexOf("case 'tool_end':"), chat.indexOf("case 'file':"));
+  assert.ok(!toolEnd.includes('scrapeVideos'), "工具输出里的参考路径不能自动展示");
+  const unified = readFileSync(join(ROOT, 'engine', 'unified-chat.mjs'), 'utf8');
+  const onEnd = unified.slice(unified.indexOf('const onToolEnd ='), unified.indexOf('const onCheckpoint ='));
+  assert.ok(!onEnd.includes('extractPlayableMedia'), '后端工具完成事件不得猜测媒体产物');
+  assert.ok(onEnd.includes('explicitToolMedia'), '仅推送有来源的结构化媒体');
   const msg = readFileSync(join(ROOT, "frontend", "src", "components", "Message.tsx"), "utf8");
   const vid = msg.slice(msg.indexOf("<video"), msg.indexOf("<video") + 280);
   assert.ok(!vid.includes("max-w-[320px]"), "视频播放器要比配图缩略图大");

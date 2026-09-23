@@ -1,5 +1,7 @@
 // 宿主密文通道：对话模型不见明文密钥，但能用已配置的图/视频/配音干活。
 // 密钥仍只活在 resolveAuth / generateMediaAsync 里。
+import { resolveImageRequest } from './image-request.mjs';
+import { imageVerificationNotice } from './image-dimensions.mjs';
 
 export const MEDIA_TOOL_SCHEMAS = [
   {
@@ -31,10 +33,14 @@ export const MEDIA_TOOL_SCHEMAS = [
     type: "function",
     function: {
       name: "generate_image",
-      description: "宿主代持密钥出图。不要读密钥，不要自己 POST /api/image。",
+      description: "宿主代持密钥出图。有画幅要求时必须传 aspect_ratio 或 size，不能只写在提示词里。按返回的尺寸核验事实汇报，未达标不能自行裁剪冒充原生成功。不要读密钥，不要自己 POST /api/image。",
       parameters: {
         type: "object",
-        properties: { prompt: { type: "string", description: "出图提示词" } },
+        properties: {
+          prompt: { type: "string", description: "出图提示词" },
+          size: { type: "string", description: "请求像素宽x高，如 1024x1536；上游是否支持以实际返回为准" },
+          aspect_ratio: { type: "string", description: "请求画幅，如 1:1、2:3、3:2、3:4、4:3、4:5、5:4、16:9、9:16、21:9" },
+        },
         required: ["prompt"],
       },
     },
@@ -98,6 +104,10 @@ export function createMediaToolExecutor(deps = {}) {
     const type = name === "generate_video" ? "video" : name === "generate_image" ? "image" : name === "generate_tts" ? "tts" : "";
     if (!type) return { text: `未知工具: ${name}`, isError: true };
     const intent = { type };
+    if (type === 'image') {
+      try { Object.assign(intent, resolveImageRequest(args, prompt)); }
+      catch (e) { return { text: e.message, isError: true }; }
+    }
     if (type === "video") {
       if (args.mode) intent.mode = args.mode;
       if (args.seconds != null) intent.seconds = args.seconds;
@@ -108,9 +118,12 @@ export function createMediaToolExecutor(deps = {}) {
     if (r.error && !r.url) return { text: `生成失败：${r.error}`, isError: true };
     if (!r.url) return { text: "生成完成但未返回 URL", isError: true };
     const mediaType = r.type === "tts" ? "audio" : (r.type || type);
+    const v = r.verification;
+    const dimensions = imageVerificationNotice(v);
+    const warning = v?.status === 'mismatch' ? '⚠️ 已返回图片，但画幅未达标' : v?.status === 'unverified' ? '⚠️ 已返回图片，像素尚未核验' : '✅ 已生成 ' + mediaType;
     return {
-      text: `✅ 已生成 ${mediaType}：${r.url}${r.model ? `（${r.model}）` : ""}。对话播放器会播这条路径。你判断要不要本机打开或复制到交付目录，做完汇报。`,
-      media: { type: mediaType, url: r.url },
+      text: `${warning}：${r.url}${r.model ? `（${r.model}）` : ""}。${dimensions}${v && v.status !== 'matched' ? '不要宣称比例达标或把单次结果写成通用模型限制；不要擅自裁剪。' : ''}对话播放器会播这条路径。你判断要不要本机打开或复制到交付目录，做完汇报。`,
+      media: { type: mediaType, url: r.url, ...(v ? { verification: v } : {}) },
     };
   };
 }

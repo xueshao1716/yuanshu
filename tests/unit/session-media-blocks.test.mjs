@@ -7,6 +7,18 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { sdkSafeAssistantBlocks } from '../../engine/yuanshu-session.mjs';
+
+test('SDK安全化后仍保存请求与实际画幅核验事实', () => {
+  const blocks = sdkSafeAssistantBlocks([{ type: 'image', url: '/i.png', verification: {
+    requestedSize: '1024x1536', requestedAspectRatio: '2:3', actualSize: '832x1248',
+    status: 'matched', ratioExact: true, exactSize: false,
+  } }]);
+  assert.ok(blocks.every(b => b.type === 'text'));
+  const text = blocks.map(b => b.text).join('\n');
+  assert.match(text, /1024x1536/);
+  assert.match(text, /832x1248/);
+  assert.match(text, /比例精确匹配/);
+});
 import { extractImages } from '../../engine/session-utils.mjs';
 
 test('落盘改写：assistant 内容里的附件块必须变成纯文本，工具调用与思考块原样保留', () => {

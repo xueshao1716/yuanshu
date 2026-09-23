@@ -3,6 +3,13 @@ const VIDEO_EXT = /\.(mp4|webm|mov)(?:\b|$)/i;
 const IMAGE_EXT = /\.(png|jpe?g|gif|webp)(?:\b|$)/i;
 const AUDIO_EXT = /\.(mp3|wav|m4a)(?:\b|$)/i;
 
+// 工具文本可能是别的任务的协议/经验/搜索结果；路径存在不等于本轮交付。
+export function explicitToolMedia(out, { id, name } = {}) {
+  const media = out?.media;
+  if (out?.isError || !media?.url || !['image', 'video', 'audio'].includes(media.type)) return null;
+  return { ...media, source: 'tool', toolCallId: id, toolName: name };
+}
+
 export function workspaceFileUrl(p) {
   const rel = toWorkspaceRel(clipMediaPath(p));
   if (!rel) return "";

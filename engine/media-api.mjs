@@ -9,6 +9,8 @@ import { materializeMedia, materializeVideoBody } from "./media-inline.mjs";
 import { extractPlayableMedia } from "./media-embed.mjs";
 import { colorCardStyleLine, hasColorCardMark } from "./color-cards.mjs";
 import { currentColorCard } from "./color-prefs.mjs";
+import { resolveImageRequest } from './image-request.mjs';
+import { verifyImageDimensions, imageVerificationNotice } from './image-dimensions.mjs';
 
 let _resolveAuth = null, _readJsonFile = null, _modelsPath = "", _authPath = "", _getModelList = () => [];
 export function initMediaApi({ resolveAuth = null, readJsonFile = null, modelsPath = "", authPath = "", getModelList = null } = {}) {
@@ -52,11 +54,7 @@ export function isFollowUpDrawRequest(message) {
 export function detectMediaIntents(message, ctx = {}) {
   const intents = [];
   const msg = String(message || "");
-  const imageSize = /(?:16\s*[:：]\s*9|横版|横屏|宽屏|宽幅)/i.test(msg)
-    ? "1472x832"
-    : /(?:9\s*[:：]\s*16|竖版|竖屏|纵版|长图)/i.test(msg)
-      ? "832x1472"
-      : undefined;
+  const imageRequest = resolveImageRequest({}, msg);
   // 否定检测：明确说不要图/不要语音时绝不触发（“不用配图”“别画”“不需要语音”等）
   const negated = /(?:不用|别|不要|无需|不需要)[^，。！？,;；\n]{0,6}(?:图|画)|不(?:再)?(?:生成?|制作|做|画|配|出)?(?:图|画)/.test(msg);
   // 强指令词：明确的祈使动词，任意位置都触发（如“配图”“画图”“生成图片”）
@@ -72,7 +70,7 @@ export function detectMediaIntents(message, ctx = {}) {
   // 转录标记则是界面自己产出的字样，正常提示词里不会出现，做判据才准。
   const looksLikeQuotedDump = msg.length > 300 && /(思考过程|📎\s*交付|本轮主引擎|工具卡)/.test(msg);
   if (!negated && !looksLikeQuotedDump && (STRONG.test(msg) || (msg.slice(0, 30).match(WEAK)))) {
-    intents.push({ type: "image", ...(imageSize ? { size: imageSize } : {}) });
+    intents.push({ type: "image", ...imageRequest });
   }
   const ttsNeg = /(?:不用|别|不要|无需|不需要)[^，。！？,;；\n]{0,6}(?:朗读|配音|语音|读出来)|不(?:再)?(?:生成|做)?(?:朗读|配音|语音|读出来)/.test(msg);
   if (!ttsNeg && /(配音|朗读|读出来|生成语音|配个音|读一下|配个音)/.test(msg)) intents.push({ type: "tts" });
@@ -84,7 +82,7 @@ export function detectMediaIntents(message, ctx = {}) {
   }
   // 续画：上一轮出过图 + 这句是短祈使追加要求 → 补一个 image 意图（标 followUp，提示词用上一轮那句）
   if (!negated && !intents.length && ctx.lastMediaType === "image" && isFollowUpDrawRequest(msg)) {
-    intents.push({ type: "image", followUp: true, ...(imageSize ? { size: imageSize } : {}) });
+    intents.push({ type: "image", followUp: true, ...imageRequest });
   }
   return intents;
 }
@@ -109,7 +107,7 @@ export function assistantContentWithMedia(text, mediaResults) {
   const t = String(text || "").trim();
   if (t) blocks.push({ type: "text", text: t });
   for (const m of mediaResults || []) {
-    if (m && m.type === "image" && m.url) blocks.push({ type: "image", url: m.url });
+    if (m && m.type === "image" && m.url) blocks.push({ type: "image", url: m.url, ...(m.verification ? { verification: m.verification } : {}) });
     else if (m && m.type === "video" && m.url) blocks.push({ type: "video", url: m.url });
     else if (m && (m.type === "audio" || m.type === "tts") && m.url) blocks.push({ type: "audio", url: m.url });
   }
@@ -128,11 +126,13 @@ const IMAGE_PROMPT_FRAMINGS = [
   "构图变体：微仰视，胸口徽章更近，背景数据流更淡",
 ];
 
-// 同一句固定肖像词会被平台缓存成几乎同一张图；每次追加构图变体 + 递增序号。
+// 仅默认自画像做构图变体。不能给用户的海报/产品/其他主体偷偷加上小语人像语义。
 export function varyImagePrompt(prompt) {
+  const text = String(prompt || '').trim();
+  if (text !== XIAOYU_PORTRAIT_PROMPT) return text;
   _imagePromptSeq += 1;
   const frame = IMAGE_PROMPT_FRAMINGS[(_imagePromptSeq - 1) % IMAGE_PROMPT_FRAMINGS.length];
-  return `${String(prompt || "").trim()}。${frame}。seed=${Date.now()}-${_imagePromptSeq}`;
+  return `${text}。${frame}。seed=${Date.now()}-${_imagePromptSeq}`;
 }
 
 export function isPureImageRequest(message) {
@@ -154,6 +154,7 @@ export function mediaAwarePrompt(userMessage, mediaResults) {
   if (wantsImage) {
     const drawn = (mediaResults || []).filter(m => m && m.type === "image" && m.url);
     if (drawn.length) {
+      notes.push(...drawn.map(m => imageVerificationNotice(m.verification)).filter(Boolean));
       notes.push(`【系统】图像模型已出图并已展示给用户：${drawn.map(m => m.url).join("、")}。你开口说明这张图即可。${stayOff}若任务更适合 SVG/矢量或其他成品，也可以再画了交出来。不要假装没出过图。`);
     } else {
       notes.push(`【系统】系统图像模型正在并行走出图，完成后会直接显示在对话里。你开口说明即可，不必干等。${stayOff}若任务还需要 SVG/矢量或其他成品，再动手交出来。`);
@@ -174,6 +175,7 @@ export function mediaReadyNotice(mediaResults) {
   const parts = [];
   const drawn = (mediaResults || []).filter(m => m && m.type === "image" && m.url);
   if (drawn.length) {
+    parts.push(...drawn.map(m => imageVerificationNotice(m.verification)).filter(Boolean));
     parts.push(`【系统】配图已生成并已展示给用户：${drawn.map(m => m.url).join("、")}。你可以说明这张图；若还需要 SVG/矢量或其他成品，也可以再交。`);
   }
   const vids = (mediaResults || []).filter(m => m && m.type === "video" && m.url);
@@ -210,9 +212,11 @@ export async function generateMediaAsync(intent, prompt) {
       const m = findMediaModel("image");
       if (!m) { console.log(`[元枢] 媒体: 无 image 模型`); return null; }
       const drawnPrompt = varyImagePrompt(prompt);
+      intent = { ...intent, ...resolveImageRequest(intent, prompt) };
       const url = await generateImage(m.provider, m.id, drawnPrompt, intent.size);
+      const verification = url ? await verifyImageDimensions(url, intent.size || '1024x1024', intent.aspectRatio) : undefined;
       console.log(`[元枢] 媒体 image: ${url ? "成功" : "失败"} prompt=${String(drawnPrompt).slice(0,30)}`);
-      return url ? { type: "image", url, model: `${m.provider}/${m.id}`, prompt: drawnPrompt } : { type: "image", error: "图像模型未返回图片" };
+      return url ? { type: "image", url, model: `${m.provider}/${m.id}`, prompt: drawnPrompt, verification } : { type: "image", error: "图像模型未返回图片" };
     }
     if (intent.type === "tts") {
       const url = await generateTTS(prompt);

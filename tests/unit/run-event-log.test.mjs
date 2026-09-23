@@ -13,6 +13,40 @@ function fixture() {
   return { rootDir, log, cleanup: () => fs.rmSync(rootDir, { recursive: true, force: true }) }
 }
 
+test('历史回放不再投递只读工具误抓的裸媒体，游标和原账本不变', () => {
+  const { rootDir, log, cleanup } = fixture()
+  try {
+    const emit = (type, data) => log.append({ runId: 'legacy', sessionId: 's', type, data })
+    emit('tool_end', { id: 'r', name: 'read', output: '长协议截断，路径不在这2000字内' })
+    emit('media', { type: 'video', url: '/api/ws/file?path=生成物%2Fold.mp4' })
+    emit('tool', { id: 'b', name: 'bash', args: { command: 'tail -20 工程/经验库/experience.md' } })
+    emit('tool_end', { id: 'b', name: 'bash', output: '生成物/old.png' })
+    emit('media', { type: 'image', url: '/api/ws/file?path=' + encodeURIComponent('生成物/old.png') })
+    emit('tool_end', { id: 'g', name: 'generate_image', output: '生成物/new.png' })
+    emit('media', { type: 'image', url: '/api/ws/file?path=生成物%2Fnew.png' })
+    emit('tool_end', { id: 'b2', name: 'bash', output: 'other' })
+    emit('media', { type: 'image', url: '/new.png', source: 'tool', toolCallId: 'b2' })
+    emit('media', { type: 'image', url: '/side.png', model: 'image-model' })
+    emit('done', {})
+    const file = path.join(rootDir, 'events', 'legacy.jsonl'), before = fs.readFileSync(file, 'utf8')
+    assert.deepEqual(log.readAfter('legacy', 1).map(e => e.seq), [3, 4, 6, 7, 8, 9, 10, 11])
+    assert.equal(log.getLastSeq('legacy'), 11)
+    assert.equal(fs.readFileSync(file, 'utf8'), before)
+  } finally { log.close(); cleanup() }
+})
+
+test('来源不明的旧媒体、主动下载工具交付和异步旁路结果不误删', () => {
+  const { log, cleanup } = fixture()
+  try {
+    const emit = (type, data) => log.append({ runId: 'legacy', sessionId: 's', type, data })
+    emit('media', { type: 'image', url: '/unknown.png' })
+    emit('tool', { id: 'd', name: 'bash', args: { command: 'curl https://example.com/i.png -o 生成物/new.png' } })
+    emit('tool_end', { id: 'd', name: 'bash', output: '生成物/new.png' })
+    emit('media', { type: 'image', url: '/api/ws/file?path=' + encodeURIComponent('生成物/new.png') })
+    assert.equal(log.readAfter('legacy').length, 4)
+  } finally { log.close(); cleanup() }
+})
+
 test('append 为单个 run 生成连续 seq，readAfter 精确重放游标之后事件', () => {
   const { log, cleanup } = fixture()
   try {
@@ -25,6 +59,17 @@ test('append 为单个 run 生成连续 seq，readAfter 精确重放游标之后
     assert.equal(other.seq, 1)
     assert.deepEqual(log.readAfter('run-1', 1), [second])
     assert.equal(log.getLastSeq('run-1'), 2)
+  } finally { log.close(); cleanup() }
+})
+
+test('后台读取和生成混合命令的历史媒体必须保留', () => {
+  const { log, cleanup } = fixture()
+  try {
+    const emit = (type, data) => log.append({ runId: 'mixed', sessionId: 's', type, data })
+    emit('tool', { id: 'b', name: 'bash', args: { command: 'cat reference.md & node draw.mjs' } })
+    emit('tool_end', { id: 'b', name: 'bash', output: '生成物/new.png' })
+    emit('media', { type: 'image', url: '/api/ws/file?path=' + encodeURIComponent('生成物/new.png') })
+    assert.deepEqual(log.readAfter('mixed').map(e => e.seq), [1, 2, 3])
   } finally { log.close(); cleanup() }
 })
 

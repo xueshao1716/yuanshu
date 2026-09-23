@@ -1,5 +1,6 @@
 // 元枢会话连续性：打断也留痕，有历史就不许装新开。
 import { attachmentText, extractText } from "./session-utils.mjs";
+import { imageVerificationNotice } from "./image-dimensions.mjs";
 
 export function resumePersistenceState(entries = [], message, resume = false) {
   const state = { userPersisted: false, toolCallIds: new Set(), toolResultIds: new Set() };
@@ -76,6 +77,7 @@ export function sdkSafeAssistantBlocks(blocks = []) {
       if (type === "file" && typeof b.name === "string" && b.name) { out.push(b); continue; }
       if (url) out.push({ type: "text", text: `![${label}](${url})` });
       else if (b.path || b.name) out.push({ type: "text", text: `[${label}] ${b.path || b.name}` });
+      if (type === 'image' && b.verification) out.push({ type: 'text', text: imageVerificationNotice(b.verification) });
       continue;   // 其余附件块绝不留在 content 里：宁可少一条附件，也不能让整段会话不可重放
     }
     if (typeof b.text === "string" && b.text) out.push({ type: "text", text: b.text });

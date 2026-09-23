@@ -473,7 +473,7 @@ export default function ChatArea({ compactHeader, rightPanel, onRightPanel }: {
     if (active) clearActiveRun(active.sessionId)
     activeRunRef.current = null
     if (!s) return
-    const scraped = scrapeVideos([s.text, ...s.tools.map(t => t.output || '')].join('\n'))
+    const scraped = scrapeVideos(s.text)
     const videos = dedupeMediaUrls([...s.videos, ...scraped])
     if (s.text || s.think || s.tools.length || s.notes.length || s.files.length || s.images.length || s.audios.length || videos.length || s.error) {
       appendMessage({
@@ -602,10 +602,6 @@ export default function ChatArea({ compactHeader, rightPanel, onRightPanel }: {
         break
       case 'tool_end':
         asmRef.current?.toolEnd(d.id, !!d.isError, d.output)
-        {
-          const found = scrapeVideos(String(d.output || ''))
-          if (found.length) updStream(p => ({ ...p, videos: dedupeMediaUrls([...p.videos, ...found]) }))
-        }
         break
       case 'file':
         if (d.path) updStream(p => ({ ...p, files: [...p.files, { path: d.path, name: d.name }] }))

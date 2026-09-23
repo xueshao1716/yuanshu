@@ -2,6 +2,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 
 import { sanitizeText } from './sanitize.mjs'
+import { withoutLegacyReferenceMedia } from './legacy-media-events.mjs'
 
 const SENSITIVE_KEY = /^(authorization|api[_-]?key|token|password|secret)$/i
 
@@ -103,7 +104,7 @@ export function createRunEventLog({ rootDir, now = () => new Date().toISOString(
       return event
     },
     readAfter(runId, after = 0) {
-      return readValidLines(fileFor(runId)).filter(event => event.seq > after)
+      return withoutLegacyReferenceMedia(readValidLines(fileFor(runId))).filter(event => event.seq > after)
     },
     getLastSeq,
     subscribe(runId, listener) {

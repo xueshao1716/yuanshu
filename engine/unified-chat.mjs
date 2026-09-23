@@ -22,7 +22,7 @@ import { createGateway } from "./gateway.mjs";
 import { CodeRuntime } from "../code-mode/code-runtime.mjs";
 import { createCodeMode } from "../code-mode/code-mode.mjs";
 import { detectMediaIntents, extractMediaPrompt, generateMediaAsync, mediaAwarePrompt, explainMediaError, assistantContentWithMedia, isPureImageRequest } from "./media-api.mjs";
-import { extractPlayableMedia } from "./media-embed.mjs";
+import { explicitToolMedia } from "./media-embed.mjs";
 import { readOpenAIChatStream } from "./openai-stream.mjs";
 import { buildMessagesRequest, messagesEndpoint, messagesHeaders } from "./anthropic-messages.mjs";
 import { readMessagesStream } from "./anthropic-stream.mjs";
@@ -1056,14 +1056,8 @@ export async function handleUnifiedChat(res, entry, message, sessionId, params, 
     touchTask(taskId, { stage: "工具完成", toolName: name });
     const text = out?.text || "";
     writer.push("tool_end", { name, id, effectKey: context.effectKey || null, turn: context.turn ?? null, ordinal: context.ordinal ?? null, isError: out?.isError === true, uncertain: out?.uncertain === true, reused: out?.reused === true, output: text.slice(0, 2000) });
-    const media = out?.media;
+    const media = explicitToolMedia(out, { id, name });
     if (media?.url) writer.push("media", media);
-    else {
-      const scraped = extractPlayableMedia(text);
-      for (const url of scraped.videos) writer.push("media", { type: "video", url });
-      for (const url of scraped.images) writer.push("media", { type: "image", url });
-      for (const url of scraped.audios) writer.push("media", { type: "audio", url });
-    }
   };
   const onCheckpoint = createRunCheckpointWriter(writer, runContext);
   let history = [...formatSessionHistory(hist), { role: "user", content: mediaAwarePrompt(message, []) }];

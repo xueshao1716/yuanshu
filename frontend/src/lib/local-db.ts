@@ -5,6 +5,7 @@
 
 import { reconcileTurnSnapshots } from './reconcile-turns.ts'
 import { reconcileImageMessages } from './image-identity.ts'
+import { cleanLegacyReferenceCache } from './legacy-media-cache.ts'
 
 const DB_NAME = 'pi_web_messages'
 const DB_VERSION = 1
@@ -112,7 +113,9 @@ export async function getMessages(sessionId: string): Promise<LocalMessage[]> {
       const msgs = request.result || []
       // 按时间排序
       msgs.sort((a, b) => new Date(a.ts).getTime() - new Date(b.ts).getTime())
-      resolve(reconcileImageMessages(msgs))
+      // Some old engine sessions persist only final text, without tool details.
+      // Their completed local tool record can still prove a reference-only card.
+      resolve(reconcileImageMessages(msgs.map(msg => cleanLegacyReferenceCache(msg))))
     }
     request.onerror = () => reject(request.error)
   })
@@ -219,6 +222,7 @@ function mergeTools(localTools: any[] = [], serverTools: any[] = []): any[] {
 }
 
 function mergeServerMessage(local: LocalMessage, server: any): LocalMessage {
+  local = cleanLegacyReferenceCache(local, server)
   // text 覆盖规则（2026-09-20）：仅当服务端文本是本地文本的延长（本地为空，或服务端以本地为前缀且更长，
   // 即流式半截场景）才取服务端全文；其余情况维持本地优先（同 id 等长文本等既有语义不变）。
   const localText = local.text || ''
@@ -233,9 +237,9 @@ function mergeServerMessage(local: LocalMessage, server: any): LocalMessage {
     tools: mergeTools(local.tools, server.tools),
     notes: local.notes?.length ? local.notes : server.notes,
     files: local.files?.length ? local.files : server.files,
-    images: local.images?.length ? local.images : server.images,
-    audios: local.audios?.length ? local.audios : server.audios,
-    videos: local.videos?.length ? local.videos : server.videos,
+    images: local.images?.length ? local.images : (server.images ?? local.images),
+    audios: local.audios?.length ? local.audios : (server.audios ?? local.audios),
+    videos: local.videos?.length ? local.videos : (server.videos ?? local.videos),
     model: server.model || local.model,
     requestedModel: server.requestedModel || local.requestedModel,
     switchedModel: server.switchedModel || local.switchedModel,
