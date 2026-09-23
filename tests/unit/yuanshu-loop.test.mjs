@@ -1,7 +1,8 @@
 // 元枢主循环：工具轮走调度器（abort/并行），run_code 进 UNIFIED_TOOLS
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
+import { readFileSync, mkdtempSync, writeFileSync, appendFileSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { ABORTED_MARKER } from "../../engine/tool-scheduler.mjs";
@@ -18,10 +19,49 @@ function tc(name, args = {}, id = name) {
   return { id, type: "function", function: { name, arguments: JSON.stringify(args) } };
 }
 
-test("toolCallLoopKey：画 SVG 算同一循环", () => {
+test("toolCallLoopKey：不同 SVG 文件和内容不能合并为同一调用", () => {
   const a = toolCallLoopKey("write", { path: "a.svg", content: "<svg><rect/></svg>" });
   const b = toolCallLoopKey("write", { path: "b.svg", content: "<svg><circle/></svg>" });
-  assert.equal(a, b);
+  assert.notEqual(a, b);
+  assert.notEqual(a, toolCallLoopKey("write", { path: "a.svg", content: "<svg><circle/></svg>" }));
+});
+
+test("含 SVG 的网页分块追加可完成收尾，保留全部工具结果和检查点", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "yuanshu-svg-chunks-"));
+  const path = join(dir, "website.html");
+  const chunks = ["<!doctype html><html><body>", ...Array.from({ length: 5 }, (_, i) =>
+    `<section id="part-${i}"><svg><text>${i}</text></svg>${"x".repeat(6000)}</section>`), "</body></html>"];
+  const history = [], stuckEvents = [], seenCalls = new Map();
+  try {
+    for (let i = 0; i < chunks.length; i++) {
+      const args = { path, content: chunks[i], append: i > 0 };
+      const result = await runYuanshuToolRound({
+        toolCalls: [tc("write", args, `chunk-${i}`)], history, stuckEvents, seenCalls,
+        sandboxWsRoot: dir,
+        execute: async (_name, a) => {
+          (a.append ? appendFileSync : writeFileSync)(a.path, a.content, "utf8");
+          return { text: "写入成功" };
+        },
+        policyDecide: () => ({ decision: "allow" }), jitForPath: () => [],
+      });
+      assert.equal(result.stop, undefined, `第 ${i + 1} 块内容不同，应继续`);
+      assert.equal(result.toolPlan[0].status, "completed");
+    }
+    assert.equal(readFileSync(path, "utf8"), chunks.join(""));
+    assert.equal(history.length, chunks.length);
+  } finally { rmSync(dir, { recursive: true, force: true }); }
+});
+
+test("edit 同一路径中不同 SVG 片段不得误判循环", async () => {
+  const history = [], stuckEvents = [], seenCalls = new Map();
+  for (let i = 0; i < 4; i++) {
+    const result = await runYuanshuToolRound({
+      toolCalls: [tc("edit", { path: "page.html", old_string: `part-${i}`, new_string: `<svg><text>${i}</text></svg>` })],
+      history, stuckEvents, seenCalls, execute: async () => ({ text: "已修改" }),
+      policyDecide: () => ({ decision: "allow" }), jitForPath: () => [],
+    });
+    assert.equal(result.stop, undefined);
+  }
 });
 
 test("runYuanshuToolRound：已 abort 的未启动工具不执行", async () => {

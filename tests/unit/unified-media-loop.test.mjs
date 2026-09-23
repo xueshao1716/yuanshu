@@ -45,10 +45,10 @@ test("满轮时回收带 tool_calls 的助手正文，不当成没输出", () =>
   assert.equal(lastPartialAssistantText(history), "图马上出来。");
 });
 
-test("write/bash 连续画 SVG 或 curl 绘图接口按画图签名计循环，改几个字也算", () => {
+test("文件写入按完整参数区分，curl 绘图接口仍保留防空转签名", () => {
   const a = toolCallLoopKey("write", { path: "a.svg", content: "<svg><rect/></svg>" });
   const b = toolCallLoopKey("write", { path: "b.svg", content: "<svg><circle/></svg>" });
-  assert.equal(a, b);
+  assert.notEqual(a, b);
   const curlA = toolCallLoopKey("bash", { command: "curl https://x/v1/images/generations" });
   const curlB = toolCallLoopKey("bash", { command: "curl -X POST https://y/v1/images/generations -d '{}'" });
   assert.equal(curlA, curlB);

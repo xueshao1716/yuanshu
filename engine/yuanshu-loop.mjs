@@ -23,10 +23,9 @@ export function yuanshuExecutor(name) {
 export function toolCallLoopKey(name, args) {
   const n = String(name || "");
   const a = args && typeof args === "object" ? args : {};
-  const body = String(a.content || a.new_string || a.newString || "");
-  const filePath = String(a.path || "");
   const cmd = String(a.command || a.cmd || "");
-  if ((n === "write" || n === "edit") && (/<svg[\s>]/i.test(body) || /\.svg$/i.test(filePath))) return `${n}:draw`;
+  // SVG is ordinary file content: different chunks/edits are progress, not a
+  // repeated drawing attempt. Preserve path, content and append in the key.
   if ((n === "bash" || n === "dsh") && /images\/generations|\/v3\/images|绘图模型|generateImage/i.test(cmd)) return `${n}:draw`;
   return `${n}:${JSON.stringify(a)}`;
 }

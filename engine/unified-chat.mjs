@@ -329,8 +329,6 @@ function createRunCheckpointWriter(writer, runContext) {
   };
 }
 
-// write/bash 连续画 SVG 或 curl 绘图接口：参数略变也算同一循环。普通 read/write 仍按完整参数签名。
-
 function emitRoundStream(opts, msg) {
   const { think, text } = splitAssistantPayload(msg);
   try { if (think && opts?.onThink) opts.onThink(think); } catch {}
