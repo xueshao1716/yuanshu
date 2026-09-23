@@ -5,7 +5,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import {
-  BASE_TOOL_SCHEMAS, createUnifiedToolExecutor, rewriteInlineCode, rewriteCmdForWin32, ensureCommandDirectories, webSearchTool, stripHtml,
+  BASE_TOOL_SCHEMAS, SHARE_PROJECT_SCHEMA, executeShareProject, createUnifiedToolExecutor, rewriteInlineCode, rewriteCmdForWin32, ensureCommandDirectories, webSearchTool, stripHtml,
 } from "../../engine/tools/unified-tools.mjs";
 import { matchDenyRule, isProtectedPath, safeJoin, DANGEROUS_CMD_RE, INTERACTIVE_CMD_RE } from "../../engine/tools/security.mjs";
 import { commandTouchesSensitive } from "../../engine/tools/secrets-guard.mjs";
@@ -72,6 +72,40 @@ test("凭据防护：Object.keys 不是密钥文件", () => {
   assert.equal(commandTouchesSensitive("type auth.json"), true);
   assert.equal(commandTouchesSensitive("Get-Content .token"), true);
   assert.equal(commandTouchesSensitive("type D:\\\\secret\\\\id_rsa"), true);
+});
+
+test("share_project：统一工具可复制项目并返回稳定公网链接", async () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "yuanshu-share-"));
+  const project = path.join(root, "demo");
+  fs.mkdirSync(project, { recursive: true });
+  fs.writeFileSync(path.join(project, "index.html"), "<h1>demo</h1>");
+  const result = await executeShareProject({ path: "demo" }, {
+    cwd: root,
+    safePath: (p) => safeJoin(root, p),
+    shareDir: path.join(root, "published"),
+    host: "share.example.test",
+    port: 8644,
+    isPortOpen: async () => true,
+  });
+  assert.equal(result.isError, false);
+  assert.match(result.text, /https:\/\/share\.example\.test\/demo\//);
+  assert.equal(fs.readFileSync(path.join(root, "published", "demo", "index.html"), "utf8"), "<h1>demo</h1>");
+  assert.equal(SHARE_PROJECT_SCHEMA.function.name, "share_project");
+});
+
+test("share_project：分享服务未运行时不伪造成功链接", async () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "yuanshu-share-down-"));
+  fs.mkdirSync(path.join(root, "demo"), { recursive: true });
+  fs.writeFileSync(path.join(root, "demo", "index.html"), "ok");
+  const result = await executeShareProject({ path: "demo" }, {
+    cwd: root,
+    safePath: (p) => safeJoin(root, p),
+    shareDir: path.join(root, "published"),
+    isPortOpen: async () => false,
+  });
+  assert.equal(result.isError, true);
+  assert.match(result.text, /8644|分享服务/);
+  assert.doesNotMatch(result.text, /✅ 已分享到外网/);
 });
 
 test("engine/tools 工具集（unified-tools.mjs）", (t) => {

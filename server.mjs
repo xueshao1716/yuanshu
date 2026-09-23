@@ -52,7 +52,7 @@ import { initSessionFiles, scanSessionFiles, parseSessionFile, parseSessionFileC
 // ── 统一 HTTP 客户端（拆模块）：原生 fetch + 自动系统代理（env → Windows 注册表），替代 python 子进程 ──
 import { httpJsonFetch, httpBufferFetch } from "./engine/http.mjs";
 // ── 统一工具集（拆模块）：schema + 执行器；安全线（deny/危险命令/受保护路径/路径越权）在 engine/tools/security.mjs ──
-import { BASE_TOOL_SCHEMAS, createUnifiedToolExecutorGuarded } from "./engine/tools/unified-tools.mjs";
+import { BASE_TOOL_SCHEMAS, SHARE_PROJECT_SCHEMA, createUnifiedToolExecutorGuarded } from "./engine/tools/unified-tools.mjs";
 import { safeJoin } from "./engine/tools/security.mjs";
 // ── dsh 执行臂工具（拆模块）：双引擎派单/并发控制/结构化回传解析 ──
 import { createDshTool } from "./engine/dsh-tool.mjs";
@@ -578,6 +578,7 @@ const FIX_PROBLEM_TOOL = {
 };
 const UNIFIED_TOOLS = [
   ...BASE_TOOL_SCHEMAS,
+  SHARE_PROJECT_SCHEMA,
   ...MEDIA_TOOL_SCHEMAS,
   ...TODO_TOOL_SCHEMAS,
   PLAN_FILES_SCHEMA,

@@ -6,6 +6,7 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import net from "node:net";
 import { httpJsonFetch } from "../http.mjs";
 import {
   matchDenyRule, isProtectedPath, DANGEROUS_CMD_RE, PI_CMDS, INTERACTIVE_CMD_RE, safeJoin,
@@ -33,6 +34,7 @@ import { execFileAbortable } from "../yuanshu-stability.mjs";
 import { withUtf8CodePage, decodeWindowsOutput, looksMojibake, riskyForCmdShell } from "../windows-shell.mjs";
 import { isCanonicalTarget, stageWrite } from "../memory-stages.mjs";
 import { checkWriteSegments } from "../context-headroom.mjs";
+import { env } from "../env.mjs";
 
 // ── 工具 schema（OpenAI function 格式）──
 export const BASE_TOOL_SCHEMAS = [
@@ -44,6 +46,67 @@ export const BASE_TOOL_SCHEMAS = [
   { type: "function", function: { name: "edit", description: "用精确文本替换修改文件（先 read 再 edit）", parameters: { type: "object", properties: { path: { type: "string" }, oldText: { type: "string" }, newText: { type: "string" } }, required: ["path", "oldText", "newText"] } } },
   { type: "function", function: { name: "web_search", description: "联网搜索（Bing，无需 key）。未知事实、时效新闻才搜；独白/剧本/本会话已说过的事先按判断写。一次一两个查询，锁不到人就动手并汇报假设。", parameters: { type: "object", properties: { query: { type: "string", description: "搜索关键词（中文/英文均可）" } }, required: ["query"] } } },
 ];
+
+// 外网分享是元枢和 pi 两条入口共用的能力。它只负责把用户明确指定的项目复制到
+// 已由本机 Cloudflare 隧道托管的目录；模型不需要、也不允许自己碰隧道/DNS。
+export const SHARE_PROJECT_SCHEMA = {
+  type: "function",
+  function: {
+    name: "share_project",
+    description: "把用户指定的项目目录或文件发布到外网分享目录，并返回稳定公网链接。用户要求分享、外链、上线预览或给别人看时使用。不要执行 cloudflared/ngrok、改端口或 DNS。当前公网入口默认是 share.myxinyu.xin。",
+    parameters: {
+      type: "object",
+      properties: { path: { type: "string", description: "要分享的项目目录或文件（工作空间相对路径），如 工程/项目名" } },
+      required: ["path"],
+    },
+  },
+};
+
+function isLocalPortOpen(port, host = "127.0.0.1") {
+  return new Promise((resolve) => {
+    const socket = net.connect(Number(port), host);
+    let settled = false;
+    const done = (value) => { if (settled) return; settled = true; try { socket.destroy(); } catch {} resolve(value); };
+    socket.once("connect", () => done(true));
+    socket.once("error", () => done(false));
+    socket.setTimeout(1200, () => done(false));
+  });
+}
+
+/**
+ * 发布一个明确指定的工作空间项目。
+ * 这个函数不依赖 pi SDK，因而可被元枢统一循环和 pi 会话共同使用。
+ */
+export async function executeShareProject(args = {}, options = {}) {
+  const cwd = options.cwd || process.cwd();
+  const safePath = options.safePath || ((p) => path.resolve(cwd, String(p || "")));
+  const src = String(args.path || "").trim();
+  const safe = safePath(src);
+  if (!src || !safe || !fs.existsSync(safe)) {
+    return { text: `项目不存在: ${src || "（未提供路径）"}。请先用 search_files 找到正确路径。`, isError: true };
+  }
+  const port = Number(options.port || env("SHARE_PORT") || 8644);
+  const portReady = await (options.isPortOpen || (() => isLocalPortOpen(port)))();
+  if (!portReady) {
+    return { text: `⛔ 分享服务未运行（本机 ${port} 端口不可达），暂未生成外链。请先启动外网分享入口后重试。`, isError: true };
+  }
+  const shareDir = options.shareDir || path.join(cwd, "外网分享");
+  const base = path.basename(safe);
+  const target = path.join(shareDir, base);
+  try {
+    fs.mkdirSync(shareDir, { recursive: true });
+    if (path.resolve(target) !== path.resolve(safe)) {
+      if (fs.statSync(safe).isDirectory()) fs.cpSync(safe, target, { recursive: true, force: true });
+      else { fs.mkdirSync(path.dirname(target), { recursive: true }); fs.copyFileSync(safe, target); }
+    }
+  } catch (e) {
+    return { text: `复制失败: ${String(e?.message || e).slice(0, 120)}`, isError: true };
+  }
+  const host = options.host || env("SHARE_HOST") || "share.myxinyu.xin";
+  const isHtml = fs.existsSync(path.join(target, "index.html")) || (path.resolve(target) === path.resolve(safe) && fs.existsSync(path.join(safe, "index.html")));
+  const url = `https://${host}/${encodeURIComponent(base)}${isHtml ? "/" : ""}`;
+  return { text: `✅ 已分享到外网：${url}\n（项目已复制到 外网分享/${base}）`, isError: false, details: { url, path: `外网分享/${base}` } };
+}
 
 // ── 纯工具函数 ──
 export function stripHtml(s) { return String(s).replace(/<[^>]*>/g, "").replace(/&amp;/g, "&").replace(/&quot;/g, "\"").replace(/&#x27;/g, "'").replace(/&lt;/g, "<").replace(/&gt;/g, ">").trim(); }
@@ -219,6 +282,10 @@ export function createUnifiedToolExecutor(deps = {}) {
         const content = String(args?.content || "").trim();
         if (!content) return { text: "（空思考）", isError: true };
         return { text: "✅ 思考已记录（调试草稿，仅本次会话内存可见，不落盘）", think: content };
+      }
+
+      if (name === "share_project") {
+        return executeShareProject(args, { cwd: getCwd(), safePath });
       }
 
       if (name === "time_task") {
