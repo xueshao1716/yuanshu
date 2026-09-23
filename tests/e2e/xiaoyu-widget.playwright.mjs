@@ -68,6 +68,30 @@ try {
     };
     await bounded();
     assert.equal(await page.getByRole('button', { name: '关闭公仔设置' }).evaluate(el => el === document.activeElement), true);
+    for (const [scene, label] of [['garden', '花园'], ['studio', '工作室'], ['moon', '月下']]) {
+      await panel.getByRole('button', { name: label, exact: true }).click();
+      assert.equal(await panel.locator('.xiaoyu-stage').getAttribute('data-scene'), scene);
+      assert.equal(await page.evaluate(() => localStorage.getItem('xiaoyu_scene')), scene);
+      if (name === 'desktop') await panel.locator('.xiaoyu-stage').screenshot({ path: path.join(out, `stage-${scene}.png`) });
+    }
+    await panel.getByRole('button', { name: '拆开今日签' }).click();
+    const firstIdea = await panel.locator('.xiaoyu-idea strong').textContent();
+    await panel.getByRole('button', { name: '换个灵感' }).click();
+    assert.notEqual(await panel.locator('.xiaoyu-idea strong').textContent(), firstIdea);
+    if (name === 'desktop' || name === 'phone') {
+      const downloaded = page.waitForEvent('download');
+      await panel.getByRole('button', { name: '留张合影' }).click();
+      const photo = await downloaded;
+      const file = path.join(out, `${name}-studio-photo.png`);
+      await photo.saveAs(file);
+      const bytes = fs.readFileSync(file);
+      assert.equal(bytes.readUInt32BE(16), 840);
+      assert.equal(bytes.readUInt32BE(20), 1000);
+      assert.ok(bytes.length > 10000, 'photo contains rendered scene and portrait');
+      await panel.getByText('照片已生成，请查看浏览器下载。').waitFor();
+    }
+    if (reduced) assert.equal(await panel.locator('.xiaoyu-idea-reveal').evaluate(el => getComputedStyle(el).animationName), 'none');
+    await bounded();
     for (const [id, label] of [['doll', '盲盒公仔'], ['chibi', 'Q版 表情立绘'], ['puppet', 'Q版 · 轻动'], ['doll-puppet', '公仔 · 轻动']]) {
       await panel.getByRole('button', { name: label, exact: false }).click();
       assert.equal(await widget.getAttribute('data-skin'), id);
@@ -86,6 +110,7 @@ try {
     assert.equal(await panel.locator('button, a').evaluateAll(els => els.every(el => el.getBoundingClientRect().height >= 44)), true, 'touch targets');
     for (const theme of ['mist', 'ink']) {
       await page.evaluate(theme => document.documentElement.dataset.theme = theme, theme);
+      await panel.evaluate(el => el.scrollTop = 0);
       const contrast = await panel.evaluate(el => {
         const rgb = text => text.match(/[\d.]+/g).slice(0, 3).map(Number);
         const luminance = channels => channels.map(n => n / 255).map(n => n <= .04045 ? n / 12.92 : ((n + .055) / 1.055) ** 2.4).reduce((sum, n, i) => sum + n * [.2126, .7152, .0722][i], 0);
@@ -125,6 +150,8 @@ try {
       await page.reload();
       await page.locator('.xiaoyu-image-fallback').waitFor();
       await widget.click(); await panel.getByText('任务状态暂不可用').waitFor();
+      await panel.getByRole('button', { name: '留张合影' }).click();
+      await panel.getByText('照片未能保存，请稍后再试。').waitFor();
     }
     assert.deepEqual(errors, [], `${name}: browser errors`);
     console.log(`${name}: skins, assets, bounds, input, themes, update failure passed`);

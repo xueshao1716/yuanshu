@@ -4,12 +4,14 @@ import { imageForSkin, normalizeSkin } from './xiaoyu/widget-state.mjs'
 import { readPreference, savePreference, useWidgetMotion } from './xiaoyu/useWidgetMotion'
 import { useWidgetStatus } from './xiaoyu/useWidgetStatus'
 import { WidgetPanel } from './xiaoyu/WidgetPanel'
+import { sceneFor } from './xiaoyu/studio-state.mjs'
 import './xiaoyu/widget.css'
 
 export default function XiaoyuWidget() {
   const [open, setOpen] = useState(false)
   const [hover, setHover] = useState(false)
   const [skin, setSkin] = useState(() => normalizeSkin(readPreference('xiaoyu_skin')))
+  const [scene, setScene] = useState(() => sceneFor(readPreference('xiaoyu_scene')).id)
   const [greeting, setGreeting] = useState(false)
   const [imageFailed, setImageFailed] = useState(false)
   const root = useRef<HTMLDivElement>(null)
@@ -36,6 +38,8 @@ export default function XiaoyuWidget() {
   }, [open])
   const close = () => { setOpen(false); button.current?.focus() }
   const chooseSkin = (next: string) => { setSkin(next); savePreference('xiaoyu_skin', next) }
+  const chooseScene = (next: string) => { setScene(next); savePreference('xiaoyu_scene', next) }
+  const set = sceneFor(scene)
 
   return createPortal(
     <div ref={root} className="xiaoyu-companion" style={{ left: motion.position.x, top: motion.position.y }}
@@ -46,6 +50,7 @@ export default function XiaoyuWidget() {
         title="点击打开设置，拖动调整位置"
         onClick={(e) => { if (motion.consumeDrag() && e.detail !== 0) return; setOpen(v => !v); setGreeting(true) }}
         onMouseEnter={() => setHover(true)} onMouseLeave={() => setHover(false)} {...motion.handlers}>
+        <span className="xiaoyu-mini-plinth" style={{ background: set.accent, boxShadow: `0 4px 0 ${set.floor}, 0 8px 7px rgb(0 0 0 / .14)` }} />
         <span className="xiaoyu-facing" style={{ transform: `scaleX(${motion.face})` }}>
           <span className="xiaoyu-figure" data-animated={animated} data-walking={motion.walking}
             data-greeting={greeting} data-paused={open || hover || motion.dragged}>
@@ -55,7 +60,7 @@ export default function XiaoyuWidget() {
         </span>
         <span className="xiaoyu-name">{status.name}</span>
       </button>
-      {open && <WidgetPanel skin={skin} chooseSkin={chooseSkin} motion={motion} status={status} close={close} />}
+      {open && <WidgetPanel skin={skin} chooseSkin={chooseSkin} scene={scene} chooseScene={chooseScene} motion={motion} status={status} close={close} />}
     </div>, document.body,
   )
 }
