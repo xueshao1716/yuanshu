@@ -541,7 +541,9 @@ export async function initShareTool() {
         // 复制到分享目录（目录递归复制，文件直接复制）
         try {
           if (fs.statSync(safe).isDirectory()) {
-            fs.cpSync(safe, target, { recursive: true, force: true });
+            // fs.cpSync 在 Windows Node 25 上会在包含图片的目录递归复制时触发
+            // 进程级 0xC0000409；异步实现走稳定路径，错误也能回到工具结果。
+            await fs.promises.cp(safe, target, { recursive: true, force: true });
           } else {
             fs.mkdirSync(path.dirname(target), { recursive: true });
             fs.copyFileSync(safe, target);

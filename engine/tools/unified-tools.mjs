@@ -96,7 +96,11 @@ export async function executeShareProject(args = {}, options = {}) {
   try {
     fs.mkdirSync(shareDir, { recursive: true });
     if (path.resolve(target) !== path.resolve(safe)) {
-      if (fs.statSync(safe).isDirectory()) fs.cpSync(safe, target, { recursive: true, force: true });
+      if (fs.statSync(safe).isDirectory()) {
+        // fs.cpSync 在 Windows Node 25 上会在递归复制目录时触发进程级
+        // 0xC0000409；异步实现能把复制错误安全地返回给调用方。
+        await fs.promises.cp(safe, target, { recursive: true, force: true });
+      }
       else { fs.mkdirSync(path.dirname(target), { recursive: true }); fs.copyFileSync(safe, target); }
     }
   } catch (e) {
