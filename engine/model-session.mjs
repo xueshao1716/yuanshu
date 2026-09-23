@@ -21,6 +21,11 @@ export function createModelSessionApi(deps) {
         return {
           provider: m.provider, id: m.id, name: m.name || m.id,
           contextWindow: m.contextWindow,
+          api: sm.api || m.api,
+          discoverySource: sm.discoverySource || 'configured',
+          capabilitySource: sm.capabilitySource || 'configured',
+          limitsSource: sm.limitsSource,
+          verification: sm.verification || null,
           vision: Array.isArray(m.input) && m.input.includes("image"),
           reasoning: !!m.reasoning,
           // 派生默认值 + 持久化覆盖：store 快照是加模型时写的，没有后补的

@@ -88,7 +88,7 @@ export default function Markdown({ text }: { text: string }) {
                 </SafeBlock>
               )
             }
-            return <code className="bg-gray-800 rounded px-1.5 py-0.5 text-[13px]" {...props}>{children}</code>
+            return <code className="markdown-inline-code rounded px-1.5 py-0.5 text-[13px]" {...props}>{children}</code>
           },
           a({ children, href }) { return <FileLink href={href}>{children}</FileLink> },
           table({ children }) { return <div className="overflow-x-auto my-2"><table className="w-full border-collapse">{children}</table></div> },

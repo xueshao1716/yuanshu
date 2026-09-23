@@ -22,6 +22,7 @@ export function createReviewVerification({ root }) {
     }
     for (const name of ['engine', 'lib', 'scripts', 'tests', 'frontend/src', 'frontend/public', 'frontend/package.json', 'frontend/package-lock.json', 'frontend/tsconfig.json', 'frontend/tsconfig.app.json', 'frontend/tsconfig.node.json', 'frontend/vite.config.ts', 'frontend/index.html', 'frontend/tailwind.config.js', 'frontend/postcss.config.js', 'package.json', 'package-lock.json', 'server.mjs', 'config.mjs', 'version.json']) visit(name);
     visit('frontend/uno.config.ts');
+    visit('skills');
     visit('frontend/pnpm-lock.yaml');
     visit('frontend/pnpm-workspace.yaml');
     return hash.digest('hex');

@@ -8,6 +8,8 @@ import type { SkillSummary } from '../types'
 import useSWR from 'swr'
 import { RefineApi, SkillsApi, PromptsApi, ImprovementsApi, EvolutionApi, SkillNudgeApi, MemoryNudgeApi, MemCompressApi } from '../api'
 import GardenerView from '../components/GardenerView'
+import MechanismExperimentPanel from '../components/MechanismExperimentPanel'
+import TaskEvidencePanel from '../components/TaskEvidencePanel'
 
 // ── 应用中心（Phase 3）：经验沉淀台 / 技能库 / 提示词库 / 改进提案 ──
 
@@ -456,6 +458,9 @@ function EvolutionView() {
         </div>
       ))}
       {!items.length && <EmptyState icon={Dna} title="还没有进化提案" hint="选择模板点「开始进化」，小语会从近期会话里的纠正样本中学习" />}
+
+      <TaskEvidencePanel />
+      <MechanismExperimentPanel />
 
       {/* 技能自主沉淀（Hermes 闭环）：定时任务完成后自动评估 */}
       <SkillNudgeSection />

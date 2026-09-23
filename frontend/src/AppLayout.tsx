@@ -177,6 +177,7 @@ export default function AppLayout() {
   // 移动端：sessions 抽屉与统一“更多”菜单
   const [mobileDrawer, setMobileDrawer] = useState<'none' | 'sessions'>('none')
   const [mobileMoreOpen, setMobileMoreOpen] = useState(false)
+  const mobilePanelOpen = isMobile && route === 'chat' && mobileDrawer === 'none' && rightPanel !== 'chat'
   const mobileMoreTriggerRef = useRef<HTMLButtonElement>(null)
   const closeMobileMore = useCallback(() => {
     setMobileMoreOpen(false)
@@ -265,7 +266,7 @@ export default function AppLayout() {
         <div id="pi-wallpaper" className="fixed inset-0 z-0 pointer-events-none" />
         {/* 删除装饰性径向渐变背景 */}
         {/* 主内容层 */}
-        <div className="flex-1 flex min-h-0 relative z-10">
+        <div className="flex-1 flex min-h-0 relative z-10" inert={mobilePanelOpen}>
           {mobileDrawer === 'sessions' ? (
             <div className="flex-1 flex flex-col min-h-0 overflow-hidden">
               <Sidebar onNavigated={() => { setMobileDrawer('none'); nav('chat') }} onCollapse={() => setMobileDrawer('none')} />
@@ -275,24 +276,12 @@ export default function AppLayout() {
               <PageErrorBoundary page="对话">
                 <ChatArea compactHeader />
               </PageErrorBoundary>
-              {rightPanel !== 'chat' && (
-                <UtilityPanel
-                  active={rightPanel}
-                  onChange={setRightPanel}
-                  onClose={() => { setPanelExpanded(false); setRightPanel('chat') }}
-                  expanded={panelExpanded}
-                  onToggleExpanded={() => setPanelExpanded(value => !value)}
-                  onOpenReview={() => { setPanelExpanded(false); setRightPanel('chat'); nav('review') }}
-                >
-                  {panelContents}
-                </UtilityPanel>
-              )}
             </div>
           ) : pageArea}
         </div>
 
         {/* 底部 TabBar：实底，不用玻璃 */}
-        <nav className="mobile-tab-bar flex flex-shrink-0 relative z-20 border-t border-pi-border bg-pi-bg1" aria-label="主要导航">
+        <nav className="mobile-tab-bar flex flex-shrink-0 relative z-20 border-t border-pi-border bg-pi-bg1" aria-label="主要导航" inert={mobilePanelOpen}>
           {([
             { key: 'chat', icon: MessagesSquare, label: '对话', active: !mobileMoreOpen && route === 'chat' && mobileDrawer === 'none', onClick: () => { setMobileMoreOpen(false); setMobileDrawer('none'); nav('chat') } },
             { key: 'sessions', icon: FolderClosed, label: '会话', active: !mobileMoreOpen && mobileDrawer === 'sessions', onClick: () => { setMobileMoreOpen(false); setMobileDrawer('sessions') } },
@@ -314,6 +303,19 @@ export default function AppLayout() {
             </button>
           ))}
         </nav>
+
+        {mobilePanelOpen && (
+          <UtilityPanel
+            active={rightPanel}
+            onChange={setRightPanel}
+            onClose={() => { setPanelExpanded(false); setRightPanel('chat'); requestAnimationFrame(() => mobileMoreTriggerRef.current?.focus()) }}
+            expanded={panelExpanded}
+            onToggleExpanded={() => setPanelExpanded(value => !value)}
+            onOpenReview={() => { setPanelExpanded(false); setRightPanel('chat'); nav('review') }}
+          >
+            {panelContents}
+          </UtilityPanel>
+        )}
 
         <MobileMoreMenu
           open={mobileMoreOpen}

@@ -32,7 +32,7 @@ export function TeamRunView() {
         <TeamRunStart running={running} />
         <TeamRunStatus launch={data?.launch} />
         <div className="panel p-4 flex flex-col gap-2">
-        <div className="text-[13px] font-semibold text-pi-text">还没有天团运行记录</div>
+        <div className="text-[13px] font-semibold text-pi-text">还没有视频专用流程记录</div>
         <div className="text-[12px] text-pi-dim">{hint || '提交视频脚本任务后，运行记录会在这里显示。'}</div>
         </div>
       </div>
@@ -46,7 +46,7 @@ export function TeamRunView() {
       <TeamRunStatus launch={data?.launch} launchId={run.launchId} />
       <details key={`${run.launchId || run.createdAt || 'legacy'}-${isCurrent}`} open={isCurrent} className="flex flex-col gap-3">
       <summary className="panel p-3 cursor-pointer text-sm text-pi-text break-words focus-visible:outline focus-visible:outline-pi-accent">
-        {isCurrent ? '当前运行记录' : '历史运行记录（展开查看）'} · {run.task || '未记录任务名称'}
+        视频专用 · {isCurrent ? '当前运行记录' : '历史运行记录（展开查看）'} · {run.task || '未记录任务名称'}
       </summary>
       <div className="flex flex-col gap-3 pt-3">
       <TeamRunStatus showLaunch={false} profile={run.profile} delivery={run.delivery} acceptance={data?.acceptance} />

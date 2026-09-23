@@ -167,15 +167,16 @@ test('模型中心拆分为窄职责组件，第一屏按当前模型、筛选�
   assert.deepEqual([...order].sort((a, b) => a - b), order, '模型中心第一屏顺序必须为 PageHeader → 当前模型 → 筛选 → 结果网格')
 })
 
-test('模型通道、累计用量和 Provider 明细统一位于默认折叠的通道与用量区', () => {
+test('模型接入入口直接可见，用量与 Provider 明细默认折叠', () => {
   const hub = read('pages', 'ModelHub.tsx')
   const detailsStart = hub.indexOf('<details')
   const detailsEnd = hub.indexOf('</details>', detailsStart)
   assert.ok(detailsStart >= 0 && detailsEnd > detailsStart, '模型中心必须提供 details 折叠区')
   const details = hub.slice(detailsStart, detailsEnd)
-  assert.ok(!/<details[^>]*\sopen(?:=|\s|>)/.test(details), '通道与用量必须默认折叠')
-  for (const content of ['通道与用量', '累计成本', '累计消息', '<ModelChannels', 'Provider 用量']) {
-    assert.ok(details.includes(content), `通道与用量折叠区缺少：${content}`)
+  assert.ok(!/<details[^>]*\sopen(?:=|\s|>)/.test(details), '用量必须默认折叠')
+  assert.ok(hub.indexOf('<ModelChannels') < detailsStart, '模型接入入口必须直接可见')
+  for (const content of ['用量统计', '累计成本', '累计消息', 'Provider 用量']) {
+    assert.ok(details.includes(content), `用量折叠区缺少：${content}`)
   }
 })
 

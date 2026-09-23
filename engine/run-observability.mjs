@@ -83,7 +83,8 @@ export function deriveRunObservability(run, events = [], now = Date.now()) {
   const list = Array.isArray(events) ? events : []
   const eventCounts = {}
   let lastModel = safeModel(run?.observability?.lastModel) || safeModel(run?.input?.model)
-  let textModel = safeModel(run?.observability?.textModel) || safeModel(run?.input?.model)
+  let textModel = safeModel(run?.observability?.textModel)
+  let requestedModel = safeModel(run?.observability?.requestedModel) || safeModel(run?.input?.model)
   let engine = String(run?.observability?.engine || '').trim() || null
   const mediaModels = []
   const mediaModelKeys = new Set()
@@ -94,6 +95,7 @@ export function deriveRunObservability(run, events = [], now = Date.now()) {
     if (!type) continue
     eventCounts[type] = (eventCounts[type] || 0) + 1
     const data = event?.data
+    if (data?.requestedModel) requestedModel = safeModel(data.requestedModel) || requestedModel
     if (type === 'engine_selected' && data?.engine) engine = String(data.engine).trim() || engine
     const model = safeModel(data?.model || data?.usedModel || (data?.provider && data?.id ? data : null))
     const mediaModel = safeModel(data?.media?.model || (['media', 'media_started', 'media_completed', 'image', 'video', 'audio'].includes(type) ? data?.model : null))
@@ -103,7 +105,7 @@ export function deriveRunObservability(run, events = [], now = Date.now()) {
     }
     if (model && !mediaModel) {
       lastModel = model
-      if (['model_selected', 'done', 'completed'].includes(type) || !textModel) textModel = model
+      if (['model_used', 'model_switched', 'done', 'completed'].includes(type)) textModel = model
     }
     const tool = safeTool(type, data)
     if (tool) lastTool = tool
@@ -122,12 +124,13 @@ export function deriveRunObservability(run, events = [], now = Date.now()) {
   if (!TERMINAL.has(run?.status) && startedAt != null) {
     durationMs = Math.max(0, Math.round(now - startedAt))
   }
-  const terminalFailure = ['failed', 'stopped', 'interrupted'].includes(run?.status)
+  const terminalFailure = ['failed', 'stopped', 'interrupted'].includes(run?.status) && !run?.pauseReason
 
   return {
     durationMs: Number.isFinite(durationMs) ? durationMs : null,
     eventCounts: Object.fromEntries(Object.entries(eventCounts).sort(([a], [b]) => a.localeCompare(b))),
     engine,
+    requestedModel,
     textModel,
     mediaModels,
     lastModel,
@@ -157,8 +160,9 @@ export function summarizeRun(run, events = []) {
     return total + (Number.isFinite(count) && count >= 0 ? count : 1)
   }, 0)
   const memoryPreview = memoryEvents.map(event => event?.data?.preview || event?.data?.summary || event?.data?.text).find(Boolean)
-  const lastError = [...list].reverse().find(event => event?.type === 'error' || event?.type === 'failed')
-  const error = run?.error || lastError?.data?.message || lastError?.data?.error || null
+  const attemptStart = list.findLastIndex(event => event?.type === 'resumed')
+  const lastError = list.slice(attemptStart + 1).reverse().find(event => event?.type === 'error' || event?.type === 'failed')
+  const error = run?.pauseReason ? null : run?.error || lastError?.data?.message || lastError?.data?.error || null
   const observability = deriveRunObservability(run, list)
   return {
     id: run?.id || '',
@@ -171,9 +175,12 @@ export function summarizeRun(run, events = []) {
     memoryPreview: memoryPreview ? String(memoryPreview).slice(0, 160) : null,
     error: error ? String(error).slice(0, 240) : null,
     resumeAvailable: run?.resumeAvailable === true,
+    ...(run?.pauseReason ? { pauseReason: run.pauseReason } : {}),
+    ...(run?.pauseMessage ? { pauseMessage: run.pauseMessage } : {}),
     durationMs: observability.durationMs,
     eventCounts: observability.eventCounts,
     engine: observability.engine,
+    requestedModel: observability.requestedModel,
     textModel: observability.textModel,
     mediaModels: observability.mediaModels,
     lastModel: observability.lastModel,
@@ -187,7 +194,7 @@ export function buildRunSnapshot(runs = [], eventsByRun = new Map()) {
   const sorted = [...list].sort((a, b) => String(b?.updatedAt || b?.createdAt || '').localeCompare(String(a?.updatedAt || a?.createdAt || '')))
   const summaries = sorted.map(run => summarizeRun(run, eventsByRun.get(run.id) || []))
   const active = summaries.filter(run => ACTIVE.has(run.status))
-  const failedCount = summaries.filter(run => ['failed', 'interrupted'].includes(run.status)).length
+  const failedCount = summaries.filter(run => ['failed', 'interrupted'].includes(run.status) && !run.pauseReason).length
   return {
     active,
     recent: summaries.slice(0, 8),

@@ -20,8 +20,9 @@ import type { ChatMessage, RunningTool } from '../types'
 import { saveMessage, getMessages, deleteMessage, mergeMessages, type LocalMessage } from '../lib/local-db'
 import { notifyTaskDone } from '../lib/notify'
 import { StreamAssembler, type AssemblerSnapshot } from '../lib/stream-assembler'
-import { advanceRunCursor, isTerminalRunStatus, type RunCursor, type RunEvent } from '../lib/run-events'
+import { advanceRunCursor, isTerminalRunStatus, interruptionNotice, type RunCursor, type RunEvent } from '../lib/run-events'
 import { scrapeVideos, dedupeMediaUrls, mediaPathKey } from '../lib/media-embed'
+import { reconcileImageMessages } from '../lib/image-identity'
 
 // 流式状态：覆盖服务端全部 SSE 事件（delta/think/think_end/tool/tool_output/
 // tool_end/turn_end/file/image/media/note/emotion/done/error）
@@ -37,6 +38,8 @@ interface StreamState {
   audios: string[]
   videos: string[]
   error?: string
+  model?: { provider: string; id: string }
+  requestedModel?: { provider: string; id: string }
   // 本轮主驾引擎（服务端 engine_selected 事件）：yuanshu / pi / dsh + 原因
   engine?: string
   engineReason?: string
@@ -50,7 +53,7 @@ const RIGHT_PANEL_LABELS: Record<string, string> = {
   workspace: '工作区', deliveries: '交付物', terminal: '终端', activity: '活动', tui: 'TUI',
 }
 
-// 10 分钟无新事件才判定为死流；长任务可能在模型思考或工具执行阶段暂时没有增量。
+// 10 分钟无新事件后只提示；前端看不到事件不能推断服务端 Run 已失活。
 const IDLE_WARN_MS = 600_000
 
 interface ActiveRunRecord extends RunCursor {
@@ -126,7 +129,6 @@ export default function ChatArea({ compactHeader, rightPanel, onRightPanel }: {
   const streamCloseRef = useRef<(() => void) | null>(null)
   const activeRunRef = useRef<ActiveRunRecord | null>(null)
   const pendingModelRef = useRef<{ provider: string; id: string } | undefined>(undefined)
-  const watchdogStoppingRef = useRef(false)
   // ref 是唯一事实源：SSE 事件可能在一个渲染批次内全部到达，useEffect 同步会滞后导致 done 时读到旧值
   const streamRef = useRef<StreamState | null>(null)
   // 流式组装器：阶段分流 + 16ms 合帧 + toolCallId 幂等（旧版 vanilla 机制恢复，见 lib/stream-assembler.ts）
@@ -167,6 +169,9 @@ export default function ChatArea({ compactHeader, rightPanel, onRightPanel }: {
         audios: lm.audios,
         videos: lm.videos,
         model: lm.model,
+        requestedModel: lm.requestedModel,
+        switchedModel: lm.switchedModel,
+        engine: lm.engine,
         ts: lm.ts,
         streaming: lm.streaming,
         isDraft: lm.draft,
@@ -180,10 +185,16 @@ export default function ChatArea({ compactHeader, rightPanel, onRightPanel }: {
     return () => { alive = false }
   }, [currentSessionId])
 
-  // 合并本地与服务端消息：本地优先，服务端补充
-  const messages: ChatMessage[] = localLoaded && msgData
+  // 实时快照也参与归并：焦点/重连刷新可能已拿到本轮的分段历史。
+  // 用最新快照认领这些分段，统一由下方 streamingNode 展示，避免双渲染。
+  const liveSnapshot: LocalMessage | null = stream ? {
+    ...stream, id: assistantMsgIdRef.current || '__streaming__',
+    sessionId: currentSessionId || '', role: 'assistant',
+    ts: new Date().toISOString(), synced: false, draft: true, streaming: true,
+  } : null
+  const messages: ChatMessage[] = (localLoaded || liveSnapshot) && msgData
     ? mergeMessages(
-        localMessages.map(m => ({
+        localMessages.filter(m => !liveSnapshot || (!m.isDraft && m.id !== liveSnapshot.id)).map<LocalMessage>(m => ({
           id: m.id,
           sessionId: currentSessionId || '',
           role: m.role,
@@ -196,6 +207,7 @@ export default function ChatArea({ compactHeader, rightPanel, onRightPanel }: {
           audios: m.audios,
           videos: m.videos,
           model: m.model,
+          requestedModel: m.requestedModel,
           ts: m.ts,
           error: m.error,
           stopReason: m.stopReason,
@@ -207,7 +219,7 @@ export default function ChatArea({ compactHeader, rightPanel, onRightPanel }: {
           synced: !m.isDraft,
           draft: !!m.isDraft,
           streaming: m.streaming,
-        })),
+        })).concat(liveSnapshot ? [liveSnapshot] : []),
         msgData.messages || []
       ).map(lm => ({
         id: lm.id,
@@ -221,6 +233,7 @@ export default function ChatArea({ compactHeader, rightPanel, onRightPanel }: {
         audios: lm.audios,
         videos: lm.videos,
         model: lm.model,
+        requestedModel: lm.requestedModel,
         ts: lm.ts,
         // 失败记录必须活到界面上（2026-09-16）：后端 extractMessages 现在会带 error/stopReason
         error: lm.error,
@@ -256,6 +269,7 @@ export default function ChatArea({ compactHeader, rightPanel, onRightPanel }: {
         audios: msg.audios,
         videos: msg.videos,
         model: msg.model,
+        requestedModel: msg.requestedModel,
         ts: msg.ts,
         engine: msg.engine,
 
@@ -374,7 +388,8 @@ export default function ChatArea({ compactHeader, rightPanel, onRightPanel }: {
   const updStream = (fn: (p: StreamState) => StreamState | null) => {
     const cur = streamRef.current
     if (!cur) return
-    const next = fn(cur)
+    const updated = fn(cur)
+    const next = updated ? reconcileImageMessages([updated])[0] : null
     streamRef.current = next
     if (next && activeRunRef.current) {
       activeRunRef.current = { ...activeRunRef.current, stream: next }
@@ -396,7 +411,7 @@ export default function ChatArea({ compactHeader, rightPanel, onRightPanel }: {
     return asmRef.current
   }
 
-  // 看门狗：流式期间每秒检查空闲时长（只跟"是否在流式"绑定，不随每个增量重置）
+  // 空闲计时器只更新显示，不停止任务；页面隐藏、断连、深思和长工具执行都可能暂时没有事件。
   const streaming = !!stream
   useEffect(() => {
     if (!streaming) { setIdleSeconds(0); return }
@@ -404,15 +419,6 @@ export default function ChatArea({ compactHeader, rightPanel, onRightPanel }: {
     const t = setInterval(() => {
       const idle = Math.floor((Date.now() - lastEventAtRef.current) / 1000)
       setIdleSeconds(idle)
-      // 看门狗自动停止：超过 10 分钟无新事件 → 判定为死流，自动中止
-      if (idle >= 600 && streamRef.current && activeRunRef.current && !watchdogStoppingRef.current) {
-        console.warn('[watchdog] 流式无响应超过10分钟，请求服务端停止 Run')
-        watchdogStoppingRef.current = true
-        updStream(p => ({ ...p, error: (p.error || '') + (p.error ? ' · ' : '') + '⏱️ 长时间无响应，正在停止', tools: p.tools.map(t => t.status === 'running' ? { ...t, status: 'canceled' } : t) }))
-        RunsApi.stop(activeRunRef.current.runId)
-          .then(() => toast('模型长时间无响应，已请求停止', 'error'))
-          .catch(e => { watchdogStoppingRef.current = false; console.error('[watchdog] 自动停止失败:', e) })
-      }
     }, 1000)
     return () => clearInterval(t)
   }, [streaming])
@@ -463,14 +469,13 @@ export default function ChatArea({ compactHeader, rightPanel, onRightPanel }: {
     streamCloseRef.current?.()
     streamCloseRef.current = null
     assistantMsgIdRef.current = null
-    watchdogStoppingRef.current = false
     pendingModelRef.current = undefined
     if (active) clearActiveRun(active.sessionId)
     activeRunRef.current = null
     if (!s) return
     const scraped = scrapeVideos([s.text, ...s.tools.map(t => t.output || '')].join('\n'))
     const videos = dedupeMediaUrls([...s.videos, ...scraped])
-    if (s.text || s.think || s.tools.length || s.files.length || s.images.length || s.audios.length || videos.length || s.error) {
+    if (s.text || s.think || s.tools.length || s.notes.length || s.files.length || s.images.length || s.audios.length || videos.length || s.error) {
       appendMessage({
         id: finalId || ('a' + Date.now()), role: 'assistant',
         text: s.text + (s.error ? `\n\n⚠️ ${friendlyStreamError(s.error)}` : ''),
@@ -485,7 +490,8 @@ export default function ChatArea({ compactHeader, rightPanel, onRightPanel }: {
         ...(s.engine ? { engine: s.engine, engineReason: s.engineReason || '' } : {}),
         // 被重写/换模型也要随消息存下来（刷新后仍然看得见"这段不是原模型写的"）
         ...(s.switchedModel ? { switchedModel: s.switchedModel } : {}),
-        ...(model ? { model } : {}),
+        ...((model || s.model) ? { model: model || s.model } : {}),
+        ...(s.requestedModel ? { requestedModel: s.requestedModel } : {}),
       })
       // 完成提示音：双声"叮叮"（800Hz 0.1s + 1000Hz 0.15s）
       try {
@@ -534,6 +540,18 @@ export default function ChatArea({ compactHeader, rightPanel, onRightPanel }: {
     const d = event.data || {}
 
     switch (event.type) {
+      case 'model_selected':
+        if (d.requestedModel) updStream(p => ({ ...p, requestedModel: d.requestedModel }))
+        break
+      case 'model_used':
+        if (d.model) {
+          pendingModelRef.current = d.model
+          updStream(p => ({ ...p, model: d.model, requestedModel: d.requestedModel || p.requestedModel }))
+        }
+        break
+      case 'response_replace':
+        asmRef.current?.replaceResponse(String(d.text || ''), String(d.think || ''))
+        break
       case 'subagent_started':
       case 'subagent_finished':
         updStream(p => ({ ...p, notes: [...p.notes, `${d.agent || '角色'} · ${event.type === 'subagent_started' ? '开始协作' : d.status === 'failed' ? '执行失败' : '已返回，待最终检查'}`].slice(-40) }))
@@ -549,8 +567,11 @@ export default function ChatArea({ compactHeader, rightPanel, onRightPanel }: {
         // 回答被重写/换模型了，必须让用户看见（他原话："静默换成 agnes 3.0"）
         const id = String(d.id || '')
         if (id) {
+          pendingModelRef.current = { provider: String(d.provider || ''), id }
           updStream(p => ({
             ...p,
+            model: { provider: String(d.provider || ''), id },
+            requestedModel: d.requestedModel || p.requestedModel,
             switchedModel: { provider: String(d.provider || ''), id, sameModel: d.sameModel === true, reason: String(d.reason || '') },
           }))
         }
@@ -615,6 +636,7 @@ export default function ChatArea({ compactHeader, rightPanel, onRightPanel }: {
       case 'done':
       case 'finish':
         if (d.model) pendingModelRef.current = d.model
+        if (d.model || d.requestedModel) updStream(p => ({ ...p, model: d.model || p.model, requestedModel: d.requestedModel || p.requestedModel }))
         break
       case 'error':
         updStream(p => ({ ...p, error: friendlyStreamError(d.message || d.error || '未知错误') }))
@@ -630,11 +652,14 @@ export default function ChatArea({ compactHeader, rightPanel, onRightPanel }: {
         asmRef.current?.flushNow()
         finalize(pendingModelRef.current)
         break
-      case 'interrupted':
-        updStream(p => ({ ...p, error: p.error || '服务重启，任务已中断', tools: p.tools.map(t => t.status === 'running' ? { ...t, running: false, status: 'canceled' } : t) }))
+      case 'interrupted': {
+        const notice = interruptionNotice(d)
+        if (d.model) pendingModelRef.current = d.model
+        updStream(p => ({ ...p, error: p.error || notice.error, notes: notice.note && !p.notes.includes(notice.note) ? [...p.notes, notice.note] : p.notes, tools: p.tools.map(t => t.status === 'running' ? { ...t, running: false, status: 'canceled' } : t) }))
         asmRef.current?.flushNow()
         finalize(pendingModelRef.current)
         break
+      }
       case 'session_updated':
         // 后端已提交 JSONL；先更新侧栏的预览/时间/消息数。
         // 正文仍由 completed 收尾后刷新，避免实时 assistant 与服务端历史短暂双渲染。
@@ -686,7 +711,8 @@ export default function ChatArea({ compactHeader, rightPanel, onRightPanel }: {
         streamRef.current = record.stream
         setStream({ ...record.stream })
         if (run.status !== 'completed') {
-          updStream(p => ({ ...p, error: p.error || (run.status === 'stopped' ? '已停止' : run.status === 'interrupted' ? '服务重启，任务已中断' : '任务执行失败') }))
+          const notice = run.status === 'interrupted' ? interruptionNotice(run) : { error: run.status === 'stopped' ? '已停止' : '任务执行失败' }
+          updStream(p => ({ ...p, error: p.error || notice.error, notes: notice.note && !p.notes.includes(notice.note) ? [...p.notes, notice.note] : p.notes }))
         }
         finalize()
         return
@@ -1036,10 +1062,10 @@ export default function ChatArea({ compactHeader, rightPanel, onRightPanel }: {
         </div>
       </div>
 
-      {/* 看门狗提示条 */}
+      {/* 无新事件只提示，不改变服务端任务状态 */}
       {idleWarned && (
         <div className="px-6 py-1.5 bg-amber-500/10 border-b border-amber-500/20 text-amber-400 text-xs flex-shrink-0">
-          ⏳ 已 {idleSeconds}s 无新消息——模型可能在深度思考或网络不畅，可稍候或点「停止」
+          ⏳ 已 {idleSeconds}s 无新事件——任务不会因息屏或断连自动停止；可稍候回来查看，执行状态以服务端为准。如需结束，请点「停止」
         </div>
       )}
 
@@ -1089,6 +1115,8 @@ export default function ChatArea({ compactHeader, rightPanel, onRightPanel }: {
                     engine: stream.engine, engineReason: stream.engineReason,
 
                     switchedModel: stream.switchedModel,
+                    model: stream.model,
+                    requestedModel: stream.requestedModel,
                     files: stream.files, images: stream.images, audios: stream.audios, videos: stream.videos,
                     streaming: true,
                   }} />

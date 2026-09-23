@@ -1,11 +1,13 @@
 import { createHash } from 'node:crypto';
-import { dream, loadEpisodes, replayPolicy, currentWeights, promoteWeights, writeDreamLog } from './dream.mjs';
+import { dream, replayPolicy, currentWeights, promoteWeights, writeDreamLog } from './dream.mjs';
 import { listTraces, loadTrace } from './trace.mjs';
 import { DEFAULT_EXPLORE_POLICY, currentExplorePolicy, exploreCandidates, replayExplore, replayExploreAcross, promoteExplorePolicy } from './explore-policy.mjs';
 import { verifiedSkillEpisode } from './trace-evidence.mjs';
 import { readEvolution, evaluateEvolution, activateEvolution, policyFingerprint, evolutionRows } from './evolution-gate.mjs';
 import { collectTeamEvidence, ingestLatestTeamEvidence } from './team-evolution-evidence.mjs';
 import { grant } from './autonomy.mjs';
+import { mechanismStatus } from './mechanism-experiment.mjs';
+import { loadSkillEvidence, evolutionProgress } from './evolution-progress.mjs';
 
 const group = text => createHash('sha256').update(String(text).trim().replace(/\s+/g, ' ')).digest('hex');
 const pending = state => state && !['collecting', 'superseded', 'rejected', 'rolled_back'].includes(state.phase);
@@ -34,13 +36,16 @@ async function advance(wsRoot, { domain, current, chosen, rows, apply, now }) {
 // One promise per workspace prevents timer/manual runs from racing promotion.
 const running = new Map();
 export function runEvolutionCycle(options) {
-  if (running.has(options.wsRoot)) return running.get(options.wsRoot);
+  if (running.has(options.wsRoot)) {
+    const current = running.get(options.wsRoot);
+    return options.fresh ? current.catch(() => {}).then(() => runEvolutionCycle({ ...options, fresh: true })) : current;
+  }
   const promise = cycle(options).finally(() => running.delete(options.wsRoot));
   running.set(options.wsRoot, promise);
   return promise;
 }
-async function cycle({ wsRoot, candidates = [], rank, matcherContext = 'matcher-v1', now = new Date() }) {
-  const episodes = loadEpisodes(wsRoot, { kind: 'skill-match' });
+async function cycle({ wsRoot, candidates = [], rank, matcherContext = 'matcher-v1', now = new Date(), taskEvidence }) {
+  const episodes = loadSkillEvidence(wsRoot, taskEvidence);
   const active = currentWeights(wsRoot);
   const context = group(matcherContext);
   const current = { id: active.id || 'matcher-current', weights: active.weights, context };
@@ -52,7 +57,8 @@ async function cycle({ wsRoot, candidates = [], rank, matcherContext = 'matcher-
   const policy = chosen ? { ...chosen, context } : null;
   const skillRows = episodes.filter(verifiedSkillEpisode).map(ep => {
     const score = p => ({ score: replayPolicy(p, [ep], { rank }).total, cost: 0, covered: true });
-    return { id: ep.runId, group: group(ep.input), at: ep.at, baseline: score(baseline), candidate: policy ? score(policy) : null };
+    return { id: ep.runId, group: group(ep.input), at: ep.at, reference: ep.verification.reference,
+      baseline: score(baseline), candidate: policy ? score(policy) : null };
   });
   const gate = await advance(wsRoot, { domain: 'skill-match', current, chosen: policy, rows: skillRows, now,
     apply: p => promoteWeights(wsRoot, p.id, p.weights, { now }) });
@@ -79,9 +85,11 @@ async function cycle({ wsRoot, candidates = [], rank, matcherContext = 'matcher-
     note: '历史回放与后续观察均有覆盖边界，不保证未来任务不退步。' };
 }
 
-export function evolutionStatus(wsRoot) {
+export function evolutionStatus(wsRoot, { taskEvidence, now = new Date() } = {}) {
   const team = collectTeamEvidence(wsRoot);
-  return { skill: readEvolution(wsRoot, 'skill-match'), explore: readEvolution(wsRoot, 'fix-attempt'),
+  const skill = readEvolution(wsRoot, 'skill-match');
+  return { skill, progress: evolutionProgress(loadSkillEvidence(wsRoot, taskEvidence), skill, now),
+    explore: readEvolution(wsRoot, 'fix-attempt'), experiment: mechanismStatus(wsRoot),
     team: { observed: team.length, accepted: team.filter(r => r.accepted).length, records: team.slice(-10) } };
 }
 

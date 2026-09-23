@@ -307,7 +307,7 @@ export default function Message({ msg, onEdit, onRetry }: { msg: ChatMessage & {
               <X className="w-3.5 h-3.5 text-pi-danger mt-0.5 flex-shrink-0" aria-hidden="true" />
               <div className="min-w-0">
                 <div className="text-[12px] text-pi-text break-words">本轮失败：{msg.error}</div>
-                <div className="text-[11px] text-pi-dim2 mt-0.5">失败不藏起来——同一个模型连续失败会自动标冷却，下一轮避开它。</div>
+                <div className="text-[11px] text-pi-dim2 mt-0.5">请以本轮具体原因为准。执行上限和输出截断不代表模型不可用。</div>
               </div>
             </div>
             {onRetry && (
@@ -331,7 +331,7 @@ export default function Message({ msg, onEdit, onRetry }: { msg: ChatMessage & {
           </div>
         ) : null}
         {msg.ts && !streaming && (
-          <div className="hov-reveal text-[11px] text-pi-dim2 mt-1 transition-opacity flex items-center gap-2">
+          <div className="text-[11px] text-pi-dim2 mt-1 flex flex-wrap items-center gap-2">
             <span title={new Date(msg.ts).toLocaleString('zh-CN', { hour12: false })}>{fmtMsgTime(msg.ts)}</span>
             {/* ② 主驾引擎：换模型会换引擎（非原生通道走元枢自制循环，原生通道走 pi 适配器），
                 这件事用户以前完全看不见，只能感觉"它脾气变了"。原因放 title。 */}
@@ -345,11 +345,12 @@ export default function Message({ msg, onEdit, onRetry }: { msg: ChatMessage & {
                 同一模型重写 = 「已重写」；换了模型 = 「兜底 <模型>」，title 里写清原因和原本选的模型。 */}
             {msg.switchedModel && (
               <span className="px-1.5 py-0.5 rounded-pi-pill bg-amber-400/15 text-amber-300 text-[10px] font-medium"
-                title={`${msg.switchedModel.reason || '回答被重写'}${msg.model ? `（你选的是 ${msg.model.provider}/${msg.model.id}）` : ''}`}>
+                title={`${msg.switchedModel.reason || '回答被重写'}${msg.requestedModel ? `（你选的是 ${msg.requestedModel.provider}/${msg.requestedModel.id}）` : ''}`}>
                 {msg.switchedModel.sameModel ? '已重写' : `兜底 ${msg.switchedModel.id}`}
               </span>
             )}
-            {msg.model && <span className="px-1.5 py-0.5 rounded-pi-pill bg-pi-bg3 text-pi-dim2 text-[10px]" title={`${msg.model.provider}/${msg.model.id}`}>{msg.model.id}</span>}
+            {msg.requestedModel && msg.model && (msg.requestedModel.id !== msg.model.id || msg.requestedModel.provider !== msg.model.provider) && <span>所选 {msg.requestedModel.id}</span>}
+            {msg.model && <span className="px-1.5 py-0.5 rounded-pi-pill bg-pi-bg3 text-pi-dim2 text-[10px]" title={`${msg.model.provider}/${msg.model.id}`}>实际 {msg.model.id}</span>}
           </div>
         )}
       </div>

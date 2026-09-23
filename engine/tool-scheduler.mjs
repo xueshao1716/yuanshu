@@ -78,6 +78,11 @@ async function runOne(tc, { tools, onTool, onToolEnd, signal, effects, execution
   const turn = Number.isInteger(executionContext?.turn) ? executionContext.turn : 0;
   const effectKey = effects && runId ? canonicalStepKey(fnName, args, { turn, index: logicalOrdinal }) : null;
   const toolContext = {
+    sessionId: executionContext?.sessionId,
+    model: executionContext?.model,
+    history: executionContext?.history,
+    onEvent: executionContext?.onEvent,
+    aibodyContext: executionContext?.aibodyContext,
     signal,
     runId,
     attempt: executionContext?.attempt,

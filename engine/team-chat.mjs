@@ -2,7 +2,7 @@ import { setTimeout as delay } from 'node:timers/promises';
 import { reviewStoragePath } from './review-file-safety.mjs';
 import { readReviewBounded } from './review-read.mjs';
 
-export const isTeamRequest = body => body?.workflow === 'team-video' || /^\/team(?:\s|$)/i.test(String(body?.message || '').trim());
+export const isTeamRequest = body => ['team-video', 'team-general'].includes(body?.workflow) || /^\/team(?:\s|$)/i.test(String(body?.message || '').trim());
 const contentText = content => typeof content === 'string' ? content : (content || []).filter(b => b.type === 'text').map(b => b.text || '').join('\n');
 export function teamContext(messages = []) {
   return messages.filter(m => ['user', 'assistant'].includes(m.role)).slice(-2)

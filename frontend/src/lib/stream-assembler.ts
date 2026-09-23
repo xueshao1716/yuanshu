@@ -65,6 +65,16 @@ export class StreamAssembler {
   }
 
   /** 思考增量 */
+  replaceResponse(text: string, think = '') {
+    if (this.disposed) return
+    this.preToolText = this.toolStarted ? '' : text
+    this.conclusion = this.toolStarted ? text : ''
+    this.think = think
+    this.thinkDone = true
+    this.dirty = true
+    this.flushNow()
+  }
+
   addThink(text: string) {
     if (this.disposed || !text) return
     this.think += text
@@ -76,6 +86,7 @@ export class StreamAssembler {
   endThink() {
     if (this.disposed) return
     this.thinkDone = true
+    this.dirty = true
     this.flushNow()
   }
 
@@ -85,6 +96,7 @@ export class StreamAssembler {
     const existing = this.tools.find(t => t.id === input.id)
     this.tools = upsertRunningTool(this.tools, input)
     if (!existing) this.toolStarted = true
+    this.dirty = true
     this.flushNow()
   }
 
@@ -101,6 +113,7 @@ export class StreamAssembler {
     this.tools = this.tools.map(t => t.id === id
       ? { ...t, running: false, isError: !!isError, status: isError ? 'error' as const : 'completed' as const, ...(output ? { output } : {}) }
       : t)
+    this.dirty = true
     this.flushNow()
   }
 

@@ -1,6 +1,6 @@
 [package]
 name = "yuanshu"
-version = "2.114.0"
+version = "2.115.8"
 description = "元枢 · 个人智能系统（壳客户端）"
 authors = ["yuanshu"]
 edition = "2021"

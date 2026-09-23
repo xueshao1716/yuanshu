@@ -34,8 +34,8 @@ test("sanitizeToolCallList：arguments 经过脏前缀修复", () => {
 });
 
 test("modelAllowsTools：工具开关判定", (t) => {
-  t.test("anthropic-messages 默认不传 tools（glm-5.3 兼容保持）", () => {
-    assert.equal(modelAllowsTools({ api: "anthropic-messages" }), false);
+  t.test("anthropic-messages 原生协议默认支持 tools", () => {
+    assert.equal(modelAllowsTools({ api: "anthropic-messages" }), true);
   });
   t.test("anthropic-messages + compat.supportsTools:true 显式开启（wawazz-claude）", () => {
     assert.equal(modelAllowsTools({ api: "anthropic-messages", compat: { supportsTools: true } }), true);

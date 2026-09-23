@@ -1,12 +1,14 @@
 // engine/model-client.mjs —— 直调模型客户端（2026-08-20 从 server.mjs 拆出）
 // directChat/handleThink/handleDirectChat/maybeCompactHistory：绕过 agent 直调接口 + 思考调试 + 历史压缩
 // 依赖注入：initModelClient({ readJsonFile, writeJsonFile, authPath, modelsPath, resolveAuth, getModelList, getDefaultModel, httpJsonFetch, markModelBlocked, isAuthErrorStatus, unifiedChat, detectMediaIntents, generateMediaAsync, extractMediaPrompt, extractMessages, readEntriesFromFile, createSseWriter, json })
+import { modelEndpoint } from './model-endpoints.mjs';
 import fs from "node:fs";
 import { json } from "./http-utils.mjs";
 import { markModelBlocked, isAuthErrorStatus } from "./model-router.mjs";
 import { httpJsonFetch } from "./http.mjs";
 import { extractMessages } from "./session-utils.mjs";
 import { saveArtifact } from "./workspace-api.mjs";
+import { buildMessagesRequest, decodeMessagesResponse, messagesEndpoint, messagesHeaders } from './anthropic-messages.mjs';
 
 let _readJsonFile = null, _writeJsonFile = null, _authPath = "", _modelsPath = "", _resolveAuth = null, _getModelList = () => [], _getDefaultModel = () => null,
     _unifiedChat = null, _detectMediaIntents = () => [], _generateMediaAsync = async () => null, _extractMediaPrompt = () => "", _readEntriesFromFile = () => [], _createSseWriter = null;
@@ -41,14 +43,24 @@ export async function directChat(model, message, history = [], opts = {}) {
     const store = _readJsonFile(_modelsPath);
     const mdef = (store[model.provider]?.models || []).find(m => m.id === model.id)
       || _getModelList().find(m => m.provider === model.provider && m.id === model.id);
-    const baseUrl = resolved?.baseUrl || mdef?.baseUrl || model.baseUrl;
+    const baseUrl = mdef?.baseUrl || resolved?.baseUrl || model.baseUrl;
     if (!baseUrl) return null;
     const base = (baseUrl || "").replace(/\/+$/, "");
     const baseNoV1 = base.endsWith("/v1") ? base.slice(0, -3) : base;
     const messages = systemHint ? [{ role: "system", content: systemHint }, ...history, { role: "user", content: message }] : [...history, { role: "user", content: message }];
-    const apiType = mdef?.api || "openai-completions";
+    const apiType = mdef?.api || model.api || "openai-completions";
     const tokenCap = Math.min(Number(opts.maxTokens) > 0 ? Number(opts.maxTokens) : (mdef?.maxTokens || 8192), 8192);
     const reqTimeout = Number(opts.timeout) > 0 ? Number(opts.timeout) : 120000;
+    if (apiType === 'anthropic-messages') {
+      const r = await httpJsonFetch(messagesEndpoint(base), { method: 'POST', headers: messagesHeaders(key), body: JSON.stringify(buildMessagesRequest({ model: model.id, modelKey: `${model.provider}/${model.id}`, messages, maxTokens: tokenCap })), timeout: reqTimeout, signal: opts.signal });
+      if (!r.ok) {
+        if (isAuthErrorStatus(r.status)) markModelBlocked(model, { reason: `HTTP ${r.status} (messages)` });
+        return null;
+      }
+      const parsed = decodeMessagesResponse(await r.json());
+      if (parsed.finishReason === 'max_tokens') return null;
+      return { text: parsed.message.content || null, think: parsed.message.reasoning_content, usedModel: { provider: model.provider, id: parsed.model || model.id } };
+    }
     // openai-responses 类型（grok/gpt-5.6-luna 等）：用 /responses 端点，input 数组格式
     if (apiType === "openai-responses") {
       const mkResp = (u) => httpJsonFetch(u, {
@@ -58,7 +70,7 @@ export async function directChat(model, message, history = [], opts = {}) {
         timeout: reqTimeout,
         signal: opts.signal,
       });
-      let rr = await mkResp(`${baseNoV1}/v1/responses`);
+      let rr = await mkResp(modelEndpoint(base, 'responses'));
       if (rr.status === 404) rr = await mkResp(`${baseNoV1}/responses`);
       if (!rr.ok) {
         if (isAuthErrorStatus(rr.status)) markModelBlocked(model, { reason: `HTTP ${rr.status} (responses)` });
@@ -75,21 +87,21 @@ export async function directChat(model, message, history = [], opts = {}) {
       let text = textParts.join("").trim();
       let think = reasoningParts.join("").trim();
       if (!text && think) { text = think; think = ""; }
-      return { think, text: text || null };
+      return { think, text: text || null, usedModel: { provider: model.provider, id: rd.model || model.id } };
     }
     const mkReq = (u) => httpJsonFetch(u, {
       method: "POST",
       headers: { "Content-Type": "application/json", Authorization: `Bearer ${key}` },
       body: JSON.stringify(buildDirectChatBody({
         modelId: model.id,
-        messages,
+        messages: messages.map(({ anthropic_content, anthropic_model, ...m }) => m),
         maxTokens: tokenCap,
         thinking: opts.thinking,
       })),
       timeout: reqTimeout,
       signal: opts.signal,
     });
-    let r = await mkReq(`${baseNoV1}/v1/chat/completions`);
+    let r = await mkReq(modelEndpoint(base, 'chat/completions'));
     if (r.status === 404) r = await mkReq(`${baseNoV1}/chat/completions`);
     if (!r.ok) {
       if (isAuthErrorStatus(r.status)) markModelBlocked(model, { reason: `HTTP ${r.status} (directChat)` });
@@ -111,7 +123,7 @@ export async function directChat(model, message, history = [], opts = {}) {
       if (!think) think = (m?.[1] || "").trim();
       text = raw.replace(/<think>[\s\S]*?<\/think>\s*/g, "").trim();
     }
-    return { think, text: text || null };
+    return { think, text: text || null, usedModel: { provider: model.provider, id: data.model || model.id } };
   } catch (e) {
     if (e && /timeout/i.test(String(e?.message || ""))) return { timeout: true };
     return null;
@@ -133,7 +145,7 @@ export async function handleThink(res, body) {
   try {
     let data, modelName;
     if (apiType === "anthropic-messages") {
-      const r = await httpJsonFetch(`${baseUrl}/v1/messages`, {
+      const r = await httpJsonFetch(messagesEndpoint(baseUrl), {
         method: "POST",
         headers: { "Content-Type": "application/json", "x-api-key": key, "anthropic-version": "2023-06-01" },
         body: JSON.stringify({ model: modelId, max_tokens: Math.min(mdef.maxTokens || 8192, 8192), messages: [{ role: "user", content: message }] }),
@@ -157,7 +169,7 @@ export async function handleThink(res, body) {
       body: JSON.stringify({ model: modelId, messages: [{ role: "user", content: message }], stream: false, max_tokens: Math.min(mdef.maxTokens || 8192, 8192) }),
       timeout: 120000,
     });
-    let r = await mkReq(`${baseNoV1}/v1/chat/completions`);
+    let r = await mkReq(modelEndpoint(base, 'chat/completions'));
     if (r.status === 404) r = await mkReq(`${baseNoV1}/chat/completions`);
     if (!r.ok) { const txt = await r.text().catch(() => ""); return json(res, 502, { error: `思考模型调用失败 ${r.status}: ${txt.slice(0, 150)}` }); }
     data = await r.json();

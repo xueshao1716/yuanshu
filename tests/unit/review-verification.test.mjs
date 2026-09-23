@@ -45,3 +45,19 @@ test('verification expires after frontend style build configuration changes', t 
   fs.writeFileSync(config, 'after');
   assert.equal(store.read().state, 'stale');
 });
+
+test('verification expires when a skill is added or edited', t => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'yuanshu-evidence-'));
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  const store = createReviewVerification({ root });
+  const save = () => store.save({ digest: store.fingerprint(), checks: ['unit', 'types', 'build'].map(name => ({ name, state: 'passed' })) });
+  save();
+  const dir = path.join(root, 'skills', 'new-skill');
+  fs.mkdirSync(dir, { recursive: true });
+  fs.writeFileSync(path.join(dir, 'SKILL.md'), 'before');
+  assert.equal(store.read().state, 'stale');
+  save();
+  assert.equal(store.read().state, 'passed');
+  fs.writeFileSync(path.join(dir, 'SKILL.md'), 'after');
+  assert.equal(store.read().state, 'stale');
+});

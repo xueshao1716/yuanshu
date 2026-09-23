@@ -54,10 +54,10 @@ function normalizeEvent(type, value = {}) {
     return { type: "tool", data: out };
   }
   if (name === "subagent_started" || name === "subagent_start") {
-    return { type: "subagent", data: { ...pick(data, ["id", "childId", "runId", "agent", "task", "model"]), status: "started" } };
+    return { type: "subagent", data: { ...pick(data, ["id", "childId", "runId", "parentRunId", "sessionId", "role", "agent", "task", "model"]), status: "started" } };
   }
   if (name === "subagent_finished" || name === "subagent_end") {
-    const out = pick(data, ["id", "childId", "runId", "agent", "task", "model", "summary", "output", "error"]);
+    const out = pick(data, ["id", "childId", "runId", "parentRunId", "sessionId", "role", "agent", "task", "model", "result", "summary", "output", "error"]);
     out.status = normalizeStatus(data.status) || (data.error ? "failed" : "completed");
     return { type: "subagent", data: out };
   }

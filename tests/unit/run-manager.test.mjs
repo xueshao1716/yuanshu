@@ -29,6 +29,53 @@ function fixture(executeChat, options = {}) {
   return { rootDir, store, eventLog, manager, cleanup: () => { eventLog.close(); fs.rmSync(rootDir, { recursive: true, force: true }) } }
 }
 
+test('预算暂停只发布一次可恢复终态，继续时保留检查点而不是重跑', async () => {
+  const contexts = [];
+  const snapshot = { v: 1, turn: 65, messages: [{ role: 'user', content: 'continue' }] };
+  const fx = fixture(async (_req, res, body) => {
+    contexts.push(body.__runContext);
+    res.writeHead(200, { 'Content-Type': 'text/event-stream' });
+    if (contexts.length === 1) {
+      res.write(`event: checkpoint\ndata: ${JSON.stringify({ phase: 'tool_results', turn: 65, historySnapshot: snapshot })}\n\n`);
+      res.write('event: interrupted\ndata: {"reason":"execution_budget","message":"已暂停，可继续任务"}\n\n');
+    }
+    res.end();
+  });
+  try {
+    const run = fx.manager.create({ sessionId: 'budget', clientRequestId: 'one', message: 'continue' });
+    await waitFor(() => ['completed', 'failed', 'interrupted'].includes(fx.manager.get(run.id)?.status));
+    const paused = fx.manager.get(run.id);
+    assert.equal(paused.status, 'interrupted'); assert.equal(paused.resumeAvailable, true);
+    assert.equal(paused.pauseReason, 'execution_budget'); assert.equal(paused.error, null);
+    assert.equal(paused.observability.failureCategory, null);
+    assert.equal(fx.manager.readAfter(run.id, 0).filter(e => ['completed', 'failed', 'interrupted'].includes(e.type)).length, 1);
+    fx.manager.resume(run.id);
+    await waitFor(() => fx.manager.get(run.id)?.status === 'completed');
+    assert.deepEqual(contexts[1].checkpoint.historySnapshot, snapshot);
+    assert.equal(contexts[1].checkpoint.checkpointKind, 'tool_results');
+    assert.equal(fx.manager.get(run.id).pauseReason, null);
+  } finally { fx.cleanup(); }
+});
+
+test('旧60轮失败记录在 get/list 上恢复继续入口，但没有历史快照不开放', async () => {
+  const fx = fixture(async (_req, res, body) => {
+    assert.equal(body.__runContext.checkpoint.turn, 60);
+    res.end();
+  });
+  try {
+    const run = fx.store.create({ sessionId: 'legacy', clientRequestId: 'one', message: 'continue' });
+    const patch = { status: 'failed', resumeAvailable: false, error: '本轮已达到 60 轮工具调用的执行上限，任务尚未完成；已保留工具结果和检查点。' };
+    fx.store.update(run.id, patch);
+    assert.equal(fx.manager.get(run.id).resumeAvailable, false);
+    fx.store.saveCheckpoint(run.id, { turn: 60, checkpointKind: 'tool_results', historySnapshot: { v: 1, turn: 60, messages: [{ role: 'user', content: 'continue' }] } });
+    assert.equal(fx.manager.get(run.id).resumeAvailable, true);
+    assert.equal(fx.manager.list()[0].resumeAvailable, true);
+    assert.equal(JSON.parse(fs.readFileSync(path.join(fx.rootDir, 'runs', `${run.id}.json`))).resumeAvailable, false, '兼容读取不篡改历史文件');
+    fx.manager.resume(run.id);
+    await waitFor(() => fx.manager.get(run.id)?.status === 'completed');
+  } finally { fx.cleanup(); }
+});
+
 test('聊天记录提交后才发布 session_updated，且事件账本保留顺序', async () => {
   const fx = fixture(async (_req, res) => {
     res.writeHead(200, { 'Content-Type': 'text/event-stream' })

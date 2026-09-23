@@ -23,6 +23,7 @@ test('summarizeRun includes current phase and safe error preview', () => {
     durationMs: null,
     eventCounts: { failed: 1, run_started: 1, tool_started: 1 },
     engine: null,
+    requestedModel: null,
     textModel: null,
     mediaModels: [],
     lastModel: null,

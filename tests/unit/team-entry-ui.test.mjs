@@ -7,7 +7,7 @@ test('team controls expose scoped stop/resume with error and duplicate-submit ha
   const controls = read('frontend/src/components/TeamRunControls.tsx');
   for (const term of ['TeamRunApi.stop', 'TeamRunApi.resume', 'disabled={busy}', 'role="alert"', '不会自动重跑', '停止后续步骤']) assert.ok(controls.includes(term), term);
   const server = read('server.mjs');
-  assert.ok(server.includes('signal: controller.signal'));
+  assert.ok(server.includes(')(body, controller.signal)'));
   assert.ok(server.includes("res.off('close', onClose)"));
 });
 test('server delegates to repository launcher and exposes independent launch state', () => {
@@ -23,7 +23,7 @@ test('server delegates to repository launcher and exposes independent launch sta
 
 test('team entry starts a managed session task and links back to conversation', () => {
   const source = read('frontend/src/components/TeamRunStart.tsx');
-  for (const term of ['TeamRunApi.start', 'clientRequestId', 'disabled={busy', 'maxLength={300}', '10 秒', 'selectSession', "nav('chat')"]) assert.ok(source.includes(term), term);
+  for (const term of ['TeamRunApi.start', 'clientRequestId', 'disabled={busy', 'maxLength={taskLimit}', "workflow === 'team-general' ? 6000 : 300", '<textarea', '10 秒', 'selectSession', "nav('chat')"]) assert.ok(source.includes(term), term);
   assert.ok(read('frontend/src/components/TeamRunView.tsx').includes('<TeamRunStart'));
   assert.ok(read('frontend/src/components/TeamRunStatus.tsx').includes('launch?.sessionId'));
   const chat = read('frontend/src/components/ChatArea.tsx');

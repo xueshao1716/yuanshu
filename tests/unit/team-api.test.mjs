@@ -17,4 +17,9 @@ test('team API requires explicit task/session/request id and routes bound contro
   await api.stop(null, null, { id: 'l1' });
   await api.resume(null, null, { id: 'l1' });
   assert.deepEqual(calls.slice(1), ['r1', 'r1']);
+  const task = '预算和限制\n' + '详细要求'.repeat(100);
+  await api.start(null, null, { task, workflow: 'team-general', sessionId: 's1', clientRequestId: 'c2' });
+  assert.equal(calls.at(-1).workflow, 'team-general');
+  assert.equal(calls.at(-1).message, task);
+  assert.equal((await api.start(null, null, { task, workflow: 'team-video', sessionId: 's1', clientRequestId: 'c3' })).status, 400);
 });

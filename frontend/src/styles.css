@@ -722,6 +722,11 @@ body.has-wallpaper .mobile-composer {
 .markdown-body li { margin: 3px 0; }
 .markdown-body blockquote { box-shadow: inset 2px 0 0 var(--pi-border); padding-left: 12px; color: var(--pi-dim); margin: 8px 0; }
 .markdown-body code { font-family: var(--pi-font-mono); }
+.markdown-body .markdown-inline-code {
+  background: var(--pi-bg3);
+  color: var(--pi-text);
+  overflow-wrap: anywhere;
+}
 .markdown-body pre { background: var(--pi-bg3); border: 1px solid var(--pi-border); border-radius: var(--pi-r-md); }
 .markdown-body table { width: 100%; border-collapse: collapse; }
 .markdown-body th, .markdown-body td { border: 1px solid var(--pi-border); padding: 7px 12px; }
@@ -2170,17 +2175,18 @@ button:focus:not(:focus-visible) { outline: none; }
   from { opacity: 0; transform: translateY(12px); }
   to { opacity: 1; transform: translateY(0); }
 }
-@media (max-width: 768px) {
-  .utility-panel,
-  .utility-panel-expanded {
+/* Match the mobile shell (including landscape), outside its content stacking context. */
+.mobile-app-root > .utility-panel {
     position: fixed;
-    inset: env(safe-area-inset-top, 0px) 0 0;
+    inset: 0;
     width: 100%;
-    height: auto;
+    height: var(--pi-viewport-height);
+    padding: var(--pi-safe-top, env(safe-area-inset-top, 0px)) env(safe-area-inset-right, 0px) env(safe-area-inset-bottom, 0px) env(safe-area-inset-left, 0px);
     border-left: 0;
     box-shadow: none;
     background: var(--pi-bg1);
-  }
+}
+@media (max-width: 899px) {
   .utility-panel-expand { display: none; }
   .utility-panel-heading { min-height: 56px; padding-inline: 12px; }
   .utility-panel-tab { min-height: 44px; }
@@ -2425,8 +2431,8 @@ body.has-color-card .desktop-rail-item[aria-current="page"] {
 }
 /* 11% 的纱要有分量，除了面上的色，还得有两道**不压字**的边：
    左栏右缘、右栏左缘各一条卡色渐变（和配色卡缩略图同一套色），位置在文字之外。 */
-body.has-color-card nav.desktop-rail,
-body.has-color-card .col-right {
+/* UtilityPanel owns its positioning; a theme must not undo its fullscreen mode. */
+body.has-color-card nav.desktop-rail {
   position: relative;
 }
 body.has-color-card nav.desktop-rail::after,

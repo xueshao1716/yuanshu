@@ -18,6 +18,7 @@ export function recordTeamEvidence(wsRoot, run) {
     // Immutable per-run facts; acceptance is resolved separately from review records.
     if (fs.existsSync(file)) return { ok: true, existing: true };
     const snapshot = { runId: run.runId, mode: run.mode, task: run.task, createdAt: run.createdAt,
+      parentRunId: run.parentRunId || null, sessionId: run.sessionId || null,
       profile: run.profile, model: run.model, delivery: run.delivery, checklist: run.checklist,
       stages: run.stages, unresolved: run.unresolved, elapsedMs: run.elapsedMs, cost: run.cost };
     reviewAtomicWrite(file, JSON.stringify(snapshot));

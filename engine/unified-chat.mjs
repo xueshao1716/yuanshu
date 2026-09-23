@@ -1,6 +1,7 @@
 // engine/unified-chat.mjs —— 统一对话通道（2026-08-20 从 server.mjs 拆出）
 // unifiedChat/handleUnifiedChat：对话 + 工具循环 + 思考 + 媒体 + 压缩 + 重试 + 任务进度
 // 依赖注入：initUnifiedChat({ executeUnifiedTool, findKeyByEntry, readJsonFile, getModelList, getDefaultModel, authPath, modelsPath, cwd })
+import { modelEndpoint } from './model-endpoints.mjs';
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -10,6 +11,7 @@ import { markModelBlocked, isAuthErrorStatus, pickFallbackDefault, pickFallbackE
 import { classifyAnomaly, recordReply, lastAssistantReply } from "./output-guard.mjs";
 import { clampOutputTokens, escalateOutputTokens, maxTokensFieldOf, OUTPUT_TOKEN_FALLBACK } from "./output-budget.mjs";
 import { budgetWithinWindow, estimateHistoryTokens } from "./context-headroom.mjs";
+import { continuationLimits, truncationRecoveryPrompt, toolTurnLimitResult } from "./task-continuation.mjs";
 import { shrinkToolResult, NEEDS_PRO_RE, scavengeToolCalls, projectToolResult } from "./reasonix-tools.mjs";
 import { normalizeToolArgs } from "./tool-args.mjs";
 import { extractMessages, extractText, attachmentLines } from "./session-utils.mjs";
@@ -22,6 +24,8 @@ import { createCodeMode } from "../code-mode/code-mode.mjs";
 import { detectMediaIntents, extractMediaPrompt, generateMediaAsync, mediaAwarePrompt, explainMediaError, assistantContentWithMedia, isPureImageRequest } from "./media-api.mjs";
 import { extractPlayableMedia } from "./media-embed.mjs";
 import { readOpenAIChatStream } from "./openai-stream.mjs";
+import { buildMessagesRequest, messagesEndpoint, messagesHeaders } from "./anthropic-messages.mjs";
+import { readMessagesStream } from "./anthropic-stream.mjs";
 import { saveArtifact } from "./workspace-api.mjs";
 import { directChat, maybeCompactHistory, needsMidLoopCompact } from "./model-client.mjs";
 import { bindTodoSession, formatTodoPrompt } from "./yuanshu-todo.mjs";
@@ -31,14 +35,15 @@ import { compactKeepArchive } from "./yuanshu-compact.mjs";
 import { prependAssembledSystem } from "./yuanshu-prompt.mjs";
 import { assembleYuanshuSystem, registerPromptSection, promptTimeText, promptPersonaText } from "./yuanshu-seams.mjs";
 import { bindWorkmemSession, formatPlanPrompt } from "./yuanshu-workmem.mjs";
-import { persistYuanshuUser, persistYuanshuAssistant, persistYuanshuToolTrace, abortedAssistantText } from "./yuanshu-session.mjs";
+import { persistYuanshuUser, persistYuanshuAssistant, persistYuanshuToolTrace, resumePersistenceState, abortedAssistantText } from "./yuanshu-session.mjs";
 import { beginYuanshuEmotion, endYuanshuEmotion, lastTalkAt } from "./yuanshu-emotion.mjs";
 import { readActivityRhythm } from "./activity-rhythm.mjs";
 import { pendingPromiseText } from "./promises.mjs";
 import { goalPrompt } from "./goals.mjs";
 import { effectiveSandboxMode } from "./sandbox-session.mjs";
 import { resolveAuth } from "./dsh-keys.mjs";
-import { runYuanshuToolRound, attachYuanshuCodeTool, toolCallLoopKey, toolCallsFromPlan } from "./yuanshu-loop.mjs";
+import { runYuanshuToolRound, attachYuanshuCodeTool, toolCallLoopKey } from "./yuanshu-loop.mjs";
+import { restorePendingToolPlan } from "./resume-tool-plan.mjs";
 import { canonicalStepKey, hashArgs } from "./run-effects.mjs";
 import {
   EMPTY_TURN_ERROR,
@@ -105,11 +110,9 @@ export function repairToolArgs(s) {
 
 // ══ 工具开关判定（2026-08-31 抽出）：
 // - compat.supportsTools:false → 一律不传 tools
-// - anthropic-messages 协议默认不传（2026-08-21 glm-5.3 直测 422/400），
-//   但允许 compat.supportsTools:true 显式开启（wawazz-claude 中转 OpenAI 兼容层实测支持 tools 回环）
+// Native Messages and OpenAI both support tools; explicit capability overrides win.
 export function modelAllowsTools(mdef) {
   if (mdef?.compat?.supportsTools === false) return false;
-  if (mdef?.api === "anthropic-messages") return mdef?.compat?.supportsTools === true;
   return true;
 }
 
@@ -193,6 +196,8 @@ export function formatSessionHistory(hist = [], { projectTool = projectToolResul
     out.push({
       role: "assistant",
       content: text || null,
+      ...(item.anthropic_content ? { anthropic_content: item.anthropic_content } : {}),
+      ...(item.anthropic_model ? { anthropic_model: item.anthropic_model } : {}),
       // 2026-09-16：args 本来就是字符串时，JSON.stringify 会二次编码成 `"{\"…\"}"`，
       // 上游要求 arguments 能 parse 成对象 → 双重编码就 400（真机事故）。统一走 normalizeToolArgs。
       tool_calls: tools.map(t => ({ id: String(t.id), type: "function", function: { name: String(t.name), arguments: normalizeToolArgs(t.args) } })),
@@ -223,6 +228,9 @@ function snapshotMessage(message, maxChars) {
     }
   }
   if (message.tool_call_id) out.tool_call_id = String(message.tool_call_id);
+  // Signed native blocks must be copied exactly, never truncated independently.
+  if (Array.isArray(message.anthropic_content)) out.anthropic_content = structuredClone(message.anthropic_content);
+  if (message.anthropic_model) out.anthropic_model = message.anthropic_model;
   if (Array.isArray(message.tool_calls)) {
     out.tool_calls = message.tool_calls.slice(0, 16).map(call => ({
       id: String(call?.id || ""),
@@ -241,17 +249,30 @@ export function createRunHistorySnapshot(history, { turn = 0, maxMessages = RUN_
   const limit = Math.max(1, Math.min(64, Number(maxMessages) || RUN_HISTORY_SNAPSHOT_MAX_MESSAGES));
   const systems = list.filter(message => message?.role === "system");
   const tail = list.slice(-limit).filter(message => message?.role !== "system");
-  const selected = [...systems, ...tail];
-  const messages = [];
+  // Pin the current request: tail-only snapshots lose the task after a few
+  // tool rounds, which also makes resumed tool-trace persistence skip it.
+  const currentUser = list.findLast(message => message?.role === "user");
+  const selected = [...systems, ...(currentUser && !tail.includes(currentUser) ? [currentUser] : []), ...tail];
+  const pinnedUser = currentUser ? snapshotMessage(currentUser, Math.min(12_000, maxChars)) : null;
+  let reserved = pinnedUser ? JSON.stringify(pinnedUser).length : 0;
+  let messages = [];
   let size = 0;
   for (const message of selected) {
     const item = snapshotMessage(message, Math.min(12_000, maxChars));
     if (!item) continue;
     const itemSize = JSON.stringify(item).length;
-    if (messages.length && size + itemSize > maxChars) break;
+    if (message === currentUser) reserved = 0;
+    if (message !== currentUser && size + itemSize + reserved > maxChars) continue;
     messages.push(item);
     size += itemSize;
   }
+  // A byte/message boundary must not split a completed tool exchange. Keep
+  // genuinely pending plans, but omit completed calls whose result was cut.
+  const completedIds = new Set(list.filter(m => m.role === "tool").map(m => m.tool_call_id));
+  const resultIds = new Set(messages.filter(m => m.role === "tool").map(m => m.tool_call_id));
+  messages = messages.filter(m => !m.tool_calls?.some(call => completedIds.has(call.id) && !resultIds.has(call.id)));
+  const callIds = new Set(messages.flatMap(m => m.tool_calls || []).map(call => call.id));
+  messages = messages.filter(m => m.role !== "tool" || callIds.has(m.tool_call_id));
   return {
     v: RUN_HISTORY_SNAPSHOT_VERSION,
     turn: Number.isInteger(turn) ? turn : 0,
@@ -276,7 +297,7 @@ function toolPlanFor(toolCalls, completed = null) {
       name: tc.function?.name || "",
       args,
       argsHash: hashArgs(args),
-      ordinal,
+      ordinal: Number.isInteger(final?.ordinal) ? final.ordinal : Number.isInteger(tc.__ordinal) ? tc.__ordinal : ordinal,
       ...(final?.effectKey ? { effectKey: final.effectKey } : {}),
       status: final?.status || "pending",
       ...(final?.isError !== undefined ? { isError: final.isError === true } : {}),
@@ -318,6 +339,7 @@ function emitRoundStream(opts, msg) {
 }
 
 export async function unifiedChat(model, messages, opts = {}) {
+  opts = { ...opts, executionContext: { ...opts.executionContext, model } };
   const auth = _readJsonFile(_authPath);
   const key = auth[model.provider]?.key;
   if (!key) return { error: `无 ${model.provider} 的 key` };
@@ -331,11 +353,21 @@ export async function unifiedChat(model, messages, opts = {}) {
   if (!baseUrl) return { error: "无 baseUrl" };
   const base = (baseUrl || "").replace(/\/+$/, "");
   const baseNoV1 = base.endsWith("/v1") ? base.slice(0, -3) : base;
+  const nativeMessages = (mdef?.api || model.api) === "anthropic-messages";
   let history = sanitizeToolCalls([...messages]);
   const restoredHistory = restoreRunHistorySnapshot(opts.resumeSnapshot);
-  if (restoredHistory?.length) history = sanitizeToolCalls(restoredHistory);
-  // 工具开关：见 modelAllowsTools（anthropic-messages 默认关，compat.supportsTools 可显式开/关）
-  const noTools = !modelAllowsTools(mdef);
+  if (restoredHistory?.length) {
+    // Older snapshots did not retain the user request. Repair from the real
+    // session context, without replaying its already-completed tool history.
+    if (!restoredHistory.some(message => message.role === "user")) {
+      const currentUser = history.findLast(message => message.role === "user");
+      const firstNonSystem = restoredHistory.findIndex(message => message.role !== "system");
+      if (currentUser) restoredHistory.splice(firstNonSystem < 0 ? restoredHistory.length : firstNonSystem, 0, currentUser);
+    }
+    history = sanitizeToolCalls(restoredHistory);
+  }
+  // Tools are native to both supported protocols.
+  const noTools = !modelAllowsTools(mdef || model);
   // 2026-08-30 修复：无工具模型注入「无工具模式」提示。agent 训练背景的模型（hy4-preview 等）
   // 被要求看文件/跑命令时会编造 <tool_call> 文本幻觉，用户看到假调用却永远等不到结果。
   // 显式告知无工具 + 引导向用户要内容，大幅减少该幻觉。
@@ -351,7 +383,7 @@ export async function unifiedChat(model, messages, opts = {}) {
   const thinkingLevelMap = mdef?.thinkingLevelMap || model.thinkingLevelMap || null;
   // 思考模型：映射 pi thinking level → provider 参数（默认 high）；不支持时降级
   let thinkingParam = null;
-  if (isReasoning) {
+  if (isReasoning && !nativeMessages) {
     const mapped = thinkingLevelMap?.["high"];
     if (mapped !== null && mapped !== false && mapped !== undefined) thinkingParam = mapped;
     else if (compat.supportsReasoningEffort !== false) thinkingParam = "high";
@@ -364,9 +396,10 @@ export async function unifiedChat(model, messages, opts = {}) {
       function: { name: t.name, description: t.description || "", parameters: t.parameters || { type: "object", properties: {} } },
     });
   const buildBody = (withThinking, wantStream = true) => {
+    if (nativeMessages) return buildMessagesRequest({ model: model.id, modelKey: `${model.provider}/${model.id}`, messages: history, tools: toolDefs, maxTokens: outputBudget, stream: wantStream, params: opts.params });
     const body = {
       model: model.id,
-      messages: history,
+      messages: history.map(({ anthropic_content, anthropic_model, ...message }) => message),
       ...(toolDefs ? { tools: normTools(toolDefs), tool_choice: "auto" } : {}),
       stream: wantStream,
     };
@@ -381,11 +414,11 @@ export async function unifiedChat(model, messages, opts = {}) {
     if (withThinking && thinkingParam !== null) body.reasoning_effort = thinkingParam;
     return body;
   };
-  const mkReq = (u, withThinking, wantStream = true) => httpRawFetch(u, {
+  const mkReq = (u, withThinking, wantStream = true) => httpRawFetch(nativeMessages ? messagesEndpoint(base) : u, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
-      Authorization: `Bearer ${key}`,
+      ...(nativeMessages ? messagesHeaders(key) : { Authorization: `Bearer ${key}` }),
       Accept: "text/event-stream",
       // 会话亲和头：原生通道（opencode-go 等）缺它会 400 MissingSessionID / 认不出模型
       ...sessionAffinityHeaders({ provider: model.provider, compat, sessionId: opts.executionContext?.sessionId || opts.sessionId }),
@@ -409,6 +442,11 @@ export async function unifiedChat(model, messages, opts = {}) {
   // Continue numbering from it so effect keys remain stable across recovery.
   let turn = Number.isInteger(opts.resumeSnapshot?.turn) ? opts.resumeSnapshot.turn : 0;
   if (opts.resumeCheckpointKind === "model_request") turn = Math.max(0, turn - 1);
+  const continuation = continuationLimits(opts, maxTurns, turn);
+  let batchLimit = continuation.limit;
+  let recentProgress = false;
+  let pauseReason = 'tool_turn_limit';
+  let continuedText = "";
   let usedModel = null; // provenance：记录实际使用的模型（Auto 路由/降级时前端可见）
   const jitInjected = new Set(); // 本会话 JIT 目录规则已注入集合（每目录一次）
   const seenCalls = new Map();
@@ -433,7 +471,7 @@ export async function unifiedChat(model, messages, opts = {}) {
   // If the process stopped after the provider emitted tool calls but before
   // the round finished, replay only those calls. The effects ledger decides
   // whether each call is reusable or must remain fail-closed.
-  const resumeCalls = toolCallsFromPlan(opts.resumeToolPlan);
+  const resumeCalls = toolDefs ? restorePendingToolPlan(history, opts.resumeToolPlan) : [];
   if (resumeCalls.length && toolDefs) {
     const resumeTurn = Number.isInteger(opts.resumeSnapshot?.turn) ? opts.resumeSnapshot.turn : turn;
     const resumed = await runYuanshuToolRound({
@@ -458,18 +496,27 @@ export async function unifiedChat(model, messages, opts = {}) {
     turn = resumeTurn;
   }
 
-  while (turn < maxTurns) {
-    turn++;
+  while (true) {
     // 客户端已断开 → 立即停止（打断场景：前端 abort 后不再继续消耗模型调用）
     if (opts.signal?.aborted) return { aborted: true, history, text: lastPartialAssistantText(history) };
+    if (Date.now() >= continuation.deadline) { pauseReason = 'execution_budget'; break; }
+    if (turn >= batchLimit) {
+      if (!continuation.automatic) break;
+      if (!recentProgress) { pauseReason = 'progress_boundary'; break; }
+      batchLimit += maxTurns;
+      opts.onNote?.(`本次已完成 ${turn - continuation.startTurn} 轮，工具仍有进展，正在自动接续；剩余自动执行时间约 ${Math.ceil((continuation.deadline - Date.now()) / 60000)} 分钟。`);
+    }
+    turn++;
+    recentProgress = false;
+    outputBudget = budgetWithinWindow({ declaredMaxTokens: outputBudget, contextWindow: Number(mdef?.contextWindow) || 0, usedTokens: estimateHistoryTokens(history), fallback: OUTPUT_TOKEN_FALLBACK });
     try { opts.onCheckpoint?.({ phase: "model_request", turn, toolPlan: [], ...createRunHistorySnapshot(history, { turn }) }); } catch {}
     let r;
     let wantStream = true;
     // 自动重试：网络错误/5xx 重试最多 2 次
     for (let attempt = 0; attempt < 2; attempt++) {
       try {
-        r = await mkReq(`${baseNoV1}/v1/chat/completions`, usedThinking, wantStream);
-        if (r.status === 404) r = await mkReq(`${baseNoV1}/chat/completions`, usedThinking, wantStream);
+        r = await mkReq(modelEndpoint(base, 'chat/completions'), usedThinking, wantStream);
+        if (r.status === 404 && !nativeMessages) r = await mkReq(`${baseNoV1}/chat/completions`, usedThinking, wantStream);
         if (!r.ok && r.status >= 500 && attempt === 0) { await new Promise(x => setTimeout(x, 1500)); continue; }
         break;
       } catch (e) {
@@ -480,14 +527,14 @@ export async function unifiedChat(model, messages, opts = {}) {
     // 模型不接受 reasoning_effort → 去掉思考参数重试（统一降级，非厂商特判）
     if (!r.ok && usedThinking && (r.status === 400 || r.status === 422)) {
       usedThinking = false;
-      r = await mkReq(`${baseNoV1}/v1/chat/completions`, false, wantStream);
+      r = await mkReq(modelEndpoint(base, 'chat/completions'), false, wantStream);
       if (r.status === 404) r = await mkReq(`${baseNoV1}/chat/completions`, false, wantStream);
     }
     // 个别中转不接受 stream:true → 降级整包 JSON（readOpenAIChatStream 仍能抽出正文）
     if (!r.ok && wantStream && (r.status === 400 || r.status === 422)) {
       wantStream = false;
-      r = await mkReq(`${baseNoV1}/v1/chat/completions`, usedThinking, false);
-      if (r.status === 404) r = await mkReq(`${baseNoV1}/chat/completions`, usedThinking, false);
+      r = await mkReq(modelEndpoint(base, 'chat/completions'), usedThinking, false);
+      if (r.status === 404 && !nativeMessages) r = await mkReq(`${baseNoV1}/chat/completions`, usedThinking, false);
     }
     if (!r.ok) {
       const errBody = await r.text().catch(() => "");
@@ -501,7 +548,7 @@ export async function unifiedChat(model, messages, opts = {}) {
     }
     usedModel = { provider: model.provider, id: model.id }; // provenance：本轮实际模型
     let roundStreamed = false;
-    const parsed = await readOpenAIChatStream(r.body, {
+    const parsed = await (nativeMessages ? readMessagesStream : readOpenAIChatStream)(r.body, {
       signal: opts.signal,
       onThink: (t) => { roundStreamed = true; streamed = true; opts.onThink?.(t); },
       onDelta: (t) => { roundStreamed = true; streamed = true; opts.onDelta?.(t); },
@@ -512,28 +559,35 @@ export async function unifiedChat(model, messages, opts = {}) {
       return { aborted: true, history, text: lastPartialAssistantText(history) || streamedText, streamed };
     }
     if (parsed.error) return { error: parsed.error };
+    if (parsed.model) usedModel = { provider: model.provider, id: parsed.model };
+    opts.onModel?.(usedModel);
     const msg = parsed.message || {};
     const inspected = inspectToolCalls(msg.tool_calls);
-    if (inspected.truncated) {
+    const lengthLimited = ['length', 'max_tokens'].includes(parsed.finishReason);
+    if (inspected.truncated || lengthLimited) {
       // 只丢弃无法解析的调用；同一响应里已经完整的调用仍然执行。
       // 没有完整调用时也不要把半截 JSON 写回 history，否则下一轮请求会再次 400。
-      if (!toolDefs || truncatedToolRetries >= MAX_TRUNCATED_TOOL_RETRIES) {
-        return { error: TRUNCATED_TOOL_ERROR, history, text: lastPartialAssistantText(history), streamed };
+      if (truncatedToolRetries >= MAX_TRUNCATED_TOOL_RETRIES) {
+        const { text: tail } = splitAssistantPayload(msg);
+        if (tail) history.push({ role: 'assistant', content: tail });
+        return { error: TRUNCATED_TOOL_ERROR, errorCode: 'output_truncated', history, usedModel,
+          text: !msg.tool_calls?.length ? (continuedText + tail) || lastPartialAssistantText(history) : lastPartialAssistantText(history), streamed };
       }
       truncatedToolRetries += 1;
       // 截断多半是"这次要写的东西超过了预算"→ 先把预算抬上去再重试，别急着让用户拆任务
-      const bumped = escalateOutputTokens(outputBudget, mdef);
+      const bumped = budgetWithinWindow({ declaredMaxTokens: escalateOutputTokens(outputBudget, mdef), contextWindow: Number(mdef?.contextWindow) || 0, usedTokens: estimateHistoryTokens(history), fallback: OUTPUT_TOKEN_FALLBACK });
       if (bumped > outputBudget) {
         console.log(`[元枢] 工具调用被截断 → 单次输出预算 ${outputBudget} → ${bumped} token，重试`);
         outputBudget = bumped;
       }
-      const validCalls = inspected.calls || [];
+      const validCalls = toolDefs ? inspected.calls || [] : [];
       if (validCalls.length) {
         if (!roundStreamed) {
           const streamedRound = emitRoundStream(opts, msg);
           if (streamedRound.think || streamedRound.text) streamed = true;
         }
         history.push({ role: "assistant", content: msg.content || null, tool_calls: validCalls,
+          ...(msg.anthropic_content ? { anthropic_content: msg.anthropic_content, anthropic_model: `${model.provider}/${model.id}` } : {}),
           ...(typeof msg.reasoning_content === "string" ? { reasoning_content: msg.reasoning_content } : {}) });
         try { opts.onCheckpoint?.({ phase: "tool_plan", turn, toolPlan: toolPlanFor(validCalls), ...createRunHistorySnapshot(history, { turn }) }); } catch {}
         const recovered = await runYuanshuToolRound({
@@ -551,12 +605,21 @@ export async function unifiedChat(model, messages, opts = {}) {
           const streamedRound = emitRoundStream(opts, msg);
           if (streamedRound.think || streamedRound.text) streamed = true;
         }
-        if (text) history.push({ role: "assistant", content: text });
+        if (text) {
+          history.push({ role: "assistant", content: text });
+          if (!msg.tool_calls?.length) continuedText += text;
+        }
       }
       history.push({
         role: "system",
-        content: "上一轮工具调用参数不完整，系统已丢弃半截调用。请继续当前任务，并把每次 write/edit/bash 的参数保持简短；大文件分段写入（第一块 write，后续块 write + append:true），禁止把超长脚本塞进一次工具调用。",
+        content: truncationRecoveryPrompt(outputBudget, truncatedToolRetries),
       });
+      opts.onNote?.('检测到输出截断，正在保留已完成步骤并自动分块接续。');
+      recentProgress = true;
+      await maybeCompactMidLoop();
+      // The next loop may pause immediately on its time budget. Save the
+      // received fragment AND continuation instruction before that boundary.
+      try { opts.onCheckpoint?.({ phase: "model_response", turn, toolPlan: [], ...createRunHistorySnapshot(history, { turn }) }); } catch {}
       continue;
     }
     truncatedToolRetries = 0;
@@ -567,6 +630,7 @@ export async function unifiedChat(model, messages, opts = {}) {
         if (streamedRound.think || streamedRound.text) streamed = true;
       }
       history.push({ role: "assistant", content: msg.content || null, tool_calls: tcs,
+        ...(msg.anthropic_content ? { anthropic_content: msg.anthropic_content, anthropic_model: `${model.provider}/${model.id}` } : {}),
         ...(typeof msg.reasoning_content === "string" ? { reasoning_content: msg.reasoning_content } : {}) });
       try { opts.onCheckpoint?.({ phase: "tool_plan", turn, toolPlan: toolPlanFor(tcs), ...createRunHistorySnapshot(history, { turn }) }); } catch {}
       const official = await runYuanshuToolRound({
@@ -579,11 +643,13 @@ export async function unifiedChat(model, messages, opts = {}) {
       });
       try { opts.onCheckpoint?.({ phase: "tool_results", turn, toolPlan: toolPlanFor(tcs, official.toolPlan), ...createRunHistorySnapshot(history, { turn }) }); } catch {}
       if (official.stop) return official.stop;
+      recentProgress = official.toolPlan?.some(item => item.status === 'completed') === true;
+      continuedText = "";
       await maybeCompactMidLoop();
       continue;
     }
     // ══ P2 scavenge（Reasonix 借鉴，2026-08-19）：无 tool_calls 但思考里捞到合法工具调用 → 执行（带策略拦截）
-    const scavenged = tcs?.length ? [] : scavengeToolCalls(msg.reasoning_content || "", toolDefs, seenCalls);
+    const scavenged = nativeMessages || tcs?.length ? [] : scavengeToolCalls(msg.reasoning_content || "", toolDefs, seenCalls);
     if (scavenged.length) {
       if (!roundStreamed) {
         const streamedRound = emitRoundStream(opts, msg); // 立刻 opts.onThink / opts.onDelta
@@ -603,6 +669,8 @@ export async function unifiedChat(model, messages, opts = {}) {
       });
       try { opts.onCheckpoint?.({ phase: "tool_results", turn, toolPlan: toolPlanFor(scavCalls, scavengedRound.toolPlan), ...createRunHistorySnapshot(history, { turn }) }); } catch {}
       if (scavengedRound.stop) return scavengedRound.stop;
+      recentProgress = scavengedRound.toolPlan?.some(item => item.status === 'completed') === true;
+      continuedText = "";
       await maybeCompactMidLoop();
       continue;
     }
@@ -629,13 +697,12 @@ export async function unifiedChat(model, messages, opts = {}) {
         }) + "\n");
       } catch {}
     }
-    return { think, text: text || null, history, usedModel, streamed };
+    return { think, text: (continuedText + text) || null, history, usedModel, streamed };
   }
   // 超过轮数上限：尽量返回中间结果（不直接丢错误）。出图旁路已在跑时不要用 20 轮红字盖住图。
   const partial = lastPartialAssistantText(history);
-  if (partial) return { error: TRUNCATED_TOOL_ERROR, text: partial, partial: true, history, streamed };
-  if (opts.imageIntent) return { text: "", partial: true, streamed, truncated: true };
-  return { error: `工具调用超过 ${maxTurns} 轮，已停止（任务过于复杂或陷入循环）` };
+  if (opts.imageIntent) return { text: partial, partial: true, history, usedModel, streamed, truncated: true };
+  return toolTurnLimitResult(turn - continuation.startTurn, history, usedModel, streamed, continuedText || partial, pauseReason);
 }
 
 // ══ Gateway 2.0：插件化引擎（dsh 设计沉淀——模型/工具/存储/循环全是可替换插件）══
@@ -845,7 +912,10 @@ export async function handleUnifiedChat(res, entry, message, sessionId, params, 
     }
   } catch {}
   writer = writer || createSseWriter(res);
-  try { writer.push("model_selected", { model: { provider: chatModel?.provider, id: chatModel?.id } }); } catch {}
+  const requestedModel = entry.modelKey?.id && entry.modelKey.id !== 'auto' ? { provider: entry.modelKey.provider, id: entry.modelKey.id } : (modelOverride ? { provider: modelOverride.provider, id: modelOverride.id } : null);
+  let switchedModel = null;
+  const metadataFor = result => ({ model: result?.usedModel, requestedModel, switchedModel, engine: 'yuanshu' });
+  try { writer.push("model_selected", { model: { provider: chatModel?.provider, id: chatModel?.id }, requestedModel }); } catch {}
   if (engineInitError) {
     try { writer.push("note", { code: "engine_init_failed", text: `engine_init_failed：引擎初始化失败，本次降级运行（${engineInitError.message}）。` }); } catch {}
   }
@@ -864,13 +934,19 @@ export async function handleUnifiedChat(res, entry, message, sessionId, params, 
   };
   touchTask(taskId, { stage: "处理中" });
   let hist = [];
+  let savedEntries = [];
   try {
     const file = entry.sm.sessionFile;
-    if (file && fs.existsSync(file)) hist = extractMessages(readEntriesFromFile(file)).slice(-20);
+    if (file && fs.existsSync(file)) {
+      savedEntries = readEntriesFromFile(file);
+      hist = extractMessages(savedEntries).slice(-20);
+    }
   } catch {}
-  // 恢复同一 run 时用户原话通常已经在会话 JSONL 中；先看最后一条，
-  // 避免恢复把同一条 user 消息追加第二次。正常新请求仍允许用户重复发送相同文本。
-  let userPersisted = !!(runContext?.resume && hist.at(-1)?.role === "user" && hist.at(-1)?.text === message);
+  // Paused replies and tool traces follow the user message. Inspect the full
+  // saved turn, not just the last projected message or the last 20 entries.
+  const persistedTurn = resumePersistenceState(savedEntries, message, runContext?.resume);
+  const persistTrace = history => persistYuanshuToolTrace(entry.sm, history, persistedTurn);
+  let userPersisted = persistedTurn.userPersisted;
   const persistUser = () => {
     if (userPersisted) return;
     persistYuanshuUser(entry.sm, message);
@@ -1030,22 +1106,37 @@ export async function handleUnifiedChat(res, entry, message, sessionId, params, 
       clearTask(taskId, "error"); writer.push("error", { message: result?.error || "模型未返回内容" }); finishEmotion(); return;
     }
     if (result?.aborted || signal?.aborted) {
-      try { persistUser(); persistYuanshuAssistant(entry.sm, abortedAssistantText(result)); } catch {}
+      try { persistUser(); persistYuanshuAssistant(entry.sm, abortedAssistantText(result), [], metadataFor(result)); } catch {}
       collected = abortedAssistantText(result);
       clearTask(taskId, "aborted"); finishEmotion(); return;
     }
+    if (result?.paused) { await finishPausedChat(result); return; }
     const text = result.text;
     if (!text) { writer.push("error", { message: "模型未返回内容" }); finishEmotion(); return; }
-    try { persistYuanshuAssistant(entry.sm, text); } catch {}
+    try { persistTrace(result.history || []); persistYuanshuAssistant(entry.sm, text, [], metadataFor(result)); } catch {}
     if (entry.agent) { try { entry.agent.dispose(); } catch {} entry.agent = null; }
     if (result.think) { writer.push("think", { text: result.think }); writer.push("think_end", {}); }
     writer.push("delta", { text });
-    writer.push("done", { sessionId });
+    writer.push("done", { sessionId, model: result.usedModel, requestedModel });
     collected = text;
     clearTask(taskId, "done");
     finishEmotion();
   }
+  async function finishPausedChat(result) {
+    await deliverUnifiedMedia();
+    persistUser();
+    persistTrace(result.history || []);
+    const text = [result.text, result.message].filter(Boolean).join('\n\n');
+    persistYuanshuAssistant(entry.sm, assistantContentWithMedia(text, mediaItems), [], metadataFor(result));
+    if (result.text && !result.streamed) writer.push('delta', { text: result.text });
+    collected = text;
+    clearTask(taskId, 'interrupted');
+    finishEmotion();
+    writer.push('interrupted', { reason: result.pauseReason, message: result.message, model: result.usedModel, requestedModel });
+  }
   const chatOpts = {
+    onNote: text => writer.push('note', { text }),
+    onModel: model => writer.push('model_used', { model, requestedModel }),
     onTool: onToolStart,
     onToolEnd,
     onCheckpoint,
@@ -1058,6 +1149,7 @@ export async function handleUnifiedChat(res, entry, message, sessionId, params, 
     // 工具循环，才能在图片完成的同时继续制作 PPT、网页或其它交付文件。
     tools: skipTools ? false : toolDefs,
     maxTurns: skipTools ? 1 : toolLoopMaxTurns({ imageIntent, videoIntent }),
+    autoContinueTools: !skipTools && !imageIntent,
     imageIntent,
     videoIntent,
     sandboxMode: effectiveSandboxMode(_getAgentDir?.() || "", sessionId, { planLock: isPlanLock }),
@@ -1070,13 +1162,19 @@ export async function handleUnifiedChat(res, entry, message, sessionId, params, 
     executionContext: { runId: runContext?.runId, sessionId: runContext?.sessionId, attempt: runContext?.attempt, onEvent: runContext?.onEvent, aibodyContext: runContext?.aibodyContext, history },
   };
   let result = await unifiedChat(chatModel, history, chatOpts);
+  const adoptReplacement = (replacement, selected, reason) => {
+    result = { ...replacement, streamed: true, usedModel: replacement.usedModel || { provider: selected.provider, id: selected.id } };
+    switchedModel = { ...result.usedModel, sameModel: result.usedModel.provider === chatModel.provider && result.usedModel.id === chatModel.id, reason };
+    writer.push('model_switched', { ...switchedModel, requestedModel });
+    writer.push('response_replace', { text: result.text || '', think: result.think || '' });
+  };
   // The resumed tool plan is consumed before the first model request. Do not
   // replay it again if output quality later triggers a fallback/pro model.
   chatOpts.resumeToolPlan = null;
   chatOpts.resumeSnapshot = null;
   chatOpts.resumeCheckpointKind = null;
   if (result?.aborted || signal?.aborted) {
-    try { persistUser(); persistYuanshuAssistant(entry.sm, assistantContentWithMedia(abortedAssistantText(result), mediaItems)); } catch {}
+    try { persistUser(); persistYuanshuAssistant(entry.sm, assistantContentWithMedia(abortedAssistantText(result), mediaItems), [], metadataFor(result)); } catch {}
     collected = abortedAssistantText(result);
     clearTask(taskId, "aborted"); finishEmotion(); return;
   }
@@ -1084,13 +1182,14 @@ export async function handleUnifiedChat(res, entry, message, sessionId, params, 
     const fbModel = pickFallbackExcluding(chatModel);
     if (fbModel) {
       writer.push("note", { text: `⚠️ 模型空回复，切换 ${fbModel.provider}/${fbModel.id} 兑底…` });
-      const fb = await unifiedChat(fbModel, history, { ...chatOpts });
+      const fb = await unifiedChat(fbModel, history, { ...chatOpts, onDelta: undefined, onThink: undefined, onThinkEnd: undefined });
       if (fb?.aborted || signal?.aborted) {
-        try { persistUser(); persistYuanshuAssistant(entry.sm, assistantContentWithMedia(abortedAssistantText(fb), mediaItems)); } catch {}
+        try { persistUser(); persistYuanshuAssistant(entry.sm, assistantContentWithMedia(abortedAssistantText(fb), mediaItems), [], metadataFor(fb)); } catch {}
         collected = abortedAssistantText(fb);
         clearTask(taskId, "aborted"); finishEmotion(); return;
       }
-      if (fb?.text && !fb.error && !fb.empty) result = fb;
+      if (fb?.paused) { await finishPausedChat(fb); return; }
+      if (fb?.text && !fb.error && !fb.empty) adoptReplacement(fb, fbModel, '主模型空回复，备用模型重新回答');
       else result = { ...result, error: EMPTY_TURN_ERROR };
     } else {
       result = { ...result, error: EMPTY_TURN_ERROR };
@@ -1102,28 +1201,35 @@ export async function handleUnifiedChat(res, entry, message, sessionId, params, 
     const fbModel = pickFallbackExcluding(chatModel);
     if (fbModel && Array.isArray(result.history)) {
       writer.push("note", { text: `⚠️ ${TRUNCATED_TOOL_ERROR}，正在切换 ${fbModel.provider}/${fbModel.id} 接续已完成步骤…` });
-      const fb = await unifiedChat(fbModel, result.history, { ...chatOpts, resumeSnapshot: null, resumeCheckpointKind: null, resumeToolPlan: null });
-      if (fb?.text && !fb.error) result = fb;
+      const fb = await unifiedChat(fbModel, result.history, { ...chatOpts, onDelta: undefined, onThink: undefined, onThinkEnd: undefined, resumeSnapshot: null, resumeCheckpointKind: null, resumeToolPlan: null });
+      if (fb?.aborted || signal?.aborted) {
+        try { persistUser(); persistTrace(fb?.history || result.history); persistYuanshuAssistant(entry.sm, assistantContentWithMedia(abortedAssistantText(fb), mediaItems), [], metadataFor(fb)); } catch {}
+        collected = abortedAssistantText(fb);
+        clearTask(taskId, "aborted"); finishEmotion(); return;
+      }
+      if (fb?.paused) { await finishPausedChat(fb); return; }
+      if (fb?.text && !fb.error) adoptReplacement(fb, fbModel, '输出截断，备用模型接续已完成步骤');
       else if (fb?.history) result = { ...result, history: fb.history };
     }
   }
+  if (result?.paused) { await finishPausedChat(result); return; }
   if (!result || result.error) {
     await deliverUnifiedMedia();
     if (mediaItems.length) {
-      try { persistYuanshuToolTrace(entry.sm, result?.history || []); } catch {}
+      try { persistTrace(result?.history || []); } catch {}
       if (result?.text && !result.streamed) writer.push("delta", { text: result.text });
       try {
-        persistYuanshuAssistant(entry.sm, assistantContentWithMedia(result?.text || "", mediaItems));
+        persistYuanshuAssistant(entry.sm, assistantContentWithMedia(result?.text || "", mediaItems), [], metadataFor(result));
       } catch {}
-      writer.push("done", { sessionId, model: { provider: chatModel.provider, id: chatModel.id } });
+      writer.push("done", { sessionId, model: result?.usedModel || null, requestedModel });
       collected = result?.text || "";
       clearTask(taskId, "done");
       finishEmotion();
       return;
     }
     try {
-      persistYuanshuToolTrace(entry.sm, result?.history || []);
-      if (result?.text) persistYuanshuAssistant(entry.sm, result.text);
+      persistTrace(result?.history || []);
+      if (result?.text) persistYuanshuAssistant(entry.sm, result.text, [], metadataFor(result));
     } catch {}
     clearTask(taskId, "error");
     writer.push("error", { message: result?.error || "模型未返回内容，请稍后重试" });
@@ -1135,10 +1241,10 @@ export async function handleUnifiedChat(res, entry, message, sessionId, params, 
     await deliverUnifiedMedia();
     if (mediaItems.length || result.partial || result.truncated) {
       try {
-        persistYuanshuToolTrace(entry.sm, result.history || []);
-        persistYuanshuAssistant(entry.sm, assistantContentWithMedia(result.partial ? lastPartialAssistantText(result.history || []) : "", mediaItems));
+        persistTrace(result.history || []);
+        persistYuanshuAssistant(entry.sm, assistantContentWithMedia(result.partial ? lastPartialAssistantText(result.history || []) : "", mediaItems), [], metadataFor(result));
       } catch {}
-      writer.push("done", { sessionId, model: result.usedModel || { provider: chatModel.provider, id: chatModel.id } });
+      writer.push("done", { sessionId, model: result.usedModel || null, requestedModel });
       clearTask(taskId, "done");
       finishEmotion();
       return;
@@ -1154,11 +1260,12 @@ export async function handleUnifiedChat(res, entry, message, sessionId, params, 
     if (proModel && (proModel.provider !== chatModel.provider || proModel.id !== chatModel.id)) {
       writer.push("note", { text: `🚀 模型自报任务超纲，升级 ${proModel.provider}/${proModel.id} 重试${proMatch[1] ? `（原因：${proMatch[1].trim()}）` : ""}…` });
       const proResult = await unifiedChat(proModel, history, { onTool: onToolStart, onToolEnd, onCheckpoint, params, signal, tools: toolDefs, sandboxMode: chatOpts.sandboxMode, sandboxWsRoot: _cwd, sandboxAsk: approvalAsk, effects: runContext?.effects, resumeSnapshot: null, resumeCheckpointKind: null, resumeToolPlan: null, executionContext: { runId: runContext?.runId, sessionId: runContext?.sessionId, attempt: runContext?.attempt, onEvent: runContext?.onEvent, aibodyContext: runContext?.aibodyContext, history } });
+      if (proResult?.paused) { await finishPausedChat(proResult); return; }
       if (proResult?.text && !proResult.error) {
         const proTxt = String(proResult.text).trim();
         if (!NEEDS_PRO_RE.test(proTxt)) {
           text = proTxt;
-          result.think = proResult.think || result.think;
+          adoptReplacement(proResult, proModel, '模型自报任务超纲，升级模型回答');
           console.log(`[元枢] NEEDS_PRO 升级成功: ${proModel.provider}/${proModel.id}`);
         }
       }
@@ -1180,9 +1287,9 @@ export async function handleUnifiedChat(res, entry, message, sessionId, params, 
       if (fb?.text) {
         // 落盘时要带标记（2026-09-16）：只推事件不落盘的话，刷新/换设备就变回"静默换模型"了
         text = `（已切换 ${fbModel.provider}/${fbModel.id} 重新生成的回复）\n${fb.text}`;
+        adoptReplacement({ ...fb, text, history: result.history }, fbModel, `${anomaly.reason} → 自动切换重试`);
         recordReply(rkU, text);
         // 静默换模型是用户最直接的"乱做"体感（原话："静默换成 agnes 3.0"）：显式推事件，界面标出兜底模型
-        try { writer.push("model_switched", { provider: fbModel.provider, id: fbModel.id, sameModel: false, reason: `${anomaly.reason} → 自动切换重试` }); } catch {}
       } else {
         anomalyUnresolved = true;
         writer.push("note", { text: "⚠️ 输出守卫触发，但备用模型也无回复（请手动切换模型或重试）" });
@@ -1198,15 +1305,15 @@ export async function handleUnifiedChat(res, entry, message, sessionId, params, 
     await deliverUnifiedMedia();
     // 异常未解决时不写 assistant（避免复读/空/纯思考文本落盘污染会话，防止下轮复读死循环）
     if (!anomalyUnresolved) {
-      persistYuanshuToolTrace(entry.sm, history);
-      persistYuanshuAssistant(entry.sm, assistantContentWithMedia(text, mediaItems));
+      persistTrace(result.history || history);
+      persistYuanshuAssistant(entry.sm, assistantContentWithMedia(text, mediaItems), [], metadataFor(result));
     }
   } catch {}
   if (entry.agent) { try { entry.agent.dispose(); } catch {} entry.agent = null; }
   if (!entry.sm.getSessionName()) { try { entry.sm.appendSessionInfo(message.slice(0, 24)); } catch {} }
   if (result.think && !result.streamed) { writer.push("think", { text: result.think }); writer.push("think_end", {}); }
   if (!result.streamed) writer.push("delta", { text });
-  writer.push("done", { sessionId, model: result.usedModel || { provider: chatModel.provider, id: chatModel.id } });
+  writer.push("done", { sessionId, model: result.usedModel || { provider: chatModel.provider, id: chatModel.id }, requestedModel });
   collected = text;
   clearTask(taskId, "done");
   finishEmotion();

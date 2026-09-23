@@ -6,7 +6,7 @@ export const EMPTY_TURN_ERROR = "模型空回复，已重试仍无正文";
 // 2026-09-16 改文案：旧文案把锅甩给用户（"请把任务拆小"），而真因是**我们自己的输出预算太低**
 // （写死 8192，而模型声明 32k~384k）。现在预算按模型声明给、截断时还会自动往上抬，
 // 所以这条错误意味着"抬到头仍写不完这一轮"，到这时"分块写"才是对的建议。
-export const TRUNCATED_TOOL_ERROR = "单次输出被截断：已自动把输出上限抬到模型允许的最大值重试过，这一轮仍然写不完。可以把大文件分几次写——第一块用 write，后面的块用 write + append:true 追加（回我一句「分块写」我就按段写），或把任务拆成两步。";
+export const TRUNCATED_TOOL_ERROR = "模型输出连续截断：已自动尝试分块接续，仍未收到完整响应。已保留完成的工具结果，未执行半截工具参数。";
 
 export function isEmptyAssistantTurn({ text = "", hasTools = false } = {}) {
   return !hasTools && !String(text || "").trim();

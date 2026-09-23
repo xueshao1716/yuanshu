@@ -26,6 +26,20 @@ function tc(name, args = {}, id = Math.random().toString(36).slice(2)) {
 }
 
 describe("tool-scheduler.mjs 工具调度器", () => {
+  test('delegated tools retain host session, history, model and child event observer', async () => {
+    const events = [];
+    const host = { runId: 'parent', sessionId: 'session', model: { provider: 'p', id: 'm' },
+      history: [{ role: 'user', content: '预算50元' }], aibodyContext: { goal: '策划' },
+      onEvent: (type, data) => events.push({ type, data }) };
+    let received;
+    await scheduleToolCalls({ toolCalls: [tc('delegate_team', { sessionId: 'forged' })], executionContext: host,
+      tools: { execute: async (_name, _args, ctx) => { received = ctx; ctx.onEvent?.('child', { id: 'real' }); return { text: 'ok' }; } } });
+    assert.equal(received.sessionId, host.sessionId);
+    assert.equal(received.model, host.model);
+    assert.equal(received.history, host.history);
+    assert.equal(received.aibodyContext, host.aibodyContext);
+    assert.equal(events.length, 1);
+  });
   test("结果按模型调用顺序返回（并行乱序完成也保序）", async () => {
     const tools = fakeTools({
       slow: { delay: 60 },

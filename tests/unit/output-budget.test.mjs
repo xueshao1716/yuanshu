@@ -52,5 +52,6 @@ test('两条请求路径都必须用预算模块，不能再用写死的 8192（
   assert.match(uc, /maxTokensFieldOf\(compat\)/, '字段名要走 compat');
   const st = fs.readFileSync('engine/yuanshu-stability.mjs', 'utf8');
   assert.ok(!/请把任务拆小再试/.test(st), '不再把锅甩给用户');
-  assert.match(st, /已自动把输出上限抬到模型允许的最大值重试过/, '新文案要说清"系统已经试过什么"');
+  assert.match(st, /已自动尝试分块接续/, '只描述实际执行的恢复，不声称已抬到模型最大值');
+  assert.doesNotMatch(st, /回我一句「分块写」/);
 });

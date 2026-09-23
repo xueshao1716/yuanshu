@@ -3,7 +3,14 @@
 
 export function createChatStreamAccumulator() {
   const msg = { content: "", reasoning_content: "", tool_calls: [] };
+  const meta = {};
   return {
+    pushMetadata(json) {
+      if (json?.model) meta.model = json.model;
+      if (json?.usage) meta.usage = json.usage;
+      if (json?.choices?.[0]?.finish_reason) meta.finishReason = json.choices[0].finish_reason;
+    },
+    metadata() { return { ...meta }; },
     pushDelta(delta) {
       const emitted = { think: "", text: "", done: false };
       if (!delta || typeof delta !== "object") return emitted;
@@ -53,6 +60,7 @@ export function consumeOpenAIStreamLine(line, acc) {
   let json;
   try { json = JSON.parse(payload); } catch { return { done: false, think: "", text: "" }; }
   if (json?.error) return { done: true, think: "", text: "", error: String(json.error?.message || json.error).slice(0, 200) };
+  acc.pushMetadata(json);
   const delta = json?.choices?.[0]?.delta;
   if (delta) return { done: false, ...acc.pushDelta(delta) };
   const message = json?.choices?.[0]?.message;
@@ -148,6 +156,7 @@ export async function readOpenAIChatStream(body, opts = {}) {
     const raw = buf.trim();
     try {
       const json = JSON.parse(raw);
+      acc.pushMetadata(json);
       if (json?.error) error = String(json.error?.message || json.error).slice(0, 200);
       const message = json?.choices?.[0]?.message || {};
       const ev = acc.pushDelta({
@@ -162,5 +171,5 @@ export async function readOpenAIChatStream(body, opts = {}) {
   }
 
   if (!thinkEnded.value && acc.hasThink()) opts.onThinkEnd?.();
-  return { message: acc.message(), error: error || undefined, aborted: !!opts.signal?.aborted };
+  return { message: acc.message(), ...acc.metadata(), error: error || undefined, aborted: !!opts.signal?.aborted };
 }

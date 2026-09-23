@@ -10,6 +10,19 @@ function make() {
   return { asm, flushes }
 }
 
+test('已刷新思考后，结束事件仍立即发布完成状态', () => {
+  const { asm, flushes } = make()
+  try {
+    asm.addThink('思考')
+    asm.flushNow()
+    asm.endThink()
+    assert.equal(flushes.length, 2)
+    assert.equal(flushes[1].thinkDone, true)
+    asm.flushNow()
+    assert.equal(flushes.length, 2)
+  } finally { asm.dispose() }
+})
+
 test('纯问答：delta 全部进过程文字，不产生结论区', () => {
   const { asm, flushes } = make()
   asm.addDelta('你好')

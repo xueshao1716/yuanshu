@@ -3,7 +3,6 @@ import assert from "node:assert/strict";
 import http from "node:http";
 import { initUnifiedChat, unifiedChat } from "../../engine/unified-chat.mjs";
 import { initDshKeys } from "../../engine/dsh-keys.mjs";
-import { TRUNCATED_TOOL_ERROR } from "../../engine/yuanshu-stability.mjs";
 
 function sseMessage(message) {
   return `data: ${JSON.stringify({ choices: [{ message }] })}\n\ndata: [DONE]\n\n`;
@@ -60,7 +59,7 @@ test("unifiedChat：截断工具参数后保留已完成步骤并继续任务", 
   }
 });
 
-test("unifiedChat：工具轮次耗尽时返回可恢复错误而非伪完成", async () => {
+test("unifiedChat：工具轮次耗尽时返回可恢复暂停而非伪完成", async () => {
   let requests = 0;
   const server = http.createServer((req, res) => {
     requests += 1;
@@ -75,7 +74,11 @@ test("unifiedChat：工具轮次耗尽时返回可恢复错误而非伪完成", 
   initUnifiedChat({ authPath: "mock-auth.json", modelsPath: "mock-models.json", readJsonFile, getModelList: () => [model], getDefaultModel: () => model, UNIFIED_TOOLS: [{ type: "function", function: { name: "write", parameters: { type: "object" } } }], executeUnifiedTool: async () => ({ text: "已执行", isError: false }) });
   try {
     const result = await unifiedChat(model, [{ role: "user", content: "持续执行" }], { maxTurns: 2 });
-    assert.equal(result.error, TRUNCATED_TOOL_ERROR, "截断到顶时要给出可执行的建议（不再把锅甩给用户）");
+    assert.equal(result.pauseReason, 'tool_turn_limit');
+    assert.equal(result.paused, true);
+    assert.equal(result.error, undefined, '轮次上限不能误报成模型截断');
+    assert.match(result.message, /尚未完成/);
+    assert.equal(requests, 2);
     assert.equal(result.partial, true);
     assert.ok(Array.isArray(result.history));
   } finally { await new Promise(resolve => server.close(resolve)); }

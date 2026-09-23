@@ -1,5 +1,23 @@
 // 元枢会话连续性：打断也留痕，有历史就不许装新开。
-import { attachmentText } from "./session-utils.mjs";
+import { attachmentText, extractText } from "./session-utils.mjs";
+
+export function resumePersistenceState(entries = [], message, resume = false) {
+  const state = { userPersisted: false, toolCallIds: new Set(), toolResultIds: new Set() };
+  if (!resume) return state;
+  const messages = entries.filter(e => e?.type === 'message').map(e => e.message);
+  const lastUser = messages.findLastIndex(m => m?.role === 'user');
+  if (lastUser < 0 || extractText(messages[lastUser].content) !== message) return state;
+  state.userPersisted = true;
+  for (const item of messages.slice(lastUser + 1)) {
+    if (item?.role === 'assistant' && Array.isArray(item.content)) {
+      for (const block of item.content) {
+        if (block?.type === 'toolCall' && block.id) state.toolCallIds.add(String(block.id));
+      }
+    }
+    if (item?.role === 'toolResult' && item.toolCallId) state.toolResultIds.add(String(item.toolCallId));
+  }
+  return state;
+}
 
 export function sessionContinuityNote(hist = []) {
   const n = Array.isArray(hist) ? hist.length : 0;
@@ -108,11 +126,14 @@ export function sdkSafeUserBlocks(blocks = []) {
   return out;
 }
 
-export function persistYuanshuAssistant(sm, text, mediaItems = []) {
+export function persistYuanshuAssistant(sm, text, mediaItems = [], metadata = {}) {
   if (!sm?.appendMessage) return;
   const body = typeof text === "string" ? [{ type: "text", text }] : text;
   const content = sdkSafeAssistantBlocks(Array.isArray(body) ? body : [{ type: "text", text: String(text || "") }]);
-  sm.appendMessage({ role: "assistant", content });
+  const { model, requestedModel, switchedModel, engine } = metadata;
+  sm.appendMessage({ role: "assistant", content,
+    ...(model?.id ? { provider: model.provider, model: model.id } : {}),
+    ...(requestedModel ? { requestedModel } : {}), ...(switchedModel ? { switchedModel } : {}), ...(engine ? { engine } : {}) });
   void mediaItems;
 }
 
@@ -120,26 +141,27 @@ export function persistYuanshuAssistant(sm, text, mediaItems = []) {
 // Unified chat keeps this transcript in memory, but the session file used to
 // receive only the final prose. That made the next turn lose the actual
 // command output (and made a resumed task look like a fresh conversation).
-export function persistYuanshuToolTrace(sm, history = []) {
+export function persistYuanshuToolTrace(sm, history = [], persisted = {}) {
   if (!sm?.appendMessage || !Array.isArray(history)) return;
   let userIndex = -1;
   for (let i = history.length - 1; i >= 0; i--) {
     if (history[i]?.role === "user") { userIndex = i; break; }
   }
   if (userIndex < 0) return;
-  const seen = new Set();
-  const persistedResults = new Set();
+  const seen = new Set(persisted.toolCallIds || []);
+  const persistedResults = new Set(persisted.toolResultIds || []);
   for (const message of history.slice(userIndex + 1)) {
     if (message?.role !== "assistant" || !Array.isArray(message.tool_calls) || !message.tool_calls.length) continue;
-    const calls = message.tool_calls.filter(c => c?.id && c?.function?.name);
-    if (!calls.length || calls.some(c => seen.has(c.id))) continue;
+    const calls = message.tool_calls.filter(c => c?.id && c?.function?.name && !seen.has(c.id));
     const blocks = [];
-    if (typeof message.content === "string" && message.content.trim()) blocks.push({ type: "text", text: message.content });
+    if (calls.length && typeof message.content === "string" && message.content.trim()) blocks.push({ type: "text", text: message.content });
     for (const call of calls) {
       blocks.push({ type: "toolCall", id: String(call.id), name: String(call.function.name), arguments: String(call.function.arguments || "{}") });
       seen.add(call.id);
     }
-    try { sm.appendMessage({ role: "assistant", content: blocks }); } catch {}
+    if (blocks.length) {
+      try { sm.appendMessage({ role: "assistant", content: blocks, ...(message.anthropic_content ? { anthropic_content: message.anthropic_content, anthropic_model: message.anthropic_model } : {}) }); } catch {}
+    }
     for (const result of history) {
       if (result?.role !== "tool" || !result.tool_call_id || !seen.has(result.tool_call_id) || persistedResults.has(result.tool_call_id)) continue;
       try {

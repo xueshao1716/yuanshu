@@ -63,10 +63,21 @@ test('parent cancellation aborts before HTTP and closes trace as cancelled', asy
 
 test('in-flight cancellation does not make another request and persists cancelled state', async t => {
   let calls = 0
-  const traceDir = await setup(t, undefined, { httpFetch: async (_url, options = {}) => { calls++; await new Promise(resolve => setTimeout(resolve, 30)); if (options.signal?.aborted) throw Object.assign(new Error('aborted'), { name: 'AbortError' }); return { status: 200, ok: true, json: async () => ({ choices: [{ message: { content: '{"result":"late"}' } } ] }) } } })
+  let requestStarted
+  const started = new Promise(resolve => { requestStarted = resolve })
+  const traceDir = await setup(t, undefined, { httpFetch: async (_url, options = {}) => {
+    calls++
+    requestStarted()
+    await new Promise(resolve => {
+      if (options.signal?.aborted) resolve()
+      else options.signal.addEventListener('abort', resolve, { once: true })
+    })
+    throw Object.assign(new Error('aborted'), { name: 'AbortError' })
+  } })
   const controller = new AbortController()
   const promise = spawnSubagent({ task: '中途取消', signal: controller.signal, sessionId: 's-mid', runId: 'p-mid' })
-  setTimeout(() => controller.abort(), 5)
+  await started
+  controller.abort()
   const result = await promise
   assert.equal(calls, 1)
   assert.equal(result.cancelled, true)

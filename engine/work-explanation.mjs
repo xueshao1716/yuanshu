@@ -29,7 +29,8 @@ export function buildWorkExplanation(run = {}, events = [], context = {}) {
   if (body?.mode && MODES[body.mode]) basis.push(`AIBody 协调模式：${MODES[body.mode]}。`)
   if (body?.continuity?.inheritedFrom) basis.push('本轮承接同一会话上次任务的主题和协调模式。')
   const errorEvent = [...raw].reverse().find(e => ['failed', 'error'].includes(e.type))
-  const failure = ['failed', 'interrupted', 'stopped'].includes(run.status)
+  const paused = run.status === 'interrupted' && !!run.pauseReason
+  const failure = ['failed', 'interrupted', 'stopped'].includes(run.status) && !paused
   const error = clean(run.error || (failure ? errorEvent?.data?.message || errorEvent?.data?.error : ''))
   const problem = error === 'server_restarted' ? '服务重启使本轮中断，已保留运行记录。' : error || (run.status === 'failed' ? '运行失败，但没有记录具体原因。' : '')
   const nextStep = ACTIVE.has(run.status) ? run.status === 'stopping' ? '等待当前操作停止，已产生的结果会保留在会话中。' : '等待本轮返回；可展开查看记录，或使用停止按钮中止任务。'
@@ -41,7 +42,7 @@ export function buildWorkExplanation(run = {}, events = [], context = {}) {
               : body?.mode === 'builder' ? '请查看会话回复，并确认要求的文件是否实际生成。' : '请查看会话回复，对照你的要求核对结论。'
   return { version: 1, runId: clean(run.id, 120), sessionId: clean(run.sessionId, 120),
     goal: clean(run.input?.messagePreview || body?.topic, 500) || '未记录任务目标',
-    status: { code: run.status || 'unknown', label: STATUS[run.status] || '状态未记录', detail: ACTIVE.has(run.status) ? facts.current || '等待执行记录' : '执行状态与检查结果分别记录' },
+    status: { code: run.status || 'unknown', label: paused ? '已暂停，可继续' : STATUS[run.status] || '状态未记录', detail: paused ? clean(run.pauseMessage) || '已保留进度，可继续任务。' : ACTIVE.has(run.status) ? facts.current || '等待执行记录' : '执行状态与检查结果分别记录' },
     updatedAt: clean(run.updatedAt || run.createdAt || body?.updatedAt, 40),
     executor: { engine: ENGINES[facts.engine] || facts.engine || '实际引擎未记录', model: facts.actualModel || '实际模型未记录', mediaModels: facts.mediaModels },
     basis, tools: facts.tools, subagents: facts.subagents, artifacts: facts.artifacts, memory: facts.memory, verification: facts.verification,

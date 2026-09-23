@@ -208,8 +208,11 @@ export function createRunManager({ store, eventLog, executeChat, instanceId, onS
       ...(status === 'completed' ? { completedAt: new Date().toISOString() } : {}),
       ...(status === 'failed' ? { failedAt: new Date().toISOString(), error: data.message || 'run_failed' } : {}),
       ...(status === 'stopped' ? { stoppedAt: new Date().toISOString() } : {}),
+      ...(status === 'interrupted' ? { interruptedAt: new Date().toISOString(), error: null,
+        pauseReason: data.reason || 'interrupted', pauseMessage: data.message || null,
+        resumeAvailable: !!current.checkpoint?.historySnapshot } : {}),
       ...(status === 'failed' ? { resumeAvailable: current.resumeAvailable === true || resumableFailure } : {}),
-      ...(['failed', 'stopped'].includes(status) && current.checkpoint?.team?.launchId ? { resumeAvailable: true } : {}),
+      ...(['failed', 'stopped'].includes(status) && (current.checkpoint?.team?.launchId || current.checkpoint?.team?.general) ? { resumeAvailable: true } : {}),
     })
     append(updated, status, data)
     const observability = deriveRunObservability(updated, eventLog.readAfter(runId, 0))
@@ -228,10 +231,13 @@ export function createRunManager({ store, eventLog, executeChat, instanceId, onS
     const running = store.update(initial.id, { status: 'running', startedAt: new Date().toISOString() })
     append(running, 'run_started', { status: 'running' })
     let sawError = null
+    let sawPause = null
     const io = createExecutionIo({
       headers: control.context.headers,
       socket: control.context.socket,
       onEvent(type, data) {
+        // Publish the terminal event only after persistence/cleanup completes.
+        if (type === 'interrupted') { sawPause = data; return }
         const current = store.get(running.id)
         append(current || running, type, data)
         if (type === 'error') sawError = data
@@ -249,6 +255,10 @@ export function createRunManager({ store, eventLog, executeChat, instanceId, onS
       } else if (sawError || io.res.statusCode >= 400) {
         const message = sawError?.message || sawError?.error || `HTTP ${io.res.statusCode}`
         finish(running.id, 'failed', { message })
+      } else if (sawPause) {
+        try { onSessionUpdated?.({ run: current || running }) } catch {}
+        append(current || running, 'session_updated', { sessionId: running.sessionId })
+        finish(running.id, 'interrupted', sawPause)
       } else {
         // executeChat 返回时，聊天 JSONL 已经完成本轮写入；先通知前端刷新历史，再发布 Run 终态。
         // 这样会话记录不会等到下一次手动刷新或列表缓存自然过期才出现。
@@ -324,6 +334,12 @@ export function createRunManager({ store, eventLog, executeChat, instanceId, onS
         ownerId: instanceId,
         resumeAvailable: false,
         error: null,
+        pauseReason: null,
+        pauseMessage: null,
+        interruptedAt: null,
+        failedAt: null,
+        completedAt: null,
+        observability: null,
         checkpoint: { ...checkpoint, phase: 'resuming', step: 'resume', attempt: nextAttempt, updatedAt: new Date().toISOString() },
       })
       append(queued, 'resumed', { attempt: nextAttempt, from: checkpoint.step || 'unknown' })

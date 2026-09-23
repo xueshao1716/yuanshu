@@ -49,7 +49,7 @@ app/src-tauri/gen/android/buildSrc/.gradle/
 app/src-tauri/gen/android/buildSrc/.kotlin/
 app/src-tauri/gen/android/app/src/main/jniLibs/
 app/src-tauri/gen/android/app/src/main/java/**/generated/
-app/src-tauri/Cargo.lock
+# Track the application lockfile so client releases use reproducible dependencies.
 android/build/
 android/app/build/
 android/local.properties

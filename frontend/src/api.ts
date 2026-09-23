@@ -248,6 +248,8 @@ export const MessagesApi = {
   add: (sid: string, text: string) => api<{ ok: boolean; id: string }>(`/api/sessions/${encodeURIComponent(sid)}/messages`, { method: 'POST', body: { text } }),
 }
 export interface RunInfo {
+  pauseReason?: string
+  pauseMessage?: string
   id: string
   sessionId: string
   status: RunStatus
@@ -808,7 +810,7 @@ export interface AIBodyOverview {
 export type TeamLaunch = { id?: string; status: string; task?: string; at?: string; endedAt?: string; note?: string; runId?: string; sessionId?: string }
 export type TeamAcceptance = { status: string; proposalId?: string; checkedAt?: string }
 export const TeamRunApi = {
-  start: (body: { task: string; sessionId: string; clientRequestId: string }) => api<{ runId: string; sessionId: string; status: string }>('/api/team/run', { method: 'POST', body }),
+  start: (body: { task: string; sessionId: string; clientRequestId: string; workflow?: 'team-general' | 'team-video' }) => api<{ runId: string; sessionId: string; status: string }>('/api/team/run', { method: 'POST', body }),
   stop: (id: string) => api<{ ok: boolean }>('/api/team/stop', { method: 'POST', body: JSON.stringify({ id }) }),
   resume: (id: string) => api<{ ok: boolean }>('/api/team/resume', { method: 'POST', body: JSON.stringify({ id }) }),
   get: () => api<{ ok: boolean; run: Record<string, unknown> | null; snapshotKind?: 'current' | 'history' | 'none'; hint?: string; launch?: TeamLaunch | null; acceptance?: TeamAcceptance | null }>('/api/team/run'),
@@ -902,6 +904,8 @@ export const KeysApi = {
   status: () => api<any>('/api/keys/status'),
   apply: (body: any) => api<any>('/api/keys/apply', { method: 'POST', body }),
   add: (body: any) => api<any>('/api/models/add', { method: 'POST', body }),
+  discover: (body: any) => api<any>('/api/models/discover', { method: 'POST', body }),
+  verify: (body: { provider: string; modelId: string }) => api<import('./types').Model['verification']>('/api/models/verify', { method: 'POST', body }),
   remove: (provider: string) => api<any>('/api/models/remove', { method: 'POST', body: { provider } }),
   switchModel: (body: any) => api<any>('/api/model', { method: 'POST', body }),
 }

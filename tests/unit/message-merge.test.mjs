@@ -1,18 +1,7 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { readFileSync } from 'node:fs'
-import { createRequire } from 'node:module'
-import vm from 'node:vm'
-// typescript 依赖挂在 frontend，根目录没有——按 frontend 的包上下文解析
-const ts = createRequire(new URL('../../frontend/package.json', import.meta.url))('typescript')
-
-// 加载 src/lib/local-db.ts（浏览器 IndexedDB 模块），只取纯函数 mergeMessages
-function loadMerge() {
-  const script = ts.transpileModule(readFileSync(new URL('../../frontend/src/lib/local-db.ts', import.meta.url), 'utf8'), { compilerOptions: { module: ts.ModuleKind.CommonJS } }).outputText
-  const exports = {}
-  vm.runInNewContext(script, { exports, window: {}, indexedDB: undefined })
-  return exports.mergeMessages
-}
+import { mergeMessages as loadableMerge } from '../../frontend/src/lib/local-db.ts'
+const loadMerge = () => loadableMerge
 
 const fullText = '横版出货！1312×736，精确 16:9，像素验证通过。这是破案说明：我自带工具和创意工坊走的是两条链，宿主 media 层不传 size 参数，agnes 默认输出方图；而创意工坊走 /api/image 直接透传尺寸参数，agnes 认这个参数所以出的是横版。以后出横版竖版直接走创意工坊同款参数，不再撞方图墙。'
 const partialText = fullText.slice(0, 120)

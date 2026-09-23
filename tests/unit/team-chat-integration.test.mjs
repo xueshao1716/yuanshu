@@ -13,6 +13,8 @@ import { createRunEventLog } from '../../engine/run-event-log.mjs';
 import { createRunManager } from '../../engine/run-manager.mjs';
 import { createAIBodyRuntime } from '../../engine/aibody-runtime.mjs';
 import { createAIBodyHost } from '../../engine/aibody-host.mjs';
+import { initSubagent } from '../../engine/subagent.mjs';
+import { createTeamCompletion } from '../../engine/team-completion.mjs';
 
 test('real child workflow → shared run/events/AIBody → original chat → follow-up context', { timeout: 15000 }, async t => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'yuanshu-team-chat-'));
@@ -24,11 +26,20 @@ test('real child workflow → shared run/events/AIBody → original chat → fol
   const reply = { ...final, final, unresolved: [], complexity: 'MED', deliverables: ['脚本'],
     rulings: [{ issue: '镜头选择', winner: 'VIDEO', reason: '符合时长' }], issues: [], conflicts: [],
     items: Array.from({ length: 12 }, (_, i) => ({ id: `V-${String(i + 1).padStart(2, '0')}`, pass: true, note: '模拟检查' })) };
+  initSubagent({ traceDir: path.join(root, 'children'),
+    modelReader: () => ({ fixture: { models: [{ id: 'fixture-model', baseUrl: 'https://fake.invalid' }] } }),
+    resolveAuth: () => ({ baseUrl: 'https://fake.invalid' }), authReader: () => ({ fixture: { key: 'test' } }),
+    httpFetch: async () => ({ ok: true, status: 200, json: async () => ({ choices: [{ message: { content: JSON.stringify(reply) } }] }) }),
+  });
   const server = http.createServer(async (req, res) => {
     let raw = ''; for await (const b of req) raw += b;
     res.setHeader('Content-Type', 'application/json');
     if (req.url === '/api/models') return res.end(JSON.stringify({ models: [{ provider: 'fixture', id: 'fixture-model' }] }));
-    if (req.url === '/api/team/complete') { prompts.push(JSON.parse(raw).message); if (hold) return; return res.end(JSON.stringify({ text: JSON.stringify(reply) })); }
+    if (req.url === '/api/team/complete') {
+      const body = JSON.parse(raw); prompts.push(body.message); if (hold) return;
+      try { return res.end(JSON.stringify(await createTeamCompletion({ launcher })(body))); }
+      catch (e) { res.writeHead(500); return res.end(JSON.stringify({ error: e.message })); }
+    }
     if (req.url === '/api/pending') return res.end(JSON.stringify({ ok: true, id: 'pfixture' }));
     res.writeHead(404); res.end('{}');
   });

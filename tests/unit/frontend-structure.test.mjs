@@ -54,7 +54,7 @@ test('结构：React 聊天使用持久化 Run，关闭 SSE 不得等同停止�
   const api = read('api.ts')
   assert.ok(chat.includes('RunsApi.create('), '发送消息必须先创建持久化 Run')
   assert.ok(chat.includes('RunsApi.stream('), '消息流必须订阅 Run 事件账本')
-  assert.ok(chat.includes('RunsApi.stop('), '手动停止与看门狗必须调用显式 stop API')
+  assert.ok(chat.includes('RunsApi.stop('), '手动停止必须调用显式 stop API')
   assert.ok(!chat.includes('ChatApi.send('), 'React 聊天不得退回请求即任务的旧 ChatApi')
   assert.ok(!chat.includes('abortRef'), '关闭浏览器订阅不得再通过 abortRef 停止任务')
   assert.ok(api.includes("'Last-Event-ID': String(cursor)"), '断线重连必须携带最后事件游标')
@@ -71,10 +71,21 @@ test('结构：心情胶囊是服务端情绪镜像，禁止本地点击换脸',
   assert.ok(!pill[0].includes('onClick'), 'emo-pill 元素不得绑定 onClick 换脸')
 })
 
-test('长任务无事件看门狗允许持续 10 分钟后才停止', () => {
+test('长任务无事件只提示，不得由前端自动停止后台 Run', () => {
   const chat = read('components', 'ChatArea.tsx')
-  assert.match(chat, /const IDLE_WARN_MS = 600_000/, '聊天无事件超时必须是 10 分钟')
-  assert.doesNotMatch(chat, /IDLE_WARN_MS = 90_000/, '不得保留 90 秒自动停止')
+  assert.ok(chat.includes('const IDLE_WARN_MS = 600_000'), '10 分钟无事件后展示非阻塞提示')
+  const start = chat.indexOf('  const streaming = !!stream')
+  const end = chat.indexOf('  }, [streaming])', start)
+  assert.ok(start >= 0 && end > start, '必须保留流式空闲提示计时器')
+  const watchdog = chat.slice(start, end)
+  assert.ok(watchdog.includes('setIdleSeconds(idle)'), '空闲时长只用于显示')
+  assert.ok(!watchdog.includes('RunsApi.stop('), '空闲看门狗不得调用真正的停止 API')
+  assert.ok(!watchdog.includes('updStream('), '空闲看门狗不得伪造错误或取消工具')
+  assert.ok(!chat.includes('长时间无响应，正在停止'), '不得再用前台无消息推断任务失败')
+  assert.ok(chat.includes('不会因息屏或断连自动停止'), '应向用户说明后台执行不依赖前台连接')
+  const stop = chat.slice(chat.indexOf('  const stop = async () => {'), chat.indexOf('  const resumeRun ='))
+  assert.ok(stop.includes('await RunsApi.stop(active.runId)'), '显式停止按钮仍需调用停止 API')
+  assert.equal(chat.split('RunsApi.stop(').length - 1, 1, '只有用户手动停止路径能调用停止 API')
 })
 
 test('流式期间过滤本地 assistant 草稿，避免与实时流重复渲染 bash 工具卡', () => {

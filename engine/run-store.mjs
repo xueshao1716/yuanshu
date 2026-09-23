@@ -3,6 +3,7 @@ import path from 'node:path'
 import { randomUUID } from 'node:crypto'
 
 import { atomicWriteJson } from './atomic-io.mjs'
+import { withLegacyContinuation } from './task-continuation.mjs'
 
 const ACTIVE_STATUSES = new Set(['queued', 'running', 'stopping'])
 
@@ -27,7 +28,7 @@ function persistedRequest(input) {
     message: String(input.message || ''),
     model: input.model || null,
     params: input.params && typeof input.params === 'object' ? { ...input.params } : undefined,
-    workflow: input.workflow === 'team-video' ? 'team-video' : undefined,
+    workflow: ['team-video', 'team-general'].includes(input.workflow) ? input.workflow : undefined,
     files: Array.isArray(input.files)
       ? input.files.map(file => ({ path: String(file?.path || '') })).filter(file => file.path)
       : undefined,
@@ -61,13 +62,13 @@ export function createRunStore({ rootDir, now = () => new Date().toISOString(), 
 
   const fileFor = id => path.join(runsDir, `${safeId(id)}.json`)
   const get = id => {
-    try { return JSON.parse(fs.readFileSync(fileFor(id), 'utf8')) }
+    try { return withLegacyContinuation(JSON.parse(fs.readFileSync(fileFor(id), 'utf8'))) }
     catch { return null }
   }
   const list = () => fs.readdirSync(runsDir)
     .filter(name => name.endsWith('.json'))
     .map(name => {
-      try { return JSON.parse(fs.readFileSync(path.join(runsDir, name), 'utf8')) }
+      try { return withLegacyContinuation(JSON.parse(fs.readFileSync(path.join(runsDir, name), 'utf8'))) }
       catch { return null }
     })
     .filter(Boolean)

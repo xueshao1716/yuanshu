@@ -75,7 +75,7 @@ export function collectWorkEvents(events, terminal) {
       current = '正在核对检查结果'
     }
     if (type === 'engine_selected') { engine = clean(d.engine, 80); reason = clean(d.reason) }
-    if (['done', 'model_selected'].includes(type)) actualModel = modelName(d.model || d.usedModel) || actualModel
+    if (['done', 'model_used', 'model_switched'].includes(type)) actualModel = modelName(d.model || d.usedModel || (d.id ? d : null)) || actualModel
     if (type === 'note' && d.text) {
       const note = clean(d.text)
       if (!notes.includes(note)) notes.push(note)

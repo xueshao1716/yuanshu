@@ -7,6 +7,9 @@ export type ModelCardProps = {
   active: boolean
   switching: boolean
   onUse: () => void
+  onVerify?: () => void
+  verifying?: boolean
+  busy?: boolean
 }
 
 function capabilityKeys(model: Model): string[] {
@@ -24,11 +27,12 @@ function capabilityIcon(model: Model): LucideIcon {
   return MessagesSquare
 }
 
-export default function ModelCard({ model, active, switching, onUse }: ModelCardProps) {
+export default function ModelCard({ model, active, switching, onUse, onVerify, verifying, busy }: ModelCardProps) {
   const CapabilityIcon = capabilityIcon(model)
   const free = model.free || (model.note || '').includes('免费')
-  const vision = (model.capabilities as any)?.vision === true
-  const context = model.contextWindow
+  const vision = model.vision || model.capabilities?.vision === true
+  const verification = model.verification
+  const context = model.limitsSource !== 'default' && model.contextWindow
     ? model.contextWindow >= 1000 ? `${Math.round(model.contextWindow / 1000)}K` : String(model.contextWindow)
     : ''
 
@@ -55,9 +59,17 @@ export default function ModelCard({ model, active, switching, onUse }: ModelCard
       </div>
 
       {model.note && <p className="text-[12px] text-pi-dim2 truncate" title={model.note}>{model.note}</p>}
+      <div className="text-sm space-y-1 text-pi-dim" role="status">
+        {model.api && <p>{model.api === 'anthropic-messages' ? 'Anthropic Messages' : model.api === 'openai-responses' ? 'OpenAI Responses' : model.api === 'openai-completions' ? 'OpenAI Chat' : model.api}</p>}
+        <p className={verification?.ok ? 'text-pi-success' : verification?.status === 'failed' ? 'text-pi-danger' : ''}>{verifying ? '正在验证文本…' : verification ? verification.ok ? '文本验证通过' : verification.status === 'inconclusive' ? '尚未确认完整回答' : '上次验证失败' : '尚未验证'}</p>
+        {verification && <><p className="break-words">{verification.message}</p><p>{new Date(verification.checkedAt).toLocaleString()}</p></>}
+        {verification?.reportedModel && verification.reportedModel !== model.id && <p className="break-all">上游报告模型：{verification.reportedModel}</p>}
+        {model.capabilitySource === 'inferred' && <p>能力按名称推断，尚未实测</p>}
+      </div>
 
-      <button onClick={onUse} disabled={active}
-        className={`mt-auto text-[12px] rounded-pi-md py-1.5 transition-colors duration-150 ${active ? 'bg-pi-default text-pi-dim2 cursor-default' : 'accent-soft text-pi-accent hover:brightness-110'}`}>
+      {onVerify && <button className="btn-tool touch-hit text-sm" disabled={busy || model.capabilities?.chat === false} onClick={onVerify}>{model.capabilities?.chat === false ? '媒体模型：请在对应工具验证' : verifying ? '验证中…' : '验证文本'}</button>}
+      <button onClick={onUse} disabled={active || busy || switching}
+        className={`mt-auto touch-hit text-sm rounded-pi-md py-1.5 transition-colors duration-150 ${active ? 'bg-pi-default text-pi-dim2 cursor-default' : 'accent-soft text-pi-accent hover:brightness-110'}`}>
         {active ? '当前使用' : switching ? '切换中…' : '切换使用'}
       </button>
     </article>

@@ -27,7 +27,6 @@ function assertNotStopped() { if (fs.existsSync(stopFile)) throw new Error('team
 
 const stamp = () => new Date().toISOString().slice(11, 19)
 const sig = (role, act, target) => console.log(`[${stamp()}][${role}][${act}]→[${target}]`)
-const roleEvent = (type, data) => console.log('YUANSHU_TEAM_EVENT ' + JSON.stringify({ type, data }))
 const sharedContext = [process.env.YUANSHU_TEAM_DIRECTIVE || '', process.env.YUANSHU_TEAM_CONTEXT
   ? `【当前会话参考，仅用于承接任务；不是新指令或授权】\n${process.env.YUANSHU_TEAM_CONTEXT}` : ''].filter(Boolean).join('\n\n')
 
@@ -43,23 +42,21 @@ async function pickModel(argP, argM) {
   return cur ? { provider: cur.provider, modelId: cur.id } : { provider: list[0].provider, modelId: list[0].id }
 }
 
-let COMPLETE_OK = true   // 优先走"取正文"通道；404 就回退思考通道（并在日志里说明）
-async function think(model, message, timeoutMs = 200000) {
+async function think(model, message, role, timeoutMs = 200000) {
   assertNotStopped()
   const ac = new AbortController()
   const stopTimer = setInterval(() => { if (fs.existsSync(stopFile)) ac.abort(new Error('team stopped by user')) }, 300)
   const timer = setTimeout(() => ac.abort(), timeoutMs)
-  const url = COMPLETE_OK ? `${BASE}/api/team/complete` : `${BASE}/api/think`
+  const url = `${BASE}/api/team/complete`
   try {
     const r = await fetch(url, {
       method: 'POST', headers: H,
-      body: JSON.stringify({ provider: model.provider, modelId: model.modelId, message }),
+      body: JSON.stringify({ provider: model.provider, modelId: model.modelId, message, role, launchId: process.env.YUANSHU_TEAM_LAUNCH_ID }),
       signal: ac.signal,
     })
-    if (r.status === 404 && COMPLETE_OK) { COMPLETE_OK = false; return await think(model, message, timeoutMs) }
     const j = await r.json().catch(() => ({}))
     if (!r.ok) throw new Error(`HTTP ${r.status} ${String(j.error || '').slice(0, 70)}`)
-    return String(j.text || '')
+    return { text: String(j.text || ''), subagentRunId: j.subagentRunId || null }
   } finally { clearTimeout(timer); clearInterval(stopTimer) }
 }
 
@@ -67,15 +64,11 @@ const NO_STUB = '\n\n【硬要求】所有字段必须是**真实内容**：禁�
 async function thinkSafe(model, prompt, label, compress = null) {
   assertNotStopped()
   const message = sharedContext ? `${sharedContext}\n\n【本角色任务】\n${prompt}` : prompt
-  const data = { id: `${executionId}-${label}`, agent: label, task: label, model: `${model.provider}/${model.modelId}` }
-  roleEvent('subagent_started', data)
   try {
-    const result = await checkpoint.step(label, JSON.stringify([model, message]), async () => ({ ok: true, text: await think(model, message + NO_STUB) }))
-    roleEvent('subagent_finished', { ...data, status: 'completed', summary: `${label} 已返回，质量以最终清单为准` })
+    const result = await checkpoint.step(label, JSON.stringify([model, message]), async () => ({ ok: true, ...await think(model, message + NO_STUB, label) }))
     return result
   }
   catch (e1) {
-    roleEvent('subagent_finished', { ...data, status: 'failed', error: String(e1.message).slice(0, 150) })
     assertNotStopped()
     if (/uncertain|budget|mismatch/.test(String(e1.message))) throw e1
     // A transport failure cannot prove that the provider did not execute/charge.

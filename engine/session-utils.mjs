@@ -301,7 +301,12 @@ export function extractMessages(entries, leafId, { resolveWindow = null } = {}) 
             declaredMaxTokens: Number(win.maxOutputTokens) || Number(win.declaredMaxTokens) || Number(m.maxOutputTokens) || 0,
           })
         : "";
-      if (text || files.length || allImages.length || allVideos.length || allAudios.length || tools.length || think || error || truncated) out.push({ role: "assistant", text, files, images: allImages, videos: allVideos, audios: allAudios, tools, think, error, truncated, stopReason, ts: e.timestamp, id: e.id });
+      if (text || files.length || allImages.length || allVideos.length || allAudios.length || tools.length || think || error || truncated) out.push({ role: "assistant", text, files, images: allImages, videos: allVideos, audios: allAudios, tools, think, error, truncated, stopReason, ts: e.timestamp, id: e.id,
+        ...(m.model ? { model: typeof m.model === 'string' ? { provider: m.provider || '', id: m.model } : m.model } : {}),
+        ...(m.requestedModel ? { requestedModel: m.requestedModel } : {}), ...(m.switchedModel ? { switchedModel: m.switchedModel } : {}), ...(m.engine ? { engine: m.engine } : {}),
+        ...(m.anthropic_content ? { anthropic_content: m.anthropic_content } : {}),
+        ...(m.anthropic_model ? { anthropic_model: m.anthropic_model } : {}),
+      });
     }
   }
   return out;

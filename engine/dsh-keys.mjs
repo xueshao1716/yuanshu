@@ -5,7 +5,8 @@ import os from "node:os";
 import path from "node:path";
 import { execFileSync, spawn } from "node:child_process";
 import { json, readBody } from "./http-utils.mjs";
-import { probeModelCapabilities, modelCapabilities, discoverCustomModels } from "./model-probe.mjs";
+import { modelCapabilities } from "./model-probe.mjs";
+import { createModelOnboarding } from './model-onboarding.mjs';
 
 // 支持的 provider 清单（模型管理下拉）；随块从 server.mjs 迁入
 const SUPPORTED_PROVIDERS = ["deepseek", "openai", "openrouter", "anthropic", "google", "qwen", "xai", "moonshotai", "zai", "together", "mistral", "modelscope", "cloudflare-ai"];
@@ -24,8 +25,8 @@ export const PROVIDER_PRESETS = {
   deepseek:    { name: "DeepSeek 深度求索",     baseUrl: "https://api.deepseek.com" },
   openai:      { name: "OpenAI",                baseUrl: "https://api.openai.com/v1" },
   openrouter:  { name: "OpenRouter 聚合",        baseUrl: "https://openrouter.ai/api/v1" },
-  anthropic:   { name: "Anthropic · Claude",    baseUrl: "https://api.anthropic.com/v1" },
-  google:      { name: "Google · Gemini",        baseUrl: "https://generativelanguage.googleapis.com/v1beta" },
+  anthropic:   { name: "Anthropic · Claude",    baseUrl: "https://api.anthropic.com/v1", api: 'anthropic-messages' },
+  google:      { name: "Google · Gemini",        baseUrl: "https://generativelanguage.googleapis.com/v1beta/openai" },
   qwen:        { name: "阿里云百炼 · Qwen",     baseUrl: "https://dashscope.aliyuncs.com/compatible-mode/v1" },
   moonshotai:  { name: "Moonshot · Kimi",       baseUrl: "https://api.moonshot.cn/v1" },
   zai:         { name: "智谱 · GLM",            baseUrl: "https://api.z.ai/api/v1" },
@@ -87,7 +88,7 @@ export async function refreshModelList() {
     }
   }
   const list = all.filter(m => {
-    if (["deepseek", "openai", "openrouter"].includes(m.provider)) return _keepModels.has(`${m.provider}/${m.id}`);
+    if (["deepseek", "openai", "openrouter"].includes(m.provider) && !store[m.provider]?.managedCatalog) return _keepModels.has(`${m.provider}/${m.id}`);
     return true;
   });
   _setModelList(list);
@@ -107,7 +108,9 @@ export async function handleModelsManage(res) {
     .map(p => ({
       provider: p,
       hasKey: !!auth[p],
-      baseUrl: auth[p]?.baseUrl || "",
+      baseUrl: store[p]?.baseUrl || store[p]?.models?.[0]?.baseUrl || auth[p]?.baseUrl || "",
+      api: store[p]?.api || store[p]?.models?.[0]?.api || PROVIDER_PRESETS[p]?.api || 'openai-completions',
+      checkedAt: store[p]?.checkedAt || null,
       modelCount: (store[p]?.models || []).length,
       capabilities: (store[p]?.models || []).reduce((acc, m) => { const c = m.capabilities || modelCapabilities(m.id); for (const k of Object.keys(acc)) if (c[k]) acc[k] = true; return acc; }, { chat: false, image: false, video: false, tts: false, asr: false }),
       models: (store[p]?.models || []).map(m => m.id).slice(0, 30),
@@ -116,87 +119,17 @@ export async function handleModelsManage(res) {
 }
 
 // 模型能力探测与发现已抽到 engine/model-probe.mjs（modelCapabilities / probeModelCapabilities / discoverCustomModels）
-// POST /api/models/add —— 添加（内置 provider 用 pi runtime；自定义 provider 直调探测）
-export async function handleModelsAdd(res, body) {
-  const { provider, apiKey, baseUrl, account_id, toDsh } = body || {};
-  // ⚠️ 兼容字段名：前端 ModelManager 旧版传 key，后端规范是 apiKey——统一接收
-  const key = apiKey || body?.key;
-  if (!provider || !key) return json(res, 400, { error: "缺少 provider 或 API Key" });
-  if (!/^[a-zA-Z0-9_-]+$/.test(provider)) return json(res, 400, { error: "provider 名称只能包含字母、数字、横线" });
-  const auth = _readJsonFile(_authPath);
-  auth[provider] = { type: "api_key", key, ...(baseUrl ? { baseUrl } : {}), ...(account_id ? { account_id } : {}) };
-  _writeJsonFile(_authPath, auth);
-  // Cloudflare Workers AI：非 OpenAI 风格，手动注册已知模型
-  if (provider === "cloudflare-ai") {
-    if (!account_id) {
-      delete auth[provider]; _writeJsonFile(_authPath, auth);
-      return json(res, 400, { error: "cloudflare-ai 需要填写 Account ID（Cloudflare 控制台 → Workers AI → REST API）" });
-    }
-    const store = _readJsonFile(_modelsPath);
-    store[provider] = {
-      models: [
-        { id: "@cf/black-forest-labs/flux-1-schnell", name: "FLUX.1 Schnell", api: "openai-completions", baseUrl: "", provider: "", reasoning: false, input: ["text"], contextWindow: 8192, maxTokens: 8192, capabilities: { chat: false, image: true, video: false, tts: false, asr: false } },
-      ],
-      checkedAt: new Date().toISOString(),
-    };
-    _writeJsonFile(_modelsPath, store);
-    console.log(`[元枢] 模型添加成功: ${provider} 1 个（手动注册）`);
-    await _refreshModelList();
-    return json(res, 200, { ok: true, provider, models: store[provider].models, manual: true });
-  }
-  // 复用上次探测结果：同一 provider 重复添加时跳过逐模型 API 探测（配合 probeCache 双保险）
-  const oldCaps = new Map(
-    (_readJsonFile(_modelsPath)[provider]?.models || [])
-      .filter((m) => m.capabilities && typeof m.capabilities.chat === "boolean")
-      .map((m) => [m.id, m.capabilities])
-  );
-  try {
-    let models = null;
-    if (KNOWN_PROVIDERS.has(provider)) {
-      const runtime = await _ModelRuntime.create({ authPath: _authPath, modelsPath: _modelsPath });
-      runtime.setRuntimeApiKey(provider, key);
-      const authCheck = await runtime.checkAuth(provider);
-      if (authCheck && authCheck.status === "invalid") {
-        delete auth[provider]; _writeJsonFile(_authPath, auth);
-        return json(res, 401, { error: `API Key 无效：${authCheck.message || "认证失败"}` });
-      }
-      models = await runtime.getAvailable(provider);
-      const base = (baseUrl || "").replace(/\/+$/, "");
-      const baseNoV1 = base.endsWith("/v1") ? base.slice(0, -3) : base;
-      if (baseNoV1 && models?.length) {
-        for (const m of models) {
-          if (!/(image|video|tts|asr)/i.test(m.id)) m.capabilities = oldCaps.get(m.id) || await probeModelCapabilities(baseNoV1, key, m.id);
-        }
-      }
-    } else {
-      const base = (baseUrl || "").replace(/\/+$/, "");
-      if (!base) return json(res, 400, { error: "自定义 provider 必须填写 Base URL" });
-      models = await discoverCustomModels(base, key, oldCaps);
-    }
-    if (!models || !models.length) {
-      delete auth[provider]; _writeJsonFile(_authPath, auth);
-      return json(res, 404, { error: "该 Key 下未发现可用模型（请确认 Base URL 与接口协议正确）" });
-    }
-    const store = _readJsonFile(_modelsPath);
-    store[provider] = { models, checkedAt: new Date().toISOString() };
-    _writeJsonFile(_modelsPath, store);
-    console.log(`[元枢] 模型添加成功: ${provider} ${models.length} 个`);
-    await _refreshModelList();
-    // dsh 同步（可选）：写用户级环境变量 DEEPSEEK_API_KEY（新终端/进程生效）
-    let dsh = false, dshNote = "";
-    if (toDsh) {
-      try {
-        execFileSync("setx", ["DEEPSEEK_API_KEY", key], { windowsHide: true, timeout: 10000 });
-        dsh = true; dshNote = "dsh 已同步（新开的终端/进程生效）";
-      } catch (e) { dshNote = "dsh 同步失败：" + String(e?.message || e).slice(0, 80); }
-    }
-    json(res, 200, { ok: true, modelCount: models.length, models: models.map(m => m.id), dsh, dshNote });
-  } catch (e) {
-    const a2 = _readJsonFile(_authPath); delete a2[provider]; _writeJsonFile(_authPath, a2);
-    console.log(`[元枢] 模型添加失败: ${provider} → ${String(e?.message || e).slice(0, 100)}`);
-    json(res, 500, { error: String(e?.message || e).slice(0, 200) });
-  }
+// POST /api/models/add —— 统一按协议发现或手动登记，验证完成后才保存，不依赖 SDK。
+function onboarding() {
+  return createModelOnboarding({ read: _readJsonFile, write: _writeJsonFile, authPath: _authPath, modelsPath: _modelsPath, refresh: _refreshModelList, presets: PROVIDER_PRESETS, json,
+    syncDsh: key => {
+      try { execFileSync("setx", ["DEEPSEEK_API_KEY", key], { windowsHide: true, timeout: 10000 }); return { dsh: true, dshNote: "dsh 已同步（新开的终端/进程生效）" }; }
+      catch { return { dsh: false, dshNote: "dsh 同步失败，模型配置已保存" }; }
+    } });
 }
+export async function handleModelsAdd(res, body) { return onboarding().add(res, body); }
+export async function handleModelsDiscover(res, body) { return onboarding().preview(res, body); }
+export async function handleModelsVerify(res, body) { return onboarding().verify(res, body); }
 
 // ── dsh 引擎适配层：探测（安装/版本/密钥/web 前台在线）+ 一键拉起 web ──
 // 背景：⇄ dsh 链接是硬编码 3080，dsh web 没起时点过去是死页——前端需要真实状态。
@@ -306,82 +239,4 @@ export function policyDecide(tool, args) {
   return { decision: "allow", note: "" };
 }
 
-export async function handleKeysApply(res, body) {
-  const { provider, apiKey, baseUrl, toDsh } = body || {};
-  if (!provider || !apiKey) return json(res, 400, { error: "缺少 provider 或 API Key" });
-  if (!/^[a-zA-Z0-9_-]+$/.test(provider)) return json(res, 400, { error: "provider 名称只能包含字母、数字、横线" });
-  // API Key 必须是纯 ASCII（复制时易混入 ×✕ 等符号，undici fetch 会报 ByteString 错）
-  if (/[^\x20-\x7E]/.test(apiKey)) {
-    return json(res, 400, { error: "API Key 包含特殊字符（复制时可能带入了 ×✕ 等符号），请从平台重新复制后重试" });
-  }
-  // ── 先验证、后写入：任何失败路径都不写 auth.json，杜绝假 key 污染 ──
-  let models = null;
-  if (KNOWN_PROVIDERS.has(provider)) {
-    // 内置 provider：调真实 API 探测 key（/models 端点，OpenAI 兼容）
-    let base = (baseUrl || "").replace(/\/+$/, "");
-    try {
-      const runtime = await _ModelRuntime.create({ authPath: _authPath, modelsPath: _modelsPath });
-      if (!base) {
-        // 预设优先，其次 pi 内置 provider 定义
-        base = PROVIDER_PRESETS[provider]?.baseUrl || "";
-        if (!base) {
-          const prov = (runtime.getProviders?.() || []).find(p => p.id === provider);
-          base = (prov?.baseUrl || "").replace(/\/+$/, "");
-        }
-      }
-      if (!base) return json(res, 400, { error: `未找到 ${provider} 的 API 地址（请填写 Base URL）` });
-      const probe = await fetch(base + "/models", {
-        headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
-        signal: AbortSignal.timeout(15000),
-      });
-      if (probe.status === 401 || probe.status === 403) {
-        return json(res, 401, { error: `API Key 无效（HTTP ${probe.status}），未写入配置` });
-      }
-      if (!probe.ok) return json(res, 502, { error: `API 探测失败（HTTP ${probe.status}），未写入配置` });
-      models = await runtime.getAvailable(provider).catch(() => null);
-      // ⚠️ 新装场景：store 尚无该 provider 模型定义时 getAvailable 返回空 → 用刚探测到的 /models 响应兜底建模型，杜绝"未发现可用模型"引导死路
-      if (!models || !models.length) {
-        try {
-          const pj = await probe.json();
-          models = (pj?.data || []).map(mm => ({ id: mm.id, name: mm.id || mm.id, input: ["text"], contextWindow: 128000 }))
-            .filter(mm => typeof mm.id === "string" && mm.id.trim());
-        } catch {}
-        if (!models || !models.length) {
-          try { models = await discoverCustomModels(base, apiKey); } catch { models = null; }
-        }
-      }
-    } catch (e) {
-      console.log(`[元枢] keys/apply 探测失败: ${provider} → ${String(e?.message || e).slice(0, 120)}`);
-      return json(res, 500, { error: `探测异常：${String(e?.message || e).slice(0, 120)}` });
-    }
-  } else {
-    // 自定义 provider：discoverCustomModels 验证通过才写入
-    const base = (baseUrl || "").replace(/\/+$/, "");
-    if (!base) return json(res, 400, { error: "自定义 provider 必须填写 Base URL" });
-    try { models = await discoverCustomModels(base, apiKey); }
-    catch (e) { return json(res, 400, { error: `验证失败：${String(e?.message || e).slice(0, 120)}` }); }
-  }
-  if (!models || !models.length) {
-    return json(res, 400, { error: "该 Key 下未发现可用模型（请确认 Base URL 与接口协议正确），未写入配置" });
-  }
-  // 验证全部通过：写入 auth.json
-  const auth = _readJsonFile(_authPath);
-  auth[provider] = { type: "api_key", key: apiKey, ...(baseUrl ? { baseUrl } : {}) };
-  _writeJsonFile(_authPath, auth);
-  const store = _readJsonFile(_modelsPath);
-  store[provider] = { models, checkedAt: new Date().toISOString() };
-  _writeJsonFile(_modelsPath, store);
-  await _refreshModelList();
-  // dsh 同步（可选）：写用户级环境变量 DEEPSEEK_API_KEY（新终端/新进程生效）
-  let dshDone = false, dshNote = "";
-  if (toDsh) {
-    try {
-      execFileSync("setx", ["DEEPSEEK_API_KEY", apiKey], { windowsHide: true, timeout: 10000 });
-      dshDone = true;
-      dshNote = "dsh 已同步（新开的终端/进程生效）";
-    } catch (e) {
-      dshNote = "dsh 同步失败：" + String(e?.message || e).slice(0, 80);
-    }
-  }
-  json(res, 200, { ok: true, pi: provider, dsh: dshDone, dshNote });
-}
+export async function handleKeysApply(res, body) { return onboarding().add(res, body); }

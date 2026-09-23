@@ -11,9 +11,12 @@ export function createTeamApi({ launcher, runApi, json }) {
   return {
     start(res, req, body) {
       const task = body?.task;
-      if (typeof task !== 'string' || !task.trim() || task.length > 300 || /[\x00-\x1f]/.test(task)
-        || !body.sessionId || !body.clientRequestId) return json(res, 400, { error: '请提供会话、请求编号和 1–300 字单行任务' });
-      return runApi.create(res, { sessionId: body.sessionId, clientRequestId: body.clientRequestId, message: task.trim(), workflow: 'team-video' }, req);
+      const general = body?.workflow === 'team-general';
+      const limit = general ? 6000 : 300;
+      const invalidControls = general ? /[\x00-\x08\x0b\x0c\x0e-\x1f]/ : /[\x00-\x1f]/;
+      if (typeof task !== 'string' || !task.trim() || task.length > limit || invalidControls.test(task)
+        || !body.sessionId || !body.clientRequestId) return json(res, 400, { error: `请提供会话、请求编号和 1–${limit} 字${general ? '' : '单行'}任务` });
+      return runApi.create(res, { sessionId: body.sessionId, clientRequestId: body.clientRequestId, message: task.trim(), workflow: body.workflow === 'team-general' ? 'team-general' : 'team-video' }, req);
     },
     stop: control('stop'),
     resume: control('resume'),

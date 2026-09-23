@@ -27,6 +27,7 @@ export function createTeamLauncher({ wsRoot, repoRoot, port, token, spawnProcess
   };
   let current;
   const liveChildren = new Set();
+  const observers = new Map();
   function status() {
     try {
       const persisted = read(statePath());
@@ -75,6 +76,7 @@ export function createTeamLauncher({ wsRoot, repoRoot, port, token, spawnProcess
         if (finished) return;
         finished = true;
         liveChildren.delete(state.id);
+        observers.delete(state.id);
         Object.assign(state, { status: kind, note, endedAt: new Date().toISOString() });
         try { persist(state); release(); }
         catch { state.note = '状态保存或锁释放失败，请检查运行时目录'; }
@@ -105,6 +107,7 @@ export function createTeamLauncher({ wsRoot, repoRoot, port, token, spawnProcess
           if (finished) return;
           spawned = true;
           liveChildren.add(state.id);
+          observers.set(state.id, { ...binding, onEvent });
           Object.assign(state, { status: 'running', pid: child.pid });
           try { persist(state); child.unref(); respond(200); }
           catch { state.note = '进程已启动但状态保存失败，请勿重复启动'; respond(500); }
@@ -151,5 +154,9 @@ export function createTeamLauncher({ wsRoot, repoRoot, port, token, spawnProcess
       return start(state.task, state.checkpointId || id, read(statePath()).binding || {}, onEvent);
     } catch { return { status: 409, body: { error: '无法确认原进程已退出，未重放任务' } }; }
   }
-  return { start, status, stop, resume };
+  function childContext(id) {
+    const active = status();
+    return active?.id === id && active.status === 'running' && liveChildren.has(id) ? observers.get(id) : null;
+  }
+  return { start, status, stop, resume, childContext };
 }

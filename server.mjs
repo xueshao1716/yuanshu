@@ -85,6 +85,10 @@ import { MEDIA_TOOL_SCHEMAS, mediaExtraExecutors, formatSensitiveHint, listHostC
 import { TODO_TOOL_SCHEMAS, todoExtraExecutors } from "./engine/yuanshu-todo.mjs";
 import { PLAN_FILES_SCHEMA, planFilesExtraExecutors, initYuanshuWorkmem } from "./engine/yuanshu-workmem.mjs";
 import { DELEGATE_TASK_TOOL, execDelegateTask, DELEGATE_FORK_TOOL, execDelegateFork } from "./engine/yuanshu-delegate.mjs";
+import { DELEGATE_TEAM_TOOL, executeTeam, TEAM_DELIVERY_RULES } from './engine/team-subagents.mjs';
+import { withTeamToolContext } from './engine/team-tool-context.mjs';
+import { createTeamCompletion } from './engine/team-completion.mjs';
+import { createGeneralTeamChat } from './engine/team-general-chat.mjs';
 import { initAsrApi, handleAsr } from "./engine/asr-api.mjs";
 import { gardenMemory, scanMemoryHealth, markReviewed, unmarkReviewed, dedupeLog, reviewedKeys, pruneLogBackups } from "./engine/memory-gardener.mjs";
 import { upsertMemoryFact } from "./engine/memory-facts.mjs";
@@ -92,7 +96,7 @@ import { readSubscriptionText } from "./engine/subscription-reminder.mjs";
 import { systemInfo as buildSystemInfo, loadNetworkConfig, saveNetworkConfig, checkUpdate } from "./engine/system-panel.mjs";
 import { initTuiBridge } from "./engine/tui-bridge.mjs";
 import { listLingXi, addLingXi, setLingXi, removeLingXi } from "./engine/lingxi.mjs";
-import { initDshKeys, dshResolveBin, handleDshStatus, handleDshWebStart, handleKeysStatus, loadPolicies, toolMatch, policyDecide, handleKeysApply, handleKeysPresets, refreshModelList, handleModelsManage, handleModelsAdd, KNOWN_PROVIDERS, PROVIDER_PRESETS, resolveAuth } from "./engine/dsh-keys.mjs";
+import { initDshKeys, dshResolveBin, handleDshStatus, handleDshWebStart, handleKeysStatus, loadPolicies, toolMatch, policyDecide, handleKeysApply, handleKeysPresets, refreshModelList, handleModelsManage, handleModelsAdd, handleModelsDiscover, handleModelsVerify, KNOWN_PROVIDERS, PROVIDER_PRESETS, resolveAuth } from "./engine/dsh-keys.mjs";
 import { initStatsApi, handleGlobalStats, handleProviderStats, handleDailyStats, handleSubagentRuns, handleSubagentHistory, safeSessionStats, handleStats, handleCompact, listBuiltinSkills, handleSkills, handleSkillRead, handleParseFile, escHtml, handleExport, resolveFsPath, handleFsList, handleFsRead, handleRename } from "./engine/stats-api.mjs";
 import { initModelClient, directChat, handleThink, handleDirectChat, maybeCompactHistory } from "./engine/model-client.mjs";
 import { initSelfHeal, createRepairCheckpoint, handleUpdateCheck, handleUpdateApply, handleRepair, handleDesignerGenerate, handleDesignerSave, handleCompare } from "./engine/self-heal.mjs";
@@ -101,6 +105,7 @@ import { initImproveApi, analyzeImprovements, openImprovements, getImprovementDi
 import { initEvolutionApi, proposeEvolution, applyEvolution, listEvolution, dismissEvolution, nudgeSkill, applySkillNudge, dismissSkillNudge, listSkillNudges, evaluateProposal, proposeMemoryNudge, listMemoryNudges, applyMemoryNudge, dismissMemoryNudge, analyzeMemoryCompress, proposeMemoryCompress, listMemoryCompress, applyMemoryCompress, dismissMemoryCompress } from "./engine/evolution-api.mjs";
 import { initSessionManager, createSession, evictInactiveSessions, slimSessionImages, compactSession, openSession, initSearchTool, initShareTool, createSessionAgent, ensureAgent, isFirstTurn, deleteSession, setOnTheSpotFixRunner, ensureContextHeadroom } from "./engine/session-manager.mjs";
 import { initUnifiedChat, unifiedChat, engineCurrentModel, initEngine, getCodeRuntime, getCodeMode, toolBindingDesc, toolBindingArgs, toolBindingArgsObj, handleNotices, handleUnifiedChat, touchTask, clearTask, taskProgress, handleAgentEventIn, handleAgentEventOut } from "./engine/unified-chat.mjs";
+import { completedTaskText } from "./engine/task-continuation.mjs";
 import { createApprovalInterceptor } from "./engine/tools/approval.mjs";
 import * as confirmRegistry from "./engine/tools/confirm-registry.mjs";
 import { initRefineApi, readRefineJson, runRefineScript, handleRefineStatus, handleRefineList, detectSkillDomain, handleRefineFeedback, handleRefineGenes, handleRefinePlan, handleRefineApprove, handleRefineReject, handleRefineRollback } from "./engine/refine-api.mjs";
@@ -116,6 +121,10 @@ import { composeTimeTaskMessages, timeTaskReadTools, recordReflectionActions, ye
 import { planReflectionExecution, buildActionExecutionPrompt, parseActionResult, recordActionAttempt, summarizeExecution, runOnTheSpotFix } from "./engine/reflection-exec.mjs";
 import { appendEpisodes, loadEpisodes, dream, writeDreamLog, skillEpisodesFromSessions, dreamPaths, currentWeights, promoteWeights, resetWeights, recordSkillChoice } from "./engine/dream.mjs";
 import { runEvolutionCycle, evolutionStatus, revertEvolution } from './engine/evolution-cycle.mjs';
+import { createTaskEvidence } from './engine/task-evidence.mjs';
+import { createTaskEvidenceApi } from './engine/task-evidence-api.mjs';
+import { loadSkillEvidence } from './engine/evolution-progress.mjs';
+import { mechanismStatus, runMechanismExperiment } from './engine/mechanism-experiment.mjs';
 import { verifiedSkillEpisode } from './engine/trace-evidence.mjs';
 import { grant, revoke, loadCharter, autoUsedToday, loadLedger } from "./engine/autonomy.mjs";
 import { listTraces, loadTrace, replayAcrossTraces, candidatePolicies, recordDelegation } from "./engine/trace.mjs";
@@ -344,7 +353,7 @@ initEvolutionApi({ root: CONFIG.cwd, prompts: path.join(getAgentDir(), "prompts"
     }
   }
   modelList = all.filter(m => {
-    if (["deepseek", "openai", "openrouter"].includes(m.provider)) return KEEP_MODELS.has(`${m.provider}/${m.id}`);
+    if (["deepseek", "openai", "openrouter"].includes(m.provider) && !store[m.provider]?.managedCatalog) return KEEP_MODELS.has(`${m.provider}/${m.id}`);
     return true;
   });
 }
@@ -392,6 +401,8 @@ initModelProbe({
 // ── 会话近期历史提取（2026-08-24 修复"失忆回复"）──
 // 现象：复读守卫/降级重试走 directChat 时传空历史 → 替补模型只看到最后一句裸消息，
 // 回出"您的消息不完整/我没有工具"这类失忆话术。修复：统一从会话树取最近 N 轮真实历史。
+import { withModelProvenance } from './engine/model-provenance-writer.mjs';
+
 function recentHistory(entry, limit = 10, maxChars = 1600) {
   try {
     const roots = entry?.sm?.getTree?.() || [];
@@ -421,17 +432,19 @@ async function retryRepeatWithFallback(message, sessionKey, writer, busEmit, cur
     : "你刚才的回复与上一条完全相同（复读）。请重新回答这条消息：换一种表达、补充更多内容、或继续推进对话，绝不能重复上一条回复。";
   const corrected = await directChat(currentModel, message, history, { systemHint: hint });
   if (corrected?.text) {
+    const actual = corrected.usedModel || currentModel;
+    const switchedModel = { provider: actual.provider, id: actual.id, sameModel: actual.provider === currentModel?.provider && actual.id === currentModel?.id, reason: "复读判定成立，同模型重写了一遍" };
     const add = `
 
 （复读修正后的新回复）
 ${corrected.text}`;
     try { writer.push("delta", { text: add }); if (busEmit) busEmit("delta", { text: add }); } catch {}
     // 让用户看得见"这段是重写来的"（2026-09-16）：以前只在正文里塞一行小字，气泡上的模型角标还是原模型
-    try { writer.push("model_switched", { provider: currentModel?.provider || "", id: currentModel?.id || "", sameModel: true, reason: "复读判定成立，同模型重写了一遍" }); } catch {}
+    try { writer.push("model_switched", switchedModel); } catch {}
     recordReply(sessionKey, corrected.text);
     // #229 修复：修正文本此前不落盘，会话历史里仍是旧异常回复，下轮模型看着旧回复继续复读
     // 2026-09-16 补：落盘时**带上"这是重写来的"标记**——只推前端不落盘的话，刷新/换设备就变回"静默"了。
-    try { entry?.sm?.appendMessage({ role: "assistant", content: [{ type: "text", text: `（复读修正后的新回复）\n${corrected.text}` }] }); } catch {}
+    try { entry?.sm?.appendMessage({ role: "assistant", provider: actual.provider, model: actual.id, requestedModel: entry?.modelKey || currentModel, switchedModel, engine: 'pi', content: [{ type: "text", text: `（复读修正后的新回复）\n${corrected.text}` }] }); } catch {}
     console.log(`[元枢] 复读引导修正成功（同模型 ${currentModel?.provider}/${currentModel?.id}）`);
     return corrected.text;
   }
@@ -442,15 +455,17 @@ ${corrected.text}`;
     try { writer.push("note", { text: note2 }); if (busEmit) busEmit("note", { text: note2 }); } catch {}
     const fb = await directChat(fbModel, message, history);
     if (fb?.text) {
+      const actual = fb.usedModel || fbModel;
+      const switchedModel = { provider: actual.provider, id: actual.id, sameModel: false, reason: "复读判断成立且同模型修正失败，已换模型重生成" };
       // #229 修复：换模型分支此前只 recordReply 不推前端，用户看到的仍是旧异常回复；同样落盘修正文本
       const add = `\n\n（已切换 ${fbModel.provider}/${fbModel.id} 重新生成的回复）\n${fb.text}`;
       try { writer.push("delta", { text: add }); if (busEmit) busEmit("delta", { text: add }); } catch {}
       // 静默换模型是用户最直接的"乱做"体感（他原话："静默换成 agnes 3.0"）——现在显式推一条事件，
       // 界面会在气泡上标出「兜底 <模型>（你选的是 X）」
-      try { writer.push("model_switched", { provider: fbModel.provider, id: fbModel.id, sameModel: false, reason: "复读判断成立且同模型修正失败，已换模型重生成" }); } catch {}
+      try { writer.push("model_switched", switchedModel); } catch {}
       recordReply(sessionKey, fb.text);
       // 同上：落盘也要带标记，刷新后仍然看得到"这段是兜底模型写的"（用户原话："静默换成 agnes 3.0"）
-      try { entry?.sm?.appendMessage({ role: "assistant", content: [{ type: "text", text: `（已切换 ${fbModel.provider}/${fbModel.id} 重新生成的回复）\n${fb.text}` }] }); } catch {}
+      try { entry?.sm?.appendMessage({ role: "assistant", provider: actual.provider, model: actual.id, requestedModel: entry?.modelKey || currentModel, switchedModel, engine: 'pi', content: [{ type: "text", text: `（已切换 ${actual.provider}/${actual.id} 重新生成的回复）\n${fb.text}` }] }); } catch {}
       return fb.text;
     }
   }
@@ -569,6 +584,7 @@ const UNIFIED_TOOLS = [
   ACTIVATE_SKILL_TOOL,
   DELEGATE_TASK_TOOL,
   DELEGATE_FORK_TOOL,
+  DELEGATE_TEAM_TOOL,
   FIX_PROBLEM_TOOL,
 ];
 // ══ 外部思考工具（externalThinking 调试开关，默认关）══
@@ -620,6 +636,7 @@ const executeUnifiedTool = createUnifiedToolExecutorGuarded({
       } catch {}
       return r;
     },
+    delegate_team: (args, ctx) => executeTeam(args, { ...ctx, wsRoot: WS_ROOT, model: ctx?.model || defaultModel }),
     delegate_fork: async (args, ctx) => {
       const t0 = Date.now();
       const r = await execDelegateFork(args, ctx);
@@ -637,7 +654,7 @@ const executeUnifiedTool = createUnifiedToolExecutorGuarded({
         sessionKey: ctx?.sessionKey || ctx?.sessionId || "anon",
         runTurn: async (prompt) => {
           const r = await unifiedChat(defaultModel, [{ role: "user", content: prompt }], { tools: UNIFIED_TOOLS });
-          return r?.text || r?.content || "";
+          return completedTaskText(r);
         },
       });
       return { text: out.text, isError: !out.ok };
@@ -653,7 +670,7 @@ setOnTheSpotFixRunner(({ problem, sessionKey }) => runOnTheSpotFix({
   sessionKey,
   runTurn: async (prompt) => {
     const r = await unifiedChat(defaultModel, [{ role: "user", content: prompt }], { tools: UNIFIED_TOOLS });
-    return r?.text || r?.content || "";
+    return completedTaskText(r);
   },
 }));
 initUnifiedChat({
@@ -768,7 +785,7 @@ async function handleChat(req, res, body) {
   }
   if (isTeamRequest(body)) {
     if (!body.__runContext) return json(res, 400, { error: '天团请通过会话任务入口 /api/runs 启动' });
-    return teamChat(req, res, body);
+    return body.workflow === 'team-video' ? teamChat(req, res, body) : generalTeamChat(req, res, body);
   }
   // 外部思考调试开关：请求级 body.think=true 或全局 CONFIG.externalThinking
   const thinkOn = body.think === true || isExternalThinking();
@@ -868,7 +885,7 @@ async function handleChat(req, res, body) {
     ...(body.__runContext || {}),
     runId: body.__runContext?.runId || aibodyTurn.runId,
     sessionId: sessionId || findKeyByEntry(entry),
-    onEvent: aibodyTurn.event,
+    onEvent: (type, data) => res.write(`event: ${type}\ndata: ${JSON.stringify(data)}\n\n`),
     aibodyContext: { goal: aibodyTurn.topic, strategy: aibodyTurn.directive },
   };
   // busy → 打断当前任务（对标 TUI interrupt：同一会话上处理新消息）
@@ -1127,7 +1144,8 @@ async function handleChat(req, res, body) {
   // 两阶段引导：本次请求是否新会话首轮（首轮锚定后 promote 完整工具集）
   let bootstrapTurn = isFirstTurn(entry.sm) && process.env.PI_TWO_PHASE !== "0";
   const hbTimer = startSseHeartbeat(res); // 心跳保活（公网隧道不因 idle 断开）
-  const writer = createSseWriter(res); // 背压控制：慢网络时事件排队等 drain，不丢不堆
+  const requestedModel = entry.modelKey?.id && entry.modelKey.id !== 'auto' ? { provider: entry.modelKey.provider, id: entry.modelKey.id } : null;
+  const writer = withModelProvenance(createSseWriter(res), requestedModel); // 背压与实际模型归属
   try { const selected = entry.agentModel || effModel; writer.push("model_selected", { model: { provider: selected?.provider, id: selected?.id } }); } catch {}
   try { writer.push("note", { text: leadNote(engineDecision) }); } catch {}
   // 上下文余量如实播报：真腾出余量就报"压完还剩多少"；没腾出来就直说，别拿 🧹 糊弄
@@ -1263,6 +1281,8 @@ async function handleChat(req, res, body) {
         bootstrapTurn = false;
       }
       if (event.type === "message_update" && event.assistantMessageEvent?.type === "text_delta") {
+        const actual = event.message || event.assistantMessageEvent?.partial;
+        if (!sawDelta) writer.push('model_used', { model: { provider: actual?.provider || effModel?.provider, id: actual?.model || effModel?.id } });
         sawDelta = true;
         const delta = event.assistantMessageEvent.delta || "";
         collected += delta;
@@ -1463,6 +1483,10 @@ async function handleChat(req, res, body) {
         );
       } catch {}
     }
+    await entry.agent?.sendCustomMessage?.(
+      { customType: 'context', content: [{ type: 'text', text: TEAM_DELIVERY_RULES }] },
+      { deliverAs: 'nextTurn' }
+    );
     // PPT 任务专用执行护栏：交付类请求不能停在“我会做/大纲已列”或伪造文件。
     // 通过 nextTurn 注入，不改人格文件，也不污染会话历史；真正的工具由 Pi SDK customTools 提供。
     if (/\b(?:pptx?|powerpoint)\b|幻灯片|演示文稿|宣传ppt/i.test(message)) {
@@ -1587,7 +1611,10 @@ async function handleChat(req, res, body) {
       }
     } catch (e) { console.log(`[sanitize] 预处理失败(不阻断): ${String(e?.message || e).slice(0, 80)}`); }
     try {
-      await agent.prompt(promptMsg, { images });
+      await withTeamToolContext({ ...chatRunContext, wsRoot: WS_ROOT, model: entry.agentModel || defaultModel,
+        history: extractMessages(entry.sm.fileEntries, entry.sm.getLeafId?.() || resolveLeafId(entry.sm.fileEntries))
+          .map(m => ({ role: m.role, content: m.text })),
+      }, () => agent.prompt(promptMsg, { images }));
     } finally {
       // 处理完恢复原模型（避免把会话默认模型悄悄改掉）
       if (visionSwitched && origAgentModel) {
@@ -1625,13 +1652,15 @@ async function handleChat(req, res, body) {
       // （重试中提前标冷却已在 auto_retry_start 事件里处理，这里只负责换备选提供回答）
       // 修复 B：空回复兕底用安全模型（避开 opencode-go 429 且排除当前模型，不再死磕 defaultModel）
       const fbModel = pickFallbackExcluding(effModel);
-      const fallback = fbModel ? await directChat(fbModel, message) : null;
+      const fallback = fbModel ? await directChat(fbModel, message, recentHistory(entry)) : null;
       if (fallback?.text) {
         writer.push("delta", { text: fallback.text });
         console.log(`[元枢] 空回复兜底成功: ${fbModel.provider}/${fbModel.id}`);
-        // 兜底回答没带历史，必须在界面上说清楚，别让用户以为主模型变傻了
-        try { writer.push("note", { text: `上面这句来自备用通道 ${fbModel.provider}/${fbModel.id}（本轮主模型空回复，兜底不带对话历史）` }); } catch {}
-        try { writer.push("model_switched", { provider: fbModel.provider, id: fbModel.id, sameModel: false, reason: "主模型空回复，走了备用通道（不带对话历史）" }); } catch {}
+        // 兜底承接最近历史，同时报告实际回答模型。
+        const actual = fallback.usedModel || fbModel;
+        try { writer.push("note", { text: `本轮主模型空回复，已由 ${actual.provider}/${actual.id} 结合最近对话历史回答` }); } catch {}
+        try { writer.push("model_switched", { provider: actual.provider, id: actual.id, sameModel: false, reason: "主模型空回复，备用通道承接最近对话" }); } catch {}
+        try { entry.sm.appendMessage({ role: 'assistant', provider: actual.provider, model: actual.id, requestedModel, engine: 'pi', content: [{ type: 'text', text: fallback.text }] }); } catch {}
       } else {
         console.log(`[元枢] 空回复兜底失败: ${fbModel?.provider}/${fbModel?.id}`);
         // 明确提示：报用户选定的模型（兜底链模型只是替死鬼，报它会让用户莫名其妙）
@@ -1818,14 +1847,16 @@ async function handleChat(req, res, body) {
     // 429/额度检测（修复 B）：agent 管线错误里出现 opencode-go 额度耗尽 → 标记降级，后续 Auto 路由避开
     // 2026-08-21 用户理念：429/400 等链接/资源错误 → 主动告知原因 + 通断探测拿好模型顶上
     const briefErr = agentErr.slice(0, 80);
-    if (/GoUsageLimit|HTTP 429|status.?429/i.test(agentErr) && modelList.some(m => m.provider === "opencode-go")) {
+    let fallbackModel = null;
+    if (/GoUsageLimit|HTTP 429|status.?429/i.test(agentErr) && effModel?.provider === "opencode-go") {
       markOcGoBlocked(agentErr);
       try { writer.push("note", { text: `⚠️ opencode-go 额度耗尽（429），正在探测可用模型…` }); } catch {}
       // 主动探测：候选链里拿第一个可用的顶上（不靠冷却跳过）
       const cands = [flashCandidate(), routeProCandidate(), defaultModel].filter(Boolean);
       const healthy = await pickHealthyModel(cands).catch(() => null);
       if (healthy) {
-        try { writer.push("note", { text: `✅ 探测到可用模型 ${healthy.provider}/${healthy.id}，已切换` }); } catch {}
+        fallbackModel = healthy;
+        try { writer.push("note", { text: `探测到可用模型 ${healthy.provider}/${healthy.id}，准备重试` }); } catch {}
         console.log(`[元枢] 通断探测 → 好模型顶上: ${healthy.provider}/${healthy.id}`);
       }
     } else if (effModel) {
@@ -1841,7 +1872,8 @@ async function handleChat(req, res, body) {
         const cands = [flashCandidate(), routeProCandidate(), pickFallbackExcluding(effModel)].filter(Boolean);
         const healthy = await pickHealthyModel(cands).catch(() => null);
         if (healthy) {
-          try { writer.push("note", { text: `✅ 探测到可用模型 ${healthy.provider}/${healthy.id}，已切换` }); } catch {}
+          fallbackModel = healthy;
+          try { writer.push("note", { text: `探测到可用模型 ${healthy.provider}/${healthy.id}，准备重试` }); } catch {}
           console.log(`[元枢] 通断探测 → 好模型顶上: ${healthy.provider}/${healthy.id}`);
         }
       }
@@ -1854,7 +1886,8 @@ async function handleChat(req, res, body) {
       const abortCtrl2 = new AbortController();
       const onClose2 = () => { try { abortCtrl2.abort(); } catch {} };
       req.on("close", onClose2);
-      await handleUnifiedChat(res, entry, message, sessionId || findKeyByEntry(entry), body.params, abortCtrl2.signal, writer, undefined, body.taskKey, null, null, chatRunContext);
+      writer.push('engine_selected', { engine: 'yuanshu', reason: 'pi 调用失败，切换执行通道' });
+      await handleUnifiedChat(res, entry, message, sessionId || findKeyByEntry(entry), body.params, abortCtrl2.signal, writer, undefined, body.taskKey, fallbackModel || effModel, null, chatRunContext);
       req.removeListener("close", onClose2);
     } catch (e2) {
       try { writer.push("error", { message: `降级通道也失败: ${explainMediaError(e2)}` }); } catch {}
@@ -1995,11 +2028,18 @@ initToolResultArchive({ root: path.join(AGENT_DIR, "yuanshu-tool-results") });
 initFileLock({ withFileMutationQueue, dir: path.join(AGENT_DIR, "yuanshu-locks") });
 console.log(`  🔒 文件写队列: ${usingSharedFileQueue() ? "与 Pi 共用" : "自带实现（未拿到 Pi 的队列）"} · 跨进程锁目录 ${path.join(AGENT_DIR, "yuanshu-locks")}`);
 const runStore = createRunStore({ rootDir: RUNS_DIR });
+const taskEvidence = createTaskEvidence({ wsRoot: WS_ROOT, rootDir: RUNS_DIR });
+const taskEvidenceApi = createTaskEvidenceApi({ service: taskEvidence, json, onReview: () => runDreamCycle(true) });
 const runEventLog = createRunEventLog({ rootDir: RUNS_DIR });
 const runEffects = createRunEffects({ rootDir: RUNS_DIR });
 const teamLauncher = createTeamLauncher({ wsRoot: CONFIG.cwd, repoRoot: __dirname, port: CONFIG.port, token: CONFIG.token });
 const teamRunRead = createTeamRunRead({ wsRoot: CONFIG.cwd, json, getLaunch: () => teamLauncher.status() });
 const teamChat = createTeamChat({ launcher: teamLauncher, wsRoot: CONFIG.cwd, openSession, aibodyHost,
+  readMessages: entry => extractMessages(entry.sm.fileEntries, entry.sm.getLeafId?.() || resolveLeafId(entry.sm.fileEntries))
+    .map(message => ({ role: message.role, content: message.text })),
+});
+const generalTeamChat = createGeneralTeamChat({ wsRoot: CONFIG.cwd, openSession, aibodyHost,
+  getModel: entry => (entry.modelKey && !isAutoModel(entry.modelKey) ? entry.modelKey : defaultModel),
   readMessages: entry => extractMessages(entry.sm.fileEntries, entry.sm.getLeafId?.() || resolveLeafId(entry.sm.fileEntries))
     .map(message => ({ role: message.role, content: message.text })),
 });
@@ -2070,7 +2110,7 @@ const DREAM_POLICIES = {
  * 你上次说得对——"全让我回答，我不是给她打工了吗"：自决的意义就是**它自己会跑**。
  * 这个函数由启动后延迟 + 每 6 小时定时调用一次；有赢家就走授权状（A/B 自决 / C 转人话提案）。
  */
-async function runDreamCycle() {
+async function runDreamCycle(fresh = false) {
   let files = [];
   try { files = fs.readdirSync(SESSIONS_DIR).filter((f) => f.endsWith(".jsonl")).map((f) => path.join(SESSIONS_DIR, f)); } catch {}
   // ── 增量 + 让出事件循环（2026-09-19）────────────────────────────────────────
@@ -2098,7 +2138,7 @@ async function runDreamCycle() {
     console.log(`[dream] 增量摄取 ${__fresh.length} 个新会话（游标 ${__cursorMs ? new Date(__cursorMs).toISOString() : "首次全量"}）`);
   }
   const skills = loadSkillIndex();
-  return runEvolutionCycle({ wsRoot: WS_ROOT,
+  return runEvolutionCycle({ wsRoot: WS_ROOT, taskEvidence, fresh: fresh === true,
     candidates: [{ id: DREAM_POLICIES.incumbent, weights: null }, ...DREAM_POLICIES.candidates],
     matcherContext: JSON.stringify(skills.map(s => [s.name, s.desc])),
     rank: (ep, policy) => matchSkillsForTask(ep.input, skills, 3, policy.weights).map(s => s.name),
@@ -2244,17 +2284,27 @@ const API_ROUTES = [
 // ── 做梦（2026-09-18）：拿历史当模拟器，离线评估"要不要改" ──
   // 第一片可做梦的搜索空间是技能匹配器的权重表（输入=当时的任务句，真值=当时真的 activate 了哪个技能）。
   ["GET", "/api/dream/status", (res) => {
-    const skillEps = loadEpisodes(WS_ROOT, { kind: "skill-match" });
+    const skillEps = loadSkillEvidence(WS_ROOT, taskEvidence);
     let logTail = "";
     try { logTail = fs.readFileSync(dreamPaths(WS_ROOT).log, "utf8").split("\n").slice(-40).join("\n"); } catch {}
     json(res, 200, {
       ok: true,
       kinds: [{ kind: "skill-match", episodes: skillEps.length, eligibleEpisodes: skillEps.filter(verifiedSkillEpisode).length,
         incumbent: currentWeights(WS_ROOT).id || DREAM_POLICIES.incumbent, candidates: DREAM_POLICIES.candidates.map((c) => c.id) }],
-      evolution: evolutionStatus(WS_ROOT),
+      evolution: evolutionStatus(WS_ROOT, { taskEvidence }),
       lastEpisodes: skillEps.slice(-5).map((e) => ({ at: e.at, input: String(e.input).slice(0, 60), choice: e.choice })),
       logTail,
     });
+  }],
+  ["GET", "/api/dream/evidence", (res) => taskEvidenceApi.list(res)],
+  ["GET", /^\/api\/dream\/evidence\/([a-zA-Z0-9_-]{1,100})$/, (res, req, url, m) => taskEvidenceApi.get(res, m[1])],
+  ["POST", /^\/api\/dream\/evidence\/([a-zA-Z0-9_-]{1,100})$/, async (res, req, url, m) => {
+    await taskEvidenceApi.review(res, m[1], await readBody(req, 0.02));
+  }],
+  ["GET", "/api/dream/experiment", (res) => json(res, 200, mechanismStatus(WS_ROOT))],
+  ["POST", "/api/dream/experiment", async (res) => {
+    // Fixed offline experiment only. No client-supplied code, conclusions or policy changes.
+    json(res, 200, await runMechanismExperiment(WS_ROOT));
   }],
   ["POST", "/api/dream/collect", async (res) => {
     // 回填：把会话文件里"当时真的 activate 了哪个技能"挖出来做成 episode
@@ -2564,23 +2614,20 @@ const API_ROUTES = [
     } catch (e) { return json(res, 500, { error: String(e?.message || e).slice(0, 120) }); }
     return json(res, 200, { ok: true, file, parts: parts.length });
   }],
-  // 天团取正文（2026-09-20）：/api/think 返回的是**思考文本**（真机抓到的是英文内心独白），
-  // 角色要的是 assistant 的**正文**，所以走 directChat（它把 text 与 think 分开返回）。
+  // 视频角色与通用天团复用独立子任务执行器，父任务身份由启动器绑定。
   ["POST", "/api/team/complete", async (res, req) => {
     const body = await readBody(req, 12);
     const provider = String((body && body.provider) || "");
     const modelId = String((body && body.modelId) || "");
     const message = String((body && body.message) || "");
     if (!provider || !modelId || !message) return json(res, 400, { error: "provider/modelId/message 必填" });
-    const maxTokens = Number(body && body.maxTokens) > 0 ? Number(body.maxTokens) : undefined;
     const controller = new AbortController();
     const onClose = () => { if (!res.writableEnded) controller.abort(); };
     res.once('close', onClose);
     try {
-      const r = await directChat({ provider, id: modelId }, message, [], { maxTokens, signal: controller.signal });
-      if (!r) return json(res, 502, { error: "模型调用失败（渠道/密钥/超时）" });
-      return json(res, 200, { text: String(r.text || ""), thinkLen: String(r.think || "").length, note: r.text ? "ok" : "只有思考、没有正文" });
-    } catch (e) { if (!res.destroyed) return json(res, 500, { error: String(e && e.message || e).slice(0, 120) }); }
+      const r = await createTeamCompletion({ launcher: teamLauncher })(body, controller.signal);
+      return json(res, 200, r);
+    } catch (e) { if (!res.destroyed) return json(res, e.statusCode || 500, { error: String(e && e.message || e).slice(0, 120) }); }
     finally { res.off('close', onClose); }
   }],
 
@@ -2742,6 +2789,8 @@ const API_ROUTES = [
   ["GET", "/api/models", (res) => handleModels(res)],
   ["GET", "/api/models/manage", (res) => handleModelsManage(res)],
   ["POST", "/api/models/add", async (res, req) => handleModelsAdd(res, await readBody(req))],
+  ["POST", "/api/models/discover", async (res, req) => handleModelsDiscover(res, await readBody(req))],
+  ["POST", "/api/models/verify", async (res, req) => handleModelsVerify(res, await readBody(req))],
   ["GET", "/api/keys/status", (res) => handleKeysStatus(res)],
   ["GET", "/api/dsh/status", (res) => handleDshStatus(res)],
   ["POST", "/api/dsh/web/start", (res) => handleDshWebStart(res)],
@@ -3276,7 +3325,7 @@ function startServer() {
             now: new Date(),
           });
           const r = await unifiedChat(defaultModel, messages, { tools: timeTaskReadTools(UNIFIED_TOOLS) });
-          out = r?.text || r?.content || r?.error || "(无输出)";
+          out = completedTaskText(r) || "(无输出)";
           const logDir = path.join(CONFIG.cwd, "文档");
           try { fs.mkdirSync(logDir, { recursive: true }); } catch {}
           const logFile = path.join(logDir, "时间引擎日志.md");
@@ -3303,7 +3352,7 @@ ${String(out).slice(0, 16000)}
               try {
                 const prompt = buildActionExecutionPrompt(action, { ymd: yesterdayYmd() });
                 const rr = await unifiedChat(defaultModel, [{ role: "user", content: prompt }], { tools: UNIFIED_TOOLS });
-                result = parseActionResult(rr?.text || rr?.content || "");
+                result = parseActionResult(completedTaskText(rr));
               } catch (e) {
                 result = { status: "failed", evidence: `执行轮异常：${String(e?.message || e).slice(0, 120)}`, files: [], summary: "" };
               }
@@ -3316,7 +3365,7 @@ ${String(out).slice(0, 16000)}
                     artifacts: Array.isArray(result.files) ? result.files : [],
                     runTurn: async (prompt) => {
                       const rr = await unifiedChat(defaultModel, [{ role: "user", content: prompt }], { tools: timeTaskReadTools(UNIFIED_TOOLS) });
-                      return rr?.text || rr?.content || "";
+                      return completedTaskText(rr);
                     },
                   });
                   if (v.verdict !== "PASS") {

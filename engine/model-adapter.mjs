@@ -5,9 +5,11 @@
 //   自动适配：baseUrl 带不带 /v1、reasoning_effort 降级重试、5xx 重试、流式关闭。
 // 依赖注入：httpFetch 由宿主注入（元枢注入 httpJsonFetch 以复用系统代理栈），
 //   不注入则用 Node 原生 fetch（Node 25+）。
+import { modelEndpoint } from './model-endpoints.mjs';
 import { normalizeToolArgs, normalizeToolCallArguments } from "./tool-args.mjs";
 import { describeHttpError, sessionAffinityHeaders } from "./http.mjs";
 import { clampOutputTokens, maxTokensFieldOf } from "./output-budget.mjs";
+import { buildMessagesRequest, decodeMessagesResponse, messagesEndpoint, messagesHeaders } from './anthropic-messages.mjs';
 
 // ── ModelAdapter 接口契约 ──
 // async chat(model, messages, opts) → {
@@ -48,6 +50,7 @@ export class HttpModelAdapter {
     const { mdef, base } = this._modelDef(model);
     if (!base) return { error: `无 ${model.provider} 的 baseUrl` };
     const baseNoV1 = base.endsWith("/v1") ? base.slice(0, -3) : base;
+    const nativeMessages = (mdef?.api || model.api) === 'anthropic-messages';
 
     const history = [...messages];
     // tools 语义归一：false/空 → 不发 tools 字段（2026-08-20 修复：原实现 tools:false 时
@@ -61,23 +64,30 @@ export class HttpModelAdapter {
     const compat = mdef?.compat || model.compat || {};
     const thinkingLevelMap = mdef?.thinkingLevelMap || model.thinkingLevelMap || null;
     let thinkingParam = null;
-    if (isReasoning) {
-      const mapped = thinkingLevelMap?.["high"];
-      if (mapped !== null && mapped !== false && mapped !== undefined) thinkingParam = mapped;
-      else if (compat.supportsReasoningEffort !== false) thinkingParam = "high";
+    if (isReasoning && !nativeMessages && compat.supportsReasoningEffort !== false) {
+      const effort = ['low', 'medium', 'high'].includes(opts.reasoningEffort) ? opts.reasoningEffort : 'high';
+      if (thinkingLevelMap) {
+        // Unsupported medium must not become high: GLM then spends the entire
+        // shared completion budget on reasoning and returns no deliverable.
+        const levels = ['minimal', 'low', 'medium', 'high'];
+        thinkingParam = levels.slice(0, levels.indexOf(effort) + 1).reverse()
+          .map(level => thinkingLevelMap[level]).find(value => typeof value === 'string' && value) ?? null;
+      } else thinkingParam = effort;
     }
 
     const buildBody = (withThinking) => {
+      if (nativeMessages) return buildMessagesRequest({ model: model.id, modelKey: `${model.provider}/${model.id}`, messages: history, tools: compat.supportsTools === false ? false : toolDefs, maxTokens: clampOutputTokens(mdef, { fallback: Number(opts.maxTokens) || undefined, ...(Number(opts.outputCeiling) > 0 ? { ceiling: Number(opts.outputCeiling) } : {}) }), params: opts.params });
       const body = {
         model: model.id,
         // 最后一道闸（2026-09-16）：不管历史从哪来，发出去之前把 tool_call 的 arguments 都规范成合法对象。
         // 真机事故：一条双重编码的 arguments 让整轮请求 400（code 11133）。
-        messages: normalizeToolCallArguments(history),
+        messages: normalizeToolCallArguments(history).map(({ anthropic_content, anthropic_model, ...message }) => message),
         ...(toolDefs ? { tools: toolDefs, tool_choice: "auto" } : {}),
         stream: false,
       };
       // 单次输出预算同样按模型声明给（以前写死 8192，一条大文件的工具调用必被截断）
-      body[maxTokensFieldOf(compat)] = clampOutputTokens(mdef, { fallback: Number(opts.maxTokens) || undefined });
+      body[maxTokensFieldOf(compat)] = clampOutputTokens(mdef, { fallback: Number(opts.maxTokens) || undefined,
+        ...(Number(opts.outputCeiling) > 0 ? { ceiling: Number(opts.outputCeiling) } : {}) });
       if (opts.params) {
         if (typeof opts.params.temperature === "number" && opts.params.temperature >= 0 && opts.params.temperature <= 1) body.temperature = opts.params.temperature;
         if (typeof opts.params.top_p === "number" && opts.params.top_p > 0 && opts.params.top_p <= 1) body.top_p = opts.params.top_p;
@@ -86,15 +96,16 @@ export class HttpModelAdapter {
       return body;
     };
 
-    const mkReq = (u, withThinking) => this.httpFetch(u, {
+    const mkReq = (u, withThinking) => this.httpFetch(nativeMessages ? messagesEndpoint(base) : u, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        Authorization: `Bearer ${key}`,
+        ...(nativeMessages ? messagesHeaders(key) : { Authorization: `Bearer ${key}` }),
         ...sessionAffinityHeaders({ provider: model.provider, compat, sessionId: opts.sessionId }),
       },
       body: JSON.stringify(buildBody(withThinking)),
       timeout: opts.timeout || 300000,
+      signal: opts.signal,
     });
 
     let usedThinking = thinkingParam !== null;
@@ -105,8 +116,8 @@ export class HttpModelAdapter {
       let r;
       for (let attempt = 0; attempt < 2; attempt++) {
         try {
-          r = await mkReq(`${baseNoV1}/v1/chat/completions`, usedThinking);
-          if (r.status === 404) r = await mkReq(`${baseNoV1}/chat/completions`, usedThinking);
+          r = await mkReq(modelEndpoint(base, 'chat/completions'), usedThinking);
+          if (r.status === 404 && !nativeMessages) r = await mkReq(`${baseNoV1}/chat/completions`, usedThinking);
           if (!r.ok && r.status >= 500 && attempt === 0) { await sleep(1500); continue; }
           break;
         } catch (e) {
@@ -117,7 +128,7 @@ export class HttpModelAdapter {
       // 模型不接受 reasoning_effort → 去掉重试（统一降级）
       if (!r.ok && usedThinking && (r.status === 400 || r.status === 422)) {
         usedThinking = false;
-        r = await mkReq(`${baseNoV1}/v1/chat/completions`, false);
+        r = await mkReq(modelEndpoint(base, 'chat/completions'), false);
         if (r.status === 404) r = await mkReq(`${baseNoV1}/chat/completions`, false);
       }
       if (!r.ok) {
@@ -126,8 +137,16 @@ export class HttpModelAdapter {
         return { error: `HTTP ${r.status}: ${describeHttpError(errBody)}` };
       }
       const data = await r.json();
+      if (nativeMessages) {
+        try {
+          const parsed = decodeMessagesResponse(data);
+          parsed.message.anthropic_model = `${model.provider}/${model.id}`;
+          if (parsed.finishReason === 'max_tokens') return { error: 'Messages output truncated (max_tokens)' };
+          return { ...extractModelReply(parsed.message, history), finishReason: parsed.finishReason, usage: parsed.usage, usedModel: { provider: model.provider, id: parsed.model || model.id } };
+        } catch (error) { return { error: error.message }; }
+      }
       const msg = data.choices?.[0]?.message || {};
-      return extractModelReply(msg, history);
+      return { ...extractModelReply(msg, history), finishReason: data.choices?.[0]?.finish_reason, usage: data.usage, usedModel: { provider: model.provider, id: data.model || model.id } };
     }
     return { error: "模型调用超过 20 轮，已停止" };
   }
@@ -150,6 +169,7 @@ export function extractModelReply(msg, history) {
   const tcs = raw && raw.length ? sanitizeTcsLocal(raw) : null;
   if (tcs && tcs.length) {
     history.push({ role: "assistant", content: msg.content || null, tool_calls: tcs,
+      ...(msg.anthropic_content ? { anthropic_content: msg.anthropic_content, anthropic_model: msg.anthropic_model } : {}),
       ...(typeof msg.reasoning_content === "string" ? { reasoning_content: msg.reasoning_content } : {}) });
     return { toolCalls: tcs, history };
   }
@@ -174,7 +194,7 @@ async function defaultHttpFetch(url, options = {}) {
       method: options.method || "GET",
       headers: options.headers || {},
       body: options.body,
-      signal: controller.signal,
+      signal: options.signal ? AbortSignal.any([controller.signal, options.signal]) : controller.signal,
     });
     return {
       status: r.status,

@@ -3,6 +3,9 @@
  * 解决刷新/切标签页导致流式内容丢失的问题
  */
 
+import { reconcileTurnSnapshots } from './reconcile-turns.ts'
+import { reconcileImageMessages } from './image-identity.ts'
+
 const DB_NAME = 'pi_web_messages'
 const DB_VERSION = 1
 const STORE_NAME = 'messages'
@@ -20,6 +23,7 @@ export interface LocalMessage {
   audios?: string[]
   videos?: string[]
   model?: { provider: string; id: string }
+  requestedModel?: { provider: string; id: string }
   // 本轮失败原因（2026-09-16）：pi 通道失败只落一条 stopReason=error 的记录，
   // 本地库也存一份，刷新后错误条同样能显示出来。
   error?: string
@@ -71,7 +75,7 @@ export async function saveMessage(msg: LocalMessage): Promise<void> {
   return new Promise((resolve, reject) => {
     const tx = db.transaction(STORE_NAME, 'readwrite')
     const store = tx.objectStore(STORE_NAME)
-    const request = store.put(msg)
+    const request = store.put(reconcileImageMessages([msg])[0])
     request.onsuccess = () => resolve()
     request.onerror = () => reject(request.error)
   })
@@ -86,7 +90,7 @@ export async function saveMessages(msgs: LocalMessage[]): Promise<void> {
     const tx = db.transaction(STORE_NAME, 'readwrite')
     const store = tx.objectStore(STORE_NAME)
     
-    msgs.forEach(msg => store.put(msg))
+    reconcileImageMessages(msgs).forEach(msg => store.put(msg))
     
     tx.oncomplete = () => resolve()
     tx.onerror = () => reject(tx.error)
@@ -108,7 +112,7 @@ export async function getMessages(sessionId: string): Promise<LocalMessage[]> {
       const msgs = request.result || []
       // 按时间排序
       msgs.sort((a, b) => new Date(a.ts).getTime() - new Date(b.ts).getTime())
-      resolve(msgs)
+      resolve(reconcileImageMessages(msgs))
     }
     request.onerror = () => reject(request.error)
   })
@@ -232,7 +236,10 @@ function mergeServerMessage(local: LocalMessage, server: any): LocalMessage {
     images: local.images?.length ? local.images : server.images,
     audios: local.audios?.length ? local.audios : server.audios,
     videos: local.videos?.length ? local.videos : server.videos,
-    model: local.model || server.model,
+    model: server.model || local.model,
+    requestedModel: server.requestedModel || local.requestedModel,
+    switchedModel: server.switchedModel || local.switchedModel,
+    engine: server.engine || local.engine,
     truncated: local.truncated || server.truncated,
     // 本地消息的 draft/streaming/synced 状态描述本地生命周期，不能被服务端副本抹掉。
     draft: local.draft,
@@ -299,7 +306,7 @@ export function mergeMessages(localMsgs: LocalMessage[], serverMsgs: any[]): Loc
     return -1
   }
 
-  for (const server of serverMsgs) {
+  for (const server of reconcileTurnSnapshots(localMsgs, serverMsgs)) {
     const serverId = server.id || `${server.role}_${new Date(server.ts).getTime()}`
     const matchIndex = findMessageIndex(server, serverId)
     if (matchIndex >= 0) {
@@ -327,6 +334,9 @@ export function mergeMessages(localMsgs: LocalMessage[], serverMsgs: any[]): Loc
       audios: server.audios,
       videos: server.videos,
       model: server.model,
+      requestedModel: server.requestedModel,
+      switchedModel: server.switchedModel,
+      engine: server.engine,
       error: server.error,
       stopReason: server.stopReason,
       ts: server.ts,
@@ -337,6 +347,5 @@ export function mergeMessages(localMsgs: LocalMessage[], serverMsgs: any[]): Loc
   }
 
   merged.sort((a, b) => new Date(a.ts).getTime() - new Date(b.ts).getTime())
-  return merged
+  return reconcileImageMessages(merged)
 }
-

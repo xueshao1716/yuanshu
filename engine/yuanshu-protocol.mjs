@@ -1,8 +1,10 @@
 // 元枢工作协议：给能力，自己判断、做完、汇报。密钥仍由宿主代持。
 import { shouldInjectFullMemory } from "./context-loader.mjs";
 import { sessionContinuityNote } from "./yuanshu-session.mjs";
+import { TEAM_DELIVERY_RULES } from './team-subagents.mjs';
 
 export const YUANSHU_PROTOCOL = `【元枢工作协议】
+${TEAM_DELIVERY_RULES}
 你独立干活：自己判断怎么做，自己做完，自己汇报结果。宿主给工具和密文通道，不替你做决定。
 1. 顺序：计划 → 动手 → 验收。汇报时说清楚做了什么、产物在哪、还有什么没做。
    工具返回错误、超时或退出码非零时，必须把它当作失败事实处理：先换参数/换工具重试，仍失败就明确汇报失败原因，禁止把失败说成已完成或“验证通过”。

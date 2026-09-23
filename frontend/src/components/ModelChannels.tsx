@@ -1,92 +1,85 @@
-import { useEffect, useState } from 'react'
-import { Plus, Trash2, CheckCircle2, KeyRound, Settings2 } from 'lucide-react'
+import { useEffect, useRef, useState } from 'react'
+import * as AL from '@radix-ui/react-alert-dialog'
+import { Plus, KeyRound } from 'lucide-react'
 import { KeysApi } from '../api'
-
-// ── ModelChannels：服务商密钥/通道管理（从 ModelManager 抽出，供 ModelHub 嵌入）──
-// 服务商列表(有Key/无Key/模型数) + 添加 API(provider/key/baseUrl 测试并添加) + 删除
-
-interface ProviderInfo { provider: string; hasKey: boolean; baseUrl: string; modelCount: number; models: string[] }
+import { useApp } from '../store'
+import ModelConnectionForm from './models/ModelConnectionForm'
+import type { ConnectionProvider } from './models/ModelConnectionForm'
 
 export default function ModelChannels() {
-  const [providers, setProviders] = useState<ProviderInfo[]>([])
-  const [loading, setLoading] = useState(false)
-  const [addOpen, setAddOpen] = useState(false)
-  const [addProvider, setAddProvider] = useState('openrouter')
-  const [addKey, setAddKey] = useState('')
-  const [addBaseUrl, setAddBaseUrl] = useState('')
-  const [err, setErr] = useState('')
-  const [ok, setOk] = useState('')
-
-  const load = () => { setLoading(true); KeysApi.manage().then(d => setProviders(d.providers || [])).catch(() => {}).finally(() => setLoading(false)) }
-  useEffect(() => { load() }, [])
-
-  const add = async () => {
-    if (!addKey.trim()) { setErr('请填写 API Key'); return }
-    setErr(''); setOk('')
-    try {
-      const r = await KeysApi.add({ provider: addProvider.trim(), key: addKey.trim(), baseUrl: addBaseUrl.trim() })
-      // 成功：探测到的模型数
-      const n = (r as any)?.modelCount ?? (r as any)?.models?.length
-      setOk(`✓ 已添加 ${addProvider}${n ? ` · 识别 ${n} 个模型` : ''}`)
-      setAddOpen(false); setAddKey(''); setAddBaseUrl(''); load()
-    } catch (e: any) { setErr(e?.message || '添加失败，请检查 Key/Base URL') }
+  const { refreshModels } = useApp()
+  const [providers, setProviders] = useState<ConnectionProvider[]>([])
+  const [loading, setLoading] = useState(true)
+  const [editing, setEditing] = useState<ConnectionProvider | 'new' | null>(null)
+  const [confirming, setConfirming] = useState<string | null>(null)
+  const [busy, setBusy] = useState('')
+  const lock = useRef(false)
+  const [error, setError] = useState('')
+  const [message, setMessage] = useState('')
+  const load = async () => {
+    setLoading(true)
+    try { const data = await KeysApi.manage(); setProviders(data.providers || []) }
+    catch (e) { setError(e instanceof Error ? e.message : '服务商加载失败，请重试') }
+    finally { setLoading(false) }
   }
-  const del = async (p: string) => { try { await KeysApi.remove(p); load() } catch {} }
-
+  useEffect(() => { void load() }, [])
+  const saved = async (text: string) => {
+    setEditing(null); setMessage(text); setError('')
+    await load()
+    try { await refreshModels() } catch { setError('配置已保存，但模型列表刷新失败，请刷新页面') }
+  }
+  const operate = async (provider: string, remove = false) => {
+    if (lock.current) return
+    lock.current = true; setBusy(provider); setError(''); setMessage('')
+    try {
+      const result = remove ? await KeysApi.remove(provider) : await KeysApi.add({ provider })
+      setConfirming(null)
+      await saved(remove ? `已移除 ${provider}` : result.warning || `目录已刷新 · 发现 ${result.discoveredCount} 个，保留共 ${result.modelCount} 个模型。调用状态需单独验证。`)
+    } catch (e) { setError(e instanceof Error ? e.message : '操作失败，请重试') }
+    finally { lock.current = false; setBusy('') }
+  }
   return (
-    <div className="panel !p-3">
-      <div className="flex items-center justify-between mb-3">
-        <div className="text-[13px] font-semibold text-pi-text flex items-center gap-2"><KeyRound className="w-4 h-4 text-pi-accent" />服务商通道</div>
-        <button className="btn-primary text-xs px-3 py-1.5 inline-flex items-center gap-1.5" onClick={() => setAddOpen(true)}>
-          <Plus className="w-3.5 h-3.5" />添加 API
-        </button>
+    <section className="panel !p-4 mb-6" aria-label="服务商通道">
+      <div className="flex items-center justify-between gap-3">
+        <h2 className="text-base font-semibold text-pi-text flex items-center gap-2"><KeyRound className="w-4 h-4 text-pi-accent" />服务商通道</h2>
+        <button className="btn-primary touch-hit px-3 text-sm inline-flex items-center gap-1.5" disabled={Boolean(busy || editing)}
+          onClick={() => { setEditing('new'); setError(''); setMessage('') }}><Plus className="w-4 h-4" />添加 API</button>
       </div>
-
-      {/* 添加 API 表单（内联展开）*/}
-      {addOpen && (
-        <div className="rounded-pi-md bg-pi-bg2/50 border border-pi-border-soft p-3 mb-3 space-y-2">
-          <div className="flex items-center gap-2 text-[12px] text-pi-dim"><Settings2 className="w-3.5 h-3.5" />接入新服务商</div>
-          <input className="input-pi !py-1.5 text-xs font-mono" placeholder="服务商（如 openrouter / deepseek / bigmodel）" value={addProvider} onChange={e => setAddProvider(e.target.value)} />
-          <input className="input-pi !py-1.5 text-xs font-mono" type="password" placeholder="API Key (sk-…)" value={addKey} onChange={e => setAddKey(e.target.value)} />
-          <input className="input-pi !py-1.5 text-xs font-mono" placeholder="Base URL（可选，留空用官方）" value={addBaseUrl} onChange={e => setAddBaseUrl(e.target.value)} />
-          {err && <div className="text-[11px] text-pi-danger">{err}</div>}
-          {ok && <div className="text-[11px] text-pi-success">{ok}</div>}
-          <div className="flex gap-2">
-            <button className="btn-primary text-[11px] px-2.5 py-1" onClick={add}>测试并添加</button>
-            <button className="btn-tool text-[11px]" onClick={() => { setAddOpen(false); setErr('') }}>取消</button>
-          </div>
-        </div>
-      )}
-
-      {/* 服务商列表 */}
-      {loading ? (
-        <div className="py-6 text-center text-pi-dim2 text-sm">加载中…</div>
-      ) : providers.length === 0 ? (
-        <div className="py-6 text-center text-pi-dim2 text-sm">还没有配置任何服务商，点「添加 API」接入第一个通道</div>
-      ) : (
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-          {providers.map(p => (
-            <div key={p.provider} className="group flex items-center gap-3 p-3 rounded-pi-lg border border-pi-border bg-pi-bg2 hover:border-pi-accent/40 transition-colors">
-              <div className={`w-8 h-8 rounded-pi-md flex items-center justify-center flex-shrink-0 ${p.hasKey ? 'bg-pi-success/10 text-pi-success' : 'bg-pi-bg3 text-pi-dim2'}`}>
-                <KeyRound className="w-4 h-4" strokeWidth={1.8} />
-              </div>
-              <div className="flex-1 min-w-0">
-                <div className="flex items-center gap-1.5">
-                  <span className="font-medium text-pi-text text-sm truncate">{p.provider}</span>
-                  {p.hasKey
-                    ? <CheckCircle2 className="w-3.5 h-3.5 text-pi-success flex-shrink-0" strokeWidth={2.2} />
-                    : <span className="text-[10px] px-1 py-px rounded-pi-pill bg-pi-danger/15 text-pi-danger flex-shrink-0">无Key</span>}
-                </div>
-                <div className="text-[11px] text-pi-dim2 truncate mt-0.5">{p.modelCount} 个模型 · {p.baseUrl || '官方地址'}</div>
-              </div>
-              <button className="btn-tool touch-hit opacity-0 group-hover:opacity-100 focus-visible:opacity-100 transition-opacity hover:!text-pi-danger"
-                aria-label={`删除 ${p.provider}`} onClick={() => del(p.provider)}>
-                <Trash2 className="w-4 h-4" />
-              </button>
+      <p className="text-sm text-pi-dim mt-2 mb-3">接入密钥与协议，读取模型目录，再按需验证。</p>
+      {message && <p role="status" className="text-sm text-pi-success my-3 break-words">{message}</p>}
+      {error && <div role="alert" className="text-sm text-pi-danger my-3 break-words">{error}
+        <button className="btn-tool touch-hit ml-2" disabled={Boolean(busy)} onClick={() => { setError(''); void load() }}>重载列表</button>
+      </div>}
+      {editing && <ModelConnectionForm existing={editing === 'new' ? undefined : editing} onSaved={saved} onCancel={() => setEditing(null)} />}
+      {loading ? <p role="status" className="py-4 text-sm text-pi-dim">正在读取服务商…</p> : !providers.length ?
+        <p className="py-4 text-sm text-pi-dim">尚未配置服务商，点击「添加 API」开始。</p> :
+        <ul className="divide-y divide-pi-border-soft">
+          {providers.map(p => <li key={p.provider} className="py-3 flex flex-col sm:flex-row sm:items-center gap-2">
+            <div className="min-w-0 flex-1">
+              <h3 className="font-medium text-sm text-pi-text break-all">{p.provider}</h3>
+              <p className="text-sm text-pi-dim break-all">{p.modelCount} 个已配置 · {p.hasKey ? '密钥已保存' : '缺少密钥'} · {p.api === 'anthropic-messages' ? 'Messages' : 'OpenAI Chat'}</p>
+              <p className="text-sm text-pi-dim truncate" title={p.baseUrl}>{p.baseUrl || '专用服务商接口'}</p>
             </div>
-          ))}
-        </div>
-      )}
-    </div>
+            <div className="flex gap-1 flex-wrap">
+              <button className="btn-tool touch-hit text-sm" disabled={Boolean(busy || editing)} onClick={() => void operate(p.provider)}>{busy === p.provider ? '处理中…' : '重新发现'}</button>
+              <button className="btn-tool touch-hit text-sm" disabled={Boolean(busy || editing)} onClick={() => { setEditing(p); setError(''); setMessage('') }}>编辑</button>
+              <button className="btn-tool touch-hit text-sm hover:!text-pi-danger" aria-label={`移除 ${p.provider}`} disabled={Boolean(busy || editing)} onClick={() => setConfirming(p.provider)}>移除</button>
+            </div>
+          </li>)}
+        </ul>}
+      <AL.Root open={Boolean(confirming)} onOpenChange={open => { if (!open && !busy) setConfirming(null) }}>
+        <AL.Portal><AL.Overlay className="fixed inset-0 bg-black/50 z-[var(--pi-z-modal)]" />
+          <AL.Content className="fixed left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 w-[min(92vw,440px)] bg-pi-bg panel !p-5 z-[var(--pi-z-modal)]">
+            <AL.Title className="text-base font-semibold text-pi-text">移除 {confirming}？</AL.Title>
+            <AL.Description className="text-sm text-pi-dim my-3">将删除此服务商的密钥和模型配置，需要重新接入后才能使用。</AL.Description>
+            {error && <p role="alert" className="text-sm text-pi-danger">{error}</p>}
+            <div className="flex justify-end gap-2">
+              <AL.Cancel className="btn-tool touch-hit" disabled={Boolean(busy)}>取消</AL.Cancel>
+              <button className="btn-primary touch-hit px-4" disabled={Boolean(busy)} onClick={() => confirming && void operate(confirming, true)}>{busy ? '移除中…' : '确认移除'}</button>
+            </div>
+          </AL.Content>
+        </AL.Portal>
+      </AL.Root>
+    </section>
   )
 }

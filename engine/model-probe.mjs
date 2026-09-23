@@ -1,8 +1,10 @@
 // ===== model-probe.mjs —— 模型能力探测与发现（从 server.mjs 抽离）=====
-// 职责：能力推断（id 关键字）/ 真实 API 探测（chat/tts/image，带 24h TTL 缓存）/ 自定义 provider 模型发现。
+// 职责：标注能力推断 / 按协议读取模型目录 / 用户主动触发的文本验证，不自动生成媒体。
 // 纯逻辑 + engine/http 客户端，无 server 依赖。
 
 import { httpJsonFetch } from "./http.mjs";
+import { catalogHeaders, modelEndpoint, normalizeModelBase, modelProbeError } from './model-endpoints.mjs';
+import { verifyTextModel } from './model-verification.mjs';
 
 // 按模型 id 关键字推断能力（查档案兜底，不靠真实探测）
 export function modelCapabilities(id) {
@@ -26,69 +28,46 @@ export function modelCapabilities(id) {
   return caps;
 }
 
-// 添加时实际探测模型能力（无关键字模型逐个验证：chat / image / tts）
-// 探测缓存：一次探测 = 3 个真实 API 请求（chat×2 + image），50 模型的 provider 就是 150 次。
-// 进程内 TTL 缓存（24h）——refreshModelList 反复触发/重复添加不再重复烧请求。
-const probeCache = new Map(); // `${baseNoV1}|${modelId}` → { caps, at }
-const PROBE_CACHE_TTL = 24 * 3600 * 1000;
-
-export async function probeModelCapabilities(baseNoV1, key, modelId) {
-  const cacheKey = `${baseNoV1}|${modelId}`;
-  const hit = probeCache.get(cacheKey);
-  if (hit && Date.now() - hit.at < PROBE_CACHE_TTL) return hit.caps;
-  const caps = { chat: false, image: false, video: false, tts: false, asr: false };
-  const headers = { "Content-Type": "application/json", "Authorization": `Bearer ${key}` };
-  try {
-    const r = await httpJsonFetch(`${baseNoV1}/v1/chat/completions`, {
-      method: "POST", timeout: 10000, headers,
-      body: JSON.stringify({ model: modelId, max_tokens: 5, messages: [{ role: "user", content: "hi" }] }),
-    });
-    if (r.ok) caps.chat = true;
-  } catch {}
-  // TTS 探测：不发畸形消息（避免部分 API 封禁 key），复用正常 chat 请求检查响应中的 audio 字段
-  try {
-    const r = await httpJsonFetch(`${baseNoV1}/v1/chat/completions`, {
-      method: "POST", timeout: 10000, headers,
-      body: JSON.stringify({ model: modelId, max_tokens: 5, messages: [{ role: "user", content: "hi" }] }),
-    });
-    if (r.ok) {
-      const d = await r.json();
-      if (d.choices?.[0]?.message?.audio?.data) caps.tts = true;
-    }
-  } catch {}
-  try {
-    const r = await httpJsonFetch(`${baseNoV1}/v1/images/generations`, {
-      method: "POST", timeout: 10000, headers,
-      body: JSON.stringify({ model: modelId, prompt: "test", n: 1 }),
-    });
-    if (r.ok) caps.image = true;
-  } catch {}
-  probeCache.set(cacheKey, { caps, at: Date.now() });
-  return caps;
+// Backward-compatible explicit text probe. Media generation is never a discovery side effect.
+export async function probeModelCapabilities(baseUrl, key, modelId, { api = 'openai-completions' } = {}) {
+  const result = await verifyTextModel({ id: modelId, baseUrl, api }, key);
+  return { ...modelCapabilities(modelId), ...(result.ok ? { chat: true } : {}), verification: result };
 }
 
-// 自定义 provider 模型发现：直调 openai 兼容 /v1/models，并探测能力
-// oldCaps：上次已探测的能力表（重复添加时复用，跳过逐模型 API 探测）
-export async function discoverCustomModels(base, apiKey, oldCaps = new Map()) {
-  const mk = (u) => httpJsonFetch(u, { headers: { "Authorization": `Bearer ${apiKey}` }, timeout: 20000 });
-  const baseNoV1 = base.endsWith("/v1") ? base.slice(0, -3) : base;
-  for (const u of [`${baseNoV1}/v1/models`, `${base}/models`]) {
+export function catalogModel(id, baseUrl, api = 'openai-completions', name = id, source = 'catalog') {
+  return { id, name, api, baseUrl, reasoning: false, input: ['text'], contextWindow: 32768, maxTokens: 4096,
+    capabilities: modelCapabilities(id), capabilitySource: 'inferred', limitsSource: 'default', discoverySource: source };
+}
+
+// Listing is cheap and never proves inference access. Errors are not capability evidence.
+export async function discoverCustomModels(base, apiKey, _oldCaps = new Map(), { api = 'openai-completions' } = {}) {
+  const normalized = normalizeModelBase(base);
+  let endpoint = modelEndpoint(normalized, 'models');
+  const models = new Map(), deadline = Date.now() + 20000;
+  for (let page = 0; page < 10; page++) {
+    let r;
     try {
-      const r = await mk(u);
-      if (!r.ok) continue;
-      const data = await r.json();
-      const list = data.data || data.models || [];
-      if (!list.length) continue;
-      const models = [];
-      for (const m of list) {
-        if (typeof m.id !== "string") continue;
-        const model = { id: m.id, name: m.name || m.id, api: "openai-completions", baseUrl: baseNoV1, provider: "", reasoning: true, input: ["text"], contextWindow: 128000, maxTokens: 32768 };
-        if (/(image|video|tts|asr)/i.test(m.id)) model.capabilities = modelCapabilities(m.id);
-        else model.capabilities = oldCaps.get(m.id) || await probeModelCapabilities(baseNoV1, apiKey, m.id);
-        models.push(model);
+      r = await httpJsonFetch(endpoint, { headers: catalogHeaders(apiKey, api), timeout: Math.max(1, deadline - Date.now()) });
+      // Root-only APIs such as DeepSeek may expose /models without /v1.
+      if (r.status === 404 && page === 0 && new URL(normalized).pathname === '/') {
+        endpoint = `${normalized}/models`;
+        r = await httpJsonFetch(endpoint, { headers: catalogHeaders(apiKey, api), timeout: Math.max(1, deadline - Date.now()) });
       }
-      return models;
-    } catch {}
+    } catch (e) { throw modelProbeError(0, /timeout|abort/i.test(e?.message || '') ? 'timeout' : 'network'); }
+    if (!r.ok) throw modelProbeError(r.status);
+    const data = await r.json();
+    const list = data?.data || data?.models;
+    if (!Array.isArray(list)) throw modelProbeError(0, 'invalid_response');
+    for (const m of list) {
+      const id = typeof m?.id === 'string' ? m.id.trim() : '';
+      if (!id || id.length > 512) continue;
+      models.set(id, catalogModel(id, endpoint.split('?')[0].replace(/\/models$/, ''), api, m.name || m.display_name || id));
+    }
+    if (!data.has_more) {
+      if (!models.size) throw modelProbeError(0, 'empty_catalog');
+      return [...models.values()];
+    }
+    if (!data.last_id || page === 9 || Date.now() >= deadline) throw Object.assign(new Error('模型列表分页未完成，未保存；请缩小列表或手动填写模型 ID'), { status: 0 });
+    const next = new URL(endpoint); next.searchParams.set('after_id', data.last_id); endpoint = next.toString();
   }
-  return null;
 }

@@ -98,7 +98,7 @@ test("runYuanshuToolRound 失败结果要经过纠偏教练", async () => {
 test("handleUnifiedChat 必须常驻元枢协议和技能目录", () => {
   const src = readFileSync(join(ROOT, "engine", "unified-chat.mjs"), "utf8");
   const start = src.indexOf("export async function handleUnifiedChat");
-  const fn = src.slice(start, start + 9000);
+  const fn = src.slice(start, src.indexOf('// Agent 活动事件环', start));
   assert.ok(fn.includes("assembleYuanshuSystem") || fn.includes("buildYuanshuSections") || fn.includes("YUANSHU_PROTOCOL"), "元枢每轮必须注入工作协议");
   assert.ok(fn.includes("loadSkillIndex"), "元枢必须看见技能目录");
 });
