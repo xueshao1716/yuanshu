@@ -1,0 +1,55 @@
+.xiaoyu-companion {
+  position: fixed; z-index: var(--pi-z-topbar); width: 96px; height: 112px;
+  color: var(--pi-text); font-family: var(--pi-font-sans, inherit);
+}
+.xiaoyu-widget {
+  display: flex; flex-direction: column; align-items: center; width: 96px; height: 112px;
+  padding: 0 4px; border-radius: 14px; cursor: grab; touch-action: none; user-select: none;
+}
+.xiaoyu-widget[data-dragged="true"] { cursor: grabbing; }
+.xiaoyu-facing { display: block; width: 88px; height: 90px; pointer-events: none; }
+.xiaoyu-figure { display: flex; align-items: end; justify-content: center; width: 100%; height: 100%; transform-origin: 50% 95%; }
+.xiaoyu-figure img { width: 100%; height: 100%; object-fit: contain; filter: drop-shadow(0 4px 5px rgb(0 0 0 / .16)); }
+.xiaoyu-name {
+  display: block; max-width: 88px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  padding: 2px 9px; border-radius: 12px; background: var(--pi-bg1); color: var(--pi-text); font-size: 11px; line-height: 18px;
+}
+.xiaoyu-image-fallback { display: grid; place-items: center; width: 72px; height: 72px; overflow: hidden; border-radius: 16px; background: var(--pi-bg2); font-size: 13px; }
+.xiaoyu-figure[data-animated="true"] { animation: xiaoyu-breathe 4.6s ease-in-out infinite; }
+.xiaoyu-figure[data-walking="true"] { animation: xiaoyu-step 1.2s ease-in-out infinite; }
+.xiaoyu-figure[data-paused="true"] { animation-play-state: paused; }
+.xiaoyu-figure[data-greeting="true"] { animation: xiaoyu-greet .6s ease-out 1; }
+.xiaoyu-panel {
+  position: fixed; padding: 16px; overflow: auto; overscroll-behavior: contain; scrollbar-width: thin;
+  scrollbar-color: var(--pi-border) transparent; color: var(--pi-text); background: var(--pi-bg1);
+  border-radius: 16px; box-shadow: var(--pi-shadow-lg, 0 12px 36px rgb(0 0 0 / .18));
+  font-size: 13px; line-height: 1.5; user-select: text;
+}
+.xiaoyu-panel-head { display: flex; justify-content: space-between; align-items: start; gap: 8px; margin-bottom: 18px; }
+.xiaoyu-panel-head h2 { font-size: 17px; font-weight: 650; line-height: 1.5; overflow-wrap: anywhere; }
+.xiaoyu-panel-head p { margin-top: 2px; font-size: 12px; }
+.xiaoyu-panel-head > button { flex: 0 0 44px; margin: -8px -8px 0 0; }
+.xiaoyu-panel button, .xiaoyu-panel a { min-height: 44px; display: inline-flex; align-items: center; justify-content: center; gap: 6px; border-radius: 8px; transition: background-color .15s ease-out; }
+.xiaoyu-panel :is(button, a):hover { background: var(--pi-bg2); }
+.xiaoyu-panel :is(button, a):focus-visible, .xiaoyu-widget:focus-visible { outline: 2px solid var(--pi-accent); outline-offset: 3px; }
+.xiaoyu-panel fieldset { min-width: 0; padding: 0; border: 0; margin-bottom: 16px; }
+.xiaoyu-panel legend { margin-bottom: 8px; font-size: 12px; font-weight: 650; }
+.xiaoyu-skin-options { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+.xiaoyu-skin-options button { flex-direction: column; align-items: start; gap: 1px; padding: 9px 11px; background: var(--pi-bg2); text-align: left; }
+.xiaoyu-skin-options small { font-size: 11px; }
+.xiaoyu-panel button[aria-pressed="true"] { background: var(--pi-accent-soft); box-shadow: inset 0 0 0 1px var(--pi-accent); }
+.xiaoyu-panel button[aria-pressed="true"] > span { font-weight: 650; }
+.xiaoyu-mode-options { display: flex; gap: 6px; }
+.xiaoyu-mode-options button { flex: 1; }
+.xiaoyu-hint { margin-top: 8px; font-size: 12px; }
+.xiaoyu-tools { display: flex; gap: 8px; padding-bottom: 8px; border-bottom: 1px solid var(--pi-border-soft); }
+.xiaoyu-tools > * { flex: 1; }
+.xiaoyu-version { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding-top: 4px; font-size: 11px; }
+.xiaoyu-version button { padding-inline: 8px; }
+.xiaoyu-version button:disabled { opacity: .55; cursor: wait; }
+.xiaoyu-update { overflow-wrap: anywhere; margin-top: 4px; font-size: 12px; }
+@keyframes xiaoyu-breathe { 0%, 100% { transform: translateY(0) rotate(-.35deg); } 50% { transform: translateY(-2px) rotate(.35deg); } }
+@keyframes xiaoyu-step { 0%, 100% { transform: translateY(0) rotate(-1deg); } 50% { transform: translateY(-2px) rotate(1deg); } }
+@keyframes xiaoyu-greet { 0%, 100% { transform: rotate(0); } 45% { transform: rotate(-3deg); } 75% { transform: rotate(1deg); } }
+[data-reduced-motion="true"] .xiaoyu-figure { animation: none; }
+@media (prefers-reduced-motion: reduce) { .xiaoyu-figure { animation: none !important; } .xiaoyu-panel :is(button, a) { transition: none; } }

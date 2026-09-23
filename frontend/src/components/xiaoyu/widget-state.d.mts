@@ -1,0 +1,9 @@
+export type Point = { x: number; y: number };
+export type Viewport = { width: number; height: number };
+export const SKINS: { id: string; label: string; detail: string }[];
+export function normalizeSkin(value: unknown): string;
+export function normalizeMode(value: unknown): 'roam' | 'corner';
+export function imageForSkin(skin: string, frame?: string): string;
+export function clampPosition(point: Point, viewport: Viewport): Point;
+export function panelPosition(point: Point, viewport: Viewport, height: number): { width: number; maxHeight: number; left: number; top: number };
+export function movedEnough(start: Point, now: Point): boolean;
