@@ -155,6 +155,8 @@ const subagent = await import("./engine/subagent.mjs");
 const workshop = await import("./engine/workshop.mjs");
 const { handleWorkshopUiChat } = await import("./engine/workshop-ui-chat.mjs");
 const { createUiDesignService, handleUiDesign } = await import("./engine/ui-design-service.mjs");
+const { createWebsiteService } = await import('./engine/website-service.mjs');
+const { websiteRoutes } = await import('./engine/website-routes.mjs');
 const { handleExpandPrompt } = await import("./engine/workshop-prompt-expand.mjs");
 const gallery = await import("./engine/gallery.mjs");
 const distill = await import("./engine/distill-theme.mjs");
@@ -2159,7 +2161,9 @@ import { createWithCache } from "./engine/resp-cache.mjs";
 const withCache = createWithCache();
 
 const uiDesigns = createUiDesignService({root: WS_ROOT, getModelList: () => modelList, getDefaultModel: () => defaultModel, directChat});
+const websites = createWebsiteService({root: WS_ROOT, getModelList: () => modelList, getDefaultModel: () => defaultModel, directChat});
 const API_ROUTES = [
+  ...websiteRoutes(websites,{json,readBody,root:WS_ROOT}),
   ["GET", "/api/workshop-ui/projects", async res => handleUiDesign(uiDesigns, json, res, 'list')],
   ["POST", "/api/workshop-ui/projects", async (res, req) => handleUiDesign(uiDesigns, json, res, 'create', null, await readBody(req, 1))],
   ["GET", /^\/api\/workshop-ui\/projects\/([^/]+)$/, async (res, req, url, m) => handleUiDesign(uiDesigns, json, res, 'get', m[1])],

@@ -9,12 +9,13 @@ const identifier = value => {
 };
 const text = (value,max) => String(value || '').trim().slice(0,max);
 
-export function createUiDesignStore(root) {
-  const base = path.resolve(root), dir = path.join(base,'workshop-out','ui-designs');
+export function createUiDesignStore(root, {directory='ui-designs', validate=validateDocument} = {}) {
+  if (!['ui-designs','website-projects'].includes(directory)) throw designError('作品目录无效');
+  const base = path.resolve(root), dir = path.join(base,'workshop-out',directory);
   function ensure() {
     fs.mkdirSync(base,{recursive:true});
     let parent=base;
-    for (const part of ['workshop-out','ui-designs']) {
+    for (const part of ['workshop-out',directory]) {
       parent=path.join(parent,part);
       if (fs.existsSync(parent) && fs.lstatSync(parent).isSymbolicLink()) throw designError('作品目录不能是链接');
       fs.mkdirSync(parent,{recursive:true});
@@ -50,7 +51,7 @@ export function createUiDesignStore(root) {
       }).sort((a,b)=>b.updatedAt.localeCompare(a.updatedAt));
     },
     append(id,{doc,label,parentId=null,model=null}) {
-      const valid=validateDocument(doc),p=get(id);
+      const valid=validate(doc),p=get(id);
       if(parentId && !p.versions.some(v=>v.id===parentId)) throw designError('父版本不属于这个作品');
       if(p.versions.length>=100) throw designError('此作品已有 100 个版本，请另建作品');
       const v={id:randomUUID(),label:text(label,100)||'画布保存',parentId,createdAt:new Date().toISOString(),doc:valid,

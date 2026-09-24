@@ -1,6 +1,6 @@
 {
   "name": "yuanshu",
-  "version": "2.115.21",
+  "version": "2.116.0",
   "private": true,
   "description": "元枢个人智能系统 · Web 工作台（SSE 对话与自建引擎）",
   "type": "module",
@@ -9,6 +9,9 @@
     "@capacitor/core": "8.5.1",
     "@capacitor/ios": "8.5.1",
     "@lydell/node-pty": "^1.2.0-beta.15",
+    "linkedom": "^0.18.13",
+    "postcss": "^8.5.28",
+    "sanitize-html": "^2.17.7",
     "undici": "^7.16.0",
     "ws": "^8.21.3"
   },
@@ -32,7 +35,7 @@
   },
   "devDependencies": {
     "@capacitor/cli": "8.5.1",
-    "typescript": "^7.0.2",
-    "playwright": "^1.62.1"
+    "playwright": "^1.62.1",
+    "typescript": "^7.0.2"
   }
 }

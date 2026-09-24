@@ -27,7 +27,7 @@ const TAB_DESC: Record<Tab, string> = {
   ppt: '走 ppt-generator 技能全流程，通常需要几分钟',
   novel: '项目管理：产品化 → 五层 → 真相 → 写章 → 修订 → 导出',
   story: '先完成一段好故事，再让人物和情节接着走；分镜、设定与成品都在同一处',
-  ui: '从需求到两个方向，再用 M3E 画布调整；保留版本，随时选回',
+  ui: '直接编辑真实网页，AI 辅助局部修改；预览、版本与分享在同一处',
 }
 
 export default function Workshop({ initialTab }: { initialTab?: Tab } = {}) {
@@ -51,7 +51,7 @@ export default function Workshop({ initialTab }: { initialTab?: Tab } = {}) {
 
   return (
     <div className="flex-1 min-h-0 overflow-y-auto page-enter">
-      <div className="max-w-6xl mx-auto px-3 sm:px-6 py-4 sm:py-6">
+      <div className={`${tab === 'ui' ? 'max-w-[1600px]' : 'max-w-6xl'} mx-auto px-3 sm:px-6 py-4 sm:py-6`}>
         <PageHeader title="创作" description={TAB_DESC[tab]} />
 
         <div data-slot="workshop-tabs" className="grid grid-cols-2 w-full sm:inline-flex sm:w-auto gap-1 mb-5 p-1 rounded-pi-lg bg-pi-bg2/60 border border-pi-border-soft">

@@ -47,9 +47,11 @@ test('出图页把万像提示词填进绘画框', () => {
   assert.ok(wanxiang.includes('PromptSmartFill') || wanxiang.includes('智能填充'), '万像也要能按一句话填表')
 })
 
-test('界面工坊必须挂上官方 M3E Canvas，不能是自绘 v0.1', () => {
+test('新版网站工坊保留官方 M3E Canvas 旧作品入口', () => {
   const workshop = read('pages', 'Workshop.tsx')
-  const board = read('components', 'WorkshopUiBoard.tsx')
+  const board = read('components', 'LegacyUiBoard.tsx')
+  assert.ok(read('components', 'WorkshopUiBoard.tsx').includes('WebsiteBoard'), '主入口使用可视网站工坊')
+  assert.ok(read('components', 'website', 'WebsiteBoard.tsx').includes('LegacyUiBoard'), '旧作品入口仍可达')
   const index = readFileSync(join(dirname(fileURLToPath(import.meta.url)), '..', '..', 'public', 'workshop-ui', 'index.html'), 'utf8')
   assert.ok(workshop.includes("tab === 'ui'"), '点界面工坊必须有内容分支')
   assert.ok(workshop.includes('<WorkshopUiBoard'), '页签要接到草图板组件，不能只画空框')
@@ -100,10 +102,12 @@ test('官方画布必须套元枢主题和元枢模型，不能再让人填 Open
 
 test('界面工坊不得在创作页一恢复就整页跳走', () => {
   const workshop = read('pages', 'Workshop.tsx')
-  const board = read('components', 'WorkshopUiBoard.tsx')
+  const board = read('components', 'LegacyUiBoard.tsx')
+  const website = read('components', 'website', 'WebsiteBoard.tsx')
   assert.ok(!workshop.includes('yuanshu-open-ui'), '页签只打开作品列表，不能触发自动导航')
   assert.ok(board.includes('新建界面作品') && board.includes('已有作品'), '返回作品管理页后才能明确选择画布')
   assert.ok(!/useEffect\(\(\) => \{\s*window\.location\.(replace|assign)/.test(board), '不得无条件 replace/assign，否则返回创作会弹回')
+  assert.ok(!website.includes('window.location'), '新编辑器在工坊内打开，不整页跳转')
 })
 
 test('创作三板块手机版：页签铺满、触控 44px、表单可竖排', () => {
