@@ -1076,7 +1076,7 @@ export async function handleUnifiedChat(res, entry, message, sessionId, params, 
     // 恰恰是写给主角色的。runtime 段本来就存在，只是一直没人往里传。
     runtime: runContext?.aibodyContext?.strategy || "",
     task: thinkOn ? "你可以调用 think 工具，在动手之前写下你的分析过程（理解、步骤、计划、可能的坑）。写完后再执行任务。think 的内容仅供调试，不展示给用户，可以放心写。" : "",
-  }, gateway?.registry, { now: new Date(), model: chatModel, sessionId, message, cwd: _cwd, rhythm: readActivityRhythm(_cwd, { now: new Date(), sessionDir: _sessionDir }), since: lastTalkAt(sessionId), sessionStart: sessionStartedAt(hist) });
+  }, gateway?.registry, { engine: 'yuanshu', wsRoot: _cwd, now: new Date(), model: chatModel, sessionId, message, cwd: _cwd, rhythm: readActivityRhythm(_cwd, { now: new Date(), sessionDir: _sessionDir }), since: lastTalkAt(sessionId), sessionStart: sessionStartedAt(hist) });
   history = prependAssembledSystem(history, sections);
   history = beginYuanshuEmotion(sessionId || "new", message, history);
   history = (await compactKeepArchive(history, (h) => maybeCompactHistory(h, chatModel))).view;

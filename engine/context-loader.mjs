@@ -5,6 +5,7 @@ import path from "node:path";
 import os from "node:os";
 import * as memoryApi from "./memory.mjs"; // 命名空间导入（server.mjs 动态 import 同款语义）
 import { extractEntities, routeMemory, MEMORY_TOP_K } from "./yuanshu-memroute.mjs";
+import { runtimeIdentity } from "./runtime-identity.mjs";
 
 // ESM 兼容：__dirname 在 ESM 里未定义，用 import.meta.dirname（Node 21.2+）代替
 const __dirname = import.meta.dirname;
@@ -21,6 +22,7 @@ export function makeLoader(agentDir) {
     cwd: _cwd,
     agentDir,
     appendSystemPrompt: [
+      runtimeIdentity({ engine: 'pi' }),
       "用户偏好：请始终使用中文进行思考和回答；思考过程（thinking）也用中文。",
       "当任务涉及文件操作、命令执行时，请主动使用 read/write/edit/bash 工具完成，而不是只给出建议。",
       "自我认知：当被问及“你是谁/叫什么/介绍下自己/你的能力”等身份类问题时，按固定格式回答（不要主动自我介绍，也不要一开口就背身份）。固定格式：我叫小语，你的 AI 工作伙伴。我能干：写代码、做设计、整理文档、分析数据，并直接操作工作空间完成交付。由元枢工作台驱动。当前使用模型与模型特色见对话上下文的系统信息。",

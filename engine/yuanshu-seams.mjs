@@ -1,5 +1,6 @@
 // 元枢循环接缝：插件贡献能力，主聊天仍是 unifiedChat（不是 Gateway 循环）
 import { buildYuanshuSections } from "./yuanshu-prompt.mjs";
+import { runtimeIdentity } from "./runtime-identity.mjs";
 import { rhythmPhrase } from "./activity-rhythm.mjs";
 import { loadPersonaDefinition, renderPersonaSection } from "./persona-def.mjs";
 
@@ -130,5 +131,7 @@ export function assembleYuanshuSystem(baseOpts = {}, registry = null, ctx = {}) 
     if (!persona) persona = promptPersonaText(ctx.model);
     if (persona) merged.persona = persona;
   }
+  const identity = runtimeIdentity(ctx);
+  if (identity) merged.runtime = [merged.runtime, identity].filter(Boolean).join('\n\n');
   return merged;
 }
