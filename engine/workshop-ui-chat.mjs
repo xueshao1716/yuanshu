@@ -1,4 +1,3 @@
-import { pickWorkshopModel } from "./workshop-model.mjs";
 
 export function messagesToDirectChat(messages) {
   const list = Array.isArray(messages) ? messages : [];
@@ -24,6 +23,7 @@ export function messagesToDirectChat(messages) {
 }
 
 export function modelKeyFromRequest(req, body) {
+  if (body?.model && body.model !== 'yuanshu') return String(body.model);
   const cookie = String(req?.headers?.cookie || "");
   const m = /(?:^|;\s*)yuanshu-ui-model=([^;]+)/.exec(cookie);
   if (m) {
@@ -34,7 +34,8 @@ export function modelKeyFromRequest(req, body) {
 
 export async function handleWorkshopUiChat(ctx, res, body) {
   const { json, defaultModel, getModelList, directChat } = ctx;
-  const picked = pickWorkshopModel({ defaultModel, getModelList }, { model: modelKeyFromRequest(ctx.req, body) }) || defaultModel;
+  const key = modelKeyFromRequest(ctx.req, body);
+  const picked = key && key !== 'yuanshu' ? getModelList().find(m => `${m.provider}/${m.id}` === key) : defaultModel;
   if (!picked) return json(res, 400, { error: "没有可用模型" });
   const { message, history, systemHint } = messagesToDirectChat(body?.messages);
   if (!message) return json(res, 400, { error: "缺少 messages" });

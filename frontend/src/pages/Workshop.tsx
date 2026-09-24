@@ -27,7 +27,7 @@ const TAB_DESC: Record<Tab, string> = {
   ppt: '走 ppt-generator 技能全流程，通常需要几分钟',
   novel: '项目管理：产品化 → 五层 → 真相 → 写章 → 修订 → 导出',
   story: '先完成一段好故事，再让人物和情节接着走；分镜、设定与成品都在同一处',
-  ui: 'M3E 拖拽草图板：拼组件 → 调主题 → 导出 Prompt 给 AI 编码',
+  ui: '从需求到两个方向，再用 M3E 画布调整；保留版本，随时选回',
 }
 
 export default function Workshop({ initialTab }: { initialTab?: Tab } = {}) {
@@ -47,9 +47,6 @@ export default function Workshop({ initialTab }: { initialTab?: Tab } = {}) {
   const chooseTab = (next: Tab) => {
     setTab(next)
     try { localStorage.setItem('pi_workshop_tab', next) } catch {}
-    if (next === 'ui') {
-      try { sessionStorage.setItem('yuanshu-open-ui', '1') } catch {}
-    }
   }
 
   return (

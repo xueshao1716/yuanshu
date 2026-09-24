@@ -1,6 +1,12 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { messagesToDirectChat, handleWorkshopUiChat } from "../../engine/workshop-ui-chat.mjs";
+import { messagesToDirectChat, handleWorkshopUiChat, modelKeyFromRequest } from "../../engine/workshop-ui-chat.mjs";
+
+test('workshop explicit model wins over another tab cookie; unknown model is rejected', async () => {
+  assert.equal(modelKeyFromRequest({headers:{cookie:'yuanshu-ui-model=other/old'}},{model:'test/current'}),'test/current');
+  let code; await handleWorkshopUiChat({json:(_r,c)=>{code=c},getModelList:()=>[],defaultModel:{provider:'test',id:'default'},directChat:()=>{throw Error('must not call')}},{},{model:'missing/model',messages:[{role:'user',content:'hi'}]});
+  assert.equal(code,400);
+});
 
 test("messagesToDirectChat：系统提示 + 末条用户，中间进历史", () => {
   const got = messagesToDirectChat([

@@ -35,16 +35,20 @@ export function buildDirectChatBody({ modelId, messages, maxTokens, thinking } =
 export async function directChat(model, message, history = [], opts = {}) {
   // 2026-08-21 支持 systemHint：复读修正等场景注入引导（不切换模型）
   const systemHint = opts?.systemHint || null;
+  const fail = message => {
+    if (opts.throwOnError) throw Object.assign(new Error(message), { statusCode: 502 });
+    return null;
+  };
   try {
     const auth = _readJsonFile(_authPath);
     const key = auth[model.provider]?.key;
-    if (!key) return null;
+    if (!key) return fail('所选模型未配置密钥，请在模型管理中检查');
     const resolved = _resolveAuth(model.provider);
     const store = _readJsonFile(_modelsPath);
     const mdef = (store[model.provider]?.models || []).find(m => m.id === model.id)
       || _getModelList().find(m => m.provider === model.provider && m.id === model.id);
     const baseUrl = mdef?.baseUrl || resolved?.baseUrl || model.baseUrl;
-    if (!baseUrl) return null;
+    if (!baseUrl) return fail('所选模型未配置接口地址，请在模型管理中检查');
     const base = (baseUrl || "").replace(/\/+$/, "");
     const baseNoV1 = base.endsWith("/v1") ? base.slice(0, -3) : base;
     const messages = systemHint ? [{ role: "system", content: systemHint }, ...history, { role: "user", content: message }] : [...history, { role: "user", content: message }];
@@ -55,10 +59,10 @@ export async function directChat(model, message, history = [], opts = {}) {
       const r = await httpJsonFetch(messagesEndpoint(base), { method: 'POST', headers: messagesHeaders(key), body: JSON.stringify(buildMessagesRequest({ model: model.id, modelKey: `${model.provider}/${model.id}`, messages, maxTokens: tokenCap })), timeout: reqTimeout, signal: opts.signal });
       if (!r.ok) {
         if (isAuthErrorStatus(r.status)) markModelBlocked(model, { reason: `HTTP ${r.status} (messages)` });
-        return null;
+        return fail(`模型通道请求失败（HTTP ${r.status}），请检查通道或选择其他文本模型`);
       }
       const parsed = decodeMessagesResponse(await r.json());
-      if (parsed.finishReason === 'max_tokens') return null;
+      if (parsed.finishReason === 'max_tokens') return fail('模型输出达到长度上限，请简化设计后重试');
       return { text: parsed.message.content || null, think: parsed.message.reasoning_content, usedModel: { provider: model.provider, id: parsed.model || model.id } };
     }
     // openai-responses 类型（grok/gpt-5.6-luna 等）：用 /responses 端点，input 数组格式
@@ -74,7 +78,7 @@ export async function directChat(model, message, history = [], opts = {}) {
       if (rr.status === 404) rr = await mkResp(`${baseNoV1}/responses`);
       if (!rr.ok) {
         if (isAuthErrorStatus(rr.status)) markModelBlocked(model, { reason: `HTTP ${rr.status} (responses)` });
-        return null;
+        return fail(`模型通道请求失败（HTTP ${rr.status}），请检查通道或选择其他文本模型`);
       }
       const rd = await rr.json();
       // responses 格式：output[] 里 message 类型取 text
@@ -105,7 +109,7 @@ export async function directChat(model, message, history = [], opts = {}) {
     if (r.status === 404) r = await mkReq(`${baseNoV1}/chat/completions`);
     if (!r.ok) {
       if (isAuthErrorStatus(r.status)) markModelBlocked(model, { reason: `HTTP ${r.status} (directChat)` });
-      return null;
+      return fail(`模型通道请求失败（HTTP ${r.status}），请检查通道或选择其他文本模型`);
     }
     const data = await r.json();
     const msg = data.choices?.[0]?.message || {};
@@ -126,6 +130,10 @@ export async function directChat(model, message, history = [], opts = {}) {
     return { think, text: text || null, usedModel: { provider: model.provider, id: data.model || model.id } };
   } catch (e) {
     if (e && /timeout/i.test(String(e?.message || ""))) return { timeout: true };
+    if (opts.throwOnError) {
+      if (e?.statusCode === 502) throw e;
+      return fail('模型连接失败，请检查网络和通道后重试');
+    }
     return null;
   }
 }

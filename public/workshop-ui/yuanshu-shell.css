@@ -1,5 +1,5 @@
 /* 元枢壳：官方画布上面加我们的顶栏，并压掉 100% 桌面字号 */
-:root { --yuanshu-bar: 44px; --yuanshu-scale: 0.72; }
+:root { --yuanshu-bar: 56px; --yuanshu-scale: 0.85; }
 
 #yuanshu-bar {
   position: fixed;
@@ -16,13 +16,6 @@
   border-bottom: 1px solid color-mix(in srgb, var(--pi-text, #1c2333) 14%, transparent);
   backdrop-filter: blur(12px);
   font-family: "Segoe UI", "Microsoft YaHei", system-ui, sans-serif;
-}
-#yuanshu-bar::before {
-  content: "";
-  position: absolute;
-  left: 0; top: 0; bottom: 0;
-  width: 3px;
-  background: var(--pi-accent, #4a58fa);
 }
 #yuanshu-bar a {
   color: var(--pi-accent, #4a58fa);
@@ -142,3 +135,18 @@ a[href*="github.com/lnkiai/m3e-canvas"],
 .app-root a[href*="aistudio.google.com"],
 .app-root a[href*="platform.deepseek.com"],
 .app-root input[type="password"] { display: none !important; }
+
+#yuanshu-bar a, #yuanshu-bar .yuanshu-model select, #yuanshu-save { min-height: 44px; }
+#yuanshu-save { border: 1px solid currentColor; border-radius: 8px; padding: 0 12px; color: var(--pi-accent); background: var(--pi-bg); cursor: pointer; white-space: nowrap; }
+#yuanshu-save:disabled { opacity: .55; cursor: wait; }
+#yuanshu-save-status { font-size: 12px; max-width: 220px; }
+.yuanshu-restoring .app-root { visibility: hidden; pointer-events: none; }
+#yuanshu-bar :focus-visible { outline: 2px solid var(--pi-accent); outline-offset: 2px; }
+@media (max-width: 640px) {
+  :root { --yuanshu-bar: 106px; --yuanshu-scale: 1; }
+  #yuanshu-bar { flex-wrap: wrap; gap: 2px 8px; padding: 4px 8px; }
+  #yuanshu-bar .brand { display: none; }
+  #yuanshu-bar .yuanshu-model { margin-left: 0; flex: 1; }
+  #yuanshu-bar .yuanshu-model select { max-width: 42vw; width: 100%; }
+  #yuanshu-save-status { max-width: none; flex-basis: 100%; min-height: 20px; }
+}

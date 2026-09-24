@@ -1,4 +1,7 @@
 (() => {
+  if (window.yuanshuCanvasReady) init();
+  else window.addEventListener('yuanshu-canvas-ready', init, {once:true});
+  function init() {
   const THEMES = {
     mist: { bg: "#f3f5fa", text: "#1c2333", accent: "#4a58fa" },
     kraft: { bg: "#e5d4aa", text: "#3b2c14", accent: "#b45309" },
@@ -16,7 +19,7 @@
   document.title = "元枢 · 界面工坊";
   document.documentElement.lang = "zh-CN";
 
-  const token = () => { try { return localStorage.getItem("pi_web_token") || ""; } catch { return ""; } };
+  const token = () => { try { return localStorage.getItem("yuanshu_access_token") || localStorage.getItem("pi_web_token") || ""; } catch { return ""; } };
   const read = (k, fb = "") => { try { return localStorage.getItem(k) || fb; } catch { return fb; } };
   const write = (k, v) => { try { localStorage.setItem(k, v); } catch {} };
 
@@ -50,7 +53,7 @@
       model: modelKey || "yuanshu",
       key: token(),
     }));
-    document.cookie = `yuanshu-ui-model=${encodeURIComponent(modelKey || "")}; path=/`;
+    window.yuanshuWorkshopModel = modelKey || "";
   }
 
   applyTheme(read("pi_theme", "mist"), read("pi_accent"), read("pi_wallpaper"));
@@ -71,7 +74,7 @@
       bar.querySelector("#yuanshu-back").addEventListener("click", () => {
         try {
           sessionStorage.removeItem("yuanshu-open-ui");
-          if (localStorage.getItem("pi_workshop_tab") === "ui") localStorage.setItem("pi_workshop_tab", "image");
+          localStorage.setItem("pi_workshop_tab", "ui");
         } catch {}
       });
       document.body.prepend(bar);
@@ -143,11 +146,8 @@
     const current = d.current ? `${d.current.provider}/${d.current.id}` : "";
     const saved = read("yuanshu-ui-model");
     const pick = models.some((m) => `${m.provider}/${m.id}` === saved) ? saved : (models.some((m) => `${m.provider}/${m.id}` === current) ? current : (models[0] ? `${models[0].provider}/${models[0].id}` : ""));
-    const html = models.length
-      ? models.map((m) => `<option value="${m.provider}/${m.id}">${m.name}（${m.provider}）${m.free ? " · 免费" : ""}</option>`).join("")
-      : '<option value="">没有可用文本模型</option>';
     for (const sel of sels) {
-      sel.innerHTML = html;
+      sel.replaceChildren(...(models.length ? models.map(m => new Option(`${m.name || m.id}（${m.provider}）${m.free ? ' · 免费' : ''}`, `${m.provider}/${m.id}`)) : [new Option('没有可用文本模型', '')]));
       sel.value = pick;
       sel.onchange = () => {
         write("yuanshu-ui-model", sel.value);
@@ -162,10 +162,11 @@
       injectAi(pick);
     }
   }
-  fetch("/api/models", { headers: headers() }).then((r) => r.ok ? r.json() : null).then((d) => {
+  fetch("/api/models", { headers: headers() }).then((r) => { if (!r.ok) throw new Error(r.status === 401 ? '请返回元枢登录' : '模型列表加载失败'); return r.json(); }).then((d) => {
     modelCache = d || { models: [] };
     fillModels(modelCache);
-  }).catch(() => {
-    for (const sel of document.querySelectorAll(".yuanshu-model-select")) sel.innerHTML = '<option value="">先登录元枢</option>';
+  }).catch((error) => {
+    for (const sel of document.querySelectorAll(".yuanshu-model-select")) sel.replaceChildren(new Option(error.message, ''));
   });
+  }
 })();

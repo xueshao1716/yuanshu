@@ -154,6 +154,7 @@ emotion.setMemoryNudgeHook((info) => { try { proposeMemoryNudge(info); } catch {
 const subagent = await import("./engine/subagent.mjs");
 const workshop = await import("./engine/workshop.mjs");
 const { handleWorkshopUiChat } = await import("./engine/workshop-ui-chat.mjs");
+const { createUiDesignService, handleUiDesign } = await import("./engine/ui-design-service.mjs");
 const { handleExpandPrompt } = await import("./engine/workshop-prompt-expand.mjs");
 const gallery = await import("./engine/gallery.mjs");
 const distill = await import("./engine/distill-theme.mjs");
@@ -2157,7 +2158,12 @@ import { createWithCache } from "./engine/resp-cache.mjs";
 // 就会调用 withCache(...)，放到数组之后就成"先用后声明"了（tests/unit/module-scope-order 守着这条）。
 const withCache = createWithCache();
 
+const uiDesigns = createUiDesignService({root: WS_ROOT, getModelList: () => modelList, getDefaultModel: () => defaultModel, directChat});
 const API_ROUTES = [
+  ["GET", "/api/workshop-ui/projects", async res => handleUiDesign(uiDesigns, json, res, 'list')],
+  ["POST", "/api/workshop-ui/projects", async (res, req) => handleUiDesign(uiDesigns, json, res, 'create', null, await readBody(req, 1))],
+  ["GET", /^\/api\/workshop-ui\/projects\/([^/]+)$/, async (res, req, url, m) => handleUiDesign(uiDesigns, json, res, 'get', m[1])],
+  ["POST", /^\/api\/workshop-ui\/projects\/([^/]+)\/(versions|select|generate)$/, async (res, req, url, m) => handleUiDesign(uiDesigns, json, res, m[2] === 'versions' ? 'save' : m[2], m[1], await readBody(req, 1))],
   // 待审改动（2026-09-20，借 openwriter 的"agent 写字、人审阅"）：改文件先落待审区，接受才写盘。
   ["GET", "/api/pending", (res) => pendingApi.list(res)],
   ["POST", "/api/pending", async (res, req) => pendingApi.create(res, await readBody(req, 12))],
