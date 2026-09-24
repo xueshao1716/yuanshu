@@ -52,7 +52,10 @@ test('team uses persisted children, passes prior work and writes only final revi
 test('objective speech overrun cannot be approved by a model and repair replaces the draft', async t => {
   const bad = '0—3秒，画面：菜单；口播：“今天我们到这家店先来看看这个招牌套餐到底多少钱”。';
   const good = '0—3秒，画面：菜单；口播：“五十元，先看价。”';
-  const { root, requests } = await setup(t, ['方案', '质疑', bad, '{"pass":true,"issues":[]}', good, '{"pass":true,"issues":[]}']);
+  const fixedReview = JSON.stringify({ pass: true, issues: [], revisionChecks: [
+    { id: 'R1', status: 'resolved', quote: '五十元，先看价。', reason: '已缩短口播，三秒容得下' },
+  ] });
+  const { root, requests } = await setup(t, ['方案', '质疑', bad, '{"pass":true,"issues":[]}', good, fixedReview]);
   const { executeTeam } = await import('../../engine/team-subagents.mjs');
   const result = await executeTeam({ task: '写三秒口播' }, { wsRoot: root, sessionId: 's', runId: 'timing' });
   assert.equal(result.isError, false);
@@ -60,11 +63,16 @@ test('objective speech overrun cannot be approved by a model and repair replaces
   assert.match(JSON.stringify(requests[4].messages), /口播.*超/);
   assert.equal((await fs.readFile(path.join(root, result.artifact), 'utf8')).trim(), good);
   assert.doesNotMatch(JSON.stringify(requests[5].messages), /这个招牌套餐/);
+  assert.equal(result.delivery.evidence.modelReview.revisionChecks[0].quote, '五十元，先看价。');
+  assert.match(result.delivery.evidence.modelReview.revisionChecks[0].issue, /口播.*超/);
 });
 
 test('unfixed objective violations are not published even after two model approvals', async t => {
   const bad = '0—1秒；口播：“这一句实在太长不可能说得完”。';
-  const { root } = await setup(t, ['方案', '质疑', bad, '{"pass":true,"issues":[]}', bad, '{"pass":true,"issues":[]}']);
+  const review = JSON.stringify({ pass: true, issues: [], revisionChecks: [
+    { id: 'R1', status: 'resolved', quote: '这一句实在太长不可能说得完', reason: '模型错误地声称口播已修正' },
+  ] });
+  const { root } = await setup(t, ['方案', '质疑', bad, '{"pass":true,"issues":[]}', bad, review]);
   const { executeTeam } = await import('../../engine/team-subagents.mjs');
   const result = await executeTeam({ task: '写一秒口播' }, { wsRoot: root, sessionId: 's', runId: 'bad-timing' });
   assert.equal(result.isError, true);
@@ -141,4 +149,17 @@ test('completed team recovery reuses result and uncertain stage never buys anoth
   assert.equal(await fs.readFile(path.join(root, first.artifact), 'utf8'), '人工改稿');
   const uncertain = await executeTeam({ task: 'test' }, { ...ctx, teamState: { task: 'test', inFlight: 'EXEC', stages: [] } });
   assert.equal(uncertain.isError, true); assert.match(uncertain.text, /不确定/); assert.equal(requests.length, 4);
+});
+
+test('revision does not republish on a bare approval that forgot earlier review issues', async t => {
+  const { root, requests } = await setup(t, ['旧方案标记', '早期质疑标记', '旧稿标记',
+    '{"pass":false,"issues":["预算分支与三份台词矛盾"]}', '按实际购买数量拍摄', '{"pass":true,"issues":[]}']);
+  const { executeTeam } = await import('../../engine/team-subagents.mjs');
+  const result = await executeTeam({ task: '预算脚本' }, { wsRoot: root, runId: 'closure', sessionId: 's' });
+  assert.equal(result.isError, true);
+  assert.equal(result.artifact, undefined);
+  assert.equal(requests.length, 6, 'no extra paid revision loops');
+  assert.match(JSON.stringify(requests[5].messages), /预算分支与三份台词矛盾/);
+  assert.doesNotMatch(JSON.stringify(requests[5].messages), /旧稿标记|旧方案标记|早期质疑标记/);
+  assert.doesNotMatch(JSON.stringify(requests[4].messages), /旧方案标记|早期质疑标记/);
 });

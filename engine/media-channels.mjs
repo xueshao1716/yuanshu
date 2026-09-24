@@ -120,7 +120,11 @@ export function createMediaToolExecutor(deps = {}) {
     const mediaType = r.type === "tts" ? "audio" : (r.type || type);
     const v = r.verification;
     const dimensions = imageVerificationNotice(v);
-    const warning = v?.status === 'mismatch' ? '⚠️ 已返回图片，但画幅未达标' : v?.status === 'unverified' ? '⚠️ 已返回图片，像素尚未核验' : '✅ 已生成 ' + mediaType;
+    const warning = mediaType !== 'image' ? '✅ 已生成 ' + mediaType
+      : !v || v.status === 'unverified' ? '⚠️ 已返回图片，像素尚未核验'
+      : v.status === 'mismatch' ? '⚠️ 已返回图片，但画幅未达标'
+      : v.exactSize === false ? '⚠️ 已返回图片，但像素尺寸未达标'
+      : v.exactSize !== true ? '⚠️ 已返回图片，像素尚未核验' : '✅ 已生成 image';
     return {
       text: `${warning}：${r.url}${r.model ? `（${r.model}）` : ""}。${dimensions}${v && v.status !== 'matched' ? '不要宣称比例达标或把单次结果写成通用模型限制；不要擅自裁剪。' : ''}对话播放器会播这条路径。你判断要不要本机打开或复制到交付目录，做完汇报。`,
       media: { type: mediaType, url: r.url, ...(v ? { verification: v } : {}) },

@@ -5,6 +5,7 @@ import { reviewStoragePath } from './review-file-safety.mjs';
 import { stageGeneralTeamDelivery } from './team-general-delivery.mjs';
 import { forkSeedFromHistory } from './subagent-fork.mjs';
 import { inspectTimedSpeech, TEAM_REVIEW_RULES } from './team-delivery-checks.mjs';
+import { parseTeamReview, revisionItems, TEAM_REVISION_RULES, TEAM_REVISION_REVIEW_RULES } from './team-revision.mjs';
 
 export const TEAM_DELIVERY_RULES = `天团必须通过 delegate_team 或真实子任务工具执行，不能用 IDEA/CHALLENGE/EXEC 标题冒充独立调用。简单问题直接回答。
 交付正文必须回应用户原始目标，区分已知事实、假设和待核实项；建议要有选择依据、具体实施材料、成本约束和验证办法。
@@ -65,15 +66,14 @@ export async function executeTeam(args = {}, ctx = {}) {
     abort();
     return r.result;
   };
-  const review = async draft => {
+  const review = async (draft, previousIssues = []) => {
     const measured = inspectTimedSpeech(draft);
-    const raw = await stage('REVIEW', 'reviewer', TEAM_REVIEW_RULES, [
+    const raw = await stage('REVIEW', 'reviewer', TEAM_REVIEW_RULES + (previousIssues.length ? '\n' + TEAM_REVISION_REVIEW_RULES : ''), [
       `待复核正文：\n${draft}`, `程序检查（有界检查，不等于内容通过）：${JSON.stringify(measured)}`,
+      ...(previousIssues.length ? [`修订清单（逐项验证，不代表旧意见必然正确）：${JSON.stringify(revisionItems(previousIssues))}`] : []),
     ]);
-    let parsed;
-    try { parsed = JSON.parse(raw.replace(/^```(?:json)?\s*|\s*```$/g, '').trim()); } catch { throw new Error('复核结果格式无效，未发布'); }
-    if (typeof parsed.pass !== 'boolean' || !Array.isArray(parsed.issues) || parsed.issues.some(x => typeof x !== 'string' || !x.trim())) throw new Error('复核结果不完整，未发布');
-    return { pass: parsed.pass && !measured.issues.length, issues: [...new Set([...measured.issues, ...parsed.issues])] };
+    const parsed = parseTeamReview(raw, draft, previousIssues);
+    return { ...parsed, pass: parsed.pass && !measured.issues.length, issues: [...new Set([...measured.issues, ...parsed.issues])] };
   };
   try {
     prior.push(await stage('IDEA', 'planner', '提出最多三个方向，写明假设、选择标准、最小可行试验和实际交付结构。避免套路和未经验证的必火断言。只交内部方案要点，最多 600 字，完整脚本留给 EXEC。'));
@@ -81,10 +81,11 @@ export async function executeTeam(args = {}, ctx = {}) {
     let draft = await stage('EXEC', 'planner', '根据方案和质疑直接完成最终交付正文，不写角色表演或讨论纪要。缺信息则标注保守假设后继续。脚本逐期分别写完整标题、钩子、逐镜时间轴与逐镜口播，不以统一模板代替多期脚本。3秒钩子控制约8至10个汉字；镜头时长必须容得下对应口播。只使用已确认资源，金额和时长逐项验算，不写死实测前未知的结论。计划给具体步骤与用实际可获得数据进行验证的标准。');
     let verdict = await review(draft);
     if (!verdict.pass || verdict.issues.length) {
-      prior.push(`待修订稿：${draft}\n具体缺项：${JSON.stringify(verdict.issues)}`);
-      draft = await stage('EXEC修订', 'planner', '修复列出的实质缺项，并重新核对用户原始任务和全部交付规则，不能仅补形式而引入未经实测的结论。输出完整最终正文，未知事实用明确待填字段或条件分支。');
-      prior.pop();
-      verdict = await review(draft);
+      const issues = verdict.issues.length ? verdict.issues : ['上轮复核未通过但未给具体原因；重新核查全部约束并列出依据'];
+      draft = await stage('EXEC修订', 'planner', TEAM_REVISION_RULES, [
+        `待修订稿：\n${draft}`, `修订清单：${JSON.stringify(revisionItems(issues))}`,
+      ]);
+      verdict = await review(draft, issues);
     }
     if (!verdict.pass || verdict.issues.length) throw new Error(`正文复核未通过：${verdict.issues.join('；')}`);
     abort();

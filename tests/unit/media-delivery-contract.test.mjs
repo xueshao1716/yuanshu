@@ -55,3 +55,24 @@ test('wrong upstream ratio is delivered as an explicit warning, never a verified
   assert.doesNotMatch(out.text, /✅/);
   assert.equal(out.media.verification.status, 'mismatch');
 });
+
+test('exact ratio with smaller pixels remains usable media but is not presented as compliant', async () => {
+  let calls = 0;
+  const exec = createMediaToolExecutor({ generateMediaAsync: async () => {
+    calls++;
+    return { type: 'image', url: '/portrait.png', verification: { status: 'matched', requestedSize: '1024x1536',
+      actualSize: '832x1248', exactSize: false, ratioExact: true } };
+  } });
+  const out = await exec('generate_image', { prompt: '海报', size: '1024x1536', aspect_ratio: '2:3' });
+  assert.match(out.text, /⚠️.*像素尺寸未达标/);
+  assert.doesNotMatch(out.text, /✅/);
+  assert.equal(out.media.url, '/portrait.png');
+  assert.ok(!out.isError, 'a delivered image must not trigger another paid generation');
+  assert.equal(calls, 1);
+});
+
+test('image without dimension evidence cannot be shown as verified, while audio stays unaffected', async () => {
+  const exec = createMediaToolExecutor({ generateMediaAsync: async intent => ({ type: intent.type, url: '/asset' }) });
+  assert.match((await exec('generate_image', { prompt: '海报' })).text, /⚠️.*尚未核验/);
+  assert.match((await exec('generate_tts', { text: '你好' })).text, /✅/);
+});

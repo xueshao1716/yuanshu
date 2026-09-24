@@ -23,14 +23,29 @@ test('host passes 2:3 through the real HTTP request and measures the returned PN
   t.after(() => { server.closeAllConnections(); server.close(); });
   initMediaApi({ resolveAuth: () => ({ key: 'fixture', baseUrl: `http://127.0.0.1:${server.address().port}/v1` }),
     readJsonFile: () => ({}), getModelList: () => [{ provider: 'fixture', id: 'fixture-image', capabilities: { image: true } }] });
-  const result = await generateMediaAsync({ type: 'image', aspectRatio: '2:3' }, 'a leaf');
+  const observed = [];
+  const result = await generateMediaAsync({ type: 'image', aspectRatio: '2:3' }, 'a leaf', {
+    onImageRequest: fact => observed.push(fact),
+  });
   assert.equal(requests[0].size, '1024x1536');
+  assert.deepEqual(observed, [{ source: 'host_http_dispatch', model: 'fixture-image', size: requests[0].size,
+    endpointPath: '/v1/images/generations', attempt: 1 }]);
+  assert.doesNotMatch(JSON.stringify(observed), /fixture"|a leaf|Authorization|baseUrl|127\.0\.0\.1/);
   assert.equal(result.verification?.actualSize, '1024x1536');
   assert.equal(result.verification.status, 'matched');
   height = 1024;
   const mismatch = await generateMediaAsync({ type: 'image', size: '1024x1536' }, 'a leaf');
   assert.equal(mismatch.verification.status, 'mismatch');
   assert.equal(mismatch.verification.actualSize, '1024x1024');
+  assert.equal(observed.length, 1, 'per-call observation must not leak across requests');
+  width = 832; height = 1248;
+  const smaller = await generateMediaAsync({ type: 'image', size: '1024x1536', aspectRatio: '2:3' }, 'a leaf', {
+    onImageRequest: () => { throw new Error('diagnostic-only failure'); },
+  });
+  assert.equal(smaller.verification.exactSize, false);
+  assert.equal(smaller.verification.ratioExact, true);
+  assert.equal(requests[2].size, '1024x1536');
+  assert.equal(requests.length, 3, 'observer errors and pixel mismatch must not trigger extra generation');
 });
 
 test('dimension facts distinguish exact pixels, exact ratio, near ratio and unknown formats', async () => {

@@ -5,6 +5,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { setTimeout as delay } from 'node:timers/promises';
 import { loadLiveEvalModel } from './live-eval-model.mjs';
+import { teamLiveOutcome } from './live-eval-team-result.mjs';
 
 if (!process.argv.includes('--live')) throw new Error('真实模型会产生费用；显式传入 --live 执行');
 const repo = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -73,10 +74,12 @@ const report = { model: `${model.provider}/${model.id}`, wsRoot, runId: run.id, 
   artifact: evidence.artifacts[0]?.path, reviewable: evidence.reviewable, issues: evidence.issues,
   assistantMessages: entry.sm.fileEntries.filter(e => e.message.role === 'assistant').length,
   aibody: { status: runtime.getRun(run.id)?.status, children: runtime.getRun(run.id)?.evidence?.subagents }, humanAccepted: false };
+Object.assign(report, teamLiveOutcome(report));
 fs.mkdirSync(path.join(repo, 'tmp'), { recursive: true });
 report.reportFile = `tmp/team-general-live-${run.id}.json`;
 fs.writeFileSync(path.join(repo, report.reportFile), JSON.stringify(report, null, 2));
 fs.writeFileSync(path.join(repo, 'tmp/team-general-live-report.json'), JSON.stringify(report, null, 2));
 console.log(JSON.stringify(report));
 eventLog.close();
-process.exitCode = result.status === 'completed' && evidence.reviewable && report.assistantMessages === 1 ? 0 : 1;
+// Exit 0 covers pipeline checks only; null content quality is deliberately not a pass.
+process.exitCode = report.pipelinePassed ? 0 : 1;

@@ -40,7 +40,10 @@ if (!resolveAuth(model.provider)?.key || !resolveAuth(mediaModel.provider)?.key)
   throw new Error('指定模型缺少凭据，未调用付费模型');
 initMediaApi({ resolveAuth, readJsonFile, authPath, modelsPath, getModelList: () => [mediaModel] });
 initWorkspaceApi({ wsRoot });
-const mediaExecutor = createMediaToolExecutor({ generateMediaAsync, getModelList: () => [mediaModel] });
+const imageDispatches = [];
+let returnedImageVerification = null;
+const mediaExecutor = createMediaToolExecutor({ getModelList: () => [mediaModel], generateMediaAsync: (intent, prompt) =>
+  generateMediaAsync(intent, prompt, { onImageRequest: fact => imageDispatches.push(fact) }) });
 const fileExecutor = createUnifiedToolExecutorGuarded({ cwd: () => wsRoot,
   safePath: value => path.resolve(wsRoot, value || '') === path.join(wsRoot, 'delivery.md') ? path.join(wsRoot, 'delivery.md') : null });
 const marker = randomUUID();
@@ -48,6 +51,7 @@ const guard = createLiveMediaTools({ wsRoot, marker, executeFile: fileExecutor, 
   generate: async args => {
     const result = await mediaExecutor('generate_image', args);
     if (result.isError || !result.media?.url) throw new Error('媒体生成失败，未自动重试');
+    returnedImageVerification = result.media.verification || null;
     const saved = await saveArtifact({ ...result.media, prompt: args.prompt });
     if (!saved.local) throw new Error('媒体落盘失败');
     const artifactPath = new URL(saved.url, 'http://local').searchParams.get('path');
@@ -105,6 +109,7 @@ try {
   const report = { runId: run.id, wsRoot, status: state.status, error: state.error, elapsedMs: Date.now() - started,
     requestedTextModel: `${model.provider}/${model.id}`, engineObservedTextModels: observations,
     mediaConfiguredModel: `${mediaModel.provider}/${mediaModel.id}`, executionEngine: 'yuanshu/unifiedChat',
+    imageDispatches, returnedImageVerification,
     scope: 'real_model_restricted_tool_loop_not_full_online_http_or_tauri',
     subscriberDetachedDuringGeneration: detached, timedOut,
     upstreamCancellationConfirmed: false, effectCount: effects.list(run.id).length,

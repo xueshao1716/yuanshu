@@ -1,6 +1,6 @@
 # 元枢后台任务与交付可靠性：隔离验证记录
 
-日期：2026-09-24。状态：隔离实现与自动化验证完成，已补付费真实模型实测；真实内容与精确图片尺寸仍有未通过项，独立审查、集成与发布尚未完成。
+日期：2026-09-24。状态：隔离实现与自动化验证完成，已补两轮付费真实模型实测。最新天团模型复核通过，但主代理读稿仍发现内容矛盾；图片比例符合而精确像素不符。独立审查、集成与发布尚未完成，不能宣布整体验收成功。
 
 ## 交付边界
 
@@ -68,7 +68,47 @@
 - 天团验收入口与媒体入口统一先建立临时工作区、设置两种兼容环境变量，再动态加载引擎，避免模块提前捕获真实工作区路径。
 - 本次新增/调整边界测试先出现预期失败（12 项中 6 项失败），修正后验收工具、模型选择与天团联测 25/25 通过。
 
-## 验证与证据
+## 第二轮：修订核销与图片分层取证
+
+### 实现与回归
+
+- 新增 team-revision 模块：把旧问题编号，修订 REVIEW 必须每项恰好返回一次 resolved/unresolved、当前稿的连续原文和理由。编号遗漏/重复、杜撰引文、裸 pass 均拒绝放行；unresolved 不能被 pass=true 绕过。
+- 修订 EXEC 只接当前稿与问题清单；修订 REVIEW 不重复灌入旧稿或早期 IDEA/CHALLENGE。最多一次修订，仍是四或六个真实子任务，不增加付费循环。
+- 逐项核销写入绑定产物摘要的证据，但引文存在只证明可定位，不能证明语义正确；程序口播检查继续独立阻断。
+- 图片 status=matched 仅表示比例匹配，exactSize=false 也必须显示“像素尺寸未达标”警告。返回图仍是可用结果，不标工具失败或自动重购；音频/视频不受影响。
+- 每次图片调用可携带独立观察回调，只记录 model/size/endpointPath/attempt/source 白名单，不写密钥、host/query、提示词、参考图。回调异常不改变生成结果；本地 HTTP 测试确认记录来自实际派发请求体且不串请求。
+
+### 真实图片：差异在落盘之前已存在
+
+- 原始报告：tmp/media-continuation-live-9deb9661-a251-4308-b5ad-8658162c2761.json；44039 毫秒，run completed。
+- 宿主实际派发一次 POST /v1/images/generations，model=agnes-image-2.5-flash，size=1024x1536。source=host_http_dispatch 是宿主侧派发观察，不是独立上游收包证明。
+- 接收到的原图 already actualSize=832x1248，落盘后仍 832×1248；exactSize=false，ratioExact=true。该样例排除了本地保存改变尺寸，但不能继续归因到供应商内部路由、适配器或模型中的哪层，也不能推导所有模型都有此限制。
+- 图片 1833949 字节，SHA256：a101fe18177d85aa87964c8347b0c79686078889f8e85b59a3eee9c55b0e7ced。报告与图片均保留，未裁剪或放大。
+- 生成过程中断开 SSE，后台仍完成 generate_image → write → read，3 个效果记录，1 次生成，未超时。continuationPassed=true、dimensionsPassed=false、passed=false，exit 1 如实保留。媒体通道不是“只能出方图”，而是本次精确像素没有兑现。
+
+### 真实天团：旧项核销有效，语义漏检仍然存在
+
+- 原始报告：tmp/team-general-live-979c3dd6-c5b9-44b4-8998-69f6f8e79a37.json；136342 毫秒，六个真实子任务完成，6 次观测均请求 glm-5.3-flash 且上游声明同 ID，全部 finishReason=stop。
+- 草稿摘要：c1538997accaaa1d93a8b33d95c2ce64ebcc66c3e8ecf4fbf4b647b50249ffae。临时工作区：C:/Users/XUEXIA~1/AppData/Local/Temp/yuanshu-team-live-xtSAJy；草稿：工程/天团交付/13a49d3e-81ff-45ee-8e0e-e1942795eb42/草稿.md；核销证据在同目录核验记录.json。
+- REVIEW 第一次提出三个问题，第二次为 R1/R2/R3 提供了当前稿引文和理由，模型 pass=true；草稿进入 awaiting_acceptance，reviewable=true，assistantMessages=1，humanAccepted=false。脚本 exit 0 只对应文本流程。
+- **主代理读稿否决内容通过**，不是用户已完成验收，也不是独立审查。至少仍有以下反例：
+  1. 第2期 3—9秒允许“两份报价加总≤50才下单，超了弃最贵那道，只拍便宜那道”；但 9—16秒仍“取餐，先拍贵的”，22—34秒仍“吃招牌”，46—54秒仍“两份并排”，54—60秒仍报“两道一共”。砍单路径缺少相应脚本。
+  2. 第3期 A 的 3—10秒允许砍第三家；虽然修订后的收尾有两家/三家条件分支，40—52秒画面仍固定“三份并排逐个尝”。末尾自检声称“下单、试吃、收尾均按两家口径”，不等于正文已做到。
+  3. 第3期 A 只规定任一家>18或三家总额>50则砍第三家，没有保证剩下两家≤50：例如已确认报价30、30、10，砍第三家后仍60。此为对规则的反例，不是虚构店铺实测。
+- 这说明核销能挡住漏填旧项，却不能保证旧项全局解决或发现未列出的矛盾。保留失败样例；不通过删掉约束、增加付费重试或写死餐饮关键词正则来刷绿灯。真实内容质量仍未通过。
+- 新增 live-eval-team-result：今后报告明确 pipelinePassed 与 contentQualityPassed=null，humanAccepted 恒为 false；不把模型或调用者传来的通过标志当成人工验收。新增3例先失败，修复后定向联测49/49。没有重写上面原始付费报告来冒充新字段实测。
+- 思考档位只读核查：本机 glm-5.3-flash 配置 thinkingLevelMap={low:'low',medium:null,high:'high'}；现有 adapter 对不支持的 medium 向下映射为 low，因此 EXEC/REVIEW 请求实际为 low。未发现模型 ID 降级；尚不能判定思考档位与语义漏检的因果关系，本轮未改共享配置或强制 high。
+
+### 本轮验证
+
+- 核销/媒体定向先红后绿44/44；随后增加报告边界后8组联测49/49，exit 0。
+- Node 25.8.2 并行运行曾额外出现 runner 的 “Unable to deserialize cloned data due to invalid or unsupported version.”，改为 test-concurrency=1 后正常。不将 runner 异常冒充业务断言失败，也未关闭业务测试。
+- 初次全量2020/2020；加入3条报告边界后最终全量2023/2023、50 suites、零失败、零跳过、零取消，exit 0，127.46秒。完整日志：.verification/unit-tests-revision-final.log。
+- 前端 tsc/build exit 0；既有 chunk/Toast/Vite 配置警告仍在。9个相关前端文件 Impeccable detect=[]。
+- 本轮浏览器1440px/390px复验2/2，exit 0，9.46秒；日志 .verification/browser-revision-final.log。截图已刷新，工具返回“不支持图像输入”，仍不声称目视核验。
+- 日志：.verification/revision-dimensions-red.log、revision-dimensions-green.log、team-outcome-red.log、revision-final-targeted.log、unit-tests-revision-final.log、frontend-build-revision.log、team-revision-live.log、media-dispatch-live.log。以上验证材料本地保留，不提交临时目录。
+
+## 第一轮验证与证据（历史，未改写）
 
 | 项目 | 结果及范围 |
 | --- | --- |
@@ -106,7 +146,7 @@ node --test tests/e2e/reliability-ui.playwright.mjs
 ## 尚未完成的发布门槛
 
 1. 独立规格/质量复查：本轮是主代理自审，没有新增独立审查者；不能把自审写成独立验收。
-2. 真实模型样例已跑：天团内容复核未通过，媒体链路完成但精确像素未达标。仍需内容质量改进、明确图片通道的精确尺寸能力，以及真实外网嵌入兼容性和桌面/手机 Tauri 真机测试。不得为获得绿灯而降低复核标准或反复付费重试。
+2. 两轮真实模型样例已跑：第二轮天团模型复核放行，但主代理读稿发现预算和镜头分支矛盾，内容质量仍未通过；媒体链路完成但精确像素未达标。仍需内容质量改进、明确图片通道的精确尺寸能力，以及真实外网嵌入兼容性和桌面/手机 Tauri 真机测试。不得为获得绿灯而降低复核标准或反复付费重试。
 3. 与主目录并发修改对齐，审查继承快照。收尾只读检查仍见源码、版本配置及前端/客户端打包产物的未提交改动，不能覆盖或混入本轮。不要直接把含现场快照的整条分支推到 main；集成时只选择已审查的本轮提交并核查其依赖。
 4. 集成后再统一版本号、重建服务目录产物、执行重启健康检查；安装包及 GitHub/Gitee 双推分别验证。
 

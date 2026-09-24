@@ -206,14 +206,14 @@ export function clampSeed(value) {
   return { seed, clamped: seed !== Math.round(n), asked: Math.round(n) };
 }
 // 异步生成媒体（与主模型并行）
-export async function generateMediaAsync(intent, prompt) {
+export async function generateMediaAsync(intent, prompt, observations = {}) {
   try {
     if (intent.type === "image") {
       const m = findMediaModel("image");
       if (!m) { console.log(`[元枢] 媒体: 无 image 模型`); return null; }
       const drawnPrompt = varyImagePrompt(prompt);
       intent = { ...intent, ...resolveImageRequest(intent, prompt) };
-      const url = await generateImage(m.provider, m.id, drawnPrompt, intent.size);
+      const url = await generateImage(m.provider, m.id, drawnPrompt, intent.size, undefined, { onRequest: observations.onImageRequest });
       const verification = url ? await verifyImageDimensions(url, intent.size || '1024x1024', intent.aspectRatio) : undefined;
       console.log(`[元枢] 媒体 image: ${url ? "成功" : "失败"} prompt=${String(drawnPrompt).slice(0,30)}`);
       return url ? { type: "image", url, model: `${m.provider}/${m.id}`, prompt: drawnPrompt, verification } : { type: "image", error: "图像模型未返回图片" };
@@ -338,17 +338,15 @@ export async function generateImage(provider, modelId, prompt, size, image, opts
   const key = resolved.key;
   const base = (baseUrl || "").replace(/\/+$/, "");
   const baseNoV1 = base.endsWith("/v1") ? base.slice(0, -3) : base;
+  const body = JSON.stringify({ model: modelId, prompt, n: 1, size: size || '1024x1024',
+    ...(seed != null ? { seed } : {}), ...(negative ? { negative_prompt: negative } : {}),
+    ...(refImage ? { image: refImage } : {}) });
   const mkReq = (u) => httpJsonFetch(u, {
     method: "POST",
     headers: { "Content-Type": "application/json", Authorization: `Bearer ${key}` },
     // negative_prompt 只有在调用方真的给了才带：不赌每家上游都认这个字段，
     // 空的时候带上反而可能被拒。
-    body: JSON.stringify({
-      model: modelId, prompt, n: 1, size: size || "1024x1024",
-      ...(seed != null ? { seed } : {}),
-      ...(negative ? { negative_prompt: negative } : {}),
-      ...(refImage ? { image: refImage } : {}),
-    }),
+    body,
     timeout: 180000,
   });
   // 上游失败必须带上**状态码与响应体**。以前这里是 `if (!r.ok) return null`，
@@ -361,6 +359,13 @@ export async function generateImage(provider, modelId, prompt, size, image, opts
   const RETRY_STATUS = new Set([404, 405, 501]);
   const attempts = [];
   for (const endpoint of [`${baseNoV1}/v1/images/generations`, `${baseNoV1}/images/generations`, `${baseNoV1}/v3/images/generations`]) {
+    // Per-call allowlist: never expose credentials, host/query, prompt or reference images.
+    // This proves host dispatch intent, not receipt by an independent upstream.
+    try {
+      const observed = opts.onRequest?.({ source: 'host_http_dispatch', model: modelId, size: JSON.parse(body).size,
+        endpointPath: endpoint.slice(baseNoV1.length), attempt: attempts.length + 1 });
+      if (observed?.catch) observed.catch(() => {});
+    } catch { /* diagnostics must not turn a completed purchase into a retry */ }
     const r = await mkReq(endpoint);
     const text = await r.text().catch(() => "");
     if (r.ok) {

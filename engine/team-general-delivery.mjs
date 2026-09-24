@@ -41,7 +41,8 @@ export async function stageGeneralTeamDelivery({ wsRoot, runId, sessionId, deliv
   const modelPassed = verdict?.pass === true && Array.isArray(verdict.issues) && verdict.issues.length === 0;
   const evidence = { source: 'runtime', scope: 'text_pipeline_only', artifactDigest,
     passed: childrenComplete && measured.issues.length === 0 && modelPassed, children: observed,
-    checks: { childrenComplete, timedSpeech: measured }, modelReview: { pass: modelPassed, issues: verdict?.issues || [] } };
+    checks: { childrenComplete, timedSpeech: measured }, modelReview: { pass: modelPassed, issues: verdict?.issues || [],
+      ...(Array.isArray(verdict?.revisionChecks) ? { revisionChecks: verdict.revisionChecks } : {}) } };
   const delivery = { profile: 'general-team', deliveryId, parentRunId: runId, sessionId, ...locations, artifactDigest,
     evidence, evidenceDigest: hash(JSON.stringify(evidence)), status: evidence.passed ? 'submission_started' : 'quality_failed' };
   const draftFile = reviewPath(wsRoot, locations.draft);
