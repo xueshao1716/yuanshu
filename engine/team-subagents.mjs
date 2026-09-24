@@ -50,7 +50,8 @@ export async function executeTeam(args = {}, ctx = {}) {
     }
     state.inFlight = label; save();
     const r = await spawnSubagent({ task: `${label}：${instruction}\n\n${TEAM_DELIVERY_RULES}\n\n你是内部协作中的一个步骤，只完成上面分派的阶段；只有 EXEC 写完整交付，其余阶段不要提前写成稿。禁止再派子代理。\n\n用户原始任务：${task}`, role,
-      profile: 'team', outputFormat: label === 'REVIEW' ? 'text' : 'json', reasoningEffort: label === 'REVIEW' || label.startsWith('EXEC') ? 'medium' : 'low',
+      // Prose does not need a JSON envelope. REVIEW has its own strict schema below.
+      profile: 'team', outputFormat: 'text', reasoningEffort: label === 'REVIEW' || label.startsWith('EXEC') ? 'medium' : 'low',
       model: ctx.model, timeoutMs: ctx.timeoutMs || (label.startsWith('EXEC') ? 300000 : label === 'REVIEW' ? 240000 : 180000),
       sessionId: ctx.sessionId, runId: ctx.runId, signal: ctx.signal, onEvent: ctx.onEvent, aibodyContext: ctx.aibodyContext,
       parentDepth: Number(ctx.depth) || 0,

@@ -13,7 +13,7 @@ async function setup(t, replies) {
     modelReader: () => ({ fake: { models: [{ id: 'test', baseUrl: 'https://fake.invalid', reasoning: true }] } }),
     resolveAuth: () => ({ baseUrl: 'https://fake.invalid' }),
     authReader: () => ({ fake: { type: 'api_key', key: 'test' } }),
-    httpFetch: async (_url, opts) => { const body = JSON.parse(opts.body); requests.push(body); const reply = replies.shift(); return { ok: true, status: 200, json: async () => ({ choices: [{ message: { content: body.messages.at(-1).content.startsWith('REVIEW') ? reply : JSON.stringify({ result: reply, evidence: [], confidence: .8 }) } }] }) }; },
+    httpFetch: async (_url, opts) => { const body = JSON.parse(opts.body); requests.push(body); const reply = replies.shift(); return { ok: true, status: 200, json: async () => ({ choices: [{ message: { content: body.messages[0].content.includes('输出必须严格为 JSON') ? JSON.stringify({ result: reply, evidence: [], confidence: .8 }) : reply } }] }) }; },
   });
   return { root, requests };
 }
@@ -96,7 +96,21 @@ test('team text profile preserves structured video output and long task tail', a
   const r = await spawnSubagent({ task: long, profile: 'team', outputFormat: 'text' });
   assert.equal(r.done, true);
   assert.match(JSON.stringify(requests[0].messages), /必须保留尾部约束/);
-  assert.match(r.result, /"result":"unused"/);
+  assert.equal(r.result, 'unused');
+});
+
+test('team prose is not forced into a JSON string while review remains fail closed', async t => {
+  const prose = '# 脚本\n0—3秒；口播：“先看价格。”\n路径仅为待办：C:\\素材';
+  const { root, requests } = await setup(t, ['方向\n第二行', '核价后购买', prose, '看起来没问题']);
+  const { executeTeam } = await import('../../engine/team-subagents.mjs');
+  const result = await executeTeam({ task: '多行脚本' }, { wsRoot: root, sessionId: 's', runId: 'prose-review' });
+  assert.equal(requests.length, 4);
+  assert.ok(requests.every(r => !r.messages[0].content.includes('输出必须严格为 JSON')),
+    'prose stages must not require models to escape multiline drafts as JSON strings');
+  assert.match(JSON.stringify(requests[3].messages), /先看价格/);
+  assert.equal(result.isError, true);
+  assert.match(result.text, /复核结果格式无效/);
+  assert.equal(result.artifact, undefined);
 });
 
 test('ordinary children retain default reasoning and truncated team output is never accepted', async t => {

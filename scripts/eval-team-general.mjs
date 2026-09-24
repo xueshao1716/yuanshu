@@ -4,28 +4,30 @@ import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { setTimeout as delay } from 'node:timers/promises';
-import { defaultFallbackAgentDir } from '../engine/pi-compat-fallback.mjs';
-import { httpJsonFetch } from '../engine/http.mjs';
-import { initSubagent, getSubagentHistory } from '../engine/subagent.mjs';
-import { createGeneralTeamChat } from '../engine/team-general-chat.mjs';
-import { createRunStore } from '../engine/run-store.mjs';
-import { createRunEventLog } from '../engine/run-event-log.mjs';
-import { createRunManager } from '../engine/run-manager.mjs';
-import { createAIBodyRuntime } from '../engine/aibody-runtime.mjs';
-import { createAIBodyHost } from '../engine/aibody-host.mjs';
-import { createTaskEvidence } from '../engine/task-evidence.mjs';
+import { loadLiveEvalModel } from './live-eval-model.mjs';
 
 if (!process.argv.includes('--live')) throw new Error('真实模型会产生费用；显式传入 --live 执行');
 const repo = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
-const headers = { Authorization: `Bearer ${fs.readFileSync(path.join(repo, '.token'), 'utf8').trim()}` };
-const models = await (await fetch('http://127.0.0.1:8787/api/models', { headers })).json();
-const requestedModel = process.env.YUANSHU_TEAM_EVAL_MODEL;
-const model = models.models.find(m => requestedModel ? `${m.provider}/${m.id}` === requestedModel
-  : m.provider === models.current.provider && m.id === models.current.id);
-if (!model) throw new Error('指定或当前文本模型不可用');
+const wsRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'yuanshu-team-live-'));
+process.env.YUANSHU_CWD = wsRoot;
+process.env.PI_WEB_CWD = wsRoot;
+// Engine modules may capture workspace paths at import time. Isolate first.
+const { defaultFallbackAgentDir } = await import('../engine/pi-compat-fallback.mjs');
+const { httpJsonFetch } = await import('../engine/http.mjs');
+const { initSubagent, getSubagentHistory } = await import('../engine/subagent.mjs');
+const { createGeneralTeamChat } = await import('../engine/team-general-chat.mjs');
+const { createRunStore } = await import('../engine/run-store.mjs');
+const { createRunEventLog } = await import('../engine/run-event-log.mjs');
+const { createRunManager } = await import('../engine/run-manager.mjs');
+const { createAIBodyRuntime } = await import('../engine/aibody-runtime.mjs');
+const { createAIBodyHost } = await import('../engine/aibody-host.mjs');
+const { createTaskEvidence } = await import('../engine/task-evidence.mjs');
+const model = await loadLiveEvalModel({
+  tokenFile: process.env.YUANSHU_EVAL_TOKEN_FILE || path.join(repo, '.token'),
+  requestedModel: process.env.YUANSHU_TEAM_EVAL_MODEL,
+});
 const agentDir = defaultFallbackAgentDir();
 const read = name => JSON.parse(fs.readFileSync(path.join(agentDir, name), 'utf8'));
-const wsRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'yuanshu-team-live-'));
 const rootDir = path.join(wsRoot, 'runtime');
 const modelResponses = [];
 const observedFetch = async (...args) => {
@@ -33,7 +35,7 @@ const observedFetch = async (...args) => {
   const response = await httpJsonFetch(...args);
   return { ...response, json: async () => {
     const data = await response.json();
-    const fact = { event: 'model_response', requestedEffort: request.reasoning_effort,
+    const fact = { event: 'model_response', requestedModel: request.model, upstreamModel: data.model || null, requestedEffort: request.reasoning_effort,
       maxTokens: request.max_tokens ?? request.max_completion_tokens, finishReason: data.choices?.[0]?.finish_reason,
       completionTokens: data.usage?.completion_tokens, reasoningTokens: data.usage?.completion_tokens_details?.reasoning_tokens,
       contentChars: data.choices?.[0]?.message?.content?.length || 0 };
