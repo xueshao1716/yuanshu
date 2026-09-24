@@ -1,7 +1,7 @@
 import { useEffect, useRef } from 'react'
 import {
   Activity, BrainCircuit, ClipboardCheck, Cpu, Database, Download, Factory, FolderKanban,
-  LayoutDashboard, LayoutGrid, LogOut, MonitorCog, PackageCheck, Palette, PanelRight, Sparkles,
+  Globe2, LayoutDashboard, LayoutGrid, LogOut, MonitorCog, PackageCheck, Palette, PanelRight, Sparkles,
   TerminalSquare, X,
 } from 'lucide-react'
 import type { Route } from '../hooks/useHashRoute'
@@ -36,13 +36,14 @@ const PANEL_ACTIONS: { panel: UtilityPanelKey; icon: typeof Sparkles; label: str
 
 const FOCUSABLE_SELECTOR = 'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])'
 
-export default function MobileMoreMenu({ open, onClose, route, nav, onOpenPanel, onOpenTheme, onLogout }: {
+export default function MobileMoreMenu({ open, onClose, route, nav, onOpenPanel, onOpenTheme, onOpenBrowser, onLogout }: {
   open: boolean
   onClose: () => void
   route: Route
   nav: (route: Route) => void
   onOpenPanel: (panel: UtilityPanelKey) => void
   onOpenTheme: () => void
+  onOpenBrowser: () => void
   onLogout: () => void
 }) {
   const sheetRef = useRef<HTMLElement>(null)
@@ -138,6 +139,14 @@ export default function MobileMoreMenu({ open, onClose, route, nav, onOpenPanel,
               </button>
             ))}
           </div>
+
+          <button
+            className="mobile-more-action mt-2 w-full justify-start gap-2 rounded-pi-md bg-pi-bg2 px-3 text-xs text-pi-text hover:bg-pi-bg3"
+            onClick={() => { onClose(); onOpenBrowser() }}
+          >
+            <Globe2 className="h-[18px] w-[18px] text-pi-accent" strokeWidth={1.8} />
+            <span>内置浏览器</span>
+          </button>
 
           <div className="my-3 border-t border-pi-border-soft" />
           <button

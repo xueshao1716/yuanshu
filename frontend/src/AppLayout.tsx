@@ -1,5 +1,5 @@
 import { Suspense, lazy, useCallback, useEffect, useRef, useState, type ComponentType, type LazyExoticComponent, type ReactNode } from 'react'
-import { MessagesSquare, BrainCircuit, Images, Clock4, Download, LayoutGrid, LayoutDashboard, Settings2, FolderClosed, PanelLeftOpen, Sparkles, Factory, MonitorCog, Cpu, Palette, Database, GitCompare, LogOut, Ellipsis } from 'lucide-react'
+import { MessagesSquare, BrainCircuit, Images, Clock4, Download, LayoutGrid, LayoutDashboard, Settings2, FolderClosed, PanelLeftOpen, Sparkles, Factory, MonitorCog, Cpu, Palette, Database, GitCompare, LogOut, Ellipsis, Globe2 } from 'lucide-react'
 import { useApp } from './store'
 import { useIsMobile } from './hooks/useIsMobile'
 import { useHashRoute, PageErrorBoundary, type Route } from './hooks/useHashRoute'
@@ -19,6 +19,7 @@ import * as T from '@radix-ui/react-tooltip'
 import { applyWallpaper, currentWallpaper } from './theme/wallpaper.mjs'
 import { installVisualViewportHeight } from './lib/viewport'
 import { useThemePreferences } from './hooks/useThemePreferences'
+import BrowserPanel from './components/BrowserPanel'
 
 // 页面 lazy（路线图：每路由 lazy + ErrorBoundary）
 const ModelHub = lazy(() => import('./pages/ModelHub'))
@@ -185,6 +186,12 @@ export default function AppLayout() {
   }, [])
   // ⌘K 命令面板（08-25 评审 P1：全局快捷键）
   const [paletteOpen, setPaletteOpen] = useState(false)
+  const [browserOpen, setBrowserOpen] = useState(false)
+  const [browserUrl, setBrowserUrl] = useState('')
+  const openBrowser = useCallback((url = '') => {
+    setBrowserUrl(url)
+    setBrowserOpen(true)
+  }, [])
 
   useEffect(() => installVisualViewportHeight(), [])
 
@@ -216,15 +223,21 @@ export default function AppLayout() {
         nav('chat'); setRightPanel(detail)
       }
     }
+    const onOpenBrowser = (e: Event) => {
+      const url = (e as CustomEvent<{ url?: string }>).detail?.url || ''
+      openBrowser(url)
+    }
     window.addEventListener('keydown', onKey)
     window.addEventListener('pi-open-palette', onOpenPalette)
     window.addEventListener('pi-open-panel', onOpenPanel)
+    window.addEventListener('pi-open-browser', onOpenBrowser)
     return () => {
       window.removeEventListener('keydown', onKey)
       window.removeEventListener('pi-open-palette', onOpenPalette)
       window.removeEventListener('pi-open-panel', onOpenPanel)
+      window.removeEventListener('pi-open-browser', onOpenBrowser)
     }
-  }, [nav])
+  }, [nav, openBrowser])
   const palette = (
     <CommandPalette open={paletteOpen} onClose={() => setPaletteOpen(false)} nav={nav}
       onRightPanel={p => setRightPanel(p)} onModelManager={() => setModelOpen(true)} />
@@ -324,10 +337,12 @@ export default function AppLayout() {
           nav={(nextRoute) => { setMobileDrawer('none'); nav(nextRoute) }}
           onOpenPanel={(panel) => { setMobileDrawer('none'); nav('chat'); setRightPanel(panel) }}
           onOpenTheme={() => { setMobileDrawer('none'); nav('themes') }}
+          onOpenBrowser={() => openBrowser()}
           onLogout={logout}
         />
 
         {modelOpen && <LazyModelManager visible onClose={() => setModelOpen(false)} />}
+        <BrowserPanel open={browserOpen} initialUrl={browserUrl} onClose={() => setBrowserOpen(false)} />
         {palette}
       </div>
     )
@@ -367,6 +382,10 @@ export default function AppLayout() {
           </T.Root>
         ))}
         <DesktopMoreMenu items={RAIL_MORE.map(railItem)} route={route} nav={nav} />
+        <button className="desktop-rail-item rounded-pi-md flex items-center gap-2 relative text-pi-dim hover:text-pi-text hover:bg-pi-bg3" title="内置浏览器" aria-label="内置浏览器" onClick={() => openBrowser()}>
+          <Globe2 className="w-[18px] h-[18px]" strokeWidth={1.8} />
+          <span className="desktop-rail-label">浏览器</span>
+        </button>
         <div className="mt-auto mb-2 flex flex-col gap-1.5">
           <ThemeSwitcher />
           <button className="w-9 h-9 rounded-pi-md flex items-center justify-center text-pi-dim2 hover:text-pi-text hover:bg-pi-bg3 transition-colors" title="模型与通道" aria-label="模型与通道" onClick={() => nav('models')}><Settings2 className="w-[18px] h-[18px]" strokeWidth={1.8} /></button>
@@ -402,6 +421,7 @@ export default function AppLayout() {
       {/* 右栏开关已入 ChatArea 顶栏（与状态胶囊并排，不再悬浮遮挡） */}
 
       {modelOpen && <LazyModelManager visible onClose={() => setModelOpen(false)} />}
+      <BrowserPanel open={browserOpen} initialUrl={browserUrl} onClose={() => setBrowserOpen(false)} />
       {palette}
     </div>
     </ShellFrame>
