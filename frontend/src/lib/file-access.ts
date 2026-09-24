@@ -8,7 +8,8 @@ export function fileAccess(path: string, base: string, token: string, download =
   if (workspace) {
     if (token) {
       for (const key of ['sig', 'exp', 'token']) parsed.searchParams.delete(key)
-      parsed.searchParams.set('token', token)
+      // Fetch downloads can authenticate in headers; media elements cannot.
+      if (!download) parsed.searchParams.set('token', token)
     }
     if (download) parsed.searchParams.set('download', '1')
     return { url: `${root}${parsed.pathname}?${parsed.searchParams}`, headers: token ? { Authorization: `Bearer ${token}` } : {} }

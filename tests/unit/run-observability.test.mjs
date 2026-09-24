@@ -20,6 +20,7 @@ test('summarizeRun includes current phase and safe error preview', () => {
   assert.deepEqual(summary, {
     id: 'r1', sessionId: 's1', status: 'failed', phase: 'failed',
     messagePreview: '做个总结', toolCount: 1, memoryCount: 0, memoryPreview: null, error: '模型失败', resumeAvailable: false,
+    backgroundRecovery: null,
     durationMs: null,
     eventCounts: { failed: 1, run_started: 1, tool_started: 1 },
     engine: null,

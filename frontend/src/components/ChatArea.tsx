@@ -610,8 +610,8 @@ export default function ChatArea({ compactHeader, rightPanel, onRightPanel }: {
         if (d.data) updStream(p => ({ ...p, images: [...p.images, toDataUri(d.data, d.mimeType)] }))
         break
       case 'media':
-        if (d.type === 'image' && d.url) updStream(p => ({ ...p, images: [...p.images, d.url] }))
-        else if (d.type === 'audio' && d.url) updStream(p => ({ ...p, audios: [...p.audios, d.url] }))
+        if (d.type === 'image' && d.url) updStream(p => ({ ...p, images: dedupeMediaUrls([...p.images, d.url]) }))
+        else if (d.type === 'audio' && d.url) updStream(p => ({ ...p, audios: dedupeMediaUrls([...p.audios, d.url]) }))
         else if (d.type === 'video' && d.url) {
           updStream(p => {
             const k = mediaPathKey(d.url)
@@ -619,6 +619,9 @@ export default function ChatArea({ compactHeader, rightPanel, onRightPanel }: {
             return { ...p, videos: [...p.videos, d.url] }
           })
         }
+        break
+      case 'recovery_scheduled':
+        updStream(p => ({ ...p, notes: [...p.notes, d.message || '正在后台接续任务…'] }))
         break
       case 'note':
         updStream(p => ({ ...p, notes: [...p.notes, d.text || d.note || ''].filter(Boolean) }))

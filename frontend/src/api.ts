@@ -69,7 +69,9 @@ export async function downloadApiFile(path: string, filename?: string, onProgres
     // 远程生成物通常不开放 CORS，fetch 会在浏览器侧直接失败。此时仍把
     // 原文件交给浏览器/客户端打开，并记录“已发起”，否则用户既拿不到文件也看不到下载中心记录。
     const external = /^https?:\/\//i.test(access.url) && (typeof location === 'undefined' || new URL(access.url, location.href).origin !== location.origin)
-    if (!external || typeof document === 'undefined') throw error
+    // A navigation fallback cannot carry authentication headers. Never report
+    // a protected workspace download as started when its authenticated fetch failed.
+    if (!external || access.headers.Authorization || typeof document === 'undefined') throw error
     const resolvedName = filename || 'download'
     const link = document.createElement('a')
     link.href = access.url
@@ -264,6 +266,7 @@ export const RunsApi = {
   get: (runId: string) => api<RunInfo>(`/api/runs/${encodeURIComponent(runId)}`),
   resume: (runId: string) => api<RunInfo>(`/api/runs/${encodeURIComponent(runId)}/resume`, { method: 'POST' }),
   stop: (runId: string) => api<RunInfo>(`/api/runs/${encodeURIComponent(runId)}/stop`, { method: 'POST' }),
+  disableRecovery: (runId: string) => api<RunInfo>(`/api/runs/${encodeURIComponent(runId)}/recovery/disable`, { method: 'POST' }),
   stream: (
     runId: string,
     after: number,
@@ -742,10 +745,17 @@ export const EngineApi = {
 
 export type RunPhase = 'queued' | 'thinking' | 'executing' | 'remembering' | 'delivering' | 'completed' | 'failed' | 'stopped' | 'interrupted'
 export interface RunSummary {
+  deliveries?: GeneralTeamDelivery[]
+  deliveriesUnavailable?: boolean
+  backgroundRecovery?: { enabled: boolean; used: number; maxResumes: number; deadlineAt: string; state: string; reason: string | null } | null
   explanation?: WorkExplanationData
   id: string; sessionId: string; status: string; phase: RunPhase; messagePreview: string; toolCount: number; memoryCount: number; memoryPreview: string | null; error: string | null; resumeAvailable?: boolean; durationMs?: number | null; failureCategory?: string | null
 }
 export interface RunOverview { active: RunSummary[]; recent: RunSummary[]; health: { status: 'idle' | 'busy' | 'degraded'; activeCount: number; failedCount: number } }
+export interface GeneralTeamDelivery {
+  deliveryId: string; draft: string; target: string; evidencePath: string; proposalId?: string; artifactDigest: string
+  scope: 'text_pipeline_only'; decision: string; acceptance: { status: string; checkedAt?: string }
+}
 export const RunApi = {
   overview: (sessionId?: string) => api<RunOverview>(`/api/run/overview${sessionId ? `?session=${encodeURIComponent(sessionId)}` : ''}`),
   get: (id: string) => api<RunSummary & { lastSeq: number }>(`/api/runs/${encodeURIComponent(id)}`),

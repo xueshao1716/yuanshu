@@ -40,6 +40,13 @@ test('team uses persisted children, passes prior work and writes only final revi
   assert.equal(rows.length, 4);
   assert.ok(rows.every(r => r.parentRunId === 'parent' && r.sessionId === 's' && r.status === 'completed'));
   assert.equal(events.filter(e => e.type === 'artifact_created').length, 1);
+  assert.equal(result.delivery?.status, 'awaiting_acceptance', 'a real review proposal must exist');
+  const proposal = JSON.parse(await fs.readFile(path.join(root, `工程/待审/${result.delivery.proposalId}.json`), 'utf8'));
+  assert.equal(proposal.status, 'pending');
+  assert.equal(proposal.content, await fs.readFile(path.join(root, result.artifact), 'utf8'));
+  assert.equal(events.find(e => e.type === 'artifact_created').data.artifactDigest, result.delivery.artifactDigest);
+  assert.equal(result.delivery.evidence.scope, 'text_pipeline_only');
+  assert.equal(result.delivery.evidence.children.length, 4);
 });
 
 test('objective speech overrun cannot be approved by a model and repair replaces the draft', async t => {

@@ -1,15 +1,26 @@
 // 元枢会话连续性：打断也留痕，有历史就不许装新开。
 import { attachmentText, extractText } from "./session-utils.mjs";
 import { imageVerificationNotice } from "./image-dimensions.mjs";
+import { mediaDeliveryKey } from './media-embed.mjs';
 
 export function resumePersistenceState(entries = [], message, resume = false) {
-  const state = { userPersisted: false, toolCallIds: new Set(), toolResultIds: new Set() };
+  const state = { userPersisted: false, toolCallIds: new Set(), toolResultIds: new Set(), mediaKeys: new Set() };
   if (!resume) return state;
   const messages = entries.filter(e => e?.type === 'message').map(e => e.message);
   const lastUser = messages.findLastIndex(m => m?.role === 'user');
   if (lastUser < 0 || extractText(messages[lastUser].content) !== message) return state;
   state.userPersisted = true;
   for (const item of messages.slice(lastUser + 1)) {
+    if (item?.role === 'assistant') {
+      // SDK-safe persistence encodes image, audio and video as markdown. Only
+      // this saved user turn is evidence of delivery, never arbitrary tool text.
+      for (const match of extractText(item.content).matchAll(/!\[[^\]]*\]\(([^)\s]+)\)/g)) {
+        state.mediaKeys.add(mediaDeliveryKey(match[1]));
+      }
+      for (const block of Array.isArray(item.content) ? item.content : []) {
+        if (['image', 'audio', 'video'].includes(block?.type) && block.url) state.mediaKeys.add(mediaDeliveryKey(block.url));
+      }
+    }
     if (item?.role === 'assistant' && Array.isArray(item.content)) {
       for (const block of item.content) {
         if (block?.type === 'toolCall' && block.id) state.toolCallIds.add(String(block.id));

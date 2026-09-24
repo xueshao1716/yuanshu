@@ -11,7 +11,7 @@ export function createPiTeamTool(Type) {
       const host = context.getStore();
       const signals = [host?.signal, signal].filter(Boolean);
       const r = await executeTeam(args, { ...host, signal: signals.length ? AbortSignal.any(signals) : undefined });
-      return { content: [{ type: 'text', text: r.text }], details: { artifact: r.artifact, children: r.children }, isError: r.isError };
+      return { content: [{ type: 'text', text: r.text }], details: { artifact: r.artifact, children: r.children, delivery: r.delivery }, isError: r.isError };
     },
   };
 }

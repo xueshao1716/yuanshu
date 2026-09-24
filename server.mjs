@@ -72,6 +72,7 @@ import { createRunEventLog } from "./engine/run-event-log.mjs";
 import { createRunManager } from "./engine/run-manager.mjs";
 import { createRunEffects } from "./engine/run-effects.mjs";
 import { createRunApi } from "./engine/run-api.mjs";
+import { readGeneralTeamDeliveries } from "./engine/team-general-delivery.mjs";
 import { initThemePrefs, loadThemePrefs, saveThemePrefs } from "./engine/theme-prefs.mjs";
 import { initColorPrefs, loadColorPrefs, saveColorPrefs } from "./engine/color-prefs.mjs";
 import { initEnginePair, loadEnginePair, saveEnginePair, swapEnginePair, resolveLead, describePair, leadNote } from "./engine/engine-pair.mjs";
@@ -2050,12 +2051,13 @@ const runManager = createRunManager({
   executeChat: handleChat,
   instanceId: RUN_INSTANCE_ID,
   effects: runEffects,
+  workspaceScope: () => CONFIG.cwd,
   // handleChat 返回时 JSONL 已提交；通知会话订阅者刷新侧栏与多端状态。
   onSessionUpdated: ({ run }) => busPush(run.sessionId, "session_updated", { sessionId: run.sessionId }),
 });
-const recoveredRuns = runManager.recover();
-if (recoveredRuns.length) console.log(`[runs] 已将 ${recoveredRuns.length} 个旧实例任务标记为 interrupted`);
-const runApi = createRunApi({ manager: runManager, json, readContext: async (run) => ({
+const runApi = createRunApi({ manager: runManager, json,
+  readDeliveries: (run, events) => readGeneralTeamDeliveries({ wsRoot: CONFIG.cwd, run, events }),
+  readContext: async (run) => ({
   bodyRun: aibodyRuntime.getRun(run.id),
   subagents: await subagent.getSubagentHistory({ sessionId: run.sessionId, runId: run.id, limit: 50 }),
 }) });
@@ -2814,6 +2816,7 @@ const API_ROUTES = [
     return json(res, 200, { active: true, taskKey: tk || null, sessionId: sid || null, stage: t.stage, toolName: t.toolName || null, startedAt: t.startedAt, updatedAt: t.updatedAt });
   }],
   ["POST", "/api/runs", async (res, req) => runApi.create(res, await readBody(req, 12), req)],
+  ["POST", new RegExp('^/api/runs/([^/]+)/recovery/disable$'), (res, req, url, m) => runApi.disableRecovery(res, decodeURIComponent(m[1]))],
   ["GET", /^\/api\/runs\/([^/]+)$/, (res, req, url, m) => runApi.get(res, decodeURIComponent(m[1]))],
   ["GET", /^\/api\/runs\/([^/]+)\/events$/, (res, req, url, m) => runApi.events(res, req, url, decodeURIComponent(m[1]))],
   ["POST", /^\/api\/runs\/([^/]+)\/stop$/, (res, req, url, m) => runApi.stop(res, decodeURIComponent(m[1]))],
@@ -3255,6 +3258,9 @@ server.on("error", (err) => {
 function startServer() {
   // async：启动收尾里有需要 await 的清理（例如连续创作的孤儿运行）
   server.listen(CONFIG.port, CONFIG.host, async () => {
+    // All services and approval boundaries are initialized before recovery can execute.
+    const recoveredRuns = runManager.recover();
+    if (recoveredRuns.length) console.log(`[runs] 已检查 ${recoveredRuns.length} 个旧实例任务，仅安全检查点可后台接续`);
     listenAttempt = 0; // 监听成功 → 重置重试计数
     // 实例登记（2026-09-18）：此刻起"这份就是持有端口的那一份"，写进心跳让外面看得见。
     try {

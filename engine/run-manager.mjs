@@ -1,5 +1,6 @@
 import { EventEmitter } from 'node:events'
 import { deriveRunObservability } from './run-observability.mjs'
+import { createBackgroundRecovery, newRecoveryPolicy, RUN_SLICE_MS } from './run-recovery.mjs'
 
 const TERMINAL = new Set(['completed', 'failed', 'stopped', 'interrupted'])
 
@@ -77,8 +78,9 @@ function createExecutionIo({ headers = {}, socket = {}, onEvent }) {
   return { req, res, close }
 }
 
-export function createRunManager({ store, eventLog, executeChat, instanceId, onSessionUpdated = null, effects = null }) {
+export function createRunManager({ store, eventLog, executeChat, instanceId, onSessionUpdated = null, effects = null, workspaceScope = () => null, scheduleRecovery }) {
   const executions = new Map()
+  let recovery
 
   const checkpointForEvent = (type, data = {}) => {
     const name = data?.name || data?.toolName || ''
@@ -121,6 +123,8 @@ export function createRunManager({ store, eventLog, executeChat, instanceId, onS
   }
 
   const append = (run, type, data = {}) => {
+    // Conservative approval barrier: a restarted process cannot settle the old promise.
+    if (type === 'confirm') store.update(run.id, { approvalRequired: true })
     const event = eventLog.append({
       runId: run.id,
       sessionId: run.sessionId,
@@ -160,7 +164,14 @@ export function createRunManager({ store, eventLog, executeChat, instanceId, onS
   }
 
   const makeControl = (run, body, context = {}) => {
+    const now = Date.now()
+    // Only scheduler-owned continuations inherit the automatic window. A manual
+    // retry may follow a network failure that left the old policy marked running.
+    const executionBudgetMs = context.automaticRecovery === true && run.backgroundRecovery?.state === 'running'
+      ? Math.max(1, Math.min(RUN_SLICE_MS, Date.parse(run.backgroundRecovery.deadlineAt) - now)) : RUN_SLICE_MS
     const runContext = {
+      executionBudgetMs,
+      executionDeadlineAt: now + executionBudgetMs,
       runId: run.id,
       attempt: Number.isInteger(run.checkpoint?.attempt) ? run.checkpoint.attempt : 0,
       resume: body?.resume === true,
@@ -199,6 +210,7 @@ export function createRunManager({ store, eventLog, executeChat, instanceId, onS
   const finish = (runId, status, data = {}) => {
     const current = store.get(runId)
     if (!current || TERMINAL.has(current.status)) return current
+    if (status === 'interrupted' && recovery.trySchedule(current, data.reason)) return store.get(runId)
     const failureText = String(data.message || data.error || current.error || '')
     const resumableFailure = status === 'failed'
       && !!current.checkpoint?.historySnapshot
@@ -279,7 +291,7 @@ export function createRunManager({ store, eventLog, executeChat, instanceId, onS
     }
   }
 
-  return {
+  const manager = {
     create(body, context = {}) {
       if (!body?.sessionId) throw Object.assign(new Error('sessionId_required'), { code: 'invalid_request' })
       if (!body?.clientRequestId) throw Object.assign(new Error('clientRequestId_required'), { code: 'invalid_request' })
@@ -289,7 +301,10 @@ export function createRunManager({ store, eventLog, executeChat, instanceId, onS
         throw Object.assign(new Error('session_busy'), { code: 'session_busy', activeRunId: active.id })
       }
 
-      const run = store.create({ ...body, ownerId: instanceId })
+      const existing = store.list().find(run => run.sessionId === body.sessionId && run.clientRequestId === body.clientRequestId)
+      if (existing) return existing
+      const run = store.create({ ...body, ownerId: instanceId, backgroundRecovery: newRecoveryPolicy(workspaceScope(), body.backgroundRecovery !== false) })
+      effects?.initialize?.(run.id)
       if (TERMINAL.has(run.status) || executions.has(run.id)) return run
       const control = makeControl(run, body, context)
       executions.set(run.id, control)
@@ -304,6 +319,7 @@ export function createRunManager({ store, eventLog, executeChat, instanceId, onS
       const run = store.get(runId)
       if (!run) throw Object.assign(new Error('run_not_found'), { code: 'run_not_found' })
       if (TERMINAL.has(run.status)) return run
+      recovery.cancel(runId)
       const control = executions.get(runId)
       if (control?.stopRequested) return store.get(runId)
       if (control) control.stopRequested = true
@@ -313,8 +329,15 @@ export function createRunManager({ store, eventLog, executeChat, instanceId, onS
       return stopping
     },
     recover() {
+      const stoppingIds = new Set(store.list().filter(run => run.status === 'stopping').map(run => run.id))
       const orphaned = store.markOrphanedInterrupted(instanceId)
       return orphaned.map(run => {
+        if (run.stopRequestedAt || stoppingIds.has(run.id)) {
+          const stopped = store.update(run.id, { status: 'stopped', resumeAvailable: false, error: null, stoppedAt: new Date().toISOString() })
+          append(stopped, 'stopped', { reason: 'user_stop_before_restart' })
+          return stopped
+        }
+        if (recovery.trySchedule(run, 'server_restarted')) return store.get(run.id)
         append(run, 'interrupted', { reason: 'server_restarted' })
         return store.update(run.id, { observability: deriveRunObservability(run, eventLog.readAfter(run.id, 0)) })
       })
@@ -328,6 +351,7 @@ export function createRunManager({ store, eventLog, executeChat, instanceId, onS
       const request = current.request
       if (!request?.message && !current.input?.messagePreview) throw Object.assign(new Error('resume_request_missing'), { code: 'resume_unavailable' })
       const checkpoint = current.checkpoint || {}
+      recovery.cancel(runId)
       const nextAttempt = Number.isInteger(checkpoint.attempt) ? checkpoint.attempt + 1 : 1
       const queued = store.update(runId, {
         status: 'queued',
@@ -340,6 +364,7 @@ export function createRunManager({ store, eventLog, executeChat, instanceId, onS
         failedAt: null,
         completedAt: null,
         observability: null,
+        stopRequestedAt: null,
         checkpoint: { ...checkpoint, phase: 'resuming', step: 'resume', attempt: nextAttempt, updatedAt: new Date().toISOString() },
       })
       append(queued, 'resumed', { attempt: nextAttempt, from: checkpoint.step || 'unknown' })
@@ -353,5 +378,9 @@ export function createRunManager({ store, eventLog, executeChat, instanceId, onS
       }
       return enqueue(queued, body, context)
     },
+    disableRecovery(runId) { return recovery.disable(runId) },
+    dispose() { recovery.dispose() },
   }
+  recovery = createBackgroundRecovery({ store, effects, workspaceScope, instanceId, append, scheduleRecovery, resume: id => manager.resume(id, { automaticRecovery: true }) })
+  return manager
 }

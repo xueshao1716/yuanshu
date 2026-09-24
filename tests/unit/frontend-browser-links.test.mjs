@@ -6,6 +6,21 @@ import { join } from 'node:path'
 const ROOT = process.cwd()
 const read = file => readFileSync(join(ROOT, 'frontend', 'src', file), 'utf8')
 
+test('browser has bounded loading feedback and resets it for every navigation', () => {
+  const panel = read('components/BrowserPanel.tsx')
+  assert.ok(panel.includes('setLoadProblem'), 'loading failure needs persistent, separate state')
+  assert.ok(panel.includes('15000'), 'navigation must stop the spinner after a bounded wait')
+  assert.ok(panel.includes('[open, currentUrl, frameKey]'), 'every navigation/reload cancels its previous timer')
+  assert.ok(panel.includes('onError='), 'failed frames must offer a usable fallback')
+  assert.ok(panel.includes('role="alert"'), 'failure is accessible and not only a transient toast')
+})
+
+test('streaming images and audio are deduplicated across recovery attempts', () => {
+  const lines = read('components/ChatArea.tsx').split('\n')
+  assert.ok(lines.some(l => l.includes("d.type === 'image'") && l.includes('dedupeMediaUrls([...p.images, d.url])')))
+  assert.ok(lines.some(l => l.includes("d.type === 'audio'") && l.includes('dedupeMediaUrls([...p.audios, d.url])')))
+})
+
 test('Markdown links expose copy and in-app browser actions', () => {
   const link = read('components/FileLink.tsx')
   const clipboard = read('lib/clipboard.ts')

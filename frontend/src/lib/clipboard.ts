@@ -9,16 +9,28 @@ export async function copyText(value: string): Promise<boolean> {
   } catch {}
 
   if (typeof document === 'undefined') return false
+  const active = document.activeElement as HTMLInputElement | HTMLTextAreaElement | null
+  const selection = document.getSelection()
+  const ranges = selection ? Array.from({ length: selection.rangeCount }, (_, i) => selection.getRangeAt(i).cloneRange()) : []
+  const start = active?.selectionStart, end = active?.selectionEnd, direction = active?.selectionDirection
   const textarea = document.createElement('textarea')
   textarea.value = value
   textarea.setAttribute('readonly', '')
   textarea.style.position = 'fixed'
   textarea.style.opacity = '0'
   textarea.style.pointerEvents = 'none'
-  document.body.appendChild(textarea)
-  textarea.select()
   let copied = false
-  try { copied = document.execCommand('copy') } catch {}
-  textarea.remove()
+  try {
+    document.body.appendChild(textarea)
+    textarea.select()
+    copied = document.execCommand('copy')
+  } catch {} finally {
+    textarea.remove()
+    try {
+      active?.focus({ preventScroll: true })
+      if (typeof start === 'number' && typeof end === 'number') active?.setSelectionRange(start, end, direction || undefined)
+      else if (selection) { selection.removeAllRanges(); ranges.forEach(range => selection.addRange(range)) }
+    } catch {}
+  }
   return copied
 }

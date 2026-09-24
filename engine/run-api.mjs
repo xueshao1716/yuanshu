@@ -1,8 +1,10 @@
 const TERMINAL = new Set(['completed', 'failed', 'stopped', 'interrupted'])
+import { publicRecovery } from './run-recovery.mjs'
 
 function publicRun(run) {
   if (!run) return run
   const { request, ...safe } = run
+  if (safe.backgroundRecovery) safe.backgroundRecovery = publicRecovery(safe.backgroundRecovery)
   if (safe.checkpoint && typeof safe.checkpoint === 'object') {
     const { historySnapshot, team, ...checkpoint } = safe.checkpoint
     if (team) checkpoint.team = { launchId: team.launchId }
@@ -38,7 +40,11 @@ function lastSeqOf(manager, runId) {
   return Array.isArray(events) ? (events.at(-1)?.seq || 0) : 0
 }
 
-export function createRunApi({ manager, json, readContext = null }) {
+export function createRunApi({ manager, json, readContext = null, readDeliveries = null }) {
+  const deliveryView = async (run, events) => {
+    try { return { deliveries: await readDeliveries?.(run, events) || [] } }
+    catch { return { deliveries: [], deliveriesUnavailable: true } }
+  }
   // explain 记忆（2026-09-20）：/api/run/overview 冷启 8.9s，大头是对每个可见 run 重算 explain
   //（readContext 要读上下文）。同一 run 的同一末序号（lastSeq）结果不变，直接复用。
   const explainCache = new Map()
@@ -62,7 +68,11 @@ export function createRunApi({ manager, json, readContext = null }) {
       const snapshot = buildRunSnapshot(runs, eventsByRun)
       const sources = new Map(runs.map(run => [run.id, run]))
       const visible = new Map([...snapshot.active, ...snapshot.recent].map(run => [run.id, run]))
-      await Promise.all([...visible.values()].map(async run => { run.explanation = await explain(sources.get(run.id), eventsByRun.get(run.id)) }))
+      await Promise.all([...visible.values()].map(async run => {
+        const source = sources.get(run.id), events = eventsByRun.get(run.id)
+        run.explanation = await explain(source, events)
+        Object.assign(run, await deliveryView(source, events))
+      }))
       return json(res, 200, snapshot)
     },
     async create(res, body, req = null) {
@@ -86,7 +96,7 @@ export function createRunApi({ manager, json, readContext = null }) {
       const run = manager.get(runId)
       if (!run) return json(res, 404, { error: 'run_not_found' })
       const events = manager.readAfter?.(runId, 0) || []
-      return json(res, 200, { ...publicRun(run), ...summarizeRun(run, events), explanation: await explain(run, events), lastSeq: events.at(-1)?.seq || 0 })
+      return json(res, 200, { ...publicRun(run), ...summarizeRun(run, events), explanation: await explain(run, events), ...await deliveryView(run, events), lastSeq: events.at(-1)?.seq || 0 })
     },
     events(res, req, url, runId) {
       const run = manager.get(runId)
@@ -130,6 +140,13 @@ export function createRunApi({ manager, json, readContext = null }) {
         if (!res.writableEnded) res.end()
       }
       req.once('close', close)
+    },
+    disableRecovery(res, runId) {
+      try { return json(res, 200, publicRun(manager.disableRecovery(runId))) }
+      catch (error) {
+        if (error?.code === 'run_not_found') return json(res, 404, { error: 'run_not_found' })
+        throw error
+      }
     },
     stop(res, runId) {
       try {

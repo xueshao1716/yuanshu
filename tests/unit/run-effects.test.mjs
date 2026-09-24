@@ -18,6 +18,19 @@ function fixture() {
   return { rootDir, now, cleanup: () => fs.rmSync(rootDir, { recursive: true, force: true }) }
 }
 
+test('corrupt ledger cannot be silently replaced by subsequent writes', () => {
+  const { rootDir, cleanup } = fixture()
+  try {
+    const effects = createRunEffects({ rootDir })
+    const file = path.join(rootDir, 'effects', 'broken.json')
+    fs.writeFileSync(file, '{broken')
+    for (const write of [() => effects.begin('broken', 'new'), () => effects.complete('broken', 'new', 'ok'), () => effects.markUncertain('broken', 'new')]) {
+      assert.throws(write, /effects_ledger_invalid/)
+      assert.equal(fs.readFileSync(file, 'utf8'), '{broken')
+    }
+  } finally { cleanup() }
+})
+
 test('canonicalStepKey 对参数键顺序稳定，并区分同轮不同序号', () => {
   assert.equal(hashArgs({ b: 2, a: 1 }), hashArgs({ a: 1, b: 2 }))
   assert.equal(

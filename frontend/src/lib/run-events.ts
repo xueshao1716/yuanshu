@@ -59,7 +59,7 @@ export function isTerminalRunStatus(status: string): status is RunStatus {
 
 export function interruptionNotice(data: { reason?: string; pauseReason?: string; message?: string; pauseMessage?: string }): { note?: string; error?: string } {
   const reason = data.reason || data.pauseReason
-  if (['execution_budget', 'tool_turn_limit', 'progress_boundary'].includes(reason || '')) {
+  if (['execution_budget', 'tool_turn_limit', 'progress_boundary', 'recovery_blocked'].includes(reason || '')) {
     return { note: data.message || data.pauseMessage || '任务已暂停，已保留进度；点击“继续任务”可接续。' }
   }
   return { error: reason === 'server_restarted' || !reason ? '服务重启，任务已中断' : '任务已中断，请查看运行记录。' }

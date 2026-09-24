@@ -1,7 +1,8 @@
 import { randomUUID, createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { spawnSubagent } from './subagent.mjs';
-import { reviewStoragePath, reviewAtomicWrite } from './review-file-safety.mjs';
+import { reviewStoragePath } from './review-file-safety.mjs';
+import { stageGeneralTeamDelivery } from './team-general-delivery.mjs';
 import { forkSeedFromHistory } from './subagent-fork.mjs';
 import { inspectTimedSpeech, TEAM_REVIEW_RULES } from './team-delivery-checks.mjs';
 
@@ -86,11 +87,13 @@ export async function executeTeam(args = {}, ctx = {}) {
     }
     if (!verdict.pass || verdict.issues.length) throw new Error(`正文复核未通过：${verdict.issues.join('；')}`);
     abort();
-    const artifact = `工程/天团交付/${state.deliveryId}/交付.md`;
-    reviewAtomicWrite(reviewStoragePath(ctx.wsRoot, artifact), draft + '\n');
-    state.artifactDigest = createHash('sha256').update(draft + '\n').digest('hex');
-    ctx.onEvent?.('artifact_created', { path: artifact, kind: 'document', status: 'awaiting_acceptance' });
-    state.result = { isError: false, text: `${draft}\n\n[下载本次交付](/api/ws/file?path=${encodeURIComponent(artifact)})\n\n已完成 ${children.length} 次子任务调用及模型复核，待你验收。`, artifact, children };
+    const delivery = await stageGeneralTeamDelivery({ wsRoot: ctx.wsRoot, runId: ctx.runId, sessionId: ctx.sessionId,
+      deliveryId: state.deliveryId, content: draft + '\n', children, verdict });
+    const artifact = delivery.draft;
+    state.artifactDigest = delivery.artifactDigest;
+    ctx.onEvent?.('artifact_created', { path: artifact, kind: 'document', status: delivery.status, artifactDigest: delivery.artifactDigest, delivery });
+    const note = delivery.status === 'awaiting_acceptance' ? '已进入工作台「改动验收」，等待人工验收。' : '草稿已保存，但未成功进入验收队列，请检查待审存储后人工处理。';
+    state.result = { isError: false, text: `${draft}\n\n[下载本次草稿](/api/ws/file?path=${encodeURIComponent(artifact)})\n\n已完成 ${children.length} 次子任务调用及模型复核；仅验证文本流程，不代表真实图片或视频实测。${note}`, artifact, children, delivery };
     save();
     return state.result;
   } catch (e) {

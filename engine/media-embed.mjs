@@ -3,6 +3,13 @@ const VIDEO_EXT = /\.(mp4|webm|mov)(?:\b|$)/i;
 const IMAGE_EXT = /\.(png|jpe?g|gif|webp)(?:\b|$)/i;
 const AUDIO_EXT = /\.(mp3|wav|m4a)(?:\b|$)/i;
 
+// Only workspace links are normalized; external hosts and version queries matter.
+export function mediaDeliveryKey(url) {
+  const value = String(url || '').trim();
+  const rel = toWorkspaceRel(value);
+  return rel ? `workspace:${rel}` : value;
+}
+
 // 工具文本可能是别的任务的协议/经验/搜索结果；路径存在不等于本轮交付。
 export function explicitToolMedia(out, { id, name } = {}) {
   const media = out?.media;

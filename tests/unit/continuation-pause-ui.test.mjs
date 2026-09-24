@@ -5,6 +5,12 @@ import * as events from '../../frontend/src/lib/run-events.ts';
 import { buildWorkExplanation } from '../../engine/work-explanation.mjs';
 import { buildRunSnapshot } from '../../engine/run-observability.mjs';
 
+test('automatic recovery safety barrier is a pause, not model failure', () => {
+  const result = events.interruptionNotice({ reason: 'recovery_blocked', message: '自动接续已暂停，请检查运行记录' });
+  assert.equal(result.error, undefined);
+  assert.match(result.note, /已暂停/);
+});
+
 test('预算暂停在流式和刷新恢复中都不是红色失败，重启仍有真实提示', () => {
   assert.equal(typeof events.interruptionNotice, 'function');
   for (const data of [{ reason: 'execution_budget', message: '已暂停，继续任务' }, { pauseReason: 'execution_budget', pauseMessage: '已暂停，继续任务' }]) {

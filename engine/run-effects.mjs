@@ -61,11 +61,14 @@ export function createRunEffects({ rootDir, now = () => new Date().toISOString()
   fs.mkdirSync(effectsDir, { recursive: true })
   const fileFor = runId => path.join(effectsDir, `${safeId(runId)}.json`)
 
-  const load = runId => {
+  const valid = (value, runId) => value?.v === 1 && value.runId === runId && value.steps && typeof value.steps === 'object'
+    && !Array.isArray(value.steps) && Object.entries(value.steps).every(([key, step]) => step?.key === key)
+  const load = (runId, strict = false) => {
     try {
       const value = JSON.parse(fs.readFileSync(fileFor(runId), 'utf8'))
-      if (value && value.runId === runId && value.steps && typeof value.steps === 'object') return value
+      if (valid(value, runId)) return value
     } catch {}
+    if (strict && fs.existsSync(fileFor(runId))) throw new Error('effects_ledger_invalid')
     return { v: 1, runId, steps: {} }
   }
   const save = doc => atomicWriteJson(fileFor(doc.runId), doc)
@@ -76,9 +79,19 @@ export function createRunEffects({ rootDir, now = () => new Date().toISOString()
   return {
     get,
     list,
+    initialize(runId) {
+      if (!fs.existsSync(fileFor(runId))) save({ v: 1, runId, steps: {} })
+    },
+    inspect(runId) {
+      try {
+        const doc = JSON.parse(fs.readFileSync(fileFor(runId), 'utf8'))
+        if (!valid(doc, runId)) return { ok: false }
+        return { ok: true, steps: Object.values(doc.steps) }
+      } catch { return { ok: false } }
+    },
     begin(runId, key, metadata = {}) {
       if (!runId || !key) throw new Error('run_effect_key_required')
-      const doc = load(runId)
+      const doc = load(runId, true)
       const existing = doc.steps[key]
       if (existing?.state === 'completed') {
         return { action: 'reuse', key, state: existing.state, result: existing.result, entry: existing }
@@ -102,7 +115,7 @@ export function createRunEffects({ rootDir, now = () => new Date().toISOString()
       return { action: 'execute', key, state: entry.state, entry }
     },
     complete(runId, key, result, metadata = {}) {
-      const doc = load(runId)
+      const doc = load(runId, true)
       const previous = doc.steps[key] || { key }
       const entry = {
         ...previous,
@@ -117,7 +130,7 @@ export function createRunEffects({ rootDir, now = () => new Date().toISOString()
       return entry
     },
     markUncertain(runId, key, reason = 'unknown') {
-      const doc = load(runId)
+      const doc = load(runId, true)
       const previous = doc.steps[key] || { key }
       const entry = { ...previous, key, state: 'uncertain', reason: String(reason), uncertainAt: now() }
       doc.steps[key] = entry

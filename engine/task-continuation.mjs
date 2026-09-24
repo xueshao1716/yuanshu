@@ -10,7 +10,10 @@ export function continuationLimits(opts, batchSize, turn = 0) {
   const budgetMs = Number.isFinite(requestedMs) && requestedMs > 0
     ? Math.min(requestedMs, MAX_AUTOMATIC_EXECUTION_MS) : MAX_AUTOMATIC_EXECUTION_MS;
   // Time is checked at safe round boundaries, never halfway through a write.
-  return { automatic, budgetMs, deadline: Date.now() + budgetMs, startTurn: turn, limit: turn + batchSize };
+  const inheritedDeadline = Number(opts.executionDeadlineAt);
+  const deadline = Number.isFinite(inheritedDeadline) && inheritedDeadline > 0
+    ? Math.min(Date.now() + budgetMs, inheritedDeadline) : Date.now() + budgetMs;
+  return { automatic, budgetMs, deadline, startTurn: turn, limit: turn + batchSize };
 }
 
 export function truncationRecoveryPrompt(budget, attempt) {

@@ -22,7 +22,7 @@ import { createGateway } from "./gateway.mjs";
 import { CodeRuntime } from "../code-mode/code-runtime.mjs";
 import { createCodeMode } from "../code-mode/code-mode.mjs";
 import { detectMediaIntents, extractMediaPrompt, generateMediaAsync, mediaAwarePrompt, explainMediaError, assistantContentWithMedia, isPureImageRequest } from "./media-api.mjs";
-import { explicitToolMedia } from "./media-embed.mjs";
+import { explicitToolMedia, mediaDeliveryKey } from "./media-embed.mjs";
 import { readOpenAIChatStream } from "./openai-stream.mjs";
 import { buildMessagesRequest, messagesEndpoint, messagesHeaders } from "./anthropic-messages.mjs";
 import { readMessagesStream } from "./anthropic-stream.mjs";
@@ -998,7 +998,7 @@ export async function handleUnifiedChat(res, entry, message, sessionId, params, 
         return [];
       });
       const items = [];
-      const deliveredKeys = new Set();
+      const deliveredKeys = new Set(persistedTurn.mediaKeys);
       for (const mr of results || []) {
         if (!mr) continue;
         if (mr.error && !mr.url) {
@@ -1024,7 +1024,7 @@ export async function handleUnifiedChat(res, entry, message, sessionId, params, 
           }
         }
         // 同一远程地址或同一已落盘路径只交付一次，避免模型重复引用时把同一文件发多遍。
-        const deliveryKey = `${mr.type || "media"}:${String(mr.url).trim()}`;
+        const deliveryKey = mediaDeliveryKey(mr.url);
         if (deliveredKeys.has(deliveryKey)) continue;
         deliveredKeys.add(deliveryKey);
         const clean = { ...mr };
@@ -1093,7 +1093,7 @@ export async function handleUnifiedChat(res, entry, message, sessionId, params, 
   }
   async function runLockedChat(locked) {
     // history 末条已是 handleChat 改写后的规划指令消息（含需求），直接复用；只传只读工具定义
-    const result = await unifiedChat(chatModel, history, { onTool: onToolStart, onToolEnd, onCheckpoint, params, signal, tools: locked, sandboxMode: "read-only", sandboxWsRoot: _cwd, sandboxAsk: approvalAsk, effects: runContext?.effects, resumeSnapshot: runContext?.resume ? runContext.checkpoint?.historySnapshot : null, resumeCheckpointKind: runContext?.resume ? runContext.checkpoint?.checkpointKind : null, resumeToolPlan: runContext?.resume && runContext.checkpoint?.checkpointKind === "tool_plan" ? runContext.checkpoint?.toolPlan : null, executionContext: { runId: runContext?.runId, sessionId: runContext?.sessionId, attempt: runContext?.attempt, onEvent: runContext?.onEvent, aibodyContext: runContext?.aibodyContext, history } });
+    const result = await unifiedChat(chatModel, history, { executionBudgetMs: runContext?.executionBudgetMs, executionDeadlineAt: runContext?.executionDeadlineAt, onTool: onToolStart, onToolEnd, onCheckpoint, params, signal, tools: locked, sandboxMode: "read-only", sandboxWsRoot: _cwd, sandboxAsk: approvalAsk, effects: runContext?.effects, resumeSnapshot: runContext?.resume ? runContext.checkpoint?.historySnapshot : null, resumeCheckpointKind: runContext?.resume ? runContext.checkpoint?.checkpointKind : null, resumeToolPlan: runContext?.resume && runContext.checkpoint?.checkpointKind === "tool_plan" ? runContext.checkpoint?.toolPlan : null, executionContext: { runId: runContext?.runId, sessionId: runContext?.sessionId, attempt: runContext?.attempt, onEvent: runContext?.onEvent, aibodyContext: runContext?.aibodyContext, history } });
     if (!result || result.error) {
       clearTask(taskId, "error"); writer.push("error", { message: result?.error || "模型未返回内容" }); finishEmotion(); return;
     }
@@ -1127,6 +1127,8 @@ export async function handleUnifiedChat(res, entry, message, sessionId, params, 
     writer.push('interrupted', { reason: result.pauseReason, message: result.message, model: result.usedModel, requestedModel });
   }
   const chatOpts = {
+    executionBudgetMs: runContext?.executionBudgetMs,
+    executionDeadlineAt: runContext?.executionDeadlineAt,
     onNote: text => writer.push('note', { text }),
     onModel: model => writer.push('model_used', { model, requestedModel }),
     onTool: onToolStart,
@@ -1251,7 +1253,7 @@ export async function handleUnifiedChat(res, entry, message, sessionId, params, 
     const proModel = routeProCandidate();
     if (proModel && (proModel.provider !== chatModel.provider || proModel.id !== chatModel.id)) {
       writer.push("note", { text: `🚀 模型自报任务超纲，升级 ${proModel.provider}/${proModel.id} 重试${proMatch[1] ? `（原因：${proMatch[1].trim()}）` : ""}…` });
-      const proResult = await unifiedChat(proModel, history, { onTool: onToolStart, onToolEnd, onCheckpoint, params, signal, tools: toolDefs, sandboxMode: chatOpts.sandboxMode, sandboxWsRoot: _cwd, sandboxAsk: approvalAsk, effects: runContext?.effects, resumeSnapshot: null, resumeCheckpointKind: null, resumeToolPlan: null, executionContext: { runId: runContext?.runId, sessionId: runContext?.sessionId, attempt: runContext?.attempt, onEvent: runContext?.onEvent, aibodyContext: runContext?.aibodyContext, history } });
+      const proResult = await unifiedChat(proModel, result.history || history, { executionBudgetMs: runContext?.executionBudgetMs, executionDeadlineAt: runContext?.executionDeadlineAt, onTool: onToolStart, onToolEnd, onCheckpoint, params, signal, tools: toolDefs, sandboxMode: chatOpts.sandboxMode, sandboxWsRoot: _cwd, sandboxAsk: approvalAsk, effects: runContext?.effects, resumeSnapshot: null, resumeCheckpointKind: null, resumeToolPlan: null, executionContext: { runId: runContext?.runId, sessionId: runContext?.sessionId, attempt: runContext?.attempt, onEvent: runContext?.onEvent, aibodyContext: runContext?.aibodyContext, history } });
       if (proResult?.paused) { await finishPausedChat(proResult); return; }
       if (proResult?.text && !proResult.error) {
         const proTxt = String(proResult.text).trim();

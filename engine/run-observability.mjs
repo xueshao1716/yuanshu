@@ -1,4 +1,7 @@
+import { publicRecovery } from './run-recovery.mjs'
+
 const PHASE_BY_EVENT = new Map([
+  ['recovery_scheduled', 'queued'],
   ['run_started', 'executing'],
   ['reasoning', 'thinking'],
   ['tool_started', 'executing'],
@@ -175,6 +178,7 @@ export function summarizeRun(run, events = []) {
     memoryPreview: memoryPreview ? String(memoryPreview).slice(0, 160) : null,
     error: error ? String(error).slice(0, 240) : null,
     resumeAvailable: run?.resumeAvailable === true,
+    backgroundRecovery: publicRecovery(run?.backgroundRecovery),
     ...(run?.pauseReason ? { pauseReason: run.pauseReason } : {}),
     ...(run?.pauseMessage ? { pauseMessage: run.pauseMessage } : {}),
     durationMs: observability.durationMs,

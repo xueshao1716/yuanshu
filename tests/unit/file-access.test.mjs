@@ -14,9 +14,14 @@ test('old signed workspace video is rebound to this device and current credentia
   assert.equal(url.searchParams.get('path'), '生成物/video.mp4')
   assert.equal(url.searchParams.has('sig'), false)
   assert.equal(url.searchParams.has('exp'), false)
-  assert.equal(url.searchParams.get('token'), 'new#token')
+  assert.equal(url.searchParams.has('token'), false, 'fetch downloads authenticate in headers only')
   assert.equal(url.searchParams.get('download'), '1')
   assert.equal(r.headers.Authorization, 'Bearer new#token')
+})
+test('media elements still receive an encoded token because they cannot send headers', async () => {
+  const resolve = await access()
+  const r = resolve('/api/ws/file?path=生成物/image.png', '', 'new#token')
+  assert.equal(new URL(r.url, 'https://local.example').searchParams.get('token'), 'new#token')
 })
 test('external video keeps its signature and receives no workspace credential', async () => {
   const resolve = await access()

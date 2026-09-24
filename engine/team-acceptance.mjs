@@ -17,8 +17,11 @@ export function resolveTeamAcceptance({ wsRoot, run }) {
     if (typeof runId !== 'string' || !/^[a-zA-Z0-9][a-zA-Z0-9_-]{0,100}$/.test(runId) ||
         /^(con|prn|aux|nul|com[1-9]|lpt[1-9])$/i.test(runId) ||
         typeof id !== 'string' || !/^p[a-z0-9-]{1,100}$/i.test(id)) return unknown();
-    const base = `工程/多AI角色扮演系统/runs/${runId}`;
-    if (delivery.target !== `${base}/交付/终稿.md` || delivery.draft !== `${base}/草稿/终稿.md`) return unknown();
+    if (delivery.profile && delivery.profile !== 'general-team') return unknown();
+    const general = delivery.profile === 'general-team';
+    const base = general ? `工程/天团交付/${runId}` : `工程/多AI角色扮演系统/runs/${runId}`;
+    if (delivery.target !== (general ? `${base}/验收稿.md` : `${base}/交付/终稿.md`) ||
+        delivery.draft !== (general ? `${base}/草稿.md` : `${base}/草稿/终稿.md`)) return unknown();
     const target = reviewPath(wsRoot, delivery.target);
     const draft = reviewPath(wsRoot, delivery.draft);
     const proposal = reviewStoragePath(wsRoot, `工程/待审/${id}.json`);

@@ -2,8 +2,9 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
+import { fileURLToPath } from "node:url";
 
-const ROOT = "D:/pi-web";
+const ROOT = fileURLToPath(new URL("../../", import.meta.url));
 
 test("pure image requests settle the model after one text turn", () => {
   const src = readFileSync(join(ROOT, "engine", "unified-chat.mjs"), "utf8");

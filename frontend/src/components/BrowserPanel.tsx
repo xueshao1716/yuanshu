@@ -1,6 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import type { MouseEvent } from 'react'
-import { ArrowLeft, ArrowRight, Copy, ExternalLink, Globe2, Loader2, RotateCw, X } from 'lucide-react'
+import { ArrowLeft, ArrowRight, Copy, ExternalLink, Globe2, Loader2, RotateCw } from 'lucide-react'
 import { copyText } from '../lib/clipboard'
 
 function resolveUrl(value: string): string | null {
@@ -19,6 +18,8 @@ export default function BrowserPanel({ open, initialUrl, onClose }: { open: bool
   const [frameKey, setFrameKey] = useState(0)
   const [notice, setNotice] = useState('')
   const [loading, setLoading] = useState(false)
+  const [loadProblem, setLoadProblem] = useState('')
+  const loadTimer = useRef<number | undefined>(undefined)
   const [history, setHistory] = useState<string[]>([])
   const [historyIndex, setHistoryIndex] = useState(-1)
   const inputRef = useRef<HTMLInputElement>(null)
@@ -32,11 +33,12 @@ export default function BrowserPanel({ open, initialUrl, onClose }: { open: bool
   useEffect(() => {
     if (!open) return
     returnFocusRef.current = document.activeElement as HTMLElement
+    setNotice('')
     const next = resolveUrl(initialUrl)
     if (next) {
       setAddress(next); setCurrentUrl(next); setHistory([next]); setHistoryIndex(0); setLoading(true)
     } else {
-      setAddress(''); setCurrentUrl(''); setHistory([]); setHistoryIndex(-1)
+      setAddress(''); setCurrentUrl(''); setHistory([]); setHistoryIndex(-1); setLoading(false)
     }
     requestAnimationFrame(() => (next ? inputRef.current : closeRef.current)?.focus())
     const onKeyDown = (event: KeyboardEvent) => {
@@ -52,6 +54,24 @@ export default function BrowserPanel({ open, initialUrl, onClose }: { open: bool
       if (noticeTimer.current) window.clearTimeout(noticeTimer.current)
     }
   }, [open, initialUrl])
+
+  useEffect(() => {
+    setLoadProblem('')
+    if (!open || !currentUrl) { setLoading(false); return }
+    setLoading(true)
+    loadTimer.current = window.setTimeout(() => {
+      setLoading(false)
+      setLoadProblem('页面加载较慢，或网站不允许内嵌显示。可在当前窗口打开，或复制地址。')
+    }, 15000)
+    return () => window.clearTimeout(loadTimer.current)
+  }, [open, currentUrl, frameKey])
+
+  const frameSettled = (failed = false) => {
+    window.clearTimeout(loadTimer.current)
+    setLoading(false)
+    // iframe load is not proof that cross-origin content or CSP succeeded.
+    setLoadProblem(failed ? '未能加载内嵌页面，请在当前窗口打开或复制地址。' : '')
+  }
 
   // 把浏览器面板挂到一条临时历史记录上：手机返回键/浏览器后退先收起面板，
   // 不会把用户直接带离元枢。显式关闭时吃掉这条临时记录，避免返回键要按两次。
@@ -123,10 +143,15 @@ export default function BrowserPanel({ open, initialUrl, onClose }: { open: bool
         <button type="button" className="btn-tool touch-hit" aria-label="在当前窗口打开" title="在当前窗口打开，之后可用浏览器后退返回" disabled={!currentUrl} onClick={openSystem}><ExternalLink className="h-4 w-4" /></button>
       </div>
       {notice && <div className="browser-notice" role="status">{notice}</div>}
+      {loadProblem && <div className="browser-notice" role="alert">
+        <p>{loadProblem}</p>
+        <button type="button" className="btn-tool touch-hit" onClick={openSystem}>在当前窗口打开</button>
+        <button type="button" className="btn-tool touch-hit" onClick={() => void copyCurrent()}>复制地址</button>
+      </div>}
       <div className="browser-frame-wrap">
         {loading && <div className="browser-loading" role="status"><Loader2 className="h-4 w-4 animate-spin" />正在加载页面…</div>}
         {currentUrl ? <>
-          <iframe key={frameKey} src={currentUrl} title="内置浏览器页面" sandbox="allow-forms allow-modals allow-popups allow-presentation allow-scripts" referrerPolicy="strict-origin-when-cross-origin" onLoad={() => setLoading(false)} />
+          <iframe key={frameKey} src={currentUrl} title="内置浏览器页面" sandbox="allow-forms allow-modals allow-popups allow-presentation allow-scripts" referrerPolicy="strict-origin-when-cross-origin" onLoad={() => frameSettled()} onError={() => frameSettled(true)} />
           <p className="browser-hint">部分网站会禁止内嵌显示；页面空白时请点右上角“在当前窗口打开”，之后用浏览器后退返回工作台。</p>
         </> : <div className="browser-empty"><Globe2 className="h-10 w-10" /><p>从消息里的链接点“打开”，或在上方输入网址。</p></div>}
       </div>
