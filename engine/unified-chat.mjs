@@ -509,7 +509,9 @@ export async function unifiedChat(model, messages, opts = {}) {
     outputBudget = budgetWithinWindow({ declaredMaxTokens: outputBudget, contextWindow: Number(mdef?.contextWindow) || 0, usedTokens: estimateHistoryTokens(history), fallback: OUTPUT_TOKEN_FALLBACK });
     try { opts.onCheckpoint?.({ phase: "model_request", turn, toolPlan: [], ...createRunHistorySnapshot(history, { turn }) }); } catch {}
     let r;
-    let wantStream = true;
+    // An empty streaming round is retried on the same model as a JSON response.
+    // Keep this transport choice only until the round makes real progress.
+    let wantStream = emptyTries === 0;
     // 自动重试：网络错误/5xx 重试最多 2 次
     for (let attempt = 0; attempt < 2; attempt++) {
       try {
@@ -623,6 +625,7 @@ export async function unifiedChat(model, messages, opts = {}) {
     truncatedToolRetries = 0;
     const tcs = inspected.calls;
     if (tcs && tcs.length && toolDefs) {
+      emptyTries = 0;
       if (!roundStreamed) {
         const streamedRound = emitRoundStream(opts, msg); // 立刻 opts.onThink / opts.onDelta
         if (streamedRound.think || streamedRound.text) streamed = true;
@@ -649,6 +652,7 @@ export async function unifiedChat(model, messages, opts = {}) {
     // ══ P2 scavenge（Reasonix 借鉴，2026-08-19）：无 tool_calls 但思考里捞到合法工具调用 → 执行（带策略拦截）
     const scavenged = nativeMessages || tcs?.length ? [] : scavengeToolCalls(msg.reasoning_content || "", toolDefs, seenCalls);
     if (scavenged.length) {
+      emptyTries = 0;
       if (!roundStreamed) {
         const streamedRound = emitRoundStream(opts, msg); // 立刻 opts.onThink / opts.onDelta
         if (streamedRound.think || streamedRound.text) streamed = true;
@@ -676,24 +680,19 @@ export async function unifiedChat(model, messages, opts = {}) {
     const { think, text } = splitAssistantPayload(msg);
     if (isEmptyAssistantTurn({ text, hasTools: false })) {
       emptyTries += 1;
+      const emptyDiagnostic = {
+        model: usedModel, requestedModel: { provider: model.provider, id: model.id },
+        attempt: emptyTries, transport: wantStream ? 'sse' : 'json',
+        finishReason: parsed.finishReason || null, textLength: content.length,
+        thinkingLength: think.length, completionTokens: parsed.usage?.completion_tokens ?? parsed.usage?.output_tokens ?? null,
+      };
+      try { opts.executionContext?.onEvent?.('model_empty_response', emptyDiagnostic); } catch {}
       if (emptyTurnDecision(emptyTries) === "retry") {
+        opts.onNote?.(`模型 ${model.provider}/${model.id} 本次未返回正文，正在用同一模型非流式重试（${emptyTries}/2），已保留工具结果。`);
         turn -= 1;
         continue;
       }
-      return { empty: true, think, text: null, history, usedModel, streamed };
-    }
-    // 诊断：text 空时记录上游响应细节（2026-08-29 临时排查 hy4 空回复）
-    if (!text) {
-      try {
-        const fsdiag = await import("node:fs");
-        // M1 路径外部化：调试日志进系统临时目录，不再写死盘符
-        fsdiag.appendFileSync(path.join(os.tmpdir(), "yuanshu-unified-debug.log"), JSON.stringify({
-          t: new Date().toISOString(), model: model.provider + "/" + model.id, turn,
-          content_len: content.length, reasoning_len: think.length,
-          tool_calls: Array.isArray(tcs) ? tcs.length : (msg.tool_calls?.length || 0),
-          content_head: content.slice(0, 120), reasoning_head: think.slice(0, 120),
-        }) + "\n");
-      } catch {}
+      return { empty: true, think, text: null, history, usedModel, streamed, emptyDiagnostic };
     }
     return { think, text: (continuedText + text) || null, history, usedModel, streamed };
   }
@@ -1176,7 +1175,9 @@ export async function handleUnifiedChat(res, entry, message, sessionId, params, 
     const fbModel = pickFallbackExcluding(chatModel);
     if (fbModel) {
       writer.push("note", { text: `⚠️ 模型空回复，切换 ${fbModel.provider}/${fbModel.id} 兑底…` });
-      const fb = await unifiedChat(fbModel, history, { ...chatOpts, onDelta: undefined, onThink: undefined, onThinkEnd: undefined });
+      switchedModel = { provider: fbModel.provider, id: fbModel.id, sameModel: false, reason: '主模型连续空回复，备用模型接续已完成步骤' };
+      writer.push('model_switched', { ...switchedModel, requestedModel });
+      const fb = await unifiedChat(fbModel, result.history || history, { ...chatOpts, onDelta: undefined, onThink: undefined, onThinkEnd: undefined });
       if (fb?.aborted || signal?.aborted) {
         try { persistUser(); persistYuanshuAssistant(entry.sm, assistantContentWithMedia(abortedAssistantText(fb), mediaItems), [], metadataFor(fb)); } catch {}
         collected = abortedAssistantText(fb);
@@ -1184,7 +1185,8 @@ export async function handleUnifiedChat(res, entry, message, sessionId, params, 
       }
       if (fb?.paused) { await finishPausedChat(fb); return; }
       if (fb?.text && !fb.error && !fb.empty) adoptReplacement(fb, fbModel, '主模型空回复，备用模型重新回答');
-      else result = { ...result, error: EMPTY_TURN_ERROR };
+      else result = { ...result, history: fb?.history || result.history, usedModel: fb?.usedModel || result.usedModel,
+        error: fb?.error || `${EMPTY_TURN_ERROR}（主模型 ${chatModel.provider}/${chatModel.id}；备用 ${fbModel.provider}/${fbModel.id} 亦未完成）` };
     } else {
       result = { ...result, error: EMPTY_TURN_ERROR };
     }
