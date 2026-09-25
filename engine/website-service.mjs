@@ -51,7 +51,7 @@ export function createWebsiteService(ctx) {
     const fragment=request.targetId?selectedHtml(base.doc,request.targetId):null;
     const controller=new AbortController(),run={id:randomUUID(),status:'running',startedAt:new Date().toISOString(),requestedModel:`${model.provider}/${model.id}`,request,
       checkpoint:input.resume?structuredClone(previous.checkpoint):{plan:null,sections:[],partial:null},calls:input.resume?structuredClone(previous.calls||[]):[],events:[],error:null,
-      ...(input.resume?{resumedFrom:previous.id,actualModel:previous.actualModel}:{} )};
+      ...(input.resume?{resumedFrom:previous.id,lastSuccessfulModel:previous.lastSuccessfulModel||previous.actualModel}:{} )};
     const event=(stage,message)=>{run.stage=stage;run.events.push({stage,message,at:new Date().toISOString()});store.setRun(id,{...run});};
     event('preparing',input.resume?'从已保存的检查点继续，已完成区块不会重跑':request.targetId?'已锁定选区，其余页面保持不变':request.mode==='creative'?'已收到想法，开始原创设计':'已读取本作品需求和当前页面');
     const task={controller,run,promise:null};active.set(id,task);

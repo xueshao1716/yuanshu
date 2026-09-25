@@ -6,6 +6,7 @@ import path from 'node:path';
 import assert from 'node:assert/strict';
 import {createHash} from 'node:crypto';
 import {parseHTML} from 'linkedom';
+import {assertOutsideSelectionUnchanged} from './website-edit-acceptance.mjs';
 
 const modelKey=process.argv[2];
 if(!modelKey?.includes('/'))throw new Error('Specify provider/model explicitly');
@@ -72,8 +73,7 @@ try {
   assert.equal(r.status,'completed',r.error);
   assert.equal(p.selectedVersion,generated.id,'Edit candidate requires explicit adoption');
   const edited=p.versions.find(v=>v.id===r.resultVersion);
-  assert.equal(edited.doc.css,generated.doc.css);
-  assert.equal(edited.doc.html.replace(selectedHtml(edited.doc,targetId),''),generated.doc.html.replace(before,''));
+  assertOutsideSelectionUnchanged(generated.doc,edited.doc,targetId);
   assert.notEqual(selectedHtml(edited.doc,targetId),before,'Requested edit must change the selected section');
   const element=html=>parseHTML(`<html><body>${html}</body></html>`).document.body.firstElementChild;
   const priorElement=element(before),nextElement=element(selectedHtml(edited.doc,targetId));

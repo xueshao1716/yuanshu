@@ -10,6 +10,7 @@ import { extractMessages } from "./session-utils.mjs";
 import { saveArtifact } from "./workspace-api.mjs";
 import { buildMessagesRequest, decodeMessagesResponse, messagesEndpoint, messagesHeaders } from './anthropic-messages.mjs';
 import { clampOutputTokens, OUTPUT_TOKEN_HARD_CAP } from './output-budget.mjs';
+import { directChatStream } from './direct-chat-stream.mjs';
 
 let _readJsonFile = null, _writeJsonFile = null, _authPath = "", _modelsPath = "", _resolveAuth = null, _getModelList = () => [], _getDefaultModel = () => null,
     _unifiedChat = null, _detectMediaIntents = () => [], _generateMediaAsync = async () => null, _extractMediaPrompt = () => "", _readEntriesFromFile = () => [], _createSseWriter = null;
@@ -42,9 +43,9 @@ export async function directChat(model, message, history = [], opts = {}) {
   };
   try {
     const auth = _readJsonFile(_authPath);
-    const key = auth[model.provider]?.key;
+    const resolved = _resolveAuth?.(model.provider);
+    const key = auth[model.provider]?.key || resolved?.key;
     if (!key) return fail('所选模型未配置密钥，请在模型管理中检查');
-    const resolved = _resolveAuth(model.provider);
     const store = _readJsonFile(_modelsPath);
     const mdef = (store[model.provider]?.models || []).find(m => m.id === model.id)
       || _getModelList().find(m => m.provider === model.provider && m.id === model.id);
@@ -60,6 +61,17 @@ export async function directChat(model, message, history = [], opts = {}) {
       : clampOutputTokens(mdef);
     const completion = (finishReason, usage) => ({ finishReason: finishReason || null, truncated: ['max_tokens','length','max_output_tokens'].includes(finishReason), outputBudget: tokenCap, usage });
     const reqTimeout = Number(opts.timeout) > 0 ? Number(opts.timeout) : 120000;
+    if(opts.stream && apiType !== 'openai-responses') {
+      const native=apiType==='anthropic-messages';
+      const body=native?buildMessagesRequest({model:model.id,modelKey:`${model.provider}/${model.id}`,messages,maxTokens:tokenCap,stream:true}):
+        {...buildDirectChatBody({modelId:model.id,messages:messages.map(({anthropic_content,anthropic_model,...m})=>m),maxTokens:tokenCap,thinking:opts.thinking}),stream:true};
+      const request={method:'POST',headers:native?messagesHeaders(key):{'Content-Type':'application/json',Authorization:`Bearer ${key}`},body:JSON.stringify(body)};
+      const fetchStream=url=>directChatStream(url,request,apiType,{...opts,timeout:reqTimeout});
+      let parsed=await fetchStream(native?messagesEndpoint(base):modelEndpoint(base,'chat/completions'));
+      if(!native&&parsed.status===404)parsed=await fetchStream(`${baseNoV1}/chat/completions`);
+      if(!parsed.ok){if(isAuthErrorStatus(parsed.status))markModelBlocked(model,{reason:`HTTP ${parsed.status} (direct stream)`});return fail(`模型通道请求失败（HTTP ${parsed.status}），请检查通道或选择其他文本模型`);}
+      return {text:parsed.message.content||null,think:parsed.message.reasoning_content,...completion(parsed.finishReason,parsed.usage),usedModel:{provider:model.provider,id:parsed.model||model.id}};
+    }
     if (apiType === 'anthropic-messages') {
       const r = await httpJsonFetch(messagesEndpoint(base), { method: 'POST', headers: messagesHeaders(key), body: JSON.stringify(buildMessagesRequest({ model: model.id, modelKey: `${model.provider}/${model.id}`, messages, maxTokens: tokenCap })), timeout: reqTimeout, signal: opts.signal });
       if (!r.ok) {
@@ -136,6 +148,7 @@ export async function directChat(model, message, history = [], opts = {}) {
     }
     return { think, text: text || null, ...completion(data.choices?.[0]?.finish_reason, data.usage), usedModel: { provider: model.provider, id: data.model || model.id } };
   } catch (e) {
+    if(opts.throwOnError && (opts.signal?.aborted || e?.code?.startsWith('MODEL_')))throw e;
     if (e && /timeout/i.test(String(e?.message || ""))) return { timeout: true };
     if (opts.throwOnError) {
       if (e?.statusCode === 502) throw e;
@@ -154,50 +167,14 @@ export async function handleThink(res, body) {
   if (!resolved) return json(res, 400, { error: `${provider} 未配置 API Key（模型管理中添加）` });
   const mdef = (store[provider]?.models || []).find(m => m.id === modelId);
   if (!mdef) return json(res, 404, { error: `模型 ${provider}/${modelId} 未找到` });
-  const baseUrl = resolved.baseUrl || mdef.baseUrl;
-  const key = resolved.key;
-  const apiType = mdef.api || "openai-completions";
   try {
-    let data, modelName;
-    if (apiType === "anthropic-messages") {
-      const r = await httpJsonFetch(messagesEndpoint(baseUrl), {
-        method: "POST",
-        headers: { "Content-Type": "application/json", "x-api-key": key, "anthropic-version": "2023-06-01" },
-        body: JSON.stringify({ model: modelId, max_tokens: Math.min(mdef.maxTokens || 8192, 8192), messages: [{ role: "user", content: message }] }),
-        timeout: 180000,
-      });
-      if (!r.ok) { const txt = await r.text().catch(() => ""); return json(res, 502, { error: `思考模型调用失败 ${r.status}: ${txt.slice(0, 150)}` }); }
-      data = await r.json();
-      modelName = data.model || modelId;
-      const blocks = data.content || [];
-      const thinking = blocks.filter(b => b.type === "thinking").map(b => b.text || "").join("");
-      const content = blocks.filter(b => b.type === "text").map(b => b.text || "").join("");
-      const text = (thinking || content || "").trim();
-      if (!text) return json(res, 500, { error: "思考模型未返回内容" });
-      return json(res, 200, { text, model: modelName, reasoning: !!thinking });
-    }
-    const base = (baseUrl || "").replace(/\/+$/, "");
-    const baseNoV1 = base.endsWith("/v1") ? base.slice(0, -3) : base;
-    const mkReq = (u) => httpJsonFetch(u, {
-      method: "POST",
-      headers: { "Content-Type": "application/json", Authorization: `Bearer ${key}` },
-      body: JSON.stringify({ model: modelId, messages: [{ role: "user", content: message }], stream: false, max_tokens: Math.min(mdef.maxTokens || 8192, 8192) }),
-      timeout: 120000,
-    });
-    let r = await mkReq(modelEndpoint(base, 'chat/completions'));
-    if (r.status === 404) r = await mkReq(`${baseNoV1}/chat/completions`);
-    if (!r.ok) { const txt = await r.text().catch(() => ""); return json(res, 502, { error: `思考模型调用失败 ${r.status}: ${txt.slice(0, 150)}` }); }
-    data = await r.json();
-    modelName = data.model || modelId;
-    const msg = data.choices?.[0]?.message || {};
-    const reasoning = msg.reasoning_content || "";
-    const content = msg.content || "";
-    let text = (reasoning || content || "").trim();
-    if (!reasoning && /<think>/.test(text)) { text = text.replace(/<think>[\s\S]*?<\/think>\s*/g, "").trim() || text; }
+    const result=await directChat({...mdef,provider,id:modelId},message,[],{maxTokens:8192,timeout:mdef.api==='anthropic-messages'?180000:120000,allowPartial:true,throwOnError:true});
+    if(result?.timeout)return json(res,504,{error:'思考模型响应超时'});
+    const text=String(result?.think||result?.text||'').trim();
     if (!text) return json(res, 500, { error: "思考模型未返回内容" });
-    json(res, 200, { text, model: modelName, reasoning: !!reasoning });
+    json(res,200,{text,model:result.usedModel?.id||modelId,reasoning:!!result.think});
   } catch (e) {
-    json(res, 500, { error: String(e?.message || e).slice(0, 200) });
+    json(res, e.statusCode||500, { error: String(e?.message || e).slice(0, 200) });
   }
 }
 

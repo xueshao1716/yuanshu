@@ -77,3 +77,28 @@ test('cancelled creative task never saves late sections and invalid models creat
   const p=s.create({brief:'取消'});await new Promise(r=>setImmediate(r));s.cancel(p.id);release({text:JSON.stringify(plan)});await s.wait(p.id);
   assert.equal(s.get(p.id).run.status,'cancelled');assert.equal(s.get(p.id).versions.length,1);
 });
+
+test('resuming does not attribute an unanswered request to the previous successful model',async t=>{
+  let calls=0;const s=setup(t,async()=>{if(++calls===1)return {text:JSON.stringify(plan),usedModel:{provider:'test',id:'actual'}};return {timeout:true};});
+  const p=s.create({brief:'模型事实'});await s.wait(p.id);
+  const failed=s.get(p.id).run;
+  assert.equal(failed.actualModel,undefined,'latest timed out call has no confirmed model');
+  assert.equal(failed.lastSuccessfulModel,'test/actual');
+  const resumed=s.start(p.id,{resume:true});assert.equal(resumed.actualModel,undefined);assert.equal(resumed.lastSuccessfulModel,'test/actual');
+  await s.wait(p.id);assert.equal(s.get(p.id).run.actualModel,undefined);
+});
+
+test('stream interruption saves answer only and resumes the unfinished JSON',async t=>{
+  const full=JSON.stringify({...plan,sections:plan.sections.slice(0,1)}),prefix=full.slice(0,40);let calls=0;
+  const s=setup(t,async(m,msg,history,opts)=>{
+    calls++;
+    if(calls===1){assert.equal(opts.stream,true);opts.onProgress({phase:'thinking',thinkingCharacters:25,characters:0});opts.onDelta(prefix);throw Object.assign(new Error('模型流中断'),{statusCode:502});}
+    if(calls===2){assert.equal(history.at(-1).content,prefix);return {text:full.slice(40),usedModel:model};}
+    return {text:JSON.stringify(part(1)),usedModel:model};
+  });
+  const p=s.create({brief:'断流'});await s.wait(p.id);let result=s.get(p.id);
+  assert.equal(result.run.checkpoint.partial?.text,prefix);assert.equal(result.versions.length,1);
+  assert.equal(result.run.progress.thinkingCharacters,25);assert.ok(!JSON.stringify(result.run).includes('reasoning_content'));
+  s.start(p.id,{resume:true});await s.wait(p.id);result=s.get(p.id);
+  assert.equal(result.run.status,'completed');assert.equal(calls,3);assert.equal(result.selectedVersion,p.selectedVersion);
+});

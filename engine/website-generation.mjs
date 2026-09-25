@@ -8,24 +8,42 @@ export async function generateWebsite({ctx,model,project,base,fragment,run,event
   const cp=run.checkpoint,request=run.request;
   const overall=AbortSignal.any([controller.signal,AbortSignal.timeout(15*60*1000)]);
   let lastModel=run.calls.findLast(f=>f.usedModel)?.usedModel||model;
-  async function call(message,history,systemHint,budget,key) {
+  async function call(message,history,systemHint,budget,key,prefix='') {
     overall.throwIfAborted();
-    const signal=AbortSignal.any([overall,AbortSignal.timeout(125000)]);
+    const signal=AbortSignal.any([overall,AbortSignal.timeout(305000)]);
     const fact={key,runId:run.id,requestedModel:`${model.provider}/${model.id}`,startedAt:new Date().toISOString(),outputBudget:budget};
     run.calls.push(fact);
+    delete run.actualModel;
+    run.progress={phase:'waiting',characters:0,thinkingCharacters:0};
+    event('waiting','请求已发送，等待模型开始返回；上次成功模型不代表本次实际模型');
+    let streamed='',savedAt=0,lastPhase='waiting';
+    const saveProgress=(force=false)=>{
+      if(!force && Date.now()-savedAt<2000 && run.progress.phase===lastPhase)return;
+      savedAt=Date.now();lastPhase=run.progress.phase;
+      const labels={waiting:'等待模型返回',thinking:'模型正在思考',output:'正在接收页面内容'};
+      event(lastPhase,`${labels[lastPhase]||'模型响应中'} · 正文 ${run.progress.characters} 字符 · 思考 ${run.progress.thinkingCharacters} 字符`);
+    };
+    const onDelta=delta=>{
+      signal.throwIfAborted();
+      if(prefix.length+streamed.length+delta.length>700000)throw designError('单个区块超出 70 万字符安全范围，已有检查点保留',422);
+      streamed+=delta;
+      cp.partial={key,text:prefix+streamed,truncated:true,interrupted:true,outputBudget:budget};
+    };
     let abort;
     const aborted=new Promise((_,reject)=>{abort=()=>reject(signal.reason);signal.addEventListener('abort',abort,{once:true});if(signal.aborted)abort();});
     try {
-      const result=await Promise.race([ctx.directChat(model,message,history,{systemHint,timeout:120000,signal,thinking:false,maxTokens:budget,allowPartial:true,throwOnError:true}),aborted]);
+      const result=await Promise.race([ctx.directChat(model,message,history,{systemHint,timeout:300000,idleTimeout:90000,stream:true,signal,thinking:false,maxTokens:budget,allowPartial:true,throwOnError:true,
+        onDelta,onProgress:progress=>{signal.throwIfAborted();run.progress={...progress};fact.progress={...progress};saveProgress();}}),aborted]);
       signal.throwIfAborted();
       if(result?.timeout)throw designError('模型响应超时，已有内容和检查点保留',504);
       if(!result)throw designError('模型没有返回正文，已有内容保留',502);
       lastModel=result.usedModel||model;
       Object.assign(fact,{usedModel:lastModel,finishReason:result.finishReason||null,truncated:!!result.truncated,outputBudget:result.outputBudget||budget,characters:String(result.text||'').length});
       run.actualModel=`${lastModel.provider}/${lastModel.id}`;
+      run.lastSuccessfulModel=run.actualModel;
       return result;
-    } catch(error) {fact.failed=true;throw error;}
-    finally {fact.finishedAt=new Date().toISOString();signal.removeEventListener('abort',abort);}
+    } catch(error) {fact.failed=true;fact.errorCode=error.code||error.name;throw error;}
+    finally {fact.finishedAt=new Date().toISOString();signal.removeEventListener('abort',abort);if(streamed)saveProgress(true);}
   }
   async function unit(key,message,systemHint,validate,stage,label) {
     let budget=clampOutputTokens(model,{fallback:16384}),result,text='',recovered=false;
@@ -41,7 +59,7 @@ export async function generateWebsite({ctx,model,project,base,fragment,run,event
       event('recovering','输出触及单次长度限制，片段已保存，正在继续这一部分');
       budget=escalateOutputTokens(result.outputBudget||budget,model,{hardCap:65536});
       const history=[{role:'user',content:message},...(text?[{role:'assistant',content:text}]:[])];
-      result=await call(text?'接着上一条 JSON 的断点继续，只输出剩余字符，不重复已有内容，不加代码围栏。':'上一条没有输出正文。请直接返回所需 JSON。',history,systemHint,budget,key);
+      result=await call(text?'接着上一条 JSON 的断点继续，只输出剩余字符，不重复已有内容，不加代码围栏。':'上一条没有输出正文。请直接返回所需 JSON。',history,systemHint,budget,key,text);
       text+=String(result.text||'');recovered=true;checkpoint();
       if(result.truncated){event('checkpoint','仍触及长度限制，已保留片段，可继续本次任务');throw designError('这一部分仍未写完，已保存检查点；可继续本次任务',422);}
     }

@@ -1,7 +1,7 @@
 import {api, downloadApiFile} from '../api'
 export type WebsiteDoc = {html: string; css: string}
 export type WebsiteVersion = {id: string; label: string; createdAt: string; doc: WebsiteDoc; model?: {provider: string; id: string}}
-export type WebsiteRun = {id: string; status: string; stage: string; startedAt: string; error?: string; requestedModel: string; actualModel?: string; resultVersion?: string; checkpoint?: {plan?: {sections: {title: string}[]}; sections: WebsiteDoc[]; partial?: {text: string}}; events: {stage: string; message: string; at: string}[]}
+export type WebsiteRun = {id: string; status: string; stage: string; startedAt: string; error?: string; requestedModel: string; actualModel?: string; lastSuccessfulModel?: string; progress?: {phase: string; characters: number; thinkingCharacters: number; at?: string}; resultVersion?: string; checkpoint?: {plan?: {sections: {title: string}[]}; sections: WebsiteDoc[]; partial?: {text: string}}; events: {stage: string; message: string; at: string}[]}
 export type WebsiteProject = {id: string; title: string; brief: string; selectedVersion: string; versions: WebsiteVersion[]; run?: WebsiteRun}
 export type WebsiteSummary = Pick<WebsiteProject,'id'|'title'|'brief'> & {versionCount: number; updatedAt: string}
 export type WebsiteTemplate = {id: string; name: string; subtitle: string; preview: string; tone: string}

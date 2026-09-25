@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { buildDirectChatBody, directChat, initModelClient } from "../../engine/model-client.mjs";
+import { buildDirectChatBody, directChat, handleThink, initModelClient } from "../../engine/model-client.mjs";
 import http from 'node:http';
 
 test("关闭思考时请求带 thinking disabled，避免 GLM-5 先想半分钟", () => {
@@ -64,4 +64,27 @@ test('工坊正文模式不把推理内容冒充页面',async t=>{
   initModelClient({authPath:'auth',modelsPath:'models',readJsonFile:p=>p==='auth'?{test:{key:'test-key'}}:{},resolveAuth:()=>({baseUrl:model.baseUrl}),getModelList:()=>[model]});
   const out=await directChat(model,'网页',[],{allowPartial:true});assert.equal(out.text,null);assert.match(out.think,/推理/);
   assert.match((await directChat(model,'旧调用')).text,/推理/);
+});
+
+for(const api of ['anthropic-messages','openai-responses'])test(`思考辅助接口遵循 ${api} 并正确识别推理`,async t=>{
+  let endpoint;
+  const data=api==='anthropic-messages'?{model:'actual',content:[{type:'thinking',thinking:'思考摘要'},{type:'text',text:'答案'}],stop_reason:'end_turn'}:
+    {model:'actual',status:'completed',output:[{type:'reasoning',summary:[{type:'summary_text',text:'思考摘要'}]},{type:'message',content:[{type:'output_text',text:'答案'}]}]};
+  const server=http.createServer((req,res)=>{endpoint=req.url;res.setHeader('Content-Type','application/json');res.end(JSON.stringify(data));});
+  await new Promise(r=>server.listen(0,'127.0.0.1',r));t.after(()=>new Promise(r=>server.close(r)));
+  const model={provider:'test',id:'design',api,baseUrl:`http://127.0.0.1:${server.address().port}/v1`};
+  initModelClient({authPath:'auth',modelsPath:'models',readJsonFile:p=>p==='auth'?{test:{key:'test-key'}}:{test:{models:[model]}},resolveAuth:()=>({key:'test-key',baseUrl:model.baseUrl}),getModelList:()=>[model]});
+  let status,result;await handleThink({writeHead:code=>{status=code;},end:value=>{result=JSON.parse(value);}},{provider:'test',modelId:'design',message:'分析'});
+  assert.equal(endpoint,api==='anthropic-messages'?'/v1/messages':'/v1/responses');
+  assert.equal(status,200);assert.equal(result.text,'思考摘要');assert.equal(result.reasoning,true);assert.equal(result.model,'actual');
+});
+
+test('思考辅助接口保留环境变量认证解析结果，不强制要求 auth 文件密钥',async t=>{
+  let authorization;
+  const server=http.createServer((req,res)=>{authorization=req.headers.authorization;res.setHeader('Content-Type','application/json');res.end(JSON.stringify({choices:[{finish_reason:'stop',message:{content:'答案'}}]}));});
+  await new Promise(r=>server.listen(0,'127.0.0.1',r));t.after(()=>new Promise(r=>server.close(r)));
+  const model={provider:'test',id:'design',baseUrl:`http://127.0.0.1:${server.address().port}/v1`};
+  initModelClient({authPath:'auth',modelsPath:'models',readJsonFile:p=>p==='auth'?{}:{test:{models:[model]}},resolveAuth:()=>({key:'environment-test-key',baseUrl:model.baseUrl}),getModelList:()=>[model]});
+  let status,result;await handleThink({writeHead:code=>{status=code;},end:value=>{result=JSON.parse(value);}},{provider:'test',modelId:'design',message:'分析'});
+  assert.equal(status,200);assert.equal(result.text,'答案');assert.equal(authorization,'Bearer environment-test-key');
 });
