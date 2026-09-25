@@ -2154,6 +2154,7 @@ async function runDreamCycle(fresh = false) {
 import { createPendingApi } from "./engine/pending-api.mjs";
 import { createBoardApi } from "./engine/board-api.mjs";
 import { createHistoryApi } from "./engine/history-api.mjs";
+import { createWorkbenchRoutes } from "./engine/workbench-routes.mjs";
 import { createWithCache } from "./engine/resp-cache.mjs";
 
 // 聚合接口的响应级 TTL 缓存。**必须在 API_ROUTES 之前创建**：下面那个数组字面量在模块求值期
@@ -3087,6 +3088,10 @@ const boardApi = createBoardApi({
   runApi, emotion, getSessionList, isListedGroup,
 });
 
+// Register after dependencies exist, never inside the per-request callback.
+API_ROUTES.push(...createWorkbenchRoutes({ withCache, boardApi, historyApi, handleEmotion, emotion, json, readBody }));
+Object.freeze(API_ROUTES);
+
 const server = http.createServer(async (req, res) => {
   __applyStaticCache(req, res);
 
@@ -3164,38 +3169,8 @@ const server = http.createServer(async (req, res) => {
       return handleStatic(req, res);
     }
 
-    // API（路由表匹配）
-    // 首屏打包（2026-09-20）：**在数组构建完成之后**用 push 注册 —— 上次用正则改数组字面量把请求链路带歪过，
-// 这次一步一验：老接口 /api/sessions 必须仍是 200。
-API_ROUTES.push(["GET", "/api/board/bootstrap", withCache(60000, "board-bootstrap", (res) => boardApi.bootstrap(res))]);
-
-// 情绪一条打包（2026-09-20）：实时情绪 + 潮汐 + 感受，工作台与小语挂件共用一条（前端用同一个 SWR key 去重）。
-API_ROUTES.push(["GET", "/api/emotion/summary", withCache(20000, "emotion-summary", async (res) => {
-  const cap = async (fn) => {
-    const parts = [];
-    const shim = {
-      writeHead: () => {}, setHeader: () => {}, getHeader: () => undefined,
-      write: (b) => { parts.push(b); return true; },
-      end: (b) => { if (b) parts.push(b); },
-      get statusCode() { return 200; }, set statusCode(_v) {}, get headersSent() { return false; },
-    };
-    try { await fn(shim); } catch (e) { return { __error: String((e && e.message) || e).slice(0, 100) }; }
-    try { return JSON.parse(parts.join("")); } catch { return null; }
-  };
-  const base = new URL("http://local/api/emotion");
-  const [live, tide, feelings] = await Promise.all([
-    cap((x) => handleEmotion(x, base)),
-    cap((x) => json(x, 200, { tide: emotion.getTide(300) })),
-    cap((x) => json(x, 200, { feelings: emotion.getFeelings(50) })),
-  ]);
-  return json(res, 200, { emotion: live, tide: tide && tide.tide, feelings: feelings && feelings.feelings, at: new Date().toISOString() });
-})]);
-
-// 版本回溯（2026-09-20）：列出所有 .bak* 备份 + 天团运行快照；一键回滚（回滚前再存一份）+ 审计。
-API_ROUTES.push(["GET", "/api/history", (res) => historyApi.list(res)]);
-API_ROUTES.push(["POST", "/api/history/rollback", async (res, req) => historyApi.rollback(res, await readBody(req, 8))]);
-
-for (const [method, matcher, handler] of API_ROUTES) {
+    // API（只匹配启动时注册的固定路由表，不在请求期间追加）
+    for (const [method, matcher, handler] of API_ROUTES) {
       if (req.method !== method) continue;
       let m = null;
       if (typeof matcher === "string") {
