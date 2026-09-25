@@ -2,6 +2,7 @@ import type { Model, Session, ChatMessage, SessionMessages, Artifact, AssetDeliv
 import { parseSseBlocks, type RunEvent, type RunStatus } from './lib/run-events'
 import { rememberDownload } from './lib/downloads'
 import { saveNativeDownload } from './lib/native-download'
+import { requestBrowserSave, writeBrowserSave } from './lib/browser-save'
 import { fileAccess } from './lib/file-access'
 import type { WorkExplanationData } from './lib/work-explanation'
 
@@ -60,6 +61,7 @@ export function withFileToken(url: string): string {
 
 /** Download a non-JSON API/file response with the current local token. */
 export async function downloadApiFile(path: string, filename?: string, onProgress?: (message: string) => void): Promise<string> {
+  const saveHandle = await requestBrowserSave(filename || 'download')
   onProgress?.('正在获取文件…')
   const access = fileAccess(path, getApiBase(), _token, true)
   let response: Response
@@ -71,7 +73,7 @@ export async function downloadApiFile(path: string, filename?: string, onProgres
     const external = /^https?:\/\//i.test(access.url) && (typeof location === 'undefined' || new URL(access.url, location.href).origin !== location.origin)
     // A navigation fallback cannot carry authentication headers. Never report
     // a protected workspace download as started when its authenticated fetch failed.
-    if (!external || access.headers.Authorization || typeof document === 'undefined') throw error
+    if (saveHandle || !external || access.headers.Authorization || typeof document === 'undefined') throw error
     const resolvedName = filename || 'download'
     const link = document.createElement('a')
     link.href = access.url
@@ -98,6 +100,13 @@ export async function downloadApiFile(path: string, filename?: string, onProgres
   const plain = disposition.match(/filename="?([^";]+)"?/i)?.[1]
   const resolvedName = filename || (encoded ? decodeURIComponent(encoded) : plain) || 'download'
   if (!blob.size) throw new Error('文件为空，请重新生成')
+  if (saveHandle) {
+    onProgress?.('正在写入所选位置…')
+    await writeBrowserSave(saveHandle, blob)
+    const recordSavedFile = rememberDownload
+    recordSavedFile({ name: resolvedName, url: path, size: blob.size, sourcePath: path, createdAt: new Date().toISOString(), status: 'saved', location: '所选位置' })
+    return '已保存到所选位置'
+  }
   onProgress?.('文件已就绪，正在打开保存位置…')
   const nativeSave = await saveNativeDownload(blob, resolvedName)
   if (nativeSave) {
@@ -113,7 +122,7 @@ export async function downloadApiFile(path: string, filename?: string, onProgres
   link.click()
   link.remove()
   window.setTimeout(() => URL.revokeObjectURL(url), 60000)
-  rememberDownload({ name: resolvedName, url: path, size: blob.size, sourcePath: path, createdAt: new Date().toISOString(), status: 'saved' })
+  rememberDownload({ name: resolvedName, url: path, size: blob.size, sourcePath: path, createdAt: new Date().toISOString(), status: 'started' })
   return '已交给浏览器下载；若未弹出，请点击“打开原文件保存”'
 }
 

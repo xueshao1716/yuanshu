@@ -2,6 +2,8 @@ import { lazy, Suspense, useMemo, useState } from 'react'
 import { TOOL_COLORS, COLOR_ERROR, COLOR_TOOL_FALLBACK } from '../theme/palettes'
 import { Brain, FileText, Check, X, Pencil, ChevronRight, Square, Info, Download, RefreshCw, Scissors } from 'lucide-react'
 import ImageViewer from './ImageViewer'
+import { useChatMedia } from './ChatMediaProvider'
+import { mediaFilename, type ChatMedia } from '../lib/chat-media'
 const Markdown = lazy(() => import('./Markdown'))
 
 function LazyMarkdown({ text }: { text: string }) {
@@ -102,7 +104,12 @@ function Thinking({ text, live }: { text: string; live?: boolean }) {
 
 function Attachments({ msg }: { msg: ChatMessage }) {
   const videos = dedupeMediaUrls(msg.videos?.length ? msg.videos : scrapeVideos(msg.text || ''))
-  const [viewer, setViewer] = useState<string | null>(null)
+  const galleryOpen = useChatMedia()
+  const [viewer, setViewer] = useState<ChatMedia | null>(null)
+  const openMedia = (src: string, kind: ChatMedia['kind']) => {
+    if (galleryOpen) galleryOpen(src, kind)
+    else setViewer({ src, kind, name: mediaFilename(src, kind) })
+  }
   const [downloading, setDownloading] = useState<string | null>(null)
   const [failed, setFailed] = useState<Record<string, boolean>>({})
   const [downloadStatus, setDownloadStatus] = useState<Record<string, string>>({})
@@ -142,13 +149,13 @@ function Attachments({ msg }: { msg: ChatMessage }) {
         <div key={'img' + i} className="my-1.5">
           {/* 点开用应用内查看器（2026-09-18）：以前是 window.open('_blank')，在安卓 WebView 里
               会被同一个 webview 直接导航过去 → 没地址栏、没返回键 → "点开就回不去了"。 */}
-          <button type="button" onClick={() => setViewer(src)} aria-label={`查看大图 图片${i + 1}`}
+          <button type="button" onClick={() => openMedia(src, 'image')} aria-label={`查看大图 图片${i + 1}`}
             className="block max-w-full cursor-zoom-in rounded-pi-lg">
             <img src={withFileToken(src)} alt={`图片${i + 1}`} loading="lazy" className="max-w-[320px] max-h-[280px] rounded-pi-lg border border-pi-border-soft object-cover" />
           </button>
         </div>
       ))}
-      {viewer && <ImageViewer src={viewer} onClose={() => setViewer(null)} />}
+      {viewer && <ImageViewer src={viewer.src} items={[viewer]} onClose={() => setViewer(null)} />}
       {msg.audios?.map((url, i) => (
         <div key={'aud' + i} className="my-1.5"><audio controls src={withFileToken(url)} className="max-w-full h-9" /></div>
       ))}
@@ -157,6 +164,7 @@ function Attachments({ msg }: { msg: ChatMessage }) {
           <video controls playsInline preload="metadata" src={withFileToken(url)} onError={() => setFailed(state => ({ ...state, [url]: true }))} className="w-full aspect-video rounded-pi-lg border border-pi-border-soft bg-black" />
           <div className="mt-1.5 flex items-center justify-between gap-2">
             <span className="min-w-0 truncate text-[11px] text-pi-dim2">{failed[url] ? '视频暂时无法播放，可直接下载原文件' : videoLabel(url, index)}</span>
+            <button type="button" className="btn-tool min-h-11 shrink-0 px-2.5 text-xs" onClick={event => { event.currentTarget.closest('div.my-2')?.querySelector('video')?.pause(); openMedia(url, 'video') }} aria-label={`全屏查看视频${index + 1}`}>全屏查看</button>
             <button type="button" className="btn-tool inline-flex min-h-11 shrink-0 items-center gap-1.5 px-2.5" onClick={() => downloadVideo(url, index)} disabled={Boolean(downloading)} aria-label={`下载${videoName(url, index)}`} title="下载视频">
               {downloading === url ? <RefreshCw className="h-3.5 w-3.5 animate-spin" /> : <Download className="h-3.5 w-3.5" />}
               <span className="text-[11px]">{downloading === url ? '保存中…' : '下载视频'}</span>

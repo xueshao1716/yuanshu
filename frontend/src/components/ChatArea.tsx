@@ -6,6 +6,7 @@ import { RefreshCw } from 'lucide-react'
 import { usePullToRefresh } from '../hooks/usePullToRefresh'
 import { RunApi, RunsApi, SessionsApi, AsrApi, AgentStatusApi, streamSession, LingXiApi, ConfirmApi, downloadApiFile, type RunSummary } from '../api'
 import Message from './Message'
+import ChatMediaProvider from './ChatMediaProvider'
 import SendBox from './SendBox'
 import XiaoyuWidget from './XiaoyuWidget'
 import TurnList from './TurnList'
@@ -986,6 +987,7 @@ export default function ChatArea({ compactHeader, rightPanel, onRightPanel }: {
   const liveCls = agentStatus === 'busy' ? (busyFromBackground ? 'status-pill-live-bg' : 'status-pill-live-busy') : agentStatus === 'error' ? 'status-pill-live-error' : ''
 
   return (
+    <ChatMediaProvider key={currentSessionId || 'none'} sessionId={currentSessionId || ''} messages={[...normalMessages, ...(stream ? [stream] : draftMsg ? [draftMsg] : [])]}>
     <div className="relative flex-1 flex flex-col min-w-0 min-h-0">
       {/* 下拉刷新指示器（移动端触屏；锚定头部下方，平时 opacity:0 不占位） */}
       <div aria-hidden
@@ -1192,5 +1194,6 @@ export default function ChatArea({ compactHeader, rightPanel, onRightPanel }: {
       </div>
           <XiaoyuWidget />
 </div>
+    </ChatMediaProvider>
   )
 }
