@@ -10,6 +10,7 @@ import { RefineApi, SkillsApi, PromptsApi, ImprovementsApi, EvolutionApi, SkillN
 import GardenerView from '../components/GardenerView'
 import MechanismExperimentPanel from '../components/MechanismExperimentPanel'
 import TaskEvidencePanel from '../components/TaskEvidencePanel'
+import EvolutionReview from '../components/EvolutionReview'
 
 // ── 应用中心（Phase 3）：经验沉淀台 / 技能库 / 提示词库 / 改进提案 ──
 
@@ -345,7 +346,9 @@ export default function Apps() {
 // ── 进化引擎视图（09-03）：反思式提示词进化，人工审批红线 ──
 function EvolutionView() {
   const { data: plist } = useSWR('prompts', () => PromptsApi.list())
-  const { data: propsals, mutate } = useSWR('evolution', () => EvolutionApi.list())
+  const { data: propsals, mutate, error: listError } = useSWR('evolution', () => EvolutionApi.list(), {
+    refreshInterval: data => data?.proposals?.some((p: any) => p.evaluation?.status === 'running') ? 5000 : 0,
+  })
   const [target, setTarget] = useState('')
   const [busy, setBusy] = useState('')
   const [msg, setMsg] = useState('')
@@ -362,13 +365,10 @@ function EvolutionView() {
       await mutate()
     } catch (e: any) { setMsg('进化失败：' + (e?.message || e)) } finally { setBusy('') }
   }
-  const act = async (kind: 'apply' | 'dismiss', id: string, vi = 0) => {
-    setBusy(id + vi)
+  const dismiss = async (id: string) => {
+    setBusy(id)
     try {
-      if (kind === 'apply') {
-        const r = await EvolutionApi.apply(id, vi)
-        setMsg(r.ok ? `已写回（原版备份：${r.backup}）` : `应用失败：${r.error}`)
-      } else { await EvolutionApi.dismiss(id); setMsg('已驳回') }
+      await EvolutionApi.dismiss(id); setMsg('已驳回')
       await mutate()
     } catch (e: any) { setMsg('操作失败：' + (e?.message || e)) } finally { setBusy('') }
   }
@@ -377,19 +377,13 @@ function EvolutionView() {
     try {
       const r = await EvolutionApi.evaluate(id)
       if (r.ok) {
-        setMsg('评测已在后台开始（出题 → 各变体作答 → 评分，约 5-10 分钟）。完成后提案卡会自动显示分数，页面会轮询刷新。')
-        // 轮询：评测写回提案池后自动刷出分数
-        const timer = setInterval(async () => {
-          const d = await EvolutionApi.list()
-          const p = (d.proposals || []).find((x: any) => x.id === id)
-          if (p?.evaluation) { clearInterval(timer); await mutate(); setMsg(`评测完成，最优：${p.evaluation.best}`); setBusy('') }
-        }, 20000)
-        setTimeout(() => clearInterval(timer), 15 * 60_000) // 15 分钟兜底
+        setMsg('评测已在后台开始，最多 4 题、2 个变体、25 次评测调用（通道重试另计），总时限 15 分钟。结果保留完整回答供你核对，模型分数不能直接批准变体。')
+        await mutate()
       } else setMsg(`评测启动失败：${r.error || '未知'}`)
-    } catch (e: any) { setMsg('评测失败：' + (e?.message || e)); setBusy('') }
+    } catch (e: any) { setMsg('评测失败：' + (e?.message || e)) } finally { setBusy('') }
   }
-  const scoreBadge = (label: string, avg?: number, best?: string) => (
-    <span className={`inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded-pi-pill border ${best === label ? 'bg-pi-success/15 text-pi-success border-pi-success/30' : 'bg-pi-bg3 text-pi-dim2 border-pi-border-soft'}`}>{label}: <b className="tabular-nums">{avg ?? '-'}</b></span>
+  const scoreBadge = (label: string, avg?: number) => (
+    <span key={label} className="inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded-pi-pill border bg-pi-bg3 text-pi-dim2 border-pi-border-soft">{label}: <b className="tabular-nums">{avg ?? '-'}</b></span>
   )
 
   return (
@@ -410,6 +404,7 @@ function EvolutionView() {
           </button>
         </div>
         {msg && <div className="text-[11px] text-pi-dim mt-2 leading-relaxed">{msg}</div>}
+        {listError && <p role="status" className="text-pi-dim mt-2">评测记录刷新失败；请恢复连接后重试，不能据此判断评测已完成。</p>}
       </div>
 
       {items.map((it: any) => (
@@ -420,17 +415,18 @@ function EvolutionView() {
             <span className="ml-auto text-[10px] text-pi-dim2">{String(it.created).slice(5, 16).replace('T', ' ')} · {it.traces} 条轨迹</span>
           </div>
           {it.analysis && <div className="text-[12px] text-pi-dim mt-1.5 leading-relaxed">失败分析：{it.analysis}</div>}
-          {it.evaluation ? (
+          {it.evaluation?.status === 'running' && <p role="status" className="text-pi-dim mt-2">正在收集对照答案与参考评分…</p>}
+          {it.evaluation?.status === 'failed' && <p role="status" className="text-pi-dim mt-2">评测未完成：{it.evaluation.error}</p>}
+          {it.evaluation?.status === 'completed' ? (
             <div className="flex items-center gap-1.5 mt-2 flex-wrap">
-              <span className="text-[10px] text-pi-dim2">评测:</span>
-              {scoreBadge('原版', it.evaluation.original?.avg, it.evaluation.best)}
-              {(it.evaluation.variants || []).map((v: any) => scoreBadge(v.label, v.avg, it.evaluation.best))}
-              {it.evaluation.best && <span className="text-[10px] text-pi-success">★ 最优: {it.evaluation.best}</span>}
+              <span className="text-[10px] text-pi-dim2">模型参考分（不是验收）:</span>
+              {scoreBadge('原版', it.evaluation.original?.avg)}
+              {(it.evaluation.variants || []).map((v: any) => scoreBadge(v.label, v.avg))}
             </div>
           ) : null}
           {it.state === 'open' && (
-            <button className="btn-tool text-[12px] mt-2 inline-flex items-center gap-1" onClick={() => evaluate(it.id)} disabled={busy === 'eval-' + it.id}>
-              {busy === 'eval-' + it.id ? <><Loader2 className="w-3 h-3 animate-spin" />评测中…</> : '跑评测（出题对比各变体）'}
+            <button className="btn-tool min-h-11 text-[12px] mt-2 inline-flex items-center gap-1" onClick={() => evaluate(it.id)} disabled={!!busy || it.evaluation?.status === 'running'}>
+              {busy === 'eval-' + it.id || it.evaluation?.status === 'running' ? <><Loader2 className="w-3 h-3 animate-spin" />评测中…</> : '跑评测（使用模型额度）'}
             </button>
           )}
           <div className="mt-2 space-y-2">
@@ -447,13 +443,13 @@ function EvolutionView() {
                 )}
                 {it.state === 'open' && (
                   <div className="flex gap-2 mt-2">
-                    <button className="btn-primary text-[12px] px-2.5 py-1 disabled:opacity-60" onClick={() => act('apply', it.id, vi)} disabled={busy === it.id + vi}>{busy === it.id + vi ? '写回中…' : '应用此变体'}</button>
+                    {it.evaluation?.status === 'completed' ? <EvolutionReview key={`${it.evaluation.id}-${vi}`} id={it.id} index={vi} evaluation={it.evaluation} onChange={mutate} /> : <p className="text-pi-dim text-[12px]">完成评测并逐题核对后才能应用；历史评分不能直接采用。</p>}
                   </div>
                 )}
               </div>
             ))}
           </div>
-          {it.state === 'open' && <button className="btn-tool text-[12px] mt-2" onClick={() => act('dismiss', it.id)}>整单驳回</button>}
+          {it.state === 'open' && <button className="btn-tool min-h-11 text-[12px] mt-2" disabled={!!busy} onClick={() => dismiss(it.id)}>整单驳回</button>}
           {it.backup && <div className="text-[10px] text-pi-dim2 mt-1.5">原版备份：{it.backup}</div>}
         </div>
       ))}

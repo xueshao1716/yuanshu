@@ -26,6 +26,7 @@ export default function TaskEvidenceEditor({ row, onChange }: { row: EvidenceDet
   return <div className="space-y-3 text-[13px] min-w-0" aria-label="任务验收详情">
     <p className="text-pi-text whitespace-pre-wrap break-words">{row.input}</p>
     <p className="text-pi-dim">验收：{acceptanceLabels[row.acceptance]} · 技能样本：{row.eligible ? '可评分' : '未取得资格'}</p>
+    <p className="text-pi-dim">文件结构检查：{row.objective?.status === 'PASS' ? '已通过已支持的检查' : row.objective?.status === 'FAIL' ? '发现问题，禁止进入正向学习' : '尚未验证全部格式'}。这不代表任务质量合格，也不会自动确认技能选择。</p>
     {row.review && <p className="text-pi-dim break-words">上次记录 {new Date(row.review.at).toLocaleString()}：{row.review.note}
       {row.review.skills.length > 0 && `（确认技能：${row.review.skills.join('、')}）`}</p>}
     <details open>
@@ -34,6 +35,7 @@ export default function TaskEvidenceEditor({ row, onChange }: { row: EvidenceDet
       <ul className="space-y-3 mt-3">
         {row.artifacts.map((artifact, i) => <li key={`${artifact.path}-${i}`} className="break-all">
           <p className="text-pi-dim">{artifact.path}</p>
+          {artifact.objective && <p className="text-pi-dim">{artifact.objective.message}{artifact.objective.width ? ` · ${artifact.objective.width} × ${artifact.objective.height}` : ''}</p>}
           {artifact.error ? <p className="text-pi-dim">{artifact.error}</p> : <>
             {/\.(png|jpe?g|webp|gif)$/i.test(artifact.path) && <img alt="本次交付图片" loading="lazy"
               className="max-w-full max-h-64 object-contain mt-2" src={withFileToken(`/api/ws/file?path=${encodeURIComponent(artifact.path)}`)} />}
@@ -55,7 +57,7 @@ export default function TaskEvidenceEditor({ row, onChange }: { row: EvidenceDet
     </details>}
     {row.issues.length > 0 && <ul className="text-pi-dim space-y-1">{row.issues.map(issue => <li key={issue}>{issue}</li>)}</ul>}
     {row.lane !== 'team' && <>
-      <fieldset disabled={busy || !row.reviewable} className="space-y-1">
+      <fieldset disabled={busy || !row.reviewable || row.objective?.status === 'FAIL'} className="space-y-1">
         <legend className="text-pi-text">本次哪些技能选择合适？请单独确认</legend>
         <p className="text-pi-dim">不勾选也能验收任务，但不会生成技能学习标签。再次提交合格时，以这次勾选为准。</p>
         {row.skills.map(skill => <label key={skill} className="flex items-center gap-2 min-h-11 break-all">

@@ -8,6 +8,7 @@ import { createHash, randomUUID } from "node:crypto";
 import { reviewStoragePath } from "./review-file-safety.mjs";
 import { atomicWriteText } from "./atomic-io.mjs";
 import { scanSessionFiles, readEntriesFromFile } from "./session-files.mjs";
+import { createEvaluation, runPromptEvaluation, validateEvolutionReview } from './evolution-evaluation.mjs';
 
 let wsRoot = "";
 let promptsDir = "";
@@ -105,11 +106,11 @@ export async function proposeEvolution({ name, model }) {
     { role: "user", content: `# 当前模板（${name}）\n${original}\n\n# 执行轨迹样本（用户纠正/失败）\n${traceText}` },
   ];
 
-  const result = await llmChat(model, messages);
+  const result = await llmChat(model, messages, { tools: false });
   if (!result || result.error || !result.text) return { error: result?.error || "模型未返回内容" };
   let parsed; try { parsed = JSON.parse(result.text.replace(/^```json?\s*|```$/g, "").trim()); } catch { return { error: "模型输出非 JSON", raw: result.text.slice(0, 200) }; }
 
-  const variants = (parsed.variants || []).map(v => ({ ...v, gate: constraintGate(original, v.content || "") })).filter(v => !v.gate);
+  const variants = (Array.isArray(parsed.variants) ? parsed.variants : []).slice(0, 2).filter(v => typeof v?.content === 'string').map(v => ({ ...v, gate: constraintGate(original, v.content) })).filter(v => !v.gate);
   if (!variants.length) return { error: "所有变体未通过约束门", analysis: parsed.analysis };
 
   // 进提案池（kind: evolution，state: open）——绝不直接改模板
@@ -129,7 +130,7 @@ export async function proposeEvolution({ name, model }) {
 }
 
 // ── 3. 人工审批后才写回（自动备份原版）──
-export function applyEvolution(id, variantIndex = 0) {
+export function applyEvolution(id, variantIndex = 0, review = {}) {
   const pool = loadPool();
   const p = pool.find(x => x.id === id && x.kind === "evolution");
   if (!p) return { error: "提案不存在" };
@@ -142,18 +143,23 @@ export function applyEvolution(id, variantIndex = 0) {
   try { original = fs.readFileSync(tplPath, "utf8"); } catch { return { error: '原模板不可读取，未写回' }; }
   if (!p.originalDigest || p.originalDigest !== digestText(original)) return { error: '原模板已变化或历史提案无基线，请重新生成提案' };
   if (typeof v.content !== 'string' || constraintGate(original, v.content)) return { error: '变体未通过内容约束' };
+  const reviewError = validateEvolutionReview(p, original, variantIndex, review);
+  if (reviewError) return { error: reviewError };
   const bak = `${tplPath}.bak-${randomUUID()}`;
   try {
     fs.writeFileSync(bak, original, { encoding: 'utf8', flag: 'wx' });
     atomicWriteText(tplPath, v.content);
   } catch { return { error: '备份或写入失败，未确认应用，请核对模板和备份' }; }
   p.state = "applied"; p.appliedAt = new Date().toISOString(); p.backup = path.basename(bak);
+  p.approval = { source: 'human', evaluationId: review.evaluationId, variantIndex, comparisons: review.comparisons, note: review.note.trim(), at: p.appliedAt };
   savePool(pool);
   return { ok: true, backup: path.basename(bak) };
 }
 
 export function listEvolution() {
   return loadPool().filter(x => x.kind === "evolution")
+    .map(p => p.evaluation?.status === 'running' && !activeEvaluations.has(`${poolFile()}:${p.id}`)
+      ? { ...p, evaluation: { ...p.evaluation, status: 'failed', error: '评测已中断，请重新评测；旧进程未保存完整结果' } } : p)
     .sort((a, b) => String(b.created).localeCompare(String(a.created)))
     .slice(0, 30);
 }
@@ -385,55 +391,55 @@ export function dismissMemoryCompress(id) {
 
 // ══ 进化评测基准（09-03，EvoX benchmark + Hermes eval：让变体选择有数据支撑）══
 // 流程：LLM 基于模板用途出 4 道典型题 → 原版/每个变体各作答 → LLM judge 评分(0-100) → 均值写回提案。
-async function _chat(model, sys, user) {
-  const timeout = new Promise(resolve => setTimeout(() => resolve(""), 150_000)); // 单次超时 150s，防单点挂死卡死整个评测
-  const call = llmChat(model, [{ role: "system", content: sys }, { role: "user", content: user }]);
-  const r = await Promise.race([call, timeout]);
-  return r && !r.error ? String(r.text || "") : "";
-}
-export async function evaluateProposal(id, model) {
+const activeEvaluations = new Map();
+export function startEvolutionEvaluation(id, model) {
   const pool = loadPool();
   const p = pool.find(x => x.id === id && x.kind === "evolution");
   if (!p) return { error: "提案不存在" };
+  if (p.state !== 'open') return { error: '只能评测待审提案' };
   if (!llmChat || !model) return { error: "LLM 未注入" };
+  const storage = poolFile();
+  const key = `${storage}:${id}`;
+  if (activeEvaluations.has(key)) return { error: '此提案已有评测在运行' };
   let tplPath;
   try { tplPath = promptPath(p.target?.name); } catch { return { error: '模板路径不安全' }; }
   let original = "";
   try { original = fs.readFileSync(tplPath, "utf8"); } catch { return { error: "原模板已不存在" }; }
-
-  // 1. 出题（4 道典型使用场景）
-  const quizRaw = await _chat(model, "你是评测出题器。基于提示词模板的用途，出 4 道该模板应该能处理好的典型任务题，每题带场景差异（常规/边界/信息不足/干扰信息）。输出严格 JSON: {\"questions\":[\"题1\",\"题2\",\"题3\",\"题4\"]}", `# 模板用途\n${original.slice(0, 1200)}`);
-  let questions = [];
-  try { questions = JSON.parse(quizRaw.replace(/^```json?\s*|```$/g, "").trim()).questions || []; } catch {}
-  if (!questions.length) return { error: "出题失败" };
-
-  // 2. 各版本作答 + 3. judge 评分
-  const judgeSys = "你是严格评委。给定提示词模板产出的回答，从 0-100 打分：意图理解 30 分、回答完整性 30 分、格式与可用性 20 分、不废话不跑题 20 分。只输出数字。";
-  const scoreOf = async (tpl, q) => {
-    const answer = await _chat(model, tpl.slice(0, 6000), q);
-    if (!answer) return 0;
-    const s = await _chat(model, judgeSys, `# 题目\n${q}\n\n# 回答\n${answer.slice(0, 2000)}`);
-    const n = parseInt(String(s).replace(/[^0-9]/g, ""), 10);
-    return isNaN(n) ? 0 : Math.min(100, n);
-  };
-  const run = async (tpl) => {
-    const scores = [];
-    for (const q of questions) scores.push(await scoreOf(tpl, q));
-    return scores;
-  };
-  const origScores = await run(original);
-  const variantScores = [];
-  for (const v of p.variants) variantScores.push(await run(v.content));
-
-  const avg = arr => arr.length ? Math.round(arr.reduce((a, b) => a + b, 0) / arr.length) : 0;
-  p.evaluation = {
-    questions, at: new Date().toISOString(),
-    original: { scores: origScores, avg: avg(origScores) },
-    variants: p.variants.map((v, i) => ({ label: v.label, scores: variantScores[i] || [], avg: avg(variantScores[i] || []) })),
-    best: null,
-  };
-  const all = [{ label: "原版", avg: p.evaluation.original.avg }, ...p.evaluation.variants.map(v => ({ label: v.label, avg: v.avg }))];
-  p.evaluation.best = all.sort((a, b) => b.avg - a.avg)[0]?.label || null;
+  if (!p.originalDigest || p.originalDigest !== digestText(original)) return { error: '基线已变化，请重新生成提案' };
+  if (original.length > 12000 || !Array.isArray(p.variants) || !p.variants.length || p.variants.length > 2 ||
+      p.variants.some(v => typeof v.content !== 'string' || v.content.length > 12000 || constraintGate(original, v.content)))
+    return { error: '评测仅支持最多两个有效变体，每份模板不超过 12000 字符' };
+  const evaluation = createEvaluation(original, p.variants, model);
+  p.evaluation = evaluation;
   savePool(pool);
-  return { ok: true, evaluation: p.evaluation };
+  const chat = llmChat;
+  const current = () => {
+    if (poolFile() !== storage) return false;
+    const latest = loadPool().find(x => x.id === id);
+    return latest?.state === 'open' && latest.evaluation?.id === evaluation.id &&
+      latest.originalDigest === evaluation.originalDigest &&
+      JSON.stringify(latest.variants?.map(v => typeof v.content === 'string' ? digestText(v.content) : null)) === JSON.stringify(evaluation.variantDigests) &&
+      (() => { try { return digestText(fs.readFileSync(tplPath, 'utf8')) === evaluation.originalDigest; } catch { return false; } })();
+  };
+  const completion = Promise.resolve().then(async () => {
+    let result;
+    try {
+      result = await runPromptEvaluation({ original, variants: p.variants, model, chat, isCurrent: current });
+      if (!current()) throw new Error('内容已变化，评测结果不可采用');
+    } catch (e) { result = { status: 'failed', error: String(e.message || e).slice(0, 300), completedAt: new Date().toISOString() }; }
+    if (poolFile() !== storage) return { error: '评测存储已切换，未写入结果' };
+    // Reload after asynchronous work: preserve other proposals, reviews and dismissals.
+    const latestPool = loadPool(), latest = latestPool.find(x => x.id === id);
+    if (latest?.evaluation?.id !== evaluation.id) return { error: '评测记录已更新' };
+    latest.evaluation = { ...evaluation, ...result };
+    savePool(latestPool);
+    return result.status === 'completed' ? { ok: true, evaluation: latest.evaluation } : { error: result.error, evaluation: latest.evaluation };
+  }).catch(() => ({ error: '评测结果无法持久化，请检查存储后重试' })).finally(() => activeEvaluations.delete(key));
+  activeEvaluations.set(key, completion);
+  return { ok: true, started: true, evaluationId: evaluation.id, completion };
+}
+
+export async function evaluateProposal(id, model) {
+  const result = startEvolutionEvaluation(id, model);
+  return result.completion ? await result.completion : result;
 }

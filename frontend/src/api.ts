@@ -648,7 +648,7 @@ export const ImprovementsApi = {
 export const EvolutionApi = {
   list: () => api<{ proposals: any[] }>('/api/evolution/proposals'),
   propose: (name: string) => api<{ ok?: boolean; id?: string; variants?: number; traces?: number; analysis?: string; error?: string }>('/api/evolution/propose', { method: 'POST', body: { name }, timeoutMs: 180000 }),
-  apply: (id: string, variantIndex = 0) => api<{ ok?: boolean; backup?: string; error?: string }>('/api/evolution/apply', { method: 'POST', body: { id, variantIndex } }),
+  apply: (id: string, variantIndex = 0, review?: { evaluationId: string; comparisons: string[]; note: string }) => api<{ ok?: boolean; backup?: string; error?: string }>('/api/evolution/apply', { method: 'POST', body: { id, variantIndex, review } }),
   dismiss: (id: string) => api<{ ok?: boolean }>('/api/evolution/dismiss', { method: 'POST', body: { id } }),
   evaluate: (id: string) => api<{ ok?: boolean; evaluation?: any; error?: string }>('/api/evolution/evaluate', { method: 'POST', body: { id }, timeoutMs: 300000 }),
 }

@@ -3,6 +3,7 @@ import { randomUUID } from 'node:crypto';
 import { reviewStoragePath, reviewAtomicWrite } from './review-file-safety.mjs';
 import { readReviewBounded } from './review-read.mjs';
 import { taskEvidenceSnapshot, readEvidenceRun, evidenceId, evidenceError } from './task-evidence-snapshot.mjs';
+import { summarizeObjective } from './task-evidence-objective.mjs';
 
 const DIRECTORY = '记忆/做梦/任务验收';
 const MAX_REVIEWS = 200;
@@ -24,8 +25,9 @@ export function createTaskEvidence({ wsRoot, rootDir, now = () => new Date().toI
     const review = readReview(id);
     const acceptance = !review ? 'pending' : review.verdict === 'revoke' ? 'revoke' :
       review.digest !== snapshot.digest || (review.verdict === 'pass' && !snapshot.reviewable) ? 'stale' : review.verdict;
-    return { ...snapshot, review, acceptance,
-      eligible: acceptance === 'pass' && review.skills.length > 0 && review.skills.every(s => snapshot.skills.includes(s)) };
+    const objective = summarizeObjective(snapshot.artifacts);
+    return { ...snapshot, review, acceptance, objective,
+      eligible: objective.status !== 'FAIL' && acceptance === 'pass' && review.skills.length > 0 && review.skills.every(s => snapshot.skills.includes(s)) };
   }
   function review(id, body = {}) {
     const current = get(id);
@@ -54,7 +56,7 @@ export function createTaskEvidence({ wsRoot, rootDir, now = () => new Date().toI
         const row = get(id);
         if (!row.eligible) continue;
         result.push({ kind: 'skill-match', source: 'task-review', runId: id, sessionId: row.sessionId, input: row.input,
-          at: row.at, choice: row.review.skills[0], choices: row.review.skills,
+          at: row.at, choice: row.review.skills[0], choices: row.review.skills, objective: row.objective,
           verification: { source: 'human', verdict: 'PASS', skillValidated: true, reference: `task-review:${id}:${row.review.revision}` } });
       } catch { /* Unreadable evidence is never a positive label. */ }
     }

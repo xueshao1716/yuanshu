@@ -32,6 +32,34 @@ function fixture(t, opts = {}) {
   return { wsRoot, rootDir, store, log, run, event, service, submit };
 }
 
+test('objective failure prevents positive learning even after human acceptance', t => {
+  const f = fixture(t);
+  fs.mkdirSync(path.join(f.wsRoot, '生成物'));
+  fs.writeFileSync(path.join(f.wsRoot, '生成物', 'bad.png'), 'not an image');
+  f.event('file', { path: '生成物/bad.png' });
+  const accepted = f.submit();
+  assert.equal(accepted.objective.status, 'FAIL');
+  assert.equal(accepted.acceptance, 'pass');
+  assert.equal(accepted.eligible, false);
+  assert.equal(f.service.episodes().length, 0);
+});
+
+test('objective JSON checks never automatically validate skills and are content bound', t => {
+  const f = fixture(t);
+  fs.mkdirSync(path.join(f.wsRoot, '生成物'));
+  const file = path.join(f.wsRoot, '生成物', 'result.json');
+  fs.writeFileSync(file, '{"result":true}');
+  f.event('file', { path: '生成物/result.json' });
+  assert.equal(f.service.get(f.run.id).objective.status, 'PASS');
+  assert.equal(f.service.episodes().length, 0);
+  f.submit();
+  assert.equal(f.service.episodes()[0].objective.artifacts[0].scope, 'json-syntax');
+  fs.writeFileSync(file, '{broken');
+  assert.equal(f.service.get(f.run.id).acceptance, 'stale');
+  assert.equal(f.service.get(f.run.id).objective.status, 'FAIL');
+  assert.equal(f.service.episodes().length, 0);
+});
+
 test('child facts require matching lifecycle and never become skill labels', t => {
   const f = fixture(t, { workflow: 'team-general' });
   const data = { id: 'child-one', runId: 'child-one', parentRunId: f.run.id, sessionId: f.run.sessionId,

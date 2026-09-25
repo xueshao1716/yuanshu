@@ -10,7 +10,7 @@ import { evolutionStatus, runEvolutionCycle } from '../../engine/evolution-cycle
 import { json, readBody } from '../../engine/http-utils.mjs';
 
 // Actual evidence service and HTTP handlers, isolated from the production server.
-export async function evidenceFixture(dist) {
+export async function evidenceFixture(dist, extension) {
   const wsRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'yuanshu-evidence-browser-'));
   const rootDir = path.join(wsRoot, 'runtime'), token = 'isolated-test-token';
   const store = createRunStore({ rootDir }), log = createRunEventLog({ rootDir });
@@ -41,6 +41,7 @@ export async function evidenceFixture(dist) {
       const url = new URL(req.url, 'http://localhost'), p = url.pathname;
       if (p.startsWith('/api/')) {
         if (req.headers.authorization !== `Bearer ${token}` && !(p === '/api/ws/file' && url.searchParams.get('token') === token)) return json(res, 401, { error: 'unauthorized' });
+        if (extension && await extension(req, res, p)) return;
         if (p === '/api/dream/evidence' && req.method === 'GET') return api.list(res);
         const match = p.match(/^\/api\/dream\/evidence\/([a-zA-Z0-9_-]+)$/);
         if (match && req.method === 'GET') return api.get(res, match[1]);

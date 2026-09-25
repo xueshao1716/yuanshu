@@ -103,7 +103,7 @@ import { initModelClient, directChat, handleThink, handleDirectChat, maybeCompac
 import { initSelfHeal, createRepairCheckpoint, handleUpdateCheck, handleUpdateApply, handleRepair, handleDesignerGenerate, handleDesignerSave, handleCompare } from "./engine/self-heal.mjs";
 import { frontendVersionPayload } from "./engine/frontend-version.mjs";
 import { initImproveApi, analyzeImprovements, openImprovements, getImprovementDiagnostics, setImprovementStatus } from "./engine/improve-api.mjs";
-import { initEvolutionApi, proposeEvolution, applyEvolution, listEvolution, dismissEvolution, nudgeSkill, applySkillNudge, dismissSkillNudge, listSkillNudges, evaluateProposal, proposeMemoryNudge, listMemoryNudges, applyMemoryNudge, dismissMemoryNudge, analyzeMemoryCompress, proposeMemoryCompress, listMemoryCompress, applyMemoryCompress, dismissMemoryCompress } from "./engine/evolution-api.mjs";
+import { initEvolutionApi, proposeEvolution, applyEvolution, listEvolution, dismissEvolution, nudgeSkill, applySkillNudge, dismissSkillNudge, listSkillNudges, startEvolutionEvaluation, proposeMemoryNudge, listMemoryNudges, applyMemoryNudge, dismissMemoryNudge, analyzeMemoryCompress, proposeMemoryCompress, listMemoryCompress, applyMemoryCompress, dismissMemoryCompress } from "./engine/evolution-api.mjs";
 import { initSessionManager, createSession, evictInactiveSessions, slimSessionImages, compactSession, openSession, initSearchTool, initShareTool, createSessionAgent, ensureAgent, isFirstTurn, deleteSession, setOnTheSpotFixRunner, ensureContextHeadroom } from "./engine/session-manager.mjs";
 import { initUnifiedChat, unifiedChat, engineCurrentModel, initEngine, getCodeRuntime, getCodeMode, toolBindingDesc, toolBindingArgs, toolBindingArgsObj, handleNotices, handleUnifiedChat, touchTask, clearTask, taskProgress, handleAgentEventIn, handleAgentEventOut } from "./engine/unified-chat.mjs";
 import { completedTaskText } from "./engine/task-continuation.mjs";
@@ -2572,9 +2572,9 @@ const API_ROUTES = [
   // ── 进化引擎（09-03）：反思式进化提案 + 人工审批写回 ──
   ["GET", "/api/evolution/proposals", (res) => json(res, 200, { proposals: listEvolution() })],
   ["POST", "/api/evolution/propose", async (res, req) => { const b = await readBody(req); return json(res, 200, await proposeEvolution({ name: b.name, model: defaultModel })); }],
-  ["POST", "/api/evolution/apply", async (res, req) => { const b = await readBody(req); return json(res, 200, applyEvolution(b.id, b.variantIndex || 0)); }],
+  ["POST", "/api/evolution/apply", async (res, req) => { const b = await readBody(req); return json(res, 200, applyEvolution(b.id, b.variantIndex ?? 0, b.review)); }],
   ["POST", "/api/evolution/dismiss", async (res, req) => { const b = await readBody(req); return json(res, 200, dismissEvolution(b.id)); }],
-  ["POST", "/api/evolution/evaluate", async (res, req) => { const b = await readBody(req); evaluateProposal(b.id, defaultModel).catch(() => {}); return json(res, 200, { ok: true, started: true }); }],
+  ["POST", "/api/evolution/evaluate", async (res, req) => { const b = await readBody(req); const { completion, ...result } = startEvolutionEvaluation(b.id, defaultModel); return json(res, 200, result); }],
   // ── 技能自主沉淀（Hermes 闭环）──
   ["GET", "/api/skillnudge/list", (res) => json(res, 200, { nudges: listSkillNudges() })],
   ["POST", "/api/skillnudge/apply", async (res, req) => { const b = await readBody(req); return json(res, 200, applySkillNudge(b.id)); }],

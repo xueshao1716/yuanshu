@@ -3,6 +3,7 @@ import { createHash } from 'node:crypto';
 import { reviewStoragePath } from './review-file-safety.mjs';
 import { readReviewBounded } from './review-read.mjs';
 import { isProtectedPath } from './tools/security.mjs';
+import { inspectArtifactBytes } from './task-evidence-objective.mjs';
 
 export const evidenceHash = value => createHash('sha256').update(value).digest('hex');
 
@@ -24,7 +25,7 @@ export function inspectArtifacts(wsRoot, references) {
       if (isProtectedPath(file)) throw new Error('不能将受保护文件当作交付');
       const content = readReviewBounded(file, Math.min(8 * 1024 * 1024, 24 * 1024 * 1024 - bytes));
       bytes += content.length;
-      return { path: relative, size: content.length, digest: evidenceHash(content), error: null };
+      return { path: relative, size: content.length, digest: evidenceHash(content), error: null, objective: inspectArtifactBytes(relative, content) };
     } catch {
       return { path: relative.slice(0, 500), size: null, digest: null,
         error: '文件缺失、远程交付、路径不允许或超过检查限额（单文件 8MB，总计 24MB）' };

@@ -9,6 +9,7 @@ import {
   proposeEvolution,
   applyEvolution,
   listEvolution,
+  evaluateProposal,
   dismissEvolution,
   proposeMemoryNudge,
   applyMemoryNudge,
@@ -112,7 +113,18 @@ test("applyEvolution：写回模板并留下原版备份", async () => {
     }),
   });
   const r = await proposeEvolution({ name: "demo", model: { provider: "x", id: "y" } });
-  const applied = applyEvolution(r.id, 0);
+  assert.ok(applyEvolution(r.id, 0).error, 'unreviewed candidates cannot be applied');
+  initEvolutionApi({ root, prompts, skills, chat: async (_model, messages) => ({ text:
+    messages[0].content.includes('出题器') ? JSON.stringify({ questions: ['常规任务', '边界任务'] }) :
+      messages[0].content.includes('严格评委') ? '85/100' : '实际回答，供人工对照。' }) });
+  const evaluated = await evaluateProposal(r.id, { provider: 'fixture', id: 'judge' });
+  assert.equal(evaluated.ok, true);
+  assert.equal(evaluated.evaluation.original.scores[0], 85);
+  assert.equal(evaluated.evaluation.original.answers.length, 2);
+  const review = { evaluationId: evaluated.evaluation.id, comparisons: ['better', 'equal'], note: '逐题核对，引用更完整，无新增错误' };
+  assert.ok(applyEvolution(r.id, 0, { ...review, comparisons: ['better', 'worse'] }).error);
+  assert.ok(applyEvolution(r.id, 0, { ...review, evaluationId: 'stale' }).error);
+  const applied = applyEvolution(r.id, 0, review);
   assert.equal(applied.ok, true);
   assert.ok(applied.backup);
   assert.equal(fs.readFileSync(path.join(prompts, "demo.md"), "utf8"), evolved);

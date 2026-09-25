@@ -7,7 +7,8 @@ export interface EvidenceItem {
 }
 export interface EvidenceDetail extends EvidenceItem {
   sessionId: string; digest: string; text: string; skills: string[]; issues: string[]; reviewable: boolean; eligible: boolean
-  artifacts: { path: string; size: number | null; digest: string | null; error: string | null }[]
+  objective?: { status: 'PASS' | 'FAIL' | 'UNVERIFIED' }
+  artifacts: { path: string; size: number | null; digest: string | null; error: string | null; objective?: { status: 'PASS' | 'FAIL' | 'UNVERIFIED'; scope: string; message: string; width?: number; height?: number } }[]
   review: { revision: string; verdict: Verdict; at: string; note: string; skills: string[] } | null
   evolutionError?: string
   subagents?: { id: string; role: string; model: string; status: string; summary: string }[]
