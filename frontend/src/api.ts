@@ -404,9 +404,9 @@ export const AgentStatusApi = {
 }
 
 // 小语活动事件流（对标 vanilla 活动面板）
-export interface AgentEvent { type: string; ts: string | number; data?: { tool?: string; text?: string; [k: string]: unknown } }
+export interface AgentEvent { id?: string; source?: string; runId?: string; sessionId?: string; type: string; ts: string | number; data?: { tool?: string; text?: string; [k: string]: unknown } }
 export const AgentEventsApi = {
-  get: () => api<{ events: AgentEvent[] }>('/api/agent/events'),
+  get: () => api<{ events: AgentEvent[]; activeCount?: number }>('/api/agent/events'),
 }
 
 // ── 危险操作确认（dsh user-approval seam）：后端弹确认事件 → 前端回传结果 ──
@@ -625,9 +625,16 @@ export const CodeApi = {
 }
 
 // ── 应用中心 ──
+export interface LearningIntakeStatus {
+  candidates: { ok: boolean; count: number; limit?: number; retired?: number; backlog?: number; failed?: number; updatedAt?: string | null; entries: { runId: string; sessionId: string; title: string; at: string }[] }
+  collection: { ok?: boolean; at?: string; running?: boolean; reason?: string; scanned?: number; succeeded?: number; failed?: number; skipped?: number; empty?: number; added?: number }
+}
+export const LearningIntakeApi = {
+  status: () => api<LearningIntakeStatus>('/api/learning-intake/status'),
+}
 export const RefineApi = {
   list: () => api<{ pending: any[]; applied: any[]; rejected: any[] }>('/api/refine/list'),
-  status: () => api<{ counts: { pending: number; applied: number; rejected: number }; lastLog?: string | null }>('/api/refine/status'),
+  status: () => api<{ counts: { pending: number; applied: number; rejected: number }; lastLog?: string | null; experience?: { exists: boolean; count: number; source?: string; updatedAt?: string | null; error?: string; entries: { title: string; preview: string }[] } }>('/api/refine/status'),
   plan: () => api<any>('/api/refine/plan', { method: 'POST', body: {}, timeoutMs: 190000 }),
   approve: (id: string) => api<any>('/api/refine/approve', { method: 'POST', body: { id }, timeoutMs: 60000 }),
   reject: (id: string) => api<any>('/api/refine/reject', { method: 'POST', body: { id } }),

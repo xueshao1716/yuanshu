@@ -11,6 +11,18 @@ import { createRunManager } from '../../engine/run-manager.mjs'
 import { createRunEffects, canonicalStepKey } from '../../engine/run-effects.mjs'
 
 const tick = () => new Promise(resolve => setImmediate(resolve))
+test('completion intake callback runs once and its failure cannot fail the delivered task', async () => {
+  let called = 0
+  const fx = fixture(async (_req, res) => res.end(), { onRunFinished: run => {
+    assert.equal(run.status, 'completed'); called++; throw Error('candidate_disk_full')
+  } })
+  try {
+    const run = fx.manager.create({ sessionId: 'intake', clientRequestId: 'one', message: 'work' })
+    await waitFor(() => fx.manager.get(run.id)?.status === 'completed')
+    assert.equal(called, 1)
+    assert.equal(fx.manager.get(run.id).learningIntake.state, 'failed')
+  } finally { fx.cleanup() }
+})
 async function waitFor(check, attempts = 50) {
   for (let i = 0; i < attempts; i++) {
     const value = check()

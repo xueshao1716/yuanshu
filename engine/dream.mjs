@@ -204,18 +204,18 @@ export function recordSkillChoice(wsRoot, { input, skill, source = "live", sessi
 }
 
 /** 从会话里提取技能选择观察；同一会话同一用户轮内合并，仍需另行核验。 */
-export function skillEpisodesFromSessions(sessionFiles, { readFile = (f) => fs.readFileSync(f, "utf8"), limit = 500 } = {}) {
+export function skillEpisodesFromSessions(sessionFiles, { readFile = (f) => fs.readFileSync(f, "utf8"), limit = 500, strict = false } = {}) {
   const byInput = new Map();
   for (const file of sessionFiles || []) {
     let raw = "";
-    try { raw = readFile(file); } catch { continue }
+    try { raw = readFile(file); } catch (error) { if (strict) throw error; continue }
     let lastUser = "";
     let turn = 0;
     for (const line of raw.split("\n")) {
       const t = line.trim();
       if (!t) continue;
       let e = null;
-      try { e = JSON.parse(t); } catch { continue }
+      try { e = JSON.parse(t); } catch (error) { if (strict) throw new Error(`Invalid session JSON: ${error.message}`); continue }
       const m = e?.message;
       if (!m) continue;
       if (m.role === "user") {

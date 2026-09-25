@@ -78,7 +78,7 @@ function createExecutionIo({ headers = {}, socket = {}, onEvent }) {
   return { req, res, close }
 }
 
-export function createRunManager({ store, eventLog, executeChat, instanceId, onSessionUpdated = null, effects = null, workspaceScope = () => null, scheduleRecovery }) {
+export function createRunManager({ store, eventLog, executeChat, instanceId, onSessionUpdated = null, onRunFinished = null, effects = null, workspaceScope = () => null, scheduleRecovery }) {
   const executions = new Map()
   let recovery
 
@@ -228,7 +228,10 @@ export function createRunManager({ store, eventLog, executeChat, instanceId, onS
     })
     append(updated, status, data)
     const observability = deriveRunObservability(updated, eventLog.readAfter(runId, 0))
-    return store.update(runId, { observability })
+    const finished = store.update(runId, { observability })
+    try { onRunFinished?.(finished) }
+    catch { store.update(runId, { learningIntake: { state: 'failed', reason: 'candidate_write_failed' } }) }
+    return store.get(runId)
   }
 
   const start = async control => {

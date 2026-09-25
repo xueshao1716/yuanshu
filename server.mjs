@@ -120,7 +120,10 @@ import { createCodeMode } from "./code-mode/code-mode.mjs";
 import { createTimeEngine } from "./engine/time-engine.mjs";
 import { composeTimeTaskMessages, timeTaskReadTools, recordReflectionActions, yesterdayYmd } from "./engine/time-task-run.mjs";
 import { planReflectionExecution, buildActionExecutionPrompt, parseActionResult, recordActionAttempt, summarizeExecution, runOnTheSpotFix } from "./engine/reflection-exec.mjs";
-import { appendEpisodes, loadEpisodes, dream, writeDreamLog, skillEpisodesFromSessions, dreamPaths, currentWeights, promoteWeights, resetWeights, recordSkillChoice } from "./engine/dream.mjs";
+import { loadEpisodes, dream, writeDreamLog, dreamPaths, currentWeights, promoteWeights, resetWeights, recordSkillChoice } from "./engine/dream.mjs";
+import { createDreamCollector } from "./engine/dream-collector.mjs";
+import { createLearningIntake } from "./engine/learning-intake.mjs";
+import { buildPersistentActivity } from "./engine/persistent-activity.mjs";
 import { runEvolutionCycle, evolutionStatus, revertEvolution } from './engine/evolution-cycle.mjs';
 import { createTaskEvidence } from './engine/task-evidence.mjs';
 import { createTaskEvidenceApi } from './engine/task-evidence-api.mjs';
@@ -2033,6 +2036,8 @@ initToolResultArchive({ root: path.join(AGENT_DIR, "yuanshu-tool-results") });
 initFileLock({ withFileMutationQueue, dir: path.join(AGENT_DIR, "yuanshu-locks") });
 console.log(`  🔒 文件写队列: ${usingSharedFileQueue() ? "与 Pi 共用" : "自带实现（未拿到 Pi 的队列）"} · 跨进程锁目录 ${path.join(AGENT_DIR, "yuanshu-locks")}`);
 const runStore = createRunStore({ rootDir: RUNS_DIR });
+const learningIntake = createLearningIntake({ wsRoot: WS_ROOT, store: runStore });
+const dreamCollector = createDreamCollector({ wsRoot: WS_ROOT, sessionsDir: SESSIONS_DIR });
 const taskEvidence = createTaskEvidence({ wsRoot: WS_ROOT, rootDir: RUNS_DIR });
 const taskEvidenceApi = createTaskEvidenceApi({ service: taskEvidence, json, onReview: () => runDreamCycle(true) });
 const runEventLog = createRunEventLog({ rootDir: RUNS_DIR });
@@ -2055,6 +2060,7 @@ const runManager = createRunManager({
   instanceId: RUN_INSTANCE_ID,
   effects: runEffects,
   workspaceScope: () => CONFIG.cwd,
+  onRunFinished: run => learningIntake.enqueue(run),
   // handleChat 返回时 JSONL 已提交；通知会话订阅者刷新侧栏与多端状态。
   onSessionUpdated: ({ run }) => busPush(run.sessionId, "session_updated", { sessionId: run.sessionId }),
 });
@@ -2117,32 +2123,9 @@ const DREAM_POLICIES = {
  * 这个函数由启动后延迟 + 每 6 小时定时调用一次；有赢家就走授权状（A/B 自决 / C 转人话提案）。
  */
 async function runDreamCycle(fresh = false) {
-  let files = [];
-  try { files = fs.readdirSync(SESSIONS_DIR).filter((f) => f.endsWith(".jsonl")).map((f) => path.join(SESSIONS_DIR, f)); } catch {}
-  // ── 增量 + 让出事件循环（2026-09-19）────────────────────────────────────────
-  // 原来这里一次性同步读**全部**会话文件再 appendEpisodes：服务启动后 2 分钟的首跑会把事件循环
-  // 整段占住（真机实测单次停顿 12.5s，数据更多时到过 82–95s），期间 /api/health 都超时。
-  // 现在：只处理"游标之后改动过的会话"，且每 5 个文件 await setImmediate 让出一次。
-  const __dreamCursor = path.join(WS_ROOT, "记忆", "运行时", "做梦游标.json");
-  let __cursorMs = 0;
-  try { __cursorMs = JSON.parse(fs.readFileSync(__dreamCursor, "utf8")).mtimeMs || 0; } catch {}
-  let __fresh = [];
-  try {
-    __fresh = files
-      .map((f) => ({ f, m: (() => { try { return fs.statSync(f).mtimeMs; } catch { return 0; } })() }))
-      .filter((x) => x.m > __cursorMs)
-      .sort((a, b) => a.m - b.m);
-  } catch {}
-  let __done = 0;
-  for (const __it of __fresh) {
-    try { appendEpisodes(WS_ROOT, skillEpisodesFromSessions([__it.f])); } catch {}
-    __done++;
-    if (__done % 5 === 0) await new Promise((r) => setImmediate(r));
-  }
-  if (__fresh.length) {
-    try { fs.writeFileSync(__dreamCursor, JSON.stringify({ mtimeMs: __fresh[__fresh.length - 1].m, at: new Date().toISOString(), files: __fresh.length })); } catch {}
-    console.log(`[dream] 增量摄取 ${__fresh.length} 个新会话（游标 ${__cursorMs ? new Date(__cursorMs).toISOString() : "首次全量"}）`);
-  }
+  await learningIntake.reconcile();
+  const collection = await dreamCollector.collect();
+  if (!collection.ok) console.warn(`[dream] 采集待重试：${collection.failed} 个文件，原因 ${collection.reason}`);
   const skills = loadSkillIndex();
   return runEvolutionCycle({ wsRoot: WS_ROOT, taskEvidence, fresh: fresh === true,
     candidates: [{ id: DREAM_POLICIES.incumbent, weights: null }, ...DREAM_POLICIES.candidates],
@@ -2306,6 +2289,7 @@ const API_ROUTES = [
       kinds: [{ kind: "skill-match", episodes: skillEps.length, eligibleEpisodes: skillEps.filter(verifiedSkillEpisode).length,
         incumbent: currentWeights(WS_ROOT).id || DREAM_POLICIES.incumbent, candidates: DREAM_POLICIES.candidates.map((c) => c.id) }],
       evolution: evolutionStatus(WS_ROOT, { taskEvidence }),
+      collection: dreamCollector.status(),
       lastEpisodes: skillEps.slice(-5).map((e) => ({ at: e.at, input: String(e.input).slice(0, 60), choice: e.choice })),
       logTail,
     });
@@ -2321,13 +2305,10 @@ const API_ROUTES = [
     json(res, 200, await runMechanismExperiment(WS_ROOT));
   }],
   ["POST", "/api/dream/collect", async (res) => {
-    // 回填：把会话文件里"当时真的 activate 了哪个技能"挖出来做成 episode
-    let files = [];
-    try { files = fs.readdirSync(SESSIONS_DIR).filter((f) => f.endsWith(".jsonl")).map((f) => path.join(SESSIONS_DIR, f)); } catch {}
-    const eps = skillEpisodesFromSessions(files);
-    const r = appendEpisodes(WS_ROOT, eps);
-    json(res, 200, { ok: true, scanned: files.length, found: eps.length, added: r?.added || 0 });
+    const result = await dreamCollector.collect();
+    json(res, result.ok ? 200 : 503, result);
   }],
+  ["GET", "/api/learning-intake/status", res => json(res, 200, { candidates: learningIntake.status(), collection: dreamCollector.status() })],
   ["POST", "/api/dream/run", async (res) => {
     // 与定时器共用同一份逻辑（runDreamCycle），不重复实现第二遍
     json(res, 200, await runDreamCycle());
@@ -2836,7 +2817,7 @@ const API_ROUTES = [
   ["POST", "/api/compare", async (res, req) => handleCompare(res, await readBody(req))],
   // ── Agent 活动事件（pi 事件广播扩展 → 前端实时显示小语在干嘛）──
   ["POST", "/api/agent/events", async (res, req) => handleAgentEventIn(req, res, await readBody(req, 2))],
-  ["GET", "/api/agent/events", (res) => handleAgentEventOut(res)],
+  ["GET", "/api/agent/events", (res) => handleAgentEventOut(res, buildPersistentActivity(runStore.list(), WS_ROOT))],
   // 危险操作确认回传：前端弹框后调这里（ok=true 放行 / ok=false 拒绝）
   ["POST", "/api/agent/confirm", async (res, req) => {
     try {

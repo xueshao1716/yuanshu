@@ -11,6 +11,7 @@ import GardenerView from '../components/GardenerView'
 import MechanismExperimentPanel from '../components/MechanismExperimentPanel'
 import TaskEvidencePanel from '../components/TaskEvidencePanel'
 import EvolutionReview from '../components/EvolutionReview'
+import LearningIntakePanel from '../components/LearningIntakePanel'
 
 // ── 应用中心（Phase 3）：经验沉淀台 / 技能库 / 提示词库 / 改进提案 ──
 
@@ -39,7 +40,6 @@ const TOOLS = TOOL_GROUPS.flatMap(group => group.tools)
 
 function RefineView() {
   const { data: list, mutate } = useSWR('refine-list', () => RefineApi.list(), { refreshInterval: 60000 })
-  const { data: status } = useSWR('refine-status', () => RefineApi.status(), { refreshInterval: 60000 })
   const [busy, setBusy] = useState('')
   const [msg, setMsg] = useState('')
   const pending = list?.pending || []
@@ -61,6 +61,7 @@ function RefineView() {
 
   return (
     <div className="space-y-4">
+      <LearningIntakePanel />
       <div className="panel !p-3.5 flex items-center gap-3 flex-wrap">
         <span className="text-[12px] text-pi-dim">待审 <b className="text-pi-text">{pending.length}</b> · 已采纳 <b className="text-pi-text">{applied.length}</b> · 已拒绝 <b className="text-pi-text">{rejected.length}</b></span>
         <button className="btn-primary text-[13px] px-3 py-1.5 ml-auto disabled:opacity-60" onClick={plan} disabled={!!busy}>

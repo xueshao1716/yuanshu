@@ -1355,8 +1355,15 @@ export function handleAgentEventIn(req, res, body) {
   return json(res, 200, { ok: true });
 }
 
-export function handleAgentEventOut(res) {
-  return json(res, 200, { events: agentEventRing.slice(-80) });
+export function handleAgentEventOut(res, persistent = null) {
+  if (!persistent) return json(res, 200, { events: agentEventRing.slice(-80) });
+  // Do not count two sources as two completed tasks. Identified native runs win;
+  // legacy events without identity remain explicitly labelled external reports.
+  const ids = new Set(persistent.events.map(e => e.runId));
+  const external = agentEventRing.slice(-20).filter(e => !ids.has(e.data?.runId))
+    .map(e => ({ ...e, source: 'external' }));
+  return json(res, 200, { ...persistent,
+    events: [...persistent.events, ...external].sort((a, b) => new Date(a.ts) - new Date(b.ts)).slice(-80) });
 }
 
 // ── 工具大响应落盘（08-29 TrueForge 策略②对标）：>50KB 写文件，上下文只留预览+路径 ──

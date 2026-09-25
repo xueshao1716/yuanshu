@@ -79,13 +79,14 @@ export function handleRefineStatus(res) {
       exists: true,
       updatedAt: fs.statSync(file).mtime.toISOString(),
       count: entries.length,
-      entries: entries.slice(-6).reverse().map((entry) => {
+      source: '工程/经验库/experience.md',
+      entries: entries.slice(-500).reverse().map((entry) => {
         const next = entries.find((x) => x.index > entry.index)?.index ?? md.length;
         const body = md.slice(entry.index, next).split("\n").slice(1).join(" ").replace(/\s+/g, " ").trim();
         return { title: entry.title, preview: body.slice(0, 180) };
       }),
     };
-  } catch {}
+  } catch (error) { if (error.code !== 'ENOENT') experience.error = 'experience_unreadable'; }
   json(res, 200, {
     counts: { pending: data.pending?.length || 0, applied: data.applied?.length || 0, rejected: data.rejected?.length || 0 },
     lastLog,
