@@ -1218,7 +1218,7 @@ async function handleChat(req, res, body) {
   const mediaPromptOf = (it) => extractMediaPrompt(message, { followUp: it.followUp, lastPrompt: lastMedia?.prompt });
   // 并行启动全部媒体生成（不阻塞主模型文字流式）
   let mediaPromise = mediaIntents.length
-    ? Promise.all(mediaIntents.map(it => generateMediaAsync(it, mediaPromptOf(it))))
+    ? Promise.all(mediaIntents.map(it => generateMediaAsync(it, mediaPromptOf(it), { requestText: message })))
     : Promise.resolve([]);
   let settledMedia = [];
   const mediaDelivered = mediaIntents.length

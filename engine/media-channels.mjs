@@ -33,11 +33,13 @@ export const MEDIA_TOOL_SCHEMAS = [
     type: "function",
     function: {
       name: "generate_image",
-      description: "宿主代持密钥出图。有画幅要求时必须传 aspect_ratio 或 size，不能只写在提示词里。按返回的尺寸核验事实汇报，未达标不能自行裁剪冒充原生成功。不要读密钥，不要自己 POST /api/image。",
+      description: "宿主代持密钥出图。先 list_channels；用户指定 OpenAI/GPT Image 或其他模型时，必须传对应 provider 和 modelId，不能仍用默认通道。未指定时自动选路，限流/服务不可用最多换一个通道，按返回 attempts 和 model 如实说明。画幅必须传 aspect_ratio 或 size；按实际像素汇报，不能裁剪冒充原生成功。不要读密钥或自己 POST /api/image。",
       parameters: {
         type: "object",
         properties: {
           prompt: { type: "string", description: "出图提示词" },
+          provider: { type: "string", description: "list_channels 中的通道名；指定后不自动换通道" },
+          modelId: { type: "string", description: "list_channels 中的模型 id；与 provider 一起传，不可杜撰" },
           size: { type: "string", description: "请求像素宽x高，如 1024x1536；上游是否支持以实际返回为准" },
           aspect_ratio: { type: "string", description: "请求画幅，如 1:1、2:3、3:2、3:4、4:3、4:5、5:4、16:9、9:16、21:9" },
         },
@@ -105,6 +107,8 @@ export function createMediaToolExecutor(deps = {}) {
     if (!type) return { text: `未知工具: ${name}`, isError: true };
     const intent = { type };
     if (type === 'image') {
+      if (args.provider) intent.provider = args.provider;
+      if (args.modelId) intent.modelId = args.modelId;
       try { Object.assign(intent, resolveImageRequest(args, prompt)); }
       catch (e) { return { text: e.message, isError: true }; }
     }
@@ -115,7 +119,7 @@ export function createMediaToolExecutor(deps = {}) {
     }
     const r = await generate(intent, prompt);
     if (!r) return { text: "宿主未返回产物（可能未配置对应模型）", isError: true };
-    if (r.error && !r.url) return { text: `生成失败：${r.error}`, isError: true };
+    if (r.error && !r.url) return { text: `生成失败：${r.error}${r.attempts?.length ? `；调用记录：${r.attempts.map(a => `${a.model} ${a.status || a.outcome}`).join(' → ')}` : ''}`, isError: true };
     if (!r.url) return { text: "生成完成但未返回 URL", isError: true };
     const mediaType = r.type === "tts" ? "audio" : (r.type || type);
     const v = r.verification;
@@ -126,8 +130,8 @@ export function createMediaToolExecutor(deps = {}) {
       : v.exactSize === false ? '⚠️ 已返回图片，但像素尺寸未达标'
       : v.exactSize !== true ? '⚠️ 已返回图片，像素尚未核验' : '✅ 已生成 image';
     return {
-      text: `${warning}：${r.url}${r.model ? `（${r.model}）` : ""}。${dimensions}${v && v.status !== 'matched' ? '不要宣称比例达标或把单次结果写成通用模型限制；不要擅自裁剪。' : ''}对话播放器会播这条路径。你判断要不要本机打开或复制到交付目录，做完汇报。`,
-      media: { type: mediaType, url: r.url, ...(v ? { verification: v } : {}) },
+      text: `${warning}：${r.url}${r.model ? `（${r.model}）` : ""}。${r.attempts?.length > 1 ? `已切换通道：${r.attempts.map(a => `${a.model} ${a.status || a.outcome}`).join(' → ')}。` : ''}${dimensions}${v && v.status !== 'matched' ? '不要宣称比例达标或把单次结果写成通用模型限制；不要擅自裁剪。' : ''}对话播放器会播这条路径。你判断要不要本机打开或复制到交付目录，做完汇报。`,
+      media: { type: mediaType, url: r.url, ...(r.model ? { model: r.model } : {}), ...(r.attempts ? { attempts: r.attempts } : {}), ...(v ? { verification: v } : {}) },
     };
   };
 }

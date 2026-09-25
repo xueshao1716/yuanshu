@@ -11,6 +11,7 @@ import { colorCardStyleLine, hasColorCardMark } from "./color-cards.mjs";
 import { currentColorCard } from "./color-prefs.mjs";
 import { resolveImageRequest } from './image-request.mjs';
 import { verifyImageDimensions, imageVerificationNotice } from './image-dimensions.mjs';
+import { imageCandidates, runImageCandidates } from './image-routing.mjs';
 
 let _resolveAuth = null, _readJsonFile = null, _modelsPath = "", _authPath = "", _getModelList = () => [];
 export function initMediaApi({ resolveAuth = null, readJsonFile = null, modelsPath = "", authPath = "", getModelList = null } = {}) {
@@ -107,7 +108,7 @@ export function assistantContentWithMedia(text, mediaResults) {
   const t = String(text || "").trim();
   if (t) blocks.push({ type: "text", text: t });
   for (const m of mediaResults || []) {
-    if (m && m.type === "image" && m.url) blocks.push({ type: "image", url: m.url, ...(m.verification ? { verification: m.verification } : {}) });
+    if (m && m.type === "image" && m.url) blocks.push({ type: "image", url: m.url, ...(m.model ? { model: m.model } : {}), ...(m.attempts ? { attempts: m.attempts } : {}), ...(m.verification ? { verification: m.verification } : {}) });
     else if (m && m.type === "video" && m.url) blocks.push({ type: "video", url: m.url });
     else if (m && (m.type === "audio" || m.type === "tts") && m.url) blocks.push({ type: "audio", url: m.url });
   }
@@ -176,6 +177,7 @@ export function mediaReadyNotice(mediaResults) {
   const drawn = (mediaResults || []).filter(m => m && m.type === "image" && m.url);
   if (drawn.length) {
     parts.push(...drawn.map(m => imageVerificationNotice(m.verification)).filter(Boolean));
+    parts.push(...drawn.filter(m => m.model).map(m => `实际绘图模型：${m.model}${m.attempts?.length > 1 ? `；调用记录：${m.attempts.map(a => `${a.model} ${a.status || a.outcome}`).join(' → ')}` : ''}。请按实际模型汇报。`));
     parts.push(`【系统】配图已生成并已展示给用户：${drawn.map(m => m.url).join("、")}。你可以说明这张图；若还需要 SVG/矢量或其他成品，也可以再交。`);
   }
   const vids = (mediaResults || []).filter(m => m && m.type === "video" && m.url);
@@ -209,14 +211,14 @@ export function clampSeed(value) {
 export async function generateMediaAsync(intent, prompt, observations = {}) {
   try {
     if (intent.type === "image") {
-      const m = findMediaModel("image");
-      if (!m) { console.log(`[元枢] 媒体: 无 image 模型`); return null; }
+      const candidates = imageCandidates(_getModelList(), intent, observations.requestText ?? prompt);
       const drawnPrompt = varyImagePrompt(prompt);
       intent = { ...intent, ...resolveImageRequest(intent, prompt) };
-      const url = await generateImage(m.provider, m.id, drawnPrompt, intent.size, undefined, { onRequest: observations.onImageRequest });
+      const result = await runImageCandidates(candidates, m => generateImage(m.provider, m.id, drawnPrompt, intent.size, undefined, { onRequest: observations.onImageRequest }));
+      const { url } = result;
       const verification = url ? await verifyImageDimensions(url, intent.size || '1024x1024', intent.aspectRatio) : undefined;
       console.log(`[元枢] 媒体 image: ${url ? "成功" : "失败"} prompt=${String(drawnPrompt).slice(0,30)}`);
-      return url ? { type: "image", url, model: `${m.provider}/${m.id}`, prompt: drawnPrompt, verification } : { type: "image", error: "图像模型未返回图片" };
+      return { type: 'image', ...result, prompt: drawnPrompt, ...(verification ? { verification } : {}) };
     }
     if (intent.type === "tts") {
       const url = await generateTTS(prompt);
@@ -384,7 +386,7 @@ export async function generateImage(provider, modelId, prompt, size, image, opts
   const detail = sameStatus && attempts.length > 1
     ? `${first.status}（${attempts.length} 个地址都一样）：${first.text}`
     : attempts.map(a => `${a.path} → ${a.status} ${a.text}`).join(" ｜ ");
-  throw new Error(`绘图接口失败（模型 ${modelId}）：${detail}`);
+  throw Object.assign(new Error(`绘图接口失败（模型 ${modelId}）：${detail}`), { status: attempts.at(-1)?.status });
 }
 
 export async function handleImage(res, body) {

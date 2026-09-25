@@ -89,6 +89,7 @@ export function sdkSafeAssistantBlocks(blocks = []) {
       if (url) out.push({ type: "text", text: `![${label}](${url})` });
       else if (b.path || b.name) out.push({ type: "text", text: `[${label}] ${b.path || b.name}` });
       if (type === 'image' && b.verification) out.push({ type: 'text', text: imageVerificationNotice(b.verification) });
+      if (type === 'image' && b.model) out.push({ type: 'text', text: `绘图模型：${b.model}${b.attempts?.length > 1 ? `；调用记录：${b.attempts.map(a => `${a.model} ${a.status || a.outcome}`).join(' → ')}` : ''}` });
       continue;   // 其余附件块绝不留在 content 里：宁可少一条附件，也不能让整段会话不可重放
     }
     if (typeof b.text === "string" && b.text) out.push({ type: "text", text: b.text });

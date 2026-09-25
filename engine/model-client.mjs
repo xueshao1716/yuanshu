@@ -189,7 +189,7 @@ export async function handleDirectChat(res, entry, message, sessionId, writer) {
   } catch {}
   const mediaIntents = _detectMediaIntents(message);
   const mediaPromise = mediaIntents.length
-    ? Promise.all(mediaIntents.map(it => _generateMediaAsync(it, _extractMediaPrompt(message))))
+    ? Promise.all(mediaIntents.map(it => _generateMediaAsync(it, _extractMediaPrompt(message), { requestText: message })))
     : Promise.resolve([]);
   const result = await directChat(_getDefaultModel(), message, hist.map(h => ({ role: h.role, content: h.text })));
   if (!result || result.timeout) {
