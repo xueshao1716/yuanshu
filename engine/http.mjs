@@ -111,7 +111,7 @@ async function getProxyDispatcher(urlObj) {
   return dispatcherCache;
 }
 
-async function rawFetch(url, options = {}) {
+async function rawFetch(url, options = {}, consume = response => response) {
   const controller = new AbortController();
   const timeout = options.timeout || 60000;
   const timer = setTimeout(() => controller.abort(), timeout);
@@ -133,7 +133,9 @@ async function rawFetch(url, options = {}) {
     if (options.body) init.body = options.body;
     const dispatcher = await getProxyDispatcher(new URL(url));
     if (dispatcher) init.dispatcher = dispatcher; // undici 扩展字段：代理隧道
-    return await fetch(url, init);
+    // Buffered callers own the request until the body is consumed, not just headers.
+    // Streaming callers retain their existing reader/deadline ownership.
+    return await consume(await fetch(url, init));
   } catch (err) {
     if (err?.name === "AbortError" || controller.signal.aborted) throw new Error("timeout");
     throw err;
@@ -180,9 +182,9 @@ export function sessionAffinityHeaders({ provider = "", compat = {}, sessionId =
   return { [header]: sid };
 }
 
-export async function httpJsonFetch(url, options = {}) {  const r = await rawFetch(url, options);
+export async function httpJsonFetch(url, options = {}) {
+  const {r,text} = await rawFetch(url, options, async r => ({r,text:await r.text()}));
   // body 只读一次后缓存——与旧 python 版语义一致（json()/text() 可重复调用，互不冲突）
-  const text = await r.text();
   return {
     status: r.status,
     ok: r.status >= 200 && r.status < 300,
@@ -199,8 +201,7 @@ export async function httpRawFetch(url, options = {}) {
 
 // 二进制版：直接返回 Buffer（替代旧 python 子进程 base64 中转方案）
 export async function httpBufferFetch(url, options = {}) {
-  const r = await rawFetch(url, options);
-  const buf = Buffer.from(await r.arrayBuffer());
+  const {r,buf} = await rawFetch(url, options, async r => ({r,buf:Buffer.from(await r.arrayBuffer())}));
   return { status: r.status, ok: r.ok, buffer: () => buf };
 }
 
