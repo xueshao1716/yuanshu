@@ -20,8 +20,8 @@
 - GLM 工坊：`%LOCALAPPDATA%/Temp/yuanshu-website-live-rLc7HS/report.json`、`delivery.html`、桌面/手机截图。
 - Step-5：`%LOCALAPPDATA%/Temp/yuanshu-website-live-7XLuCa/report.json`。
 - GLM 消息流：`%LOCALAPPDATA%/Temp/yuanshu-stream-live-7sz12f/report.json`。
-- 工坊浏览器：`%LOCALAPPDATA%/Temp/yuanshu-website-browser-8Bjlcu/`。
-- 上述目录是本机临时验收证据，可能被系统清理，不作为其他机器已有的文件承诺。
+- 工坊浏览器：集成后再次执行，证据为 `%LOCALAPPDATA%/Temp/yuanshu-website-browser-DetHuk/`。
+- 以上真实模型与集成后浏览器证据已复制保存在 `D:/pi-workspace/.build-cache/release-evidence-2.116.2-20260925/`；原临时目录可能被系统清理，不作为其他机器已有的文件承诺。
 
 ## 明确未完成项
 
@@ -37,4 +37,4 @@
 - `node scripts/website-live-check.mjs provider/model [checkpoint-workspace]`：显式选择已配置的真实模型，会产生调用费用，不自动作为普通测试执行。
 - `node scripts/run-stream-live-check.mjs provider/model`：显式付费真实模型断连验收，限制为临时账单工具。
 
-发布、安装包及双远端结果另记，以上事实不自动等于已发布。
+发布与安装包验证见 [2.116.2 发布记录](packaging-2.116.2-20260925.md)。运行验收与安装包验证各自限定范围，不将其中一项通过等同于全部能力通过。
