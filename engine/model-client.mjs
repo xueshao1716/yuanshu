@@ -9,6 +9,7 @@ import { httpJsonFetch } from "./http.mjs";
 import { extractMessages } from "./session-utils.mjs";
 import { saveArtifact } from "./workspace-api.mjs";
 import { buildMessagesRequest, decodeMessagesResponse, messagesEndpoint, messagesHeaders } from './anthropic-messages.mjs';
+import { clampOutputTokens, OUTPUT_TOKEN_HARD_CAP } from './output-budget.mjs';
 
 let _readJsonFile = null, _writeJsonFile = null, _authPath = "", _modelsPath = "", _resolveAuth = null, _getModelList = () => [], _getDefaultModel = () => null,
     _unifiedChat = null, _detectMediaIntents = () => [], _generateMediaAsync = async () => null, _extractMediaPrompt = () => "", _readEntriesFromFile = () => [], _createSseWriter = null;
@@ -53,7 +54,11 @@ export async function directChat(model, message, history = [], opts = {}) {
     const baseNoV1 = base.endsWith("/v1") ? base.slice(0, -3) : base;
     const messages = systemHint ? [{ role: "system", content: systemHint }, ...history, { role: "user", content: message }] : [...history, { role: "user", content: message }];
     const apiType = mdef?.api || model.api || "openai-completions";
-    const tokenCap = Math.min(Number(opts.maxTokens) > 0 ? Number(opts.maxTokens) : (mdef?.maxTokens || 8192), 8192);
+    const requested = Number(opts.maxTokens);
+    const tokenCap = Number.isFinite(requested) && requested > 0
+      ? Math.max(1, Math.min(Math.floor(requested), clampOutputTokens(mdef, { fallback: OUTPUT_TOKEN_HARD_CAP, ceiling: OUTPUT_TOKEN_HARD_CAP })))
+      : clampOutputTokens(mdef);
+    const completion = (finishReason, usage) => ({ finishReason: finishReason || null, truncated: ['max_tokens','length','max_output_tokens'].includes(finishReason), outputBudget: tokenCap, usage });
     const reqTimeout = Number(opts.timeout) > 0 ? Number(opts.timeout) : 120000;
     if (apiType === 'anthropic-messages') {
       const r = await httpJsonFetch(messagesEndpoint(base), { method: 'POST', headers: messagesHeaders(key), body: JSON.stringify(buildMessagesRequest({ model: model.id, modelKey: `${model.provider}/${model.id}`, messages, maxTokens: tokenCap })), timeout: reqTimeout, signal: opts.signal });
@@ -62,15 +67,15 @@ export async function directChat(model, message, history = [], opts = {}) {
         return fail(`模型通道请求失败（HTTP ${r.status}），请检查通道或选择其他文本模型`);
       }
       const parsed = decodeMessagesResponse(await r.json());
-      if (parsed.finishReason === 'max_tokens') return fail('模型输出达到长度上限，请简化设计后重试');
-      return { text: parsed.message.content || null, think: parsed.message.reasoning_content, usedModel: { provider: model.provider, id: parsed.model || model.id } };
+      if (parsed.finishReason === 'max_tokens' && !opts.allowPartial) return fail('模型输出达到长度上限，请简化设计后重试');
+      return { text: parsed.message.content || null, think: parsed.message.reasoning_content, ...completion(parsed.finishReason, parsed.usage), usedModel: { provider: model.provider, id: parsed.model || model.id } };
     }
     // openai-responses 类型（grok/gpt-5.6-luna 等）：用 /responses 端点，input 数组格式
     if (apiType === "openai-responses") {
       const mkResp = (u) => httpJsonFetch(u, {
         method: "POST",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${key}` },
-        body: JSON.stringify({ model: model.id, input: message, max_output_tokens: tokenCap }),
+        body: JSON.stringify({ model: model.id, input: messages.map(({role,content})=>({role,content})), max_output_tokens: tokenCap }),
         timeout: reqTimeout,
         signal: opts.signal,
       });
@@ -88,10 +93,11 @@ export async function directChat(model, message, history = [], opts = {}) {
       const reasoningParts = (rd.output || [])
         .filter(o => o.type === "reasoning" && Array.isArray(o.summary))
         .flatMap(o => o.summary.filter(c => c.type === "summary_text").map(c => c.text || ""));
-      let text = textParts.join("").trim();
+      let text = textParts.join("");
+      if (!opts.allowPartial) text = text.trim();
       let think = reasoningParts.join("").trim();
-      if (!text && think) { text = think; think = ""; }
-      return { think, text: text || null, usedModel: { provider: model.provider, id: rd.model || model.id } };
+      if (!text && think && !opts.allowPartial) { text = think; think = ""; }
+      return { think, text: text || null, ...completion(rd.incomplete_details?.reason || rd.status, rd.usage), usedModel: { provider: model.provider, id: rd.model || model.id } };
     }
     const mkReq = (u) => httpJsonFetch(u, {
       method: "POST",
@@ -114,10 +120,10 @@ export async function directChat(model, message, history = [], opts = {}) {
     const data = await r.json();
     const msg = data.choices?.[0]?.message || {};
     const content = msg.content || "";
-    const raw = content.trim();
+    const raw = opts.allowPartial ? content : content.trim();
     let think = (msg.reasoning_content || "").trim();
     let text = raw;
-    if (!text && think) {
+    if (!text && think && !opts.allowPartial) {
       // 推理模型把回答全放 reasoning_content（如 opencode-go 的 deepseek 风格）——content 为空时回退
       text = think;
       think = "";
@@ -125,9 +131,10 @@ export async function directChat(model, message, history = [], opts = {}) {
     if (/<think>[\s\S]*?<\/think>/.test(raw)) {
       const m = raw.match(/<think>([\s\S]*?)<\/think>/);
       if (!think) think = (m?.[1] || "").trim();
-      text = raw.replace(/<think>[\s\S]*?<\/think>\s*/g, "").trim();
+      text = raw.replace(/<think>[\s\S]*?<\/think>/g, "");
+      if (!opts.allowPartial) text = text.trim();
     }
-    return { think, text: text || null, usedModel: { provider: model.provider, id: data.model || model.id } };
+    return { think, text: text || null, ...completion(data.choices?.[0]?.finish_reason, data.usage), usedModel: { provider: model.provider, id: data.model || model.id } };
   } catch (e) {
     if (e && /timeout/i.test(String(e?.message || ""))) return { timeout: true };
     if (opts.throwOnError) {
