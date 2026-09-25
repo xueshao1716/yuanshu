@@ -60,7 +60,8 @@ test("导出常量与 version.json 一致", () => {
 });
 
 test("产物名遵守契约：摘要_类型_时间戳-id_v版本.扩展名，且逐一可区分", () => {
-  const now = new Date("2026-09-14T18:12:30.456+08:00");
+  // Naming follows the host's local calendar, not a fixed China timezone.
+  const now = new Date(2026, 8, 14, 18, 12, 30, 456);
   const name = artifactFileName({ prompt: "拳手在雨夜的车站等到天亮", type: "video", now, uniqueId: "a1b2c3d4" });
   assert.equal(name, `拳手在雨夜的车站等到天亮_视频_20260914-181230-456-a1b2c3d4_${VERSION_TAG}.mp4`);
 });
