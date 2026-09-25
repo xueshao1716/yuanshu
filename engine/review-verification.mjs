@@ -25,6 +25,7 @@ export function createReviewVerification({ root }) {
     visit('skills');
     visit('frontend/pnpm-lock.yaml');
     visit('frontend/pnpm-workspace.yaml');
+    visit('.github');
     return hash.digest('hex');
   }
   function save(record) {

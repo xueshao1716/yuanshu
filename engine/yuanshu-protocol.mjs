@@ -80,7 +80,17 @@ export function matchSkillsForTask(message, skills = [], limit = 3, weights = MA
 
 export function formatSkillIndexPrompt(list) {
   if (!Array.isArray(list) || !list.length) return "";
-  return `技能库（${list.length} 个）：对得上就 activate_skill 加载全文，对不上按你的判断做。\n${list.map((s) => `- ${s.name}：${String(s.desc || "").slice(0, 90)}`).join("\n")}`;
+  const header = `技能库（${list.length} 个）：对得上就 activate_skill 加载全文，对不上按你的判断做。\n`;
+  const rows = list.map(s => {
+    const desc = String(s.desc || "");
+    const trigger = desc.search(/当用户|当需要|\buse (?:when|this|for)\b/i);
+    return { prefix: `- ${s.name}：`, desc: trigger > 0 ? `${desc.slice(trigger)}；${desc.slice(0, trigger)}` : desc };
+  });
+  // Preserve every activatable name as local skills grow; shorten summaries, not the catalog.
+  const available = Math.max(0, 3999 - header.length - rows.reduce((n, s) => n + s.prefix.length, 0) - (rows.length - 1));
+  let limit = 90;
+  while (limit > 0 && rows.reduce((n, s) => n + Math.min(s.desc.length, limit), 0) > available) limit--;
+  return header + rows.map(s => s.prefix + s.desc.slice(0, limit)).join("\n");
 }
 
 export function buildYuanshuContext({ message, skills = [], experience = [], fullMemory = [], todos = "", hist = [] } = {}) {

@@ -22,6 +22,8 @@ function readConfig(env) {
     + 'cwd: m.CONFIG.cwd, externalThinking: m.CONFIG.externalThinking })))';
   const base = { ...process.env };
   for (const key of Object.keys(base)) if (/^(PI_WEB|YUANSHU)_/.test(key)) delete base[key];
+  // This test only observes configuration; do not create/read a service token.
+  base.YUANSHU_TOKEN = 'config-test-only';
   const out = execFileSync(process.execPath, ['-e', script], { cwd: ROOT, env: { ...base, ...env }, encoding: 'utf8' });
   return JSON.parse(out.trim());
 }

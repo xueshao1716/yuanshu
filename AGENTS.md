@@ -22,7 +22,7 @@
 
 - **React 前端服务的是 `frontend/dist`**（server.mjs 的 REACT_DIST），**不是 public/**——
   `cp dist → public` 只是 git 快照用途，不是部署！
-- 部署流程 = `cd frontend && npm run build`（emptyOutDir 会清空 dist）→ 服务自动读盘
+- 部署流程 = `cd frontend && npm run build` → 服务自动读盘；当前 `emptyOutDir: false` 保留旧指纹资源，避免已打开的页面懒加载 404，不要为验证清空线上 dist。
 - 服务端路由改动（server.mjs / engine/*）需重启 node 进程才生效
 - `lib/static.mjs` 已有 no-cache + ETag 304（index.html 会 revalidate）；
   dist 里带 hash 的 chunk 是 immutable 强缓存
@@ -40,7 +40,8 @@
 ## 验证命令速查
 
 ```bash
-cd /d/pi-web && npm test                     # 全量测试（当前 ~305）
+cd /d/pi-web && npm run verify               # 推荐：隔离工作空间，全量测试 + 类型检查 + 非线上目录构建
+cd /d/pi-web && npm test                     # 直接测试不带上述隔离；不要用于生产工作空间验收
 cd frontend && npx tsc --noEmit              # 类型检查
 cd frontend && npm run build                 # 构建（输出 frontend/dist）
 node "$HOME/.pi/agent/skills/impeccable/scripts/detect.mjs" --json <改动的前端文件>

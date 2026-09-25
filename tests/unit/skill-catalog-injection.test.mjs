@@ -13,12 +13,30 @@ import fs from 'node:fs';
 import { loadSkillIndex } from '../../engine/context-loader.mjs';
 import { formatSkillIndexPrompt, matchSkillsForTask } from '../../engine/yuanshu-protocol.mjs';
 
-test('注入给模型的技能目录：列全、每条 ≤90 字（注入时按 90 截）、写明 activate_skill', () => {
+test('新增本机技能后目录仍保留全部名称，并在 4000 字预算内显示触发摘要', () => {
+  const list = Array.from({ length: 44 }, (_, i) => ({ name: `local-skill-${i}`, desc: '当需要设计时使用，' + '完整设计要求'.repeat(20) }));
+  const text = formatSkillIndexPrompt(list);
+  assert.ok(text.length < 4000, `实际 ${text.length} 字`);
+  for (const s of list) assert.ok(text.includes(`- ${s.name}：当需要设计时使用`));
+});
+
+test('目录压缩应保留位于说明末尾的适用条件', () => {
+  const list = Array.from({ length: 44 }, (_, i) => ({ name: `local-skill-${i}`, desc: '完整设计要求'.repeat(12) + '。当用户需要优化提示词时使用。' }));
+  const text = formatSkillIndexPrompt(list);
+  assert.ok(text.length < 4000);
+  for (const s of list) {
+    const row = text.split('\n').find(line => line.startsWith(`- ${s.name}：`));
+    assert.ok(row.includes('当用户需要优化提示词时使用。'), '压缩不能删除完整适用条件');
+  }
+});
+
+test('注入给模型的技能目录：列全、每条 ≤90 字（注入时按 90 截）、写明 activate_skill', async t => {
   const list = loadSkillIndex();
   const text = formatSkillIndexPrompt(list);
   assert.ok(list.length >= 15, `内置技能只有 ${list.length} 个`);
   assert.match(text, /activate_skill/, '目录里必须写明"对得上就 activate_skill"，否则模型不知道有这条通路');
   for (const s of list) {
+    await t.test(s.name, () => {
     // 取"这一条"而不是整份文本：格式化时每条按 90 字截，超出的部分模型看不到，
     // 所以触发语必须落在前 90 字里（契约测试锁的是 120——那是加载器进技能页的口径）。
     const line = text.split('\n').find(l => l.startsWith(`- ${s.name}：`));
@@ -26,6 +44,7 @@ test('注入给模型的技能目录：列全、每条 ≤90 字（注入时按 
     const shown = line.slice(`- ${s.name}：`.length);
     assert.ok(shown.length <= 90, `${s.name} 注入时会显示 ${shown.length} 字（应 ≤90）：${shown.slice(0, 40)}…`);
     assert.ok(/当用户|使用时|当需要|use (when|this|for)/i.test(shown), `${s.name} 的触发语被截到 90 字之外了：${shown}`);
+    });
   }
   // 注入口径：一次注入整份目录（每会话一次，不重复占上下文）。
   assert.ok(text.length < 4000, `目录文本 ${text.length} 字，太长了——每会话虽只注一次，也不该压过正事`);

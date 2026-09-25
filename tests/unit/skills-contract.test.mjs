@@ -69,8 +69,9 @@ test('每个技能的 frontmatter 可解析，name 与目录名一致', () => {
   }
 });
 
-test('description ≤120 字且触发语在前 120 字（加载器只取前 120 字进技能目录）', () => {
+test('description ≤120 字且触发语在前 120 字（加载器只取前 120 字进技能目录）', async t => {
   for (const name of DIRS) {
+    await t.test(name, () => {
     const { desc } = declared(name);
     assert.ok(desc.length > 0, `${name} 没有 description`);
     // 超过 120 字的部分模型根本看不到，等于没写——要么压到 120 字内，要么把关键信息前移。
@@ -78,6 +79,7 @@ test('description ≤120 字且触发语在前 120 字（加载器只取前 120 
     // 触发语必须在前 120 字里，否则"什么时候用这个技能"这件事在目录里是缺席的。
     const hit = /[\u4e00-\u9fff]/.test(desc) ? /当用户|使用时|当需要/.test(desc) : /Use (when|this|for)|use when/.test(desc);
     assert.ok(hit, `${name} 的 description 没写触发条件（中文写「当用户…」，英文写「Use when…」）：${desc}`);
+    });
   }
 });
 

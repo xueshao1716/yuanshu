@@ -1,6 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
+import { readFileSync, mkdtempSync, rmSync } from "node:fs";
+import os from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import {
@@ -10,6 +11,7 @@ import {
   lintDeckBrief,
 } from "../../engine/workshop-html-brief.mjs";
 import { fallbackExpand, expandWorkshopPrompt } from "../../engine/workshop-prompt-expand.mjs";
+import { handleWorkshopPptHtml } from "../../engine/workshop.mjs";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..", "..");
 
@@ -58,14 +60,34 @@ test("deck.json 缺动词要记 warn，旧作品不当 error", () => {
   assert.equal(ok.length, 0);
 });
 
-test("ppt-html 执行提示和技能必须吃 brief，表单能填动词", () => {
+test("ppt-html 生成入口接收 brief，表单能填动词", () => {
   const ws = readFileSync(join(ROOT, "engine", "workshop.mjs"), "utf8");
   assert.ok(ws.includes("formatHtmlBriefBlock") || ws.includes("fillHtmlBrief"), "生成设计稿必须灌 brief");
   assert.ok(ws.includes("verb"), "请求体要接动词");
   const view = readFileSync(join(ROOT, "frontend", "src", "components", "WorkshopView.tsx"), "utf8");
   assert.ok(view.includes("verb"), "表单要有动词");
   assert.ok(view.includes("PromptSmartFill") || view.includes("智能填充"), "设计稿也要能一句话扩写");
-  const skill = readFileSync(join(process.env.USERPROFILE || process.env.HOME || "", ".agents", "skills", "ppt-html", "SKILL.md"), "utf8");
-  assert.match(skill, /动词/);
-  assert.match(skill, /零外部依赖|零 CDN|禁止 CDN/);
+});
+
+test("ppt-html 真正交给执行器的提示包含六项 brief、指定动词和离线约束", async t => {
+  const root = mkdtempSync(join(os.tmpdir(), 'yuanshu-brief-'));
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  const skillPath = join(root, 'skills/ppt-html/SKILL.md');
+  let prompt = '', ended = false;
+  const events = [];
+  await handleWorkshopPptHtml({
+    CONFIG: { cwd: root }, WS_ROOT: root, SESSIONS_DIR: join(root, 'sessions'),
+    defaultModel: { provider: 'fixture', id: 'offline' }, getAgentDir: () => join(root, 'agent'),
+    DefaultResourceLoader: class { async reload() {} getSkills() { return { skills: [{ name: 'ppt-html', filePath: skillPath }] }; } },
+    SessionManager: { create: () => ({}) },
+    createSessionAgent: async () => ({ subscribe: () => () => {}, prompt: async text => { prompt = text; }, abort() {}, dispose() {} }),
+    sseWrite: (_res, event, data) => events.push({ event, data }),
+    json: () => assert.fail('valid request should use SSE'),
+  }, { writeHead() {}, write() {}, end() { ended = true; } }, { theme: '年度对比', verb: '对照', pages: 3 });
+  assert.ok(ended);
+  assert.ok(prompt.includes(skillPath.replaceAll('\\', '/')), '执行器应读选中的技能，不依赖测试机器预装技能');
+  assert.ok(prompt.includes(formatHtmlBriefBlock(fillHtmlBrief({ theme: '年度对比', audience: '', pages: 3, themeKey: 'navy', verb: '对照' }))));
+  assert.match(prompt, /禁止外部图片和 CDN/);
+  assert.ok(prompt.includes('"verb": "对照"'));
+  assert.ok(events.some(e => e.event === 'done' && e.data.ok === false), '没有真实产物不可宣称交付成功');
 });

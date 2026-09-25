@@ -5,6 +5,16 @@ import os from 'node:os';
 import path from 'node:path';
 import { createReviewVerification } from '../../engine/review-verification.mjs';
 
+test('verification expires when CI configuration changes', t => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'yuanshu-evidence-'));
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  const store = createReviewVerification({ root });
+  store.save({ digest: store.fingerprint(), checks: ['unit', 'types', 'build'].map(name => ({ name, state: 'passed' })) });
+  fs.mkdirSync(path.join(root, '.github/workflows'), { recursive: true });
+  fs.writeFileSync(path.join(root, '.github/workflows/verify.yml'), 'changed');
+  assert.equal(store.read().state, 'stale');
+});
+
 test('verification is bound to source bytes and reports edits as stale', async t => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'yuanshu-evidence-'));
   t.after(() => fs.rmSync(root, { recursive: true, force: true }));

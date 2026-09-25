@@ -18,6 +18,7 @@
   "scripts": {
     "start": "node server.mjs",
     "test": "node --test --test-concurrency=1 tests/unit/*.test.mjs",
+    "verify": "node scripts/verify-workbench.mjs",
     "build:frontend": "npm --prefix frontend run build",
     "version:bump": "node scripts/bump-version.mjs",
     "prune:dist": "node scripts/prune-dist.mjs",
