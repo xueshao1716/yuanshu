@@ -161,6 +161,8 @@ const { handleWorkshopUiChat } = await import("./engine/workshop-ui-chat.mjs");
 const { createUiDesignService, handleUiDesign } = await import("./engine/ui-design-service.mjs");
 const { createWebsiteService } = await import('./engine/website-service.mjs');
 const { websiteRoutes } = await import('./engine/website-routes.mjs');
+const { createBehaviorExperiments } = await import('./engine/behavior-experiments.mjs');
+const { createBehaviorExperimentRoutes } = await import('./engine/behavior-experiment-routes.mjs');
 const { handleExpandPrompt } = await import("./engine/workshop-prompt-expand.mjs");
 const gallery = await import("./engine/gallery.mjs");
 const distill = await import("./engine/distill-theme.mjs");
@@ -2040,6 +2042,7 @@ const runStore = createRunStore({ rootDir: RUNS_DIR });
 const learningIntake = createLearningIntake({ wsRoot: WS_ROOT, store: runStore });
 const dreamCollector = createDreamCollector({ wsRoot: WS_ROOT, sessionsDir: SESSIONS_DIR });
 const taskEvidence = createTaskEvidence({ wsRoot: WS_ROOT, rootDir: RUNS_DIR });
+const behaviorExperiments = createBehaviorExperiments({ wsRoot: WS_ROOT, rootDir: RUNS_DIR });
 const taskEvidenceApi = createTaskEvidenceApi({ service: taskEvidence, json, onReview: () => runDreamCycle(true) });
 const runEventLog = createRunEventLog({ rootDir: RUNS_DIR });
 const runEffects = createRunEffects({ rootDir: RUNS_DIR });
@@ -2148,6 +2151,7 @@ const withCache = createWithCache();
 const uiDesigns = createUiDesignService({root: WS_ROOT, getModelList: () => modelList, getDefaultModel: () => defaultModel, directChat});
 const websites = createWebsiteService({root: WS_ROOT, getModelList: () => modelList, getDefaultModel: () => defaultModel, directChat});
 const API_ROUTES = [
+  ...createBehaviorExperimentRoutes({ service: behaviorExperiments, json, readBody }),
   ...websiteRoutes(websites,{json,readBody,root:WS_ROOT}),
   ["GET", "/api/workshop-ui/projects", async res => handleUiDesign(uiDesigns, json, res, 'list')],
   ["POST", "/api/workshop-ui/projects", async (res, req) => handleUiDesign(uiDesigns, json, res, 'create', null, await readBody(req, 1))],
