@@ -4,7 +4,32 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import http from 'node:http';
+import { PassThrough } from 'node:stream';
 import { readBody, json } from '../../engine/http-utils.mjs';
+
+test('UTF-8 Chinese and emoji survive every byte boundary', async () => {
+  const expected = { text: '元枢🙂中文路径/生成物' };
+  const bytes = Buffer.from(JSON.stringify(expected));
+  for (let split = 1; split < bytes.length; split++) {
+    const req = new PassThrough();
+    const result = readBody(req);
+    req.write(bytes.subarray(0, split));
+    req.end(bytes.subarray(split));
+    assert.deepEqual(await result, expected, `split at byte ${split}`);
+  }
+});
+
+test('body limit counts UTF-8 bytes, including exact boundary', async () => {
+  const bytes = Buffer.from(JSON.stringify({ text: '中'.repeat(12) }));
+  const exact = new PassThrough();
+  const accepted = readBody(exact, bytes.length / 1048576);
+  exact.end(bytes);
+  assert.deepEqual(await accepted, { text: '中'.repeat(12) });
+  const over = new PassThrough();
+  const rejected = assert.rejects(readBody(over, (bytes.length - 1) / 1048576), { statusCode: 413 });
+  over.end(bytes);
+  await rejected;
+});
 
 function serveOnce(handler) {
   return new Promise(resolve => {

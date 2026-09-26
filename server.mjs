@@ -3044,23 +3044,6 @@ const corsPolicy = createCorsPolicy(CONFIG.corsOrigins);
 // 实现搬到 engine/resp-cache.mjs（那里有 2026-09-20 那次缓存键事故的完整说明），
 // withCache 的实例在 API_ROUTES 之前创建。
 //
-// 静态缓存语义（2026-09-20 重做版）：只设头、不 return、不动分支；
-// 目的：让 Cloudflare 与浏览器敢长期缓存带哈希的资源（外网实测以前每次 REVALIDATED 都要穿隧道 ~1s）。
-function __applyStaticCache(req, res) {
-  try {
-    const pathOnly = String(req.url || "").split("?")[0];
-    const immutable = /^\/(assets|icons)\//.test(pathOnly) || /\.(?:woff2?|ttf|otf|png|jpe?g|webp|svg|mp4|webm|ico)$/i.test(pathOnly);
-    const cc = immutable ? "public, max-age=31536000, immutable" : "no-cache";
-    const origWriteHead = res.writeHead.bind(res);
-    res.setHeader("Cache-Control", cc);
-    res.writeHead = (code, headers, ...rest) => {
-      let h = headers;
-      if (h && typeof h === "object") h = { ...h, "Cache-Control": cc };
-      else { try { res.setHeader("Cache-Control", cc); } catch {} }
-      return origWriteHead(code, h, ...rest);
-    };
-  } catch {}
-}
 const pendingApi = createPendingApi({ wsRoot: WS_ROOT, json, readBody });
 const historyApi = createHistoryApi({ wsRoot: WS_ROOT, json, readBody });
 const boardApi = createBoardApi({
@@ -3074,7 +3057,9 @@ API_ROUTES.push(...createWorkbenchRoutes({ withCache, boardApi, historyApi, hand
 Object.freeze(API_ROUTES);
 
 const server = http.createServer(async (req, res) => {
-  __applyStaticCache(req, res);
+  // 默认不落浏览器/代理缓存；成功静态资源由 lib/static.mjs 明确覆盖。
+  // 不再包裹 writeHead，避免文件后缀把鉴权失败、404 或私有 API 变成一年强缓存。
+  res.setHeader("Cache-Control", "no-store");
 
   // 请求级 request-id：排查并发问题时能关联同一次请求的日志（小米 4.13）
   const reqId = Date.now().toString(36) + "-" + Math.random().toString(36).slice(2, 8);
