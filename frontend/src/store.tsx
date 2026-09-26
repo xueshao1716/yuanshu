@@ -1,4 +1,4 @@
-import { createContext, useContext, useEffect, useState, useCallback, ReactNode } from 'react'
+import { createContext, useContext, useEffect, useState, useCallback, useRef, ReactNode } from 'react'
 import useSWR, { mutate as globalMutate } from 'swr'
 import { ModelsApi, SessionsApi, setToken, getToken, setApiBase, getApiBase } from './api'
 import { mobileApiBaseError } from './lib/shell-origin'
@@ -37,6 +37,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
   })
   const [currentModel, setCurModel] = useState(() => { try { return localStorage.getItem('pi_model') || 'auto/auto' } catch { return 'auto/auto' } })
   const [currentSessionId, setCurSid] = useState<string | null>(null)
+  const sessionRestorePending = useRef(true)
 
   // ── SWR 数据层：跨端/跨标签页以服务端为准。
   // 仅靠显式动作会让另一端新建的会话在当前端长期不可见，因此恢复焦点或网络时重验。
@@ -44,13 +45,19 @@ export function AppProvider({ children }: { children: ReactNode }) {
     revalidateOnFocus: false,
     revalidateOnReconnect: false,
     dedupingInterval: 5000,
-    onErrorRetry: (retry) => setTimeout(retry, 8000),
+    onErrorRetry: (_error, _key, _config, revalidate, options) => {
+      if (_error?.status === 401 || options.retryCount > 3) return
+      setTimeout(() => { if (getToken() === token && token) void revalidate(options) }, 8000)
+    },
   })
   const { data: sessionsData } = useSWR(authed ? 'sessions' : null, fetchers.sessions, {
     revalidateOnFocus: true,
     revalidateOnReconnect: true,
     dedupingInterval: 3000,
-    onErrorRetry: (retry) => setTimeout(retry, 8000),
+    onErrorRetry: (_error, _key, _config, revalidate, options) => {
+      if (_error?.status === 401 || options.retryCount > 3) return
+      setTimeout(() => { if (getToken() === token && token) void revalidate(options) }, 8000)
+    },
   })
   const models: Model[] = modelsData?.models || []
   const cwd: string = modelsData?.cwd || ''
@@ -99,12 +106,17 @@ export function AppProvider({ children }: { children: ReactNode }) {
       if (e?.name === 'AbortError') { const x: any = new Error('连接超时'); x.status = 0; throw x }
       throw e
     } finally { clearTimeout(tmo) }
+    // 已退出时先作废 SWR 的旧请求去重标记；null key 的订阅不会发起请求。
+    await Promise.all([globalMutate('sessions'), globalMutate('models')])
     setToken(tk); setApiBase(base)
+    sessionRestorePending.current = true
     setT(tk); setAuthed(true)
   }, [])
 
 
   const logout = useCallback(() => {
+    setToken(''); setApiBase('')
+    sessionRestorePending.current = true
     try {
       localStorage.removeItem('pi_web_token')
       localStorage.removeItem('pi_api_base')
@@ -123,24 +135,18 @@ export function AppProvider({ children }: { children: ReactNode }) {
     return () => window.removeEventListener('pi-unauthorized', onUn)
   }, [logout])
 
-  // 首次登录后自动恢复上次会话
+  // 同一次登录只恢复一次，复用 SWR 的目录请求；主动选择（包括空会话）优先。
   useEffect(() => {
-    if (!authed) return
-    setToken(token)
-    ;(async () => {
-      const last = (() => { try { return localStorage.getItem('pi_last_session') } catch { return null } })()
-      try {
-        const d = await fetchers.sessions()
-        await globalMutate('sessions', d, { revalidate: false })
-        if (last && (d.sessions || []).some((s: Session) => s.id === last)) setCurSid(prev => prev ?? last)
-      } catch {}
-    })()
-  }, [authed]) // eslint-disable-line
+    if (!authed || !sessionsData || !sessionRestorePending.current) return
+    sessionRestorePending.current = false
+    const last = (() => { try { return localStorage.getItem('pi_last_session') } catch { return null } })()
+    if (last && (sessionsData.sessions || []).some((s: Session) => s.id === last)) setCurSid(prev => prev ?? last)
+  }, [authed, sessionsData])
 
   const value: AppState = {
     authed, token, models, currentModel, cwd, sessions, currentSessionId,
     login, logout, refreshModels, refreshSessions,
-    selectSession: (sid) => { setCurSid(sid); if (sid) { try { localStorage.setItem('pi_last_session', sid) } catch {} } },
+    selectSession: (sid) => { sessionRestorePending.current = false; setCurSid(sid); if (sid) { try { localStorage.setItem('pi_last_session', sid) } catch {} } },
     setCurrentModel: (mk) => { setCurModel(mk); try { localStorage.setItem('pi_model', mk) } catch {} },
   }
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>
