@@ -1,10 +1,12 @@
 import { Bot, ChevronDown, CircleCheck, CircleHelp, FileBox, TriangleAlert } from 'lucide-react'
 import type { RunSummary } from '../api'
 import { workRole, workState, workTime, workTool } from '../lib/work-explanation'
+import { useProcessVisibility } from '../hooks/useProcessVisibility'
 
 const verificationLabels = { passed: '已记录检查通过', failed: '有检查未通过', reported: '仅有模型自报', not_observed: '尚无检查记录' }
 
 export default function WorkExplanation({ run }: { run: RunSummary }) {
+  const [showEvidence, toggleEvidence] = useProcessVisibility('evidence')
   const work = run.explanation
   if (!work) return <p className="text-sm text-pi-dim py-3">这条历史记录尚无工作说明，可打开会话查看原始结果。</p>
   const verification = work.verification
@@ -22,10 +24,10 @@ export default function WorkExplanation({ run }: { run: RunSummary }) {
       <span>工具记录 {work.tools.count}</span><span>子任务 {work.subagents.count}</span><span>产物记录 {work.artifacts.count}</span>
     </div>
     {work.problem && <p role="note" className="mt-3 break-words text-pi-danger leading-relaxed">遇到的问题：{work.problem}</p>}
-    <details className="group mt-2">
-      <summary className="flex min-h-11 cursor-pointer list-none items-center gap-2 text-pi-accent select-none focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 rounded-pi-sm">
+    <details className="group mt-2" open={showEvidence}>
+      <summary onClick={event => { event.preventDefault(); toggleEvidence() }} aria-expanded={showEvidence} title="对所有工作说明生效，此设备会记住选择" className="flex min-h-11 cursor-pointer list-none items-center gap-2 text-pi-accent select-none focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 rounded-pi-sm">
         <ChevronDown className="h-4 w-4 group-open:rotate-180" aria-hidden="true" />过程与依据
-        <span className="ml-auto text-xs text-pi-dim group-open:hidden">展开查看</span>
+        <span className="ml-auto text-xs text-pi-dim">{showEvidence ? '隐藏' : '显示'}</span>
       </summary>
       <div className="min-w-0 border-t border-pi-border-soft pt-3 space-y-4">
         <dl className="grid grid-cols-1 sm:grid-cols-[5rem_minmax(0,1fr)] gap-x-4 gap-y-2 leading-relaxed">

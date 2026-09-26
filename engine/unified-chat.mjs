@@ -34,6 +34,7 @@ import { loadProjectRules, loadMemory, shouldInjectFullMemory, setLastUserQuery,
 import { compactKeepArchive } from "./yuanshu-compact.mjs";
 import { prependAssembledSystem } from "./yuanshu-prompt.mjs";
 import { assembleYuanshuSystem, registerPromptSection, promptTimeText, promptPersonaText } from "./yuanshu-seams.mjs";
+import { toolAvailabilityPrompt } from './tool-availability.mjs';
 import { bindWorkmemSession, formatPlanPrompt } from "./yuanshu-workmem.mjs";
 import { persistYuanshuUser, persistYuanshuAssistant, persistYuanshuToolTrace, resumePersistenceState, abortedAssistantText } from "./yuanshu-session.mjs";
 import { beginYuanshuEmotion, endYuanshuEmotion, lastTalkAt } from "./yuanshu-emotion.mjs";
@@ -373,6 +374,9 @@ export async function unifiedChat(model, messages, opts = {}) {
     history.unshift({ role: "system", content: "【无工具模式】本次对话你没有工具可用（不能读写文件、执行命令、搜索网页）。不要输出 <tool_call>、<function_call> 等任何形式的工具调用——那只是文本，没有系统会执行它们。若任务需要文件内容或命令输出，请直接请用户粘贴相关内容，再基于内容回答。" });
   }
   const toolDefs = opts.tools === false || noTools ? undefined : (opts.tools || _unifiedTools);
+  // Refresh our own capability note on continuation; never infer permission from history.
+  history = history.filter(message => !(message.role === 'system' && typeof message.content === 'string' && message.content.startsWith('【本轮工具事实】')));
+  history.unshift({ role: 'system', content: toolAvailabilityPrompt(toolDefs?.map(tool => tool.function?.name || tool.name) || []) });
   const maxTurns = toolLoopMaxTurns(opts);
   let streamed = false;
   // 官方理念：按模型声明的 reasoning/compat/thinkingLevelMap 统一适配（不按厂商特判）

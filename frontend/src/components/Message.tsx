@@ -23,6 +23,8 @@ import { artifactName, fileNameFromUrl } from '../lib/artifact-name'
 import { fmtMsgTime } from '../lib/fmt-time'
 import type { ChatMessage, RunningTool, ToolStatus } from '../types'
 import { AgentWorkflow } from './AgentWorkflow'
+import { useProcessVisibility } from '../hooks/useProcessVisibility'
+import ProcessVisibilityToggle from './ProcessVisibilityToggle'
 
 // 兼容两种来源：流式 RunningTool / 历史消息里的 ToolCall（无 running 态）
 function ToolCard({ tool }: { tool: Partial<RunningTool> & { name: string } }) {
@@ -40,8 +42,8 @@ function ToolCard({ tool }: { tool: Partial<RunningTool> & { name: string } }) {
 
   return (
     <div className={`my-2 rounded-xl border overflow-hidden text-[13px] bg-pi-bg1/60 transition-[background-color,border-color,box-shadow] duration-200 ${isError ? 'border-pi-danger/40' : 'border-pi-border-soft/60 hover:border-pi-border hover:shadow-md hover:shadow-black/10'}`}>
-      <div
-        className="press w-full flex items-center gap-2 px-2.5 py-1.5 cursor-pointer hover:bg-pi-bg-hover/60 active:bg-pi-bg-active/50 transition-colors text-left"
+      <button type="button" aria-expanded={open} aria-label={`${tool.name} 执行详情`}
+        className="press min-h-11 w-full flex items-center gap-2 px-2.5 py-1.5 cursor-pointer hover:bg-pi-bg-hover/60 active:bg-pi-bg-active/50 transition-colors text-left"
         style={{ boxShadow: `inset 3px 0 0 ${tc}` }}
         onClick={() => setOpen(!open)}
       >
@@ -63,7 +65,7 @@ function ToolCard({ tool }: { tool: Partial<RunningTool> & { name: string } }) {
           </span>
         )}
         <ChevronRight className={`w-3 h-3 text-pi-dim2 flex-shrink-0 transition-transform duration-200 ${open ? 'rotate-90' : ''}`} />
-      </div>
+      </button>
       {running && <div className="h-[2px] w-full overflow-hidden"><div className="tool-progress" /></div>}
       {open && (
         <div className="border-t border-pi-border-soft bg-black/20">
@@ -190,6 +192,8 @@ export default function Message({ msg, onEdit, onRetry }: { msg: ChatMessage & {
   const streaming = !!(msg as any).streaming
   const [editing, setEditing] = useState(false)
   const [draft, setDraft] = useState('')
+  const [showTools, toggleTools] = useProcessVisibility('tools')
+  const failedTools = msg.tools?.filter(tool => tool.status === 'error' || (!tool.status && tool.isError)).length || 0
   const canEdit = isUser && !!onEdit && !streaming && msg.id !== '__streaming__' && !msg.id.startsWith('sys')
 
   // 系统提示条：独立窄条，不进气泡流
@@ -286,7 +290,11 @@ export default function Message({ msg, onEdit, onRetry }: { msg: ChatMessage & {
         {!streaming && <Thinking text={msg.think} live={streaming} />}
         {streaming && msg.think && <Thinking text={msg.think} live={!msg.text} />}
         {msg.tools?.length ? (
-          <div className="mb-2">{msg.tools.map((t, i) => <ToolCard key={t.id || i} tool={t} />)}</div>
+          <>
+            <ProcessVisibilityToggle visible={showTools} onToggle={toggleTools} count={msg.tools.length} />
+            {!showTools && <p className="mb-2 text-xs text-pi-dim">工具详情已隐藏{runningTools ? ` · ${runningTools} 项运行中` : ''}{failedTools ? ` · ${failedTools} 项失败，展开查看原因` : ''}</p>}
+            <div data-tool-details hidden={!showTools} className="mb-2">{showTools && msg.tools.map((t, i) => <ToolCard key={t.id || i} tool={t} />)}</div>
+          </>
         ) : null}
         {/* 阶段分区（stream-assembler）：conclusion 存在时，工具前文字在上、结论在工具卡之后；
             历史消息无 conclusion 字段，保持原渲染不变 */}
