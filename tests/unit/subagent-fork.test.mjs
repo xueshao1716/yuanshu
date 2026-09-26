@@ -73,9 +73,10 @@ describe("只取已完成的前缀（在飞的回合一律不要）", () => {
     const h = [];
     for (let i = 1; i <= 10; i++) { h.push({ role: "user", content: `问${i}` }); h.push({ role: "assistant", content: `答${i}` }); }
     const r = forkSeedFromHistory(h, { maxMessages: 4 });
-    assert.equal(r.messages.length, 4);
+    assert.equal(r.messages.length, 5, '4条前文加1条省略说明');
     assert.match(r.messages[r.messages.length - 1].content, /答10/);
-    assert.match(r.messages[0].content, /问9/);
+    assert.match(r.messages[0].content, /省略/);
+    assert.match(r.messages[1].content, /问9/);
     assert.equal(r.truncated, true);
   });
 

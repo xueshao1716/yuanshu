@@ -49,6 +49,16 @@ test('team uses persisted children, passes prior work and writes only final revi
   assert.equal(result.delivery.evidence.children.length, 4);
 });
 
+test('team review receives a long accepted draft without a new ordinary-seed cap rejecting it', async t => {
+  const draft = '# 完整方案\n' + '逐项分析已知材料并说明待验证条件。'.repeat(850) + '成稿尾部验收点';
+  const { root, requests } = await setup(t, ['方案', '质疑', draft, '{"pass":true,"issues":[]}']);
+  const { executeTeam } = await import('../../engine/team-subagents.mjs');
+  const r = await executeTeam({ task: '交付完整研究方案' }, { wsRoot: root, sessionId: 's', runId: 'long-review' });
+  assert.equal(r.isError, false, r.text);
+  assert.equal(requests.length, 4);
+  assert.ok(requests[3].messages.some(m => m.content.includes(draft)), 'review needs the full draft');
+});
+
 test('objective speech overrun cannot be approved by a model and repair replaces the draft', async t => {
   const bad = '0—3秒，画面：菜单；口播：“今天我们到这家店先来看看这个招牌套餐到底多少钱”。';
   const good = '0—3秒，画面：菜单；口播：“五十元，先看价。”';
@@ -121,10 +131,10 @@ test('team prose is not forced into a JSON string while review remains fail clos
   assert.equal(result.artifact, undefined);
 });
 
-test('ordinary children retain default reasoning and truncated team output is never accepted', async t => {
+test('ordinary children use bounded reasoning and truncated team output is never accepted', async t => {
   const { root, requests } = await setup(t, ['normal']);
   await spawnSubagent({ task: 'normal' });
-  assert.equal(requests[0].reasoning_effort, 'high');
+  assert.equal(requests[0].reasoning_effort, 'low');
   initSubagent({ traceDir: path.join(root, 'length-traces'), getDefaultModel: () => ({ provider: 'fake', id: 'test', baseUrl: 'https://fake.invalid' }),
     authReader: () => ({ fake: { key: 'test' } }), modelReader: () => ({}),
     httpFetch: async () => ({ ok: true, status: 200, json: async () => ({ choices: [{ finish_reason: 'length', message: { content: '{"result":"表面完整却被截断","evidence":[]}' } }] }) }) });

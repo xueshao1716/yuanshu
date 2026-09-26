@@ -62,7 +62,17 @@ function normalizeRecord(input = {}) {
     turn: Number.isFinite(Number(input.turn)) ? Math.max(1, Number(input.turn)) : 1,
     ordinal: Number.isFinite(Number(input.ordinal)) ? Math.max(1, Number(input.ordinal)) : 1,
     effectKey: bounded(input.effectKey, 180),
+    ...(input.diagnostics ? { diagnostics: safeDiagnostics(input.diagnostics) } : {}),
   };
+}
+
+function safeDiagnostics(value) {
+  const out = {};
+  for (const key of ['outputBudget', 'inputTokensEstimate', 'inputTokens', 'outputTokens', 'reasoningTokens']) {
+    out[key] = Number.isFinite(value[key]) && value[key] >= 0 ? Math.floor(value[key]) : null;
+  }
+  for (const key of ['errorCode', 'finishReason', 'usedModel']) out[key] = bounded(value[key], 180);
+  return out;
 }
 
 function stableEffectKey({ role, task, parentRunId, sessionId }) {

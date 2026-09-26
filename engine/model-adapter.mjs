@@ -141,7 +141,7 @@ export class HttpModelAdapter {
         try {
           const parsed = decodeMessagesResponse(data);
           parsed.message.anthropic_model = `${model.provider}/${model.id}`;
-          if (parsed.finishReason === 'max_tokens') return { error: 'Messages output truncated (max_tokens)' };
+          if (parsed.finishReason === 'max_tokens') return { error: 'Messages output truncated (max_tokens)', errorCode: 'output_limit', finishReason: parsed.finishReason, usage: parsed.usage, usedModel: { provider: model.provider, id: parsed.model || model.id } };
           return { ...extractModelReply(parsed.message, history), finishReason: parsed.finishReason, usage: parsed.usage, usedModel: { provider: model.provider, id: parsed.model || model.id } };
         } catch (error) { return { error: error.message }; }
       }

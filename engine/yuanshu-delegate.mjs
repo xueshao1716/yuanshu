@@ -1,12 +1,13 @@
 // OpenHands AgentDelegate 精简版：主循环可派 flash 子代理，只回收结论。
 import { spawnSubagent } from "./subagent.mjs";
 import { forkSeedFromHistory } from "./subagent-fork.mjs";
+import { DELEGATE_CONTRACT } from './subagent-contract.mjs';
 
 export const DELEGATE_TASK_TOOL = {
   type: "function",
   function: {
     name: "delegate_task",
-    description: "把独立调研/对比/摘要派给廉价 flash 子代理。只回收 JSON 结论，不带回过程。不要用它写文件、跑命令或出视频。",
+    description: DELEGATE_CONTRACT,
     parameters: {
       type: "object",
       properties: {
@@ -22,7 +23,7 @@ export const DELEGATE_TASK_TOOL = {
 export async function execDelegateTask(args = {}, ctx = {}) {
   const task = String(args?.task || "").trim();
   if (!task) return { text: "delegate_task 需要 task", isError: true };
-  const context = Array.isArray(args.context) ? args.context.map(String).slice(0, 8) : [];
+  const context = args.context ?? [];
   const r = await spawnSubagent({
     task,
     context,
@@ -52,7 +53,7 @@ export const DELEGATE_FORK_TOOL = {
   type: "function",
   function: {
     name: "delegate_fork",
-    description: "把任务派给一个**继承本次对话已有前文**的子代理：它已经看过前面聊过什么，不要你把背景重讲一遍。适合「接着上面说的继续核查 / 对比 / 收口」这类任务。只回收 JSON 结论，不带回过程。需要子代理完全独立、不受前文影响地判断时，请改用 delegate_task。不要用它写文件、跑命令或出视频。",
+    description: "继承本会话已完成前文的有界片段（不是完整历史）；省略会明确标注。独立判断用 delegate_task。" + DELEGATE_CONTRACT,
     parameters: {
       type: "object",
       properties: {
@@ -76,7 +77,7 @@ export async function execDelegateFork(args = {}, ctx = {}) {
   const r = await spawnSubagent({
     task,
     seed: seedInfo.messages,
-    context: Array.isArray(args.context) ? args.context.map(String).slice(0, 8) : [],
+    context: args.context ?? [],
     role: args.role || ctx.role || "analyst",
     sessionId: ctx.sessionId || "",
     runId: ctx.runId || "",
@@ -92,7 +93,7 @@ export async function execDelegateFork(args = {}, ctx = {}) {
   // 省略必须自报：把"继承了多少、漏了多少"写进回执，别让子代理以为前文里没有工具活动
   const note = seedInfo.droppedToolResults
     ? `（继承前文；其中 ${seedInfo.droppedToolResults} 条工具结果未带过去）`
-    : "（继承前文）";
+    : seedInfo.truncated ? "（继承前文；部分前文因预算省略）" : "（继承前文）";
   return {
     text: `【子代理结论${note}】${r.result}\n证据：${evidence || "无"}\n把握：${r.confidence}`,
     isError: false,

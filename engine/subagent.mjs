@@ -3,6 +3,7 @@
 import { HttpModelAdapter } from "./model-adapter.mjs";
 import { nextSubagentDepth, DEFAULT_MAX_DEPTH } from "./subagent-depth.mjs";
 import path from "node:path";
+import { explicitSubagentInput, subagentBudget, subagentResponseDiagnostics, parseSubagentResult } from './subagent-contract.mjs';
 import {
   configureSubagentTraces,
   getSubagentHistory as readSubagentHistory,
@@ -145,55 +146,45 @@ export async function spawnSubagent({
   };
   const adapter = new HttpModelAdapter({ ..._adapterOptions, httpFetch: wrappedFetch });
   const longForm = profile === 'team';
-  const outputBudget = longForm ? (['medium', 'high'].includes(reasoningEffort) ? 12000 : 7000) : 2000;
-  const SYSTEM = "你是一个专精单任务的小助手。只完成交给你的任务，不要扩展、不要闲聊。\n" +
-    "你只有分析能力，不得声称已经写文件、运行命令或生成了真实产物。\n" +
-    (outputFormat === 'text' ? '直接输出要求的正文，不输出隐藏思考。' :
-      "输出必须严格为 JSON 对象（不要输出任何其他文字）：\n" +
-      "{\"result\": \"完整任务正文（字符串）\", \"evidence\": [\"关键证据1\", \"关键证据2\"], \"confidence\": 0到1的数字}");
-  const messages = [
-    { role: "system", content: SYSTEM },
-    ...contextMessages(aibodyContext),
-    // fork 型：先给继承来的父对话前缀（真实消息，不是短字符串摘要），
-    // 再给 context（显式补充的最小事实），最后才是本轮子任务。
-    ...(Array.isArray(seed) ? seed.filter((s) => s && (s.role === "user" || s.role === "assistant") && String(s.content || "").trim()).slice(0, 24).map((s) => ({ role: s.role, content: String(s.content) })) : []),
-    ...(Array.isArray(context) ? context.map(c => ({ role: "user", content: String(c).slice(0, 600) })).slice(0, 8) : []),
-    { role: "user", content: String(task || "").slice(0, longForm ? 24000 : 1000) },
-  ];
+  let diagnostics = {};
   try {
+    const explicitMessages = explicitSubagentInput({ task, context, seed, longForm });
+    const modelDefinition = { ...m, ...(_adapterOptions.modelReader?.()?.[m.provider]?.models || []).find(item => item.id === m.id) };
+    const SYSTEM = "你是一个专精单任务的小助手。只完成交给你的任务，不要扩展、不要闲聊。\n" +
+      "你只有文本分析能力，不联网、不读文件、不看图片，不得声称已检索、写文件、运行命令或生成真实产物。材料不足时明确指出缺口，请主代理补充。\n" +
+      (outputFormat === 'text' ? '直接输出要求的正文，不输出隐藏思考。' :
+        "输出必须严格为 JSON 对象（不要输出任何其他文字）：\n" +
+        "{\"result\": \"完整任务正文（字符串）\", \"evidence\": [\"关键证据1\", \"关键证据2\"], \"confidence\": 0到1的数字}");
+    const messages = [
+      { role: "system", content: SYSTEM },
+      ...contextMessages(aibodyContext),
+      // fork 型：先给继承来的父对话前缀（真实消息，不是短字符串摘要），
+      // 再给 context（显式补充的最小事实），最后才是本轮子任务。
+      ...explicitMessages,
+    ];
+    diagnostics = subagentBudget(modelDefinition, messages, { longForm, reasoningEffort });
+    const { outputBudget } = diagnostics;
     const response = await adapter.chat(m, messages, { params: { temperature: 0.3 }, maxTokens: outputBudget,
-      outputCeiling: outputBudget, ...(longForm ? { reasoningEffort: reasoningEffort || 'low' } : {}), signal: combined.signal });
+      outputCeiling: outputBudget, reasoningEffort: reasoningEffort || 'low', signal: combined.signal });
+    diagnostics = subagentResponseDiagnostics(response, diagnostics);
     if (combined.signal.aborted) throw abortError(combined.timedOut() ? "子任务超时" : "子任务已取消");
     combined.dispose();
     if (response?.aborted) throw abortError("子任务已取消");
-    if (response?.finishReason === 'length') throw new Error('子任务输出预算耗尽，未把空正文或截断正文当作完整交付');
-    if (response?.error || !response?.text) {
-      const record = await finish({ status: "failed", error: response?.error || "无回复" });
-      return { done: false, error: record.error, model: m, subagentRunId };
-    }
-    let parsed = null;
-    if (outputFormat === 'text') parsed = { result: response.text, evidence: [], confidence: 0 };
-    try {
-      const match = String(response.text).match(/\{[\s\S]*\}/);
-      if (match && outputFormat !== 'text') parsed = JSON.parse(match[0]);
-    } catch { /* handled below */ }
-    if (!parsed || typeof parsed.result !== 'string' || !parsed.result.trim()) {
-      const record = await finish({ status: "failed", error: "输出不是预期 JSON 结构", result: String(response.text).slice(0, 300) });
-      return { done: false, error: record.error, raw: record.result, model: m, subagentRunId };
-    }
-    if (longForm && parsed.result.length > 24000) throw new Error('子任务正文超过长度上限，未截断发布');
-    const result = String(parsed.result).slice(0, longForm ? 24000 : 4000);
+    const parsed = parseSubagentResult(response, { outputFormat, maxChars: longForm ? 24000 : 8000, outputBudget });
+    const result = parsed.result;
     const evidence = safeEvidence(parsed.evidence);
     const confidence = typeof parsed.confidence === "number" ? Math.max(0, Math.min(1, parsed.confidence)) : 0.5;
-    await finish({ status: "completed", result, evidence, confidence });
-    return { done: true, result, evidence, confidence, model: m, subagentRunId };
+    await finish({ status: "completed", result, evidence, confidence, diagnostics });
+    return { done: true, result, evidence, confidence, model: m, subagentRunId, diagnostics };
   } catch (error) {
     combined.dispose();
     const timedOut = combined.timedOut();
     const cancelled = signal?.aborted || (error?.name === "AbortError" && !timedOut);
     const message = cancelled ? "子任务已取消" : timedOut ? "子任务超时" : String(error?.message || error).slice(0, 800);
-    await finish({ status: cancelled ? "cancelled" : "failed", error: message });
-    return { done: false, error: message, cancelled, model: m, subagentRunId };
+    const errorCode = cancelled ? 'cancelled' : timedOut ? 'timeout' : error?.code || 'upstream_error';
+    diagnostics = { ...diagnostics, errorCode };
+    const record = await finish({ status: cancelled ? "cancelled" : "failed", error: message, diagnostics });
+    return { done: false, error: record.error, errorCode, cancelled, model: m, subagentRunId, diagnostics: record.diagnostics };
   }
 }
 

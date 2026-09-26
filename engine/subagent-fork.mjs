@@ -22,7 +22,8 @@ import { nextSubagentDepth } from "./subagent-depth.mjs";
 
 export { nextSubagentDepth };
 
-const clip = (s, n) => { const t = String(s || ""); return t.length > n ? `${t.slice(0, n)}…` : t; };
+const clip = (s, n) => { const t = String(s || ""); return t.length > n ? `${t.slice(0, Math.max(0, n - 1))}${n > 0 ? '…' : ''}` : t; };
+const bound = (n, fallback) => Number.isFinite(n) ? Math.max(0, Math.floor(n)) : fallback;
 
 /** 从元枢的历史里取一条消息的文本（兼容 formatSessionHistory 与内部 hist 两种形状）。 */
 function textOf(m) {
@@ -39,6 +40,9 @@ const hasToolCalls = (m) => Array.isArray(m?.tool_calls) && m.tool_calls.length 
  * @returns {{messages: Array<{role:string,content:string}>, droppedToolResults:number, truncated:boolean}}
  */
 export function forkSeedFromHistory(history = [], { maxMessages = 12, maxChars = 6000, perMessageChars = 800 } = {}) {
+  maxMessages = bound(maxMessages, 12);
+  maxChars = bound(maxChars, 6000);
+  perMessageChars = bound(perMessageChars, 800);
   const list = Array.isArray(history) ? history.filter((m) => m && typeof m === "object") : [];
   // 规矩①：从尾部往回找到最后一条"有正文的助手消息"，其后的全部丢掉（在飞的回合不要）
   let end = -1;
@@ -51,24 +55,32 @@ export function forkSeedFromHistory(history = [], { maxMessages = 12, maxChars =
   // 只保留 user / assistant 的正文；工具结果计数后丢弃（分歧点：丢弃必须自报）
   const kept = [];
   let droppedToolResults = 0;
+  let clipped = false;
   for (const m of prefix) {
     if (isToolMsg(m)) { droppedToolResults++; continue; }
     if (m.role !== "user" && m.role !== "assistant") continue;
     const t = textOf(m).trim();
     if (!t) continue;
+    if (t.length > perMessageChars) clipped = true;
     kept.push({ role: m.role, content: clip(t, perMessageChars) });
   }
 
   // 预算从**最近**往回取，保证子智能体记得的是刚发生的事
-  let truncated = droppedToolResults > 0;
-  let picked = kept.slice(-Math.max(1, maxMessages));
-  if (picked.length < kept.length) truncated = true;
-  let total = picked.reduce((n, m) => n + m.content.length, 0);
-  while (picked.length > 1 && total > maxChars) { total -= picked[0].content.length; picked = picked.slice(1); truncated = true; }
-
-  if (droppedToolResults > 0) {
-    // 省略标记放在最前面（它是"这段前缀之前发生过的事"的元信息）
-    picked = [{ role: "user", content: `（继承自父对话：以下是你已经看过的前文，中间有 ${droppedToolResults} 条工具结果没有带过来——需要时自己重新查，不要假设它没发生过）` }, ...picked];
+  const candidates = maxMessages > 0 ? kept.slice(-maxMessages) : [];
+  const truncated = droppedToolResults > 0 || clipped || candidates.length < kept.length ||
+    candidates.reduce((n, m) => n + m.content.length, 0) > maxChars;
+  // maxMessages bounds historical messages; one metadata notice may be added.
+  // Reserve that notice BEFORE choosing history, including the last long message.
+  const note = truncated ? clip(droppedToolResults > 0
+    ? `（继承前文有省略：${droppedToolResults} 条工具结果没有带过来；不要假设它没发生过。材料不足请主代理补充。）`
+    : '（继承前文因预算有省略；材料不足请主代理补充。）', maxChars) : '';
+  let remaining = maxChars - note.length;
+  const picked = [];
+  for (let i = candidates.length - 1; i >= 0 && remaining > 0; i--) {
+    const content = clip(candidates[i].content, remaining);
+    if (content) picked.unshift({ ...candidates[i], content });
+    remaining -= content.length;
   }
+  if (note) picked.unshift({ role: 'user', content: note });
   return { messages: picked, droppedToolResults, truncated };
 }
