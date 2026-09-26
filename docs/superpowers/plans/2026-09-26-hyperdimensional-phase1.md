@@ -61,3 +61,9 @@ Files: `frontend/src/api.ts`, `frontend/src/components/engine/SandboxModePanel.t
 - 验证日志：`tmp/verification-{unit,types,build}.log`；源码绑定证据：`tmp/review-verification.json`。这些临时产物不提交。
 - 实施按依赖顺序完成后统一提交本期变更（未按每个 Task 分别提交）。保留 `feat/hyperdimensional-phase1`，不覆盖主目录用户改动；未合并、部署、重启、双推或打包，线上版本号不变。
 - 第二/三期阻断项：可信原生批准与签名防重放、真正的操作系统隔离、受保护持久审计、进程撤销、发布与恢复。当前纯协议和禁用入口不能当作这些能力已完成。
+
+## 后续合并与交接（2026-09-26）
+
+用户随后批准覆盖正式目录；功能提交 `e2820806` 已快进合入 main，源码版本同步为 2.116.10，保留原有未提交界面工作。合并后 `npm run verify` 退出 0，2328/2328 单元测试、类型检查及隔离构建通过，证据状态按当前树重新读取为 passed；两视口组件测试 2/2、Impeccable detect 空数组。源码摘要 `3fdd60c3eaba995f35dde77abaa6ce63bbfeef4c94c06a8f1aaf4ea359c0091c`。
+
+本轮线上健康，但仍有活动任务，实际服务版本为 2.116.8（PID 29400），因此未部署前端、重启、推送或打包。上文“未合并”是分支验收时的历史状态，已由本节替代。备份和激活步骤见 `docs/系统说明与接续-2026-09-26.md`；真实权限仍不可启用。

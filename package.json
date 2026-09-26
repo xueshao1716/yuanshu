@@ -1,6 +1,6 @@
 {
   "name": "yuanshu",
-  "version": "2.116.9",
+  "version": "2.116.10",
   "private": true,
   "description": "元枢个人智能系统 · Web 工作台（SSE 对话与自建引擎）",
   "type": "module",
