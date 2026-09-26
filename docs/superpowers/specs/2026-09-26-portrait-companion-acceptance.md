@@ -31,6 +31,6 @@
 - 仅网页内可选陪伴皮肤，不是Windows独立透明桌宠；没有替换默认皮肤、系统身份或情绪表现。
 - 不重启后端、不重新打包原生客户端、不推送远端；本项不进入第2–7项。
 
-## 附带诊断（不在本项修复范围）
+## 附带诊断与收尾（2026-09-26）
 
-Impeccable当前版本不读取 `.impeccable/config.json` 中的 `ignoreRules`、`_comment`；本次未修改该配置。
+Impeccable当前版本不读取顶层 `ignoreRules`、`_comment`。按后续“有问题一并处理”授权，将原四项规则移动至 `detector.ignoreRules`，说明移至 `.impeccable/README.md`，未扩大豁免。实际配置读取恢复四项规则，doctor 无发现。

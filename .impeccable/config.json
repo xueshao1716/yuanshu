@@ -1,4 +1,5 @@
 {
-  "ignoreRules": ["gradient-text", "codex-grid-background", "layout-transition", "side-tab"],
-  "_comment": "public/css/*.css 是主题库（synthwave/gold/quantum 等），渐变字与网格背景为主题设计本体，属 brand register；side-tab 为 blockquote 惯例；layout-transition 为侧栏功能动画。legacy 前端冻结，仅豁免记录。"
+  "detector": {
+    "ignoreRules": ["gradient-text", "codex-grid-background", "layout-transition", "side-tab"]
+  }
 }
