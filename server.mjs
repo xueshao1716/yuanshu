@@ -67,6 +67,7 @@ import { CONFIG } from "./config.mjs";
 import { createGateway } from "./engine/gateway.mjs";
 import { sseWrite, createSseWriter, startSseHeartbeat } from "./engine/sse.mjs";
 import { json, readBody } from "./engine/http-utils.mjs";
+import { observeHttpRequest, respondHttpError } from "./engine/http-lifecycle.mjs";
 import { createRunStore } from "./engine/run-store.mjs";
 import { createRunEventLog } from "./engine/run-event-log.mjs";
 import { createRunManager } from "./engine/run-manager.mjs";
@@ -3064,10 +3065,10 @@ const server = http.createServer(async (req, res) => {
   // 请求级 request-id：排查并发问题时能关联同一次请求的日志（小米 4.13）
   const reqId = Date.now().toString(36) + "-" + Math.random().toString(36).slice(2, 8);
   res.setHeader("X-Request-Id", reqId);
+  const lifecycle = observeHttpRequest(req, res, reqId, line => console.log(line));
   // CORS：只允许已知本地壳 origin 和显式配置的远程前端，不能反射任意 Origin。
   for (const [name, value] of Object.entries(corsPolicy.headers(req.headers.origin))) res.setHeader(name, value);
   if (req.method === "OPTIONS") { res.writeHead(204); res.end(); return; }
-  const t0 = Date.now();
   try {
     // 安全响应头（CSP 限制脚本来源，防止第三方注入执行；禁 MIME 嗅探；防 clickjacking）
     // OMEGA 页需连 OpenIM(10002/10001) 与 Gateway(9000)，connect-src/worker-src 已放行本地服务
@@ -3105,8 +3106,8 @@ const server = http.createServer(async (req, res) => {
     if (req.method === "GET" && (url.pathname === "/" || url.pathname === "/index.html")) {
       const wantVanilla = url.searchParams.has("vanilla");
       const wantReact = reactStatic && (!wantVanilla || url.searchParams.has("react"));
-      if (reactStatic && !wantVanilla) { req.url = "/index.html"; return reactStatic.handle(req, res); }
-      return handleStatic(req, res);
+      if (reactStatic && !wantVanilla) { req.url = "/index.html"; return await reactStatic.handle(req, res); }
+      return await handleStatic(req, res);
     }
     // sw.js：默认反应版下发自毁脚本（React 不用 service worker）；?vanilla=1 下发原版缓存
     if (req.method === "GET" && url.pathname === "/sw.js") {
@@ -3114,25 +3115,25 @@ const server = http.createServer(async (req, res) => {
         res.writeHead(200, { "Content-Type": "application/javascript", "Cache-Control": "no-cache" });
         return res.end(SW_UNREGISTER);
       }
-      return handleStatic(req, res);
+      return await handleStatic(req, res);
     }
     // Vite 指纹资产 + PWA 资源（manifest/图标无敏感内容，免 token 供安装器拉取）
-    if (reactStatic && req.method === "GET" && (url.pathname.startsWith("/assets/") || url.pathname === "/vite.svg" || url.pathname === "/manifest.webmanifest" || url.pathname.startsWith("/icons/"))) return reactStatic.handle(req, res);
+    if (reactStatic && req.method === "GET" && (url.pathname.startsWith("/assets/") || url.pathname === "/vite.svg" || url.pathname === "/manifest.webmanifest" || url.pathname.startsWith("/icons/"))) return await reactStatic.handle(req, res);
     // 旧版入口：/legacy/* → public/*
     if (req.method === "GET" && url.pathname.startsWith("/legacy/")) {
       req.url = url.pathname.slice("/legacy".length) || "/index.html";
       if (!req.url.includes("?") && url.search) req.url += url.search;
-      return handleStatic(req, res);
+      return await handleStatic(req, res);
     }
     if (req.method === "GET" && url.pathname.startsWith("/static/")) {
       req.url = url.pathname.replace(/^\/static/, "") + (url.search || "");
-      return handleStatic(req, res);
+      return await handleStatic(req, res);
     }
 
     // 工作台独立页（页面本身无敏感数据，鉴权由页面 JS 调 API 时执行；可直达 URL：/workshop /workshop/ppt 等）
     if (req.method === "GET" && WORKSHOP_PAGES[url.pathname]) {
       req.url = "/" + WORKSHOP_PAGES[url.pathname] + (url.search || "");
-      return handleStatic(req, res);
+      return await handleStatic(req, res);
     }
 
     // API（只匹配启动时注册的固定路由表，不在请求期间追加）
@@ -3150,18 +3151,8 @@ const server = http.createServer(async (req, res) => {
     // 路由表无匹配 → 404
     return json(res, 404, { error: "not found" });
   } catch (e) {
-    // 尊重错误自带的 statusCode（如 readBody 的 413「请求体太大」）：
-    // 一律回 500 会把"客户端发太大了"说成"服务端炸了"，把排查方向带偏。
-    try { json(res, Number(e?.statusCode) || 500, { error: String(e?.message || e) }); } catch {}
-  } finally {
-    // 请求日志（带 request-id 和耗时，API 路径记录，静态资源不刷屏）
-    try {
-      const url2 = new URL(req.url, `http://${req.headers.host || "localhost"}`);
-      if (!url2.pathname.startsWith("/static/")) {
-        const ms = Date.now() - t0;
-        console.log(`[req:${reqId}] ${req.method} ${url2.pathname} ${res.statusCode || 0} ${ms}ms`);
-      }
-    } catch {}
+    lifecycle.fail();
+    respondHttpError(res, e, reqId);
   }
 });
 

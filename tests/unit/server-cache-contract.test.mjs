@@ -8,6 +8,7 @@ import vm from 'node:vm';
 import { once } from 'node:events';
 import { createStaticServer } from '../../lib/static.mjs';
 import { json } from '../../engine/http-utils.mjs';
+import { observeHttpRequest, respondHttpError } from '../../engine/http-lifecycle.mjs';
 
 // Exercise the production callback and its cache hook, not a reimplementation.
 const source = fs.readFileSync(new URL('../../server.mjs', import.meta.url), 'utf8');
@@ -30,7 +31,7 @@ async function serve(t) {
     fs.writeFileSync(path.join(root, file), 'fixture');
   }
   const context = vm.createContext({
-    URL, console: { log() {} }, CONFIG: { token: 'cache-test-token' },
+    URL, observeHttpRequest, respondHttpError, console: { log() {} }, CONFIG: { token: 'cache-test-token' },
     corsPolicy: { headers: () => ({}) }, WORKSHOP_PAGES: {},
     reactStatic: createStaticServer({ publicDir: root }), json,
     API_ROUTES: [['GET', '/api/private.png', res => json(res, 200, { private: true })]],

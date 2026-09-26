@@ -7,6 +7,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { once } from 'node:events';
 import { json, readBody } from '../../engine/http-utils.mjs';
+import { observeHttpRequest, respondHttpError } from '../../engine/http-lifecycle.mjs';
 import { createWithCache } from '../../engine/resp-cache.mjs';
 import { createHistoryApi } from '../../engine/history-api.mjs';
 
@@ -20,7 +21,7 @@ const auth = source.slice(source.indexOf('function checkAuth(req)'), source.inde
 
 export async function serveProductionCallback(t, routes, overrides = {}) {
   const context = vm.createContext({
-    URL, console: { log() {} }, CONFIG: { token: 'route-test-token' },
+    URL, observeHttpRequest, respondHttpError, console: { log() {} }, CONFIG: { token: 'route-test-token' },
     __applyStaticCache() {}, corsPolicy: { headers: () => ({}) },
     WORKSHOP_PAGES: {}, reactStatic: null, API_ROUTES: routes, json, readBody,
     withCache: createWithCache(), boardApi: { bootstrap: res => json(res, 200, { ok: true }) },
