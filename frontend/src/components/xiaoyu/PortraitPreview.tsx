@@ -1,6 +1,6 @@
 import { useState } from 'react'
 
-const portrait = '/portraits/yuanshu-staircase-v1.webp'
+const portrait = '/assets/portraits/yuanshu-staircase-v1.webp'
 
 export function PortraitPreview() {
   const [failed, setFailed] = useState(false)

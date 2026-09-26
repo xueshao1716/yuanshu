@@ -5,7 +5,7 @@ from PIL import Image
 
 root = Path(__file__).resolve().parents[1]
 source = root / 'output/imagegen'
-target = root / 'frontend/public/portraits'
+target = root / 'frontend/public/assets/portraits'
 target.mkdir(parents=True, exist_ok=True)
 portrait = Image.open(source / 'yuanshu-staircase-source.png')
 portrait.load()

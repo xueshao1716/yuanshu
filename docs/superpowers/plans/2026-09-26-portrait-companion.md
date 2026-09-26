@@ -25,7 +25,7 @@
 - [ ] `node --test tests/unit/xiaoyu-widget.test.mjs tests/unit/xiaoyu-studio.test.mjs`，预期全部通过。
 - [ ] 使用已配置 aieyra 通道的 gpt-image-2，通过 imagegen 自带 CLI 生成 1008x1792 母图。原始提示词见同目录 portrait-source-prompt.txt。
 - [ ] 用同一母图编辑为纯绿色底、保持人物坐姿和身份，再用自带 remove_chroma_key.py 提取透明 PNG；验证 alpha、尺寸、查看边缘。
-- [ ] 优化素材到 `frontend/public/portraits/yuanshu-staircase-v1.webp` 和 `yuanshu-cutout-v1.webp`；记录模型、尺寸与处理过程，不存凭据。
+- [x] 优化素材到 `frontend/public/assets/portraits/yuanshu-staircase-v1.webp` 和 `yuanshu-cutout-v1.webp`；记录模型、尺寸与处理过程，不存凭据。
 
 ## 2. 测试先行
 

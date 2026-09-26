@@ -9,7 +9,7 @@ export const normalizeSkin = value => SKINS.some(s => s.id === value) ? value : 
 export const normalizeMode = value => value === 'roam' ? 'roam' : 'corner';
 export const canRoam = skin => skin !== 'portrait';
 export function imageForSkin(skin, frame = 'open') {
-  if (skin === 'portrait') return '/portraits/yuanshu-cutout-v1.webp';
+  if (skin === 'portrait') return '/assets/portraits/yuanshu-cutout-v1.webp';
   // Doll poses are distinct illustrations, not interchangeable animation frames.
   if (skin === 'doll' || skin === 'doll-puppet') return '/static/branding/doll-01-256.png?v=8';
   const safeFrame = ['open', 'closed', 'happy', 'focused', 'thinking', 'sleepy', 'wave'].includes(frame) ? frame : 'open';

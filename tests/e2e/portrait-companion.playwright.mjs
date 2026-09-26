@@ -68,7 +68,7 @@ try {
     await panel.getByRole('link', { name: '打开完整形象' }).click();
     const popup = await popupPromise;
     await popup.waitForLoadState();
-    assert.ok(popup.url().endsWith('/portraits/yuanshu-staircase-v1.webp'));
+    assert.ok(popup.url().endsWith('/assets/portraits/yuanshu-staircase-v1.webp'));
     await popup.close();
     const downloadPromise = page.waitForEvent('download');
     await panel.getByRole('link', { name: '下载写真人像立绘' }).click();
@@ -90,7 +90,7 @@ try {
     await page.mouse.up();
     assert.equal(await panel.count(), 0, 'drag must not open settings');
     assert.ok(await page.evaluate(() => !!localStorage.getItem('xiaoyu_pos')), 'drag position persists');
-    await page.route('**/portraits/**', route => route.abort());
+    await page.route('**/assets/portraits/**', route => route.abort());
     await page.reload();
     await page.locator('.xiaoyu-image-fallback').waitFor({ state: 'visible' });
     await widget.click();
