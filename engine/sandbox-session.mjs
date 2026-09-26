@@ -93,7 +93,7 @@ export function recordSandboxMode(agentDir, sessionId, { preset, origin = "human
     mode: next.mode,
     from: current.preset,
     widening,
-    origin: origin === "human" ? "human" : "model",
+    origin: origin === "human" ? "human" : origin === "api" ? "api" : "model",
     reason: String(reason || "").trim().slice(0, 200) || null,
     at: (now instanceof Date ? now : new Date()).toISOString(),
   };

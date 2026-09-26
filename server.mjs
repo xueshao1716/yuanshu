@@ -42,7 +42,8 @@ import { sdkSafeAssistantBlocks, sdkSafeUserBlocks } from "./engine/yuanshu-sess
 // @文件引用里的二进制文件不能内联（2026-09-16，外部机器安装检查第 4 个 bug）：见 engine/file-inline.mjs
 import { isBinaryReference, binaryReferenceNote } from "./engine/file-inline.mjs";
 import { advanceGoalTurn, noteGoalError, goalPrompt, listGoals, createGoal, armGoal, pauseGoal, settleGoal, disarmAllGoals } from "./engine/goals.mjs";
-import { sandboxModeView, recordSandboxMode } from "./engine/sandbox-session.mjs";
+import { createSandboxApi } from "./engine/sandbox-api.mjs";
+import { createMaintenanceApi } from "./engine/maintenance-api.mjs";
 import { sweepInterruptedRuns } from "./engine/story-store.mjs";
 import { extractPromises, recordPromises, loadPromises, pendingPromises, closePromise, pendingPromiseText } from "./engine/promises.mjs";
 import { createSoilReader } from "./engine/aibody-soil.mjs";
@@ -2150,6 +2151,9 @@ const withCache = createWithCache();
 
 const uiDesigns = createUiDesignService({root: WS_ROOT, getModelList: () => modelList, getDefaultModel: () => defaultModel, directChat});
 const websites = createWebsiteService({root: WS_ROOT, getModelList: () => modelList, getDefaultModel: () => defaultModel, directChat});
+const maintenanceSessionExists = sid => activeSessions.has(sid) || !!findSession(sid);
+const sandboxApi = createSandboxApi({ agentDir: AGENT_DIR, sessionExists: maintenanceSessionExists });
+const maintenanceApi = createMaintenanceApi({ sessionExists: maintenanceSessionExists });
 const API_ROUTES = [
   ...createBehaviorExperimentRoutes({ service: behaviorExperiments, json, readBody }),
   ...websiteRoutes(websites,{json,readBody,root:WS_ROOT}),
@@ -2378,18 +2382,25 @@ const API_ROUTES = [
     json(res, r.ok ? 200 : 400, r);
   }],
   // ── 会话级沙箱模式：append-only 日志 + fold，收紧随时可以、放宽必须给理由 ──
-  // ── 会话级沙箱模式：append-only 日志 + fold，收紧随时可以、放宽必须给理由 ──
   ["GET", "/api/sandbox/mode", (res, req, url) => {
-    const sid = url?.searchParams?.get("session") || latestSessionId();
-    json(res, 200, { ok: true, sessionId: sid, ...sandboxModeView(AGENT_DIR, sid) });
+    const r = sandboxApi.get(url.searchParams.get("session"));
+    json(res, r.status, r.body);
   }],
   ["POST", "/api/sandbox/mode", async (res, req) => {
-    const b = await readBody(req);
-    const sid = b?.sessionId || latestSessionId();
-    if (!sid) return json(res, 400, { error: "没有可用的会话" });
-    // 只可能来自台前点击，所以来源固定记 human
-    const r = recordSandboxMode(AGENT_DIR, sid, { preset: b?.preset, origin: "human", reason: b?.reason });
-    json(res, r?.ok ? 200 : 400, { ...r, sessionId: sid, view: r?.ok ? sandboxModeView(AGENT_DIR, sid) : null });
+    const r = sandboxApi.set(await readBody(req));
+    json(res, r.status, r.body);
+  }],
+  ["GET", "/api/maintenance/status", (res, req, url) => {
+    const r = maintenanceApi.status(url.searchParams.get("session"));
+    json(res, r.status, r.body);
+  }],
+  ["POST", "/api/maintenance/requests", async (res, req) => {
+    const r = maintenanceApi.request(await readBody(req));
+    json(res, r.status, r.body);
+  }],
+  ["POST", /^\/api\/maintenance\/leases\/([^/]+)\/revoke$/, async (res, req, url, m) => {
+    const r = maintenanceApi.revoke(m[1], await readBody(req));
+    json(res, r.status, r.body);
   }],
   // ── 跨轮目标：三重闸门在 engine/goals.mjs；台前只做"人类给结论"这一侧 ──
   ["GET", "/api/goals", (res) => {

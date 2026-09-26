@@ -735,9 +735,17 @@ export interface SandboxView {
   history: { at: string; preset: string; mode: string; from: string; widening: boolean; origin: string; reason: string | null }[]
 }
 export const SandboxApi = {
-  get: () => api<SandboxView>('/api/sandbox/mode'),
-  set: (preset: string, reason?: string) =>
-    api<{ ok: boolean; reason?: string; sessionId?: string; view?: SandboxView }>('/api/sandbox/mode', { method: 'POST', body: { preset, reason } }),
+  get: (sessionId: string) => api<SandboxView>(`/api/sandbox/mode?session=${encodeURIComponent(sessionId)}`),
+  set: (sessionId: string, preset: string, reason?: string) =>
+    api<{ ok: boolean; reason?: string; sessionId?: string; view?: SandboxView }>('/api/sandbox/mode', { method: 'POST', body: { sessionId, preset, reason } }),
+}
+
+export interface MaintenanceView {
+  ok: boolean; sessionId: string; available: false; reason: string; message: string
+  defaultDurationMs: number; maxDurationMs: number; lease: null; engine: 'yuanshu'
+}
+export const MaintenanceApi = {
+  status: (sessionId: string) => api<MaintenanceView>(`/api/maintenance/status?session=${encodeURIComponent(sessionId)}`),
 }
 
 // ── 系统面板：说明 / 检测更新 ──
