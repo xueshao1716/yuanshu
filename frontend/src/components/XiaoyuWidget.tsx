@@ -1,11 +1,12 @@
 import { useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
-import { imageForSkin, normalizeSkin } from './xiaoyu/widget-state.mjs'
+import { canRoam, imageForSkin, normalizeSkin } from './xiaoyu/widget-state.mjs'
 import { readPreference, savePreference, useWidgetMotion } from './xiaoyu/useWidgetMotion'
 import { useWidgetStatus } from './xiaoyu/useWidgetStatus'
 import { WidgetPanel } from './xiaoyu/WidgetPanel'
 import { sceneFor } from './xiaoyu/studio-state.mjs'
 import './xiaoyu/widget.css'
+import './xiaoyu/portrait.css'
 
 export default function XiaoyuWidget() {
   const [open, setOpen] = useState(false)
@@ -17,7 +18,7 @@ export default function XiaoyuWidget() {
   const root = useRef<HTMLDivElement>(null)
   const button = useRef<HTMLButtonElement>(null)
   const status = useWidgetStatus()
-  const motion = useWidgetMotion(open || hover)
+  const motion = useWidgetMotion(open || hover || !canRoam(skin))
   const frame = greeting ? 'happy' : status.busy ? 'focused' : 'open'
   const image = imageForSkin(skin, frame)
   const animated = skin === 'puppet' || skin === 'doll-puppet'
@@ -51,7 +52,7 @@ export default function XiaoyuWidget() {
         onClick={(e) => { if (motion.consumeDrag() && e.detail !== 0) return; setOpen(v => !v); setGreeting(true) }}
         onMouseEnter={() => setHover(true)} onMouseLeave={() => setHover(false)} {...motion.handlers}>
         <span className="xiaoyu-mini-plinth" style={{ background: set.accent, boxShadow: `0 4px 0 ${set.floor}, 0 8px 7px rgb(0 0 0 / .14)` }} />
-        <span className="xiaoyu-facing" style={{ transform: `scaleX(${motion.face})` }}>
+        <span className="xiaoyu-facing" style={{ transform: `scaleX(${skin === 'portrait' ? 1 : motion.face})` }}>
           <span className="xiaoyu-figure" data-animated={animated} data-walking={motion.walking}
             data-greeting={greeting} data-paused={open || hover || motion.dragged}>
             {imageFailed ? <span className="xiaoyu-image-fallback">{status.name}</span>

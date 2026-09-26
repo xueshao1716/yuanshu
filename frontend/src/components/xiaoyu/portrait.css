@@ -1,0 +1,12 @@
+.xiaoyu-portrait-preview { margin: 0 0 18px; }
+.xiaoyu-portrait-preview > img { display: block; width: 100%; aspect-ratio: 9 / 16; object-fit: contain; border-radius: 10px; background: var(--pi-bg2); }
+.xiaoyu-portrait-preview figcaption { display: flex; flex-direction: column; gap: 4px; padding-top: 10px; }
+.xiaoyu-portrait-preview figcaption > span { color: var(--pi-dim); font-size: 12px; }
+.xiaoyu-portrait-preview a { color: var(--pi-text); text-decoration: underline; }
+.xiaoyu-widget[data-skin="portrait"] .xiaoyu-mini-plinth { display: none; }
+.xiaoyu-widget[data-skin="portrait"] .xiaoyu-figure { animation: xiaoyu-portrait-breathe 5s ease-in-out infinite; }
+.xiaoyu-widget[data-skin="portrait"] .xiaoyu-figure[data-paused="true"] { animation-play-state: paused; }
+.xiaoyu-mode-options button:disabled { opacity: .55; cursor: not-allowed; }
+@keyframes xiaoyu-portrait-breathe { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-1px); } }
+[data-reduced-motion="true"] .xiaoyu-widget[data-skin="portrait"] .xiaoyu-figure { animation: none; }
+@media (prefers-reduced-motion: reduce) { .xiaoyu-widget[data-skin="portrait"] .xiaoyu-figure { animation: none; } }

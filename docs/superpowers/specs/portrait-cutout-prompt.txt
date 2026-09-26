@@ -1,0 +1,3 @@
+Use case: background-extraction
+Input image: edit target, the AI-generated adult fashion portrait supplied with this request.
+Primary request: extract the same seated adult woman as an isolated full-body companion asset. Replace only the staircase, wall, and all background with a perfectly flat pure green (#00ff00) chroma-key background, without gradients or shadows. Preserve her exact face, long black hair, opaque full-coverage black outfit, flat shoes, seated pose, hands, expression and lighting. Keep her entire silhouette including hair and shoes inside the frame with a small margin. No additional objects, no text, no watermark. Do not alter the clothing or invent exposed areas. The seated person alone remains; remove the stairs underneath her as well.

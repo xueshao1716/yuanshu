@@ -1,9 +1,10 @@
 import { useLayoutEffect, useRef, useState } from 'react'
 import { X, Download, RotateCcw } from 'lucide-react'
-import { SKINS, imageForSkin, panelPosition } from './widget-state.mjs'
+import { SKINS, canRoam, imageForSkin, panelPosition } from './widget-state.mjs'
 import type { useWidgetMotion } from './useWidgetMotion'
 import type { useWidgetStatus } from './useWidgetStatus'
 import { WidgetStudio } from './WidgetStudio'
+import { PortraitPreview } from './PortraitPreview'
 
 type Props = {
   skin: string; chooseSkin: (skin: string) => void; close: () => void
@@ -31,7 +32,7 @@ export function WidgetPanel({ skin, chooseSkin, scene, chooseScene, motion, stat
       <div><h2>{status.name}</h2><p>{status.busy === null ? '任务状态暂不可用' : status.busy > 0 ? `${status.busy} 个任务进行中` : '在这里，陪你做事。'}</p></div>
       <button ref={closeRef} type="button" onClick={close} aria-label="关闭公仔设置"><X size={18} /></button>
     </header>
-    <WidgetStudio skin={skin} name={status.name} scene={scene} chooseScene={chooseScene} />
+    {skin === 'portrait' ? <PortraitPreview /> : <WidgetStudio skin={skin} name={status.name} scene={scene} chooseScene={chooseScene} />}
     <fieldset className="xiaoyu-appearance"><legend>外观</legend>
       <div className="xiaoyu-skin-options">{SKINS.map(s => <button key={s.id} type="button"
         aria-pressed={skin === s.id} onClick={() => chooseSkin(s.id)}>
@@ -40,10 +41,10 @@ export function WidgetPanel({ skin, chooseSkin, scene, chooseScene, motion, stat
     </fieldset>
     <fieldset><legend>活动方式</legend>
       <div className="xiaoyu-mode-options">
-        <button type="button" aria-pressed={motion.mode === 'corner'} onClick={() => motion.setMode('corner')}>原地陪伴</button>
-        <button type="button" aria-pressed={motion.mode === 'roam'} onClick={() => motion.setMode('roam')}>自由活动</button>
+        <button type="button" aria-pressed={!canRoam(skin) || motion.mode === 'corner'} onClick={() => motion.setMode('corner')}>原地陪伴</button>
+        <button type="button" disabled={!canRoam(skin)} aria-pressed={canRoam(skin) && motion.mode === 'roam'} onClick={() => motion.setMode('roam')}>自由活动</button>
       </div>
-      <p className="xiaoyu-hint">{motion.reduced ? '已跟随系统减少动态效果，公仔保持静止。' : motion.mode === 'roam' ? '关闭面板后轻缓移动，停留时可拖动。' : '拖动公仔调整位置，会记住你的摆放。'}</p>
+      <p className="xiaoyu-hint">{!canRoam(skin) ? '坐姿形象保持原地，可拖动摆放；其他皮肤的活动偏好会保留。' : motion.reduced ? '已跟随系统减少动态效果，公仔保持静止。' : motion.mode === 'roam' ? '关闭面板后轻缓移动，停留时可拖动。' : '拖动公仔调整位置，会记住你的摆放。'}</p>
     </fieldset>
     <div className="xiaoyu-tools">
       <button type="button" onClick={motion.reset}><RotateCcw size={15} />回到角落</button>
