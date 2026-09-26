@@ -5,6 +5,19 @@ import fs from 'node:fs'
 const root = new URL('../../', import.meta.url)
 const read = (file) => fs.readFileSync(new URL(file, root), 'utf8')
 
+test('whole run panel collapses independently without hiding stop or unmounting recovery', () => {
+  const component = read('frontend/src/components/ChatRunStatus.tsx')
+  assert.ok(component.includes("useProcessVisibility('runStatus')"))
+  assert.ok(component.includes('aria-expanded={showStatus}'))
+  assert.ok(component.includes('aria-controls={detailsId}'))
+  assert.ok(component.includes('<div id={detailsId} hidden={!showStatus}>'))
+  const detailStart = component.indexOf('<div id={detailsId} hidden={!showStatus}>')
+  const detailEnd = component.indexOf('</div>', component.indexOf('<RunContextSummary', detailStart))
+  assert.ok(component.indexOf('<BackgroundRecoveryStatus', detailStart) < detailEnd)
+  assert.ok(component.indexOf('aria-label="停止运行"') > detailEnd)
+  assert.ok(component.includes("'隐藏任务详情' : '显示任务详情'"))
+})
+
 test('chat run status consumes overview and renders shared explanation with stop action', () => {
   const component = read('frontend/src/components/ChatRunStatus.tsx')
   const chatArea = read('frontend/src/components/ChatArea.tsx')

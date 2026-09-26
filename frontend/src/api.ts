@@ -375,6 +375,7 @@ export function streamSession(sid: string, after = 0, onEvent: (ev: any) => void
           } catch {}
         }
       }
+      if (!closed) onError?.()
     } catch (error: any) {
       if (closed || error?.name === 'AbortError') return
       onError?.()
@@ -394,6 +395,7 @@ export const AsrApi = {
 }
 // 情绪快照（服务端 VAD 情绪引擎；返回裸快照，SSE emotion 事件则包在 {state} 里）
 export const EmotionApi = {
+  display: () => api<import('./lib/emotion-snapshot.mjs').EmotionSnapshot>('/api/companion/emotion'),
   get: (sid?: string) => api<any>(`/api/emotion${sid ? `?session=${encodeURIComponent(sid)}` : ''}`),
   tide: () => api<{ tide: any[] }>('/api/emotion/tide'),
   feelings: () => api<{ feelings: any[] }>('/api/emotion/feelings'),

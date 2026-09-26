@@ -3,6 +3,7 @@ import { Mic, Paperclip, FileText, SlidersHorizontal } from 'lucide-react'
 import ParamsPanel from './ParamsPanel'
 import { WsApi } from '../api'
 import ModelSelect from './ModelSelect'
+import { takeDraft, mergeDraft } from './xiaoyu/companion-draft.mjs'
 
 const SLASH_COMMANDS = [
   { cmd: '/new', desc: '新建会话' },
@@ -76,6 +77,15 @@ export default function SendBox({ streaming, onStop, onSend, onCommand, onVoice,
   const taRef = useRef<HTMLTextAreaElement>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
   const [value, setValue] = useState('')
+  useEffect(() => {
+    const receive = () => {
+      const text = takeDraft(sessionStorage, sessionId)
+      if (text) { setValue(v => mergeDraft(v, text)); taRef.current?.focus() }
+    }
+    receive()
+    window.addEventListener('yuanshu-companion-draft', receive)
+    return () => window.removeEventListener('yuanshu-companion-draft', receive)
+  }, [sessionId])
   const [files, setFiles] = useState<FileAttachment[]>([])
   // 切会话就把上一条会话的附件清掉（2026-09-19 真机 bug：附件是本地 state，
   // 切换会话没清 → 在新会话里发出的消息会带上旧会话的图片，看着就是"不相干的图跑进来了"）。

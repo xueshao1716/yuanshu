@@ -10,3 +10,33 @@
 @keyframes xiaoyu-portrait-breathe { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-1px); } }
 [data-reduced-motion="true"] .xiaoyu-widget[data-skin="portrait"] .xiaoyu-figure { animation: none; }
 @media (prefers-reduced-motion: reduce) { .xiaoyu-widget[data-skin="portrait"] .xiaoyu-figure { animation: none; } }
+.companion-portrait { margin: 0; display: flex; flex-direction: column; align-items: center; gap: 8px; }
+.companion-portrait img { display: block; height: 230px; max-width: 100%; object-fit: contain;
+  filter: drop-shadow(0 0 10px hsl(var(--portrait-hue) 45% 60% / calc(var(--portrait-glow) * .35))); }
+.companion-portrait figcaption { display: flex; flex-direction: column; gap: 3px; width: 100%; }
+.companion-portrait figcaption span { font-size: 11px; color: var(--pi-dim); }
+.companion-portrait.is-compact { height: 88px; width: 88px; pointer-events: none; }
+.companion-portrait.is-compact img { height: 100%; animation: xiaoyu-portrait-breathe var(--portrait-period, 5s) ease-in-out infinite; }
+.xiaoyu-companion[data-large="true"] .xiaoyu-widget { height: 190px; }
+.xiaoyu-companion[data-large="true"] .is-compact { height: 162px; }
+.companion-emotion { padding-block: 12px; border-block: 1px solid var(--pi-border-soft); margin-top: 12px; }
+.companion-emotion p, .companion-emotion time { display: block; font-size: 11px; color: var(--pi-dim); }
+.companion-response { padding-block: 12px; overflow-wrap: anywhere; }
+.companion-response details { font-size: 11px; margin-top: 6px; }
+.companion-response summary { cursor: pointer; min-height: 32px; }
+.companion-actions { display: flex; flex-wrap: wrap; gap: 6px; }
+.companion-actions button { flex: 1; padding-inline: 8px; background: var(--pi-bg2); }
+.companion-panel form { margin-top: 12px; }
+.companion-panel textarea { display: block; width: 100%; resize: vertical; padding: 8px; margin-block: 6px;
+  font-size: 16px; color: var(--pi-text); background: var(--pi-bg2); border: 1px solid var(--pi-border); border-radius: 8px; }
+.companion-panel :is(textarea, input, summary):focus-visible { outline: 2px solid var(--pi-accent); outline-offset: 2px; }
+.companion-panel button:disabled { opacity: .55; cursor: not-allowed; }
+.companion-dnd { display: flex; align-items: center; gap: 8px; min-height: 44px; margin-block: 10px; font-size: 12px; cursor: pointer; }
+.companion-bubble { position: fixed; overflow-y: auto; padding: 12px;
+  background: var(--pi-bg1); border: 1px solid var(--pi-border); border-radius: 12px; font-size: 13px; overflow-wrap: anywhere; }
+.companion-bubble button { min-width: 44px; min-height: 44px; }
+.companion-restore { position: fixed; right: 12px; bottom: 82px; z-index: var(--pi-z-topbar); min-height: 44px;
+  padding: 8px 12px; background: var(--pi-bg1); color: var(--pi-text); border: 1px solid var(--pi-border); border-radius: 10px; }
+.companion-restore:focus-visible, .companion-bubble button:focus-visible { outline: 2px solid var(--pi-accent); outline-offset: 3px; }
+[data-reduced-motion="true"] .companion-portrait img { animation: none; }
+@media (prefers-reduced-motion: reduce) { .companion-portrait.is-compact img { animation: none; } }

@@ -14,8 +14,10 @@ import ChatRunStatus from './ChatRunStatus'
 import { useAutoScroll } from '../hooks/useAutoScroll'
 import { toast } from './Toast'
 import { emoTooltip } from '../lib/emotion'
-import { useXiaoyuEmotion } from '../lib/useXiaoyuEmotion'
+import { useCompanion } from './xiaoyu/useCompanion'
+import { readPreference, savePreference } from './xiaoyu/useWidgetMotion'
 import { MoodOrb } from './MoodOrb'
+import { MoodPanel } from './MoodPanel'
 import type { FileAttachment } from './SendBox'
 import type { ChatMessage, RunningTool } from '../types'
 import { saveMessage, getMessages, deleteMessage, mergeMessages, type LocalMessage } from '../lib/local-db'
@@ -145,7 +147,14 @@ export default function ChatArea({ compactHeader, rightPanel, onRightPanel }: {
   const { data: msgData, isLoading, mutate: mutateMsgs } = useSWR(msgKey,
     ([, sid]: readonly [string, string]) => SessionsApi.messages(sid, { tail: 80 }),
     { revalidateOnFocus: true, revalidateOnReconnect: true, dedupingInterval: 3000 })
-  const { state: emoState, meta: emoMetaLive, publishEmotion } = useXiaoyuEmotion()
+  const [orbPanelOpen, setOrbPanelOpen] = useState(false)
+  const [companionHidden, setCompanionHidden] = useState(() => readPreference('yuanshu_companion_hidden') === 'true')
+  const companion = useCompanion(!companionHidden || orbPanelOpen)
+  const companionEmotion = companion.emotion
+  const { state: emoState, meta: emoMetaLive, publishEmotion } = companionEmotion
+  const changeCompanionHidden = (hidden: boolean) => {
+    setCompanionHidden(hidden); savePreference('yuanshu_companion_hidden', String(hidden))
+  }
   // ── 本地消息存储：从 IndexedDB 加载，与服务端数据合并 ──
   const [localMessages, setLocalMessages] = useState<ChatMessage[]>([])
   const [localLoaded, setLocalLoaded] = useState(false)
@@ -1057,10 +1066,14 @@ export default function ChatArea({ compactHeader, rightPanel, onRightPanel }: {
           )}
         </div>
         {/* 心情：服务端真实情绪镜像，只展示不可点改。灵珠连续反映 VAD（2026-09-03，替代 emoji 八桶） */}
-        <div className={`emo-pill w-[30px] h-[30px] rounded-full flex items-center justify-center cursor-default transition-colors hover:bg-pi-bg2/40`}
-          title={emoTooltip(emoState, emoMetaLive)}>
-          <MoodOrb state={emoState} size={24} label={`小语情绪：${emoMetaLive.label}`} />
+        <div className="emo-pill w-[30px] h-[30px] flex items-center justify-center">
+          <button type="button" className="min-w-[44px] min-h-[44px] rounded-full flex items-center justify-center hover:bg-pi-bg2/40"
+            title={emoTooltip(emoState, emoMetaLive)} aria-label="查看情绪潮汐与真人形象" aria-expanded={orbPanelOpen}
+            onClick={() => setOrbPanelOpen(true)}>
+            <MoodOrb state={emoState} size={24} label={`小语情绪：${emoMetaLive.label}`} />
+          </button>
         </div>
+        <MoodPanel open={orbPanelOpen} onClose={() => setOrbPanelOpen(false)} emotion={companionEmotion} action={companion.action} known={!!companion.facts?.known} />
       </div>
 
       {/* 无新事件只提示，不改变服务端任务状态 */}
@@ -1192,7 +1205,7 @@ export default function ChatArea({ compactHeader, rightPanel, onRightPanel }: {
             }} />
         </div>
       </div>
-          <XiaoyuWidget />
+          <XiaoyuWidget companion={companion} hidden={companionHidden} setHidden={changeCompanionHidden} />
 </div>
     </ChatMediaProvider>
   )

@@ -153,6 +153,13 @@ const memoryApi = await import("./engine/memory.mjs");
 const { initMemorySync } = await import("./engine/memory-sync.mjs");
 initMemorySync({ wsRoot: CONFIG.cwd }); // M1 路径外部化：记忆同步的工作空间根随配置注入
 const emotion = await import("./engine/emotion.mjs");
+const { createEmotionDisplay } = await import('./engine/emotion-display.mjs');
+const { createCompanionFacts } = await import('./engine/companion-facts.mjs');
+const { createCompanionStore } = await import('./engine/companion-store.mjs');
+const { createCompanionDecision } = await import('./engine/companion-decision.mjs');
+const { createCompanionSessionReader } = await import('./engine/companion-session.mjs');
+const { createCompanionRoutes } = await import('./engine/companion-api.mjs');
+const companionEmotion = createEmotionDisplay({ peek: emotion.peekLatestObservation });
 emotion.init(CONFIG.cwd); // 基因系统：加载人格基因 + 提案池
 emotion.setMemoryNudgeHook((info) => { try { proposeMemoryNudge(info); } catch {} }); // 情绪→记忆联动（09-03）：residue 跨阈值自动提案记忆写入
 // 隔离子任务执行器（P2）：注入模型适配依赖（复用系统代理栈）
@@ -2076,6 +2083,13 @@ const runApi = createRunApi({ manager: runManager, json,
   subagents: await subagent.getSubagentHistory({ sessionId: run.sessionId, runId: run.id, limit: 50 }),
 }) });
 const teamApi = createTeamApi({ launcher: teamLauncher, runApi, json });
+const companionFacts = createCompanionFacts({ manager: runManager, serverEpoch: RUN_INSTANCE_ID,
+  activeSessions: () => [...activeSessions].filter(([, entry]) => entry.busy).map(([id]) => id) });
+const companionStore = createCompanionStore({ root: CONFIG.cwd });
+const companionReadSession = createCompanionSessionReader({ activeSessions, findSession, readEntriesFromFile,
+  extractMessages, resolveLeafId, isAutoModel, getModels: () => modelList, getDefaultModel: () => defaultModel });
+const companionDecisions = createCompanionDecision({ store: companionStore, facts: companionFacts,
+  emotion: companionEmotion, readSession: companionReadSession, callModel: directChat });
 
 // 连续创作「原著改编」按书导入：从小说工坊读指定章节（不给就是全书）。
 // 放在 server 层而不是编排层：编排层不该知道小说工坊的文件布局，
@@ -2258,6 +2272,7 @@ const API_ROUTES = [
   ["POST", "/api/sessions/db/sweep", async (res, req) => handleDbSweep(res, await readBody(req))],
   // ── 会话 ──
   ["GET", "/api/emotion", (res, req, url) => handleEmotion(res, url)],
+  ["GET", "/api/companion/emotion", (res) => json(res, 200, companionEmotion.read())],
   ["GET", "/api/run/overview", withCache(60000, "run-overview", (res, req, url) => runApi.overview(res, req, url), { bypass: (_req, url) => url.searchParams.has("session") })],
   ["GET", "/api/emotion/tide", (res) => json(res, 200, { tide: emotion.getTide(300) })],
   ["GET", "/api/emotion/feelings", (res) => json(res, 200, { feelings: emotion.getFeelings(50) })],
@@ -3069,6 +3084,8 @@ const boardApi = createBoardApi({
 });
 
 // Register after dependencies exist, never inside the per-request callback.
+API_ROUTES.push(...createCompanionRoutes({ exists: id => activeSessions.has(id) || !!findSession(id),
+  facts: companionFacts, store: companionStore, decisions: companionDecisions, json, readBody }));
 API_ROUTES.push(...createWorkbenchRoutes({ withCache, boardApi, historyApi, handleEmotion, emotion, json, readBody }));
 Object.freeze(API_ROUTES);
 

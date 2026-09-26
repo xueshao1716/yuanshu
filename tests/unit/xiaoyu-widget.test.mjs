@@ -17,14 +17,14 @@ test('panel stays inside viewport on either edge, including short keyboards', ()
     }
   }
 });
-test('existing skin preferences survive and doll uses one coherent illustration', () => {
-  for (const skin of ['chibi', 'doll', 'puppet', 'doll-puppet']) assert.equal(normalizeSkin(skin), skin);
-  assert.equal(normalizeSkin('broken'), 'chibi');
+test('old skin preferences migrate to the same portrait identity', () => {
+  for (const skin of ['chibi', 'doll', 'puppet', 'doll-puppet']) assert.equal(normalizeSkin(skin), 'portrait');
+  assert.equal(normalizeSkin('broken'), 'portrait');
   assert.equal(normalizeMode('broken'), 'corner');
   for (const skin of ['doll', 'doll-puppet']) {
     assert.equal(imageForSkin(skin, 'happy'), imageForSkin(skin, 'focused'));
     assert.equal(imageForSkin(skin, 'closed'), imageForSkin(skin, 'open'));
-    assert.ok(imageForSkin(skin, 'open').includes('doll-01'));
+    assert.ok(imageForSkin(skin, 'open').includes('yuanshu-cutout'));
   }
 });
 test('drag detection measures travel from pointer origin, not clamp error', () => {

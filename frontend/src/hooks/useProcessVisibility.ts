@@ -1,9 +1,10 @@
 import { useSyncExternalStore } from 'react'
 
-type Kind = 'tools' | 'evidence'
+type Kind = 'tools' | 'evidence' | 'runStatus'
 const prefix = 'yuanshu_process_visibility_v1_'
 const listeners = new Set<() => void>()
-const values: Record<Kind, boolean> = { tools: true, evidence: false }
+const defaults: Record<Kind, boolean> = { tools: true, evidence: false, runStatus: true }
+const values = { ...defaults }
 const loaded = new Set<Kind>()
 
 function snapshot(kind: Kind) {
@@ -17,10 +18,10 @@ function snapshot(kind: Kind) {
   return values[kind]
 }
 function onStorage(event: StorageEvent) {
-  for (const kind of ['tools', 'evidence'] as const) {
+  for (const kind of ['tools', 'evidence', 'runStatus'] as const) {
     if (event.key !== null && event.key !== prefix + kind) continue
     loaded.delete(kind)
-    values[kind] = kind === 'tools'
+    values[kind] = defaults[kind]
   }
   listeners.forEach(listener => listener())
 }
@@ -33,7 +34,7 @@ function subscribe(listener: () => void) {
   }
 }
 export function useProcessVisibility(kind: Kind): [boolean, () => void] {
-  const visible = useSyncExternalStore(subscribe, () => snapshot(kind), () => kind === 'tools')
+  const visible = useSyncExternalStore(subscribe, () => snapshot(kind), () => defaults[kind])
   return [visible, () => {
     values[kind] = !snapshot(kind)
     try { localStorage.setItem(prefix + kind, String(values[kind])) } catch { /* Memory fallback. */ }

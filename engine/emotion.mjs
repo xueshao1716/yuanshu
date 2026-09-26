@@ -13,6 +13,7 @@
 
 import fs from "node:fs";
 import path from "node:path";
+import { safeEmotion, observationTime } from './emotion-display.mjs';
 import { initGene, geneBias, updateGenes, geneDirective, geneSnapshot } from "./gene.mjs";
 import { initSkillGene, bindSkillIndex, detectSkillDomain, updateSkillGene, getSkillGenes, skillDirective } from "./skill-gene.mjs";
 import { extractEntities } from "./yuanshu-memroute.mjs";
@@ -26,6 +27,7 @@ const DEFAULT_STATE = {
   residue: { warmth: 0, hurt: 0, curiosity: 0, last_event: "", last_event_time: "", edges: {} },
 };
 const states = new Map(); // sessionId -> state
+let displayObservation = null;
 
 let wsRoot = null;
 let _memoryNudgeHook = null; // 情绪→记忆联动钩子：residue 跨阈值时由 server 注入
@@ -33,6 +35,7 @@ export function setMemoryNudgeHook(fn) { _memoryNudgeHook = fn; }
 
 // 初始化：server 启动时调用，传入工作空间根
 export function init(root) {
+  if (root && root !== wsRoot) displayObservation = null;
   wsRoot = root || wsRoot;
   initGene(wsRoot);
   initSkillGene(wsRoot);
@@ -353,6 +356,7 @@ export function updateEmotion(key, message) {
       } catch {}
     }
   }
+  captureObservation(key, st, tags);
   return { state: st, tags };
 }
 
@@ -366,7 +370,26 @@ export function updateFromOutput(key, text) {
   if (st.valence > 0.8) st.valence = 0.8;
   if (st.arousal > 0.8) st.arousal = 0.8;
   updateLabel(st);
+  if (st.lastTalk && !isProbeKey(key)) captureObservation(key, st, displayObservation?.source === key ? displayObservation.state.tags : st.tags);
   return st;
+}
+
+function captureObservation(key, state, tags) {
+  if (isProbeKey(key)) return;
+  displayObservation = { source: key, observedAt: Date.now(), sourceKind: 'dialogue', state: safeEmotion({ ...state, tags }) };
+}
+
+// Display reads neither create synthetic states nor consume task-side tags.
+export function peekLatestObservation() {
+  let latest = displayObservation;
+  for (const point of getTide(50)) {
+    const observedAt = observationTime(point?.ts);
+    if (!observedAt || latest && observedAt <= latest.observedAt) continue;
+    const state = safeEmotion({ valence: point.v, arousal: point.a, dominance: point.d,
+      intensity: point.i, primary: point.p, secondary: point.secondary, tags: point.tags });
+    if (state) latest = { source: point.key, observedAt, sourceKind: 'historical', state };
+  }
+  return latest ? structuredClone(latest) : null;
 }
 
 // 根据情绪生成行为指令（反向情绪激发：情绪 → 驱动行为风格）

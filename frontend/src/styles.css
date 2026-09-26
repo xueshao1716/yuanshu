@@ -2600,3 +2600,50 @@ body.has-color-card .col-right::before { left: 0; }
 /* 小语挂件：点她冒的小星星（2026-09-19） */
 @keyframes xiaoyu-spark { 0% { opacity:0; transform:translateY(0) scale(.6); } 30% { opacity:1; } 100% { opacity:0; transform:translateY(-22px) scale(1.1); } }
 .xiaoyu-spark { color:#ffd76a; animation:xiaoyu-spark .9s ease-out forwards; }
+
+/* ===== 情绪完整形象面板 MoodPanel（2026-09-26，深色科技风） ===== */
+.mood-panel__backdrop {
+  position: fixed; inset: 0; z-index: var(--pi-z-modal);
+  display: grid; place-items: center; padding: 20px;
+  background: rgba(8, 6, 16, 0.72); backdrop-filter: blur(6px);
+  animation: mood-panel-fade .18s var(--pi-ease);
+}
+.mood-panel {
+  width: min(94vw, 460px); max-height: min(88vh, 720px); overflow: auto;
+  border: 1px solid var(--pi-border); border-radius: var(--pi-r-md);
+  background: linear-gradient(180deg, var(--pi-bg2), var(--pi-bg1) 30%);
+  box-shadow: var(--pi-shadow-lg), 0 0 60px rgba(124, 92, 255, 0.08);
+  animation: mood-panel-pop .22s var(--pi-ease);
+}
+.mood-panel__head { display: flex; align-items: center; justify-content: space-between; padding: 12px 14px 10px; border-bottom: 1px solid var(--pi-border-soft); }
+.mood-panel__title { display: flex; align-items: center; gap: 8px; color: var(--pi-text); font-size: 13px; font-weight: 600; letter-spacing: .02em; }
+.mood-panel__dot { width: 8px; height: 8px; border-radius: 50%; background: var(--pi-accent); box-shadow: 0 0 8px var(--pi-accent); }
+.mood-panel__ver { color: var(--pi-dim2); font: 10px var(--pi-font-mono); letter-spacing: .06em; }
+.mood-panel__close { width: 28px; height: 28px; display: grid; place-items: center; border: 1px solid var(--pi-border-soft); border-radius: var(--pi-r-sm); background: transparent; color: var(--pi-dim); font-size: 16px; line-height: 1; cursor: pointer; }
+.mood-panel__close:hover { color: var(--pi-text); border-color: var(--pi-accent); background: var(--pi-accent-soft); }
+.mood-panel__stage { padding: 14px 14px 4px; }
+.mood-panel__canvas { display: block; width: 100%; aspect-ratio: 1 / 1; border-radius: var(--pi-r-sm); background: radial-gradient(circle at 50% 45%, rgba(124, 92, 255, 0.05), transparent 70%); }
+.mood-panel__read { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; padding: 6px 14px 10px; }
+.emo-chip { display: inline-flex; align-items: center; gap: 5px; padding: 3px 9px; border: 1px solid var(--pi-border-soft); border-radius: 999px; background: var(--pi-bg2); color: var(--pi-text); font-size: 12px; }
+.emo-chip--low { border-color: rgba(96, 116, 168, .5); color: #9db4e0; }
+.emo-chip--high { border-color: rgba(255, 176, 72, .5); color: #ffc46b; }
+.emo-chip--calm { border-color: rgba(88, 199, 178, .5); color: #6fd8c2; }
+.emo-chip--risk { border-color: rgba(255, 106, 106, .5); color: #ff9a9a; }
+.emo-chip--focus { border-color: rgba(167, 139, 250, .5); color: #c4b5fd; }
+.mood-panel__vad { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 6px; flex: 1 1 220px; margin: 0; }
+.mood-panel__vad-row { padding: 5px 7px; border: 1px solid var(--pi-border-soft); border-radius: var(--pi-r-sm); background: var(--pi-bg2); text-align: center; }
+.mood-panel__vad-row dt { color: var(--pi-dim2); font-size: 10px; }
+.mood-panel__vad-row dd { margin: 2px 0 0; color: var(--pi-text); font: 12px var(--pi-font-mono); }
+.mood-panel__tags { display: flex; flex-wrap: wrap; gap: 5px; padding: 0 14px 8px; }
+.mood-panel__tag { padding: 2px 7px; border-radius: 999px; background: var(--pi-bg3); color: var(--pi-dim); font: 10px var(--pi-font-mono); }
+.mood-panel__foot { padding: 8px 14px 12px; border-top: 1px solid var(--pi-border-soft); color: var(--pi-dim2); font-size: 10px; line-height: 1.6; }
+@keyframes mood-panel-fade { from { opacity: 0; } to { opacity: 1; } }
+@keyframes mood-panel-pop { from { opacity: 0; transform: translateY(8px) scale(.98); } to { opacity: 1; transform: none; } }
+@media (max-width: 640px) {
+  .mood-panel__backdrop { place-items: end center; padding: 0; }
+  .mood-panel { width: 100vw; max-height: 92vh; border-radius: var(--pi-r-md) var(--pi-r-md) 0 0; border-bottom: none; animation: mood-panel-sheet .24s var(--pi-ease); }
+}
+@keyframes mood-panel-sheet { from { transform: translateY(40px); opacity: .4; } to { transform: none; opacity: 1; } }
+@media (prefers-reduced-motion: reduce) {
+  .mood-panel__backdrop, .mood-panel { animation: none; }
+}

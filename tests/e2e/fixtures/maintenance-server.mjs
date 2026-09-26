@@ -1,12 +1,12 @@
 import { createRequire } from 'node:module';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
-export async function startMaintenanceFixture() {
+export async function startMaintenanceFixture(entryName = 'maintenance-ui.tsx') {
   const root = fileURLToPath(new URL('../../../', import.meta.url));
   const frontend = fileURLToPath(new URL('../../../frontend/', import.meta.url));
   const require = createRequire(new URL('../../../frontend/package.json', import.meta.url));
   const { createServer } = await import(pathToFileURL(require.resolve('vite')).href);
-  const entry = fileURLToPath(new URL('./maintenance-ui.tsx', import.meta.url)).replaceAll('\\', '/');
+  const entry = fileURLToPath(new URL('./' + entryName, import.meta.url)).replaceAll('\\', '/');
   const previous = process.cwd();
   let server;
   try {

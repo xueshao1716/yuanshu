@@ -63,12 +63,17 @@ test('结构：React 聊天使用持久化 Run，关闭 SSE 不得等同停止�
 test('结构：心情胶囊是服务端情绪镜像，禁止本地点击换脸', () => {
   const chat = read('components', 'ChatArea.tsx')
   const hook = read('lib', 'useXiaoyuEmotion.ts')
+  const controller = read('components', 'xiaoyu', 'useCompanion.ts')
   assert.ok(!chat.includes('setMood'), '不得保留本地 setMood 点击轮换逻辑')
-  assert.ok(chat.includes('useXiaoyuEmotion') && hook.includes('emoMeta('), '必须使用服务端 VAD→表情映射（emoMeta）')
+  assert.ok(chat.includes('const companionEmotion = companion.emotion') && controller.includes('useXiaoyuEmotion()') && hook.includes('emoMeta('), '唯一公仔控制器必须透传服务端 VAD→表情映射（emoMeta）')
   assert.ok(chat.includes("case 'emotion':"), 'SSE emotion 事件必须被消费')
-  const pill = chat.match(/<div[^>]*emo-pill[\s\S]*?>/)
-  assert.ok(pill, 'emo-pill 元素必须存在')
-  assert.ok(!pill[0].includes('onClick'), 'emo-pill 元素不得绑定 onClick 换脸')
+  const pillStart = chat.indexOf('emo-pill')
+  assert.ok(pillStart >= 0, 'emo-pill 元素必须存在')
+  const pill = chat.slice(pillStart, chat.indexOf('</div>', pillStart))
+  assert.ok(pill.includes('setOrbPanelOpen(true)'), '点击只打开同一状态流的形象面板')
+  assert.ok(chat.includes('<MoodPanel open={orbPanelOpen}'), '面板开关受控')
+  const panel = read('components', 'MoodPanel.tsx')
+  assert.ok(!/fetch\(|axios|EmotionApi|publishEmotion/.test(panel), '面板只读，不独立拉数或修改情绪')
 })
 
 test('长任务无事件只提示，不得由前端自动停止后台 Run', () => {

@@ -1,19 +1,11 @@
 export const SKINS = [
   { id: 'portrait', label: '写真人像', detail: '冷白 · 长发' },
-  { id: 'chibi', label: 'Q版', detail: '表情立绘' },
-  { id: 'doll', label: '盲盒公仔', detail: '安静陪伴' },
-  { id: 'puppet', label: 'Q版 · 轻动', detail: '轻轻呼吸' },
-  { id: 'doll-puppet', label: '公仔 · 轻动', detail: '轻轻呼吸' },
 ];
-export const normalizeSkin = value => SKINS.some(s => s.id === value) ? value : 'chibi';
+export const normalizeSkin = _value => 'portrait';
 export const normalizeMode = value => value === 'roam' ? 'roam' : 'corner';
-export const canRoam = skin => skin !== 'portrait';
+export const canRoam = _skin => false;
 export function imageForSkin(skin, frame = 'open') {
-  if (skin === 'portrait') return '/assets/portraits/yuanshu-cutout-v1.webp';
-  // Doll poses are distinct illustrations, not interchangeable animation frames.
-  if (skin === 'doll' || skin === 'doll-puppet') return '/static/branding/doll-01-256.png?v=8';
-  const safeFrame = ['open', 'closed', 'happy', 'focused', 'thinking', 'sleepy', 'wave'].includes(frame) ? frame : 'open';
-  return `/static/branding/xiaoyu-${safeFrame}-t.png?v=8`;
+  return '/assets/portraits/yuanshu-cutout-v1.webp';
 }
 export function clampPosition(point, viewport) {
   return {

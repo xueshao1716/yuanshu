@@ -1,34 +1,25 @@
 import { useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
-import { canRoam, imageForSkin, normalizeSkin } from './xiaoyu/widget-state.mjs'
 import { readPreference, savePreference, useWidgetMotion } from './xiaoyu/useWidgetMotion'
 import { useWidgetStatus } from './xiaoyu/useWidgetStatus'
+import type { useCompanion } from './xiaoyu/useCompanion'
+import { ACTION_LABELS } from './xiaoyu/companion-state.mjs'
+import { panelPosition } from './xiaoyu/widget-state.mjs'
+import { PortraitState } from './xiaoyu/PortraitState'
 import { WidgetPanel } from './xiaoyu/WidgetPanel'
-import { sceneFor } from './xiaoyu/studio-state.mjs'
 import './xiaoyu/widget.css'
 import './xiaoyu/portrait.css'
 
-export default function XiaoyuWidget() {
+export default function XiaoyuWidget({ companion, hidden, setHidden }: {
+  companion: ReturnType<typeof useCompanion>; hidden: boolean; setHidden: (hidden: boolean) => void
+}) {
   const [open, setOpen] = useState(false)
-  const [hover, setHover] = useState(false)
-  const [skin, setSkin] = useState(() => normalizeSkin(readPreference('xiaoyu_skin')))
-  const [scene, setScene] = useState(() => sceneFor(readPreference('xiaoyu_scene')).id)
-  const [greeting, setGreeting] = useState(false)
-  const [imageFailed, setImageFailed] = useState(false)
+  const [large, setLarge] = useState(() => readPreference('yuanshu_companion_large') === 'true')
   const root = useRef<HTMLDivElement>(null)
   const button = useRef<HTMLButtonElement>(null)
   const status = useWidgetStatus()
-  const motion = useWidgetMotion(open || hover || !canRoam(skin))
-  const frame = greeting ? 'happy' : status.busy ? 'focused' : 'open'
-  const image = imageForSkin(skin, frame)
-  const animated = skin === 'puppet' || skin === 'doll-puppet'
-
-  useEffect(() => { setImageFailed(false) }, [image])
-  useEffect(() => {
-    if (!greeting) return
-    const timer = setTimeout(() => setGreeting(false), 650)
-    return () => clearTimeout(timer)
-  }, [greeting])
+  const motion = useWidgetMotion(true)
+  useEffect(() => { savePreference('xiaoyu_skin', 'portrait') }, [])
   useEffect(() => {
     if (!open) return
     const outside = (e: PointerEvent) => { if (!root.current?.contains(e.target as Node)) setOpen(false) }
@@ -38,30 +29,23 @@ export default function XiaoyuWidget() {
     return () => { document.removeEventListener('pointerdown', outside); document.removeEventListener('keydown', escape) }
   }, [open])
   const close = () => { setOpen(false); button.current?.focus() }
-  const chooseSkin = (next: string) => { setSkin(next); savePreference('xiaoyu_skin', next) }
-  const chooseScene = (next: string) => { setScene(next); savePreference('xiaoyu_scene', next) }
-  const set = sceneFor(scene)
-
-  return createPortal(
-    <div ref={root} className="xiaoyu-companion" style={{ left: motion.position.x, top: motion.position.y }}
-      data-reduced-motion={motion.reduced}>
-      <button ref={button} type="button" className="xiaoyu-widget" data-skin={skin} data-mode={motion.mode}
-        data-tasks={status.busy ?? 'unknown'} data-dragged={motion.dragged} aria-label={`${status.name} · 公仔设置`}
-        aria-expanded={open} aria-controls={open ? 'xiaoyu-panel' : undefined}
-        title="点击打开设置，拖动调整位置"
-        onClick={(e) => { if (motion.consumeDrag() && e.detail !== 0) return; setOpen(v => !v); setGreeting(true) }}
-        onMouseEnter={() => setHover(true)} onMouseLeave={() => setHover(false)} {...motion.handlers}>
-        <span className="xiaoyu-mini-plinth" style={{ background: set.accent, boxShadow: `0 4px 0 ${set.floor}, 0 8px 7px rgb(0 0 0 / .14)` }} />
-        <span className="xiaoyu-facing" style={{ transform: `scaleX(${skin === 'portrait' ? 1 : motion.face})` }}>
-          <span className="xiaoyu-figure" data-animated={animated} data-walking={motion.walking}
-            data-greeting={greeting} data-paused={open || hover || motion.dragged}>
-            {imageFailed ? <span className="xiaoyu-image-fallback">{status.name}</span>
-              : <img src={image} alt="" draggable={false} onError={() => setImageFailed(true)} />}
-          </span>
-        </span>
-        <span className="xiaoyu-name">{status.name}</span>
-      </button>
-      {open && <WidgetPanel skin={skin} chooseSkin={chooseSkin} scene={scene} chooseScene={chooseScene} motion={motion} status={status} close={close} />}
-    </div>, document.body,
-  )
+  const hide = () => { setHidden(true); setOpen(false) }
+  const resize = () => setLarge(v => { savePreference('yuanshu_companion_large', String(!v)); return !v })
+  if (hidden) return createPortal(<button type="button" className="companion-restore" onClick={() => {
+    setHidden(false)
+  }} aria-label="显示真人公仔">显示公仔</button>, document.body)
+  return createPortal(<div ref={root} className="xiaoyu-companion" style={{ left: motion.position.x, top: motion.position.y }}
+    data-reduced-motion={motion.reduced} data-large={large}>
+    <button ref={button} type="button" className="xiaoyu-widget" data-skin="portrait" data-dragged={motion.dragged}
+      aria-label={`${status.name} · ${companion.facts?.known ? ACTION_LABELS[companion.action] : '状态待同步'} · 打开陪伴面板`}
+      aria-expanded={open} aria-controls={open ? 'xiaoyu-panel' : undefined} title="点击互动，拖动调整位置"
+      onClick={e => { if (motion.consumeDrag() && e.detail !== 0) return; setOpen(v => !v) }} {...motion.handlers}>
+      <PortraitState action={companion.action} emotion={companion.emotion} compact />
+      <span className="xiaoyu-name">{companion.pending ? '正在回应…' : companion.facts?.known ? ACTION_LABELS[companion.action] : '状态待同步'}</span>
+    </button>
+    {!open && !companion.dnd && companion.decision?.shouldInterrupt && companion.decision.utterance &&
+      <aside className="companion-bubble" style={panelPosition(motion.position, motion.view, 200)} aria-live="polite"><p>{companion.decision.utterance}</p>
+        <button type="button" onClick={companion.dismiss} aria-label="关闭互动气泡">关闭</button></aside>}
+    {open && <WidgetPanel motion={motion} status={status} companion={companion} close={close} hide={hide} resize={resize} large={large} />}
+  </div>, document.body)
 }
