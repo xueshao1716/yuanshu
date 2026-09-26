@@ -1,0 +1,20 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>连接元枢</title>
+  <link rel="stylesheet" href="startup.css">
+  <script type="module" src="startup.mjs"></script>
+</head>
+<body>
+  <main>
+    <h1>连接元枢</h1>
+    <p id="status" role="status" aria-live="polite">正在检查本机服务…</p>
+    <button id="retry" type="button" disabled>正在连接…</button>
+    <p class="hint">这里只启动未运行的服务，不会重启健康实例，也不会中断正在进行的任务。</p>
+    <details><summary>为什么还没连上？</summary><p>桌面客户端需要电脑上已安装元枢服务，并注册 yuanshu-watchdog 守护任务。仅安装客户端不会安装模型引擎和服务环境。</p></details>
+    <noscript>启动检查需要 JavaScript。请检查客户端 WebView 环境。</noscript>
+  </main>
+</body>
+</html>

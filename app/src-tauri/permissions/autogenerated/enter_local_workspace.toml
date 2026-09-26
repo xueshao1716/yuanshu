@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-enter-local-workspace"
+description = "Enables the enter_local_workspace command without any pre-configured scope."
+commands.allow = ["enter_local_workspace"]
+
+[[permission]]
+identifier = "deny-enter-local-workspace"
+description = "Denies the enter_local_workspace command without any pre-configured scope."
+commands.deny = ["enter_local_workspace"]

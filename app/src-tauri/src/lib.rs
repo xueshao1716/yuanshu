@@ -3,6 +3,7 @@
 
 use tauri::Manager;
 use tauri_plugin_opener::OpenerExt;
+mod startup;
 
 #[tauri::command]
 fn open_download_folder(app: tauri::AppHandle) -> Result<(), String> {
@@ -19,22 +20,32 @@ pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_notification::init())
-        .invoke_handler(tauri::generate_handler![open_download_folder])
+        .invoke_handler(tauri::generate_handler![open_download_folder, startup::ensure_local_service, startup::enter_local_workspace])
         .setup(|app| {
             #[cfg(desktop)]
             {
-                // 桌面：服务由 watchdog 常驻，直连本机
+                // Windows starts from a bundled page even when the backend is offline.
+                #[cfg(not(target_os = "windows"))]
                 let url = "http://127.0.0.1:8787/";
+                #[cfg(target_os = "windows")]
+                let entry = tauri::WebviewUrl::App("startup.html".into());
+                #[cfg(not(target_os = "windows"))]
+                let entry = tauri::WebviewUrl::External(url.parse().expect("bad url"));
                 let win = tauri::WebviewWindowBuilder::new(
                     app,
                     "main",
-                    tauri::WebviewUrl::External(url.parse().expect("bad url")),
+                    entry,
                 )
                 // 标题栏带版本号：跟 Cargo.toml 的 version 走（version:bump 会同步，装了就能看见自己是哪一版）
                 .title(format!("元枢 · 个人智能系统 v{}", env!("CARGO_PKG_VERSION")))
                 .inner_size(1280.0, 820.0)
                 .min_inner_size(420.0, 360.0)
-                .decorations(false)   // 去系统标题栏：前端自绘（TitleBar.tsx）跟随主题
+                .decorations(true) // Keep a native close/retry escape while offline.
+                .on_page_load(|window, payload| {
+                    if payload.url().host_str() == Some("127.0.0.1") {
+                        let _ = window.set_decorations(false);
+                    }
+                })
                 .shadow(true)
                 .build()?;
                 let _ = win;

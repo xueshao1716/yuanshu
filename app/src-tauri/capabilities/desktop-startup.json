@@ -1,0 +1,9 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "desktop-startup",
+  "description": "Only the bundled Windows startup page may request the fixed guardian task.",
+  "platforms": ["windows"],
+  "windows": ["main"],
+  "local": true,
+  "permissions": ["allow-ensure-local-service", "allow-enter-local-workspace"]
+}

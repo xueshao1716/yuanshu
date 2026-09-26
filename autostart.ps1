@@ -17,13 +17,12 @@ $ErrorActionPreference = 'Stop'
 # $PSScriptRoot 在以 `powershell -File` 方式运行时可用；粘贴执行时可能为空，退回当前目录。
 $root     = if ($PSScriptRoot) { $PSScriptRoot } else { (Get-Location).Path }
 $user     = "$env:USERDOMAIN\$env:USERNAME"
-$nodeArgs = '-WindowStyle Hidden -NoProfile -Command "& node ' + (Join-Path $root 'watchdog.cjs') + '"'
+$node = (Get-Command node -CommandType Application -ErrorAction Stop | Select-Object -First 1).Source
+$nodeArgs = '"' + (Join-Path $root 'watchdog.cjs') + '"'
 
 # 老名字：注册完新任务后统一清理。留着 = 两个 watchdog 抢同一个端口。
-# 注意 piweb-cloudflared / piweb-shi-openclaw / piweb-si-hermes 并不是元枢的组件，
-# 它们只是沿用了同一套机器前缀；这里一并改成 yuanshu-* 保持前缀一致，
-# 但别误以为它们属于元枢。
-$legacyNames = @('pi-web-watchdog', 'piweb-server', 'piweb-cloudflared', 'piweb-shi-openclaw', 'piweb-si-hermes')
+# 只迁移元枢自身的旧守护任务；隧道、OpenClaw、Hermes 等其他产品不在本脚本范围。
+$legacyNames = @('pi-web-watchdog', 'piweb-server')
 
 Write-Host ''
 Write-Host '元枢开机自启配置' -ForegroundColor Cyan
@@ -33,9 +32,9 @@ function New-AutostartTask {
   # 不用反引号续行：尾随空白或换行符会让续行静默失效，报错信息还完全指不到真因。
   $action = New-ScheduledTaskAction -Execute $Execute -Argument $Arguments -WorkingDirectory $WorkingDirectory
   # Boot 触发 + 每 5 分钟补一次（机器睡眠/异常后仍能被拉起来）
-  $repeating = New-ScheduledTaskTrigger -Once -At ([datetime]'2026-08-26T00:00:00') -RepetitionInterval (New-TimeSpan -Minutes 5) -RepetitionDuration (New-TimeSpan -Days 1)
-  $triggers = @((New-ScheduledTaskTrigger -AtStartup), $repeating)
-  $settings = New-ScheduledTaskSettingsSet -StartWhenAvailable -ExecutionTimeLimit (New-TimeSpan -Hours 0)
+  $repeating = New-ScheduledTaskTrigger -Once -At (Get-Date).AddMinutes(1) -RepetitionInterval (New-TimeSpan -Minutes 5)
+  $triggers = @((New-ScheduledTaskTrigger -AtStartup), (New-ScheduledTaskTrigger -AtLogOn -User $user), $repeating)
+  $settings = New-ScheduledTaskSettingsSet -StartWhenAvailable -ExecutionTimeLimit (New-TimeSpan -Hours 0) -MultipleInstances IgnoreNew -RestartCount 3 -RestartInterval (New-TimeSpan -Minutes 1) -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries
   $principal = New-ScheduledTaskPrincipal -UserId $user -LogonType Interactive -RunLevel Highest
   $spec = @{
     TaskName  = $TaskName
@@ -49,7 +48,7 @@ function New-AutostartTask {
 }
 
 Write-Host '[1/1] 注册 yuanshu-watchdog（元枢主服务守护）…'
-New-AutostartTask -TaskName 'yuanshu-watchdog' -Execute 'powershell.exe' -Arguments $nodeArgs -WorkingDirectory $root
+New-AutostartTask -TaskName 'yuanshu-watchdog' -Execute $node -Arguments $nodeArgs -WorkingDirectory $root
 
 # 注册成功才删旧名
 $registered = Get-ScheduledTask -TaskName 'yuanshu-watchdog' -ErrorAction SilentlyContinue

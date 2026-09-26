@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-ensure-local-service"
+description = "Enables the ensure_local_service command without any pre-configured scope."
+commands.allow = ["ensure_local_service"]
+
+[[permission]]
+identifier = "deny-ensure-local-service"
+description = "Denies the ensure_local_service command without any pre-configured scope."
+commands.deny = ["ensure_local_service"]

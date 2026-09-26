@@ -12,6 +12,7 @@ export async function syncFrontend({
   sourceDir = path.join(REPO_ROOT, 'frontend', 'dist'),
   targets = [path.join(REPO_ROOT, 'public'), path.join(REPO_ROOT, 'app', 'dist')],
   preserveTargets = [path.join(REPO_ROOT, 'public')],
+  startupTarget = path.join(REPO_ROOT, 'app', 'dist'),
 } = {}) {
   const source = path.resolve(sourceDir)
   const sourceStat = await fs.stat(source).catch(() => null)
@@ -32,6 +33,12 @@ export async function syncFrontend({
       const targetEntry = path.join(target, entry.name)
       await fs.rm(targetEntry, { recursive: true, force: true })
       await fs.cp(sourceEntry, targetEntry, { recursive: true })
+    }
+  }
+  // Native startup must survive frontend mirroring, including the clean-target path.
+  if (targets.some(dir => path.resolve(dir) === path.resolve(startupTarget))) {
+    for (const name of ['startup.html', 'startup.css', 'startup.mjs']) {
+      await fs.copyFile(path.join(REPO_ROOT, 'app', 'startup', name), path.join(startupTarget, name))
     }
   }
 }

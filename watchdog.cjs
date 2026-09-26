@@ -1,5 +1,6 @@
 // ===== 元枢自动守护（watchdog）v2：每 30s 检查，挂掉自动拉起，带锁文件防重复 + 重启限频 =====
-const { spawn, execSync, execFileSync } = require("child_process");
+const { spawn, execFileSync } = require("child_process");
+const { serviceHealthy, singleFlight } = require('./lib/service-readiness.cjs');
 const net = require("net");
 const path = require("path");
 const fs = require("fs");
@@ -107,20 +108,10 @@ function rollbackServer() {
   } catch (e) { log("⚠️ 回滚失败: " + String(e?.message || e)); return false; }
 }
 
-function killPort() {
-  try {
-    const out = execSync(`netstat -ano | findstr :${PORT} | findstr LISTENING`, { encoding: "utf8" });
-    const pids = new Set(out.split("\n").map(l => l.trim().split(/\s+/).pop()).filter(Boolean));
-    for (const pid of pids) {
-      try { execSync(`taskkill /PID ${pid} /F`, { stdio: "ignore" }); log(`清理残留 PID ${pid}`); } catch {}
-    }
-  } catch {}
-}
-
-async function startServer() {
-  // 防抢占（2026-08-29）：若端口已有健康 HTTP 实例（人工/其他守护启动的），不 killPort 不抢占，直接待命
-  // 修复场景：双实例拉锯时 watchdog 会 killPort 杀掉正在服务的健康实例，用户会话中断
-  if (await portOpen()) { log("端口已有健康实例在服务，本次跳过启动（不抢占）"); return; }
+const startServer = singleFlight(async function () {
+  // 健康实例直接待命；异常但仍占端口的实例只告警，不自动终止用户任务。
+  if (await serviceHealthy()) { log("已有健康实例，本次跳过启动（不抢占）"); return; }
+  if (child || await portOpen()) { log("端口已占用或子进程仍在启动；不强杀、不重复拉起，请检查服务日志"); return; }
   // 重启限频：10 秒内最多重启 1 次，防死循环风暴
   const now = Date.now();
   if (now - lastRestartAt < 10000) {
@@ -143,9 +134,8 @@ async function startServer() {
       log("✅ 回滚后语法校验通过");
     } else return;
   }
-  killPort();
-  await new Promise(r => setTimeout(r, 2000));
-  if (child) { try { child.kill(); } catch {} child = null; }
+  // Recheck after syntax validation; never evict a process that appeared meanwhile.
+  if (await portOpen()) return;
   // stdout/stderr 不再 ignore：环形缓冲最近输出，崩溃时把尾部写进 watchdog.log 留证据
   // （此前 stdio:"ignore" 把崩溃堆栈全吞了，导致运行时错误无法定位）
   let outBuf = [];
@@ -154,7 +144,8 @@ async function startServer() {
     outBuf.push(s);
     if (outBuf.length > 200) outBuf = outBuf.slice(-200);
   };
-  child = spawn("node", ["server.mjs"], { cwd: WEB_DIR, stdio: ["ignore", "pipe", "pipe"], windowsHide: true });
+  child = spawn(process.execPath, ["server.mjs"], { cwd: WEB_DIR, stdio: ["ignore", "pipe", "pipe"], windowsHide: true });
+  child.on('error', error => { log(`启动子进程失败: ${error.message}`); child = null; });
   child.stdout.on("data", pushOut);
   child.stderr.on("data", pushOut);
   lastStartAt = Date.now();
@@ -184,23 +175,23 @@ async function startServer() {
   });
   // 启动后 15s 确认响应
   setTimeout(async () => {
-    const ok = await portOpen();
-    if (!ok) log("⚠️ 启动 15s 后端口仍不通");
+    const ok = await serviceHealthy();
+    if (!ok) log("⚠️ 启动 15s 后健康检查仍未通过");
     else log("✅ server 响应正常");
   }, 15000);
-}
+});
 
 async function main() {
   if (!(await acquireLock())) {
-    log("检测到已有 watchdog 实例（锁文件存在），本实例退出");
+    log("检测到已有 watchdog 实例（单例端口已占用），本实例退出");
     process.exit(0);
   }
   log("═══ 元枢守护 v2.1 启动（分级检查：启动期 5s 快查 ×12 轮 → 稳态 30s）═══");
-  if (await portOpen()) {
+  if (await serviceHealthy()) {
     log("当前 server 正常，进入监控");
   } else {
     log("当前 server 未运行，启动中…");
-    startServer();
+    await startServer();
   }
   // 分级监控循环（对标 KickSide runtime 健康检查思路）：
   // - 新启动 60s 内：5s 快查（快速发现新进程早夭）
@@ -208,11 +199,11 @@ async function main() {
   // - 稳态：30s 慢查
   let consecutiveFails = 0;
   const monitorLoop = async () => {
-    const ok = await portOpen();
+    const ok = await serviceHealthy();
     if (!ok) {
       consecutiveFails++;
       log(`⚠️ 检测到 server 掉线（连续第 ${consecutiveFails} 次），拉起`);
-      startServer();
+      await startServer();
     } else {
       consecutiveFails = 0;
     }
