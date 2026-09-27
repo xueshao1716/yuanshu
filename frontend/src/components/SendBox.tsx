@@ -4,6 +4,9 @@ import ParamsPanel from './ParamsPanel'
 import { WsApi } from '../api'
 import ModelSelect from './ModelSelect'
 import { takeDraft, mergeDraft } from './xiaoyu/companion-draft.mjs'
+import { createVoiceRecorder, microphonePreflight } from '../lib/voice-recorder.mjs'
+import { speech } from '../lib/speech'
+import { SpeechPreference } from './SpeechControls'
 
 const SLASH_COMMANDS = [
   { cmd: '/new', desc: '新建会话' },
@@ -105,61 +108,57 @@ export default function SendBox({ streaming, onStop, onSend, onCommand, onVoice,
   const [micErr, setMicErr] = useState('')
   const [recording, setRecording] = useState(false)
   const [recSeconds, setRecSeconds] = useState(0)
-  const recRef = useRef<{ rec: MediaRecorder; stream: MediaStream; chunks: Blob[]; mime: string } | null>(null)
+  const recRef = useRef<ReturnType<typeof createVoiceRecorder> | null>(null)
+  const [requestingMic, setRequestingMic] = useState(false)
+  const [convertingVoice, setConvertingVoice] = useState(false)
+  const voiceCallbackRef = useRef(onVoice)
+  voiceCallbackRef.current = onVoice
   const recTimerRef = useRef<ReturnType<typeof setInterval> | null>(null)
 
   useEffect(() => {
     onVoiceTextReady?.((t) => setValue(v => (v ? v + ' ' : '') + t))
   }, [onVoiceTextReady])
 
-  const pickMime = (): string => {
-    const cands = ['audio/webm;codecs=opus', 'audio/webm', 'audio/mp4', 'audio/ogg;codecs=opus']
-    for (const mime of cands) {
-      try { if ((window as any).MediaRecorder?.isTypeSupported?.(mime)) return mime } catch {}
-    }
-    return ''
-  }
-
-  const startRec = async () => {
-    if (!onVoice || recording || voiceBusy) return
-    try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
-      const mime = pickMime()
-      const rec = new MediaRecorder(stream, mime ? { mimeType: mime } : undefined)
-      const chunks: Blob[] = []
-      rec.ondataavailable = e => { if (e.data.size) chunks.push(e.data) }
-      rec.onerror = () => stopRec(true)
-      rec.onstop = () => {
-        stream.getTracks().forEach(t => t.stop())
-        const blob = new Blob(chunks, { type: rec.mimeType || mime || 'audio/webm' })
-        if (blob.size > 800 && onVoice) {
-          ;(async () => {
-            try {
-              const b64 = await blobToWavBase64(blob)
-              onVoice(b64, 'wav')
-            } catch {}
-          })()
+  useEffect(() => {
+    let mounted = true
+    const controller = createVoiceRecorder({
+      getUserMedia: options => navigator.mediaDevices.getUserMedia(options), Recorder: window.MediaRecorder,
+      onState: state => {
+        speech.setRecording(state !== 'idle')
+        if (recTimerRef.current) clearInterval(recTimerRef.current)
+        recTimerRef.current = null
+        if (!mounted) return
+        setRequestingMic(state === 'requesting'); setRecording(state === 'recording')
+        if (state === 'recording') {
+          setRecSeconds(0)
+          recTimerRef.current = setInterval(() => setRecSeconds(s => s + 1), 1000)
         }
-        recRef.current = null
-      }
-      rec.start()
-      recRef.current = { rec, stream, chunks, mime }
-      setRecording(true); setRecSeconds(0)
-      recTimerRef.current = setInterval(() => setRecSeconds(s => s + 1), 1000)
-    } catch {
-      setMicErr('无法访问麦克风，请检查浏览器权限')
-      setTimeout(() => setMicErr(''), 4000)
-    }
-  }
+      },
+      onError: message => { if (mounted) setMicErr(message) },
+      onData: async blob => {
+        if (!mounted) return
+        setConvertingVoice(true)
+        try {
+          const b64 = await blobToWavBase64(blob)
+          if (mounted) voiceCallbackRef.current?.(b64, 'wav')
+        } catch { if (mounted) setMicErr('录音已结束，但音频转换失败，请重新录音或更新浏览器。') }
+        finally { if (mounted) setConvertingVoice(false) }
+      },
+    })
+    recRef.current = controller
+    return () => { mounted = false; controller.stop(true); recRef.current = null }
+  }, [])
 
-  const stopRec = (cancel = false) => {
-    if (recTimerRef.current) { clearInterval(recTimerRef.current); recTimerRef.current = null }
-    const r = recRef.current
-    if (!r) { setRecording(false); return }
-    if (cancel) r.rec.onstop = null as any
-    setRecording(false)
-    try { r.rec.stop() } catch {}
+  const startRec = () => {
+    if (!onVoice || recording || requestingMic || voiceBusy || convertingVoice) return
+    const policy = (document as any).permissionsPolicy || (document as any).featurePolicy
+    const error = microphonePreflight({ secure: window.isSecureContext, allowed: policy?.allowsFeature?.('microphone') !== false,
+      media: !!navigator.mediaDevices?.getUserMedia, recorder: !!window.MediaRecorder })
+    setMicErr(error)
+    if (!error) void recRef.current?.start()
   }
+  const stopRec = (cancel = false) => recRef.current?.stop(cancel)
+  useEffect(() => { if (recording && recSeconds >= 120) stopRec() }, [recording, recSeconds])
 
   const slashMatches = slashQuery !== null
     ? SLASH_COMMANDS.filter(c => c.cmd.startsWith(slashQuery.toLowerCase()))
@@ -238,6 +237,9 @@ export default function SendBox({ streaming, onStop, onSend, onCommand, onVoice,
   return (
     <div className="relative">
       {/* 麦克风错误提示*/}
+      <SpeechPreference />
+      {requestingMic && <div role="status" className="text-xs text-pi-dim2">请在浏览器或系统弹窗中允许麦克风。<button type="button" className="touch-hit underline" onClick={() => stopRec(true)}>取消申请</button></div>}
+      {convertingVoice && <div role="status" className="text-xs text-pi-dim2">正在处理录音…</div>}
       {micErr && <div className="mb-1.5 px-3 py-1.5 rounded-xl bg-pi-red/12 border border-pi-red/30 text-[12px] text-pi-red" role="alert">⚠ {micErr}</div>}
       {/* 斜杠命令菜单 */}
       {showSlash && (
@@ -323,17 +325,20 @@ export default function SendBox({ streaming, onStop, onSend, onCommand, onVoice,
           {/* 语音输入 */}
           {onVoice && !streaming && (
             recording ? (
-              <button onClick={() => stopRec()}
-                className="h-7 px-2.5 rounded-pi-md bg-red-500/90 text-white text-[11px] font-medium flex items-center gap-1.5 hover:bg-red-500 transition-colors"
-                title="停止录音并转写">
+              <span className="inline-flex items-center gap-1">
+              <button type="button" onClick={() => stopRec()}
+                className="touch-hit h-7 px-2.5 rounded-pi-md bg-red-500/90 text-white text-[11px] font-medium flex items-center gap-1.5 hover:bg-red-500 transition-colors"
+                title="停止录音并转写" aria-label="停止录音并转写">
                 <span className="rec-wave"><i /><i /><i /><i /><i /></span> {Math.floor(recSeconds / 60)}:{String(recSeconds % 60).padStart(2, '0')}
               </button>
+              <button type="button" className="btn-tool-sm touch-hit" aria-label="取消录音" onClick={() => stopRec(true)}>取消</button>
+              </span>
             ) : voiceBusy ? (
               <button className="btn-tool-sm" disabled title="语音识别中…">
                 <span className="inline-block w-3 h-3 border-[1.5px] border-pi-accent border-t-transparent rounded-full animate-spin" /> 识别中
               </button>
             ) : (
-              <button onClick={startRec} className="btn-tool-sm touch-hit" title="语音输入" aria-label="语音输入">
+              <button onClick={startRec} disabled={requestingMic || convertingVoice} className="btn-tool-sm touch-hit" title="语音输入（最长两分钟）" aria-label="语音输入">
                 <Mic className="w-4 h-4" strokeWidth={1.8} />
               </button>
             )

@@ -6,6 +6,7 @@ import { RefreshCw } from 'lucide-react'
 import { usePullToRefresh } from '../hooks/usePullToRefresh'
 import { RunApi, RunsApi, SessionsApi, AsrApi, AgentStatusApi, streamSession, LingXiApi, ConfirmApi, downloadApiFile, type RunSummary } from '../api'
 import Message from './Message'
+import { speech, autoSpeechEnabled } from '../lib/speech'
 import ChatMediaProvider from './ChatMediaProvider'
 import SendBox from './SendBox'
 import TurnList from './TurnList'
@@ -151,6 +152,7 @@ export default function ChatArea({ compactHeader, rightPanel, onRightPanel }: {
   const { state: emoState, meta: emoMetaLive, publishEmotion } = companionEmotion
   // ── 本地消息存储：从 IndexedDB 加载，与服务端数据合并 ──
   const [localMessages, setLocalMessages] = useState<ChatMessage[]>([])
+  useEffect(() => () => speech.stop(), [currentSessionId])
   const [localLoaded, setLocalLoaded] = useState(false)
 
   // 切会话时：加载本地消息
@@ -480,8 +482,9 @@ export default function ChatArea({ compactHeader, rightPanel, onRightPanel }: {
     const scraped = scrapeVideos(s.text)
     const videos = dedupeMediaUrls([...s.videos, ...scraped])
     if (s.text || s.think || s.tools.length || s.notes.length || s.files.length || s.images.length || s.audios.length || videos.length || s.error) {
+      const savedId = finalId || ('a' + Date.now())
       appendMessage({
-        id: finalId || ('a' + Date.now()), role: 'assistant',
+        id: savedId, role: 'assistant',
         text: s.text + (s.error ? `\n\n⚠️ ${friendlyStreamError(s.error)}` : ''),
         think: s.think, tools: s.tools, notes: s.notes,
         files: s.files, images: s.images, audios: s.audios, videos,
@@ -497,8 +500,12 @@ export default function ChatArea({ compactHeader, rightPanel, onRightPanel }: {
         ...((model || s.model) ? { model: model || s.model } : {}),
         ...(s.requestedModel ? { requestedModel: s.requestedModel } : {}),
       })
+      const readAutomatically = !s.error && !!s.text.trim() && autoSpeechEnabled() && document.visibilityState === 'visible'
+      if (readAutomatically) {
+        speech.speak(savedId, s.text)
+      }
       // 完成提示音：双声"叮叮"（800Hz 0.1s + 1000Hz 0.15s）
-      try {
+      if (!readAutomatically) try {
         const ctx = new (window.AudioContext || (window as any).webkitAudioContext)()
         const osc = ctx.createOscillator()
         const gain = ctx.createGain()
@@ -516,6 +523,7 @@ export default function ChatArea({ compactHeader, rightPanel, onRightPanel }: {
         osc2.frequency.value = 1000
         osc2.start(ctx.currentTime + 0.15)
         osc2.stop(ctx.currentTime + 0.3)
+        osc2.onended = () => { void ctx.close() }
       } catch {}
       // 任务完成系统通知（安卓原生桥/Windows Tauri 插件统一入口，见 lib/notify.ts）：
       // 页面不可见（App 在后台/锁屏）或本轮流式期间曾去过后台（哪怕又切回来）都弹，
@@ -874,15 +882,23 @@ export default function ChatArea({ compactHeader, rightPanel, onRightPanel }: {
   // SendBox 把转写文本填进输入框的回调通道；语音输入：录音 → /api/asr 转写 → 填入输入框
   const voiceTextRef = useRef<((t: string) => void) | null>(null)
   const [voiceBusy, setVoiceBusy] = useState(false)
+  const voiceRequestRef = useRef(0)
+  useEffect(() => {
+    setVoiceBusy(false)
+    return () => { voiceRequestRef.current++; voiceTextRef.current = null }
+  }, [currentSessionId])
   const handleVoice = async (dataB64: string, format: string) => {
+    const request = ++voiceRequestRef.current
     setVoiceBusy(true)
     try {
       const d = await AsrApi.transcribe(dataB64, format)
+      if (request !== voiceRequestRef.current) return
       if (d.text) voiceTextRef.current?.(d.text)
       else throw new Error('未识别到内容')
     } catch (e: any) {
+      if (request !== voiceRequestRef.current) return
       updateMessages(prev => [...prev, { id: 'sysasr' + Date.now(), role: 'system', text: `语音识别失败：${e?.message || e}`, ts: new Date().toISOString() }])
-    } finally { setVoiceBusy(false) }
+    } finally { if (request === voiceRequestRef.current) setVoiceBusy(false) }
   }
 
   // 首页：不做空洞欢迎卡，直接给高频任务入口。

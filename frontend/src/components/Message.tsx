@@ -27,6 +27,7 @@ import type { ChatMessage, RunningTool, ToolStatus } from '../types'
 import { AgentWorkflow } from './AgentWorkflow'
 import { useProcessVisibility } from '../hooks/useProcessVisibility'
 import ProcessVisibilityToggle from './ProcessVisibilityToggle'
+import SpeechControls from './SpeechControls'
 
 // 兼容两种来源：流式 RunningTool / 历史消息里的 ToolCall（无 running 态）
 function ToolCard({ tool }: { tool: Partial<RunningTool> & { name: string } }) {
@@ -385,12 +386,13 @@ export default function Message({ msg, onEdit, onRetry, onBranch, onNotice }: { 
           <div className="text-[11px] text-pi-dim2 mt-1 flex flex-wrap items-center gap-2">
             <span title={new Date(msg.ts).toLocaleString('zh-CN', { hour12: false })}>{fmtMsgTime(msg.ts)}</span>
             {answerText && (
-              <span className="message-actions inline-flex items-center gap-1" role="group" aria-label="回复操作">
+              <span className="message-actions inline-flex flex-wrap items-center gap-1" role="group" aria-label="回复操作">
                 <button type="button" className="message-action-button" onClick={() => void copyAnswer()} title="复制回复" aria-label="复制回复">
                   {messageAction === 'copied' ? <Check className="h-3 w-3" /> : <Copy className="h-3 w-3" />}<span>{messageAction === 'copied' ? '已复制' : '复制'}</span>
                 </button>
                 {onBranch ? <button type="button" className="message-action-button" onClick={() => onBranch(msg)} title="从这里创建分支会话" aria-label="从这里创建分支会话"><RotateCcw className="h-3 w-3" /><span>重开</span></button> : onRetry && <button type="button" className="message-action-button" onClick={() => onRetry(msg)} title="重新开始这一轮" aria-label="重新开始这一轮"><RotateCcw className="h-3 w-3" /><span>重开</span></button>}
                 <button type="button" className="message-action-button" onClick={() => void saveAnswer()} title="保存回复为 Markdown" aria-label="保存回复"><Save className="h-3 w-3" /><span>{messageAction === 'saved' ? '已保存' : '保存'}</span></button>
+                {!msg.isDraft && <SpeechControls id={msg.id} text={answerText} />}
               </span>
             )}
             {messageAction === 'error' && <span role="status" className="text-pi-danger">操作失败</span>}

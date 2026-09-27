@@ -3145,7 +3145,7 @@ const server = http.createServer(async (req, res) => {
     res.setHeader("X-Content-Type-Options", "nosniff");
     res.setHeader("X-Frame-Options", "DENY");
     res.setHeader("Referrer-Policy", "no-referrer");
-    res.setHeader("Permissions-Policy", "camera=(), microphone=(), geolocation=(), payment=(), usb=()");
+    res.setHeader("Permissions-Policy", "camera=(), microphone=(self), geolocation=(), payment=(), usb=()");
     const url = new URL(req.url, `http://${req.headers.host || "localhost"}`);
     // 官方 M3E Canvas（Next 静态导出）需要内联脚本；本路径允许同源 iframe，其余仍 DENY
     if (url.pathname.startsWith("/static/workshop-ui")) {
