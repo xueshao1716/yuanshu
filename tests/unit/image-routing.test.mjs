@@ -46,6 +46,28 @@ test('ambiguous timeout never buys a second image', async () => {
   const r = await runImageCandidates(models, async () => { calls++; throw new Error('timeout'); });
   assert.equal(calls, 1); assert.match(r.error, /timeout/);
 });
+test('connection establishment failure tries the bounded backup provider', async () => {
+  let calls = 0;
+  const r = await runImageCandidates(models, async () => {
+    calls++;
+    if (calls === 1) throw new Error('fetch failed', { cause: Object.assign(new Error('DNS failed'), { code: 'ENOTFOUND' }) });
+    return 'data:image/png;base64,aGVsbG8=';
+  });
+  assert.equal(calls, 2);
+  assert.equal(r.model, 'relay/gpt-image-1');
+  assert.equal(r.attempts[0].outcome, 'failed');
+  assert.equal(r.attempts[1].outcome, 'succeeded');
+});
+test('ambiguous fetch failure or reset never buys a second image', async () => {
+  for (const code of [undefined, 'ECONNRESET', 'UND_ERR_SOCKET']) {
+    let calls = 0;
+    await runImageCandidates(models, async () => {
+      calls++;
+      throw new Error('fetch failed', { cause: { code } });
+    });
+    assert.equal(calls, 1);
+  }
+});
 test('media history retains the actual model and fallback facts', () => {
   const attempts = [{ model: 'relay/gpt-image-1', outcome: 'succeeded' }];
   const blocks = assistantContentWithMedia('', [{ type: 'image', url: '/fixture.png', model: 'relay/gpt-image-1', attempts }]);

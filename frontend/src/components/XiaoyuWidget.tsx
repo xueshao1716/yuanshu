@@ -18,7 +18,9 @@ export default function XiaoyuWidget({ companion, hidden, setHidden }: {
   const root = useRef<HTMLDivElement>(null)
   const button = useRef<HTMLButtonElement>(null)
   const status = useWidgetStatus()
-  const motion = useWidgetMotion(true)
+  // The first argument remains the always-on motion controller (same contract as useWidgetMotion(true)); hidden switches
+  // it into the compact floating bounds without creating a second controller.
+  const motion = useWidgetMotion(true, hidden)
   useEffect(() => { savePreference('xiaoyu_skin', 'portrait') }, [])
   useEffect(() => {
     if (!open) return
@@ -31,9 +33,12 @@ export default function XiaoyuWidget({ companion, hidden, setHidden }: {
   const close = () => { setOpen(false); button.current?.focus() }
   const hide = () => { setHidden(true); setOpen(false) }
   const resize = () => setLarge(v => { savePreference('yuanshu_companion_large', String(!v)); return !v })
-  if (hidden) return createPortal(<button type="button" className="companion-restore" onClick={() => {
-    setHidden(false)
-  }} aria-label="显示真人公仔">显示公仔</button>, document.body)
+  if (hidden) return createPortal(<button ref={button} type="button" className="companion-restore" style={{ left: motion.position.x, top: motion.position.y }}
+    data-dragged={motion.dragged} data-reduced-motion={motion.reduced} aria-label="显示真人公仔" title="显示陪伴面板 · 拖动调整位置"
+    onClick={e => { if (motion.consumeDrag() && e.detail !== 0) return; setHidden(false) }} {...motion.handlers}>
+    <PortraitState action={companion.action} emotion={companion.emotion} compact />
+    <span className="companion-restore-label">显示陪伴</span>
+  </button>, document.body)
   return createPortal(<div ref={root} className="xiaoyu-companion" style={{ left: motion.position.x, top: motion.position.y }}
     data-reduced-motion={motion.reduced} data-large={large}>
     <button ref={button} type="button" className="xiaoyu-widget" data-skin="portrait" data-dragged={motion.dragged}

@@ -1,6 +1,6 @@
 import { lazy, Suspense, useMemo, useState } from 'react'
 import { TOOL_COLORS, COLOR_ERROR, COLOR_TOOL_FALLBACK } from '../theme/palettes'
-import { Brain, FileText, Check, X, Pencil, ChevronRight, Square, Info, Download, RefreshCw, Scissors } from 'lucide-react'
+import { Brain, FileText, Check, X, Pencil, ChevronRight, Square, Info, Download, RefreshCw, Scissors, Copy, RotateCcw, Save } from 'lucide-react'
 import ImageViewer from './ImageViewer'
 import { useChatMedia } from './ChatMediaProvider'
 import { mediaFilename, type ChatMedia } from '../lib/chat-media'
@@ -18,6 +18,8 @@ const ENGINE_LABEL: Record<string, string> = {
 }
 
 import { downloadApiFile, withFileToken } from '../api'
+import { copyText } from '../lib/clipboard'
+import { requestBrowserSave, writeBrowserSave } from '../lib/browser-save'
 import { scrapeVideos, dedupeMediaUrls, mediaPathKey } from '../lib/media-embed'
 import { artifactName, fileNameFromUrl } from '../lib/artifact-name'
 import { fmtMsgTime } from '../lib/fmt-time'
@@ -186,12 +188,13 @@ function Attachments({ msg }: { msg: ChatMessage }) {
   )
 }
 
-export default function Message({ msg, onEdit, onRetry }: { msg: ChatMessage & { streaming?: boolean }; onEdit?: (text: string) => void; onRetry?: (msg: ChatMessage) => void } & { [k: string]: any }) {
+export default function Message({ msg, onEdit, onRetry, onBranch, onNotice }: { msg: ChatMessage & { streaming?: boolean }; onEdit?: (text: string) => void; onRetry?: (msg: ChatMessage) => void; onBranch?: (msg: ChatMessage) => void; onNotice?: (message: string, tone?: 'ok' | 'error') => void } & { [k: string]: any }) {
   const isUser = msg.role === 'user'
   const isSystem = msg.role === 'system'
   const streaming = !!(msg as any).streaming
   const [editing, setEditing] = useState(false)
   const [draft, setDraft] = useState('')
+  const [messageAction, setMessageAction] = useState<'copied' | 'saved' | 'error' | ''>('')
   const [showTools, toggleTools] = useProcessVisibility('tools')
   const failedTools = msg.tools?.filter(tool => tool.status === 'error' || (!tool.status && tool.isError)).length || 0
   const canEdit = isUser && !!onEdit && !streaming && msg.id !== '__streaming__' && !msg.id.startsWith('sys')
@@ -249,6 +252,38 @@ export default function Message({ msg, onEdit, onRetry }: { msg: ChatMessage & {
   const hasTools = (msg.tools?.length || 0) > 0
   const hasText = !!msg.text
   const runningTools = msg.tools?.filter(t => t.status === 'running').length || 0
+  const answerText = [msg.text, msg.conclusion].filter(Boolean).join('\n\n').trim()
+  const copyAnswer = async () => {
+    const ok = await copyText(answerText)
+    setMessageAction(ok ? 'copied' : 'error')
+    window.setTimeout(() => setMessageAction(''), 1800)
+  }
+  const saveAnswer = async () => {
+    if (!answerText) return
+    const filename = `元枢回复-${new Date(msg.ts || Date.now()).toISOString().slice(0, 19).replace(/[T:]/g, '-')}.md`
+    const blob = new Blob([answerText + '\n'], { type: 'text/markdown;charset=utf-8' })
+    try {
+      const handle = await requestBrowserSave(filename)
+      if (handle) await writeBrowserSave(handle, blob)
+      else {
+        const url = URL.createObjectURL(blob)
+        const anchor = document.createElement('a')
+        anchor.href = url; anchor.download = filename; anchor.click()
+        window.setTimeout(() => URL.revokeObjectURL(url), 1000)
+      }
+      setMessageAction('saved')
+      onNotice?.(`${handle ? '已保存' : '已下载'}：${filename}`, 'ok')
+    } catch (error: any) {
+      if (/已取消保存|AbortError/i.test(String(error?.message || error))) {
+        setMessageAction('')
+        onNotice?.('已取消保存', 'ok')
+      } else {
+        setMessageAction('error')
+        onNotice?.('保存失败，请检查浏览器下载权限', 'error')
+      }
+    }
+    window.setTimeout(() => setMessageAction(''), 1800)
+  }
   
   let phase: 'thinking' | 'tools' | 'result' | 'idle' = 'idle'
   if (streaming) {
@@ -349,6 +384,16 @@ export default function Message({ msg, onEdit, onRetry }: { msg: ChatMessage & {
         {msg.ts && !streaming && (
           <div className="text-[11px] text-pi-dim2 mt-1 flex flex-wrap items-center gap-2">
             <span title={new Date(msg.ts).toLocaleString('zh-CN', { hour12: false })}>{fmtMsgTime(msg.ts)}</span>
+            {answerText && (
+              <span className="message-actions inline-flex items-center gap-1" role="group" aria-label="回复操作">
+                <button type="button" className="message-action-button" onClick={() => void copyAnswer()} title="复制回复" aria-label="复制回复">
+                  {messageAction === 'copied' ? <Check className="h-3 w-3" /> : <Copy className="h-3 w-3" />}<span>{messageAction === 'copied' ? '已复制' : '复制'}</span>
+                </button>
+                {onBranch ? <button type="button" className="message-action-button" onClick={() => onBranch(msg)} title="从这里创建分支会话" aria-label="从这里创建分支会话"><RotateCcw className="h-3 w-3" /><span>重开</span></button> : onRetry && <button type="button" className="message-action-button" onClick={() => onRetry(msg)} title="重新开始这一轮" aria-label="重新开始这一轮"><RotateCcw className="h-3 w-3" /><span>重开</span></button>}
+                <button type="button" className="message-action-button" onClick={() => void saveAnswer()} title="保存回复为 Markdown" aria-label="保存回复"><Save className="h-3 w-3" /><span>{messageAction === 'saved' ? '已保存' : '保存'}</span></button>
+              </span>
+            )}
+            {messageAction === 'error' && <span role="status" className="text-pi-danger">操作失败</span>}
             {/* ② 主驾引擎：换模型会换引擎（非原生通道走元枢自制循环，原生通道走 pi 适配器），
                 这件事用户以前完全看不见，只能感觉"它脾气变了"。原因放 title。 */}
             {msg.engine && (

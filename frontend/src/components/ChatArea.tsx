@@ -815,6 +815,23 @@ export default function ChatArea({ compactHeader, rightPanel, onRightPanel }: {
     }
   }
 
+  // “重开”是从当前助手消息创建独立分支会话，不再把原问题机械重发一遍。
+  const branchFromMessage = async (m: ChatMessage) => {
+    const sid = sessionIdRef.current
+    if (!sid || !m?.id || m.id.startsWith('__')) { toast('当前消息还不能创建分支', 'error'); return }
+    try {
+      const source = sessions.find(s => s.id === sid)
+      const name = `分支 · ${(source?.name || '当前会话').slice(0, 60)}`
+      const branched = await SessionsApi.branchSession(sid, m.id, name)
+      sessionIdRef.current = branched.id
+      selectSession(branched.id)
+      await refreshSessions()
+      toast(`已从这条回复创建分支会话：${branched.name}`, 'ok')
+    } catch (error: any) {
+      toast(`创建分支失败：${error?.message || error}`, 'error')
+    }
+  }
+
   const stop = async () => {
     const active = activeRunRef.current
     if (!active || active.status === 'stopping') return
@@ -1114,6 +1131,8 @@ export default function ChatArea({ compactHeader, rightPanel, onRightPanel }: {
               <TurnList
                 messages={normalMessages}
                 onRetry={retryFailed}
+                onBranch={branchFromMessage}
+                onNotice={(message, tone) => toast(message, tone || 'ok')}
                 streamingNode={stream ? (() => {
                   // 阶段分区渲染：工具前文字在上、结论在工具卡后（conclusion 存在即启用分区）；
                   // 错误信息拼在最后一块，避免重复展示

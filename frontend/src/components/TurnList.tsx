@@ -72,7 +72,7 @@ const excerpt = (s: string, n = 64) => {
   return t.length > n ? t.slice(0, n) + '…' : t
 }
 
-function TurnRow({ turn, index, open, onToggle, onRetry }: { turn: Turn; index: number; open: boolean; onToggle: () => void; onRetry?: (msg: ChatMessage) => void }) {
+function TurnRow({ turn, index, open, onToggle, onRetry, onBranch, onNotice }: { turn: Turn; index: number; open: boolean; onToggle: () => void; onRetry?: (msg: ChatMessage) => void; onBranch?: (msg: ChatMessage) => void; onNotice?: (message: string, tone?: 'ok' | 'error') => void }) {
   const { tools, artifacts } = turnStats(turn)
   const media = turnMedia(turn)
   const q = turn.user ? excerpt(turn.user.text || '(附件消息)') : '(系统提示)'
@@ -114,7 +114,7 @@ function TurnRow({ turn, index, open, onToggle, onRetry }: { turn: Turn; index: 
       {open && (
         <div className="turn-expanded-content">
           {turn.user && <Message msg={turn.user} />}
-          {turn.rest.map(m => <Message key={m.id} msg={m} onRetry={onRetry} />)}
+          {turn.rest.map(m => <Message key={m.id} msg={m} onRetry={onRetry} onBranch={onBranch} onNotice={onNotice} />)}
         </div>
       )}
     </div>
@@ -129,9 +129,11 @@ interface TurnListProps {
   keepExpanded?: number
   // 失败重试：把这一轮的用户消息重发一次（2026-09-16）
   onRetry?: (msg: ChatMessage) => void
+  onBranch?: (msg: ChatMessage) => void
+  onNotice?: (message: string, tone?: 'ok' | 'error') => void
 }
 
-export default function TurnList({ messages, streamingNode, keepExpanded = 1, onRetry }: TurnListProps) {
+export default function TurnList({ messages, streamingNode, keepExpanded = 1, onRetry, onBranch, onNotice }: TurnListProps) {
   const turns = useMemo(() => groupTurns(messages), [messages])
   const [expanded, setExpanded] = useState<Set<string>>(new Set())
   const [showAll, setShowAll] = useState(false)
@@ -184,7 +186,7 @@ export default function TurnList({ messages, streamingNode, keepExpanded = 1, on
                 <span className="chat-day-divider-line" />
               </div>
             )}
-            <TurnRow turn={t} index={i} open={isOpen(t, i)} onRetry={onRetry}
+            <TurnRow turn={t} index={i} open={isOpen(t, i)} onRetry={onRetry} onBranch={onBranch} onNotice={onNotice}
               onToggle={() => setExpanded(prev => {
                 const next = new Set(prev)
                 if (lastKeys.has(t.key)) return next // 最后一轮默认展开，不折叠

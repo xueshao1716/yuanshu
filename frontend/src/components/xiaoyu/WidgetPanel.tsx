@@ -19,7 +19,7 @@ export function WidgetPanel({ motion, status, companion: c, close, hide, resize,
   const [height, setHeight] = useState(650)
   const [text, setText] = useState('')
   const [handoff, setHandoff] = useState('')
-  const position = panelPosition(motion.position, motion.view, height)
+  const position = motion.view.width <= 600 ? undefined : panelPosition(motion.position, motion.view, height)
   useLayoutEffect(() => {
     const el = ref.current
     if (!el) return
@@ -40,12 +40,14 @@ export function WidgetPanel({ motion, status, companion: c, close, hide, resize,
   return <section ref={ref} id="xiaoyu-panel" className="xiaoyu-panel companion-panel" style={position} aria-label="真人陪伴面板">
     <header className="xiaoyu-panel-head"><div><h2>{status.name}</h2><p>{factLabel}</p></div>
       <button ref={closeRef} type="button" onClick={close} aria-label="关闭陪伴面板"><X size={18} /></button></header>
+    <div className="companion-overview">
     <PortraitState action={c.action} emotion={c.emotion} />
     <section className="companion-emotion" aria-label="与情绪潮汐同步">
       <strong>情绪潮汐 · {c.emotion.meta.label}</strong><p>{emotionLabel}</p>
       {c.emotion.snapshot?.observedAt && <time dateTime={new Date(c.emotion.snapshot.observedAt).toISOString()}>
         观测于 {new Date(c.emotion.snapshot.observedAt).toLocaleString()}</time>}
     </section>
+    </div>
     <div className="companion-response" role="status" aria-live="polite">
       {c.pending ? <p>正在结合当前会话回应…</p> : c.feedback ? <p>{c.feedback}</p> : c.decision ? <>
         <p>{c.decision.utterance || '本次仅调整呈现状态，没有追加话语。'}</p>
@@ -70,6 +72,7 @@ export function WidgetPanel({ motion, status, companion: c, close, hide, resize,
         }}>带到对话</button></div>
       {handoff && <p role="status">{handoff}</p>}
     </form>
+    <details className="companion-settings"><summary>陪伴设置与立绘</summary>
     <label className="companion-dnd"><input type="checkbox" checked={c.dnd} disabled={!c.preferencesReady}
       onChange={e => void c.setDnd(e.target.checked)} />免打扰：不主动互动，不影响任务</label>
     <div className="xiaoyu-tools"><button type="button" onClick={motion.reset}><RotateCcw size={15} />归位</button>
@@ -79,5 +82,6 @@ export function WidgetPanel({ motion, status, companion: c, close, hide, resize,
     <footer className="xiaoyu-version"><span>元枢 {status.version ? `v${status.version}` : '版本读取中'}</span>
       <button type="button" disabled={status.checking} onClick={status.checkUpdate}>检查更新</button></footer>
     {status.update && <p className="xiaoyu-update" role="status">{status.update}</p>}
+    </details>
   </section>
 }

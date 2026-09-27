@@ -4,7 +4,7 @@ export interface CompanionDecision { sessionId: string; contextEpoch: string; se
 export const ACTION_LABELS: Record<CompanionAction, string>;
 export const PORTRAITS: Record<string, { src: string; accepted: boolean }>;
 export function portraitFor(action: string, manifest?: typeof PORTRAITS): { src: string; missing: boolean };
-export function actionFor(facts: CompanionFacts | null | undefined, decision?: CompanionDecision | null): CompanionAction;
+export function actionFor(facts: CompanionFacts | null | undefined, decision?: CompanionDecision | null, ambient?: { now?: number; lastActivityAt?: number }): CompanionAction;
 export function acceptDecision(decision: CompanionDecision | null | undefined, context: { sessionId: string | null; contextEpoch: string; facts: CompanionFacts | null | undefined; now: number; visible: boolean }): boolean;
 export function shouldAutoDecide(input: { visible: boolean; dnd: boolean; sessionId: string | null; known: boolean; key: string; previous: string; pending?: boolean; currentBusy?: boolean }): boolean;
 export function isConversationEvent(event: unknown): boolean;

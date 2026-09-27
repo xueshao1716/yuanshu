@@ -14,8 +14,9 @@ test('技能标签保留显式标签并补充用途标签且去重', () => {
   assert.deepEqual(tags, ['品牌', '创作设计'])
 })
 
-test('技能来源区分仓库内自建和用户目录线上安装', () => {
-  assert.equal(classifySkillSource(fileURLToPath(new URL('../../skills/demo/SKILL.md', import.meta.url)), 'package'), 'local')
+test('技能来源区分元枢内置、工作区自建和线上安装', () => {
+  assert.equal(classifySkillSource(fileURLToPath(new URL('../../skills/demo/SKILL.md', import.meta.url)), 'package'), 'builtin')
+  assert.equal(classifySkillSource('D:/pi-workspace/skills/demo/SKILL.md', 'project'), 'local')
   assert.equal(classifySkillSource('C:/Users/test/.agents/skills/demo/SKILL.md', 'user'), 'online')
   assert.equal(classifySkillSource('D:/pi-web/node_modules/@pi/skills/demo/SKILL.md', 'package'), 'online')
   assert.equal(classifySkillSource('', 'package'), 'builtin')

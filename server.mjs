@@ -106,7 +106,7 @@ import { initSelfHeal, createRepairCheckpoint, handleUpdateCheck, handleUpdateAp
 import { frontendVersionPayload } from "./engine/frontend-version.mjs";
 import { initImproveApi, analyzeImprovements, openImprovements, getImprovementDiagnostics, setImprovementStatus } from "./engine/improve-api.mjs";
 import { initEvolutionApi, proposeEvolution, applyEvolution, listEvolution, dismissEvolution, nudgeSkill, applySkillNudge, dismissSkillNudge, listSkillNudges, startEvolutionEvaluation, proposeMemoryNudge, listMemoryNudges, applyMemoryNudge, dismissMemoryNudge, analyzeMemoryCompress, proposeMemoryCompress, listMemoryCompress, applyMemoryCompress, dismissMemoryCompress } from "./engine/evolution-api.mjs";
-import { initSessionManager, createSession, evictInactiveSessions, slimSessionImages, compactSession, openSession, initSearchTool, initShareTool, createSessionAgent, ensureAgent, isFirstTurn, deleteSession, setOnTheSpotFixRunner, ensureContextHeadroom } from "./engine/session-manager.mjs";
+import { initSessionManager, createSession, cloneSessionFromEntry, evictInactiveSessions, slimSessionImages, compactSession, openSession, initSearchTool, initShareTool, createSessionAgent, ensureAgent, isFirstTurn, deleteSession, setOnTheSpotFixRunner, ensureContextHeadroom } from "./engine/session-manager.mjs";
 import { initUnifiedChat, unifiedChat, engineCurrentModel, initEngine, getCodeRuntime, getCodeMode, toolBindingDesc, toolBindingArgs, toolBindingArgsObj, handleNotices, handleUnifiedChat, touchTask, clearTask, taskProgress, handleAgentEventIn, handleAgentEventOut } from "./engine/unified-chat.mjs";
 import { completedTaskText } from "./engine/task-continuation.mjs";
 import { createApprovalInterceptor } from "./engine/tools/approval.mjs";
@@ -503,8 +503,8 @@ const CRLF = "\r\n";
 // ── 模块化拆分接线（2026-08-29 #7 红线治理）：workspace杂项API / model-keys / session-bus / model-session ──
 const modelKeysApi = createModelKeys({ readJsonFile, getAgentDir, getModelList: () => modelList });
 const { saveSessionModelKey, loadSessionModelKey, saveLastModel } = modelKeysApi;
-const miscApi = createMiscApi({ json, readJsonFile, writeJsonFile, getAgentDir, authPath: AUTH_PATH, modelsPath: MODELS_PATH, openSession, ensureAgent, getDefaultModel: () => defaultModel, refreshModelList, scanSessionFiles, extractText, parseSessionFile, cwd: CONFIG.cwd, gitCwd: __dirname, scanExclude: /(^|[\\/])(node_modules|\.git|\.cache|backups?|temp|tmp|\.token)([\\/]|$)/i });
-const { scanRecentArtifacts, handlePrompts, handleSessionTree, handleSessionBranch, handleModelsRemove, handleSearch, handleAIBody, runGit, handleGitStatus, handleGitDiff, handleGitReview } = miscApi;
+const miscApi = createMiscApi({ json, readJsonFile, writeJsonFile, getAgentDir, authPath: AUTH_PATH, modelsPath: MODELS_PATH, openSession, ensureAgent, cloneSessionFromEntry, getDefaultModel: () => defaultModel, refreshModelList, scanSessionFiles, extractText, parseSessionFile, cwd: CONFIG.cwd, gitCwd: __dirname, scanExclude: /(^|[\\/])(node_modules|\.git|\.cache|backups?|temp|tmp|\.token)([\\/]|$)/i });
+const { scanRecentArtifacts, handlePrompts, handleSessionTree, handleSessionBranch, handleSessionBranchSession, handleModelsRemove, handleSearch, handleAIBody, runGit, handleGitStatus, handleGitDiff, handleGitReview } = miscApi;
 const sessionBusApi = createSessionBus({ json });
 const { busGet, busPush, handleSessionStream } = sessionBusApi;
 const { handleModels, handleSwitchModel } = createModelSessionApi({ json, readJsonFile, resolveAuth, modelCapabilities, modelsPath: MODELS_PATH, getModelList: () => modelList, getDefaultModel: () => defaultModel, getModelRuntime: () => modelRuntime, getConfig: () => CONFIG, activeSessions, createSessionAgent, saveLastModel, saveSessionModelKey });
@@ -548,6 +548,7 @@ const MIME = {
   ".css": "text/css; charset=utf-8",
   ".svg": "image/svg+xml",
   ".png": "image/png",
+  ".webp": "image/webp",
   ".ico": "image/x-icon",
   ".wasm": "application/wasm",
   ".json": "application/json",
@@ -682,6 +683,8 @@ const executeUnifiedTool = createUnifiedToolExecutorGuarded({
 });
 
 initSessionManager({ cwd: CONFIG.cwd, sessionsDir: SESSIONS_DIR, tools: CONFIG.tools, piPackage: CONFIG.piPackage, isModelBlocked, createAgentSessionServices, createAgentSessionFromServices, getModelRuntime: () => modelRuntime, loadSessionModelKey, getModelList: () => modelList, getDefaultModel: () => defaultModel, activeSessions, SessionManager, SettingsManager, DefaultResourceLoader, getAgentDir, readJsonFile, writeJsonFile, isExternalThinking, THINK_TOOL, modelCapabilities, bindOutputGuardDeps, extractMessages, createSseWriter, unifiedChat, generateMediaAsync, onSessionCreated: ensureSessionSequence, repairSessionFile }); // 会话管理注入
+// 维护 API 在下方完成初始化；沙箱确认闭包延迟读取它，避免启动顺序改变。
+let maintenanceApi = null;
 // 当场修的执行器：Pi 会话里的 fix_problem 与统一引擎里的同名工具走**同一套规则**
 // （engine/reflection-exec.mjs：红线不碰 / 每会话 10 分钟最多 3 次 / 必须交证据）。
 setOnTheSpotFixRunner(({ problem, sessionKey }) => runOnTheSpotFix({
@@ -700,6 +703,8 @@ initUnifiedChat({
   // 元枢沙箱升级与 pi 共用同一人工确认注册表；没有前端应答时由注册表超时并 fail-closed。
   createSandboxAsk: ({ writer, sessionId, taskId }) => async (toolName, args, reason) => {
     const sid = sessionId || taskId || "new";
+    const rid = args?.runId || taskId || sid;
+    if (maintenanceApi?.hasLease({ sessionId: sid, taskId: taskId || sid, runId: rid })) return "allowed-once";
     const reg = confirmRegistry.register(sid, { toolName, reason, src: "sandbox" });
     writer.push("confirm", { id: reg.id, toolName, reason, args: args || {}, sessionId: sid });
     return reg.promise;
@@ -2167,7 +2172,14 @@ const uiDesigns = createUiDesignService({root: WS_ROOT, getModelList: () => mode
 const websites = createWebsiteService({root: WS_ROOT, getModelList: () => modelList, getDefaultModel: () => defaultModel, directChat});
 const maintenanceSessionExists = sid => activeSessions.has(sid) || !!findSession(sid);
 const sandboxApi = createSandboxApi({ agentDir: AGENT_DIR, sessionExists: maintenanceSessionExists });
-const maintenanceApi = createMaintenanceApi({ sessionExists: maintenanceSessionExists });
+maintenanceApi = createMaintenanceApi({
+  sessionExists: maintenanceSessionExists,
+  requestApproval: async ({ sessionId, taskId, runId, durationMs }) => {
+    const reg = confirmRegistry.register(sessionId, { toolName: "maintenance", reason: `请求超维模式（${durationMs / 3600000} 小时）`, src: "maintenance", taskId, runId });
+    busPush(sessionId, "confirm", { id: reg.id, toolName: "maintenance", reason: `请求超维模式（${durationMs / 3600000} 小时）`, sessionId, taskId, runId, maintenance: true });
+    return reg.promise;
+  },
+});
 const API_ROUTES = [
   ...createBehaviorExperimentRoutes({ service: behaviorExperiments, json, readBody }),
   ...websiteRoutes(websites,{json,readBody,root:WS_ROOT}),
@@ -2289,7 +2301,8 @@ const API_ROUTES = [
       .filter((p) => p.status !== "pending")
       .slice(-20).reverse()
       .map(({ id, text, at, status, evidence, closedAt }) => ({ id, text, at, status, evidence, closedAt }));
-    json(res, 200, { ok: true, pending, closed });
+    // 承诺账本是实时状态：浏览器/代理不得复用销账前的快照。
+    json(res, 200, { ok: true, pending, closed }, { "Cache-Control": "no-store, no-cache, must-revalidate" });
   }],
   ["POST", "/api/promises/close", async (res, req) => {
     const b = await readBody(req);
@@ -2410,7 +2423,7 @@ const API_ROUTES = [
     json(res, r.status, r.body);
   }],
   ["POST", "/api/maintenance/requests", async (res, req) => {
-    const r = maintenanceApi.request(await readBody(req));
+    const r = await maintenanceApi.request(await readBody(req));
     json(res, r.status, r.body);
   }],
   ["POST", /^\/api\/maintenance\/leases\/([^/]+)\/revoke$/, async (res, req, url, m) => {
@@ -2565,6 +2578,7 @@ const API_ROUTES = [
   }],
   ["GET", /^\/api\/sessions\/([^/]+)\/tree$/, (res, req, url, m) => handleSessionTree(res, decodeURIComponent(m[1]))],
   ["POST", /^\/api\/sessions\/([^/]+)\/branch$/, async (res, req, url, m) => handleSessionBranch(res, decodeURIComponent(m[1]), await readBody(req))],
+  ["POST", /^\/api\/sessions\/([^/]+)\/branch-session$/, async (res, req, url, m) => handleSessionBranchSession(res, decodeURIComponent(m[1]), await readBody(req))],
   ["GET", /^\/api\/sessions\/([^/]+)\/messages$/, (res, req, url, m) => handleMessages(res, decodeURIComponent(m[1]), req, url)],
   ["POST", /^\/api\/sessions\/([^/]+)\/messages$/, async (res, req, url, m) => handleAppendMessage(res, decodeURIComponent(m[1]), await readBody(req))],
   ["GET", /^\/api\/sessions\/([^/]+)\/stream$/, (res, req, url, m) => handleSessionStream(res, req, url, m[1])],

@@ -16,6 +16,7 @@ export function useCompanion(enabled: boolean) {
   const [decision, setDecision] = useState<CompanionDecision | null>(null)
   const [feedback, setFeedback] = useState('')
   const [pending, setPending] = useState(false)
+  const [lastActivityAt, setLastActivityAt] = useState(Date.now)
   const abort = useRef<AbortController | null>(null)
   const active = enabled && visible && authed
   const contextEpoch = useMemo(() => crypto.randomUUID(), [sessionId, base, token, active, messageEpoch])
@@ -33,8 +34,18 @@ export function useCompanion(enabled: boolean) {
   useEffect(() => {
     const change = () => setVisible(!document.hidden)
     document.addEventListener('visibilitychange', change)
+    const activity = () => setLastActivityAt(Date.now())
+    document.addEventListener('pointerdown', activity, { passive: true })
+    document.addEventListener('keydown', activity, { passive: true })
+    document.addEventListener('input', activity, { passive: true })
     const timer = setInterval(() => setClock(Date.now()), 1000)
-    return () => { document.removeEventListener('visibilitychange', change); clearInterval(timer) }
+    return () => {
+      document.removeEventListener('visibilitychange', change)
+      document.removeEventListener('pointerdown', activity)
+      document.removeEventListener('keydown', activity)
+      document.removeEventListener('input', activity)
+      clearInterval(timer)
+    }
   }, [])
   useEffect(() => {
     abort.current?.abort(); setDecision(null); setFeedback(''); setPending(false)
@@ -45,6 +56,7 @@ export function useCompanion(enabled: boolean) {
     let timer: ReturnType<typeof setTimeout> | undefined
     const invalidate = () => {
       abort.current?.abort(); setDecision(null)
+      setLastActivityAt(Date.now())
       setMessageEpoch(v => v + 1); void mutate()
     }
     const stop = streamSession(sessionId, 0, ev => {
@@ -77,7 +89,10 @@ export function useCompanion(enabled: boolean) {
       if (controller === abort.current) { abort.current = null; setPending(false) }
     }
   }, [])
-  const inputKey = `${contextEpoch}:${facts?.serverEpoch}:${facts?.revision}:${emotion.snapshot?.serverEpoch}:${emotion.snapshot?.revision}`
+  // Re-evaluate ambient interaction once per minute even when no run/revision changed.
+  // The server still rate-limits and validates the decision, so this cannot create a
+  // task loop or background work storm.
+  const inputKey = `${contextEpoch}:${facts?.serverEpoch}:${facts?.revision}:${emotion.snapshot?.serverEpoch}:${emotion.snapshot?.revision}:${Math.floor(clock / 60000)}`
   useEffect(() => {
     if (!shouldAutoDecide({ visible: active, dnd, sessionId, known: !!facts?.known, key: inputKey, previous: lastAuto.current, pending, currentBusy: facts?.currentBusy })) return
     const timer = setTimeout(() => { lastAuto.current = inputKey; void interact('auto') }, 500)
@@ -89,6 +104,6 @@ export function useCompanion(enabled: boolean) {
     try { await prefs.mutate(await CompanionApi.setDnd(value), false) }
     catch { setFeedback('免打扰设置未保存，请重试。') }
   }
-  return { sessionId, emotion, facts, decision: accepted, action: actionFor(facts, accepted), pending, feedback,
+  return { sessionId, emotion, facts, decision: accepted, action: actionFor(facts, accepted, { now: clock, lastActivityAt }), pending, feedback,
     dnd, preferencesReady: !!prefs.data && !prefs.error, setDnd, interact, dismiss: () => setDecision(null) }
 }

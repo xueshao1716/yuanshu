@@ -12,7 +12,7 @@ export function createMiscApi(deps) {
   const {
     json, readJsonFile, writeJsonFile,
     getAgentDir, authPath, modelsPath,
-    openSession, ensureAgent, getDefaultModel,
+    openSession, ensureAgent, getDefaultModel, cloneSessionFromEntry,
     refreshModelList, scanSessionFiles, extractText, parseSessionFile,
     cwd, scanExclude, gitCwd = null, projectRoot = null, gitRunner: injectedGitRunner = null,
   } = deps;
@@ -125,6 +125,18 @@ export function createMiscApi(deps) {
       json(res, 200, { ok: true, leafId: entry.sm.getLeafId() });
     } catch (e) {
       json(res, 500, { error: String(e?.message || e).slice(0, 150) });
+    }
+  }
+
+  // POST /api/sessions/:id/branch-session {entryId,name} —— 创建独立分支会话
+  async function handleSessionBranchSession(res, id, body) {
+    const entryId = body?.entryId;
+    if (!entryId) return json(res, 400, { error: "缺少 entryId" });
+    try {
+      const result = await cloneSessionFromEntry(id, entryId, body?.name);
+      json(res, 201, result);
+    } catch (e) {
+      json(res, 400, { error: String(e?.message || e).slice(0, 180) });
     }
   }
 
@@ -318,7 +330,7 @@ export function createMiscApi(deps) {
   }
 
   return {
-    scanRecentArtifacts, handlePrompts, handleSessionTree, handleSessionBranch,
+    scanRecentArtifacts, handlePrompts, handleSessionTree, handleSessionBranch, handleSessionBranchSession,
     handleModelsRemove, handleSearch, handleAIBody, runGit, handleGitStatus, handleGitDiff, handleGitReview,
   };
 }

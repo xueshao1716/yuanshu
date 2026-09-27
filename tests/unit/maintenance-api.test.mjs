@@ -27,3 +27,17 @@ test('production maintenance cannot issue permission, even with forged approval'
   assert.equal(api.renew, undefined);
   assert.equal(api.status('A').body.lease, null);
 });
+
+test('maintenance requires the trusted approval seam and issues a bound expiring lease', async () => {
+  let clock = 1000;
+  const api = createMaintenanceApi({ sessionExists: id => id === 'A', requestApproval: async request => { assert.equal(request.sessionId, 'A'); return 'allowed-once'; }, now: () => clock, epoch: 'test-epoch' });
+  assert.equal(api.status('A').body.available, true);
+  const result = await api.request({ sessionId: 'A', taskId: 'T', runId: 'R' });
+  assert.equal(result.status, 200);
+  assert.equal(result.body.lease.state, 'active');
+  assert.equal(api.hasLease({ sessionId: 'A', taskId: 'T', runId: 'R' }), true);
+  assert.equal(api.hasLease({ sessionId: 'A', taskId: 'T', runId: 'other' }), false);
+  clock += 3600001;
+  assert.equal(api.status('A').body.lease, null);
+  assert.equal(api.hasLease({ sessionId: 'A', taskId: 'T', runId: 'R' }), false);
+});

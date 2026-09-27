@@ -1,0 +1,8 @@
+schema_version: 1
+project_id: {{PROJECT_ID}}
+project_name: "{{PROJECT_NAME}}"
+created_date: "{{CREATED_DATE}}"
+aspect_ratio: "{{ASPECT_RATIO}}"
+default_fps: 24
+default_resolution: "1920x1080"
+status: development

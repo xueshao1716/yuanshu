@@ -18,7 +18,7 @@ test('runtime facts override model poses and missing artwork stays explicit', ()
   assert.equal(state.actionFor(null, decision), 'neutral');
   assert.equal(state.actionFor(facts, { action: 'working' }), 'neutral');
   assert.equal(state.actionFor(facts, decision), 'resting');
-  assert.equal(state.portraitFor('reading', {}).missing, true);
+  assert.equal(state.portraitFor('reading').missing, false);
   assert.equal(state.portraitFor('reading', { reading: { src: '/asset.webp', accepted: false } }).missing, true);
   assert.equal(state.portraitFor('reading', { reading: { src: '/asset.webp', accepted: true } }).missing, false);
 });

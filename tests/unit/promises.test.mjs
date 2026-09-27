@@ -132,6 +132,23 @@ describe("承诺结清：只能显式", () => {
     assert.equal(pendingPromises(w, { now: AT }).length, 1, "非法调用不应改动账本");
   });
 
+  test("写盘失败不能假报已结清", () => {
+    const w = ws();
+    recordPromises(w, extractPromises("我明天给你补个测试。", { at: AT }));
+    const id = loadPromises(w)[0].id;
+    const failingFs = {
+      existsSync: fs.existsSync.bind(fs),
+      readFileSync: fs.readFileSync.bind(fs),
+      mkdirSync: fs.mkdirSync.bind(fs),
+      writeFileSync() { throw new Error("磁盘满"); },
+      renameSync: fs.renameSync.bind(fs),
+      unlinkSync: fs.unlinkSync.bind(fs),
+    };
+    const r = closePromise(w, id, { status: "dropped" }, failingFs);
+    assert.equal(r.ok, false);
+    assert.equal(pendingPromises(w, { now: AT }).length, 1);
+  });
+
   test("模块内不存在自动结清路径（回归锁）", () => {
     const src = fs.readFileSync(path.join(process.cwd(), "engine", "promises.mjs"), "utf8");
     // closePromise 只被显式调用；模块内没有定时器/自动判定
@@ -187,3 +204,4 @@ describe("逾期与提示词", () => {
 test.after(() => {
   for (const d of cleanups) { try { fs.rmSync(d, { recursive: true, force: true }); } catch {} }
 });
+

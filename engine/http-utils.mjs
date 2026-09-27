@@ -18,12 +18,12 @@ function sanitizeErrorValue(value) {
   return value;
 }
 
-export function json(res, code, obj) {
+export function json(res, code, obj, extraHeaders = {}) {
   // error 可能是字符串或嵌套对象；统一脱敏其所有文本字段，避免上游详情夹带凭据。
   if (obj && Object.prototype.hasOwnProperty.call(obj, "error")) {
     obj = { ...obj, error: sanitizeErrorValue(obj.error) };
   }
-  res.writeHead(code, { "Content-Type": "application/json" });
+  res.writeHead(code, { "Content-Type": "application/json", ...extraHeaders });
   res.end(JSON.stringify(obj));
 }
 

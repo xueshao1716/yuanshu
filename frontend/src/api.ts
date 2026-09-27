@@ -165,6 +165,7 @@ export const ModelsApi = {
 export const SessionsApi = {
   list: () => api<{ sessions: Session[] }>('/api/sessions'),
   create: (name?: string) => api<{ id: string; name: string }>('/api/sessions', { method: 'POST', body: { name } }),
+  branchSession: (sid: string, entryId: string, name?: string) => api<{ id: string; name: string; sourceSessionId: string; sourceEntryId: string }>(`/api/sessions/${encodeURIComponent(sid)}/branch-session`, { method: 'POST', body: { entryId, name } }),
   messages: (sid: string, opts?: { leafId?: string | null; tail?: number }) => {
     const q = new URLSearchParams()
     if (opts?.leafId) q.set('leafId', opts.leafId)
@@ -743,11 +744,13 @@ export const SandboxApi = {
 }
 
 export interface MaintenanceView {
-  ok: boolean; sessionId: string; available: false; reason: string; message: string
-  defaultDurationMs: number; maxDurationMs: number; lease: null; engine: 'yuanshu'
+  ok: boolean; sessionId: string; available: boolean; reason: string; message: string
+  defaultDurationMs: number; maxDurationMs: number; lease: any | null; engine: 'yuanshu'
 }
 export const MaintenanceApi = {
   status: (sessionId: string) => api<MaintenanceView>(`/api/maintenance/status?session=${encodeURIComponent(sessionId)}`),
+  request: (body: { sessionId: string; taskId: string; runId: string; durationMs?: number }) => api<any>('/api/maintenance/requests', { method: 'POST', body, timeoutMs: 75000 }),
+  revoke: (leaseId: string, sessionId: string) => api<any>(`/api/maintenance/leases/${encodeURIComponent(leaseId)}/revoke`, { method: 'POST', body: { sessionId } }),
 }
 
 // ── 系统面板：说明 / 检测更新 ──

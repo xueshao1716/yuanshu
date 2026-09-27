@@ -34,10 +34,13 @@ export function MoodPanel({ open, onClose, emotion, action, known }: {
       if (e.clientX < box.left || e.clientX > box.right || e.clientY < box.top || e.clientY > box.bottom) onClose()
     }}>
     {open && <>
-      <header><h2>情绪潮汐 · {meta.label}</h2><button type="button" aria-label="关闭形象面板" onClick={onClose} autoFocus><X size={20} /></button></header>
+      <header><h2>情绪潮汐</h2><button type="button" aria-label="关闭形象面板" onClick={onClose} autoFocus><X size={20} /></button></header>
+      <div className="mood-overview">
       <PortraitState action={action} emotion={emotion} />
+      <div className="mood-observation"><strong className="mood-current">{meta.label}</strong>
       <p>{source} · 与公仔共用同一份情绪快照</p>
       {snapshot?.observedAt != null && <time dateTime={new Date(snapshot.observedAt).toISOString()}>观测于 {new Date(snapshot.observedAt).toLocaleString()}</time>}
+      </div></div>
       <dl>{rows.map(([name, value]) => <div key={name}><dt>{name}</dt><dd>{measurement(value)}</dd></div>)}</dl>
       <footer>{known ? '动作与公仔同步，依据当前会话运行状态和有效互动决定；全局情绪不覆盖任务事实。' : '任务状态待同步，当前立绘不代表空闲或正在工作。'}</footer>
     </>}

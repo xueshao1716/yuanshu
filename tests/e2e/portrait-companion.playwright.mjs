@@ -25,7 +25,7 @@ let browser;
 try {
   browser = await chromium.launch({ headless: true, ...(process.env.YUANSHU_CHROME_PATH ? { executablePath: process.env.YUANSHU_CHROME_PATH } : {}) });
   const results = [];
-  for (const viewport of [{ width: 1440, height: 900 }, { width: 390, height: 844 }]) {
+  for (const viewport of [{ width: 1440, height: 900 }, { width: 390, height: 844 }, { width: 320, height: 568 }, { width: 844, height: 390 }]) {
     const context = await browser.newContext({ viewport, acceptDownloads: true });
     const page = await context.newPage();
     const errors = [];
@@ -81,11 +81,14 @@ try {
     await panel.getByText('当前没有运行任务，可以安静休息。', { exact: true }).waitFor();
     assert.equal(decisions.length, 1);
     assert.equal(decisions[0].sessionId, 'isolated');
-    assert.match(await panel.innerText(), /该姿态素材待补/);
+    await panel.locator('.companion-portrait img').evaluate(img => img.decode());
+    assert.equal(await panel.getByText('该姿态素材待补，暂用基础立绘').count(), 0);
     const rect = await panel.boundingBox();
     assert.ok(rect.x >= 0 && rect.y >= 0 && rect.x + rect.width <= viewport.width + 1 && rect.y + rect.height <= viewport.height + 1, 'panel fits viewport');
     assert.equal(await panel.evaluate(el => el.scrollWidth <= el.clientWidth), true, 'no horizontal overflow');
     await page.screenshot({ path: path.join(output, `portrait-${viewport.width}.png`) });
+    if (viewport.width <= 600) assert.ok(rect.width >= viewport.width - 1, 'mobile uses full width sheet');
+    await panel.locator('.companion-settings > summary').click();
     const downloadPromise = page.waitForEvent('download');
     await panel.getByRole('link', { name: '下载当前立绘' }).click();
     const download = await downloadPromise;
@@ -108,6 +111,8 @@ try {
     assert.equal(decisions.length, 1, 'opening tide must not duplicate the behavior model call');
     const moodRect = await mood.boundingBox();
     assert.ok(moodRect.x >= 0 && moodRect.y >= 0 && moodRect.x + moodRect.width <= viewport.width + 1 && moodRect.y + moodRect.height <= viewport.height + 1);
+    assert.equal(await mood.evaluate(el => el.scrollWidth <= el.clientWidth), true, 'tide has no horizontal overflow');
+    await page.screenshot({ path: path.join(output, `mood-${viewport.width}.png`) });
     await page.keyboard.press('Escape');
     assert.equal(await mood.isVisible(), false);
     assert.equal(await tide.evaluate(el => el === document.activeElement), true);
@@ -121,6 +126,7 @@ try {
     assert.equal(await panel.count(), 0, 'drag must not open settings');
     assert.ok(await page.evaluate(() => !!localStorage.getItem('xiaoyu_pos')), 'drag position persists');
     await widget.click();
+    await panel.locator('.companion-settings > summary').click();
     await panel.getByRole('button', { name: '隐藏', exact: true }).click();
     await page.reload();
     await page.getByRole('button', { name: '显示真人公仔', exact: true }).click();

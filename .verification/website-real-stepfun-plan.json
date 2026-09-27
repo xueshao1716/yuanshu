@@ -1,0 +1,27 @@
+{
+  "requested": "stepfun-plan/step-5-preview",
+  "actual": "stepfun-plan/step-5-preview",
+  "status": "failed",
+  "error": "模型响应超时，已有内容和检查点保留",
+  "sections": 0,
+  "calls": [
+    {
+      "key": "plan",
+      "usedModel": {
+        "provider": "stepfun-plan",
+        "id": "step-5-preview"
+      },
+      "finishReason": "end_turn",
+      "truncated": false,
+      "budget": 16384,
+      "characters": 1643
+    },
+    {
+      "key": "section-1",
+      "budget": 16384,
+      "failed": true
+    }
+  ],
+  "liveFilesUnchanged": true,
+  "root": "C:\\Users\\XUEXIA~1\\AppData\\Local\\Temp\\yuanshu-website-real-awXzJw"
+}

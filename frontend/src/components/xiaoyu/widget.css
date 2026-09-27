@@ -7,12 +7,25 @@
   padding: 0 4px; border-radius: 14px; cursor: grab; touch-action: none; user-select: none;
 }
 .xiaoyu-widget[data-dragged="true"] { cursor: grabbing; }
+.companion-restore {
+  position: fixed; z-index: calc(var(--pi-z-topbar) + 1); display: grid; place-items: center;
+  width: 72px; height: 72px; padding: 4px; border: 1px solid color-mix(in srgb, var(--pi-accent) 38%, var(--pi-border));
+  border-radius: 24px; background: color-mix(in srgb, var(--pi-bg1) 86%, var(--pi-accent-soft));
+  color: var(--pi-text); box-shadow: 0 10px 28px rgb(0 0 0 / .22), 0 0 0 1px rgb(255 255 255 / .04);
+  cursor: grab; touch-action: none; user-select: none; animation: xiaoyu-float 4.6s ease-in-out infinite;
+}
+.companion-restore[data-dragged="true"] { cursor: grabbing; animation-play-state: paused; }
+.companion-restore::before { content: ''; position: absolute; inset: -5px; border-radius: inherit; border: 1px solid color-mix(in srgb, var(--pi-accent) 26%, transparent); opacity: .65; animation: xiaoyu-orbit 4.6s ease-in-out infinite; pointer-events: none; }
+.companion-restore .companion-portrait.is-compact { width: 58px; height: 58px; pointer-events: none; }
+.companion-restore .companion-portrait img { width: 100%; height: 100%; object-fit: contain; filter: drop-shadow(0 3px 4px rgb(0 0 0 / .2)); }
+.companion-restore-label { position: absolute; bottom: -19px; max-width: 80px; overflow: hidden; color: var(--pi-dim); font-size: 10px; line-height: 14px; text-overflow: ellipsis; white-space: nowrap; pointer-events: none; }
+.companion-restore:focus-visible { outline: 2px solid var(--pi-accent); outline-offset: 4px; }
 .xiaoyu-facing { display: block; width: 88px; height: 90px; pointer-events: none; }
 .xiaoyu-figure { display: flex; align-items: end; justify-content: center; width: 100%; height: 100%; transform-origin: 50% 95%; }
 .xiaoyu-figure img { width: 100%; height: 100%; object-fit: contain; filter: drop-shadow(0 4px 5px rgb(0 0 0 / .16)); }
 .xiaoyu-name {
   display: block; max-width: 88px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
-  padding: 2px 9px; border-radius: 12px; background: var(--pi-bg1); color: var(--pi-text); font-size: 11px; line-height: 18px;
+  margin-top: -6px; padding: 0 8px; border-radius: 12px; background: var(--pi-bg1); color: var(--pi-text); font-size: 11px; line-height: 16px;
 }
 .xiaoyu-image-fallback { display: grid; place-items: center; width: 72px; height: 72px; overflow: hidden; border-radius: 16px; background: var(--pi-bg2); font-size: 13px; }
 .xiaoyu-figure[data-animated="true"] { animation: xiaoyu-breathe 4.6s ease-in-out infinite; }
@@ -20,20 +33,20 @@
 .xiaoyu-figure[data-paused="true"] { animation-play-state: paused; }
 .xiaoyu-figure[data-greeting="true"] { animation: xiaoyu-greet .6s ease-out 1; }
 .xiaoyu-panel {
-  position: fixed; padding: 16px; overflow: auto; overscroll-behavior: contain; scrollbar-width: thin;
+  position: fixed; padding: 11px; overflow: auto; overscroll-behavior: contain; scrollbar-width: thin;
   scrollbar-color: var(--pi-border) transparent; color: var(--pi-text); background: var(--pi-bg1);
   border-radius: 16px; box-shadow: var(--pi-shadow-lg, 0 12px 36px rgb(0 0 0 / .18));
-  font-size: 13px; line-height: 1.5; user-select: text;
+  font-size: 13px; line-height: 1.32; user-select: text; overflow-wrap: break-word; word-break: normal;
 }
-.xiaoyu-panel-head { display: flex; justify-content: space-between; align-items: start; gap: 8px; margin-bottom: 18px; }
-.xiaoyu-panel-head h2 { font-size: 17px; font-weight: 650; line-height: 1.5; overflow-wrap: anywhere; }
-.xiaoyu-panel-head p { margin-top: 2px; font-size: 12px; }
+.xiaoyu-panel-head { display: flex; justify-content: space-between; align-items: start; gap: 8px; margin-bottom: 8px; }
+.xiaoyu-panel-head h2 { font-size: 17px; font-weight: 650; line-height: 1.4; overflow-wrap: break-word; word-break: normal; }
+.xiaoyu-panel-head p { margin-top: 1px; font-size: 12px; line-height: 1.35; }
 .xiaoyu-panel-head > button { flex: 0 0 44px; margin: -8px -8px 0 0; }
 .xiaoyu-panel button, .xiaoyu-panel a { min-height: 44px; display: inline-flex; align-items: center; justify-content: center; gap: 6px; border-radius: 8px; transition: background-color .15s ease-out; }
 .xiaoyu-panel :is(button, a):hover { background: var(--pi-bg2); }
 .xiaoyu-panel :is(button, a):focus-visible, .xiaoyu-widget:focus-visible { outline: 2px solid var(--pi-accent); outline-offset: 3px; }
-.xiaoyu-panel fieldset { min-width: 0; padding: 0; border: 0; margin-bottom: 16px; }
-.xiaoyu-panel legend { margin-bottom: 8px; font-size: 12px; font-weight: 650; }
+.xiaoyu-panel fieldset { min-width: 0; padding: 0; border: 0; margin-bottom: 8px; }
+.xiaoyu-panel legend { margin-bottom: 6px; font-size: 12px; font-weight: 650; }
 .xiaoyu-skin-options { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
 .xiaoyu-skin-options button { flex-direction: column; align-items: start; gap: 1px; padding: 9px 11px; background: var(--pi-bg2); text-align: left; }
 .xiaoyu-skin-options small { font-size: 11px; }
@@ -47,9 +60,17 @@
 .xiaoyu-version { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding-top: 4px; font-size: 11px; }
 .xiaoyu-version button { padding-inline: 8px; }
 .xiaoyu-version button:disabled { opacity: .55; cursor: wait; }
-.xiaoyu-update { overflow-wrap: anywhere; margin-top: 4px; font-size: 12px; }
+.xiaoyu-update { overflow-wrap: break-word; word-break: normal; margin-top: 4px; font-size: 12px; }
 @keyframes xiaoyu-breathe { 0%, 100% { transform: translateY(0) rotate(-.35deg); } 50% { transform: translateY(-2px) rotate(.35deg); } }
 @keyframes xiaoyu-step { 0%, 100% { transform: translateY(0) rotate(-1deg); } 50% { transform: translateY(-2px) rotate(1deg); } }
 @keyframes xiaoyu-greet { 0%, 100% { transform: rotate(0); } 45% { transform: rotate(-3deg); } 75% { transform: rotate(1deg); } }
+@keyframes xiaoyu-float { 0%, 100% { transform: translateY(0) rotate(-1deg); } 50% { transform: translateY(-5px) rotate(1deg); } }
+@keyframes xiaoyu-orbit { 0%, 100% { transform: scale(.96); opacity: .42; } 50% { transform: scale(1.04); opacity: .8; } }
 [data-reduced-motion="true"] .xiaoyu-figure { animation: none; }
+ [data-reduced-motion="true"].companion-restore, [data-reduced-motion="true"].companion-restore::before { animation: none; }
 @media (prefers-reduced-motion: reduce) { .xiaoyu-figure { animation: none !important; } .xiaoyu-panel :is(button, a) { transition: none; } }
+@media (max-width: 600px) {
+  .companion-restore { width: 64px; height: 64px; border-radius: 21px; }
+  .companion-restore .companion-portrait.is-compact { width: 52px; height: 52px; }
+  .companion-restore-label { bottom: -18px; }
+}

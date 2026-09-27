@@ -513,8 +513,10 @@ function pathInside(filePath, root) {
 /** 把适配器的 location 转成用户能理解的来源分组。 */
 export function classifySkillSource(filePath = "", declaredLocation = "") {
   const fp = String(filePath || "");
+  // 元枢仓库自带的 skills/ 是内置只读技能；必须先于普通 cwd/项目目录判断，
+  // 因为服务通常从 D:\\pi-web 启动，而 process.cwd()/skills 会覆盖同一路径。
+  if (pathInside(fp, BUILTIN_SKILLS_DIR)) return "builtin";
   const localRoots = [
-    BUILTIN_SKILLS_DIR,
     _cwd ? path.join(_cwd, "skills") : "",
     path.join(process.cwd(), "skills"),
   ];
@@ -524,8 +526,7 @@ export function classifySkillSource(filePath = "", declaredLocation = "") {
     path.join(os.homedir(), ".pi", "agent", "skills"),
     _getAgentDir() ? path.join(_getAgentDir(), "skills") : "",
   ];
-  // 适配器把 node_modules 和用户技能目录都视为已安装资源；仓库内
-  // skills/ 已在上面的 localRoots 中优先命中，避免把项目自建技能误判成线上包。
+  // 适配器把 node_modules 和用户技能目录都视为已安装资源。
   if (onlineRoots.some(root => pathInside(fp, root)) || declaredLocation === "user" || /node_modules[\\/]/i.test(fp)) return "online";
   if (declaredLocation === "project") return "local";
   return "builtin";

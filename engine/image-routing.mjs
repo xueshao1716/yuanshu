@@ -27,6 +27,15 @@ export function imageCandidates(models, intent = {}, prompt = '') {
 
 export async function runImageCandidates(candidates, generate) {
   const attempts = [];
+  // Only DNS/connection-establishment failures prove that no image request was accepted.
+  // Generic fetch failures and connection resets may occur after a billable submission.
+  const preConnectFailure = (e) => {
+    if (e?.status) return false;
+    const codes = new Set(['ENOTFOUND', 'EAI_AGAIN', 'ECONNREFUSED', 'UND_ERR_CONNECT_TIMEOUT']);
+    const cause = e?.cause || e;
+    if (Array.isArray(cause?.errors)) return cause.errors.length > 0 && cause.errors.every(x => codes.has(x?.code));
+    return codes.has(cause?.code);
+  };
   for (const m of candidates) {
     const model = `${m.provider}/${m.id}`;
     try {
@@ -37,7 +46,7 @@ export async function runImageCandidates(candidates, generate) {
     } catch (e) {
       attempts.push({ model, outcome: 'failed', ...(e.status ? { status: e.status } : {}) });
       // Do not retry policy/parameter errors, ambiguous timeouts or malformed successful responses.
-      if (![429, 502, 503, 504].includes(e.status) || attempts.length === candidates.length) {
+      if ((![429, 502, 503, 504].includes(e.status) && !preConnectFailure(e)) || attempts.length === candidates.length) {
         return { error: String(e.message || e), model, attempts };
       }
     }

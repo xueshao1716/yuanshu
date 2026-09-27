@@ -172,6 +172,7 @@ function PromiseSection() {
   const { data, mutate, isLoading } = useSWR('promises', () => PromiseApi.list(), { dedupingInterval: 15000 })
   const [busy, setBusy] = useState('')
   const [showClosed, setShowClosed] = useState(false)
+  const [msg, setMsg] = useState('')
   const pending = data?.pending || []
   const closed = data?.closed || []
   const overdue = pending.filter(p => p.overdue).length
@@ -181,8 +182,13 @@ function PromiseSection() {
     if (status === 'kept') {
       evidence = prompt(`标记「已兑现」：${p.text}\n\n写下可核查的证据（文件路径 / 测试名 / 提交号）。留空会记为「无证据」。`) || ''
     } else if (!confirm(`把「${p.text}」标记为不再需要？`)) return
-    setBusy(p.id)
-    try { await PromiseApi.close(p.id, status, evidence); await mutate() } catch {} finally { setBusy('') }
+    setBusy(p.id); setMsg('')
+    try {
+      const r = await PromiseApi.close(p.id, status, evidence)
+      if (!r?.ok) { setMsg(`销账失败：${r?.reason || '后台未确认写入'}`); return }
+      // 结清后强制从服务端重读，避免只改本地列表或命中旧缓存。
+      await mutate(undefined, { revalidate: true })
+    } catch (e: any) { setMsg('销账失败：' + (e?.message || e)) } finally { setBusy('') }
   }
 
   return (
@@ -196,6 +202,7 @@ function PromiseSection() {
       <p className="text-[11px] text-pi-dim2 px-1 mb-2">
         小语自己说过的「明天 / 回头 / 下次…」。下一轮对话会提醒它主动交代；结清只能由你给结论——系统不会自动判定「大概做了吧」。
       </p>
+      {msg && <div className="panel !p-2.5 text-xs text-pi-warning mb-2">{msg}</div>}
       {pending.length === 0 ? (
         <EmptyState icon={Handshake} title={isLoading ? '正在读取…' : '没有待兑现的承诺'} hint={isLoading ? undefined : '它下次说「回头给你」时，会出现在这里'} />
       ) : (

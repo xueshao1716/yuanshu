@@ -50,6 +50,52 @@ export async function createSession(name, { group } = {}) {
   return id;
 }
 
+// 从当前会话某条消息创建一个真正独立的新会话分支。
+// 与 sm.branch() 不同：原会话保持不变，新会话只继承目标消息的祖先链，
+// 用户切换过去后可以继续对话，也可以随时回到原会话。
+export async function cloneSessionFromEntry(sourceId, entryId, name = "") {
+  const source = await openSession(sourceId);
+  if (!source) throw new Error("源会话不存在");
+  const entries = Array.isArray(source.sm?.fileEntries)
+    ? source.sm.fileEntries
+    : (source.sm?.getFileEntries?.() || []);
+  const target = entries.find((e) => e?.id === entryId && e?.type === "message");
+  if (!target) throw new Error("找不到要分支的消息");
+
+  const byId = new Map(entries.filter((e) => e?.id).map((e) => [e.id, e]));
+  const keep = new Set([entryId]);
+  let cursor = target;
+  let guard = 0;
+  while (cursor?.parentId && guard++ < 2000) {
+    if (keep.has(cursor.parentId)) break;
+    keep.add(cursor.parentId);
+    cursor = byId.get(cursor.parentId);
+  }
+  const sourceHeader = entries.find((e) => e?.type === "session") || {};
+  const branchName = String(name || `分支 · ${source.sm?.getSessionName?.() || "当前会话"}`).slice(0, 120);
+  const newId = await createSession(branchName, { group: "workspace" });
+  const created = _activeSessions.get(newId);
+  const newFile = created?.sm?.getSessionFile?.();
+  if (!newFile) throw new Error("新会话文件创建失败");
+  const header = {
+    ...sourceHeader,
+    type: "session",
+    id: newId,
+    timestamp: new Date().toISOString(),
+    cwd: _cwd,
+  };
+  const info = { type: "session_info", id: `info_${Date.now().toString(36)}`, timestamp: new Date().toISOString(), name: branchName, group: "workspace" };
+  const copied = entries.filter((e) => e?.type !== "session" && e?.type !== "session_info" && (!e?.id || keep.has(e.id)));
+  fs.writeFileSync(newFile, [header, info, ...copied].map((e) => JSON.stringify(e)).join("\n") + "\n", "utf8");
+  invalidateSessionCache();
+  // createSession 已经把空会话放入活动表；换成带历史的实例，避免首轮上下文仍指向空文件。
+  try { created?.agent?.dispose?.(); } catch {}
+  _activeSessions.delete(newId);
+  const reopened = await openSession(newId);
+  if (!reopened) throw new Error("分支会话打开失败");
+  return { id: newId, name: branchName, sourceSessionId: sourceId, sourceEntryId: entryId };
+}
+
 // ── 活动会话 LRU 淘汰（防止长跑内存只增不减）──
 const MAX_ACTIVE_SESSIONS = 30; // 保留上限；超过后淘汰最久未用且不忙的会话
 export function evictInactiveSessions() {

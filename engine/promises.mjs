@@ -103,7 +103,7 @@ function savePromises(wsRoot, list, fsMod = fs) {
       const room = Math.max(0, MAX_RECORDS - open.length);
       next = [...closed.slice(-room), ...open].sort((a, b) => String(a.at).localeCompare(String(b.at)));
     }
-    atomicWriteText(promisePaths(wsRoot).file, JSON.stringify(next, null, 2));
+    atomicWriteText(promisePaths(wsRoot).file, JSON.stringify(next, null, 2), fsMod);
     return { ok: true, count: next.length };
   } catch (e) { return { ok: false, error: String(e?.message || e).slice(0, 80) }; }
 }
@@ -117,8 +117,8 @@ export function recordPromises(wsRoot, list, fsMod = fs) {
     const known = new Set(existing.map((p) => keyOf(p.text)));
     const added = incoming.filter((p) => !known.has(keyOf(p.text)));
     if (!added.length) return { ok: true, added: 0 };
-    savePromises(wsRoot, [...existing, ...added], fsMod);
-    return { ok: true, added: added.length };
+    const saved = savePromises(wsRoot, [...existing, ...added], fsMod);
+    return saved.ok ? { ok: true, added: added.length } : { ok: false, added: 0, error: saved.error };
   } catch (e) { return { ok: false, error: String(e?.message || e).slice(0, 80) }; }
 }
 
@@ -132,7 +132,8 @@ export function closePromise(wsRoot, id, { status = "kept", evidence = null, now
     hit.status = status;
     hit.evidence = evidence ? String(evidence).slice(0, 200) : null;
     hit.closedAt = (now instanceof Date ? now : new Date()).toISOString();
-    savePromises(wsRoot, list, fsMod);
+    const saved = savePromises(wsRoot, list, fsMod);
+    if (!saved.ok) return { ok: false, id, status, reason: `承诺账本写入失败：${saved.error || "未知错误"}` };
     return { ok: true, id, status };
   } catch (e) { return { ok: false, error: String(e?.message || e).slice(0, 80) }; }
 }
