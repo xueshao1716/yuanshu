@@ -42,7 +42,7 @@ export default function XiaoyuWidget({ companion, hidden, setHidden }: {
   </button>, document.body)
   return createPortal(<div ref={root} className="xiaoyu-companion" style={{ left: motion.position.x, top: motion.position.y }}
     data-reduced-motion={motion.reduced} data-large={large}>
-    <button ref={button} type="button" className="xiaoyu-widget" data-skin="portrait" data-dragged={motion.dragged}
+    <button ref={button} type="button" className="xiaoyu-widget" data-skin={skin} data-dragged={motion.dragged}
       aria-label={`${status.name} · ${companion.facts?.known ? ACTION_LABELS[companion.action] : '状态待同步'} · 打开陪伴面板`}
       aria-expanded={open} aria-controls={open ? 'xiaoyu-panel' : undefined} title="点击互动，拖动调整位置"
       onClick={e => { if (motion.consumeDrag() && e.detail !== 0) return; setOpen(v => !v) }} {...motion.handlers}>

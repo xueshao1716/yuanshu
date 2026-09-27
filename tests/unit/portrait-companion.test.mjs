@@ -15,6 +15,19 @@ test('portrait wardrobe has stable local presets and keeps legacy preferences sa
     assert.equal(skin.imageForSkin('portrait', frame), skin.imageForSkin('portrait'));
   }
 });
+test('alternate portrait gallery keeps action-driven state while changing outfit set', () => {
+  assert.ok(skin.GALLERIES.some(g => g.id === 'portrait'));
+  assert.ok(skin.GALLERIES.some(g => g.id === 'portrait-life'));
+  assert.equal(skin.normalizeSkin('portrait-life'), 'portrait-life');
+  const actions = ['working', 'reading', 'resting', 'daydreaming', 'listening', 'responding'];
+  for (const action of actions) {
+    const src = skin.imageForSkin('portrait-life', action);
+    assert.ok(src.startsWith('/assets/portraits/yuanshu-wardrobe-'));
+  }
+  const panel = fs.readFileSync(new URL('../../frontend/src/components/xiaoyu/WidgetPanel.tsx', import.meta.url), 'utf8');
+  assert.ok(panel.includes('切换状态图库'));
+  assert.ok(panel.includes('完整立绘组'));
+});
 test('old skins migrate to non-roaming portrait', () => {
   assert.equal(typeof skin.canRoam, 'function');
   assert.equal(skin.canRoam('portrait'), false);

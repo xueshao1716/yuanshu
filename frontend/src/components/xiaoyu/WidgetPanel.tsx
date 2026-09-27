@@ -2,7 +2,7 @@ import { useLayoutEffect, useRef, useState } from 'react'
 import { X, Download, RotateCcw, EyeOff } from 'lucide-react'
 import { panelPosition } from './widget-state.mjs'
 import { portraitFor, appearanceDescription } from './companion-state.mjs'
-import { imageForSkin, SKINS } from './widget-state.mjs'
+import { imageForSkin, GALLERIES } from './widget-state.mjs'
 import type { useWidgetMotion } from './useWidgetMotion'
 import type { useWidgetStatus } from './useWidgetStatus'
 import type { useCompanion } from './useCompanion'
@@ -75,17 +75,17 @@ export function WidgetPanel({ motion, status, companion: c, close, hide, resize,
       {handoff && <p role="status">{handoff}</p>}
     </form>
     <details className="companion-settings"><summary>陪伴设置与立绘</summary>
-    <fieldset><legend>换一套衣服</legend><div className="xiaoyu-skin-options">{SKINS.map(option =>
+    <fieldset><legend>切换状态图库</legend><div className="xiaoyu-skin-options">{GALLERIES.map(option =>
       <button key={option.id} type="button" aria-pressed={skin === option.id} onClick={() => chooseSkin(option.id)}>
         <span>{option.label}</span><small>{option.detail}</small>
       </button>,
-    )}</div><p className="xiaoyu-hint">衣服与状态分开：情绪仍由当前会话驱动，换装只改变外观。</p></fieldset>
+    )}</div><p className="xiaoyu-hint">切换的是完整立绘组：每组都有自己的衣服与动作，情绪和任务仍驱动组内状态变化。</p></fieldset>
     <label className="companion-dnd"><input type="checkbox" checked={c.dnd} disabled={!c.preferencesReady}
       onChange={e => void c.setDnd(e.target.checked)} />免打扰：不主动互动，不影响任务</label>
     <div className="xiaoyu-tools"><button type="button" onClick={motion.reset}><RotateCcw size={15} />归位</button>
       <button type="button" aria-pressed={large} onClick={resize}>{large ? '标准大小' : '放大立绘'}</button>
       <button type="button" onClick={hide}><EyeOff size={15} />隐藏</button></div>
-    <a href={skin === 'portrait' ? portraitFor(c.action).src : imageForSkin(skin)} download><Download size={15} />下载当前立绘</a>
+    <a href={skin === 'portrait' ? portraitFor(c.action).src : imageForSkin(skin, c.action)} download><Download size={15} />下载当前立绘</a>
     <footer className="xiaoyu-version"><span>元枢 {status.version ? `v${status.version}` : '版本读取中'}</span>
       <button type="button" disabled={status.checking} onClick={status.checkUpdate}>检查更新</button></footer>
     {status.update && <p className="xiaoyu-update" role="status">{status.update}</p>}

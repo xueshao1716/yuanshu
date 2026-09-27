@@ -7,6 +7,10 @@ export const SKINS = [
   { id: 'wardrobe-collar', label: '轻熟镂空', detail: '柔和光线 · 轻熟风' },
   { id: 'wardrobe-openai', label: '冷调人像', detail: '冷调棚拍 · 正式感' },
 ];
+export const GALLERIES = [
+  { id: 'portrait', label: '元枢状态组', detail: '原有状态立绘 · 随任务与情绪切换' },
+  { id: 'portrait-life', label: '生活状态组', detail: '另一套真人衣着与生活姿态' },
+];
 const SKIN_IMAGES = {
   'wardrobe-jk': '/assets/portraits/yuanshu-wardrobe-jk-v1.png',
   'wardrobe-skirt': '/assets/portraits/yuanshu-wardrobe-skirt-v1.png',
@@ -14,12 +18,24 @@ const SKIN_IMAGES = {
   'wardrobe-collar': '/assets/portraits/yuanshu-wardrobe-collar-v1.png',
   'wardrobe-openai': '/assets/portraits/yuanshu-wardrobe-openai-v1.png',
 };
+const LIFE_STATE_IMAGES = {
+  working: SKIN_IMAGES['wardrobe-trousers'],
+  reading: SKIN_IMAGES['wardrobe-jk'],
+  resting: SKIN_IMAGES['wardrobe-collar'],
+  daydreaming: SKIN_IMAGES['wardrobe-skirt'],
+  listening: SKIN_IMAGES['wardrobe-openai'],
+  responding: SKIN_IMAGES['wardrobe-jk'],
+  neutral: SKIN_IMAGES['wardrobe-trousers'],
+};
 const SKIN_IDS = new Set(SKINS.map(s => s.id));
-export const normalizeSkin = value => SKIN_IDS.has(value) ? value : 'portrait';
+const GALLERY_IDS = new Set(GALLERIES.map(s => s.id));
+export const normalizeSkin = value => SKIN_IDS.has(value) || GALLERY_IDS.has(value) ? value : 'portrait';
 export const normalizeMode = value => value === 'roam' ? 'roam' : 'corner';
 export const canRoam = _skin => false;
-export function imageForSkin(skin, frame = 'open') {
-  return SKIN_IMAGES[normalizeSkin(skin)] || portraitFor('neutral').src;
+export function imageForSkin(skin, action = 'neutral') {
+  const normalized = normalizeSkin(skin);
+  if (normalized === 'portrait-life') return LIFE_STATE_IMAGES[action] || LIFE_STATE_IMAGES.neutral;
+  return SKIN_IMAGES[normalized] || portraitFor('neutral').src;
 }
 export function clampPosition(point, viewport) {
   return {
