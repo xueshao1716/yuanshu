@@ -24,6 +24,7 @@ export function actionFor(facts, decision, ambient = {}) {
   if (facts.currentBusy) return facts.reading ? 'reading' : 'working';
   if (facts.otherBusy > 0) return 'working';
   if (decision && !['working', 'reading'].includes(decision.action) && ACTION_LABELS[decision.action]) return decision.action;
+  if (!ambient || !Number.isFinite(ambient.lastActivityAt)) return 'neutral';
   // No model decision is not the same as no state. Keep the portrait alive from
   // observable UI activity, without inventing work or claiming that the model is
   // reading/sleeping. This only controls presentation; task facts above win.
