@@ -3,5 +3,5 @@ Asset type: photorealistic desktop companion cutout
 Input image 1: identity reference only. Keep the SAME fictional adult East Asian woman (age 28), same face, bangs, long straight black hair and proportions. Do not copy the reference clothing.
 Style: natural editorial photograph, realistic skin, believable hands, not cartoon, not anime, not doll, not CGI.
 Composition: entire person, seat and activity props fully inside frame, feet visible, hands anatomically natural with realistic occlusion by the activity props. Compact vertical silhouette with generous empty margins. Soft even lighting. Use only a perfectly uniform bright green #00FF00 background for later extraction: no transparency, checkerboard, scenery, floor shadows, text or watermarks.
-Wardrobe: dusty-rose blazer over a white ribbed top, dark straight jeans and clean white sneakers; a distinct casual-smart outfit.
-Activity: She is seated upright on a small neutral stool, leaning forward slightly with attentive eye contact toward viewer, both hands resting naturally on knees, subtle engaged head tilt, neutral receptive expression. No book or laptop, not waving.
+Wardrobe: black academy blazer with a white shirt, charcoal vest, thin black tie and dark pleated skirt below the knee, silver crest pin and polished loafers; composed uniform styling, fully covered.
+Activity: She leans forward slightly from a chair, one hand resting near her knee and the other cupped behind one ear, making attentive eye contact as if listening closely to a person just outside frame. Warm, engaged posture.

@@ -1,0 +1,50 @@
+﻿[
+    {
+        "pose":  "working",
+        "status":  "succeeded",
+        "model":  "aieyra/gpt-image-2.5-sunburst",
+        "bytes":  1694641,
+        "seconds":  38.5,
+        "file":  "D:\\pi-web\\output\\imagegen\\portrait-poses-diagnostic-20260927-uniform-v2\\working.png"
+    },
+    {
+        "pose":  "reading",
+        "status":  "succeeded",
+        "model":  "aieyra/gpt-image-2.5-sunburst",
+        "bytes":  1704825,
+        "seconds":  39.5,
+        "file":  "D:\\pi-web\\output\\imagegen\\portrait-poses-diagnostic-20260927-uniform-v2\\reading.png"
+    },
+    {
+        "pose":  "resting",
+        "status":  "succeeded",
+        "model":  "aieyra/gpt-image-2.5-sunburst",
+        "bytes":  1881228,
+        "seconds":  38.5,
+        "file":  "D:\\pi-web\\output\\imagegen\\portrait-poses-diagnostic-20260927-uniform-v2\\resting.png"
+    },
+    {
+        "pose":  "daydreaming",
+        "status":  "succeeded",
+        "model":  "aieyra/gpt-image-2.5-sunburst",
+        "bytes":  1425090,
+        "seconds":  34.4,
+        "file":  "D:\\pi-web\\output\\imagegen\\portrait-poses-diagnostic-20260927-uniform-v2\\daydreaming.png"
+    },
+    {
+        "pose":  "listening",
+        "status":  "succeeded",
+        "model":  "aieyra/gpt-image-2.5-sunburst",
+        "bytes":  1592516,
+        "seconds":  36.7,
+        "file":  "D:\\pi-web\\output\\imagegen\\portrait-poses-diagnostic-20260927-uniform-v2\\listening.png"
+    },
+    {
+        "pose":  "responding",
+        "status":  "succeeded",
+        "model":  "aieyra/gpt-image-2.5-sunburst",
+        "bytes":  1423196,
+        "seconds":  33.6,
+        "file":  "D:\\pi-web\\output\\imagegen\\portrait-poses-diagnostic-20260927-uniform-v2\\responding.png"
+    }
+]

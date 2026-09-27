@@ -9,7 +9,9 @@ export const SKINS = [
 ];
 export const GALLERIES = [
   { id: 'portrait', label: '元枢状态组', detail: '原有状态立绘 · 随任务与情绪切换' },
-  { id: 'portrait-life', label: '生活状态组', detail: '另一套真人衣着与生活姿态' },
+  { id: 'portrait-life', label: '小语自绘组', detail: '真人学院制服 · 小语自选的六种状态（默认）' },
+  { id: 'portrait-uniform', label: '黑色制服组', detail: '黑色 JK / 学院制服 · 六种动作状态' },
+  { id: 'portrait-daily', label: '日常生活组', detail: '上一套日常服装 · 六种生活姿态' },
 ];
 const SKIN_IMAGES = {
   'wardrobe-jk': '/assets/portraits/yuanshu-wardrobe-jk-v1.png',
@@ -18,7 +20,25 @@ const SKIN_IMAGES = {
   'wardrobe-collar': '/assets/portraits/yuanshu-wardrobe-collar-v1.png',
   'wardrobe-openai': '/assets/portraits/yuanshu-wardrobe-openai-v1.png',
 };
-const LIFE_STATE_IMAGES = {
+const AUTHOR_STATE_IMAGES = {
+  working: '/assets/portraits/yuanshu-life-working-author-v1.webp',
+  reading: '/assets/portraits/yuanshu-life-reading-author-v1.webp',
+  resting: '/assets/portraits/yuanshu-life-resting-author-v1.webp',
+  daydreaming: '/assets/portraits/yuanshu-life-daydreaming-author-v1.webp',
+  listening: '/assets/portraits/yuanshu-life-listening-author-v1.webp',
+  responding: '/assets/portraits/yuanshu-life-responding-author-v1.webp',
+  neutral: '/assets/portraits/yuanshu-life-listening-author-v1.webp',
+};
+const UNIFORM_STATE_IMAGES = {
+  working: '/assets/portraits/yuanshu-life-working-v2.webp',
+  reading: '/assets/portraits/yuanshu-life-reading-v2.webp',
+  resting: '/assets/portraits/yuanshu-life-resting-v2.webp',
+  daydreaming: '/assets/portraits/yuanshu-life-daydreaming-v2.webp',
+  listening: '/assets/portraits/yuanshu-life-listening-v2.webp',
+  responding: '/assets/portraits/yuanshu-life-responding-v2.webp',
+  neutral: '/assets/portraits/yuanshu-life-listening-v2.webp',
+};
+const DAILY_STATE_IMAGES = {
   working: '/assets/portraits/yuanshu-life-working-v1.webp',
   reading: '/assets/portraits/yuanshu-life-reading-v1.webp',
   resting: '/assets/portraits/yuanshu-life-resting-v1.webp',
@@ -43,7 +63,9 @@ export function imageForSkin(skin, action = 'neutral') {
   // the gallery migration above.
   if (SKIN_IMAGES[skin]) return SKIN_IMAGES[skin];
   const normalized = normalizeSkin(skin);
-  if (normalized === 'portrait-life') return LIFE_STATE_IMAGES[action] || LIFE_STATE_IMAGES.neutral;
+  if (normalized === 'portrait-life') return AUTHOR_STATE_IMAGES[action] || AUTHOR_STATE_IMAGES.neutral;
+  if (normalized === 'portrait-uniform') return UNIFORM_STATE_IMAGES[action] || UNIFORM_STATE_IMAGES.neutral;
+  if (normalized === 'portrait-daily') return DAILY_STATE_IMAGES[action] || DAILY_STATE_IMAGES.neutral;
   return SKIN_IMAGES[normalized] || portraitFor('neutral').src;
 }
 export function clampPosition(point, viewport) {
