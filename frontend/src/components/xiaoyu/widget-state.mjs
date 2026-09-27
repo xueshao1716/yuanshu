@@ -21,22 +21,22 @@ const SKIN_IMAGES = {
   'wardrobe-openai': '/assets/portraits/yuanshu-wardrobe-openai-v1.png',
 };
 const AUTHOR_STATE_IMAGES = {
-  working: '/assets/portraits/yuanshu-life-working-author-v1.webp',
-  reading: '/assets/portraits/yuanshu-life-reading-author-v1.webp',
-  resting: '/assets/portraits/yuanshu-life-resting-author-v1.webp',
-  daydreaming: '/assets/portraits/yuanshu-life-daydreaming-author-v1.webp',
-  listening: '/assets/portraits/yuanshu-life-listening-author-v1.webp',
-  responding: '/assets/portraits/yuanshu-life-responding-author-v1.webp',
-  neutral: '/assets/portraits/yuanshu-life-listening-author-v1.webp',
+  working: '/assets/portraits/yuanshu-life-working-author-v2.webp',
+  reading: '/assets/portraits/yuanshu-life-reading-author-v2.webp',
+  resting: '/assets/portraits/yuanshu-life-resting-author-v2.webp',
+  daydreaming: '/assets/portraits/yuanshu-life-daydreaming-author-v2.webp',
+  listening: '/assets/portraits/yuanshu-life-listening-author-v2.webp',
+  responding: '/assets/portraits/yuanshu-life-responding-author-v2.webp',
+  neutral: '/assets/portraits/yuanshu-life-listening-author-v2.webp',
 };
 const UNIFORM_STATE_IMAGES = {
-  working: '/assets/portraits/yuanshu-life-working-v2.webp',
-  reading: '/assets/portraits/yuanshu-life-reading-v2.webp',
-  resting: '/assets/portraits/yuanshu-life-resting-v2.webp',
-  daydreaming: '/assets/portraits/yuanshu-life-daydreaming-v2.webp',
-  listening: '/assets/portraits/yuanshu-life-listening-v2.webp',
-  responding: '/assets/portraits/yuanshu-life-responding-v2.webp',
-  neutral: '/assets/portraits/yuanshu-life-listening-v2.webp',
+  working: '/assets/portraits/yuanshu-life-working-v3.webp',
+  reading: '/assets/portraits/yuanshu-life-reading-v3.webp',
+  resting: '/assets/portraits/yuanshu-life-resting-v3.webp',
+  daydreaming: '/assets/portraits/yuanshu-life-daydreaming-v3.webp',
+  listening: '/assets/portraits/yuanshu-life-listening-v3.webp',
+  responding: '/assets/portraits/yuanshu-life-responding-v3.webp',
+  neutral: '/assets/portraits/yuanshu-life-listening-v3.webp',
 };
 const DAILY_STATE_IMAGES = {
   working: '/assets/portraits/yuanshu-life-working-v1.webp',
