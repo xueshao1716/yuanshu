@@ -1,12 +1,25 @@
 import { portraitFor } from './companion-state.mjs';
 export const SKINS = [
-  { id: 'portrait', label: '写真人像', detail: '冷白 · 长发' },
+  { id: 'portrait', label: '状态立绘', detail: '随当前状态切换姿态' },
+  { id: 'wardrobe-jk', label: 'JK 制服', detail: '清爽学院风 · 百褶裙' },
+  { id: 'wardrobe-skirt', label: '卡其短裙', detail: '卡其色短裙 · 过膝袜' },
+  { id: 'wardrobe-trousers', label: '长裤通勤', detail: '简洁利落 · 日常工作' },
+  { id: 'wardrobe-collar', label: '轻熟镂空', detail: '柔和光线 · 轻熟风' },
+  { id: 'wardrobe-openai', label: '冷调人像', detail: '冷调棚拍 · 正式感' },
 ];
-export const normalizeSkin = _value => 'portrait';
+const SKIN_IMAGES = {
+  'wardrobe-jk': '/assets/portraits/yuanshu-wardrobe-jk-v1.png',
+  'wardrobe-skirt': '/assets/portraits/yuanshu-wardrobe-skirt-v1.png',
+  'wardrobe-trousers': '/assets/portraits/yuanshu-wardrobe-trousers-v1.png',
+  'wardrobe-collar': '/assets/portraits/yuanshu-wardrobe-collar-v1.png',
+  'wardrobe-openai': '/assets/portraits/yuanshu-wardrobe-openai-v1.png',
+};
+const SKIN_IDS = new Set(SKINS.map(s => s.id));
+export const normalizeSkin = value => SKIN_IDS.has(value) ? value : 'portrait';
 export const normalizeMode = value => value === 'roam' ? 'roam' : 'corner';
 export const canRoam = _skin => false;
 export function imageForSkin(skin, frame = 'open') {
-  return portraitFor('neutral').src;
+  return SKIN_IMAGES[normalizeSkin(skin)] || portraitFor('neutral').src;
 }
 export function clampPosition(point, viewport) {
   return {

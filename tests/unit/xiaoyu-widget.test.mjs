@@ -27,6 +27,12 @@ test('old skin preferences migrate to the same portrait identity', () => {
     assert.ok(imageForSkin(skin, 'open').includes('yuanshu-listening'));
   }
 });
+test('wardrobe presets resolve to local portrait assets', () => {
+  for (const id of ['wardrobe-jk', 'wardrobe-skirt', 'wardrobe-trousers', 'wardrobe-collar', 'wardrobe-openai']) {
+    assert.equal(normalizeSkin(id), id);
+    assert.ok(imageForSkin(id).startsWith('/assets/portraits/yuanshu-wardrobe-'));
+  }
+});
 test('drag detection measures travel from pointer origin, not clamp error', () => {
   assert.equal(movedEnough({ x: 100, y: 100 }, { x: 120, y: 100 }), true);
   assert.equal(movedEnough({ x: 100, y: 100 }, { x: 102, y: 101 }), false);
