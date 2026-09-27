@@ -5,6 +5,6 @@ export const CompanionApi = {
   facts: (sessionId: string) => api<CompanionFacts>(`/api/companion/facts?sessionId=${encodeURIComponent(sessionId)}`),
   preferences: () => api<{ dnd: boolean }>('/api/companion/preferences'),
   setDnd: (dnd: boolean) => api<{ dnd: boolean }>('/api/companion/preferences', { method: 'POST', body: { dnd } }),
-  decide: (body: { sessionId: string; contextEpoch: string; interactionId: string; trigger: Trigger; text: string; visible: boolean }, signal: AbortSignal) =>
+  decide: (body: { sessionId: string; contextEpoch: string; interactionId: string; trigger: Trigger; text: string; visible: boolean; currentAction?: string }, signal: AbortSignal) =>
     api<{ status: string; decision?: CompanionDecision }>('/api/companion/decision', { method: 'POST', body, signal }),
 }

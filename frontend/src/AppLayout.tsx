@@ -293,8 +293,8 @@ export default function AppLayout() {
           ) : pageArea}
         </div>
 
-        {/* 底部 TabBar：实底，不用玻璃 */}
-        <nav className="mobile-tab-bar flex flex-shrink-0 relative z-20 border-t border-pi-border bg-pi-bg1" aria-label="主要导航" inert={mobilePanelOpen}>
+        {/* 底部 TabBar：保留内容层次，同时让全面屏底部透出背景 */}
+        <nav className="mobile-tab-bar flex flex-shrink-0 relative z-20 border-t border-pi-border" aria-label="主要导航" inert={mobilePanelOpen}>
           {([
             { key: 'chat', icon: MessagesSquare, label: '对话', active: !mobileMoreOpen && route === 'chat' && mobileDrawer === 'none', onClick: () => { setMobileMoreOpen(false); setMobileDrawer('none'); nav('chat') } },
             { key: 'sessions', icon: FolderClosed, label: '会话', active: !mobileMoreOpen && mobileDrawer === 'sessions', onClick: () => { setMobileMoreOpen(false); setMobileDrawer('sessions') } },

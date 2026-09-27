@@ -51,6 +51,23 @@ html[data-app-shell="1"] .mobile-safe-top {
   font: 700 19px/1 var(--pi-font-display); box-shadow: var(--pi-shadow-sm);
 }
 .chat-section-head { display: flex; align-items: baseline; justify-content: space-between; gap: 16px; margin-bottom: 10px; }
+
+/* 对话顶栏保持层次但不再压成一整块实色：让桌面端的
+   「对话 / 执行中 / TUI右栏 / 导出」与内容区有轻微透气感，
+   同时用磨砂保证文字在滚动内容上仍然清楚。 */
+.chat-topbar {
+  background: transparent !important;
+  -webkit-backdrop-filter: blur(8px) saturate(112%);
+  backdrop-filter: blur(8px) saturate(112%);
+  border-bottom-color: color-mix(in srgb, var(--pi-border) 48%, transparent);
+}
+
+@supports not (background: color-mix(in srgb, black 50%, transparent)) {
+  .chat-topbar { background: transparent !important; }
+}
+
+/* 顶栏里的“就绪/执行中”只保留轮廓，不再叠一块深色底。 */
+.chat-topbar .status-pill { background: transparent !important; }
 .chat-section-head h2 { color: var(--pi-text); font-size: 14px; font-weight: 650; }
 .chat-section-head span { color: var(--pi-dim2); font-size: 12px; }
 .quick-action-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); border-top: 1px solid var(--pi-border-soft); border-left: 1px solid var(--pi-border-soft); }
@@ -2149,6 +2166,9 @@ button:focus:not(:focus-visible) { outline: none; }
 .mobile-tab-bar {
   min-height: calc(52px + env(safe-area-inset-bottom, 0px));
   padding-bottom: env(safe-area-inset-bottom, 0px);
+  background: color-mix(in srgb, var(--pi-bg1) 72%, transparent);
+  -webkit-backdrop-filter: blur(18px) saturate(1.15);
+  backdrop-filter: blur(18px) saturate(1.15);
 }
 .mobile-tab-button {
   min-height: 44px;

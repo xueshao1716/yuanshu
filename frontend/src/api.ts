@@ -744,6 +744,8 @@ export const SandboxApi = {
 }
 
 export interface MaintenanceView {
+  canConfirm?: boolean
+  pending?: { id: string; taskId: string; runId: string; reason: string; expiresAt: number }[]
   ok: boolean; sessionId: string; available: boolean; reason: string; message: string
   defaultDurationMs: number; maxDurationMs: number; lease: any | null; engine: 'yuanshu'
 }
@@ -757,6 +759,7 @@ export const MaintenanceApi = {
 export const SystemApi = {
   info: () => api<any>('/api/system/info'),
   checkUpdate: () => api<any>('/api/system/check-update'),
+  applyUpdate: (body?: { engine?: boolean }) => api<any>('/api/update/apply', { method: 'POST', body: body || {}, timeoutMs: 190000 }),
   saveNetwork: (body: { domains: { domain: string; desc: string }[] }) =>
     api<{ ok: boolean; domains: { domain: string; desc: string }[] }>('/api/system/network', { method: 'POST', body }),
 }

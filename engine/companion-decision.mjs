@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { coalesceCompanionRequests } from './companion-inflight.mjs';
-import { resolveAction } from './companion-facts.mjs';
+import { ACTIONS, resolveAction } from './companion-facts.mjs';
+import { appearanceFor, COMPANION_IDENTITY_PROMPT } from './companion-appearance.mjs';
 import { safeEmotion } from './emotion-display.mjs';
 import { COMPANION_PROMPT, validateCompanionOutput } from './companion-policy.mjs';
 export function compactMessages(messages) {
@@ -14,7 +15,7 @@ export function createCompanionDecision({ store, facts, emotion, readSession, ca
   return { decide: coalesceCompanionRequests(async (input, signal) => {
     const { sessionId, contextEpoch, interactionId } = input || {};
     if (![sessionId, contextEpoch, interactionId].every(x => typeof x === 'string' && x.length > 0 && x.length <= 160)) return { status: 'invalid_request' };
-    if (!['auto', 'tap', 'text', 'busy', 'rest'].includes(input.trigger) || typeof input.text !== 'undefined' && (typeof input.text !== 'string' || input.text.length > 500)) return { status: 'invalid_request' };
+    if (!['auto', 'tap', 'text', 'busy', 'rest'].includes(input.trigger) || typeof input.text !== 'undefined' && (typeof input.text !== 'string' || input.text.length > 500) || typeof input.currentAction !== 'undefined' && !ACTIONS.includes(input.currentAction)) return { status: 'invalid_request' };
     const auto = input.trigger === 'auto', key = JSON.stringify([sessionId, contextEpoch, interactionId]);
     for (const [id, value] of cache) if (value.at < now() - 3600000) cache.delete(id);
     if (cache.has(key)) return cache.get(key).value;
@@ -45,7 +46,8 @@ export function createCompanionDecision({ store, facts, emotion, readSession, ca
       if (!before.known) { status = 'facts_unavailable'; throw new Error(status); }
       const session = await Promise.race([cancelled, Promise.resolve().then(() => readSession(sessionId))]);
       if (!session?.model) { status = 'session_unavailable'; throw new Error(status); }
-      const prompt = JSON.stringify({ facts: before, emotion: safeEmotion(emotion.read()?.state),
+      const currentAppearance = appearanceFor(input.currentAction || 'neutral');
+      const prompt = JSON.stringify({ facts: before, currentAppearance: { action: input.currentAction || 'neutral', ...currentAppearance, identityPrompt: COMPANION_IDENTITY_PROMPT }, emotion: safeEmotion(emotion.read()?.state),
         messages: compactMessages(session.messages), interaction: { trigger: input.trigger, text: input.text || '' }, preferences: store.preferences() });
       const response = await Promise.race([cancelled, callModel(session.model, prompt, [], {
         systemHint: COMPANION_PROMPT, maxTokens: 700, timeout: timeoutMs, signal: controller.signal,

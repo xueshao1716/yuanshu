@@ -67,14 +67,17 @@ export async function handleUpdateCheck(res) {
     const run = (args) => new Promise((resolve) => {
       execFile("git", ["-C", import.meta.dirname, ...GIT_NO_PROXY, ...args], { encoding: "utf8", timeout: 20000 }, (err, stdout) => resolve({ ok: !err, out: String(stdout || "").trim() }));
     });
-    const [localR, remoteR, behindR] = await Promise.all([
+    const [localR, remoteR] = await Promise.all([
       run(["rev-parse", "HEAD"]),
       run(["ls-remote", "origin", "refs/heads/main"]),
-      run(["rev-list", "--count", "HEAD..origin/main"]),
     ]);
     const local = localR.ok ? localR.out : "";
     const remote = remoteR.ok ? remoteR.out.split(/\s+/)[0] : "";
-    const behind = behindR.ok ? parseInt(behindR.out, 10) || 0 : 0;
+    // 不读取本地 origin/main 的旧引用：它没有 fetch 就可能过期，甚至不存在，
+    // 这时 rev-list 会失败而被旧实现误报成 behind=0（“已是最新”）。
+    // 只在两个完整 SHA 都拿到时给出确定结论；提交数交给系统页的远端 API/后续拉取。
+    const comparable = !!local && !!remote;
+    const upToDate = comparable && local === remote;
     // 后端 pi 引擎版本：本地 vs npm 最新（用 CONFIG.piPackage 定位引擎包）
     let engineLocal = "", engineLatest = "";
     try {
@@ -95,9 +98,11 @@ export async function handleUpdateCheck(res) {
       ok: true,
       local: local.slice(0, 8),
       remote: remote.slice(0, 8),
-      behind,
-      upToDate: behind === 0,
-      hasRemote: !!remote && remote !== local,
+      behind: upToDate ? 0 : null,
+      upToDate,
+      hasRemote: comparable && remote !== local,
+      checkable: comparable,
+      warning: comparable ? "" : "无法取得本地或远端提交号，未判定为最新",
       // 引擎（后端）
       engineLocal,
       engineLatest,
@@ -133,9 +138,8 @@ export async function handleUpdateApply(res, body) {
       return json(res, 409, { error: "拉取冲突: " + pullR.err + "（本地有未提交改动，请先处理）" });
     }
     msgs.push("前端已更新");
-    // 更新成功 → 后台重启服务（detached，当前进程退出由 watchdog 接管）
-    const { execSync } = await import("node:child_process");
-    try { execSync(`taskkill /F /PID ${process.pid}`, { windowsHide: true }); } catch {}
+    // 更新成功 → 先把响应发回前端，再退出当前进程；由 watchdog 接管重启。
+    // 不能先 taskkill 当前 PID，否则“更新成功”响应会被掐掉，前端只会看到网络错误。
     json(res, 200, { ok: true, message: "更新成功（" + msgs.join(" + ") + "），服务重启中…（约 10 秒）" });
     // 延迟触发重启：由 watchdog 检测到服务挂了自动拉起新代码
     setTimeout(() => { try { process.exit(0); } catch {} }, 1500);

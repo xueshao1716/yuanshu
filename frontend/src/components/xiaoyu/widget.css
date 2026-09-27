@@ -1,9 +1,9 @@
 .xiaoyu-companion {
-  position: fixed; z-index: var(--pi-z-topbar); width: 96px; height: 112px;
+  position: fixed; z-index: var(--pi-z-topbar); width: 300px; height: 326px;
   color: var(--pi-text); font-family: var(--pi-font-sans, inherit);
 }
 .xiaoyu-widget {
-  display: flex; flex-direction: column; align-items: center; width: 96px; height: 112px;
+  display: flex; flex-direction: column; align-items: center; width: 300px; height: 326px;
   padding: 0 4px; border-radius: 14px; cursor: grab; touch-action: none; user-select: none;
 }
 .xiaoyu-widget[data-dragged="true"] { cursor: grabbing; }
@@ -24,7 +24,7 @@
 .xiaoyu-figure { display: flex; align-items: end; justify-content: center; width: 100%; height: 100%; transform-origin: 50% 95%; }
 .xiaoyu-figure img { width: 100%; height: 100%; object-fit: contain; filter: drop-shadow(0 4px 5px rgb(0 0 0 / .16)); }
 .xiaoyu-name {
-  display: block; max-width: 88px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  display: block; max-width: 280px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
   margin-top: -6px; padding: 0 8px; border-radius: 12px; background: var(--pi-bg1); color: var(--pi-text); font-size: 11px; line-height: 16px;
 }
 .xiaoyu-image-fallback { display: grid; place-items: center; width: 72px; height: 72px; overflow: hidden; border-radius: 16px; background: var(--pi-bg2); font-size: 13px; }
@@ -70,6 +70,11 @@
  [data-reduced-motion="true"].companion-restore, [data-reduced-motion="true"].companion-restore::before { animation: none; }
 @media (prefers-reduced-motion: reduce) { .xiaoyu-figure { animation: none !important; } .xiaoyu-panel :is(button, a) { transition: none; } }
 @media (max-width: 600px) {
+  .xiaoyu-companion { width: 92px; height: 112px; }
+  .xiaoyu-widget { width: 92px; height: 112px; }
+  .xiaoyu-name { max-width: 84px; }
+  .xiaoyu-companion[data-large="true"] { width: 118px; height: 144px; }
+  .xiaoyu-companion[data-large="true"] .xiaoyu-widget { width: 118px; height: 144px; }
   .companion-restore { width: 64px; height: 64px; border-radius: 21px; }
   .companion-restore .companion-portrait.is-compact { width: 52px; height: 52px; }
   .companion-restore-label { bottom: -18px; }

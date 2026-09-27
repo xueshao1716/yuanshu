@@ -25,8 +25,9 @@ export function useCompanion(enabled: boolean) {
     { refreshInterval: active ? 5000 : 0, revalidateOnFocus: true, dedupingInterval: 500 })
   const prefs = useSWR(authed ? ['companion-preferences', base, token] : null, CompanionApi.preferences, { refreshInterval: active ? 20000 : 0 })
   const facts = !error && data?.value.sessionId === sessionId && clock - data.receivedAt < 15000 ? data.value : null
-  const current = useRef({ sessionId, contextEpoch, facts, visible: active, now: clock })
-  current.current = { sessionId, contextEpoch, facts, visible: active, now: clock }
+  const current = useRef({ sessionId, contextEpoch, facts, visible: active, now: clock, currentAction: actionFor(facts, null, { now: clock, lastActivityAt }) })
+  current.current = { sessionId, contextEpoch, facts, visible: active, now: clock,
+    currentAction: actionFor(facts, decision, { now: clock, lastActivityAt }) }
   const accepted = acceptDecision(decision, current.current) ? decision : null
   const lastAuto = useRef('')
   const dnd = prefs.data?.dnd ?? true
@@ -77,7 +78,7 @@ export function useCompanion(enabled: boolean) {
     setPending(true); setFeedback(''); setDecision(null)
     try {
       const result = await CompanionApi.decide({ sessionId: basis.sessionId, contextEpoch: basis.contextEpoch,
-        interactionId: crypto.randomUUID(), trigger, text, visible: true }, controller.signal)
+        interactionId: crypto.randomUUID(), trigger, text, visible: true, currentAction: basis.currentAction }, controller.signal)
       if (controller !== abort.current || basis.contextEpoch !== current.current.contextEpoch) return
       if (result.status === 'ok' && acceptDecision(result.decision, { ...current.current, now: Date.now() })) setDecision(result.decision!)
       else if (trigger !== 'auto') setFeedback(result.status === 'rate_limited' || result.status === 'busy'

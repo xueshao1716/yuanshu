@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { MonitorCog, RefreshCw, CheckCircle2, AlertTriangle, Plus, Trash2, Save, Copy,
   MessagesSquare, Sparkles, Clock, Factory, Image, Brain, FlaskConical, Sprout, TerminalSquare, Globe,
   Server, GitBranch, Timer, Wifi, ChevronDown } from 'lucide-react'
@@ -36,10 +36,29 @@ export default function System() {
 
   const [update, setUpdate] = useState<any>(null)
   const [checking, setChecking] = useState(false)
+  const [applying, setApplying] = useState(false)
+  const [applyMsg, setApplyMsg] = useState('')
   const checkUpdate = async () => {
     setChecking(true); setUpdate(null)
     try { setUpdate(await SystemApi.checkUpdate()) } catch (e: any) { setUpdate({ ok: false, error: e?.message || String(e) }) } finally { setChecking(false) }
   }
+  const applyUpdate = async () => {
+    if (applying || !update?.ok || update.upToDate) return
+    if (!window.confirm('将拉取远端代码并重启服务，当前流式任务会中断。确定继续吗？')) return
+    setApplying(true); setApplyMsg('正在拉取更新…')
+    try {
+      const r = await SystemApi.applyUpdate()
+      setApplyMsg(r?.message || '更新已提交，服务正在重启…')
+    } catch (e: any) {
+      setApplyMsg(e?.message || '更新失败：请检查本地是否有未提交修改')
+    } finally { setApplying(false) }
+  }
+
+  // 系统页打开时自动做一次非阻塞检查；手动按钮仍可立即重试。
+  useEffect(() => {
+    if (!data || update || checking) return
+    void checkUpdate()
+  }, [data])
 
   const [rows, setRows] = useState<DomainRow[] | null>(null)
   const [copiedIp, setCopiedIp] = useState('')
@@ -146,7 +165,9 @@ export default function System() {
               ) : (
                 <div className="space-y-2">
                   <div className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-pi-md text-xs font-medium ${update.upToDate ? 'bg-pi-success/15 text-pi-success' : 'bg-pi-warning/15 text-pi-warning'}`}>
-                    {update.upToDate
+                    {update.checkable === false
+                      ? <><AlertTriangle className="w-3.5 h-3.5" aria-hidden="true" />暂时无法确认本机版本（本地提交号不可读）</>
+                      : update.upToDate
                       ? <><CheckCircle2 className="w-3.5 h-3.5" aria-hidden="true" />已是最新（{update.source} · 本地 {update.localSha}）</>
                       : <><AlertTriangle className="w-3.5 h-3.5" aria-hidden="true" />有更新：本地 {update.localSha} → 远端 {update.remote?.sha}</>}
                   </div>
@@ -158,7 +179,15 @@ export default function System() {
                       </div>
                     </>
                   )}
-                  <div><button type="button" className="btn-tool text-[11px] !px-2 !py-1" onClick={checkUpdate}>重新检测</button></div>
+                  {!update.upToDate && update.checkable !== false && (
+                    <button type="button" className="btn-primary text-[11px] !px-2 !py-1" disabled={applying} onClick={applyUpdate}>
+                      {applying ? '更新中…' : '更新并重启'}
+                    </button>
+                  )}
+                  <div className="flex items-center gap-2">
+                    <button type="button" className="btn-tool text-[11px] !px-2 !py-1" onClick={checkUpdate}>重新检测</button>
+                    {applyMsg && <span className="text-[11px] text-pi-dim2">{applyMsg}</span>}
+                  </div>
                 </div>
               )}
             </div>

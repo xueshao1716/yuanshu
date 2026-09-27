@@ -1,4 +1,11 @@
 export const ACTION_LABELS = { neutral: '静候', working: '工作中', reading: '阅读中', resting: '休息中', daydreaming: '放空中', listening: '倾听中', responding: '回应中' };
+export const APPEARANCE_DESCRIPTIONS = {
+  neutral: '真人女性形象，面向前方，安静地陪伴与等待。', working: '真人女性形象，坐在桌前专注看屏幕，处于工作姿态。',
+  reading: '真人女性形象，手持书本并低头阅读，处于阅读姿态。', resting: '真人女性形象，姿态放松，像是在短暂休息。',
+  daydreaming: '真人女性形象，视线游离、神情放空，处于发呆姿态。', listening: '真人女性形象，面向用户，安静倾听。',
+  responding: '真人女性形象，面向用户，正在回应。'
+};
+export function appearanceDescription(action) { return APPEARANCE_DESCRIPTIONS[action] || APPEARANCE_DESCRIPTIONS.neutral }
 // accepted means the asset passed local decode/alpha checks and is enabled for rendering.
 // These are state-specific真人姿态；动作仍由 companion facts + model decision 驱动。
 export const PORTRAITS = {

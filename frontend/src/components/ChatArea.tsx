@@ -8,14 +8,12 @@ import { RunApi, RunsApi, SessionsApi, AsrApi, AgentStatusApi, streamSession, Li
 import Message from './Message'
 import ChatMediaProvider from './ChatMediaProvider'
 import SendBox from './SendBox'
-import XiaoyuWidget from './XiaoyuWidget'
 import TurnList from './TurnList'
 import ChatRunStatus from './ChatRunStatus'
 import { useAutoScroll } from '../hooks/useAutoScroll'
 import { toast } from './Toast'
 import { emoTooltip } from '../lib/emotion'
-import { useCompanion } from './xiaoyu/useCompanion'
-import { readPreference, savePreference } from './xiaoyu/useWidgetMotion'
+import { useCompanionContext } from './xiaoyu/CompanionProvider'
 import { MoodOrb } from './MoodOrb'
 import { MoodPanel } from './MoodPanel'
 import type { FileAttachment } from './SendBox'
@@ -148,13 +146,9 @@ export default function ChatArea({ compactHeader, rightPanel, onRightPanel }: {
     ([, sid]: readonly [string, string]) => SessionsApi.messages(sid, { tail: 80 }),
     { revalidateOnFocus: true, revalidateOnReconnect: true, dedupingInterval: 3000 })
   const [orbPanelOpen, setOrbPanelOpen] = useState(false)
-  const [companionHidden, setCompanionHidden] = useState(() => readPreference('yuanshu_companion_hidden') === 'true')
-  const companion = useCompanion(!companionHidden || orbPanelOpen)
+  const companion = useCompanionContext()
   const companionEmotion = companion.emotion
   const { state: emoState, meta: emoMetaLive, publishEmotion } = companionEmotion
-  const changeCompanionHidden = (hidden: boolean) => {
-    setCompanionHidden(hidden); savePreference('yuanshu_companion_hidden', String(hidden))
-  }
   // ── 本地消息存储：从 IndexedDB 加载，与服务端数据合并 ──
   const [localMessages, setLocalMessages] = useState<ChatMessage[]>([])
   const [localLoaded, setLocalLoaded] = useState(false)
@@ -1022,11 +1016,11 @@ export default function ChatArea({ compactHeader, rightPanel, onRightPanel }: {
         <RefreshCw className={`w-4 h-4 text-pi-dim ${pull.spin ? 'animate-spin' : ''}`} strokeWidth={2} />
       </div>
       {/* 顶栏：手机端 48px（原来 56px 加上状态栏显得顶部过高），≥640px 回到 56px */}
-      <div className="flex items-center px-4 sm:px-5 h-12 sm:h-14 border-b border-pi-border bg-pi-bg1 flex-shrink-0 gap-2">
+      <div className="chat-topbar flex items-center px-4 sm:px-5 h-12 sm:h-14 border-b border-pi-border flex-shrink-0 gap-2">
         <div className="font-medium text-[15px] text-pi-text min-w-0 truncate">{compactHeader ? personaLabel : '对话'}</div>
         <div className="ml-auto" />
         {/* 执行状态（对标老版 .status-pill；aria-live 让屏幕阅读器感知流式开始/结束）*/}
-        <div role="status" aria-live="polite" className={`status-pill text-[11px] text-pi-dim flex items-center gap-1.5 px-2.5 py-1 rounded-full border bg-pi-bg2/50 ${liveCls}`}>
+        <div role="status" aria-live="polite" className={`status-pill text-[11px] text-pi-dim flex items-center gap-1.5 px-2.5 py-1 rounded-full border ${liveCls}`}>
           <span className={`status-dot ${dotCls} w-[7px] h-[7px] rounded-full flex-shrink-0`} />
           <span>{agentStatus === 'busy' ? (busyFromBackground ? '后台执行中' : '执行中') : agentStatus === 'error' ? '异常' : '就绪'}</span>
         </div>
@@ -1224,7 +1218,6 @@ export default function ChatArea({ compactHeader, rightPanel, onRightPanel }: {
             }} />
         </div>
       </div>
-          <XiaoyuWidget companion={companion} hidden={companionHidden} setHidden={changeCompanionHidden} />
 </div>
     </ChatMediaProvider>
   )

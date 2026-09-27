@@ -1,4 +1,5 @@
 import { createHash, randomUUID } from 'node:crypto';
+import { appearanceCatalog } from './companion-appearance.mjs';
 const ACTIVE = new Set(['queued', 'running', 'stopping', 'recovering']);
 const READ = new Set(['read', 'read_file', 'read_document_text', 'read_pdf']);
 export const ACTIONS = ['neutral', 'working', 'reading', 'resting', 'daydreaming', 'listening', 'responding'];
@@ -32,7 +33,8 @@ export function createCompanionFacts({ manager, activeSessions = () => [], now =
         }
       }
     } catch { known = false; currentBusy = false; otherBusy = 0; reading = false; evidenceIds = []; }
-    const facts = { sessionId: sessionId || null, known, currentBusy, otherBusy, reading, evidenceIds };
+    const facts = { sessionId: sessionId || null, known, currentBusy, otherBusy, reading, evidenceIds,
+      appearanceCatalog: appearanceCatalog() };
     const revision = createHash('sha256').update(JSON.stringify(facts)).digest('hex').slice(0, 24);
     return { ...facts, serverEpoch, revision, observedAt: now() };
   } };

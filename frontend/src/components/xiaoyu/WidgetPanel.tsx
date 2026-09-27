@@ -1,7 +1,7 @@
 import { useLayoutEffect, useRef, useState } from 'react'
 import { X, Download, RotateCcw, EyeOff } from 'lucide-react'
 import { panelPosition } from './widget-state.mjs'
-import { portraitFor } from './companion-state.mjs'
+import { portraitFor, appearanceDescription } from './companion-state.mjs'
 import type { useWidgetMotion } from './useWidgetMotion'
 import type { useWidgetStatus } from './useWidgetStatus'
 import type { useCompanion } from './useCompanion'
@@ -42,6 +42,7 @@ export function WidgetPanel({ motion, status, companion: c, close, hide, resize,
       <button ref={closeRef} type="button" onClick={close} aria-label="关闭陪伴面板"><X size={18} /></button></header>
     <div className="companion-overview">
     <PortraitState action={c.action} emotion={c.emotion} />
+    <p className="companion-appearance-note">当前立绘：{appearanceDescription(c.action)}</p>
     <section className="companion-emotion" aria-label="与情绪潮汐同步">
       <strong>情绪潮汐 · {c.emotion.meta.label}</strong><p>{emotionLabel}</p>
       {c.emotion.snapshot?.observedAt && <time dateTime={new Date(c.emotion.snapshot.observedAt).toISOString()}>

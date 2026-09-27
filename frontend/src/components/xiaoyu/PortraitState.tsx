@@ -14,7 +14,7 @@ export function PortraitState({ action, emotion, compact = false }: { action: Co
       alt={`元枢 AI 真人形象${asset.missing ? ' · 基础立绘' : ''}`} draggable={false} onError={() => setFailed(true)} />}
     {!compact && <figcaption><strong>{ACTION_LABELS[action]}</strong>
       {asset.missing && <span>该姿态素材待补，暂用基础立绘</span>}
-      <span>AI 生成虚构成人形象 · 休息为呈现状态</span>
+      <span>真人形象 · 状态随情绪变化</span>
     </figcaption>}
   </Tag>
 }

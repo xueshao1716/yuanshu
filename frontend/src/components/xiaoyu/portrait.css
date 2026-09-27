@@ -15,10 +15,12 @@
   filter: drop-shadow(0 0 10px hsl(var(--portrait-hue) 45% 60% / calc(var(--portrait-glow) * .35))); }
 .companion-portrait figcaption { display: flex; flex-direction: column; gap: 2px; width: 100%; }
 .companion-portrait figcaption span { font-size: 11px; color: var(--pi-dim); }
-.companion-portrait.is-compact { height: 88px; width: 88px; pointer-events: none; }
+.companion-portrait.is-compact { height: 286px; width: 286px; pointer-events: none; }
 .companion-portrait.is-compact img { height: 100%; animation: xiaoyu-portrait-breathe var(--portrait-period, 5s) ease-in-out infinite; }
-.xiaoyu-companion[data-large="true"] .xiaoyu-widget { height: 190px; }
-.xiaoyu-companion[data-large="true"] .is-compact { height: 162px; }
+.xiaoyu-companion[data-large="true"] .is-compact { height: 158px; width: 158px; }
+.xiaoyu-companion[data-large="true"] { width: 300px; height: 326px; }
+.xiaoyu-companion[data-large="true"] .xiaoyu-widget { width: 300px; height: 326px; }
+.xiaoyu-companion[data-large="true"] .is-compact { height: 286px; width: 286px; }
 .companion-emotion { padding-block: 8px; border-block: 1px solid var(--pi-border-soft); margin-top: 8px; }
 .companion-emotion p, .companion-emotion time { display: block; font-size: 11px; color: var(--pi-dim); }
 .companion-response { padding-block: 7px; overflow-wrap: break-word; word-break: normal; }
@@ -42,9 +44,10 @@
 .companion-panel .xiaoyu-panel-head { position: sticky; top: -16px; z-index: 1; background: var(--pi-bg1); padding-block: 12px; margin-bottom: 8px; }
 .companion-panel .xiaoyu-panel-head p { color: var(--pi-dim); }
 .companion-overview { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 10px; align-items: center; }
-.companion-overview .companion-portrait img { height: 135px; }
+.companion-overview .companion-portrait img { height: 168px; }
 .companion-overview .companion-portrait figcaption { gap: 5px; }
 .companion-overview .companion-emotion { margin: 0; border: 0; padding: 0; }
+.companion-appearance-note { grid-column: 1 / -1; margin: -2px 0 0; color: var(--pi-dim); font-size: 11px; line-height: 1.35; }
 .companion-emotion strong { font-size: 15px; }
 .companion-emotion p { margin-block: 4px; }
 .companion-response { margin-block: 7px 6px; padding: 7px 0; border-block: 1px solid var(--pi-border-soft); font-size: 14px; line-height: 1.4; }
@@ -56,6 +59,8 @@
 .companion-settings > summary { padding-block: 8px; cursor: pointer; font-size: 13px; color: var(--pi-dim); }
 .companion-dnd input { width: 20px; height: 20px; flex-shrink: 0; accent-color: var(--pi-accent); }
 @media (max-width: 600px) {
+  .xiaoyu-companion .companion-portrait.is-compact { width: 78px; height: 78px; }
+  .xiaoyu-companion[data-large="true"] .is-compact { width: 110px; height: 110px; }
   .xiaoyu-panel.companion-panel { inset: auto 0 0; width: 100%; box-sizing: border-box;
     max-height: calc(100dvh - env(safe-area-inset-top, 0px) - 12px); border-radius: 24px 24px 0 0;
     padding: 8px max(16px, env(safe-area-inset-right, 0px)) max(16px, env(safe-area-inset-bottom, 0px)) max(16px, env(safe-area-inset-left, 0px));
@@ -63,6 +68,6 @@
   .companion-panel .xiaoyu-panel-head { top: -10px; margin-bottom: 2px; }
   .companion-panel .xiaoyu-panel-head > button { margin: 0; }
   .companion-panel .xiaoyu-panel-head h2 { font-size: 17px; }
-  .companion-overview .companion-portrait img { height: clamp(92px, 16dvh, 132px); }
+  .companion-overview .companion-portrait img { height: clamp(78px, 13dvh, 108px); }
   .companion-panel .companion-actions button { min-height: 44px; font-size: 13px; padding-inline: 4px; }
 }

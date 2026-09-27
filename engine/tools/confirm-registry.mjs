@@ -19,7 +19,7 @@ function register(sessionId, payload, timeoutMs = DEFAULT_TIMEOUT_MS) {
   }, timeoutMs);
   // 不阻止进程退出
   if (timer.unref) timer.unref();
-  pending.set(k, { payload: { ...payload, id }, resolve, timer });
+  pending.set(k, { payload: { ...payload, id, sessionId, expiresAt: Date.now() + timeoutMs }, resolve, timer });
   return { id, promise, sessionId, key: k };
 }
 

@@ -8,9 +8,40 @@ import { chromium } from 'playwright';
 import { createSandboxApi } from '../../engine/sandbox-api.mjs';
 import { createMaintenanceApi } from '../../engine/maintenance-api.mjs';
 import { startMaintenanceFixture } from './fixtures/maintenance-server.mjs';
+import * as confirmations from '../../engine/tools/confirm-registry.mjs';
 let fixture, browser;
 before(async () => { fixture = await startMaintenanceFixture(); browser = await chromium.launch({ headless: true }); });
 after(async () => { await browser?.close(); await fixture?.server.close(); });
+
+test('approval is visible in the requesting panel and recoverable after reload', { timeout: 60000 }, async t => {
+  const context = await browser.newContext({ viewport: { width: 390, height: 1000 } });
+  t.after(async () => { confirmations.cancelAll('A'); await context.close(); });
+  const service = createMaintenanceApi({ sessionExists: id => id === 'A', requestApproval: body => confirmations.register('A', { toolName: 'maintenance', taskId: body.taskId, runId: body.runId, reason: '请求超维模式（1 小时）' }).promise });
+  await context.route('**/api/**', async route => {
+    const request = route.request(), url = new URL(request.url());
+    let result = { status: 200, body: {} };
+    if (url.pathname === '/api/maintenance/status') {
+      result = service.status('A'); result.body.canConfirm = true;
+      result.body.pending = confirmations.list().filter(x => x.sessionId === 'A');
+    } else if (url.pathname === '/api/maintenance/requests') result = await service.request(request.postDataJSON());
+    else if (url.pathname === '/api/agent/confirm') {
+      const body = request.postDataJSON(); result.body = confirmations.settle(body.sessionId, body.id, body.ok);
+    }
+    await route.fulfill({ status: result.status, json: result.body }).catch(() => {});
+  });
+  const page = await context.newPage();
+  await page.goto(fixture.origin + '/__maintenance');
+  await page.getByLabel('测试会话').selectOption('A');
+  await page.getByRole('button', { name: '请求本机确认并启用', exact: true }).click();
+  await page.getByRole('button', { name: '批准本次超维授权', exact: true }).waitFor();
+  assert.equal(service.status('A').body.lease, null);
+  await page.reload();
+  await page.getByLabel('测试会话').selectOption('A');
+  await page.getByRole('button', { name: '批准本次超维授权', exact: true }).click();
+  await page.getByRole('button', { name: '撤销当前超维授权', exact: true }).waitFor();
+  assert.equal(service.status('A').body.lease.state, 'active');
+  assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
+});
 
 for (const width of [1440, 390]) test(`maintenance and sandbox real components at ${width}px`, { timeout: 120000 }, async t => {
   const agentDir = fs.mkdtempSync(path.join(os.tmpdir(), 'yuanshu-maintenance-ui-'));

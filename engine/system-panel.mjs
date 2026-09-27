@@ -124,7 +124,10 @@ export async function checkUpdate(repoDir, fsMod = fs) {
       if (!resp.ok) { lastErr = new Error(`${s.name} 返回 ${resp.status}`); continue; }
       const remote = s.pick(await resp.json());
       if (!remote.sha) continue;
-      return { ok: true, source: s.name, localSha, remote, upToDate: !localShaFull || localSha === remote.sha };
+      // 远端 API 只保留短 SHA；本地必须有提交号且前缀一致，才可确认“已是最新”。
+      // 本地提交号缺失时保持未知，不能把未知当成最新。
+      const upToDate = !!localShaFull && localSha === remote.sha;
+      return { ok: true, source: s.name, localSha, remote, upToDate, checkable: !!localShaFull };
     } catch (e) { lastErr = e; }
   }
   return { ok: false, error: "无法连接 github / gitee：" + (lastErr?.message || "网络不可达"), localSha };

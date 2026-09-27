@@ -2,6 +2,8 @@ export type CompanionAction = 'neutral' | 'working' | 'reading' | 'resting' | 'd
 export interface CompanionFacts { sessionId: string; serverEpoch: string; revision: string; observedAt: number; known: boolean; currentBusy: boolean; otherBusy: number; reading: boolean; evidenceIds: string[] }
 export interface CompanionDecision { sessionId: string; contextEpoch: string; serverEpoch: string; basisRevision: string; expiresAt: number; action: CompanionAction; utterance: string; reason: string; decisionId: string; shouldInterrupt: boolean; actualModel: { provider: string; id: string } }
 export const ACTION_LABELS: Record<CompanionAction, string>;
+export const APPEARANCE_DESCRIPTIONS: Record<CompanionAction, string>;
+export function appearanceDescription(action: CompanionAction): string;
 export const PORTRAITS: Record<string, { src: string; accepted: boolean }>;
 export function portraitFor(action: string, manifest?: typeof PORTRAITS): { src: string; missing: boolean };
 export function actionFor(facts: CompanionFacts | null | undefined, decision?: CompanionDecision | null, ambient?: { now?: number; lastActivityAt?: number }): CompanionAction;

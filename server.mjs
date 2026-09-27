@@ -111,6 +111,7 @@ import { initUnifiedChat, unifiedChat, engineCurrentModel, initEngine, getCodeRu
 import { completedTaskText } from "./engine/task-continuation.mjs";
 import { createApprovalInterceptor } from "./engine/tools/approval.mjs";
 import * as confirmRegistry from "./engine/tools/confirm-registry.mjs";
+import { isLocalMaintenanceApproval } from "./engine/maintenance-approval.mjs";
 import { initRefineApi, readRefineJson, runRefineScript, handleRefineStatus, handleRefineList, detectSkillDomain, handleRefineFeedback, handleRefineGenes, handleRefinePlan, handleRefineApprove, handleRefineReject, handleRefineRollback } from "./engine/refine-api.mjs";
 import { initMcpServer, handleMcp } from "./engine/mcp-server.mjs";
 import { initMcpChat } from "./engine/mcp-chat.mjs";
@@ -159,6 +160,7 @@ const { createCompanionStore } = await import('./engine/companion-store.mjs');
 const { createCompanionDecision } = await import('./engine/companion-decision.mjs');
 const { createCompanionSessionReader } = await import('./engine/companion-session.mjs');
 const { createCompanionRoutes } = await import('./engine/companion-api.mjs');
+const { appearanceCatalog, COMPANION_IDENTITY_PROMPT } = await import('./engine/companion-appearance.mjs');
 const companionEmotion = createEmotionDisplay({ peek: emotion.peekLatestObservation });
 emotion.init(CONFIG.cwd); // 基因系统：加载人格基因 + 提案池
 emotion.setMemoryNudgeHook((info) => { try { proposeMemoryNudge(info); } catch {} }); // 情绪→记忆联动（09-03）：residue 跨阈值自动提案记忆写入
@@ -1426,6 +1428,18 @@ async function handleChat(req, res, body) {
     const prevTalkAt = (() => { try { return Number(emotion.getSnapshot(sessKey)?.lastTalk) || 0; } catch { return 0; } })();
     emotion.updateEmotion(sessKey, message);
     const emoPrompt = emotion.emotionPrompt(sessKey, message);
+    // 公仔自我认知：模型没有视觉输入，需把当前系统支持的真人立绘语义描述明确交给它。
+    // 仅在相关问题出现时注入，避免给普通对话增加无关上下文。
+    if (/(公仔|立绘|形象|长什么样|外观|姿态)/.test(message)) {
+      try {
+        const catalog = appearanceCatalog();
+        const lines = Object.entries(catalog).map(([action, item]) => `${item.label}（${action}）：${item.description}`).join('；');
+        await entry.agent?.sendCustomMessage?.(
+          { customType: 'context', content: [{ type: 'text', text: `【公仔形象事实】你不能直接看见图片，不要声称看到了图片。当前前端使用真人立绘，并按实时动作在这些外观之间切换：${lines}。这套真人形象的母提示词是：${COMPANION_IDENTITY_PROMPT}。如果用户问“你自己的公仔长什么样”或“提示词是什么”，可以用自然语言概括这份母提示词；不要编造衣着、发型、背景等未提供细节。无法确定此刻动作时，明确说当前动作由界面实时状态决定。` }] },
+          { deliverAs: 'nextTurn' }
+        );
+      } catch {}
+    }
     // 自我认知：仅当用户问"你是谁/介绍自己"等身份问题时注入固定答案（不主动开场白）
     let promptMsg = message;
     const isIdentityAsk = /^(你是谁|你叫什么|你叫啥|你是谁啊|介绍一下你|介绍下你自己|自我介绍|你是做什么|你是干什么|干嘛的|干什么的|什么身份|你.{0,3}(?:多大|几岁)|(?:多大|几岁)了|年龄|生日|出生|你有哪.{0,4}能力|你能.{0,6}做.{0,4}什么)/.test(message) && message.length < 80;
@@ -2420,6 +2434,10 @@ const API_ROUTES = [
   }],
   ["GET", "/api/maintenance/status", (res, req, url) => {
     const r = maintenanceApi.status(url.searchParams.get("session"));
+    if (r.status === 200) {
+      r.body.canConfirm = isLocalMaintenanceApproval(req);
+      r.body.pending = confirmRegistry.list().filter(item => item.sessionId === r.body.sessionId && item.toolName === 'maintenance').map(({ id, taskId, runId, reason, expiresAt }) => ({ id, taskId, runId, reason, expiresAt }));
+    }
     json(res, r.status, r.body);
   }],
   ["POST", "/api/maintenance/requests", async (res, req) => {
@@ -2871,6 +2889,8 @@ const API_ROUTES = [
       const id = String(b?.id || "");
       const ok = b?.ok === true;
       if (!sid || !id) return json(res, 400, { error: "缺少 sessionId/id" });
+      const pending = confirmRegistry.list().find(item => item.sessionId === sid && item.id === id);
+      if (ok && pending?.toolName === 'maintenance' && !isLocalMaintenanceApproval(req)) return json(res, 403, { error: '请在运行元枢的电脑上，通过 http://127.0.0.1:8787 的超维面板人工确认。远程入口不能批准。' });
       const r = confirmRegistry.settle(sid, id, ok);
       json(res, 200, r);
     } catch (e) { json(res, 500, { error: String(e?.message || e) }); }
