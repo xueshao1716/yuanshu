@@ -92,7 +92,11 @@ export function useCompanion(enabled: boolean) {
   // Re-evaluate ambient interaction once per minute even when no run/revision changed.
   // The server still rate-limits and validates the decision, so this cannot create a
   // task loop or background work storm.
-  const inputKey = `${contextEpoch}:${facts?.serverEpoch}:${facts?.revision}:${emotion.snapshot?.serverEpoch}:${emotion.snapshot?.revision}:${Math.floor(clock / 60000)}`
+  // 空闲阶段本身也是环境事实：不要等到整分钟才重新评估，否则休息/放空
+  // 和主动陪伴会显得“卡住”。服务端仍有 30 秒窗口限频，前端只在阶段
+  // 变化时唤起一次模型，不会形成任务循环。
+  const idlePhase = Math.floor(Math.max(0, clock - lastActivityAt) / 30_000)
+  const inputKey = `${contextEpoch}:${facts?.serverEpoch}:${facts?.revision}:${emotion.snapshot?.serverEpoch}:${emotion.snapshot?.revision}:${idlePhase}`
   useEffect(() => {
     if (!shouldAutoDecide({ visible: active, dnd, sessionId, known: !!facts?.known, key: inputKey, previous: lastAuto.current, pending, currentBusy: facts?.currentBusy })) return
     const timer = setTimeout(() => { lastAuto.current = inputKey; void interact('auto') }, 500)
