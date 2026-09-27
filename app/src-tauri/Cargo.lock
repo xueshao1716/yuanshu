@@ -4937,7 +4937,7 @@ dependencies = [
 
 [[package]]
 name = "yuanshu"
-version = "2.116.22"
+version = "2.116.23"
 dependencies = [
  "serde",
  "serde_json",

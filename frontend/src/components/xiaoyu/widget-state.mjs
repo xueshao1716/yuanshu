@@ -29,10 +29,19 @@ const LIFE_STATE_IMAGES = {
 };
 const SKIN_IDS = new Set(SKINS.map(s => s.id));
 const GALLERY_IDS = new Set(GALLERIES.map(s => s.id));
-export const normalizeSkin = value => SKIN_IDS.has(value) || GALLERY_IDS.has(value) ? value : 'portrait';
+export const normalizeSkin = value => {
+  if (GALLERY_IDS.has(value)) return value;
+  // Migrate the previous fixed-outfit preference to the complete alternate
+  // gallery so an upgrade never leaves the companion frozen on one image.
+  if (SKIN_IDS.has(value)) return value === 'portrait' ? 'portrait' : 'portrait-life';
+  return 'portrait';
+};
 export const normalizeMode = value => value === 'roam' ? 'roam' : 'corner';
 export const canRoam = _skin => false;
 export function imageForSkin(skin, action = 'neutral') {
+  // Keep direct callers of the legacy helper stable while UI preferences use
+  // the gallery migration above.
+  if (SKIN_IMAGES[skin]) return SKIN_IMAGES[skin];
   const normalized = normalizeSkin(skin);
   if (normalized === 'portrait-life') return LIFE_STATE_IMAGES[action] || LIFE_STATE_IMAGES.neutral;
   return SKIN_IMAGES[normalized] || portraitFor('neutral').src;

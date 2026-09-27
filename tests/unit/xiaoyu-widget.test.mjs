@@ -29,7 +29,7 @@ test('old skin preferences migrate to the same portrait identity', () => {
 });
 test('wardrobe presets resolve to local portrait assets', () => {
   for (const id of ['wardrobe-jk', 'wardrobe-skirt', 'wardrobe-trousers', 'wardrobe-collar', 'wardrobe-openai']) {
-    assert.equal(normalizeSkin(id), id);
+    assert.equal(normalizeSkin(id), 'portrait-life');
     assert.ok(imageForSkin(id).startsWith('/assets/portraits/yuanshu-wardrobe-'));
   }
 });

@@ -6,6 +6,7 @@ import * as skin from '../../frontend/src/components/xiaoyu/widget-state.mjs';
 test('portrait wardrobe has stable local presets and keeps legacy preferences safe', () => {
   assert.equal(skin.normalizeSkin('portrait'), 'portrait');
   assert.equal(skin.normalizeSkin(null), 'portrait');
+  assert.equal(skin.normalizeSkin('wardrobe-jk'), 'portrait-life');
   assert.ok(skin.SKINS.length >= 5);
   assert.ok(skin.SKINS.some(s => s.id === 'wardrobe-jk'));
   assert.equal(skin.imageForSkin('portrait'), '/assets/portraits/yuanshu-listening-v1.webp');
