@@ -23,7 +23,7 @@ test('alternate portrait gallery keeps action-driven state while changing outfit
   const actions = ['working', 'reading', 'resting', 'daydreaming', 'listening', 'responding'];
   for (const action of actions) {
     const src = skin.imageForSkin('portrait-life', action);
-    assert.ok(src.startsWith('/assets/portraits/yuanshu-wardrobe-'));
+    assert.ok(src.startsWith('/assets/portraits/yuanshu-life-'));
   }
   const panel = fs.readFileSync(new URL('../../frontend/src/components/xiaoyu/WidgetPanel.tsx', import.meta.url), 'utf8');
   assert.ok(panel.includes('切换状态图库'));
@@ -49,6 +49,16 @@ test('portrait assets are packaged locally and preview disclosure is explicit', 
     assert.equal(data.toString('ascii', 8, 12), 'WEBP');
     assert.ok(data.length > 1000 && data.length < 800000);
   }
+  const life = ['working', 'reading', 'resting', 'daydreaming', 'listening', 'responding'];
+  const hashes = new Set();
+  for (const name of life.map(n => `yuanshu-life-${n}-v1.webp`)) {
+    const data = fs.readFileSync(new URL('../../frontend/public/assets/portraits/' + name, import.meta.url));
+    assert.equal(data.toString('ascii', 0, 4), 'RIFF');
+    assert.equal(data.toString('ascii', 8, 12), 'WEBP');
+    assert.ok(data.length > 30000);
+    hashes.add(data.toString('base64').slice(0, 120));
+  }
+  assert.equal(hashes.size, life.length, '生活状态图库不能复用同一张图');
   for (const name of ['yuanshu-wardrobe-jk-v1.png', 'yuanshu-wardrobe-skirt-v1.png', 'yuanshu-wardrobe-trousers-v1.png', 'yuanshu-wardrobe-collar-v1.png', 'yuanshu-wardrobe-openai-v1.png']) {
     const data = fs.readFileSync(new URL('../../frontend/public/assets/portraits/' + name, import.meta.url));
     assert.equal(data.toString('ascii', 1, 4), 'PNG');

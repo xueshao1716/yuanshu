@@ -1,96 +1,50 @@
-{
-  "generatedAt": "2026-09-27T02:07:52.332033",
-  "reference": "D:/pi-web/output/imagegen/yuanshu-cutout-green.png",
-  "rows": [
+﻿[
     {
-      "pose": "working",
-      "status": "succeeded",
-      "model": "aieyra/gpt-image-2.5-sunburst",
-      "file": "D:\\pi-web\\output\\imagegen\\portrait-poses-diagnostic-20260927\\working.png",
-      "bytes": 1354158,
-      "sha256": "947dfe2fa71ec697413d2a4f9b947ebef028506b566fa90492cdec874310e144",
-      "size": [
-        1024,
-        1536
-      ],
-      "mode": "RGB",
-      "greenSampleRatio": 0.7941,
-      "promptFile": "D:\\pi-web\\docs\\superpowers\\specs\\portrait-poses\\working.txt"
+        "pose":  "working",
+        "status":  "succeeded",
+        "model":  "aieyra/gpt-image-2.5-sunburst",
+        "bytes":  1582809,
+        "seconds":  49.3,
+        "file":  "D:\\pi-web\\output\\imagegen\\portrait-poses-diagnostic-20260927\\working.png"
     },
     {
-      "pose": "reading",
-      "status": "succeeded",
-      "model": "aieyra/gpt-image-2.5-sunburst",
-      "file": "D:\\pi-web\\output\\imagegen\\portrait-poses-diagnostic-20260927\\reading.png",
-      "bytes": 1401550,
-      "sha256": "843ab9672955c94218e14a9167f1f543bb5866dacab5d244826cde922be674c3",
-      "size": [
-        1024,
-        1536
-      ],
-      "mode": "RGB",
-      "greenSampleRatio": 0.755,
-      "promptFile": "D:\\pi-web\\docs\\superpowers\\specs\\portrait-poses\\reading.txt"
+        "pose":  "reading",
+        "status":  "succeeded",
+        "model":  "aieyra/gpt-image-2.5-sunburst",
+        "bytes":  1613029,
+        "seconds":  50,
+        "file":  "D:\\pi-web\\output\\imagegen\\portrait-poses-diagnostic-20260927\\reading.png"
     },
     {
-      "pose": "resting",
-      "status": "succeeded",
-      "model": "aieyra/gpt-image-2.5-sunburst",
-      "file": "D:\\pi-web\\output\\imagegen\\portrait-poses-diagnostic-20260927\\resting.png",
-      "bytes": 1680828,
-      "sha256": "35b09f39a5d9aa9b40617281f98025c096a947503dc5201c325d96f113066926",
-      "size": [
-        1024,
-        1536
-      ],
-      "mode": "RGB",
-      "greenSampleRatio": 0.6649,
-      "promptFile": "D:\\pi-web\\docs\\superpowers\\specs\\portrait-poses\\resting.txt"
+        "pose":  "resting",
+        "status":  "succeeded",
+        "model":  "aieyra/gpt-image-2.5-sunburst",
+        "bytes":  1773825,
+        "seconds":  30.4,
+        "file":  "D:\\pi-web\\output\\imagegen\\portrait-poses-diagnostic-20260927\\resting.png"
     },
     {
-      "pose": "daydreaming",
-      "status": "succeeded",
-      "model": "aieyra/gpt-image-2.5-sunburst",
-      "file": "D:\\pi-web\\output\\imagegen\\portrait-poses-diagnostic-20260927\\daydreaming.png",
-      "bytes": 1391387,
-      "sha256": "b2aee5d2b5db30a6c6e8e01f6025301a9d136e38e329436d40718c3cea11d288",
-      "size": [
-        1024,
-        1536
-      ],
-      "mode": "RGB",
-      "greenSampleRatio": 0.7806,
-      "promptFile": "D:\\pi-web\\docs\\superpowers\\specs\\portrait-poses\\daydreaming.txt"
+        "pose":  "daydreaming",
+        "status":  "succeeded",
+        "model":  "aieyra/gpt-image-2.5-sunburst",
+        "bytes":  1548616,
+        "seconds":  33.1,
+        "file":  "D:\\pi-web\\output\\imagegen\\portrait-poses-diagnostic-20260927\\daydreaming.png"
     },
     {
-      "pose": "listening",
-      "status": "succeeded",
-      "model": "aieyra/gpt-image-2.5-sunburst",
-      "file": "D:\\pi-web\\output\\imagegen\\portrait-poses-diagnostic-20260927\\listening.png",
-      "bytes": 1373031,
-      "sha256": "338804ea1ea451d495d4745cab007f8cf4a48ffc5a3b68986bae589674dd2318",
-      "size": [
-        1024,
-        1536
-      ],
-      "mode": "RGB",
-      "greenSampleRatio": 0.7852,
-      "promptFile": "D:\\pi-web\\docs\\superpowers\\specs\\portrait-poses\\listening.txt"
+        "pose":  "listening",
+        "status":  "succeeded",
+        "model":  "aieyra/gpt-image-2.5-sunburst",
+        "bytes":  1608581,
+        "seconds":  24.9,
+        "file":  "D:\\pi-web\\output\\imagegen\\portrait-poses-diagnostic-20260927\\listening.png"
     },
     {
-      "pose": "responding",
-      "status": "succeeded",
-      "model": "aieyra/gpt-image-2.5-sunburst",
-      "file": "D:\\pi-web\\output\\imagegen\\portrait-poses-diagnostic-20260927\\responding.png",
-      "bytes": 1358324,
-      "sha256": "32d404103206f36ba399d02c38277daacc54660787c7457ab038e441a4723f68",
-      "size": [
-        1024,
-        1536
-      ],
-      "mode": "RGB",
-      "greenSampleRatio": 0.7979,
-      "promptFile": "D:\\pi-web\\docs\\superpowers\\specs\\portrait-poses\\responding.txt"
+        "pose":  "responding",
+        "status":  "succeeded",
+        "model":  "aieyra/gpt-image-2.5-sunburst",
+        "bytes":  1548685,
+        "seconds":  36.8,
+        "file":  "D:\\pi-web\\output\\imagegen\\portrait-poses-diagnostic-20260927\\responding.png"
     }
-  ]
-}
+]

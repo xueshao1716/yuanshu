@@ -19,13 +19,13 @@ const SKIN_IMAGES = {
   'wardrobe-openai': '/assets/portraits/yuanshu-wardrobe-openai-v1.png',
 };
 const LIFE_STATE_IMAGES = {
-  working: SKIN_IMAGES['wardrobe-trousers'],
-  reading: SKIN_IMAGES['wardrobe-jk'],
-  resting: SKIN_IMAGES['wardrobe-collar'],
-  daydreaming: SKIN_IMAGES['wardrobe-skirt'],
-  listening: SKIN_IMAGES['wardrobe-openai'],
-  responding: SKIN_IMAGES['wardrobe-jk'],
-  neutral: SKIN_IMAGES['wardrobe-trousers'],
+  working: '/assets/portraits/yuanshu-life-working-v1.webp',
+  reading: '/assets/portraits/yuanshu-life-reading-v1.webp',
+  resting: '/assets/portraits/yuanshu-life-resting-v1.webp',
+  daydreaming: '/assets/portraits/yuanshu-life-daydreaming-v1.webp',
+  listening: '/assets/portraits/yuanshu-life-listening-v1.webp',
+  responding: '/assets/portraits/yuanshu-life-responding-v1.webp',
+  neutral: '/assets/portraits/yuanshu-life-listening-v1.webp',
 };
 const SKIN_IDS = new Set(SKINS.map(s => s.id));
 const GALLERY_IDS = new Set(GALLERIES.map(s => s.id));

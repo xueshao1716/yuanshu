@@ -1,6 +1,7 @@
 Use case: identity-preserve
 Asset type: photorealistic desktop companion cutout
-Input image 1: identity and wardrobe reference. Keep the SAME fictional adult East Asian woman (age 28), same face, bangs, long straight black hair, proportions, opaque high-neck long-sleeve black tailored jumpsuit, full trousers and flat black shoes. Change her pose and activity only.
+Input image 1: identity reference only. Keep the SAME fictional adult East Asian woman (age 28), same face, bangs, long straight black hair and proportions. Do not copy the reference clothing.
 Style: natural editorial photograph, realistic skin, believable hands, not cartoon, not anime, not doll, not CGI.
-Composition: entire person, seat and activity props fully inside frame, feet visible, hands anatomically natural with realistic occlusion by the activity props. Compact vertical silhouette with generous empty margins. Soft even lighting. Use only a perfectly uniform bright green #00FF00 background for later extraction: no transparency, checkerboard, scenery, floor shadows, text or watermarks. Keep clothes black; no green clothes or props.
+Composition: entire person, seat and activity props fully inside frame, feet visible, hands anatomically natural with realistic occlusion by the activity props. Compact vertical silhouette with generous empty margins. Soft even lighting. Use only a perfectly uniform bright green #00FF00 background for later extraction: no transparency, checkerboard, scenery, floor shadows, text or watermarks.
+Wardrobe: dusty-rose blazer over a white ribbed top, dark straight jeans and clean white sneakers; a distinct casual-smart outfit.
 Activity: She is seated upright on a small neutral stool, leaning forward slightly with attentive eye contact toward viewer, both hands resting naturally on knees, subtle engaged head tilt, neutral receptive expression. No book or laptop, not waving.
