@@ -110,13 +110,14 @@ test('gallery change cannot display a previous gallery image while loading', asy
   const { page } = await setup(t);
   const widget = page.locator('.xiaoyu-widget');
   await widget.locator('img').evaluate(img => img.decode());
-  await page.route('**/assets/portraits/*author-v2.webp*', () => {});
+  await page.route('**/assets/portraits/*-author-v*.webp*', () => {});
   await widget.click();
   const panel = page.locator('#xiaoyu-panel');
   await panel.locator('.companion-settings > summary').click();
   await panel.getByRole('button', { name: /小语自绘组/ }).click();
   const current = await widget.locator('img').evaluate(img => img.currentSrc);
-  assert.ok(!current || current.includes('author-v2.webp'), 'old bitmap must not remain visible under the new gallery label: ' + current);
+  const action = await widget.locator('.companion-portrait').getAttribute('data-action');
+  assert.ok(!current || new URL(current).pathname === imageForSkin('portrait-life', action), 'old bitmap must not remain visible under the new gallery label: ' + current);
 });
 
 test('menus stay visible above an open mobile keyboard and support keyboard navigation', async t => {

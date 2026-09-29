@@ -11,6 +11,20 @@ test('gallery resolver honors every original-gallery action too', () => {
   }
 });
 
+test('author listening and neutral retain the original matching set instead of the green-screen replacement', () => {
+  // Original author set, normalized by finalize-portrait-u2net.py, as committed
+  // before the isolated green-screen listening replacement (user identified 2A).
+  const expectedHash = 'ad2550d74b36764b912d282123ed0051ce08e45b7ca496a508def915ed724c06';
+  for (const action of ['listening', 'neutral', 'unknown']) {
+    const src = skin.imageForSkin('portrait-life', action);
+    const bytes = fs.readFileSync(new URL('../../frontend/public' + src, import.meta.url));
+    assert.equal(createHash('sha256').update(bytes).digest('hex'), expectedHash,
+      `${action} must use the original author-set artwork, not merely a correctly named file`);
+    assert.equal(src, '/assets/portraits/yuanshu-life-listening-author-v3.webp',
+      'the restored bitmap needs a new URL instead of reusing the immutable v2 resource');
+  }
+});
+
 test('four galleries keep all 24 action assets separate and fall back only inside their group', () => {
   const suffixes = { portrait: 'v1', 'portrait-life': 'author-v2', 'portrait-uniform': 'v3', 'portrait-daily': 'v1' };
   const hashes = new Set();
@@ -18,7 +32,8 @@ test('four galleries keep all 24 action assets separate and fall back only insid
     const prefix = gallery.id === 'portrait' ? 'yuanshu-' : 'yuanshu-life-';
     for (const action of ['working', 'reading', 'resting', 'daydreaming', 'listening', 'responding']) {
       const src = skin.imageForSkin(gallery.id, action);
-      assert.equal(src, `/assets/portraits/${prefix}${action}-${suffixes[gallery.id]}.webp`);
+      const suffix = gallery.id === 'portrait-life' && action === 'listening' ? 'author-v3' : suffixes[gallery.id];
+      assert.equal(src, `/assets/portraits/${prefix}${action}-${suffix}.webp`);
       const bytes = fs.readFileSync(new URL('../../frontend/public' + src, import.meta.url));
       hashes.add(createHash('sha256').update(bytes).digest('hex'));
     }

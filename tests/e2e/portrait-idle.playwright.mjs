@@ -1,9 +1,11 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import fs from 'node:fs';
+import { createHash } from 'node:crypto';
 import { setup } from './fixtures/composer-gallery-server.mjs';
 import { GALLERIES, imageForSkin } from '../../frontend/src/components/xiaoyu/widget-state.mjs';
 const releaseVersion = JSON.parse(fs.readFileSync(new URL('../../version.json', import.meta.url), 'utf8')).version;
+const authorListeningHash = 'ad2550d74b36764b912d282123ed0051ce08e45b7ca496a508def915ed724c06';
 
 for (const gallery of GALLERIES) {
   test(`idle and unavailable facts stay in ${gallery.id}`, async t => {
@@ -34,6 +36,11 @@ for (const gallery of GALLERIES) {
       const currentUrl = new URL(await portrait.locator('img').evaluate(img => img.currentSrc));
       assert.equal(currentUrl.pathname, imageForSkin(gallery.id, action));
       assert.equal(currentUrl.searchParams.get('v'), releaseVersion, 'idle poses must not reuse an old-release image cache');
+      if (gallery.id === 'portrait-life' && action === 'listening') {
+        const response = await page.request.get(currentUrl.href);
+        assert.equal(response.status(), 200);
+        assert.equal(createHash('sha256').update(await response.body()).digest('hex'), authorListeningHash);
+      }
     }
     await page.route('**/api/companion/facts?*', route => route.fulfill({ status: 503, json: {} }));
     await page.waitForFunction(() => document.querySelector('.xiaoyu-widget .companion-portrait')?.dataset.action === 'neutral', null, { timeout: 12000 });
@@ -42,6 +49,11 @@ for (const gallery of GALLERIES) {
     const neutralUrl = new URL(await portrait.locator('img').evaluate(img => img.currentSrc));
     assert.equal(neutralUrl.pathname, imageForSkin(gallery.id, 'neutral'));
     assert.equal(neutralUrl.searchParams.get('v'), releaseVersion);
+    if (gallery.id === 'portrait-life') {
+      const response = await page.request.get(neutralUrl.href);
+      assert.equal(response.status(), 200);
+      assert.equal(createHash('sha256').update(await response.body()).digest('hex'), authorListeningHash);
+    }
     assert.deepEqual(errors, []);
   });
 }

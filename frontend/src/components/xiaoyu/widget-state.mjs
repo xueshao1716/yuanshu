@@ -25,9 +25,9 @@ const AUTHOR_STATE_IMAGES = {
   reading: '/assets/portraits/yuanshu-life-reading-author-v2.webp',
   resting: '/assets/portraits/yuanshu-life-resting-author-v2.webp',
   daydreaming: '/assets/portraits/yuanshu-life-daydreaming-author-v2.webp',
-  listening: '/assets/portraits/yuanshu-life-listening-author-v2.webp',
+  listening: '/assets/portraits/yuanshu-life-listening-author-v3.webp',
   responding: '/assets/portraits/yuanshu-life-responding-author-v2.webp',
-  neutral: '/assets/portraits/yuanshu-life-listening-author-v2.webp',
+  neutral: '/assets/portraits/yuanshu-life-listening-author-v3.webp',
 };
 const UNIFORM_STATE_IMAGES = {
   working: '/assets/portraits/yuanshu-life-working-v3.webp',
