@@ -104,7 +104,7 @@ test("share_project：分享服务未运行时不伪造成功链接", async () =
     isPortOpen: async () => false,
   });
   assert.equal(result.isError, true);
-  assert.match(result.text, /8644|分享服务/);
+  assert.match(result.text, /8644|分享服务|分享域名/);
   assert.doesNotMatch(result.text, /✅ 已分享到外网/);
 });
 

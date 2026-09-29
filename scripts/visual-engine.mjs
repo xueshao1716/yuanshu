@@ -20,7 +20,7 @@ import path from 'node:path'
 import { execFileSync } from 'node:child_process'
 
 const BASE = process.env.PI_BASE || 'http://127.0.0.1:8787'
-const TOKEN = process.env.PI_TOKEN || 'love#1126469194'
+const TOKEN = process.env.YUANSHU_TOKEN || process.env.PI_TOKEN || ''
 const CDP = process.env.PI_CDP || 'http://127.0.0.1:9222'
 const FFMPEG = process.env.FFMPEG || 'ffmpeg'
 const FONT = process.env.PI_FONT || 'C:/Windows/Fonts/msyhbd.ttc'
@@ -66,6 +66,7 @@ function buildPrompt(m) {
 }
 
 async function generate(prompt, tries = 3) {
+  if (!TOKEN) throw new Error('请设置 YUANSHU_TOKEN 后再调用图像服务')
   let last = ''
   for (let i = 0; i < tries; i++) {
     try {

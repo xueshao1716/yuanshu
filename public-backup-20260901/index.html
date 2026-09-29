@@ -75,7 +75,7 @@
   <div class="login-card">
     <div class="logo">◈ 小语<span> · AI 工作台</span></div>
     <p class="sub">输入访问令牌以连接你的 AI 工作台</p>
-    <input id="api-input" type="text" placeholder="服务器地址（留空=本机；手机填 https://pi.myxinyu.xin）" autocomplete="off">
+    <input id="api-input" type="text" placeholder="服务器地址（留空=本机；手机填 https://pi.example.com）" autocomplete="off">
     <input id="token-input" type="password" placeholder="访问令牌" autocomplete="off">
     <button id="login-btn">连接</button>
     <div class="login-err" id="login-err"></div>
@@ -609,7 +609,7 @@
   if (!el) return;
   const host = location.hostname;
   const isLocal = host === "127.0.0.1" || host === "localhost";
-  const dshUrl = isLocal ? "http://127.0.0.1:3080" : "https://d.myxinyu.xin";
+  const dshUrl = isLocal ? "http://127.0.0.1:3080" : "https://d.example.com";
   el.href = dshUrl;
   if (!isLocal || typeof api !== "function") return; // 外网模式保持直链
 

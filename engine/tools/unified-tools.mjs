@@ -35,6 +35,7 @@ import { withUtf8CodePage, decodeWindowsOutput, looksMojibake, riskyForCmdShell 
 import { isCanonicalTarget, stageWrite } from "../memory-stages.mjs";
 import { checkWriteSegments } from "../context-headroom.mjs";
 import { env } from "../env.mjs";
+import { resolveShareOrigin } from "../network-endpoints.mjs";
 
 // ── 工具 schema（OpenAI function 格式）──
 export const BASE_TOOL_SCHEMAS = [
@@ -53,7 +54,7 @@ export const SHARE_PROJECT_SCHEMA = {
   type: "function",
   function: {
     name: "share_project",
-    description: "把用户指定的项目目录或文件发布到外网分享目录，并返回稳定公网链接。用户要求分享、外链、上线预览或给别人看时使用。不要执行 cloudflared/ngrok、改端口或 DNS。当前公网入口默认是 share.myxinyu.xin。",
+    description: "把用户指定的项目目录或文件发布到外网分享目录，并返回已配置的外网链接。用户要求分享、外链、上线预览或给别人看时使用。不要执行 cloudflared/ngrok、改端口或 DNS；未配置分享域名时如实返回错误。",
     parameters: {
       type: "object",
       properties: { path: { type: "string", description: "要分享的项目目录或文件（工作空间相对路径），如 工程/项目名" } },
@@ -85,6 +86,9 @@ export async function executeShareProject(args = {}, options = {}) {
   if (!src || !safe || !fs.existsSync(safe)) {
     return { text: `项目不存在: ${src || "（未提供路径）"}。请先用 search_files 找到正确路径。`, isError: true };
   }
+  const configuredHost = options.host !== undefined ? options.host : env("SHARE_HOST");
+  const origin = resolveShareOrigin({ host: configuredHost, agentDir: options.agentDir });
+  if (!origin) return { text: "分享域名未配置或无效，未复制项目。请先在系统页登记外网分享域名。", isError: true };
   const port = Number(options.port || env("SHARE_PORT") || 8644);
   const portReady = await (options.isPortOpen || (() => isLocalPortOpen(port)))();
   if (!portReady) {
@@ -106,9 +110,8 @@ export async function executeShareProject(args = {}, options = {}) {
   } catch (e) {
     return { text: `复制失败: ${String(e?.message || e).slice(0, 120)}`, isError: true };
   }
-  const host = options.host || env("SHARE_HOST") || "share.myxinyu.xin";
   const isHtml = fs.existsSync(path.join(target, "index.html")) || (path.resolve(target) === path.resolve(safe) && fs.existsSync(path.join(safe, "index.html")));
-  const url = `https://${host}/${encodeURIComponent(base)}${isHtml ? "/" : ""}`;
+  const url = `${origin}/${encodeURIComponent(base)}${isHtml ? "/" : ""}`;
   return { text: `✅ 已分享到外网：${url}\n（项目已复制到 外网分享/${base}）`, isError: false, details: { url, path: `外网分享/${base}` } };
 }
 
@@ -289,7 +292,7 @@ export function createUnifiedToolExecutor(deps = {}) {
       }
 
       if (name === "share_project") {
-        return executeShareProject(args, { cwd: getCwd(), safePath });
+        return executeShareProject(args, { cwd: getCwd(), safePath, agentDir: deps.agentDir || "" });
       }
 
       if (name === "time_task") {

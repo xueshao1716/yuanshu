@@ -13,7 +13,7 @@
 - Android：Rust 编译完成后遇到 Windows 符号链接权限限制，构建脚本按既有机制复制已编译库，再运行 Gradle 打包和单元测试，BUILD SUCCESSFUL，exit 0。
 - APK 内部 applicationId=`com.yuanshu.app`、versionName=`2.115.19`、versionCode=`2115019`，arm64-v8a，minSdk 24，targetSdk 36。zipalign 16KB 页对齐检查、apksigner v2/v3 验证通过。
 - 沿用既有 Android Debug 证书，SHA256=`794311754e7420551ff205eef390facea93b051e40b0d58c220512a5ad7bfe33`，保持旧包签名兼容；不是商店正式签名。未做 Android 真机安装验收。
-- 客户端服务地址沿用既有配置：Windows 本地 8787，Android `https://pi.myxinyu.xin/`。
+- 客户端服务地址沿用既有配置：Windows 本地 8787，Android `https://pi.example.com/`。
 
 ## 验证与上线
 

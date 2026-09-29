@@ -9,7 +9,7 @@ test('voice trial is available only on the deployed IPv4 loopback origin', async
   assert.ok(fs.existsSync(moduleUrl), 'local voice trial origin policy is implemented')
   const { voiceLabUrl } = await import(moduleUrl.href)
   assert.equal(voiceLabUrl('http://127.0.0.1:8787'), 'http://127.0.0.1:8788/')
-  for (const origin of [undefined, '', 'https://pi.myxinyu.xin', 'http://192.168.1.2:8787', 'http://localhost:8787', 'http://[::1]:8787', 'http://127.0.0.1:8790', 'https://127.0.0.1:8787', 'http://127.0.0.1:8787.evil.test', 'http://127.0.0.1:8787/?token=private']) {
+  for (const origin of [undefined, '', 'https://pi.example.com', 'http://192.168.1.2:8787', 'http://localhost:8787', 'http://[::1]:8787', 'http://127.0.0.1:8790', 'https://127.0.0.1:8787', 'http://127.0.0.1:8787.evil.test', 'http://127.0.0.1:8787/?token=private']) {
     assert.equal(voiceLabUrl(origin), null, String(origin))
   }
 })

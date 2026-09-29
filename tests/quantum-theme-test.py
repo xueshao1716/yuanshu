@@ -8,11 +8,13 @@
  5. 消息渲染 / 输入聚焦态 / 主题编辑器 / 持久化 / 移动端 / 主题回归
 运行：python tests/quantum-theme-test.py
 """
-import asyncio, re, sys
+import asyncio, re, sys, os
 from playwright.async_api import async_playwright
 
 BASE = 'http://127.0.0.1:8787'
-TOKEN = 'love#1126469194'
+TOKEN = os.environ.get('YUANSHU_TOKEN', '')
+if not TOKEN:
+    raise RuntimeError('请设置 YUANSHU_TOKEN 后再运行登录验证')
 
 pass_n, fail_n = 0, 0
 def ok(name, cond, detail=''):

@@ -23,6 +23,6 @@ export function mobileApiBaseError(apiBase: string, pageOrigin = ''): string {
   const base = String(apiBase || '').trim()
   if (!base) return '手机端必须填写电脑的服务器地址，不能留空'
   if (!/^https?:\/\//i.test(base)) return '服务器地址要以 http:// 或 https:// 开头'
-  if (isPhoneLoopback(base)) return '127.0.0.1 是手机自己，请填电脑局域网 IP 或 https://pi.myxinyu.xin'
+  if (isPhoneLoopback(base)) return '127.0.0.1 是手机自己，请填电脑局域网 IP 或可访问的 HTTPS 地址'
   return ''
 }

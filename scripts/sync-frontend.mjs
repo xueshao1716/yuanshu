@@ -37,7 +37,7 @@ export async function syncFrontend({
   }
   // Native startup must survive frontend mirroring, including the clean-target path.
   if (targets.some(dir => path.resolve(dir) === path.resolve(startupTarget))) {
-    for (const name of ['startup.html', 'startup.css', 'startup.mjs']) {
+    for (const name of ['startup.html', 'startup.css', 'startup.mjs', 'connect.html', 'connect.mjs']) {
       await fs.copyFile(path.join(REPO_ROOT, 'app', 'startup', name), path.join(startupTarget, name))
     }
   }

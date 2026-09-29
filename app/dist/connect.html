@@ -1,0 +1,23 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>连接元枢</title>
+  <link rel="stylesheet" href="startup.css">
+  <script type="module" src="connect.mjs"></script>
+</head>
+<body>
+  <main>
+    <h1>连接元枢</h1>
+    <p>填写电脑上元枢工作台的地址，连接后令牌只提交给这个地址。</p>
+    <form id="connect-form">
+      <label for="workspace-url">工作台地址</label>
+      <input id="workspace-url" name="url" type="url" inputmode="url" autocomplete="url" placeholder="https://example.com 或 http://电脑IP:8787" required>
+      <button type="submit">连接工作台</button>
+      <p id="error" class="error" role="alert" aria-live="polite"></p>
+    </form>
+    <p class="hint">不要把令牌放进地址或链接参数。手机不能使用 127.0.0.1 访问电脑。</p>
+  </main>
+</body>
+</html>

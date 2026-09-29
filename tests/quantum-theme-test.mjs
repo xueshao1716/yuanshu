@@ -9,7 +9,8 @@
 import { chromium } from 'playwright';
 
 const BASE = 'http://127.0.0.1:8787';
-const TOKEN = 'love#1126469194';
+const TOKEN = process.env.YUANSHU_TOKEN || '';
+if (!TOKEN) throw new Error('请设置 YUANSHU_TOKEN 后再运行登录验证');
 
 let pass = 0, fail = 0;
 const ok = (name, cond, detail = '') => {

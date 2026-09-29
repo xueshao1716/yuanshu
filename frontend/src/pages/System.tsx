@@ -31,7 +31,7 @@ function fmtUptime(s: number) {
 }
 
 export default function System() {
-  const { data, mutate } = useSWR('system-info', () => SystemApi.info(), { dedupingInterval: 30000 })
+  const { data, error, mutate } = useSWR('system-info', () => SystemApi.info(), { dedupingInterval: 30000, refreshInterval: 30000 })
   const info: any = data || {}
 
   const [update, setUpdate] = useState<any>(null)
@@ -66,7 +66,7 @@ export default function System() {
   const domains: DomainRow[] = rows ?? info.network?.domains ?? []
   const dirty = rows !== null
   const port = info.port || 8787
-  const serviceReady = !!data
+  const serviceReady = !!data && !error
   const lanEntryCount = (info.network?.lanIPs || []).length
   const domainEntryCount = domains.filter(row => row.domain.trim()).length
   const networkEntryCount = lanEntryCount + domainEntryCount
@@ -110,19 +110,19 @@ export default function System() {
           <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-3">
             <StatusTile
               label="服务状态"
-              value={serviceReady ? '运行中' : '加载中'}
-              detail={info.name || '元枢个人智能系统'}
+              value={error ? '连接失败' : serviceReady ? '运行中' : '加载中'}
+              detail={error ? '无法读取服务状态，请检查服务是否已启动' : info.name || '元枢个人智能系统'}
               facts={[
                 { k: '监听端口', v: info.port ? String(info.port) : '—' },
                 { k: '数据目录', v: info.wsRoot || '—' },
               ]}
               icon={Server}
-              tone={serviceReady ? 'success' : 'neutral'}
+              tone={error ? 'danger' : serviceReady ? 'success' : 'neutral'}
             />
             {/* 版本这一格以前只把 Node 版本当副标题裸放着，读者分不清 v2.70.0 和 v25.8.2 各是什么。
                 现在大字是应用版本，下面逐条标出"运行时/平台"——不再重复写一遍应用版本。 */}
             <StatusTile
-              label="版本"
+              label="服务端版本"
               value={info.version ? `元枢 v${info.version}` : '—'}
               facts={[
                 { k: '运行时', v: info.node ? `Node ${info.node}` : '—' },
@@ -140,11 +140,11 @@ export default function System() {
             />
             <StatusTile
               label="网络状态"
-              value={data ? networkEntryCount > 0 ? '已发现入口' : '未发现入口' : '—'}
-              detail={data ? `${networkEntryCount} 个入口 · ${lanEntryCount} 个局域网 · ${domainEntryCount} 个公网域名` : '等待系统信息'}
+              value={error ? '连接失败' : data ? networkEntryCount > 0 ? '已登记入口' : '未登记入口' : '—'}
+              detail={error ? '无法读取网络配置' : data ? `${networkEntryCount} 个入口 · ${lanEntryCount} 个局域网 · ${domainEntryCount} 个公网域名` : '等待系统信息'}
               facts={primaryEntry ? [{ k: '主入口', v: primaryEntry }] : undefined}
               icon={Wifi}
-              tone={data && networkEntryCount > 0 ? 'info' : 'neutral'}
+              tone={error ? 'danger' : data && networkEntryCount > 0 ? 'info' : 'neutral'}
             />
           </div>
         </section>
@@ -194,9 +194,9 @@ export default function System() {
           </div>
 
           <div>
-            <SectionHeader title="外网配置" description="管理公网域名与局域网入口，增删改后保存即生效。" />
+            <SectionHeader title="外网配置" description="登记公网域名与局域网入口；这里不会自动配置 DNS 或隧道。" />
             <div className="panel !p-3">
-              <p className="text-[12px] text-pi-dim2 mb-3">公网域名列表（隧道映射到本服务）。</p>
+              <p className="text-[12px] text-pi-dim2 mb-3">已登记的公网域名（不会自动检测公网连通性，也不会自动配置 DNS 或隧道）。</p>
               <div className="space-y-2">
                 {domains.map((d, i) => (
                   <div key={i} className="flex items-center gap-2">

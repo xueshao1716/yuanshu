@@ -82,3 +82,6 @@ tmp-*.cjs
 # 本地打包/视觉验收脚本生成的状态文件与临时快照
 *.exit
 .tmp-feel-test/
+# Local verification archives and agent transcripts can contain deployment secrets.
+.verification/
+.pi-subagents/

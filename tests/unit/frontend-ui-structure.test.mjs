@@ -273,7 +273,7 @@ test('系统页以公共页头和四项真实状态摘要开场，主任务位�
   assert.ok(order.every(index => index >= 0), '系统页缺少 PageHeader → 状态摘要 → 主任务 → 能力折叠结构')
   assert.deepEqual([...order].sort((a, b) => a - b), order, '系统页必须先显示真实状态和主任务，能力清单置底')
   assert.equal((system.match(/<StatusTile\b/g) || []).length, 4, '系统顶部必须显示服务、版本、运行时长、网络四项摘要')
-  for (const label of ['服务状态', '版本', '运行时长', '网络状态']) {
+  for (const label of ['服务状态', '服务端版本', '运行时长', '网络状态']) {
     assert.ok(system.includes(`label="${label}"`), `系统状态摘要缺少：${label}`)
   }
 })
@@ -285,8 +285,8 @@ test('系统网络摘要只陈述已发现入口，不把配置数据解释为�
   assert.ok(networkTileStart >= 0 && networkTileEnd > networkTileStart, '系统页必须提供网络状态摘要')
   const networkTile = system.slice(networkTileStart, networkTileEnd)
   assert.ok(system.includes('const networkEntryCount ='), '网络摘要必须基于入口计数描述已知事实')
-  assert.match(networkTile, /已发现入口/, '存在 lanIPs 或 domains 时只能表述为已发现入口')
-  assert.match(networkTile, /未发现入口/, '系统信息已返回但入口为空时只能表述为未发现入口')
+  assert.match(networkTile, /已登记入口/, '存在 lanIPs 或 domains 时只能表述为已登记入口')
+  assert.match(networkTile, /未登记入口/, '系统信息已返回但入口为空时只能表述为未登记入口')
   assert.match(networkTile, /等待系统信息/, '系统信息未返回时必须明确等待系统信息')
   assert.doesNotMatch(networkTile, /可用|未配置|待配置|在线|离线/, '网络摘要不得把入口配置解释为网络可达性')
 })
@@ -302,7 +302,7 @@ test('功能一览默认折叠，保留更新、网络编辑保存与实际端�
   assert.ok(details.includes('功能一览'), '折叠区必须包含功能清单')
   assert.ok(!details.includes('系统能力'), '折叠区不得再叫「系统能力」，与主栏「能力」页撞名')
   for (const behavior of [
-    "useSWR('system-info', () => SystemApi.info(), { dedupingInterval: 30000 })",
+    "useSWR('system-info', () => SystemApi.info(), { dedupingInterval: 30000, refreshInterval: 30000 })",
     'SystemApi.checkUpdate()',
     'setRows([...domains',
     'setRows(domains.filter',

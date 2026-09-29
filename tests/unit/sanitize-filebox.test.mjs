@@ -16,7 +16,7 @@ describe("sanitize.mjs 脱敏", () => {
     assert.ok(sanitizeText("token: tp-cb27cn7yg3x5jkvqez4xkm7b1ifroacc28vi74iepa3tq9lb").includes("脱敏"));
   });
   test("访问令牌 love# 被脱敏", () => {
-    assert.ok(sanitizeText("love#1126469194").includes("脱敏"));
+    assert.ok(sanitizeText("love#testtoken").includes("脱敏"));
   });
   test("普通文本不被误伤", () => {
     assert.equal(sanitizeText("这是一段普通的中文内容"), "这是一段普通的中文内容");

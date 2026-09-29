@@ -154,20 +154,28 @@ test('separate processes serialize duplicate recording and revocation without lo
   const f = fixture(t);
   const moduleUrl = new URL('../../engine/behavior-experiments.mjs', import.meta.url).href;
   const lockUrl = new URL('../../engine/file-lock.mjs', import.meta.url).href;
-  const child = body => new Promise((resolve, reject) => {
+  const child = (body, noise = '') => new Promise((resolve, reject) => {
     const code = `import {createBehaviorExperiments} from ${JSON.stringify(moduleUrl)};
       import {initFileLock} from ${JSON.stringify(lockUrl)};
       initFileLock({dir:${JSON.stringify(path.join(f.wsRoot, 'locks'))}});
       const s=createBehaviorExperiments(${JSON.stringify({ wsRoot: f.wsRoot, rootDir: f.rootDir, allowSynthetic: true })});
+      ${noise}
       ${body}`;
-    const proc = spawn(process.execPath, ['--input-type=module', '-e', code], { windowsHide: true, stdio: ['ignore', 'pipe', 'pipe'] });
+    const proc = spawn(process.execPath, ['--input-type=module', '-e', code], { windowsHide: true, stdio: ['ignore', 'pipe', 'pipe', 'ipc'] });
     let output = ''; proc.stdout.on('data', d => output += d); proc.stderr.on('data', d => output += d);
-    proc.on('error', reject); proc.on('close', code => code ? reject(Error(output)) : resolve(output.trim()));
+    const messages = []; proc.on('message', message => messages.push(message));
+    proc.on('error', reject); proc.on('close', code => {
+      if (code !== 0) return reject(Error(`child exited ${code}: ${output}`));
+      if (messages.length !== 1 || messages[0]?.type !== 'result') return reject(Error(`expected one IPC result: ${output}`));
+      resolve(messages[0].value);
+    });
   });
-  const written = await Promise.all(Array.from({ length: 4 }, () => child(`console.log((await s.record(${JSON.stringify(f.body)})).revision);`)));
+  // Force the observed lock-log noise on one child; correctness cannot depend on quiet output.
+  const noise = `console.log('[file-lock] skip-unlink diagnostic'); console.error('child diagnostic');`;
+  const written = await Promise.all(Array.from({ length: 4 }, (_, i) => child(`process.send({type:'result',value:(await s.record(${JSON.stringify(f.body)})).revision});`, i === 0 ? noise : '')));
   assert.equal(new Set(written).size, 1); assert.equal(f.service.list().items.length, 1);
   const r = await f.service.record(f.body);
-  const results = await Promise.all(Array.from({ length: 3 }, () => child(`try { await s.revoke(${JSON.stringify(r.id)},${JSON.stringify({ revision: r.revision, reason: 'parallel' })}); console.log('ok'); } catch(e) { console.log(e.statusCode); }`)));
+  const results = await Promise.all(Array.from({ length: 3 }, () => child(`try { await s.revoke(${JSON.stringify(r.id)},${JSON.stringify({ revision: r.revision, reason: 'parallel' })}); process.send({type:'result',value:'ok'}); } catch(e) { process.send({type:'result',value:String(e.statusCode)}); }`, noise)));
   assert.equal(results.filter(r => r === 'ok').length, 1);
   assert.equal(results.filter(r => r === '409').length, 2);
   assert.equal(f.service.get(r.id).history.length, 1);

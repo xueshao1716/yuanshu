@@ -1,11 +1,11 @@
 // ══ 外网入口的本地服务守护（2026-09-18）══════════════════════════════════
-// 起因：cloudflared 隧道是好的，但 share.myxinyu.xin / novel.myxinyu.xin 报 502——
+// 起因：cloudflared 隧道是好的，但配置的分享入口报 502——
 // 因为这两个域名指向的**本地服务**（分享服务器 8644、小说工作台 8790）没在跑，
 // 而它们此前只在手动启动时存在（元枢有自己的 watchdog，这两个没有）。
 //
 // 这个脚本按隧道配置把两个本地服务拉起来：
-//   share.myxinyu.xin → 127.0.0.1:8644 → D:\pi-workspace\外网分享\server.js (PORT=8644)
-//   novel.myxinyu.xin → 127.0.0.1:8790 → D:\novel-studio\server.mjs
+//   分享入口 → 127.0.0.1:8644 → D:\pi-workspace\外网分享\server.js (PORT=8644)
+//   novel.example.com → 127.0.0.1:8790 → D:\novel-studio\server.mjs
 // 幂等：端口已经在听就跳过（不再重复 bind，也不会出现两个进程抢同一个端口）。
 // 用法：node scripts/serve-public-entries.mjs [--check]
 import fs from "node:fs";

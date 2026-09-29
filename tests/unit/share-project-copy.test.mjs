@@ -7,6 +7,19 @@ import path from "node:path";
 
 import { executeShareProject } from "../../engine/tools/unified-tools.mjs";
 
+test("share_project refuses an unconfigured host before copying files", async () => {
+  const root = await fsp.mkdtemp(path.join(os.tmpdir(), "yuanshu-share-unconfigured-"));
+  try {
+    await fsp.writeFile(path.join(root, "page.html"), "<h1>private</h1>");
+    const result = await executeShareProject({ path: "page.html" }, {
+      cwd: root, agentDir: root, host: '', isPortOpen: async () => true,
+    });
+    assert.equal(result.isError, true);
+    assert.ok(result.text.includes('分享域名'));
+    assert.equal(fs.existsSync(path.join(root, "外网分享")), false);
+  } finally { await fsp.rm(root, { recursive: true, force: true }); }
+});
+
 test("share_project copies a nested project without the Windows cpSync crash path", async () => {
   const root = await fsp.mkdtemp(path.join(os.tmpdir(), "yuanshu-share-"));
   const source = path.join(root, "source-project");

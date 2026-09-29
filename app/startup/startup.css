@@ -14,3 +14,7 @@ button:disabled { background: #526170; cursor: wait; }
 details { color: var(--muted); font-size: 14px; }
 summary { cursor: pointer; padding-block: 10px; min-height: 44px; }
 details p { margin-top: 8px; }
+form { display: grid; gap: 12px; max-width: 540px; }
+label { font-weight: 600; }
+input { min-height: 44px; padding: 10px 12px; border: 1px solid #aab6c4; border-radius: 10px; background: white; color: var(--text); font: inherit; }
+.error { min-height: 24px; margin: 0; color: #a12626; }

@@ -7,7 +7,7 @@ test('maintenance approval rejects remote and forwarded requests', () => {
   const local = { socket: { remoteAddress: '127.0.0.1' }, headers: { host: '127.0.0.1:8787', origin: 'http://127.0.0.1:8787' } };
   assert.equal(isLocalMaintenanceApproval(local), true);
   assert.equal(isLocalMaintenanceApproval({ ...local, socket: { remoteAddress: '192.168.1.2' } }), false);
-  for (const headers of [{ ...local.headers, 'x-forwarded-for': '1.2.3.4' }, { host: 'pi.myxinyu.xin' }, { ...local.headers, origin: 'https://evil.test' }]) {
+  for (const headers of [{ ...local.headers, 'x-forwarded-for': '1.2.3.4' }, { host: 'pi.example.com' }, { ...local.headers, origin: 'https://evil.test' }]) {
     assert.equal(isLocalMaintenanceApproval({ ...local, headers }), false);
   }
 });

@@ -52,16 +52,13 @@ pub fn run() {
             }
             #[cfg(mobile)]
             {
-                // 荣耀上 App("index.html") 会变成 http://tauri.localhost，
-                // Tauri 用 reqwest 探活这个自定义协议，必然 Failed to request。
-                // 手机壳直接打开公网工作台，和桌面打开 8787 同一套前端，会话才看得到。
-                let url = "https://pi.myxinyu.xin/";
                 let win = tauri::WebviewWindowBuilder::new(
                     app,
                     "main",
-                    tauri::WebviewUrl::External(url.parse().expect("bad url")),
+                    tauri::WebviewUrl::App("connect.html".into()),
                 )
                 .title("元枢")
+                .use_https_scheme(true)
                 .build()?;
                 let _ = win;
             }

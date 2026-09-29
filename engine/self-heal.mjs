@@ -7,6 +7,7 @@ import { json } from "./http-utils.mjs";
 import { wsSafePath } from "./workspace-api.mjs";
 import { loadProjectRules } from "./context-loader.mjs";
 import { createSessionAgent } from "./session-manager.mjs";
+import { createUpdateHandler } from "./online-update.mjs";
 
 // 修复前留底的源码清单（2026-08-20 拆模块时随块迁入本模块；路径相对 repoRoot()）
 const REPAIR_BACKUP_FILES = [
@@ -113,40 +114,8 @@ export async function handleUpdateCheck(res) {
   }
 }
 
-// 执行更新：git fetch + pull，然后提示重启
-export async function handleUpdateApply(res, body) {
-  try {
-    const { execFile, spawn } = await import("node:child_process");
-    const run = (args) => new Promise((resolve) => {
-      execFile("git", ["-C", import.meta.dirname, ...GIT_NO_PROXY, ...args], { encoding: "utf8", timeout: 60000 }, (err, stdout) => resolve({ ok: !err, out: String(stdout || "").trim(), err: String(err?.message || "").slice(0, 200) }));
-    });
-    const msgs = [];
-    // 1. 引擎升级（如需）
-    if (body?.engine) {
-      const npmCmd = process.platform === "win32" ? "npm.cmd" : "npm"; // Windows 上 npm 是 .cmd，execFile 直接 spawn 会 ENOENT
-      const engUp = await new Promise((resolve) => {
-        execFile(npmCmd, ["i", "-g", "@earendil-works/pi-coding-agent@latest"], { encoding: "utf8", timeout: 180000 }, (err, stdout) => resolve({ ok: !err, out: String(stdout || "").trim(), err: String(err?.message || "").slice(0, 200) }));
-      });
-      if (engUp.ok) msgs.push("引擎已升级");
-      else return json(res, 500, { error: "引擎升级失败: " + engUp.err });
-    }
-    // 2. 前端 git 拉取（只拉不合并，避免本地改动冲突；若干净直接 pull）
-    const fetchR = await run(["fetch", "origin"]);
-    if (!fetchR.ok) return json(res, 500, { error: "fetch 失败: " + fetchR.err });
-    const pullR = await run(["pull", "--ff-only", "origin", "main"]);
-    if (!pullR.ok) {
-      return json(res, 409, { error: "拉取冲突: " + pullR.err + "（本地有未提交改动，请先处理）" });
-    }
-    msgs.push("前端已更新");
-    // 更新成功 → 先把响应发回前端，再退出当前进程；由 watchdog 接管重启。
-    // 不能先 taskkill 当前 PID，否则“更新成功”响应会被掐掉，前端只会看到网络错误。
-    json(res, 200, { ok: true, message: "更新成功（" + msgs.join(" + ") + "），服务重启中…（约 10 秒）" });
-    // 延迟触发重启：由 watchdog 检测到服务挂了自动拉起新代码
-    setTimeout(() => { try { process.exit(0); } catch {} }, 1500);
-  } catch (e) {
-    json(res, 500, { error: String(e?.message || e).slice(0, 100) });
-  }
-}
+// Dependencies must be ready before reporting success or scheduling the watchdog restart.
+export const handleUpdateApply = createUpdateHandler({ root: repoRoot() });
 
 export async function handleRepair(res, body) {
   const issue = String(body?.issue || "").trim();

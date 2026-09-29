@@ -37,7 +37,7 @@
 用户稍后发起的采集记录 `2e7290fe-7582-4d98-a0d0-06f347012cca` 在重启前
 已以旧截断错误结束；本次重启没有中断该任务，也未自动重跑它。
 
-本机 `http://127.0.0.1:8787` 与公网 `https://pi.myxinyu.xin` 均验证：
+本机 `http://127.0.0.1:8787` 与公网 `https://pi.example.com` 均验证：
 
 - `/api/health` 返回 `ok: true`。
 - `/api/frontend-version` 返回 `appVersion: 2.115.6`。

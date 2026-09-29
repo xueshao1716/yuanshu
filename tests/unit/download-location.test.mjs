@@ -6,7 +6,7 @@ import { isDesktopShellEnvironment } from '../../frontend/src/lib/download-locat
 test('download location detects desktop shells but not browser or mobile shells', () => {
   assert.equal(isDesktopShellEnvironment('http://127.0.0.1:8787', 'Mozilla/5.0 Windows NT 10.0', true), true)
   assert.equal(isDesktopShellEnvironment('http://127.0.0.1:8787', 'Mozilla/5.0 Windows NT 10.0', false), false)
-  assert.equal(isDesktopShellEnvironment('https://pi.myxinyu.xin', 'Mozilla/5.0 Android 14', true), false)
+  assert.equal(isDesktopShellEnvironment('https://pi.example.com', 'Mozilla/5.0 Android 14', true), false)
   assert.equal(isDesktopShellEnvironment('tauri://localhost', 'Mozilla/5.0 Windows NT 10.0', true), true)
 })
 

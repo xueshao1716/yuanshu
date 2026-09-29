@@ -86,11 +86,13 @@ document.getElementById('copy').addEventListener('click', async () => {
   try { await navigator.clipboard.writeText(JSON.stringify(payload())); msg.textContent = 'JSON 已复制' } catch { msg.textContent = '复制失败，直接从下面文本框里拿' }
 })
 document.getElementById('save').addEventListener('click', async () => {
+  const token = localStorage.getItem('yuanshu_access_token') || ''
+  if (!token) { msg.textContent = '请先登录元枢，再保存标注'; return }
   msg.textContent = '保存中…'
   try {
     const r = await fetch('/api/puppet/labels', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + (localStorage.getItem('yuanshu_access_token') || 'love#1126469194') },
+      headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + token },
       body: JSON.stringify(payload()),
     })
     const j = await r.json().catch(() => ({}))

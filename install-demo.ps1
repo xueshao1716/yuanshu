@@ -61,7 +61,7 @@ H ('  ╚' + ('═' * ($UI_W + 4)) + '╝') $UI.C
 H '' ''
 KeyVal '访问地址' 'http://127.0.0.1:8787'
 KeyVal '源码目录' 'C:\Users\you\pi-web'
-KeyVal '访问令牌' 'love#1126469194'
+KeyVal '访问令牌' '首次启动后读取本机 .token 文件'
 KeyVal '引擎就位' 'pi（工作台主引擎）+ dsh（执行臂）'
 H '' ''
 H '  ── 配置 API 密钥（必做，否则模型不可用）───────────────' $UI.Warn

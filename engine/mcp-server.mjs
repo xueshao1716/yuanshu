@@ -16,14 +16,16 @@ let _emotion = null;          // engine/emotion.mjs
 let _getDefaultModel = () => null;
 let _getWsRoot = () => process.cwd(); // M1：兜底可移植（server.mjs 启动时会注入真实 wsRoot）
 let _json = null;             // http-utils json
+let _getToken = () => process.env.YUANSHU_TOKEN || "";
 
-export function initMcpServer({ modelRouter, memoryApi, emotion, getDefaultModel, wsRoot, json }) {
+export function initMcpServer({ modelRouter, memoryApi, emotion, getDefaultModel, wsRoot, json, getToken }) {
   _getModelRouter = modelRouter;
   _memoryApi = memoryApi;
   _emotion = emotion;
   if (getDefaultModel) _getDefaultModel = getDefaultModel;
   if (wsRoot) _getWsRoot = wsRoot;
   if (json) _json = json;
+  if (getToken) _getToken = getToken;
 }
 
 // ── 工具定义 ──
@@ -102,7 +104,11 @@ const TOOLS = [
 
 // MCP 工具若要调用元枢自己的 HTTP 接口，需要本机基址与令牌（同进程，直接走 127.0.0.1）。
 function _base() { return "http://127.0.0.1:" + (process.env.PORT || 8787); }
-function _auth() { return { "Content-Type": "application/json", Authorization: "Bearer " + (process.env.YUANSHU_TOKEN || "love#1126469194") }; }
+function _auth() {
+  const token = _getToken();
+  if (!token) throw new Error("未配置本机访问令牌");
+  return { "Content-Type": "application/json", Authorization: "Bearer " + token };
+}
 
 // ── 工具执行 ──
 async function callTool(name, args, ctx) {
@@ -225,7 +231,7 @@ export async function handleMcp(req, res, ctx) {
           result: {
             protocolVersion: rpc.params?.protocolVersion || "2024-11-05",
             capabilities: { tools: { listChanged: false } },
-            serverInfo: { name: "yuanshu (元枢)", version: "2.116.34" },
+            serverInfo: { name: "yuanshu (元枢)", version: "2.116.35" },
           },
         });
       case "notifications/initialized":

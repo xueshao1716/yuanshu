@@ -78,7 +78,7 @@ def call_openrouter(model, system, user, label):
         headers={
             'Authorization': 'Bearer ' + OR_KEY,
             'Content-Type': 'application/json',
-            'HTTP-Referer': 'https://pi.myxinyu.xin',
+            'HTTP-Referer': 'https://pi.example.com',
             'X-Title': 'pi-web cross review',
         },
     )

@@ -9,7 +9,7 @@
 |---|---|---|---|
 | pi-web 主服务 `server.mjs` | 127.0.0.1:8787 | `pi-web-watchdog` 计划任务：Boot 触发 + **每 5 分钟重复触发**；watchdog v2.1 进程内监控 | ✅ |
 | watchdog v2.1 | — | 锁文件 `.watchdog.lock` 防多实例；分级检查：新启动 60s 内 5s 快查 / 连续失败保持快查 / 稳态 30s | pid 见 watchdog.log |
-| cloudflared 隧道 | → pi.myxinyu.xin | `cloudflared-tunnel` 计划任务：Logon 触发 + **每 5 分钟重复触发**；`restart-tunnel.bat` 幂等版（在跑 skip，挂了才拉） | ✅ |
+| cloudflared 隧道 | → pi.example.com | `cloudflared-tunnel` 计划任务：Logon 触发 + **每 5 分钟重复触发**；`restart-tunnel.bat` 幂等版（在跑 skip，挂了才拉） | ✅ |
 | novel-studio | 本地 8790 | 手动 | 按需 |
 
 ## 自愈链路（2026-08-26 加固）

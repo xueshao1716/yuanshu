@@ -11,11 +11,7 @@ import { atomicWriteJson } from "./atomic-io.mjs";
 const STARTED_AT = Date.now();
 
 // 默认外网域名（首次生成配置文件用；之后以用户编辑的为准）
-const DEFAULT_DOMAINS = [
-  { domain: "pi.myxinyu.xin", desc: "工作台主入口" },
-  { domain: "share.myxinyu.xin", desc: "成品外链分享" },
-  { domain: "novel.myxinyu.xin", desc: "小说创作系统" },
-];
+const DEFAULT_DOMAINS = [];
 
 // 功能一览（系统页展示；新增功能时在此登记）。
 // 注意别叫「系统能力」：主栏的「能力」是引擎运行时页（引擎配置/工具目录/运行诊断），

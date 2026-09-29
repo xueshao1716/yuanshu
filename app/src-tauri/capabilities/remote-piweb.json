@@ -8,9 +8,7 @@
       "http://127.0.0.1:8787",
       "http://localhost:8787",
       "http://127.0.0.1:8787/*",
-      "http://localhost:8787/*",
-      "https://pi.myxinyu.xin",
-      "https://pi.myxinyu.xin/*"
+      "http://localhost:8787/*"
     ]
   },
   "permissions": [

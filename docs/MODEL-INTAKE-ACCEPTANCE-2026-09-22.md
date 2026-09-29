@@ -44,7 +44,7 @@
 - 全量测试：1,877 / 1,877 通过，50 个测试组，零失败、零跳过。测试工作目录隔离到临时目录。
 - 最终日志：`C:/Users/xuexiaofeng/AppData/Local/Temp/yuanshu-models-669b8c3a494b403192ff299dbb39e764/tests.log`。
 - 23:04 确认运行中任务为零，通过正式重启脚本重启。新接口已在 8787 生效。
-- 本机与公网 `https://pi.myxinyu.xin` 健康检查成功，均加载本次构建 `index-CQXgT-lw.js`。
+- 本机与公网 `https://pi.example.com` 健康检查成功，均加载本次构建 `index-CQXgT-lw.js`。
 - 23:05 通过正式 HTTP 接口验证：Step 服务商现有 OpenAI 目录返回 10 个模型；显式选择 Messages 的目录仍返回上游 401，元枢转为 422，随后本地鉴权请求仍为 200。
 - 同次 Step 5 文本验证走 `anthropic-messages`，993ms，通过；上游报告 `step-5-preview`。结果已保存并从 `/api/models` 读回。目录协议与单个模型调用协议可以不同，重新发现会保留模型级设置。
 - 本次没有重新打包安装包、提交或推送代码。

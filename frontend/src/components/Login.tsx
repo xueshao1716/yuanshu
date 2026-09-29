@@ -34,7 +34,7 @@ export default function Login() {
             <div className="flex h-9 w-9 items-center justify-center rounded-xl border border-pi-accent/35 bg-pi-accent/10 text-pi-accent shadow-[0_0_28px_color-mix(in_srgb,var(--pi-accent)_18%,transparent)]"><Sparkles className="h-4 w-4" /></div>
             <div><div className="text-[15px] font-semibold tracking-[0.16em] text-pi-text">元枢</div><div className="text-[10px] uppercase tracking-[0.22em] text-pi-dim2">YUANSHU WORKSPACE</div></div>
           </div>
-          <div className="hidden items-center gap-2 text-[11px] text-pi-dim2 sm:flex"><span className="h-1.5 w-1.5 rounded-full bg-pi-green shadow-[0_0_10px_var(--pi-green)]" />本地安全连接</div>
+          <div className="hidden items-center gap-2 text-[11px] text-pi-dim2 sm:flex"><span className="h-1.5 w-1.5 rounded-full bg-pi-green shadow-[0_0_10px_var(--pi-green)]" />令牌保存在当前设备</div>
         </header>
 
         <main className="flex flex-1 items-center py-10 lg:py-14">
@@ -53,11 +53,11 @@ export default function Login() {
                 <div className="mb-7 lg:hidden"><div className="mb-3 flex h-10 w-10 items-center justify-center rounded-xl border border-pi-accent/35 bg-pi-accent/10 text-pi-accent"><Sparkles className="h-4 w-4" /></div><h1 className="text-3xl font-semibold tracking-[-0.04em] text-pi-text">连接元枢</h1><p className="mt-2 text-sm leading-6 text-pi-dim">首次进入工作台，先完成这台设备的授权。</p></div>
                 <div className="hidden lg:block"><div className="text-[11px] font-medium uppercase tracking-[0.2em] text-pi-accent">Welcome back</div><h2 className="mt-2 text-2xl font-semibold tracking-[-0.03em] text-pi-text">连接你的工作台</h2><p className="mt-2 text-sm leading-6 text-pi-dim">使用本机令牌安全进入元枢。</p></div>
                 <div className="mt-6 space-y-4">
-                  <label className="block"><span className="mb-2 flex items-center gap-2 text-[11px] font-medium text-pi-dim"><Server className="h-3.5 w-3.5 text-pi-accent" />工作台地址</span><input className="input-pi !min-h-12 !rounded-xl" placeholder="https://pi.myxinyu.xin 或 http://电脑IP:8787" value={apiBase} onChange={e => setApiBase(e.target.value)} onKeyDown={e => e.key === 'Enter' && submit()} /></label>
+                  <label className="block"><span className="mb-2 flex items-center gap-2 text-[11px] font-medium text-pi-dim"><Server className="h-3.5 w-3.5 text-pi-accent" />工作台地址</span><input className="input-pi !min-h-12 !rounded-xl" placeholder="https://example.com 或 http://电脑IP:8787" value={apiBase} onChange={e => setApiBase(e.target.value)} onKeyDown={e => e.key === 'Enter' && submit()} /></label>
                   <label className="block"><span className="mb-2 flex items-center gap-2 text-[11px] font-medium text-pi-dim"><KeyRound className="h-3.5 w-3.5 text-pi-accent" />访问令牌</span><div className="relative"><input className="input-pi !min-h-12 !rounded-xl !pr-12" type={showToken ? 'text' : 'password'} placeholder="粘贴服务器 .token 内容" value={token} onChange={e => setToken(e.target.value)} onKeyDown={e => e.key === 'Enter' && submit()} /><button type="button" aria-label={showToken ? '隐藏访问令牌' : '显示访问令牌'} className="absolute right-1 top-1/2 flex h-10 w-10 -translate-y-1/2 items-center justify-center rounded-lg text-pi-dim2 hover:bg-pi-bg3 hover:text-pi-text" onClick={() => setShowToken(v => !v)}>{showToken ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}</button></div></label>
                 </div>
                 {err && <div role="alert" className="mt-4 rounded-xl border border-pi-red/30 bg-pi-red/10 px-3 py-2.5 text-xs leading-5 text-pi-red">{err}</div>}
-                <button className="btn-primary mt-5 flex min-h-12 w-full items-center justify-center gap-2 rounded-xl text-sm font-semibold" disabled={loading || !token.trim()} onClick={submit}>{loading ? '正在建立安全连接…' : <><span>进入元枢</span><ArrowUpRight className="h-4 w-4" /></>}</button>
+                <button className="btn-primary mt-5 flex min-h-12 w-full items-center justify-center gap-2 rounded-xl text-sm font-semibold" disabled={loading || !token.trim()} onClick={submit}>{loading ? '正在连接工作台…' : <><span>进入元枢</span><ArrowUpRight className="h-4 w-4" /></>}</button>
                 <div className="mt-5 flex items-start gap-2 border-t border-pi-border pt-4 text-[11px] leading-5 text-pi-dim2"><Check className="mt-0.5 h-3.5 w-3.5 flex-shrink-0 text-pi-green" /><span>令牌只保存在当前设备的本地存储中。手机端请填写电脑公网或局域网地址，不要填 127.0.0.1。</span></div>
               </div>
               <div className="mt-4 text-center text-[11px] text-pi-dim2">还没有配置？登录后可在「系统」页管理模型与密钥。</div>

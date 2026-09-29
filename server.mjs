@@ -158,6 +158,7 @@ import { initSessionDb, handleDbList, handleDbRebuild, handleDbSanitize, handleD
 import { repairSessionFile, repairSessionDir } from "./engine/session-repair.mjs";
 import { outputRoomTokens, headroomNote } from "./engine/context-headroom.mjs";
 import { loadPersonaDefinition, renderPersonaSection, syncAppendSystemPersona, personaFilePath } from "./engine/persona-def.mjs";
+import { voiceAllowedOrigins } from "./engine/network-endpoints.mjs";
 import { isListedGroup } from "./engine/session-groups.mjs";
 import { createAIBodyRuntime } from "./engine/aibody-runtime.mjs";
 import { createAIBodyHost } from "./engine/aibody-host.mjs";
@@ -635,6 +636,7 @@ const isExternalThinking = () => !!(CONFIG.externalThinking || globalThis.__yuan
 // server 侧注入：工作目录 / 工作空间路径安全 / 技能激活 / 时间引擎。
 const executeUnifiedTool = createUnifiedToolExecutorGuarded({
   cwd: () => CONFIG.cwd,
+  agentDir: AGENT_DIR,
   systemDir: __dirname, // 双根白名单：系统本体目录（自进化可写）
   safePath: wsSafePath,
   activateSkill: (name) => {
@@ -727,7 +729,7 @@ initUnifiedChat({
   },
 }); // 统一对话通道注入
 initRefineApi({ cwd: CONFIG.cwd }); // 经验沉淀台注入
-initMcpServer({ modelRouter: (await import("./engine/model-router.mjs")), memoryApi: memoryApi, emotion, getDefaultModel: () => defaultModel, wsRoot: () => CONFIG.cwd, json }); // MCP 认知层注入
+initMcpServer({ modelRouter: (await import("./engine/model-router.mjs")), memoryApi: memoryApi, emotion, getDefaultModel: () => defaultModel, wsRoot: () => CONFIG.cwd, getToken: () => CONFIG.token, json }); // MCP 认知层注入
 initMcpChat({ handleChat }); // MCP 对话注入
 
 
@@ -3155,7 +3157,7 @@ const boardApi = createBoardApi({
 // Register after dependencies exist, never inside the per-request callback.
 API_ROUTES.push(...createCompanionRoutes({ exists: id => activeSessions.has(id) || !!findSession(id),
   facts: companionFacts, store: companionStore, decisions: companionDecisions, json, readBody }));
-const voiceOrigins = ['https://pi.myxinyu.xin', 'http://127.0.0.1:8787', 'http://localhost:8787'];
+const voiceOrigins = voiceAllowedOrigins({ agentDir: AGENT_DIR, configured: CONFIG.corsOrigins, port: CONFIG.port });
 const readVoiceSession = createVoiceSessionReader({ activeSessions, findSession, readEntriesFromFile, extractMessages, resolveLeafId });
 const voiceAdmission = createVoiceAdmission({ getToken: () => CONFIG.token, readSession: readVoiceSession });
 const voiceTicket = createVoiceTicketHandler({ admission: voiceAdmission, origins: voiceOrigins });
@@ -3335,7 +3337,7 @@ function startServer() {
     console.log("│                元枢已启动                    │");
     console.log("╰──────────────────────────────────────────────╯");
     console.log(`  本地地址: http://${CONFIG.host}:${CONFIG.port}`);
-    console.log(`  访问令牌: ${CONFIG.token}`);
+    console.log("  访问令牌: 已配置（请在本机 .token 文件中查看）");
     console.log(`  工作目录: ${CONFIG.cwd}`);
     console.log(`  工具集  : ${CONFIG.tools.join(", ")}`);
     console.log(`  默认模型: ${defaultModel ? defaultModel.provider + "/" + defaultModel.id : "(未设置)"}`);

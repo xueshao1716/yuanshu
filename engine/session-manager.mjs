@@ -16,6 +16,7 @@ import { createIdleSessionWriter } from './idle-session-writer.mjs';
 import { validateSessionOrigin } from './session-origin-auth.mjs';
 import { compactManagedSession } from './session-manual-compaction.mjs';
 import { createSessionLifecycle, sessionFileVersion, conversationGone, disposeAgent } from './session-lifecycle.mjs';
+import { resolveShareOrigin } from './network-endpoints.mjs';
 
 const lifecycle = createSessionLifecycle();
 const lazySessionManagers = new WeakSet();
@@ -648,6 +649,8 @@ export async function initShareTool() {
           return { content: [{ type: "text", text: `项目不存在: ${src}。请先用 search_files 找到正确路径。` }] };
         }
         const shareDir = path.join(wsRoot, "外网分享");
+        const origin = resolveShareOrigin({ host: env("SHARE_HOST"), agentDir: _getAgentDir() });
+        if (!origin) return { content: [{ type: "text", text: "分享域名未配置或无效，未复制项目。请先在系统页登记外网分享域名。" }] };
         fs.mkdirSync(shareDir, { recursive: true });
         const base = path.basename(safe);
         const target = path.join(shareDir, base);
@@ -664,9 +667,8 @@ export async function initShareTool() {
         } catch (e) {
           return { content: [{ type: "text", text: `复制失败: ${String(e?.message || e).slice(0, 80)}` }] };
         }
-        const host = env("SHARE_HOST") || "share.myxinyu.xin";
         const isHtml = fs.existsSync(path.join(target, "index.html"));
-        const url = `https://${host}/${encodeURIComponent(base)}${isHtml ? "/" : ""}`;
+        const url = `${origin}/${encodeURIComponent(base)}${isHtml ? "/" : ""}`;
         return {
           content: [{ type: "text", text: `✅ 已分享到外网：${url}\n（项目已复制到 外网分享/${base}）` }],
           details: { url, path: `外网分享/${base}` },

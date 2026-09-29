@@ -28,5 +28,6 @@ test('dedicated call host preserves consent and session lifecycle outside the co
 })
 test('server registers header-only tickets and voice transport with explicit origins', () => {
   const s = read('server.mjs')
-  for (const text of ['createVoiceSessionReader', 'createVoiceAdmission', 'createVoiceTicketHandler', '/api/voice/ticket', 'attachChatVoice({ server', 'https://pi.myxinyu.xin', 'connectVoiceProvider']) assert.ok(s.includes(text), text)
+  for (const text of ['createVoiceSessionReader', 'createVoiceAdmission', 'createVoiceTicketHandler', '/api/voice/ticket', 'attachChatVoice({ server', 'voiceAllowedOrigins', 'connectVoiceProvider']) assert.ok(s.includes(text), text)
+  assert.doesNotMatch(s, /pi\.myxinyu|share\.myxinyu/, '服务端不得硬编码私人域名')
 })
