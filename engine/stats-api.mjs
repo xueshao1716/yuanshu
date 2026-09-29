@@ -13,10 +13,10 @@ import { sanitizeText } from "./sanitize.mjs";
 let _getAgentDir = () => "", _cwd = "", _DefaultResourceLoader = null;
 // 08-29 修复：handleStats/handleCompact/handleRename 引用 openSession/ensureAgent/defaultModel 但从未注入
 //（8/20 拆分裸引用漏网，三个 API 坏了 9 天：/api/sessions/:id/stats|compact|rename）
-let _openSession = null, _ensureAgent = null, _getDefaultModel = () => null, _subagentHistoryProvider = null;
-export function initStatsApi({ getAgentDir = null, cwd = "", DefaultResourceLoader = null, openSession = null, ensureAgent = null, getDefaultModel = null, subagentHistoryProvider = null } = {}) {
+let _openSession = null, _compactSessionAgent = null, _getDefaultModel = () => null, _subagentHistoryProvider = null;
+export function initStatsApi({ getAgentDir = null, cwd = "", DefaultResourceLoader = null, openSession = null, compactSessionAgent = null, getDefaultModel = null, subagentHistoryProvider = null } = {}) {
   if (getAgentDir) _getAgentDir = getAgentDir; _cwd = cwd; _DefaultResourceLoader = DefaultResourceLoader;
-  if (openSession) _openSession = openSession; if (ensureAgent) _ensureAgent = ensureAgent; if (getDefaultModel) _getDefaultModel = getDefaultModel;
+  if (openSession) _openSession = openSession; if (compactSessionAgent) _compactSessionAgent = compactSessionAgent; if (getDefaultModel) _getDefaultModel = getDefaultModel;
   if (subagentHistoryProvider) _subagentHistoryProvider = subagentHistoryProvider;
 }
 
@@ -437,13 +437,12 @@ export async function handleStats(res, id) {
 
 // POST /api/sessions/:id/compact —— 压缩上下文
 export async function handleCompact(res, id) {
-  const entry = await _openSession(id);
-  if (!entry) return json(res, 404, { error: "会话不存在" });
-  if (entry.busy) return json(res, 409, { error: "会话正在处理中" });
   try {
-    const result = await _ensureAgent(entry, _getDefaultModel()).then(ag => ag.compact());
+    const result = await _compactSessionAgent(id, _getDefaultModel());
     json(res, 200, { ok: true, summary: result?.summary || "" });
   } catch (e) {
+    if (e?.code === 'conversation_gone') return json(res, 404, { error: "会话不存在" });
+    if (e?.code === 'session_busy') return json(res, 409, { error: "会话正在处理中" });
     json(res, 500, { error: String(e?.message || e) });
   }
 }

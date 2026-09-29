@@ -3,6 +3,7 @@ import assert from 'node:assert/strict'
 import { EventEmitter } from 'node:events'
 
 import { createRunApi } from '../../engine/run-api.mjs'
+import { buildRunSnapshot } from '../../engine/run-observability.mjs'
 
 class FakeResponse extends EventEmitter {
   constructor() { super(); this.statusCode = 0; this.headers = {}; this.chunks = []; this.writableEnded = false }
@@ -17,6 +18,37 @@ function fakeJson(res, code, value) {
   res.writeHead(code, { 'Content-Type': 'application/json' })
   res.end(JSON.stringify(value))
 }
+
+test('overview reads only visible histories, keeps all health counts and old active runs', async () => {
+  const runs = Array.from({ length: 100 }, (_, i) => ({
+    id: `r${i}`, sessionId: 's', status: i === 0 ? 'running' : i === 1 ? 'failed' : 'completed',
+    updatedAt: new Date(1000000 + i * 1000).toISOString(),
+  }))
+  const readIds = []
+  const events = [{ seq: 1, type: 'tool_started', data: { name: 'read' } }]
+  const api = createRunApi({ manager: {
+    list: () => runs, readAfter: id => { readIds.push(id); return events },
+  }, json: fakeJson })
+  const res = new FakeResponse()
+  await api.overview(res)
+  const body = JSON.parse(res.text())
+  assert.equal(readIds.length, 9, '8 recent plus one old active, not all 100 histories')
+  assert.equal(new Set(readIds).size, 9)
+  const expected = buildRunSnapshot(runs, new Map(runs.map(run => [run.id, events])))
+  assert.deepEqual(body.health, expected.health)
+  assert.deepEqual(body.recent.map(r => [r.id, r.toolCount]), expected.recent.map(r => [r.id, r.toolCount]))
+  assert.deepEqual(body.active.map(r => r.id), ['r0'])
+})
+
+test('overview yields to the event loop between visible history reads', async () => {
+  let yielded = false
+  setImmediate(() => { yielded = true })
+  const api = createRunApi({ manager: {
+    list: () => [{ id: 'r', status: 'running' }],
+    readAfter: () => { assert.equal(yielded, true); return [] },
+  }, json: fakeJson })
+  await api.overview(new FakeResponse())
+})
 
 test('stop response never exposes persisted team context or private request', async () => {
   const api = createRunApi({ manager: { stop: () => ({ id: 'r', status: 'stopping', request: { message: 'private' }, checkpoint: { team: { launchId: 'l', binding: { context: 'secret-history' } } } }) }, json: fakeJson })

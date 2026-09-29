@@ -1,6 +1,7 @@
 import { EventEmitter } from 'node:events'
 import { deriveRunObservability } from './run-observability.mjs'
 import { createBackgroundRecovery, newRecoveryPolicy, RUN_SLICE_MS } from './run-recovery.mjs'
+import { admitVoiceRun } from './voice-run-admission.mjs'
 
 const TERMINAL = new Set(['completed', 'failed', 'stopped', 'interrupted'])
 
@@ -199,9 +200,20 @@ export function createRunManager({ store, eventLog, executeChat, instanceId, onS
     }
   }
 
-  const enqueue = (run, body, context = {}) => {
+  const enqueue = (run, body, context = {}, prepare = null) => {
     if (TERMINAL.has(run.status) || executions.has(run.id)) return run
-    const control = makeControl(run, body, context)
+    let control
+    try {
+      prepare?.()
+      control = makeControl(run, body, context)
+    } catch (error) {
+      // The durable receipt exists, but no execution has been admitted yet.
+      // Retain its identity and release admission only through a durable terminal
+      // update; failed persistence must still throw rather than fabricate success.
+      const settled = finish(run.id, 'failed', { reason: 'execution_setup_failed', message: String(error?.message || error) })
+      if (!settled || !TERMINAL.has(settled.status)) throw error
+      return settled
+    }
     executions.set(run.id, control)
     queueMicrotask(() => start(control))
     return run
@@ -306,13 +318,9 @@ export function createRunManager({ store, eventLog, executeChat, instanceId, onS
 
       const existing = store.list().find(run => run.sessionId === body.sessionId && run.clientRequestId === body.clientRequestId)
       if (existing) return existing
-      const run = store.create({ ...body, ownerId: instanceId, backgroundRecovery: newRecoveryPolicy(workspaceScope(), body.backgroundRecovery !== false) })
-      effects?.initialize?.(run.id)
-      if (TERMINAL.has(run.status) || executions.has(run.id)) return run
-      const control = makeControl(run, body, context)
-      executions.set(run.id, control)
-      queueMicrotask(() => start(control))
-      return run
+      const voiceTaskAdmission = admitVoiceRun(store.readAdmissionSnapshot(), context)
+      const run = store.create({ ...body, voiceTaskAdmission, ownerId: instanceId, backgroundRecovery: newRecoveryPolicy(workspaceScope(), body.backgroundRecovery !== false) })
+      return enqueue(run, body, context, () => effects?.initialize?.(run.id))
     },
     get(runId) { return store.get(runId) },
     list() { return store.list() },
@@ -353,11 +361,13 @@ export function createRunManager({ store, eventLog, executeChat, instanceId, onS
       if (store.findActiveBySession(current.sessionId)) throw Object.assign(new Error('session_busy'), { code: 'session_busy', activeRunId: store.findActiveBySession(current.sessionId).id })
       const request = current.request
       if (!request?.message && !current.input?.messagePreview) throw Object.assign(new Error('resume_request_missing'), { code: 'resume_unavailable' })
+      const voiceTaskAdmission = admitVoiceRun(store.readAdmissionSnapshot(), context, current)
       const checkpoint = current.checkpoint || {}
       recovery.cancel(runId)
       const nextAttempt = Number.isInteger(checkpoint.attempt) ? checkpoint.attempt + 1 : 1
       const queued = store.update(runId, {
         status: 'queued',
+        ...(voiceTaskAdmission ? { voiceTaskAdmission } : {}),
         ownerId: instanceId,
         resumeAvailable: false,
         error: null,
@@ -370,7 +380,6 @@ export function createRunManager({ store, eventLog, executeChat, instanceId, onS
         stopRequestedAt: null,
         checkpoint: { ...checkpoint, phase: 'resuming', step: 'resume', attempt: nextAttempt, updatedAt: new Date().toISOString() },
       })
-      append(queued, 'resumed', { attempt: nextAttempt, from: checkpoint.step || 'unknown' })
       const body = {
         ...(request || {}),
         message: request?.message || current.input?.messagePreview || '',
@@ -379,7 +388,7 @@ export function createRunManager({ store, eventLog, executeChat, instanceId, onS
         stream: true,
         resume: true,
       }
-      return enqueue(queued, body, context)
+      return enqueue(queued, body, context, () => append(queued, 'resumed', { attempt: nextAttempt, from: checkpoint.step || 'unknown' }))
     },
     disableRecovery(runId) { return recovery.disable(runId) },
     dispose() { recovery.dispose() },

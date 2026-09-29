@@ -12,14 +12,57 @@ import { execActivateSkill } from "./context-loader.mjs";
 import { httpJsonFetch } from "./http.mjs";
 import { wsSafePath } from "./workspace-api.mjs";
 import { env } from "./env.mjs";
+import { createIdleSessionWriter } from './idle-session-writer.mjs';
+import { validateSessionOrigin } from './session-origin-auth.mjs';
+import { compactManagedSession } from './session-manual-compaction.mjs';
+import { createSessionLifecycle, sessionFileVersion, conversationGone, disposeAgent } from './session-lifecycle.mjs';
+
+const lifecycle = createSessionLifecycle();
+const lazySessionManagers = new WeakSet();
+
+function hasSessionFile(sm, file) {
+  const exists = fs.existsSync(file);
+  // SDK first assistant flushes the complete JSONL; afterwards absence means gone,
+  // even when no lifecycle call happened between the flush and external removal.
+  if (exists || sm.flushed === true) { lazySessionManagers.delete(sm); return exists; }
+  return lazySessionManagers.has(sm);
+}
+
+function canUseLazyOrigin(id, live) {
+  return !!live && _activeSessions?.get(id) === live && live.sm?.getSessionId?.() === id
+    && hasSessionFile(live.sm, live.sm.getSessionFile()) && lazySessionManagers.has(live.sm);
+}
+
+export function canAccessSessionOrigin(id) {
+  try {
+    const live = _activeSessions?.get(id);
+    if (live && !live.sm) return false;
+    const file = live ? live.sm.getSessionFile() : findSession(id)?.file;
+    return validateSessionOrigin({ id, file, sessionsDir: _sessionsDir, cwd: _cwd,
+      sm: live?.sm, allowUnpersisted: canUseLazyOrigin(id, live) });
+  } catch { return false; }
+}
+
+export function withIdleSession(id, append) {
+  return createIdleSessionWriter({ activeSessions: _activeSessions, SessionManager: _SessionManager,
+    findSession, cwd: _cwd, sessionsDir: _sessionsDir, isLocked: (sid, file) => lifecycle.locked(sid, file),
+    canUseUnpersisted: canUseLazyOrigin,
+    invalidate: invalidateSessionCache })(id, append);
+}
+
+export function compactSessionAgent(id, model) {
+  return compactManagedSession(id, model, { lifecycle, activeSessions: _activeSessions,
+    findSession, openSession, ensureAgent, hasSessionFile });
+}
 
 let _cwd = "", _sessionsDir = "", _tools = [], _getModelList = () => [], _getDefaultModel = () => null, _activeSessions = null, _createAgentSessionServices = null, _createAgentSessionFromServices = null, _getModelRuntime = () => null,
     _SessionManager = null, _SettingsManager = null, _DefaultResourceLoader = null, _getAgentDir = () => "", _readJsonFile = null, _writeJsonFile = null, _piPackage = "", _isModelBlocked = () => false,
     _initSearchTool = async () => null, _initShareTool = async () => null, _initDshTool = async () => null, _isExternalThinking = () => false, _THINK_TOOL = null,
     _generateMediaAsync = null,
     _modelCapabilities = null, _bindOutputGuardDeps = null, _extractMessages = null, _createSseWriter = null, _unifiedChat = null, _loadSessionModelKey = null, _onSessionCreated = null,
-    _repairSessionFile = null;
-export function initSessionManager({ cwd = "", sessionsDir = "", tools = [], piPackage = "", isModelBlocked = null, getModelList = null, getDefaultModel = null, activeSessions = null, SessionManager = null, SettingsManager = null, DefaultResourceLoader = null, getAgentDir = null, readJsonFile = null, writeJsonFile = null, initSearchTool = null, initShareTool = null, initDshTool = null, isExternalThinking = null, THINK_TOOL = null, modelCapabilities = null, bindOutputGuardDeps = null, extractMessages = null, createSseWriter = null, unifiedChat = null, createAgentSessionServices = null, createAgentSessionFromServices = null, getModelRuntime = null, loadSessionModelKey = null, generateMediaAsync = null, onSessionCreated = null, repairSessionFile = null } = {}) {
+    _repairSessionFile = null, _agentFactory = createSessionAgent, _summaryFetch = httpJsonFetch;
+export function initSessionManager({ cwd = "", sessionsDir = "", tools = [], piPackage = "", isModelBlocked = null, getModelList = null, getDefaultModel = null, activeSessions = null, SessionManager = null, SettingsManager = null, DefaultResourceLoader = null, getAgentDir = null, readJsonFile = null, writeJsonFile = null, initSearchTool = null, initShareTool = null, initDshTool = null, isExternalThinking = null, THINK_TOOL = null, modelCapabilities = null, bindOutputGuardDeps = null, extractMessages = null, createSseWriter = null, unifiedChat = null, createAgentSessionServices = null, createAgentSessionFromServices = null, getModelRuntime = null, loadSessionModelKey = null, generateMediaAsync = null, onSessionCreated = null, repairSessionFile = null, agentFactory = createSessionAgent, summaryFetch = httpJsonFetch } = {}) {
+  _agentFactory = agentFactory; _summaryFetch = summaryFetch;
   _cwd = cwd; _sessionsDir = sessionsDir; _tools = tools; _piPackage = piPackage; if (isModelBlocked) _isModelBlocked = isModelBlocked; _activeSessions = activeSessions; _SessionManager = SessionManager; _SettingsManager = SettingsManager; _DefaultResourceLoader = DefaultResourceLoader; _readJsonFile = readJsonFile; _writeJsonFile = writeJsonFile;
   if (createAgentSessionServices) _createAgentSessionServices = createAgentSessionServices; if (createAgentSessionFromServices) _createAgentSessionFromServices = createAgentSessionFromServices; if (getModelRuntime) _getModelRuntime = getModelRuntime; if (loadSessionModelKey) _loadSessionModelKey = loadSessionModelKey;
   if (getModelList) _getModelList = getModelList; if (getDefaultModel) _getDefaultModel = getDefaultModel; if (getAgentDir) _getAgentDir = getAgentDir;
@@ -40,14 +83,21 @@ export async function createSession(name, { group } = {}) {
   //   用户切模型只锁当前会话（session-model-keys 持久化），新会话永远回到默认。
   let agent = null;
   let modelKey = null;
-  agent = await createSessionAgent(sm, _getDefaultModel());
-  _activeSessions.set(id, { agent, sm, busy: false, lastUsed: Date.now(), modelKey: _getDefaultModel() && _getDefaultModel().provider ? { provider: _getDefaultModel().provider, id: _getDefaultModel().id } : null, agentModel: _getDefaultModel() && _getDefaultModel().provider ? { provider: _getDefaultModel().provider, id: _getDefaultModel().id } : null });
-  invalidateSessionCache(); // 新增会话 → 列表缓存失效
-  if (name) { try { sm.appendSessionInfo(name); } catch {} }
-  try { appendSessionGroup(file, g, name); } catch {}
-  // 会话数据库编号在创建时立即落盘，避免必须手动点击“重建索引”才出现编号。
-  try { await _onSessionCreated?.({ id, file, name: name || "新会话", group: g }); } catch {}
-  return id;
+  const token = lifecycle.begin('creating', id, file);
+  const lazyFile = !fs.existsSync(file); // SDK new sessions can be lazily persisted.
+  if (lazyFile) lazySessionManagers.add(sm);
+  try {
+    agent = await _agentFactory(sm, _getDefaultModel());
+    if (!lifecycle.current(token, hasSessionFile(sm, file))) { disposeAgent(agent); throw conversationGone(); }
+    _activeSessions.set(id, { agent, sm, busy: false, lastUsed: Date.now(), modelKey: _getDefaultModel() && _getDefaultModel().provider ? { provider: _getDefaultModel().provider, id: _getDefaultModel().id } : null, agentModel: _getDefaultModel() && _getDefaultModel().provider ? { provider: _getDefaultModel().provider, id: _getDefaultModel().id } : null });
+    invalidateSessionCache(); // 新增会话 → 列表缓存失效
+    if (name) { try { sm.appendSessionInfo(name); } catch {} }
+    try { appendSessionGroup(file, g, name); } catch {}
+    // 会话数据库编号在创建时立即落盘，避免必须手动点击“重建索引”才出现编号。
+    try { await _onSessionCreated?.({ id, file, name: name || "新会话", group: g }); } catch {}
+    if (!lifecycle.current(token, hasSessionFile(sm, file))) throw conversationGone();
+    return id;
+  } finally { lifecycle.end(token); }
 }
 
 // 从当前会话某条消息创建一个真正独立的新会话分支。
@@ -101,7 +151,7 @@ const MAX_ACTIVE_SESSIONS = 30; // 保留上限；超过后淘汰最久未用且
 export function evictInactiveSessions() {
   if (_activeSessions.size <= MAX_ACTIVE_SESSIONS) return;
   const idle = [..._activeSessions.entries()]
-    .filter(([, e]) => !e.busy)
+    .filter(([id, e]) => !e.busy && !lifecycle.locked(id, e.sm?.getSessionFile?.()))
     .sort((a, b) => (a[1].lastUsed || 0) - (b[1].lastUsed || 0));
   for (const [id, e] of idle) {
     if (_activeSessions.size <= MAX_ACTIVE_SESSIONS) break;
@@ -161,14 +211,18 @@ let compactingSessions = new Set();
 export async function compactSession(file, model, force = false, focus = "") {
   if (compactingSessions.has(file)) return { skip: true, reason: "busy: 该会话正在压缩中" };
   compactingSessions.add(file);
+  const token = lifecycle.begin('compacting', null, file);
   let sm = null;
   try {
     const st = fs.statSync(file);
     // 只有超大会话（>3MB 或估算超阈值）才压缩，避免小会话频繁触发
     if (!force && st.size < 3 * 1024 * 1024) return;
+    const originalVersion = sessionFileVersion(file);
+    if (!originalVersion) return { skip: true, reason: 'conversation_gone' };
     // 用引擎打开会话（pi-coding-agent 的 SessionManager，fileEntries 公开且完整）
     sm = _SessionManager.open(file, path.dirname(file), _cwd);
     const entries = sm.fileEntries || [];
+    token.id = sm.getSessionId?.() || entries.find(e => e.type === 'session')?.id;
     const msgs = entries.filter(e => e.type === "message");
     if (msgs.length < 8) return { skip: true, reason: "会话消息过少(或已压缩过)，无需压缩" };
     // 已有 compaction 且后续消息不多 → 跳过（避免每次打开都压）
@@ -237,7 +291,7 @@ ${inputText}`;
       const _auth2 = _readJsonFile(path.join(_getAgentDir(), "auth.json"));
       const _dk = _auth2["deepseek"]?.key || _auth2["opencode-go"]?.key || "";
       const _url = "https://api.deepseek.com/v1/chat/completions";
-      const _rr = await httpJsonFetch(_url, { method: "POST", timeout: 90000,
+      const _rr = await _summaryFetch(_url, { method: "POST", timeout: 90000,
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${_dk}` },
         body: JSON.stringify({ model: "deepseek-v4-flash", messages: [{ role: "user", content: prompt }], max_tokens: 8000 }) });
       if (_rr.ok) {
@@ -249,6 +303,8 @@ ${inputText}`;
       }
     } catch (e) { dcErr = String(e?.message || e).slice(0, 200); }
     if (!summary) return { skip: true, reason: "摘要生成失败: " + (dcErr || "响应无 content") };
+    if (!lifecycle.current(token)) return { skip: true, reason: 'conversation_gone' };
+    if (sessionFileVersion(file) !== originalVersion) return { skip: true, reason: 'session_changed' };
     try { appendArchiveJsonl(archivePathFor(file), toSummarize); } catch {}
     // 构造新文件：非消息条目 + compaction + 保留消息链（parentId 重链到 compaction）
     const compId = `comp_${Date.now().toString(36)}`;
@@ -296,11 +352,14 @@ ${inputText}`;
     return { skip: true, reason: "异常: " + String((e && (e.stack || e.message)) || e).slice(0, 500) };
   } finally {
     compactingSessions.delete(file);
+    lifecycle.end(token);
   }
   return null;
 }
 
 export async function openSession(id) {
+  const pending = lifecycle.find('opening', id);
+  if (pending) return pending.promise;
   if (_activeSessions.has(id)) {
     const hit = _activeSessions.get(id);
     hit.lastUsed = Date.now();
@@ -308,32 +367,40 @@ export async function openSession(id) {
   }
   evictInactiveSessions();
   const found = findSession(id);
-  if (!found) return null; // 08-29 修复：不存在的 id 直接 null（原来 found.file 直接炸 TypeError，调用方 404 分支永远走不到）
-  // SDK 安全化（2026-09-18）：老会话里可能躺着 {type:"file"} / {type:"image",url} 这类块，
-  // pi 的 provider 适配会把用户消息里的非 text 块写成 image_url(data:;base64,undefined) →
-  // 整段会话每轮 400（assistant 里的附件块则让 token 估算器在发请求前 TypeError）。
-  // 必须在 _SessionManager.open **之前**修，否则 SDK 读到的还是坏数据。
-  if (_repairSessionFile) { try { _repairSessionFile(found.file); } catch {} }
-  // DEBUG（2026-08-22 会话不存在排查）：临时日志
-  // 超大会话先瘦身（避免加载 20MB+ 历史）
-  await slimSessionImages(found.file);
-  // 分层记忆：会话历史超阈值时压缩早期消息为摘要（pi 引擎原生支持 compaction 条目）
-  try { await compactSession(found.file, _getDefaultModel()); } catch {}
-  const sessionCwd = found.cwd || _cwd;
-  let sm;
-  try {
-    sm = _SessionManager.open(found.file, path.dirname(found.file), sessionCwd);
-  } catch (e) {
-    // 会话文件损坏（历史 bug 可能产生）→ 跳过，不阻塞其他会话
+  if (!found || !fs.existsSync(found.file)) return null;
+  const token = lifecycle.begin('opening', id, found.file);
+  token.promise = Promise.resolve().then(async () => {
+    if (!lifecycle.current(token)) return null;
+    // SDK 安全化（2026-09-18）：老会话里可能躺着 {type:"file"} / {type:"image",url} 这类块，
+    // pi 的 provider 适配会把用户消息里的非 text 块写成 image_url(data:;base64,undefined) →
+    // 整段会话每轮 400（assistant 里的附件块则让 token 估算器在发请求前 TypeError）。
+    // 必须在 _SessionManager.open **之前**修，否则 SDK 读到的还是坏数据。
+    if (_repairSessionFile) { try { _repairSessionFile(found.file); } catch {} }
+    // DEBUG（2026-08-22 会话不存在排查）：临时日志
+    // 超大会话先瘦身（避免加载 20MB+ 历史）
+    await slimSessionImages(found.file);
+    if (!lifecycle.current(token)) return null;
+    // 分层记忆：会话历史超阈值时压缩早期消息为摘要（pi 引擎原生支持 compaction 条目）
+    try { await compactSession(found.file, _getDefaultModel()); } catch {}
+    if (!lifecycle.current(token)) return null;
+    const sessionCwd = found.cwd || _cwd;
+    let sm;
+    try {
+      sm = _SessionManager.open(found.file, path.dirname(found.file), sessionCwd);
+    } catch (e) {
+      // 会话文件损坏（历史 bug 可能产生）→ 跳过，不阻塞其他会话
       return null;
-  }
-  const agent = await createSessionAgent(sm, _getDefaultModel());
-  const entry = { agent, sm, busy: false, lastUsed: Date.now() };
-  // 恢复会话级模型选择（修复 A：LRU 淘汰/服务重启后不丢用户切的模型；handleChat 检测到不一致会自动重建 agent）
-  const savedKey = _loadSessionModelKey ? _loadSessionModelKey(id) : null;
-  if (savedKey) entry.modelKey = savedKey;
-  _activeSessions.set(id, entry);
-  return entry;
+    }
+    const agent = await _agentFactory(sm, _getDefaultModel());
+    if (!lifecycle.current(token)) { disposeAgent(agent); return null; }
+    const entry = { agent, sm, busy: false, lastUsed: Date.now() };
+    // 恢复会话级模型选择（修复 A：LRU 淘汰/服务重启后不丢用户切的模型；handleChat 检测到不一致会自动重建 agent）
+    const savedKey = _loadSessionModelKey ? _loadSessionModelKey(id) : null;
+    if (savedKey) entry.modelKey = savedKey;
+    _activeSessions.set(id, entry);
+    return entry;
+  }).finally(() => lifecycle.end(token));
+  return token.promise;
 }
 
 // 压缩后的上下文规模：**不能**再拿上一条 assistant 的 usage 当数——
@@ -756,15 +823,28 @@ export async function createSessionAgent(sm, model) {
 
 // 确保 entry 的 agent 存在（直调通道后 agent 可能被销毁，从 session 文件重建以恢复记忆）
 export async function ensureAgent(entry, model) {
+  const id = entry?.sm?.getSessionId?.(), file = entry?.sm?.getSessionFile?.();
+  if (_activeSessions.get(id) !== entry || !file || !hasSessionFile(entry.sm, file)) throw conversationGone();
   if (entry.agent) return entry.agent;
-  // 会话级模型优先：会话自己切过模型则用它，否则用传入的（默认全局）
-  const effModel = (entry?.modelKey && _getModelList().find(m => m.provider === entry.modelKey.provider && m.id === entry.modelKey.id))
-    || model || _getDefaultModel();
-  const agent = await createSessionAgent(entry.sm, effModel);
-  entry.agent = agent;
-  entry.agentModel = effModel ? { provider: effModel.provider, id: effModel.id } : null;
-  console.log(`[元枢] agent 重建（模型 ${effModel?.provider}/${effModel?.id}）`);
-  return agent;
+  const pending = lifecycle.find('rebuilding', id);
+  if (pending?.entry === entry) return pending.promise;
+  const token = lifecycle.begin('rebuilding', id, file);
+  token.entry = entry;
+  token.promise = Promise.resolve().then(async () => {
+    if (!lifecycle.current(token, hasSessionFile(entry.sm, file)) || _activeSessions.get(id) !== entry) throw conversationGone();
+    // 会话级模型优先：会话自己切过模型则用它，否则用传入的（默认全局）
+    const effModel = (entry?.modelKey && _getModelList().find(m => m.provider === entry.modelKey.provider && m.id === entry.modelKey.id))
+      || model || _getDefaultModel();
+    const agent = await _agentFactory(entry.sm, effModel);
+    if (!lifecycle.current(token, hasSessionFile(entry.sm, file)) || _activeSessions.get(id) !== entry) {
+      disposeAgent(agent); throw conversationGone();
+    }
+    entry.agent = agent;
+    entry.agentModel = effModel ? { provider: effModel.provider, id: effModel.id } : null;
+    console.log(`[元枢] agent 重建（模型 ${effModel?.provider}/${effModel?.id}）`);
+    return agent;
+  }).finally(() => lifecycle.end(token));
+  return token.promise;
 }
 
 // 判断会话是否还没有任何对话消息（新会话首轮）
@@ -787,21 +867,25 @@ function _clearSessionModelKey(sid) {
 export async function deleteSession(id) {
   _clearSessionModelKey(id);
   const entry = _activeSessions.get(id);
+  const found = findSession(id);
+  const file = found?.file || entry?.sm?.getSessionFile?.() || lifecycle.fileFor(id);
+  lifecycle.cancel(id, file);
   if (entry) {
+    lazySessionManagers.delete(entry.sm);
     try { entry.agent.dispose(); } catch {}
     _activeSessions.delete(id);
   }
-  const found = findSession(id);
-  if (found?.file) {
+  invalidateSessionCache();
+  if (file) {
     // 软删除：移入回收站目录（.trash），误删可找回
-    const trashDir = path.join(path.dirname(found.file), ".trash");
+    const trashDir = path.join(path.dirname(file), ".trash");
     try {
       fs.mkdirSync(trashDir, { recursive: true });
-      fs.renameSync(found.file, path.join(trashDir, path.basename(found.file)));
+      fs.renameSync(file, path.join(trashDir, path.basename(file)));
       invalidateSessionCache();
       return;
     } catch {}
-    try { fs.unlinkSync(found.file); } catch {}
+    try { fs.unlinkSync(file); } catch {}
   }
 }
 

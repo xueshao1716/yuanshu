@@ -44,8 +44,17 @@ export function createPiCompatFallback({ agentDir = defaultFallbackAgentDir() } 
       this.sessionsDir = sessionsDir;
       fs.mkdirSync(sessionsDir, { recursive: true });
       this.sessionFile = file || path.join(sessionsDir, `${id()}.jsonl`);
-      if (!fs.existsSync(this.sessionFile)) fs.writeFileSync(this.sessionFile, "", "utf8");
       this.sessionId = path.basename(this.sessionFile, path.extname(this.sessionFile));
+      if (!fs.existsSync(this.sessionFile)) {
+        const header = { type: 'session', version: 3, id: this.sessionId, timestamp: new Date().toISOString(), cwd };
+        fs.writeFileSync(this.sessionFile, file ? '' : JSON.stringify(header) + '\n', { encoding: 'utf8', flag: 'wx' });
+      }
+      const header = readEntries(this.sessionFile)[0];
+      if (header?.type === 'session' && typeof header.id === 'string' && header.id.trim()
+          && typeof header.cwd === 'string' && path.isAbsolute(header.cwd)) {
+        this.sessionId = header.id;
+        this.cwd = header.cwd;
+      }
       this.sessionName = "";
     }
     static create(cwd, sessionsDir) { return new FallbackSessionManager(cwd, sessionsDir); }
@@ -70,7 +79,13 @@ export function createPiCompatFallback({ agentDir = defaultFallbackAgentDir() } 
       fs.appendFileSync(this.sessionFile, `${JSON.stringify(entry)}\n`, "utf8");
       return entry;
     }
-    getTree() { return treeFromEntries(readEntries(this.sessionFile)); }
+    appendCustomEntry(customType, data) {
+      const entries = readEntries(this.sessionFile);
+      const entry = { type: 'custom', customType, data, id: id(), parentId: entries.at(-1)?.id || null, timestamp: new Date().toISOString() };
+      fs.appendFileSync(this.sessionFile, JSON.stringify(entry) + String.fromCharCode(10), 'utf8');
+      return entry.id;
+    }
+    getTree() { return treeFromEntries(readEntries(this.sessionFile).filter(entry => entry.type !== 'session')); }
     getFileEntries() { return readEntries(this.sessionFile); }
   }
 
@@ -106,4 +121,3 @@ export function createPiCompatFallback({ agentDir = defaultFallbackAgentDir() } 
     withFileMutationQueue: null,
   };
 }
-

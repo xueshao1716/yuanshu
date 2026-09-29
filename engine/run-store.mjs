@@ -73,6 +73,20 @@ export function createRunStore({ rootDir, now = () => new Date().toISOString(), 
     })
     .filter(Boolean)
 
+  // Admission must see every durable claim; display-oriented list/get may
+  // skip unreadable records, but capacity decisions must fail closed instead.
+  const readAdmissionSnapshot = () => fs.readdirSync(runsDir)
+    .filter(name => name.endsWith('.json'))
+    .map(name => {
+      const run = JSON.parse(fs.readFileSync(path.join(runsDir, name), 'utf8'))
+      if (!run || typeof run !== 'object' || Array.isArray(run)
+          || typeof run.id !== 'string' || !run.id.trim()
+          || typeof run.status !== 'string' || !run.status.trim()) {
+        throw Object.assign(new Error(`invalid_run_record:${name}`), { code: 'invalid_run_record' })
+      }
+      return withLegacyContinuation(run)
+    })
+
   const update = (id, patch) => {
     const current = get(id)
     if (!current) throw new Error(`run_not_found:${id}`)
@@ -100,6 +114,7 @@ export function createRunStore({ rootDir, now = () => new Date().toISOString(), 
         status: 'queued',
         input: persistedInput(input),
         request: persistedRequest(input),
+        ...(input.voiceTaskAdmission ? { voiceTaskAdmission: input.voiceTaskAdmission } : {}),
         ...(input.backgroundRecovery ? { backgroundRecovery: input.backgroundRecovery } : {}),
         checkpoint: checkpointFor({ status: 'queued', createdAt }),
         resumeAvailable: false,
@@ -124,6 +139,7 @@ export function createRunStore({ rootDir, now = () => new Date().toISOString(), 
       return updated
     },
     list,
+    readAdmissionSnapshot,
     findActiveBySession(sessionId) {
       return list().find(run => run.sessionId === sessionId && ACTIVE_STATUSES.has(run.status)) || null
     },

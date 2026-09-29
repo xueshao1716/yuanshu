@@ -52,6 +52,7 @@ import { extractMessages, extractText, extractImages, extractFiles, resolveLeafI
 import { initSessionFiles, scanSessionFiles, parseSessionFile, parseSessionFileCached, readEntriesFromFile, getSessionList, findSession, invalidateSessionCache, extractMessageFiles, extractMessageImages } from "./engine/session-files.mjs";
 // ── 统一 HTTP 客户端（拆模块）：原生 fetch + 自动系统代理（env → Windows 注册表），替代 python 子进程 ──
 import { httpJsonFetch, httpBufferFetch } from "./engine/http.mjs";
+import { createReplyTts } from './engine/reply-tts.mjs';
 // ── 统一工具集（拆模块）：schema + 执行器；安全线（deny/危险命令/受保护路径/路径越权）在 engine/tools/security.mjs ──
 import { BASE_TOOL_SCHEMAS, SHARE_PROJECT_SCHEMA, createUnifiedToolExecutorGuarded } from "./engine/tools/unified-tools.mjs";
 import { safeJoin } from "./engine/tools/security.mjs";
@@ -98,15 +99,25 @@ import { upsertMemoryFact } from "./engine/memory-facts.mjs";
 import { readSubscriptionText } from "./engine/subscription-reminder.mjs";
 import { systemInfo as buildSystemInfo, loadNetworkConfig, saveNetworkConfig, checkUpdate } from "./engine/system-panel.mjs";
 import { initTuiBridge } from "./engine/tui-bridge.mjs";
+import { createVoiceSessionReader } from './engine/chat-voice-context.mjs';
+import { createVoiceAdmission } from './engine/chat-voice-admission.mjs';
+import { createVoiceTicketHandler } from './engine/chat-voice-api.mjs';
+import { attachChatVoice } from './engine/chat-voice-bridge.mjs';
+import { createVoiceDiagnostics } from './engine/chat-voice-diagnostics.mjs';
+import { createVoiceTaskRuntime } from './engine/voice-task-runtime.mjs';
+import { createVoiceTaskApi } from './engine/voice-task-api.mjs';
+import { createVoiceTaskAuthorizer } from './engine/voice-task-auth.mjs';
+import { connectVoiceProvider } from './engine/chat-voice-provider.mjs';
 import { listLingXi, addLingXi, setLingXi, removeLingXi } from "./engine/lingxi.mjs";
 import { initDshKeys, dshResolveBin, handleDshStatus, handleDshWebStart, handleKeysStatus, loadPolicies, toolMatch, policyDecide, handleKeysApply, handleKeysPresets, refreshModelList, handleModelsManage, handleModelsAdd, handleModelsDiscover, handleModelsVerify, KNOWN_PROVIDERS, PROVIDER_PRESETS, resolveAuth } from "./engine/dsh-keys.mjs";
 import { initStatsApi, handleGlobalStats, handleProviderStats, handleDailyStats, handleSubagentRuns, handleSubagentHistory, safeSessionStats, handleStats, handleCompact, listBuiltinSkills, handleSkills, handleSkillRead, handleParseFile, escHtml, handleExport, resolveFsPath, handleFsList, handleFsRead, handleRename } from "./engine/stats-api.mjs";
 import { initModelClient, directChat, handleThink, handleDirectChat, maybeCompactHistory } from "./engine/model-client.mjs";
 import { initSelfHeal, createRepairCheckpoint, handleUpdateCheck, handleUpdateApply, handleRepair, handleDesignerGenerate, handleDesignerSave, handleCompare } from "./engine/self-heal.mjs";
 import { frontendVersionPayload } from "./engine/frontend-version.mjs";
+import { withSamplingParams } from './engine/sampling-params.mjs';
 import { initImproveApi, analyzeImprovements, openImprovements, getImprovementDiagnostics, setImprovementStatus } from "./engine/improve-api.mjs";
 import { initEvolutionApi, proposeEvolution, applyEvolution, listEvolution, dismissEvolution, nudgeSkill, applySkillNudge, dismissSkillNudge, listSkillNudges, startEvolutionEvaluation, proposeMemoryNudge, listMemoryNudges, applyMemoryNudge, dismissMemoryNudge, analyzeMemoryCompress, proposeMemoryCompress, listMemoryCompress, applyMemoryCompress, dismissMemoryCompress } from "./engine/evolution-api.mjs";
-import { initSessionManager, createSession, cloneSessionFromEntry, evictInactiveSessions, slimSessionImages, compactSession, openSession, initSearchTool, initShareTool, createSessionAgent, ensureAgent, isFirstTurn, deleteSession, setOnTheSpotFixRunner, ensureContextHeadroom } from "./engine/session-manager.mjs";
+import { initSessionManager, createSession, cloneSessionFromEntry, evictInactiveSessions, slimSessionImages, compactSession, openSession, initSearchTool, initShareTool, createSessionAgent, ensureAgent, isFirstTurn, deleteSession, setOnTheSpotFixRunner, ensureContextHeadroom, canAccessSessionOrigin, withIdleSession, compactSessionAgent } from "./engine/session-manager.mjs";
 import { initUnifiedChat, unifiedChat, engineCurrentModel, initEngine, getCodeRuntime, getCodeMode, toolBindingDesc, toolBindingArgs, toolBindingArgsObj, handleNotices, handleUnifiedChat, touchTask, clearTask, taskProgress, handleAgentEventIn, handleAgentEventOut } from "./engine/unified-chat.mjs";
 import { completedTaskText } from "./engine/task-continuation.mjs";
 import { createApprovalInterceptor } from "./engine/tools/approval.mjs";
@@ -344,9 +355,10 @@ initColorPrefs(path.join(AGENT_DIR, "color-prefs.json")); // 全局创作配色�
 initEnginePair(path.join(AGENT_DIR, "engine-pair.json")); // 主次引擎对，下一条消息生效
 initYuanshuWorkmem(path.join(AGENT_DIR, "yuanshu-work")); // 每会话 task_plan/findings/progress
 initMediaApi({ resolveAuth, readJsonFile, modelsPath: MODELS_PATH, authPath: AUTH_PATH, getModelList: () => modelList }); // 媒体生成层注入
+const replyTts = createReplyTts({ resolveAuth, readStore: () => readJsonFile(MODELS_PATH), getModelList: () => modelList });
 initAsrApi({ resolveAuth, readJsonFile, modelsPath: MODELS_PATH, httpJsonFetch }); // 语音转文字（mimo-v2.5-asr 免费通道）
 initDshKeys({ dshWebPort: 3080, readJsonFile, writeJsonFile, authPath: AUTH_PATH, modelsPath: MODELS_PATH, ModelRuntime, refreshModelList, setModelList: (l) => { modelList = l; }, getDefaultModel: () => defaultModel, setDefaultModel: (m) => { defaultModel = m; }, setModelRuntime: (r) => { modelRuntime = r; }, getModelRuntime: () => modelRuntime, keepModels: KEEP_MODELS, resetModelHealth }); // dsh/keys/模型管理注入
-initStatsApi({ getAgentDir, cwd: CONFIG.cwd, DefaultResourceLoader, openSession, ensureAgent, getDefaultModel: () => defaultModel, subagentHistoryProvider: (scope) => subagent.getSubagentHistory(scope) }); // 统计/技能/导出注入
+initStatsApi({ getAgentDir, cwd: CONFIG.cwd, DefaultResourceLoader, openSession, compactSessionAgent, getDefaultModel: () => defaultModel, subagentHistoryProvider: (scope) => subagent.getSubagentHistory(scope) }); // 统计/技能/导出注入
 initSessionDb({ agentDir: getAgentDir(), cwd: CONFIG.cwd, deleteSession }); // 会话数据库（编号/健康度/标签/空会话清扫）
 initRecallApi({ agentDir: getAgentDir(), chat: unifiedChat, getDefaultModel: () => defaultModel }); // 跨会话回忆（09-04，Hermes FTS5 思想）
 initModelClient({ readJsonFile, writeJsonFile, authPath: AUTH_PATH, modelsPath: MODELS_PATH, resolveAuth, getModelList: () => modelList, getDefaultModel: () => defaultModel, unifiedChat, detectMediaIntents, generateMediaAsync, extractMediaPrompt, readEntriesFromFile, createSseWriter }); // 直调模型客户端注入
@@ -1652,7 +1664,7 @@ async function handleChat(req, res, body) {
       await withTeamToolContext({ ...chatRunContext, wsRoot: WS_ROOT, model: entry.agentModel || defaultModel,
         history: extractMessages(entry.sm.fileEntries, entry.sm.getLeafId?.() || resolveLeafId(entry.sm.fileEntries))
           .map(m => ({ role: m.role, content: m.text })),
-      }, () => agent.prompt(promptMsg, { images }));
+      }, () => withSamplingParams(agent, body.params, () => agent.prompt(promptMsg, { images })));
     } finally {
       // 处理完恢复原模型（避免把会话默认模型悄悄改掉）
       if (visionSwitched && origAgentModel) {
@@ -2102,6 +2114,12 @@ const runApi = createRunApi({ manager: runManager, json,
   subagents: await subagent.getSubagentHistory({ sessionId: run.sessionId, runId: run.id, limit: 50 }),
 }) });
 const teamApi = createTeamApi({ launcher: teamLauncher, runApi, json });
+const voiceTaskRuntime = createVoiceTaskRuntime({ rootDir: RUNS_DIR, manager: runManager,
+  sessionsDir: SESSIONS_DIR, cwd: CONFIG.cwd, canAccess: canAccessSessionOrigin, withSession: withIdleSession,
+  taskEvidence, getModel: () => defaultModel, invalidate: invalidateSessionCache,
+  notify: sessionId => busPush(sessionId, 'session_updated', { sessionId }),
+  onError: () => console.warn('[voice-tasks] 任务恢复暂不可用，稍后重试'),
+});
 const companionFacts = createCompanionFacts({ manager: runManager, serverEpoch: RUN_INSTANCE_ID,
   activeSessions: () => [...activeSessions].filter(([, entry]) => entry.busy).map(([id]) => id) });
 const companionStore = createCompanionStore({ root: CONFIG.cwd });
@@ -2859,6 +2877,9 @@ const API_ROUTES = [
   // ── 媒体/对话 ──
   ["POST", "/api/think", async (res, req) => handleThink(res, await readBody(req))],
   ["POST", "/api/asr", async (res, req) => handleAsr(res, await readBody(req, 16))], // 语音转文字
+  ['GET', '/api/tts/capabilities', res => json(res, 200, replyTts.capabilities())],
+  ['POST', '/api/tts', async (res, req) => replyTts.handle(res, await readBody(req, 1))],
+  ['POST', '/api/tts/stream', async (res, req) => replyTts.handleStream(res, await readBody(req, 0.01))],
   ["POST", "/api/image", async (res, req) => handleImageWithSave(res, req, await readBody(req))],
   ["POST", "/api/media", async (res, req) => handleMedia(res, await readBody(req))],
   ["GET", "/api/tasks/active", async (res, req) => {
@@ -3120,6 +3141,16 @@ const boardApi = createBoardApi({
 // Register after dependencies exist, never inside the per-request callback.
 API_ROUTES.push(...createCompanionRoutes({ exists: id => activeSessions.has(id) || !!findSession(id),
   facts: companionFacts, store: companionStore, decisions: companionDecisions, json, readBody }));
+const voiceOrigins = ['https://pi.myxinyu.xin', 'http://127.0.0.1:8787', 'http://localhost:8787'];
+const readVoiceSession = createVoiceSessionReader({ activeSessions, findSession, readEntriesFromFile, extractMessages, resolveLeafId });
+const voiceAdmission = createVoiceAdmission({ getToken: () => CONFIG.token, readSession: readVoiceSession });
+const voiceTicket = createVoiceTicketHandler({ admission: voiceAdmission, origins: voiceOrigins });
+const authorizeVoiceTask = createVoiceTaskAuthorizer({ getToken: () => CONFIG.token, origins: voiceOrigins });
+const voiceTaskApi = createVoiceTaskApi({ runtime: voiceTaskRuntime, authorize: authorizeVoiceTask, readBody, json });
+API_ROUTES.push(['POST', '/api/voice/tasks', (res, req) => voiceTaskApi.submit(res, req)]);
+API_ROUTES.push(['GET', '/api/voice/tasks', (res, req, url) => voiceTaskApi.list(res, req, url)]);
+API_ROUTES.push(['POST', /^\/api\/voice\/tasks\/([^/]+)\/stop$/, (res, req, url, m) => voiceTaskApi.stop(res, req, decodeURIComponent(m[1]))]);
+API_ROUTES.push(['POST', '/api/voice/ticket', (res, req) => voiceTicket(req, res)]);
 API_ROUTES.push(...createWorkbenchRoutes({ withCache, boardApi, historyApi, handleEmotion, emotion, json, readBody }));
 Object.freeze(API_ROUTES);
 
@@ -3263,11 +3294,13 @@ server.on("error", (err) => {
     process.exit(1);
   }
 });
+server.on('close', () => voiceTaskRuntime.close());
 function startServer() {
   // async：启动收尾里有需要 await 的清理（例如连续创作的孤儿运行）
   server.listen(CONFIG.port, CONFIG.host, async () => {
     // All services and approval boundaries are initialized before recovery can execute.
     const recoveredRuns = runManager.recover();
+    voiceTaskRuntime.start();
     if (recoveredRuns.length) console.log(`[runs] 已检查 ${recoveredRuns.length} 个旧实例任务，仅安全检查点可后台接续`);
     listenAttempt = 0; // 监听成功 → 重置重试计数
     // 实例登记（2026-09-18）：此刻起"这份就是持有端口的那一份"，写进心跳让外面看得见。
@@ -3278,6 +3311,10 @@ function startServer() {
       console.log(`  [实例自检] pid ${process.pid} · v${APP_VERSION} · 持有端口 ${CONFIG.port} · 其它存活实例 ${others.length}${others.length ? "（" + others.map((o) => `pid ${o.pid} v${o.version}`).join("、") + "）" : ""}`);
       setInterval(() => heartbeat(WS_ROOT, { pid: process.pid, version: String(APP_VERSION), port: CONFIG.port, ownsPort: true, startedAt }), 30000).unref?.();
     } catch (e) { console.log("  [实例自检] 登记失败:", String(e?.message || e).slice(0, 100)); }
+    attachChatVoice({ server, admission: voiceAdmission, readSession: readVoiceSession, origins: voiceOrigins,
+      runtime: voiceTaskRuntime, canAccess: canAccessSessionOrigin,
+      onDiagnostic: createVoiceDiagnostics({ rootDir: RUNS_DIR }),
+      connect: () => connectVoiceProvider(readJsonFile(AUTH_PATH)['stepfun-plan']?.key) });
     try { initTuiBridge(server, { token: CONFIG.token, cwd: WS_ROOT }); console.log("  TUI 桥接: ws://…/ws/tui 已就绪"); } catch {}
     console.log("");
     console.log("╭──────────────────────────────────────────────╮");

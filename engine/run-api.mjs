@@ -64,7 +64,16 @@ export function createRunApi({ manager, json, readContext = null, readDeliveries
     async overview(res, _req, url) {
       const sessionId = url?.searchParams?.get('session')
       const runs = (typeof manager.list === 'function' ? manager.list() : []).filter(run => !sessionId || run.sessionId === sessionId)
-      const eventsByRun = new Map(runs.map(run => [run.id, manager.readAfter(run.id, 0)]))
+      // Select from metadata first: never parse every historical event log just
+      // to show eight recent runs. Health counts still cover the full list.
+      const selection = buildRunSnapshot(runs)
+      const visibleIds = new Set([...selection.active, ...selection.recent].map(run => run.id))
+      const eventsByRun = new Map()
+      for (const id of visibleIds) {
+        // Give health checks and streaming responses a turn between disk reads.
+        await new Promise(resolve => setImmediate(resolve))
+        eventsByRun.set(id, manager.readAfter(id, 0))
+      }
       const snapshot = buildRunSnapshot(runs, eventsByRun)
       const sources = new Map(runs.map(run => [run.id, run]))
       const visible = new Map([...snapshot.active, ...snapshot.recent].map(run => [run.id, run]))
