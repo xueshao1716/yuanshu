@@ -338,6 +338,9 @@ function emitRoundStream(opts, msg) {
 }
 
 export async function unifiedChat(model, messages, opts = {}) {
+  if (!Array.isArray(messages) || messages.some(m => !m || typeof m !== 'object' || !['system', 'developer', 'user', 'assistant', 'tool', 'function'].includes(m.role))) {
+    throw new TypeError('unifiedChat messages must be an array of role-bearing message objects');
+  }
   opts = { ...opts, executionContext: { ...opts.executionContext, model } };
   const auth = _readJsonFile(_authPath);
   const key = auth[model.provider]?.key;
@@ -363,7 +366,14 @@ export async function unifiedChat(model, messages, opts = {}) {
       const firstNonSystem = restoredHistory.findIndex(message => message.role !== "system");
       if (currentUser) restoredHistory.splice(firstNonSystem < 0 ? restoredHistory.length : firstNonSystem, 0, currentUser);
     }
-    history = sanitizeToolCalls(restoredHistory);
+    // Rebuild authority from the current request, not a stale/truncated snapshot.
+    // Legacy compaction summaries are conversational data, never system policy.
+    const authority = history.filter(m => ['system', 'developer'].includes(m.role) && !String(m.content || '').startsWith('【早前对话摘要】'));
+    const restored = restoredHistory.flatMap(m => {
+      if (String(m.content || '').startsWith('【早前对话摘要】')) return [{ ...m, role: 'assistant' }];
+      return authority.length && ['system', 'developer'].includes(m.role) ? [] : [m];
+    });
+    history = sanitizeToolCalls([...authority, ...restored]);
   }
   // Tools are native to both supported protocols.
   const noTools = !modelAllowsTools(mdef || model);

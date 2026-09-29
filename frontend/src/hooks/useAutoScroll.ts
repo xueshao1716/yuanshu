@@ -1,127 +1,135 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
 
-// 智能自动滚动（nomifun useAutoScroll 模式移植，2026-08-25）
-// 三阈值 + 三守卫状态机：用户上翻停滚、贴底恢复、仅"真新消息"才强拉底。
-// 与消息类型零耦合：只依赖 lastMessageKey / lastFromUser 两个输入。
-
-const FOLLOW_BOTTOM_THRESHOLD_PX = 12 // 贴底判定（4px 在 HiDPI 下会被亚像素舍入骗到）
-const PROGRAMMATIC_GUARD_MS = 150 // 程序滚动守卫：守卫期内的 scroll 事件不算用户意图
-const LAYOUT_GUARD_MS = 600 // pointerdown 后封锁 resize 自动跟随（用户正在选择/拖动）
+const FOLLOW_BOTTOM_THRESHOLD_PX = 12
+const PROGRAMMATIC_GUARD_MS = 150
+const LAYOUT_GUARD_MS = 600
 
 interface AutoScrollOptions {
-  /** 会话标识：变化时重置全部滚动状态（切会话=新视口） */
-  sessionKey?: string | null
-  /** 列表长度+末条 id 指纹：变化才视为"真新消息" */
+  sessionKey?: string | number | null
   lastMessageKey?: string | null
-  /** 最后一条是否用户自己的发言（是则解除上翻锁定强制回底——用户发消息必然要看回复） */
-  lastFromUser: boolean
+  /** History loading is not an explicit send gesture. */
+  lastFromUser?: boolean
 }
 
 export function useAutoScroll(opts: AutoScrollOptions) {
-  const scrollRef = useRef<HTMLDivElement>(null)
+  const scrollRef = useRef<HTMLDivElement | null>(null)
+  const [element, setElement] = useState<HTMLDivElement | null>(null)
   const userScrolledRef = useRef(false)
   const programmaticUntilRef = useRef(0)
   const layoutGuardUntilRef = useRef(0)
-  const [atBottom, setAtBottom] = useState(true) // 响应式贴底状态：驱动"回到底部"按钮显隐
-  const optsRef = useRef(opts)
-  optsRef.current = opts
+  const frameRef = useRef(0)
+  const [atBottom, setAtBottom] = useState(true)
+  const sessionRef = useRef(opts.sessionKey)
+  sessionRef.current = opts.sessionKey
 
+  const cancelScroll = useCallback(() => {
+    if (frameRef.current) cancelAnimationFrame(frameRef.current)
+    frameRef.current = 0
+  }, [])
+  const bindScroll = useCallback((node: HTMLDivElement | null) => {
+    if (scrollRef.current === node) return
+    cancelScroll()
+    scrollRef.current = node
+    setElement(node)
+  }, [cancelScroll])
   const isNearBottom = useCallback(() => {
     const el = scrollRef.current
-    if (!el) return true
-    return el.scrollHeight - el.scrollTop - el.clientHeight < FOLLOW_BOTTOM_THRESHOLD_PX
+    return !el || el.scrollHeight - el.scrollTop - el.clientHeight < FOLLOW_BOTTOM_THRESHOLD_PX
   }, [])
-
   const scrollToBottom = useCallback((force = false) => {
-    if (!force && userScrolledRef.current) return
-    const el = scrollRef.current
-    if (!el) return
-    programmaticUntilRef.current = Date.now() + PROGRAMMATIC_GUARD_MS
-    requestAnimationFrame(() => {
-      const el2 = scrollRef.current
-      if (el2) el2.scrollTop = el2.scrollHeight
+    if (force) {
+      userScrolledRef.current = false
+      layoutGuardUntilRef.current = 0
+    }
+    if (userScrolledRef.current || Date.now() < layoutGuardUntilRef.current) return
+    const el = scrollRef.current, session = sessionRef.current
+    if (!el || frameRef.current) return
+    frameRef.current = requestAnimationFrame(() => {
+      frameRef.current = 0
+      // Intent and ownership can change after scheduling.
+      if (scrollRef.current !== el || sessionRef.current !== session || userScrolledRef.current || Date.now() < layoutGuardUntilRef.current) return
+      programmaticUntilRef.current = Date.now() + PROGRAMMATIC_GUARD_MS
+      el.scrollTop = el.scrollHeight
+      setAtBottom(true)
     })
   }, [])
 
-  // 用户意图三通道：wheel 有位移 / pointerdown / scroll 非程序滚动且非贴底
-  useEffect(() => {
-    const el = scrollRef.current
+  useLayoutEffect(() => {
+    const el = element
     if (!el) return
-    let lastTop = el.scrollTop
-
+    let lastTop = el.scrollTop, touchY: number | null = null
+    const pause = () => { userScrolledRef.current = true; cancelScroll() }
     const onWheel = (e: WheelEvent) => {
-      if (e.deltaY !== 0 && !isNearBottom()) userScrolledRef.current = true
+      if (e.deltaY < 0 || (e.deltaY > 0 && !isNearBottom())) pause()
     }
     const onPointerDown = () => {
       layoutGuardUntilRef.current = Date.now() + LAYOUT_GUARD_MS
-      if (!isNearBottom()) userScrolledRef.current = true
+      pause()
+    }
+    const onPointerUp = () => {
+      if (isNearBottom()) { userScrolledRef.current = false; layoutGuardUntilRef.current = 0; scrollToBottom() }
+    }
+    const onTouchStart = (e: TouchEvent) => { touchY = e.touches[0]?.clientY ?? null; pause() }
+    const onTouchMove = (e: TouchEvent) => {
+      const next = e.touches[0]?.clientY
+      if (touchY !== null && next !== undefined && next > touchY) pause()
+      touchY = next ?? null
+    }
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (['ArrowUp', 'PageUp', 'Home'].includes(e.key) || (e.key === ' ' && e.shiftKey)) pause()
     }
     const onScroll = () => {
-      const now = Date.now()
-      const moved = Math.abs(el.scrollTop - lastTop) > 2 // 防亚像素抖动
+      const near = isNearBottom(), movedUp = el.scrollTop < lastTop - 2
+      const moved = Math.abs(el.scrollTop - lastTop) > 2
       lastTop = el.scrollTop
-      setAtBottom(isNearBottom())
-      if (now >= programmaticUntilRef.current && moved && !isNearBottom()) {
-        userScrolledRef.current = true
-      }
+      setAtBottom(near)
+      if (near) userScrolledRef.current = false
+      else if (movedUp || (moved && Date.now() >= programmaticUntilRef.current)) pause()
     }
     el.addEventListener('wheel', onWheel, { passive: true })
     el.addEventListener('pointerdown', onPointerDown, { passive: true })
+    el.addEventListener('touchstart', onTouchStart, { passive: true })
+    el.addEventListener('touchmove', onTouchMove, { passive: true })
+    el.addEventListener('keydown', onKeyDown)
     el.addEventListener('scroll', onScroll, { passive: true })
+    window.addEventListener('pointerup', onPointerUp, { passive: true })
     return () => {
+      cancelScroll()
       el.removeEventListener('wheel', onWheel)
       el.removeEventListener('pointerdown', onPointerDown)
+      el.removeEventListener('touchstart', onTouchStart)
+      el.removeEventListener('touchmove', onTouchMove)
+      el.removeEventListener('keydown', onKeyDown)
       el.removeEventListener('scroll', onScroll)
+      window.removeEventListener('pointerup', onPointerUp)
     }
-  }, [isNearBottom])
+  }, [element, opts.sessionKey, cancelScroll, isNearBottom, scrollToBottom])
 
-  // 内容尺寸变化跟随：ResizeObserver 观察 scroller+首子节点，rAF 合帧，仅 auto-follow 有效时拉底
   useEffect(() => {
-    const el = scrollRef.current
-    if (!el || typeof ResizeObserver === 'undefined') return
-    let raf = 0
-    const ro = new ResizeObserver(() => {
-      if (raf) return
-      raf = requestAnimationFrame(() => {
-        raf = 0
-        if (userScrolledRef.current) return
-        if (Date.now() < layoutGuardUntilRef.current) return
-        if (!isNearBottom()) return
-        const gap = el.scrollHeight - el.scrollTop - el.clientHeight
-        if (gap > 2) {
-          el.scrollTop = el.scrollHeight
-          programmaticUntilRef.current = Date.now() + PROGRAMMATIC_GUARD_MS
-          setAtBottom(true)
-        }
-      })
-    })
-    ro.observe(el)
-    if (el.firstElementChild) ro.observe(el.firstElementChild)
-    return () => {
-      if (raf) cancelAnimationFrame(raf)
+    if (!element || typeof ResizeObserver === 'undefined') return
+    const ro = new ResizeObserver(() => scrollToBottom())
+    const observe = () => {
       ro.disconnect()
+      ro.observe(element)
+      for (const child of Array.from(element.children)) ro.observe(child)
+      scrollToBottom()
     }
-  }, [isNearBottom])
+    observe()
+    // Skeletons and message lists can replace the first child.
+    const mo = new MutationObserver(observe)
+    mo.observe(element, { childList: true })
+    return () => { ro.disconnect(); mo.disconnect(); cancelScroll() }
+  }, [element, scrollToBottom, cancelScroll])
 
-  // 真新消息：列表变长且末条指纹变化。用户自己发言 → 强制回底；否则贴底时跟随
-  useEffect(() => {
-    if (!opts.lastMessageKey) return
-    if (opts.lastFromUser) {
-      userScrolledRef.current = false
-      scrollToBottom(true)
-    } else if (!userScrolledRef.current) {
-      scrollToBottom(false)
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [opts.lastMessageKey])
-
-  // 会话切换：清空全部滚动状态
-  useEffect(() => {
+  useEffect(() => { if (opts.lastMessageKey) scrollToBottom() }, [opts.lastMessageKey, scrollToBottom])
+  useLayoutEffect(() => {
+    cancelScroll()
     userScrolledRef.current = false
+    layoutGuardUntilRef.current = 0
     setAtBottom(true)
-    requestAnimationFrame(() => scrollToBottom(true))
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [opts.sessionKey])
+    scrollToBottom()
+    return cancelScroll
+  }, [opts.sessionKey, scrollToBottom, cancelScroll])
 
-  return { scrollRef, scrollToBottom, isNearBottom, atBottom }
+  return { scrollRef, bindScroll, scrollToBottom, isNearBottom, atBottom }
 }

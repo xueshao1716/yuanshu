@@ -13,6 +13,7 @@ import RealtimeCall from './RealtimeCall'
 import TurnList from './TurnList'
 import ChatRunStatus from './ChatRunStatus'
 import { useAutoScroll } from '../hooks/useAutoScroll'
+import { useViewState } from '../hooks/useViewState'
 import { toast } from './Toast'
 import { emoTooltip } from '../lib/emotion'
 import { useCompanionContext } from './xiaoyu/CompanionProvider'
@@ -111,6 +112,10 @@ export default function ChatArea({ compactHeader, rightPanel, onRightPanel, onVo
   const { currentSessionId, currentModel, sessions, refreshSessions, selectSession } = useApp()
   const sessionView = useRef(createSessionViewOwner())
   const sessionViewKey = sessionView.current.keyFor(currentSessionId)
+  const viewOwner = `${currentSessionId || ''}:${sessionViewKey}`
+  const viewOwnerRef = useRef(viewOwner)
+  viewOwnerRef.current = viewOwner
+  const isCurrentView = () => viewOwnerRef.current === viewOwner
   const [voiceOpen, setVoiceOpen] = useState(false)
   useEffect(() => { setVoiceOpen(false) }, [sessionViewKey])
   useEffect(() => { onVoiceViewChange?.(voiceOpen) }, [voiceOpen, onVoiceViewChange])
@@ -126,7 +131,7 @@ export default function ChatArea({ compactHeader, rightPanel, onRightPanel, onVo
   const personaLabel = (() => { const d = personaData?.definition; return d?.name || '小语' })()
   const sessionIdRef = useRef(currentSessionId)
   sessionIdRef.current = currentSessionId
-  const [stream, setStream] = useState<StreamState | null>(null)
+  const [stream, setStream] = useViewState<StreamState | null>(viewOwner, null)
   const [confirm, setConfirm] = useState<any>(null) // 危险操作待确认：{ id, toolName, reason, args, sessionId }
   useEffect(() => { setConfirm(null) }, [currentSessionId])
   useEffect(() => {
@@ -170,9 +175,9 @@ export default function ChatArea({ compactHeader, rightPanel, onRightPanel, onVo
   const companionEmotion = companion.emotion
   const { state: emoState, meta: emoMetaLive, publishEmotion } = companionEmotion
   // ── 本地消息存储：从 IndexedDB 加载，与服务端数据合并 ──
-  const [localMessages, setLocalMessages] = useState<ChatMessage[]>([])
+  const [localMessages, setLocalMessages] = useViewState<ChatMessage[]>(viewOwner, [])
   useEffect(() => () => speech.stop(), [currentSessionId])
-  const [localLoaded, setLocalLoaded] = useState(false)
+  const [localLoaded, setLocalLoaded] = useViewState(viewOwner, false)
 
   // 切会话时：加载本地消息
   useEffect(() => {
@@ -204,6 +209,7 @@ export default function ChatArea({ compactHeader, rightPanel, onRightPanel, onVo
       setLocalMessages(msgs)
       setLocalLoaded(true)
     }).catch(() => {
+      if (!alive || !isCurrentView()) return
       setLocalMessages([])
       setLocalLoaded(true)
     })
@@ -305,7 +311,9 @@ export default function ChatArea({ compactHeader, rightPanel, onRightPanel, onVo
         streaming: msg.streaming,
       })
       // 更新本地消息列表
+      if (!isCurrentView() || sessionIdRef.current !== sessionId) return
       setLocalMessages(prev => {
+        if (!isCurrentView() || sessionIdRef.current !== sessionId) return prev
         const exists = prev.find(m => m.id === msg.id)
         if (exists) return prev.map(m => m.id === msg.id ? msg : m)
         return [...prev, msg]
@@ -376,13 +384,16 @@ export default function ChatArea({ compactHeader, rightPanel, onRightPanel, onVo
   // 智能滚动（nomifun useAutoScroll 模式）：用户上翻停滚、贴底恢复、仅"真新消息"才强拉底
   const lastMsg = messages[messages.length - 1]
   const streamingLen = stream ? 1 : 0 // 流式中的临时消息也计入指纹，增长由 ResizeObserver 跟随
-  const { scrollRef, scrollToBottom: scroll, atBottom } = useAutoScroll({
-    sessionKey: currentSessionId,
+  const { bindScroll, scrollToBottom: scroll, atBottom } = useAutoScroll({
+    sessionKey: sessionViewKey,
     lastMessageKey: messages.length
       ? `${messages.length}:${lastMsg?.id ?? ''}:${streamingLen}`
       : (stream ? 'stream' : null),
-    lastFromUser: lastMsg?.role === 'user' || (!!stream && !stream.text && !stream.tools.length),
   })
+  const bindChatScroll = useCallback((el: HTMLDivElement | null) => {
+    bindScroll(el)
+    pull.bindContainer(el)
+  }, [bindScroll, pull.bindContainer])
 
   // 切会话只关闭本端订阅，不停止服务端 Run；该会话再次进入时会按游标恢复。
   useEffect(() => {
@@ -448,6 +459,7 @@ export default function ChatArea({ compactHeader, rightPanel, onRightPanel, onVo
   const makeAssembler = () => {
     teardownAssembler()
     asmRef.current = new StreamAssembler((snap: AssemblerSnapshot) => {
+      if (!isCurrentView()) return
       updStream(p => ({ ...p, text: snap.text, conclusion: snap.conclusion, think: snap.think, thinkDone: snap.thinkDone, tools: snap.tools }))
     })
     return asmRef.current
@@ -579,7 +591,7 @@ export default function ChatArea({ compactHeader, rightPanel, onRightPanel, onVo
 
   const applyRunEvent = (event: RunEvent) => {
     const active = activeRunRef.current
-    if (!active) return
+    if (!isCurrentView() || !active || active.sessionId !== sessionIdRef.current) return
     const advanced = advanceRunCursor(active, event)
     if (!advanced.accepted) return
     const nextActive: ActiveRunRecord = { ...active, ...advanced.cursor }
@@ -720,6 +732,9 @@ export default function ChatArea({ compactHeader, rightPanel, onRightPanel, onVo
   }
 
   const connectRun = (record: ActiveRunRecord) => {
+    // Keep the background task recoverable in its own session, even after leaving.
+    saveActiveRun(record)
+    if (!isCurrentView() || record.sessionId !== sessionIdRef.current) return
     streamCloseRef.current?.()
     activeRunRef.current = record
     assistantMsgIdRef.current = record.assistantMessageId
@@ -727,12 +742,12 @@ export default function ChatArea({ compactHeader, rightPanel, onRightPanel, onVo
     setStream({ ...record.stream })
     // 断线恢复：把快照灌回组装器，游标之后的新事件在快照基础上继续累加（不重复、不丢段）
     makeAssembler()?.hydrate(record.stream)
-    saveActiveRun(record)
     streamCloseRef.current = RunsApi.stream(
       record.runId,
       record.lastSeq,
       applyRunEvent,
       () => {
+        if (!isCurrentView() || activeRunRef.current?.runId !== record.runId) return
         lastEventAtRef.current = Date.now()
         updStream(p => ({ ...p, notes: p.notes.includes('连接中断，正在恢复…') ? p.notes : [...p.notes, '连接中断，正在恢复…'] }))
       },
@@ -751,7 +766,7 @@ export default function ChatArea({ compactHeader, rightPanel, onRightPanel, onVo
         record = { runId: active.id, sessionId: currentSessionId, status: 'running', lastSeq: 0, assistantMessageId: `run-${active.id}`, stream: emptyStream() }
       }
       const run = await RunsApi.get(record.runId)
-      if (!alive) return
+      if (!alive || !isCurrentView() || activeRunRef.current || streamRef.current) return
       // 恢复/切会话只补正文，不把持久化事件重放变成自动朗读历史。
       speech.skipReply(record.assistantMessageId)
       if (isTerminalRunStatus(run.status) && run.lastSeq <= record.lastSeq) {
@@ -769,7 +784,8 @@ export default function ChatArea({ compactHeader, rightPanel, onRightPanel, onVo
       connectRun({ ...record, status: run.status })
     }
     restore().catch(() => {
-      if (alive) clearActiveRun(currentSessionId)
+      // A transient lookup failure is not proof the task is gone. Keep its
+      // recovery cursor, and never erase a newer task created while awaiting.
     })
     return () => { alive = false; streamCloseRef.current?.(); streamCloseRef.current = null }
   }, [currentSessionId]) // eslint-disable-line react-hooks/exhaustive-deps
@@ -788,16 +804,29 @@ export default function ChatArea({ compactHeader, rightPanel, onRightPanel, onVo
     updateMessages(prev => [...prev, { id: 'sys' + Date.now(), role: 'system', text: tips[cmd] || `未知命令 ${cmd}`, ts: new Date().toISOString() }])
   }
 
+  const creatingSessionRef = useRef(false)
+  const pendingSendRef = useRef<{ sessionId: string; owner: string; raw: string; files: FileAttachment[] } | null>(null)
   const send = async (raw: string, attachFiles: FileAttachment[] = []) => {
     const content = raw.trim(); if (!content || streamRef.current) return
     speech.stop()
     let sid = currentSessionId
     if (!sid) {
-      // 尚无会话：先建会话并选中，等切会话的 effect 跑完（清流式态）再继续，
-      // 否则乐观更新的用户消息会落空、后续 SSE 事件会被 effect 清掉
-      try { const d = await SessionsApi.create(); sid = d.id; sessionIdRef.current = d.id; selectSession(d.id); void refreshSessions() } catch { return }
-      await new Promise(r => setTimeout(r, 80))
+      if (creatingSessionRef.current) return
+      creatingSessionRef.current = true
+      try {
+        const d = await SessionsApi.create()
+        if (!isCurrentView() || sessionIdRef.current) return
+        pendingSendRef.current = { sessionId: d.id, owner: viewOwnerRef.current, raw, files: attachFiles }
+        sessionIdRef.current = d.id
+        selectSession(d.id)
+        void refreshSessions()
+      } catch { if (isCurrentView()) toast('新建会话失败，请重试', 'error') }
+      finally { creatingSessionRef.current = false }
+      return // The committed new view sends with its own state, never this stale closure.
     }
+    if (sessionIdRef.current !== sid) return
+    const sendOwner = viewOwnerRef.current
+    const ownsSend = () => viewOwnerRef.current === sendOwner && sessionIdRef.current === sid
     // 灵犀速记：/lx 灵感内容 → 记入「我的灵感」，不进对话流、不发给模型
     if (content === '/lx' || content.startsWith('/lx ')) {
       const text = content.slice(3).trim()
@@ -813,9 +842,12 @@ export default function ChatArea({ compactHeader, rightPanel, onRightPanel, onVo
     let userMsgId = 'u' + Date.now();
     try { localStorage.setItem('pi_pending_msg', JSON.stringify({ sid, content, at: Date.now() })) } catch {}
     appendMessage({ id: userMsgId, role: 'user', text: content, ts: new Date().toISOString() })
-    assistantMsgIdRef.current = 'a' + (Date.now() + 1) // 本轮 assistant 消息固定 id，流式快照与最终写入用同一 id
+    scroll(true) // Only an explicit send (or return-to-bottom click) unlocks reading.
+    const assistantMessageId = 'a' + (Date.now() + 1)
+    const initialStream = emptyStream()
+    assistantMsgIdRef.current = assistantMessageId // Capture before any await.
     wasBackgroundRef.current = false // 新一轮开始，重置后台跟踪状态
-    streamRef.current = emptyStream()
+    streamRef.current = initialStream
     setStream({ ...streamRef.current })
     makeAssembler()
     // 模型参数（ParamsPanel 存 localStorage，随请求带给 server）
@@ -835,16 +867,30 @@ export default function ChatArea({ compactHeader, rightPanel, onRightPanel, onVo
         sessionId: sid,
         lastSeq: created.lastSeq || 0,
         status: created.status,
-        assistantMessageId: assistantMsgIdRef.current!,
-        stream: streamRef.current || emptyStream(),
+        assistantMessageId,
+        stream: initialStream,
       }
+      if (!ownsSend()) { saveActiveRun(record); return }
       connectRun(record)
     } catch (error: any) {
+      if (!ownsSend()) return
       updStream(p => ({ ...p, error: error?.status === 409 ? '当前会话已有任务运行中' : friendlyStreamError(error?.message || '创建任务失败') }))
       finalize()
     }
     scroll()
   }
+  const flushPendingSend = () => {
+    const pending = pendingSendRef.current
+    if (!pending) return
+    if (pending.sessionId !== currentSessionId) {
+      if (pending.owner !== viewOwner) pendingSendRef.current = null
+      return
+    }
+    pendingSendRef.current = null
+    void send(pending.raw, pending.files)
+  }
+  // Runs after session teardown/restore effects, using the new session's closures.
+  useEffect(flushPendingSend, [currentSessionId]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // 失败重试（2026-09-16）：这一轮的 assistant 报错了，就把它前面最近那条用户消息重发一次。
   // 之前失败是"静默"的：记录被后端滤掉、界面什么都不显示，用户只能自己猜着重打一遍。
@@ -881,6 +927,7 @@ export default function ChatArea({ compactHeader, rightPanel, onRightPanel, onVo
     updStream(p => ({ ...p, notes: [...p.notes, '正在停止任务…'] }))
     try { await RunsApi.stop(active.runId) }
     catch (error: any) {
+      if (!isCurrentView() || activeRunRef.current?.runId !== active.runId) return
       updStream(p => ({ ...p, error: `停止失败：${error?.message || error}` }))
       activeRunRef.current = active
       saveActiveRun(active)
@@ -888,15 +935,11 @@ export default function ChatArea({ compactHeader, rightPanel, onRightPanel, onVo
   }
 
   const resumeRun = async (run: RunSummary) => {
-    if (streamRef.current || !run?.id) return
+    if (streamRef.current || !run?.id || run.sessionId !== sessionIdRef.current) return
     try {
       const resumed = await RunsApi.resume(run.id)
       const stream = emptyStream()
       const assistantMessageId = 'a' + (Date.now() + 1)
-      assistantMsgIdRef.current = assistantMessageId
-      streamRef.current = stream
-      setStream({ ...stream })
-      makeAssembler()
       connectRun({
         runId: run.id,
         sessionId: run.sessionId,
@@ -906,7 +949,7 @@ export default function ChatArea({ compactHeader, rightPanel, onRightPanel, onVo
         stream,
       })
     } catch (error: any) {
-      toast(`继续任务失败：${error?.message || error}`, 'error')
+      if (isCurrentView()) toast(`继续任务失败：${error?.message || error}`, 'error')
     }
   }
 
@@ -1153,7 +1196,7 @@ export default function ChatArea({ compactHeader, rightPanel, onRightPanel, onVo
       )}
 
       {/* 消息区 */}
-      <div ref={(el) => { scrollRef.current = el; pull.containerRef.current = el }} className="chat-scroll-region flex-1 min-h-0 overflow-y-auto">
+      <div ref={bindChatScroll} className="chat-scroll-region flex-1 min-h-0 overflow-y-auto">
         {loading ? (
           <div className="chat-reading-column w-full py-8 space-y-5" aria-label="加载中">
             {[520, 380, 460].map((w, i) => (

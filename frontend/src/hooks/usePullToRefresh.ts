@@ -5,7 +5,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 // 拉动距离带阻尼（实际位移 ×0.4），超过阈值松手触发刷新；指示器用 --pi-ease 弹回。
 // 实现要点：
 //  - pull/refreshing 用 ref 做唯一事实源（touchend 不受渲染闭包陈旧值影响），state 只做渲染镜像
-//  - 监听器只在挂载时绑定一次（stable callbacks + 空依赖）：中途不摘绑，避免连续手势丢事件
+//  - 稳定回调仅在滚动容器更换时重绑，加载骨架/切会话不能遗留旧监听
 //  - 仅触屏会触发 touch 事件，桌面无副作用
 
 const TRIGGER_PX = 60 // 触发刷新的最小拉动距离
@@ -14,6 +14,11 @@ const DAMPING = 0.4 // 阻尼系数：手指移动 100px → 指示器走 40px
 
 export function usePullToRefresh(onRefresh: () => Promise<unknown> | void) {
   const containerRef = useRef<HTMLDivElement | null>(null)
+  const [element, setElement] = useState<HTMLDivElement | null>(null)
+  const bindContainer = useCallback((node: HTMLDivElement | null) => {
+    containerRef.current = node
+    setElement(node)
+  }, [])
   const [pull, setPull] = useState(0) // 渲染镜像
   const [refreshing, setRefreshing] = useState(false)
   const startY = useRef<number | null>(null)
@@ -60,7 +65,7 @@ export function usePullToRefresh(onRefresh: () => Promise<unknown> | void) {
   }, [])
 
   useEffect(() => {
-    const el = containerRef.current
+    const el = element
     if (!el) return
     const opts: AddEventListenerOptions = { passive: true }
     el.addEventListener('touchstart', onTouchStart, opts)
@@ -72,8 +77,11 @@ export function usePullToRefresh(onRefresh: () => Promise<unknown> | void) {
       el.removeEventListener('touchmove', onTouchMove)
       el.removeEventListener('touchend', onTouchEnd)
       el.removeEventListener('touchcancel', onTouchEnd)
+      startY.current = null
+      pullRef.current = 0
+      setPull(0)
     }
-  }, [onTouchStart, onTouchMove, onTouchEnd])
+  }, [element, onTouchStart, onTouchMove, onTouchEnd])
 
   /** 指示器应渲染的样式：锚定在头部下方，随拉动下移，松手弹回 */
   const indicatorStyle: React.CSSProperties = {
@@ -83,5 +91,5 @@ export function usePullToRefresh(onRefresh: () => Promise<unknown> | void) {
   }
   const spin = refreshing
 
-  return { containerRef, indicatorStyle, spin, armed: pull >= TRIGGER_PX }
+  return { containerRef, bindContainer, indicatorStyle, spin, armed: pull >= TRIGGER_PX }
 }
