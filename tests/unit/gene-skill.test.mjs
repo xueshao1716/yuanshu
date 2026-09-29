@@ -1,5 +1,6 @@
 // 基因 / 技能基因 / 资产路由 单测（2026-08-19 拆模块 + P3）
-import { test } from "node:test";
+import { test, after } from "node:test";
+import { seedExpression, sourceEvidence } from '../helpers/gene-fixture.mjs';
 import assert from "node:assert/strict";
 import os from "node:os";
 import path from "node:path";
@@ -30,13 +31,13 @@ test("基因: expression 微调不动 baseline", () => {
 });
 
 test("基因: 提案制——批准应用 + 回滚", () => {
-  const p = proposeBaselineChange("humor", 0.7, "测试提案", ["unit_test"]);
+  const p = proposeBaselineChange("humor", 0.7, "测试提案", sourceEvidence(tmpWs));
   assert.ok(p, "应生成提案");
   const r = approveProposal(p.proposal_id, "tester");
   assert.equal(r.approved, true);
   assert.equal(getGenome().genes.humor.baseline, 0.7);
   // 回滚
-  const rb = rollbackSnapshot(r.snapshot_id);
+  const rb = rollbackSnapshot(r.snapshot_id, 'tester', 'undo');
   assert.equal(rb.ok, true);
   assert.equal(getGenome().genes.humor.baseline, 0.53);
 });
@@ -55,8 +56,7 @@ test("基因: 变化太小(<0.01)不提案", () => {
 
 test("基因: 明显漂移但没有连续来源证据不自动提案", () => {
   // 强行制造漂移：curiosity expression 拉到 0.9（baseline 0.78，差 0.12 ≥ 0.1）
-  const g = getGenome();
-  g.genes.curiosity.expression = 0.9;
+  seedExpression(tmpWs, 'curiosity', 0.9);
   const props = autoProposeFromDrift();
   assert.equal(props.length, 0, "孤立数值不能冒充持续漂移证据");
 });
@@ -97,4 +97,4 @@ test("资产路由: 任务命中技能", () => {
 });
 
 // 清理
-fs.rmSync(tmpWs, { recursive: true, force: true });
+after(() => fs.rmSync(tmpWs, { recursive: true, force: true }));

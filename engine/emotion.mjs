@@ -14,6 +14,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { safeEmotion, observationTime } from './emotion-display.mjs';
+import { cueText, cueMatches } from './emotion-cues.mjs';
 import { initGene, geneBias, updateGenes, geneDirective, geneSnapshot } from "./gene.mjs";
 import { initSkillGene, bindSkillIndex, detectSkillDomain, updateSkillGene, getSkillGenes, skillDirective } from "./skill-gene.mjs";
 import { extractEntities } from "./yuanshu-memroute.mjs";
@@ -27,6 +28,7 @@ const DEFAULT_STATE = {
   residue: { warmth: 0, hurt: 0, curiosity: 0, last_event: "", last_event_time: "", edges: {} },
 };
 const states = new Map(); // sessionId -> state
+const observedTurns = new Map();
 let displayObservation = null;
 
 let wsRoot = null;
@@ -35,6 +37,7 @@ export function setMemoryNudgeHook(fn) { _memoryNudgeHook = fn; }
 
 // 初始化：server 启动时调用，传入工作空间根
 export function init(root) {
+  if (root && root !== wsRoot) observedTurns.clear();
   if (root && root !== wsRoot) displayObservation = null;
   wsRoot = root || wsRoot;
   initGene(wsRoot);
@@ -242,9 +245,11 @@ function updateLabel(st) {
 }
 
 // 更新情绪状态（每次用户发消息调用）
-export function updateEmotion(key, message) {
+export function updateEmotion(key, message, context = {}) {
   const st = getState(key);
-  const text = String(message || "").slice(0, 200);
+  const turnKey = context.turnId ? JSON.stringify([key, context.turnId]) : null;
+  if (turnKey && observedTurns.has(turnKey)) return { state: st, tags: st.tags || [] };
+  const text = cueText(message);
   const tags = [];
 
   // 真实感受回流：上一轮存档的感受调制当前状态起点（曦：apply_real_feelings）
@@ -259,7 +264,7 @@ export function updateEmotion(key, message) {
   // ② 连续向量词表：命中叠加（clamp ±0.15/维）
   let dv = 0, da = 0, dd = 0;
   for (const [w, cv, ca, cd, tag] of KEYWORDS) {
-    if (text.includes(w)) { dv += cv; da += ca; dd += cd; if (tag && !tags.includes(tag)) tags.push(tag); }
+    if (cueMatches(text, w, tag)) { dv += cv; da += ca; dd += cd; if (tag && !tags.includes(tag)) tags.push(tag); }
   }
   dv = Math.max(-CLAMP_SHIFT, Math.min(CLAMP_SHIFT, dv));
   da = Math.max(-CLAMP_SHIFT, Math.min(CLAMP_SHIFT, da));
@@ -334,7 +339,14 @@ export function updateEmotion(key, message) {
   }
   st.lastResidueAt = st.lastResidueAt || nowR;
   // 基因联动：互动标签驱动基因 expression 微调（性格长期塑造）
-  if (!isProbeKey(key)) updateGenes(tags, { sessionId: String(key || ''), message: String(message || '') });
+  if (!isProbeKey(key)) {
+    const result = updateGenes(tags, { sessionId: String(key || ''), message: String(message || ''), turnId: context.turnId });
+    if (result?.error) console.warn('[gene-observation]', result.error);
+  }
+  if (turnKey) {
+    observedTurns.set(turnKey, true);
+    if (observedTurns.size > 2000) observedTurns.delete(observedTurns.keys().next().value);
+  }
   // 情绪潮汐记录（09-03；09-04：无标签也记 VAD 基线点，中性期曲线不断档）
   // 有残留变化立刻落盘，其余同会话 3 分钟节流；评测 key 不写真记忆
   {

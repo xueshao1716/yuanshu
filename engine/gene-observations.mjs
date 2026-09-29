@@ -13,14 +13,17 @@ const TAG_DELTAS = {
 };
 const clamp = value => Math.max(0, Math.min(1, value));
 
-export function updateExpression(genes, state, tags, { now = Date.now(), sessionId = '', message = '' } = {}) {
+export function updateExpression(genes, state, tags, { now = Date.now(), sessionId = '', message = '', turnId = '' } = {}) {
   if (!Number.isFinite(now) || /^eval-/.test(sessionId)) return false;
+  const turnKey = turnId && sessionId ? createHash('sha256').update(JSON.stringify([String(sessionId), String(turnId)])).digest('hex') : null;
+  if (turnKey && state.processedTurns?.includes(turnKey)) return false;
   const previous = Number.isFinite(state.lastObservedAt) ? state.lastObservedAt : now;
   if (now < previous) return false;
   const elapsed = Math.max(0, now - previous);
   const retention = Math.pow(0.5, elapsed / EXPRESSION_HALF_LIFE_MS);
   const recognized = [...new Set(Array.isArray(tags) ? tags : [])].filter(tag => TAG_DELTAS[tag]);
   let dirty = state.lastObservedAt == null || elapsed > 0;
+  if (turnKey) { state.processedTurns = [...(state.processedTurns || []), turnKey].slice(-2000); dirty = true; }
   for (const [name, gene] of Object.entries(genes)) {
     const delta = recognized.reduce((sum, tag) => sum + (TAG_DELTAS[tag][name] || 0), 0);
     const next = clamp(gene.baseline + (gene.expression - gene.baseline) * retention + gene.mutability * delta);
@@ -29,7 +32,7 @@ export function updateExpression(genes, state, tags, { now = Date.now(), session
   state.lastObservedAt = Math.max(previous, now);
   if (recognized.length && sessionId && message && now >= previous) {
     const event = {
-      id: randomUUID(), at: now, sessionId: String(sessionId).slice(0, 128), tags: recognized,
+      id: randomUUID(), at: now, sessionId: String(sessionId).slice(0, 128), turnId: String(turnId).slice(0, 128), tags: recognized,
       messageHash: createHash('sha256').update(String(message)).digest('hex'),
       genes: Object.fromEntries(Object.entries(genes).map(([name, g]) => [name, { baseline: g.baseline, expression: g.expression }])),
     };

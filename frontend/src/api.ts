@@ -365,7 +365,7 @@ export function streamSession(sid: string, after = 0, onEvent: (ev: any) => void
             if (line.startsWith('event:')) eventType = line.slice(6).trim()
             else if (line.startsWith('data:')) dataLines.push(line.slice(5).trimStart())
           }
-          if (!dataLines.length || !['message', 'subscribed', 'session_updated'].includes(eventType)) continue
+          if (!dataLines.length || !['message', 'subscribed', 'session_updated', 'confirm'].includes(eventType)) continue
           try {
             const event = JSON.parse(dataLines.join('\n'))
             if (event && typeof event === 'object') {

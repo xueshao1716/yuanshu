@@ -3,8 +3,9 @@
 // VAD 情绪是此刻的浪，基因是海底的性格。
 // 提案制进化：基线变化只能走提案→审查→批准→快照回滚，不能直接改（Hermes 教训：人格进化必须被宪法约束）。
 
-import fs from "node:fs";
-import path from "node:path";
+import { createGeneStore } from './gene-store.mjs';
+import { randomUUID } from 'node:crypto';
+import { verifyGeneEvidence } from './gene-evidence.mjs';
 import { updateExpression, driftEvidence } from './gene-observations.mjs';
 
 let wsRoot = null;
@@ -12,6 +13,7 @@ let genome = null;
 let genomeDirty = false;
 let proposalStore = null;
 let observations = { lastObservedAt: null, events: [] };
+let store = null;
 
 const DEFAULT_GENES = {
   gentleness:    { baseline: 0.80, expression: 0.80, mutability: 0.06 }, // 温柔
@@ -27,30 +29,35 @@ const DEFAULT_GENES = {
   adaptability:  { baseline: 0.50, expression: 0.50, mutability: 0.12 }, // 适应
 };
 
-function geneFile() { return path.join(wsRoot, "工程/经验库/genome.json"); }
-function propFile() { return path.join(wsRoot, "工程/经验库/proposals.json"); }
-function readJson(p, fallback) { try { if (fs.existsSync(p)) return JSON.parse(fs.readFileSync(p, "utf8")); } catch {} return fallback; }
-function writeJson(p, obj) {
-  try {
-    fs.mkdirSync(path.dirname(p), { recursive: true });
-    const tmp = path.join(path.dirname(p), `.${path.basename(p)}.tmp-${process.pid}-${Date.now()}`);
-    fs.writeFileSync(tmp, JSON.stringify(obj, null, 2), "utf8");
-    try { fs.renameSync(tmp, p); } catch (e) { try { fs.unlinkSync(tmp); } catch {} throw e; }
-    return true;
-  } catch { return false; }
+function install(state) {
+  genome = state.genome.genes;
+  observations = state.genome.observations;
+  proposalStore = state.proposals;
+  genomeDirty = false;
 }
-
 export function initGene(root) {
   wsRoot = root || wsRoot;
   if (!wsRoot) return;
-  const stored = readJson(geneFile(), null);
-  genome = stored?.genes || JSON.parse(JSON.stringify(DEFAULT_GENES));
-  observations = { lastObservedAt: stored?.observations?.lastObservedAt ?? null, events: Array.isArray(stored?.observations?.events) ? stored.observations.events.slice(-500) : [] };
-  genomeDirty = false;
-  proposalStore = readJson(propFile(), { proposals: [], reviews: [], snapshots: [] });
+  store = createGeneStore(wsRoot, DEFAULT_GENES);
+  install(store.read());
 }
-function saveGenome() { if (genome && wsRoot && genomeDirty && writeJson(geneFile(), { genes: genome, observations, updatedAt: new Date().toISOString() })) genomeDirty = false; }
-function saveProposals() { if (proposalStore && wsRoot) writeJson(propFile(), proposalStore); }
+function mutate(fn) {
+  if (!store) return { error: '基因层未初始化', code: 'not_initialized' };
+  const previous = { genome: { genes: genome, observations }, proposals: proposalStore };
+  try {
+    const { state, result } = store.transaction(draft => {
+      install(draft);
+      const value = fn();
+      if (genomeDirty) draft.genome.updatedAt = new Date().toISOString();
+      return value;
+    });
+    install(state);
+    return result;
+  } catch (error) {
+    install(previous);
+    return { error: error.message, code: 'storage_failed' };
+  }
+}
 
 // 基因 → 情绪基线偏移（性格影响此刻心情的默认值）
 export function geneBias() {
@@ -66,12 +73,14 @@ export function geneBias() {
 // 更新基因 expression（短期表达）：每次互动按 mutability 缓慢偏移，不动 baseline
 export function updateGenes(tags, context = {}) {
   if (!genome || !wsRoot) return;
-  if (updateExpression(genome, observations, tags, context)) genomeDirty = true;
-  saveGenome();
+  return mutate(() => { if (updateExpression(genome, observations, tags, context)) genomeDirty = true; });
 }
 
 // 提案制进化：基线变化走提案（不能直接改）
 export function proposeBaselineChange(geneName, newBaseline, reason, evidence) {
+  return mutate(() => propose(geneName, newBaseline, reason, evidence));
+}
+function propose(geneName, newBaseline, reason, evidence) {
   if (!genome || !wsRoot || !genome[geneName]) return null;
   if (!Number.isFinite(newBaseline) || newBaseline < 0 || newBaseline > 1) return null;
   const current = genome[geneName].baseline;
@@ -81,64 +90,85 @@ export function proposeBaselineChange(geneName, newBaseline, reason, evidence) {
   const proposal = {
     proposal_id: "p" + Date.now().toString(36) + Math.random().toString(36).slice(2, 6),
     created_at: new Date().toISOString(),
-    gene: geneName, current_baseline: current, proposed_baseline: newBaseline, change,
+    gene: geneName, current_baseline: current, current_revision: genome[geneName].revision ?? null, proposed_baseline: newBaseline, change,
     reason: reason || "", evidence: Array.isArray(evidence) ? evidence.filter(e => typeof e === 'string' && e.trim()) : [], status: "pending",
     risk: Math.abs(change) < 0.1 ? "low" : Math.abs(change) < 0.2 ? "medium" : "high",
   };
   proposalStore.proposals.push(proposal);
-  saveProposals();
   return proposal;
 }
 
 // 批准提案：快照 → 应用 → 记录审查（可回滚）
-export function approveProposal(proposalId, reviewer = "operator") {
+export function approveProposal(proposalId, reviewer = "operator", expected) {
+  return mutate(() => approve(proposalId, reviewer, expected));
+}
+function approve(proposalId, reviewer, expected) {
   if (!proposalStore || !genome || !wsRoot) return { error: "基因层未初始化" };
   const p = proposalStore.proposals.find(x => x.proposal_id === proposalId && x.status === "pending");
   if (!p) return { error: "提案不存在或已处理" };
   const gene = genome[p.gene];
   if (!gene || !Number.isFinite(p.proposed_baseline) || p.proposed_baseline < 0 || p.proposed_baseline > 1) return { error: "提案数值无效" };
-  if (gene.baseline !== p.current_baseline) return { error: "提案基线已过期，请重新审查" };
-  if (!Array.isArray(p.evidence) || !p.evidence.some(e => typeof e === 'string' && e.trim() && e !== 'auto_drift')) return { error: "提案缺少可核查证据，保留待审；请补证后重新提交" };
-  const snapshot = { snapshot_id: "s" + Date.now().toString(36), created_at: new Date().toISOString(), gene: p.gene, old_baseline: gene.baseline, old_expression: gene.expression };
+  if (gene.baseline !== p.current_baseline || (gene.revision ?? null) !== (p.current_revision ?? null)) return { error: "提案基线已过期，请重新审查" };
+  if (expected && JSON.stringify({ item: p, baseline: gene.baseline, revision: gene.revision ?? null }) !== JSON.stringify(expected)) return { error: '确认期间目标发生变化' };
+  if (!verifyGeneEvidence(wsRoot, p, observations, gene)) return { error: "提案缺少可核查证据或来源已变更，保留待审；请补证后重新提交" };
+  const snapshot = { snapshot_id: randomUUID(), proposal_id: proposalId, created_at: new Date().toISOString(), gene: p.gene, old_baseline: gene.baseline, old_expression: gene.expression, applied_baseline: p.proposed_baseline };
   proposalStore.snapshots.push(snapshot);
+  gene.revision = snapshot.snapshot_id;
   genome[p.gene].baseline = p.proposed_baseline;
   genome[p.gene].expression = p.proposed_baseline;
-  genomeDirty = true; saveGenome();
+  genomeDirty = true;
   proposalStore.reviews.push({ proposal_id: proposalId, decision: "approved", reviewer, snapshot_id: snapshot.snapshot_id, applied_at: new Date().toISOString() });
   p.status = "approved";
-  saveProposals();
   return { approved: true, gene: p.gene, old: snapshot.old_baseline, new: p.proposed_baseline, snapshot_id: snapshot.snapshot_id };
 }
 
 // 拒绝提案
 export function rejectProposal(proposalId, reviewer = "operator", reason = "") {
+  return mutate(() => reject(proposalId, reviewer, reason));
+}
+function reject(proposalId, reviewer, reason) {
   if (!proposalStore) return { error: "提案池未初始化" };
   const p = proposalStore.proposals.find(x => x.proposal_id === proposalId && x.status === "pending");
   if (!p) return { error: "提案不存在或已处理" };
   p.status = "rejected";
   proposalStore.reviews.push({ proposal_id: proposalId, decision: "rejected", reviewer, reason, applied_at: new Date().toISOString() });
-  saveProposals();
   return { rejected: true, gene: p.gene };
 }
 
 // 回滚到某快照（可回滚是提案制的后盾）
-export function rollbackSnapshot(snapshotId) {
+export function rollbackSnapshot(snapshotId, reviewer, reason, expected) {
+  return mutate(() => rollback(snapshotId, reviewer, reason, expected));
+}
+function rollback(snapshotId, reviewer, reason, expected) {
   if (!proposalStore || !genome || !wsRoot) return { error: "未初始化" };
   const snap = proposalStore.snapshots.find(s => s.snapshot_id === snapshotId);
   if (!snap) return { error: "快照不存在" };
+  if (typeof reviewer !== 'string' || !reviewer.trim() || typeof reason !== 'string' || !reason.trim()) return { error: '回滚必须记录审查者和理由' };
+  const gene = genome[snap.gene];
+  const proposal = proposalStore.proposals.find(p => p.proposal_id === snap.proposal_id);
+  if (expected && JSON.stringify({ item: snap, baseline: gene?.baseline, revision: gene?.revision ?? null }) !== JSON.stringify(expected)) return { error: '确认期间目标发生变化' };
+  if (!gene || gene.revision !== snapshotId || gene.baseline !== snap.applied_baseline || proposal?.status !== 'approved' || snap.rolled_back_at) return { error: '快照已过期、已回滚或缺少版本链，禁止覆盖后续变更' };
   genome[snap.gene].baseline = snap.old_baseline;
   genome[snap.gene].expression = snap.old_expression ?? snap.old_baseline;
-  genomeDirty = true; saveGenome();
+  gene.revision = randomUUID();
+  snap.rolled_back_at = new Date().toISOString();
+  proposal.status = 'rolled_back';
+  proposalStore.reviews.push({ proposal_id: snap.proposal_id, snapshot_id: snapshotId, decision: 'rolled_back', reviewer, reason, applied_at: snap.rolled_back_at });
+  genomeDirty = true;
   return { ok: true, gene: snap.gene, restored: snap.old_baseline };
 }
 
 // 查看基因/提案状态
 export function getGenome() {
-  return { genes: genome || DEFAULT_GENES, proposals: proposalStore?.proposals || [], reviews: proposalStore?.reviews || [], snapshots: proposalStore?.snapshots || [] };
+  if (store) install(store.read());
+  return structuredClone({ genes: genome || DEFAULT_GENES, proposals: proposalStore?.proposals || [], reviews: proposalStore?.reviews || [], snapshots: proposalStore?.snapshots || [] });
 }
 
 // 至少三条带来源的互动，跨度 >=24h；标签是启发式信号，不是人格测量。
 export function autoProposeFromDrift({ now = Date.now() } = {}) {
+  return mutate(() => autoPropose(now));
+}
+function autoPropose(now) {
   if (!genome || !wsRoot) return [];
   const newProposals = [];
   for (const [name, g] of Object.entries(genome)) {
@@ -147,7 +177,7 @@ export function autoProposeFromDrift({ now = Date.now() } = {}) {
     const evidence = driftEvidence(observations, name, g, now);
     if (Math.abs(drift) >= 0.1 && evidence.length >= 3) {
       const target = Math.max(0, Math.min(1, g.baseline + drift * 0.3)); // 只吸收 30% 漂移
-      const p = proposeBaselineChange(name, target, `带来源互动跨至少24小时记录 expression 同向偏离，当前差值 ${(drift * 100).toFixed(1)}%；标签仅为启发式信号，需人工核查后决定是否吸收30%偏移`, evidence);
+      const p = propose(name, target, `带来源互动跨至少24小时记录 expression 同向偏离，当前差值 ${(drift * 100).toFixed(1)}%；标签仅为启发式信号，需人工核查后决定是否吸收30%偏移`, evidence);
       if (p) newProposals.push(p);
     }
   }

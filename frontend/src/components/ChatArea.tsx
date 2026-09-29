@@ -128,6 +128,12 @@ export default function ChatArea({ compactHeader, rightPanel, onRightPanel, onVo
   sessionIdRef.current = currentSessionId
   const [stream, setStream] = useState<StreamState | null>(null)
   const [confirm, setConfirm] = useState<any>(null) // 危险操作待确认：{ id, toolName, reason, args, sessionId }
+  useEffect(() => { setConfirm(null) }, [currentSessionId])
+  useEffect(() => {
+    if (!confirm?.expiresAt) return
+    const timer = setTimeout(() => setConfirm((current: any) => current?.id === confirm.id ? null : current), Math.max(0, confirm.expiresAt - Date.now()))
+    return () => clearTimeout(timer)
+  }, [confirm])
   const [exportOpen, setExportOpen] = useState(false)
   const [exportingFormat, setExportingFormat] = useState<'html' | 'jsonl' | null>(null)
   useEffect(() => {
@@ -401,6 +407,13 @@ export default function ChatArea({ compactHeader, rightPanel, onRightPanel, onVo
     }
     let primed = false
     const off = streamSession(currentSessionId, 0, (event) => {
+      // Governance requests can originate outside an active chat run. Accept
+      // unexpired replay too, so opening the session can recover its card.
+      if (alive && event?.type === 'confirm') {
+        const data = event.data
+        if (data?.toolName === 'gene-governance' && data.id && data.sessionId === currentSessionId && data.expiresAt > Date.now()) setConfirm(data)
+        return
+      }
       if (!event?.type && Number.isInteger(event?.lastSeq)) { primed = true; return }
       if (!primed) return
       if (event?.type === 'message' || event?.type === 'turn_end' || event?.type === 'session_updated') syncCommittedHistory()

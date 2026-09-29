@@ -25,7 +25,10 @@ test('聊天与首页数据层只在恢复时增量同步，避免整页重载',
 test('会话 SSE 解析命名 session_updated 事件，确保跨端记录及时同步', () => {
   const api = read('api.ts')
   assert.match(api, /eventType = 'message'/, 'streamSession 必须解析 SSE 默认事件类型')
-  assert.match(api, /\['message', 'subscribed', 'session_updated'\]/, 'streamSession 必须识别后端命名的 session_updated 事件')
+  const eventFilter = api.split('\n').find(line => line.includes('dataLines.length') && line.includes('.includes(eventType)'))
+  for (const eventType of ['message', 'subscribed', 'session_updated']) {
+    assert.ok(eventFilter?.includes(`'${eventType}'`), `streamSession 必须识别 ${eventType} 事件`)
+  }
   assert.match(api, /Authorization:\s*`Bearer \$\{_token\}`/, 'streamSession 必须发送 Authorization')
   assert.ok(api.includes('/messages') && api.includes('tail'), 'messages API 必须能带 tail 尾窗')
   assert.ok(api.includes('leafId'), 'messages API 必须能带当前枝 leafId')

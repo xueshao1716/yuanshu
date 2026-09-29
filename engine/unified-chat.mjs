@@ -893,6 +893,7 @@ except Exception as e:
 
 // 统一通道：所有模型走 unifiedChat（对话 + 工具 + 思考 + 媒体 + 压缩 + 重试）
 export async function handleUnifiedChat(res, entry, message, sessionId, params, signal, writer, thinkOn, taskKey, modelOverride = null, sandboxAskFactory = null, runContext = null) {
+  const emotionInput = runContext?.emotionInput || { turnId: crypto.randomUUID(), message };
   let engineInitError = null;
   try { await ensureEngineInit(); } catch (e) { engineInitError = e || new Error("engine_init_failed"); }
   const taskId = taskKey || sessionId;
@@ -931,7 +932,7 @@ export async function handleUnifiedChat(res, entry, message, sessionId, params, 
   };
   let collected = "";
   const finishEmotion = () => {
-    try { endYuanshuEmotion(sessionId || "new", message, collected, writer); } catch {}
+    try { endYuanshuEmotion(sessionId || "new", emotionInput.message, collected, writer); } catch {}
   };
   touchTask(taskId, { stage: "处理中" });
   let hist = [];
@@ -1081,7 +1082,7 @@ export async function handleUnifiedChat(res, entry, message, sessionId, params, 
     task: thinkOn ? "你可以调用 think 工具，在动手之前写下你的分析过程（理解、步骤、计划、可能的坑）。写完后再执行任务。think 的内容仅供调试，不展示给用户，可以放心写。" : "",
   }, gateway?.registry, { engine: 'yuanshu', wsRoot: _cwd, now: new Date(), model: chatModel, sessionId, message, cwd: _cwd, rhythm: readActivityRhythm(_cwd, { now: new Date(), sessionDir: _sessionDir }), since: lastTalkAt(sessionId), sessionStart: sessionStartedAt(hist) });
   history = prependAssembledSystem(history, sections);
-  history = beginYuanshuEmotion(sessionId || "new", message, history);
+  history = beginYuanshuEmotion(sessionId || "new", emotionInput.message, history, emotionInput);
   history = (await compactKeepArchive(history, (h) => maybeCompactHistory(h, chatModel))).view;
   // Plan 模式（unifiedChat 兕底路径）：工具定义层过滤为只读（read/web_search）——模型只能请求只读工具，无写路径
   // 注意：thinkOn=false 时 toolDefs 为 undefined（unifiedChat 内部才默认 UNIFIED_TOOLS），必须显式构建只读集，否则拦截被短路

@@ -5,6 +5,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { initGene, updateGenes, getGenome, autoProposeFromDrift, proposeBaselineChange, approveProposal, rollbackSnapshot, geneSnapshot } from '../../engine/gene.mjs';
 import { init, updateEmotion } from '../../engine/emotion.mjs';
+import { seedExpression, sourceEvidence } from '../helpers/gene-fixture.mjs';
 
 const epoch = Date.parse('2026-09-01T00:00:00Z');
 const day = 86400000;
@@ -27,14 +28,14 @@ test('small intended changes survive persistence and restart', t => {
   assert.ok(getGenome().genes.initiative.expression > 0.45);
 });
 test('expression can reach its boundary without floating-point dead zone', t => {
-  fixture(t);
-  getGenome().genes.gentleness.expression = 0.9980000000000002;
+  const root = fixture(t);
+  seedExpression(root, 'gentleness', 0.9980000000000002);
   observe(epoch);
   assert.equal(getGenome().genes.gentleness.expression, 1);
 });
 test('idle expression returns gradually to baseline without changing baseline', t => {
   const root = fixture(t);
-  getGenome().genes.gentleness.expression = 1;
+  seedExpression(root, 'gentleness', 1);
   observe(epoch, []);
   initGene(root);
   observe(epoch + 7 * day, []);
@@ -42,13 +43,13 @@ test('idle expression returns gradually to baseline without changing baseline', 
   assert.equal(getGenome().genes.gentleness.baseline, 0.8);
 });
 test('a lone drift value cannot manufacture sustained evidence', t => {
-  fixture(t);
-  getGenome().genes.gentleness.expression = 1;
+  const root = fixture(t);
+  seedExpression(root, 'gentleness', 1);
   assert.deepEqual(autoProposeFromDrift({ now: epoch }), []);
 });
 test('sustained sourced observations create one pending proposal, surviving restart', t => {
   const root = fixture(t);
-  getGenome().genes.gentleness.expression = 0.99;
+  seedExpression(root, 'gentleness', 0.99);
   for (const offset of [0, day / 2, day]) observe(epoch + offset);
   initGene(root);
   const proposals = autoProposeFromDrift({ now: epoch + day });
@@ -62,8 +63,8 @@ test('sustained sourced observations create one pending proposal, surviving rest
   assert.ok(!raw.includes('private test message'));
 });
 test('rapid bursts and expired evidence do not prove sustained drift', t => {
-  fixture(t);
-  getGenome().genes.gentleness.expression = 0.99;
+  const root = fixture(t);
+  seedExpression(root, 'gentleness', 0.99);
   for (const offset of [0, 1, 2]) observe(epoch + offset);
   assert.deepEqual(autoProposeFromDrift({ now: epoch + 2 }), []);
   observe(epoch + day);
@@ -87,17 +88,17 @@ test('invalid targets are rejected and legacy evidence stays pending', t => {
   assert.equal(getGenome().genes.gentleness.baseline, 0.8);
 });
 test('rollback restores original expression rather than flattening it to baseline', t => {
-  fixture(t);
-  getGenome().genes.humor.expression = 0.63;
-  const p = proposeBaselineChange('humor', 0.6, 'human reviewed', ['session:human-confirmed']);
+  const root = fixture(t);
+  seedExpression(root, 'humor', 0.63);
+  const p = proposeBaselineChange('humor', 0.6, 'human reviewed', sourceEvidence(root));
   const result = approveProposal(p.proposal_id);
   assert.equal(result.approved, true);
-  assert.equal(rollbackSnapshot(result.snapshot_id).ok, true);
+  assert.equal(rollbackSnapshot(result.snapshot_id, 'tester', 'undo').ok, true);
   assert.equal(getGenome().genes.humor.expression, 0.63);
 });
 test('zero expression is displayed as zero', t => {
-  fixture(t);
-  getGenome().genes.humor.expression = 0;
+  const root = fixture(t);
+  seedExpression(root, 'humor', 0);
   assert.equal(geneSnapshot().humor, 0);
 });
 
@@ -115,9 +116,9 @@ test('legacy pending proposals survive initialization unchanged without invented
 });
 
 test('a stale proposal cannot overwrite a newly reviewed baseline', t => {
-  fixture(t);
-  const old = proposeBaselineChange('humor', 0.6, 'first', ['human:review-1']);
-  const newer = proposeBaselineChange('humor', 0.65, 'second', ['human:review-2']);
+  const root = fixture(t);
+  const old = proposeBaselineChange('humor', 0.6, 'first', sourceEvidence(root));
+  const newer = proposeBaselineChange('humor', 0.65, 'second', sourceEvidence(root));
   assert.equal(approveProposal(newer.proposal_id).approved, true);
   assert.match(approveProposal(old.proposal_id).error, /过期/);
   assert.equal(old.status, 'pending');

@@ -92,7 +92,7 @@ test("时间格式化只剩一份：死代码 nowContext 已删，server.mjs 不
 test("since 必须在 updateEmotion 之前取，否则差值恒为 0", () => {
   const server = read("server.mjs");
   const prev = server.indexOf("const prevTalkAt =");
-  const upd = server.indexOf("emotion.updateEmotion(sessKey, message)");
+  const upd = server.indexOf("emotion.updateEmotion(sessKey, emotionInput.message, emotionInput)");
   assert.ok(prev > 0 && upd > 0, "两处都应存在");
   assert.ok(prev < upd, "prevTalkAt 必须取在 updateEmotion 之前（它会把 lastTalk 刷成本轮）");
 });

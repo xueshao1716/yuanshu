@@ -123,6 +123,8 @@ import { completedTaskText } from "./engine/task-continuation.mjs";
 import { createApprovalInterceptor } from "./engine/tools/approval.mjs";
 import * as confirmRegistry from "./engine/tools/confirm-registry.mjs";
 import { isLocalMaintenanceApproval } from "./engine/maintenance-approval.mjs";
+import { createGeneApproval } from './engine/gene-approval.mjs';
+import { completeGeneTurn } from './engine/gene-turn.mjs';
 import { initRefineApi, readRefineJson, runRefineScript, handleRefineStatus, handleRefineList, detectSkillDomain, handleRefineFeedback, handleRefineGenes, handleRefinePlan, handleRefineApprove, handleRefineReject, handleRefineRollback } from "./engine/refine-api.mjs";
 import { initMcpServer, handleMcp } from "./engine/mcp-server.mjs";
 import { initMcpChat } from "./engine/mcp-chat.mjs";
@@ -816,6 +818,7 @@ function lastTurnUpstreamError(entry) {
 
 async function handleChat(req, res, body) {
   let message = typeof body.message === "string" ? body.message.trim() : "";
+  const emotionInput = { turnId: crypto.randomUUID(), message };
   const sessionId = typeof body.sessionId === "string" ? body.sessionId : null;
   // 限速（2026-08-29）：公网暴露下防脚本刷模型接口烧钱，30 次/分钟 per token+IP
   if (!rateLimit(rateLimitKey(req, "chat"), 30, 60000)) {
@@ -921,6 +924,7 @@ async function handleChat(req, res, body) {
   });
   const chatRunContext = {
     ...(body.__runContext || {}),
+    emotionInput,
     runId: body.__runContext?.runId || aibodyTurn.runId,
     sessionId: sessionId || findKeyByEntry(entry),
     onEvent: (type, data) => res.write(`event: ${type}\ndata: ${JSON.stringify(data)}\n\n`),
@@ -1391,6 +1395,7 @@ async function handleChat(req, res, body) {
           emotion.updateFromOutput(esKey, collected); // 曦系⑥：输出侧感知，回复长短也影响唤醒（09-04）
           emotion.recordFeeling(esKey, message); // 曦系二期：真实感受存档（事+感+强度）
           try { emotion.flushPersonaAttribution(esKey); } catch {}
+          completeGeneTurn(esKey);
           const es = emotion.getSnapshot(esKey);
           if (es) { writer.push("emotion", { state: es }); busEmit("emotion", { state: es }); }
         } catch {}
@@ -1438,7 +1443,7 @@ async function handleChat(req, res, body) {
     if (message) lastUserBySession.set(sessKey, String(message).slice(0, 500));
     // ⚠️ 必须在 updateEmotion **之前**取：它会把 lastTalk 刷成本轮，之后差值恒为 0
     const prevTalkAt = (() => { try { return Number(emotion.getSnapshot(sessKey)?.lastTalk) || 0; } catch { return 0; } })();
-    emotion.updateEmotion(sessKey, message);
+    emotion.updateEmotion(sessKey, emotionInput.message, emotionInput);
     const emoPrompt = emotion.emotionPrompt(sessKey, message);
     // 公仔自我认知：模型没有视觉输入，需把当前系统支持的真人立绘语义描述明确交给它。
     // 仅在相关问题出现时注入，避免给普通对话增加无关上下文。
@@ -2203,6 +2208,7 @@ const withCache = createWithCache();
 const uiDesigns = createUiDesignService({root: WS_ROOT, getModelList: () => modelList, getDefaultModel: () => defaultModel, directChat});
 const websites = createWebsiteService({root: WS_ROOT, getModelList: () => modelList, getDefaultModel: () => defaultModel, directChat});
 const maintenanceSessionExists = sid => activeSessions.has(sid) || !!findSession(sid);
+const requestGeneApproval = createGeneApproval({ api: emotion, registry: confirmRegistry, sessionExists: maintenanceSessionExists, push: busPush });
 const sandboxApi = createSandboxApi({ agentDir: AGENT_DIR, sessionExists: maintenanceSessionExists });
 maintenanceApi = createMaintenanceApi({
   sessionExists: maintenanceSessionExists,
@@ -2580,21 +2586,28 @@ const API_ROUTES = [
     const b = await readBody(req);
     const p = emotion.proposeBaselineChange(b?.gene, b?.value, b?.reason, b?.evidence);
     if (!p) return json(res, 400, { error: "提案无效（基因不存在或变化太小）" });
+    if (p.error) return json(res, 503, p);
     json(res, 200, { ok: true, proposal: p });
   }],
   ["POST", "/api/genome/approve", async (res, req) => {
     const b = await readBody(req);
-    json(res, 200, emotion.approveProposal(b?.proposal_id, b?.reviewer || "operator"));
+    const result = await requestGeneApproval('approve', b);
+    json(res, result.error ? 409 : 200, result);
   }],
   ["POST", "/api/genome/reject", async (res, req) => {
     const b = await readBody(req);
-    json(res, 200, emotion.rejectProposal(b?.proposal_id, b?.reviewer || "operator", b?.reason));
+    const result = emotion.rejectProposal(b?.proposal_id, b?.reviewer || "operator", b?.reason);
+    json(res, result.error ? 409 : 200, result);
   }],
   ["POST", "/api/genome/rollback", async (res, req) => {
     const b = await readBody(req);
-    json(res, 200, emotion.rollbackSnapshot(b?.snapshot_id));
+    const result = await requestGeneApproval('rollback', b);
+    json(res, result.error ? 409 : 200, result);
   }],
-  ["POST", "/api/genome/auto", async (res) => json(res, 200, { proposals: emotion.autoProposeFromDrift() })],
+  ["POST", "/api/genome/auto", async (res) => {
+    const result = emotion.autoProposeFromDrift();
+    json(res, result?.error ? 503 : 200, result?.error ? result : { proposals: result });
+  }],
   // ── 技能基因 ──
   ["GET", "/api/skill-genes", (res) => json(res, 200, emotion.getSkillGenes())],
   ["POST", "/api/skill-genes/feedback", async (res, req) => {
@@ -2912,6 +2925,7 @@ const API_ROUTES = [
       if (!sid || !id) return json(res, 400, { error: "缺少 sessionId/id" });
       const pending = confirmRegistry.list().find(item => item.sessionId === sid && item.id === id);
       if (ok && pending?.toolName === 'maintenance' && !isLocalMaintenanceApproval(req)) return json(res, 403, { error: '请在运行元枢的电脑上，通过 http://127.0.0.1:8787 的超维面板人工确认。远程入口不能批准。' });
+      if (ok && pending?.toolName === 'gene-governance' && !isLocalMaintenanceApproval(req)) return json(res, 403, { error: '人格基线批准与回滚须在运行元枢的电脑上，通过本地会话确认卡人工确认。' });
       const r = confirmRegistry.settle(sid, id, ok);
       json(res, 200, r);
     } catch (e) { json(res, 500, { error: String(e?.message || e) }); }
