@@ -1,7 +1,8 @@
 import { useLayoutEffect, useRef, useState } from 'react'
 import { X, Download, RotateCcw, EyeOff } from 'lucide-react'
 import { panelPosition } from './widget-state.mjs'
-import { portraitFor, appearanceDescription } from './companion-state.mjs'
+import { appearanceDescription } from './companion-state.mjs'
+import { portraitAssetUrl } from './portrait-asset.mjs'
 import { imageForSkin, GALLERIES } from './widget-state.mjs'
 import type { useWidgetMotion } from './useWidgetMotion'
 import type { useWidgetStatus } from './useWidgetStatus'
@@ -85,7 +86,7 @@ export function WidgetPanel({ motion, status, companion: c, close, hide, resize,
     <div className="xiaoyu-tools"><button type="button" onClick={motion.reset}><RotateCcw size={15} />归位</button>
       <button type="button" aria-pressed={large} onClick={resize}>{large ? '标准大小' : '放大立绘'}</button>
       <button type="button" onClick={hide}><EyeOff size={15} />隐藏</button></div>
-    <a href={skin === 'portrait' ? portraitFor(c.action).src : imageForSkin(skin, c.action)} download><Download size={15} />下载当前立绘</a>
+    <a href={portraitAssetUrl(imageForSkin(skin, c.action))} download><Download size={15} />下载当前立绘</a>
     <footer className="xiaoyu-version"><span>元枢 {status.version ? `v${status.version}` : '版本读取中'}</span>
       <button type="button" disabled={status.checking} onClick={status.checkUpdate}>检查更新</button></footer>
     {status.update && <p className="xiaoyu-update" role="status">{status.update}</p>}

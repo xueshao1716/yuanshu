@@ -9,6 +9,11 @@ export async function setup(t, width = 1440) {
   const dist = fileURLToPath(new URL('../../../tmp/verification-dist/', import.meta.url));
   const server = http.createServer((req, res) => {
     const url = new URL(req.url, 'http://localhost');
+    if (url.pathname.startsWith('/api/sessions/') && url.pathname.endsWith('/stream')) {
+      res.writeHead(200, { 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-cache' });
+      res.write('event: subscribed\ndata: {"key":"isolated","lastSeq":0}\n\n');
+      return;
+    }
     const file = path.resolve(dist, url.pathname === '/' ? 'index.html' : decodeURIComponent(url.pathname.slice(1)));
     if (!file.startsWith(dist) || !fs.existsSync(file) || !fs.statSync(file).isFile()) { res.writeHead(404); return res.end(); }
     const mime = { '.html': 'text/html', '.js': 'text/javascript', '.css': 'text/css', '.webp': 'image/webp', '.svg': 'image/svg+xml' };

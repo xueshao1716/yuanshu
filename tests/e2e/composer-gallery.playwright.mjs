@@ -1,8 +1,11 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
+import fs from 'node:fs';
 import { setup, reachable } from './fixtures/composer-gallery-server.mjs';
 import { GALLERIES, imageForSkin } from '../../frontend/src/components/xiaoyu/widget-state.mjs';
 import { portraitFor } from '../../frontend/src/components/xiaoyu/companion-state.mjs';
+import { portraitAssetUrl } from '../../frontend/src/components/xiaoyu/portrait-asset.mjs';
+const releaseVersion = JSON.parse(fs.readFileSync(new URL('../../version.json', import.meta.url), 'utf8')).version;
 
 for (const width of [1440, 390]) {
   test(`slash menu is reachable and works with Chinese keyboard at ${width}`, async t => {
@@ -55,7 +58,7 @@ for (const width of [1440, 390]) {
       await panel.locator('.companion-settings > summary').click();
       await panel.getByRole('button', { name: new RegExp(gallery.label) }).click();
       const action = await widget.locator('.companion-portrait').getAttribute('data-action');
-      const expected = gallery.id === 'portrait' ? portraitFor(action).src : imageForSkin(gallery.id, action);
+      const expected = portraitAssetUrl(gallery.id === 'portrait' ? portraitFor(action).src : imageForSkin(gallery.id, action), releaseVersion);
       for (const location of [widget, panel]) {
         const portrait = location.locator('.companion-portrait');
         assert.equal(await portrait.getAttribute('data-skin'), gallery.id);
@@ -107,7 +110,7 @@ test('gallery change cannot display a previous gallery image while loading', asy
   const { page } = await setup(t);
   const widget = page.locator('.xiaoyu-widget');
   await widget.locator('img').evaluate(img => img.decode());
-  await page.route('**/assets/portraits/*author-v2.webp', () => {});
+  await page.route('**/assets/portraits/*author-v2.webp*', () => {});
   await widget.click();
   const panel = page.locator('#xiaoyu-panel');
   await panel.locator('.companion-settings > summary').click();
