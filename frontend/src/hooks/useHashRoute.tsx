@@ -1,8 +1,8 @@
-import { useEffect, useState, Component, ReactNode } from 'react'
+import { useEffect, useRef, useState, Component, ReactNode } from 'react'
 import { AlertTriangle } from 'lucide-react'
 
 // ── 极轻 hash 路由（零依赖）：#/chat #/models #/assets #/tasks ──
-export type Route = 'chat' | 'board' | 'review' | 'models' | 'assets' | 'tasks' | 'downloads' | 'apps' | 'lingxi' | 'workshop' | 'story' | 'system' | 'engine' | 'themes' | 'sessiondb'
+export type Route = 'chat' | 'board' | 'review' | 'models' | 'assets' | 'tasks' | 'downloads' | 'apps' | 'lingxi' | 'workshop' | 'story' | 'system' | 'engine' | 'themes' | 'sessiondb' | 'soul'
 
 function parse(routes: readonly Route[]): Route {
   const h = location.hash.replace(/^#\/?/, '')
@@ -11,12 +11,18 @@ function parse(routes: readonly Route[]): Route {
 
 export function useHashRoute(routes: readonly Route[]): [Route, (r: Route) => void] {
   const [route, setRoute] = useState<Route>(() => parse(routes))
+  const current = useRef(route)
+  const accept = (next: Route) => {
+    if (next === current.current) return true
+    if (!window.dispatchEvent(new CustomEvent('yuanshu:before-route', {cancelable:true, detail:{from:current.current,to:next}}))) return false
+    current.current=next; setRoute(next); return true
+  }
   useEffect(() => {
-    const on = () => setRoute(parse(routes))
+    const on = () => {if (!accept(parse(routes))) history.replaceState(history.state, '', '#/' + current.current)}
     window.addEventListener('hashchange', on)
     return () => window.removeEventListener('hashchange', on)
   }, [routes])
-  const nav = (r: Route) => { location.hash = '#/' + r; setRoute(r) }
+  const nav = (r: Route) => {if (accept(r)) location.hash = '#/' + r}
   return [route, nav]
 }
 

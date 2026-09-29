@@ -13,6 +13,7 @@ export type UtilityPanelKey = 'workspace' | 'deliveries' | 'terminal' | 'activit
 // 但「改动验收」不再单列：它已并入工作台作为页内视图（#/review 仍是深链别名），
 // 和「工作台」并列就是同一个页面出现两次。
 const MORE_ROUTES: { route: Route; icon: typeof Sparkles; label: string }[] = [
+  { route: 'soul', icon: Sparkles, label: ROUTE_LABELS.soul },
   { route: 'board', icon: LayoutDashboard, label: ROUTE_LABELS.board },
   { route: 'lingxi', icon: Sparkles, label: ROUTE_LABELS.lingxi },
   { route: 'workshop', icon: Factory, label: ROUTE_LABELS.workshop },

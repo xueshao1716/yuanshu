@@ -4,7 +4,7 @@ import { normalizeSkin } from './widget-state.mjs'
 import { useCompanion } from './useCompanion'
 import XiaoyuWidget from '../XiaoyuWidget'
 
-type Companion = ReturnType<typeof useCompanion> & { skin: string }
+type Companion = ReturnType<typeof useCompanion> & { skin: string; hidden: boolean; chooseSkin: (skin: string) => void; setHidden: (hidden: boolean) => void }
 const CompanionContext = createContext<Companion | null>(null)
 
 export function CompanionProvider({ children }: { children: ReactNode }) {
@@ -17,11 +17,11 @@ export function CompanionProvider({ children }: { children: ReactNode }) {
   // The controller lives above routing so page changes do not tear down the stream,
   // emotion observation, or the draggable floating layer.
   const companion = useCompanion(true)
-  const value = useMemo(() => ({ ...companion, skin }), [companion, skin])
-  const setHiddenPersisted = (next: boolean) => {
+  const setHiddenPersisted = useCallback((next: boolean) => {
     setHidden(next)
     savePreference('yuanshu_companion_hidden', String(next))
-  }
+  }, [])
+  const value = useMemo(() => ({ ...companion, skin, hidden, chooseSkin, setHidden: setHiddenPersisted }), [companion, skin, hidden, chooseSkin, setHiddenPersisted])
   return <CompanionContext.Provider value={value}>
     {children}
     <XiaoyuWidget companion={companion} hidden={hidden} setHidden={setHiddenPersisted} skin={skin} chooseSkin={chooseSkin} />

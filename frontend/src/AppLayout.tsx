@@ -31,6 +31,7 @@ const EnginePage = lazy(() => import('./pages/Engine'))
 const LingXiPage = lazy(() => import('./pages/LingXi'))
 const BoardPage = lazy(() => import('./pages/Board'))
 const SystemPage = lazy(() => import('./pages/System'))
+const SoulPage = lazy(() => import('./pages/Soul'))
 const ThemesPage = lazy(() => import('./pages/Themes'))
 const SessionDbPage = lazy(() => import('./pages/SessionDb'))
 const WorkshopPage = lazy(() => import('./pages/Workshop'))
@@ -62,6 +63,7 @@ type PageRoute = {
 
 // 页面注册表是路由、页面渲染和桌面导航的单一来源；移动端导航是刻意不同的信息架构。
 const PAGE_ROUTES: PageRoute[] = [
+  { route: 'soul', icon: Sparkles, label: ROUTE_LABELS.soul, Page: SoulPage },
   { route: 'board', icon: LayoutDashboard, label: ROUTE_LABELS.board, Page: BoardPage },
   // 改动验收已并入工作台（页内视图）。保留 review 路由作为深链别名，
   // 让 #/review、手机「更多」和聊天右栏的「打开验收」继续可用。

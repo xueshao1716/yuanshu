@@ -101,6 +101,7 @@ export default function System() {
       <div className="max-w-5xl mx-auto px-4 sm:px-6 py-6">
         <PageHeader
           title="系统"
+          actions={<a className="btn-ghost min-h-11 inline-flex items-center px-3" href="#/soul">灵魂培养中心</a>}
           description="查看服务运行状态、更新来源与网络入口；功能一览等技术信息收在页面底部。"
           meta={<span className="text-[11px] text-pi-dim2">{dirty ? '配置有未保存修改' : '服务配置中心'}</span>}
         />
