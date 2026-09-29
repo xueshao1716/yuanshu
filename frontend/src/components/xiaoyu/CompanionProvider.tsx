@@ -1,24 +1,30 @@
-import { createContext, useContext, useMemo, useState, type ReactNode } from 'react'
+import { createContext, useCallback, useContext, useMemo, useState, type ReactNode } from 'react'
 import { readPreference, savePreference } from './useWidgetMotion'
+import { normalizeSkin } from './widget-state.mjs'
 import { useCompanion } from './useCompanion'
 import XiaoyuWidget from '../XiaoyuWidget'
 
-type Companion = ReturnType<typeof useCompanion>
+type Companion = ReturnType<typeof useCompanion> & { skin: string }
 const CompanionContext = createContext<Companion | null>(null)
 
 export function CompanionProvider({ children }: { children: ReactNode }) {
   const [hidden, setHidden] = useState(() => readPreference('yuanshu_companion_hidden') === 'true')
+  const [skin, setSkin] = useState(() => normalizeSkin(readPreference('xiaoyu_skin')))
+  const chooseSkin = useCallback((next: string) => {
+    const value = normalizeSkin(next)
+    setSkin(value); savePreference('xiaoyu_skin', value)
+  }, [])
   // The controller lives above routing so page changes do not tear down the stream,
   // emotion observation, or the draggable floating layer.
   const companion = useCompanion(true)
-  const value = useMemo(() => companion, [companion])
+  const value = useMemo(() => ({ ...companion, skin }), [companion, skin])
   const setHiddenPersisted = (next: boolean) => {
     setHidden(next)
     savePreference('yuanshu_companion_hidden', String(next))
   }
   return <CompanionContext.Provider value={value}>
     {children}
-    <XiaoyuWidget companion={companion} hidden={hidden} setHidden={setHiddenPersisted} />
+    <XiaoyuWidget companion={companion} hidden={hidden} setHidden={setHiddenPersisted} skin={skin} chooseSkin={chooseSkin} />
   </CompanionContext.Provider>
 }
 

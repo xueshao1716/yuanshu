@@ -2,13 +2,15 @@ import { useEffect, useRef, useState } from 'react'
 import { SlidersHorizontal } from 'lucide-react'
 
 // 模型参数面板（2026-08-26，对标 vanilla dd-params / Open WebUI）
-// temperature / top_p 会话级可调；localStorage 'pi_params' 持久化，
-// 发送时由 ChatArea 读取并随请求体带给 server（unified-chat 已支持）。
+// 本机后续消息共用；localStorage 'pi_params' 持久化，发送时随请求交给服务端适配。
 
 export function readParams(): { temperature?: number; top_p?: number } | undefined {
   try {
     const v = JSON.parse(localStorage.getItem('pi_params') || 'null')
-    if (v && typeof v.temperature === 'number') return v
+    if (v && (Number.isFinite(v.temperature) || Number.isFinite(v.top_p))) return {
+      ...(Number.isFinite(v.temperature) && v.temperature >= 0 && v.temperature <= 2 ? { temperature: v.temperature } : {}),
+      ...(Number.isFinite(v.top_p) && v.top_p > 0 && v.top_p <= 1 ? { top_p: v.top_p } : {}),
+    }
   } catch {}
   return undefined
 }
@@ -19,13 +21,14 @@ export default function ParamsPanel() {
   const [open, setOpen] = useState(false)
   const [temp, setTemp] = useState(DEFAULTS.temperature)
   const [topP, setTopP] = useState(DEFAULTS.top_p)
+  const [custom, setCustom] = useState(false)
   const boxRef = useRef<HTMLDivElement | null>(null)
 
   // 初始化：读已保存值
   useEffect(() => {
     try {
-      const v = JSON.parse(localStorage.getItem('pi_params') || 'null')
-      if (v) { setTemp(v.temperature ?? DEFAULTS.temperature); setTopP(v.top_p ?? DEFAULTS.top_p) }
+      const v = readParams()
+      if (v) { setTemp(v.temperature ?? DEFAULTS.temperature); setTopP(v.top_p ?? DEFAULTS.top_p); setCustom(true) }
     } catch {}
   }, [])
 
@@ -38,6 +41,7 @@ export default function ParamsPanel() {
   }, [open])
 
   const persist = (t: number, p: number) => {
+    setCustom(true)
     try { localStorage.setItem('pi_params', JSON.stringify({ temperature: t, top_p: p })) } catch {}
   }
 
@@ -56,32 +60,35 @@ export default function ParamsPanel() {
           className="absolute bottom-full right-0 mb-2 w-48 max-w-[calc(100vw-24px)] max-h-[70vh] overflow-y-auto panel !p-2 z-[var(--pi-z-dialog)]"
           role="dialog" aria-label="模型参数">
           <div className="text-[11px] font-medium text-pi-text mb-1.5">模型参数</div>
+          <p className="text-[10px] text-pi-dim mb-1.5">{custom ? '自定义 · 下次发送生效' : '模型默认 · 调节后启用自定义'}</p>
 
           <label className="block mb-1.5">
             <div className="flex justify-between text-[10px] text-pi-dim mb-0.5">
-              <span>temperature（发散度）</span><span className="font-mono text-pi-accent">{temp.toFixed(1)}</span>
+              <span>temperature（发散度）</span><span className="font-mono text-pi-accent">{custom ? temp.toFixed(1) : '默认'}</span>
             </div>
-            <input type="range" min={0} max={1} step={0.1} value={temp}
+            <input aria-label="temperature（发散度）" type="range" min={0} max={2} step={0.1} value={temp}
               onChange={e => { const v = Number(e.target.value); setTemp(v); persist(v, topP) }}
               className="w-full h-3.5 accent-[var(--pi-accent)]" />
           </label>
 
           <label className="block mb-1.5">
             <div className="flex justify-between text-[10px] text-pi-dim mb-0.5">
-              <span>top_p（核采样）</span><span className="font-mono text-pi-accent">{topP.toFixed(2)}</span>
+              <span>top_p（核采样）</span><span className="font-mono text-pi-accent">{custom ? topP.toFixed(2) : '默认'}</span>
             </div>
-            <input type="range" min={0.05} max={0.95} step={0.05} value={topP}
+            <input aria-label="top_p（核采样）" type="range" min={0.05} max={1} step={0.05} value={topP}
               onChange={e => { const v = Number(e.target.value); setTopP(v); persist(temp, v) }}
               className="w-full h-3.5 accent-[var(--pi-accent)]" />
           </label>
 
           <div className="flex items-center justify-between pt-0.5">
-            <span className="text-[9.5px] text-pi-dim2">会话级 · 存本地</span>
+            <span className="text-[9.5px] text-pi-dim2">本机后续消息使用</span>
             <button onClick={() => {
-              localStorage.removeItem('pi_params')
+              try { localStorage.removeItem('pi_params') } catch {}
+              setCustom(false)
               setTemp(DEFAULTS.temperature); setTopP(DEFAULTS.top_p)
             }} className="text-[10px] text-pi-dim hover:text-pi-accent transition-colors">恢复默认</button>
           </div>
+          <p className="text-[10px] text-pi-dim mt-1.5">以模型支持为准；部分推理模型不接受采样设置。Claude 优先发散度，上限 1。</p>
         </div>
       )}
     </div>

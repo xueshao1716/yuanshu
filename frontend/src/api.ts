@@ -29,7 +29,7 @@ function readLocal(key: string, legacyKey?: string) {
 let _token = readLocal(LOCAL_TOKEN_KEY, LEGACY_TOKEN_KEY)
 let _apiBase = readLocal(LOCAL_API_BASE_KEY, LEGACY_API_BASE_KEY)
 
-export function setToken(t: string) { _token = t; try { localStorage.setItem(LOCAL_TOKEN_KEY, t); localStorage.removeItem(LEGACY_TOKEN_KEY) } catch {} }
+export function setToken(t: string) { _token = t; try { localStorage.setItem(LOCAL_TOKEN_KEY, t); localStorage.removeItem(LEGACY_TOKEN_KEY) } catch {} window.dispatchEvent(new Event('yuanshu-auth-change')) }
 export function getToken() { return _token }
 export function setApiBase(b: string) { _apiBase = b.replace(/\/+$/, ''); try { localStorage.setItem(LOCAL_API_BASE_KEY, _apiBase); localStorage.removeItem(LEGACY_API_BASE_KEY) } catch {} }
 export function getApiBase() { return _apiBase.replace(/\/+$/, '') }

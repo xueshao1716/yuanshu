@@ -1,12 +1,16 @@
 import { useEffect, useRef, useState } from 'react'
-import { Mic, Paperclip, FileText, SlidersHorizontal } from 'lucide-react'
+import { Mic, Phone, Paperclip, FileText, SlidersHorizontal } from 'lucide-react'
 import ParamsPanel from './ParamsPanel'
 import { WsApi } from '../api'
 import ModelSelect from './ModelSelect'
 import { takeDraft, mergeDraft } from './xiaoyu/companion-draft.mjs'
 import { createVoiceRecorder, microphonePreflight } from '../lib/voice-recorder.mjs'
 import { speech } from '../lib/speech'
-import { SpeechPreference } from './SpeechControls'
+import './composer-toolbar.css'
+import { audioFocus } from '../realtime/focus.mjs'
+import { useCallActive } from '../realtime/use-call-active'
+import { composerToken, removeComposerToken, type ComposerToken } from '../lib/composer-token.mjs'
+import { useComposerMenuHeight } from '../hooks/useComposerMenuHeight'
 
 const SLASH_COMMANDS = [
   { cmd: '/new', desc: '新建会话' },
@@ -25,6 +29,7 @@ interface Props {
   onCommand?: (cmd: string) => void
   onVoice?: (dataB64: string, format: string) => void
   voiceBusy?: boolean
+  onOpenCall?: () => void
   onVoiceTextReady?: (fn: (t: string) => void) => void
   /** 当前会话：上传必须带上它，否则文件会被挂到别的会话上（真机 bug：传上去聊天里不显示） */
   sessionId?: string | null
@@ -76,8 +81,10 @@ async function blobToWavBase64(blob: Blob): Promise<string> {
   return btoa(bin)
 }
 
-export default function SendBox({ streaming, onStop, onSend, onCommand, onVoice, voiceBusy, onVoiceTextReady, sessionId, ensureSession, onUploaded }: Props) {
+export default function SendBox({ streaming, onStop, onSend, onCommand, onVoice, voiceBusy, onOpenCall, onVoiceTextReady, sessionId, ensureSession, onUploaded }: Props) {
+  const callActive = useCallActive()
   const taRef = useRef<HTMLTextAreaElement>(null)
+  const rootRef = useRef<HTMLDivElement>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
   const [value, setValue] = useState('')
   useEffect(() => {
@@ -105,6 +112,12 @@ export default function SendBox({ streaming, onStop, onSend, onCommand, onVoice,
   const [atQuery, setAtQuery] = useState<string | null>(null)
   const [atHi, setAtHi] = useState(0)
   const [atResults, setAtResults] = useState<{ name: string; path: string }[]>([])
+  const [atLoading, setAtLoading] = useState(false)
+  const [atError, setAtError] = useState('')
+  const [atReading, setAtReading] = useState(false)
+  const tokenRef = useRef<ComposerToken | null>(null)
+  const dismissedSelectionRef = useRef<{ value: string; start: number; end: number } | null>(null)
+  const readingRef = useRef(false)
   const [micErr, setMicErr] = useState('')
   const [recording, setRecording] = useState(false)
   const [recSeconds, setRecSeconds] = useState(0)
@@ -150,7 +163,7 @@ export default function SendBox({ streaming, onStop, onSend, onCommand, onVoice,
   }, [])
 
   const startRec = () => {
-    if (!onVoice || recording || requestingMic || voiceBusy || convertingVoice) return
+    if (!onVoice || recording || requestingMic || voiceBusy || convertingVoice || audioFocus.isCallActive()) return
     const policy = (document as any).permissionsPolicy || (document as any).featurePolicy
     const error = microphonePreflight({ secure: window.isSecureContext, allowed: policy?.allowsFeature?.('microphone') !== false,
       media: !!navigator.mediaDevices?.getUserMedia, recorder: !!window.MediaRecorder })
@@ -171,45 +184,64 @@ export default function SendBox({ streaming, onStop, onSend, onCommand, onVoice,
   useEffect(() => {
     if (atQuery === null) return
     const kw = atQuery.trim()
-    if (kw.length < 1) { setAtResults([]); return }
+    let active = true
+    setAtResults([]); setAtLoading(true); setAtError('')
     const t = setTimeout(async () => {
       try {
-        const d = await WsApi.search(kw)
-        let items = (d.results || []).slice(0, 6)
-        if (!items.length) {
-          try { const t = await WsApi.tree(''); items = (t.items || []).filter(i => i.type === 'file').slice(0, 6).map(i => ({ name: i.name, path: i.path })) } catch {}
-        }
-        setAtResults(items)
-      } catch { setAtResults([]) }
-    }, 250)
-    return () => clearTimeout(t)
+        const items = kw ? (await WsApi.search(kw)).results || []
+          : (await WsApi.tree('')).items.filter(i => i.type === 'file')
+        if (active) setAtResults(items.slice(0, 6))
+      } catch { if (active) setAtError('文件列表加载失败，请重新输入关键词重试。') }
+      finally { if (active) setAtLoading(false) }
+    }, kw ? 250 : 0)
+    return () => { active = false; clearTimeout(t) }
   }, [atQuery])
   useEffect(() => { setAtHi(0) }, [atQuery, atResults.length])
   const showAt = atQuery !== null
+  const menuHeight = useComposerMenuHeight(rootRef, showSlash || showAt)
+  useEffect(() => {
+    rootRef.current?.querySelector<HTMLElement>('[role="option"][aria-selected="true"]')?.scrollIntoView({ block: 'nearest' })
+  }, [slashHi, atHi, atResults, showSlash, showAt, menuHeight])
 
-  const onChange = (v: string) => {
-    setValue(v)
-    const before = v.slice(0, v.length)
-    const slashM = before.match(/(?:^|\n)\/([a-z]*)$/i)
-    const atM = before.match(/@([^\s@]*)$/)
-    setSlashQuery(slashM ? '/' + slashM[1] : null)
-    setAtQuery(atM ? atM[1] : null)
+  const syncToken = (el: HTMLTextAreaElement) => {
+    // React can emit select again on keyup. Escape stays dismissed until the
+    // text or caret actually changes, instead of reopening the same token.
+    const dismissed = dismissedSelectionRef.current
+    if (dismissed?.value === el.value && dismissed.start === el.selectionStart && dismissed.end === el.selectionEnd) return
+    dismissedSelectionRef.current = null
+    const token = composerToken(el.value, el.selectionStart, el.selectionEnd)
+    tokenRef.current = token
+    setSlashQuery(token?.kind === 'slash' ? token.query : null)
+    setAtQuery(token?.kind === 'at' ? token.query : null)
   }
 
   const pickSlash = (cmd: string) => {
-    setValue(''); setSlashQuery(null)
+    const token = tokenRef.current
+    setValue(v => removeComposerToken(v, token)); setSlashQuery(null)
+    tokenRef.current = null
     onCommand?.(cmd)
   }
   const pickAt = async (r: { path: string }) => {
-    setValue(v => v.replace(/@[^\s@]*$/, ''))
-    setAtQuery(null)
-    if (files.some(f => f.path === r.path)) return
-    try { const d = await WsApi.read(r.path); setFiles(prev => [...prev, { path: r.path, content: d.content || '' }]) } catch {}
+    if (readingRef.current) return
+    const token = tokenRef.current, draft = taRef.current?.value
+    readingRef.current = true; setAtReading(true); setAtError('')
+    try {
+      if (!files.some(f => f.path === r.path)) {
+        const d = await WsApi.read(r.path)
+        setFiles(prev => prev.some(f => f.path === r.path) ? prev : [...prev, { path: r.path, content: d.content || '' }])
+      }
+      // Do not erase text that the user edited while the file was loading.
+      if (taRef.current?.value === draft) {
+        setValue(v => removeComposerToken(v, token)); setAtQuery(null); tokenRef.current = null
+        requestAnimationFrame(() => { taRef.current?.focus(); taRef.current?.setSelectionRange(token?.start || 0, token?.start || 0) })
+      }
+    } catch { setAtError('文件读取失败，请重新选择重试。') }
+    finally { readingRef.current = false; setAtReading(false) }
   }
 
   const doSend = () => {
     const v = value.trim()
-    if (!v || streaming) return
+    if (!v || streaming || readingRef.current) return
     onSend(v, files)
     setValue(''); setFiles([]); setSlashQuery(null); setAtQuery(null)
   }
@@ -235,20 +267,19 @@ export default function SendBox({ streaming, onStop, onSend, onCommand, onVoice,
   }
 
   return (
-    <div className="relative">
+    <div ref={rootRef} className="relative">
       {/* 麦克风错误提示*/}
-      <SpeechPreference />
       {requestingMic && <div role="status" className="text-xs text-pi-dim2">请在浏览器或系统弹窗中允许麦克风。<button type="button" className="touch-hit underline" onClick={() => stopRec(true)}>取消申请</button></div>}
       {convertingVoice && <div role="status" className="text-xs text-pi-dim2">正在处理录音…</div>}
       {micErr && <div className="mb-1.5 px-3 py-1.5 rounded-xl bg-pi-red/12 border border-pi-red/30 text-[12px] text-pi-red" role="alert">⚠ {micErr}</div>}
       {/* 斜杠命令菜单 */}
       {showSlash && (
-        <div className="absolute bottom-full left-0 right-0 mb-1 panel !p-1 max-h-56 overflow-y-auto z-20" role="listbox" aria-label="斜杠命令">
+        <div className="absolute bottom-full left-0 right-0 mb-1 panel !p-1 max-h-56 overflow-y-auto z-20" style={{ maxHeight: menuHeight }} role="listbox" aria-label="斜杠命令">
           {slashMatches.map((c, i) => (
             <div key={c.cmd} role="option" aria-selected={i === slashHi}
               className={`px-3 py-2 rounded-pi-sm cursor-pointer flex items-baseline gap-2 ${i === slashHi ? 'bg-pi-bg3' : 'hover:bg-pi-bg-hover'}`}
               onMouseEnter={() => setSlashHi(i)}
-              onMouseDown={e => { e.preventDefault(); pickSlash(c.cmd) }}>
+              onMouseDown={e => e.preventDefault()} onClick={() => pickSlash(c.cmd)}>
               <span className="font-mono text-[13px] text-pi-accent">{c.cmd}</span>
               <span className="text-[11px] text-pi-dim2">{c.desc}</span>
             </div>
@@ -257,14 +288,15 @@ export default function SendBox({ streaming, onStop, onSend, onCommand, onVoice,
       )}
       {/* @ 文件引用菜单 */}
       {showAt && (
-        <div className="absolute bottom-full left-0 right-0 mb-1 panel !p-1 max-h-56 overflow-y-auto z-20" role="listbox" aria-label="引用工作空间文件">
+        <div className="absolute bottom-full left-0 right-0 mb-1 panel !p-1 max-h-56 overflow-y-auto z-20" style={{ maxHeight: menuHeight }} role="listbox" aria-label="引用工作空间文件">
+          {(atError || atReading) && <div role={atError ? 'alert' : 'status'} className="px-3 py-2 text-[12px] text-pi-dim2">{atError || '正在读取文件…'}</div>}
           {atResults.length === 0 ? (
-            <div className="px-3 py-2 text-[11px] text-pi-dim2">输入关键词搜索工作空间文件…</div>
+            <div role="status" className="px-3 py-2 text-[12px] text-pi-dim2">{atLoading ? '正在查找文件…' : atError ? '' : atQuery ? '没有匹配文件，请换个关键词。' : '当前目录没有文件，输入关键词搜索子目录…'}</div>
           ) : atResults.map((r, i) => (
             <div key={r.path} role="option" aria-selected={i === atHi}
               className={`px-3 py-2 rounded-pi-sm cursor-pointer ${i === atHi ? 'bg-pi-bg3' : 'hover:bg-pi-bg-hover'}`}
               onMouseEnter={() => setAtHi(i)}
-              onMouseDown={e => { e.preventDefault(); pickAt(r) }}>
+              onMouseDown={e => e.preventDefault()} onClick={() => void pickAt(r)}>
               <div className="text-[13px] text-pi-text">{r.name}</div>
               <div className="text-[11px] text-pi-dim2 font-mono truncate">{r.path}</div>
             </div>
@@ -291,12 +323,14 @@ export default function SendBox({ streaming, onStop, onSend, onCommand, onVoice,
           aria-expanded={showSlash || showAt}
           aria-label="消息输入框"
           className="w-full bg-transparent border-none outline-none px-3 pt-2 pb-0.5 text-[13px] text-pi-text resize-none placeholder:text-pi-dim2 disabled:opacity-60"
-          onChange={e => onChange(e.target.value)}
+          onChange={e => { setValue(e.target.value); syncToken(e.currentTarget) }}
+          onSelect={e => syncToken(e.currentTarget)}
           onKeyDown={e => {
+            if (e.nativeEvent.isComposing || e.nativeEvent.keyCode === 229) return
             if (e.key === 'Enter' && !e.shiftKey) {
               e.preventDefault()
               if (showSlash) { pickSlash(slashMatches[slashHi] ? slashMatches[slashHi].cmd : slashMatches[0].cmd); return }
-              if (showAt && atResults.length) { pickAt(atResults[atHi] || atResults[0]); return }
+              if (showAt) { if (atResults.length) void pickAt(atResults[atHi] || atResults[0]); return }
               doSend()
             } else if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
               // 菜单打开时 ↑↓ 导航高亮项（08-25 评审 P1：菜单不再是纯鼠标组件）
@@ -307,15 +341,18 @@ export default function SendBox({ streaming, onStop, onSend, onCommand, onVoice,
                 e.preventDefault()
                 setAtHi(h => Math.max(0, Math.min(h + (e.key === 'ArrowDown' ? 1 : -1), atResults.length - 1)))
               }
-            } else if (e.key === 'Escape') { setSlashQuery(null); setAtQuery(null) }
+            } else if (e.key === 'Escape') {
+              dismissedSelectionRef.current = { value: e.currentTarget.value, start: e.currentTarget.selectionStart, end: e.currentTarget.selectionEnd }
+              tokenRef.current = null; setSlashQuery(null); setAtQuery(null)
+            }
           }} />
 
         {/* 底部操作栏：模型选择 + 工具按钮 */}
-        <div className="flex items-center px-3 pb-2 gap-1">
+        <div className="composer-toolbar">
           {/* 模型选择器（嵌入输入框） */}
           <ModelSelect compact />
 
-          <div className="flex-1" />
+          <div className="composer-actions">
 
           <input ref={fileInputRef} type="file" className="hidden" onChange={onUploadFile} />
 
@@ -338,7 +375,7 @@ export default function SendBox({ streaming, onStop, onSend, onCommand, onVoice,
                 <span className="inline-block w-3 h-3 border-[1.5px] border-pi-accent border-t-transparent rounded-full animate-spin" /> 识别中
               </button>
             ) : (
-              <button onClick={startRec} disabled={requestingMic || convertingVoice} className="btn-tool-sm touch-hit" title="语音输入（最长两分钟）" aria-label="语音输入">
+              <button onClick={startRec} disabled={requestingMic || convertingVoice || callActive} className="btn-tool-sm touch-hit" title="语音输入（最长两分钟）" aria-label="语音输入">
                 <Mic className="w-4 h-4" strokeWidth={1.8} />
               </button>
             )
@@ -350,6 +387,8 @@ export default function SendBox({ streaming, onStop, onSend, onCommand, onVoice,
           </button>
 
           {/* 发送 / 停止 */}
+          {onOpenCall && <button type="button" data-voice-entry className="btn-tool-sm composer-call touch-hit" aria-label="语音通话" title="语音通话" onClick={onOpenCall}
+            disabled={recording || requestingMic || convertingVoice || voiceBusy || streaming}><Phone className="w-4 h-4" strokeWidth={1.8} aria-hidden="true" /></button>}
           {streaming ? (
             <button onClick={onStop}
               className="h-7 w-7 rounded-full bg-red-500/90 text-white flex items-center justify-center hover:bg-red-500 transition-colors touch-hit"
@@ -363,6 +402,7 @@ export default function SendBox({ streaming, onStop, onSend, onCommand, onVoice,
               <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><polyline points="12 19 12 5"/><polyline points="5 12 12 5 19 12"/></svg>
             </button>
           )}
+          </div>
         </div>
       </div>
     </div>

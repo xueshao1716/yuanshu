@@ -35,9 +35,11 @@ test('结构：ChatArea 滚动必须走 useAutoScroll hook，禁止内联简易�
   assert.ok(hook.includes('ResizeObserver'), '内容尺寸跟随必须用 ResizeObserver')
 })
 
-test('结构：SendBox 必须 key={currentSessionId} remount（切会话清空输入态）', () => {
+test('结构：SendBox 按会话所有者 remount（仅接纳自身新建的初始会话）', () => {
   const chat = read('components', 'ChatArea.tsx')
-  assert.match(chat, /<SendBox key=\{currentSessionId \?\? 'none'\}/, 'SendBox 切会话必须 remount 清空输入态')
+  assert.ok(chat.includes('<SendBox key={sessionViewKey}'), 'SendBox 真正切会话必须 remount 清空输入态')
+  assert.ok(chat.includes('sessionView.current.keyFor(currentSessionId)'))
+  assert.ok(chat.includes('sessionView.current.adopt(d.id)'))
 })
 
 test('结构：样式缓动必须收敛到 token（styles.css 除 :root 定义外无裸 cubic-bezier）', () => {

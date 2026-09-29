@@ -1,7 +1,31 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
+import { createHash } from 'node:crypto';
 import * as skin from '../../frontend/src/components/xiaoyu/widget-state.mjs';
+import { portraitFor } from '../../frontend/src/components/xiaoyu/companion-state.mjs';
+
+test('gallery resolver honors every original-gallery action too', () => {
+  for (const action of ['working', 'reading', 'resting', 'daydreaming', 'listening', 'responding']) {
+    assert.equal(skin.imageForSkin('portrait', action), portraitFor(action).src);
+  }
+});
+
+test('four galleries keep all 24 action assets separate and fall back only inside their group', () => {
+  const suffixes = { portrait: 'v1', 'portrait-life': 'author-v2', 'portrait-uniform': 'v3', 'portrait-daily': 'v1' };
+  const hashes = new Set();
+  for (const gallery of skin.GALLERIES) {
+    const prefix = gallery.id === 'portrait' ? 'yuanshu-' : 'yuanshu-life-';
+    for (const action of ['working', 'reading', 'resting', 'daydreaming', 'listening', 'responding']) {
+      const src = skin.imageForSkin(gallery.id, action);
+      assert.equal(src, `/assets/portraits/${prefix}${action}-${suffixes[gallery.id]}.webp`);
+      const bytes = fs.readFileSync(new URL('../../frontend/public' + src, import.meta.url));
+      hashes.add(createHash('sha256').update(bytes).digest('hex'));
+    }
+    assert.equal(skin.imageForSkin(gallery.id, 'unknown'), skin.imageForSkin(gallery.id, 'listening'));
+  }
+  assert.equal(hashes.size, 24, 'no group or action is silently using another asset');
+});
 
 test('portrait wardrobe has stable local presets and keeps legacy preferences safe', () => {
   assert.equal(skin.normalizeSkin('portrait'), 'portrait');

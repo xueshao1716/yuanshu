@@ -66,7 +66,7 @@ export function imageForSkin(skin, action = 'neutral') {
   if (normalized === 'portrait-life') return AUTHOR_STATE_IMAGES[action] || AUTHOR_STATE_IMAGES.neutral;
   if (normalized === 'portrait-uniform') return UNIFORM_STATE_IMAGES[action] || UNIFORM_STATE_IMAGES.neutral;
   if (normalized === 'portrait-daily') return DAILY_STATE_IMAGES[action] || DAILY_STATE_IMAGES.neutral;
-  return SKIN_IMAGES[normalized] || portraitFor('neutral').src;
+  return portraitFor(action).src;
 }
 export function clampPosition(point, viewport) {
   return {

@@ -33,7 +33,7 @@ test('swipes distinguish horizontal navigation from vertical dismissal and small
 test('chat owns one session-keyed gallery, video and image attachments share its opener', () => {
   const chat = readFileSync('frontend/src/components/ChatArea.tsx', 'utf8')
   const message = readFileSync('frontend/src/components/Message.tsx', 'utf8')
-  assert.ok(chat.includes('<ChatMediaProvider key={currentSessionId'))
+  assert.ok(chat.includes('<ChatMediaProvider key={sessionViewKey}'))
   assert.ok(message.includes("openMedia(src, 'image')"))
   assert.ok(message.includes("openMedia(url, 'video')"))
 })

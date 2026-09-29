@@ -1,34 +1,36 @@
-.companion-mood { width: min(400px, calc(100vw - 24px)); max-height: calc(100dvh - 40px); overflow: auto; padding: 11px; margin: auto; overscroll-behavior: contain;
+.companion-mood { width: min(440px, calc(100vw - 32px)); max-height: calc(100dvh - 40px); overflow: auto; padding: 20px 24px 24px; margin: auto; overscroll-behavior: contain;
   border: 1px solid var(--pi-border); border-radius: 14px; background: var(--pi-bg1); color: var(--pi-text); }
 .companion-mood::backdrop { background: rgb(0 0 0 / .6); }
-.companion-mood header { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 9px; }
-.companion-mood h2 { margin: 0; font-size: 16px; }
-.companion-mood header button { display: grid; place-items: center; min-width: 44px; min-height: 44px; border-radius: 8px; }
-.companion-mood header button:hover { background: var(--pi-bg2); }
-.companion-mood button:focus-visible { outline: 2px solid var(--pi-accent); outline-offset: 2px; }
+.mood-header { position: sticky; top: -20px; z-index: 1; padding-top: 4px; margin-bottom: 20px; background: var(--pi-bg1); }
+.mood-heading { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 12px; }
+.companion-mood h2 { margin: 0; font-size: 18px; font-weight: 600; }
+.mood-close { display: grid; place-items: center; min-width: 44px; min-height: 44px; border-radius: 10px; color: var(--pi-dim); }
+.mood-close:hover { background: var(--pi-bg2); color: var(--pi-text); }
+.mood-tabs { display: flex; gap: 4px; padding: 4px; border-radius: 12px; background: var(--pi-bg2); }
+.mood-tabs button { display: flex; flex: 1; align-items: center; justify-content: center; gap: 8px; min-height: 44px; border-radius: 8px; font-size: 14px; color: var(--pi-dim); }
+.mood-tabs button:hover { color: var(--pi-text); }
+.mood-tabs button[aria-selected="true"] { color: var(--pi-text); background: var(--pi-bg1); font-weight: 600; }
+.companion-mood :is(button, select):focus-visible { outline: 2px solid var(--pi-accent); outline-offset: 2px; }
 .companion-mood :is(p, time, footer) { display: block; font-size: 13px; line-height: 1.4; overflow-wrap: break-word; word-break: normal; }
 .companion-mood p { margin-top: 10px; }
-.companion-mood dl { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 0; margin-block: 12px; }
-.companion-mood dt { font-size: 14px; color: var(--pi-dim); }
-.companion-mood dd { margin: 4px 0 0; font-variant-numeric: tabular-nums; }
-.companion-mood footer { padding-top: 6px; border-top: 1px solid var(--pi-border-soft); }
+.companion-mood dl { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 0; margin-block: 20px; padding-block: 14px; border-block: 1px solid var(--pi-border-soft); }
+.companion-mood dt { font-size: 12px; color: var(--pi-dim); }
+.companion-mood dd { margin: 4px 0 0; font-size: 20px; font-variant-numeric: tabular-nums; }
 .mood-overview { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 12px; align-items: center; }
 .mood-overview .companion-portrait img { height: 155px; }
 .mood-current { font-size: 22px; font-weight: 600; line-height: 1.25; }
 .mood-observation p { margin-block: 8px 5px; color: var(--pi-dim); font-size: 13px; }
 .mood-observation time { font-size: 12px; color: var(--pi-dim); }
-.companion-mood dl { gap: 0; padding-block: 10px; border-block: 1px solid var(--pi-border-soft); }
 .companion-mood dl > div { text-align: center; }
 .companion-mood dl > div + div { border-left: 1px solid var(--pi-border-soft); }
-.companion-mood dt { font-size: 12px; }
-.companion-mood dd { font-size: 20px; }
 .companion-mood footer { border: 0; padding: 0; font-size: 12px; color: var(--pi-dim); }
 @media (max-width: 600px) {
   .companion-mood { position: fixed; inset: auto 0 0; width: 100%; max-width: none; margin: 0;
     max-height: calc(100dvh - env(safe-area-inset-top, 0px) - 52px); box-sizing: border-box;
     border: 0; border-radius: 18px 18px 0 0;
-    padding: 7px max(12px, env(safe-area-inset-right, 0px)) max(12px, env(safe-area-inset-bottom, 0px)) max(12px, env(safe-area-inset-left, 0px)); }
-  .companion-mood header { position: sticky; top: -9px; z-index: 1; padding-block: 5px; margin-bottom: 2px; background: var(--pi-bg1); }
+    padding: 12px max(16px, env(safe-area-inset-right, 0px)) max(24px, env(safe-area-inset-bottom, 0px)) max(16px, env(safe-area-inset-left, 0px)); }
+  .mood-header { top: -12px; padding-top: 4px; margin-bottom: 16px; }
+  .mood-heading { margin-bottom: 8px; }
   .mood-overview { gap: 8px; }
   .mood-overview .companion-portrait img { height: clamp(96px, 18dvh, 140px); }
 }

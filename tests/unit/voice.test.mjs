@@ -67,7 +67,7 @@ test('speech controller supports pause/resume, stale-event isolation, recording 
 
 test('chat speech uses the saved message ID, skips drafts, and keeps mobile controls wrapping', () => {
   const chat = read('frontend/src/components/ChatArea.tsx');
-  assert.ok(chat.includes('speech.speak(savedId, s.text)'));
+  assert.ok(chat.includes('speech.finishReply(savedId, s.text)'));
   assert.ok(chat.includes("id: savedId, role: 'assistant'"));
   assert.ok(chat.includes('if (!readAutomatically) try {'));
   assert.ok(chat.includes('() => speech.stop(), [currentSessionId]'));
@@ -123,4 +123,17 @@ test('starting a new reply clears the device paused state left by a stopped repl
   speech.speak('second', '第二句');
   const state = speech.getSnapshot(); speech.stop();
   assert.equal(state.status, 'speaking');
+});
+
+test('speech uses the selected installed voice and its language for every chunk', async t => {
+  const { createSpeechOutput } = await import('../../frontend/src/lib/speech-output.mjs');
+  const chinese = { name: '中文', lang: 'zh-CN' }, selected = { name: 'English', lang: 'en-US' }, spoken = [];
+  const speech = createSpeechOutput({ synth: { cancel() {}, getVoices: () => [chinese, selected], speak(u) { spoken.push(u); } },
+    Utterance: class {}, getVoice: () => selected });
+  t.after(() => speech.stop());
+  speech.speak('selected', 'First. Second.');
+  assert.equal(spoken[0].voice, selected);
+  assert.equal(spoken[0].lang, 'en-US');
+  spoken[0].onend();
+  assert.equal(spoken[1].voice, selected);
 });

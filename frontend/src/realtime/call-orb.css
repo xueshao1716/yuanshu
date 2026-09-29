@@ -1,0 +1,23 @@
+/* State-driven light sculpture; no fake microphone amplitude or random bars. */
+.voice-stage { --orb-size: clamp(180px, 29vh, 310px); position: relative; display: grid; place-items: center; width: calc(var(--orb-size) + 50px); height: calc(var(--orb-size) + 50px); }
+.voice-orb { position: relative; width: var(--orb-size); height: var(--orb-size); border-radius: 50%; overflow: hidden; isolation: isolate; background: color-mix(in srgb, var(--pi-accent) 78%, #071b38); box-shadow: 0 24px 60px -22px color-mix(in srgb, var(--pi-accent) 45%, transparent), inset 0 0 30px #ffffff28; }
+.voice-orb-flow { position: absolute; inset: -35%; border-radius: 45%; background: conic-gradient(from 40deg, #71dce7, var(--pi-accent), #183971, #a5eff0, var(--pi-accent), #71dce7); transform: rotate(-25deg); }
+.voice-orb-light { position: absolute; inset: -15%; border-radius: 45%; background: radial-gradient(ellipse at 29% 24%, #f1ffff 0, #b3f7f3b8 12%, transparent 48%), radial-gradient(ellipse at 75% 78%, #081b50cf, transparent 60%); transform: rotate(15deg); }
+.voice-orb-glass { position: absolute; inset: 0; border-radius: 50%; background: radial-gradient(circle at 33% 25%, transparent 34%, #1024492e 66%, #0a173aba 97%); box-shadow: inset 1px 2px 5px #ffffff80, inset -10px -10px 35px #101c474f; }
+.voice-orbit { position: absolute; border: 1px solid color-mix(in srgb, var(--pi-accent) 17%, transparent); border-radius: 50%; }
+.voice-orbit-outer { inset: 0; transform: rotate(-24deg) scaleY(.92); }
+.voice-orbit-inner { inset: 10px; border-color: color-mix(in srgb, var(--pi-accent) 10%, transparent); transform: rotate(24deg) scaleX(.92); }
+.voice-stage[data-state="listening"] .voice-orb { animation: voice-breathe 5s ease-in-out infinite; }
+.voice-stage:is([data-state="listening"], [data-state="hearing"], [data-state="replying"]) .voice-orb-flow { animation: voice-flow 16s linear infinite; }
+.voice-stage[data-state="hearing"] .voice-orb { animation: voice-breathe 2.4s ease-in-out infinite; }
+.voice-stage[data-state="replying"] .voice-orb-flow { animation-duration: 5s; }
+.voice-stage[data-state="replying"] .voice-orb-light { animation: voice-flow 9s linear infinite reverse; }
+.voice-stage[data-state="replying"] .voice-orbit-outer { animation: voice-orbit 6s linear infinite; }
+.voice-stage[data-state="connecting"] .voice-orbit-outer { border-top-color: var(--pi-accent); animation: voice-flow 3s linear infinite; }
+.voice-stage:is([data-state="muted"], [data-state="error"]) .voice-orb { filter: saturate(.15); opacity: .65; }
+.voice-stage[data-state="idle"] .voice-orb { opacity: .82; }
+@keyframes voice-flow { from { transform: rotate(-25deg); } to { transform: rotate(335deg); } }
+@keyframes voice-breathe { 0%, 100% { transform: scale(.96); } 50% { transform: scale(1.025); } }
+@keyframes voice-orbit { from { transform: rotate(-24deg) scaleY(.92); } to { transform: rotate(336deg) scaleY(.92); } }
+@media (max-width: 600px) { .voice-stage { --orb-size: clamp(170px, 27vh, 240px); } }
+@media (max-height: 640px) { .voice-stage { --orb-size: 130px; width: 154px; height: 154px; } }

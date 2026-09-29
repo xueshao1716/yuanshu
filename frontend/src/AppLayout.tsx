@@ -166,6 +166,7 @@ export default function AppLayout() {
     return 'chat'
   })
   const [panelExpanded, setPanelExpanded] = useState(false)
+  const [voiceViewOpen, setVoiceViewOpen] = useState(false)
   const [compactDesktop, setCompactDesktop] = useState(() => window.matchMedia('(max-width: 1320px)').matches)
   useEffect(() => {
     const query = window.matchMedia('(max-width: 1320px)')
@@ -178,7 +179,7 @@ export default function AppLayout() {
   // 移动端：sessions 抽屉与统一“更多”菜单
   const [mobileDrawer, setMobileDrawer] = useState<'none' | 'sessions'>('none')
   const [mobileMoreOpen, setMobileMoreOpen] = useState(false)
-  const mobilePanelOpen = isMobile && route === 'chat' && mobileDrawer === 'none' && rightPanel !== 'chat'
+  const mobilePanelOpen = !voiceViewOpen && isMobile && route === 'chat' && mobileDrawer === 'none' && rightPanel !== 'chat'
   const mobileMoreTriggerRef = useRef<HTMLButtonElement>(null)
   const closeMobileMore = useCallback(() => {
     setMobileMoreOpen(false)
@@ -275,7 +276,7 @@ export default function AppLayout() {
   /* ── 移动端布局：TabBar 五入口（对话/会话/资产/任务/设置；模型在对话页下拉） ── */
   if (isMobile) {
     return (
-      <div className={`mobile-app-root mobile-safe-top flex flex-col text-pi-text relative ${route === 'chat' ? 'mobile-chat-root' : ''}`}>
+      <div data-voice-view={voiceViewOpen || undefined} className={`mobile-app-root mobile-safe-top flex flex-col text-pi-text relative ${route === 'chat' ? 'mobile-chat-root' : ''}`}>
         <div id="pi-wallpaper" className="fixed inset-0 z-0 pointer-events-none" />
         {/* 删除装饰性径向渐变背景 */}
         {/* 主内容层 */}
@@ -287,7 +288,7 @@ export default function AppLayout() {
           ) : route === 'chat' ? (
             <div className="flex-1 flex flex-col min-w-0 min-h-0">
               <PageErrorBoundary page="对话">
-                <ChatArea compactHeader />
+                <ChatArea compactHeader onVoiceViewChange={setVoiceViewOpen} />
               </PageErrorBoundary>
             </div>
           ) : pageArea}
@@ -351,7 +352,7 @@ export default function AppLayout() {
   /* ── 桌面布局：图标 rail + 会话列表 + 主区 + 动态右栏 ── */
   return (
     <ShellFrame>
-    <div className={`flex-1 flex min-w-0 text-pi-text relative ${rightPanel !== 'chat' ? 'has-utility-panel' : ''}`}>
+    <div data-voice-view={voiceViewOpen || undefined} className={`flex-1 flex min-w-0 text-pi-text relative ${rightPanel !== 'chat' ? 'has-utility-panel' : ''}`}>
       <div id="pi-wallpaper" className="fixed inset-0 z-0 pointer-events-none" />
       {/* 图标导航 rail：实底 Logo，不用渐变 */}
       <nav className="desktop-rail flex-shrink-0 flex flex-col items-center py-4 px-2 gap-1.5 col-sidebar border-r border-pi-border relative z-20" aria-label="主导航">
@@ -399,7 +400,7 @@ export default function AppLayout() {
       <div className={`flex-1 flex flex-col min-w-0 min-h-0 relative z-10 col-canvas ${route === 'chat' ? 'chat-canvas' : ''}`}>
         {route === 'chat' ? (
           <PageErrorBoundary page="对话">
-            <ChatArea rightPanel={rightPanel} onRightPanel={setRightPanel} />
+            <ChatArea rightPanel={rightPanel} onRightPanel={setRightPanel} onVoiceViewChange={setVoiceViewOpen} />
           </PageErrorBoundary>
         ) : pageArea}
       </div>

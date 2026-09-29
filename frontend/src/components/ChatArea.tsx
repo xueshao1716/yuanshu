@@ -9,6 +9,7 @@ import Message from './Message'
 import { speech, autoSpeechEnabled } from '../lib/speech'
 import ChatMediaProvider from './ChatMediaProvider'
 import SendBox from './SendBox'
+import RealtimeCall from './RealtimeCall'
 import TurnList from './TurnList'
 import ChatRunStatus from './ChatRunStatus'
 import { useAutoScroll } from '../hooks/useAutoScroll'
@@ -25,6 +26,7 @@ import { StreamAssembler, type AssemblerSnapshot } from '../lib/stream-assembler
 import { advanceRunCursor, isTerminalRunStatus, interruptionNotice, type RunCursor, type RunEvent } from '../lib/run-events'
 import { scrapeVideos, dedupeMediaUrls, mediaPathKey } from '../lib/media-embed'
 import { reconcileImageMessages } from '../lib/image-identity'
+import { createSessionViewOwner } from '../realtime/session-owner.mjs'
 
 // 流式状态：覆盖服务端全部 SSE 事件（delta/think/think_end/tool/tool_output/
 // tool_end/turn_end/file/image/media/note/emotion/done/error）
@@ -99,13 +101,24 @@ function friendlyStreamError(raw?: string) {
   return raw
 }
 
-export default function ChatArea({ compactHeader, rightPanel, onRightPanel }: {
+export default function ChatArea({ compactHeader, rightPanel, onRightPanel, onVoiceViewChange }: {
   compactHeader?: boolean
   /** 右栏状态由 AppLayout 持有；传入则顶栏显示"右栏"开关（与状态胶囊并排，不再悬浮遮挡） */
   rightPanel?: string
   onRightPanel?: (p: any) => void
+  onVoiceViewChange?: (open: boolean) => void
 } = {}) {
   const { currentSessionId, currentModel, sessions, refreshSessions, selectSession } = useApp()
+  const sessionView = useRef(createSessionViewOwner())
+  const sessionViewKey = sessionView.current.keyFor(currentSessionId)
+  const [voiceOpen, setVoiceOpen] = useState(false)
+  useEffect(() => { setVoiceOpen(false) }, [sessionViewKey])
+  useEffect(() => { onVoiceViewChange?.(voiceOpen) }, [voiceOpen, onVoiceViewChange])
+  useEffect(() => () => { onVoiceViewChange?.(false) }, [onVoiceViewChange])
+  const closeVoiceView = () => {
+    setVoiceOpen(false)
+    requestAnimationFrame(() => document.querySelector<HTMLButtonElement>('[data-voice-entry]')?.focus())
+  }
   // 人格定义（2026-09-19）：顶栏显示"名字 · 年龄"，让定义在界面上看得见（改定义这里跟着变）
   const { data: personaData } = useSWR('persona', () => fetch('/api/persona', { headers: { Authorization: 'Bearer ' + (localStorage.getItem('yuanshu_access_token') || '') } }).then(r => r.json()))
   // 顶栏只显示名字（用户 2026-09-19：手机端左上角写「小语」就行，别带「· 20岁」；
@@ -301,7 +314,12 @@ export default function ChatArea({ compactHeader, rightPanel, onRightPanel }: {
   useEffect(() => {
     let hiddenAt = 0
     const onVis = () => {
-      if (document.hidden) { hiddenAt = Date.now(); if (streamRef.current) wasBackgroundRef.current = true; return }
+      if (document.hidden) {
+        hiddenAt = Date.now(); speech.stop()
+        if (assistantMsgIdRef.current) speech.skipReply(assistantMsgIdRef.current)
+        if (streamRef.current) wasBackgroundRef.current = true
+        return
+      }
       // 息屏恢复：先把组装器缓冲强制落盘，再刷新会话目录（旧版 flushNow 行为）
       asmRef.current?.flushNow()
       if (hiddenAt && Date.now() - hiddenAt > 1_000 && !streamRef.current) {
@@ -399,6 +417,11 @@ export default function ChatArea({ compactHeader, rightPanel, onRightPanel }: {
     streamRef.current = next
     if (next && activeRunRef.current) {
       activeRunRef.current = { ...activeRunRef.current, stream: next }
+    }
+    const replyId = assistantMsgIdRef.current
+    if (replyId && next) {
+      if (next.error || document.hidden) speech.skipReply(replyId)
+      else if (next.text !== cur.text) speech.updateReply(replyId, next.text)
     }
     setStream(next ? { ...next } : null)
   }
@@ -502,7 +525,7 @@ export default function ChatArea({ compactHeader, rightPanel, onRightPanel }: {
       })
       const readAutomatically = !s.error && !!s.text.trim() && autoSpeechEnabled() && document.visibilityState === 'visible'
       if (readAutomatically) {
-        speech.speak(savedId, s.text)
+        speech.finishReply(savedId, s.text)
       }
       // 完成提示音：双声"叮叮"（800Hz 0.1s + 1000Hz 0.15s）
       if (!readAutomatically) try {
@@ -716,6 +739,8 @@ export default function ChatArea({ compactHeader, rightPanel, onRightPanel }: {
       }
       const run = await RunsApi.get(record.runId)
       if (!alive) return
+      // 恢复/切会话只补正文，不把持久化事件重放变成自动朗读历史。
+      speech.skipReply(record.assistantMessageId)
       if (isTerminalRunStatus(run.status) && run.lastSeq <= record.lastSeq) {
         activeRunRef.current = record
         assistantMsgIdRef.current = record.assistantMessageId
@@ -752,6 +777,7 @@ export default function ChatArea({ compactHeader, rightPanel, onRightPanel }: {
 
   const send = async (raw: string, attachFiles: FileAttachment[] = []) => {
     const content = raw.trim(); if (!content || streamRef.current) return
+    speech.stop()
     let sid = currentSessionId
     if (!sid) {
       // 尚无会话：先建会话并选中，等切会话的 effect 跑完（清流式态）再继续，
@@ -919,6 +945,7 @@ export default function ChatArea({ compactHeader, rightPanel, onRightPanel }: {
     if (currentSessionId) { sessionIdRef.current = currentSessionId; return currentSessionId }
     try {
       const d = await SessionsApi.create()
+      sessionView.current.adopt(d.id)
       sessionIdRef.current = d.id
       selectSession(d.id)
       void refreshSessions()
@@ -1023,8 +1050,10 @@ export default function ChatArea({ compactHeader, rightPanel, onRightPanel }: {
   const liveCls = agentStatus === 'busy' ? (busyFromBackground ? 'status-pill-live-bg' : 'status-pill-live-busy') : agentStatus === 'error' ? 'status-pill-live-error' : ''
 
   return (
-    <ChatMediaProvider key={currentSessionId || 'none'} sessionId={currentSessionId || ''} messages={[...normalMessages, ...(stream ? [stream] : draftMsg ? [draftMsg] : [])]}>
-    <div className="relative flex-1 flex flex-col min-w-0 min-h-0">
+    <ChatMediaProvider key={sessionViewKey} sessionId={currentSessionId || ''} messages={[...normalMessages, ...(stream ? [stream] : draftMsg ? [draftMsg] : [])]}>
+    <RealtimeCall key={sessionViewKey} open={voiceOpen} onClose={closeVoiceView} name={personaLabel}
+      sessionId={currentSessionId} ensureSession={ensureSessionId} disabled={!!stream || voiceBusy} needsApproval={!!confirm} />
+    <div className="relative flex-1 flex flex-col min-w-0 min-h-0" data-chat-content inert={voiceOpen} hidden={voiceOpen} style={voiceOpen ? { display: 'none' } : undefined}>
       {/* 下拉刷新指示器（移动端触屏；锚定头部下方，平时 opacity:0 不占位） */}
       <div aria-hidden
         className="pointer-events-none absolute z-[var(--pi-z-toast)] left-1/2 -translate-x-1/2 top-[52px] w-9 h-9 rounded-full border border-pi-border bg-pi-bg1 shadow-xl grid place-items-center"
@@ -1095,12 +1124,12 @@ export default function ChatArea({ compactHeader, rightPanel, onRightPanel }: {
         {/* 心情：服务端真实情绪镜像，只展示不可点改。灵珠连续反映 VAD（2026-09-03，替代 emoji 八桶） */}
         <div className="emo-pill w-[30px] h-[30px] flex items-center justify-center">
           <button type="button" className="min-w-[44px] min-h-[44px] rounded-full flex items-center justify-center hover:bg-pi-bg2/40"
-            title={emoTooltip(emoState, emoMetaLive)} aria-label="查看情绪潮汐与真人形象" aria-expanded={orbPanelOpen}
+            title={`${emoTooltip(emoState, emoMetaLive)} · 情绪与声音设置`} aria-label="查看情绪潮汐与真人形象" aria-expanded={orbPanelOpen}
             onClick={() => setOrbPanelOpen(true)}>
             <MoodOrb state={emoState} size={24} label={`小语情绪：${emoMetaLive.label}`} />
           </button>
         </div>
-        <MoodPanel open={orbPanelOpen} onClose={() => setOrbPanelOpen(false)} emotion={companionEmotion} action={companion.action} known={!!companion.facts?.known} />
+        <MoodPanel open={orbPanelOpen} onClose={() => setOrbPanelOpen(false)} emotion={companionEmotion} action={companion.action} known={!!companion.facts?.known} skin={companion.skin} />
       </div>
 
       {/* 无新事件只提示，不改变服务端任务状态 */}
@@ -1150,7 +1179,7 @@ export default function ChatArea({ compactHeader, rightPanel, onRightPanel }: {
                   const hasConclusion = !!stream.conclusion
                   const preToolText = hasConclusion ? stream.text.slice(0, Math.max(0, stream.text.length - stream.conclusion.length)) : stream.text
                   return <Message msg={{
-                    id: '__streaming__', role: 'assistant',
+                    id: assistantMsgIdRef.current || '__streaming__', role: 'assistant',
                     text: hasConclusion ? preToolText : stream.text + errTail,
                     conclusion: hasConclusion ? stream.conclusion + errTail : undefined,
                     think: stream.think, tools: stream.tools, notes: stream.notes,
@@ -1221,7 +1250,8 @@ export default function ChatArea({ compactHeader, rightPanel, onRightPanel }: {
       )}
       <div className="mobile-composer border-t border-pi-border bg-pi-bg1 px-3 sm:px-4 py-2.5 flex-shrink-0">
         <div className="chat-reading-column mx-auto">
-          <SendBox key={currentSessionId ?? 'none'} streaming={!!stream} onStop={stop} onSend={send} onCommand={runCommand}
+          <SendBox key={sessionViewKey} streaming={!!stream} onStop={stop} onSend={send} onCommand={runCommand}
+            onOpenCall={() => setVoiceOpen(true)}
             voiceBusy={voiceBusy} onVoice={handleVoice} onVoiceTextReady={fn => { voiceTextRef.current = fn }}
             sessionId={currentSessionId} ensureSession={ensureSessionId}
             onUploaded={(r) => {

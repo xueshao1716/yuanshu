@@ -1937,6 +1937,8 @@ body.has-wallpaper .mobile-composer {
    否则同优先级下本规则会赢——回到底部悬浮按钮曾因此掉回文档流变全宽长条） */
 .touch-hit:not(.absolute):not(.fixed):not(.sticky) { position: relative; }
 .touch-hit::after { content: ""; position: absolute; inset: -10px; }
+.realtime-call button, .realtime-call label { min-height: 44px; min-width: 44px; }
+.realtime-call .touch-hit::after { inset: 0; pointer-events: none; }
 @media (hover: hover) and (pointer: fine) {
   .touch-hit::after { display: none; }
 }

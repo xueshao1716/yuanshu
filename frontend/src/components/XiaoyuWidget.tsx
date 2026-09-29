@@ -4,25 +4,24 @@ import { readPreference, savePreference, useWidgetMotion } from './xiaoyu/useWid
 import { useWidgetStatus } from './xiaoyu/useWidgetStatus'
 import type { useCompanion } from './xiaoyu/useCompanion'
 import { ACTION_LABELS } from './xiaoyu/companion-state.mjs'
-import { panelPosition, normalizeSkin } from './xiaoyu/widget-state.mjs'
+import { panelPosition } from './xiaoyu/widget-state.mjs'
 import { PortraitState } from './xiaoyu/PortraitState'
 import { WidgetPanel } from './xiaoyu/WidgetPanel'
 import './xiaoyu/widget.css'
 import './xiaoyu/portrait.css'
 
-export default function XiaoyuWidget({ companion, hidden, setHidden }: {
+export default function XiaoyuWidget({ companion, hidden, setHidden, skin, chooseSkin }: {
   companion: ReturnType<typeof useCompanion>; hidden: boolean; setHidden: (hidden: boolean) => void
+  skin: string; chooseSkin: (skin: string) => void
 }) {
   const [open, setOpen] = useState(false)
   const [large, setLarge] = useState(() => readPreference('yuanshu_companion_large') === 'true')
-  const [skin, setSkin] = useState(() => normalizeSkin(readPreference('xiaoyu_skin')))
   const root = useRef<HTMLDivElement>(null)
   const button = useRef<HTMLButtonElement>(null)
   const status = useWidgetStatus()
   // The first argument remains the always-on motion controller (same contract as useWidgetMotion(true)); hidden switches
   // it into the compact floating bounds without creating a second controller.
   const motion = useWidgetMotion(true, hidden)
-  const chooseSkin = (next: string) => { const value = normalizeSkin(next); setSkin(value); savePreference('xiaoyu_skin', value) }
   useEffect(() => {
     if (!open) return
     const outside = (e: PointerEvent) => { if (!root.current?.contains(e.target as Node)) setOpen(false) }

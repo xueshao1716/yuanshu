@@ -382,6 +382,7 @@ export default function Message({ msg, onEdit, onRetry, onBranch, onNotice }: { 
             </div>
           </div>
         ) : null}
+        {streaming && <SpeechControls live id={msg.id} text={answerText} />}
         {msg.ts && !streaming && (
           <div className="text-[11px] text-pi-dim2 mt-1 flex flex-wrap items-center gap-2">
             <span title={new Date(msg.ts).toLocaleString('zh-CN', { hour12: false })}>{fmtMsgTime(msg.ts)}</span>

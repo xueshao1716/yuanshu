@@ -1,0 +1,32 @@
+import test from 'node:test'
+import assert from 'node:assert/strict'
+import fs from 'node:fs'
+const read = path => fs.readFileSync(new URL('../../' + path, import.meta.url), 'utf8')
+test('dedicated call host preserves consent and session lifecycle outside the composer', () => {
+  const host = read('frontend/src/components/RealtimeCall.tsx')
+  const ui = host + read('frontend/src/components/CallScreen.tsx')
+  for (const text of ['consented', 'ensureSession', 'sessionChanged', 'bindCallLifecycle', 'capture-worklet.mjs?worker&url', '停止朗读', '挂断', '打断', '静音', '阶跃', '计费', '刷新', 'touch-hit']) assert.ok(ui.includes(text), text)
+  assert.ok(!ui.includes('localStorage')); assert.ok(!ui.includes('8788'))
+  const send = read('frontend/src/components/SendBox.tsx')
+  assert.ok(!send.includes('<RealtimeCall'))
+  assert.ok(send.includes('onOpenCall'))
+  const chat = read('frontend/src/components/ChatArea.tsx')
+  assert.ok(chat.includes('<RealtimeCall key={sessionViewKey}'))
+  assert.ok(chat.includes('inert={voiceOpen}'))
+  const screen = read('frontend/src/components/CallScreen.tsx')
+  for (const text of ['CallStage', '本次通话转写', '返回聊天', '任务', '转写']) assert.ok(screen.includes(text), text)
+  assert.ok(read('frontend/src/realtime/call.css').includes('prefers-reduced-motion'))
+  assert.ok(read('frontend/src/realtime/call.css').includes('body:has([data-voice-view="true"]) .xiaoyu-companion'))
+  assert.ok(send.split('\n').some(line => line.includes('if (!onVoice') && line.includes('isCallActive()')))
+  const speech = read('frontend/src/lib/speech.ts')
+  assert.ok(speech.includes('audioFocus.isBusy()')); assert.ok(speech.includes('audioFocus.setRecorder(value)'))
+  const controls = read('frontend/src/components/SpeechControls.tsx')
+  assert.ok(controls.split('\n').some(line => line.includes('disabled=') && line.includes('callActive')), 'message playback stays disabled during calls')
+  const settings = read('frontend/src/components/SpeechSettings.tsx')
+  assert.equal(settings.split('\n').filter(line => line.includes('disabled=') && line.includes('callActive')).length, 4, 'auto-read, model, voice and preview stay disabled during calls after moving into settings')
+  assert.ok(read('frontend/src/api.ts').includes("new Event('yuanshu-auth-change')"))
+})
+test('server registers header-only tickets and voice transport with explicit origins', () => {
+  const s = read('server.mjs')
+  for (const text of ['createVoiceSessionReader', 'createVoiceAdmission', 'createVoiceTicketHandler', '/api/voice/ticket', 'attachChatVoice({ server', 'https://pi.myxinyu.xin', 'connectVoiceProvider']) assert.ok(s.includes(text), text)
+})
