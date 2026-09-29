@@ -1,0 +1,25 @@
+{
+  "schemaVersion": 2,
+  "generatedAt": "2026-09-29T00:00:00Z",
+  "title": "Design System: 元枢灵魂培养中心",
+  "extensions": {
+    "shadows": [],
+    "motion": [{ "name": "control-feedback", "value": "background-color .15s ease", "purpose": "按钮状态反馈；减少动态效果时关闭" }],
+    "breakpoints": [{ "name": "compact", "value": "900px" }, { "name": "mobile", "value": "640px" }]
+  },
+  "components": [
+    { "name": "主要按钮", "kind": "button", "description": "申请受保护修改", "html": "<button class=\"ds-primary\">申请修改</button>", "css": ".ds-primary{min-height:44px;padding:9px 14px;border:1px solid var(--pi-accent);border-radius:var(--pi-radius-sm,8px);background:var(--pi-accent);color:var(--pi-bg);font:inherit;font-weight:600}.ds-primary:hover{filter:brightness(.95)}.ds-primary:focus-visible{outline:2px solid var(--pi-accent);outline-offset:3px}" },
+    { "name": "次要按钮", "kind": "button", "refersTo": "button", "description": "预览和非主要操作", "html": "<button class=\"ds-button\">预览差异</button>", "css": ".ds-button{min-height:44px;padding:9px 14px;border:1px solid var(--pi-border);border-radius:var(--pi-radius-sm,8px);background:var(--pi-bg1);color:var(--pi-text);font:inherit}.ds-button:hover{background:var(--pi-bg2);border-color:var(--pi-accent)}.ds-button:focus-visible{outline:2px solid var(--pi-accent);outline-offset:3px}" },
+    { "name": "编辑字段", "kind": "input", "refersTo": "input", "description": "带有明确标签的编辑字段", "html": "<label class=\"ds-label\">名字<input class=\"ds-input\" value=\"示例人格\"></label>", "css": ".ds-label{display:flex;flex-direction:column;gap:7px;color:var(--pi-text)}.ds-input{min-height:44px;padding:10px 12px;border:1px solid var(--pi-border);border-radius:var(--pi-radius-sm,8px);background:var(--pi-bg1);color:var(--pi-text);font:inherit}.ds-input:focus-visible{outline:2px solid var(--pi-accent);outline-offset:3px}" },
+    { "name": "分区导航", "kind": "nav", "description": "桌面当前分区", "html": "<nav><button class=\"ds-nav\" aria-current=\"page\">身份与表达</button></nav>", "css": ".ds-nav{min-height:44px;padding:10px 12px;border:1px solid var(--pi-border);border-radius:var(--pi-radius-sm,8px);background:var(--pi-bg2);color:var(--pi-text);font:inherit;font-weight:600;text-align:left}.ds-nav:hover{border-color:var(--pi-accent)}.ds-nav:focus-visible{outline:2px solid var(--pi-accent);outline-offset:3px}" },
+    { "name": "确认容器", "kind": "custom", "description": "待审批的差异和理由", "html": "<section class=\"ds-confirm\"><h3>确认修改</h3><p>先核对差异和理由，再批准。</p></section>", "css": ".ds-confirm{padding:20px;border:1px solid var(--pi-accent);border-radius:12px;background:var(--pi-bg1);color:var(--pi-text)}.ds-confirm h3{font-size:17px;font-weight:650;margin:0 0 8px}" }
+  ],
+  "narrative": {
+    "northStar": "清楚、安静的培养工作台",
+    "overview": "沿用用户批准的独立培养中心方向：左侧分区、右侧操作，事实和修改流程优先于装饰。此文件记录已实现的局部惯例，不重新定义整个元枢的视觉系统。",
+    "keyCharacteristics": ["主题继承，避免设置页出现第二套配色。", "纵向分区，依靠留白和细分隔线组织密度。", "差异、确认、结果与回退各自明确。"],
+    "rules": [{ "name": "The Single Theme Rule", "body": "强调色只承担主要操作、选择态和焦点提示；错误或未就绪状态同时使用文字说明，不仅依赖颜色。", "section": "colors" }],
+    "dos": ["Do 继承主题与共享控件，保留键盘焦点和至少 44px 触控区域。", "Do 让事实、草稿、待确认与已生效状态明确分开。"],
+    "donts": ["Don't 为视觉完整而编造培养评分、健康状态或不存在的开关。", "Don't 用页面预览成功暗示所有运行会话已经重载人格。"]
+  }
+}
