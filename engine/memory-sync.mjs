@@ -6,11 +6,18 @@ import { atomicWriteText } from "./atomic-io.mjs";
 import path from "node:path";
 import os from "node:os";
 import { env } from "./env.mjs";
+import { watchMemorySources } from './memory-source-watch.mjs';
 
 // M1 路径外部化：工作空间根不再写死盘符——
 // 优先 initMemorySync(wsRoot) 注入，再读 YUANSHU_CWD / PI_WEB_CWD，最后探测默认目录。
 let _wsOverride = "";
-export function initMemorySync({ wsRoot } = {}) { if (wsRoot) _wsOverride = wsRoot; }
+let stopWatching;
+export function initMemorySync({ wsRoot, watch = false, interval = 1000 } = {}) {
+  stopWatching?.();
+  stopWatching = null;
+  if (wsRoot) _wsOverride = wsRoot;
+  if (watch) stopWatching = watchMemorySources(WS(), syncMemoryToTui, interval);
+}
 function defaultWs() {
   if (env("CWD")) return env("CWD");
   for (const drive of ["D:", "E:", "C:"]) {
@@ -130,6 +137,7 @@ ${log ? log.split("\n### ").slice(-8).map(b => "### " + b.trim()).join("\n") : "
 
 ${expRecent || "（无）"}
 `;
+    if (read(OUT()) === content.trim()) return true;
     fs.mkdirSync(path.dirname(OUT()), { recursive: true });
     atomicWriteText(OUT(), content);
     console.log(`[memory-sync] 已同步记忆到 TUI: ${OUT()} (${content.length}B)`);

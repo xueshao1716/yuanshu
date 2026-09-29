@@ -163,7 +163,7 @@ import { initRecallApi, rebuildIndex, handleRecall, handleRecallAsk, handleSumma
 import { createPiCompatFallback, defaultFallbackAgentDir } from "./engine/pi-compat-fallback.mjs";
 const memoryApi = await import("./engine/memory.mjs");
 const { initMemorySync } = await import("./engine/memory-sync.mjs");
-initMemorySync({ wsRoot: CONFIG.cwd }); // M1 路径外部化：记忆同步的工作空间根随配置注入
+initMemorySync({ wsRoot: CONFIG.cwd, watch: true }); // 启动及源文件变化时更新生成的 TUI 共享记忆
 const emotion = await import("./engine/emotion.mjs");
 const { createEmotionDisplay } = await import('./engine/emotion-display.mjs');
 const { createCompanionFacts } = await import('./engine/companion-facts.mjs');

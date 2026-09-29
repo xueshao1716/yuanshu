@@ -334,7 +334,7 @@ export function updateEmotion(key, message) {
   }
   st.lastResidueAt = st.lastResidueAt || nowR;
   // 基因联动：互动标签驱动基因 expression 微调（性格长期塑造）
-  updateGenes(tags);
+  if (!isProbeKey(key)) updateGenes(tags, { sessionId: String(key || ''), message: String(message || '') });
   // 情绪潮汐记录（09-03；09-04：无标签也记 VAD 基线点，中性期曲线不断档）
   // 有残留变化立刻落盘，其余同会话 3 分钟节流；评测 key 不写真记忆
   {

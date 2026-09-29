@@ -53,12 +53,12 @@ test("基因: 变化太小(<0.01)不提案", () => {
   assert.equal(p, null);
 });
 
-test("基因: 自动提案只在明显漂移时触发", () => {
+test("基因: 明显漂移但没有连续来源证据不自动提案", () => {
   // 强行制造漂移：curiosity expression 拉到 0.9（baseline 0.78，差 0.12 ≥ 0.1）
   const g = getGenome();
   g.genes.curiosity.expression = 0.9;
   const props = autoProposeFromDrift();
-  assert.ok(props.length >= 1, "应有自动提案");
+  assert.equal(props.length, 0, "孤立数值不能冒充持续漂移证据");
 });
 
 test("基因: 行为指令随基因变化", () => {
