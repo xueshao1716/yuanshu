@@ -10,13 +10,40 @@ test('soul center is reachable through desktop, mobile and system', () => {
   assert.ok(source('pages/System.tsx').includes('#/soul'));
 });
 test('soul center reuses live settings and local human approval', () => {
-  assert.ok(source('soul/VoiceAppearance.tsx').includes('<SpeechSettings'));
+  assert.ok(!source('soul/VoiceAppearance.tsx').includes('<SpeechSettings'));
   assert.ok(source('soul/VoiceAppearance.tsx').includes('useCompanionContext'));
   assert.ok(source('soul/Confirmations.tsx').includes('ConfirmApi.answer'));
   assert.ok(source('soul/Confirmations.tsx').includes('canApprove'));
   assert.ok(source('soul/PersonaEditor.tsx').includes('expectedRevision'));
   assert.ok(source('soul/PersonaEditor.tsx').includes('查看差异'));
-  assert.ok(source('soul/LiveSections.tsx').includes('<TeamRunView'));
+  assert.ok(!source('soul/LiveSections.tsx').includes('<TeamRunView'));
+});
+
+test('supporting sections summarize shared data and link to the real owning pages', () => {
+  const live = source('soul/LiveSections.tsx');
+  assert.ok(!live.includes('<LearningIntakePanel'));
+  assert.ok(live.includes("useSWR('skills'"));
+  assert.ok(live.includes("useSWR('aibody-overview'"));
+  assert.ok(live.includes('href="#/team"'));
+  assert.ok(live.includes('href="#/apps"'));
+  assert.ok(live.includes('href="#/review"'));
+  assert.ok(source('AppLayout.tsx').includes('initialView="team"'));
+  assert.ok(source('AppLayout.tsx').includes("route: 'team'"));
+  assert.ok(source('hooks/useHashRoute.tsx').includes("'team'"));
+  const voice = source('soul/VoiceAppearance.tsx');
+  assert.ok(voice.includes('href="#/chat"'));
+  assert.ok(!voice.includes('GALLERIES.map'));
+});
+
+test('only editable sections stay mounted and confirmation polling follows active governance', () => {
+  const soul = source('pages/Soul.tsx');
+  assert.ok(soul.includes("const draftSections: Section[] = ['identity', 'genes', 'history']"));
+  assert.ok(soul.includes('visited.filter(id => id === section || draftSections.includes(id))'));
+  assert.ok(soul.includes('active={draftSections.includes(section) || busy}'));
+  const confirmation = source('soul/Confirmations.tsx');
+  assert.ok(confirmation.includes('active && sessionId'));
+  assert.ok(confirmation.includes('busy ? 1000 : 10000'));
+  assert.ok(confirmation.includes("useSWR('sessions'"));
 });
 test('persona draft diff ignores metadata and normalizes list lines', async () => {
   assert.ok(source('soul/draft.mjs'), '缺少人格草稿辅助模块');

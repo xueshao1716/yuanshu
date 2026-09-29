@@ -42,7 +42,7 @@ export function createCompanionDecision({ store, facts, emotion, readSession, ca
         timer = setTimeout(() => { reject(new Error('timeout')); controller.abort(); }, timeoutMs);
         if (controller.signal.aborted) onAbort();
       });
-      const before = facts.read(sessionId);
+      const before = await Promise.race([cancelled, Promise.resolve().then(() => facts.read(sessionId))]);
       if (!before.known) { status = 'facts_unavailable'; throw new Error(status); }
       const session = await Promise.race([cancelled, Promise.resolve().then(() => readSession(sessionId))]);
       if (!session?.model) { status = 'session_unavailable'; throw new Error(status); }
@@ -53,7 +53,7 @@ export function createCompanionDecision({ store, facts, emotion, readSession, ca
         systemHint: COMPANION_PROMPT, maxTokens: 700, timeout: timeoutMs, signal: controller.signal,
         thinking: false, allowPartial: true, throwOnError: true, trackModelHealth: false,
       })]);
-      const after = facts.read(sessionId);
+      const after = await Promise.race([cancelled, Promise.resolve().then(() => facts.read(sessionId))]);
       const currentSession = await Promise.race([cancelled, Promise.resolve().then(() => readSession(sessionId))]);
       if (signal?.aborted) status = 'cancelled';
       else if (!currentSession || session.revision !== currentSession.revision || before.revision !== after.revision || before.serverEpoch !== after.serverEpoch) status = 'stale';

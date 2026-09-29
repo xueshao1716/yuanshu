@@ -5,7 +5,7 @@ import { SoulApi } from './api'
 import { date, errorText, LoadState } from './shared'
 
 export function SessionChoice({ sessionId, setSessionId, disabled }: {sessionId: string; setSessionId: (sid: string) => void; disabled: boolean}) {
-  const sessions = useSWR('soul-sessions', () => SessionsApi.list())
+  const sessions = useSWR('sessions', () => SessionsApi.list())
   return <div className="soul-session">
     <label htmlFor="soul-session">确认记录归属</label>
     <select id="soul-session" value={sessionId} disabled={disabled} onChange={e => setSessionId(e.target.value)}>
@@ -16,17 +16,18 @@ export function SessionChoice({ sessionId, setSessionId, disabled }: {sessionId:
     <LoadState error={sessions.error} retry={sessions.mutate} />
   </div>
 }
-export function Confirmations({sessionId}: {sessionId: string}) {
-  const state = useSWR(sessionId ? ['soul-confirmations', sessionId] : null, () => SoulApi.confirmations(sessionId), {refreshInterval: 1000})
+export function Confirmations({sessionId, active, busy}: {sessionId: string; active: boolean; busy: boolean}) {
+  const state = useSWR(active && sessionId ? ['soul-confirmations', sessionId] : null, () => SoulApi.confirmations(sessionId), {refreshInterval: busy ? 1000 : 10000})
   const [error, setError] = useState(''), [answering, setAnswering] = useState('')
   const container = useRef<HTMLDivElement>(null)
-  const firstPending = state.data?.items[0]?.id
+  const firstPending = active ? state.data?.items[0]?.id : undefined
   useEffect(()=>{if(firstPending) {container.current?.scrollIntoView({block:'start'}); container.current?.focus({preventScroll:true})}},[firstPending])
   const answer = async (id: string, ok: boolean) => {
     setAnswering(id); setError('')
     try { const r = await ConfirmApi.answer(sessionId, id, ok); if (!r.ok) throw new Error('确认已失效，请重新发起'); await state.mutate() }
     catch(e) {setError(errorText(e))} finally {setAnswering('')}
   }
+  if (!active) return null
   return <div ref={container} tabIndex={-1} className="soul-confirmations" aria-live="polite">
     {state.error && <p role="alert">确认列表暂不可读；操作不会自动获批。<button onClick={() => void state.mutate()}>重试</button></p>}
     {state.data?.items.map(item => <section key={item.id} className="soul-confirm">

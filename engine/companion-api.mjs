@@ -3,9 +3,9 @@ export function createCompanionRoutes({ exists, facts, store, decisions, json, r
   const valid = id => typeof id === 'string' && /^[\w-]{1,160}$/.test(id) && exists(id);
   const missing = res => json(res, 404, { error: '会话不存在' });
   return [
-    ['GET', '/api/companion/facts', (res, _req, url) => {
+    ['GET', '/api/companion/facts', async (res, _req, url) => {
       const id = url.searchParams.get('sessionId');
-      return valid(id) ? json(res, 200, facts.read(id)) : missing(res);
+      return valid(id) ? json(res, 200, await facts.read(id)) : missing(res);
     }],
     ['GET', '/api/companion/history', (res, _req, url) => {
       const id = url.searchParams.get('sessionId');

@@ -4,6 +4,7 @@ import { randomUUID } from 'node:crypto'
 
 import { atomicWriteJson } from './atomic-io.mjs'
 import { withLegacyContinuation } from './task-continuation.mjs'
+import { createRunActivityReader } from './run-activity.mjs'
 
 const ACTIVE_STATUSES = new Set(['queued', 'running', 'stopping'])
 
@@ -139,6 +140,7 @@ export function createRunStore({ rootDir, now = () => new Date().toISOString(), 
       return updated
     },
     list,
+    listActivity: createRunActivityReader(runsDir),
     readAdmissionSnapshot,
     findActiveBySession(sessionId) {
       return list().find(run => run.sessionId === sessionId && ACTIVE_STATUSES.has(run.status)) || null

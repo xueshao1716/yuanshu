@@ -11,10 +11,10 @@ export function resolveAction(facts, decision) {
   return ACTIONS.includes(decision?.action) ? decision.action : 'neutral';
 }
 export function createCompanionFacts({ manager, activeSessions = () => [], now = Date.now, serverEpoch = randomUUID() }) {
-  return { read(sessionId) {
+  return { async read(sessionId) {
     let known = true, currentBusy = false, otherBusy = 0, reading = false, evidenceIds = [];
     try {
-      const runs = manager.list().filter(run => ACTIVE.has(run.status));
+      const runs = (await (manager.listActivity ? manager.listActivity() : manager.list())).filter(run => ACTIVE.has(run.status));
       const busySessions = new Set(runs.map(run => run.sessionId));
       for (const id of activeSessions()) busySessions.add(id);
       currentBusy = !!sessionId && busySessions.has(sessionId);

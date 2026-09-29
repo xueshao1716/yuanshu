@@ -7,6 +7,15 @@ import os from 'node:os';
 import path from 'node:path';
 const result = { action: 'resting', expression: 'calm', utterance: '先歇一会。', reason: '当前空闲', evidenceIds: [], durationMs: 10000, shouldInterrupt: false };
 const request = { sessionId: 'mine', contextEpoch: 'view-1', interactionId: 'click-1', trigger: 'tap', visible: true };
+test('async facts are awaited before and after generation and remain deadline bounded', async () => {
+  const f = fixture();
+  let reads = 0;
+  const g = fixture({ facts: { read: async () => ({ ...f.facts, revision: `r${++reads}` }) } });
+  assert.equal((await g.service.decide(request)).status, 'stale');
+  assert.equal(reads, 2);
+  const hanging = fixture({ timeoutMs: 10, facts: { read: () => new Promise(() => {}) } });
+  assert.equal((await hanging.service.decide(request)).status, 'unavailable');
+});
 function fixture(overrides = {}) {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'companion-decision-'));
   let now = 10000, calls = 0;

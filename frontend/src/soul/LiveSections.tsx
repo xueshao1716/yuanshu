@@ -1,8 +1,6 @@
 import { useState } from 'react'
 import useSWR from 'swr'
-import { AIBodyApi, SkillsApi } from '../api'
-import { TeamRunView } from '../components/TeamRunView'
-import LearningIntakePanel from '../components/LearningIntakePanel'
+import { AIBodyApi, RefineApi, SkillsApi, TeamRunApi } from '../api'
 import { useCompanionContext } from '../components/xiaoyu/CompanionProvider'
 import { Block, date, LoadState } from './shared'
 
@@ -17,14 +15,19 @@ export function Rhythm() {
       {!c.preferencesReady && <p role="status">正在等待可靠的偏好设置，暂不允许修改。</p>}
       {c.feedback && <p role="status">{c.feedback}</p>}
     </Block>
-    <Block title="调节边界" hint="不提供直接写入情绪数值的滑杆。情绪来自互动；长期性格调整请到性格基因提出带证据的提案。"><a href="#/board">到工作台查看情绪潮汐与互动记录</a></Block>
+    <Block title="调节边界" hint="不提供直接写入情绪数值的滑杆。情绪来自互动；长期性格调整请到性格基因提出带证据的提案。"><a href="#/chat">回到对话，打开右上角情绪潮汐</a></Block>
   </>
 }
 
 export function Learning() {
-  const skills = useSWR('soul-skills', SkillsApi.list)
+  const skills = useSWR('skills', SkillsApi.list)
+  const refine = useSWR('refine-status', RefineApi.status, {refreshInterval:60000})
   return <>
-    <Block title="学习与经验" hint="学习接收、待提炼记录与经验库共用原有流程。收到文章不等于已经掌握；有验证产物才算完成。"><LearningIntakePanel /></Block>
+    <Block title="学习与经验" hint="这里只看培养进度；接收文章、提炼和批准统一在知识页处理。收到文章不等于已经掌握，有验证产物才算完成。">
+      <LoadState error={refine.error} loading={refine.isLoading} retry={refine.mutate} />
+      {refine.data && <dl className="soul-facts"><div><dt>待提炼审批</dt><dd>{refine.data.counts.pending}</dd></div><div><dt>已应用记录</dt><dd>{refine.data.counts.applied}</dd></div></dl>}
+      <a href="#/apps">进入知识页处理学习与经验</a>
+    </Block>
     <Block title="已发现的技能" hint="这里是可用技能的目录，不代表每个技能都通过实测。">
       <LoadState error={skills.error} loading={skills.isLoading} retry={skills.mutate} />
       {skills.data && <p>目录中共有 {skills.data.skills.length} 项。<a href="#/apps">进入知识页管理和检索</a></p>}
@@ -34,17 +37,24 @@ export function Learning() {
 }
 
 export function Mother() {
-  const state = useSWR('soul-aibody', AIBodyApi.overview, {refreshInterval:30000})
+  const state = useSWR('aibody-overview', AIBodyApi.overview, {refreshInterval:120000})
   return <>
     <LoadState error={state.error} loading={state.isLoading} retry={state.mutate} />
     <p className="soul-hint">{state.data?.principle || '读取母体与配套层的实际记录。'} 文件存在不等于能力已运行，配置声明不等于审计通过。</p>
     {state.data && <p className="soul-hint">观测时间：{date(state.data.observedAt || state.data.updatedAt)} · 范围：{state.data.observationContext?.scope || '未提供'}</p>}
-    {state.data?.layers.map(layer => <Block key={layer.id} title={layer.label} hint={layer.summary}>
-      {layer.modules.map((m,i) => <article className="soul-record" key={`${m.key || m.path}-${i}`}><h4>{m.label}</h4><p>{m.statusLabel || (m.available ? '资源可读取，运行状态未提供' : '资源不可读取')}</p>{m.summary && <p>{m.summary}</p>}<details><summary>查看来源与观测详情</summary><p>{m.path}</p><pre>{JSON.stringify(m.details ?? {status:m.status || 'unknown'},null,2)}</pre></details></article>)}
-    </Block>)}
-    <Block title="协作与治理边界" hint="培养中心只连接元枢已有能力，不启动外部系统同步，不开放自动改写人格。"><a href="#/engine">查看引擎分工与实际运行诊断</a></Block>
+    <Block title="母体配套概览" hint="完整观测、来源与审计详情集中在工作台的改动验收，不在这里再铺一套面板。">
+      {state.data?.layers.map(layer => <article key={layer.id} className="soul-record"><h4>{layer.label}</h4><p>{layer.summary}</p><p className="soul-hint">{layer.modules.length} 项记录 · {layer.modules.filter(m => m.available).length} 项资源可读取（不代表已运行）</p></article>)}
+      <a href="#/review">查看母体观测与审计详情</a>
+    </Block>
+    <p className="soul-hint">培养中心只连接元枢已有能力，不启动外部系统同步，不开放自动改写人格。</p>
   </>
 }
 export function Team() {
-  return <><p className="soul-hint">复用天团任务入口和运行记录。角色只继承有限上下文；任务产物、人格培养和基因审批是不同流程。</p><TeamRunView /></>
+  const state = useSWR('team-run', TeamRunApi.get, {refreshInterval:10000})
+  const labels: Record<string,string> = {launching:'正在启动',running:'执行中',completed:'执行已结束，仍需核对验收',failed:'执行失败',interrupted:'运行中断或待确认',blocked:'启动受阻',stopping:'正在停止',stopped:'已停止'}
+  return <Block title="天团与培养" hint="角色只继承有限上下文；任务产物、人格培养和基因审批是不同流程。发起、停止与验收统一在工作台处理。">
+    <LoadState error={state.error} loading={state.isLoading} retry={state.mutate} />
+    {state.data && <><p>{state.data.launch ? labels[state.data.launch.status] || '状态待核对' : '暂无启动器记录'}</p>{state.data.launch?.task && <p className="soul-preserve">{state.data.launch.task}</p>}{state.data.hint && <p className="soul-hint">{state.data.hint}</p>}</>}
+    <div className="soul-actions"><a href="#/team">进入工作台 · 天团协作</a></div>
+  </Block>
 }

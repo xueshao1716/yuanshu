@@ -13,6 +13,8 @@ import { Confirmations, SessionChoice } from '../soul/Confirmations'
 import { errorText } from '../soul/shared'
 import '../soul/soul.css'
 
+const draftSections: Section[] = ['identity', 'genes', 'history']
+
 export default function Soul() {
   const { currentSessionId } = useApp()
   const [section,setSection] = useState<Section>('overview'), [visited,setVisited] = useState<Section[]>(['overview'])
@@ -49,9 +51,9 @@ export default function Soul() {
         <main className="soul-workarea">
           <header className="soul-section-heading"><h2 ref={heading} tabIndex={-1}>{title[1]}</h2><p>{title[2]}</p></header>
           {['identity','genes','history'].includes(section) || busy ? <SessionChoice sessionId={sessionId} setSessionId={setSessionId} disabled={busy} /> : null}
-          <Confirmations sessionId={sessionId} />
+          <Confirmations sessionId={sessionId} active={draftSections.includes(section) || busy} busy={busy} />
           {message && <p role={failed?'alert':'status'} className="soul-notice">{message}</p>}
-          {visited.map(id=><div key={id} hidden={id!==section}>
+          {visited.filter(id => id === section || draftSections.includes(id)).map(id=><div key={id} hidden={id!==section}>
             {id==='overview'?<Overview open={open}/>:id==='identity'?<PersonaEditor {...props} onDirtyChange={setDirty}/>:id==='genes'?<Genes {...props}/>:id==='rhythm'?<Rhythm/>:id==='memory'?<Memory/>:id==='learning'?<Learning/>:id==='mother'?<Mother/>:id==='team'?<Team/>:id==='voice'?<VoiceAppearance/>:<History {...props}/>}
           </div>)}
         </main>

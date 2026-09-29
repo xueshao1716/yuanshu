@@ -2,6 +2,7 @@ export const ROUTE_LABELS = {
   chat: '对话',
   board: '工作台',
   review: '改动验收',
+  team: '天团协作',
   lingxi: '灵感',
   workshop: '创作',
   story: '连续创作',

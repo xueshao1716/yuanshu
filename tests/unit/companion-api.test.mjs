@@ -2,6 +2,11 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { EventEmitter } from 'node:events';
 import { createCompanionRoutes } from '../../engine/companion-api.mjs';
+test('facts route serializes the resolved async observation', async () => {
+  const routes = createCompanionRoutes({ exists: () => true, facts: { read: async () => ({ known: true }) },
+    json: (_res, _code, body) => JSON.stringify(body) });
+  assert.equal(await routes[0][2]({}, {}, new URL('http://local/?sessionId=valid')), '{"known":true}');
+});
 test('unknown sessions cannot read facts/history or invoke the model', async () => {
   let called = false;
   const routes = createCompanionRoutes({ exists: id => id === 'valid', facts: { read: () => { called = true; } },

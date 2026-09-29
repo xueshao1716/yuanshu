@@ -47,6 +47,9 @@ const TaskInspector = lazy(() => import('./components/TaskInspector'))
 function BoardReviewPage() {
   return <BoardPage initialView="review" />
 }
+function BoardTeamPage() {
+  return <BoardPage initialView="team" />
+}
 
 // 深链别名：#/story 渲染创作并把 tab 预设为「连续创作」
 function WorkshopStoryPage() {
@@ -68,6 +71,7 @@ const PAGE_ROUTES: PageRoute[] = [
   // 改动验收已并入工作台（页内视图）。保留 review 路由作为深链别名，
   // 让 #/review、手机「更多」和聊天右栏的「打开验收」继续可用。
   { route: 'review', icon: GitCompare, label: ROUTE_LABELS.review, Page: BoardReviewPage },
+  { route: 'team', icon: LayoutDashboard, label: ROUTE_LABELS.team, Page: BoardTeamPage, nav: false },
   { route: 'lingxi', icon: Sparkles, label: ROUTE_LABELS.lingxi, Page: LingXiPage },
   { route: 'workshop', icon: Factory, label: ROUTE_LABELS.workshop, Page: WorkshopPage },
   // 连续创作已并入创作（页内视图）。保留 story 路由作为深链别名，

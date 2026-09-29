@@ -2,7 +2,7 @@ import { useEffect, useRef, useState, Component, ReactNode } from 'react'
 import { AlertTriangle } from 'lucide-react'
 
 // ── 极轻 hash 路由（零依赖）：#/chat #/models #/assets #/tasks ──
-export type Route = 'chat' | 'board' | 'review' | 'models' | 'assets' | 'tasks' | 'downloads' | 'apps' | 'lingxi' | 'workshop' | 'story' | 'system' | 'engine' | 'themes' | 'sessiondb' | 'soul'
+export type Route = 'chat' | 'board' | 'review' | 'team' | 'models' | 'assets' | 'tasks' | 'downloads' | 'apps' | 'lingxi' | 'workshop' | 'story' | 'system' | 'engine' | 'themes' | 'sessiondb' | 'soul'
 
 function parse(routes: readonly Route[]): Route {
   const h = location.hash.replace(/^#\/?/, '')
