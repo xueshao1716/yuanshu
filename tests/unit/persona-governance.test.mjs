@@ -1,0 +1,73 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+import { DEFAULT_DEFINITION } from '../../engine/persona-def.mjs';
+import registry from '../../engine/tools/confirm-registry.mjs';
+
+const moduleUrl = new URL('../../engine/persona-governance.mjs', import.meta.url);
+test('persona routes remove legacy direct writes and require local confirmations', () => {
+  const server = fs.readFileSync(new URL('../../server.mjs', import.meta.url), 'utf8');
+  assert.ok(server.includes('requestPersonaApproval(action, await readBody(req'));
+  assert.ok(server.includes("['gene-governance', 'persona-governance'].includes(pending?.toolName)"));
+  assert.ok(server.includes('/api/persona/confirmations'));
+  assert.ok(!server.includes('setBy: String(body.by || "human")'));
+});
+test('persona governance supports guarded writes, immutable history and tail-only rollback', async t => {
+  assert.ok(fs.existsSync(moduleUrl), '人格写入必须由受保护的治理模块接管');
+  const { createPersonaGovernance } = await import(moduleUrl);
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'yuanshu-persona-'));
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  const agentDir = path.join(root, '.pi'); fs.mkdirSync(agentDir);
+  fs.mkdirSync(path.join(root, '记忆'));
+  const file = path.join(root, '记忆/人格定义.json');
+  fs.writeFileSync(file, JSON.stringify(DEFAULT_DEFINITION));
+  fs.writeFileSync(path.join(agentDir, 'APPEND_SYSTEM.md'), 'KEEP MY ORIGINAL TEXT');
+  const api = createPersonaGovernance({ wsRoot: root, agentDir });
+  const initial = api.read();
+  assert.match(initial.revision, /^[a-f0-9]{64}$/);
+  assert.throws(() => api.prepare('apply', { definition: { name: '更新' } }), /版本/);
+  assert.throws(() => api.prepare('apply', { expectedRevision: initial.revision, definition: { approved: true }, reason: '测试' }), /字段/);
+  assert.throws(() => api.prepare('apply', { expectedRevision: initial.revision, definition: { name: '更新' }, reason: '' }), /理由/);
+  const request = { expectedRevision: initial.revision, definition: { name: '测试伙伴' }, reason: '人工更新名称' };
+  const plan = api.prepare('apply', request);
+  const applied = api.commit(plan, 'human-confirm:s:c');
+  assert.equal(applied.definition.name, '测试伙伴');
+  assert.equal(applied.history.length, 1);
+  assert.ok(fs.readFileSync(path.join(agentDir, 'APPEND_SYSTEM.md'), 'utf8').includes('KEEP MY ORIGINAL TEXT'));
+  assert.throws(() => api.commit(plan, 'human-confirm:s:c'), /版本/);
+  const snapshot = applied.history[0];
+  const second = api.commit(api.prepare('apply', { ...request, expectedRevision: applied.revision, definition: { called: '同伴' } }), 'human-confirm:s:d');
+  assert.throws(() => api.prepare('rollback', { snapshot_id: snapshot.snapshot_id, expectedRevision: second.revision, reason: '回退' }), /后续|当前/);
+  assert.throws(() => api.prepare('rollback', { snapshot_id: '../bad', expectedRevision: second.revision, reason: '回退' }), /快照/);
+  const rolled = api.commit(api.prepare('rollback', { snapshot_id: second.history[0].snapshot_id, expectedRevision: second.revision, reason: '撤销称呼' }), 'human-confirm:s:e');
+  assert.equal(rolled.definition.called, DEFAULT_DEFINITION.called);
+  assert.equal(rolled.history.length, 3);
+  assert.ok(rolled.history.find(h => h.snapshot_id === second.history[0].snapshot_id).rolled_back_at);
+  fs.writeFileSync(file, '{BROKEN');
+  assert.ok(api.read().problems.length);
+  assert.throws(() => api.prepare('apply', { ...request, expectedRevision: rolled.revision }), /读取|定义/);
+  assert.equal(fs.readFileSync(file, 'utf8'), '{BROKEN');
+});
+
+test('persona confirmation requires live session, survives denial, and rechecks revision', async t => {
+  assert.ok(fs.existsSync(moduleUrl), '缺少治理模块');
+  const { createPersonaApproval } = await import('../../engine/persona-approval.mjs');
+  let committed = 0, version = 'one';
+  const api = { prepare: () => ({ beforeRevision: version, changed: ['name'], reason: 'test', before: {name:'old'}, next: {name:'new'} }), commit(plan, reviewer) {
+    assert.equal(plan.beforeRevision, version); assert.match(reviewer, /^human-confirm:/); committed++; return {ok:true};
+  } };
+  const request = createPersonaApproval({ api, registry, sessionExists: s => s === 'test-soul', push() {}, timeoutMs: 1000 });
+  assert.equal((await request('apply', {})).code, 'confirmation_required');
+  const denied = request('apply', { sessionId: 'test-soul' });
+  registry.settle('test-soul', registry.list()[0].id, false);
+  assert.equal((await denied).code, 'confirmation_denied'); assert.equal(committed, 0);
+  const allowed = request('apply', { sessionId: 'test-soul' });
+  registry.settle('test-soul', registry.list()[0].id, true);
+  assert.equal((await allowed).ok, true); assert.equal(committed, 1);
+  const stale = request('apply', { sessionId: 'test-soul' }); version = 'two';
+  registry.settle('test-soul', registry.list()[0].id, true);
+  assert.equal((await stale).code, 'stale_confirmation'); assert.equal(committed, 1);
+  assert.equal(registry.list().length, 0);
+});

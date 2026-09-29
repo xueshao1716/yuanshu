@@ -124,6 +124,8 @@ import { createApprovalInterceptor } from "./engine/tools/approval.mjs";
 import * as confirmRegistry from "./engine/tools/confirm-registry.mjs";
 import { isLocalMaintenanceApproval } from "./engine/maintenance-approval.mjs";
 import { createGeneApproval } from './engine/gene-approval.mjs';
+import { createPersonaGovernance } from './engine/persona-governance.mjs';
+import { createPersonaApproval } from './engine/persona-approval.mjs';
 import { completeGeneTurn } from './engine/gene-turn.mjs';
 import { initRefineApi, readRefineJson, runRefineScript, handleRefineStatus, handleRefineList, detectSkillDomain, handleRefineFeedback, handleRefineGenes, handleRefinePlan, handleRefineApprove, handleRefineReject, handleRefineRollback } from "./engine/refine-api.mjs";
 import { initMcpServer, handleMcp } from "./engine/mcp-server.mjs";
@@ -157,7 +159,7 @@ import { createCorsPolicy } from "./engine/cors-policy.mjs";
 import { initSessionDb, handleDbList, handleDbRebuild, handleDbSanitize, handleDbMeta, handleDbStats, handleDbSweep, sweepSessionsNow, ensureSessionSequence } from "./engine/session-db.mjs";
 import { repairSessionFile, repairSessionDir } from "./engine/session-repair.mjs";
 import { outputRoomTokens, headroomNote } from "./engine/context-headroom.mjs";
-import { loadPersonaDefinition, renderPersonaSection, syncAppendSystemPersona, personaFilePath } from "./engine/persona-def.mjs";
+import { loadPersonaDefinition, renderPersonaSection, syncAppendSystemPersona } from "./engine/persona-def.mjs";
 import { voiceAllowedOrigins } from "./engine/network-endpoints.mjs";
 import { isListedGroup } from "./engine/session-groups.mjs";
 import { createAIBodyRuntime } from "./engine/aibody-runtime.mjs";
@@ -2211,6 +2213,8 @@ const uiDesigns = createUiDesignService({root: WS_ROOT, getModelList: () => mode
 const websites = createWebsiteService({root: WS_ROOT, getModelList: () => modelList, getDefaultModel: () => defaultModel, directChat});
 const maintenanceSessionExists = sid => activeSessions.has(sid) || !!findSession(sid);
 const requestGeneApproval = createGeneApproval({ api: emotion, registry: confirmRegistry, sessionExists: maintenanceSessionExists, push: busPush });
+const personaGovernance = createPersonaGovernance({ wsRoot: CONFIG.cwd, agentDir: getAgentDir() });
+const requestPersonaApproval = createPersonaApproval({ api: personaGovernance, registry: confirmRegistry, sessionExists: maintenanceSessionExists, push: busPush });
 const sandboxApi = createSandboxApi({ agentDir: AGENT_DIR, sessionExists: maintenanceSessionExists });
 maintenanceApi = createMaintenanceApi({
   sessionExists: maintenanceSessionExists,
@@ -2667,28 +2671,17 @@ const API_ROUTES = [
   ["POST", "/api/memcompress/apply", async (res, req) => { const b = await readBody(req); return json(res, 200, applyMemoryCompress(b.id)); }],
   ["POST", "/api/memcompress/dismiss", async (res, req) => { const b = await readBody(req); return json(res, 200, dismissMemoryCompress(b.id)); }],
   ["GET", "/api/sessions", (res) => json(res, 200, { sessions: getSessionList().filter(s => isListedGroup(s.group)) })],
-  // 批准后的回写（2026-09-19）：这条是**人**的通道——agent 工具只能落草案区，落地走这里。
-  // 校验通过才写；写前留 .bak-apply，写后审计一行到 记忆/授权记录.jsonl，并同步 APPEND_SYSTEM.md 的人格块。
-  ["POST", "/api/persona/apply", async (res, req) => {
-    const body = await readBody(req);
-    const incoming = body?.definition && typeof body.definition === "object" ? body.definition : null;
-    if (!incoming) return json(res, 400, { error: "缺 definition" });
-    const cur = loadPersonaDefinition(CONFIG.cwd);
-    const next = { ...cur.def, ...incoming, setBy: String(body.by || "human"), updatedAt: new Date().toISOString() };
-    const problems = (await import("./engine/persona-def.mjs")).validatePersonaDefinition(next);
-    if (problems.length) return json(res, 400, { error: "定义不合法: " + problems.join("；"), problems });
-    const file = personaFilePath(CONFIG.cwd);
-    try {
-      if (fs.existsSync(file)) fs.writeFileSync(file + ".bak-apply", fs.readFileSync(file, "utf8"), "utf8");
-      fs.writeFileSync(file, JSON.stringify(next, null, 2) + "\n", "utf8");
-    } catch (e) { return json(res, 500, { error: String(e?.message || e).slice(0, 120) }); }
-    // 审计留痕：谁在什么时候把定义改成了什么（只记关键字段，不写全文）
-    try {
-      fs.appendFileSync(path.join(CONFIG.cwd, "记忆", "授权记录.jsonl"), JSON.stringify({ at: new Date().toISOString(), kind: "persona-apply", by: next.setBy, changed: Object.keys(incoming), name: next.name, age: next.age }) + "\n", "utf8");
-    } catch {}
-    let synced = null;
-    try { synced = syncAppendSystemPersona(next, { agentDir: getAgentDir() }); } catch {}
-    return json(res, 200, { ok: true, definition: next, synced: !!synced?.ok, changed: !!synced?.changed });
+  // 编辑与回退共用有效会话、本机单次确认、版本检查与不可变修订记录。
+  ...['apply', 'rollback'].map(action => ['POST', `/api/persona/${action}`, async (res, req) => {
+    const result = await requestPersonaApproval(action, await readBody(req, 2));
+    return json(res, result.error ? 409 : 200, result);
+  }]),
+  ['GET', '/api/persona/confirmations', (res, req, url) => {
+    const sid = url.searchParams.get('sessionId');
+    if (!sid || !maintenanceSessionExists(sid)) return json(res, 400, { error: '请先选择有效会话' });
+    const items = confirmRegistry.list().filter(item => item.sessionId === sid && ['persona-governance', 'gene-governance'].includes(item.toolName))
+      .map(({ id, sessionId, toolName, reason, expiresAt }) => ({ id, sessionId, toolName, reason, expiresAt }));
+    return json(res, 200, { items, canApprove: isLocalMaintenanceApproval(req) });
   }],
 
   // 木偶部件标注存盘（2026-09-19）：标注页 /static/label.html 点"保存"走这里，
@@ -2742,11 +2735,11 @@ const API_ROUTES = [
 
   // 人格定义（2026-09-18）：一份定义决定人格——把定义与渲染结果如实暴露出来，便于核对。
   ["GET", "/api/persona", (res) => {
-    const pd = loadPersonaDefinition(CONFIG.cwd);
-    const genes = (() => { try { return emotion.getGenome(); } catch { return null; } })();
+    const pd = personaGovernance.read();
+    const genes = (() => { try { return emotion.getGenome().genes; } catch { return null; } })();
     json(res, 200, {
-      definition: pd.def, source: pd.source, file: personaFilePath(CONFIG.cwd), problems: pd.problems,
-      rendered: renderPersonaSection(pd.def, { genes }),
+      ...pd,
+      rendered: renderPersonaSection(pd.definition, { genes }),
     });
   }],
   ["POST", "/api/sessions", async (res, req) => {
@@ -2927,7 +2920,7 @@ const API_ROUTES = [
       if (!sid || !id) return json(res, 400, { error: "缺少 sessionId/id" });
       const pending = confirmRegistry.list().find(item => item.sessionId === sid && item.id === id);
       if (ok && pending?.toolName === 'maintenance' && !isLocalMaintenanceApproval(req)) return json(res, 403, { error: '请在运行元枢的电脑上，通过 http://127.0.0.1:8787 的超维面板人工确认。远程入口不能批准。' });
-      if (ok && pending?.toolName === 'gene-governance' && !isLocalMaintenanceApproval(req)) return json(res, 403, { error: '人格基线批准与回滚须在运行元枢的电脑上，通过本地会话确认卡人工确认。' });
+      if (ok && ['gene-governance', 'persona-governance'].includes(pending?.toolName) && !isLocalMaintenanceApproval(req)) return json(res, 403, { error: '人格及基线批准与回退须在运行元枢的电脑上，通过本地人工确认。' });
       const r = confirmRegistry.settle(sid, id, ok);
       json(res, 200, r);
     } catch (e) { json(res, 500, { error: String(e?.message || e) }); }
@@ -3484,9 +3477,13 @@ ${rows.map((r) => `- [${r.status}${r.closed ? "/已结清" : ""}] ${r.text}\n  �
     // 人格定义 → 人格化（2026-09-18）：把定义的渲染结果同步进 pi 通道读的 APPEND_SYSTEM.md
     // （幂等，只替换标记块），这样两条通道上"她是谁"来自同一份定义。
     try {
-      const pd = loadPersonaDefinition(CONFIG.cwd);
-      const r = syncAppendSystemPersona(pd.def, { agentDir: getAgentDir() });
-      console.log(`  [persona] ${pd.def.name}（${pd.def.age} 岁，来源 ${pd.source}${pd.problems.length ? "，有问题：" + pd.problems.join("；") : ""}）→ APPEND_SYSTEM.md ${r.changed ? "已同步" : "已是最新"}${r.error ? "（失败：" + r.error + "）" : ""}`);
+      const pd = personaGovernance.read();
+      if (pd.source !== 'file' || pd.problems.length || fs.existsSync(path.join(CONFIG.cwd, '记忆', '人格修订', 'write.lock'))) {
+        console.log('  [persona] 来源不可靠或有未恢复事务，保留现有 APPEND_SYSTEM.md，跳过启动同步');
+      } else {
+        const r = syncAppendSystemPersona(pd.definition, { agentDir: getAgentDir() });
+        console.log(`  [persona] 来源 ${pd.source} → APPEND_SYSTEM.md ${r.error ? '同步失败：' + r.error : r.changed ? '已同步' : '已是最新'}`);
+      }
     } catch (e) { console.log(`  [persona] 同步失败（不阻断启动）: ${String(e?.message || e).slice(0, 100)}`); }
     // 存量会话 SDK 安全化（2026-09-18）：上传文件曾经给用户消息落 {type:"file"} 块，
     // pi 的 provider 适配会把它写成 image_url(data:;base64,undefined) → 该会话此后每轮都

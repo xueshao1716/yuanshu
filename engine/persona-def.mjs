@@ -121,7 +121,10 @@ export function syncAppendSystemPersona(def, { agentDir, genes = null, now = new
   const file = path.join(agentDir, "APPEND_SYSTEM.md");
   const block = renderAppendSystemPersona(def, { genes });
   let old = "";
-  try { if (fsMod.existsSync(file)) old = fsMod.readFileSync(file, "utf8"); } catch {}
+  try { if (fsMod.existsSync(file)) old = fsMod.readFileSync(file, "utf8"); }
+  catch (e) { return { ok: false, error: `人格块读取失败：${String(e?.message || e).slice(0, 120)}`, file }; }
+  const start = old.indexOf(PERSONA_BEGIN), end = old.indexOf(PERSONA_END);
+  if ((start >= 0) !== (end >= 0) || (start >= 0 && (end < start || old.indexOf(PERSONA_BEGIN, start + 1) >= 0 || old.indexOf(PERSONA_END, end + 1) >= 0))) return { ok: false, error: '人格块标记不完整或重复，请先修复', file };
   let next;
   if (old.includes(PERSONA_BEGIN) && old.includes(PERSONA_END)) {
     const a = old.indexOf(PERSONA_BEGIN), b = old.indexOf(PERSONA_END) + PERSONA_END.length;
