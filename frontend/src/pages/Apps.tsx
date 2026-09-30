@@ -46,17 +46,9 @@ function RefineView() {
   const applied = list?.applied || []
   const rejected = list?.rejected || []
 
-  const plan = async () => {
-    setBusy('plan'); setMsg('')
-    try {
-      await RefineApi.plan()
-      setMsg('已从近期工作日志生成改进提案，列表已刷新')
-      await mutate()
-    } catch (e: any) { setMsg('生成失败：' + (e?.message || e)) } finally { setBusy('') }
-  }
   const act = async (kind: 'approve' | 'reject', id: string) => {
-    setBusy(id)
-    try { await RefineApi[kind](id); await mutate() } catch {} finally { setBusy('') }
+    setBusy(id); setMsg('')
+    try { await RefineApi[kind](id); await mutate() } catch {setMsg('提案操作未完成，请刷新核对后重试。')} finally { setBusy('') }
   }
 
   return (
@@ -64,11 +56,9 @@ function RefineView() {
       <LearningIntakePanel />
       <div className="panel !p-3.5 flex items-center gap-3 flex-wrap">
         <span className="text-[12px] text-pi-dim">待审 <b className="text-pi-text">{pending.length}</b> · 已采纳 <b className="text-pi-text">{applied.length}</b> · 已拒绝 <b className="text-pi-text">{rejected.length}</b></span>
-        <button className="btn-primary text-[13px] px-3 py-1.5 ml-auto disabled:opacity-60" onClick={plan} disabled={!!busy}>
-          {busy === 'plan' ? '分析中…（可能要 1-2 分钟）' : '从近期工作生成提案'}
-        </button>
+        <span className="text-[12px] text-pi-dim">旧版提案记录 · 新资料统一进入上方知识队列</span>
       </div>
-      {msg && <div className="text-[12px] text-pi-accent px-1">{msg}</div>}
+      {msg && <div role="alert" className="text-[12px] text-pi-text px-1">{msg}</div>}
       {[['待审提案', pending] as const, ['已采纳', applied] as const, ['已拒绝', rejected] as const].map(([label, arr]) => arr.length > 0 && (
         <div key={label}>
           <h3 className="text-[13px] font-semibold text-pi-text mb-2">{label}（{arr.length}）</h3>
@@ -81,7 +71,7 @@ function RefineView() {
                 {label === '待审提案' && p.id && (
                   <div className="flex gap-2 mt-2">
                     <button className="btn-primary text-[13px] px-3 py-1 disabled:opacity-60" disabled={busy === p.id} onClick={() => act('approve', p.id)}>{busy === p.id ? '处理中…' : '采纳执行'}</button>
-                    <button className="btn-tool text-[13px]" onClick={() => act('reject', p.id)}>拒绝</button>
+                    <button className="btn-tool text-[13px]" disabled={!!busy} onClick={() => act('reject', p.id)}>拒绝</button>
                   </div>
                 )}
               </div>
@@ -90,7 +80,7 @@ function RefineView() {
         </div>
       ))}
       {!pending.length && !applied.length && !rejected.length && (
-        <EmptyState icon={FlaskConical} title="暂无提案" hint="点上方按钮，让小语分析近期工作日志、主动提出改进建议" />
+        <EmptyState icon={FlaskConical} title="暂无旧版提案" hint="新的资料采集、证据核对与入库进度统一在上方知识队列查看" />
       )}
     </div>
   )

@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import useSWR from 'swr'
-import { AIBodyApi, RefineApi, SkillsApi, TeamRunApi } from '../api'
+import { AIBodyApi, SkillsApi, TeamRunApi } from '../api'
+import { KnowledgeApi, knowledgePolling } from '../knowledge/api'
 import { useCompanionContext } from '../components/xiaoyu/CompanionProvider'
 import { Block, date, LoadState } from './shared'
 
@@ -21,11 +22,11 @@ export function Rhythm() {
 
 export function Learning() {
   const skills = useSWR('skills', SkillsApi.list)
-  const refine = useSWR('refine-status', RefineApi.status, {refreshInterval:60000})
+  const knowledge = useSWR('knowledge-status', KnowledgeApi.status, knowledgePolling)
   return <>
     <Block title="学习与经验" hint="这里只看培养进度；接收文章、提炼和批准统一在知识页处理。收到文章不等于已经掌握，有验证产物才算完成。">
-      <LoadState error={refine.error} loading={refine.isLoading} retry={refine.mutate} />
-      {refine.data && <dl className="soul-facts"><div><dt>待提炼审批</dt><dd>{refine.data.counts.pending}</dd></div><div><dt>已应用记录</dt><dd>{refine.data.counts.applied}</dd></div></dl>}
+      <LoadState error={knowledge.error} loading={knowledge.isLoading} retry={knowledge.mutate} />
+      {knowledge.data && <dl className="soul-facts"><div><dt>待核查</dt><dd>{knowledge.data.summary.counts.review_required || 0}</dd></div><div><dt>已入库（不等于已验证）</dt><dd>{knowledge.data.summary.counts.committed || 0}</dd></div><div><dt>等待条件</dt><dd>{knowledge.data.summary.counts.blocked || 0}</dd></div></dl>}
       <a href="#/apps">进入知识页处理学习与经验</a>
     </Block>
     <Block title="已发现的技能" hint="这里是可用技能的目录，不代表每个技能都通过实测。">

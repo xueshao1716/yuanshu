@@ -1,12 +1,13 @@
 import { useState } from 'react'
 import useSWR from 'swr'
 import { LearningIntakeApi, RefineApi } from '../api'
+import KnowledgePanel from '../knowledge/KnowledgePanel'
 
 const date = (value?: string | null) => value ? new Date(value).toLocaleString('zh-CN', { hour12: false }) : '暂无记录'
 
 export default function LearningIntakePanel() {
-  const history = useSWR('refine-status', () => RefineApi.status(), { refreshInterval: 60000 })
-  const intake = useSWR('learning-intake-status', () => LearningIntakeApi.status(), { refreshInterval: 30000 })
+  const history = useSWR('refine-status', () => RefineApi.status(), { refreshInterval: 60000, refreshWhenHidden: false })
+  const intake = useSWR('learning-intake-status', () => LearningIntakeApi.status(), { refreshInterval: 30000, refreshWhenHidden: false })
   const [query, setQuery] = useState('')
   const [shown, setShown] = useState(20)
   const experience = history.data?.experience
@@ -17,7 +18,7 @@ export default function LearningIntakePanel() {
   const refresh = () => { void history.mutate(); void intake.mutate() }
 
   return (
-    <section className="panel space-y-3 min-w-0" aria-label="日常积累">
+    <><KnowledgePanel /><section className="panel space-y-3 min-w-0" aria-label="日常积累">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <h3 className="text-[13px] font-semibold text-pi-text">日常积累</h3>
         <button className="btn-tool min-h-10 px-3 text-[12px] disabled:opacity-60" onClick={refresh} disabled={history.isValidating || intake.isValidating}>刷新记录</button>
@@ -25,21 +26,6 @@ export default function LearningIntakePanel() {
       {isLoading && <p role="status" className="text-sm text-pi-dim">正在读取经验与任务记录…</p>}
       {(history.error || experience?.error) && <p role="alert" className="text-sm text-pi-text">经验库读取失败，请刷新重试。已有内容不会被清空。</p>}
       {(intake.error || candidates?.ok === false) && <p role="alert" className="text-sm text-pi-text">任务候选记录暂不可读，请刷新重试；这不表示没有积累。</p>}
-      <div className="space-y-1.5">
-        <h4 className="text-[13px] font-medium text-pi-text">待提炼任务{candidates?.ok ? ` · ${candidates.count}` : ''}</h4>
-        <p className="text-[12px] leading-5 text-pi-dim">完成任务只登记本地候选，不等于已验证，也不会因此自动调用付费模型。只收录能确认属于当前工作空间的执行记录。</p>
-        {!!candidates?.backlog && <p className="text-[12px] text-pi-text">还有 {candidates.backlog} 条待补记，其中 {candidates.failed || 0} 条上次写入失败；后台会重试。</p>}
-        {candidates?.ok && !candidates.count && <p className="text-[12px] text-pi-dim">暂无待提炼任务。新的已完成任务会在这里登记。</p>}
-        {!!candidates?.entries.length && <details>
-          <summary className="cursor-pointer min-h-10 py-2 text-[12px] text-pi-text">查看最近任务（最多 20 条）</summary>
-          <ul className="divide-y divide-pi-border-soft">
-            {candidates.entries.slice(0, 20).map(e => <li key={`${e.runId}:${e.sessionId}`} className="py-2 space-y-1 [overflow-wrap:anywhere]">
-              <p className="text-[12px] text-pi-text">{e.title}</p><p className="text-[11px] text-pi-dim">{date(e.at)} · 待提炼</p>
-            </li>)}
-          </ul>
-        </details>}
-        {!!candidates?.retired && <p className="text-[12px] text-pi-dim">候选列表保留最近 {candidates.limit} 条；已移出 {candidates.retired} 条较早候选，原执行账本不受影响。</p>}
-      </div>
       <div className="space-y-1.5 border-t border-pi-border-soft pt-3">
         <h4 className="text-[13px] font-medium text-pi-text">会话观察采集</h4>
         {collection?.running ? <p role="status" className="text-[12px] text-pi-dim">正在采集，完成后刷新查看。</p> : collection?.at ? <p className="text-[12px] text-pi-dim">最近采集：{date(collection.at)}</p> : !intake.isLoading && !intake.error && <p className="text-[12px] text-pi-dim">尚无采集结果；服务启动后约 2 分钟首次检查，之后每 6 小时检查。</p>}
@@ -52,7 +38,7 @@ export default function LearningIntakePanel() {
         <label className="block text-[12px] text-pi-text">搜索经验摘要
           <input type="search" value={query} onChange={e => { setQuery(e.target.value); setShown(20) }} placeholder="输入关键词" className="mt-1.5 w-full min-h-10 rounded-pi-md border border-pi-border-soft bg-pi-bg2 px-3 text-[13px] text-pi-text" />
         </label>
-        {!history.isLoading && !history.error && !experience?.error && !entries.length && <p className="text-[12px] text-pi-dim">{query ? '没有匹配的经验摘要，试试其他关键词。' : '暂无经验标题；待提炼任务不会自动写成经验。'}</p>}
+        {!history.isLoading && !history.error && !experience?.error && !entries.length && <p className="text-[12px] text-pi-dim">{query ? '没有匹配的经验摘要，试试其他关键词。' : '暂无旧版经验标题；自动积累进度请看上方知识队列。'}</p>}
         <ul className="divide-y divide-pi-border-soft">
           {entries.slice(0, shown).map((e, i) => <li key={`${i}:${e.title}`} className="py-2 space-y-1 [overflow-wrap:anywhere]">
             <p className="text-[12px] font-medium text-pi-text">{e.title}</p><p className="text-[12px] leading-5 text-pi-dim whitespace-pre-wrap">{e.preview}</p>
@@ -61,6 +47,6 @@ export default function LearningIntakePanel() {
         {entries.length > shown && <button className="btn-tool min-h-11 px-3" onClick={() => setShown(n => n + 20)}>再显示 20 条</button>}
         {!!experience && experience.count > (experience.entries?.length || 0) && <p className="text-sm text-pi-dim">这里只检索最近 500 个标题；完整历史保留在原文件。</p>}
       </div>
-    </section>
+    </section></>
   )
 }
