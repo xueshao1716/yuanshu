@@ -8,6 +8,8 @@
 
 **Tech Stack:** Node.js ESM、node:test、node:assert/strict、现有 verificationEnvironment 与 verification-preload。
 
+**执行状态（2026-09-30）：** 第一阶段已实现并隔离验收，13 项培养测试 + 10 项知识模块回归全部通过，无跳过。下方代码块保留原计划版本；实现在 TDD 中补强了稀疏白名单、严格 JSON 数据及克隆前校验，权威内容以源文件为准。实际提交、失败过程、夹具清理限制和未验证范围见 `2026-09-30-agent-cultivation-foundation-results.md`。未部署、未合并，不代表培养产品已开放。
+
 ---
 
 ## 执行边界和文件职责
@@ -44,7 +46,7 @@ function Test-Cultivation([string]$TestFile) {
 
 **Files:** Create `engine/cultivation/policy.mjs`; Test `tests/unit/cultivation-policy.test.mjs`.
 
-- [ ] **Step 1：新增完整失败测试文件。**
+- [x] **Step 1：新增完整失败测试文件。**
 
 ```javascript
 // tests/unit/cultivation-policy.test.mjs
@@ -96,13 +98,13 @@ test('静态请求检查拒绝过期、越权、未知费用和超额', () => {
 });
 ```
 
-- [ ] **Step 2：运行失败测试，保留红阶段结果。**
+- [x] **Step 2：运行失败测试，保留红阶段结果。**
 
 Run: `Test-Cultivation tests/unit/cultivation-policy.test.mjs`
 
 Expected: 非零退出，缺少 `engine/cultivation/policy.mjs` 导致 `ERR_MODULE_NOT_FOUND`。若已有模块，先检查分支状态，不覆盖其他实现。
 
-- [ ] **Step 3：新增策略模块。**
+- [x] **Step 3：新增策略模块。**
 
 ```javascript
 // engine/cultivation/policy.mjs
@@ -156,13 +158,13 @@ export function assertRequest(policy, request, now = Date.now()) {
 
 `currency: USD` 是当前账本单位，不代表发生费用或已配置付费模型。上线若需多币种，先明确换算与结算契约，不能把不同币种直接累加。本模块不读取模型目录，`remote` 与费用上限必须由服务侧提供者解析，不能由模型自己声明。
 
-- [ ] **Step 4：运行通过测试。**
+- [x] **Step 4：运行通过测试。**
 
 Run: `Test-Cultivation tests/unit/cultivation-policy.test.mjs`
 
 Expected: 3 tests passed、0 failed。无模型调用或业务工作区写入。
 
-- [ ] **Step 5：检查差异并只提交这两个文件。**
+- [x] **Step 5：检查差异并只提交这两个文件。**
 
 ```powershell
 git diff --check
@@ -177,7 +179,7 @@ git commit -m "feat: add deny-default cultivation policy contract"
 
 基础 payload 是受限 JSON；它不是已验证设计。后续 designs/controls 负责业务结构与批准规则。审计只由提交方法追加，payload 不能覆盖审计。文件所有者仍能在文件系统改数据，这里不声称防管理员篡改。
 
-- [ ] **Step 1：新增完整失败测试。**
+- [x] **Step 1：新增完整失败测试。**
 
 ```javascript
 // tests/unit/cultivation-state.test.mjs
@@ -234,13 +236,13 @@ test('拒绝损坏、异域、过大/非 JSON 数据，不绕过审计容量', (
 });
 ```
 
-- [ ] **Step 2：运行失败测试。**
+- [x] **Step 2：运行失败测试。**
 
 Run: `Test-Cultivation tests/unit/cultivation-state.test.mjs`
 
 Expected: `ERR_MODULE_NOT_FOUND`，尚无 state 模块。
 
-- [ ] **Step 3：新增纯状态模块。**
+- [x] **Step 3：新增纯状态模块。**
 
 ```javascript
 // engine/cultivation/state.mjs
@@ -320,13 +322,13 @@ export function advanceRecord(previous, data, event) {
 
 审计上限 256 是第一阶段的明确安全上限，到达后拒绝写入，绝不删除旧事件或自动“压缩掉”。阶段 2 若需要提高容量，必须一并设计归档清单与分页投影，并做断电/部分归档回归测试；第一阶段不用于高频运行事件。
 
-- [ ] **Step 4：运行通过测试。**
+- [x] **Step 4：运行通过测试。**
 
 Run: `Test-Cultivation tests/unit/cultivation-state.test.mjs`
 
 Expected: 3 tests passed、0 failed。确认 MAX_AUDIT 循环在隔离超时内完成。
 
-- [ ] **Step 5：只提交状态模块及测试。**
+- [x] **Step 5：只提交状态模块及测试。**
 
 ```powershell
 git diff --check
@@ -341,7 +343,7 @@ git commit -m "feat: add isolated cultivation state envelopes"
 
 文件布局：`工程/智能体培养/control.json` 和 `工程/智能体培养/agents/<UUID>/state.json`。工作区指纹使用真实规范路径的 SHA-256；Windows 忽略路径大小写。路径不可通过调用参数指定；不读取或复制母体目录。
 
-- [ ] **Step 1：新增完整失败测试。**
+- [x] **Step 1：新增完整失败测试。**
 
 ```javascript
 // tests/unit/cultivation-storage.test.mjs
@@ -443,13 +445,13 @@ test('写入前拒绝过大记录；共享硬链接拒绝读取', async t => {
 
 夹具销毁只针对 `mkdtemp` 返回的自有临时路径。Windows junction 测试失败应报告真实平台限制，不静默 skip；不修改真实文件夹或取消路径防护来让它通过。
 
-- [ ] **Step 2：运行失败测试。**
+- [x] **Step 2：运行失败测试。**
 
 Run: `Test-Cultivation tests/unit/cultivation-storage.test.mjs`
 
 Expected: `ERR_MODULE_NOT_FOUND`，缺少 storage 模块。
 
-- [ ] **Step 3：新增存储模块。**
+- [x] **Step 3：新增存储模块。**
 
 ```javascript
 // engine/cultivation/storage.mjs
@@ -509,7 +511,7 @@ export function createCultivationStorage({wsRoot, now = () => new Date().toISOSt
 
 此处每个 scope 读取最多 2MiB；没有列目录/全库扫描接口。后续控制面板通过带失效策略的投影查询，不以每次轮询重新解析所有个体文件实现列表。
 
-- [ ] **Step 4：运行通过测试并回归前两个模块。**
+- [x] **Step 4：运行通过测试并回归前两个模块。**
 
 ```powershell
 Test-Cultivation tests/unit/cultivation-storage.test.mjs
@@ -519,7 +521,7 @@ Test-Cultivation tests/unit/cultivation-state.test.mjs
 
 Expected: storage 4 项、policy 3 项、state 3 项通过，均 0 失败。这里测试的是同进程两实例锁；跨进程压力和宿主重启对账属于阶段 2/3，不以这个结果替代。
 
-- [ ] **Step 5：检查提交范围并提交存储模块和测试。**
+- [x] **Step 5：检查提交范围并提交存储模块和测试。**
 
 ```powershell
 git diff --check
@@ -530,9 +532,9 @@ git commit -m "feat: persist cultivation state with revision and audit isolation
 
 ## 第一阶段收口
 
-- [ ] 检查三个模块均未导入母体初始化、模型执行器、网络或定时器。Run: `rg -n 'gene\.mjs|emotion\.mjs|setInterval|fetch\(' engine/cultivation`。Expected: 无匹配，rg 返回 1 表示未命中，而非测试失败。
-- [ ] 复验既有基础依赖：`Test-Cultivation tests/unit/knowledge-storage.test.mjs`、`Test-Cultivation tests/unit/knowledge-store.test.mjs`、`Test-Cultivation tests/unit/knowledge-budget.test.mjs`。Expected: 共 10 项通过；出现基线差异先报告，不改无关代码。
-- [ ] 阅读实际差异：`git diff b6612424 --stat` 和 `git status --short`。Expected: 仅本计划文档与列出的 6 个源/测试文件；无 `frontend/dist`、真实 workspace、token、域名或媒体产物。
-- [ ] 报告实际红/绿结果、提交号和未验证边界。第一阶段没有前端修改，不声称 tsc/build/E2E 已通过；完整闭环合并前另跑隔离 `npm run verify`。
+- [x] 检查三个模块均未导入母体初始化、模型执行器、网络或定时器。Run: `rg -n 'gene\.mjs|emotion\.mjs|setInterval|fetch\(' engine/cultivation`。Expected: 无匹配，rg 返回 1 表示未命中，而非测试失败。
+- [x] 复验既有基础依赖：`Test-Cultivation tests/unit/knowledge-storage.test.mjs`、`Test-Cultivation tests/unit/knowledge-store.test.mjs`、`Test-Cultivation tests/unit/knowledge-budget.test.mjs`。Expected: 共 10 项通过；出现基线差异先报告，不改无关代码。
+- [x] 阅读实际差异：`git diff b6612424 --stat` 和 `git status --short`。Expected: 仅本计划文档与列出的 6 个源/测试文件；无 `frontend/dist`、真实 workspace、token、域名或媒体产物。
+- [x] 报告实际红/绿结果、提交号和未验证边界。第一阶段没有前端修改，不声称 tsc/build/E2E 已通过；完整闭环合并前另跑隔离 `npm run verify`。
 
 阶段结束只证明内部基础可用。用户身份、设计业务校验、模型调用、预算预留、经验采用、观察面板尚未开放，不能称为“已能养智能体”。阶段 2 接着根据路线图细化，不重新请求批准同一份设计。
