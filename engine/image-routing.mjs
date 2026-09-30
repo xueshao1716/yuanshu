@@ -1,7 +1,7 @@
-import { modelCapabilities } from './model-probe.mjs';
+import { effectiveCapabilities } from '../shared/model-capabilities.mjs';
 
 export function imageCandidates(models, intent = {}, prompt = '') {
-  let hits = models.filter(m => m.enabled !== false && (m.capabilities || modelCapabilities(m.id)).image);
+  let hits = models.filter(m => m.enabled !== false && effectiveCapabilities(m).image);
   const provider = String(intent.provider || '').trim();
   const modelId = String(intent.modelId || '').trim();
   let explicit = !!(provider || modelId);
@@ -46,7 +46,7 @@ export async function runImageCandidates(candidates, generate) {
     } catch (e) {
       attempts.push({ model, outcome: 'failed', ...(e.status ? { status: e.status } : {}) });
       // Do not retry policy/parameter errors, ambiguous timeouts or malformed successful responses.
-      if ((![429, 502, 503, 504].includes(e.status) && !preConnectFailure(e)) || attempts.length === candidates.length) {
+      if ((e.status !== 429 && !preConnectFailure(e)) || attempts.length === candidates.length) {
         return { error: String(e.message || e), model, attempts };
       }
     }

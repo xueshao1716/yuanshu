@@ -2,7 +2,7 @@
 // 依赖注入：initMediaApi({ resolveAuth, readJsonFile, modelsPath, getModelList })
 import { json } from "./http-utils.mjs";
 import { httpJsonFetch, httpBufferFetch } from "./http.mjs";
-import { modelCapabilities } from "./model-probe.mjs";
+import { effectiveCapabilities } from '../shared/model-capabilities.mjs';
 import { saveArtifact, WS_ROOT } from "./workspace-api.mjs"; // saveArtifact 定义在 workspace-api（工作空间块拆分时随走）
 import { videoCreateBody, videoPollPath, repairVideoRequest, decodeAgnesVideoId } from "./video-request.mjs";
 import { materializeMedia, materializeVideoBody } from "./media-inline.mjs";
@@ -12,6 +12,8 @@ import { currentColorCard } from "./color-prefs.mjs";
 import { resolveImageRequest } from './image-request.mjs';
 import { verifyImageDimensions, imageVerificationNotice } from './image-dimensions.mjs';
 import { imageCandidates, runImageCandidates } from './image-routing.mjs';
+import { generateProviderImage, imageProviderSize } from './image-provider-adapters.mjs';
+import { setTimeout as delay } from 'node:timers/promises';
 
 let _resolveAuth = null, _readJsonFile = null, _modelsPath = "", _authPath = "", _getModelList = () => [];
 export function initMediaApi({ resolveAuth = null, readJsonFile = null, modelsPath = "", authPath = "", getModelList = null } = {}) {
@@ -21,7 +23,8 @@ export function initMediaApi({ resolveAuth = null, readJsonFile = null, modelsPa
 export function findMediaModel(type) {
   const hits = [];
   for (const m of _getModelList()) {
-    const caps = m.capabilities || modelCapabilities(m.id);
+    if (m.enabled === false) continue;
+    const caps = effectiveCapabilities(m);
     if (type === "image" && caps.image) hits.push(m);
     else if (type === "tts" && caps.tts) hits.push(m);
     else if (type === "video" && caps.video) hits.push(m);
@@ -322,6 +325,7 @@ export function withGlobalPalette(prompt) {
 // 声称支持、实际一次都没生效的能力。参数要么真的生效，要么别说。
 export async function generateImage(provider, modelId, prompt, size, image, opts = {}) {
   prompt = withGlobalPalette(prompt);
+  opts.signal?.throwIfAborted();
   const resolved = _resolveAuth(provider);
   // 配置问题也要说清是哪一种：以前这里 return null，界面只剩一句
   // "图像模型未返回图片"，跟"上游拒绝了参数"长得一模一样。
@@ -336,8 +340,13 @@ export async function generateImage(provider, modelId, prompt, size, image, opts
   }
   const seed = Number.isFinite(opts?.seed) ? Number(opts.seed) : null;
   const negative = String(opts?.negative || '').trim();
+  size = imageProviderSize(provider, modelId, size);
   const baseUrl = resolved.baseUrl || (_readJsonFile(_modelsPath)[provider]?.models || []).find(m => m.id === modelId)?.baseUrl;
   const key = resolved.key;
+  const special = await generateProviderImage({ provider, modelId, prompt, size, image: refImage, seed, negative, baseUrl, key,
+    signal: opts.signal, onRequest: opts.onRequest,
+    accountId: provider === 'cloudflare-ai' ? _readJsonFile(_authPath)?.['cloudflare-ai']?.account_id || process.env.CLOUDFLARE_ACCOUNT_ID : undefined });
+  if (special) return special;
   const base = (baseUrl || "").replace(/\/+$/, "");
   const baseNoV1 = base.endsWith("/v1") ? base.slice(0, -3) : base;
   const body = JSON.stringify({ model: modelId, prompt, n: 1, size: size || '1024x1024',
@@ -349,6 +358,7 @@ export async function generateImage(provider, modelId, prompt, size, image, opts
     // negative_prompt 只有在调用方真的给了才带：不赌每家上游都认这个字段，
     // 空的时候带上反而可能被拒。
     body,
+    signal: opts.signal,
     timeout: 180000,
   });
   // 上游失败必须带上**状态码与响应体**。以前这里是 `if (!r.ok) return null`，
@@ -361,6 +371,7 @@ export async function generateImage(provider, modelId, prompt, size, image, opts
   const RETRY_STATUS = new Set([404, 405, 501]);
   const attempts = [];
   for (const endpoint of [`${baseNoV1}/v1/images/generations`, `${baseNoV1}/images/generations`, `${baseNoV1}/v3/images/generations`]) {
+    opts.signal?.throwIfAborted();
     // Per-call allowlist: never expose credentials, host/query, prompt or reference images.
     // This proves host dispatch intent, not receipt by an independent upstream.
     try {
@@ -392,202 +403,11 @@ export async function generateImage(provider, modelId, prompt, size, image, opts
 export async function handleImage(res, body) {
   const { provider, modelId, prompt, size, image } = body || {};
   if (!provider || !modelId || !prompt) return json(res, 400, { error: "缺少 provider / modelId / prompt" });
-  const resolved = _resolveAuth(provider);
-  if (!resolved) return json(res, 400, { error: `${provider} 未配置 API Key（模型管理中添加）` });
-  const baseUrl = resolved.baseUrl || (_readJsonFile(_modelsPath)[provider]?.models || []).find(m => m.id === modelId)?.baseUrl;
-  const key = resolved.key;
-  const base = (baseUrl || "").replace(/\/+$/, "");
-  const baseNoV1 = base.endsWith("/v1") ? base.slice(0, -3) : base;
-  // 阿里云百炼 wan 系列图像：/api/v1/services/aigc/multimodal-generation/generation
-  if (provider === "aliyun-bailian" && /^wan\d/.test(modelId || "")) {
-    const sizeMap = { "1024x1024": "1024*1024", "832x1472": "720*1280", "736x1312": "720*1280", "720x1280": "720*1280", "1920x1920": "1024*1024" };
-    const sz = sizeMap[size] || "1024*1024";
-    try {
-      const host = (baseUrl || "").includes("maas.aliyuncs.com") ? baseUrl.replace(/\/compatible-mode\/v1.*$/, "") : "";
-      const apiBase = host || "https://token-plan.cn-beijing.maas.aliyuncs.com";
-      const mkReq = (u) => httpJsonFetch(u, {
-        method: "POST",
-        headers: { "Content-Type": "application/json", Authorization: `Bearer ${key}` },
-        body: JSON.stringify({
-          model: modelId,
-          input: { messages: [{ role: "user", content: [{ text: prompt }] }] },
-          parameters: { size: sz, n: 1 },
-        }),
-        timeout: 180000,
-      });
-      let r = await mkReq(`${apiBase}/api/v1/services/aigc/multimodal-generation/generation`);
-      if (!r.ok) {
-        const txt = await r.text().catch(() => "");
-        return json(res, 502, { error: `aliyun 绘图失败 ${r.status}: ${txt.slice(0, 150)}` });
-      }
-      const data = await r.json();
-      const img = data?.output?.choices?.[0]?.message?.content?.find?.((c) => c?.image)?.image;
-      if (!img) return json(res, 500, { error: "aliyun 绘图接口未返回图片" });
-      return json(res, 200, { image: img });
-    } catch (e) {
-      json(res, 500, { error: String(e?.message || e).slice(0, 200) });
-    }
-    return;
-  }
-  // minimax 专属：/v1/image_generation + aspect_ratio + image_urls 响应
-  if (provider === "minimax") {
-    const ratioMap = { "1024x1024": "1:1", "832x1472": "9:16", "1472x832": "16:9", "1024x1792": "9:16", "1792x1024": "16:9" };
-    const aspect_ratio = ratioMap[size] || (size === "1024x1024" ? "1:1" : "9:16");
-    try {
-      const mkReq = (u) => httpJsonFetch(u, {
-        method: "POST",
-        headers: { "Content-Type": "application/json", Authorization: `Bearer ${key}` },
-        body: JSON.stringify({ model: modelId, prompt, aspect_ratio, response_format: "url" }),
-        timeout: 180000,
-      });
-      let r = await mkReq(`${baseNoV1}/v1/image_generation`);
-      if (!r.ok) r = await mkReq(`${baseNoV1}/image_generation`);
-      if (!r.ok) {
-        const txt = await r.text().catch(() => "");
-        return json(res, 502, { error: `minimax 绘图失败 ${r.status}: ${txt.slice(0, 150)}` });
-      }
-      const data = await r.json();
-      const urls = data?.data?.image_urls;
-      if (Array.isArray(urls) && urls.length) return json(res, 200, { image: urls[0] });
-      return json(res, 500, { error: "minimax 绘图接口未返回图片" });
-    } catch (e) {
-      json(res, 500, { error: String(e?.message || e).slice(0, 200) });
-    }
-    return;
-  }
-  // ModelScope 专属：异步任务模式（提交 → 轮询 /v1/tasks/{id} → 取 output_images）
-  if (provider === "modelscope") {
-    const sizeMap = { "1024x1024": "1024x1024", "832x1472": "720x1280", "736x1312": "720x1280", "720x1280": "720x1280", "1920x1920": "1024x1024" };
-    const sz = sizeMap[size] || "1024x1024";
-    try {
-      const mkReq = (u, body) => httpJsonFetch(u, {
-        method: "POST",
-        headers: { "Content-Type": "application/json", Authorization: `Bearer ${key}`, "X-ModelScope-Async-Mode": "true" },
-        body: JSON.stringify(body || {}),
-        timeout: 60000,
-      });
-      let r = await mkReq(`${baseNoV1}/v1/images/generations`, { model: modelId, prompt, n: 1, size: sz });
-      if (!r.ok) {
-        const txt = await r.text().catch(() => "");
-        return json(res, 502, { error: `modelscope 提交失败 ${r.status}: ${txt.slice(0, 150)}` });
-      }
-      const { task_id } = await r.json();
-      if (!task_id) return json(res, 500, { error: "modelscope 未返回 task_id" });
-      // 轮询任务状态（约 14s 成功，最多 90s；官方示例 5s 间隔）
-      for (let i = 0; i < 18; i++) {
-        await new Promise(res => setTimeout(res, 5000));
-        const q = await httpJsonFetch(`${baseNoV1}/v1/tasks/${encodeURIComponent(task_id)}`, {
-          headers: { Authorization: `Bearer ${key}`, "X-ModelScope-Task-Type": "image_generation" }, timeout: 30000,
-        });
-        if (!q.ok) continue;
-        const t = await q.json();
-        if (t.task_status === "SUCCEED") {
-          const imgUrl = t.output_images?.[0];
-          if (imgUrl) return json(res, 200, { image: imgUrl }); // output_images 是可直接访问的图片 URL（前端 <img> 直接加载）
-          return json(res, 500, { error: "modelscope 任务成功但无图片" });
-        }
-        if (t.task_status === "FAILED") {
-          return json(res, 500, { error: "modelscope 任务失败: " + String(t.message || "未知").slice(0, 120) });
-        }
-      }
-      return json(res, 504, { error: "modelscope 任务超时（90s）" });
-    } catch (e) {
-      json(res, 500, { error: String(e?.message || e).slice(0, 200) });
-    }
-    return;
-  }
-  // Cloudflare Workers AI 专属：POST /accounts/{id}/ai/run/@cf/... 返回 { result.image } base64
-  if (provider === "cloudflare-ai") {
-    // account_id 从 auth.json 的额外字段取（同 provider 配置里 account_id）
-    const auth = _readJsonFile(_authPath);
-    const accountId = auth["cloudflare-ai"]?.account_id || process.env.CLOUDFLARE_ACCOUNT_ID || "";
-    if (!accountId) return json(res, 400, { error: "cloudflare-ai 未配置 account_id（模型管理中添加）" });
-    const sizeMap = { "1024x1024": [512, 512], "832x1472": [512, 896], "736x1312": [512, 896], "720x1280": [512, 896], "1920x1920": [768, 768] };
-    // 默认 512x512 省免费额度（10k Neurons/天，1024 大图一张就顶一天）
-    const [w, h] = sizeMap[size] || [512, 512];
-    // 原始二进制返回的模型（phoenix 等）：响应直接是图片字节，不是 JSON base64
-    const rawBinary = /leonardo\/phoenix/.test(modelId || "");
-    // FLUX.2 系列：要求 multipart/form-data 输入（prompt 字段），不是纯 JSON；且 multipart 需精确字节 → 也走二进制通道
-    const useMultipart = /flux-2/.test(modelId || "");
-    const rawChannel = rawBinary || useMultipart;
-    try {
-      const url = `https://api.cloudflare.com/client/v4/accounts/${encodeURIComponent(accountId)}/ai/run/${modelId}`;
-      const jsonBody = JSON.stringify({ prompt, width: w, height: h, steps: 4 });
-      let body = jsonBody;
-      let headers = { "Content-Type": "application/json", Authorization: `Bearer ${key}` };
-      if (useMultipart) {
-        const boundary = "----piwebcf" + Math.floor(Math.random() * 1e9);
-        body = `--${boundary}\r\nContent-Disposition: form-data; name="prompt"\r\n\r\n${prompt}\r\n--${boundary}--\r\n`;
-        headers = { "Content-Type": `multipart/form-data; boundary=${boundary}`, Authorization: `Bearer ${key}` };
-      }
-      if (rawChannel) {
-        // 二进制模型：原生 fetch 直接拿 buffer（旧 python 中转 + base64 方案已移除）
-        const r = await httpBufferFetch(url, { method: "POST", headers, body, timeout: 180000 });
-        if (r.status >= 300) return json(res, 502, { error: `cloudflare 绘图失败 ${r.status}` });
-        const buf = r.buffer();
-        if (!buf || !buf.length) return json(res, 500, { error: "cloudflare 未返回图片数据" });
-        // 部分模型（FLUX.2）响应是 JSON {result:{image: b64}}，需要解包；纯二进制模型（phoenix）直接用
-        try {
-          const parsed = JSON.parse(buf.toString("utf8"));
-          const inner = parsed?.result?.image;
-          if (typeof inner === "string") return json(res, 200, { image: `data:image/jpeg;base64,${inner}` });
-        } catch {}
-        return json(res, 200, { image: `data:image/jpeg;base64,${buf.toString("base64")}` });
-      }
-      const r = await httpJsonFetch(url, {
-        method: "POST",
-        headers,
-        body,
-        timeout: 180000,
-      });
-      if (!r.ok) {
-        const txt = await r.text().catch(() => "");
-        return json(res, 502, { error: `cloudflare 绘图失败 ${r.status}: ${txt.slice(0, 150)}` });
-      }
-      const data = await r.json();
-      const b64 = data?.result?.image;
-      if (!b64) return json(res, 500, { error: "cloudflare 未返回图片数据" });
-      return json(res, 200, { image: `data:image/jpeg;base64,${b64}` });
-    } catch (e) {
-      json(res, 500, { error: String(e?.message || e).slice(0, 200) });
-    }
-    return;
-  }
   try {
-    // 火山方舟 seedream 5.0：最小 3686400 像素，但保留宽高比（1:1/9:16/16:9）
-    let effSize = size || "1024x1024";
-    if (provider === "volces-ark" && /seedream/i.test(modelId || "")) {
-      // 按比例映射且面积 ≥3686400：1:1→1920x1920；9:16→1440x2560(面积3686400)；16:9→2560x1440
-      const ratioMap = {
-        "1024x1024": "1920x1920",   // 1:1
-        "832x1472": "1440x2560",    // 9:16 竖图
-        "736x1312": "1440x2560",    // 9:16
-        "720x1280": "1440x2560",    // 9:16
-        "1472x832": "2560x1440",    // 16:9 横图
-      };
-      effSize = ratioMap[effSize] || (effSize.includes("x") ? effSize : "1920x1920");
-    }
-    const mkReq = (u) => httpJsonFetch(u, {
-      method: "POST",
-      headers: { "Content-Type": "application/json", Authorization: `Bearer ${key}` },
-      body: JSON.stringify({ model: modelId, prompt, n: 1, size: effSize, ...(image ? { image } : {}) }),
-      timeout: 180000,
-    });
-    let r = await mkReq(`${baseNoV1}/v1/images/generations`);
-    if (!r.ok) r = await mkReq(`${baseNoV1}/images/generations`);
-    if (!r.ok) r = await mkReq(`${baseNoV1}/v3/images/generations`); // 火山方舟规划版等 v3 endpoint
-    if (!r.ok) {
-      const txt = await r.text().catch(() => "");
-      return json(res, 502, { error: `绘图接口调用失败 ${r.status}: ${txt.slice(0, 150)}` });
-    }
-    const data = await r.json();
-    const item = data.data?.[0];
-    if (!item) return json(res, 500, { error: "绘图接口未返回图片" });
-    if (item.b64_json) return json(res, 200, { image: `data:image/png;base64,${item.b64_json}` });
-    if (item.url) return json(res, 200, { image: item.url });
-    return json(res, 500, { error: "绘图接口未返回可用图片数据" });
+    const output = await generateImage(provider, modelId, prompt, size, image, body);
+    return json(res, 200, { image: output });
   } catch (e) {
-    json(res, 500, { error: String(e?.message || e).slice(0, 800) });
+    return json(res, e.status ? 502 : 500, { error: String(e?.message || e).slice(0, 800) });
   }
 }
 
@@ -646,6 +466,7 @@ export async function startVideoJob(provider, modelId, prompt, body = {}) {
   const auth = resolveVideoAuth(provider, modelId);
   if (auth.error) return auth;
   try {
+    body.signal?.throwIfAborted();
     const bodyObj = videoCreateBody(modelId, prompt, body);
     // 出口前把 media 落地：上游只认公网 http(s) 或 base64，元枢自己的 /api/ws/file 地址
     // 会被它当成"本地文件路径"直接 400（见 media-inline.mjs 顶部实测记录）。
@@ -653,13 +474,13 @@ export async function startVideoJob(provider, modelId, prompt, body = {}) {
     const notes = inlined.notes;
     const postVideo = (payload) => httpJsonFetch(`${auth.baseNoV1}/v1/videos`, {
       method: "POST", headers: { "Content-Type": "application/json", Authorization: `Bearer ${auth.key}` },
-      body: JSON.stringify(payload), timeout: 60000,
+      body: JSON.stringify(payload), timeout: 60000, signal: body.signal,
     });
     let createR = await postVideo(inlined.body);
     if (!createR.ok) {
       const t = await createR.text().catch(() => "");
       const err = `视频任务创建失败 ${createR.status}: ${t}`;
-      const repaired = repairVideoRequest(modelId, prompt, { ...body, ...inlined.body }, err);
+      const repaired = [400, 422].includes(createR.status) && repairVideoRequest(modelId, prompt, { ...body, ...inlined.body }, err);
       if (repaired) {
         createR = await postVideo(repaired);
         if (!createR.ok) {
@@ -684,13 +505,14 @@ export async function startVideoJob(provider, modelId, prompt, body = {}) {
   } catch (e) { return { error: String(e?.message || e).slice(0, 150) }; }
 }
 
-export async function checkVideoJob(provider, modelId, taskId) {
+export async function checkVideoJob(provider, modelId, taskId, opts = {}) {
   const auth = resolveVideoAuth(provider, modelId);
   if (auth.error) return auth;
   if (!taskId) return { error: "缺少任务 ID" };
   try {
+    opts.signal?.throwIfAborted();
     const qR = await httpJsonFetch(`${auth.baseNoV1}${videoPollPath(taskId, modelId)}`, {
-      headers: { Authorization: `Bearer ${auth.key}` }, timeout: 20000,
+      headers: { Authorization: `Bearer ${auth.key}` }, timeout: 20000, signal: opts.signal,
     });
     if (!qR.ok) return { status: "pending", task_id: taskId };
     const q = await qR.json();
@@ -725,8 +547,13 @@ export async function generateVideo(provider, modelId, prompt, body = {}) {
   const notes = Array.isArray(started.notes) ? started.notes : [];
   const { attempts, intervalMs } = videoPollPlan();
   for (let i = 0; i < attempts; i++) {
-    await new Promise(r => setTimeout(r, intervalMs));
-    const q = await checkVideoJob(provider, modelId, taskId);
+    try { await delay(intervalMs, undefined, { signal: body.signal }); }
+    catch (e) {
+      if (!body.signal?.aborted) throw e;
+      return { error: '已停止等待；上游任务可能仍在运行，请凭任务号查询，勿重复提交', cancelled: true, task_id: taskId, notes };
+    }
+    const q = await checkVideoJob(provider, modelId, taskId, { signal: body.signal });
+    if (body.signal?.aborted) return { error: '已停止等待；上游任务可能仍在运行', cancelled: true, task_id: taskId, notes };
     if (q.video) return { video: q.video, task_id: taskId, notes };
     if (q.error && q.status !== "pending") return { error: q.error, task_id: taskId, notes };
   }

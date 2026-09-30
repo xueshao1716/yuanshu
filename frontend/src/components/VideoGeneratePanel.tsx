@@ -3,18 +3,13 @@ import { mutate } from 'swr'
 import { Film } from 'lucide-react'
 import { MediaApi, withFileToken } from '../api'
 import { useApp } from '../store'
-import type { Model } from '../types'
+import { useMediaModel } from '../hooks/useMediaModel'
 import MediaHistory from './MediaHistory'
 import PromptSmartFill from './PromptSmartFill'
 
 const SECONDS = ['5', '8', '10', '12']
 const SIZES = ['720P', '960P']
 const FRAMES: Record<string, string> = { '16:9': '横版 16:9', '9:16': '竖版 9:16' }
-
-function capKeys(m: Model): string[] {
-  const cap = m.capabilities as any
-  return Array.isArray(cap) ? cap : Object.entries(cap || {}).filter(([, v]) => v).map(([k]) => k as string)
-}
 
 export default function VideoGeneratePanel({ onGenerated, prompt: promptProp, onPromptChange, seconds, onSecondsChange, frame, onFrameChange }: {
   onGenerated?: () => void
@@ -26,8 +21,7 @@ export default function VideoGeneratePanel({ onGenerated, prompt: promptProp, on
   onFrameChange?: (value: string) => void
 }) {
   const { models } = useApp()
-  const videoModels = models.filter(m => capKeys(m).includes('video'))
-  const [modelIdx, setModelIdx] = useState(0)
+  const { choices: videoModels, selection, setSelection, selectedModel, modelKey } = useMediaModel(models, 'video')
   const [size, setSize] = useState('720P')
   const [localPrompt, setLocalPrompt] = useState('')
   const [localSeconds, setLocalSeconds] = useState('10')
@@ -44,10 +38,10 @@ export default function VideoGeneratePanel({ onGenerated, prompt: promptProp, on
   const [err, setErr] = useState('')
 
   const gen = async () => {
-    if (!prompt.trim() || !videoModels[modelIdx]) return
+    if (busy || !prompt.trim() || !selectedModel) return
     setBusy(true); setErr(''); setResult(null); setPhase('排队中…')
     try {
-      const m = videoModels[modelIdx]
+      const m = selectedModel
       const start = await MediaApi.video({
         provider: m.provider,
         modelId: m.id,
@@ -85,10 +79,11 @@ export default function VideoGeneratePanel({ onGenerated, prompt: promptProp, on
       ) : (
         <>
           <div className="flex flex-col sm:flex-row gap-2">
-            <select className="input-pi min-h-11 !py-2 text-xs w-full sm:max-w-[260px]" value={modelIdx}
-              onChange={e => setModelIdx(+e.target.value)}>
-              {videoModels.map((m, i) => (
-                <option key={`${m.provider}/${m.id}`} value={i}>
+            <select aria-label="视频模型" disabled={busy} className="input-pi min-h-11 !py-2 text-xs w-full sm:max-w-[260px]" value={selectedModel ? selection : ''}
+              onChange={e => setSelection(e.target.value)}>
+              {!selectedModel && <option value="" disabled>所选模型已不可用，请重新选择</option>}
+              {videoModels.map(m => (
+                <option key={modelKey(m)} value={modelKey(m)}>
                   {m.name}（{m.provider}）{m.free ? ' · 免费' : ''}
                 </option>
               ))}
@@ -107,11 +102,11 @@ export default function VideoGeneratePanel({ onGenerated, prompt: promptProp, on
             placeholder="描述想要的镜头：谁、在哪、做什么。写一句也可以，点智能填充再出片"
             value={prompt} onChange={e => setPrompt(e.target.value)} />
           <div className="flex flex-col sm:flex-row sm:items-center gap-2">
-            <button className="btn-primary text-xs px-4 min-h-11 w-full sm:w-auto disabled:opacity-60" onClick={gen} disabled={busy || !prompt.trim()}>
+            <button className="btn-primary text-xs px-4 min-h-11 w-full sm:w-auto disabled:opacity-60" onClick={gen} disabled={busy || !prompt.trim() || !selectedModel}>
               {busy ? (phase || '出片中…') : '生成'}
             </button>
             <PromptSmartFill kind="video" idea={prompt} onFilled={({ prompt: next }) => setPrompt(next)} />
-            {err && <span className="text-xs text-pi-red truncate">{err}</span>}
+            {err && <span role="alert" className="text-xs text-pi-red break-words">{err}</span>}
           </div>
           {result && (
             <div className="space-y-2 pt-1">

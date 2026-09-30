@@ -251,7 +251,10 @@ test('runGeneration selects a capable image model when auto is requested', async
   let used;
   const api = createStoryOrchestrator({ root, getDefaultModel: () => ({ provider: 'text', id: 'chat' }), getModelList: () => [{ provider: 'img', id: 'image-1', capabilities: { image: true } }], adapters: { image: { generate: async ({ model }) => { used = model; return { status: 'succeeded', output: { type: 'image', url: '/x' } }; } } }, clock: { id: () => 'r2', now: () => '2026-09-12T08:01:00.000Z' } });
   await api.runGeneration('p2', { sceneId: 's1', beatId: 'b1', kind: 'image', model: { provider: 'auto', id: 'auto' } });
-  assert.deepEqual(used, { provider: 'img', id: 'image-1', capabilities: { image: true } });
+  assert.equal(used.provider, 'img');
+  assert.equal(used.id, 'image-1');
+  assert.equal(used.capabilities.image, true);
+  assert.equal(used.capabilities.chat, false);
 });
 
 // 段号是**产物**的一部分：重排分镜之后，历史产物卡上的"第 N 段"不能跟着变。

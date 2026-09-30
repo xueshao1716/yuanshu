@@ -24,6 +24,7 @@ import { createMiscApi } from "./engine/misc-api.mjs";
 import { createModelKeys } from "./engine/model-keys.mjs";
 import { createSessionBus } from "./engine/session-bus.mjs";
 import { createModelSessionApi } from "./engine/model-session.mjs";
+import { buildModelCatalog } from './engine/model-catalog.mjs';
 // ── Reasonix 机制（esengine/DeepSeek-Reasonix 借鉴）：工具结果压缩 / NEEDS_PRO 自报升级 / scavenge 捞回 ──
 import { shrinkToolResult, NEEDS_PRO_RE, scavengeToolCalls } from "./engine/reasonix-tools.mjs";
 import { initToolResultArchive } from "./engine/tool-result-archive.mjs";
@@ -39,6 +40,7 @@ import { noteModelFailure, clearModelFailures, modelFailureState } from "./engin
 // 2026-09-16 复查发现：出图兜底交付那条（下面 settledMedia 的 appendMessage）**绕过了**这道闸，
 // 于是"这一轮出了图 → 切到 deepseek → 下一句就不回"——这才是残留的第二处来源。
 import { sdkSafeAssistantBlocks, sdkSafeUserBlocks } from "./engine/yuanshu-session.mjs";
+import { resolveChatSelection, runSelectedMedia } from './engine/chat-media-selection.mjs';
 // @文件引用里的二进制文件不能内联（2026-09-16，外部机器安装检查第 4 个 bug）：见 engine/file-inline.mjs
 import { isBinaryReference, binaryReferenceNote } from "./engine/file-inline.mjs";
 import { advanceGoalTurn, noteGoalError, goalPrompt, listGoals, createGoal, armGoal, pauseGoal, settleGoal, disarmAllGoals } from "./engine/goals.mjs";
@@ -101,7 +103,8 @@ import { systemInfo as buildSystemInfo, loadNetworkConfig, saveNetworkConfig, ch
 import { initTuiBridge } from "./engine/tui-bridge.mjs";
 import { createVoiceSessionReader } from './engine/chat-voice-context.mjs';
 import { createVoiceAdmission } from './engine/chat-voice-admission.mjs';
-import { createVoiceTicketHandler } from './engine/chat-voice-api.mjs';
+import { createVoiceTicketHandler, createVoiceModelsHandler } from './engine/chat-voice-api.mjs';
+import { createVoiceModelRegistry } from './engine/voice-model-registry.mjs';
 import { attachChatVoice } from './engine/chat-voice-bridge.mjs';
 import { createVoiceDiagnostics } from './engine/chat-voice-diagnostics.mjs';
 import { createVoiceTaskRuntime } from './engine/voice-task-runtime.mjs';
@@ -370,29 +373,13 @@ initModelClient({ readJsonFile, writeJsonFile, authPath: AUTH_PATH, modelsPath: 
 initSelfHeal({ directChat, runGit: (...args) => runGit(...args), cwd: CONFIG.cwd, getModelList: () => modelList, getDefaultModel: () => defaultModel, piPackage: CONFIG.piPackage, SessionManager, sessionsDir: SESSIONS_DIR }); // 自愈/更新/设计器注入（REPAIR_BACKUP_FILES 已随块迁入模块）
 initImproveApi({ root: CONFIG.cwd, statsProvider: null, healProvider: null }); // 自我改进提案（2026-08-21）
 initEvolutionApi({ root: CONFIG.cwd, prompts: path.join(getAgentDir(), "prompts"), skills: path.join(__dirname, "skills"), chat: unifiedChat, getDefaultModel: () => defaultModel }); // 进化引擎（09-03，Hermes GEPA 思想：反思式进化+人工审批红线）
-// 启动时构建模型列表：原生 provider（pi 内置目录）+ store 自定义，只显示配置过 Key 的
+// 启动和刷新共用分类与停用规则，防止重启后恢复已停用模型。
 {
   const store = readJsonFile(MODELS_PATH);
   const authed = new Set(Object.keys(readJsonFile(AUTH_PATH)));
-  const all = [];
-  // 原生 provider（pi 内置目录，如 xiaomi-token-plan-cn）——不在 store 的
-  try {
-    for (const m of (modelRuntime.getModels?.() || [])) {
-      if (!authed.has(m.provider) || store[m.provider]) continue;
-      all.push({ provider: m.provider, id: m.id, name: m.name || m.id, api: m.api, baseUrl: m.baseUrl, reasoning: !!m.reasoning, contextWindow: m.contextWindow, input: m.input, compat: m.compat, thinkingLevelMap: m.thinkingLevelMap, capabilities: modelCapabilities(m.id) });
-    }
-  } catch {}
-  // store 自定义 / 既有 provider
-  for (const [provider, cfg] of Object.entries(store)) {
-    if (!authed.has(provider)) continue;
-    for (const m of (cfg.models || [])) {
-      all.push({ provider, id: m.id, name: m.name || m.id, api: m.api, baseUrl: m.baseUrl, reasoning: !!m.reasoning, contextWindow: m.contextWindow, input: m.input, compat: m.compat, thinkingLevelMap: m.thinkingLevelMap, capabilities: { ...modelCapabilities(m.id), ...(m.capabilities || {}) } });
-    }
-  }
-  modelList = all.filter(m => {
-    if (["deepseek", "openai", "openrouter"].includes(m.provider) && !store[m.provider]?.managedCatalog) return KEEP_MODELS.has(`${m.provider}/${m.id}`);
-    return true;
-  });
+  let runtimeModels = [];
+  try { runtimeModels = modelRuntime.getModels?.() || []; } catch {}
+  modelList = buildModelCatalog({ store, authed, runtimeModels, keepModels: KEEP_MODELS });
 }
 // 默认模型：优先 CONFIG.model，其次商汤 flash-lite（2026-08-20 千问下架后主力，免费实测可用），
 // 再回退小米/火山等免费通道，最后第一个
@@ -936,6 +923,7 @@ async function handleChat(req, res, body) {
   };
   // busy → 打断当前任务（对标 TUI interrupt：同一会话上处理新消息）
   if (entry.busy) {
+    try { entry.mediaAbort?.(); } catch {}
     const curAgent = entry.agent;
     try { await curAgent.abort(); } catch {}
     // 等待当前任务释放 busy（abort 生效通常 2-3s）
@@ -1026,21 +1014,6 @@ async function handleChat(req, res, body) {
     }
   }
 
-  // 绘图模型（id 含 image）→ 走图像生成接口（在写 SSE headers 之前处理）
-  if (defaultModel && /image/i.test(defaultModel.id)) {
-    try {
-      const image = await generateImage(defaultModel.provider, defaultModel.id, message);
-      if (image) return json(res, 200, { image, model: `${defaultModel.provider}/${defaultModel.id}` });
-    } catch {}
-    return json(res, 500, { error: "绘图失败（模型不支持图像生成或 Key 无效）" });
-  }
-  // 视频模型（id 含 video）→ 走视频生成（异步任务轮询）
-  if (defaultModel && /video/i.test(defaultModel.id)) {
-    const r = await generateVideo(defaultModel.provider, defaultModel.id, message);
-    if (r.video) return json(res, 200, { video: r.video, model: `${defaultModel.provider}/${defaultModel.id}` });
-    return json(res, 500, { error: r.error || "视频生成失败" });
-  }
-
   res.writeHead(200, {
     "Content-Type": "text/event-stream",
     "Cache-Control": "no-cache",
@@ -1048,38 +1021,27 @@ async function handleChat(req, res, body) {
     "X-Accel-Buffering": "no",
   });
 
-  // 前端携带模型同步（修复 C：显示与实发一致——刷新/多端时前端下拉值与服务端 modelKey 对齐）
-  // ⚠️ 2026-08-19 防呆：auto/auto 是前端下拉默认显示值（未显式选择），不能覆盖用户已切过的具体会话模型
-  //    ——否则用户切千问后，消息带的 stale "auto/auto" 会把 modelKey 打回 Auto → 路由乱跳（铁证：选了千问实际跑 mimo）
-  if (typeof body.model === "string" && body.model.includes("/")) {
-    // 2026-08-21 修复：模型 id 可含 /（如 stealth/ox-alpha）——split 只拆第一段 provider，其余拼回 id
-    const slashIdx = body.model.indexOf("/");
-    const bp = body.model.slice(0, slashIdx);
-    const bm = body.model.slice(slashIdx + 1);
-    try {
-      if (bp === "auto" || /^auto(-smart)?$/i.test(bm)) {
-        // 仅当会话本就处于 Auto（未切过具体模型）才保持；用户显式切过具体模型 → 不动，避免覆盖
-        if (entry.modelKey && entry.modelKey.provider !== "auto" && entry.modelKey.id !== "auto") {
-          // 已切具体模型：忽略 stale auto，保持用户选择
-        } else if (!entry.modelKey || entry.modelKey.provider !== "auto") {
-          entry.modelKey = { provider: "auto", id: "auto" };
-          if (sessionId) saveSessionModelKey(sessionId, entry.modelKey);
-        }
-      } else {
-        const same = entry.modelKey && entry.modelKey.provider === bp && entry.modelKey.id === bm;
-        // ⚠️ 2026-08-19 收敛：前端 stale 显示值（localStorage 残留 nvidia/deepseek）不再同步进服务端——
-        //   新会话一律默认千问，用户切模型走 /api/model 显式切换，只锁当前会话
-        if (!same && modelList.find(m => m.provider === bp && m.id === bm)) {
-          if (bp !== "deepseek" && bp !== "nvidia") {
-            entry.modelKey = { provider: bp, id: bm };
-            if (sessionId) saveSessionModelKey(sessionId, entry.modelKey);
-            console.log(`[元枢] 前端同步模型 → ${bp}/${bm}`);
-          } else {
-            console.log(`[元枢] 忽略前端 ${bp} 同步（残留显示值防呆）→ ${bp}/${bm}`);
-          }
-        }
-      }
-    } catch {}
+  let chatSelection;
+  try {
+    chatSelection = resolveChatSelection({ models: modelList, requested: body.model, modelKey: entry.modelKey });
+    if (chatSelection.key && (entry.modelKey?.provider !== chatSelection.key.provider || entry.modelKey?.id !== chatSelection.key.id)) {
+      entry.modelKey = chatSelection.key;
+      if (sessionId) saveSessionModelKey(sessionId, entry.modelKey);
+    }
+  } catch (error) {
+    try { sseWrite(res, 'error', { message: String(error?.message || error) }); } finally {
+      if (entry.gen === thisGen) entry.busy = false;
+      res.end();
+    }
+    return;
+  }
+  if (chatSelection.kind === 'image' || chatSelection.kind === 'video') {
+    let entries = [];
+    try { if (entry.sm.sessionFile) entries = readEntriesFromFile(entry.sm.sessionFile); } catch {}
+    await runSelectedMedia({ req, res, entry, generation: thisGen, model: chatSelection.model,
+      kind: chatSelection.kind, message, runContext: chatRunContext, entries,
+      generateImage, generateVideo, saveArtifact, invalidate: invalidateSessionCache });
+    return;
   }
   try { sseWrite(res, "engine_selected", { engine: observedEngine, reason: forceResumeUnified ? "恢复任务使用元枢循环，承接已保存的步骤。" : ({ primary: "使用系统配置的主引擎。", force: "启动配置指定使用元枢引擎。", "non-native": "当前模型通道由元枢自建循环承接。", "cannot-lead": "配置主引擎无法承担此任务，由可执行的引擎接替。" }[engineDecision.reason] || "使用本轮可用的执行通道。") }); } catch {}
   // 跨轮目标：本轮推进一轮（闸门在 advanceGoalTurn 里：到顶/重放/revision 不匹配一律不放行）。
@@ -3152,14 +3114,17 @@ API_ROUTES.push(...createCompanionRoutes({ exists: id => activeSessions.has(id) 
   facts: companionFacts, store: companionStore, decisions: companionDecisions, json, readBody }));
 const voiceOrigins = voiceAllowedOrigins({ agentDir: AGENT_DIR, configured: CONFIG.corsOrigins, port: CONFIG.port });
 const readVoiceSession = createVoiceSessionReader({ activeSessions, findSession, readEntriesFromFile, extractMessages, resolveLeafId });
-const voiceAdmission = createVoiceAdmission({ getToken: () => CONFIG.token, readSession: readVoiceSession });
+const voiceModels = createVoiceModelRegistry({ readAuth: () => readJsonFile(AUTH_PATH), getModels: () => Object.entries(readJsonFile(MODELS_PATH) || {}).flatMap(([provider, cfg]) => (Array.isArray(cfg?.models) ? cfg.models : []).map(model => ({ ...model, provider }))) });
+const voiceAdmission = createVoiceAdmission({ getToken: () => CONFIG.token, readSession: readVoiceSession, resolveModel: voiceModels.resolve });
 const voiceTicket = createVoiceTicketHandler({ admission: voiceAdmission, origins: voiceOrigins });
 const authorizeVoiceTask = createVoiceTaskAuthorizer({ getToken: () => CONFIG.token, origins: voiceOrigins });
+const voiceModelList = createVoiceModelsHandler({ registry: voiceModels, authorize: authorizeVoiceTask });
 const voiceTaskApi = createVoiceTaskApi({ runtime: voiceTaskRuntime, authorize: authorizeVoiceTask, readBody, json });
 API_ROUTES.push(['POST', '/api/voice/tasks', (res, req) => voiceTaskApi.submit(res, req)]);
 API_ROUTES.push(['GET', '/api/voice/tasks', (res, req, url) => voiceTaskApi.list(res, req, url)]);
 API_ROUTES.push(['POST', /^\/api\/voice\/tasks\/([^/]+)\/stop$/, (res, req, url, m) => voiceTaskApi.stop(res, req, decodeURIComponent(m[1]))]);
 API_ROUTES.push(['POST', '/api/voice/ticket', (res, req) => voiceTicket(req, res)]);
+API_ROUTES.push(['GET', '/api/voice/models', (res, req) => voiceModelList(req, res)]);
 API_ROUTES.push(...createWorkbenchRoutes({ withCache, boardApi, historyApi, handleEmotion, emotion, json, readBody }));
 Object.freeze(API_ROUTES);
 
@@ -3323,7 +3288,7 @@ function startServer() {
     attachChatVoice({ server, admission: voiceAdmission, readSession: readVoiceSession, origins: voiceOrigins,
       runtime: voiceTaskRuntime, canAccess: canAccessSessionOrigin,
       onDiagnostic: createVoiceDiagnostics({ rootDir: RUNS_DIR }),
-      connect: () => connectVoiceProvider(readJsonFile(AUTH_PATH)['stepfun-plan']?.key) });
+      connect: modelKey => { const model = voiceModels.resolve(modelKey); return connectVoiceProvider(model.key, model.modelKey); } });
     try { initTuiBridge(server, { token: CONFIG.token, cwd: WS_ROOT }); console.log("  TUI 桥接: ws://…/ws/tui 已就绪"); } catch {}
     console.log("");
     console.log("╭──────────────────────────────────────────────╮");

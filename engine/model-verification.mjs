@@ -1,6 +1,7 @@
 import { httpJsonFetch, sessionAffinityHeaders } from './http.mjs';
 import { catalogHeaders, modelEndpoint, normalizeModelBase, modelProbeError } from './model-endpoints.mjs';
 import { maxTokensFieldOf } from './output-budget.mjs';
+import { isTextModel } from '../shared/model-capabilities.mjs';
 
 // Explicit, bounded text check only. Never silently switches model or generates media.
 export async function verifyTextModel(model, key, { httpFetch = httpJsonFetch, timeoutMs = 15000 } = {}) {
@@ -9,7 +10,7 @@ export async function verifyTextModel(model, key, { httpFetch = httpJsonFetch, t
   try {
     if (!key) throw new Error('没有配置 API Key');
     if (!['openai-completions', 'anthropic-messages', 'openai-responses'].includes(api)) throw new Error(`暂不支持 ${api} 的独立文本验证，请用实际会话验证`);
-    if (model.capabilities?.chat === false) throw new Error('这是媒体模型，请在对应创作工具中验证；此处不会自动生成图片、视频或音频');
+    if (!isTextModel(model)) throw new Error('这是媒体模型或已停用模型，请在对应工具中检查；此处不会自动生成图片、视频或音频');
     const responses = api === 'openai-responses';
     const endpoint = api === 'anthropic-messages' ? 'messages' : responses ? 'responses' : 'chat/completions';
     const body = responses ? { model: model.id, input: 'Reply with OK.', max_output_tokens: 64, stream: false }

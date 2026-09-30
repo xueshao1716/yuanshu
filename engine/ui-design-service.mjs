@@ -1,4 +1,5 @@
 import fs from 'node:fs';
+import { isTextModel } from '../shared/model-capabilities.mjs';
 import { randomUUID } from 'node:crypto';
 import { createUiDesignStore } from './ui-design-store.mjs';
 import { designError, mergeGroup, parseDesignReply, validateDocument } from './ui-design-document.mjs';
@@ -19,8 +20,7 @@ export function createUiDesignService(ctx) {
     const p=get(id),list=ctx.getModelList(),key=String(input.model||'');
     const model=key ? list.find(m=>`${m.provider}/${m.id}`===key) : (ctx.getDefaultModel?.() || ctx.defaultModel);
     if(!model) throw designError('所选模型不可用，请重新选择');
-    const caps=Array.isArray(model.capabilities)?model.capabilities:Object.keys(model.capabilities||{}).filter(k=>model.capabilities[k]);
-    if(caps.includes('image') || caps.includes('video')) throw designError('请选择文本模型生成界面');
+    if(!isTextModel(model)) throw designError('请选择已启用的文本模型生成界面');
     const base=input.baseVersion ? p.versions.find(v=>v.id===input.baseVersion) : null;
     if(input.baseVersion && !base) throw designError('版本不属于这个作品');
     const groupId=String(input.groupId||''),instruction=String(input.instruction||'').trim().slice(0,3000);

@@ -1,15 +1,16 @@
 import { randomBytes, createHash, timingSafeEqual } from 'node:crypto'
+import { voiceModelDefinition } from './voice-model-registry.mjs'
 
 const hash = value => createHash('sha256').update(value || '').digest('hex')
 const matches = (a, b) => typeof a === 'string' && typeof b === 'string' && !!b &&
   Buffer.byteLength(a) === Buffer.byteLength(b) && timingSafeEqual(Buffer.from(a), Buffer.from(b))
 
-export function createVoiceAdmission({ getToken, readSession, now = Date.now, maxTickets = 32, maxIssues = 10 }) {
+export function createVoiceAdmission({ getToken, readSession, resolveModel = voiceModelDefinition, now = Date.now, maxTickets = 32, maxIssues = 10 }) {
   const tickets = new Map(), active = new Set()
   let windowAt = now(), issues = 0
   function login() { return hash(getToken()) }
   return {
-    issue(req, conversationId) {
+    issue(req, conversationId, requestedModel) {
       const token = getToken()
       if (!matches(req.headers.authorization, `Bearer ${token}`) || !token) throw new Error('unauthorized')
       const current = login(), time = now()
@@ -18,8 +19,9 @@ export function createVoiceAdmission({ getToken, readSession, now = Date.now, ma
       for (const [ticket, claim] of tickets) if (claim.expires <= time) tickets.delete(ticket)
       if (++issues > maxIssues || tickets.size >= maxTickets) throw new Error('rate_limit')
       if (!readSession(conversationId)) throw new Error('conversation_gone')
+      const { modelKey } = resolveModel(requestedModel)
       const ticket = randomBytes(32).toString('base64url')
-      tickets.set(hash(ticket), { login: current, conversationId, expires: time + 60000 })
+      tickets.set(hash(ticket), { login: current, conversationId, modelKey, expires: time + 60000 })
       return { ticket, expiresIn: 60 }
     },
     consume(ticket) {

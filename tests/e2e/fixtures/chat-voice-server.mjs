@@ -8,7 +8,8 @@ import { createVoiceTaskRuntime } from '../../../engine/voice-task-runtime.mjs'
 import { createVoiceTaskApi } from '../../../engine/voice-task-api.mjs'
 import { createVoiceTaskAuthorizer } from '../../../engine/voice-task-auth.mjs'
 import { createVoiceAdmission } from '../../../engine/chat-voice-admission.mjs'
-import { createVoiceTicketHandler } from '../../../engine/chat-voice-api.mjs'
+import { createVoiceTicketHandler, createVoiceModelsHandler } from '../../../engine/chat-voice-api.mjs'
+import { createVoiceModelRegistry } from '../../../engine/voice-model-registry.mjs'
 import { attachChatVoice } from '../../../engine/chat-voice-bridge.mjs'
 import { canAccessSessionOrigin } from '../../../engine/session-manager.mjs'
 import { json, readBody } from '../../../engine/http-utils.mjs'
@@ -29,11 +30,15 @@ export async function startChatVoiceFixture(t, { shell = false } = {}) {
     for (const cleanup of cleanups.reverse()) await cleanup()
   })
   const providers = [], origins = [], readSession = id => canAccessSessionOrigin(id) ? [{role:'user',content:'隔离测试聊天'}] : null
-  const admission = createVoiceAdmission({getToken:()=> 'fixture-only',readSession})
+  const registry = createVoiceModelRegistry({ readAuth: () => ({ 'stepfun-plan': { key: 'fixture-only' } }) })
+  const admission = createVoiceAdmission({getToken:()=> 'fixture-only',readSession,resolveModel:registry.resolve})
   const ticket = createVoiceTicketHandler({admission,origins})
+  const models = createVoiceModelsHandler({registry,authorize:req=>req.headers.authorization==='Bearer fixture-only'})
   const api = createVoiceTaskApi({runtime,authorize:createVoiceTaskAuthorizer({getToken:()=> 'fixture-only',origins}),readBody,json})
-  const connect = () => {
+  const connect = modelKey => {
+    registry.resolve(modelKey)
     const p = new EventEmitter(); p.readyState=1; p.bufferedAmount=0; p.sent=[]; p.audioBytes=0
+    p.modelKey=modelKey
     p.event = e => p.emit('message',Buffer.from(JSON.stringify(e)))
     p.send = raw => {
       const e=JSON.parse(raw); p.sent.push(e)
@@ -67,6 +72,7 @@ export async function startChatVoiceFixture(t, { shell = false } = {}) {
       vite.middlewares.use(async(req,res,next)=>{
         const url=new URL(req.url,'http://localhost')
         if(url.pathname==='/api/voice/ticket') return ticket(req,res)
+        if(url.pathname==='/api/voice/models') return models(req,res)
         if(url.pathname==='/api/voice/tasks') return req.method==='GET'?api.list(res,req,url):api.submit(res,req)
         const stop=url.pathname.match(/^\/api\/voice\/tasks\/([^/]+)\/stop$/)
         if(stop) return api.stop(res,req,stop[1])

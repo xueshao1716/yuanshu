@@ -49,17 +49,17 @@ test('第一次答非 JSON：同一个模型再要一次（带"只输出 JSON"�
   assert.equal(res.body.model.id, 'agnes-3.0-flash');
 });
 
-test('两次都不是 JSON：才换备选模型；全失败时错误里要有线索和下一步', async (t) => {
+test('自动模式两次都不是 JSON：才换备选模型；全失败时错误里要有线索和下一步', async (t) => {
   const root = await setup(t);
   const calls = [];
   const res = fakeRes();
   const ctx = {
     root,
     directChat: async (model, prompt) => { calls.push(model.id); return { text: model.id === 'm2' ? answer : '这不是 JSON' } },
-    getModelList: () => [{ provider: 'p', id: 'm2', capabilities: { chat: true, } }],
+    getModelList: () => [{ provider: 'p', id: 'm1', capabilities: { chat: true } }, { provider: 'p', id: 'm2', capabilities: { chat: true } }],
     getDefaultModel: () => ({ provider: 'p', id: 'm2' }),
   };
-  await handleStoryAssist(ctx, res.res, 'pa', { idea: '雨夜开场', model: { provider: 'p', id: 'm1' } });
+  await handleStoryAssist(ctx, res.res, 'pa', { idea: '雨夜开场' });
   assert.deepEqual(calls, ['m1', 'm1', 'm2'], '同一个模型两次之后才换备选');
   assert.equal(res.body.assist.scene.title, '站台');
 
@@ -67,7 +67,7 @@ test('两次都不是 JSON：才换备选模型；全失败时错误里要有线
   // 注意 handleStoryAssist 会把错误转成响应（不往外抛），所以断言的是响应。
   const calls2 = [];
   const res2 = fakeRes();
-  await handleStoryAssist({ ...ctx, directChat: async (model) => { calls2.push(model.id); return { text: '我做不到。' } } }, res2.res, 'pa', { idea: '雨夜开场', model: { provider: 'p', id: 'm1' } });
+  await handleStoryAssist({ ...ctx, directChat: async (model) => { calls2.push(model.id); return { text: '我做不到。' } } }, res2.res, 'pa', { idea: '雨夜开场' });
   assert.equal(res2.status, 502, '模型侧的问题不该报成 400(用户输入错)');
   assert.match(String(res2.body.error), /找不到 JSON/, '要说清是"找不到 JSON"');
   assert.match(String(res2.body.error), /我做不到/, '要带原文开头当线索');
@@ -75,17 +75,17 @@ test('两次都不是 JSON：才换备选模型；全失败时错误里要有线
   assert.equal(calls2.length, 4, '两个模型各试两次');
 });
 
-test('模型没返回内容（空文本）时不浪费重试：直接换下一个模型', async (t) => {
+test('自动模式没返回内容（空文本）时不浪费重试：直接换下一个模型', async (t) => {
   const root = await setup(t);
   const calls = [];
   const ctx = {
     root,
     directChat: async (model) => { calls.push(model.id); return model.id === 'm1' ? { text: '' } : { text: answer } },
-    getModelList: () => [{ provider: 'p', id: 'm2', capabilities: { chat: true } }],
+    getModelList: () => [{ provider: 'p', id: 'm1', capabilities: { chat: true } }, { provider: 'p', id: 'm2', capabilities: { chat: true } }],
     getDefaultModel: () => ({ provider: 'p', id: 'm2' }),
   };
   const res = fakeRes();
-  await handleStoryAssist(ctx, res.res, 'pa', { idea: '雨夜开场', model: { provider: 'p', id: 'm1' } });
+  await handleStoryAssist(ctx, res.res, 'pa', { idea: '雨夜开场' });
   assert.deepEqual(calls, ['m1', 'm2'], '空回复重试也是空，没必要再问一次同一个模型');
   assert.equal(res.body.assist.beat.prompt, '她抬头');
 });

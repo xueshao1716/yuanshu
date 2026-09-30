@@ -7,6 +7,8 @@ import { speech, setAutoSpeech } from '../lib/speech'
 import workletUrl from '../realtime/capture-worklet.mjs?worker&url'
 import RealtimeTasks from './RealtimeTasks'
 import CallScreen, { type CallState } from './CallScreen'
+import VoiceModelPicker from './VoiceModelPicker'
+import { useVoiceModels } from '../realtime/useVoiceModels'
 import { emptyTaskState, reduceTaskState } from '../realtime/task-state.mjs'
 import '../realtime/call.css'
 
@@ -14,6 +16,7 @@ type Props = { sessionId?: string | null; ensureSession?: () => Promise<string |
   open: boolean; onClose: () => void; name?: string; needsApproval?: boolean }
 type Transcript = { role: string; text: string; responseId?: string }
 export default function RealtimeCall({ sessionId, ensureSession, disabled, open, onClose, name, needsApproval }: Props) {
+  const voiceModels = useVoiceModels(open)
   const [consented, setConsented] = useState(false)
   const [state, setState] = useState<CallState>({ phase: 'idle', muted: false, stage: 'idle', activity: 'idle', readyAt: null, endedAt: null, stageStartedAt: null })
   const [transcripts, setTranscripts] = useState<Transcript[]>([])
@@ -39,15 +42,17 @@ export default function RealtimeCall({ sessionId, ensureSession, disabled, open,
   }, [])
   useEffect(() => { call.current?.sessionChanged(sessionId || null); setTranscripts([]); setTaskState(emptyTaskState()); setDraft('') }, [sessionId])
   function start() {
-    if (!consented || disabled || state.phase !== 'idle') return
+    if (!consented || disabled || state.phase !== 'idle' || voiceModels.loading || voiceModels.error || !voiceModels.selectedModel) return
     if (!audioFocus.acquireCall()) { setState(s => ({ ...s, error: 'call_busy' })); return }
     ownsAudio.current = true
     // 停止朗读，并关闭自动朗读；不在挂断后擅自恢复。
     speech.stop(); setAutoSpeech(false); setTranscripts([])
-    void call.current?.start(sessionId || null, ensureSession)
+    void call.current?.start(sessionId || null, ensureSession, voiceModels.modelKey)
   }
   if (!open) return null
   return <CallScreen state={state} name={name} consented={consented} setConsented={setConsented} disabled={disabled}
+    modelReady={!voiceModels.loading && !voiceModels.error && !!voiceModels.selectedModel}
+    modelPicker={<VoiceModelPicker {...voiceModels} locked={state.phase !== 'idle'} />}
     transcripts={transcripts} onTaskText={setDraft} needsApproval={needsApproval}
     pendingTasks={taskState.proposals.filter(p => p.status === 'pending').length}
     taskNotice={taskState.notice} onStart={start} onMute={() => call.current?.mute()}

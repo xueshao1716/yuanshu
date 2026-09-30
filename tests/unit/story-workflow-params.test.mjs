@@ -178,7 +178,7 @@ test('预览与实跑共用同一个 plan：预览给出的就是真正会执行
   await writeProject(root, project);
   const api = createStoryOrchestrator({
     root,
-    getModelList: () => [{ provider: 'p', id: 'img-1', capabilities: { image: true, reference: true, seed: true } }],
+    getModelList: () => [{ provider: 'p', id: 'img-1', capabilities: { image: true, reference: true, seed: true } }, { provider: 'x', id: 'no-caps', capabilities: { image: true, reference: false } }],
     adapters: { image: { generate: async () => ({ status: 'succeeded', output: { type: 'image', url: '/i.png' } }) } },
   });
   const before = (await api.get('p1')).scenes[0].outputs.length;

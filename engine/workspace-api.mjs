@@ -7,6 +7,7 @@ import { execFile } from "node:child_process";
 import { json } from "./http-utils.mjs";
 import { safeJoin } from "./tools/security.mjs";
 import { httpBufferFetch } from "./http.mjs";
+import { setTimeout as abortableDelay } from "node:timers/promises";
 import { VERSION_TAG } from "./version.mjs";
 
 let _wsRoot = "";
@@ -287,9 +288,11 @@ export function readArtifactSidecar(filePath) {
 // 界面上看起来一样，等链接过期才发现产物没了。
 export async function saveArtifact(artifact) {
   let reservedFile = "";
+  const signal = artifact?.signal;
   const remote = String(artifact?.url || "");
   const unsaved = reason => ({ url: remote, local: false, reason });
   try {
+    signal?.throwIfAborted();
     const now = new Date();
     const date = localDayStamp(now);
     const typeDir = artifactKindLabel(artifact.type);
@@ -320,7 +323,9 @@ export async function saveArtifact(artifact) {
       let lastError = "";
       for (let attempt = 1; attempt <= 2 && !dataBuf; attempt++) {
         try {
-          const r = await _fetchArtifact(remote, { timeout: 60000 });
+          signal?.throwIfAborted();
+          const r = await _fetchArtifact(remote, { timeout: 60000, signal });
+          signal?.throwIfAborted();
           if (!r.ok) { lastError = `下载失败 HTTP ${r.status}`; continue; }
           const buf = r.buffer();
           // 响应体大小限制：50MB（防 OOM）
@@ -329,8 +334,9 @@ export async function saveArtifact(artifact) {
           if (artifact.type === "image" && !looksLikeImageBytes(buf)) { lastError = "下载内容不是图片（可能是 HTML 错误页）"; break; }
           dataBuf = buf;
         } catch (e) {
+          signal?.throwIfAborted();
           lastError = String(e?.message || e).slice(0, 120);
-          if (attempt < 2) await new Promise(r => setTimeout(r, 800));
+          if (attempt < 2) await abortableDelay(800, undefined, { signal });
         }
       }
       if (!dataBuf) return unsaved(lastError || "下载失败");
@@ -338,6 +344,7 @@ export async function saveArtifact(artifact) {
       // 既不是 data: 也不是 http(s)：相对路径 / 已在本地的路径。它本来就是本地的，原样返回。
       return { url: remote, local: true, reason: "" };
     }
+    signal?.throwIfAborted();
     reservedFile = allocateArtifactPath(dir, baseName, ext);
     fs.writeFileSync(reservedFile, dataBuf);
     // 落盘校验：写完了不代表写对了。空文件会让"已本地化"变成另一句假话。

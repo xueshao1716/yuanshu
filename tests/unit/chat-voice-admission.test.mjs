@@ -3,6 +3,20 @@ import assert from 'node:assert/strict'
 import { createVoiceAdmission } from '../../engine/chat-voice-admission.mjs'
 import { selectVoiceContext, createVoiceSessionReader } from '../../engine/chat-voice-context.mjs'
 
+test('ticket binds the validated model and rejects arbitrary upstream selections', () => {
+  const a = createVoiceAdmission({ getToken: () => 'secret', readSession: () => [] })
+  const req = { headers: { authorization: 'Bearer secret' } }
+  const modelKey = 'stepfun-plan/stepaudio-2.5-realtime'
+  assert.equal(a.consume(a.issue(req, 'chat', modelKey).ticket).modelKey, modelKey)
+  assert.throws(() => a.issue(req, 'chat', 'https://evil.test/tts'), /voice_model_unsupported/)
+})
+
+test('configured availability is validated before issuing a ticket', () => {
+  const a = createVoiceAdmission({ getToken: () => 'secret', readSession: () => [],
+    resolveModel: () => { throw new Error('voice_model_unavailable') } })
+  assert.throws(() => a.issue({ headers: { authorization: 'Bearer secret' } }, 'chat'), /voice_model_unavailable/)
+})
+
 test('tickets require header authentication and known conversation; never accept query token', () => {
   const a = createVoiceAdmission({ getToken: () => 'secret', readSession: id => id === 'chat' ? [] : null })
   assert.throws(() => a.issue({ headers: {}, url: '/?token=secret' }, 'chat'), /unauthorized/)

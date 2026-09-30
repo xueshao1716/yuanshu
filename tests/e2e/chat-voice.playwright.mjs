@@ -6,6 +6,7 @@ import path from 'node:path'
 import http from 'node:http'
 import https from 'node:https'
 import { chromium } from 'playwright'
+import { DEFAULT_VOICE_MODEL, voiceModelDefinition } from '../../engine/voice-model-registry.mjs'
 
 const root = path.resolve(import.meta.dirname, '../..')
 const dist = path.resolve(root, process.env.YUANSHU_VOICE_DIST || 'tmp/verification-dist')
@@ -57,10 +58,11 @@ try {
       const u = new URL(route.request().url())
       if (u.origin !== base) return route.abort()
       const json = value => route.fulfill({ json: value })
+      if (u.pathname === '/api/voice/models') return json({ models: [voiceModelDefinition()] })
       if (u.pathname === '/api/voice/ticket') {
         ticketRequests++; assert.equal(route.request().method(), 'POST')
         assert.equal(route.request().headers().authorization, 'Bearer fixture-only')
-        assert.deepEqual(route.request().postDataJSON(), { conversationId: sid }); assert.equal(u.search, '')
+        assert.deepEqual(route.request().postDataJSON(), { conversationId: sid, modelKey: DEFAULT_VOICE_MODEL }); assert.equal(u.search, '')
         return json({ ticket: 'fixture-ticket', expiresIn: 60 })
       }
       if (u.pathname === '/api/sessions') return json({ sessions: [{ id: sid, name: '通话隔离验收', updatedAt: now }] })

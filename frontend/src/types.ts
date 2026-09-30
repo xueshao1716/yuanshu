@@ -3,6 +3,7 @@ export interface Model {
   provider: string
   id: string
   name: string
+  enabled?: boolean
   contextWindow?: number
   vision?: boolean
   reasoning?: boolean

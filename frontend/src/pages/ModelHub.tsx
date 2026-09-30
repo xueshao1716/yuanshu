@@ -12,16 +12,10 @@ import ModelFilterBar from '../components/models/ModelFilterBar'
 import type { ModelFacets, ModelTypeFilter } from '../components/models/ModelFilterBar'
 import { useApp } from '../store'
 import type { Model } from '../types'
+import { effectiveCapabilities } from '../../../shared/model-capabilities.mjs'
 
 const fmtTokens = (value: number) => value >= 1e9 ? `${(value / 1e9).toFixed(2)}B` : value >= 1e6 ? `${(value / 1e6).toFixed(1)}M` : value >= 1e3 ? `${(value / 1e3).toFixed(1)}K` : String(value || 0)
 const fmtCost = (value: number) => `$${(value || 0).toFixed(2)}`
-
-function capabilityKeys(model: Model): string[] {
-  const capabilities = model.capabilities as unknown
-  return Array.isArray(capabilities)
-    ? capabilities
-    : Object.entries(capabilities || {}).filter(([, enabled]) => enabled).map(([key]) => key)
-}
 
 function isFree(model: Model) {
   return Boolean(model.free || (model.note || '').includes('免费'))
@@ -60,7 +54,7 @@ function ProviderUsageTable({ providers }: { providers: ProviderStat[] }) {
 }
 
 export default function ModelHub() {
-  const { models, currentModel, setCurrentModel, cwd, refreshModels } = useApp()
+  const { models, currentModel, setCurrentModel, currentSessionId, cwd, refreshModels } = useApp()
   const [filter, setFilter] = useState<ModelTypeFilter>('all')
   const [query, setQuery] = useState('')
   const [facets, setFacets] = useState<ModelFacets>({ free: false, reasoning: false, vision: false })
@@ -69,15 +63,12 @@ export default function ModelHub() {
   const [verifying, setVerifying] = useState('')
   const [error, setError] = useState('')
   const operationLock = useRef(false)
-  const { data: stats } = useSWR('provider-stats', () => StatsApi.providers(), { refreshInterval: 60000 })
+  const { data: stats, error: statsError, mutate: retryStats, isValidating: loadingStats } = useSWR('provider-stats', () => StatsApi.providers(), { refreshInterval: 60000 })
 
   const keyword = query.trim().toLowerCase()
   const filteredModels = models.filter(model => {
     if (filter !== 'all') {
-      const keys = capabilityKeys(model)
-      const media = keys.some(key => ['image', 'video', 'tts', 'asr'].includes(key))
-      const chat = keys.includes('chat') || (!media && model.capabilities?.chat !== false)
-      if (filter === 'chat' ? !chat : !media) return false
+      if (!effectiveCapabilities(model)[filter]) return false
     }
     if (keyword && !(`${model.name} ${model.provider} ${model.id} ${model.note || ''}`.toLowerCase().includes(keyword))) return false
     if (facets.free && !isFree(model)) return false
@@ -104,7 +95,7 @@ export default function ModelHub() {
     const modelKey = `${model.provider}/${model.id}`
     setSwitching(modelKey)
     try {
-      await KeysApi.switchModel({ provider: model.provider, modelId: model.id })
+      await KeysApi.switchModel({ provider: model.provider, modelId: model.id, sessionId: currentSessionId ?? undefined })
       setCurrentModel(modelKey)
     } catch (e) { setError(e instanceof Error ? e.message : '模型切换失败，请重试') } finally {
       operationLock.current = false
@@ -177,24 +168,29 @@ export default function ModelHub() {
             <span className="text-[11px] text-pi-dim2 font-normal">每 60s 刷新 · 点击展开</span>
           </summary>
           <div className="border-t border-pi-border-soft p-3 sm:p-4 space-y-4">
+            <p className="text-sm text-pi-dim">以下仅为本机记录的调用消耗，并非服务商余额或剩余额度；未记录的外部调用不在其中。</p>
+            {statsError && <div role="status" className="flex flex-wrap items-center gap-3 text-sm text-pi-danger">
+              <p>{stats ? '用量更新失败，以下保留上次数据。' : '用量暂时无法加载，请重试。'}</p>
+              <button className="btn-tool touch-hit" disabled={loadingStats} onClick={() => void retryStats().catch(() => {})}>{loadingStats ? '重试中…' : '重试加载'}</button>
+            </div>}
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
-              {!stats ? [0, 1, 2].map(index => (
+              {!stats && !statsError ? [0, 1, 2].map(index => (
                 <div key={index} className="stat-card">
                   <div className="h-6 rounded-pi-sm skeleton-block w-16" />
                   <div className="h-2.5 rounded-pi-sm skeleton-block w-12 mt-2" />
                 </div>
-              )) : <>
+              )) : stats ? <>
                 <div className="stat-card"><div className="stat-num text-pi-text">{fmtCost(totalCost)}</div><div className="text-[11px] text-pi-dim2 mt-0.5">累计成本</div></div>
                 <div className="stat-card"><div className="stat-num text-pi-text">{totalMessages.toLocaleString()}</div><div className="text-[11px] text-pi-dim2 mt-0.5">累计消息</div></div>
                 <div className="stat-card"><div className="stat-num text-pi-success">{freeCount}<span className="text-[13px] text-pi-dim2 font-medium"> / {models.length}</span></div><div className="text-[11px] text-pi-dim2 mt-0.5">免费通道</div></div>
-              </>}
+              </> : null}
             </div>
 
             <section className="rounded-pi-lg border border-pi-border overflow-hidden" aria-labelledby="provider-usage-title">
               <div className="px-4 py-3">
                 <h2 id="provider-usage-title" className="text-[13px] font-semibold text-pi-text">Provider 用量</h2>
               </div>
-              <ProviderUsageTable providers={providers} />
+              {stats && <ProviderUsageTable providers={providers} />}
             </section>
           </div>
         </details>

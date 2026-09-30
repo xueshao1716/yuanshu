@@ -46,6 +46,19 @@ test('ambiguous timeout never buys a second image', async () => {
   const r = await runImageCandidates(models, async () => { calls++; throw new Error('timeout'); });
   assert.equal(calls, 1); assert.match(r.error, /timeout/);
 });
+
+test('ambiguous upstream 5xx never purchases an image from another provider', async () => {
+  for (const status of [500, 502, 503, 504]) {
+    let calls = 0;
+    const result = await runImageCandidates(models, async () => {
+      calls++;
+      throw Object.assign(new Error(`HTTP ${status}`), { status });
+    });
+    assert.equal(calls, 1, `HTTP ${status} does not prove submission was rejected`);
+    assert.equal(result.attempts.length, 1);
+    assert.match(result.error, /HTTP/);
+  }
+});
 test('connection establishment failure tries the bounded backup provider', async () => {
   let calls = 0;
   const r = await runImageCandidates(models, async () => {

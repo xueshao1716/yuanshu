@@ -2,6 +2,8 @@
 // handleModels：/api/models 列表（含 free/note 标注）
 // handleSwitchModel + syncContextAfterSwitch：会话级模型切换与上下文灌输
 
+import { effectiveCapabilities, isChatSelectable, isTextModel } from '../shared/model-capabilities.mjs';
+
 export function createModelSessionApi(deps) {
   const {
     json, readJsonFile, resolveAuth, modelCapabilities, modelsPath,
@@ -15,7 +17,7 @@ export function createModelSessionApi(deps) {
     const CONFIG = getConfig();
     const store = readJsonFile(modelsPath);
     const list = getModelList()
-      .filter((m) => resolveAuth(m.provider))
+      .filter((m) => m.enabled !== false && resolveAuth(m.provider))
       .map((m) => {
         const sm = (store[m.provider]?.models || []).find((x) => x.id === m.id) || {};
         return {
@@ -30,7 +32,7 @@ export function createModelSessionApi(deps) {
           reasoning: !!m.reasoning,
           // 派生默认值 + 持久化覆盖：store 快照是加模型时写的，没有后补的
           // reference/keyframe/seed；只写 `m.capabilities || 派生` 会让老快照永久压掉新能力。
-          capabilities: { ...modelCapabilities(m.id), ...(m.capabilities || {}) },
+          capabilities: effectiveCapabilities(m, modelCapabilities),
           free: sm.free,
           note: sm.note || "",
         };
@@ -71,6 +73,7 @@ export function createModelSessionApi(deps) {
     const modelList = getModelList();
     const m = modelList.find((x) => x.provider === body.provider && x.id === body.modelId);
     if (!m) return json(res, 404, { error: `模型未找到: ${body.provider}/${body.modelId}` });
+    if (!isChatSelectable(m)) return json(res, 400, { error: m.enabled === false ? '所选模型已停用' : '此模型请在语音通话、朗读或识别入口选择' });
     const dm = getDefaultModel();
     const switched = !(dm?.provider === m.provider && dm?.id === m.id);
     // 完整 runtime 模型（含 compat/thinkingFormat，简版模型会导致 agent 通道 reasoning 处理异常）
@@ -87,10 +90,13 @@ export function createModelSessionApi(deps) {
         try { entry2.agent.dispose(); } catch {}
         entry2.agent = null;
         try {
-          const ag = await createSessionAgent(entry2.sm, fullModel);
-          entry2.agent = ag;
-          entry2.agentModel = { provider: m.provider, id: m.id };
-          if (switched) { try { await syncContextAfterSwitch(entry2, m); } catch {} }
+          entry2.agentModel = null;
+          if (isTextModel(m)) {
+            const ag = await createSessionAgent(entry2.sm, fullModel);
+            entry2.agent = ag;
+            entry2.agentModel = { provider: m.provider, id: m.id };
+            if (switched) { try { await syncContextAfterSwitch(entry2, m); } catch {} }
+          }
         } catch {}
       } else if (entry2.agent && entry2.busy) {
         console.log(`[元枢] 会话 busy，模型切换延迟到下次消息生效 → ${m.provider}/${m.id}`);

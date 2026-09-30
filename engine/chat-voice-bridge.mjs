@@ -70,7 +70,7 @@ export function attachChatVoice({ server, admission, readSession, origins, conne
           stage = 'service'
           const context = readSession(claim.conversationId)
           if (!context) return end('conversation_gone')
-          upstream = connect()
+          upstream = connect(claim.modelKey)
           const setup = later(() => end('provider_timeout'), setupTimeoutMs)
           later(() => end('call_time_limit'), maxCallMs)
           if (runtime) tasks = createChatVoiceTools({ runtime, conversationId: claim.conversationId,
@@ -108,7 +108,10 @@ export function attachChatVoice({ server, admission, readSession, origins, conne
           void action.catch(() => emit({ type: 'task.error', code: 'proposal_rejected' }))
         }
         else end('unsupported_event')
-      } catch { end(leased && !upstream ? 'provider_unavailable' : 'client_request_rejected') }
+      } catch (error) {
+        const modelError = ['voice_model_unavailable', 'voice_model_unsupported'].includes(error?.message)
+        end(leased && !upstream ? modelError ? error.message : 'provider_unavailable' : 'client_request_rejected')
+      }
     })
   })
   return { close() { server.off('upgrade', upgrade); for (const client of wss.clients) client.terminate(); wss.close() } }

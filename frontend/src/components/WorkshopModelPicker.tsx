@@ -1,18 +1,11 @@
 import { useState } from 'react'
 import { useApp } from '../store'
 import type { Model } from '../types'
-
-function capKeys(m: Model): string[] {
-  const cap = m.capabilities as any
-  return Array.isArray(cap) ? cap : Object.entries(cap || {}).filter(([, v]) => v).map(([k]) => k as string)
-}
+import { isTextModel } from '../../../shared/model-capabilities.mjs'
 
 export function useWorkshopModel(storageKey: string, opts?: { preferFlash?: boolean }) {
   const { models, currentModel } = useApp()
-  const textModels = models.filter(m => {
-    const keys = capKeys(m)
-    return !keys.includes('image') && !keys.includes('video')
-  })
+  const textModels = models.filter(isTextModel)
   const [saved, setSaved] = useState(() => {
     try { return localStorage.getItem(storageKey) || '' } catch { return '' }
   })
@@ -22,7 +15,7 @@ export function useWorkshopModel(storageKey: string, opts?: { preferFlash?: bool
   const fallback = opts?.preferFlash && flashKey
     ? flashKey
     : (keys.includes(currentModel) ? currentModel : (keys[0] || ''))
-  const value = keys.includes(saved) ? saved : fallback
+  const value = saved || fallback
   const set = (next: string) => {
     setSaved(next)
     try { localStorage.setItem(storageKey, next) } catch {}
@@ -43,6 +36,7 @@ export default function WorkshopModelPicker({ value, onChange, textModels, label
     <label className="text-xs text-pi-dim flex flex-col sm:flex-row sm:items-center gap-1.5 w-full sm:w-auto">
       {label}
       <select className="input-pi min-h-11 !py-2 text-xs w-full sm:max-w-[260px]" value={value} onChange={e => onChange(e.target.value)}>
+        {value && !textModels.some(m => `${m.provider}/${m.id}` === value) && <option value={value} disabled>已选模型不可用，请重新选择</option>}
         {textModels.map(m => (
           <option key={`${m.provider}/${m.id}`} value={`${m.provider}/${m.id}`}>
             {m.name}（{m.provider}）{m.free ? ' · 免费' : ''}

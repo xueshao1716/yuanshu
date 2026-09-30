@@ -19,6 +19,13 @@ function fixture(overrides = {}) {
   const ready = async () => { await start(); const ws = sockets[0]; ws.readyState = 1; ws.onopen(); ws.onmessage({ data: '{"type":"ready","conversationId":"chat"}' }); return ws }
   return { call, start, ready, sockets, states, order, get audio() { return audio } }
 }
+
+test('selected model travels with ticket request without changing microphone click ordering', async () => {
+  let selected;
+  const f = fixture({ requestTicket: async (id, signal, modelKey) => { selected = modelKey; return { ticket: 'once' } } });
+  await f.call.start('chat', undefined, 'stepfun-plan/stepaudio-2.5-realtime');
+  try { assert.equal(selected, 'stepfun-plan/stepaudio-2.5-realtime') } finally { f.call.stop() }
+});
 test('provider failures explain the actual boundary instead of a generic stopped call', () => {
   for (const code of ['provider_timeout', 'provider_connection_failed', 'provider_disconnected', 'provider_request_failed', 'connection_expired', 'slow_client', 'slow_provider', 'auth_timeout']) {
     assert.notEqual(callError(code), callError('unknown_failure'), code)

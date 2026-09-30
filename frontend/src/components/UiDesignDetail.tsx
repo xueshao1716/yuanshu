@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { ModelsApi } from '../api'
 import { designs, openDesign, type DesignProject } from '../lib/ui-design-api'
 import { designButton, designField } from '../lib/ui-design-styles'
+import { isTextModel } from '../../../shared/model-capabilities.mjs'
 
 export default function UiDesignDetail({initial,onBack}:{initial:DesignProject;onBack:()=>void}) {
   const [p,setP]=useState(initial), [models,setModels]=useState<{key:string;name:string}[]>([])
@@ -10,7 +11,7 @@ export default function UiDesignDetail({initial,onBack}:{initial:DesignProject;o
   const running=p.run?.status==='running', selected=p.versions.find(v=>v.id===p.selectedVersion)
   useEffect(()=>{let cancelled=false;ModelsApi.list().then(data=>{
     if(cancelled) return
-    const list=data.models.filter(m=>{const c=m.capabilities; const keys=Array.isArray(c)?c:Object.entries(c||{}).filter(([,v])=>v).map(([k])=>k);return !keys.includes('image')&&!keys.includes('video')}).map(m=>({key:`${m.provider}/${m.id}`,name:m.name||m.id}))
+    const list=data.models.filter(isTextModel).map(m=>({key:`${m.provider}/${m.id}`,name:m.name||m.id}))
     setModels(list);const current=data.current?`${data.current.provider}/${data.current.id}`:''
     setModel(list.some(m=>m.key===current)?current:list[0]?.key||'')
   }).catch(e=>{if(!cancelled)setError(e.message)});return()=>{cancelled=true}},[])

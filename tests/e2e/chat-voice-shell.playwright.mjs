@@ -3,6 +3,7 @@ import test from 'node:test'
 import fs from 'node:fs/promises'
 import { fileURLToPath } from 'node:url'
 import { startChatVoiceFixture } from './fixtures/chat-voice-server.mjs'
+import { DEFAULT_VOICE_MODEL } from '../../engine/voice-model-registry.mjs'
 const { chromium } = await import(process.env.YUANSHU_PLAYWRIGHT_MODULE || 'playwright')
 
 async function setup(t, { empty = false, width = 390, microphone = 'granted' } = {}) {
@@ -57,6 +58,43 @@ async function reachable(page, locator) {
   })
   assert.ok(hit.reachable, 'control is not clipped or covered: ' + JSON.stringify(hit))
 }
+
+for (const width of [1440, 390]) test('voice model picker recovers from unavailable lists and binds the selected model at ' + width, { timeout: 90000 }, async t => {
+  const f = await setup(t, { width })
+  const picker = f.panel.getByRole('combobox', { name: '通话模型', exact: true })
+  const start = f.panel.getByRole('button', { name: '开始通话', exact: true })
+  const refresh = f.panel.getByRole('button', { name: '刷新模型列表', exact: true })
+  await f.page.waitForFunction(() => document.querySelector('.voice-model-picker select')?.value === 'stepfun-plan/stepaudio-2.5-realtime')
+  assert.equal(await picker.inputValue(), DEFAULT_VOICE_MODEL)
+  await reachable(f.page, picker)
+  let mode = 'empty'
+  await f.page.route('**/api/voice/models', route => mode === 'empty'
+    ? route.fulfill({ json: { models: [] } }) : route.fulfill({ status: 503, json: { error: 'voice_model_unavailable' } }))
+  await refresh.click()
+  await f.panel.getByText(/尚无已配置的实时通话模型/).waitFor()
+  assert.equal(await start.isDisabled(), true)
+  assert.equal(f.providers.length, 0)
+  mode = 'error'
+  await refresh.click()
+  await f.panel.getByText(/模型列表加载失败/).waitFor()
+  assert.equal(await start.isDisabled(), true)
+  await f.page.unroute('**/api/voice/models')
+  await refresh.click()
+  await f.panel.getByText(/仅列出已配置且已接入通话协议的模型/).waitFor()
+  assert.equal(await picker.inputValue(), DEFAULT_VOICE_MODEL)
+  await reachable(f.page, picker)
+  await reachable(f.page, start)
+  assert.ok(await f.page.evaluate(() => document.documentElement.scrollWidth <= innerWidth))
+  const directory = new URL('../../.impeccable/review/', import.meta.url); await fs.mkdir(directory, { recursive: true })
+  await f.page.screenshot({ path: fileURLToPath(new URL(`voice-model-picker-${width}.png`, directory)), fullPage: true })
+  await start.click()
+  await f.panel.getByText('已连接，可以说话', { exact: true }).waitFor()
+  assert.equal(f.providers[0].modelKey, DEFAULT_VOICE_MODEL)
+  assert.equal(await picker.isDisabled(), true)
+  await f.panel.getByRole('button', { name: '挂断', exact: true }).click()
+  assert.equal(await picker.isDisabled(), false)
+  assert.deepEqual(f.errors, [])
+})
 
 test('new-chat creation preserves mounted call and real chat switches stop it', { timeout: 90000 }, async t => {
   const f = await setup(t, { empty: true, width: 1440 })

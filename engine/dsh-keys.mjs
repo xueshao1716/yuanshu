@@ -5,8 +5,9 @@ import os from "node:os";
 import path from "node:path";
 import { execFileSync, spawn } from "node:child_process";
 import { json, readBody } from "./http-utils.mjs";
-import { modelCapabilities } from "./model-probe.mjs";
+import { modelCapabilities, effectiveCapabilities } from "./model-probe.mjs";
 import { createModelOnboarding } from './model-onboarding.mjs';
+import { buildModelCatalog } from './model-catalog.mjs';
 
 // 支持的 provider 清单（模型管理下拉）；随块从 server.mjs 迁入
 const SUPPORTED_PROVIDERS = ["deepseek", "openai", "openrouter", "anthropic", "google", "qwen", "xai", "moonshotai", "zai", "together", "mistral", "modelscope", "cloudflare-ai"];
@@ -59,38 +60,9 @@ export async function refreshModelList() {
   _resetHealth(); // 模型清单刷新 = 重新探测，冷却状态一并清零给所有模型新机会
   const store = _readJsonFile(_modelsPath);
   const authed = new Set(Object.keys(_readJsonFile(_authPath)));
-  const all = [];
-  // 原生 provider（pi 内置目录，如 xiaomi-token-plan-cn）——只取不在 store 里的（store 的保持自定义逻辑）
-  try {
-    for (const m of ((_getModelRuntime?.() || {}).getModels?.() || [])) {
-      if (!authed.has(m.provider) || store[m.provider]) continue;
-      all.push({
-        provider: m.provider, id: m.id, name: m.name || m.id, api: m.api, baseUrl: m.baseUrl,
-        reasoning: !!m.reasoning, contextWindow: m.contextWindow, input: m.input,
-        compat: m.compat, thinkingLevelMap: m.thinkingLevelMap,
-        capabilities: modelCapabilities(m.id),
-      });
-    }
-  } catch {}
-  // 自定义 / 既有 provider（store）
-  for (const [provider, cfg] of Object.entries(store)) {
-    if (!authed.has(provider)) continue;
-    for (const m of (cfg.models || [])) {
-      all.push({
-        provider, id: m.id, name: m.name || m.id, api: m.api, baseUrl: m.baseUrl,
-        reasoning: !!m.reasoning, contextWindow: m.contextWindow, input: m.input,
-        compat: m.compat, thinkingLevelMap: m.thinkingLevelMap,
-        // 派生默认值 + 持久化覆盖：store 里的 capabilities 是**加模型时的快照**，
-        // 新补的 reference/keyframe/seed 它自然没有（2026-09-14）。
-        // 只写 `m.capabilities || 派生` 会让老快照永久压掉新能力，故改为合并。
-        capabilities: { ...modelCapabilities(m.id), ...(m.capabilities || {}) },
-      });
-    }
-  }
-  const list = all.filter(m => {
-    if (["deepseek", "openai", "openrouter"].includes(m.provider) && !store[m.provider]?.managedCatalog) return _keepModels.has(`${m.provider}/${m.id}`);
-    return true;
-  });
+  let runtimeModels = [];
+  try { runtimeModels = _getModelRuntime()?.getModels?.() || []; } catch {}
+  const list = buildModelCatalog({ store, authed, runtimeModels, keepModels: _keepModels });
   _setModelList(list);
   const curDefault = _getDefaultModel();
   if (curDefault && !list.find(m => m.provider === curDefault.provider && m.id === curDefault.id)) {
@@ -112,7 +84,7 @@ export async function handleModelsManage(res) {
       api: store[p]?.api || store[p]?.models?.[0]?.api || PROVIDER_PRESETS[p]?.api || 'openai-completions',
       checkedAt: store[p]?.checkedAt || null,
       modelCount: (store[p]?.models || []).length,
-      capabilities: (store[p]?.models || []).reduce((acc, m) => { const c = m.capabilities || modelCapabilities(m.id); for (const k of Object.keys(acc)) if (c[k]) acc[k] = true; return acc; }, { chat: false, image: false, video: false, tts: false, asr: false }),
+      capabilities: (store[p]?.models || []).filter(m => m.enabled !== false).reduce((acc, m) => { const c = effectiveCapabilities(m); for (const k of Object.keys(acc)) if (c[k]) acc[k] = true; return acc; }, { chat: false, image: false, video: false, tts: false, asr: false, realtime: false }),
       models: (store[p]?.models || []).map(m => m.id).slice(0, 30),
     }));
   json(res, 200, { providers, supported: SUPPORTED_PROVIDERS });

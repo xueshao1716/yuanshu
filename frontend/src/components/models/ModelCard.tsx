@@ -1,6 +1,7 @@
 import { Film, Image, MessagesSquare, Mic } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
 import type { Model } from '../../types'
+import { effectiveCapabilities, isTextModel, isChatSelectable } from '../../../../shared/model-capabilities.mjs'
 
 export type ModelCardProps = {
   model: Model
@@ -13,22 +14,22 @@ export type ModelCardProps = {
 }
 
 function capabilityKeys(model: Model): string[] {
-  const capabilities = model.capabilities as unknown
-  return Array.isArray(capabilities)
-    ? capabilities
-    : Object.entries(capabilities || {}).filter(([, enabled]) => enabled).map(([key]) => key)
+  return Object.entries(effectiveCapabilities(model)).filter(([, enabled]) => enabled).map(([key]) => key)
 }
 
 function capabilityIcon(model: Model): LucideIcon {
   const keys = capabilityKeys(model)
   if (keys.includes('image')) return Image
   if (keys.includes('video')) return Film
-  if (keys.includes('tts') || keys.includes('asr')) return Mic
+  if (keys.includes('tts') || keys.includes('asr') || keys.includes('realtime')) return Mic
   return MessagesSquare
 }
 
 export default function ModelCard({ model, active, switching, onUse, onVerify, verifying, busy }: ModelCardProps) {
   const CapabilityIcon = capabilityIcon(model)
+  const textModel = isTextModel(model), keys = capabilityKeys(model)
+  const chatSelectable = isChatSelectable(model)
+  const category = [['chat', '对话'], ['image', '绘图'], ['video', '视频'], ['tts', '朗读'], ['asr', '识别'], ['realtime', '实时通话']].filter(([key]) => keys.includes(key)).map(([, label]) => label).join(' · ')
   const free = model.free || (model.note || '').includes('免费')
   const vision = model.vision || model.capabilities?.vision === true
   const verification = model.verification
@@ -52,6 +53,7 @@ export default function ModelCard({ model, active, switching, onUse, onVerify, v
       </div>
 
       <div className="flex min-h-5 items-center gap-1.5 flex-wrap text-[10px]">
+        <span className="text-sm text-pi-dim">{category || '能力待确认'}</span>
         {free && <span className="px-1.5 py-0.5 rounded-pi-pill border border-pi-success/30 bg-pi-success/10 text-pi-success">免费</span>}
         {model.reasoning && <span className="px-1.5 py-0.5 rounded-pi-pill border border-pi-accent/25 bg-pi-accent/10 text-pi-accent">推理</span>}
         {vision && <span className="px-1.5 py-0.5 rounded-pi-pill border border-pi-accent/25 bg-pi-accent/10 text-pi-accent">视觉</span>}
@@ -67,10 +69,10 @@ export default function ModelCard({ model, active, switching, onUse, onVerify, v
         {model.capabilitySource === 'inferred' && <p>能力按名称推断，尚未实测</p>}
       </div>
 
-      {onVerify && <button className="btn-tool touch-hit text-sm" disabled={busy || model.capabilities?.chat === false} onClick={onVerify}>{model.capabilities?.chat === false ? '媒体模型：请在对应工具验证' : verifying ? '验证中…' : '验证文本'}</button>}
-      <button onClick={onUse} disabled={active || busy || switching}
+      {onVerify && <button className="btn-tool touch-hit text-sm" disabled={busy || !textModel} onClick={onVerify}>{!textModel ? '媒体模型：请在对应工具验证' : verifying ? '验证中…' : '验证文本'}</button>}
+      <button onClick={onUse} disabled={active || busy || switching || !chatSelectable}
         className={`mt-auto touch-hit text-sm rounded-pi-md py-1.5 transition-colors duration-150 ${active ? 'bg-pi-default text-pi-dim2 cursor-default' : 'accent-soft text-pi-accent hover:brightness-110'}`}>
-        {active ? '当前使用' : switching ? '切换中…' : '切换使用'}
+        {!chatSelectable ? '请在语音入口选择' : active ? '当前使用' : switching ? '切换中…' : '切换使用'}
       </button>
     </article>
   )

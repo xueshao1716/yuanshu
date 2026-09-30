@@ -361,7 +361,7 @@ test('对台词结果落进 beat.playground（可追溯），清空是真的清�
     scenes: [{ id: 's1', index: 1, title: '站台', summary: '', beats: [{ id: 'b1', kind: 'novel', prompt: '雨夜', references: [] }], outputs: [] }],
   }, { id: () => 'pp' });
   await writeProject(root, project);
-  const api = createStoryOrchestrator({ root, directChat: async () => ({ text: '「我不走。」' }), getModelList: () => [], getDefaultModel: () => ({ provider: 'p', id: 'chat' }) });
+  const api = createStoryOrchestrator({ root, directChat: async () => ({ text: '「我不走。」' }), getModelList: () => [{ provider: 'p', id: 'chat' }], getDefaultModel: () => ({ provider: 'p', id: 'chat' }) });
   const r = await api.playground('pp', { sceneId: 's1', beatId: 'b1', characterId: 'c1', message: '你为什么不走？' });
   assert.equal(r.reply, '我不走。');
   assert.deepEqual(r.turns.map(x => x.role), ['writer', 'character']);

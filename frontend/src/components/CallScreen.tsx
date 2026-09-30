@@ -6,6 +6,7 @@ import CallStage from './CallStage'
 export type CallState = { phase: string; muted: boolean; error?: string; stage: string; activity: string; failureStage?: string | null
   readyAt: number | null; endedAt: number | null; stageStartedAt: number | null }
 type Props = { state: CallState; name?: string; consented: boolean; setConsented: (value: boolean) => void; disabled?: boolean
+  modelReady?: boolean; modelPicker?: ReactNode
   transcripts: { role: string; text: string }[]; onTaskText: (text: string) => void; tasks: ReactNode
   pendingTasks: number; taskNotice: string; needsApproval?: boolean
   onStart: () => void; onMute: () => void; onInterrupt: () => void; onStop: () => void; onClose: () => void }
@@ -16,7 +17,7 @@ const stages: Record<string, string> = {
 function clock(seconds: number) { return `${Math.floor(seconds / 60).toString().padStart(2, '0')}:${(seconds % 60).toString().padStart(2, '0')}` }
 
 export default function CallScreen({ state, name = '小语', consented, setConsented, disabled, transcripts, onTaskText, tasks,
-  pendingTasks, taskNotice, needsApproval, onStart, onMute, onInterrupt, onStop, onClose }: Props) {
+  modelReady = true, modelPicker, pendingTasks, taskNotice, needsApproval, onStart, onMute, onInterrupt, onStop, onClose }: Props) {
   const [view, setView] = useState<'call' | 'transcript' | 'tasks'>('call')
   const [now, setNow] = useState(Date.now), titleRef = useRef<HTMLHeadingElement>(null), recordsRef = useRef<HTMLDivElement>(null)
   const active = state.phase !== 'idle', ready = state.phase === 'ready', ended = !active && state.readyAt !== null
@@ -54,6 +55,7 @@ export default function CallScreen({ state, name = '小语', consented, setConse
           <p className="voice-secondary">{ready ? '需要看文字时，再打开下方记录' : active ? state.stage === 'microphone' ? '请查看浏览器或系统的授权提示' : '麦克风已授权，正在完成连接' : ended ? '已确认的任务会继续执行，结果回到原聊天' : '聊想法，也可以把事情交给元枢'}</p>
           {active && !ready && waiting >= 8 && <p className="voice-wait">本步骤已等待 {waiting} 秒。你可以随时取消后重试。</p>}
         </div>
+        {modelPicker}
         {!active && !ended && <div className="voice-consent">
           <p>语音和当前聊天的有限上下文将发送给阶跃，按通道计费。</p>
           <details><summary className="touch-hit">数据与计费说明</summary><p>最近最多 12 条文字（合计 8000 字符）会随通话发送。电脑任务需在页面单独确认，使用现有文字模型与权限并消耗对应额度。转写仅本次临时显示，刷新或切换聊天会清空；切到后台会自动挂断。</p></details>
@@ -84,7 +86,7 @@ export default function CallScreen({ state, name = '小语', consented, setConse
           <button type="button" className="voice-control touch-hit" disabled={!ready} aria-pressed={state.muted} onClick={onMute}>{state.muted ? <MicOff aria-hidden="true" /> : <Mic aria-hidden="true" />}<span>{state.muted ? '取消静音' : '静音'}</span></button>
           <button type="button" className="voice-control voice-hangup touch-hit" onClick={onStop}><PhoneOff aria-hidden="true" /><span>{ready ? '挂断' : '取消连接'}</span></button>
           <button type="button" className="voice-control touch-hit" disabled={!ready} onClick={onInterrupt}><Square aria-hidden="true" /><span>打断回复</span></button>
-        </> : <button type="button" className="voice-start touch-hit" disabled={!consented || disabled} onClick={() => { setView('call'); onStart() }}><Phone aria-hidden="true" size={19} />{ended ? '再次通话' : '开始通话'}</button>}
+        </> : <button type="button" className="voice-start touch-hit" disabled={!consented || disabled || !modelReady} onClick={() => { setView('call'); onStart() }}><Phone aria-hidden="true" size={19} />{ended ? '再次通话' : '开始通话'}</button>}
       </div>
       <p className="voice-footnote">{ready || ended ? <><Check aria-hidden="true" size={12} /><span>{ended ? '本次通话' : '通话中'} · {clock(elapsed)}</span></> : active ? '未连接就绪前，不发送麦克风音频' : disabled ? '请先结束语音输入或等待文字回复完成' : '点击开始才会申请麦克风权限'}</p>
     </footer>

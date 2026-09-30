@@ -1,4 +1,6 @@
 const messages: Record<string, string> = {
+  voice_model_unsupported: '此模型尚未接入实时通话，请刷新模型列表后重新选择。',
+  voice_model_unavailable: '所选通话模型已停用或缺少密钥，请检查模型管理中的通道配置后重试。',
   microphone_denied: '未获得麦克风权限。请在浏览器网站设置中允许麦克风，再重试。',
   microphone_missing: '未找到可用麦克风。请连接或启用麦克风后重试。',
   microphone_unavailable: '无法使用麦克风。请检查系统权限、设备连接或其他应用是否正在占用，再重试。',

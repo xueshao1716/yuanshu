@@ -5,28 +5,10 @@
 import { httpJsonFetch } from "./http.mjs";
 import { catalogHeaders, modelEndpoint, normalizeModelBase, modelProbeError } from './model-endpoints.mjs';
 import { verifyTextModel } from './model-verification.mjs';
+import { modelCapabilities } from '../shared/model-capabilities.mjs';
+export { modelCapabilities, effectiveCapabilities } from '../shared/model-capabilities.mjs';
 
 // 按模型 id 关键字推断能力（查档案兜底，不靠真实探测）
-export function modelCapabilities(id) {
-  const caps = { chat: true, image: false, video: false, tts: false, asr: false };
-  if (/image/i.test(id)) { caps.image = true; caps.chat = false; }
-  if (/video/i.test(id)) { caps.video = true; caps.chat = false; }
-  if (/tts/i.test(id)) { caps.tts = true; caps.chat = false; }
-  if (/asr/i.test(id)) { caps.asr = true; caps.chat = false; }
-  // 连续性参数（reference/keyframe/seed）——含义是「本管道会把它原样转发给上游」，
-  // 不是「上游保证遵守」：
-  //   image｜图生图：media-api.generateImage 转发 image + seed + negative_prompt
-  //   video｜参考与首尾帧：video-request.videoCreateBody 转发 image/first_frame/last_frame/images[]/videos[]/seed
-  // 2026-09-14 之前这三个键从未被任何代码写入，于是 story-orchestrator 的
-  // negotiateCapabilities 对**每一个**图像/视频任务都报「当前模型不支持参考资产」——
-  // 能力协商层在问一个没人填的字段，用户看到的是假的降级提示，参考图通路也从未打开。
-  // 2026-09-15 又发现 seed 是**半根假通路**：键写了、run 里存了、适配器也传了，
-  // 但 generateImage 的请求体里没有它，视频适配器压根没解构它——声称支持却从未生效。
-  // 现在两条通道都真的上送，capability 这句话才算成立。
-  if (caps.image || caps.video) { caps.reference = true; caps.seed = true; }
-  if (caps.video) caps.keyframe = true;
-  return caps;
-}
 
 // Backward-compatible explicit text probe. Media generation is never a discovery side effect.
 export async function probeModelCapabilities(baseUrl, key, modelId, { api = 'openai-completions' } = {}) {

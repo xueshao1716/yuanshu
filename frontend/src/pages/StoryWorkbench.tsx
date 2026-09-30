@@ -25,13 +25,14 @@ import StoryBatch from '../components/story/StoryBatch'
 import StoryFlowBar from '../components/story/StoryFlowBar'
 import { defaultRefStrategy, normalizeRefStrategy, refStrategyLabel, recipeBeatPatch } from '../lib/story-ref'
 import type { StoryBeatInput } from '../types'
+import { effectiveCapabilities } from '../../../shared/model-capabilities.mjs'
 import '../components/story/story.css'
 
 const emptyBeat: StoryBeat = { id: 'beat-1', kind: 'novel', prompt: '', references: [] }
 const kindLabel = { novel: '段落', image: '画面', video: '视频' }
 const modelKey = (m: Model) => `${m.provider}::${m.id}`
 const modelValue = (key: string) => { const [provider, ...rest] = key.split('::'); return provider && rest.length ? { provider, id: rest.join('::') } : undefined }
-const capable = (m: Model, kind: StoryBeat['kind']) => Boolean(m.capabilities?.[kind === 'novel' ? 'chat' : kind])
+const capable = (m: Model, kind: StoryBeat['kind']) => m.enabled !== false && effectiveCapabilities(m)[kind === 'novel' ? 'chat' : kind] === true
 
 // 连续创作面板：已并入「创作」（pages/Workshop.tsx）作为一个页内视图，
 // 因此不再自带 h1（由创作的 PageHeader 承担），也不再自带滚动容器（外层已滚）。
@@ -87,6 +88,8 @@ export function StoryPanel() {
   const beat = scene?.beats.find(b => b.id === selected) || scene?.beats[0] || (scene ? emptyBeat : undefined)
   const availableModels = models.filter(m => capable(m, selectedKind))
   const selectedModelInfo = modelValue(selectedModel)
+  const selectedModelMissing = Boolean(selectedModel && !availableModels.some(m => modelKey(m) === selectedModel))
+  const planningModelMissing = Boolean(planningModel && !models.some(m => modelKey(m) === planningModel && capable(m, 'novel')))
   const hydrateBible = (p: StoryProject) => setBibleDraft(bibleText(p.bible))
   const update = (p: StoryProject) => { setProject(p); setProjects(items => [p, ...items.filter(item => item.id !== p.id)]) }
   const choose = (p: StoryProject | null) => { setProject(p); setSelected(p?.scenes[0]?.beats[0]?.id || ''); if (p) hydrateBible(p); setAssistResult(null); setCompiled(''); setError(''); setNotice('') }
@@ -96,7 +99,6 @@ export function StoryPanel() {
   // 切换输出类型时，参考图策略的默认值跟着类型走（画面 1 张素材优先 / 视频 4 张定妆照优先）——
   // 否则从视频切到画面会沿用"4 张"，把一个只吃一张的通道撑爆。
   const setGenerationKind = (kind: StoryBeat['kind']) => { setSelectedKind(kind); setSelectedModel(''); setCompiled(''); setRefDraft(normalizeRefStrategy(undefined, kind)) }
-  useEffect(() => { if (selectedModel && !availableModels.some(m => modelKey(m) === selectedModel)) setSelectedModel('') }, [selectedKind, models, selectedModel])
   const load = async () => {
     setBusy('正在加载故事'); setError('')
     try { const r = await StoryApi.listProjects(); setProjects(r.projects); choose(r.projects.find(p => p.id === project?.id) || r.projects[0] || null) }
@@ -109,11 +111,13 @@ export function StoryPanel() {
     try { await fn() } catch (e: any) { setError(e?.message || '操作未完成，请重试') } finally { setBusy('') }
   }
   const requestDraft = async (p: StoryProject, idea: string, kind: StoryBeat['kind']) => {
+    if (planningModelMissing) throw new Error('已选构思模型不可用，请重新选择')
     const r = await StoryApi.assist(p.id, `目标输出：${kindLabel[kind]}。\n${idea}`, modelValue(planningModel))
     setAssistResult({ ...r.assist, beat: { ...r.assist.beat, kind } })
     setNotice('AI 草稿已准备好，查看后点击“采用并保存设定”。')
   }
   const start = (idea: string, kind: StoryBeat['kind']) => action('AI 正在整理人物与开场', async () => {
+    if (planningModelMissing) throw new Error('已选构思模型不可用，请重新选择')
     const r = await StoryApi.createProject({ title: idea.slice(0, 24), logline: idea })
     const saved = await StoryApi.patchProject(r.project.id, { scenes: [{ id:'scene-1', index:1, title:'开场', summary:idea, beats:[{...emptyBeat,kind,prompt:idea}], outputs:[] }] })
     update(saved.project); hydrateBible(saved.project); setSelected('beat-1'); setSelectedKind(kind); setPromptDraft(idea)
@@ -193,6 +197,7 @@ export function StoryPanel() {
     setNotice(`配方「${r.name}」已套用到本项目全部 ${scenes.reduce((n, s) => n + (s.beats?.length || 0), 0)} 段（类型与负向）`)
   })
   const run = () => action(`正在生成${kindLabel[selectedKind]}，请稍候`, async () => {
+    if (selectedModelMissing) throw new Error('已选生成模型不可用，请重新选择')
     const saved = await persist()
     try {
       const r = await StoryApi.run(saved.project.id, { sceneId:saved.sceneId, beatId:saved.beatId, kind: selectedKind, ...(selectedModelInfo ? {model:selectedModelInfo} : {}), ...runExtras() })
@@ -246,6 +251,7 @@ export function StoryPanel() {
     else setNotice('片子到了，已落盘。')
   })
   const preview = () => action('正在检查生成输入', async () => {
+    if (selectedModelMissing) throw new Error('已选生成模型不可用，请重新选择')
     const saved = await persist()
     const r = await StoryApi.previewRun(saved.project.id, {sceneId:saved.sceneId,beatId:saved.beatId,kind:selectedKind,model:selectedModelInfo || {provider:'auto',id:'auto'}, ...runExtras()})
     setCompiled(r.context.prompt); setPlan(r.plan || []); setLineTimeline(r.timeline || null); setNotice('以下是「实际将执行」的完整链路与提示词；尚未调用生成模型。')
@@ -469,7 +475,8 @@ export function StoryPanel() {
         文字盖在上面只是噪音（真机截图里它正好压在骨架第一行上）。 */}
     <div aria-live="polite">{busy && !loading && <p role="status" className="story-notice">{busy}…</p>}{notice && <p role="status" className="story-notice">{notice}</p>}</div>
     {error && <p role="alert" className="story-notice story-error">{error}</p>}
-    {loading ? <StorySkeleton /> : !project ? <StoryStart busy={Boolean(busy)} onStart={start}><label className="story-model-select">构思模型<select value={planningModel} disabled={Boolean(busy)} onChange={e=>setPlanningModel(e.target.value)}><option value="">自动选择文本模型</option>{models.filter(m=>capable(m,'novel')).map(m=><option key={modelKey(m)} value={modelKey(m)}>{m.name || m.id}</option>)}</select></label></StoryStart> : <>
+    {planningModelMissing && <p role="alert" className="story-notice story-error">已选构思模型不可用，请重新选择；不会自动换用其他模型。</p>}
+    {loading ? <StorySkeleton /> : !project ? <StoryStart busy={Boolean(busy)} onStart={start}><label className="story-model-select">构思模型<select value={planningModel} disabled={Boolean(busy)} onChange={e=>setPlanningModel(e.target.value)}><option value="">自动选择文本模型</option>{planningModelMissing && <option value={planningModel} disabled>已选模型不可用</option>}{models.filter(m=>capable(m,'novel')).map(m=><option key={modelKey(m)} value={modelKey(m)}>{m.name || m.id}（{m.provider}）</option>)}</select></label></StoryStart> : <>
       {/* 状态条必须放在 .story-layout **外面**：那是个两列网格（时间线 | 编辑器），
           当成第一个 grid 子元素塞进去，它自己会占掉 200px 的时间线列，
           把时间线、编辑器、结果整列挤偏——真机上的"排版乱了"就是这么来的。 */}
@@ -508,13 +515,14 @@ export function StoryPanel() {
         </section>
         <div className="story-editor-layout"><section className="story-editor">
           <div className="story-section-head"><h2>{scene?.title || '故事开场'}</h2><span>{beat?.inheritFromBeatId?'承接前文':'故事起点'}</span></div>
-          <div className="story-form-row"><label>输出类型<select aria-label="选择输出类型" disabled={Boolean(busy)} value={selectedKind} onChange={e=>setGenerationKind(e.target.value as StoryBeat['kind'])}><option value="novel">小说段落</option><option value="image">故事画面</option><option value="video">视频片段</option></select></label><label>生成模型<select aria-label="选择模型" disabled={Boolean(busy)} value={selectedModel} onChange={e=>setSelectedModel(e.target.value)}><option value="">自动选择模型</option>{availableModels.map(m=><option key={modelKey(m)} value={modelKey(m)}>{m.name || m.id}</option>)}</select></label></div>
+          <div className="story-form-row"><label>输出类型<select aria-label="选择输出类型" disabled={Boolean(busy)} value={selectedKind} onChange={e=>setGenerationKind(e.target.value as StoryBeat['kind'])}><option value="novel">小说段落</option><option value="image">故事画面</option><option value="video">视频片段</option></select></label><label>生成模型<select aria-label="选择模型" disabled={Boolean(busy)} value={selectedModel} onChange={e=>setSelectedModel(e.target.value)}><option value="">自动选择模型</option>{selectedModelMissing && <option value={selectedModel} disabled>已选模型不可用</option>}{availableModels.map(m=><option key={modelKey(m)} value={modelKey(m)}>{m.name || m.id}（{m.provider}）</option>)}</select></label></div>
+          {selectedModelMissing && <p role="alert" className="story-notice story-error">已选生成模型不可用，请重新选择；不会自动换用其他模型。</p>}
           <label>本段内容<textarea aria-label="本段内容" disabled={Boolean(busy)} value={promptDraft} onChange={e=>{setPromptDraft(e.target.value);setCompiled('')}} rows={6} placeholder="写下本段想发生的事，或让 AI 帮你完善" /></label>
           <label>本段台词 · 对白<textarea aria-label="本段台词" disabled={Boolean(busy)} value={dialogueDraft} onChange={e=>{setDialogueDraft(e.target.value);setCompiled('')}} rows={4} placeholder={'一行一句，写成「角色名：台词」。这是故事的骨头——人物说了什么，比镜头怎么推更重要。'} /></label>
           {/* 主按钮跟在"写内容 / 写台词"后面，不压在一堆折叠行底下：
               写完就能按，不用先滚过七组配置去找按钮。 */}
-          <div className="story-form-row"><label>构思模型<select value={planningModel} disabled={Boolean(busy)} onChange={e=>setPlanningModel(e.target.value)}><option value="">自动选择文本模型</option>{models.filter(m=>capable(m,'novel')).map(m=><option key={modelKey(m)} value={modelKey(m)}>{m.name || m.id}</option>)}</select></label><div className="story-actions"><button className="btn-ghost" disabled={Boolean(busy)} onClick={assist}>让 AI 完善本段</button></div></div>
-          <div className="story-actions"><button className="btn-primary" disabled={Boolean(busy)||!promptDraft.trim()} onClick={run}>生成当前{kindLabel[selectedKind]}</button><button className="btn-ghost" disabled={Boolean(busy)||!promptDraft.trim()} onClick={preview}>检查生成输入</button><button className="btn-ghost" disabled={Boolean(busy)||!hasOutput} onClick={continueFromBeat}>从此处继续 · AI 构思下一段</button></div>
+          <div className="story-form-row"><label>构思模型<select value={planningModel} disabled={Boolean(busy)} onChange={e=>setPlanningModel(e.target.value)}><option value="">自动选择文本模型</option>{planningModelMissing && <option value={planningModel} disabled>已选模型不可用</option>}{models.filter(m=>capable(m,'novel')).map(m=><option key={modelKey(m)} value={modelKey(m)}>{m.name || m.id}（{m.provider}）</option>)}</select></label><div className="story-actions"><button className="btn-ghost" disabled={Boolean(busy)||planningModelMissing} onClick={assist}>让 AI 完善本段</button></div></div>
+          <div className="story-actions"><button className="btn-primary" disabled={Boolean(busy)||selectedModelMissing||!promptDraft.trim()} onClick={run}>生成当前{kindLabel[selectedKind]}</button><button className="btn-ghost" disabled={Boolean(busy)||selectedModelMissing||!promptDraft.trim()} onClick={preview}>检查生成输入</button><button className="btn-ghost" disabled={Boolean(busy)||planningModelMissing||!hasOutput} onClick={continueFromBeat}>从此处继续 · AI 构思下一段</button></div>
           {!hasOutput && <p className="story-hint">先生成本段成品，再继续下一段。结果不满意时可以修改内容重新生成，旧版本会保留。</p>}
           {assistResult && <div className="story-draft"><h3>AI 草稿 · 确认后一起保存</h3><p>{assistResult.scene?.summary}</p><p>{assistResult.beat?.prompt}</p><p className="story-hint">人物：{assistResult.characters?.map((c:any)=>[c.name,c.appearance].filter(Boolean).join(' · ')).join('；') || '沿用既有设定'}</p><div className="story-actions"><button className="btn-primary" disabled={Boolean(busy)} onClick={applyAssist}>采用并保存设定</button><button className="btn-ghost" disabled={Boolean(busy)} onClick={()=>setAssistResult(null)}>暂不采用</button></div></div>}
           {/* 中间栏太长（真机量过：编辑器 3000+ px）。真正要动手的只有"写内容 / 写台词"，

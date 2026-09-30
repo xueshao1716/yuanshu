@@ -1,4 +1,5 @@
 import {randomUUID} from 'node:crypto';
+import {isTextModel} from '../shared/model-capabilities.mjs';
 import {createUiDesignStore} from './ui-design-store.mjs';
 import {designError} from './ui-design-document.mjs';
 import {validateWebsite,selectedHtml,escapeHtml} from './website-document.mjs';
@@ -15,8 +16,7 @@ export function createWebsiteService(ctx) {
   function pickModel(key) {
     const model=key?ctx.getModelList?.().find(m=>`${m.provider}/${m.id}`===key):ctx.getDefaultModel?.();
     if(!model)throw designError('请选择可用文本模型');
-    const caps=Array.isArray(model.capabilities)?model.capabilities:Object.keys(model.capabilities||{}).filter(k=>model.capabilities[k]);
-    if(caps.includes('image')||caps.includes('video'))throw designError('请选择文本模型');
+    if(!isTextModel(model))throw designError('请选择已启用的文本模型');
     return model;
   }
   function capacity(id) {

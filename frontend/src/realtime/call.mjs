@@ -34,7 +34,7 @@ export function createChatCall({ wsUrl, requestTicket, onState, onEvent, worklet
     try { send({ type: 'interrupt', ...audio.interrupt() }) } catch { stop('playback_queue_limit') }
   }
   return {
-    async start(sessionId, ensureSession) {
+    async start(sessionId, ensureSession, modelKey) {
       if (phase !== 'idle') return
       const run = ++generation; controller = new AbortController(); phase = 'connecting'; boundId = sessionId || null
       observedId = boundId; creating = !boundId
@@ -54,7 +54,7 @@ export function createChatCall({ wsUrl, requestTicket, onState, onEvent, worklet
         if (!id || (creating && observedId && observedId !== id)) { stop('conversation_changed'); return }
         boundId = id; creating = false
         advance('ticket')
-        const { ticket } = await requestTicket(id, controller.signal)
+        const { ticket } = await requestTicket(id, controller.signal, modelKey)
         if (run !== generation) return
         advance('socket')
         socket = new Socket(wsUrl); const current = socket

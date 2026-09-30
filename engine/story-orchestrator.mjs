@@ -36,6 +36,7 @@ import { listMethods, methodOf, saveMethod, deleteMethod, captureFromProject, me
 import { resolveColorCard } from './color-cards.mjs';
 import { currentColorCard } from './color-prefs.mjs';
 import { json } from './http-utils.mjs';
+import { resolveStoryModel, storyTextCandidates } from './story-models.mjs';
 
 const makeId = () => crypto.randomUUID();
 const nowIso = () => new Date().toISOString();
@@ -230,12 +231,6 @@ export function pickBeatReferences(characters, promptText, limit = 3) {
   return (mentioned.length ? mentioned.slice(0, limit) : chars.slice(0, 1)).map(c => ({ id: String(c.id), role: 'character' }));
 }
 
-function pickCapableModel(models, kind) {
-  const hits = (models || []).filter(m => m?.capabilities?.[kind] || (kind === 'novel' && m?.capabilities?.chat));
-  const rank = m => { const id = String(m?.id || '').toLowerCase(); if (/3\.|latest|pro/.test(id)) return 0; if (/2\.5/.test(id)) return 1; if (/2\.1/.test(id)) return 2; if (/2\.0/.test(id)) return 3; return 4; };
-  return hits.sort((a, b) => rank(a) - rank(b))[0] || null;
-}
-
 // 原著来源：要么直接粘贴正文，要么指定小说工坊的一本书（可选只要哪几章）。
 // 两条路都必须能说清"到底拿了多少字"——不声不响地截断，用户会以为整本书都改编了。
 async function collectAdaptSource(input, readNovelBook) {
@@ -260,22 +255,7 @@ async function collectAdaptSource(input, readNovelBook) {
 export function createStoryOrchestrator({ root, clock = {}, adapters = {}, generateImage = null, generateVideo = null, startVideoJob = null, checkVideoJob = null, saveArtifact = null, saveArtifactFromFile = null, directChat = null, getDefaultModel = null, getModelList = null, readNovelBook = null }) {
   if (!root) throw new Error('story orchestrator 缺少 root');
   const withUpdated = project => ({ ...project, updatedAt: (clock.now || nowIso)() });
-  // 前端模型下拉只能给出 {provider, id}，capabilities 会整个丢掉；而 negotiateCapabilities
-  // 就是靠它判断"这个模型认不认参考图"。丢了就会对**每个显式选中的模型**报
-  // 「当前模型不支持参考资产」，参考图通路被一条假降级关掉（真实项目里 4 次视频运行就是这样）。
-  // 能力是目录里的既有事实，按 provider+id 回查补上，不让一次下拉选择把它抹掉。
-  const withCatalogCapabilities = (model) => {
-    if (!model?.id) return model;
-    if (model.capabilities && Object.keys(model.capabilities).length) return model;
-    const candidates = typeof getModelList === 'function' ? getModelList() : [];
-    const hit = candidates.find(m => m?.provider === model.provider && m?.id === model.id);
-    return hit?.capabilities ? { ...model, capabilities: hit.capabilities } : model;
-  };
-  const resolveModel = (explicit, kind, fallback) => {
-    const isExplicit = explicit?.id && explicit.id !== 'auto' && explicit.provider !== 'auto';
-    const candidates = typeof getModelList === 'function' ? getModelList() : [];
-    return (isExplicit ? withCatalogCapabilities(explicit) : null) || pickCapableModel(candidates, kind) || (typeof getDefaultModel === 'function' ? getDefaultModel() : fallback);
-  };
+  const resolveModel = (explicit, kind, fallback) => resolveStoryModel({ explicit, kind, fallback, getModelList, getDefaultModel });
   // 单次生成能出几个变体（ComfyUI 的 batch_size）。上限刻意压到 4：
   // 每多一版就是一次真实计费调用，批量不该变成手滑烧钱。
   const VARIANT_MAX = 4;
@@ -401,14 +381,7 @@ export function createStoryOrchestrator({ root, clock = {}, adapters = {}, gener
   // 结构化 JSON 任务优先用**非推理**模型：推理模型的思考会混进 content，把 JSON 淹没。
   // handleStoryAssist 早就这么做，storyboard 一开始漏了 —— 2026-09-14 真实调用即踩到：
   // 返回的 content 是"我们需要回答用户。要求只返回 JSON…"的思路，解析自然失败。
-  const pickJsonModel = (explicit) => {
-    const isExplicit = explicit?.id && explicit.id !== 'auto' && explicit.provider !== 'auto';
-    if (isExplicit) return explicit;
-    const available = typeof getModelList === 'function' ? getModelList() : [];
-    return available.find(m => m?.capabilities?.chat && !m.reasoning && /agnes-3\.0-flash/i.test(m.id))
-      || available.find(m => m?.capabilities?.chat && !m.reasoning)
-      || (typeof getDefaultModel === 'function' ? getDefaultModel() : null);
-  };
+  const pickJsonModel = explicit => storyTextCandidates({ explicit, getModelList, getDefaultModel })[0];
   // ── 合成前把片段**搞到本地**（docs/NAMING.md 第三节的本地化契约）──
   // 外站给的是几小时到几天就失效的临时链接；ffmpeg 也只认本地文件。
   // 所以遇到外链不是"拼不了"，而是**先下载到本地再拼**——这是契约规定的默认动作。
@@ -527,7 +500,7 @@ export function createStoryOrchestrator({ root, clock = {}, adapters = {}, gener
       // 预览与实跑**共用同一个 plan**：两边各算一次的话，
       // 「检查生成输入」显示的就不是真正会发出去的东西了（这正是它以前只敢显示提示词的原因）。
       const plan = buildRunPlan(project, scene, beat, input, await loadDefaultRecipe(project));
-      const run = createGenerationRun({ ...input, kind: plan.kind, model: withCatalogCapabilities(plan.model), projectId: id, sceneId: scene.id, beatId: beat.id, seed: plan.seed, params: plan.params, inputAssets: input?.inputAssets || plan.compiled.referenceIds.map(assetId => ({ id: assetId, role: 'reference' })) }, clock);
+      const run = createGenerationRun({ ...input, kind: plan.kind, model: plan.model, projectId: id, sceneId: scene.id, beatId: beat.id, seed: plan.seed, params: plan.params, inputAssets: input?.inputAssets || plan.compiled.referenceIds.map(assetId => ({ id: assetId, role: 'reference' })) }, clock);
       // 台词时间轴随预览一起下发：语速常量只有一份（story-craft 的 SPEECH），
       // 前端**不许**自己再实现一套——否则体检说"说不完"、界面说"还富余"，用户不知道信谁。
       // 只读、纯计算，不写盘：预览本来就是"这次会发出去什么"的窗口。
@@ -778,13 +751,8 @@ export function createStoryOrchestrator({ root, clock = {}, adapters = {}, gener
       if (!character) throw Object.assign(new Error('这个故事还没有角色：先让 AI 补一段设定，或加一个角色'), { statusCode: 400 });
       const history = normalizePlayground(beat.playground);
       const soFar = buildStorySoFar(project, { maxChars: Math.min(contextBudget(), 6000), excludeBeatId: '' });
-      // 候选模型按 handleStoryAssist 同一套路：指定的 → 非推理快模型 → 默认模型，
-      // 试最多 2 个，并把**每个**失败原因带回来。短台词最怕推理模型把输出吃光。
-      const available = typeof getModelList === 'function' ? getModelList() : [];
-      const fast = available.find(m => m?.capabilities?.chat && !m.reasoning && /agnes-3\.0-flash/i.test(m.id))
-        || available.find(m => m?.capabilities?.chat && !m.reasoning);
-      const candidates = [input.model, fast, typeof getDefaultModel === 'function' ? getDefaultModel() : null]
-        .filter((m, i, all) => m?.id && all.findIndex(x => x?.provider === m.provider && x?.id === m.id) === i);
+      // 显式选择只用该模型；自动模式才可尝试两个合格文本模型。
+      const candidates = storyTextCandidates({ explicit: input.model, getModelList, getDefaultModel });
       if (!candidates.length) throw Object.assign(new Error('没有可用的文本模型：先去模型页配一个'), { statusCode: 503 });
       const reasons = [];
       let reply = '', used = candidates[0];
@@ -1815,12 +1783,8 @@ export async function handleStoryAssist(ctx, res, id, body) {
     const project = await readProject(ctx.root, id);
     const idea = String(bodyOrEmpty(body).idea || '').trim().slice(0, 2000);
     if (!idea) throw Object.assign(new Error('请输入想补充的故事想法'), { statusCode: 400 });
-    const requested = body?.model?.id && body.model.id !== 'auto' ? body.model : null;
-    const available = typeof ctx.getModelList === 'function' ? ctx.getModelList() : [];
-    const fast = available.find(m => m?.capabilities?.chat && !m.reasoning && /agnes-3\.0-flash/i.test(m.id))
-      || available.find(m => m?.capabilities?.chat && !m.reasoning)
-      || ctx.getDefaultModel();
-    const candidates = [requested, fast, ctx.getDefaultModel()].filter((m, i, all) => m?.id && all.findIndex(x => x?.provider === m.provider && x?.id === m.id) === i);
+    const candidates = storyTextCandidates({ explicit: body?.model, getModelList: ctx.getModelList, getDefaultModel: ctx.getDefaultModel });
+    if (!candidates.length) throw Object.assign(new Error('没有可用的文本模型，请先到模型管理配置'), { statusCode: 503 });
     const basePrompt = buildStoryAssistPrompt({ title: project.title, logline: project.logline, idea, current: project.bible });
     // 解析失败**先让同一个模型再答一次**（把"只输出 JSON"说到不能再直白），再换备选模型。
     // 用户看到的「智能填充返回的内容不是有效 JSON」十有八九就是模型多写了一句开场白——

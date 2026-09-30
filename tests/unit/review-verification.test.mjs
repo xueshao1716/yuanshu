@@ -5,6 +5,19 @@ import os from 'node:os';
 import path from 'node:path';
 import { createReviewVerification } from '../../engine/review-verification.mjs';
 
+test('verification expires when shared model rules change', t => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'yuanshu-evidence-'));
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  fs.mkdirSync(path.join(root, 'shared'));
+  const file = path.join(root, 'shared/model-capabilities.mjs');
+  fs.writeFileSync(file, 'before');
+  const store = createReviewVerification({ root });
+  store.save({ digest: store.fingerprint(), checks: ['unit', 'types', 'build'].map(name => ({ name, state: 'passed' })) });
+  assert.equal(store.read().state, 'passed');
+  fs.writeFileSync(file, 'after');
+  assert.equal(store.read().state, 'stale');
+});
+
 test('verification expires when CI configuration changes', t => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'yuanshu-evidence-'));
   t.after(() => fs.rmSync(root, { recursive: true, force: true }));

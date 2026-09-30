@@ -7,6 +7,7 @@ import { attachChatVoice } from '../../engine/chat-voice-bridge.mjs'
 import { createVoiceAdmission } from '../../engine/chat-voice-admission.mjs'
 import { createVoiceTicketHandler } from '../../engine/chat-voice-api.mjs'
 import { createProviderEvents } from '../../engine/chat-voice-provider.mjs'
+import { createVoiceModelRegistry, DEFAULT_VOICE_MODEL } from '../../engine/voice-model-registry.mjs'
 
 async function fixture(t, options = {}) {
   const providers = [], clients = [], messages = new Map(); let exists = true
@@ -14,10 +15,10 @@ async function fixture(t, options = {}) {
   const admission = createVoiceAdmission({ getToken: () => 'secret', readSession })
   const handler = createVoiceTicketHandler({ admission, origins: ['https://chat.test'] })
   const server = http.createServer(handler)
-  const connect = () => {
+  const connect = modelKey => {
     const p = new EventEmitter(); p.readyState = 1; p.bufferedAmount = 0; p.sent = []; p.dead = false
     p.send = value => p.sent.push(JSON.parse(value)); p.terminate = () => { p.dead = true }
-    providers.push(p); queueMicrotask(() => p.emit('open')); return p
+    p.modelKey = modelKey; providers.push(p); queueMicrotask(() => p.emit('open')); return p
   }
   const bridge = attachChatVoice({ server, admission, readSession, origins: ['https://chat.test'], connect, ...options })
   server.listen(0, '127.0.0.1'); await once(server, 'listening')
@@ -34,6 +35,44 @@ async function fixture(t, options = {}) {
 }
 const until = async fn => { for (let i = 0; i < 100; i++) { if (fn()) return; await new Promise(r => setTimeout(r, 5)) } throw new Error('condition timeout') }
 const event = (p, obj) => p.emit('message', Buffer.from(JSON.stringify(obj)))
+
+test('selected model crosses HTTP ticket, one-use claim and upstream connector', async t => {
+  const f = await fixture(t), modelKey = 'stepfun-plan/stepaudio-2.5-realtime'
+  const post = body => fetch(f.base + '/api/voice/ticket', { method: 'POST',
+    headers: { Authorization: 'Bearer secret', Origin: 'https://chat.test' }, body: JSON.stringify(body) })
+  const response = await post({ conversationId: 'chat', modelKey })
+  assert.equal(response.status, 200)
+  const { ticket } = await response.json(), ws = await f.open()
+  ws.send(JSON.stringify({ type: 'auth', ticket }))
+  await until(() => f.providers.length === 1)
+  assert.equal(f.providers[0].modelKey, modelKey)
+})
+
+test('configuration revoked after ticket issuance fails safely and releases the call lease', async t => {
+  let enabled = true, attempts = 0
+  const registry = createVoiceModelRegistry({ readAuth: () => enabled ? { 'stepfun-plan': { key: 'fixture-key' } } : {} })
+  const f = await fixture(t, { connect: key => { attempts++; registry.resolve(key); throw new Error('fixture-unavailable') } })
+  const ticket = f.ticket(); enabled = false
+  const ws = await f.open(); ws.send(JSON.stringify({ type: 'auth', ticket })); await once(ws, 'close')
+  assert.equal(f.messages.get(ws).at(-1).code, 'voice_model_unavailable')
+  assert.equal(attempts, 1); assert.equal(f.providers.length, 0)
+  enabled = true
+  assert.equal(registry.resolve(DEFAULT_VOICE_MODEL).key, 'fixture-key')
+  const retry = await f.open(); retry.send(JSON.stringify({ type: 'auth', ticket: f.ticket() })); await once(retry, 'close')
+  assert.equal(attempts, 2)
+  assert.equal(f.messages.get(retry).at(-1).code, 'provider_unavailable')
+  assert.doesNotMatch(JSON.stringify([...f.messages.values()]), /fixture-key|fixture-unavailable/)
+})
+
+test('invalid voice model requests never connect upstream', async t => {
+  const f = await fixture(t)
+  for (const modelKey of [null, {}, [], '', 'unsupported/model']) {
+    const response = await fetch(f.base + '/api/voice/ticket', { method: 'POST',
+      headers: { Authorization: 'Bearer secret', Origin: 'https://chat.test' }, body: JSON.stringify({ conversationId: 'chat', modelKey }) })
+    assert.equal(response.status, 400)
+  }
+  assert.equal(f.providers.length, 0)
+})
 
 test('call diagnostics retain timings and termination code without audio or context', async t => {
   const entries = [], f = await fixture(t, { onDiagnostic: e => entries.push(e) }), ws = await f.auth(), p = f.providers[0]

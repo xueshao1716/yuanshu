@@ -208,7 +208,10 @@ test('模型中心保留 store、统计刷新、模型切换和通道增删契�
     assert.match(hub, new RegExp(`\\b${storeValue}\\b`), `ModelHub 必须保留 ${storeValue}`)
   }
   assert.ok(hub.includes("useSWR('provider-stats', () => StatsApi.providers(), { refreshInterval: 60000 })"), 'Provider 统计必须继续每 60 秒刷新')
-  assert.ok(hub.includes('await KeysApi.switchModel({ provider: model.provider, modelId: model.id })'), '模型切换必须继续调用 KeysApi.switchModel')
+  const switchCall = hub.split('\n').find(line => line.includes('await KeysApi.switchModel(')) || ''
+  for (const field of ['provider: model.provider', 'modelId: model.id', 'sessionId: currentSessionId ?? undefined']) {
+    assert.ok(switchCall.includes(field), `模型切换必须传递 ${field}，避免只更新全局默认而未更新当前会话`)
+  }
   assert.doesNotMatch(hub, /\bmodels\.sort\(/, '不得直接 sort store 的 models 数组')
   assert.match(hub, /\[\.\.\.filteredModels\]\.sort\(/, '免费优先排序必须基于筛选结果的新数组')
   for (const api of ['KeysApi.manage()', 'KeysApi.add(', 'KeysApi.remove(']) {

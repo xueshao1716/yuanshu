@@ -3,7 +3,7 @@ import { mutate } from 'swr'
 import { ImagePlus, X } from 'lucide-react'
 import { MediaApi, withFileToken } from '../api'
 import { useApp } from '../store'
-import type { Model } from '../types'
+import { useMediaModel } from '../hooks/useMediaModel'
 import MediaHistory from './MediaHistory'
 import PromptSmartFill from './PromptSmartFill'
 
@@ -12,11 +12,6 @@ import PromptSmartFill from './PromptSmartFill'
 const SIZE_OPTIONS = ['1024x1024', '832x1472', '1472x832']
 const SIZE_LABEL: Record<string, string> = { '1024x1024': '方形 1:1', '832x1472': '竖版 9:16', '1472x832': '横版 16:9' }
 
-function capKeys(m: Model): string[] {
-  const cap = m.capabilities as any
-  return Array.isArray(cap) ? cap : Object.entries(cap || {}).filter(([, v]) => v).map(([k]) => k as string)
-}
-
 export default function GeneratePanel({ onClose, onGenerated, prompt: promptProp, onPromptChange }: {
   onClose?: () => void
   onGenerated: () => void
@@ -24,8 +19,7 @@ export default function GeneratePanel({ onClose, onGenerated, prompt: promptProp
   onPromptChange?: (value: string) => void
 }) {
   const { models } = useApp()
-  const imageModels = models.filter(m => capKeys(m).includes('image'))
-  const [modelIdx, setModelIdx] = useState(0)
+  const { choices: imageModels, selection, setSelection, selectedModel, modelKey } = useMediaModel(models, 'image')
   const [size, setSize] = useState('1024x1024')
   const [localPrompt, setLocalPrompt] = useState('')
   const prompt = promptProp ?? localPrompt
@@ -35,10 +29,10 @@ export default function GeneratePanel({ onClose, onGenerated, prompt: promptProp
   const [err, setErr] = useState('')
 
   const gen = async () => {
-    if (!prompt.trim() || !imageModels[modelIdx]) return
+    if (busy || !prompt.trim() || !selectedModel) return
     setBusy(true); setErr(''); setResult(null)
     try {
-      const m = imageModels[modelIdx]
+      const m = selectedModel
       const r = await MediaApi.image({ provider: m.provider, modelId: m.id, prompt: prompt.trim(), size })
       if (r.image) { setResult(r.image); onGenerated(); mutate('artifacts') }
       else setErr(r.error || '未返回图片')
@@ -61,10 +55,11 @@ export default function GeneratePanel({ onClose, onGenerated, prompt: promptProp
       ) : (
         <>
           <div className="flex flex-col sm:flex-row gap-2">
-            <select className="input-pi min-h-11 !py-2 text-xs w-full sm:max-w-[260px]" value={modelIdx}
-              onChange={e => setModelIdx(+e.target.value)}>
-              {imageModels.map((m, i) => (
-                <option key={`${m.provider}/${m.id}`} value={i}>
+            <select aria-label="绘图模型" disabled={busy} className="input-pi min-h-11 !py-2 text-xs w-full sm:max-w-[260px]" value={selectedModel ? selection : ''}
+              onChange={e => setSelection(e.target.value)}>
+              {!selectedModel && <option value="" disabled>所选模型已不可用，请重新选择</option>}
+              {imageModels.map(m => (
+                <option key={modelKey(m)} value={modelKey(m)}>
                   {m.name}（{m.provider}）{m.free ? ' · 免费' : ''}
                 </option>
               ))}
@@ -77,11 +72,11 @@ export default function GeneratePanel({ onClose, onGenerated, prompt: promptProp
             placeholder="描述想要的画面… 写一句也可以，点智能填充再出图"
             value={prompt} onChange={e => setPrompt(e.target.value)} />
           <div className="flex flex-col sm:flex-row sm:items-center gap-2">
-            <button className="btn-primary text-xs px-4 min-h-11 w-full sm:w-auto disabled:opacity-60" onClick={gen} disabled={busy || !prompt.trim()}>
+            <button className="btn-primary text-xs px-4 min-h-11 w-full sm:w-auto disabled:opacity-60" onClick={gen} disabled={busy || !prompt.trim() || !selectedModel}>
               {busy ? '生成中…（图像模型较慢，可能 30-120s）' : '生成'}
             </button>
             <PromptSmartFill kind="image" idea={prompt} onFilled={({ prompt: next }) => setPrompt(next)} />
-            {err && <span className="text-xs text-pi-red truncate">{err}</span>}
+            {err && <span role="alert" className="text-xs text-pi-red break-words">{err}</span>}
           </div>
           {result && (
             <div className="flex items-start gap-3 pt-1">
