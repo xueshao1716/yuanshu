@@ -96,6 +96,11 @@ export function renderPersonaSection(def = {}, { genes = null, model = null } = 
   if (d.values?.length) lines.push(`· 我在意的：${d.values.join("；")}`);
   if (d.boundaries?.length) lines.push(`· 边界：${d.boundaries.join("；")}`);
   if (d.taboos?.length) lines.push(`· 不做：${d.taboos.join("；")}`);
+  const designLabels = { appearance: '人物外貌', hairstyle: '发型与发色', clothing: '日常服装', scenarioOutfits: '场景穿搭' };
+  for (const [key, label] of Object.entries(designLabels)) {
+    if (typeof d[key] === 'string' && d[key].trim()) lines.push(`· ${label}：${d[key]}`);
+  }
+  if (Object.keys(designLabels).some(key => typeof d[key] === 'string' && d[key].trim())) lines.push('· 形象裁决：以上是经批准的人物设计，不代表现有立绘已更新。当前图片内容以实际素材为准，不要把图片差异当作新身份。');
   // 真机核对（2026-09-18）：问她多大，她答"出生到现在两个多月"——拿系统运行时长顶了设定年龄。
   // 定义要决定人格，就得点明这是**设定事实**，优先级高于任何"实际运行了多久"的推断。
   lines.push(`· 身份裁决：名字/年龄/称呼/性格这些**身份事实以本段为准**。禁止用记忆里的时间线、系统运行时长、建号天数重新推断我的年龄；记忆里查不到生日只是记忆有缺口，不是年龄不确定。`);

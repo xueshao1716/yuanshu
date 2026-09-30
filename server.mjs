@@ -120,7 +120,7 @@ import { frontendVersionPayload } from "./engine/frontend-version.mjs";
 import { withSamplingParams } from './engine/sampling-params.mjs';
 import { initImproveApi, analyzeImprovements, openImprovements, getImprovementDiagnostics, setImprovementStatus } from "./engine/improve-api.mjs";
 import { initEvolutionApi, proposeEvolution, applyEvolution, listEvolution, dismissEvolution, nudgeSkill, applySkillNudge, dismissSkillNudge, listSkillNudges, startEvolutionEvaluation, proposeMemoryNudge, listMemoryNudges, applyMemoryNudge, dismissMemoryNudge, analyzeMemoryCompress, proposeMemoryCompress, listMemoryCompress, applyMemoryCompress, dismissMemoryCompress } from "./engine/evolution-api.mjs";
-import { initSessionManager, createSession, cloneSessionFromEntry, evictInactiveSessions, slimSessionImages, compactSession, openSession, initSearchTool, initShareTool, createSessionAgent, ensureAgent, isFirstTurn, deleteSession, setOnTheSpotFixRunner, ensureContextHeadroom, canAccessSessionOrigin, withIdleSession, compactSessionAgent } from "./engine/session-manager.mjs";
+import { initSessionManager, initComputerTool, createSession, cloneSessionFromEntry, evictInactiveSessions, slimSessionImages, compactSession, openSession, initSearchTool, initShareTool, createSessionAgent, ensureAgent, isFirstTurn, deleteSession, setOnTheSpotFixRunner, ensureContextHeadroom, canAccessSessionOrigin, withIdleSession, compactSessionAgent } from "./engine/session-manager.mjs";
 import { initUnifiedChat, unifiedChat, engineCurrentModel, initEngine, getCodeRuntime, getCodeMode, toolBindingDesc, toolBindingArgs, toolBindingArgsObj, handleNotices, handleUnifiedChat, touchTask, clearTask, taskProgress, handleAgentEventIn, handleAgentEventOut } from "./engine/unified-chat.mjs";
 import { completedTaskText } from "./engine/task-continuation.mjs";
 import { createApprovalInterceptor } from "./engine/tools/approval.mjs";
@@ -129,6 +129,10 @@ import { isLocalMaintenanceApproval } from "./engine/maintenance-approval.mjs";
 import { createGeneApproval } from './engine/gene-approval.mjs';
 import { createPersonaGovernance } from './engine/persona-governance.mjs';
 import { createPersonaApproval } from './engine/persona-approval.mjs';
+import { createComputerUse } from './engine/computer-use/controller.mjs';
+import { createWindowsAdapter } from './engine/computer-use/windows.mjs';
+import { createComputerRoutes } from './engine/computer-use/routes.mjs';
+import { COMPUTER_TOOL_SCHEMA, computerTool, createPiComputerTool } from './engine/computer-use/tools.mjs';
 import { completeGeneTurn } from './engine/gene-turn.mjs';
 import { initRefineApi, readRefineJson, runRefineScript, handleRefineStatus, handleRefineList, detectSkillDomain, handleRefineFeedback, handleRefineGenes, handleRefinePlan, handleRefineApprove, handleRefineReject, handleRefineRollback } from "./engine/refine-api.mjs";
 import { initMcpServer, handleMcp } from "./engine/mcp-server.mjs";
@@ -607,6 +611,7 @@ const FIX_PROBLEM_TOOL = {
 };
 const UNIFIED_TOOLS = [
   ...BASE_TOOL_SCHEMAS,
+  COMPUTER_TOOL_SCHEMA,
   SHARE_PROJECT_SCHEMA,
   ...MEDIA_TOOL_SCHEMAS,
   ...TODO_TOOL_SCHEMAS,
@@ -646,6 +651,7 @@ const executeUnifiedTool = createUnifiedToolExecutorGuarded({
   sensitiveHint: () => formatSensitiveHint(listHostChannels({ getModelList: () => modelList })),
   // 外部自定义工具执行器：dsh_task（pi 格式 execute → unified 结果格式）+ 宿主媒体密文通道
   extraExecutors: {
+    computer_use: (args, ctx) => computerTool(computerUse, args, ctx),
     dsh_task: async (args, ctx) => {
       const t = globalThis.__yuanshuDshTool || globalThis.__piWebDshTool;
       if (!t?.execute) return { text: "[dsh] 执行臂未初始化", isError: true };
@@ -2194,6 +2200,8 @@ const withCache = createWithCache();
 const uiDesigns = createUiDesignService({root: WS_ROOT, getModelList: () => modelList, getDefaultModel: () => defaultModel, directChat});
 const websites = createWebsiteService({root: WS_ROOT, getModelList: () => modelList, getDefaultModel: () => defaultModel, directChat});
 const maintenanceSessionExists = sid => activeSessions.has(sid) || !!findSession(sid);
+const computerUse = createComputerUse({adapter:createWindowsAdapter(),registry:confirmRegistry,sessionExists:maintenanceSessionExists,push:busPush});
+initComputerTool((Type, sessionId) => createPiComputerTool(Type, () => computerUse, sessionId));
 const requestGeneApproval = createGeneApproval({ api: emotion, registry: confirmRegistry, sessionExists: maintenanceSessionExists, push: busPush });
 const personaGovernance = createPersonaGovernance({ wsRoot: CONFIG.cwd, agentDir: getAgentDir() });
 const requestPersonaApproval = createPersonaApproval({ api: personaGovernance, registry: confirmRegistry, sessionExists: maintenanceSessionExists, push: busPush });
@@ -2207,6 +2215,7 @@ maintenanceApi = createMaintenanceApi({
   },
 });
 const API_ROUTES = [
+  ...createComputerRoutes({service:computerUse,json,readBody}),
   ...createBehaviorExperimentRoutes({ service: behaviorExperiments, json, readBody }),
   ...websiteRoutes(websites,{json,readBody,root:WS_ROOT}),
   ["GET", "/api/workshop-ui/projects", async res => handleUiDesign(uiDesigns, json, res, 'list')],
@@ -2901,6 +2910,7 @@ const API_ROUTES = [
       const ok = b?.ok === true;
       if (!sid || !id) return json(res, 400, { error: "缺少 sessionId/id" });
       const pending = confirmRegistry.list().find(item => item.sessionId === sid && item.id === id);
+      if (ok && pending?.toolName === 'computer-use' && !isLocalMaintenanceApproval(req)) return json(res, 403, {error:'电脑操作须在本机系统页逐次人工确认，远程不能批准。'});
       if (ok && pending?.toolName === 'maintenance' && !isLocalMaintenanceApproval(req)) return json(res, 403, { error: '请在运行元枢的电脑上，通过 http://127.0.0.1:8787 的超维面板人工确认。远程入口不能批准。' });
       if (ok && ['gene-governance', 'persona-governance'].includes(pending?.toolName) && !isLocalMaintenanceApproval(req)) return json(res, 403, { error: '人格及基线批准与回退须在运行元枢的电脑上，通过本地人工确认。' });
       const r = confirmRegistry.settle(sid, id, ok);

@@ -18,6 +18,9 @@ import { compactManagedSession } from './session-manual-compaction.mjs';
 import { createSessionLifecycle, sessionFileVersion, conversationGone, disposeAgent } from './session-lifecycle.mjs';
 import { resolveShareOrigin } from './network-endpoints.mjs';
 
+let computerToolFactory = null;
+export function initComputerTool(factory) { computerToolFactory = factory; }
+
 const lifecycle = createSessionLifecycle();
 const lazySessionManagers = new WeakSet();
 
@@ -752,6 +755,7 @@ export async function createSessionAgent(sm, model) {
   const customTools = [];
   const { createRequire: teamRequire } = await import('node:module');
   customTools.push(createPiTeamTool(teamRequire(_piPackage)('typebox').Type));
+  if (computerToolFactory) customTools.push(computerToolFactory(teamRequire(_piPackage)('typebox').Type, () => sm.getSessionId()));
   const st = await initSearchTool();
   if (st) customTools.push(st);
   const sh = await initShareTool();
@@ -774,7 +778,7 @@ export async function createSessionAgent(sm, model) {
   // 两阶段引导：首轮给文件核心 + 出片/查找/分享，避免只会 bash 考古。
   // 首个文本/工具事件后 promote 恢复完整集。PI_TWO_PHASE=0 关闭。
   const MIN_BOOTSTRAP = ["read", "write", "edit", "bash"].filter(t => _tools.includes(t));
-  const FIRST_TURN_EXTRA = ["search_files", "list_channels", "generate_video", "generate_image", "generate_tts", "share_project", "activate_skill", "delegate_team"];
+  const FIRST_TURN_EXTRA = ["search_files", "list_channels", "generate_video", "generate_image", "generate_tts", "share_project", "activate_skill", "delegate_team", "computer_use"];
   const bootstrap = isFirstTurn(sm) && MIN_BOOTSTRAP.length >= 2 && process.env.PI_TWO_PHASE !== "0";
   const allowedTools = bootstrap
     ? [...new Set([...MIN_BOOTSTRAP, ...customTools.map(t => t.name).filter(n => MIN_BOOTSTRAP.includes(n) || FIRST_TURN_EXTRA.includes(n))])]

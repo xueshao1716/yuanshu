@@ -4,6 +4,7 @@ import { AIBodyApi, SkillsApi, TeamRunApi } from '../api'
 import { KnowledgeApi, knowledgePolling } from '../knowledge/api'
 import { useCompanionContext } from '../components/xiaoyu/CompanionProvider'
 import { Block, date, LoadState } from './shared'
+import { diagnosticMessages } from './diagnostics.mjs'
 
 export function Rhythm() {
   const c = useCompanionContext(), [saving,setSaving] = useState(false)
@@ -32,7 +33,7 @@ export function Learning() {
     <Block title="已发现的技能" hint="这里是可用技能的目录，不代表每个技能都通过实测。">
       <LoadState error={skills.error} loading={skills.isLoading} retry={skills.mutate} />
       {skills.data && <p>目录中共有 {skills.data.skills.length} 项。<a href="#/apps">进入知识页管理和检索</a></p>}
-      {skills.data?.diagnostics?.map((d,i) => <p className="soul-notice" key={i}>{d}</p>)}
+      {diagnosticMessages(skills.data?.diagnostics).map((message: string,i: number) => <p className="soul-notice" key={i}>{message}</p>)}
     </Block>
   </>
 }

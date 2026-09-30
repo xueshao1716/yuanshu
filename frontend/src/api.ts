@@ -643,7 +643,7 @@ export const RefineApi = {
   reject: (id: string) => api<any>('/api/refine/reject', { method: 'POST', body: { id } }),
 }
 export const SkillsApi = {
-  list: () => api<{ skills: SkillSummary[]; sources?: Record<string, number>; categories?: Record<string, number>; diagnostics?: string[] }>('/api/skills'),
+  list: () => api<{ skills: SkillSummary[]; sources?: Record<string, number>; categories?: Record<string, number>; diagnostics?: (string | {type?: string; message: string; path?: string; collision?: unknown})[] }>('/api/skills'),
 }
 export const PromptsApi = {
   list: () => api<{ prompts: { name: string; description: string; content: string }[] }>('/api/prompts'),

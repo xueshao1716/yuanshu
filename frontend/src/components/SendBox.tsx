@@ -389,14 +389,16 @@ export default function SendBox({ streaming, onStop, onSend, onCommand, onVoice,
           {/* 发送 / 停止 */}
           {onOpenCall && <button type="button" data-voice-entry className="btn-tool-sm composer-call touch-hit" aria-label="语音通话" title="语音通话" onClick={onOpenCall}
             disabled={recording || requestingMic || convertingVoice || voiceBusy || streaming}><Phone className="w-4 h-4" strokeWidth={1.8} aria-hidden="true" /></button>}
+          </div>
+          <div className="composer-submit">
           {streaming ? (
             <button onClick={onStop}
               className="h-7 w-7 rounded-full bg-red-500/90 text-white flex items-center justify-center hover:bg-red-500 transition-colors touch-hit"
-              title="停止">
+              title="停止" aria-label="停止生成">
               <span className="w-2.5 h-2.5 bg-white rounded-[2px]" />
             </button>
           ) : (
-            <button onClick={doSend} title="发送 (Enter)"
+            <button onClick={doSend} title="发送 (Enter)" aria-label="发送消息"
               className="press btn-send h-7 w-7 rounded-full text-white flex items-center justify-center disabled:opacity-40 touch-hit"
               disabled={!value.trim() && files.length === 0}>
               <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><polyline points="12 19 12 5"/><polyline points="5 12 12 5 19 12"/></svg>

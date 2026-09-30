@@ -3,7 +3,8 @@ import { randomUUID } from 'node:crypto';
 import { DEFAULT_DEFINITION, validatePersonaDefinition } from './persona-def.mjs';
 import { personaStorage, revisionOf } from './persona-storage.mjs';
 
-export const PERSONA_FIELDS = ['name', 'age', 'gender', 'kind', 'called', 'bond', 'inner', 'tone', 'values', 'boundaries', 'taboos', 'growth'];
+const REQUIRED_FIELDS = ['name', 'age', 'gender', 'kind', 'called', 'bond', 'inner', 'tone', 'values', 'boundaries', 'taboos', 'growth'];
+export const PERSONA_FIELDS = [...REQUIRED_FIELDS, 'appearance', 'hairstyle', 'clothing', 'scenarioOutfits'];
 const lists = new Set(['inner', 'tone', 'values', 'boundaries', 'taboos']);
 function validatePatch(value) {
   if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error('缺少人格定义');
@@ -18,8 +19,8 @@ function validatePatch(value) {
 }
 function validateAuthority(value) {
   if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error('人格定义必须为完整对象');
-  if (PERSONA_FIELDS.some(key => !Object.hasOwn(value, key))) throw new Error('人格定义缺少必要字段；禁止用默认值补齐后覆盖');
-  validatePatch(Object.fromEntries(PERSONA_FIELDS.map(key => [key, value[key]])));
+  if (REQUIRED_FIELDS.some(key => !Object.hasOwn(value, key))) throw new Error('人格定义缺少必要字段；禁止用默认值补齐后覆盖');
+  validatePatch(Object.fromEntries(PERSONA_FIELDS.filter(key => Object.hasOwn(value, key)).map(key => [key, value[key]])));
   const problems = validatePersonaDefinition(value);
   if (problems.length) throw new Error(`人格定义不合法：${problems.join('；')}`);
 }

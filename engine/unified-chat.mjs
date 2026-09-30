@@ -745,11 +745,13 @@ export async function initEngine() {
       authReader: () => _readJsonFile(_authPath),
       modelReader: () => _readJsonFile(_modelsPath),
       resolveAuth: (provider) => resolveAuth(provider),
-      defaultExecutor: (name, args) => _executeUnifiedTool(name, args),
+      defaultExecutor: (name, args, ctx) => _executeUnifiedTool(name, args, ctx),
       getModel: engineCurrentModel,
       sessionDir: path.join((_getAgentDir ? _getAgentDir() : ""), "engine-sessions"),
     });
     nextGateway.tools.register(nextCodeMode.runCodeToolDef());
+    const computerSchema = _unifiedTools.find(t => t.function?.name === 'computer_use');
+    if (computerSchema) nextGateway.tools.register({...computerSchema.function,parallel:false,executor:(args,ctx)=>_executeUnifiedTool('computer_use',args,ctx)});
     attachYuanshuCodeTool(_unifiedTools, nextCodeMode);
     await registerPromptSection(nextGateway.registry, {
       id: "yuanshu:prompt:time",

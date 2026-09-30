@@ -54,7 +54,12 @@ try {
         : p === '/api/genome' ? { genes: { gentleness: { baseline: 0.8, expression: 0.82 } }, proposals: [], snapshots: [], reviews: [] }
         : p === '/api/persona/confirmations' ? { items: pending ? [{ id: 'confirm-one', sessionId: 'fixture', toolName: 'persona-governance', reason: '隔离测试确认卡', expiresAt: Date.now() + 60000 }] : [], canApprove: true }
         : p === '/api/refine/status' ? { counts: { pending: 1, applied: 2, rejected: 0 } }
-        : p === '/api/skills' ? { skills: [] }
+        : p === '/api/skills' ? { skills: [], diagnostics: [{type:'collision',message:'发现同名技能，请到知识页核对',path:'isolated',collision:{}}] }
+        : p === '/api/knowledge/status' ? {summary:{counts:{review_required:1,committed:2,blocked:0},total:3,policyRevision:1,paused:false},budget:{day:'2026-09-30',currency:'USD',spent:0,reserved:0,unknown:0,modelRequests:0,networkRequests:0},worker:{running:false,cooldownUntil:0},intake:{}}
+        : p === '/api/knowledge/policy' ? {revision:1,localEnabled:true,paused:false,remoteEnabled:false,networkEnabled:false,dailyCost:0,currency:'USD',maxModelRequests:0,maxNetworkRequests:0,inputTokens:1000,outputTokens:1000,allowedRoots:[],allowedUrls:[],allowedModels:[],outboundRoots:[],model:'',rates:{}}
+        : p === '/api/knowledge/jobs' ? {items:[],total:0}
+        : p === '/api/refine/list' ? {pending:[],applied:[],rejected:[]}
+        : p === '/api/knowledge/models' ? []
         : p === '/api/aibody' ? { principle: '基于真实记录', theory: [], layers: [{ id: 'host', label: '宿主层', summary: '测试宿主摘要', modules: [] }], observedAt: '2026-09-29T12:00:00Z' }
         : p === '/api/team/run' ? { ok: true, run: null, launch: null, snapshotKind: 'none' }
         : p.endsWith('/messages') ? { messages: [], truncated: false }
@@ -95,9 +100,14 @@ try {
     await page.getByText('测试宿主摘要', { exact: true }).waitFor();
     await fit('mother');
     await open('learning');
-    await page.getByText('待提炼审批', { exact: true }).waitFor();
+    await page.getByText('待核查', { exact: true }).waitFor();
+    await page.getByText('发现同名技能，请到知识页核对', { exact: true }).waitFor();
     await fit('learning');
     await open('voice');
+    await page.getByLabel('人物外貌', {exact:true}).fill('鹅蛋脸，自然肤色');
+    await page.getByLabel('发型与发色', {exact:true}).fill('黑色中长发');
+    await page.getByLabel('日常服装', {exact:true}).fill('墨绿衬衣');
+    await page.getByLabel('场景穿搭').fill('工作：衬衣\n休闲：卫衣');
     await page.getByRole('link', { name: '回到对话设置声音', exact: true }).waitFor();
     const voiceMode = page.getByRole('combobox', { name: '朗读通道', exact: true });
     await voiceMode.selectOption('cloud');
@@ -119,7 +129,8 @@ try {
     await open('voice');
     assert.equal(await voiceMode.inputValue(), 'cloud', 'shared voice choice survives section unmount');
     assert.equal(await page.locator('.soul-gallery[aria-pressed="true"] strong').textContent(), GALLERIES.at(-1).label);
-    const inactive = Object.fromEntries(['/api/team/run', '/api/aibody', '/api/refine/status', '/api/persona/confirmations'].map(p => [p, counts.get(p) || 0]));
+    assert.equal(await page.getByLabel('人物外貌', {exact:true}).inputValue(), '鹅蛋脸，自然肤色');
+    const inactive = Object.fromEntries(['/api/team/run', '/api/aibody', '/api/refine/status'].map(p => [p, counts.get(p) || 0]));
     await page.clock.runFor(130000);
     await page.waitForTimeout(100);
     for (const [p, count] of Object.entries(inactive)) assert.equal(counts.get(p) || 0, count, `${p} must stop polling after leaving its section`);
@@ -130,6 +141,7 @@ try {
     await open('identity');
     assert.equal(await page.getByLabel('名字', { exact: true }).inputValue(), '保留的人格草稿');
     await page.getByRole('button', { name: /查看差异/ }).click();
+    assert.equal(await page.locator('.soul-diff').count(), 5, 'identity and appearance share a complete diff');
     await page.getByLabel('修改理由', { exact: true }).fill('隔离测试，不写生产');
     await Promise.all([
       page.waitForRequest(req => req.url().endsWith('/api/persona/apply')),
@@ -144,9 +156,20 @@ try {
     await page.waitForTimeout(100);
     assert.equal(new URL(page.url()).hash, '#/soul', 'pending approval blocks leaving route');
     await page.getByRole('button', { name: '拒绝本次操作', exact: true }).click();
-    await page.getByText('fixture_denied', { exact: true }).waitFor();
+    await page.getByText('fixture_denied。草稿已保留。', { exact: true }).waitFor();
+    assert.equal(await page.getByLabel('人物外貌', {exact:true}).inputValue(), '鹅蛋脸，自然肤色', 'denial retains design');
     await open('identity');
     await page.getByRole('button', { name: '放弃草稿并载入当前版本', exact: true }).click();
+    await open('voice');
+    assert.equal(await page.getByLabel('人物外貌', {exact:true}).inputValue(), '', 'reset clears shared draft');
+    await open('learning');
+    await page.getByRole('link', {name:'进入知识页处理学习与经验',exact:true}).click();
+    await page.getByRole('heading', {name:'知识',exact:true}).waitFor();
+    await page.getByRole('heading', {name:'知识自动积累',exact:true}).waitFor();
+    await page.getByText('今日已计费', {exact:false}).waitFor();
+    await page.screenshot({path:path.join(root,`tmp/knowledge-entry-${width}.png`),fullPage:true});
+    await page.goto(origin + '/#/soul');
+    await page.getByRole('heading', {name:'灵魂培养中心',exact:true}).waitFor();
     await open('team');
     await page.getByRole('link', { name: '进入工作台 · 天团协作', exact: true }).click();
     await page.getByRole('heading', { name: '工作台', exact: true }).waitFor();

@@ -12,3 +12,4 @@ export const errorText = (e: unknown) => e instanceof Error ? e.message : '操�
 export const geneLabels: Record<string,string> = {gentleness:'温柔',initiative:'主动',curiosity:'好奇',attachment:'依恋',learning:'学习',creativity:'创造',caution:'谨慎',humor:'幽默',loyalty:'忠诚',autonomy_bias:'自主',adaptability:'应变'}
 export const fieldLabels: Record<string,string> = {name:'名字',age:'设定年龄',gender:'性别',kind:'身份定位',called:'对你的称呼',bond:'关系定位',inner:'内心与自我认知',tone:'表达习惯',values:'价值观',boundaries:'行为边界',taboos:'禁忌',growth:'成长方向'}
 export const formatValue = (value: unknown) => Array.isArray(value) ? value.join('\n') : String(value ?? '')
+Object.assign(fieldLabels, {appearance:'人物外貌',hairstyle:'发型与发色',clothing:'日常服装',scenarioOutfits:'场景穿搭'})

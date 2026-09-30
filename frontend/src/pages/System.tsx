@@ -7,6 +7,7 @@ import { SystemApi } from '../api'
 import PageHeader from '../components/PageHeader'
 import SectionHeader from '../components/SectionHeader'
 import StatusTile from '../components/StatusTile'
+import ComputerUsePanel from '../components/ComputerUsePanel'
 
 const CAP_ICONS: Record<string, any> = {
   chat: MessagesSquare, sparkles: Sparkles, clock: Clock, factory: Factory,
@@ -149,6 +150,8 @@ export default function System() {
             />
           </div>
         </section>
+
+        <ComputerUsePanel />
 
         <section data-slot="system-primary" className="grid grid-cols-1 lg:grid-cols-2 gap-5 mb-8">
           <div>

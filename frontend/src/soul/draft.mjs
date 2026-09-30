@@ -1,4 +1,5 @@
-export const PERSONA_FIELDS = ['name', 'age', 'gender', 'kind', 'called', 'bond', 'inner', 'tone', 'values', 'boundaries', 'taboos', 'growth'];
+export const DESIGN_FIELDS = ['appearance', 'hairstyle', 'clothing', 'scenarioOutfits'];
+export const PERSONA_FIELDS = ['name', 'age', 'gender', 'kind', 'called', 'bond', 'inner', 'tone', 'values', 'boundaries', 'taboos', 'growth', ...DESIGN_FIELDS];
 export const listLines = text => String(text).split('\n').map(s => s.trim()).filter(Boolean);
 export function normalizeDraft(draft) {
   return Object.fromEntries(Object.entries(draft).map(([key,value]) => [key,

@@ -43,7 +43,7 @@ test('only editable sections stay mounted and confirmation polling follows activ
   const soul = source('pages/Soul.tsx');
   assert.ok(soul.includes("const draftSections: Section[] = ['identity', 'genes', 'history']"));
   assert.ok(soul.includes('visited.filter(id => id === section || draftSections.includes(id))'));
-  assert.ok(soul.includes('active={draftSections.includes(section) || busy}'));
+  assert.ok(soul.includes("active={draftSections.includes(section) || section === 'voice' || busy}"));
   const confirmation = source('soul/Confirmations.tsx');
   assert.ok(confirmation.includes('active && sessionId'));
   assert.ok(confirmation.includes('busy ? 1000 : 10000'));
