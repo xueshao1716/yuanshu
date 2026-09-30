@@ -14,7 +14,7 @@
 - [x] Task 6: knowledge controls and summary-only soul integration; desktop/mobile isolated browser acceptance and frontend detection passed.
 - [x] Task 7: isolated end-to-end/security/recovery coverage; full suite 2966 passed / 0 failed / 1 Windows EPERM skip, types/build passed; exclusive 60s performance gate passed.
 - [x] Independent specification and code-quality reviews completed; startup import and stale retrieval-status findings reproduced, fixed and independently closed (33/33 focused tests).
-- [ ] Task 8: scoped integration, deployment identity/bundle checks, narrow restart and dual remote verification.
+- [x] Task 8: scoped integration and main-build verification completed; release `60abcb19` deployed as `2.116.41`, live knowledge APIs returned 200, three asset entrypoints/157 reachable files checked, and release pushed to both remotes. Direct process-stop access denial was resolved through the existing watchdog scheduled-task stop/start API; unrelated portrait/theme edits and the mesh listener were preserved. Final documentation refs and delivery notification are checked at handoff.
 
 The detailed checkboxes below preserve the original proposed sequence, not a fabricated execution log. The planned per-task commits were not made; delivery is being split into coherent reviewed source/UI/release commits instead. Acceptance evidence and limitations are in `../reports/2026-09-30-knowledge-autonomy-verification.md`.
 Actual retrieval context uses a conservative 2000 UTF-8-byte cap; method proof uses an explicitly authorized artifact-bound `json-contract-v1` validator. The final synchronous `retrievalCurrent` fence also checks current authoritative entry status and source identity.
