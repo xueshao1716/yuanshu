@@ -1073,6 +1073,8 @@ export async function handleUnifiedChat(res, entry, message, sessionId, params, 
   };
   const onCheckpoint = createRunCheckpointWriter(writer, runContext);
   let history = [...formatSessionHistory(hist), { role: "user", content: mediaAwarePrompt(message, []) }];
+  // Untrusted source material stays below system instructions and separate from the user's request.
+  if (runContext?.knowledgeContext) history.splice(history.length - 1, 0, { role: 'user', content: runContext.knowledgeContext });
   if (shouldInjectFullMemory(message)) setLastUserQuery(message);
   bindTodoSession(sessionId);
   bindWorkmemSession(sessionId);

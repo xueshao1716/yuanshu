@@ -24,13 +24,14 @@ export function createLearningIntake({ wsRoot, store, limit = 500 }) {
     if (!eligible(run) || run.learningIntake?.state === 'queued') return
     const data = read()
     if (!data.entries.some(e => e.runId === run.id && e.sessionId === run.sessionId)) {
+      if (data.entries.length >= limit) {
+        store.update(run.id, { learningIntake: { state: 'blocked', reason: 'candidate_capacity' } })
+        return
+      }
       data.entries.push({ runId: run.id, sessionId: run.sessionId, state: 'pending',
         at: run.completedAt || run.updatedAt, title: intakeText(run.input?.messagePreview) || '已完成任务',
         source: 'run-ledger' })
       data.entries.sort((a, b) => new Date(a.at).getTime() - new Date(b.at).getTime())
-      const excess = Math.max(0, data.entries.length - limit)
-      data.retired += excess
-      data.entries = data.entries.slice(-limit)
       data.updatedAt = new Date().toISOString()
       atomicWriteJson(file, data)
     }
@@ -52,7 +53,7 @@ export function createLearningIntake({ wsRoot, store, limit = 500 }) {
       const backlog = { backlog: pending.length, failed: pending.filter(r => r.learningIntake?.state === 'failed').length }
       try {
         const data = read()
-        return { ...backlog, ok: true, count: data.entries.length, limit, retired: data.retired, updatedAt: data.updatedAt || null,
+        return { ...backlog, ok: true, count: data.entries.length, limit, backpressure: data.entries.length >= limit && pending.length > 0, retired: data.retired, updatedAt: data.updatedAt || null,
           entries: data.entries.slice().reverse() }
       } catch { return { ...backlog, ok: false, reason: 'candidate_state_unreadable', count: 0, entries: [] } }
     },

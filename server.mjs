@@ -82,7 +82,7 @@ import { initThemePrefs, loadThemePrefs, saveThemePrefs } from "./engine/theme-p
 import { initColorPrefs, loadColorPrefs, saveColorPrefs } from "./engine/color-prefs.mjs";
 import { initEnginePair, loadEnginePair, saveEnginePair, swapEnginePair, resolveLead, describePair, leadNote } from "./engine/engine-pair.mjs";
 import { decorateEngineStatus, pluginFromBody, isCorePlugin } from "./engine/engine-panel.mjs";
-import { initWorkspaceApi, WS_ROOT, findWorkspaceFiles, wsSafePath, saveArtifact, saveArtifactFromFile, handleWsTree, handleWsFile, handleWsRead, handleWsPreview, handleWsWrite, handleWsArtifacts, wsNextVersion, wsCopyDir, handleWsDeliver, handleWsPackage, handleWsDeliveries, handleWsRename, handleWsDelete, handleWsSearch, handleWsProjectCreate, handleWsConvert } from "./engine/workspace-api.mjs";
+import { initWorkspaceApi, WS_ROOT, findWorkspaceFiles, wsSafePath, saveArtifact, saveArtifactFromFile, handleWsTree, handleWsFile, handleWsRead, handleWsPreview, handleWsWrite, handleWsArtifacts, wsNextVersion, handleWsDeliver, handleWsPackage, handleWsDeliveries, handleWsRename, handleWsDelete, handleWsSearch, handleWsProjectCreate, handleWsConvert } from "./engine/workspace-api.mjs";
 import { initContextLoader, makeLoader, loadExperience, readRulesWithImports, loadContextRules, jitRulesForPath, loadProjectRules, loadSkillIndex, execActivateSkill, ACTIVATE_SKILL_TOOL, WORK_PROTOCOL, loadMemory, loadMemoryIndex, loadExperienceIndex, shouldInjectFullMemory, setLastUserQuery } from "./engine/context-loader.mjs";
 import { initMediaApi, findMediaModel, detectMediaIntents, extractMediaPrompt, mediaAwarePrompt, mediaReadyNotice, explainMediaError, generateMediaAsync, generateTTS, generateImage, handleImage, handleImageWithSave, generateVideo, startVideoJob, checkVideoJob, handleMedia, assistantContentWithMedia } from "./engine/media-api.mjs";
 import { extractPlayableMedia } from "./engine/media-embed.mjs";
@@ -144,6 +144,10 @@ import { planReflectionExecution, buildActionExecutionPrompt, parseActionResult,
 import { loadEpisodes, dream, writeDreamLog, dreamPaths, currentWeights, promoteWeights, resetWeights, recordSkillChoice } from "./engine/dream.mjs";
 import { createDreamCollector } from "./engine/dream-collector.mjs";
 import { createLearningIntake } from "./engine/learning-intake.mjs";
+import { createKnowledgeRuntime } from "./engine/knowledge-runtime.mjs";
+import { createKnowledgeOverview } from "./engine/knowledge-overview.mjs";
+import { knowledgeChatContext, deliverKnowledgeContext } from "./engine/knowledge-chat.mjs";
+import { createKnowledgeApi } from "./engine/knowledge-api.mjs";
 import { buildPersistentActivity } from "./engine/persistent-activity.mjs";
 import { runEvolutionCycle, evolutionStatus, revertEvolution } from './engine/evolution-cycle.mjs';
 import { createTaskEvidence } from './engine/task-evidence.mjs';
@@ -913,6 +917,9 @@ async function handleChat(req, res, body) {
     message,
     signals: body.__runContext?.signal,
   });
+  const knowledgeNote = text => res.write(`event: note\ndata: ${JSON.stringify({ text })}\n\n`);
+  const knowledgeContext = await knowledgeChatContext(knowledgeRuntime, { query: emotionInput.message || message,
+    runId: body.__runContext?.runId || aibodyTurn.runId, sessionId: sessionId || findKeyByEntry(entry) }, knowledgeNote);
   const chatRunContext = {
     ...(body.__runContext || {}),
     emotionInput,
@@ -920,6 +927,7 @@ async function handleChat(req, res, body) {
     sessionId: sessionId || findKeyByEntry(entry),
     onEvent: (type, data) => res.write(`event: ${type}\ndata: ${JSON.stringify(data)}\n\n`),
     aibodyContext: { goal: aibodyTurn.topic, strategy: aibodyTurn.directive },
+    knowledgeContext,
   };
   // busy → 打断当前任务（对标 TUI interrupt：同一会话上处理新消息）
   if (entry.busy) {
@@ -1579,6 +1587,7 @@ async function handleChat(req, res, body) {
     } else {
       console.log(`[tiered] 闲聊不注入: msg="${message.slice(0, 30)}"`);
     }
+    await deliverKnowledgeContext(entry.agent, chatRunContext.knowledgeContext, knowledgeNote);
     // 外部思考调试：注入 think 引导（nextTurn，不污染会话历史）
     if (thinkOn) {
       try {
@@ -2050,6 +2059,14 @@ initFileLock({ withFileMutationQueue, dir: path.join(AGENT_DIR, "yuanshu-locks")
 console.log(`  🔒 文件写队列: ${usingSharedFileQueue() ? "与 Pi 共用" : "自带实现（未拿到 Pi 的队列）"} · 跨进程锁目录 ${path.join(AGENT_DIR, "yuanshu-locks")}`);
 const runStore = createRunStore({ rootDir: RUNS_DIR });
 const learningIntake = createLearningIntake({ wsRoot: WS_ROOT, store: runStore });
+const knowledgeRuntime = createKnowledgeRuntime({ wsRoot: WS_ROOT, runRoot: RUNS_DIR, runStore,
+  catalog: () => modelList, directChat,
+  foregroundBusy: () => [...activeSessions.values()].some(entry => entry.busy) || voiceAdmission.isActive(),
+});
+const knowledgeApi = createKnowledgeApi({ runtime: knowledgeRuntime, readBody, json,
+  requireAuth: req => !!CONFIG.token && req.headers.authorization === `Bearer ${CONFIG.token}`,
+});
+const knowledgeOverview = createKnowledgeOverview({ aibodyRuntime, knowledgeRuntime });
 const dreamCollector = createDreamCollector({ wsRoot: WS_ROOT, sessionsDir: SESSIONS_DIR });
 const taskEvidence = createTaskEvidence({ wsRoot: WS_ROOT, rootDir: RUNS_DIR });
 const behaviorExperiments = createBehaviorExperiments({ wsRoot: WS_ROOT, rootDir: RUNS_DIR });
@@ -2074,7 +2091,10 @@ const runManager = createRunManager({
   instanceId: RUN_INSTANCE_ID,
   effects: runEffects,
   workspaceScope: () => CONFIG.cwd,
-  onRunFinished: run => learningIntake.enqueue(run),
+  onRunFinished: run => {
+    knowledgeRuntime.enqueueFinished(run);
+    return learningIntake.enqueue(run);
+  },
   // handleChat 返回时 JSONL 已提交；通知会话订阅者刷新侧栏与多端状态。
   onSessionUpdated: ({ run }) => busPush(run.sessionId, "session_updated", { sessionId: run.sessionId }),
 });
@@ -2821,8 +2841,8 @@ const API_ROUTES = [
   ["GET", "/api/git/status", (res) => handleGitStatus(res)],
   ["GET", "/api/git/diff", (res) => handleGitDiff(res)],
   ["GET", "/api/git/review", (res) => handleGitReview(res)],
-  ["GET", "/api/aibody", (res, req, url) => json(res, 200, aibodyRuntime.overview({ sessionId: url?.searchParams?.get("session") || undefined, runId: url?.searchParams?.get("run") || undefined }))],
-  ["GET", "/api/aibody/overview", (res, req, url) => json(res, 200, aibodyRuntime.overview({ sessionId: url?.searchParams?.get("session") || undefined, runId: url?.searchParams?.get("run") || undefined }))],
+  ["GET", "/api/aibody", async (res, req, url) => json(res, 200, await knowledgeOverview({ sessionId: url?.searchParams?.get("session") || undefined, runId: url?.searchParams?.get("run") || undefined }))],
+  ["GET", "/api/aibody/overview", async (res, req, url) => json(res, 200, await knowledgeOverview({ sessionId: url?.searchParams?.get("session") || undefined, runId: url?.searchParams?.get("run") || undefined }))],
   // ── 浏览器操作（CDP 控制 Chrome）──
   ["POST", "/api/browser/start", async (res, req) => { const b = await import("./engine/browser.mjs"); const r = await b.startChrome(); json(res, r.error ? 500 : 200, r); }],
   ["POST", "/api/browser/stop", async (res) => { const b = await import("./engine/browser.mjs"); json(res, 200, b.stopChrome()); }],
@@ -3126,6 +3146,8 @@ API_ROUTES.push(['POST', /^\/api\/voice\/tasks\/([^/]+)\/stop$/, (res, req, url,
 API_ROUTES.push(['POST', '/api/voice/ticket', (res, req) => voiceTicket(req, res)]);
 API_ROUTES.push(['GET', '/api/voice/models', (res, req) => voiceModelList(req, res)]);
 API_ROUTES.push(...createWorkbenchRoutes({ withCache, boardApi, historyApi, handleEmotion, emotion, json, readBody }));
+for (const method of ['GET', 'POST']) API_ROUTES.push([method, /^\/api\/knowledge(?:\/|$)/,
+  (res, req, url) => knowledgeApi.handle(req, res, url)]);
 Object.freeze(API_ROUTES);
 
 const server = http.createServer(async (req, res) => {
@@ -3269,6 +3291,7 @@ server.on("error", (err) => {
   }
 });
 server.on('close', () => voiceTaskRuntime.close());
+server.on('close', () => { void knowledgeRuntime.close(); });
 function startServer() {
   // async：启动收尾里有需要 await 的清理（例如连续创作的孤儿运行）
   server.listen(CONFIG.port, CONFIG.host, async () => {
@@ -3427,6 +3450,7 @@ ${rows.map((r) => `- [${r.status}${r.closed ? "/已结清" : ""}] ${r.text}\n  �
       }, { onTaskDone: (info) => nudgeSkill(info) }); // 技能自主沉淀钩子（09-03，Hermes 闭环）
       timeEngine.start();
     } catch (e) { console.log("[time-engine] 启动失败:", String(e?.message || e).slice(0, 100)); }
+    knowledgeRuntime.start();
     // 做梦周期：自己跑，不等用户点接口（自决的意义就在这）。失败不影响服务。
     try {
       const DREAM_EVERY_MS = 6 * 60 * 60 * 1000;

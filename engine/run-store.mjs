@@ -30,6 +30,7 @@ function persistedRequest(input) {
     model: input.model || null,
     params: input.params && typeof input.params === 'object' ? { ...input.params } : undefined,
     workflow: ['team-video', 'team-general'].includes(input.workflow) ? input.workflow : undefined,
+    origin: input.origin === 'knowledge' ? 'knowledge' : undefined,
     files: Array.isArray(input.files)
       ? input.files.map(file => ({ path: String(file?.path || '') })).filter(file => file.path)
       : undefined,

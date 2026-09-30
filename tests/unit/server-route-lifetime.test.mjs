@@ -92,11 +92,22 @@ test('extracted workbench routes preserve HTTP contracts, cache and rollback saf
   assert.ok(registrationStart > source.indexOf('const boardApi ='));
   assert.ok(registrationStart < start, 'registration must happen before the server callback');
   const routes = [];
-  vm.runInNewContext(source.slice(registrationStart, start), { ...deps, API_ROUTES: routes, createWorkbenchRoutes });
-  assert.equal(routes.length, 4);
+  let knowledgeCalls = 0;
+  const knowledgeApi = { handle(req, res, url) { knowledgeCalls++; return json(res, 200, { method: req.method, path: url.pathname }); } };
+  vm.runInNewContext(source.slice(registrationStart, start), { ...deps, API_ROUTES: routes, createWorkbenchRoutes, knowledgeApi });
+  assert.equal(routes.length, 6);
+  assert.equal(routes.filter(route => typeof route[1] === 'string').length, 4);
   assert.ok(Object.isFrozen(routes), 'startup freezes the complete route registry');
   const base = await serveProductionCallback(t, routes);
   const headers = { Authorization: 'Bearer route-test-token', 'Content-Type': 'application/json' };
+  for (const method of ['GET', 'POST']) {
+    const denied = await fetch(base + '/api/knowledge/status', { method });
+    assert.equal(denied.status, 401); await denied.text();
+    const response = await fetch(base + '/api/knowledge/status', { method, headers });
+    assert.equal(response.status, 200);
+    assert.deepEqual(await response.json(), { method, path: '/api/knowledge/status' });
+  }
+  assert.equal(knowledgeCalls, 2);
   for (const route of ['/api/board/bootstrap', '/api/emotion/summary', '/api/history']) {
     const denied = await fetch(base + route);
     assert.equal(denied.status, 401);
@@ -136,5 +147,5 @@ test('extracted workbench routes preserve HTTP contracts, cache and rollback saf
   assert.equal((await restored.json()).ok, true);
   assert.equal(fs.readFileSync(target, 'utf8'), 'previous');
   assert.ok(fs.readdirSync(path.dirname(target)).some(name => name.startsWith('example.txt.bak-rollback-')));
-  assert.equal(routes.length, 4);
+  assert.equal(routes.length, 6);
 });

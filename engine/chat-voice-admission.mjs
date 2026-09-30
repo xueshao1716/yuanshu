@@ -32,5 +32,6 @@ export function createVoiceAdmission({ getToken, readSession, resolveModel = voi
     valid: claim => !!claim && claim.login === login() && !!readSession(claim.conversationId),
     acquire(claim) { if (!claim || active.has(claim.login)) return false; active.add(claim.login); return true },
     release(claim) { if (claim) active.delete(claim.login) },
+    isActive: () => active.size > 0,
   }
 }

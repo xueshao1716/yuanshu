@@ -9,6 +9,7 @@ import { safeJoin } from "./tools/security.mjs";
 import { httpBufferFetch } from "./http.mjs";
 import { setTimeout as abortableDelay } from "node:timers/promises";
 import { VERSION_TAG } from "./version.mjs";
+import { assertExportPath, exportDeliveryRoot, stageWorkspaceExport, exportError } from './workspace-export.mjs';
 
 let _wsRoot = "";
 // 下载器可注入：SSRF 守卫会（正确地）拦掉 127.0.0.1，于是测试没法起个本地服务器冒充"外站"。
@@ -600,28 +601,24 @@ export function wsNextVersion(name) {
   }
   return v;
 }
-// 递归复制目录
-export function wsCopyDir(src, dst) {
-  fs.mkdirSync(dst, { recursive: true });
-  for (const it of fs.readdirSync(src, { withFileTypes: true })) {
-    const s = path.join(src, it.name), d = path.join(dst, it.name);
-    if (it.isDirectory()) wsCopyDir(s, d);
-    else fs.copyFileSync(s, d);
-  }
-}
 // POST /api/ws/deliver —— 一键交付：复制源到 交付目录（name-vN）
 export async function handleWsDeliver(res, body) {
   const { sourcePath, name } = body || {};
   const safe = wsSafePath(sourcePath);
   if (!safe || !fs.existsSync(safe)) return json(res, 404, { error: "源不存在" });
-  const base = (name || path.basename(safe)).replace(/[\/:*?"<>|\s]+/g, "-").slice(0, 60) || "交付物";
-  const v = wsNextVersion(base);
-  const target = path.join(WS_ROOT, "交付", `${base}-v${v}`);
+  const base = String(name || path.basename(safe)).replace(/[\\/:*?"<>|\s]+/g, "-").slice(0, 60) || "交付物";
+  let staged;
   try {
-    if (fs.statSync(safe).isDirectory()) wsCopyDir(safe, target);
-    else { fs.mkdirSync(path.dirname(target), { recursive: true }); fs.copyFileSync(safe, target + path.extname(safe)); }
-    json(res, 200, { ok: true, path: `交付/${base}-v${v}`, version: v });
-  } catch (e) { json(res, 500, { error: String(e?.message || e).slice(0, 100) }); }
+    staged = await stageWorkspaceExport(WS_ROOT, safe);
+    const delivery = exportDeliveryRoot(WS_ROOT), ext = staged.isDirectory ? '' : path.extname(safe);
+    let v = wsNextVersion(base);
+    while (fs.existsSync(path.join(delivery, `${base}-v${v}${ext}`))) v++;
+    const target = path.join(delivery, `${base}-v${v}${ext}`);
+    if (staged.isDirectory) await fs.promises.cp(staged.content, target, { recursive: true, errorOnExist: true, force: false });
+    else await fs.promises.copyFile(staged.file, target, fs.constants.COPYFILE_EXCL);
+    json(res, 200, { ok: true, path: `交付/${base}-v${v}${ext}`, version: v });
+  } catch (e) { const error = exportError(e); json(res, error.status, { error: error.message }); }
+  finally { if (staged) await staged.cleanup(); }
 }
 // POST /api/ws/deliver/package —— 打包 zip（powershell Compress-Archive）
 export async function handleWsPackage(res, body) {
@@ -629,13 +626,18 @@ export async function handleWsPackage(res, body) {
   const safe = wsSafePath(p);
   if (!safe || !fs.existsSync(safe)) return json(res, 404, { error: "源不存在" });
   const zipName = (path.basename(safe) || "交付物").replace(/[\/:*?"<>|\s]+/g, "-") + ".zip";
-  const zipPath = path.join(WS_ROOT, "交付", zipName);
+  let staged;
   try {
-    const src = fs.statSync(safe).isDirectory() ? path.join(safe, "*") : safe;
-    const ps = `Compress-Archive -Path '${src.replace(/'/g, "''")}' -DestinationPath '${zipPath.replace(/'/g, "''")}' -Force`;
+    staged = await stageWorkspaceExport(WS_ROOT, safe);
+    const archive = path.join(staged.stage, 'archive.zip');
+    const ps = `$ErrorActionPreference='Stop'; Add-Type -AssemblyName System.IO.Compression.FileSystem; [IO.Compression.ZipFile]::CreateFromDirectory('${staged.content.replace(/'/g, "''")}', '${archive.replace(/'/g, "''")}')`;
     await new Promise((resolve, reject) => execFile("powershell", ["-NoProfile", "-Command", ps], { timeout: 120000, windowsHide: true }, (err) => err ? reject(err) : resolve()));
+    const zipPath = path.join(exportDeliveryRoot(WS_ROOT), zipName);
+    if (fs.existsSync(zipPath)) assertExportPath(WS_ROOT, zipPath);
+    await fs.promises.copyFile(archive, zipPath);
     json(res, 200, { ok: true, path: `交付/${zipName}`, url: `/api/ws/file?path=${encodeURIComponent(zipPath)}` });
-  } catch (e) { json(res, 500, { error: "打包失败: " + String(e?.message || e).slice(0, 80) }); }
+  } catch (e) { const error = exportError(e); json(res, error.status, { error: error.message }); }
+  finally { if (staged) await staged.cleanup(); }
 }
 // GET /api/ws/deliveries —— 交付列表
 export async function handleWsDeliveries(res) {

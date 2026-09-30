@@ -69,7 +69,7 @@ export async function directChat(model, message, history = [], opts = {}) {
       const request={method:'POST',headers:native?messagesHeaders(key):{'Content-Type':'application/json',Authorization:`Bearer ${key}`},body:JSON.stringify(body)};
       const fetchStream=url=>directChatStream(url,request,apiType,{...opts,timeout:reqTimeout});
       let parsed=await fetchStream(native?messagesEndpoint(base):modelEndpoint(base,'chat/completions'));
-      if(!native&&parsed.status===404)parsed=await fetchStream(`${baseNoV1}/chat/completions`);
+      if(!native&&parsed.status===404&&opts.allowEndpointFallback!==false)parsed=await fetchStream(`${baseNoV1}/chat/completions`);
       if(!parsed.ok){if(opts.trackModelHealth !== false && isAuthErrorStatus(parsed.status))markModelBlocked(model,{reason:`HTTP ${parsed.status} (direct stream)`});return fail(`模型通道请求失败（HTTP ${parsed.status}），请检查通道或选择其他文本模型`);}
       return {text:parsed.message.content||null,think:parsed.message.reasoning_content,...completion(parsed.finishReason,parsed.usage),usedModel:{provider:model.provider,id:parsed.model||model.id}};
     }
@@ -93,7 +93,7 @@ export async function directChat(model, message, history = [], opts = {}) {
         signal: opts.signal,
       });
       let rr = await mkResp(modelEndpoint(base, 'responses'));
-      if (rr.status === 404) rr = await mkResp(`${baseNoV1}/responses`);
+      if (rr.status === 404 && opts.allowEndpointFallback !== false) rr = await mkResp(`${baseNoV1}/responses`);
       if (!rr.ok) {
         if (opts.trackModelHealth !== false && isAuthErrorStatus(rr.status)) markModelBlocked(model, { reason: `HTTP ${rr.status} (responses)` });
         return fail(`模型通道请求失败（HTTP ${rr.status}），请检查通道或选择其他文本模型`);
@@ -125,7 +125,7 @@ export async function directChat(model, message, history = [], opts = {}) {
       signal: opts.signal,
     });
     let r = await mkReq(modelEndpoint(base, 'chat/completions'));
-    if (r.status === 404) r = await mkReq(`${baseNoV1}/chat/completions`);
+    if (r.status === 404 && opts.allowEndpointFallback !== false) r = await mkReq(`${baseNoV1}/chat/completions`);
     if (!r.ok) {
       if (opts.trackModelHealth !== false && isAuthErrorStatus(r.status)) markModelBlocked(model, { reason: `HTTP ${r.status} (directChat)` });
       return fail(`模型通道请求失败（HTTP ${r.status}），请检查通道或选择其他文本模型`);
