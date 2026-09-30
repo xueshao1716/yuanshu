@@ -151,3 +151,33 @@ test('排队后调用方修改输入，不改变本次落盘快照', async t => 
   assert.equal(saved.audit[0].actor, 'service:fixture');
   assert.equal(store.read(id).data.nested.note, 'original');
 });
+
+test('锁内守卫重验撤销；异步或拒绝守卫不能写盘', async t => {
+  const {a} = fixture(t), store = createCultivationStorage({wsRoot: a});
+  let release, entered, active = true;
+  const gate = new Promise(resolve => {release = resolve;});
+  const ready = new Promise(resolve => {entered = resolve;});
+  const controlFile = path.join(a, '工程', '智能体培养', 'control.json');
+  const blocker = withFileLock(controlFile, async () => {entered(); await gate;});
+  await ready;
+  const pending = store.commit('control', change({ok: true}), {guard: () => active});
+  active = false; release(); await blocker;
+  await assert.rejects(pending, /guard_denied/);
+  await assert.rejects(store.commit('control', change({ok: true}), {guard: async () => true}), /guard_denied/);
+  assert.equal(store.read('control').revision, 0);
+  assert.equal(fs.existsSync(controlFile), false);
+  await store.commit('control', change({ok: true}), {guard: previous => previous.revision === 0});
+  assert.equal(store.read('control').revision, 1);
+});
+
+test('只读版本标识不写盘并可发现外部替换', async t => {
+  const {a} = fixture(t), store = createCultivationStorage({wsRoot: a});
+  assert.equal(typeof store.version, 'function');
+  assert.equal(store.version('control'), null);
+  assert.deepEqual(fs.readdirSync(a), []);
+  await store.commit('control', change({value: 1}));
+  const before = store.version('control');
+  assert.equal(before, store.version('control'));
+  await store.commit('control', change({value: 2}, 1));
+  assert.notEqual(before, store.version('control'));
+});

@@ -30,7 +30,14 @@ export function createCultivationStorage({wsRoot, now = () => new Date().toISOSt
     }
     return validateRecord(data, workspace, scope);
   };
-  const commit = async (scope, command) => {
+  const version = scope => {
+    try {
+      const stat = fs.statSync(location(scope), {bigint: true});
+      if (!stat.isFile() || stat.size > BigInt(MAX_BYTES)) throw new Error('cultivation_state_unreadable');
+      return `${stat.dev}:${stat.ino}:${stat.size}:${stat.mtimeNs}:${stat.ctimeNs}`;
+    } catch (error) {if (error.code === 'ENOENT') return null; throw error;}
+  };
+  const commit = async (scope, command, {guard = () => true} = {}) => {
     // 在等待锁之前快照命令，调用者后续改对象不改变本次请求。
     const input = command && {expectedRevision: command.expectedRevision,
       actor: command.actor, action: command.action};
@@ -40,6 +47,9 @@ export function createCultivationStorage({wsRoot, now = () => new Date().toISOSt
     return withFileLock(location(scope), () => {
       const previous = read(scope);
       if (previous.revision !== input.expectedRevision) throw new Error('cultivation_revision_conflict');
+      const allowed = guard(structuredClone(previous));
+      if (allowed instanceof Promise) allowed.catch(() => {});
+      if (allowed !== true) throw new Error('cultivation_guard_denied');
       const next = advanceRecord(previous, input.data,
         {actor: input.actor, action: input.action, at: now()});
       const text = JSON.stringify(next);
@@ -49,5 +59,5 @@ export function createCultivationStorage({wsRoot, now = () => new Date().toISOSt
       return structuredClone(next);
     });
   };
-  return Object.freeze({workspace, read, commit});
+  return Object.freeze({workspace, read, version, commit});
 }
