@@ -152,6 +152,8 @@ import { createKnowledgeRuntime } from "./engine/knowledge-runtime.mjs";
 import { createKnowledgeOverview } from "./engine/knowledge-overview.mjs";
 import { knowledgeChatContext, deliverKnowledgeContext } from "./engine/knowledge-chat.mjs";
 import { createKnowledgeApi } from "./engine/knowledge-api.mjs";
+import { createCultivationRuntime } from "./engine/cultivation/runtime.mjs";
+import { createCultivationApi } from "./engine/cultivation/api.mjs";
 import { buildPersistentActivity } from "./engine/persistent-activity.mjs";
 import { runEvolutionCycle, evolutionStatus, revertEvolution } from './engine/evolution-cycle.mjs';
 import { createTaskEvidence } from './engine/task-evidence.mjs';
@@ -2073,6 +2075,10 @@ const knowledgeApi = createKnowledgeApi({ runtime: knowledgeRuntime, readBody, j
   requireAuth: req => !!CONFIG.token && req.headers.authorization === `Bearer ${CONFIG.token}`,
 });
 const knowledgeOverview = createKnowledgeOverview({ aibodyRuntime, knowledgeRuntime });
+const cultivationRuntime = createCultivationRuntime({ wsRoot: WS_ROOT });
+const cultivationApi = createCultivationApi({ runtime: cultivationRuntime, readBody, json,
+  requireAuth: req => !!CONFIG.token && req.headers.authorization === `Bearer ${CONFIG.token}`,
+});
 const dreamCollector = createDreamCollector({ wsRoot: WS_ROOT, sessionsDir: SESSIONS_DIR });
 const taskEvidence = createTaskEvidence({ wsRoot: WS_ROOT, rootDir: RUNS_DIR });
 const behaviorExperiments = createBehaviorExperiments({ wsRoot: WS_ROOT, rootDir: RUNS_DIR });
@@ -3158,6 +3164,8 @@ API_ROUTES.push(['GET', '/api/voice/models', (res, req) => voiceModelList(req, r
 API_ROUTES.push(...createWorkbenchRoutes({ withCache, boardApi, historyApi, handleEmotion, emotion, json, readBody }));
 for (const method of ['GET', 'POST']) API_ROUTES.push([method, /^\/api\/knowledge(?:\/|$)/,
   (res, req, url) => knowledgeApi.handle(req, res, url)]);
+for (const method of ['GET', 'POST', 'PUT']) API_ROUTES.push([method, /^\/api\/cultivation(?:\/|$)/,
+  (res, req, url) => cultivationApi.handle(req, res, url)]);
 Object.freeze(API_ROUTES);
 
 const server = http.createServer(async (req, res) => {
