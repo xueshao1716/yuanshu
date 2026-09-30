@@ -10,7 +10,7 @@ test('soul center is reachable through desktop, mobile and system', () => {
   assert.ok(source('pages/System.tsx').includes('#/soul'));
 });
 test('soul center reuses live settings and local human approval', () => {
-  assert.ok(!source('soul/VoiceAppearance.tsx').includes('<SpeechSettings'));
+  assert.ok(source('soul/VoiceAppearance.tsx').includes('<SpeechSettings'));
   assert.ok(source('soul/VoiceAppearance.tsx').includes('useCompanionContext'));
   assert.ok(source('soul/Confirmations.tsx').includes('ConfirmApi.answer'));
   assert.ok(source('soul/Confirmations.tsx').includes('canApprove'));
@@ -32,7 +32,11 @@ test('supporting sections summarize shared data and link to the real owning page
   assert.ok(source('hooks/useHashRoute.tsx').includes("'team'"));
   const voice = source('soul/VoiceAppearance.tsx');
   assert.ok(voice.includes('href="#/chat"'));
-  assert.ok(!voice.includes('GALLERIES.map'));
+  assert.ok(voice.includes('GALLERIES.map'));
+  assert.ok(voice.includes('companion.chooseSkin(g.id)'));
+  assert.ok(voice.includes('imageForSkin(g.id)'));
+  assert.ok(voice.includes('companion.setHidden(!e.target.checked)'));
+  assert.ok(!voice.includes('localStorage'), 'use the existing shared stores, not another settings copy');
 });
 
 test('only editable sections stay mounted and confirmation polling follows active governance', () => {

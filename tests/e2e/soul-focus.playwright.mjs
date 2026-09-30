@@ -5,6 +5,7 @@ import path from 'node:path';
 import http from 'node:http';
 import { fileURLToPath } from 'node:url';
 import { chromium } from 'playwright';
+import { GALLERIES, imageForSkin } from '../../frontend/src/components/xiaoyu/widget-state.mjs';
 
 const root = fileURLToPath(new URL('../../', import.meta.url));
 const dist = path.resolve(root, process.env.YUANSHU_TEST_DIST || 'tmp/verification-dist');
@@ -98,7 +99,26 @@ try {
     await fit('learning');
     await open('voice');
     await page.getByRole('link', { name: '回到对话设置声音', exact: true }).waitFor();
-    assert.equal(await page.locator('.soul-workarea select:visible').count(), 0, 'no duplicate voice or appearance selectors');
+    const voiceMode = page.getByRole('combobox', { name: '朗读通道', exact: true });
+    await voiceMode.selectOption('cloud');
+    await page.getByText('与语音通话使用同款音色', { exact: true }).waitFor();
+    assert.equal(await page.locator('.soul-gallery').count(), 4);
+    for (const gallery of GALLERIES) {
+      const card = page.locator('.soul-gallery').filter({ hasText: gallery.label });
+      await card.click();
+      assert.equal(await card.getAttribute('aria-pressed'), 'true');
+      assert.equal(await card.locator('img').getAttribute('src'), imageForSkin(gallery.id));
+      assert.equal(await page.evaluate(() => localStorage.getItem('xiaoyu_skin')), gallery.id);
+    }
+    const showCompanion = page.getByRole('checkbox', { name: '显示桌面公仔', exact: true });
+    await showCompanion.check();
+    assert.equal(await page.evaluate(() => localStorage.getItem('yuanshu_companion_hidden')), 'false');
+    await showCompanion.uncheck();
+    assert.equal(await page.evaluate(() => localStorage.getItem('yuanshu_companion_hidden')), 'true');
+    await open('learning');
+    await open('voice');
+    assert.equal(await voiceMode.inputValue(), 'cloud', 'shared voice choice survives section unmount');
+    assert.equal(await page.locator('.soul-gallery[aria-pressed="true"] strong').textContent(), GALLERIES.at(-1).label);
     const inactive = Object.fromEntries(['/api/team/run', '/api/aibody', '/api/refine/status', '/api/persona/confirmations'].map(p => [p, counts.get(p) || 0]));
     await page.clock.runFor(130000);
     await page.waitForTimeout(100);

@@ -1,13 +1,19 @@
+import { SpeechSettings } from '../components/SpeechSettings'
 import { useCompanionContext } from '../components/xiaoyu/CompanionProvider'
-import { GALLERIES } from '../components/xiaoyu/widget-state.mjs'
+import { GALLERIES, imageForSkin } from '../components/xiaoyu/widget-state.mjs'
 import { Block } from './shared'
 export default function VoiceAppearance() {
   const companion = useCompanionContext()
   return <>
-    <Block title="声音与朗读" hint="自动朗读、音色与模型统一在对话右上角「情绪潮汐 → 声音」设置；这里不再重复一套控件。"><a href="#/chat">回到对话设置声音</a></Block>
-    <Block title="陪伴形象" hint="立绘组与免打扰统一在公仔面板的「陪伴设置与立绘」里调整，只影响展示，不改变人格身份。">
-      <dl className="soul-facts"><div><dt>当前立绘组</dt><dd>{GALLERIES.find(g => g.id === companion.skin)?.label || '待确认'}</dd></div><div><dt>本机显示</dt><dd>{companion.hidden ? '已隐藏' : '已显示'}</dd></div></dl>
-      {companion.hidden ? <button onClick={() => companion.setHidden(false)}>显示公仔以打开陪伴设置</button> : <p className="soul-hint">点击公仔，展开「陪伴设置与立绘」。</p>}
+    <Block title="声音与朗读" hint="人物的声音设置保留在这里，与对话里的情绪潮汐共用同一套数据，不另外保存一份。">
+      <SpeechSettings />
+      <a href="#/chat">回到对话设置声音</a>
+    </Block>
+    <Block title="陪伴形象" hint="与公仔面板共用现有四组立绘。选择只影响本机展示，不改变人格身份或素材内容。">
+      <label className="soul-check"><input type="checkbox" checked={!companion.hidden} onChange={e => companion.setHidden(!e.target.checked)} />显示桌面公仔</label>
+      <div className="soul-galleries">{GALLERIES.map(g => <button type="button" key={g.id} aria-pressed={companion.skin === g.id} className="soul-gallery" onClick={() => companion.chooseSkin(g.id)}>
+        <img src={imageForSkin(g.id)} alt="" loading="lazy" /><strong>{g.label}</strong><span>{g.detail}</span><span>{companion.skin === g.id ? '正在使用' : '选择这组'}</span>
+      </button>)}</div>
     </Block>
   </>
 }
