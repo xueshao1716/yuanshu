@@ -153,6 +153,7 @@ import { createKnowledgeOverview } from "./engine/knowledge-overview.mjs";
 import { knowledgeChatContext, deliverKnowledgeContext } from "./engine/knowledge-chat.mjs";
 import { createKnowledgeApi } from "./engine/knowledge-api.mjs";
 import { createCultivationRuntime } from "./engine/cultivation/runtime.mjs";
+import { createCultivationHostIdentity } from "./engine/cultivation/host-identity.mjs";
 import { createCultivationApi } from "./engine/cultivation/api.mjs";
 import { buildPersistentActivity } from "./engine/persistent-activity.mjs";
 import { runEvolutionCycle, evolutionStatus, revertEvolution } from './engine/evolution-cycle.mjs';
@@ -970,6 +971,9 @@ async function handleChat(req, res, body) {
   const thisGen = entry.gen;
   entry.busy = true;
   entry.busySince = Date.now();
+  cultivationHostIdentity.bind(body.__runContext?.executionIdentity, {
+    sessionId: sessionId || findKeyByEntry(entry), entry, generation: thisGen,
+  });
   // 复读守卫的基准：**必须在动笔之前取**（2026-09-16 修首轮误判）。
   // pi 通道会在本轮中途就把回复写进会话文件；事后读文件当基准 = 拿自己跟自己比 → 全新会话首轮必判复读，
   // 然后静默换模型重写。取不到就是 null：首轮没有"上一条"，不可能复读。
@@ -2075,7 +2079,13 @@ const knowledgeApi = createKnowledgeApi({ runtime: knowledgeRuntime, readBody, j
   requireAuth: req => !!CONFIG.token && req.headers.authorization === `Bearer ${CONFIG.token}`,
 });
 const knowledgeOverview = createKnowledgeOverview({ aibodyRuntime, knowledgeRuntime });
-const cultivationRuntime = createCultivationRuntime({ wsRoot: WS_ROOT });
+const cultivationHostIdentity = createCultivationHostIdentity({ wsRoot: WS_ROOT,
+  resolveExecution: source => runManager.resolveExecutionIdentity(source),
+  getEntry: id => activeSessions.get(id), canAccess: canAccessSessionOrigin,
+});
+const cultivationRuntime = createCultivationRuntime({ wsRoot: WS_ROOT,
+  identityAdapters: { resolveMother: cultivationHostIdentity.resolveMother },
+});
 const cultivationApi = createCultivationApi({ runtime: cultivationRuntime, readBody, json,
   requireAuth: req => !!CONFIG.token && req.headers.authorization === `Bearer ${CONFIG.token}`,
 });

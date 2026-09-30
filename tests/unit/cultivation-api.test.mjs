@@ -104,7 +104,15 @@ test('no trusted adapter means all write endpoints deny even valid bearer and fo
 });
 test('server wires scoped cultivation routes without installing fake write identity', () => {
   const text = fs.readFileSync(new URL('../../server.mjs', import.meta.url), 'utf8');
-  assert.ok(text.includes('createCultivationRuntime({ wsRoot: WS_ROOT })'));
+  assert.ok(text.includes('identityAdapters: { resolveMother: cultivationHostIdentity.resolveMother }'));
+  const host = text.slice(text.indexOf('const cultivationHostIdentity ='), text.indexOf('const dreamCollector ='));
+  assert.ok(host.includes('source => runManager.resolveExecutionIdentity(source)'));
+  assert.ok(host.includes('getEntry: id => activeSessions.get(id)'));
+  assert.ok(host.includes('canAccess: canAccessSessionOrigin'));
+  assert.ok(!host.includes('resolveHuman') && !host.includes('resolveRequestIdentity'));
+  const binding = text.indexOf('cultivationHostIdentity.bind(body.__runContext?.executionIdentity,');
+  assert.ok(binding > text.indexOf('entry.busySince = Date.now();'));
+  assert.ok(text.slice(binding, binding + 220).includes('entry, generation: thisGen'));
   assert.ok(text.includes('cultivationApi.handle(req, res, url)'));
   assert.ok(text.includes("['GET', 'POST', 'PUT']"));
 });

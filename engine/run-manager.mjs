@@ -2,6 +2,7 @@ import { EventEmitter } from 'node:events'
 import { deriveRunObservability } from './run-observability.mjs'
 import { createBackgroundRecovery, newRecoveryPolicy, RUN_SLICE_MS } from './run-recovery.mjs'
 import { admitVoiceRun } from './voice-run-admission.mjs'
+import { createRunExecutionIdentity, isMotherExecutionCandidate } from './run-execution-identity.mjs'
 
 const TERMINAL = new Set(['completed', 'failed', 'stopped', 'interrupted'])
 
@@ -79,8 +80,9 @@ function createExecutionIo({ headers = {}, socket = {}, onEvent }) {
   return { req, res, close }
 }
 
-export function createRunManager({ store, eventLog, executeChat, instanceId, onSessionUpdated = null, onRunFinished = null, effects = null, workspaceScope = () => null, scheduleRecovery }) {
+export function createRunManager({ store, eventLog, executeChat, instanceId, onSessionUpdated = null, onRunFinished = null, effects = null, workspaceScope = () => null, scheduleRecovery, identityNow = Date.now }) {
   const executions = new Map()
+  const identities = createRunExecutionIdentity({ store, executions, instanceId, workspaceScope, now: identityNow })
   let recovery
 
   const checkpointForEvent = (type, data = {}) => {
@@ -206,6 +208,7 @@ export function createRunManager({ store, eventLog, executeChat, instanceId, onS
     try {
       prepare?.()
       control = makeControl(run, body, context)
+      identities.mint(run, control)
     } catch (error) {
       // The durable receipt exists, but no execution has been admitted yet.
       // Retain its identity and release admission only through a durable terminal
@@ -220,6 +223,7 @@ export function createRunManager({ store, eventLog, executeChat, instanceId, onS
   }
 
   const finish = (runId, status, data = {}) => {
+    identities.revoke(executions.get(runId))
     const current = store.get(runId)
     if (!current || TERMINAL.has(current.status)) return current
     if (status === 'interrupted' && recovery.trySchedule(current, data.reason)) return store.get(runId)
@@ -302,6 +306,7 @@ export function createRunManager({ store, eventLog, executeChat, instanceId, onS
         finish(running.id, 'failed', { message: String(error?.message || error) })
       }
     } finally {
+      identities.revoke(control)
       executions.delete(running.id)
     }
   }
@@ -319,10 +324,12 @@ export function createRunManager({ store, eventLog, executeChat, instanceId, onS
       const existing = store.list().find(run => run.sessionId === body.sessionId && run.clientRequestId === body.clientRequestId)
       if (existing) return existing
       const voiceTaskAdmission = admitVoiceRun(store.readAdmissionSnapshot(), context)
-      const run = store.create({ ...body, voiceTaskAdmission, ownerId: instanceId, backgroundRecovery: newRecoveryPolicy(workspaceScope(), body.backgroundRecovery !== false) })
+      const run = store.create({ ...body, voiceTaskAdmission, motherIdentityEligible: isMotherExecutionCandidate(body) && !voiceTaskAdmission,
+        ownerId: instanceId, backgroundRecovery: newRecoveryPolicy(workspaceScope(), body.backgroundRecovery !== false) })
       return enqueue(run, body, context, () => effects?.initialize?.(run.id))
     },
     get(runId) { return store.get(runId) },
+    resolveExecutionIdentity(source) { return identities.resolve(source) },
     list() { return store.list() },
     listActivity() { return store.listActivity() },
     readAfter(runId, after) { return eventLog.readAfter(runId, after) },
@@ -335,6 +342,7 @@ export function createRunManager({ store, eventLog, executeChat, instanceId, onS
       const control = executions.get(runId)
       if (control?.stopRequested) return store.get(runId)
       if (control) control.stopRequested = true
+      identities.revoke(control)
       const stopping = store.update(runId, { status: 'stopping', stopRequestedAt: new Date().toISOString() })
       if (control?.close) control.close()
       else if (!control) finish(runId, 'stopped', { reason: 'execution_missing' })
@@ -392,7 +400,7 @@ export function createRunManager({ store, eventLog, executeChat, instanceId, onS
       return enqueue(queued, body, context, () => append(queued, 'resumed', { attempt: nextAttempt, from: checkpoint.step || 'unknown' }))
     },
     disableRecovery(runId) { return recovery.disable(runId) },
-    dispose() { recovery.dispose() },
+    dispose() { identities.dispose(); recovery.dispose() },
   }
   recovery = createBackgroundRecovery({ store, effects, workspaceScope, instanceId, append, scheduleRecovery, resume: id => manager.resume(id, { automaticRecovery: true }) })
   return manager
