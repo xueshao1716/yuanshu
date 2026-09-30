@@ -37,6 +37,12 @@ function jsonValue(value, depth = 0) {
   fail('invalid_payload');
 }
 
+export function clonePayload(data) {
+  if (!own(data)) fail('invalid_payload');
+  jsonValue(data);
+  return structuredClone(data);
+}
+
 export function emptyRecord(workspace, scope) {
   const row = {schema: 1, workspace, scope, revision: 0,
     createdAt: null, updatedAt: null, data: {}, audit: []};
@@ -68,13 +74,12 @@ export function advanceRecord(previous, data, event) {
   const row = validateRecord(previous, previous.workspace, previous.scope);
   if (row.audit.length >= MAX_AUDIT) fail('audit_full');
   if (!event || !label(event.actor) || !label(event.action) || !iso(event.at)) fail('invalid_record');
-  if (!own(data)) fail('invalid_payload');
-  jsonValue(data);
+  const snapshot = clonePayload(data);
   const at = row.updatedAt && Date.parse(row.updatedAt) > Date.parse(event.at) ? row.updatedAt : event.at;
   row.revision++;
   row.createdAt ??= at;
   row.updatedAt = at;
-  row.data = structuredClone(data);
+  row.data = snapshot;
   row.audit.push({revision: row.revision, actor: event.actor, action: event.action, at});
   return validateRecord(row, previous.workspace, previous.scope);
 }
