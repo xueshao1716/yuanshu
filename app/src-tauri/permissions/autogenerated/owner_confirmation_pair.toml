@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-owner-confirmation-pair"
+description = "Enables the owner_confirmation_pair command without any pre-configured scope."
+commands.allow = ["owner_confirmation_pair"]
+
+[[permission]]
+identifier = "deny-owner-confirmation-pair"
+description = "Denies the owner_confirmation_pair command without any pre-configured scope."
+commands.deny = ["owner_confirmation_pair"]

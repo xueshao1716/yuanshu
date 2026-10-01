@@ -158,6 +158,7 @@ import { createCultivationRuntime } from "./engine/cultivation/runtime.mjs";
 import { createCultivationHostIdentity } from "./engine/cultivation/host-identity.mjs";
 import { createCultivationApi } from "./engine/cultivation/api.mjs";
 import { optionalCultivationHumanConfig } from './engine/cultivation/human-config.mjs';
+import { ownerConfigProvider } from './engine/cultivation/owner-config.mjs';
 import { createCultivationProvider } from './engine/cultivation/provider.mjs';
 import { CULTIVATION_TOOL_SCHEMA, cultivationTool, createPiCultivationTool } from './engine/cultivation/tool.mjs';
 import { initCultivationTool } from './engine/session-manager.mjs';
@@ -2111,6 +2112,8 @@ const cultivationRuntime = createCultivationRuntime({ wsRoot: WS_ROOT,
   learning:knowledgeRuntime.cultivationLearning,learningJob:id=>knowledgeRuntime.store.get(id),
   identityAdapters: { resolveMother: cultivationHostIdentity.resolveMother },
   humanConfig: optionalCultivationHumanConfig(),
+  ownerProvider: process.platform!=='win32'||process.env.YUANSHU_CULTIVATION_HUMAN_PUBLIC_KEY_FILE||process.env.YUANSHU_CULTIVATION_HUMAN_ACTOR?undefined:
+    workspace=>ownerConfigProvider({workspace}),
   execution: { knowledge: knowledgeRuntime.store, budget: knowledgeRuntime.budget, admission: knowledgeRuntime.admission,
     provider: createCultivationProvider({catalog: () => modelList, directChat,learning:knowledgeRuntime.cultivationLearning}),
     foregroundBusy: () => [...activeSessions.values()].some(entry => entry.busy) || voiceAdmission.isActive(),

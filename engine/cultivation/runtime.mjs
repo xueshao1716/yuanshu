@@ -4,6 +4,7 @@ import {createCultivationControls} from './controls.mjs';
 import {createCultivationProjection} from './projection.mjs';
 import {createCultivationTasks} from './tasks.mjs';
 import {createHumanGrants} from './human-grants.mjs';
+import {createOwnerGrants} from './owner-grants.mjs';
 import {commandKinds} from './control-transition.mjs';
 import {exact,id} from './control-state.mjs';
 import {validatePolicy} from './policy.mjs';
@@ -14,10 +15,11 @@ import {createRecoveryCommands,validateRecoveryCommand} from './recovery.mjs';
 
 // Construction never dispatches. The host explicitly starts the bounded
 // executor; policy, shared resources and genuine identities gate every write.
-export function createCultivationRuntime({wsRoot, identityAdapters, humanConfig, execution, learning, learningJob, verifyAsset, now = Date.now}) {
+export function createCultivationRuntime({wsRoot, identityAdapters, humanConfig, ownerProvider, execution, learning, learningJob, verifyAsset, now = Date.now}) {
   const store = createCultivationStorage({wsRoot});
-  const grants=humanConfig?createHumanGrants({workspace:store.workspace,now,...humanConfig}):null;
-  const adapters={...identityAdapters,...(grants?.available?{resolveHuman:grants.resolveHuman}:{})};
+  const owner=!humanConfig&&ownerProvider?createOwnerGrants({workspace:store.workspace,provider:ownerProvider(store.workspace),now}):null;
+  const grants=humanConfig?createHumanGrants({workspace:store.workspace,now,...humanConfig}):owner;
+  const adapters={...identityAdapters,...(grants?{resolveHuman:grants.resolveHuman}:{})};
   const authority = createIdentityAuthority({workspace: store.workspace, now, ...adapters});
   const media=createCultivationMedia({wsRoot,store,authority,getControls:()=>controls,now});
   verifyAsset??=media.verify;
@@ -54,6 +56,7 @@ export function createCultivationRuntime({wsRoot, identityAdapters, humanConfig,
     },
     async overview(){return {...projection.overview(),writeIdentityAvailable,motherIdentityAvailable:typeof adapters.resolveMother==='function',
       executorAvailable:!!tasks,humanGrantAvailable:!!grants?.available,
+      ownerConfirmation:{mode:humanConfig?'external-signature':owner?'windows-hello':'unavailable',state:owner?.state??(grants?.available?'paired':'unavailable'),workspace:store.workspace},
       usage:execution?await execution.budget.status():null,admission:execution?await execution.admission.status():null,
       taskStatus:tasks?.status()??null};},
     list:(collection,query)=>collection==='runs'&&tasks?{...tasks.list(query),supported:true}:

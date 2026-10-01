@@ -363,6 +363,24 @@
           "markdownDescription": "Open the fixed system Downloads directory."
         },
         {
+          "description": "Enables the owner_confirmation_pair command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-owner-confirmation-pair",
+          "markdownDescription": "Enables the owner_confirmation_pair command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the owner_confirmation_sign command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-owner-confirmation-sign",
+          "markdownDescription": "Enables the owner_confirmation_sign command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the owner_confirmation_status command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-owner-confirmation-status",
+          "markdownDescription": "Enables the owner_confirmation_status command without any pre-configured scope."
+        },
+        {
           "description": "Denies the ensure_local_service command without any pre-configured scope.",
           "type": "string",
           "const": "deny-ensure-local-service",
@@ -373,6 +391,24 @@
           "type": "string",
           "const": "deny-enter-local-workspace",
           "markdownDescription": "Denies the enter_local_workspace command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the owner_confirmation_pair command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-owner-confirmation-pair",
+          "markdownDescription": "Denies the owner_confirmation_pair command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the owner_confirmation_sign command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-owner-confirmation-sign",
+          "markdownDescription": "Denies the owner_confirmation_sign command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the owner_confirmation_status command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-owner-confirmation-status",
+          "markdownDescription": "Denies the owner_confirmation_status command without any pre-configured scope."
         },
         {
           "description": "Default core plugins set.\n#### This default permission set includes:\n\n- `core:path:default`\n- `core:event:default`\n- `core:window:default`\n- `core:webview:default`\n- `core:app:default`\n- `core:image:default`\n- `core:resources:default`\n- `core:menu:default`\n- `core:tray:default`",

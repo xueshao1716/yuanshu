@@ -25,6 +25,7 @@ export type Policy = {enabled:boolean;motherLearning?:boolean;maxAgents:number;m
   dailyBudgetCents:number;currency:string;allowRemote:boolean;recursive:boolean;expiresAt:string|null;
   models:string[];tools:string[];dataScopes:string[];schedule:null|{timezone:string;days:number[];startMinute:number;endMinute:number};timeoutMs:number}
 export type Overview = {revision:number;state:string;policy:Policy;agentCount:number;designCount:number;
+  ownerConfirmation?:{mode:'windows-hello'|'external-signature'|'unavailable';state:string;workspace:string};
   executorAvailable:boolean;motherIdentityAvailable:boolean;humanGrantAvailable:boolean;
   usage:null|{spent:number;reserved:number;unknown:number;currency:string;modelRequests:number};
   admission:null|{state:'idle'|'held';id?:string;consumer?:string;recoveryRequired?:boolean};

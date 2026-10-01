@@ -4,6 +4,7 @@
 use tauri::Manager;
 use tauri_plugin_opener::OpenerExt;
 mod startup;
+mod owner;
 
 #[tauri::command]
 fn open_download_folder(app: tauri::AppHandle) -> Result<(), String> {
@@ -20,7 +21,8 @@ pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_notification::init())
-        .invoke_handler(tauri::generate_handler![open_download_folder, startup::ensure_local_service, startup::enter_local_workspace])
+        .invoke_handler(tauri::generate_handler![open_download_folder, startup::ensure_local_service, startup::enter_local_workspace,
+            owner::owner_confirmation_status, owner::owner_confirmation_pair, owner::owner_confirmation_sign])
         .setup(|app| {
             #[cfg(desktop)]
             {

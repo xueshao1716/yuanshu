@@ -4937,14 +4937,17 @@ dependencies = [
 
 [[package]]
 name = "yuanshu"
-version = "2.116.45"
+version = "2.116.46"
 dependencies = [
+ "base64 0.22.1",
  "serde",
  "serde_json",
+ "sha2",
  "tauri",
  "tauri-build",
  "tauri-plugin-notification",
  "tauri-plugin-opener",
+ "windows",
 ]
 
 [[package]]

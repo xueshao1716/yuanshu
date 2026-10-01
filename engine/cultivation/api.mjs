@@ -74,7 +74,7 @@ export function createCultivationApi({runtime, readBody, json, requireAuth, reso
       if(typeof resolveRequestIdentity==='function')identity=resolveRequestIdentity(req,clonePayload(command));
       else {
         const header=req.headers?.['x-cultivation-proof'];let proof;
-        if(typeof header!=='string'||header.length>512)fail('identity_denied');
+        if(typeof header!=='string'||header.length>9000)fail('identity_denied');
         try{proof=JSON.parse(header);}catch{fail('identity_denied');}
         identity=runtime.verifyHuman(proof,command);
       }
