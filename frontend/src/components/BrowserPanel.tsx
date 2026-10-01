@@ -1,16 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { ArrowLeft, ArrowRight, Copy, ExternalLink, Globe2, Loader2, RotateCw } from 'lucide-react'
 import { copyText } from '../lib/clipboard'
-
-function resolveUrl(value: string): string | null {
-  const raw = value.trim()
-  if (!raw) return null
-  const candidate = /^[a-z][a-z\d+.-]*:/i.test(raw) ? raw : `https://${raw}`
-  try {
-    const parsed = new URL(candidate, typeof window !== 'undefined' ? window.location.href : undefined)
-    return ['http:', 'https:'].includes(parsed.protocol) ? parsed.href : null
-  } catch { return null }
-}
+import { openBrowserUrl, resolveBrowserUrl as resolveUrl } from '../lib/browser-navigation'
 
 export default function BrowserPanel({ open, initialUrl, onClose }: { open: boolean; initialUrl: string; onClose: () => void }) {
   const [address, setAddress] = useState('')
@@ -19,6 +10,7 @@ export default function BrowserPanel({ open, initialUrl, onClose }: { open: bool
   const [notice, setNotice] = useState('')
   const [loading, setLoading] = useState(false)
   const [loadProblem, setLoadProblem] = useState('')
+  const [openProblem, setOpenProblem] = useState('')
   const loadTimer = useRef<number | undefined>(undefined)
   const [history, setHistory] = useState<string[]>([])
   const [historyIndex, setHistoryIndex] = useState(-1)
@@ -34,6 +26,7 @@ export default function BrowserPanel({ open, initialUrl, onClose }: { open: bool
     if (!open) return
     returnFocusRef.current = document.activeElement as HTMLElement
     setNotice('')
+    setOpenProblem('')
     const next = resolveUrl(initialUrl)
     if (next) {
       setAddress(next); setCurrentUrl(next); setHistory([next]); setHistoryIndex(0); setLoading(true)
@@ -61,7 +54,7 @@ export default function BrowserPanel({ open, initialUrl, onClose }: { open: bool
     setLoading(true)
     loadTimer.current = window.setTimeout(() => {
       setLoading(false)
-      setLoadProblem('页面加载较慢，或网站不允许内嵌显示。可在当前窗口打开，或复制地址。')
+      setLoadProblem('页面加载较慢，或网站不允许内嵌显示。请在浏览器中打开，或复制地址。')
     }, 15000)
     return () => window.clearTimeout(loadTimer.current)
   }, [open, currentUrl, frameKey])
@@ -70,7 +63,7 @@ export default function BrowserPanel({ open, initialUrl, onClose }: { open: bool
     window.clearTimeout(loadTimer.current)
     setLoading(false)
     // iframe load is not proof that cross-origin content or CSP succeeded.
-    setLoadProblem(failed ? '未能加载内嵌页面，请在当前窗口打开或复制地址。' : '')
+    setLoadProblem(failed ? '未能加载内嵌页面，请在浏览器中打开或复制地址。' : '')
   }
 
   // 把浏览器面板挂到一条临时历史记录上：手机返回键/浏览器后退先收起面板，
@@ -98,6 +91,7 @@ export default function BrowserPanel({ open, initialUrl, onClose }: { open: bool
   const navigate = (value = address) => {
     const next = resolveUrl(value)
     if (!next) { announce('只支持 http(s) 链接'); return }
+    setOpenProblem('')
     setAddress(next); setCurrentUrl(next); setFrameKey(key => key + 1); setLoading(true)
     setHistory(items => {
       const nextItems = [...items.slice(0, historyIndex + 1), next]
@@ -120,9 +114,12 @@ export default function BrowserPanel({ open, initialUrl, onClose }: { open: bool
     }
     onCloseRef.current()
   }
-  // 外部页面改在当前标签打开，保留浏览器历史，这样系统浏览器的后退键
-  // 一定能回到元枢工作台；新开标签会把用户带到一个没有返回入口的孤立页面。
-  const openSystem = () => { if (currentUrl) window.location.assign(currentUrl) }
+  const openSystem = async () => {
+    if (!currentUrl) return
+    setOpenProblem('')
+    try { await openBrowserUrl(currentUrl) }
+    catch (error) { setOpenProblem(error instanceof Error ? error.message : '打开失败，请复制地址。') }
+  }
   const copyCurrent = async () => announce(await copyText(currentUrl) ? '地址已复制' : '复制失败，请长按地址栏选择复制')
 
   if (!open) return null
@@ -140,19 +137,19 @@ export default function BrowserPanel({ open, initialUrl, onClose }: { open: bool
           <input ref={inputRef} value={address} onChange={event => setAddress(event.target.value)} aria-label="浏览器地址" placeholder="输入网址，例如 https://example.com" spellCheck={false} />
         </form>
         <button type="button" className="btn-tool touch-hit" aria-label="复制当前地址" title="复制当前地址" disabled={!currentUrl} onClick={() => void copyCurrent()}><Copy className="h-4 w-4" /></button>
-        <button type="button" className="btn-tool touch-hit" aria-label="在当前窗口打开" title="在当前窗口打开，之后可用浏览器后退返回" disabled={!currentUrl} onClick={openSystem}><ExternalLink className="h-4 w-4" /></button>
+        <button type="button" className="btn-tool touch-hit" aria-label="在浏览器中打开" title="独立打开网页，保留元枢工作台" disabled={!currentUrl} onClick={() => void openSystem()}><ExternalLink className="h-4 w-4" /></button>
       </div>
       {notice && <div className="browser-notice" role="status">{notice}</div>}
-      {loadProblem && <div className="browser-notice" role="alert">
-        <p>{loadProblem}</p>
-        <button type="button" className="btn-tool touch-hit" onClick={openSystem}>在当前窗口打开</button>
+      {(openProblem || loadProblem) && <div className="browser-notice" role="alert">
+        <p>{openProblem || loadProblem}</p>
+        <button type="button" className="btn-tool touch-hit" onClick={() => void openSystem()}>在浏览器中打开</button>
         <button type="button" className="btn-tool touch-hit" onClick={() => void copyCurrent()}>复制地址</button>
       </div>}
       <div className="browser-frame-wrap">
         {loading && <div className="browser-loading" role="status"><Loader2 className="h-4 w-4 animate-spin" />正在加载页面…</div>}
         {currentUrl ? <>
           <iframe key={frameKey} src={currentUrl} title="内置浏览器页面" sandbox="allow-forms allow-modals allow-popups allow-presentation allow-scripts" referrerPolicy="strict-origin-when-cross-origin" onLoad={() => frameSettled()} onError={() => frameSettled(true)} />
-          <p className="browser-hint">部分网站会禁止内嵌显示；页面空白时请点右上角“在当前窗口打开”，之后用浏览器后退返回工作台。</p>
+          <p className="browser-hint">这里提供隔离网页预览。页面空白、登录或交互不可用时，请点右上角“在浏览器中打开”；元枢会话会保留。</p>
         </> : <div className="browser-empty"><Globe2 className="h-10 w-10" /><p>从消息里的链接点“打开”，或在上方输入网址。</p></div>}
       </div>
     </aside>
