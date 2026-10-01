@@ -151,6 +151,7 @@ import { createLearningIntake } from "./engine/learning-intake.mjs";
 import { createKnowledgeRuntime } from "./engine/knowledge-runtime.mjs";
 import { createKnowledgeOverview } from "./engine/knowledge-overview.mjs";
 import { knowledgeChatContext, deliverKnowledgeContext } from "./engine/knowledge-chat.mjs";
+import { cultivationChatContext } from "./engine/cultivation/chat.mjs";
 import { createKnowledgeApi } from "./engine/knowledge-api.mjs";
 import { createCultivationRuntime } from "./engine/cultivation/runtime.mjs";
 import { createCultivationHostIdentity } from "./engine/cultivation/host-identity.mjs";
@@ -944,6 +945,14 @@ async function handleChat(req, res, body) {
     aibodyContext: { goal: aibodyTurn.topic, strategy: aibodyTurn.directive },
     knowledgeContext,
   };
+  const refreshCultivationContext = async () => {
+    const learned = await cultivationChatContext(cultivationRuntime, knowledgeRuntime, {
+      executionIdentity: body.__runContext?.executionIdentity,
+      query: emotionInput.message || message, runId: chatRunContext.runId,
+      sessionId: sessionId || findKeyByEntry(entry),
+    }, knowledgeNote);
+    chatRunContext.knowledgeContext = [knowledgeContext, learned].filter(Boolean).join('\n');
+  };
   // busy → 打断当前任务（对标 TUI interrupt：同一会话上处理新消息）
   if (entry.busy) {
     try { entry.mediaAbort?.(); } catch {}
@@ -1086,6 +1095,7 @@ async function handleChat(req, res, body) {
       if (engineDecision.lead === "dsh" && !forceResumeUnified) {
         await handleDshChat(res, entry, message, sessionId || findKeyByEntry(entry), abortCtrl.signal, { cwd: CONFIG.cwd });
       } else {
+        await refreshCultivationContext();
         await handleUnifiedChat(res, entry, message, sessionId || findKeyByEntry(entry), body.params, abortCtrl.signal, undefined, thinkOn, body.taskKey, (entry.modelKey && !isAutoModel(entry.modelKey)) ? entry.modelKey : null, null, chatRunContext);
       }
     } catch (e) {
@@ -1605,6 +1615,7 @@ async function handleChat(req, res, body) {
     } else {
       console.log(`[tiered] 闲聊不注入: msg="${message.slice(0, 30)}"`);
     }
+    await refreshCultivationContext();
     await deliverKnowledgeContext(entry.agent, chatRunContext.knowledgeContext, knowledgeNote);
     // 外部思考调试：注入 think 引导（nextTurn，不污染会话历史）
     if (thinkOn) {
@@ -1930,6 +1941,7 @@ async function handleChat(req, res, body) {
     try { unsubscribe(); } catch {}
     try {
       // 降级前先释放 busy（unifiedChat 会重新接管），并用同代次避免竞态
+      await refreshCultivationContext();
       if (entry.gen === thisGen) entry.busy = false;
       const abortCtrl2 = new AbortController();
       const onClose2 = () => { try { abortCtrl2.abort(); } catch {} };

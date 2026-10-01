@@ -10,14 +10,14 @@ const list = value => Array.isArray(value) && value.length <= 64 &&
 export function defaultPolicy() {
   return {enabled: false, maxAgents: 3, maxConcurrent: 1, dailyRequests: 0,
     dailyBudgetCents: 0, currency: 'USD', allowRemote: false, recursive: false,
-    expiresAt: null, models: [], tools: [], dataScopes: [], schedule: null, timeoutMs: 60000};
+    expiresAt: null, models: [], tools: [], dataScopes: [], schedule: null, timeoutMs: 60000, motherLearning: false};
 }
 
 export function validatePolicy(value) {
   const bad = () => { throw new Error('cultivation_invalid_policy'); };
   if (!value || Object.getPrototypeOf(value) !== Object.prototype ||
       fields.some(k => !Object.hasOwn(value, k)) ||
-      Object.keys(value).some(k => ![...fields, 'schedule', 'timeoutMs'].includes(k))) bad();
+      Object.keys(value).some(k => ![...fields, 'schedule', 'timeoutMs', 'motherLearning'].includes(k))) bad();
   if (typeof value.enabled !== 'boolean' || typeof value.allowRemote !== 'boolean' ||
       value.recursive !== false || value.currency !== 'USD' ||
       !integer(value.maxAgents, 1, 20) || !integer(value.maxConcurrent, 1, value.maxAgents) ||
@@ -29,6 +29,8 @@ export function validatePolicy(value) {
       !Number.isFinite(Date.parse(expiry)))) bad();
   if (value.enabled && expiry === null) bad();
   const schedule = value.schedule ?? null, timeoutMs = value.timeoutMs ?? 60000;
+  const motherLearning = value.motherLearning ?? false;
+  if (typeof motherLearning !== 'boolean' || Object.hasOwn(value, 'motherLearning') && value.motherLearning === null) bad();
   if (!integer(timeoutMs, 1000, 600000)) bad();
   if (schedule !== null) {
     if (!schedule || Object.keys(schedule).length !== 4 || typeof schedule.timezone !== 'string' ||
@@ -37,7 +39,7 @@ export function validatePolicy(value) {
         !integer(schedule.startMinute, 0, 1439) || !integer(schedule.endMinute, schedule.startMinute + 1, 1440)) bad();
     try {new Intl.DateTimeFormat('en-US', {timeZone: schedule.timezone}).format();} catch {bad();}
   }
-  return structuredClone({...value, schedule, timeoutMs});
+  return structuredClone({...value, schedule, timeoutMs, motherLearning});
 }
 
 export function assertDispatchWindow(policy, now = Date.now()) {

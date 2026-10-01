@@ -47,3 +47,10 @@ test('scheduler passes opaque identity only to executor, never event callbacks o
   assert.ok(events.every(ctx=>!Object.hasOwn(ctx,'executionIdentity')));
   assert.ok(!JSON.stringify(results).includes('executionIdentity'));
 });
+
+test('tool explains revocable prior mother learning authority without claiming personality powers',async()=>{
+  const {CULTIVATION_TOOL_SCHEMA}=await import('../../engine/cultivation/tool.mjs');
+  const text=CULTIVATION_TOOL_SCHEMA.function.description;
+  for(const word of ['motherLearning','mother','独立来源','撤销','人格','控制版本'])assert.ok(text.includes(word),word);
+  assert.ok(!text.includes('向母体共享另需用户签名'));
+});

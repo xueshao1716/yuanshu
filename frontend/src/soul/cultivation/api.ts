@@ -3,7 +3,7 @@ export const cultivationPolling = {refreshInterval:30000,refreshWhenHidden:false
 export type ExperienceCoverage = {basis:'returned_page';returnedCount:number;hasMore:boolean;observedAt:number}
 export type ExperienceObservation = {
   lineage:{agentId:string;designId:string|null;runId:string;knowledgeJobId:string;resolutionJobId?:string;entryId?:string};
-  linkState:'linked'|'invalidated';generatedRole:'model_generated';resolutionRecorded:boolean;
+  linkState:'linked'|'invalidated';generatedRole:'model_generated'|'execution_record';resolutionRecorded:boolean;
   sourceCurrent:'not_checked';userAcceptance:null;
   latestDecisions:{scope:string;decision:'adopt'|'retire';version:number;at:number;entryId?:string;actor:{kind:string|null}}[]
 }
@@ -18,9 +18,10 @@ export type AgentDetail = {agent:Agent;design:Design;revision:number;initializat
 export type Run = {id:string;status:string;createdAt:string;updatedAt:string;error?:{message?:string};
   cultivation:{agentId:string;designId:string;reason?:string;output?:string|null;knowledgeJobId?:string}}
 export type Experience = {id:string;agentId:string;knowledgeJobId:string;state:string;reason:string;observation?:ExperienceObservation;
+  outcome?:'failed'|'cancelled'|'unknown'|'not_completed';
   evidenceCount:number;userAcceptance:null;role:string;resolution:null|{jobId:string;entryId:string};revision:number|null;
   learning:{scope:string;decision:'adopt'|'retire';reason:string;version:number;at:number;actor:{kind:string;actorId:string}}[]}
-export type Policy = {enabled:boolean;maxAgents:number;maxConcurrent:number;dailyRequests:number;
+export type Policy = {enabled:boolean;motherLearning?:boolean;maxAgents:number;maxConcurrent:number;dailyRequests:number;
   dailyBudgetCents:number;currency:string;allowRemote:boolean;recursive:boolean;expiresAt:string|null;
   models:string[];tools:string[];dataScopes:string[];schedule:null|{timezone:string;days:number[];startMinute:number;endMinute:number};timeoutMs:number}
 export type Overview = {revision:number;state:string;policy:Policy;agentCount:number;designCount:number;

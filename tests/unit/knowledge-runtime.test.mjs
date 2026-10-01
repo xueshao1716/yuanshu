@@ -96,6 +96,36 @@ test('policy and enqueue are revisioned; unauthorized sources and non-text model
  await assert.rejects(r.enqueue({kind:'file',path:'docs/network.txt'},0),{code:'revision_conflict'});
  assert.equal((await r.store.list()).total,0);
 });
+
+test('mother references are run-scoped, separate from ordinary knowledge and counted only on actual citation',async t=>{
+ const {runtime:r,wsRoot,runRoot,runStore}=fixture(t);
+ assert.equal(typeof r.offerCultivationReferences,'function');
+ await r.updatePolicy({allowedRoots:['docs']},1);
+ const job=await r.enqueue({kind:'file',path:'docs/network.txt'},2);await r.worker.tick();
+ const id=(await r.store.get(job.id)).entryId;
+ const run=runStore.create({sessionId:'mother',clientRequestId:'mother-ref',message:'网络',backgroundRecovery:{scope:wsRoot}});
+ const scope={runId:run.id,sessionId:run.sessionId};
+ const ordinary={sessionId:run.sessionId,ids:['b'.repeat(64)]};
+ runStore.update(run.id,{knowledgeReferences:ordinary});
+ const usage=path.join(wsRoot,`记忆/知识/usage/${id}.json`);
+ r.offerCultivationReferences({...scope,sessionId:'foreign'},[id]);
+ assert.equal(runStore.get(run.id).cultivationReferences,undefined);
+ r.offerCultivationReferences(scope,[id,id]);
+ assert.deepEqual(runStore.get(run.id).knowledgeReferences,ordinary);
+ assert.deepEqual(runStore.get(run.id).cultivationReferences,{sessionId:run.sessionId,ids:[id]});
+ assert.equal(fs.existsSync(usage),false);
+ r.offerCultivationReferences(scope,[]);assert.deepEqual(runStore.get(run.id).cultivationReferences.ids,[]);
+ r.offerCultivationReferences(scope,[id]);
+ fs.mkdirSync(path.join(runRoot,'events'));
+ fs.writeFileSync(path.join(runRoot,`events/${run.id}.jsonl`),JSON.stringify({runId:run.id,sessionId:run.sessionId,seq:1,type:'delta',data:{text:'没有引用'}})+'\n');
+ runStore.update(run.id,{status:'completed'});await r.onRunFinished(run);assert.equal(fs.existsSync(usage),false);
+ fs.writeFileSync(path.join(runRoot,`events/${run.id}.jsonl`),JSON.stringify({runId:run.id,sessionId:run.sessionId,seq:1,type:'delta',data:{text:`来源引用[知识:${id}]`}})+'\n');
+ await r.onRunFinished(run);await r.onRunFinished(run);
+ assert.equal(JSON.parse(fs.readFileSync(usage)).count,1);
+ const child=runStore.create({sessionId:'child',clientRequestId:'child-ref',message:'网络',origin:'cultivation',backgroundRecovery:{scope:wsRoot}});
+ r.offerCultivationReferences({runId:child.id,sessionId:child.sessionId},[id]);
+ assert.equal(runStore.get(child.id).cultivationReferences,undefined);
+});
 test('status is read-only; startup delay is not bypassed by a wake or busy foreground',async t=>{
  let busy=true;const {runtime:r}=fixture(t,{foregroundBusy:()=>busy});
  assert.equal((await r.status()).summary.total,0);

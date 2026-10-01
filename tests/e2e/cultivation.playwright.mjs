@@ -22,11 +22,12 @@ try{
   browser=await chromium.launch({headless:true,...(process.env.YUANSHU_CHROME_PATH?{executablePath:process.env.YUANSHU_CHROME_PATH}:{})});
   for(const width of [1440,390]){
     const context=await browser.newContext({viewport:{width,height:900}}),page=await context.newPage();
-    const errors=[],writes=[],counts=new Map();let populated=false,revision=1,failOverview=false;
+    const errors=[],writes=[],counts=new Map();let populated=false,revision=1,failOverview=false,motherLearning=false,expired=false;
     const designs=['A','B'].map((n,i)=>({id:`design-${n}`,parentId:null,author:{actorId:'隔离测试小语'},
       design:{...draft(),name:`测试个体 ${n}`,appearance:{description:`测试形象 ${n}`,asset:{id:`asset-${n}`,version:1}}}}));
     const agents=designs.map((d,i)=>({id:`agent-${i}`,mentorId:'fixture-mother',designId:d.id,history:[d.id],status:'ready',cancellation:'confirmed'}));
-    const overview=()=>({revision,state:populated?'ready':'waiting_for_design',policy:enabledPolicy(),
+    const overview=()=>({revision,state:populated?'ready':'waiting_for_design',policy:{...enabledPolicy(),motherLearning,
+      ...(expired?{expiresAt:'2000-01-01T00:00:00.000Z'}:{})},
       agentCount:populated?2:0,designCount:populated?2:0,executorAvailable:true,motherIdentityAvailable:true,
       humanGrantAvailable:true,usage:{spent:0,reserved:0,unknown:0,currency:'USD',modelRequests:0},admission:{state:'idle'},taskStatus:{started:true,active:0}});
     await page.clock.install();
@@ -87,7 +88,20 @@ try{
     await tab('测试个体 B · 就绪');await page.locator('.cultivation-design:visible dd').filter({hasText:'测试形象 B'}).waitFor();
     assert.equal(await page.getByRole('alert').filter({hasText:'fixture_asset_revoked'}).count(),0,'asset errors cannot leak between individuals');
     await fit();await page.screenshot({path:path.join(root,`tmp/cultivation-${width}.png`),fullPage:true});
-    await tab('授权与资源');await page.getByText('编辑资源与运行时段',{exact:true}).click();
+    await tab('授权与资源');
+    const motherState=page.locator('.soul-facts > div').filter({has:page.getByText('母体自主采用经验',{exact:true})}).locator('dd');
+    assert.equal(await motherState.innerText(),'未授权');
+    motherLearning=true;revision++;await tab('刷新记录');await page.getByText('已事先授权',{exact:true}).waitFor();
+    expired=true;revision++;await tab('刷新记录');await page.getByText('暂不可用（已过期）',{exact:true}).waitFor();
+    expired=false;revision++;await tab('刷新记录');await page.getByText('已事先授权',{exact:true}).waitFor();
+    await fit();await page.screenshot({path:path.join(root,`tmp/cultivation-authorization-${width}.png`),fullPage:true});
+    await page.getByText('编辑资源与运行时段',{exact:true}).click();
+    await page.getByText(/motherLearning 默认关闭/).waitFor();
+    await page.getByText(/主人逐条批准的分享不受此开关撤销/).waitFor();
+    await page.getByText(/不能因重新开启授权而自动恢复/).waitFor();
+    await page.getByRole('alert').filter({hasText:'设置已更新'}).waitFor();
+    assert.equal(await page.getByRole('button',{name:'核对并申请签名',exact:true}).isDisabled(),true);
+    await tab('重新载入当前设置');
     const settings=page.getByRole('textbox',{name:'授权设置',exact:true});
     await settings.fill('{');await tab('核对并申请签名');
     await page.getByRole('alert').filter({hasText:'设置不是有效的 JSON'}).waitFor();
@@ -108,7 +122,7 @@ try{
     await page.clock.runFor(95000);await page.waitForTimeout(100);
     for(const [p,n]of before)assert.equal(counts.get(p),n,`hidden polling: ${p}`);
     assert.deepEqual(writes,['/api/cultivation/grants/challenge','/api/cultivation/policy']);
-    assert.deepEqual(errors,[]);console.log(`${width}px cultivation: empty, individual media isolation, stale draft, failed signature, errors, unmount polling and fit passed`);
+    assert.deepEqual(errors,[]);console.log(`${width}px cultivation: empty, media isolation, mother authorization off/on/expired, stale draft, failed signature, errors, unmount polling and fit passed`);
     await context.close();
   }
 }finally{await browser?.close();await new Promise(resolve=>server.close(resolve));}

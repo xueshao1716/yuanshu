@@ -18,7 +18,7 @@ export function experienceObservation(run, job) {
   });
   return {
     lineage, linkState: job ? 'linked' : 'invalidated',
-    generatedRole: 'model_generated', resolutionRecorded: !!job?.resolution,
+    generatedRole: job?.provenance?.role ?? 'model_generated', resolutionRecorded: !!job?.resolution,
     sourceCurrent: 'not_checked', latestDecisions: [...latest.values()],
     userAcceptance: null,
   };

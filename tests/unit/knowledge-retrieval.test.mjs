@@ -4,6 +4,14 @@ import {createKnowledgeRetrieval} from '../../engine/knowledge-retrieval.mjs';
 const entry=(extra={})=>({id:'e',text:'路由器网络配置经验',kind:'source',status:'active',expiresAt:10000,scope:'来源陈述',
  sources:[{locator:'docs/a.txt',reference:{kind:'file'},hash:'hash'}],...extra});
 const currentStore=extra=>({policy:async()=>({revision:1}),retrievalCurrent:(_entries,revision)=>revision===1,...extra});
+test('automatic exact-scope retrieval requires relevance while evidence inspection remains exact',async()=>{
+ const r=createKnowledgeRetrieval({store:currentStore({entries:async()=>[entry()]}),verifySource:async()=>true,now:()=>100});
+ await r.refresh();
+ assert.equal((await r.retrieve({query:'服装设计',entryIds:['e'],requireRelevant:true})).entries.length,0);
+ assert.equal((await r.retrieve({query:'',entryIds:['e'],requireRelevant:true})).entries.length,0);
+ assert.equal((await r.retrieve({query:'网络',entryIds:['e'],requireRelevant:true})).entries.length,1);
+ assert.equal((await r.retrieve({query:'',entryIds:['e']})).entries.length,1);
+});
 test('retrieval is cached, scoped, bounded and attributed; retrieval is not successful use',async()=>{
  let reads=0,uses=0;const rows=[entry(),entry({id:'private',sources:[{locator:'run:r',reference:{kind:'run',sessionId:'other'}}]}),entry({id:'expired',expiresAt:1}),entry({id:'pending',status:'conflict'})];
  const r=createKnowledgeRetrieval({store:currentStore({entries:async()=>{reads++;return rows;},recordUse:async()=>uses++}),verifySource:async()=>true,now:()=>100});

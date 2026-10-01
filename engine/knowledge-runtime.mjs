@@ -66,9 +66,10 @@ export function createKnowledgeRuntime({wsRoot,runRoot,runStore,catalog,directCh
     try{
       const run=runStore.get(input.id);
       if(!run||!['completed','failed'].includes(run.status)||['knowledge','cultivation'].includes(run.request?.origin))return;
-      if(run.knowledgeReferences?.sessionId===run.sessionId){
+      const references=[run.knowledgeReferences,run.cultivationReferences].filter(r=>r?.sessionId===run.sessionId);
+      if(references.length){
         const text=knowledgeRunOutput(runRoot,run);
-        for(const id of run.knowledgeReferences.ids||[])if(text.includes(`[知识:${id}]`))
+        for(const id of new Set(references.flatMap(r=>r.ids||[])))if(text.includes(`[知识:${id}]`))
           await store.recordUse(id,{runId:run.id,sessionId:run.sessionId,result:'used'});
       }
       await intake.enqueueRun(run);lastError=null;if(started)worker.wake('run_finished');
@@ -116,6 +117,13 @@ export function createKnowledgeRuntime({wsRoot,runRoot,runStore,catalog,directCh
         sourceId:`correction:${id}:${digest(source)}`,sessionId:parent.sessionId,runId:parent.runId,title:'原任务补充证据（仍需复核）'});
     },
     async control(id,action,revision){const job=await store.control(id,action,revision);worker.interrupt();if(started)worker.wake('control');return job;},
+    offerCultivationReferences({runId,sessionId},ids){
+      const run=runStore.get(runId);
+      if(!run||run.sessionId!==sessionId||!inWorkspace(run,wsRoot)||
+        ['knowledge','cultivation'].includes(run.request?.origin)||!['queued','running'].includes(run.status))return;
+      const safe=[...new Set(ids.filter(id=>typeof id==='string'&&/^[a-f0-9]{64}$/.test(id)))].slice(0,5);
+      runStore.update(run.id,{cultivationReferences:{sessionId,ids:safe}});
+    },
     async context(input){
       if(input.runId&&['knowledge','cultivation'].includes(runStore.get(input.runId)?.request?.origin))
         return {available:false,entries:[],context:''};

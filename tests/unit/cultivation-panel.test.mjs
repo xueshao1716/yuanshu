@@ -56,3 +56,14 @@ test('learning observation is page-scoped and stale data cannot prepare adoption
   assert.ok(!evidence.includes('dangerouslySetInnerHTML'));assert.ok(!evidence.includes('fetch('));
   assert.ok(evidence.includes('个体 {item.agentId}'),'older servers preserve visible individual attribution');
 });
+
+test('learning UI distinguishes prior authorization, execution records and unverified effects',()=>{
+  const resources=source('frontend/src/soul/cultivation/Resources.tsx');
+  const learning=source('frontend/src/soul/cultivation/Learning.tsx'),evidence=source('frontend/src/soul/cultivation/Evidence.tsx');
+  const api=source('frontend/src/soul/cultivation/api.ts');
+  for(const text of ['motherLearning','默认关闭','控制版本','已过期','人格','不删除历史对话'])assert.ok(resources.includes(text),text);
+  for(const text of ['事先授权','execution_record','失败、取消或结果未知','实际引用不等于验证有效'])assert.ok(learning.includes(text),text);
+  assert.ok(!learning.includes('分享给母体必须由主人签名'));
+  assert.ok(evidence.includes('执行记录'));
+  assert.ok(api.includes('motherLearning?:boolean'));assert.ok(api.includes("generatedRole:'model_generated'|'execution_record'"));
+});

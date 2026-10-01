@@ -24,6 +24,9 @@ try{
     const context=await browser.newContext({viewport:{width,height:1000}}),page=await context.newPage();
     const errors=[],writes=[],external=[],queries=[];
     const items=[experience('run-one',{resolved:true}),experience('run-two',{design:false}),experience('run-invalid',{invalid:true})];
+    items[1].role='execution_record';items[1].outcome='failed';items[1].observation.generatedRole='execution_record';
+    const unknown=experience('run-page-two');
+    unknown.role='execution_record';unknown.outcome='unknown';unknown.observation.generatedRole='execution_record';
     let mode='empty';
     page.setDefaultTimeout(12000);
     page.on('pageerror',error=>errors.push(error.message));
@@ -39,7 +42,7 @@ try{
         if(mode==='failure')return route.fulfill({status:503,json:{error:'fixture_evidence_unavailable'}});
         if(mode==='cursor-conflict'&&url.searchParams.has('cursor'))return route.fulfill({status:409,json:{error:'cultivation_cursor_stale'}});
         const json=mode==='empty'?evidencePage([]):mode==='legacy'?{items:items.map(({observation,...item})=>item),nextCursor:null,supported:true}
-          :url.searchParams.has('cursor')?evidencePage([experience('run-page-two')]):evidencePage(items,'synthetic-page-two');
+          :url.searchParams.has('cursor')?evidencePage([unknown]):evidencePage(items,'synthetic-page-two');
         return route.fulfill({json});
       }
       return route.fulfill({json:baseFixture(p)});
@@ -82,6 +85,11 @@ try{
     const first=page.locator('.cultivation-list > li').first();
     assert.match(await first.locator('.cultivation-evidence').innerText(),/曾退役/);
     assert.match(await first.locator('.cultivation-evidence').innerText(),/母体：曾采用/);
+    const failed=page.locator('.cultivation-list > li').nth(1);
+    assert.match(await failed.innerText(),/来源角色：执行记录/);
+    assert.match(await failed.innerText(),/任务结果：执行失败，原因待核验/);
+    assert.match(await failed.innerText(),/执行记录不是已核验知识/);
+    await page.getByText(/实际引用不等于验证有效/).waitFor();
     assert.equal(await page.locator('.cultivation-lineage dd').getByText('未记录',{exact:true}).count(),1);
     const invalid=page.locator('.cultivation-list > li').nth(2);
     assert.match(await invalid.innerText(),/关联失效/);
@@ -103,6 +111,7 @@ try{
     assert.equal(await page.getByRole('status').filter({hasText:'旧数据'}).count(),0);
     assert.equal(await first.getByRole('button',{name:'核对并采用',exact:true}).isEnabled(),true);
     await button('下一页').click();await page.locator('.cultivation-lineage dd').getByText('run-page-two',{exact:true}).waitFor();
+    await page.getByText('任务结果：实际结果未知',{exact:true}).waitFor();
     assert.deepEqual(await summary().locator('dd').allTextContents(),['1','0','0']);
     assert.equal(await button('下一页').isDisabled(),true);
     await button('回到第一页').click();await populated();
@@ -123,7 +132,7 @@ try{
     // Existing index.html requests these fonts. They remain aborted by the route above.
     assert.ok(external.every(host=>host==='https://fonts.loli.net'),JSON.stringify(external));
     assert.ok(queries.some(q=>q.includes('cursor=synthetic-page-two')));
-    console.log(`${width}px evidence: lineage, latest decisions, invalid/empty/legacy, stale safety, recovery, paging conflict, fit; no writes or page errors`);
+    console.log(`${width}px evidence: lineage, failed/unknown outcomes, latest decisions, invalid/empty/legacy, stale safety, recovery, paging conflict, fit; no writes or page errors`);
     await context.close();
   }
 }finally{await browser?.close();await new Promise(resolve=>server.close(resolve));}

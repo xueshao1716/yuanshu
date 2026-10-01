@@ -58,3 +58,42 @@ test('batch knowledge reads are bounded and returned records are detached',async
   await assert.rejects(knowledge.getMany(Array(51).fill('a'.repeat(64))),/invalid_pagination/);
   assert.deepEqual(await knowledge.getMany(['a'.repeat(64)]),[null]);
 });
+
+test('unsuccessful tasks are reconciled honestly with no raw error or invented output',async t=>{
+  const f=await controlFixture(t),knowledge=createKnowledgeStore({wsRoot:f.root});
+  const {createCultivationExperience}=await import('../../engine/cultivation/experience.mjs');
+  for(const [status,reason,outcome] of [['stopped','resource_or_provider_unavailable','not_completed'],
+    ['interrupted','outcome_unknown','unknown'],['stopped','cancelled','cancelled'],['stopped','cancel_requested','cancelled'],['failed','private-token-123','failed']]){
+    const run={id:randomUUID(),sessionId:'fixture',status,request:{origin:'cultivation'},error:{message:'private-token-123'},
+      cultivation:{workspace:f.store.workspace,agentId:randomUUID(),designId:randomUUID(),output:null,reason}};
+    const repo={scan:async function*(){yield structuredClone(run);},get:()=>structuredClone(run),
+      update:(_id,p)=>Object.assign(run,p),page:q=>pageRecords([run],f.store.workspace,'experience',q)};
+    const bridge=createCultivationExperience({repo,knowledge,workspace:f.store.workspace});
+    await bridge.reconcile();assert.ok(run.cultivation.knowledgeJobId,'terminal experience recorded');
+    await bridge.reconcile();const job=await knowledge.get(run.cultivation.knowledgeJobId);
+    assert.equal(job.provenance.outcome,outcome);assert.equal(job.provenance.role,'execution_record');
+    assert.equal(job.state,'review_required');assert.ok(!JSON.stringify(job).includes('private-token'));
+    const item=(await bridge.list()).items[0];assert.equal(item.role,'execution_record');assert.equal(item.outcome,outcome);
+    run.status='completed';run.cultivation.output='Different actual result';
+    assert.equal((await bridge.list()).items[0].state,'invalidated');
+  }
+  assert.equal((await knowledge.list()).total,5);assert.equal(await knowledge.claim('fixture'),null);
+});
+
+test('receipt reconciliation does not attach an obsolete result across an asynchronous offer',async t=>{
+  const f=await controlFixture(t),knowledge=createKnowledgeStore({wsRoot:f.root});
+  const {createCultivationExperience}=await import('../../engine/cultivation/experience.mjs');
+  const run={id:randomUUID(),sessionId:'fixture',status:'interrupted',request:{origin:'cultivation'},
+    cultivation:{workspace:f.store.workspace,agentId:randomUUID(),designId:randomUUID(),output:null}};
+  const offer=knowledge.offerCultivation;let change=true;
+  const repo={scan:async function*(){yield structuredClone(run);},get:()=>structuredClone(run),
+    update:(_id,p)=>Object.assign(run,p),page:q=>pageRecords([run],f.store.workspace,'experience',q)};
+  const bridge=createCultivationExperience({repo,knowledge:{...knowledge,offerCultivation:async source=>{
+    const result=await offer(source);
+    if(change){run.status='completed';run.cultivation.output='Actual final result';change=false;}
+    return result;
+  }},workspace:f.store.workspace});
+  await bridge.reconcile();assert.equal(run.cultivation.knowledgeJobId,undefined,'obsolete receipt must not attach');
+  await bridge.reconcile();const job=await knowledge.get(run.cultivation.knowledgeJobId);
+  assert.equal(job.candidate.text,'Actual final result');assert.equal((await bridge.list()).items[0].state,'review_required');
+});

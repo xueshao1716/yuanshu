@@ -13,11 +13,16 @@ export function createLearningCommands({authority,controls,learning,getJob,now=D
   return async(input,principal)=>{
     const c=clonePayload(input);validateLearningCommand(c);
     if(!learning||!getJob)fail('executor_unavailable');
-    const kinds=c.payload.scope==='mother'?['human']:['human','mother'];
+    const kinds=['human','mother'];
     authority.assert(principal,c,kinds);
     const job=await getJob(c.payload.jobId);
+    let revision;
     const guard=()=>{
       const actor=authority.assert(principal,c,kinds),state=controls.read();
+      if(actor.kind==='mother'&&c.payload.scope==='mother'){
+        if(!state.data.policy.motherLearning)fail('identity_denied');
+        if(revision!==undefined&&revision!==state.revision)fail('policy_changed');
+      }
       const agent=state.data.agents.find(a=>a.id===job?.provenance?.agentId);
       if(!agent||c.payload.scope!=='mother'&&c.payload.scope!==agent.id||
         actor.kind==='mother'&&agent.mentorId!==actor.actorId)fail('identity_denied');
@@ -28,7 +33,9 @@ export function createLearningCommands({authority,controls,learning,getJob,now=D
       return actor;
     };
     const actor=guard();
-    try{return await learning.decide({...c.payload,expectedRevision:c.expectedRevision,requestId:c.requestId},actor,{guard});}
+    revision=controls.read().revision;
+    const motherAuthorization=actor.kind==='mother'&&c.payload.scope==='mother'?{mode:'policy',revision}:undefined;
+    try{return await learning.decide({...c.payload,expectedRevision:c.expectedRevision,requestId:c.requestId},actor,{guard,motherAuthorization});}
     catch(error){if(error.code)fail(error.code);throw error;}
   };
 }

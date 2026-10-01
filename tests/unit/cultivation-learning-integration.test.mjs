@@ -48,3 +48,17 @@ test('adoption checks live authority and knowledge policy again at commit',async
   await assert.rejects(r.cultivationLearning.decide(request,actor),/policy_changed/);
   assert.equal((await r.store.get(request.jobId)).learning?.length??0,0);
 });
+
+test('policy-authorized mother decisions require matching live grant on retrieval and survive recreation',async t=>{
+  const {r,agentId,actor,request}=await evidence(t);
+  const mother={...actor,kind:'mother',actorId:'fixture-mother'};
+  await r.cultivationLearning.decide(request,mother,{guard:()=>mother,motherAuthorization:{mode:'policy',revision:7}});
+  const input={scope:'mother',query:'网络',agentIds:[agentId],motherActorId:mother.actorId,motherLearning:true,controlRevision:7};
+  assert.equal((await r.cultivationLearning.context(input)).entries.length,1);
+  assert.equal((await r.cultivationLearning.context({...input,query:'服装设计',requireRelevant:true})).entries.length,0);
+  for(const change of [{motherLearning:false},{motherActorId:'foreign'},{controlRevision:8},{agentIds:[]}])
+    assert.equal((await r.cultivationLearning.context({...input,...change})).entries.length,0);
+  const {createCultivationLearning}=await import('../../engine/knowledge-cultivation-learning.mjs');
+  const restored=createCultivationLearning({store:r.store,retrieval:r.retrieval});
+  assert.equal((await restored.context(input)).entries.length,1);
+});

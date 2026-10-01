@@ -38,10 +38,13 @@ export function createCultivationRuntime({wsRoot, identityAdapters, humanConfig,
         const current=()=>{
           const actor=authority.assert(principal,command,['mother']),state=controls.read();
           if(!state.data.policy.enabled||Date.parse(state.data.policy.expiresAt)<=now())throw new Error('cultivation_policy_disabled');
-          return {revision:state.revision,agentIds:state.data.agents.filter(a=>a.mentorId===actor.actorId&&a.status==='ready'&&
+          return {revision:state.revision,motherActorId:actor.actorId,motherLearning:state.data.policy.motherLearning===true,
+            agentIds:state.data.agents.filter(a=>a.mentorId===actor.actorId&&a.status==='ready'&&
             learningAllowed(state.data.policy,state.data.designs.find(d=>d.id===a.designId)?.design)).map(a=>a.id)};
         };
-        const before=current(),result=await learning.context({scope:'mother',agentIds:before.agentIds,query:command.payload.query,maxTokens:1200});
+        const before=current(),result=await learning.context({scope:'mother',agentIds:before.agentIds,
+          motherActorId:before.motherActorId,motherLearning:before.motherLearning,controlRevision:before.revision,
+          query:command.payload.query,maxTokens:1200,requireRelevant:true});
         if(JSON.stringify(before)!==JSON.stringify(current()))throw new Error('cultivation_policy_changed');
         return {available:result.available!==false,context:result.context,entries:result.entries.map(e=>({id:e.id,jobId:e.jobId}))};
       }

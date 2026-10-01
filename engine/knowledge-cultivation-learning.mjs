@@ -13,7 +13,7 @@ export function cultivationDecisions({io,now}) {
       }
       return result;
     },
-    decide:(input,actor,entry,{guard=()=>actor,policyRevision,verifySource=async()=>false}={})=>io.transaction(async data=>{
+    decide:(input,actor,entry,{guard=()=>actor,policyRevision,motherAuthorization,verifySource=async()=>false}={})=>io.transaction(async data=>{
       const authenticated=guard();if(digest(authenticated)!==digest(actor))fail('identity_denied');
       const {jobId,scope,decision,reason,expectedRevision}=input;checkId(jobId);
       const job=data.jobs[jobId];if(job?.event!=='cultivation')fail('job_not_found');
@@ -25,6 +25,8 @@ export function cultivationDecisions({io,now}) {
       if(!['mother',job.provenance.agentId].includes(scope)||!['adopt','retire'].includes(decision)||
         typeof reason!=='string'||!reason.trim()||reason.length>1000)fail('invalid_control');
       if(!actor||!['human','mother'].includes(actor.kind)||actor.workspace!==data.workspace||!actor.actorId)fail('identity_denied');
+      if(scope==='mother'&&actor.kind==='mother'&&(!motherAuthorization||motherAuthorization.mode!=='policy'||
+        !Number.isSafeInteger(motherAuthorization.revision)||motherAuthorization.revision<0))fail('identity_denied');
       const previous=job.learning?.filter(row=>row.scope===scope).at(-1);
       if(decision==='adopt'){
         if(data.policy.revision!==policyRevision)fail('policy_changed');
@@ -39,6 +41,7 @@ export function cultivationDecisions({io,now}) {
       job.learning.push({scope,decision,reason,version:(previous?.version??0)+1,entryId:entry?.id??previous.entryId,
         ...(input.requestId?{requestId:input.requestId,commandDigest:digest(input)}:{}),
         sourceVersion:entry?.sourceVersion??previous.sourceVersion,actor:clone(actor),at:now(),
+        ...(scope==='mother'&&actor.kind==='mother'?{motherAuthorization:clone(motherAuthorization)}:{}),
         validation:decision==='adopt'?'independent_source_current':'retired_by_actor'});
       job.revision++;job.updatedAt=now();return job;
     }),
@@ -46,15 +49,17 @@ export function cultivationDecisions({io,now}) {
 }
 
 export function createCultivationLearning({store,retrieval,verifySource}) {
-  const context=async({scope,query,maxTokens=2000,agentIds})=>{
+  const context=async({scope,query,maxTokens=2000,agentIds,motherActorId,motherLearning=false,controlRevision,requireRelevant=false})=>{
     const policy=await store.policy();
     const selected=()=>store.cultivationDecisions.read(scope).filter(d=>
-      scope!=='mother'||Array.isArray(agentIds)&&agentIds.includes(d.agentId)&&d.actor.kind==='human').slice(-5);
+      scope!=='mother'||Array.isArray(agentIds)&&agentIds.includes(d.agentId)&&
+        (d.actor.kind==='human'||motherLearning===true&&d.actor.kind==='mother'&&d.actor.actorId===motherActorId&&
+          d.motherAuthorization?.mode==='policy'&&d.motherAuthorization.revision===controlRevision)).slice(-5);
     const decisions=selected(),entries=[];
     let context='';
     for(const decision of decisions){
       const result=await retrieval.retrieve({query,sessionId:`cultivation:${decision.agentId}`,
-        entryIds:[decision.entryId],maxEntries:1,maxTokens:Math.max(0,maxTokens-Buffer.byteLength(context))});
+        entryIds:[decision.entryId],requireRelevant,maxEntries:1,maxTokens:Math.max(0,maxTokens-Buffer.byteLength(context))});
       entries.push(...result.entries);context+=result.context;
     }
     const current=selected();

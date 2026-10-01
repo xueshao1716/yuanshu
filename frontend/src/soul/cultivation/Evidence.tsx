@@ -28,7 +28,7 @@ export default function Evidence({item}:{item:Experience}) {
       <div><dt>知识候选</dt><dd>{lineage.knowledgeJobId}</dd></div>
     </dl>
     {observation.linkState==='invalidated'?<p className="soul-notice">运行与知识关联失效：记录缺失或内容不一致。以上标识仅来自运行记录，不展示补证和采用状态。</p>:<>
-      {observation.resolutionRecorded?<><p>已有补证记录，不代表来源当前有效。</p><dl className="cultivation-lineage"><div><dt>补证任务</dt><dd>{lineage.resolutionJobId??'未记录'}</dd></div><div><dt>知识条目</dt><dd>{lineage.entryId??'未记录'}</dd></div></dl></>:<p>尚无补证记录，模型生成内容仍为待核查候选。</p>}
+      {observation.resolutionRecorded?<><p>已有补证记录，不代表来源当前有效。</p><dl className="cultivation-lineage"><div><dt>补证任务</dt><dd>{lineage.resolutionJobId??'未记录'}</dd></div><div><dt>知识条目</dt><dd>{lineage.entryId??'未记录'}</dd></div></dl></>:<p>尚无补证记录，{observation.generatedRole==='execution_record'?'执行记录不是已核验知识':'模型生成内容仍为待核查候选'}。</p>}
       <h5>各范围最近的历史决定</h5>
       {!latestDecisions.length?<p>尚无采用或退役记录。</p>:<ul>{latestDecisions.map(row=><li key={row.scope}>
         {row.scope==='mother'?'母体':`原个体 ${row.scope}`}：曾{row.decision==='adopt'?'采用':'退役'} · 版本 {row.version}

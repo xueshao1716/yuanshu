@@ -49,3 +49,20 @@ test('mother-scoped transfer requires a human grant and cannot be self-authorize
     learningJob:async()=>({provenance:{agentId}})});
   await assert.rejects(runtime.execute(f.command('learning.decide',{jobId:'a'.repeat(64),scope:'mother',decision:'adopt',reason:'Share'}),'mother',f.mother),/identity_denied/);
 });
+
+test('explicit mother learning policy is bounded, revocable and fenced across await',async t=>{
+  const f=await authorizedFixture(t);let received,withdraw=false;
+  await f.execute(f.command('policy.set',{policy:{...enabledPolicy(),motherLearning:true,dataScopes:['knowledge:approved-cultivation']}}));
+  const runtime=createCultivationRuntime({wsRoot:f.root,identityAdapters:{resolveMother:s=>s===f.mother&&s.active?
+    {actorId:'fixture-mother',originId:'fixture-run'}:null},learningJob:async()=>({provenance:{agentId:f.agentId}}),
+    learning:{async decide(input,actor,options){received=options;options.guard();
+      if(withdraw)await f.execute(f.command('policy.set',{policy:{...enabledPolicy(),dataScopes:['knowledge:approved-cultivation']}}));
+      options.guard();return {revision:2};},context:async input=>{received=input;return {entries:[],context:''};}}});
+  const c=f.command('learning.decide',{jobId:'b'.repeat(64),scope:'mother',decision:'adopt',reason:'Validated ordinary knowledge'});
+  assert.equal((await runtime.execute(c,'mother',f.mother)).revision,2);
+  assert.deepEqual(received.motherAuthorization,{mode:'policy',revision:f.controls.read().revision});
+  await runtime.readMother({action:'learning.context',payload:{query:'Network'}},f.mother);
+  assert.equal(received.motherActorId,'fixture-mother');assert.equal(received.motherLearning,true);
+  withdraw=true;await assert.rejects(runtime.execute(c,'mother',f.mother),/policy_changed|identity_denied/);
+  await assert.rejects(runtime.execute(c,'mother',f.mother),/identity_denied/);
+});
