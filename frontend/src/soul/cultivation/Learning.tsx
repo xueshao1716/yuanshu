@@ -1,8 +1,9 @@
 import { useState } from 'react'
-import type { Experience } from './api'
+import type { Experience, ExperienceCoverage } from './api'
 import { statusLabel } from './api'
 import type { Action } from './Authorization'
 import { date } from '../shared'
+import Evidence, { EvidenceSummary } from './Evidence'
 
 function Decision({item,authorized,onAction}:{item:Experience;authorized:boolean;onAction:(a:Action)=>void}) {
   const [scope,setScope]=useState(item.agentId),[reason,setReason]=useState('')
@@ -20,10 +21,11 @@ function Decision({item,authorized,onAction}:{item:Experience;authorized:boolean
     <div className="soul-actions"><button disabled={!authorized||item.revision===null||!item.resolution||!reason.trim()||last?.decision==='adopt'} onClick={()=>prepare('adopt')}>核对并采用</button><button disabled={!authorized||item.revision===null||!reason.trim()||last?.decision!=='adopt'} onClick={()=>prepare('retire')}>核对并退役</button></div>
   </details>
 }
-export default function Learning({items,authorized,onAction}:{items:Experience[];authorized:boolean;onAction:(a:Action)=>void}) {
+export default function Learning({items,coverage,stale,authorized,onAction}:{items:Experience[];coverage?:ExperienceCoverage;stale:boolean;authorized:boolean;onAction:(a:Action)=>void}) {
   return <><p className="soul-hint">模型输出仅为假设。补证、采用与退役以同一份知识记录为准；模型复述不增加独立证据，未记录用户认可时不推定认可。</p>
-    {!items.length&&<p>暂无学习证据；完成任务后会留下可追踪的假设记录。</p>}
-    <ul className="cultivation-list">{items.map(item=><li key={item.id}><h4>{statusLabel(item.state)}</h4><p>个体 {item.agentId}</p><p>来源角色：模型生成 · 用户认可：未记录</p>
-      <a href={`#/apps?knowledge=${encodeURIComponent(item.knowledgeJobId)}`}>查看知识证据与处理记录</a><Decision item={item} authorized={authorized} onAction={onAction}/></li>)}</ul>
+    <EvidenceSummary items={items} coverage={coverage} stale={stale}/>
+    {!stale&&!items.length&&<p>本页暂无记录；完成任务后会留下可追踪的假设记录。</p>}
+    <ul className="cultivation-list">{items.map(item=><li key={item.id}><h4>{statusLabel(item.state)}</h4><p>来源角色：模型生成</p>
+      <Evidence item={item}/><a href={`#/apps?knowledge=${encodeURIComponent(item.knowledgeJobId)}`}>查看知识证据与处理记录</a><Decision item={item} authorized={authorized&&!stale} onAction={onAction}/></li>)}</ul>
   </>
 }

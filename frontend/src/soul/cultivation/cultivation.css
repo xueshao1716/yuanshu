@@ -17,4 +17,13 @@
 .cultivation-media audio { width: 100%; max-width: 480px; margin-block: 12px; }
 .cultivation-panel button { min-height: 44px; }
 .cultivation-panel input, .cultivation-panel select, .cultivation-panel textarea { min-width: 0; max-width: 100%; font-size: 16px; caret-color: var(--pi-accent); }
+.cultivation-evidence-counts { display: flex; flex-wrap: wrap; gap: 20px 40px; margin-block: 20px; }
+.cultivation-evidence-counts dt, .cultivation-lineage dt { color: var(--pi-dim); font-size: 14px; }
+.cultivation-evidence-counts dd { margin: 6px 0 0; font-size: 24px; font-weight: 650; font-variant-numeric: tabular-nums; }
+.cultivation-lineage { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px 24px; margin-block: 16px; }
+.cultivation-lineage dd { margin: 6px 0 0; overflow-wrap: anywhere; }
+.cultivation-evidence h5 { margin: 20px 0 8px; font-size: 14px; }
+.cultivation-evidence ul { padding-left: 20px; }
+.cultivation-evidence li + li { margin-top: 12px; }
 @media (max-width: 640px) { .cultivation-panel .soul-actions { gap: 10px; } }
+@media (max-width: 640px) { .cultivation-lineage { grid-template-columns: minmax(0, 1fr); } }

@@ -1,6 +1,7 @@
 import {digest} from '../knowledge-state.mjs';
+import {experienceObservation} from './experience-observation.mjs';
 
-export function createCultivationExperience({repo,knowledge,workspace}) {
+export function createCultivationExperience({repo,knowledge,workspace,now=Date.now}) {
   return Object.freeze({
     async reconcile(){
       for await(const run of repo.scan())if(run.status==='completed'&&!run.cultivation.knowledgeJobId){
@@ -21,9 +22,11 @@ export function createCultivationExperience({repo,knowledge,workspace}) {
           state:valid?(job.resolution?'resolved':job.state):'invalidated',
           reason:valid?job.reason:'source_unavailable',evidenceCount:0,userAcceptance:null,
           revision:valid?job.revision:null,learning:valid?job.learning??[]:[],
-          role:'model_generated',resolution:valid?job.resolution??null:null});
+          role:'model_generated',resolution:valid?job.resolution??null:null,
+          observation:experienceObservation(run,valid?job:null)});
       }
-      return {...page,items,supported:true};
+      return {...page,items,supported:true,coverage:{basis:'returned_page',
+        returnedCount:items.length,hasMore:page.nextCursor!==null,observedAt:now()}};
     },
   });
 }

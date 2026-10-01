@@ -1,6 +1,13 @@
 import { api } from '../../api'
 export const cultivationPolling = {refreshInterval:30000,refreshWhenHidden:false,refreshWhenOffline:false}
-export type Page<T> = {items:T[]; nextCursor:string|null; supported:boolean; revision?:number}
+export type ExperienceCoverage = {basis:'returned_page';returnedCount:number;hasMore:boolean;observedAt:number}
+export type ExperienceObservation = {
+  lineage:{agentId:string;designId:string|null;runId:string;knowledgeJobId:string;resolutionJobId?:string;entryId?:string};
+  linkState:'linked'|'invalidated';generatedRole:'model_generated';resolutionRecorded:boolean;
+  sourceCurrent:'not_checked';userAcceptance:null;
+  latestDecisions:{scope:string;decision:'adopt'|'retire';version:number;at:number;entryId?:string;actor:{kind:string|null}}[]
+}
+export type Page<T> = {items:T[]; nextCursor:string|null; supported:boolean; revision?:number;coverage?:ExperienceCoverage}
 export type MediaDesign = {description:string; asset:null|{id:string;version:number}}
 export type Design = {id:string;parentId:string|null;author:{actorId:string};design:{
   name:string;rationale:string;goals:string[];curriculum:string[];temporaryExpression:string;
@@ -10,7 +17,7 @@ export type Agent = {id:string;mentorId:string;designId:string;history:string[];
 export type AgentDetail = {agent:Agent;design:Design;revision:number;initialization:string}
 export type Run = {id:string;status:string;createdAt:string;updatedAt:string;error?:{message?:string};
   cultivation:{agentId:string;designId:string;reason?:string;output?:string|null;knowledgeJobId?:string}}
-export type Experience = {id:string;agentId:string;knowledgeJobId:string;state:string;reason:string;
+export type Experience = {id:string;agentId:string;knowledgeJobId:string;state:string;reason:string;observation?:ExperienceObservation;
   evidenceCount:number;userAcceptance:null;role:string;resolution:null|{jobId:string;entryId:string};revision:number|null;
   learning:{scope:string;decision:'adopt'|'retire';reason:string;version:number;at:number;actor:{kind:string;actorId:string}}[]}
 export type Policy = {enabled:boolean;maxAgents:number;maxConcurrent:number;dailyRequests:number;

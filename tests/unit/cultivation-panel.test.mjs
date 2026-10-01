@@ -45,3 +45,14 @@ test('owned media is loaded on demand through authenticated API and unknown outc
   assert.ok(source('frontend/src/soul/cultivation/Individuals.tsx').includes('outcome_unknown'));
   assert.ok(source('frontend/src/soul/cultivation/Resources.tsx').includes("path:'/resources/reconcile'"));
 });
+
+test('learning observation is page-scoped and stale data cannot prepare adoption',()=>{
+  const panel=source('frontend/src/soul/cultivation/Panel.tsx'),learning=source('frontend/src/soul/cultivation/Learning.tsx');
+  const evidence=source('frontend/src/soul/cultivation/Evidence.tsx'),api=source('frontend/src/soul/cultivation/api.ts');
+  for(const text of ['coverage={experience.data.coverage}','stale={!!experience.error}'])assert.ok(panel.includes(text),text);
+  for(const text of ['authorized={authorized&&!stale}','!stale&&!items.length','本页暂无记录'])assert.ok(learning.includes(text),text);
+  for(const text of ['本页候选','补证记录','关联失效','旧数据','observedAt','not_checked','latestDecisions','设计版本','未提供证据观察字段'])assert.ok(evidence.includes(text),text);
+  for(const text of ['observation?:','coverage?:'])assert.ok(api.includes(text),text);
+  assert.ok(!evidence.includes('dangerouslySetInnerHTML'));assert.ok(!evidence.includes('fetch('));
+  assert.ok(evidence.includes('个体 {item.agentId}'),'older servers preserve visible individual attribution');
+});
