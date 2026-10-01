@@ -1,5 +1,8 @@
 # Agent Cultivation Ecology Implementation Plan
 
+> 2026-10-01 更新：后续实现已合并并部署为 2.116.43，实际验证与启用边界见
+> [发布验收](2026-10-01-cultivation-release-results.md)。下文保留各阶段规划时的状态。
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** 把已批准的自主培养规格拆为五个独立验收阶段，建立可观察、可干预、有证据的双向学习闭环。

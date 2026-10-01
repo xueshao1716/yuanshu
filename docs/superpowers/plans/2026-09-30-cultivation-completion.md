@@ -1,5 +1,7 @@
 # Cultivation completion worklist
 
+2026-10-01 production follow-through: [merge and release evidence](2026-10-01-cultivation-release-results.md).
+
 Approved scope: `../specs/2026-09-30-agent-cultivation-ecology-design.md`.
 Implement and verify in `feat/agent-cultivation-ecology`. On 2026-10-01 the user
 explicitly authorized completing the work, merging and restarting production.
