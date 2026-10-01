@@ -124,7 +124,8 @@ async function runOne(tc, { tools, onTool, onToolEnd, signal, effects, execution
   if (onTool) onTool(tc.id, fnName, args, toolContext);
   let out;
   try {
-    out = await (tools ? tools.execute(fnName, args, toolContext) : { text: `未知工具: ${fnName}`, isError: true });
+    // Opaque live authority is executor-only, never an event or journal field.
+    out = await (tools ? tools.execute(fnName, args, {...toolContext, executionIdentity: executionContext?.executionIdentity}) : { text: `未知工具: ${fnName}`, isError: true });
   } catch (error) {
     effects?.markUncertain?.(runId, effectKey, String(error?.message || error));
     out = { text: `工具执行异常: ${String(error?.message || error)}`, isError: true, uncertain: true };

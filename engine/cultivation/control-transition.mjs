@@ -51,6 +51,7 @@ export function transition(data, c, actor, {now, verifyAsset, entityId, intentId
     if (a.status !== 'paused') fail('invalid_transition');
     adopt(design(a.designId), a.id);
     a.status = 'ready';
+    a.cancellation = 'not_requested';
   } else {
     if (c.action === 'agent.adopt' && a.mentorId !== actor.actorId) fail('identity_denied');
     const next = design(p.designId), current = design(a.designId);
@@ -62,7 +63,7 @@ export function transition(data, c, actor, {now, verifyAsset, entityId, intentId
     a.designId = next.id;
     a.history.push(next.id);
   }
-  // There is no executor in this stage, including after resume.
+  // Dispatch is decided by the executor's live gates, never this projection.
   a.dispatchAllowed = false;
   return {id: a.id};
 }

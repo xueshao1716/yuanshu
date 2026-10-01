@@ -1,15 +1,16 @@
 import {randomUUID} from 'node:crypto';
 import {digest,guardFor,fail} from './knowledge-state.mjs';
 const safeReason=e=>/^[a-z][a-z0-9_]{0,70}$/.test(e?.code||'')?e.code:'knowledge_step_failed';
-export function createKnowledgeWorker({store,collect,extract,validate,foregroundBusy=()=>false,now=Date.now,random=Math.random,onSettled=()=>{},reconcile=()=>{}}){
+export function createKnowledgeWorker({store,collect,extract,validate,admission,foregroundBusy=()=>false,now=Date.now,random=Math.random,onSettled=()=>{},reconcile=()=>{}}){
   const owner=randomUUID();let running=false,controller=null,timer=null,wakeTimer=null,stopped=false,failures=0,cooldownUntil=0,lastError=null,startAfter=0,inflight=null;
   const execute=async()=>{
     if(stopped||running||now()<startAfter)return {state:'idle'};
     if(foregroundBusy())return {state:'foreground_busy'};
-    running=true;let job;
+    running=true;let job,slot;
     try{
       const persisted=await store.workerState();failures=persisted.failures;cooldownUntil=persisted.cooldownUntil;
       if(cooldownUntil>now())return {state:'cooldown',until:cooldownUntil};
+      if(admission){slot=await admission.acquire('knowledge');if(!slot)return {state:'background_busy'};}
       controller=new AbortController();const signal=controller.signal;
       if(stopped)controller.abort();
       await reconcile({signal,foregroundBusy});signal.throwIfAborted();if(foregroundBusy())fail('foreground_busy');
@@ -66,7 +67,10 @@ export function createKnowledgeWorker({store,collect,extract,validate,foreground
         }
       }
       return {state:'deferred',reason};
-    }finally{running=false;controller=null;}
+    }finally{
+      // Await all provider/maintenance cleanup before admitting another worker.
+      try{if(slot)await admission.release(slot.id);}finally{running=false;controller=null;}
+    }
   };
   const tick=()=>{if(running)return Promise.resolve({state:'idle'});inflight=execute();return inflight;};
   const safely=()=>tick().catch(()=>{lastError='knowledge_unavailable';});

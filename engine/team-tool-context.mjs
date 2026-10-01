@@ -3,6 +3,8 @@ import { executeTeam, DELEGATE_TEAM_TOOL } from './team-subagents.mjs';
 
 const context = new AsyncLocalStorage();
 export const withTeamToolContext = (value, work) => context.run(value, work);
+// Host-only accessor. The opaque execution identity is never a tool argument.
+export const getTeamToolContext = () => context.getStore();
 export function createPiTeamTool(Type) {
   return {
     name: 'delegate_team', label: '天团协作', description: DELEGATE_TEAM_TOOL.function.description,

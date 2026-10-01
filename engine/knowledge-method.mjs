@@ -34,7 +34,7 @@ export function createKnowledgeMethods({wsRoot,runRoot,runStore,taskEvidence,now
     nodeMajor:process.versions.node.split('.')[0],runId,sessionId});
   const authorize=(source)=>{
     const run=runStore.get(source.runId);
-    if(!run||run.sessionId!==source.sessionId||run.status!=='completed'||run.request?.origin==='knowledge'||
+    if(!run||run.sessionId!==source.sessionId||run.status!=='completed'||['knowledge','cultivation'].includes(run.request?.origin)||
       scopeKey(run.backgroundRecovery?.scope||'')!==scopeKey(wsRoot))fail('source_not_authorized');
     return run;
   };

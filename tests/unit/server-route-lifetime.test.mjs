@@ -94,8 +94,10 @@ test('extracted workbench routes preserve HTTP contracts, cache and rollback saf
   const routes = [];
   let knowledgeCalls = 0;
   const knowledgeApi = { handle(req, res, url) { knowledgeCalls++; return json(res, 200, { method: req.method, path: url.pathname }); } };
-  vm.runInNewContext(source.slice(registrationStart, start), { ...deps, API_ROUTES: routes, createWorkbenchRoutes, knowledgeApi });
-  assert.equal(routes.length, 6);
+  let cultivationCalls = 0;
+  const cultivationApi = { handle(req, res, url) { cultivationCalls++; return json(res, 200, { method: req.method, path: url.pathname }); } };
+  vm.runInNewContext(source.slice(registrationStart, start), { ...deps, API_ROUTES: routes, createWorkbenchRoutes, knowledgeApi, cultivationApi });
+  assert.equal(routes.length, 9);
   assert.equal(routes.filter(route => typeof route[1] === 'string').length, 4);
   assert.ok(Object.isFrozen(routes), 'startup freezes the complete route registry');
   const base = await serveProductionCallback(t, routes);
@@ -108,6 +110,14 @@ test('extracted workbench routes preserve HTTP contracts, cache and rollback saf
     assert.deepEqual(await response.json(), { method, path: '/api/knowledge/status' });
   }
   assert.equal(knowledgeCalls, 2);
+  for (const method of ['GET', 'POST', 'PUT']) {
+    const denied = await fetch(base + '/api/cultivation/overview', { method });
+    assert.equal(denied.status, 401); await denied.text();
+    const response = await fetch(base + '/api/cultivation/overview', { method, headers });
+    assert.equal(response.status, 200);
+    assert.deepEqual(await response.json(), { method, path: '/api/cultivation/overview' });
+  }
+  assert.equal(cultivationCalls, 3);
   for (const route of ['/api/board/bootstrap', '/api/emotion/summary', '/api/history']) {
     const denied = await fetch(base + route);
     assert.equal(denied.status, 401);
@@ -147,5 +157,5 @@ test('extracted workbench routes preserve HTTP contracts, cache and rollback saf
   assert.equal((await restored.json()).ok, true);
   assert.equal(fs.readFileSync(target, 'utf8'), 'previous');
   assert.ok(fs.readdirSync(path.dirname(target)).some(name => name.startsWith('example.txt.bak-rollback-')));
-  assert.equal(routes.length, 6);
+  assert.equal(routes.length, 9);
 });

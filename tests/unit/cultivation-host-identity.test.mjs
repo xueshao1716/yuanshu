@@ -1,6 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
+import {randomUUID} from 'node:crypto';
+import {draft} from '../helpers/cultivation-fixture.mjs';
 import {hostFixture, tick} from '../helpers/cultivation-host-fixture.mjs';
 import {createCultivationRuntime} from '../../engine/cultivation/runtime.mjs';
 import {createIdentityAuthority} from '../../engine/cultivation/identity.mjs';
@@ -93,12 +95,15 @@ test('origin checker failures and asynchronous results deny without leaking fail
   }
 });
 
-test('mother-only production adapter leaves all mutations and HTTP identity unavailable', async t => {
+test('mother-only adapter can submit designs but cannot authorize policy or HTTP mutations', async t => {
   const f = await hostFixture(t); f.adapter.bind(f.source, f.binding); assert.ok(f.resolve());
   const runtime = createCultivationRuntime({wsRoot: f.root, identityAdapters: {resolveMother: f.adapter.resolveMother}});
-  assert.equal(runtime.overview().writeIdentityAvailable, false);
-  for (const kind of ['human', 'mother'])
-    await assert.rejects(runtime.execute({action: 'design.submit'}, kind, f.source), /identity_unavailable/);
+  assert.equal((await runtime.overview()).writeIdentityAvailable, false);
+  const command = {action: 'design.submit', requestId: randomUUID(), expectedRevision: 0, payload: {design: draft()}};
+  await assert.rejects(runtime.execute(command, 'human', f.source), /identity_unavailable/);
+  const submitted = await runtime.execute(command, 'mother', f.source);
+  assert.equal(submitted.revision, 1);
+  assert.equal((await runtime.overview()).policy.enabled, false);
   let reads = 0;
   const api = createCultivationApi({runtime, requireAuth: () => true,
     readBody: () => {reads++; return {approvedBy: 'human'};}, json: (res, status, body) => Object.assign(res, {status, body})});
@@ -107,5 +112,5 @@ test('mother-only production adapter leaves all mutations and HTTP identity unav
     const res = {}; await api.handle({method}, res, new URL(`http://local/api/cultivation${route}`));
     assert.equal(res.status, 503); assert.equal(res.body.error, 'cultivation_identity_unavailable');
   }
-  assert.equal(reads, 0); assert.equal(f.storage.read('control').revision, 0);
+  assert.equal(reads, 0); assert.equal(f.storage.read('control').revision, 1);
 });

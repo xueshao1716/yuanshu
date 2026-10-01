@@ -3,6 +3,7 @@ import {validateCandidate} from './knowledge-evidence.mjs';
 export function knowledgeReviewStorage({io,now,getJob}){
   return (id,decision,revision,policyRevision)=>io.transaction(data=>{
     const job=getJob(data,id);if(job.revision!==revision||data.policy.revision!==policyRevision)fail('revision_conflict');
+    if(job.event==='cultivation'&&decision?.decision!=='reject')fail('independent_evidence_required');
     if(job.resolution)fail('job_resolved');
     if(job.state!=='review_required'||data.policy.paused||!data.policy.localEnabled)fail('invalid_control');
     if(!decision||!['accept_source','keep_existing','reject'].includes(decision.decision)||decision.confirmed!==true||

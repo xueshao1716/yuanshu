@@ -1,5 +1,6 @@
 import {createKnowledgeStore} from './knowledge-store.mjs';
 import {createKnowledgeBudget} from './knowledge-budget.mjs';
+import {createBackgroundAdmission} from './background-admission.mjs';
 import {createKnowledgeWorker} from './knowledge-worker.mjs';
 import {createKnowledgeIntake} from './knowledge-intake.mjs';
 import {createKnowledgeRetrieval} from './knowledge-retrieval.mjs';
@@ -17,10 +18,12 @@ import {createTaskEvidence} from './task-evidence.mjs';
 import {createKnowledgeProvenance} from './knowledge-provenance.mjs';
 import {createKnowledgeReview} from './knowledge-review.mjs';
 import {createKnowledgeMethods} from './knowledge-method.mjs';
+import {createCultivationLearning} from './knowledge-cultivation-learning.mjs';
 
 // Composition only: no personality, genome, tool executor or team approval capability.
 export function createKnowledgeRuntime({wsRoot,runRoot,runStore,catalog,directChat,foregroundBusy=()=>false,now=Date.now,network={}}){
   const store=createKnowledgeStore({wsRoot,runRoot,runStore,now}),budget=createKnowledgeBudget({wsRoot,now});
+  const admission=createBackgroundAdmission({wsRoot,foregroundBusy,now});
   const intake=createKnowledgeIntake({wsRoot,runRoot,runStore,store});
   const provider=createKnowledgeProvider({wsRoot,catalog,directChat,budget});
   const taskEvidence=createTaskEvidence({wsRoot,rootDir:runRoot});
@@ -37,7 +40,7 @@ export function createKnowledgeRuntime({wsRoot,runRoot,runStore,catalog,directCh
     }
     return collectLocalSources({wsRoot,runRoot,runStore,sources:job.sources,policy,now});
   };
-  const retrieval=createKnowledgeRetrieval({store,now,verifySource:async(entry,policy)=>{
+  const verifySource=async(entry,policy)=>{
     try{
       if(entry.kind==='method'){
         if(!methods.sameEnvironment(entry.method))return false;
@@ -51,9 +54,10 @@ export function createKnowledgeRuntime({wsRoot,runRoot,runStore,catalog,directCh
       const sources=await collect({job:{sources:entry.sources.map(s=>s.reference)},policy});
       return sources.length===entry.sources.length&&sources.every(s=>entry.sources.some(e=>e.locator===s.locator&&e.hash===s.hash));
     }catch{return false;}
-  }});
+  };
+  const retrieval=createKnowledgeRetrieval({store,now,verifySource});
   const maintenance=createKnowledgeMaintenance({wsRoot,store,budget,collect,now});
-  const worker=createKnowledgeWorker({store,collect,now,foregroundBusy,
+  const worker=createKnowledgeWorker({store,collect,now,foregroundBusy,admission,
     extract:(snapshots,job,{policy,signal})=>job.sources[0]?.kind==='method'?methods.candidate(snapshots):policy.remoteEnabled&&snapshots.every(s=>s.kind==='file')
       ?provider.extract({snapshots,job,policy,signal}):extractLocal(snapshots,job),
     validate:input=>validateCandidate({...input,methodProof:input.candidate?.kind==='method'?methods.verify(input):null}),
@@ -61,7 +65,7 @@ export function createKnowledgeRuntime({wsRoot,runRoot,runStore,catalog,directCh
   const onRunFinished=async input=>{
     try{
       const run=runStore.get(input.id);
-      if(!run||!['completed','failed'].includes(run.status))return;
+      if(!run||!['completed','failed'].includes(run.status)||['knowledge','cultivation'].includes(run.request?.origin))return;
       if(run.knowledgeReferences?.sessionId===run.sessionId){
         const text=knowledgeRunOutput(runRoot,run);
         for(const id of run.knowledgeReferences.ids||[])if(text.includes(`[知识:${id}]`))
@@ -70,14 +74,15 @@ export function createKnowledgeRuntime({wsRoot,runRoot,runStore,catalog,directCh
       await intake.enqueueRun(run);lastError=null;if(started)worker.wake('run_finished');
     }catch(e){lastError=/^[a-z_]+$/.test(e.code||'')?e.code:'intake_unavailable';}
   };
-  return {store,budget,worker,intake,retrieval,onRunFinished,
+  return {store,budget,admission,worker,intake,retrieval,onRunFinished,
+    cultivationLearning:createCultivationLearning({store,retrieval,verifySource}),
     review:createKnowledgeReview({store,collect,worker,retrieval,now}),
     async detail(id){const job=await store.get(id);if(!job)return null;
       const reviewOptions=job.validation?.conflicts?.length?(await store.entries()).filter(e=>job.validation.conflicts.includes(e.id))
         .map(e=>({id:e.id,text:e.text,sources:e.sources.map(s=>({locator:s.locator}))})):[];
-      return {...job,reviewOptions,provenance:provenance(job)};},
+      return {...job,reviewOptions,cultivationProvenance:job.event==='cultivation'?job.provenance:null,provenance:provenance(job)};},
     projection:input=>store.projection(input),
-    async status(){return {summary:await store.summary(),budget:await budget.status(),worker:worker.status(),intake:intake.status(),lastError};},
+    async status(){return {summary:await store.summary(),budget:await budget.status(),admission:await admission.status(),worker:worker.status(),intake:intake.status(),lastError};},
     async models(){return (await catalog()).filter(isTextModel).map(m=>({key:`${m.provider}/${m.id}`,label:m.name||m.id}));},
     async updatePolicy(patch,revision){
       const previous=await store.policy(),proposed=patchKnowledgePolicy(previous,patch,revision);
@@ -112,12 +117,14 @@ export function createKnowledgeRuntime({wsRoot,runRoot,runStore,catalog,directCh
     },
     async control(id,action,revision){const job=await store.control(id,action,revision);worker.interrupt();if(started)worker.wake('control');return job;},
     async context(input){
+      if(input.runId&&['knowledge','cultivation'].includes(runStore.get(input.runId)?.request?.origin))
+        return {available:false,entries:[],context:''};
       const result=await retrieval.retrieve(input);
       // Record what this specific run was offered; merely offering it is not use feedback.
       if(result.entries.length&&input.runId){const run=runStore.get(input.runId);
         if(run?.sessionId===input.sessionId)runStore.update(run.id,{knowledgeReferences:{sessionId:input.sessionId,ids:result.entries.map(e=>e.id)}});}
       else if(result.available&&input.runId){const run=runStore.get(input.runId);
-        if(run?.sessionId===input.sessionId&&inWorkspace(run,wsRoot)&&run.request?.origin!=='knowledge'&&run.request?.message?.trim())
+        if(run?.sessionId===input.sessionId&&inWorkspace(run,wsRoot)&&!['knowledge','cultivation'].includes(run.request?.origin)&&run.request?.message?.trim())
           runStore.update(run.id,{knowledgeGap:{sessionId:run.sessionId,focus:run.request.message.trim().slice(0,240)}});}
       return result;
     },

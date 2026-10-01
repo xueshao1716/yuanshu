@@ -20,6 +20,24 @@ async function fixture(t,options={}){
  const worker=createKnowledgeWorker({store,collect,extract:extractLocal,validate:validateCandidate,foregroundBusy:()=>busy,now,random:()=>0,...options});
  t.after(()=>worker.stop());return {wsRoot,store,worker,job,setBusy:v=>busy=v,advance:ms=>clock+=ms};
 }
+test('knowledge worker honors shared admission before collecting and releases its slot',async t=>{
+ let permitted=false,released=0;
+ const admission={acquire:async()=>permitted?{id:'slot'}:null,release:async id=>{assert.equal(id,'slot');released++;}};
+ const f=await fixture(t,{admission});
+ assert.equal((await f.worker.tick()).state,'background_busy');
+ assert.equal((await f.store.get(f.job.id)).state,'queued');
+ permitted=true;await f.worker.tick();
+ assert.equal((await f.store.get(f.job.id)).state,'committed');assert.equal(released,1);
+});
+test('shared slot remains held through cancellation until asynchronous work ends',async t=>{
+ let entered,finish,released=0;const started=new Promise(r=>entered=r),done=new Promise(r=>finish=r);
+ const f=await fixture(t,{admission:{acquire:async()=>({id:'slot'}),release:async()=>{released++;}},
+   extract:async()=>{entered();await done;throw Object.assign(new Error('aborted'),{name:'AbortError'});}});
+ const tick=f.worker.tick();await started;const stopped=f.worker.stop();
+ await new Promise(r=>setImmediate(r));assert.equal(released,0);finish();
+ await Promise.all([tick,stopped]);assert.equal(released,1);
+ assert.equal((await f.store.get(f.job.id)).state,'retry_wait');
+});
 test('worker drives a source to exactly one committed entry and yields to foreground',async t=>{
  const f=await fixture(t);f.setBusy(true);assert.equal((await f.worker.tick()).state,'foreground_busy');assert.equal((await f.store.get(f.job.id)).state,'queued');
  f.setBusy(false);await f.worker.tick();assert.equal((await f.store.get(f.job.id)).state,'committed');

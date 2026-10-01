@@ -9,13 +9,21 @@ import {initFileLock} from '../engine/file-lock.mjs';
 import {createRunStore} from '../engine/run-store.mjs';
 import {createKnowledgeRuntime} from '../engine/knowledge-runtime.mjs';
 import {knowledgeChatContext} from '../engine/knowledge-chat.mjs';
+import {createCultivationStorage} from '../engine/cultivation/storage.mjs';
+import {createIdentityAuthority} from '../engine/cultivation/identity.mjs';
+import {createCultivationControls} from '../engine/cultivation/controls.mjs';
+import {createCultivationTasks} from '../engine/cultivation/tasks.mjs';
+import {draft,enabledPolicy} from '../tests/helpers/cultivation-fixture.mjs';
+import {randomUUID} from 'node:crypto';
 
 const root=fileURLToPath(new URL('../',import.meta.url));
 const wsRoot=fs.mkdtempSync(path.join(os.tmpdir(),'yuanshu-knowledge-performance-'));
-const output=path.join(root,'tmp/knowledge-performance.json');
+const cultivation=process.argv.includes('--cultivation');
+const output=path.join(root,`tmp/${cultivation?'cultivation':'knowledge'}-performance.json`);
 const wait=ms=>new Promise(resolve=>setTimeout(resolve,ms));
 const p95=values=>[...values].sort((a,b)=>a-b)[Math.ceil(values.length*.95)-1]||0;
-let foreground=false,providerCalls=0,runtime;
+let foreground=false,providerCalls=0,cultivationCalls=0,inFlight=0,maxInFlight=0,runtime,tasks;
+const latency=async()=>{inFlight++;maxInFlight=Math.max(maxInFlight,inFlight);try{await wait(2);}finally{inFlight--;}};
 try{
   initFileLock({dir:path.join(wsRoot,'locks')});
   const runRoot=path.join(wsRoot,'ledger'),runStore=createRunStore({rootDir:runRoot});
@@ -23,7 +31,7 @@ try{
   const model={provider:'fixture',id:'text',enabled:true,capabilities:['text']};
   runtime=createKnowledgeRuntime({wsRoot,runRoot,runStore,catalog:()=>[model],foregroundBusy:()=>foreground,
     directChat:async(_model,message)=>{
-      providerCalls++;await wait(2);
+      providerCalls++;await latency();
       const source=JSON.parse(message)[0];
       return {text:JSON.stringify({kind:'source',text:source.text.slice(0,100),sourceId:source.id,
         sourceHash:source.hash,offset:source.offset||0,scope:'隔离性能夹具'}),usedModel:model,
@@ -43,6 +51,29 @@ try{
     const file=`docs/pending-${i}.txt`;
     fs.writeFileSync(path.join(wsRoot,file),`隔离任务${i}记录。用于验证后台处理与前台检索共同运行的延迟。`+'一般资料。'.repeat(80));
     await runtime.enqueue({kind:'file',path:file},3);
+  }
+  if(cultivation){
+    // Synthetic identities are confined to this temporary benchmark workspace.
+    const store=createCultivationStorage({wsRoot}),human={},mother={};
+    const authority=createIdentityAuthority({workspace:store.workspace,
+      resolveHuman:s=>s===human?{actorId:'benchmark-human',originId:'benchmark-grant'}:null,
+      resolveMother:s=>s===mother?{actorId:'benchmark-mother',originId:'benchmark-run'}:null});
+    const controls=createCultivationControls({store,authority});
+    const command=(action,payload)=>({action,payload,requestId:randomUUID(),expectedRevision:controls.read().revision});
+    const execute=(c,kind)=>controls.execute(c,authority.issue(kind,kind==='human'?human:mother,c));
+    await execute(command('policy.set',{policy:{...enabledPolicy(),dailyRequests:1000,
+      expiresAt:new Date(Date.now()+86400000).toISOString(),
+      schedule:{timezone:'UTC',days:[0,1,2,3,4,5,6],startMinute:0,endMinute:1440}}}),'human');
+    const design=await execute(command('design.submit',{design:draft()}),'mother');
+    const agent=await execute(command('agent.register',{designId:design.result.id}),'mother');
+    tasks=createCultivationTasks({wsRoot,store,controls,authority,knowledge:runtime.store,
+      budget:runtime.budget,admission:runtime.admission,foregroundBusy:()=>foreground,
+      provider:{prepare:async()=>({maxCost:0,currency:'USD',free:true,remote:false}),
+        invoke:async({guard})=>{guard();cultivationCalls++;await latency();return {text:'Synthetic bounded result',usage:{cost:0,currency:'USD'}};}}});
+    for(let i=0;i<80;i++){
+      const c=command('run.submit',{agentId:agent.result.id,input:`Synthetic input ${i}`,goal:'Check fixture',criterion:'Bounded text'});
+      await tasks.execute(c,authority.issue('mother',mother,c));
+    }
   }
   const run=runStore.create({sessionId:'performance',clientRequestId:'foreground',message:'网络配置',backgroundRecovery:{scope:wsRoot}});
   const request=async()=>{
@@ -64,12 +95,20 @@ try{
       await wait(50);
     }
   })().catch(error=>{workerError=error;});
+  const cultivationBackground=(async()=>{
+    if(!tasks)return;
+    while(!stop){await tasks.tick();await wait(57);}
+  })().catch(error=>{workerError=error;});
   const concurrent=[],start=performance.now();
   while(performance.now()-start<60000){concurrent.push(await request());await wait(35);}
-  const durationMs=performance.now()-start;stop=true;await background;delay.disable();
+  const durationMs=performance.now()-start;stop=true;await Promise.all([background,cultivationBackground]);delay.disable();
   if(workerError)throw workerError;
+  const sharedUsage=await runtime.budget.status();
+  assert.equal(maxInFlight,1,'shared admission must serialize both background consumers');
+  assert.equal(sharedUsage.modelRequests,providerCalls+cultivationCalls,'both consumers must use the same durable ledger');
+  if(cultivation)assert.ok(cultivationCalls>0,'cultivation must actually dispatch');
   const metrics={baselineP95Ms:p95(baseline),concurrentP95Ms:p95(concurrent),additionalP95Ms:p95(concurrent)-p95(baseline),
-    eventLoopP95Ms:delay.percentile(95)/1e6,eventLoopMaxMs:delay.max/1e6,durationMs,ticks,commits,providerCalls};
+    eventLoopP95Ms:delay.percentile(95)/1e6,eventLoopMaxMs:delay.max/1e6,durationMs,ticks,commits,providerCalls,cultivationCalls,maxInFlight,sharedUsage};
   const report={at:new Date().toISOString(),hardware:{cpu:os.cpus()[0]?.model,cores:os.cpus().length,memoryGiB:os.totalmem()/2**30,
     os:os.platform(),arch:os.arch(),node:process.version},conditions:{seedCommitted:60,seedQueued:240,sourceBytesMax:3000,
     provider:'local deterministic 2ms fixture, no network',foreground:'knowledgeChatContext -> runtime.context -> real ledger + 2ms first response',

@@ -109,7 +109,12 @@ test('server wires scoped cultivation routes without installing fake write ident
   assert.ok(host.includes('source => runManager.resolveExecutionIdentity(source)'));
   assert.ok(host.includes('getEntry: id => activeSessions.get(id)'));
   assert.ok(host.includes('canAccess: canAccessSessionOrigin'));
+  assert.ok(host.includes('humanConfig: optionalCultivationHumanConfig()'));
+  assert.ok(host.includes('knowledge: knowledgeRuntime.store, budget: knowledgeRuntime.budget, admission: knowledgeRuntime.admission'));
+  assert.ok(host.includes('createCultivationProvider('));
   assert.ok(!host.includes('resolveHuman') && !host.includes('resolveRequestIdentity'));
+  assert.ok(text.includes('cultivationRuntime.start()'));
+  assert.ok(text.includes('cultivationRuntime.close()'));
   const binding = text.indexOf('cultivationHostIdentity.bind(body.__runContext?.executionIdentity,');
   assert.ok(binding > text.indexOf('entry.busySince = Date.now();'));
   assert.ok(text.slice(binding, binding + 220).includes('entry, generation: thisGen'));

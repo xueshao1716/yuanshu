@@ -3,8 +3,10 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import {randomUUID} from 'node:crypto';
 import {initFileLock} from '../../engine/file-lock.mjs';
 import {createRunStore} from '../../engine/run-store.mjs';
+import {createBackgroundAdmission} from '../../engine/background-admission.mjs';
 const module = await import('../../engine/knowledge-runtime.mjs').catch(()=>({}));
 function fixture(t,options={}){
   const wsRoot=fs.mkdtempSync(path.join(os.tmpdir(),'yuanshu-knowledge-runtime-'));
@@ -15,6 +17,64 @@ function fixture(t,options={}){
   const runtime=module.createKnowledgeRuntime({wsRoot,runRoot,runStore,catalog:()=>[],directChat:()=>assert.fail('no external calls'),...options});
   t.after(()=>runtime.close());return {wsRoot,runRoot,runStore,runtime};
 }
+
+test('detail retains model-generated cultivation provenance separately from review provenance',async t=>{
+  const {runtime:r,wsRoot}=fixture(t);
+  const {knowledgeStorage}=await import('../../engine/knowledge-storage.mjs');
+  const workspace=knowledgeStorage(wsRoot).workspace;
+  const job=await r.store.offerCultivation({id:randomUUID(),sessionId:'child',status:'completed',request:{origin:'cultivation'},
+    cultivation:{workspace,agentId:randomUUID(),designId:randomUUID(),output:'Hypothesis',goal:'Compare',criterion:'Independent check'}});
+  const detail=await r.detail(job.id);
+  assert.deepEqual(detail.cultivationProvenance,job.provenance);
+});
+
+test('cultivation adopts only independently committed evidence with scope and retirement',async t=>{
+  const {runtime:r,wsRoot}=fixture(t);
+  const {knowledgeStorage}=await import('../../engine/knowledge-storage.mjs');
+  const agentId=randomUUID(),other=randomUUID(),workspace=knowledgeStorage(wsRoot).workspace;
+  const job=await r.store.offerCultivation({id:randomUUID(),sessionId:'cultivation:'+agentId,status:'completed',request:{origin:'cultivation'},
+    cultivation:{workspace,agentId,designId:randomUUID(),output:'网络配置假设',goal:'Compare',criterion:'Independent check'}});
+  assert.equal(typeof r.cultivationLearning?.decide,'function');
+  const actor={kind:'mother',actorId:'fixture-mother',originId:'run',workspace};
+  const request={jobId:job.id,scope:agentId,decision:'adopt',reason:'Use independent source, not generated hypothesis',expectedRevision:job.revision};
+  await assert.rejects(r.cultivationLearning.decide(request,actor),/independent_evidence_required/);
+  await r.updatePolicy({allowedRoots:['docs']},1);
+  const correction=await r.supplement(job.id,{kind:'file',path:'docs/network.txt'},job.revision,2);
+  await r.worker.tick();
+  const review=await r.store.get(correction.id);
+  await r.review(correction.id,{decision:'accept_source',confirmed:true,note:'Synthetic reviewed source'},review.revision,2);
+  await r.worker.tick();
+  const resolved=await r.store.get(job.id);
+  const adopted=await r.cultivationLearning.decide({...request,expectedRevision:resolved.revision},actor);
+  assert.equal(adopted.learning[0].version,1);assert.equal(adopted.learning[0].scope,agentId);
+  assert.equal(adopted.provenance.userAcceptance,null);
+  assert.equal((await r.cultivationLearning.context({scope:agentId,query:'网络配置'})).entries.length,1);
+  assert.equal((await r.cultivationLearning.context({scope:other,query:'网络配置'})).entries.length,0);
+  assert.equal((await r.context({query:'网络配置',sessionId:'mother-chat'})).entries.length,0);
+  await assert.rejects(r.cultivationLearning.decide({...request,expectedRevision:resolved.revision},actor),/revision_conflict/);
+  await r.cultivationLearning.decide({...request,decision:'retire',expectedRevision:adopted.revision,reason:'Counterexample found'},actor);
+  assert.equal((await r.cultivationLearning.context({scope:agentId,query:'网络配置'})).entries.length,0);
+  const final=await r.store.get(job.id);assert.equal(final.learning.length,2);assert.equal(final.learning[1].version,2);
+});
+test('runtime shares durable background admission with cultivation',async t=>{
+ const {runtime:r,wsRoot}=fixture(t),other=createBackgroundAdmission({wsRoot});
+ await r.updatePolicy({allowedRoots:['docs']},1);
+ const job=await r.enqueue({kind:'file',path:'docs/network.txt'},2),slot=await other.acquire('cultivation');
+ assert.equal((await r.worker.tick()).state,'background_busy');
+ assert.equal((await r.store.get(job.id)).state,'queued');
+ assert.equal((await r.status()).admission.consumer,'cultivation');
+ await other.release(slot.id);await r.worker.tick();
+ assert.equal((await r.store.get(job.id)).state,'committed');
+ assert.equal((await r.status()).admission.state,'idle');
+});
+
+test('cultivation output cannot be mistaken for user input or trigger ordinary intake',async t=>{
+ const {runtime:r,wsRoot,runStore}=fixture(t);
+ const run=runStore.create({sessionId:'child',clientRequestId:'child',message:'generated opinion',origin:'cultivation',backgroundRecovery:{scope:wsRoot}});
+ runStore.update(run.id,{status:'completed'});await r.onRunFinished(run);await r.intake.reconcile();
+ assert.equal((await r.store.list()).total,0);
+ await assert.rejects(r.enqueue({kind:'run',runId:run.id,sessionId:run.sessionId},1),{code:'source_not_authorized'});
+});
 test('runtime completes local source -> retrieval -> actual citation feedback, never counts retrieval alone',async t=>{
  const {runtime:r,wsRoot,runRoot,runStore}=fixture(t);
  await r.updatePolicy({allowedRoots:['docs']},1);

@@ -3,6 +3,8 @@ import {knowledgeCommit} from './knowledge-commit.mjs';
 import {patchKnowledgePolicy} from './knowledge-policy.mjs';
 import {active,terminal,checkId,clone,digest,fail,assertClaim,advanceJob} from './knowledge-state.mjs';
 import {knowledgeReviewStorage} from './knowledge-review.mjs';
+import {cultivationHypotheses} from './knowledge-cultivation.mjs';
+import {cultivationDecisions} from './knowledge-cultivation-learning.mjs';
 const displayState=job=>job.resolution?'resolved':job.state;
 const projectJob=job=>job?clone({...job,displayState:displayState(job)}):null;
 export function createKnowledgeStore({wsRoot,now=Date.now,leaseMs=90000,fault,runRoot,runStore}) {
@@ -15,10 +17,13 @@ export function createKnowledgeStore({wsRoot,now=Date.now,leaseMs=90000,fault,ru
     }return recovered;
   };
   return {
+    cultivationDecisions:cultivationDecisions({io,now}),
+    offerCultivation:cultivationHypotheses({io,now}),
     review:knowledgeReviewStorage({io,now,getJob}),
     async workerState(){return clone(io.readState().worker||{failures:0,cooldownUntil:0});},
     saveWorkerState:state=>io.transaction(data=>{data.worker={failures:state.failures,cooldownUntil:state.cooldownUntil};}),
     async policy(){return clone(io.readState().policy);},
+    policyCurrent(revision){return io.readState().policy.revision===revision;},
     // Final synchronous fence: no entry-file scan or await between state check and return.
     retrievalCurrent(entries,policyRevision){
       const data=io.readState();
@@ -71,6 +76,10 @@ export function createKnowledgeStore({wsRoot,now=Date.now,leaseMs=90000,fault,ru
       data.jobs[id]=job;return job;
     }),
     async get(id){checkId(id);return projectJob(io.readState().jobs[id]);},
+    async getMany(ids){
+      if(!Array.isArray(ids)||ids.length>50)fail('invalid_pagination');
+      ids.forEach(checkId);const data=io.readState();return ids.map(id=>projectJob(data.jobs[id]));
+    },
     block:(id,reason)=>io.transaction(data=>{
       const job=getJob(data,id);if(job.state!=='queued')return job;
       job.state='blocked';job.reason=reason;job.revision++;job.updatedAt=now();return job;
@@ -118,6 +127,7 @@ export function createKnowledgeStore({wsRoot,now=Date.now,leaseMs=90000,fault,ru
       data.jobs[id]=updated;return updated;
     }),
     control:(id,action,revision)=>io.transaction(data=>{
+      if(getJob(data,id).event==='cultivation'&&action!=='cancel')fail('independent_evidence_required');
       const job=getJob(data,id);if(job.revision!==revision)fail('revision_conflict');
       if(job.resolution)fail('job_resolved');
       if(terminal.has(job.state)&&!(job.state==='failed'&&action==='retry')||!['pause','resume','cancel','retry'].includes(action))fail('invalid_control');

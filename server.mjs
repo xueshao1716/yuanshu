@@ -155,6 +155,10 @@ import { createKnowledgeApi } from "./engine/knowledge-api.mjs";
 import { createCultivationRuntime } from "./engine/cultivation/runtime.mjs";
 import { createCultivationHostIdentity } from "./engine/cultivation/host-identity.mjs";
 import { createCultivationApi } from "./engine/cultivation/api.mjs";
+import { optionalCultivationHumanConfig } from './engine/cultivation/human-config.mjs';
+import { createCultivationProvider } from './engine/cultivation/provider.mjs';
+import { CULTIVATION_TOOL_SCHEMA, cultivationTool, createPiCultivationTool } from './engine/cultivation/tool.mjs';
+import { initCultivationTool } from './engine/session-manager.mjs';
 import { buildPersistentActivity } from "./engine/persistent-activity.mjs";
 import { runEvolutionCycle, evolutionStatus, revertEvolution } from './engine/evolution-cycle.mjs';
 import { createTaskEvidence } from './engine/task-evidence.mjs';
@@ -615,6 +619,7 @@ const FIX_PROBLEM_TOOL = {
 const UNIFIED_TOOLS = [
   ...BASE_TOOL_SCHEMAS,
   COMPUTER_TOOL_SCHEMA,
+  CULTIVATION_TOOL_SCHEMA,
   SHARE_PROJECT_SCHEMA,
   ...MEDIA_TOOL_SCHEMAS,
   ...TODO_TOOL_SCHEMAS,
@@ -655,6 +660,7 @@ const executeUnifiedTool = createUnifiedToolExecutorGuarded({
   // 外部自定义工具执行器：dsh_task（pi 格式 execute → unified 结果格式）+ 宿主媒体密文通道
   extraExecutors: {
     computer_use: (args, ctx) => computerTool(computerUse, args, ctx),
+    cultivation: (args, ctx) => cultivationTool(cultivationRuntime, args, ctx),
     dsh_task: async (args, ctx) => {
       const t = globalThis.__yuanshuDshTool || globalThis.__piWebDshTool;
       if (!t?.execute) return { text: "[dsh] 执行臂未初始化", isError: true };
@@ -2084,7 +2090,13 @@ const cultivationHostIdentity = createCultivationHostIdentity({ wsRoot: WS_ROOT,
   getEntry: id => activeSessions.get(id), canAccess: canAccessSessionOrigin,
 });
 const cultivationRuntime = createCultivationRuntime({ wsRoot: WS_ROOT,
+  learning:knowledgeRuntime.cultivationLearning,learningJob:id=>knowledgeRuntime.store.get(id),
   identityAdapters: { resolveMother: cultivationHostIdentity.resolveMother },
+  humanConfig: optionalCultivationHumanConfig(),
+  execution: { knowledge: knowledgeRuntime.store, budget: knowledgeRuntime.budget, admission: knowledgeRuntime.admission,
+    provider: createCultivationProvider({catalog: () => modelList, directChat,learning:knowledgeRuntime.cultivationLearning}),
+    foregroundBusy: () => [...activeSessions.values()].some(entry => entry.busy) || voiceAdmission.isActive(),
+  },
 });
 const cultivationApi = createCultivationApi({ runtime: cultivationRuntime, readBody, json,
   requireAuth: req => !!CONFIG.token && req.headers.authorization === `Bearer ${CONFIG.token}`,
@@ -2218,6 +2230,7 @@ const websites = createWebsiteService({root: WS_ROOT, getModelList: () => modelL
 const maintenanceSessionExists = sid => activeSessions.has(sid) || !!findSession(sid);
 const computerUse = createComputerUse({adapter:createWindowsAdapter(),registry:confirmRegistry,sessionExists:maintenanceSessionExists,push:busPush});
 initComputerTool((Type, sessionId) => createPiComputerTool(Type, () => computerUse, sessionId));
+initCultivationTool(Type => createPiCultivationTool(Type, () => cultivationRuntime));
 const requestGeneApproval = createGeneApproval({ api: emotion, registry: confirmRegistry, sessionExists: maintenanceSessionExists, push: busPush });
 const personaGovernance = createPersonaGovernance({ wsRoot: CONFIG.cwd, agentDir: getAgentDir() });
 const requestPersonaApproval = createPersonaApproval({ api: personaGovernance, registry: confirmRegistry, sessionExists: maintenanceSessionExists, push: busPush });
@@ -3320,6 +3333,7 @@ server.on("error", (err) => {
 });
 server.on('close', () => voiceTaskRuntime.close());
 server.on('close', () => { void knowledgeRuntime.close(); });
+server.on('close', () => { void cultivationRuntime.close().catch(() => {}); });
 function startServer() {
   // async：启动收尾里有需要 await 的清理（例如连续创作的孤儿运行）
   server.listen(CONFIG.port, CONFIG.host, async () => {
@@ -3479,6 +3493,7 @@ ${rows.map((r) => `- [${r.status}${r.closed ? "/已结清" : ""}] ${r.text}\n  �
       timeEngine.start();
     } catch (e) { console.log("[time-engine] 启动失败:", String(e?.message || e).slice(0, 100)); }
     knowledgeRuntime.start();
+    await cultivationRuntime.start().catch(() => console.warn('[cultivation] 培养任务恢复失败，调度保持关闭'));
     // 做梦周期：自己跑，不等用户点接口（自决的意义就在这）。失败不影响服务。
     try {
       const DREAM_EVERY_MS = 6 * 60 * 60 * 1000;

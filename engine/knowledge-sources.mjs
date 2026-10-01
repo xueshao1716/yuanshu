@@ -31,7 +31,7 @@ export async function collectLocalSources({wsRoot,runRoot,sources,policy,runStor
     if(kind==='run'||kind==='run_result'){
       const run=runStore?.get(source.runId);
       if(!run||run.sessionId!==source.sessionId||scopeKey(run.backgroundRecovery?.scope||'')!==scopeKey(wsRoot)||
-        !['completed','failed'].includes(run.status)||run.request?.origin==='knowledge')fail('source_not_authorized');
+        !['completed','failed'].includes(run.status)||['knowledge','cultivation'].includes(run.request?.origin))fail('source_not_authorized');
       if(typeof run.request?.message!=='string'||!run.request.message.trim())fail('source_missing');
       if(kind==='run_result'){
         text=knowledgeRunOutput(runRoot,run,{required:true});locator=`run-result:${run.id}`;authority='model_output';
@@ -44,7 +44,7 @@ export async function collectLocalSources({wsRoot,runRoot,sources,policy,runStor
       const roots=[...(policy.allowedRoots||[])];
       if(source.runId){const run=runStore?.get(source.runId);
         if(run?.sessionId===source.sessionId&&scopeKey(run.backgroundRecovery?.scope||'')===scopeKey(wsRoot)&&
-          ['completed','failed'].includes(run.status)&&run.request?.origin!=='knowledge')
+          ['completed','failed'].includes(run.status)&&!['knowledge','cultivation'].includes(run.request?.origin))
           for(const f of run.request?.files||[])if(typeof f.path==='string'&&typeof source.path==='string'&&path.resolve(wsRoot,f.path)===path.resolve(wsRoot,source.path))roots.push(source.path);
       }
       const target=knowledgeSourcePath(wsRoot,source.path,roots);locator=target.locator;

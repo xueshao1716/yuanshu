@@ -1,7 +1,8 @@
 // tests/unit/cultivation-policy.test.mjs
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {defaultPolicy, validatePolicy, assertRequest} from '../../engine/cultivation/policy.mjs';
+import * as policyModule from '../../engine/cultivation/policy.mjs';
+const {defaultPolicy, validatePolicy, assertRequest} = policyModule;
 
 const now = Date.parse('2026-09-30T12:00:00Z');
 const active = () => ({...defaultPolicy(), enabled: true,
@@ -21,6 +22,19 @@ test('默认关闭、独立数组、零预算，不继承权限', () => {
   p.models.push('mutated');
   assert.deepEqual(defaultPolicy().models, []);
   assert.throws(() => assertRequest(defaultPolicy(), request(), now), /policy_disabled/);
+});
+
+test('dispatch has an explicit timezone window and bounded timeout, old policies stay non-dispatchable',()=>{
+  assert.equal(typeof policyModule.assertDispatchWindow,'function');
+  assert.throws(()=>policyModule.assertDispatchWindow(active(),now),/schedule_unconfigured/);
+  const p={...active(),schedule:{timezone:'UTC',days:[3],startMinute:720,endMinute:780},timeoutMs:30000};
+  assert.equal(policyModule.assertDispatchWindow(p,now),true);
+  assert.throws(()=>policyModule.assertDispatchWindow(p,now+3600000),/outside_window/);
+  for(const patch of [{timeoutMs:0},{timeoutMs:600001},{schedule:{...p.schedule,timezone:'invalid-zone'}},
+    {schedule:{...p.schedule,days:[3,3]}},{schedule:{...p.schedule,startMinute:800}}])
+    assert.throws(()=>validatePolicy({...p,...patch}),/invalid_policy/);
+  const legacy=active();delete legacy.schedule;delete legacy.timeoutMs;
+  assert.equal(validatePolicy(legacy).schedule,null);
 });
 
 test('拒绝未知字段、递归、无效额度、无期限启用和空白名单项', () => {

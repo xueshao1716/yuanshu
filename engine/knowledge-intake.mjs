@@ -11,7 +11,7 @@ import {enqueueKnowledgeGap} from './knowledge-gap.mjs';
 // No network or model work in intake. Only terminal ledger records are authoritative.
 export function createKnowledgeIntake({wsRoot,runRoot,runStore,store}){
   const io=knowledgeStorage(wsRoot);let directory=null,lastError=null,legacyRetired=0,reconciling=null;
-  const eligible=run=>run&&['completed','failed'].includes(run.status)&&inWorkspace(run,wsRoot)&&run.request?.origin!=='knowledge';
+  const eligible=run=>run&&['completed','failed'].includes(run.status)&&inWorkspace(run,wsRoot)&&!['knowledge','cultivation'].includes(run.request?.origin);
   const sourcePolicy=p=>digest([p.localEnabled,p.allowedRoots,p.networkEnabled,p.allowedUrls]);
   async function enqueueRun(input){
     const run=runStore.get(input?.id);if(!eligible(run))return null;

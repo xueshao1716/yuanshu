@@ -3,6 +3,13 @@ import assert from 'node:assert/strict';
 import {controlFixture, draft, enabledPolicy} from '../helpers/cultivation-fixture.mjs';
 import {createCultivationStorage} from '../../engine/cultivation/storage.mjs';
 
+test('resume clears an earlier cancellation request',async t=>{
+  const f=await controlFixture(t),{agentId}=await f.register();
+  await f.execute(f.command('agent.pause',{agentId}));
+  await f.execute(f.command('agent.resume',{agentId}));
+  assert.equal(f.controls.read().data.agents[0].cancellation,'not_requested');
+});
+
 test('empty read is default-deny and drafts have authenticated immutable authors', async t => {
   const f = await controlFixture(t);
   assert.equal(f.controls.read().data.policy.enabled, false);
