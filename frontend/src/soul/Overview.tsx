@@ -7,6 +7,7 @@ export const sections = [
   ['genes','性格基因','长期基线、互动表现与提案'], ['rhythm','情绪与节律','情绪观测、主动陪伴与免打扰'],
   ['memory','记忆与关系','回忆检索、来源与记忆快照'], ['learning','学习与技能','学习接收、经验与技能目录'],
   ['mother','aibody 母体','宿主、生命层与表达层的实况'], ['team','天团协作','角色分工、任务与交付记录'],
+  ['cultivation','智能体培养','小语的设计、个体、运行与学习证据'],
   ['voice','声音与形象','外貌、服装、声音与现有立绘'], ['history','审批与回退','修订、人工确认与安全撤回'],
 ] as const
 export type Section = typeof sections[number][0]

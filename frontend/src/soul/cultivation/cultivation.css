@@ -1,0 +1,20 @@
+.cultivation-panel { min-width: 0; overflow-wrap: anywhere; }
+.cultivation-panel h4 { font-weight: 650; margin: 20px 0 10px; }
+.cultivation-panel p { max-width: 75ch; line-height: 1.65; }
+.cultivation-panel a { text-decoration: underline; text-underline-offset: 3px; }
+.cultivation-panel small { display: block; color: var(--pi-dim); }
+.cultivation-list { list-style: none; margin: 0; padding: 0; }
+.cultivation-list > li { padding: 20px 0; border-bottom: 1px solid var(--pi-border-soft); }
+.cultivation-panel summary { cursor: pointer; padding: 12px 0; min-height: 44px; }
+.cultivation-panel button[aria-pressed="true"] { color: var(--pi-accent); border-color: var(--pi-accent); }
+.cultivation-panel textarea { width: 100%; min-height: 120px; resize: vertical; }
+.cultivation-panel label { display: grid; gap: 10px; margin: 20px 0; }
+.cultivation-json, .cultivation-output { white-space: pre-wrap; overflow-wrap: anywhere; max-height: 400px; overflow: auto; }
+.cultivation-design dd { margin: 0 0 20px; }
+.cultivation-design dt { font-weight: 650; margin-top: 20px; }
+.cultivation-panel :focus-visible { outline: 2px solid var(--pi-accent); outline-offset: 3px; }
+.cultivation-media img { display: block; max-width: 100%; max-height: 480px; object-fit: contain; margin-block: 12px; }
+.cultivation-media audio { width: 100%; max-width: 480px; margin-block: 12px; }
+.cultivation-panel button { min-height: 44px; }
+.cultivation-panel input, .cultivation-panel select, .cultivation-panel textarea { min-width: 0; max-width: 100%; font-size: 16px; caret-color: var(--pi-accent); }
+@media (max-width: 640px) { .cultivation-panel .soul-actions { gap: 10px; } }

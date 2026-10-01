@@ -14,7 +14,8 @@ export type KnowledgePolicyData = {
   allowedModels: string[]; outboundRoots: string[]; model: string; rates: Record<string, KnowledgeRate>
 }
 export type KnowledgeJob = {
-  id: string; title: string; state: string; displayState?: string; stage: string; revision: number; reason?: string
+  id: string; title: string; state: string; displayState?: string; stage: string; revision: number; reason?: string; event?: string
+  cultivationProvenance?: {role:string;agentId:string;designId:string;runId:string;outputHash:string;lineage:string[]}
   nextAttemptAt?: number; createdAt: number; entryId?: string; relatedJobId?: string; replacementJobId?: string
   provenance?: KnowledgeProvenanceData
   resolution?: { jobId: string; entryId: string; at: number }

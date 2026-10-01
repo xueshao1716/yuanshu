@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import useSWR from 'swr'
 import { KnowledgeApi, knowledgePolling, knowledgeError, knowledgeReason, type KnowledgeJob } from './api'
 import KnowledgeSource from './KnowledgeSource'
@@ -8,11 +8,14 @@ import KnowledgeMethod from './KnowledgeMethod'
 
 const labels: Record<string, string> = { queued: '排队中', collecting: '采集来源', extracting: '提炼中', validating: '核对证据', ready: '等待写入', blocked: '等待条件', review_required: '待核查', retry_wait: '等待重试', committed: '已入库', cancelled: '已取消', skipped: '无可用资料', failed: '失败', paused: '已暂停', resolved: '已由补证解决' }
 const date = (n?: number) => n ? new Date(n).toLocaleString('zh-CN', { hour12: false }) : '暂无'
+const knowledgeSelection = () => { const value=new URLSearchParams(location.hash.split('?')[1]||'').get('knowledge'); return value&&/^[a-f0-9]{64}$/.test(value)?value:null }
 export default function KnowledgeJobs({ refreshed, policyRevision }: { refreshed: () => Promise<unknown>; policyRevision?: number }) {
-  const [offset, setOffset] = useState(0), [selected, setSelected] = useState<string | null>(null)
+  const [offset, setOffset] = useState(0), [selected, setSelected] = useState<string | null>(knowledgeSelection)
+  useEffect(()=>{const sync=()=>setSelected(knowledgeSelection());window.addEventListener('hashchange',sync);return()=>window.removeEventListener('hashchange',sync)},[])
   const [busy, setBusy] = useState(false), [error, setError] = useState('')
   const list = useSWR(['knowledge-jobs', offset], () => KnowledgeApi.jobs(offset), knowledgePolling)
   const detail = useSWR(selected ? ['knowledge-job', selected] : null, () => KnowledgeApi.job(selected!), knowledgePolling)
+  const selectedJob=detail.data?.id===selected?detail.data:null
   const refreshQueue = async () => {
     const results = await Promise.allSettled([list.mutate(), detail.mutate(), refreshed()])
     if (results.some(r => r.status === 'rejected')) setError('队列刷新失败，请稍后再试。')
@@ -38,9 +41,12 @@ export default function KnowledgeJobs({ refreshed, policyRevision }: { refreshed
       </button>
       {job.reason && <p className="text-pi-dim text-[12px] leading-5">{job.resolution ? '原记录：' : ''}{knowledgeReason(job.reason)}</p>}
       {job.state === 'retry_wait' && <p className="text-pi-dim text-[12px]">下次尝试：{date(job.nextAttemptAt)}</p>}
-      {selected === job.id && <div className="py-3 space-y-3 [overflow-wrap:anywhere]">
+    </li>)}</ul>
+      {selected && <div className="py-3 space-y-3 [overflow-wrap:anywhere]" aria-label="所选知识记录">
         {detail.isLoading && <p role="status">正在读取来源…</p>}
-        {detail.data?.id === job.id && <>
+        {selectedJob && detail.data && <>
+          <h4>{selectedJob.title}</h4>
+          {detail.data.event === 'cultivation' && <><p>培养任务输出 · 模型生成的假设，未经独立核验</p><p className="whitespace-pre-wrap">{detail.data.candidate?.text}</p><p>原运行：{detail.data.cultivationProvenance?.runId} · 设计：{detail.data.cultivationProvenance?.designId}</p></>}
           <p className="text-pi-dim">登记于 {date(detail.data.createdAt)} · 状态：{labels[detail.data.displayState || detail.data.state] || detail.data.state}</p>
           {detail.data.resolution && <div className="bg-pi-bg2 p-3 rounded-pi-md space-y-1 leading-6">
             <p>已由补证解决 · {date(detail.data.resolution.at)}</p>
@@ -59,14 +65,13 @@ export default function KnowledgeJobs({ refreshed, policyRevision }: { refreshed
           <KnowledgeReview key={`${detail.data.id}:${detail.data.revision}`} job={detail.data} policyRevision={policyRevision} refreshed={refreshQueue} />
           {policyRevision && !detail.data.resolution && ['review_required','blocked'].includes(detail.data.state) && <KnowledgeSource parent={detail.data} revision={policyRevision} refreshed={async () => { await Promise.all([list.mutate(), detail.mutate(), refreshed()]) }} />}
           <div className="flex flex-wrap gap-2">
-            {!detail.data.resolution && !['committed','cancelled','skipped','failed','paused'].includes(detail.data.state) && <button className="btn-tool min-h-11 px-3" disabled={busy} onClick={() => act(detail.data!, 'pause')}>暂停任务</button>}
-            {!detail.data.resolution && detail.data.state === 'paused' && <button className="btn-tool min-h-11 px-3" disabled={busy} onClick={() => act(detail.data!, 'resume')}>继续任务</button>}
-            {!detail.data.resolution && ['blocked','retry_wait','failed'].includes(detail.data.state) && <button className="btn-tool min-h-11 px-3" disabled={busy} onClick={() => act(detail.data!, 'retry')}>重试任务</button>}
+            {detail.data.event !== 'cultivation' && !detail.data.resolution && !['committed','cancelled','skipped','failed','paused'].includes(detail.data.state) && <button className="btn-tool min-h-11 px-3" disabled={busy} onClick={() => act(detail.data!, 'pause')}>暂停任务</button>}
+            {detail.data.event !== 'cultivation' && !detail.data.resolution && detail.data.state === 'paused' && <button className="btn-tool min-h-11 px-3" disabled={busy} onClick={() => act(detail.data!, 'resume')}>继续任务</button>}
+            {detail.data.event !== 'cultivation' && !detail.data.resolution && ['blocked','retry_wait','failed'].includes(detail.data.state) && <button className="btn-tool min-h-11 px-3" disabled={busy} onClick={() => act(detail.data!, 'retry')}>重试任务</button>}
             {!detail.data.resolution && !['committed','cancelled','skipped','failed'].includes(detail.data.state) && <button className="btn-tool min-h-11 px-3" disabled={busy} onClick={() => act(detail.data!, 'cancel')}>取消任务</button>}
           </div>
         </>}
       </div>}
-    </li>)}</ul>
     {!!list.data?.total && <nav className="flex flex-wrap gap-3 items-center" aria-label="知识队列分页">
       <button className="btn-tool min-h-11 px-3" disabled={offset === 0} onClick={() => {setOffset(n => Math.max(0,n - 20)); setSelected(null)}}>上一页</button>
       <span className="text-pi-dim tabular-nums">第 {Math.floor(offset / 20) + 1} / {Math.max(1,Math.ceil(list.data.total / 20))} 页</span>
