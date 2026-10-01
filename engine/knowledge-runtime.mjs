@@ -125,9 +125,10 @@ export function createKnowledgeRuntime({wsRoot,runRoot,runStore,catalog,directCh
       runStore.update(run.id,{cultivationReferences:{sessionId,ids:safe}});
     },
     async context(input){
-      if(input.runId&&['knowledge','cultivation'].includes(runStore.get(input.runId)?.request?.origin))
+      if(input.signal?.aborted||input.runId&&['knowledge','cultivation'].includes(runStore.get(input.runId)?.request?.origin))
         return {available:false,entries:[],context:''};
       const result=await retrieval.retrieve(input);
+      if(input.signal?.aborted)return {available:false,entries:[],context:''};
       // Record what this specific run was offered; merely offering it is not use feedback.
       if(result.entries.length&&input.runId){const run=runStore.get(input.runId);
         if(run?.sessionId===input.sessionId)runStore.update(run.id,{knowledgeReferences:{sessionId:input.sessionId,ids:result.entries.map(e=>e.id)}});}

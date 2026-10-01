@@ -28,6 +28,21 @@ test('detail retains model-generated cultivation provenance separately from revi
   assert.deepEqual(detail.cultivationProvenance,job.provenance);
 });
 
+test('a cancelled lookup cannot write late references or manufacture a knowledge gap',async t=>{
+  const {runtime:r,runStore,wsRoot}=fixture(t);
+  for(const entries of [[],[{id:'a'.repeat(64)}]]){
+    const run=runStore.create({sessionId:'cancelled',clientRequestId:randomUUID(),message:'network',backgroundRecovery:{scope:wsRoot}});
+    const controller=new AbortController();let release;
+    r.retrieval.retrieve=()=>new Promise(resolve=>{release=resolve;});
+    const pending=r.context({query:'network',sessionId:run.sessionId,runId:run.id,signal:controller.signal});
+    controller.abort();release({available:true,entries,context:entries.length?'late':''});
+    const result=await pending;
+    assert.equal(result.context,'');assert.equal(result.available,false);
+    assert.equal(runStore.get(run.id).knowledgeReferences,undefined);
+    assert.equal(runStore.get(run.id).knowledgeGap,undefined);
+  }
+});
+
 test('cultivation adopts only independently committed evidence with scope and retirement',async t=>{
   const {runtime:r,wsRoot}=fixture(t);
   const {knowledgeStorage}=await import('../../engine/knowledge-storage.mjs');

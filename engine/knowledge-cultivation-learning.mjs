@@ -49,8 +49,10 @@ export function cultivationDecisions({io,now}) {
 }
 
 export function createCultivationLearning({store,retrieval,verifySource}) {
-  const context=async({scope,query,maxTokens=2000,agentIds,motherActorId,motherLearning=false,controlRevision,requireRelevant=false})=>{
+  const context=async({scope,query,maxTokens=2000,agentIds,motherActorId,motherLearning=false,controlRevision,requireRelevant=false,signal})=>{
+    signal?.throwIfAborted();
     const policy=await store.policy();
+    signal?.throwIfAborted();
     const selected=()=>store.cultivationDecisions.read(scope).filter(d=>
       scope!=='mother'||Array.isArray(agentIds)&&agentIds.includes(d.agentId)&&
         (d.actor.kind==='human'||motherLearning===true&&d.actor.kind==='mother'&&d.actor.actorId===motherActorId&&
@@ -58,8 +60,11 @@ export function createCultivationLearning({store,retrieval,verifySource}) {
     const decisions=selected(),entries=[];
     let context='';
     for(const decision of decisions){
-      const result=await retrieval.retrieve({query,sessionId:`cultivation:${decision.agentId}`,
+      signal?.throwIfAborted();
+      const result=await retrieval.retrieve({query,signal,sessionId:`cultivation:${decision.agentId}`,
         entryIds:[decision.entryId],requireRelevant,maxEntries:1,maxTokens:Math.max(0,maxTokens-Buffer.byteLength(context))});
+      signal?.throwIfAborted();
+      if(result.available===false)return {available:false,entries:[],context:''};
       entries.push(...result.entries);context+=result.context;
     }
     const current=selected();

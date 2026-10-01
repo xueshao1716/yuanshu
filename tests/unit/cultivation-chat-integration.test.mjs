@@ -47,6 +47,24 @@ test('live mother execution adopts independent evidence, uses it in chat and los
   const text=await context(),entryId=adopted.resolution.entryId;
   assert.ok(text.includes(`[知识:${entryId}]`));assert.ok(!text.includes('网络配置假设'));
   assert.deepEqual(runStore.get(f.run.id).cultivationReferences.ids,[entryId]);
+  // Delay the real retrieval at its boundary, then stop the real host/runtime
+  // chain. Cancellation must arrive there and late data cannot restore offers.
+  const retrieve=knowledge.retrieval.retrieve;
+  let release,entered,seenSignal;
+  const enteredLookup=new Promise(resolve=>{entered=resolve;});
+  const gate=new Promise(resolve=>{release=resolve;});
+  knowledge.retrieval.retrieve=async args=>{
+    seenSignal=args.signal;entered();await gate;return retrieve(args);
+  };
+  const controller=new AbortController();
+  try{
+    const pending=cultivationChatContext(runtime,knowledge,{...input,signal:controller.signal});
+    await enteredLookup;controller.abort();
+    assert.equal(await pending,'');assert.equal(seenSignal.aborted,true);
+    release();await new Promise(resolve=>setImmediate(resolve));
+    assert.deepEqual(runStore.get(f.run.id).cultivationReferences.ids,[]);
+  }finally{release();knowledge.retrieval.retrieve=retrieve;}
+  assert.ok(await context(),'an independent later request remains usable');
   const usage=path.join(f.root,`记忆/知识/usage/${entryId}.json`);assert.equal(fs.existsSync(usage),false);
   await execute('policy.set',{policy:{...policy,motherLearning:false}},'human');
   assert.equal(await context(),'');assert.deepEqual(runStore.get(f.run.id).cultivationReferences.ids,[]);

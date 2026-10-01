@@ -29,7 +29,8 @@ export function createCultivationRuntime({wsRoot, identityAdapters, humanConfig,
   const recover=createRecoveryCommands({authority,controls,admission:execution?.admission});
   return Object.freeze({
     writeIdentityAvailable,
-    async readMother(command,source){
+    async readMother(command,source,{signal}={}){
+      signal?.throwIfAborted();
       const principal=authority.issue('mother',source,command);authority.assert(principal,command,['mother']);
       if(command.action==='learning.context'){
         if(!exact(command,['action','payload'])||!exact(command.payload,['query'])||
@@ -44,7 +45,8 @@ export function createCultivationRuntime({wsRoot, identityAdapters, humanConfig,
         };
         const before=current(),result=await learning.context({scope:'mother',agentIds:before.agentIds,
           motherActorId:before.motherActorId,motherLearning:before.motherLearning,controlRevision:before.revision,
-          query:command.payload.query,maxTokens:1200,requireRelevant:true});
+          query:command.payload.query,maxTokens:1200,requireRelevant:true,signal});
+        signal?.throwIfAborted();
         if(JSON.stringify(before)!==JSON.stringify(current()))throw new Error('cultivation_policy_changed');
         return {available:result.available!==false,context:result.context,entries:result.entries.map(e=>({id:e.id,jobId:e.jobId}))};
       }

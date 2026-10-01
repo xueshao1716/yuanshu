@@ -151,6 +151,7 @@ import { createLearningIntake } from "./engine/learning-intake.mjs";
 import { createKnowledgeRuntime } from "./engine/knowledge-runtime.mjs";
 import { createKnowledgeOverview } from "./engine/knowledge-overview.mjs";
 import { knowledgeChatContext, deliverKnowledgeContext } from "./engine/knowledge-chat.mjs";
+import { withKnowledgeRequest, knowledgeRequestStopped } from "./engine/knowledge-chat-request.mjs";
 import { cultivationChatContext } from "./engine/cultivation/chat.mjs";
 import { createKnowledgeApi } from "./engine/knowledge-api.mjs";
 import { createCultivationRuntime } from "./engine/cultivation/runtime.mjs";
@@ -934,8 +935,10 @@ async function handleChat(req, res, body) {
     signals: body.__runContext?.signal,
   });
   const knowledgeNote = text => res.write(`event: note\ndata: ${JSON.stringify({ text })}\n\n`);
-  const knowledgeContext = await knowledgeChatContext(knowledgeRuntime, { query: emotionInput.message || message,
-    runId: body.__runContext?.runId || aibodyTurn.runId, sessionId: sessionId || findKeyByEntry(entry) }, knowledgeNote);
+  const knowledgeContext = await withKnowledgeRequest(req, res, signal => knowledgeChatContext(knowledgeRuntime, { signal,
+    query: emotionInput.message || message,
+    runId: body.__runContext?.runId || aibodyTurn.runId, sessionId: sessionId || findKeyByEntry(entry) }, knowledgeNote));
+  if (knowledgeRequestStopped(req, res)) return res.end();
   const chatRunContext = {
     ...(body.__runContext || {}),
     emotionInput,
@@ -946,11 +949,11 @@ async function handleChat(req, res, body) {
     knowledgeContext,
   };
   const refreshCultivationContext = async () => {
-    const learned = await cultivationChatContext(cultivationRuntime, knowledgeRuntime, {
+    const learned = await withKnowledgeRequest(req, res, signal => cultivationChatContext(cultivationRuntime, knowledgeRuntime, { signal,
       executionIdentity: body.__runContext?.executionIdentity,
       query: emotionInput.message || message, runId: chatRunContext.runId,
       sessionId: sessionId || findKeyByEntry(entry),
-    }, knowledgeNote);
+    }, knowledgeNote));
     chatRunContext.knowledgeContext = [knowledgeContext, learned].filter(Boolean).join('\n');
   };
   // busy → 打断当前任务（对标 TUI interrupt：同一会话上处理新消息）
@@ -1096,6 +1099,7 @@ async function handleChat(req, res, body) {
         await handleDshChat(res, entry, message, sessionId || findKeyByEntry(entry), abortCtrl.signal, { cwd: CONFIG.cwd });
       } else {
         await refreshCultivationContext();
+        if (knowledgeRequestStopped(req, res)) return res.end();
         await handleUnifiedChat(res, entry, message, sessionId || findKeyByEntry(entry), body.params, abortCtrl.signal, undefined, thinkOn, body.taskKey, (entry.modelKey && !isAutoModel(entry.modelKey)) ? entry.modelKey : null, null, chatRunContext);
       }
     } catch (e) {
@@ -1616,6 +1620,7 @@ async function handleChat(req, res, body) {
       console.log(`[tiered] 闲聊不注入: msg="${message.slice(0, 30)}"`);
     }
     await refreshCultivationContext();
+    if (knowledgeRequestStopped(req, res)) return res.end();
     await deliverKnowledgeContext(entry.agent, chatRunContext.knowledgeContext, knowledgeNote);
     // 外部思考调试：注入 think 引导（nextTurn，不污染会话历史）
     if (thinkOn) {
@@ -1942,6 +1947,7 @@ async function handleChat(req, res, body) {
     try {
       // 降级前先释放 busy（unifiedChat 会重新接管），并用同代次避免竞态
       await refreshCultivationContext();
+      if (knowledgeRequestStopped(req, res)) return res.end();
       if (entry.gen === thisGen) entry.busy = false;
       const abortCtrl2 = new AbortController();
       const onClose2 = () => { try { abortCtrl2.abort(); } catch {} };

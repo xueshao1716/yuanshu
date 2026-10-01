@@ -48,7 +48,7 @@ test('host refreshes cultivation context on both text paths and again before fal
  const unified=server.indexOf('await handleUnifiedChat(res, entry, message');
  assert.ok(server.lastIndexOf('await refreshCultivationContext();',unified)>server.lastIndexOf('} else {',unified));
  const native=server.indexOf('await deliverKnowledgeContext(entry.agent');
- assert.ok(server.slice(native-100,native).includes('await refreshCultivationContext();'));
+ assert.ok(server.slice(native-200,native).includes('await refreshCultivationContext();'));
  const fallback=server.indexOf('const abortCtrl2 = new AbortController();');
  assert.ok(server.slice(fallback-450,fallback).includes('await refreshCultivationContext();'));
 });

@@ -8,14 +8,15 @@ export async function cultivationChatContext(runtime,knowledge,input,note=()=>{}
   const offer=ids=>knowledge.offerCultivationReferences(scope,ids);
   try{
     if(!input.executionIdentity){offer([]);return '';}
-    const result=await runtime.readMother({action:'learning.context',payload:{
-      query:typeof input.query==='string'?input.query.slice(0,1000):''}},input.executionIdentity);
+    const result=await boundedKnowledgeContext(signal=>runtime.readMother({action:'learning.context',payload:{
+      query:typeof input.query==='string'?input.query.slice(0,1000):''}},input.executionIdentity,{signal}),input);
     if(result.available===false)throw new Error('cultivation_context_unavailable');
     offer(result.context?result.entries.map(e=>e.id):[]);
     return result.context||'';
   }catch(error){
     try{offer([]);}catch{}
-    if(!quiet.has(error?.message))try{note(unavailable);}catch{}
+    if(!input.signal?.aborted&&!quiet.has(error?.message))try{note(unavailable);}catch{}
     return '';
   }
 }
+import {boundedKnowledgeContext} from '../knowledge-context-deadline.mjs';
