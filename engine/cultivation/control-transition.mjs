@@ -1,4 +1,4 @@
-import {validatePolicy} from './policy.mjs';
+import {validatePolicy, assertRequest} from './policy.mjs';
 import {validateDesign, assertAdoptable, assertNoExpansion} from './designs.mjs';
 import {exact, id} from './control-state.mjs';
 
@@ -20,13 +20,18 @@ export function transition(data, c, actor, {now, verifyAsset, entityId, intentId
   const p = c.payload;
   const design = designId => data.designs.find(d => d.id === designId) ?? fail('design_not_found');
   const adopt = (d, agentId) => assertAdoptable(d.design, data.policy, {now: now(), agentId, verifyAsset});
+  const envelope = (next, previous) => {
+    const remoteExpansion = next.permissions.remote && !previous.permissions.remote;
+    assertNoExpansion(next, previous, {allowRemoteExpansion:remoteExpansion});
+    if (remoteExpansion) assertRequest(data.policy, next.permissions, now());
+  };
   if (c.action === 'policy.set') {data.policy = validatePolicy(p.policy); return {id: 'control'};}
   if (c.action.startsWith('design.')) {
     const d = validateDesign(p.design);
     if (p.parentId) {
       const parent = design(p.parentId);
       if (parent.author.actorId !== actor.actorId) fail('identity_denied');
-      assertNoExpansion(d, parent.design);
+      envelope(d, parent.design);
     }
     const row = {id: entityId, parentId: p.parentId ?? null, author: actor, design: d};
     data.designs.push(row);
@@ -58,7 +63,7 @@ export function transition(data, c, actor, {now, verifyAsset, entityId, intentId
     if (c.action === 'agent.rollback') {
       if (!a.history.includes(next.id)) fail('design_lineage');
     } else if (next.parentId !== current.id) fail('design_lineage');
-    assertNoExpansion(next.design, current.design);
+    envelope(next.design, current.design);
     adopt(next, a.id);
     a.designId = next.id;
     a.history.push(next.id);

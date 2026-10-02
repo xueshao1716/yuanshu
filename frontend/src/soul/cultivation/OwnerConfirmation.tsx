@@ -1,10 +1,10 @@
 import {useRef,useState} from 'react'
 import type {Overview} from './api'
-import {nativeOwner,ownerError,ownerInvoke,type OwnerStatus} from './owner'
+import {androidBridge,nativeOwner,ownerError,ownerInvoke,type OwnerStatus} from './owner'
 
 export default function OwnerConfirmation({value,refresh}:{value:Overview;refresh:()=>Promise<unknown>}){
   const [status,setStatus]=useState<OwnerStatus|null>(null),[message,setMessage]=useState(''),[busy,setBusy]=useState(false)
-  const pending=useRef(false),invoke=ownerInvoke(),workspace=value.ownerConfirmation?.workspace
+  const pending=useRef(false),invoke=ownerInvoke(),android=!!androidBridge(),workspace=value.ownerConfirmation?.workspace
   const check=async(pair=false)=>{
     if(pending.current||!invoke||!workspace)return
     pending.current=true;setBusy(true);setMessage('')
@@ -15,11 +15,11 @@ export default function OwnerConfirmation({value,refresh}:{value:Overview;refres
     }catch(e){setMessage(ownerError(e))}finally{pending.current=false;setBusy(false)}
   }
   return <section aria-label="主人确认方式">
-    <h4>主人确认</h4>
+    <h4>{android?'安卓设备确认':'主人确认'}</h4>
     <p>你决定她可以学什么、学多久。设置本人确认方式不会开启学习；每次变更都要先核对范围。</p>
     {nativeOwner(value)?<>
-      <p>{value.ownerConfirmation?.state==='locked'?'本机凭据发生变化，确认通道已锁定。请核查后重启服务，不会自动替换主人。':value.humanGrantAvailable?'本机已配对。核对操作后，使用 Windows Hello 确认即可自动提交。':'首次使用需在这台电脑设置 Windows Hello 本人确认，不用管理或粘贴密钥。'}</p>
-      {!invoke?<p className="soul-notice">请使用新版 Windows 桌面客户端连接本机工作台。网页和旧客户端仍可查看记录，但不提供本机配对。</p>:<div className="soul-actions">
+      <p>{android?'当前在安卓客户端。培养策略可直接使用上方会话确认，无需 Windows 配对。个体回退、资源恢复等其他人工操作仍需原有签名通道，可在受信任的 Windows 客户端配对，或使用外部签名方式。':value.ownerConfirmation?.state==='locked'?'本机凭据发生变化，确认通道已锁定。请核查后重启服务，不会自动替换主人。':value.humanGrantAvailable?'本机已配对。核对操作后，使用 Windows Hello 确认即可自动提交。':'首次使用需在这台电脑设置 Windows Hello 本人确认，不用管理或粘贴密钥。'}</p>
+      {android?<p className="soul-notice">安卓端暂不执行需要主人签名的培养写入，避免把“生物识别成功”误当成服务端授权。查看记录和外部签名流程仍可用。</p>:!invoke?<p className="soul-notice">请使用新版 Windows 桌面客户端连接本机工作台。网页和旧客户端仍可查看记录，但不提供本机配对。</p>:<div className="soul-actions">
         <button disabled={busy} onClick={()=>void check()}>{busy?'正在等待系统确认…':'检查本机确认方式'}</button>
         {status?.available&&!status.paired&&value.ownerConfirmation?.state!=='locked'&&<button disabled={busy} onClick={()=>void check(true)}>设置本人确认</button>}
       </div>}

@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 const source=p=>fs.existsSync(p)?fs.readFileSync(p,'utf8'):'';
 test('cultivation panel is mounted explicitly, with honest empty state and hidden polling disabled',()=>{
-  assert.ok(source('frontend/src/pages/Soul.tsx').includes("id==='cultivation'?<Cultivation/>"));
+  assert.ok(source('frontend/src/pages/Soul.tsx').includes("id==='cultivation'?<Cultivation sessionId={sessionId}/>"));
   assert.ok(source('frontend/src/soul/Overview.tsx').includes("['cultivation'"));
   const panel=source('frontend/src/soul/cultivation/Panel.tsx'),api=source('frontend/src/soul/cultivation/api.ts');
   for(const text of ['等待小语提交设计','个体与设计','运行时间线','学习证据','授权与资源'])assert.ok(panel.includes(text),text);
@@ -28,7 +28,25 @@ test('panel pagination and policy drafts retain their own revision boundaries',(
 
 test('authorization state is isolated by the complete target command',()=>{
   const panel=source('frontend/src/soul/cultivation/Panel.tsx');
-  assert.ok(panel.includes('key={JSON.stringify(action)}'));
+  assert.ok(panel.includes('key={JSON.stringify([sessionId,action])}'));
+});
+
+test('session approval is policy-only, answered through registry and invalidated on unmount',()=>{
+  const auth=source('frontend/src/soul/cultivation/Authorization.tsx');
+  for(const text of ["action.method==='PUT'&&action.path==='/policy'",'ConfirmApi.answer(',
+    'alive.current=false','if(!alive.current)', '提交结果尚待核对','!sessionId'])assert.ok(auth.includes(text),text);
+  const panel=source('frontend/src/soul/cultivation/Panel.tsx');
+  assert.ok(panel.includes('const authorized=!!overview.data?.humanGrantAvailable'));
+  assert.ok(panel.includes('sessionId={sessionId}'));
+});
+test('bounded cultivation preset uses a real design and keeps tools and unrelated actions closed',()=>{
+  const preset=source('frontend/src/soul/cultivation/PolicyPreset.tsx');
+  for(const text of ['design.permissions.model','dailyRequests:1','dailyBudgetCents:50','tools:[]',
+    'allowRemote:true','maxAgents:1','motherLearning:false','knowledge:approved-cultivation',
+    '不能自动开始付费任务','nextCursor'])assert.ok(preset.includes(text),text);
+  const resources=source('frontend/src/soul/cultivation/Resources.tsx');
+  assert.ok(resources.includes('value.sessionGrantAvailable&&!!sessionId'));
+  assert.ok(resources.includes('disabled={!value.humanGrantAvailable||!reason.trim()}'));
 });
 
 test('learning actions use knowledge revisions and preserve adoption scope',()=>{

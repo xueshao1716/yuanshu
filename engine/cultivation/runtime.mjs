@@ -5,6 +5,7 @@ import {createCultivationProjection} from './projection.mjs';
 import {createCultivationTasks} from './tasks.mjs';
 import {createHumanGrants} from './human-grants.mjs';
 import {createOwnerGrants} from './owner-grants.mjs';
+import {createSessionGrants} from './session-grants.mjs';
 import {commandKinds} from './control-transition.mjs';
 import {exact,id} from './control-state.mjs';
 import {validatePolicy} from './policy.mjs';
@@ -15,22 +16,29 @@ import {createRecoveryCommands,validateRecoveryCommand} from './recovery.mjs';
 
 // Construction never dispatches. The host explicitly starts the bounded
 // executor; policy, shared resources and genuine identities gate every write.
-export function createCultivationRuntime({wsRoot, identityAdapters, humanConfig, ownerProvider, execution, learning, learningJob, verifyAsset, now = Date.now}) {
+export function createCultivationRuntime({wsRoot, identityAdapters, humanConfig, ownerProvider, sessionApproval, execution, learning, learningJob, verifyAsset, now = Date.now}) {
   const store = createCultivationStorage({wsRoot});
   const owner=!humanConfig&&ownerProvider?createOwnerGrants({workspace:store.workspace,provider:ownerProvider(store.workspace),now}):null;
   const grants=humanConfig?createHumanGrants({workspace:store.workspace,now,...humanConfig}):owner;
-  const adapters={...identityAdapters,...(grants?{resolveHuman:grants.resolveHuman}:{})};
+  const sessionGrants=createSessionGrants({workspace:store.workspace,now,host:sessionApproval});
+  const resolveHuman=typeof identityAdapters?.resolveHuman==='function'||grants||sessionGrants.available
+    ? (source,context)=>identityAdapters?.resolveHuman?.(source,context) ??
+      grants?.resolveHuman?.(source,context) ?? sessionGrants.resolveHuman(source,context)
+    : undefined;
+  const adapters={...identityAdapters,resolveHuman};
   const authority = createIdentityAuthority({workspace: store.workspace, now, ...adapters});
   const media=createCultivationMedia({wsRoot,store,authority,getControls:()=>controls,now});
   verifyAsset??=media.verify;
   const controls = createCultivationControls({store, authority, verifyAsset, now});
   const projection = createCultivationProjection({store});
-  const writeIdentityAvailable = typeof adapters.resolveHuman === 'function';
+  const writeIdentityAvailable = () => !!grants?.available ||
+    typeof identityAdapters?.resolveHuman==='function';
   const tasks=execution?createCultivationTasks({...execution,wsRoot,store,controls,authority,verifyAsset,now}):null;
   const learn=createLearningCommands({authority,controls,learning,getJob:learningJob,now});
   const recover=createRecoveryCommands({authority,controls,admission:execution?.admission});
   return Object.freeze({
-    writeIdentityAvailable,
+    get writeIdentityAvailable(){return writeIdentityAvailable();},
+    get sessionGrantAvailable(){return sessionGrants.available;},
     async readMother(command,source,{signal}={}){
       signal?.throwIfAborted();
       const principal=authority.issue('mother',source,command);authority.assert(principal,command,['mother']);
@@ -54,7 +62,8 @@ export function createCultivationRuntime({wsRoot, identityAdapters, humanConfig,
       }
       return command.action==='overview'?this.overview():this.list(command.action,{limit:20});
     },
-    async overview(){return {...projection.overview(),writeIdentityAvailable,motherIdentityAvailable:typeof adapters.resolveMother==='function',
+    async overview(){return {...projection.overview(),writeIdentityAvailable:writeIdentityAvailable(),sessionGrantAvailable:sessionGrants.available,
+      motherIdentityAvailable:typeof adapters.resolveMother==='function',
       executorAvailable:!!tasks,humanGrantAvailable:!!grants?.available,
       ownerConfirmation:{mode:humanConfig?'external-signature':owner?'windows-hello':'unavailable',state:owner?.state??(grants?.available?'paired':'unavailable'),workspace:store.workspace},
       usage:execution?await execution.budget.status():null,admission:execution?await execution.admission.status():null,
@@ -76,6 +85,17 @@ export function createCultivationRuntime({wsRoot, identityAdapters, humanConfig,
       else if(command.action==='learning.decide')validateLearningCommand(command);else commandKinds(command);
       if(command.action==='policy.set')validatePolicy(command.payload.policy);
       return grants.challenge(command);},
+    sessionChallenge(command,sessionId){
+      if(command?.action!=='policy.set')throw new Error('cultivation_identity_denied');
+      commandKinds(command);validatePolicy(command.payload.policy);
+      return sessionGrants.challenge(command,sessionId);
+    },
+    sessionConfirm(idValue,command,sessionId){
+      if(command?.action!=='policy.set')throw new Error('cultivation_identity_denied');
+      commandKinds(command);validatePolicy(command.payload.policy);
+      return sessionGrants.confirm(idValue,command,sessionId);
+    },
+    verifySession:(proof,command,sessionId)=>({kind:'human',source:sessionGrants.verify(proof,command,sessionId)}),
     verifyHuman:(proof,command)=>{if(!grants?.available)throw new Error('cultivation_identity_unavailable');
       return {kind:'human',source:grants.verify(proof,command)};},
     execute: async (command, kind, trustedSource) => {
@@ -91,6 +111,6 @@ export function createCultivationRuntime({wsRoot, identityAdapters, humanConfig,
     },
     tick:()=>tasks?.tick(),
     async start(){await controls.reconcile();await tasks?.recover();tasks?.start();},
-    async close(){grants?.revoke();await tasks?.close();},
+    async close(){grants?.revoke();sessionGrants.revoke();await tasks?.close();},
   });
 }

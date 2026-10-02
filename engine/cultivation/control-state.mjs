@@ -31,7 +31,10 @@ export function controlData(record) {
     if (row.parentId !== null) {
       const parent = designs.get(row.parentId);
       if (parent.author.actorId !== row.author.actorId) fail();
-      try {assertNoExpansion(row.design, parent.design);} catch {fail();}
+      // Historical designs may contain a previously authorized remote flag;
+      // current policy gates new revisions, while state replay must remain
+      // able to read the already committed lineage.
+      try {assertNoExpansion(row.design, parent.design, {allowRemoteExpansion:true});} catch {fail();}
     }
     designs.set(row.id, row);
   }
@@ -47,7 +50,7 @@ export function controlData(record) {
       if (current.author.actorId !== a.mentorId) fail();
       if (!index) continue;
       if (current.parentId !== previous.id && !a.history.slice(0, index).includes(designId)) fail();
-      try {assertNoExpansion(current.design, previous.design);} catch {fail();}
+      try {assertNoExpansion(current.design, previous.design, {allowRemoteExpansion:true});} catch {fail();}
     }
   }
   const agents = new Map(d.agents.map(a => [a.id, a]));

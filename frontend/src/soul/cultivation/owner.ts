@@ -1,6 +1,8 @@
 import type {Overview} from './api'
 type Invoke=<T>(command:string,args?:Record<string,unknown>)=>Promise<T>
 export const ownerInvoke=():Invoke|undefined=>(globalThis as unknown as {__TAURI__?:{core?:{invoke?:Invoke}}}).__TAURI__?.core?.invoke
+type AndroidBridge={canAuthenticate?:()=>boolean;authenticate?:()=>void}
+export const androidBridge=():AndroidBridge|undefined=>(globalThis as unknown as {YuanshuBridge?:AndroidBridge}).YuanshuBridge
 export type OwnerStatus={available:boolean;paired:boolean}
 export const ownerError=(error:unknown)=>{
   const code=String(error)

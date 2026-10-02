@@ -949,6 +949,15 @@ async function handleChat(req, res, body) {
     aibodyContext: { goal: aibodyTurn.topic, strategy: aibodyTurn.directive },
     knowledgeContext,
   };
+  // Keep the live execution authority available to both chat engines without
+  // making it enumerable. This prevents accidental prompt/event/persistence
+  // leakage while allowing unifiedChat to forward it to its tool scheduler.
+  Object.defineProperty(chatRunContext, 'executionIdentity', {
+    value: body.__runContext?.executionIdentity,
+    enumerable: false,
+    configurable: false,
+    writable: false,
+  });
   const refreshCultivationContext = async () => {
     const learned = await withKnowledgeRequest(req, res, signal => cultivationChatContext(cultivationRuntime, knowledgeRuntime, { signal,
       executionIdentity: body.__runContext?.executionIdentity,
@@ -1676,10 +1685,21 @@ async function handleChat(req, res, body) {
       }
     } catch (e) { console.log(`[sanitize] 预处理失败(不阻断): ${String(e?.message || e).slice(0, 80)}`); }
     try {
-      await withTeamToolContext({ ...chatRunContext, wsRoot: WS_ROOT, model: entry.agentModel || defaultModel,
+      // executionIdentity is deliberately non-enumerable on __runContext so it cannot
+      // leak into prompts, events, or persisted run data. Object spread would therefore
+      // drop it before the Pi cultivation tool sees the request; carry it across this
+      // in-memory boundary with the same opaque, non-enumerable semantics.
+      const piTeamToolContext = { ...chatRunContext, wsRoot: WS_ROOT, model: entry.agentModel || defaultModel,
         history: extractMessages(entry.sm.fileEntries, entry.sm.getLeafId?.() || resolveLeafId(entry.sm.fileEntries))
           .map(m => ({ role: m.role, content: m.text })),
-      }, () => withSamplingParams(agent, body.params, () => agent.prompt(promptMsg, { images })));
+      };
+      Object.defineProperty(piTeamToolContext, 'executionIdentity', {
+        value: body.__runContext?.executionIdentity,
+        enumerable: false,
+        configurable: false,
+        writable: false,
+      });
+      await withTeamToolContext(piTeamToolContext, () => withSamplingParams(agent, body.params, () => agent.prompt(promptMsg, { images })));
     } finally {
       // 处理完恢复原模型（避免把会话默认模型悄悄改掉）
       if (visionSwitched && origAgentModel) {
@@ -2111,6 +2131,7 @@ const cultivationHostIdentity = createCultivationHostIdentity({ wsRoot: WS_ROOT,
 const cultivationRuntime = createCultivationRuntime({ wsRoot: WS_ROOT,
   learning:knowledgeRuntime.cultivationLearning,learningJob:id=>knowledgeRuntime.store.get(id),
   identityAdapters: { resolveMother: cultivationHostIdentity.resolveMother },
+  sessionApproval: {registry:confirmRegistry, canAccess:canAccessSessionOrigin, push:busPush},
   humanConfig: optionalCultivationHumanConfig(),
   ownerProvider: process.platform!=='win32'||process.env.YUANSHU_CULTIVATION_HUMAN_PUBLIC_KEY_FILE||process.env.YUANSHU_CULTIVATION_HUMAN_ACTOR?undefined:
     workspace=>ownerConfigProvider({workspace}),
@@ -2960,6 +2981,7 @@ const API_ROUTES = [
       const ok = b?.ok === true;
       if (!sid || !id) return json(res, 400, { error: "缺少 sessionId/id" });
       const pending = confirmRegistry.list().find(item => item.sessionId === sid && item.id === id);
+      if (pending?.toolName === 'cultivation-policy' && !canAccessSessionOrigin(sid)) return json(res, 403, {error:'培养确认所属会话已不可用，请重新选择会话。'});
       if (ok && pending?.toolName === 'computer-use' && !isLocalMaintenanceApproval(req)) return json(res, 403, {error:'电脑操作须在本机系统页逐次人工确认，远程不能批准。'});
       if (ok && pending?.toolName === 'maintenance' && !isLocalMaintenanceApproval(req)) return json(res, 403, { error: '请在运行元枢的电脑上，通过 http://127.0.0.1:8787 的超维面板人工确认。远程入口不能批准。' });
       if (ok && ['gene-governance', 'persona-governance'].includes(pending?.toolName) && !isLocalMaintenanceApproval(req)) return json(res, 403, { error: '人格及基线批准与回退须在运行元枢的电脑上，通过本地人工确认。' });

@@ -59,3 +59,27 @@ test('revisions cannot expand the adopted permission envelope', async () => {
   assert.doesNotThrow(() => assertNoExpansion(d, d));
   assert.throws(() => assertNoExpansion({...d, permissions: {...d.permissions, tools: ['shell']}}, d), /permission_expansion/);
 });
+
+test('invalid design reports a safe field path and expected format without echoing input', async () => {
+  const {validateDesign} = await module();
+  const cases = [
+    [d => {d.curriculum = [{stage: 1, title: 'private-input', content: 'Learn', pass_criterion: 'Test'}];}, 'design.curriculum[0]'],
+    [d => {d.goals = [];}, 'design.goals'],
+    [d => {delete d.observation;}, 'design.observation'],
+    [d => {d.voice.asset = {id: 'private-input', version: 0};}, 'design.voice.asset.version'],
+    [d => {d.permissions.remote = 'private-input';}, 'design.permissions.remote'],
+    [d => {d.permissions.tools = ['shell', 'shell'];}, 'design.permissions.tools'],
+    [d => {d['private-input'] = 'private-input';}, 'design'],
+  ];
+  for (const [mutate, field] of cases) {
+    const d = design(); mutate(d);
+    assert.throws(() => validateDesign(d), error => {
+      assert.equal(error.message, 'cultivation_invalid_design');
+      assert.equal(error.field, field);
+      assert.equal(typeof error.expected, 'string');
+      assert.ok(error.expected.length > 0);
+      assert.ok(!JSON.stringify(error).includes('private-input'));
+      return true;
+    });
+  }
+});

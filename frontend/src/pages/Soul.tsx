@@ -51,12 +51,12 @@ export default function Soul() {
         <label className="soul-mobile-nav">培养分区<select value={section} onChange={e=>open(e.target.value as Section)}>{sections.map(([id,label])=><option key={id} value={id}>{label}</option>)}</select></label>
         <main className="soul-workarea">
           <header className="soul-section-heading"><h2 ref={heading} tabIndex={-1}>{title[1]}</h2><p>{title[2]}</p></header>
-          {['identity','voice','genes','history'].includes(section) || busy ? <SessionChoice sessionId={sessionId} setSessionId={setSessionId} disabled={busy} /> : null}
+          {['identity','voice','genes','history','cultivation'].includes(section) || busy ? <SessionChoice sessionId={sessionId} setSessionId={setSessionId} disabled={busy} /> : null}
           <Confirmations sessionId={sessionId} active={draftSections.includes(section) || section === 'voice' || busy} busy={busy} />
           {message && <p role={failed?'alert':'status'} className="soul-notice">{message}</p>}
           {(visited.includes('identity') || visited.includes('voice')) && <div hidden={!(section === 'identity' || section === 'voice')}><PersonaEditor {...props} designMode={section === 'voice'} onDirtyChange={setDirty}/></div>}
           {visited.filter(id => id === section || draftSections.includes(id)).map(id=><div key={id} hidden={id!==section}>
-            {id==='overview'?<Overview open={open}/>:id==='identity'?null:id==='genes'?<Genes {...props}/>:id==='rhythm'?<Rhythm/>:id==='memory'?<Memory/>:id==='learning'?<Learning/>:id==='mother'?<Mother/>:id==='team'?<Team/>:id==='voice'?<VoiceAppearance/>:id==='cultivation'?<Cultivation/>:<History {...props}/>}
+            {id==='overview'?<Overview open={open}/>:id==='identity'?null:id==='genes'?<Genes {...props}/>:id==='rhythm'?<Rhythm/>:id==='memory'?<Memory/>:id==='learning'?<Learning/>:id==='mother'?<Mother/>:id==='team'?<Team/>:id==='voice'?<VoiceAppearance/>:id==='cultivation'?<Cultivation sessionId={sessionId}/>:<History {...props}/>}
           </div>)}
         </main>
       </div>

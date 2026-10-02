@@ -18,8 +18,19 @@ test('owner provider never mislabels unsupported platforms or hides challenge er
   assert.ok(read('frontend/src/soul/cultivation/Authorization.tsx').includes("stage==='native'"));
 });
 
+test('android webview explains session confirmation without pretending biometric success is a server signature',()=>{
+  const owner=read('frontend/src/soul/cultivation/owner.ts');
+  const confirmation=read('frontend/src/soul/cultivation/OwnerConfirmation.tsx');
+  const authorization=read('frontend/src/soul/cultivation/Authorization.tsx');
+  assert.ok(owner.includes('YuanshuBridge'),'detect the Android bridge explicitly');
+  assert.ok(confirmation.includes('安卓设备确认'),'show an Android-specific explanation');
+  assert.ok(authorization.includes('设备凭据尚未绑定'),'do not offer a fake execute path');
+  assert.ok(authorization.includes('本次不是培养策略操作'),'explain why this action needs the existing signature route');
+  assert.ok(confirmation.includes('培养策略可直接使用上方会话确认，无需 Windows 配对'),'do not send Android policy approval back to Windows');
+});
+
 test('uncertain native submission cannot immediately obtain a second authorization',()=>{
   const source=read('frontend/src/soul/cultivation/Authorization.tsx');
   assert.ok(source.includes('submitted.current'),'remember that submission may have committed');
-  assert.ok(source.includes('busy||submitted.current||!ownerInvoke()'),'disable repeat submission until refreshed and reopened');
+  assert.ok(source.includes('busy||android||submitted.current||!ownerInvoke()'),'disable repeat submission until refreshed and reopened');
 });

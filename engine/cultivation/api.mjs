@@ -1,5 +1,6 @@
 import {clonePayload} from './state.mjs';
 import {exact} from './control-state.mjs';
+import {designValidationDetails} from './designs.mjs';
 
 const fail = code => {throw new Error(`cultivation_${code}`);};
 const publicErrors = new Set(['identity_unavailable', 'identity_denied', 'identity_expired',
@@ -16,7 +17,7 @@ function errorReply(error) {
   const status = /conflict|cursor_stale/.test(code) ? 409 : /not_found/.test(code) ? 404 :
     /identity_denied|identity_expired/.test(code) ? 403 :
     /unavailable|unreadable|invalid_control|invalid_record|state_changing|storage_full|audit_full/.test(code) ? 503 : 400;
-  return {status, body: {error: `cultivation_${code}`}};
+  return {status, body: designValidationDetails(error) ?? {error: `cultivation_${code}`}};
 }
 function writeAction(method, route) {
   if (method === 'PUT' && route === '/policy') return {action: 'policy.set'};
@@ -61,17 +62,36 @@ export function createCultivationApi({runtime, readBody, json, requireAuth, reso
         if (match) {const detail = runtime.detail(match[1]); if (!detail) fail('agent_not_found'); return json(res, 200, detail);}
         fail('route_not_found');
       }
-      if (!runtime.writeIdentityAvailable) fail('identity_unavailable');
+      const sessionProofHeader=req.headers?.['x-cultivation-session-proof'];
+      const sessionRoute=req.method==='POST'&&['/grants/session/challenge','/grants/session/confirm'].includes(route);
+      if (!runtime.writeIdentityAvailable && !(runtime.sessionGrantAvailable &&
+          (sessionRoute || typeof sessionProofHeader==='string'))) fail('identity_unavailable');
       let input;
       try {input = await readBody(req); if (typeof input === 'string') input = JSON.parse(input);} catch {fail('invalid_command');}
       if(req.method==='POST'&&route==='/grants/challenge'){
         if(!exact(input,['method','path','body'])||typeof input.path!=='string')fail('invalid_command');
+        if (!runtime.writeIdentityAvailable) fail('identity_unavailable');
         return json(res,200,runtime.challenge(commandFor(input.method,input.path,input.body)));
+      }
+      if(req.method==='POST'&&route==='/grants/session/challenge'){
+        if(!exact(input,['method','path','body','sessionId'])||typeof input.path!=='string'||typeof input.sessionId!=='string')fail('invalid_command');
+        return json(res,200,runtime.sessionChallenge(commandFor(input.method,input.path,input.body),input.sessionId));
+      }
+      if(req.method==='POST'&&route==='/grants/session/confirm'){
+        if(!exact(input,['id','method','path','body','sessionId'])||typeof input.id!=='string'||
+            typeof input.path!=='string'||typeof input.sessionId!=='string')fail('invalid_command');
+        return json(res,200,await runtime.sessionConfirm(input.id,commandFor(input.method,input.path,input.body),input.sessionId));
       }
       const command=commandFor(req.method,route,input);
       // Trusted host adapter only; the request body cannot choose actor or role.
       let identity;
-      if(typeof resolveRequestIdentity==='function')identity=resolveRequestIdentity(req,clonePayload(command));
+      if(typeof sessionProofHeader==='string'){
+        if(sessionProofHeader.length>9000)fail('identity_denied');
+        let proof;try{proof=JSON.parse(sessionProofHeader);}catch{fail('identity_denied');}
+        const sessionId=req.headers?.['x-cultivation-session-id'];
+        if(typeof sessionId!=='string')fail('identity_denied');
+        identity=runtime.verifySession(proof,command,sessionId);
+      }else if(typeof resolveRequestIdentity==='function')identity=resolveRequestIdentity(req,clonePayload(command));
       else {
         const header=req.headers?.['x-cultivation-proof'];let proof;
         if(typeof header!=='string'||header.length>9000)fail('identity_denied');

@@ -27,11 +27,14 @@ export type Policy = {enabled:boolean;motherLearning?:boolean;maxAgents:number;m
 export type Overview = {revision:number;state:string;policy:Policy;agentCount:number;designCount:number;
   ownerConfirmation?:{mode:'windows-hello'|'external-signature'|'unavailable';state:string;workspace:string};
   executorAvailable:boolean;motherIdentityAvailable:boolean;humanGrantAvailable:boolean;
+  sessionGrantAvailable:boolean;
   usage:null|{spent:number;reserved:number;unknown:number;currency:string;modelRequests:number};
   admission:null|{state:'idle'|'held';id?:string;consumer?:string;recoveryRequired?:boolean};
   taskStatus:null|{started:boolean;active:number;lastError?:string}}
 export type Command = {method:'PUT'|'POST';path:string;body:{requestId:string;expectedRevision:number;payload:unknown}}
 export type Challenge = {id:string;message:string;expiresAt:number}
+export type SessionChallenge = {id:string;sessionId:string;commandHash:string;expiresAt:number}
+export type SessionProof = {id:string;sessionId:string;token:string;expiresAt:number}
 export const CultivationApi = {
   overview:()=>api<Overview>('/api/cultivation/overview'),
   list:<T,>(kind:string,cursor:string|null)=>api<Page<T>>(`/api/cultivation/${kind}?limit=20${cursor?`&cursor=${encodeURIComponent(cursor)}`:''}`),
@@ -39,8 +42,14 @@ export const CultivationApi = {
   media:(agentId:string,kind:string,asset:{id:string;version:number})=>api<{mime:string;base64:string}>(
     `/api/cultivation/media?${new URLSearchParams({agentId,kind,id:asset.id,version:String(asset.version)})}`),
   challenge:(command:Command)=>api<Challenge>('/api/cultivation/grants/challenge',{method:'POST',body:command}),
-  execute:(command:Command,proof:{id:string;signature:string})=>api('/api/cultivation'+command.path,
-    {method:command.method,body:command.body,headers:{'x-cultivation-proof':JSON.stringify(proof)}}),
+  sessionChallenge:(command:Command,sessionId:string)=>api<SessionChallenge>('/api/cultivation/grants/session/challenge',
+    {method:'POST',body:{...command,sessionId}}),
+  sessionConfirm:(challenge:SessionChallenge,command:Command,sessionId:string)=>api<SessionProof>('/api/cultivation/grants/session/confirm',
+    {method:'POST',body:{id:challenge.id,method:command.method,path:command.path,body:command.body,sessionId}}),
+  execute:(command:Command,proof:{id:string;signature:string}|SessionProof,sessionId?:string)=>api('/api/cultivation'+command.path,
+    {method:command.method,body:command.body,headers:'signature' in proof
+      ? {'x-cultivation-proof':JSON.stringify(proof)}
+      : {'x-cultivation-session-proof':JSON.stringify(proof),'x-cultivation-session-id':sessionId||proof.sessionId}}),
 }
 const labels:Record<string,string>={ready:'就绪',paused:'已暂停',archived:'已归档',queued:'排队中',running:'运行中',stopping:'正在停止',completed:'已完成',failed:'失败',stopped:'已停止',interrupted:'已中断',review_required:'待独立核查',resolved:'已有补证记录',invalidated:'来源已失效'}
 export const statusLabel=(value:string)=>labels[value]||value

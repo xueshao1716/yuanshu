@@ -121,3 +121,16 @@ test('server wires scoped cultivation routes without installing fake write ident
   assert.ok(text.includes('cultivationApi.handle(req, res, url)'));
   assert.ok(text.includes("['GET', 'POST', 'PUT']"));
 });
+
+test('HTTP design rejection identifies the bad field without returning design contents', async t => {
+  const f = await api(t, {trusted: true}), d = draft();
+  d.curriculum = [{stage:1, title:'private-content', content:'Read', pass_criterion:'Test'}];
+  const {action: unused, ...body} = f.command('design.submit', {design:d});
+  const response = await f.call('/designs', 'POST', body, true, {kind:'mother',source:f.mother});
+  assert.equal(response.status, 400);
+  assert.equal(response.body.error, 'cultivation_invalid_design');
+  assert.equal(response.body.field, 'design.curriculum[0]');
+  assert.ok(response.body.expected.includes('字符串'));
+  assert.ok(!JSON.stringify(response.body).includes('private-content'));
+  assert.equal(f.store.read('control').revision, 0);
+});
