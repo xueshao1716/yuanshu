@@ -5,6 +5,7 @@ import { date } from '../shared'
 import OwnerConfirmation from './OwnerConfirmation'
 import PolicyPreset from './PolicyPreset'
 import Diagnostics from './Diagnostics'
+import SharedResources from './SharedResources'
 export default function Resources({value,sessionId,onAction,refresh}:{value:Overview;sessionId:string;onAction:(a:Action)=>void;refresh:()=>Promise<unknown>}) {
   const [draft,setDraft]=useState(JSON.stringify(value.policy,null,2)),[error,setError]=useState('')
   const [draftRevision,setDraftRevision]=useState(value.revision),[reason,setReason]=useState('')
@@ -21,6 +22,7 @@ export default function Resources({value,sessionId,onAction,refresh}:{value:Over
     {value.sessionGrantAvailable?<p className="soul-notice">{sessionId?'培养策略可在当前会话确认，安卓和网页均可使用，不需要 Windows 设备绑定。':'请先在上方选择会话，即可确认培养策略。'}其他人工操作仍使用原有签名通道。</p>:null}
     <Diagnostics revision={value.revision}/>
     <PolicyPreset value={value} authorized={policyAuthorized} onAction={onAction}/>
+    <SharedResources refresh={refresh}/>
     <details><summary>其他操作的设备与签名设置</summary><OwnerConfirmation value={value} refresh={refresh}/></details>
     <section aria-label="受限自主学习"><h4>仅采用已核查经验</h4><p>七天有效，仅允许采用所属个体有独立来源且已核查的培养经验。不开放外网、付费生成、工具、私人记忆或人格与基因修改；没有合格经验时保持等待。</p><div className="soul-actions">
       <button disabled={!policyAuthorized} onClick={()=>onAction({method:'PUT',path:'/policy',revision:value.revision,label:'开启七天受限学习',payload:{policy:{...value.policy,enabled:true,motherLearning:true,allowRemote:false,recursive:false,dailyRequests:0,dailyBudgetCents:0,models:[],tools:[],dataScopes:['knowledge:approved-cultivation'],schedule:null,expiresAt:new Date(Date.now()+7*86400000).toISOString()}}})}>核对七天受限学习</button>

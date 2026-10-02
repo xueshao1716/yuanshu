@@ -18,6 +18,12 @@ test('progress-only model chatter is skipped but technical material and user sta
   assert.ok(extractLocal([useful],job));
   assert.ok(extractLocal([{...chatter,authority:'user_statement'}],job));
 });
+test('progress with a queue number or percentage is still chatter, not technical evidence',()=>{
+ for(const text of ['图正在后台生成中，进度 20%，请稍等。','正在排队，前面还有 3 个任务，稍后返回。'])
+   assert.equal(extractLocal([source(text)],job),null,text);
+ assert.ok(extractLocal([source('模型失败，HTTP 403，原因是无权限。')],job));
+ assert.ok(extractLocal([{...source('正在排队，进度 20%'),authority:'user_statement'}],job));
+});
 test('automatic retrieval suppresses same-session model echo and legacy chatter; explicit inspection keeps provenance',async()=>{
   const model=source('服务端口为8787，尚需独立验证。'),user={...source('我需要服务端口可配置。'),authority:'user_statement'};
   const make=(s,id)=>({id,text:s.text,kind:'source',status:'active',verified:false,sessionId:'current',expiresAt:10000,

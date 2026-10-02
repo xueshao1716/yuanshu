@@ -3,7 +3,7 @@ import {policyBlockers,blocker} from './policy-diagnostics.mjs';
 import {assertDispatchWindow} from './policy.mjs';
 import {LEARNING_SCOPE} from './learning-permissions.mjs';
 
-const actions=['agent.register','agent.adopt','agent.resume','agent.rollback','run.submit','run.dispatch'];
+const actions=['design.check','agent.register','agent.adopt','agent.resume','agent.rollback','run.submit','run.dispatch'];
 const details=new WeakMap();
 export const cultivationFailureDetails=error=>details.get(error)??null;
 export const describeFailure=(error,value)=>{details.set(error,value);return error;};
@@ -20,14 +20,15 @@ export function createCultivationDiagnostics({controls,execution,verifyAsset,now
   const preflight=async query=>{
     if(!query||!actions.includes(query.action)||Object.keys(query).some(k=>!['action','designId','agentId'].includes(k))||
       ['designId','agentId'].some(k=>query[k]!==undefined&&!id(query[k])))throw new Error('cultivation_invalid_command');
-    if(query.action==='agent.register'?(query.agentId!==undefined||!query.designId):
+    const designOnly=['design.check','agent.register'].includes(query.action);
+    if(designOnly?(query.agentId!==undefined||!query.designId):
       !query.agentId||(!['agent.adopt','agent.rollback'].includes(query.action)&&query.designId!==undefined)||
       (['agent.adopt','agent.rollback'].includes(query.action)&&!query.designId))throw new Error('cultivation_invalid_command');
-    const state=controls.read(),{data,revision}=state,p=data.policy,run=query.action.startsWith('run.'),dispatch=query.action==='run.dispatch';
+    const state=controls.read(),{data,revision}=state,p=data.policy,run=query.action.startsWith('run.')||query.action==='design.check',dispatch=query.action==='run.dispatch';
     const agent=query.agentId&&data.agents.find(a=>a.id===query.agentId);
     const target=query.designId??agent?.designId,design=data.designs.find(d=>d.id===target)?.design;
     const blockedBy=[],warnings=[],add=(...args)=>blockedBy.push(blocker(...args));
-    if(query.action!=='agent.register'&&!agent)add('agent_not_found','agentId','未找到目标个体','读取 agents 获取真实个体编号。');
+    if(!designOnly&&!agent)add('agent_not_found','agentId','未找到目标个体','读取 agents 获取真实个体编号。');
     if(!design)add('design_not_found','designId','未找到目标设计稿','先读取 designs 或提交真实设计稿。');
     if(agent&&(agent.status==='archived'||run&&agent.status!=='ready'))add('agent_paused','agent.status','个体当前不能执行此操作','核对个体状态，不要反复提交。');
     if(design){
@@ -39,7 +40,7 @@ export function createCultivationDiagnostics({controls,execution,verifyAsset,now
         if(!verified)add('asset_unverified',`design.${kind}.asset`,'绑定资产尚未通过当前个体验证','先核对资产与个体的绑定；描述文字不受影响。');
       }
     }
-    if(query.action==='agent.register'&&data.agents.filter(a=>a.status!=='archived').length>=p.maxAgents)
+    if(designOnly&&data.agents.filter(a=>a.status!=='archived').length>=p.maxAgents)
       add('population_limit','policy.maxAgents','现有个体已达到授权数量上限','核对现有个体或由主人调整数量授权。');
     if(run){
       if(!execution)add('executor_unavailable','executor','执行器不可用','检查宿主执行器连接。');

@@ -47,6 +47,24 @@ test('来源不明的旧媒体、主动下载工具交付和异步旁路结果�
   } finally { log.close(); cleanup() }
 })
 
+test('异步重放保留游标、残行容错与旧媒体过滤，读取外部新增事件', async () => {
+  const { rootDir, log, cleanup } = fixture()
+  try {
+    const emit = (type, data) => log.append({runId:'async',sessionId:'s',type,data})
+    emit('tool', {id:'r',name:'read',args:{path:'reference.png'}})
+    emit('media', {type:'image',url:'/reference.png'})
+    emit('done', {})
+    const file = path.join(rootDir,'events','async.jsonl')
+    fs.appendFileSync(file, '{broken}\n')
+    const before = fs.readFileSync(file, 'utf8')
+    assert.deepEqual(await log.readAfterAsync('async', 1), log.readAfter('async', 1))
+    assert.equal(fs.readFileSync(file,'utf8'), before)
+    fs.appendFileSync(file, JSON.stringify({v:1,runId:'async',seq:4,type:'done',data:{}})+'\n')
+    assert.deepEqual((await log.readAfterAsync('async', 3)).map(e=>e.seq), [4])
+    assert.deepEqual(await log.readAfterAsync('missing'), [])
+  } finally { log.close(); cleanup() }
+})
+
 test('append 为单个 run 生成连续 seq，readAfter 精确重放游标之后事件', () => {
   const { log, cleanup } = fixture()
   try {

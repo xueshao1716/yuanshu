@@ -19,6 +19,17 @@ function fakeJson(res, code, value) {
   res.end(JSON.stringify(value))
 }
 
+test('overview prefers nonblocking metadata and history reads while preserving its snapshot',async()=>{
+ const reads=[];
+ const api=createRunApi({manager:{
+   list:()=>assert.fail('blocking list'),readAfter:()=>assert.fail('blocking history'),
+   listAsync:async()=>{reads.push('list');return [{id:'r',status:'completed'}]},
+   readAfterAsync:async id=>{reads.push(id);return []},
+ },json:fakeJson});
+ const res=new FakeResponse();await api.overview(res);
+ assert.deepEqual(reads,['list','r']);assert.equal(JSON.parse(res.text()).recent[0].id,'r');
+});
+
 test('overview reads only visible histories, keeps all health counts and old active runs', async () => {
   const runs = Array.from({ length: 100 }, (_, i) => ({
     id: `r${i}`, sessionId: 's', status: i === 0 ? 'running' : i === 1 ? 'failed' : 'completed',

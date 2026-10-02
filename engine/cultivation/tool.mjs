@@ -6,7 +6,7 @@ import {cultivationFailureDetails} from './diagnostics.mjs';
 
 const actions=['overview','agents','designs','runs','experience','preflight','models','denials','learning.context','design.submit','design.revise','agent.register','agent.adopt','run.submit','learning.decide','asset.bind'];
 const description='智能体培养：先读取 overview 的 revision 和授权策略。由你自己设计，不能冒充用户批准。'+
-  '操作前用 preflight,payload={action:agent.register或run.submit或run.dispatch,designId或agentId} 一次查看 blockedBy；只读，不注册、不预留、不调用模型。'+
+  '登记前用 preflight,payload={action:"design.check",designId} 检查设计、模型、价格和共享配额；操作前也可用 action:agent.register或run.submit或run.dispatch 配合 designId或agentId 一次查看 blockedBy；只读，不注册、不预留、不调用模型。'+
   'models 返回精确 provider/id 标识及两层授权状态（不是探活结果）；denials 读取最近拒绝记录。零运行额度可以登记，但不能执行任务。'+
   '读取 action=overview/agents/designs/runs/experience；写入 action=design.submit/design.revise/agent.register/agent.adopt/run.submit，'+
   '必须提供新 UUID requestId、expectedRevision、payload。design.submit payload={design}；design.revise={parentId,design}；'+

@@ -3,6 +3,7 @@ import useSWR from 'swr'
 import { CultivationApi, cultivationPolling, type Design, type Overview } from './api'
 import type { Action } from './Authorization'
 import { LoadState } from '../shared'
+import DesignReadiness from './DesignReadiness'
 
 export default function PolicyPreset({value,authorized,onAction}:{value:Overview;authorized:boolean;onAction:(a:Action)=>void}) {
   const [cursor,setCursor]=useState<string|null>(null),[selected,setSelected]=useState('')
@@ -31,6 +32,7 @@ export default function PolicyPreset({value,authorized,onAction}:{value:Overview
     {records.data&&!records.data.items.length&&<p>本页没有设计；先让小语提交设计，再刷新记录。</p>}
     {row&&!supported&&<p role="status">这份设计超出受限文本预设的范围，请先调整设计或在下方核对完整资源设置。</p>}
     {row&&!row.design.permissions.remote&&<p>该设计仍标记为本地调用；你确认后，小语需要仅将 remote 改为 true，再用新设计登记个体。不需要增加 tools。</p>}
+    {row&&<DesignReadiness key={row.id} designId={row.id} revision={value.revision}/>}
     <div className="soul-actions">
       <button disabled={!cursor} onClick={()=>{setCursor(null);setSelected('')}}>返回设计首页</button>
       <button disabled={!records.data?.nextCursor} onClick={()=>{setCursor(records.data?.nextCursor||null);setSelected('')}}>更多培养设计</button>

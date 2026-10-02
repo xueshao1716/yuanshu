@@ -75,6 +75,21 @@ export function createRunStore({ rootDir, now = () => new Date().toISOString(), 
     })
     .filter(Boolean)
 
+  // Display-only reader: bounded asynchronous IO keeps overview polling off
+  // the event loop. Admission continues to use the strict synchronous snapshot.
+  const listAsync = async () => {
+    const names = (await fs.promises.readdir(runsDir)).filter(name => name.endsWith('.json'))
+    const runs = []
+    for (let start = 0; start < names.length; start += 16) {
+      const batch = await Promise.all(names.slice(start, start + 16).map(async name => {
+        try { return withLegacyContinuation(JSON.parse(await fs.promises.readFile(path.join(runsDir, name), 'utf8'))) }
+        catch { return null }
+      }))
+      runs.push(...batch.filter(Boolean))
+    }
+    return runs
+  }
+
   // Admission must see every durable claim; display-oriented list/get may
   // skip unreadable records, but capacity decisions must fail closed instead.
   const readAdmissionSnapshot = () => fs.readdirSync(runsDir)
@@ -143,6 +158,7 @@ export function createRunStore({ rootDir, now = () => new Date().toISOString(), 
       return updated
     },
     list,
+    listAsync,
     listActivity: createRunActivityReader(runsDir),
     readAdmissionSnapshot,
     findActiveBySession(sessionId) {

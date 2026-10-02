@@ -24,6 +24,9 @@ try {
   for (const width of [1440, 390]) {
     const context = await browser.newContext({viewport: {width, height: 900}}), page = await context.newPage();
     const state = knowledgeFixture(), errors = [];
+    const originalRate={input:1,output:2,currency:'USD',tokenBound:'utf8-bytes'};
+    state.policy={...state.policy,model:'fixture/text',allowedModels:['fixture/text','fixture/cultivation'],
+      rates:{'fixture/text':{...originalRate},'fixture/cultivation':{...originalRate,input:3}}};
     page.setDefaultTimeout(10000);
     page.on('pageerror', e => errors.push(e.message));
     await page.routeWebSocket('**/*', ws => ws.close());
@@ -63,11 +66,17 @@ try {
     assert.equal(await panel.getByRole('button', {name: '保存授权与限额', exact: true}).isDisabled(), true);
     await click('重新载入最新设置（放弃当前草稿）');
     assert.equal(await roots.inputValue(), 'docs/current');
+    await panel.getByLabel('核对哪个模型的价格').selectOption('fixture/cultivation');
+    await panel.getByLabel('输入价格（USD / 百万 token）',{exact:true}).fill('4');
     await fit('policy');
     state.failReads = true;
     await click('保存授权与限额');
     await panel.getByRole('button', {name: '保存授权与限额', exact: true}).waitFor();
     assert.equal(await panel.getByRole('button', {name: '保存授权与限额', exact: true}).isEnabled(), true);
+    assert.deepEqual(state.policy.allowedModels,['fixture/text','fixture/cultivation']);
+    assert.equal(state.policy.model,'fixture/text','editing cultivation prices must not change the extraction default');
+    assert.deepEqual(state.policy.rates['fixture/text'],originalRate);
+    assert.equal(state.policy.rates['fixture/cultivation'].input,4);
     // Save succeeded but its refetch failed: load the new revision before a new mutation.
     state.failReads = false;
     await Promise.all([page.waitForResponse(r => new URL(r.url()).pathname === '/api/knowledge/policy' && r.status() === 200), click('刷新状态')]);

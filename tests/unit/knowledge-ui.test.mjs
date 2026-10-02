@@ -3,6 +3,12 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 const read=name=>{try{return fs.readFileSync(new URL('../../frontend/src/'+name,import.meta.url),'utf8');}catch{return '';}};
 
+test('editing knowledge settings preserves separately authorized cultivation models and their prices',()=>{
+ const policy=read('knowledge/KnowledgePolicy.tsx');
+ assert.ok(!policy.includes('allowedModels: model ? [model] : []'),'saving unrelated fields must not collapse the shared allowlist');
+ for(const text of ['allowedModels: draft.allowedModels','共享模型白名单','priceModel','rates[priceModel]'])assert.ok(policy.includes(text),text);
+});
+
 test('committed knowledge offers a reviewed correction without promising immediate deletion',()=>{
  const jobs=read('knowledge/KnowledgeJobs.tsx'),source=read('knowledge/KnowledgeSource.tsx');
  assert.ok(jobs.includes("['review_required','blocked','committed'].includes(detail.data.state)"));

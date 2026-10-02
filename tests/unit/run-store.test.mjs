@@ -18,6 +18,19 @@ function fixture() {
   return { rootDir, store, cleanup: () => fs.rmSync(rootDir, { recursive: true, force: true }) }
 }
 
+test('异步展示列表跳过坏记录且不缓存外部更新，不改变准入的严格读取', async () => {
+  const { rootDir, store, cleanup } = fixture()
+  try {
+    const run = store.create({sessionId:'async', clientRequestId:'first', message:'hello'})
+    fs.writeFileSync(path.join(rootDir, 'runs', 'broken.json'), '{broken')
+    assert.deepEqual(await store.listAsync(), store.list())
+    const file = path.join(rootDir, 'runs', `${run.id}.json`)
+    fs.writeFileSync(file, JSON.stringify({...run,status:'completed'}))
+    assert.equal((await store.listAsync())[0].status, 'completed')
+    assert.throws(() => store.readAdmissionSnapshot())
+  } finally { cleanup() }
+})
+
 test('create 原子写入且同 sessionId+clientRequestId 重试返回同一 run', () => {
   const { rootDir, store, cleanup } = fixture()
   try {

@@ -74,6 +74,23 @@ test('tool explains revocable prior mother learning authority without claiming p
   assert.ok(!text.includes('向母体共享另需用户签名'));
 });
 
+test('mother tool documents and exposes pre-registration design readiness without writing',async t=>{
+  const {CULTIVATION_TOOL_SCHEMA,cultivationTool}=await import('../../engine/cultivation/tool.mjs'),f=await controlFixture(t);
+  assert.ok(CULTIVATION_TOOL_SCHEMA.function.description.includes('design.check'));
+  const runtime=createCultivationRuntime({wsRoot:f.root,identityAdapters:{
+    resolveMother:s=>s===f.mother&&s.active?{actorId:'fixture-mother',originId:'fixture-run'}:null}});
+  const ctx={executionIdentity:f.mother};
+  const submitted=JSON.parse((await cultivationTool(runtime,f.command('design.submit',{design:draft()}),ctx)).text);
+  const before=f.store.read('control');
+  const result=await cultivationTool(runtime,{action:'preflight',payload:{action:'design.check',designId:submitted.result.id}},ctx);
+  assert.equal(result.isError,false,result.text);
+  const checked=JSON.parse(result.text);
+  assert.equal(checked.action,'design.check');assert.equal(checked.ready,false);
+  assert.ok(checked.blockedBy.some(b=>b.field==='policy.enabled'));
+  assert.ok(!checked.blockedBy.some(b=>b.field==='agentId'));
+  assert.deepEqual(f.store.read('control'),before);
+});
+
 test('design schema makes string curricula explicit for both engine adapters', async () => {
   const {CULTIVATION_TOOL_SCHEMA, createPiCultivationTool} = await import('../../engine/cultivation/tool.mjs');
   const schema = CULTIVATION_TOOL_SCHEMA.function.parameters;

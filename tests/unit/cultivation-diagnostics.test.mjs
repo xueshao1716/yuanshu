@@ -12,6 +12,23 @@ import {createCultivationDiagnostics} from '../../engine/cultivation/diagnostics
 
 const runtimeFor=f=>createCultivationRuntime({wsRoot:f.root,now:()=>Date.parse('2026-10-02'),identityAdapters:{
   resolveMother:s=>s===f.mother?{actorId:'fixture-mother',originId:'fixture-run'}:null}});
+test('design readiness checks shared execution prerequisites before an agent exists without writes',async t=>{
+  const f=await controlFixture(t);
+  const saved=await f.execute(f.command('design.submit',{design:draft()}),'mother');
+  const before=f.store.read('control');let calls=0;
+  const d=createCultivationDiagnostics({controls:f.controls,execution:{
+    knowledge:{policy:()=>({revision:1,localEnabled:true,remoteEnabled:false,allowedModels:[],rates:{},maxModelRequests:0,dailyCost:0,currency:'USD'})},
+    budget:{status:()=>({modelRequests:0,spent:0,reserved:0})},
+    provider:createCultivationProvider({catalog:()=>[],directChat:()=>calls++}),
+  }});
+  const out=await d.preflight({action:'design.check',designId:saved.result.id});
+  assert.equal(out.ready,false);
+  for(const field of ['policy.enabled','policy.models','policy.dailyRequests','knowledge.remoteEnabled','knowledge.allowedModels','knowledge.rates','knowledge.maxModelRequests'])
+    assert.ok(out.blockedBy.some(b=>b.field===field),field);
+  assert.ok(!out.blockedBy.some(b=>b.field==='agentId'));
+  assert.equal(calls,0);assert.deepEqual(f.store.read('control'),before);
+  await assert.rejects(d.preflight({action:'design.check',agentId:'missing'}),/invalid_command/);
+});
 test('registration with zero execution quotas preserves policy envelope and does not authorize runs',async t=>{
   const f=await controlFixture(t),policy={...enabledPolicy(),dailyRequests:0};
   await f.execute(f.command('policy.set',{policy}));

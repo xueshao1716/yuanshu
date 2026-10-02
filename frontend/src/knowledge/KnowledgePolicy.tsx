@@ -7,12 +7,14 @@ export default function KnowledgePolicy({ policy, refreshed }: { policy: Knowled
   const [draft, setDraft] = useState(policy), [busy, setBusy] = useState(false), [message, setMessage] = useState(''), [error, setError] = useState('')
   const models = useSWR('knowledge-models', KnowledgeApi.models, { refreshWhenHidden: false })
   const [allowedRoots, setRoots] = useState(policy.allowedRoots.join('\n')), [allowedUrls, setUrls] = useState(policy.allowedUrls.join('\n')), [outboundRoots, setOutbound] = useState(policy.outboundRoots.join('\n'))
-  const rate = draft.rates[draft.model] || { input: 0, output: 0, currency: draft.currency, free: false, tokenBound: '' }
+  const [priceModel, setPriceModel] = useState(policy.model || policy.allowedModels[0] || '')
+  const rate = draft.rates[priceModel] || { input: 0, output: 0, currency: draft.currency, free: false, tokenBound: '' }
+  const priceModels = [...new Set([draft.model, ...draft.allowedModels, ...Object.keys(draft.rates), priceModel].filter(Boolean))]
   const stale = policy.revision > draft.revision
-  const currencyMismatch = !!draft.model && rate.currency !== draft.currency
+  const currencyMismatch = !!priceModel && rate.currency !== draft.currency
   const update = (patch: Partial<KnowledgePolicyData>) => setDraft(d => ({ ...d, ...patch }))
-  const setRate = (patch: Partial<typeof rate>) => update({ rates: { ...draft.rates, [draft.model]: { ...rate, ...patch } } })
-  const reload = () => { setDraft(policy); setRoots(policy.allowedRoots.join('\n')); setUrls(policy.allowedUrls.join('\n')); setOutbound(policy.outboundRoots.join('\n')); setMessage('已载入最新设置。'); setError('') }
+  const setRate = (patch: Partial<typeof rate>) => update({ rates: { ...draft.rates, [priceModel]: { ...rate, ...patch } } })
+  const reload = () => { setDraft(policy); setPriceModel(policy.model || policy.allowedModels[0] || ''); setRoots(policy.allowedRoots.join('\n')); setUrls(policy.allowedUrls.join('\n')); setOutbound(policy.outboundRoots.join('\n')); setMessage('已载入最新设置。'); setError('') }
   return <details className="border-t border-pi-border-soft pt-3">
     <summary className="min-h-11 cursor-pointer py-2 font-medium">授权与用量设置</summary>
     <form className="space-y-5 py-3" onSubmit={async e => {
@@ -22,7 +24,7 @@ export default function KnowledgePolicy({ policy, refreshed }: { policy: Knowled
         // Only editable fields are sent: server-owned concurrency is deliberately omitted.
         const { localEnabled, paused, remoteEnabled, networkEnabled, dailyCost, currency, maxModelRequests, maxNetworkRequests, inputTokens, outputTokens, model, rates } = patch
         const saved = await KnowledgeApi.updatePolicy({ localEnabled, paused, remoteEnabled, networkEnabled, dailyCost, currency, maxModelRequests, maxNetworkRequests, inputTokens, outputTokens, model, rates,
-          allowedModels: model ? [model] : [], allowedRoots: lines(allowedRoots), allowedUrls: lines(allowedUrls), outboundRoots: lines(outboundRoots) }, revision)
+          allowedModels: draft.allowedModels, allowedRoots: lines(allowedRoots), allowedUrls: lines(allowedUrls), outboundRoots: lines(outboundRoots) }, revision)
         setDraft(saved); setRoots(saved.allowedRoots.join('\n')); setUrls(saved.allowedUrls.join('\n')); setOutbound(saved.outboundRoots.join('\n'))
         setMessage('设置已保存。新的授权立即生效，受阻任务会重新核对条件。'); await refreshed()
       } catch (err) {setError(knowledgeError(err))} finally {setBusy(false)}
@@ -41,17 +43,26 @@ export default function KnowledgePolicy({ policy, refreshed }: { policy: Knowled
         <label className="block">允许采集的完整地址（一行一个）<textarea className="input-pi mt-1 w-full min-h-24" value={allowedUrls} onChange={e => setUrls(e.target.value)} /></label>
       </fieldset>
       <fieldset className="space-y-3" disabled={busy}>
-        <legend className="font-medium mb-2">外部模型提炼</legend>
-        <label className="flex min-h-11 items-center gap-2"><input type="checkbox" checked={draft.remoteEnabled} onChange={e => update({remoteEnabled:e.target.checked})} />允许发送获准文件给所选模型</label>
+        <legend className="font-medium mb-2">共享外部模型与知识提炼</legend>
+        <label className="flex min-h-11 items-center gap-2"><input type="checkbox" checked={draft.remoteEnabled} onChange={e => update({remoteEnabled:e.target.checked})} />允许共享后台调用已授权的外部模型</label>
+        <p className="text-pi-dim leading-6">本开关、模型白名单、价格和额度由知识与培养共用。培养还须单独满足主人确认的培养策略；在此保存不会替你开启培养或提交任务。</p>
         <p className="text-pi-dim leading-6">默认关闭；不开启也能本地摘录。模型结论保留为待核查，不会因此自动验证、改写人格或批准基因提案。任务会话不会发送给外部提炼模型。</p>
         <label className="block">知识提炼模型<select className="input-pi mt-1 w-full min-h-11" value={draft.model} onChange={e => update({model:e.target.value})}>
           <option value="">不使用外部模型</option>
           {draft.model && !models.data?.some(m => m.key === draft.model) && <option value={draft.model}>{draft.model}（等待核对可用性）</option>}
           {models.data?.map(m => <option key={m.key} value={m.key}>{m.label} · {m.key}</option>)}
         </select></label>
+        <fieldset className="space-y-2">
+          <legend className="font-medium">共享模型白名单</legend>
+          <p className="text-pi-dim leading-6">选择默认提炼模型不会替换白名单。仅勾选你允许后台调用的模型；目录暂不可读时，已有授权仍保留。</p>
+          {[...new Set([...draft.allowedModels, draft.model, ...(models.data || []).map(m => m.key)].filter(Boolean))].map(key => <label key={key} className="flex min-h-11 items-start gap-2 py-2 break-all"><input type="checkbox" className="mt-1" checked={draft.allowedModels.includes(key)} onChange={e => update({allowedModels:e.target.checked ? [...draft.allowedModels,key] : draft.allowedModels.filter(m => m !== key)})} /><span>{models.data?.find(m => m.key === key)?.label || key}<small className="block text-pi-dim">{key}</small></span></label>)}
+          {!draft.allowedModels.length && <p>尚未授权共享模型；外部任务将保持阻断。</p>}
+          {draft.model && !draft.allowedModels.includes(draft.model) && <p role="status">默认提炼模型尚未列入白名单，保存后仍不能调用。请核对是否授权。</p>}
+        </fieldset>
         {models.error && <p role="alert">模型目录读取失败。<button type="button" className="btn-tool min-h-11 px-3" onClick={() => void models.mutate()}>重试读取</button></p>}
         <label className="block">允许外发的目录（一行一个，必须也有读取授权）<textarea className="input-pi mt-1 w-full min-h-24" value={outboundRoots} onChange={e => setOutbound(e.target.value)} /></label>
-        {draft.model && <>
+        <label className="block">核对哪个模型的价格<select className="input-pi mt-1 w-full min-h-11" value={priceModel} onChange={e => setPriceModel(e.target.value)}><option value="">选择要核对的模型</option>{priceModels.map(key => <option key={key} value={key}>{key}</option>)}</select></label>
+        {priceModel && <>
           <p className="text-pi-dim leading-6">价格由你按服务商实际计费填写，不猜测余额。下方为每百万 token 的价格；所有请求先预留费用。</p>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">{(['input','output'] as const).map(key => <label key={key}>{key === 'input' ? '输入' : '输出'}价格（{rate.currency} / 百万 token）<input required type="number" min="0" step="any" className="input-pi mt-1 w-full min-h-11" value={rate[key]} onChange={e => setRate({[key]:Number(e.target.value)})} /></label>)}</div>
           {currencyMismatch && <div role="alert" className="space-y-2 leading-6"><p>预算已选 {draft.currency}，上述价格仍是 {rate.currency}。系统不会自动换算；请按服务商价格核对数值，再确认币种。</p><button type="button" className="btn-tool min-h-11 px-3" onClick={() => setRate({currency:draft.currency,free:false})}>已核对，将上述价格记为 {draft.currency}</button></div>}

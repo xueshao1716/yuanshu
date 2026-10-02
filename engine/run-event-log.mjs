@@ -46,6 +46,19 @@ function readValidLines(file) {
   }).filter(Boolean)
 }
 
+async function readValidLinesAsync(file) {
+  let raw
+  try { raw = await fs.promises.readFile(file, 'utf8') }
+  catch { return [] }
+  const events = [], lines = raw.split('\n')
+  for (let index = 0; index < lines.length; index++) {
+    if (index && index % 256 === 0) await new Promise(resolve => setImmediate(resolve))
+    if (!lines[index]) continue
+    try { const event = JSON.parse(lines[index]); if (event) events.push(event) } catch {}
+  }
+  return events
+}
+
 export function createRunEventLog({ rootDir, now = () => new Date().toISOString() }) {
   const eventsDir = path.join(rootDir, 'events')
   const subscribers = new Map()
@@ -105,6 +118,9 @@ export function createRunEventLog({ rootDir, now = () => new Date().toISOString(
     },
     readAfter(runId, after = 0) {
       return withoutLegacyReferenceMedia(readValidLines(fileFor(runId))).filter(event => event.seq > after)
+    },
+    async readAfterAsync(runId, after = 0) {
+      return withoutLegacyReferenceMedia(await readValidLinesAsync(fileFor(runId))).filter(event => event.seq > after)
     },
     getLastSeq,
     subscribe(runId, listener) {

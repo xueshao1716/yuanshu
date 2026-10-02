@@ -3,6 +3,15 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 const source=p=>fs.existsSync(p)?fs.readFileSync(p,'utf8'):'';
 
+test('cultivation setup exposes shared settings and design readiness before registration',()=>{
+ const resources=source('frontend/src/soul/cultivation/Resources.tsx');
+ const preset=source('frontend/src/soul/cultivation/PolicyPreset.tsx');
+ assert.ok(resources.includes('<SharedResources'));
+ assert.ok(preset.includes('<DesignReadiness'));
+ const readiness=source('frontend/src/soul/cultivation/DesignReadiness.tsx');
+ for(const text of ['design.check','blockedBy','不调用模型','重新检查','knowledge.'])assert.ok(readiness.includes(text),text);
+});
+
 test('readonly diagnostics show action-specific blockers, model identifiers and bounded rejection history',()=>{
   const view=source('frontend/src/soul/cultivation/Diagnostics.tsx'),api=source('frontend/src/soul/cultivation/api.ts');
   assert.ok(source('frontend/src/soul/cultivation/Resources.tsx').includes('<Diagnostics revision={value.revision}'));
