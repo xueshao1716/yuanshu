@@ -2,6 +2,12 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 const read=name=>{try{return fs.readFileSync(new URL('../../frontend/src/'+name,import.meta.url),'utf8');}catch{return '';}};
+
+test('committed knowledge offers a reviewed correction without promising immediate deletion',()=>{
+ const jobs=read('knowledge/KnowledgeJobs.tsx'),source=read('knowledge/KnowledgeSource.tsx');
+ assert.ok(jobs.includes("['review_required','blocked','committed'].includes(detail.data.state)"));
+ assert.ok(source.includes('更正这条已入库知识'));assert.ok(source.includes('通过核查前，原条目不被替换'));
+});
 test('knowledge mutations let the shared API serialize JSON and set its content type',()=>{
  const api=read('knowledge/api.ts');
  assert.ok(api.includes("{ method: 'POST', body }"));

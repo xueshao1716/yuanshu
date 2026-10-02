@@ -13,6 +13,9 @@ import {createLearningCommands,validateLearningCommand} from './learning.mjs';
 import {createCultivationMedia,validateMediaCommand} from './media.mjs';
 import {learningAllowed} from './learning-permissions.mjs';
 import {createRecoveryCommands,validateRecoveryCommand} from './recovery.mjs';
+import {createCultivationDiagnostics} from './diagnostics.mjs';
+import {createDenialHistory} from './denials.mjs';
+import {createFailureReporting} from './failure-reporting.mjs';
 
 // Construction never dispatches. The host explicitly starts the bounded
 // executor; policy, shared resources and genuine identities gate every write.
@@ -36,12 +39,21 @@ export function createCultivationRuntime({wsRoot, identityAdapters, humanConfig,
   const tasks=execution?createCultivationTasks({...execution,wsRoot,store,controls,authority,verifyAsset,now}):null;
   const learn=createLearningCommands({authority,controls,learning,getJob:learningJob,now});
   const recover=createRecoveryCommands({authority,controls,admission:execution?.admission});
+  const history=createDenialHistory({wsRoot,workspace:store.workspace,now});
+  const diagnostics=createCultivationDiagnostics({controls,execution,verifyAsset,now});
+  const reportFailure=createFailureReporting({history,controls,diagnostics});
   return Object.freeze({
     get writeIdentityAvailable(){return writeIdentityAvailable();},
     get sessionGrantAvailable(){return sessionGrants.available;},
     async readMother(command,source,{signal}={}){
       signal?.throwIfAborted();
       const principal=authority.issue('mother',source,command);authority.assert(principal,command,['mother']);
+      if(command.action==='preflight'){
+        if(!exact(command,['action','payload']))throw new Error('cultivation_invalid_command');
+        return diagnostics.preflight(command.payload);
+      }
+      if(command.action==='models')return diagnostics.models();
+      if(command.action==='denials')return history.list();
       if(command.action==='learning.context'){
         if(!exact(command,['action','payload'])||!exact(command.payload,['query'])||
           typeof command.payload.query!=='string'||command.payload.query.length>1000)throw new Error('cultivation_invalid_command');
@@ -73,6 +85,7 @@ export function createCultivationRuntime({wsRoot, identityAdapters, humanConfig,
     detail:agentId=>{const detail=projection.detail(agentId);return detail?{...detail,
       agent:{...detail.agent,cancellation:detail.agent.cancellation==='not_requested'?'not_requested':tasks?.cancellation(agentId)??detail.agent.cancellation},executorAvailable:!!tasks}:null;},
     media:media.get,
+    preflight:diagnostics.preflight,models:diagnostics.models,denials:history.list,
     challenge(command){if(!grants?.available)throw new Error('cultivation_identity_unavailable');
       if(!['policy.set','agent.pause','agent.resume','agent.archive','agent.rollback','run.cancel','learning.decide','asset.revoke','resources.reconcile'].includes(command.action))
         throw new Error('cultivation_identity_denied');
@@ -100,14 +113,17 @@ export function createCultivationRuntime({wsRoot, identityAdapters, humanConfig,
       return {kind:'human',source:grants.verify(proof,command)};},
     execute: async (command, kind, trustedSource) => {
       const principal=authority.issue(kind,trustedSource,command);
-      if(command.action==='resources.reconcile')return recover(command,principal);
-      if(command.action?.startsWith('asset.'))return media.execute(command,principal);
-      if(command.action==='learning.decide')return learn(command,principal);
+      const actor=authority.assert(principal,command,[kind]);
+      try {
+      if(command.action==='resources.reconcile')return await recover(command,principal);
+      if(command.action?.startsWith('asset.'))return await media.execute(command,principal);
+      if(command.action==='learning.decide')return await learn(command,principal);
       if(command.action?.startsWith('run.')){
-        if(!tasks)throw new Error('cultivation_executor_unavailable');return tasks.execute(command,principal);
+        if(!tasks)throw new Error('cultivation_executor_unavailable');return await tasks.execute(command,principal);
       }
       const result=await controls.execute(command,principal);
       if(kind==='human')tasks?.interrupt();return result;
+      }catch(error){throw await reportFailure(error,command,actor);}
     },
     tick:()=>tasks?.tick(),
     async start(){await controls.reconcile();await tasks?.recover();tasks?.start();},

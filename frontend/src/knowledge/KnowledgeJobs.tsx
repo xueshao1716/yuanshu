@@ -63,7 +63,7 @@ export default function KnowledgeJobs({ refreshed, policyRevision }: { refreshed
           <KnowledgeMethod value={detail.data.validation?.entry} />
           {detail.data.state === 'review_required' && !detail.data.resolution && <p className="text-pi-dim">先核查原始资料；可以在下方为这项任务补充证据。补证保留原任务记录，不会自动批准结论。</p>}
           <KnowledgeReview key={`${detail.data.id}:${detail.data.revision}`} job={detail.data} policyRevision={policyRevision} refreshed={refreshQueue} />
-          {policyRevision && !detail.data.resolution && ['review_required','blocked'].includes(detail.data.state) && <KnowledgeSource parent={detail.data} revision={policyRevision} refreshed={async () => { await Promise.all([list.mutate(), detail.mutate(), refreshed()]) }} />}
+          {policyRevision && !detail.error && !detail.data.resolution && ['review_required','blocked','committed'].includes(detail.data.state) && <KnowledgeSource key={detail.data.id} parent={detail.data} revision={policyRevision} refreshed={async () => { await Promise.all([list.mutate(), detail.mutate(), refreshed()]) }} />}
           <div className="flex flex-wrap gap-2">
             {detail.data.event !== 'cultivation' && !detail.data.resolution && !['committed','cancelled','skipped','failed','paused'].includes(detail.data.state) && <button className="btn-tool min-h-11 px-3" disabled={busy} onClick={() => act(detail.data!, 'pause')}>暂停任务</button>}
             {detail.data.event !== 'cultivation' && !detail.data.resolution && detail.data.state === 'paused' && <button className="btn-tool min-h-11 px-3" disabled={busy} onClick={() => act(detail.data!, 'resume')}>继续任务</button>}

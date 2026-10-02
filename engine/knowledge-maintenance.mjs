@@ -1,5 +1,6 @@
 import {knowledgeStorage} from './knowledge-storage.mjs';
 import {digest,fail} from './knowledge-state.mjs';
+import {modelOnly} from './knowledge-quality.mjs';
 
 // All maintenance stays off the chat/GET path. Cursor and UTC high-water survive restarts.
 export function createKnowledgeMaintenance({wsRoot,store,budget,collect,now=Date.now}){
@@ -17,6 +18,8 @@ export function createKnowledgeMaintenance({wsRoot,store,budget,collect,now=Date
       if(!['active','source_changed','expired','source_missing'].includes(entry.status)||entry.replacementJobId)continue;
       // A method must keep its explicit manifest/run binding; never renew it as a plain excerpt.
       if(entry.kind==='method'){if(entry.expiresAt<=now())await store.invalidateEntry(entry.id,'expired');continue;}
+      // Re-reading the identical assistant output is not new evidence of current state.
+      if(modelOnly(entry)&&entry.expiresAt<=now()){await store.invalidateEntry(entry.id,'expired');continue;}
       const remote=entry.sources.every(s=>s.reference.kind==='url');
       const expired=entry.expiresAt<=now()||remote&&entry.sources.some(s=>now()-s.fetchedAt>=86400000);
       if(remote&&!expired)continue;

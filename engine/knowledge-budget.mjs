@@ -23,6 +23,10 @@ export function createKnowledgeBudget({wsRoot,now=Date.now}) {
   };
   return {
     async status(){return summarize(read(),io.readState().policy.currency);},
+    async consumerStatus(consumer){
+      if(!['knowledge','cultivation'].includes(consumer))fail('invalid_budget');
+      const data=read();return summarize({...data,reservations:data.reservations.filter(r=>(r.consumer??'knowledge')===consumer)},io.readState().policy.currency);
+    },
     reserve:({kind,policy,maxCost,currency,free=false,consumer='knowledge',limits})=>io.transaction(state=>{
       const p=state.policy;
       if(p.revision!==policy?.revision||p.paused||!p.localEnabled)fail('policy_changed');

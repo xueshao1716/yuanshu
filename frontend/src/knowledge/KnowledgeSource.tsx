@@ -5,7 +5,8 @@ export default function KnowledgeSource({ revision, refreshed, parent }: { revis
   const [kind, setKind] = useState('file'), [value, setValue] = useState(''), [session, setSession] = useState(''), [runId, setRunId] = useState('')
   const [busy, setBusy] = useState(false), [error, setError] = useState(''), [message, setMessage] = useState('')
   return <details className="border-t border-pi-border-soft pt-3">
-    <summary className="min-h-11 cursor-pointer py-2 font-medium">{parent ? '为这项任务补充证据' : '补充一份来源'}</summary>
+    <summary className="min-h-11 cursor-pointer py-2 font-medium">{parent?.state==='committed' ? '更正这条已入库知识' : parent ? '为这项任务补充证据' : '补充一份来源'}</summary>
+    {parent?.state==='committed'&&<p className="text-pi-dim leading-6">提交可核对的新来源，形成待核查的更正记录。通过核查前，原条目不被替换；替换后仍保留原始记录，不把模型自述当作已验证事实。</p>}
     <form className="space-y-3 py-2" onSubmit={async e => {
       e.preventDefault(); if (busy) return; setBusy(true); setError(''); setMessage('')
       try {

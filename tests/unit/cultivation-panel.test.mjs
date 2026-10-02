@@ -2,6 +2,14 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 const source=p=>fs.existsSync(p)?fs.readFileSync(p,'utf8'):'';
+
+test('readonly diagnostics show action-specific blockers, model identifiers and bounded rejection history',()=>{
+  const view=source('frontend/src/soul/cultivation/Diagnostics.tsx'),api=source('frontend/src/soul/cultivation/api.ts');
+  assert.ok(source('frontend/src/soul/cultivation/Resources.tsx').includes('<Diagnostics revision={value.revision}'));
+  for(const text of ['CultivationApi.preflight','CultivationApi.models','CultivationApi.denials','blockedBy','nextAction','role="alert"','role="status"','重新检查','尚未探活','数据已变化','nextCursor'])assert.ok(view.includes(text),text);
+  assert.ok(!view.includes('CultivationApi.execute'));assert.ok(!view.includes('setInterval'));
+  for(const text of ['/preflight?','/models','/denials'])assert.ok(api.includes(text),text);
+});
 test('cultivation panel is mounted explicitly, with honest empty state and hidden polling disabled',()=>{
   assert.ok(source('frontend/src/pages/Soul.tsx').includes("id==='cultivation'?<Cultivation sessionId={sessionId}/>"));
   assert.ok(source('frontend/src/soul/Overview.tsx').includes("['cultivation'"));

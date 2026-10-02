@@ -1,6 +1,7 @@
 import {clonePayload} from './state.mjs';
 import {exact} from './control-state.mjs';
 import {designValidationDetails} from './designs.mjs';
+import {cultivationFailureDetails} from './diagnostics.mjs';
 
 const fail = code => {throw new Error(`cultivation_${code}`);};
 const publicErrors = new Set(['identity_unavailable', 'identity_denied', 'identity_expired',
@@ -17,7 +18,7 @@ function errorReply(error) {
   const status = /conflict|cursor_stale/.test(code) ? 409 : /not_found/.test(code) ? 404 :
     /identity_denied|identity_expired/.test(code) ? 403 :
     /unavailable|unreadable|invalid_control|invalid_record|state_changing|storage_full|audit_full/.test(code) ? 503 : 400;
-  return {status, body: designValidationDetails(error) ?? {error: `cultivation_${code}`}};
+  return {status, body: cultivationFailureDetails(error) ?? designValidationDetails(error) ?? {error: `cultivation_${code}`}};
 }
 function writeAction(method, route) {
   if (method === 'PUT' && route === '/policy') return {action: 'policy.set'};
@@ -49,6 +50,9 @@ export function createCultivationApi({runtime, readBody, json, requireAuth, reso
       if (await requireAuth?.(req) !== true) return json(res, 401, {error: 'authentication_required'});
       const route = url.pathname.slice('/api/cultivation'.length);
       if (req.method === 'GET') {
+        if(route==='/preflight')return json(res,200,await runtime.preflight(Object.fromEntries(url.searchParams)));
+        if(route==='/models')return json(res,200,await runtime.models());
+        if(route==='/denials')return json(res,200,runtime.denials());
         if(route==='/media'){
           res.setHeader?.('Cache-Control','no-store');res.setHeader?.('X-Content-Type-Options','nosniff');
           return json(res,200,runtime.media({agentId:url.searchParams.get('agentId'),kind:url.searchParams.get('kind'),

@@ -46,7 +46,8 @@ export function createKnowledgeReview({store,collect,worker,retrieval,now=Date.n
       if(validation.state!=='ready'||!['source','observation'].includes(validation.entry.kind))fail('review_not_eligible');
       const entries=await store.entries(),key=validation.entry.claimKey;
       const conflicts=entries.filter(e=>key&&e.claimKey===key&&['active','conflict'].includes(e.status)&&e.claimValue!==validation.entry.claimValue);
-      decision.conflicts=[...new Set([...conflicts.map(e=>e.id),...(job.validation?.conflicts||[]),...(parent?.validation?.conflicts||[])])];
+      decision.conflicts=[...new Set([...conflicts.map(e=>e.id),...(job.validation?.conflicts||[]),...(parent?.validation?.conflicts||[]),
+        ...(job.event==='correction'&&parent?.state==='committed'&&parent.entryId?[parent.entryId]:[])])];
       for(const entryId of decision.conflicts){
         const entry=entries.find(e=>e.id===entryId);if(!entry)fail('review_not_eligible');
         if(body.decision==='keep_existing'&&entryId===body.selectedEntryId){

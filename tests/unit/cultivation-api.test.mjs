@@ -44,6 +44,20 @@ test('HTTP reads require authentication and cannot initialize storage or execute
   assert.equal((await f.call('/unknown')).status, 404);
 });
 
+test('diagnostic endpoints require authentication, never consume identity grants and perform no writes',async t=>{
+  const f=await api(t),before=f.store.read('control');
+  for(const route of ['/models','/denials','/preflight?action=agent.register&designId=149542d3-9341-4afe-a1f6-68f9cb749ea5']){
+    assert.equal((await f.call(route,'GET',undefined,false)).status,401);
+    assert.equal((await f.call(route)).status,200);
+  }
+  assert.equal((await f.call('/preflight?action=policy.set')).status,400);
+  assert.equal((await f.call('/preflight?action=agent.register')).status,400);
+  assert.equal((await f.call('/models')).body.available,false);
+  assert.deepEqual((await f.call('/denials')).body.items,[]);
+  assert.equal(f.bodyReads(),0);assert.deepEqual(f.store.read('control'),before);
+  assert.equal(fs.existsSync(`${f.root}/工程/智能体培养/denials.json`),false);
+});
+
 test('trusted host binding authorizes exact routes without accepting request-supplied identities', async t => {
   const f = await api(t, {trusted: true});
   const body = (action, payload) => {const {action: unused, ...rest} = f.command(action, payload); return rest;};

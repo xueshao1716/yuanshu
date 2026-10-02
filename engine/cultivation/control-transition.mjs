@@ -19,7 +19,7 @@ const fail = reason => {throw new Error(`cultivation_${reason}`);};
 export function transition(data, c, actor, {now, verifyAsset, entityId, intentId}) {
   const p = c.payload;
   const design = designId => data.designs.find(d => d.id === designId) ?? fail('design_not_found');
-  const adopt = (d, agentId) => assertAdoptable(d.design, data.policy, {now: now(), agentId, verifyAsset});
+  const adopt = (d, agentId) => assertAdoptable(d.design, data.policy, {now: now(), agentId, verifyAsset, execution:false});
   const envelope = (next, previous) => {
     const remoteExpansion = next.permissions.remote && !previous.permissions.remote;
     assertNoExpansion(next, previous, {allowRemoteExpansion:remoteExpansion});

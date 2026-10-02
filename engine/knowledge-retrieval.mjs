@@ -1,4 +1,5 @@
 import {fitKnowledgeSnippet,knowledgeTerms} from './knowledge-snippet.mjs';
+import {autoRetrievable} from './knowledge-quality.mjs';
 export function createKnowledgeRetrieval({store,verifySource,now=Date.now}){
   let index=[],available=false;
   const unavailable=()=>({available:false,entries:[],context:'',reason:'knowledge_unavailable'});
@@ -11,6 +12,7 @@ export function createKnowledgeRetrieval({store,verifySource,now=Date.now}){
         const policy=await store.policy();
         signal?.throwIfAborted();
         const candidates=index.filter(e=>(!entryIds||entryIds.includes(e.id))&&e.status==='active'&&e.expiresAt>now()&&(!e.sessionId||e.sessionId===sessionId)&&
+          autoRetrievable(e,{sessionId,explicit:!!entryIds?.length&&!requireRelevant})&&
           (['source','observation'].includes(e.kind)||e.kind==='method'&&e.verified===true)&&
           e.sources?.length&&e.sources.every(s=>!s.reference?.sessionId||s.reference.sessionId===sessionId))
           .map(e=>({entry:e,score:keywords.reduce((n,k)=>n+(e.text.toLowerCase().includes(k)?1:0),0)}))
@@ -24,7 +26,7 @@ export function createKnowledgeRetrieval({store,verifySource,now=Date.now}){
           const clipped=piece=>({...entry,text:piece.text,sources:entry.sources.map(s=>({...s,
             offset:(s.offset||0)+piece.offset,length:piece.length}))});
           const serialize=e=>JSON.stringify({id:e.id,citation:`[知识:${e.id}]`,text:e.text,scope:e.scope,verified:e.verified===true,
-            sources:e.sources.map(s=>({locator:s.locator,hash:s.hash,offset:s.offset,length:s.length}))})+'\n';
+            sources:e.sources.map(s=>({locator:s.locator,hash:s.hash,offset:s.offset,length:s.length,authority:s.authority??'unknown',fetchedAt:s.fetchedAt??null}))})+'\n';
           const piece=fitKnowledgeSnippet({text:entry.text,focus:query,fits:s=>Buffer.byteLength(prefix+context+serialize(clipped(s)))<=limit});
           if(!piece)continue;
           const verified=await verifySource(entry,policy,{signal});

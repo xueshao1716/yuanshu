@@ -35,8 +35,19 @@ export type Command = {method:'PUT'|'POST';path:string;body:{requestId:string;ex
 export type Challenge = {id:string;message:string;expiresAt:number}
 export type SessionChallenge = {id:string;sessionId:string;commandHash:string;expiresAt:number}
 export type SessionProof = {id:string;sessionId:string;token:string;expiresAt:number}
+export type PreflightQuery = {action:string;designId?:string;agentId?:string}
+export type Blocker = {code:string;field:string;message:string;nextAction:string}
+export type Preflight = {action:string;revision:number;ready:boolean;retryable:boolean;checkedAt:string;
+  blockedBy:Blocker[];warnings:Blocker[];nextAction:string;scope:'configuration_only'}
+export type ModelCatalog = {available:boolean;reason?:string;revision?:number;models:{key:string;label:string;
+  cultivationAuthorized:boolean;sharedAuthorized:boolean;health:'not_checked'}[]}
+export type Denials = {retained:number;limit:number;items:{requestId:string;action:string;error:string;
+  expectedRevision:number;count:number;lastAt:string;outcome:'denied'}[]}
 export const CultivationApi = {
   overview:()=>api<Overview>('/api/cultivation/overview'),
+  preflight:(query:PreflightQuery)=>api<Preflight>(`/api/cultivation/preflight?${new URLSearchParams(Object.entries(query))}`),
+  models:()=>api<ModelCatalog>('/api/cultivation/models'),
+  denials:()=>api<Denials>('/api/cultivation/denials'),
   list:<T,>(kind:string,cursor:string|null)=>api<Page<T>>(`/api/cultivation/${kind}?limit=20${cursor?`&cursor=${encodeURIComponent(cursor)}`:''}`),
   agent:(id:string)=>api<AgentDetail>(`/api/cultivation/agents/${encodeURIComponent(id)}`),
   media:(agentId:string,kind:string,asset:{id:string;version:number})=>api<{mime:string;base64:string}>(

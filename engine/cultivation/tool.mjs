@@ -2,9 +2,12 @@ import {exact} from './control-state.mjs';
 import {getTeamToolContext} from '../team-tool-context.mjs';
 import {CULTIVATION_DESIGN_SCHEMA} from './design-schema.mjs';
 import {designValidationDetails} from './designs.mjs';
+import {cultivationFailureDetails} from './diagnostics.mjs';
 
-const actions=['overview','agents','designs','runs','experience','learning.context','design.submit','design.revise','agent.register','agent.adopt','run.submit','learning.decide','asset.bind'];
+const actions=['overview','agents','designs','runs','experience','preflight','models','denials','learning.context','design.submit','design.revise','agent.register','agent.adopt','run.submit','learning.decide','asset.bind'];
 const description='智能体培养：先读取 overview 的 revision 和授权策略。由你自己设计，不能冒充用户批准。'+
+  '操作前用 preflight,payload={action:agent.register或run.submit或run.dispatch,designId或agentId} 一次查看 blockedBy；只读，不注册、不预留、不调用模型。'+
+  'models 返回精确 provider/id 标识及两层授权状态（不是探活结果）；denials 读取最近拒绝记录。零运行额度可以登记，但不能执行任务。'+
   '读取 action=overview/agents/designs/runs/experience；写入 action=design.submit/design.revise/agent.register/agent.adopt/run.submit，'+
   '必须提供新 UUID requestId、expectedRevision、payload。design.submit payload={design}；design.revise={parentId,design}；'+
   'agent.register={designId}；agent.adopt={agentId,designId}；run.submit={agentId,input,goal,criterion}。'+
@@ -34,11 +37,11 @@ export async function cultivationTool(runtime,args,host) {
   try {
     if(!host?.executionIdentity||!args||!actions.includes(args.action))throw new Error('cultivation_identity_denied');
     const read=!args.action.includes('.')||args.action==='learning.context';
-    if(read&&args.action!=='learning.context'&&!exact(args,['action']))throw new Error('cultivation_invalid_command');
+    if(read&&!['learning.context','preflight'].includes(args.action)&&!exact(args,['action']))throw new Error('cultivation_invalid_command');
     const result=read?await runtime.readMother(args,host.executionIdentity):await runtime.execute(args,'mother',host.executionIdentity);
     return {text:JSON.stringify(result),isError:false};
   }catch(error){
-    const details=designValidationDetails(error) || (Object.hasOwn(recovery,error?.message)
+    const details=cultivationFailureDetails(error) || designValidationDetails(error) || (Object.hasOwn(recovery,error?.message)
       ? {error:error.message,retryable:false,nextAction:recovery[error.message]} : null);
     return {text:details?JSON.stringify(details):/^cultivation_[a-z_]+$/.test(error?.message)?error.message:'cultivation_unavailable',isError:true};
   }

@@ -1,5 +1,5 @@
 import {clonePayload} from './state.mjs';
-import {assertRequest} from './policy.mjs';
+import {assertEnvelope} from './policy.mjs';
 import {CULTIVATION_DESIGN_SCHEMA, curriculumItemHint} from './design-schema.mjs';
 
 const fields = CULTIVATION_DESIGN_SCHEMA.required;
@@ -59,9 +59,9 @@ export function validateDesign(input) {
   return d;
 }
 
-export function assertAdoptable(input, policy, {now = Date.now(), agentId, verifyAsset} = {}) {
+export function assertAdoptable(input, policy, {now = Date.now(), agentId, verifyAsset, execution = true} = {}) {
   const d = validateDesign(input);
-  assertRequest(policy, d.permissions, now);
+  assertEnvelope(policy, d.permissions, now, {execution});
   if (d.protectedProposalRefs.length) throw new Error('cultivation_protected_proposal_pending');
   for (const kind of ['appearance', 'clothing', 'voice']) {
     if (!d[kind].asset) continue;

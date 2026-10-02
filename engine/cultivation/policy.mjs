@@ -1,4 +1,5 @@
 // engine/cultivation/policy.mjs
+import {policyBlockers} from './policy-diagnostics.mjs';
 const fields = ['enabled', 'maxAgents', 'maxConcurrent', 'dailyRequests',
   'dailyBudgetCents', 'currency', 'allowRemote', 'recursive', 'expiresAt',
   'models', 'tools', 'dataScopes'];
@@ -58,15 +59,11 @@ export function assertDispatchWindow(policy, now = Date.now()) {
 
 // 静态约束而非资源预留；调用方仍须使用共同账本和可信身份。
 export function assertRequest(policy, request, now = Date.now()) {
+  return assertEnvelope(policy, request, now, {execution:true});
+}
+export function assertEnvelope(policy, request, now = Date.now(), {execution=false} = {}) {
   const p = validatePolicy(policy);
-  if (!p.enabled) throw new Error('cultivation_policy_disabled');
-  if (!Number.isFinite(now) || Date.parse(p.expiresAt) <= now)
-    throw new Error('cultivation_policy_expired');
-  if (!request || !p.models.includes(request.model) ||
-      !list(request.tools) || request.tools.some(t => !p.tools.includes(t)) ||
-      !list(request.dataScopes) || request.dataScopes.some(s => !p.dataScopes.includes(s)) ||
-      typeof request.remote !== 'boolean' || request.remote && !p.allowRemote ||
-      !integer(request.costUpperBoundCents, 0, p.dailyBudgetCents) || p.dailyRequests === 0)
-    throw new Error('cultivation_request_denied');
+  const issues=policyBlockers(p,request,{execution,now});
+  if(issues.length)throw new Error(issues[0].code);
   return true;
 }

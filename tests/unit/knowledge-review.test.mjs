@@ -18,6 +18,20 @@ async function conflict(t){const f=fixture(t);await f.r.updatePolicy({allowedRoo
  return {...f,a:await f.r.store.get(a.id),b:await f.r.store.get(b.id)};
 }
 const decision={decision:'accept_source',note:'我核对原文，选择修订后的来源',confirmed:true};
+
+test('explicit correction of a committed excerpt needs review and preserves the superseded original',async t=>{
+ const {r,write}=fixture(t);await r.updatePolicy({allowedRoots:['docs']},1);
+ write('old.txt','旧观察记录：系统正在等待设计稿。');write('new.txt','核验记录：设计稿已经存在，应更新旧观察。');
+ const a=await r.enqueue({kind:'file',path:'docs/old.txt'},2);await r.worker.tick();const original=await r.store.get(a.id);
+ const b=await r.supplement(a.id,{kind:'file',path:'docs/new.txt'},original.revision,2);await r.worker.tick();
+ const pending=await r.store.get(b.id);assert.equal(pending.state,'review_required');
+ assert.equal((await r.store.entries()).find(e=>e.jobId===a.id).status,'active');
+ await r.review(b.id,decision,pending.revision,2);await r.worker.tick();
+ const rows=await r.store.entries();assert.equal(rows.length,2);
+ assert.equal(rows.find(e=>e.jobId===a.id).status,'superseded');
+ assert.equal(rows.find(e=>e.jobId===b.id).verified,false);
+ assert.equal((await r.store.get(a.id)).resolution.jobId,b.id);
+});
 test('authenticated review queues exact conflicting source, keeps both versions and records audit',async t=>{
  const {r,a,b}=await conflict(t);assert.equal(typeof r.review,'function');
  await r.review(b.id,decision,b.revision,2);await r.worker.tick();
@@ -26,6 +40,21 @@ test('authenticated review queues exact conflicting source, keeps both versions 
  const entries=await r.store.entries();assert.equal(entries.length,2);
  assert.equal(entries.find(e=>e.jobId===a.id).status,'superseded');
  const out=await r.context({query:'服务端口',sessionId:'s'});assert.equal(out.entries.length,1);assert.ok(out.context.includes('9900'));
+});
+
+for(const choice of ['reject','keep_existing','revoked'])test(`committed correction preserves original when ${choice}`,async t=>{
+ const {r,write}=fixture(t);await r.updatePolicy({allowedRoots:['docs']},1);
+ write('old.txt','旧观察记录：系统正在等待设计稿。');write('new.txt','核验记录：设计稿已经存在，应更新旧观察。');
+ const a=await r.enqueue({kind:'file',path:'docs/old.txt'},2);await r.worker.tick();const original=await r.store.get(a.id);
+ const b=await r.supplement(a.id,{kind:'file',path:'docs/new.txt'},original.revision,2);await r.worker.tick();
+ const pending=await r.store.get(b.id);
+ await assert.rejects(r.review(b.id,decision,pending.revision-1,2),{code:'revision_conflict'});
+ await r.review(b.id,{...decision,decision:choice==='revoked'?'accept_source':choice,selectedEntryId:original.entryId},pending.revision,2);
+ if(choice==='revoked')await r.updatePolicy({allowedRoots:[]},2);
+ await r.worker.tick();const rows=await r.store.entries();
+ assert.equal(rows.length,1);assert.equal(rows[0].status,'active');
+ assert.equal((await r.store.get(a.id)).resolution,undefined);
+ assert.notEqual((await r.store.get(b.id)).state,'committed');
 });
 test('review rejects stale or unconfirmed decisions and never releases instruction candidates',async t=>{
  const {r,write,a,b}=await conflict(t);assert.equal(typeof r.review,'function');

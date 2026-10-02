@@ -64,7 +64,7 @@ export function createKnowledgeStore({wsRoot,now=Date.now,leaseMs=90000,fault,ru
       if(input.relatedJobId){const parent=getJob(data,input.relatedJobId);
         if(parent.revision!==input.expectedJobRevision)fail('revision_conflict');
         if(parent.resolution)fail('job_resolved');
-        if(!['review_required','blocked'].includes(parent.state))fail('invalid_control');}
+        if(!['review_required','blocked','committed'].includes(parent.state)||parent.state==='committed'&&input.event!=='correction')fail('invalid_control');}
       const id=digest([data.workspace,input.sourceId,input.sourceVersion,input.event,input.sessionId||'']);
       if(data.jobs[id])return data.jobs[id];
       if(Object.keys(data.jobs).length>=5000)fail('knowledge_storage_full');

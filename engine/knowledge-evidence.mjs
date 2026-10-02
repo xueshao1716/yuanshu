@@ -1,8 +1,10 @@
 import {digest} from './knowledge-state.mjs';
 import {trustedKnowledgeMethod} from './knowledge-method.mjs';
+import {progressOnly} from './knowledge-quality.mjs';
 const suspicious=/ignore (all |previous |prior )?instructions|reveal.{0,30}(system prompt|secret|token)|忽略.{0,12}(指令|规则)|泄露.{0,12}(密钥|令牌)|修改.{0,12}(人格|基因|权限)/i;
 export function extractLocal(snapshots,job) {
   const source=snapshots.find(s=>s.kind==='run_result')||snapshots[0];if(!source)return null;
+  if(source.authority==='model_output'&&progressOnly(source.text))return null;
   const focus=String(job.focus||'').trim().slice(0,240);
   const match=focus?source.text.toLowerCase().indexOf(focus.toLowerCase()):-1;
   const start=match<0?0:Math.max(source.text.lastIndexOf('\n',match)+1,match-200);
@@ -19,6 +21,7 @@ export function validateCandidate({candidate,snapshots,job,entries=[],now=Date.n
   if(!source||digest(source.text)!==source.hash||!Number.isInteger(candidate.offset)||candidate.offset<0||
     source.text.slice(candidate.offset,candidate.offset+candidate.text.length)!==candidate.text)return {state:'blocked',reason:'excerpt_mismatch'};
   if(suspicious.test(candidate.text))return {state:'review_required',reason:'untrusted_instructions'};
+  if(!method&&source.authority==='model_output'&&progressOnly(candidate.text))return {state:'skipped',reason:'low_quality_model_output'};
   // Only explicit one-line key/value statements support this conservative conflict check.
   // Scope prevents unrelated sessions from being treated as competing authorities.
   const pair=candidate.text.match(/^([^\n:：]{2,64})[:：]\s*([^\n]{1,200})$/);
