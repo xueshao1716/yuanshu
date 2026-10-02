@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { EventEmitter } from 'node:events';
 import { createReplyTts } from '../../engine/reply-tts.mjs';
 import { voiceSession } from '../../engine/chat-voice-provider.mjs';
+import { mediaObservations } from '../../engine/media-observations.mjs';
 
 function fixture() {
   const sockets = [];
@@ -44,13 +45,18 @@ test('stream emits PCM before done and never replays the provider full-audio fie
   assert.equal(sockets[0].terminated, true); assert.equal(res.listenerCount('close'), 0);
 });
 test('stream disconnect, invalid text, protocol errors and concurrency are bounded', async () => {
+  const before = mediaObservations.snapshot().items.length;
   const f = fixture(); assert.equal(typeof f.service.handleStream, 'function');
   await f.service.handleStream(f.res, { text: 'x'.repeat(201) }); assert.equal(f.res.status, 400);
   const g = fixture(), pending = g.service.handleStream(g.res, { text: '你好' });
   g.res.destroyed = true; g.res.emit('close'); await pending;
   assert.equal(g.sockets[0].terminated, true);
+  assert.equal(mediaObservations.snapshot().items.length, before, 'validation and client disconnect are not provider failures');
   const h = fixture(), failed = h.service.handleStream(h.res, { text: '你好' });
   h.sockets[0].emit('error', new Error('private-key-must-not-leak'));
   await failed; assert.equal(h.res.status, 502);
   assert.ok(!JSON.stringify(h.res.data).includes('private-key'));
+  assert.equal(mediaObservations.snapshot().items.length, before + 1);
+  assert.equal(mediaObservations.snapshot().items[0].phase, 'reply_stream');
+  assert.ok(!JSON.stringify(mediaObservations.snapshot()).includes('private-key'));
 });

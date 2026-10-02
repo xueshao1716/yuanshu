@@ -30,7 +30,7 @@ async function lockedWrite(targetPath, argsPath, run) {
 }
 import { formatSensitiveHint } from "../media-channels.mjs";
 import { yuanshuExecutor } from "../yuanshu-loop.mjs";
-import { execFileAbortable } from "../yuanshu-stability.mjs";
+import { execFileAbortable, toolInterruption } from "../yuanshu-stability.mjs";
 import { withUtf8CodePage, decodeWindowsOutput, looksMojibake, riskyForCmdShell } from "../windows-shell.mjs";
 import { isCanonicalTarget, stageWrite } from "../memory-stages.mjs";
 import { checkWriteSegments } from "../context-headroom.mjs";
@@ -394,10 +394,10 @@ export function createUnifiedToolExecutor(deps = {}) {
           return { text: (text.replace(/\r\n/g, "\n") || "(无输出)") + exitMark + hint, isError: exitCode ? true : false };
         } catch (e) {
           cleanup?.();
-          if (e?.aborted || ctx.signal?.aborted) return { text: "客户端已断开，命令已中止", isError: true };
+          const interruption = toolInterruption(e, ctx.signal);
+          if (interruption) return { text: interruption.text, code: interruption.code, isError: true };
           const msg = String(e?.message || e);
-          const reason = e?.killed || /timeout|killed/i.test(msg) ? "执行超过 5 分钟被终止" : "执行失败";
-          return { text: `命令${reason}: ${msg.slice(0, 200)}`, isError: true };
+          return { text: `命令执行失败: ${msg.slice(0, 200)}`, isError: true };
         }
       }
       if (name === "read") {

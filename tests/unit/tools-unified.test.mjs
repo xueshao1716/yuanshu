@@ -195,8 +195,9 @@ test("engine/tools 执行器工厂（createUnifiedToolExecutor）", (t) => {
     setTimeout(() => ac.abort(), 80);
     const r = await p;
     assert.equal(r.isError, true);
-    assert.match(r.text, /中止|断开/);
-    assert.ok(Date.now() - started < 8000, "断开后不能再等满 5 分钟");
+    assert.match(r.text, /执行已中断，未收到明确原因/);
+    assert.doesNotMatch(r.text, /客户端已断开|用户已取消/);
+    assert.ok(Date.now() - started < 8000, "中断后不能再等满 5 分钟");
   });
   t.test("read/write/edit：正常读写改", async () => {
     const w = await exec("write", { path: "a/b.txt", content: "hello" });

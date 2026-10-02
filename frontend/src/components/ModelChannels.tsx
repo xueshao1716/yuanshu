@@ -4,6 +4,7 @@ import { Plus, KeyRound } from 'lucide-react'
 import { KeysApi } from '../api'
 import { useApp } from '../store'
 import ModelConnectionForm from './models/ModelConnectionForm'
+import MediaObservations from './models/MediaObservations'
 import type { ConnectionProvider } from './models/ModelConnectionForm'
 
 export default function ModelChannels() {
@@ -67,6 +68,7 @@ export default function ModelChannels() {
             </div>
           </li>)}
         </ul>}
+      <MediaObservations />
       <AL.Root open={Boolean(confirming)} onOpenChange={open => { if (!open && !busy) setConfirming(null) }}>
         <AL.Portal><AL.Overlay className="fixed inset-0 bg-black/50 z-[var(--pi-z-modal)]" />
           <AL.Content className="fixed left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 w-[min(92vw,440px)] bg-pi-bg panel !p-5 z-[var(--pi-z-modal)]">

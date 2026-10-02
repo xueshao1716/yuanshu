@@ -49,12 +49,27 @@ export function inspectToolCalls(rawTcs) {
   return { calls, truncated };
 }
 
-export function abortError() {
-  const err = new Error("aborted");
+const interruptionMessages = {
+  USER_CANCELLED: '操作已主动取消',
+  CLIENT_DISCONNECTED: '客户端连接已关闭（可能是主动停止或网络断开）',
+  TOOL_TIMEOUT: '执行已达到时限',
+  INTERRUPTED_UNKNOWN: '执行已中断，未收到明确原因',
+};
+export function abortError(reason) {
+  const code = Object.hasOwn(interruptionMessages, reason?.code) ? reason.code
+    : reason?.name === 'TimeoutError' || ['MODEL_DEADLINE', 'MODEL_IDLE_TIMEOUT'].includes(reason?.code)
+      ? 'TOOL_TIMEOUT' : 'INTERRUPTED_UNKNOWN';
+  const err = new Error(interruptionMessages[code]);
   err.killed = true;
-  err.aborted = true;
-  err.code = "ABORT_ERR";
+  err.aborted = code !== 'TOOL_TIMEOUT';
+  err.code = code;
   return err;
+}
+
+export function toolInterruption(error, signal) {
+  if (!Object.hasOwn(interruptionMessages, error?.code) && !error?.aborted && !error?.killed && !signal?.aborted) return null;
+  const result = Object.hasOwn(interruptionMessages, error?.code) ? error : abortError(signal?.reason);
+  return { code: result.code, text: `${interruptionMessages[result.code]}。已完成的操作不会自动回滚；请先核对结果，不要重复执行。` };
 }
 
 // 2026-09-16：Windows 上 child.kill() 只杀**直接子进程**。工具命令是经 `bash -lc` / `cmd /c` 起的，
@@ -95,18 +110,20 @@ function killProcessTree(child) {
 }
 
 export function execFileAbortable(file, args = [], options = {}) {
-  const { signal, ...rest } = options;
+  const { signal, timeout, ...rest } = options;
   return new Promise((resolve, reject) => {
     let settled = false;
     let onAbort = null;
+    let timer;
     const settle = (fn, value) => {
       if (settled) return;
       settled = true;
+      clearTimeout(timer);
       try { if (onAbort) signal?.removeEventListener?.("abort", onAbort); } catch {}
       fn(value);
     };
     if (signal?.aborted) {
-      settle(reject, abortError());
+      settle(reject, abortError(signal.reason));
       return;
     }
     const child = execFile(file, args, rest, (err, stdout, stderr) => {
@@ -114,18 +131,21 @@ export function execFileAbortable(file, args = [], options = {}) {
       // 等 close 事件就等于等命令自己跑完（实测 30s）。树杀在 onAbort 里已经发出，
       // 这里只负责让 promise 立刻落地。
       if (signal?.aborted || err?.killed) {
-        const e = err || abortError();
-        e.killed = true;
-        e.aborted = true;
-        settle(reject, e);
+        settle(reject, abortError(signal?.reason));
         return;
       }
       settle(resolve, { stdout, stderr, exitCode: err?.code ?? 0 });
     });
     onAbort = () => {
-      settle(reject, abortError());
+      settle(reject, abortError(signal?.reason));
       killProcessTree(child);
     };
+    // Own the deadline so a killed process is never guessed to be a timeout.
+    if (Number.isFinite(timeout) && timeout > 0) timer = setTimeout(() => {
+      settle(reject, abortError({ code: 'TOOL_TIMEOUT' }));
+      killProcessTree(child);
+    }, timeout);
     try { signal?.addEventListener?.("abort", onAbort, { once: true }); } catch {}
+    if (signal?.aborted) onAbort();
   });
 }

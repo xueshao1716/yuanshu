@@ -14,6 +14,7 @@ import { verifyImageDimensions, imageVerificationNotice } from './image-dimensio
 import { imageCandidates, runImageCandidates } from './image-routing.mjs';
 import { generateProviderImage, imageProviderSize } from './image-provider-adapters.mjs';
 import { setTimeout as delay } from 'node:timers/promises';
+import { observeMediaRequest, recordMediaFailure, readMediaJson } from './media-observations.mjs';
 
 let _resolveAuth = null, _readJsonFile = null, _modelsPath = "", _authPath = "", _getModelList = () => [];
 export function initMediaApi({ resolveAuth = null, readJsonFile = null, modelsPath = "", authPath = "", getModelList = null } = {}) {
@@ -255,7 +256,8 @@ export async function generateTTS(text) {
     if (!resolved) return null;
     const base = (resolved.baseUrl || "https://token-plan-cn.xiaomimimo.com/v1").replace(/\/+$/, "");
     const baseNoV1 = base.endsWith("/v1") ? base.slice(0, -3) : base;
-    const r = await httpJsonFetch(`${baseNoV1}/v1/chat/completions`, {
+    const observation = {kind:'tts',provider,model:'mimo-v2.5-tts'};
+    const r = await observeMediaRequest(observation, () => httpJsonFetch(`${baseNoV1}/v1/chat/completions`, {
       method: "POST",
       headers: { "Content-Type": "application/json", Authorization: `Bearer ${resolved.key}` },
       body: JSON.stringify({
@@ -267,11 +269,12 @@ export async function generateTTS(text) {
         max_tokens: 500,
       }),
       timeout: 90000,
-    });
+    }));
     if (r.ok) {
-      const data = await r.json();
+      const data = await readMediaJson(observation,r);
       const audio = data.choices?.[0]?.message?.audio?.data;
       if (audio) return `data:audio/wav;base64,${audio}`;
+      recordMediaFailure(observation,{code:'invalid_response'});
     }
     // mimo 失败/未返回音频 → 阶跃备用
     return await stepfunTtsFallback(text);
@@ -286,7 +289,8 @@ async function stepfunTtsFallback(text) {
   try {
     const resolved = _resolveAuth?.("stepfun-plan");
     if (!resolved?.key) return null;
-    const r = await httpBufferFetch("https://api.stepfun.com/step_plan/v1/audio/speech", {
+    const observation = {kind:'tts',provider:'stepfun-plan',model:'stepaudio-2.5-tts'};
+    const r = await observeMediaRequest(observation, () => httpBufferFetch("https://api.stepfun.com/step_plan/v1/audio/speech", {
       method: "POST",
       headers: { "Content-Type": "application/json", Authorization: `Bearer ${resolved.key}` },
       body: JSON.stringify({
@@ -296,10 +300,10 @@ async function stepfunTtsFallback(text) {
         response_format: "mp3",
       }),
       timeout: 120000,
-    });
+    }));
     if (!r.ok) return null;
     const bytes = r.buffer();
-    if (!bytes || bytes.length < 100) return null;
+    if (!bytes || bytes.length < 100) {recordMediaFailure(observation,{code:'invalid_response'});return null;}
     return `data:audio/mpeg;base64,${bytes.toString("base64")}`;
   } catch { return null; }
 }
@@ -352,7 +356,8 @@ export async function generateImage(provider, modelId, prompt, size, image, opts
   const body = JSON.stringify({ model: modelId, prompt, n: 1, size: size || '1024x1024',
     ...(seed != null ? { seed } : {}), ...(negative ? { negative_prompt: negative } : {}),
     ...(refImage ? { image: refImage } : {}) });
-  const mkReq = (u) => httpJsonFetch(u, {
+  const observation = {kind:'image',provider,model:modelId,signal:opts.signal};
+  const mkReq = (u) => observeMediaRequest(observation, () => httpJsonFetch(u, {
     method: "POST",
     headers: { "Content-Type": "application/json", Authorization: `Bearer ${key}` },
     // negative_prompt 只有在调用方真的给了才带：不赌每家上游都认这个字段，
@@ -360,7 +365,7 @@ export async function generateImage(provider, modelId, prompt, size, image, opts
     body,
     signal: opts.signal,
     timeout: 180000,
-  });
+  }));
   // 上游失败必须带上**状态码与响应体**。以前这里是 `if (!r.ok) return null`，
   // 于是界面上只有一句"图像模型未返回图片"——Key 无效、模型名不对、参数不认、被限流，
   // 四种完全不同的原因长得一模一样，用户没法处理，我也没法排查
@@ -387,6 +392,7 @@ export async function generateImage(provider, modelId, prompt, size, image, opts
       const item = data?.data?.[0];
       if (item?.b64_json) return `data:image/png;base64,${item.b64_json}`;
       if (item?.url) return item.url;
+      recordMediaFailure(observation,{code:'invalid_response'});
       throw new Error(`上游 ${r.status} 但没有图片数据（模型 ${modelId}）：${text.replace(/\s+/g, " ").slice(0, 200)}`);
     }
     attempts.push({ path: endpoint.slice(baseNoV1.length), status: r.status, text: text.replace(/\s+/g, " ").slice(0, 200) });
@@ -472,10 +478,11 @@ export async function startVideoJob(provider, modelId, prompt, body = {}) {
     // 会被它当成"本地文件路径"直接 400（见 media-inline.mjs 顶部实测记录）。
     const inlined = materializeVideoBody(bodyObj, { wsRoot: WS_ROOT });
     const notes = inlined.notes;
-    const postVideo = (payload) => httpJsonFetch(`${auth.baseNoV1}/v1/videos`, {
+    const observation = {kind:'video',provider,model:modelId,phase:'create',signal:body.signal};
+    const postVideo = (payload) => observeMediaRequest(observation, () => httpJsonFetch(`${auth.baseNoV1}/v1/videos`, {
       method: "POST", headers: { "Content-Type": "application/json", Authorization: `Bearer ${auth.key}` },
       body: JSON.stringify(payload), timeout: 60000, signal: body.signal,
-    });
+    }));
     let createR = await postVideo(inlined.body);
     if (!createR.ok) {
       const t = await createR.text().catch(() => "");
@@ -491,7 +498,7 @@ export async function startVideoJob(provider, modelId, prompt, body = {}) {
         return { error: explainVideoHttp(createR.status, t), notes };
       }
     }
-    const created = await createR.json();
+    const created = await readMediaJson(observation,createR);
     let taskId = created.task_id || created.id || created.video_id || created.data?.task_id;
     // v2.0 通道：轮询键用解码后的 video_id（task_ id 会 404 死锁，2026-09-20 实测）；2.5 通道仍用 task_id
     if (!/2\.5/.test(String(modelId || ""))) {
@@ -500,7 +507,7 @@ export async function startVideoJob(provider, modelId, prompt, body = {}) {
     }
     const url = created.url || created.video_url || created.output?.url || created.data?.url;
     if (url) return { video: url, task_id: taskId, notes };
-    if (!taskId) return { error: "视频接口未返回任务 ID", notes };
+    if (!taskId) {recordMediaFailure(observation,{code:'invalid_response'});return { error: "视频接口未返回任务 ID", notes };}
     return { task_id: taskId, status: "pending", notes };
   } catch (e) { return { error: String(e?.message || e).slice(0, 150) }; }
 }
@@ -511,14 +518,16 @@ export async function checkVideoJob(provider, modelId, taskId, opts = {}) {
   if (!taskId) return { error: "缺少任务 ID" };
   try {
     opts.signal?.throwIfAborted();
-    const qR = await httpJsonFetch(`${auth.baseNoV1}${videoPollPath(taskId, modelId)}`, {
+    const observation = {kind:'video',provider,model:modelId,phase:'poll',signal:opts.signal};
+    const qR = await observeMediaRequest(observation, () => httpJsonFetch(`${auth.baseNoV1}${videoPollPath(taskId, modelId)}`, {
       headers: { Authorization: `Bearer ${auth.key}` }, timeout: 20000, signal: opts.signal,
-    });
+    }));
     if (!qR.ok) return { status: "pending", task_id: taskId };
-    const q = await qR.json();
+    const q = await readMediaJson(observation,qR);
     const url = q.url || q.video_url || q.output?.url || q.data?.url || q.data?.video_url || q.metadata?.url;
     if (url) return { video: url, task_id: taskId };
     if (q.status === "failed" || q.state === "failed" || q.internal_status === "failed") {
+      recordMediaFailure(observation,{code:'generation_failed'});
       return { error: "视频生成失败", status: "failed", task_id: taskId };
     }
     return { status: q.status || q.state || "pending", task_id: taskId };

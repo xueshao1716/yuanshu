@@ -1,6 +1,7 @@
 // Provider-specific image protocols shared by chat, stories and workshops.
 import { setTimeout as delay } from 'node:timers/promises';
 import { httpJsonFetch, httpBufferFetch } from './http.mjs';
+import { observeMediaRequest, recordMediaFailure, readMediaJson } from './media-observations.mjs';
 
 export function imageProviderSize(provider, modelId, size = '1024x1024') {
   if (provider !== 'volces-ark' || !/seedream/i.test(modelId)) return size;
@@ -18,6 +19,7 @@ export async function generateProviderImage({ provider, modelId, prompt, size, i
   if (image && ['minimax', 'cloudflare-ai'].includes(provider)) throw new Error(`${provider} 当前绘图适配器不支持参考图，请选择支持图生图的模型`);
   const base = (baseUrl || '').replace(/\/+$/, '').replace(/\/v1$/, '');
   const headers = { 'Content-Type': 'application/json', Authorization: `Bearer ${key}` };
+  const observation = {kind:'image',provider,model:modelId,signal};
   let attempt = 0;
   const post = async (url, body, extra = {}) => {
     signal?.throwIfAborted();
@@ -26,14 +28,14 @@ export async function generateProviderImage({ provider, modelId, prompt, size, i
         endpointPath: new URL(url).pathname.replace(/\/accounts\/[^/]+/, '/accounts/[configured]'), attempt: ++attempt });
       observed?.catch?.(() => {});
     } catch { /* Observability must not trigger another purchase. */ }
-    return httpJsonFetch(url, { method: 'POST', headers: { ...headers, ...extra }, body: JSON.stringify(body), timeout: 180000, signal });
+    return observeMediaRequest(observation, () => httpJsonFetch(url, { method: 'POST', headers: { ...headers, ...extra }, body: JSON.stringify(body), timeout: 180000, signal }));
   };
   const decode = async r => {
     if (!r.ok) throw Object.assign(new Error(`${provider} 绘图失败 ${r.status}: ${(await r.text()).slice(0, 600)}`), { status: r.status });
-    return r.json();
+    return readMediaJson(observation,r);
   };
   const requireImage = value => {
-    if (typeof value !== 'string' || !value) throw new Error(`${provider} 绘图接口未返回图片`);
+    if (typeof value !== 'string' || !value) {recordMediaFailure(observation,{code:'invalid_response'});throw new Error(`${provider} 绘图接口未返回图片`);}
     return value;
   };
   const params = { ...(seed != null ? { seed } : {}), ...(negative ? { negative_prompt: negative } : {}) };
@@ -60,16 +62,16 @@ export async function generateProviderImage({ provider, modelId, prompt, size, i
     const created = await decode(await post(`${base}/v1/images/generations`, {
       model: modelId, prompt, n: 1, size: sizeMap[size] || size, ...(image ? { image } : {}), ...params,
     }, { 'X-ModelScope-Async-Mode': 'true' }));
-    if (!created.task_id) throw new Error('modelscope 未返回 task_id');
+    if (!created.task_id) {recordMediaFailure(observation,{code:'invalid_response'});throw new Error('modelscope 未返回 task_id');}
     for (let i = 0; i < 18; i++) {
       await delay(5000, undefined, { signal });
-      const r = await httpJsonFetch(`${base}/v1/tasks/${encodeURIComponent(created.task_id)}`, {
+      const r = await observeMediaRequest({...observation,phase:'poll'}, () => httpJsonFetch(`${base}/v1/tasks/${encodeURIComponent(created.task_id)}`, {
         headers: { Authorization: `Bearer ${key}`, 'X-ModelScope-Task-Type': 'image_generation' }, timeout: 30000, signal,
-      });
+      }));
       if (!r.ok) continue;
-      const data = await r.json();
+      const data = await readMediaJson({...observation,phase:'poll'},r);
       if (data.task_status === 'SUCCEED') return requireImage(data.output_images?.[0]);
-      if (data.task_status === 'FAILED') throw new Error(`modelscope 任务失败: ${String(data.message || '未知').slice(0, 200)}`);
+      if (data.task_status === 'FAILED') {recordMediaFailure({...observation,phase:'poll'},{code:'generation_failed'});throw new Error(`modelscope 任务失败: ${String(data.message || '未知').slice(0, 200)}`);}
     }
     throw new Error(`modelscope 任务超时（90s，任务号 ${created.task_id}）；请查询原任务，不要重复提交`);
   }
@@ -82,8 +84,8 @@ export async function generateProviderImage({ provider, modelId, prompt, size, i
     const boundary = `----yuanshu${Math.floor(Math.random() * 1e9)}`;
     const body = multipart ? `--${boundary}\r\nContent-Disposition: form-data; name="prompt"\r\n\r\n${prompt}\r\n--${boundary}--\r\n`
       : JSON.stringify({ prompt, width, height, steps: 4, ...params });
-    const r = await httpBufferFetch(url, { method: 'POST', headers: { ...headers,
-      ...(multipart ? { 'Content-Type': `multipart/form-data; boundary=${boundary}` } : {}) }, body, timeout: 180000, signal });
+    const r = await observeMediaRequest(observation, () => httpBufferFetch(url, { method: 'POST', headers: { ...headers,
+      ...(multipart ? { 'Content-Type': `multipart/form-data; boundary=${boundary}` } : {}) }, body, timeout: 180000, signal }));
     if (r.status >= 300) throw Object.assign(new Error(`cloudflare 绘图失败 ${r.status}`), { status: r.status });
     const buf = r.buffer();
     if (!buf?.length) throw new Error('cloudflare 未返回图片数据');

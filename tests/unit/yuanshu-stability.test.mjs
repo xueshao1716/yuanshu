@@ -12,10 +12,39 @@ import {
   emptyTurnDecision,
   inspectToolCalls,
   execFileAbortable,
+  abortError,
+  toolInterruption,
 } from "../../engine/yuanshu-stability.mjs";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..", "..");
 const read = (...parts) => readFileSync(join(ROOT, ...parts), "utf8");
+
+test('ordinary nonzero exit stays an exit; interruption messages never echo raw errors', async () => {
+  const result=await execFileAbortable(process.execPath,['-e','process.exit(7)'],{timeout:5000,windowsHide:true});
+  assert.equal(result.exitCode,7);
+  assert.equal(toolInterruption({code:7,message:'private text'}),null);
+  for(const code of ['USER_CANCELLED','CLIENT_DISCONNECTED','TOOL_TIMEOUT','INTERRUPTED_UNKNOWN']) {
+    const result=toolInterruption({code,message:'private text'});
+    assert.equal(result.code,code);assert.ok(!result.text.includes('private'));
+    assert.ok(result.text.includes('不会自动回滚'));
+  }
+  assert.equal(toolInterruption({killed:true,message:'private'}).code,'INTERRUPTED_UNKNOWN');
+});
+
+test("process timeout is not a client abort", async () => {
+  await assert.rejects(execFileAbortable(process.execPath, ['-e', 'setTimeout(()=>{},30000)'],
+    { timeout: 100, windowsHide: true }), e => e.code === 'TOOL_TIMEOUT' && e.aborted === false);
+});
+
+test("abort retains only trusted reason codes, never private reason text", async () => {
+  for (const code of ['USER_CANCELLED', 'CLIENT_DISCONNECTED', 'TOOL_TIMEOUT']) {
+    const signal = AbortSignal.abort(Object.assign(new Error('secret-token'), { code }));
+    await assert.rejects(execFileAbortable(process.execPath, ['-e', 'process.exit(99)'], {signal}),
+      e => e.code === code && !e.message.includes('secret-token'));
+  }
+  assert.equal(abortError(new Error('client disconnected secret-token')).code, 'INTERRUPTED_UNKNOWN');
+  assert.equal(abortError().code, 'INTERRUPTED_UNKNOWN');
+});
 
 test("空回合：无工具且无正文才算空", () => {
   assert.equal(isEmptyAssistantTurn({ text: "", hasTools: false }), true);

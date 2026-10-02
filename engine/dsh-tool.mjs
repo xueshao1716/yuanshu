@@ -6,7 +6,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { execFile, execFileSync } from "node:child_process";
-import { execFileAbortable } from "./yuanshu-stability.mjs";
+import { execFileAbortable, toolInterruption } from "./yuanshu-stability.mjs";
 
 // dsh 认证环境：DEEPSEEK_API_KEY 只从当前进程环境或本机 auth.json 解析。
 // 凭证留在本机，元枢不会替用户登录外部平台，也不会把密钥写进仓库。
@@ -137,7 +137,7 @@ export function createDshTool({ cwd, piPackage, loadSkillIndex, skillsDir, onLog
         async execute(toolCallId, params, signal, onUpdate, ctx) {
           const task = String(params?.task || "").trim();
           if (!task) return { content: [{ type: "text", text: "缺少任务描述" }] };
-          if (signal?.aborted) return { content: [{ type: "text", text: "客户端已断开，dsh 任务已中止" }], isError: true };
+          if (signal?.aborted) return { content: [{ type: "text", text: toolInterruption(null, signal).text }], isError: true };
           // 并发控制：达到上限（默认 6）拒绝新任务，让 pi 稍后重试
           if (active >= max) return { content: [{ type: "text", text: `⚠️ dsh 引擎已达并发上限（${active}/${max}）。请稍后重试，或改用自带工具完成。` }] };
           // 清理残留：先回收异常退出/超时遗留的 dsh headless 进程（防内存堆积）
@@ -165,7 +165,8 @@ export function createDshTool({ cwd, piPackage, loadSkillIndex, skillsDir, onLog
               });
               out = { ok: true, out: String(spawned.stdout || "").trim(), err: "", stderr: String(spawned.stderr || "").trim().slice(0, 300) };
             } catch (e) {
-              if (e?.aborted || signal?.aborted) return { content: [{ type: "text", text: "客户端已断开，dsh 任务已中止" }], isError: true };
+              const interruption = toolInterruption(e, signal);
+              if (interruption) return { content: [{ type: "text", text: interruption.text }], details: { code: interruption.code }, isError: true };
               out = { ok: false, out: "", err: String(e?.message || e).slice(0, 200), stderr: "" };
             }
             const text = (out.out || "").trim();

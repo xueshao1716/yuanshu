@@ -72,6 +72,7 @@ import { createGateway } from "./engine/gateway.mjs";
 import { sseWrite, createSseWriter, startSseHeartbeat } from "./engine/sse.mjs";
 import { json, readBody } from "./engine/http-utils.mjs";
 import { observeHttpRequest, respondHttpError } from "./engine/http-lifecycle.mjs";
+import { mediaObservations } from "./engine/media-observations.mjs";
 import { createRunStore } from "./engine/run-store.mjs";
 import { createRunEventLog } from "./engine/run-event-log.mjs";
 import { createRunManager } from "./engine/run-manager.mjs";
@@ -1101,7 +1102,7 @@ async function handleChat(req, res, body) {
     const hb2 = startSseHeartbeat(res);
     // 打断支持：客户端断开 SSE 时中止 unifiedChat / dsh 子进程
     const abortCtrl = new AbortController();
-    const onClose = () => { try { abortCtrl.abort(); } catch {} };
+    const onClose = () => { try { abortCtrl.abort({ code: 'CLIENT_DISCONNECTED' }); } catch {} };
     req.on("close", onClose);
     try {
       try { sseWrite(res, "note", { text: leadNote(engineDecision) }); } catch {}
@@ -1971,7 +1972,7 @@ async function handleChat(req, res, body) {
       if (knowledgeRequestStopped(req, res)) return res.end();
       if (entry.gen === thisGen) entry.busy = false;
       const abortCtrl2 = new AbortController();
-      const onClose2 = () => { try { abortCtrl2.abort(); } catch {} };
+      const onClose2 = () => { try { abortCtrl2.abort({ code: 'CLIENT_DISCONNECTED' }); } catch {} };
       req.on("close", onClose2);
       writer.push('engine_selected', { engine: 'yuanshu', reason: 'pi 调用失败，切换执行通道' });
       await handleUnifiedChat(res, entry, message, sessionId || findKeyByEntry(entry), body.params, abortCtrl2.signal, writer, undefined, body.taskKey, fallbackModel || effModel, null, chatRunContext);
@@ -2934,6 +2935,7 @@ const API_ROUTES = [
   // ── 模型 ──
   ["GET", "/api/models", (res) => handleModels(res)],
   ["GET", "/api/models/manage", (res) => handleModelsManage(res)],
+  ["GET", "/api/models/media-observations", (res) => json(res, 200, mediaObservations.snapshot(), { "Cache-Control": "no-store" })],
   ["POST", "/api/models/add", async (res, req) => handleModelsAdd(res, await readBody(req))],
   ["POST", "/api/models/discover", async (res, req) => handleModelsDiscover(res, await readBody(req))],
   ["POST", "/api/models/verify", async (res, req) => handleModelsVerify(res, await readBody(req))],

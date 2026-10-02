@@ -2,6 +2,7 @@ import { httpBufferFetch } from './http.mjs';
 import { json } from './http-utils.mjs';
 import { speechVoice } from './speech-voice.mjs';
 import { streamReplyTts } from './reply-tts-stream.mjs';
+import { observeMediaRequest, recordMediaFailure } from './media-observations.mjs';
 
 const MODEL = 'stepaudio-2.5-tts';
 const VOICE = speechVoice.id;
@@ -34,16 +35,18 @@ export function createReplyTts({ getModelList, readStore, resolveAuth, request =
     if (!config) throw problem('未配置可用的阶跃语音模型或密钥', 503);
     if (active >= 2) throw problem('语音合成繁忙，请稍后重试', 429);
     active++;
+    const observation = {kind:'tts',provider:config.provider,model:config.model,phase:'reply',signal};
     try {
-      const response = await request(config.endpoint, {
+      const response = await observeMediaRequest(observation, () => request(config.endpoint, {
         method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${config.key}` },
         body: JSON.stringify({ model: config.model, input: text, voice: VOICE, response_format: 'mp3' }),
         timeout: 60000, signal,
-      });
+      }));
       if (!response.ok) throw problem(`阶跃语音请求失败（HTTP ${response.status}），请检查通道额度或稍后重试`, response.status === 429 ? 429 : 502);
       const bytes = response.buffer();
       if (!bytes || bytes.length < 100 || bytes.length > 20 * 1024 * 1024 ||
         !(bytes.subarray(0, 3).toString() === 'ID3' || (bytes[0] === 255 && (bytes[1] & 224) === 224))) {
+        recordMediaFailure(observation, {code:'invalid_response'});
         throw problem('阶跃未返回有效 MP3 音频，请重试');
       }
       return { bytes, model: config.model, provider: config.provider };
@@ -76,7 +79,8 @@ export function createReplyTts({ getModelList, readStore, resolveAuth, request =
       if (!config) throw problem('未配置可用的阶跃语音模型或密钥', 503);
       if (active >= 2) throw problem('语音合成繁忙，请稍后重试', 429);
       active++; acquired = true;
-      await streamReplyTts({ config, text: body.text.trim(), res, connect: connectStream });
+      await observeMediaRequest({kind:'tts',provider:config.provider,model:config.model,phase:'reply_stream'},
+        () => streamReplyTts({ config, text: body.text.trim(), res, connect: connectStream }));
     } catch (error) {
       if (!res.destroyed) {
         if (res.headersSent) { res.write(JSON.stringify({ type: 'error', error: error.message }) + '\n'); res.end(); }

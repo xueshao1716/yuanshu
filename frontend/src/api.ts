@@ -940,8 +940,14 @@ export const WsApi = {
 }
 
 // ── 模型管理 ──
+export interface MediaObservationSnapshot {
+  scope: 'process'; startedAt: string; maxItems: number; retentionHours: number
+  items: { id: number; at: string; kind: 'image' | 'video' | 'tts'; provider: string; model: string;
+    phase: string; status: number | null; code: string; message: string }[]
+}
 export const KeysApi = {
   manage: () => api<any>('/api/models/manage'),
+  mediaObservations: () => api<MediaObservationSnapshot>('/api/models/media-observations'),
   presets: () => api<any>('/api/keys/presets'),
   status: () => api<any>('/api/keys/status'),
   apply: (body: any) => api<any>('/api/keys/apply', { method: 'POST', body }),
