@@ -6,18 +6,27 @@ try {
   Add-Type -AssemblyName UIAutomationClient
   Add-Type -AssemblyName UIAutomationTypes
   $request = [Console]::In.ReadToEnd() | ConvertFrom-Json
-  $allowed = @('notepad', 'calculatorapp', 'calculator', 'mspaint', 'wordpad')
+  # The grant is desktop-scoped.  Do not maintain an application allow-list here:
+  # it made ordinary desktop applications look as if no window existed.  Keep a
+  # small deny-list for surfaces where UI automation could expose credentials,
+  # security controls, or an unrestricted command runner.
+  $blocked = @(
+    'cmd', 'conhost', 'powershell', 'pwsh', 'windowsterminal', 'wt',
+    'regedit', 'taskmgr', 'msedge', 'chrome', 'firefox', 'brave', 'opera',
+    'credentialui', 'logonui', 'lockapp', 'securityhealthsystray', 'msmpeng',
+    'systemsettings', 'control', 'controlpanel', 'winlogon', 'lsass', 'services',
+    'dwm', 'sihost', 'searchhost', 'startmenuexperiencehost', 'textinputhost'
+  )
   function DescribeWindow($element) {
     $current = $element.Current
     $process = Get-Process -Id $current.ProcessId -ErrorAction Stop
     $name = $process.ProcessName.ToLowerInvariant()
-    if ($allowed -notcontains $name) { throw 'Unsupported application' }
-    # Do not trust a process name alone. Only Windows-installed, signed applications.
-    $location = [IO.Path]::GetFullPath($process.Path)
-    $roots = @([IO.Path]::GetFullPath($env:SystemRoot) + '\', [IO.Path]::GetFullPath($env:ProgramFiles) + '\WindowsApps\', [IO.Path]::GetFullPath($env:ProgramFiles) + '\Windows NT\')
-    if (-not ($roots | Where-Object { $location.StartsWith($_, [StringComparison]::OrdinalIgnoreCase) })) { throw 'Unsupported application location' }
-    $signature = Get-AuthenticodeSignature -LiteralPath $location
-    if ($signature.Status -ne 'Valid' -or $signature.SignerCertificate.Subject -notmatch 'O=Microsoft Corporation') { throw 'Unverified application signature' }
+    if ($blocked -contains $name) { throw 'Blocked high-risk application' }
+    # A process path is useful for display and diagnostics, but it is not an
+    # allow-list.  Third-party desktop apps are valid targets after the user
+    # grants the desktop session; every mutation still requires confirmation.
+    $location = ''
+    try { $location = [string]$process.Path } catch { $location = '' }
     return @{ handle = [string]$current.NativeWindowHandle; pid = $current.ProcessId; started = $process.StartTime.ToUniversalTime().ToString('o'); title = $current.Name; process = $name }
   }
   function ResolveWindow($expected) {

@@ -28,6 +28,15 @@ test('task inspector distinguishes historical failures from active work', () => 
   const src = source('components/TaskInspector.tsx')
   assert.match(src, /当前空闲 · 有历史异常/)
   assert.match(src, /health\?\.activeCount/)
+  assert.match(src, /next\.status === 'stopping'/)
+  assert.match(src, /等待执行端确认/)
+})
+
+test('task inspector reports stopping and unavailable observations explicitly', () => {
+  const src = source('components/TaskInspector.tsx')
+  for (const text of ["stopping: '停止中'", "unknown: '状态未知'", "runError ? '状态暂不可确认'", "!health ? '正在读取运行状态'", "run.status === 'stopping'"]) {
+    assert.ok(src.includes(text), `missing ${text}`)
+  }
 })
 
 test('diagnostics filter actual failed states and navigate to the matching session', () => {

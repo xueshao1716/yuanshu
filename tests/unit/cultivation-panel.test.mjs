@@ -66,6 +66,13 @@ test('bounded cultivation preset uses a real design and keeps tools and unrelate
   assert.ok(resources.includes('disabled={!value.humanGrantAvailable||!reason.trim()}'));
 });
 
+test('cultivation primary path is hands-off and keeps computer credentials out of the design flow',()=>{
+  const panel=source('frontend/src/soul/cultivation/Panel.tsx');
+  const preset=source('frontend/src/soul/cultivation/PolicyPreset.tsx');
+  const resources=source('frontend/src/soul/cultivation/Resources.tsx');
+  for(const text of ['小语自己设计和培养','你只需查看方案并放权','不需要电脑密码','高级设置']) assert.ok(`${panel}\n${preset}\n${resources}`.includes(text),text);
+});
+
 test('learning actions use knowledge revisions and preserve adoption scope',()=>{
   const learning=source('frontend/src/soul/cultivation/Learning.tsx');
   for(const text of ["path:'/learning'",'revision:item.revision',"'adopt'","'retire'",'item.agentId',"'mother'",'item.learning','reason.trim()'])assert.ok(learning.includes(text),text);

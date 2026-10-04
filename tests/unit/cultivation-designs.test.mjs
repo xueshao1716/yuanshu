@@ -36,8 +36,20 @@ test('drafts can survive disabled policy; adoption revalidates permissions and p
   assert.throws(() => assertAdoptable(d, defaultPolicy()), /policy_disabled/);
   assert.equal(assertAdoptable(d, policy(), {now: Date.parse('2026-09-30')}), true);
   assert.throws(() => assertAdoptable(d, policy(), {now: Date.parse('2028-01-01')}), /policy_expired/);
-  assert.throws(() => assertAdoptable({...d, permissions: {...d.permissions, tools: ['shell']}}, policy()), /request_denied/);
+  assert.throws(() => assertAdoptable({...d, permissions: {...d.permissions, tools: ['custom_tool']}}, policy()), /request_denied/);
   assert.throws(() => assertAdoptable({...d, protectedProposalRefs: ['proposal-fixture']}, policy()), /protected_proposal_pending/);
+});
+test('cultivation designs never smuggle computer, password or credential permissions', async () => {
+  const {validateDesign} = await module();
+  for (const tool of ['computer_use', 'terminal', 'password_manager', 'credential_store', '电脑操作', '读取密码']) {
+    const d = design(); d.permissions.tools = [tool];
+    assert.throws(() => validateDesign(d), error => {
+      assert.equal(error.message, 'cultivation_invalid_design');
+      assert.equal(error.field, 'design.permissions.tools');
+      assert.match(error.expected, /电脑|密码|凭据/);
+      return true;
+    });
+  }
 });
 test('asset adoption requires trusted validation scoped to agent, kind, ID and version', async () => {
   const {assertAdoptable, validateDesign} = await module(), d = design();
@@ -57,7 +69,7 @@ test('asset adoption requires trusted validation scoped to agent, kind, ID and v
 test('revisions cannot expand the adopted permission envelope', async () => {
   const {assertNoExpansion} = await module(), d = design();
   assert.doesNotThrow(() => assertNoExpansion(d, d));
-  assert.throws(() => assertNoExpansion({...d, permissions: {...d.permissions, tools: ['shell']}}, d), /permission_expansion/);
+  assert.throws(() => assertNoExpansion({...d, permissions: {...d.permissions, tools: ['custom_tool']}}, d), /permission_expansion/);
 });
 
 test('invalid design reports a safe field path and expected format without echoing input', async () => {

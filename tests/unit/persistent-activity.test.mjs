@@ -5,6 +5,13 @@ import os from 'node:os'
 import path from 'node:path'
 import { createRunStore } from '../../engine/run-store.mjs'
 
+test('activity route reads durable metadata asynchronously', () => {
+  const server = fs.readFileSync(new URL('../../server.mjs', import.meta.url), 'utf8')
+  const route = server.split('\n').find(line => line.includes('["GET", "/api/agent/events"'))
+  assert.ok(route?.includes('async'), 'activity route must yield while reading history')
+  assert.ok(route?.includes('await runStore.listAsync()'), 'do not scan history synchronously every five seconds')
+})
+
 test('activity rebuilds from persistent runs and ignores unscoped or foreign records', async t => {
   const mod = await import('../../engine/persistent-activity.mjs').catch(() => ({}))
   assert.equal(typeof mod.buildPersistentActivity, 'function', 'needs durable activity projection')

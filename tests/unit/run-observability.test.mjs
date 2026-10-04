@@ -11,6 +11,19 @@ test('events map to stable user-facing phases', () => {
   assert.equal(phaseFromEvent('failed'), 'failed')
 })
 
+test('durable status wins over late or stale execution events', () => {
+  const events = [{ type: 'reasoning' }]
+  for (const status of ['queued', 'stopping', 'stopped', 'failed', 'completed', 'interrupted']) {
+    assert.equal(summarizeRun({ status }, events).phase, status)
+  }
+  assert.equal(summarizeRun({ status: 'unknown' }, events).phase, 'unknown')
+})
+
+test('resumed run does not inherit the previous attempt terminal phase', () => {
+  assert.equal(summarizeRun({ status: 'running' }, [{ type: 'failed' }, { type: 'resumed' }]).phase, 'executing')
+  assert.equal(summarizeRun({ status: 'running' }, [{ type: 'reasoning' }, { type: 'note' }]).phase, 'thinking')
+})
+
 test('summarizeRun includes current phase and safe error preview', () => {
   const summary = summarizeRun(
     { id: 'r1', status: 'failed', sessionId: 's1', input: { messagePreview: '做个总结' }, error: '模型失败' },

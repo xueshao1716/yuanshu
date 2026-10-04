@@ -45,8 +45,17 @@ test('desktop defaults off and cannot be enabled by tool arguments',async()=>{
 });
 test('single-window grant binds a live session and expires',async()=>{
   const f=fixture();const seen=await f.enable(); assert.ok(seen.observationId);
+  assert.equal(f.service.status().grant.scope,'desktop');
   await assert.rejects(()=>f.service.observe('s2'),/会话/);
   f.advance();await assert.rejects(()=>f.service.observe('s1'),/授权/); assert.equal(f.service.status().enabled,false);
+});
+
+test('desktop grant keeps its scope when the observation target changes',async()=>{
+  const f=fixture(); await f.enable();
+  const list=await f.service.windows();
+  const status=await f.service.selectWindow({windowId:list[0].id,sessionId:'s1'});
+  assert.equal(status.grant.scope,'desktop');
+  assert.equal(status.grant.window.title,'Fixture');
 });
 test('desktop mutation needs approval; consumes observation and rejects replay',async()=>{
   const f=fixture(), seen=await f.enable();

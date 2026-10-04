@@ -24,11 +24,11 @@ for(const width of [1440,390]) test(`computer controls: scoped grant, rejection 
   const panel=page.locator('[data-slot="computer-use"]');
   await panel.getByText('未授权 · 默认关闭',{exact:true}).waitFor();
   await panel.getByRole('button',{name:'选择会话与窗口',exact:true}).click();
-  const grant=panel.getByRole('button',{name:'仅授权 10 分钟'});
+  const grant=panel.getByRole('button',{name:'授权本次桌面操作 10 分钟'});
   assert.equal(await grant.isEnabled(),false);
   await panel.getByLabel('操作会话',{exact:true}).selectOption('isolated');
   await panel.getByLabel('目标窗口',{exact:true}).selectOption('window-one');
-  await grant.click();await panel.getByText('已限时授权',{exact:true}).waitFor();
+  await grant.click();await panel.getByText('本次桌面授权已开',{exact:true}).waitFor();
   assert.deepEqual(writes,[{windowId:'window-one',sessionId:'isolated'}]);
   stale=true;
   await panel.getByRole('button',{name:'拒绝本次',exact:true}).click();

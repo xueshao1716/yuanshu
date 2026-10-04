@@ -20,6 +20,6 @@ test('approved remote-only revision can be adopted and history remains readable 
   await f.execute(f.command('agent.adopt',{agentId,designId:next.result.id}),'mother');
   await f.execute(f.command('policy.set',{policy:{...enabledPolicy(),enabled:false}}));
   assert.equal(f.controls.read().data.agents[0].designId,next.result.id);
-  d.permissions.tools=['shell'];
+  d.permissions.tools=['custom_tool'];
   await assert.rejects(f.execute(f.command('design.revise',{parentId:next.result.id,design:d}),'mother'),/permission_expansion/);
 });

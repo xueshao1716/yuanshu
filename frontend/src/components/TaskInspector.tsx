@@ -23,10 +23,12 @@ const PHASE_LABELS: Record<string, string> = {
   executing: '工具执行',
   remembering: '整理记忆',
   delivering: '交付中',
+  stopping: '停止中',
   completed: '已完成',
   failed: '执行失败',
   stopped: '已停止',
   interrupted: '可恢复',
+  unknown: '状态未知',
 }
 
 const FILE_STATUS_LABELS: Record<GitReviewFile['status'], string> = {
@@ -49,6 +51,7 @@ type RunTone = 'error' | 'warning' | 'success' | 'active'
 
 function statusTone(run: RunSummary): RunTone {
   if (['failed', 'stopped'].includes(run.phase) || run.status === 'failed') return 'error'
+  if (run.phase === 'stopping' || run.status === 'stopping') return 'warning'
   if (run.phase === 'interrupted') return 'warning'
   if (run.phase === 'completed') return 'success'
   return 'active'
@@ -102,7 +105,11 @@ function RunCard({ run, active, onOpenSession, mutate }: { run: RunSummary; acti
   const stop = async () => {
     if (busy) return
     setBusy(true)
-    try { await RunsApi.stop(run.id); toast('任务已停止', 'ok'); await mutate() }
+    try {
+      const next = await RunsApi.stop(run.id)
+      toast(next.status === 'stopping' ? '已提交停止请求，正在等待执行端确认' : '任务已停止', next.status === 'stopping' ? 'info' : 'ok')
+      await mutate()
+    }
     catch (error: any) { toast(`停止失败：${error?.message || '请重试'}`, 'error') }
     finally { setBusy(false) }
   }
@@ -136,7 +143,7 @@ function RunCard({ run, active, onOpenSession, mutate }: { run: RunSummary; acti
     </div>
     {run.error && <div className="mt-2 rounded-pi-md border border-pi-error/20 bg-pi-error/5 px-2.5 py-2 text-[11px] leading-relaxed text-pi-error">{run.error}</div>}
     {(active || run.resumeAvailable) && <div className="mt-2 flex gap-2">
-      {active && <button type="button" disabled={busy} onClick={stop} className="inline-flex min-h-9 flex-1 items-center justify-center gap-1.5 rounded-pi-md border border-pi-border-soft px-2 text-[11px] text-pi-dim hover:text-pi-text disabled:opacity-50"><Square className="h-3.5 w-3.5" />{busy ? '处理中…' : '停止任务'}</button>}
+      {active && <button type="button" disabled={busy || run.status === 'stopping'} onClick={stop} className="inline-flex min-h-9 flex-1 items-center justify-center gap-1.5 rounded-pi-md border border-pi-border-soft px-2 text-[11px] text-pi-dim hover:text-pi-text disabled:opacity-50"><Square className="h-3.5 w-3.5" />{run.status === 'stopping' ? '停止中…' : busy ? '处理中…' : '停止任务'}</button>}
       {!active && run.resumeAvailable && <button type="button" disabled={busy} onClick={resume} className="inline-flex min-h-9 flex-1 items-center justify-center gap-1.5 rounded-pi-md border border-pi-accent/40 px-2 text-[11px] text-pi-accent hover:bg-pi-accent/10 disabled:opacity-50"><RotateCcw className="h-3.5 w-3.5" />{busy ? '处理中…' : '继续任务'}</button>}
     </div>}
   </section>
@@ -149,7 +156,7 @@ export default function TaskInspector({ onOpenSession, onOpenReview }: { onOpenS
   const recent = !active ? runData?.recent?.[0] : undefined
   const run = active || recent
   const health = runData?.health
-  const healthLabel = health?.activeCount
+  const healthLabel = runError ? '状态暂不可确认' : !health ? '正在读取运行状态' : health?.activeCount
     ? '引擎工作中'
     : health?.failedCount
       ? '当前空闲 · 有历史异常'

@@ -5,7 +5,7 @@ import {designValidationDetails} from './designs.mjs';
 import {cultivationFailureDetails} from './diagnostics.mjs';
 
 const actions=['overview','agents','designs','runs','experience','preflight','models','denials','learning.context','design.submit','design.revise','agent.register','agent.adopt','run.submit','learning.decide','asset.bind'];
-const description='智能体培养：先读取 overview 的 revision 和授权策略。由你自己设计，不能冒充用户批准。'+
+const description='智能体培养：由小语自己设计和推进，先在对话里向主人说明方案；主人只需查看方案并做最终放权确认，不能冒充用户批准。培养设计只描述目标、课程和文本任务，不向主人索取课程、模型参数、电脑密码或其他凭据。'+
   '登记前用 preflight,payload={action:"design.check",designId} 检查设计、模型、价格和共享配额；操作前也可用 action:agent.register或run.submit或run.dispatch 配合 designId或agentId 一次查看 blockedBy；只读，不注册、不预留、不调用模型。'+
   'models 返回精确 provider/id 标识及两层授权状态（不是探活结果）；denials 读取最近拒绝记录。零运行额度可以登记，但不能执行任务。'+
   '读取 action=overview/agents/designs/runs/experience；写入 action=design.submit/design.revise/agent.register/agent.adopt/run.submit，'+
@@ -21,7 +21,7 @@ const description='智能体培养：先读取 overview 的 revision 和授权�
   'appearance/clothing/voice 各为 {description,asset:null 或 {id,version}},permissions={model,tools:[],dataScopes:[],remote,costUpperBoundCents},'+
   'protectedProposalRefs:[]。格式错误返回field和expected，保留设计内容修正格式，重新读取revision并用新requestId重试；不必搜索引擎源码。'+
   '策略关闭仍可提交草稿，但注册、采用及运行必须满足用户授权。返回retryable=false时停止重复调用，按nextAction说明等待用户在授权与资源中会话确认。'+
-  '本阶段tools=[]是正常的文本任务设计，不要为让个体能工作而加工具；HTTP模型需要remote=true，只有用户策略已明确允许时才可修订此标记。'+
+  '本阶段tools=[]是正常且推荐的文本培养设计，不要为让个体能工作而加工具；培养设计不得包含电脑、文件、终端、密码或凭据权限，电脑操作另有独立授权且默认关闭；HTTP模型需要remote=true，只有用户策略已明确允许时才可修订此标记。'+
   '无真实设计时先向用户说明，不能预填演示人物。无独立证据的任务输出只是待核验假设；失败、取消或未知结果仅为执行记录，不是已核验知识。';
 const recovery = Object.freeze({
   cultivation_policy_disabled:'培养策略尚未开启。请用户到灵魂培养中心 → 智能体培养 → 授权与资源，选择真实设计并核对七天受限培养，完成会话确认。确认前不要重复注册；草稿不会因此丢失。',

@@ -53,6 +53,8 @@ export function validateDesign(input) {
   checkObject(p, ['model', 'tools', 'dataScopes', 'remote', 'costUpperBoundCents'], 'design.permissions');
   checkText(p.model, 'design.permissions.model', 200);
   for (const key of ['tools', 'dataScopes']) checkList(p[key], `design.permissions.${key}`);
+  if (p.tools.some(tool => /computer|terminal|shell|password|credential|secret|\bfile(?:s)?\b|电脑|终端|密码|凭据|文件/i.test(tool)))
+    bad('design.permissions.tools', '培养设计不得包含电脑、文件、终端、密码或凭据权限；文本培养请使用空工具列表');
   if (typeof p.remote !== 'boolean') bad('design.permissions.remote', '布尔值true或false');
   if (!Number.isSafeInteger(p.costUpperBoundCents) || p.costUpperBoundCents < 0)
     bad('design.permissions.costUpperBoundCents', '大于等于0的安全整数，单位为分');

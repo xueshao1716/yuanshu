@@ -11,6 +11,7 @@ export function createComputerRoutes({service,json,readBody}) {
     ['GET','/api/computer/status',handle(()=>service.status())],
     ['GET','/api/computer/windows',handle(async()=>({windows:await service.windows()}))],
     ['POST','/api/computer/grant',handle(async req=>service.grant(await readBody(req,0.01)))],
+    ['POST','/api/computer/target',handle(async req=>service.selectWindow(await readBody(req,0.01)))],
     ['POST','/api/computer/stop',handle(()=>service.stop())],
     ['POST','/api/computer/observe',handle(async req=>service.observe((await readBody(req,0.01))?.sessionId))],
   ];

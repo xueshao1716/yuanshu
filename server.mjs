@@ -2973,7 +2973,7 @@ const API_ROUTES = [
   ["POST", "/api/compare", async (res, req) => handleCompare(res, await readBody(req))],
   // ── Agent 活动事件（pi 事件广播扩展 → 前端实时显示小语在干嘛）──
   ["POST", "/api/agent/events", async (res, req) => handleAgentEventIn(req, res, await readBody(req, 2))],
-  ["GET", "/api/agent/events", (res) => handleAgentEventOut(res, buildPersistentActivity(runStore.list(), WS_ROOT))],
+  ["GET", "/api/agent/events", async (res) => handleAgentEventOut(res, buildPersistentActivity(await runStore.listAsync(), WS_ROOT))],
   // 危险操作确认回传：前端弹框后调这里（ok=true 放行 / ok=false 拒绝）
   ["POST", "/api/agent/confirm", async (res, req) => {
     try {
@@ -3450,7 +3450,7 @@ function startServer() {
     } catch {}
     // 时间引擎：定时任务调度（触发时跑 unifiedChat + 结果落盘 文档/时间引擎日志.md）
     try {
-      timeEngine = createTimeEngine(async (task) => {
+      timeEngine = createTimeEngine(async (task, signal) => {
         let out = "(无输出)";
         try {
           console.log(`[time-engine] 触发任务 ${task.id}(${task.queueId}): ${String(task.prompt).slice(0, 60)}`);
@@ -3460,8 +3460,11 @@ function startServer() {
             sessions: getSessionList(),
             now: new Date(),
           });
-          const r = await unifiedChat(defaultModel, messages, { tools: timeTaskReadTools(UNIFIED_TOOLS) });
-          out = completedTaskText(r) || "(无输出)";
+          const r = await unifiedChat(defaultModel, messages, { tools: timeTaskReadTools(UNIFIED_TOOLS), signal });
+          const completed = signal?.aborted || r?.aborted ? null : completedTaskText(r);
+          if (signal?.aborted || r?.aborted) return { aborted: true };
+          out = completed || "(无输出)";
+          if (signal?.aborted) return { aborted: true };
           const logDir = path.join(CONFIG.cwd, "文档");
           try { fs.mkdirSync(logDir, { recursive: true }); } catch {}
           const logFile = path.join(logDir, "时间引擎日志.md");
@@ -3469,9 +3472,11 @@ function startServer() {
 ### ${task.firedAt} [${task.id}/${task.queueId}] ${String(task.prompt).slice(0, 40)}
 ${String(out).slice(0, 16000)}
 `;
+          if (signal?.aborted) return { aborted: true };
           try { fs.appendFileSync(logFile, entry); } catch {}
           // 复盘的行动清单落成承诺：这样"今天要做的"才可追踪——下一轮复盘会看到它、
           // 台前「待兑现承诺」会列它，结清仍只能由人给结论。没有 JSON 块的任务是无操作。
+          if (signal?.aborted) return { aborted: true };
           try {
             const rec = recordReflectionActions(CONFIG.cwd, out, { taskId: task.id });
             if (rec?.ok) console.log(`[time-engine] 任务 ${task.id} 的行动清单 → 承诺账：解析 ${rec.parsed} 条，新增 ${rec.added} 条`);
@@ -3487,20 +3492,22 @@ ${String(out).slice(0, 16000)}
               let result = null;
               try {
                 const prompt = buildActionExecutionPrompt(action, { ymd: yesterdayYmd() });
-                const rr = await unifiedChat(defaultModel, [{ role: "user", content: prompt }], { tools: UNIFIED_TOOLS });
-                result = parseActionResult(completedTaskText(rr));
+                const rr = await unifiedChat(defaultModel, [{ role: "user", content: prompt }], { tools: UNIFIED_TOOLS, signal });
+                const completed = signal?.aborted || rr?.aborted ? null : completedTaskText(rr);
+                if (signal?.aborted || rr?.aborted) break;
+                result = parseActionResult(completed);
               } catch (e) {
                 result = { status: "failed", evidence: `执行轮异常：${String(e?.message || e).slice(0, 120)}`, files: [], summary: "" };
               }
               // 独立验证（2026-09-18）：执行轮自称 done 不算数——再派一个只看产物、
               // 看不到执行者推理的验证轮；不过验证就把结果降级，绝不让"自证成功"进账。
-              if (result?.status === "done") {
+              if (result?.status === "done" && !signal?.aborted) {
                 try {
                   const v = await verifyArtifacts({
                     claim: `${action.text}（执行轮自述：${result.evidence || "无证据"}）`,
                     artifacts: Array.isArray(result.files) ? result.files : [],
                     runTurn: async (prompt) => {
-                      const rr = await unifiedChat(defaultModel, [{ role: "user", content: prompt }], { tools: timeTaskReadTools(UNIFIED_TOOLS) });
+                      const rr = await unifiedChat(defaultModel, [{ role: "user", content: prompt }], { tools: timeTaskReadTools(UNIFIED_TOOLS), signal });
                       return completedTaskText(rr);
                     },
                   });
@@ -3512,11 +3519,12 @@ ${String(out).slice(0, 16000)}
                   result = { ...result, status: "blocked", evidence: `验证轮异常：${String(e?.message || e).slice(0, 120)}` };
                 }
               }
+              if (signal?.aborted) break;
               const rec2 = recordActionAttempt(CONFIG.cwd, action, result);
               rows.push({ text: action.text, status: result?.status || "failed", closed: rec2?.closed, evidence: result?.evidence || "" });
               console.log(`[time-engine] 自动执行「${String(action.text).slice(0, 40)}」→ ${result?.status || "failed"}${rec2?.closed ? "（已结清）" : ""}：${String(result?.evidence || "").slice(0, 100)}`);
             }
-            if (rows.length) {
+            if (rows.length && !signal?.aborted) {
               const logLine = `
 #### 自动执行（${summarizeExecution(rows)}）
 ${rows.map((r) => `- [${r.status}${r.closed ? "/已结清" : ""}] ${r.text}\n  证据：${r.evidence || "（无）"}`).join("\n")}

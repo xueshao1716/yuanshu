@@ -6,7 +6,7 @@ import { initDshKeys } from '../../engine/dsh-keys.mjs';
 import { readOpenAIChatStream } from '../../engine/openai-stream.mjs';
 import { readMessagesStream } from '../../engine/anthropic-stream.mjs';
 
-async function fixture(reply, run, native = false) {
+async function fixture(reply, run, native = false, execute = (_name, args) => ({ text: `page ${args.page} saved` })) {
   const requests = [], executed = [];
   const server = http.createServer(async (req, res) => {
     let raw = ''; for await (const part of req) raw += part;
@@ -20,7 +20,7 @@ async function fixture(reply, run, native = false) {
   initDshKeys({ authPath: 'auth', modelsPath: 'models', readJsonFile });
   initUnifiedChat({ authPath: 'auth', modelsPath: 'models', readJsonFile, getModelList: () => [model],
     UNIFIED_TOOLS: [{ type: 'function', function: { name: 'lookup', parameters: { type: 'object', properties: { page: { type: 'number' } } } } }],
-    executeUnifiedTool: async (name, args) => { executed.push({ name, args }); return { text: `page ${args.page} saved` }; },
+    executeUnifiedTool: async (name, args) => { executed.push({ name, args }); return execute(name, args); },
   });
   try { await run({ model, requests, executed, chat: opts => unifiedChat(model, [{ role: 'user', content: '逐页收集并验证交付' }], opts) }); }
   finally { await new Promise(resolve => server.close(resolve)); }
@@ -50,6 +50,35 @@ test('explicit round limit returns truthful reason and preserves completed histo
     assert.equal(result.history.filter(x => x.role === 'tool').length, 2);
   });
 });
+
+for (const failureMode of ['result', 'throw']) {
+  test(`tool failure (${failureMode}) at turns 20 and 40 reaches the next model turn without replay`, async () => {
+    await fixture(n => n <= 41 ? call(n) : answer('纠错后完成'), async ({ chat, executed, requests }) => {
+      const notes = [], checkpoints = [];
+      const result = await chat({ maxTurns: 20, autoContinueTools: true,
+        onNote: text => notes.push(text), onCheckpoint: cp => checkpoints.push(cp) });
+      assert.equal(result.paused, undefined);
+      assert.equal(result.error, undefined);
+      assert.equal(result.text, '纠错后完成');
+      assert.equal(requests.length, 42);
+      assert.deepEqual(executed.map(x => x.args.page), Array.from({ length: 41 }, (_, i) => i + 1));
+      for (const turn of [20, 40]) {
+        const failed = checkpoints.find(cp => cp.phase === 'tool_results' && cp.turn === turn);
+        // Thrown tools must keep their uncertain status, never become success.
+        assert.equal(failed.toolPlan[0].status, failureMode === 'throw' ? 'uncertain' : 'error');
+        assert.match(requests[turn].messages.at(-1).content, /recoverable lookup failure/);
+      }
+      assert.equal(notes.filter(text => text.includes('自动接续')).length, 2);
+      assert.ok(notes.every(text => !text.includes('工具仍有进展')));
+    }, false, (_name, args) => {
+      if ([20, 40].includes(args.page)) {
+        if (failureMode === 'throw') throw new Error('recoverable lookup failure');
+        return { text: 'recoverable lookup failure', isError: true };
+      }
+      return { text: `page ${args.page} saved` };
+    });
+  });
+}
 
 test('progressing task crosses 60 turns and completes without replay', async () => {
   await fixture(n => n <= 65 ? call(n) : answer('完成65页'), async ({ chat, executed, requests }) => {

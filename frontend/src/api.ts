@@ -775,7 +775,7 @@ export const EngineApi = {
   unregisterPlugin: (id: string) => api<any>('/api/engine/plugins/unregister', { method: 'POST', body: { id } }),
 }
 
-export type RunPhase = 'queued' | 'thinking' | 'executing' | 'remembering' | 'delivering' | 'completed' | 'failed' | 'stopped' | 'interrupted'
+export type RunPhase = 'queued' | 'thinking' | 'executing' | 'remembering' | 'delivering' | 'stopping' | 'completed' | 'failed' | 'stopped' | 'interrupted' | 'unknown'
 export interface RunSummary {
   deliveries?: GeneralTeamDelivery[]
   deliveriesUnavailable?: boolean

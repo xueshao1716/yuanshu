@@ -19,6 +19,18 @@ function fakeJson(res, code, value) {
   res.end(JSON.stringify(value))
 }
 
+test('explanation cache tracks metadata changes without a new event', async () => {
+  let run = { id: 'r-cache', status: 'running', updatedAt: '2026-10-04T00:00:00Z' }
+  const api = createRunApi({ manager: { get: () => run, readAfter: () => [{ seq: 1, type: 'reasoning' }] }, json: fakeJson })
+  const before = new FakeResponse()
+  await api.get(before, run.id)
+  assert.equal(JSON.parse(before.text()).explanation.status.code, 'running')
+  run = { ...run, status: 'stopping' }
+  const after = new FakeResponse()
+  await api.get(after, run.id)
+  assert.equal(JSON.parse(after.text()).explanation.status.code, 'stopping')
+})
+
 test('overview prefers nonblocking metadata and history reads while preserving its snapshot',async()=>{
  const reads=[];
  const api=createRunApi({manager:{

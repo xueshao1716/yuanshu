@@ -18,7 +18,7 @@ test('server wires ordinary completion, local reconciliation and a single retry-
   const server = read('server.mjs')
   const callback = server.slice(server.indexOf('onRunFinished: run => {'), server.indexOf('onRunFinished: run => {') + 230)
   for (const token of ['knowledgeRuntime.enqueueFinished(run)', 'learningIntake.enqueue(run)']) assert.ok(callback.includes(token), token)
-  for (const token of ['await learningIntake.reconcile()', 'await dreamCollector.collect()', '/api/learning-intake/status', 'buildPersistentActivity(runStore.list()']) assert.ok(server.includes(token), token)
+  for (const token of ['await learningIntake.reconcile()', 'await dreamCollector.collect()', '/api/learning-intake/status', 'buildPersistentActivity(await runStore.listAsync()']) assert.ok(server.includes(token), token)
   assert.ok(!server.includes('__dreamCursor'))
   assert.ok(!server.includes('skillEpisodesFromSessions(files)'))
 })

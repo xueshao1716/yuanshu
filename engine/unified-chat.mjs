@@ -456,7 +456,6 @@ export async function unifiedChat(model, messages, opts = {}) {
   if (opts.resumeCheckpointKind === "model_request") turn = Math.max(0, turn - 1);
   const continuation = continuationLimits(opts, maxTurns, turn);
   let batchLimit = continuation.limit;
-  let recentProgress = false;
   let pauseReason = 'tool_turn_limit';
   let continuedText = "";
   let usedModel = null; // provenance：记录实际使用的模型（Auto 路由/降级时前端可见）
@@ -514,12 +513,12 @@ export async function unifiedChat(model, messages, opts = {}) {
     if (Date.now() >= continuation.deadline) { pauseReason = 'execution_budget'; break; }
     if (turn >= batchLimit) {
       if (!continuation.automatic) break;
-      if (!recentProgress) { pauseReason = 'progress_boundary'; break; }
+      // A recoverable tool failure at a batch boundary must reach the model
+      // for correction. Abort, elapsed budget and loop guards remain active.
       batchLimit += maxTurns;
-      opts.onNote?.(`本次已完成 ${turn - continuation.startTurn} 轮，工具仍有进展，正在自动接续；剩余自动执行时间约 ${Math.ceil((continuation.deadline - Date.now()) / 60000)} 分钟。`);
+      opts.onNote?.(`本次已执行 ${turn - continuation.startTurn} 轮，正在保留已有结果自动接续；剩余自动执行时间约 ${Math.ceil((continuation.deadline - Date.now()) / 60000)} 分钟。`);
     }
     turn++;
-    recentProgress = false;
     outputBudget = budgetWithinWindow({ declaredMaxTokens: outputBudget, contextWindow: Number(mdef?.contextWindow) || 0, usedTokens: estimateHistoryTokens(history), fallback: OUTPUT_TOKEN_FALLBACK });
     try { opts.onCheckpoint?.({ phase: "model_request", turn, toolPlan: [], ...createRunHistorySnapshot(history, { turn }) }); } catch {}
     let r;
@@ -629,7 +628,6 @@ export async function unifiedChat(model, messages, opts = {}) {
         content: truncationRecoveryPrompt(outputBudget, truncatedToolRetries),
       });
       opts.onNote?.('检测到输出截断，正在保留已完成步骤并自动分块接续。');
-      recentProgress = true;
       await maybeCompactMidLoop();
       // The next loop may pause immediately on its time budget. Save the
       // received fragment AND continuation instruction before that boundary.
@@ -658,7 +656,6 @@ export async function unifiedChat(model, messages, opts = {}) {
       });
       try { opts.onCheckpoint?.({ phase: "tool_results", turn, toolPlan: toolPlanFor(tcs, official.toolPlan), ...createRunHistorySnapshot(history, { turn }) }); } catch {}
       if (official.stop) return official.stop;
-      recentProgress = official.toolPlan?.some(item => item.status === 'completed') === true;
       continuedText = "";
       await maybeCompactMidLoop();
       continue;
@@ -685,7 +682,6 @@ export async function unifiedChat(model, messages, opts = {}) {
       });
       try { opts.onCheckpoint?.({ phase: "tool_results", turn, toolPlan: toolPlanFor(scavCalls, scavengedRound.toolPlan), ...createRunHistorySnapshot(history, { turn }) }); } catch {}
       if (scavengedRound.stop) return scavengedRound.stop;
-      recentProgress = scavengedRound.toolPlan?.some(item => item.status === 'completed') === true;
       continuedText = "";
       await maybeCompactMidLoop();
       continue;

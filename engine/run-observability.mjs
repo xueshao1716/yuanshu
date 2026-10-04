@@ -12,6 +12,7 @@ const PHASE_BY_EVENT = new Map([
   ['session_updated', 'delivering'],
   ['completed', 'completed'],
   ['failed', 'failed'],
+  ['stopping', 'stopping'],
   ['stopped', 'stopped'],
   ['interrupted', 'interrupted'],
 ])
@@ -147,11 +148,13 @@ export function phaseFromEvent(type) {
 }
 
 function latestPhase(run, events) {
-  const lastEvent = events.at(-1)
-  if (lastEvent?.type) return phaseFromEvent(lastEvent.type)
-  if (run?.status === 'queued') return 'queued'
-  if (run?.status === 'running' || run?.status === 'stopping') return 'executing'
-  return phaseFromEvent(run?.status)
+  const status = String(run?.status || 'unknown')
+  if (status === 'queued' || status === 'stopping' || TERMINAL.has(status)) return status
+  if (status !== 'running') return 'unknown'
+  const resumedAt = events.findLastIndex(event => event?.type === 'resumed')
+  const currentAttempt = resumedAt >= 0 ? events.slice(resumedAt + 1) : events
+  const latestKnown = [...currentAttempt].reverse().find(event => PHASE_BY_EVENT.has(String(event?.type || '')))
+  return latestKnown ? phaseFromEvent(latestKnown.type) : 'executing'
 }
 
 export function summarizeRun(run, events = []) {

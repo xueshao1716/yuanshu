@@ -50,7 +50,7 @@ export function createRunApi({ manager, json, readContext = null, readDeliveries
   const explainCache = new Map()
   const explain = async (run, events) => {
     const lastSeq = Array.isArray(events) && events.length ? (events[events.length - 1]?.seq || 0) : 0
-    const key = `${run && run.id}:${lastSeq}`
+    const key = `${run && run.id}:${run?.status || ''}:${run?.updatedAt || ''}:${lastSeq}`
     const hit = explainCache.get(key)
     if (hit) return hit
     let context = {}

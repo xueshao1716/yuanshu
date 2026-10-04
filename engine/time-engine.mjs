@@ -11,17 +11,19 @@ import os from "node:os";
 import { randomUUID } from "node:crypto";
 import { atomicWriteJson } from "./atomic-io.mjs";
 
-let TASKS_FILE = path.join(os.homedir(), ".pi", "agent", "time-tasks.json");
+const DEFAULT_TASKS_FILE = path.join(os.homedir(), ".pi", "agent", "time-tasks.json");
 const CHECK_MS = 20_000;
 const HISTORY_CAP = 20;
 const RESULT_CAP = 16000; // 反思/长输出要能复盘，200 字会把正文裁没
 
 export function createTimeEngine(runner, opts = {}) {
-  if (opts.file) TASKS_FILE = opts.file; // 可注入存储路径（测试用）
+  const taskFile = opts.file || DEFAULT_TASKS_FILE;
   const onTaskDone = opts.onTaskDone || null; // 技能沉淀钩子（09-03）：任务成功完成后 fire-and-forget，不阻塞
   let tasks = [];
   let timer = null;
   const running = new Map(); // taskId → queueId（执行身份）
+  const controllers = new Map(); // taskId → AbortController（真正取消 runner）
+  const stopRequested = new Set();
 
   function migrate(t) {
     if (!t.state) t.state = "active";
@@ -30,16 +32,16 @@ export function createTimeEngine(runner, opts = {}) {
   }
   function load() {
     try {
-      if (fs.existsSync(TASKS_FILE)) {
-        const d = JSON.parse(fs.readFileSync(TASKS_FILE, "utf8"));
+      if (fs.existsSync(taskFile)) {
+        const d = JSON.parse(fs.readFileSync(taskFile, "utf8"));
         tasks = (Array.isArray(d.tasks) ? d.tasks : []).map(migrate);
       }
     } catch { tasks = []; }
   }
   function save() {
     try {
-      fs.mkdirSync(path.dirname(TASKS_FILE), { recursive: true });
-      atomicWriteJson(TASKS_FILE, { tasks, updatedAt: new Date().toISOString() });
+      fs.mkdirSync(path.dirname(taskFile), { recursive: true });
+      atomicWriteJson(taskFile, { tasks, updatedAt: new Date().toISOString() });
     } catch {}
   }
 
@@ -87,10 +89,13 @@ export function createTimeEngine(runner, opts = {}) {
   async function execute(t, trigger = "schedule") {
     const queueId = randomUUID().slice(0, 12);
     const startedAt = Date.now();
+    const controller = new AbortController();
     running.set(t.id, queueId);
+    controllers.set(t.id, controller);
+    stopRequested.delete(t.id);
     let status = "ok", result = "";
     try {
-      const out = runner ? await runner({ ...t, firedAt: new Date().toISOString(), queueId, trigger }) : null;
+      const out = runner ? await runner({ ...t, firedAt: new Date().toISOString(), queueId, trigger }, controller.signal) : null;
       result = typeof out === "string" ? out : (out?.text ?? out?.result ?? "");
     } catch (e) {
       status = "error";
@@ -100,7 +105,9 @@ export function createTimeEngine(runner, opts = {}) {
       // stop 已把该 queueId 从 running 移除 → 本次结果标记 stopped（业务确认语义）
       const confirmed = running.get(t.id) === queueId;
       if (confirmed) running.delete(t.id);
-      else status = status === "error" ? "error" : "stopped";
+      controllers.delete(t.id);
+      if (stopRequested.delete(t.id) || controller.signal.aborted) status = "stopped";
+      else if (!confirmed) status = status === "error" ? "error" : "stopped";
       t.lastRun = new Date(startedAt).toISOString();
       t.runs = (t.runs || 0) + 1;
       recordRun(t, queueId, startedAt, status, result);
@@ -129,18 +136,20 @@ export function createTimeEngine(runner, opts = {}) {
   function stopRun(id) {
     const qid = running.get(id);
     if (!qid) return { stopped: false, reason: "未在执行" };
-    running.delete(id);
+    stopRequested.add(id);
+    controllers.get(id)?.abort();
     const t = find(id);
     if (t) { recordRun(t, qid, Date.now(), "stop_requested", ""); save(); }
-    return { stopped: true, queueId: qid };
+    return { stopped: false, stopping: true, queueId: qid };
   }
 
   // 判断任务在 now 是否到期（含防重复）
+  const localYmd = date => `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
   function isDue(t, now) {
     if (t.state !== "active") return false;
     const hm = `${String(now.getHours()).padStart(2, "0")}:${String(now.getMinutes()).padStart(2, "0")}`;
     if (hm !== t.at) return false;
-    const today = now.toISOString().slice(0, 10);
+    const today = localYmd(now);
     const last = t.lastRun ? new Date(t.lastRun) : null;
     if (t.type === "once") {
       if (t.date !== today) return false;
@@ -148,13 +157,13 @@ export function createTimeEngine(runner, opts = {}) {
       return true;
     }
     if (t.type === "daily") {
-      if (last && last.toISOString().slice(0, 10) === today) return false;
+      if (last && localYmd(last) === today) return false;
       return true;
     }
     if (t.type === "weekly") {
       const dow = now.getDay() || 7;
       if (dow !== t.day) return false;
-      if (last && last.toISOString().slice(0, 10) === today) return false;
+      if (last && localYmd(last) === today) return false;
       return true;
     }
     return false;
@@ -167,7 +176,7 @@ export function createTimeEngine(runner, opts = {}) {
       if (isDue(t, now)) await execute(t, "schedule");
     }
     // 过期 once 清理仅针对已 done/archived 的（active 的保留补跑权）
-    const today = now.toISOString().slice(0, 10);
+    const today = localYmd(now);
     const before = tasks.length;
     tasks = tasks.filter(t => !(t.type === "once" && t.date < today && t.state !== "active"));
     if (tasks.length !== before) save();
@@ -182,7 +191,7 @@ export function createTimeEngine(runner, opts = {}) {
   }
   function stop() { if (timer) { clearInterval(timer); timer = null; } }
 
-  return { start, stop, stopRun, register, remove, list, check, pause, resume, archive, setState, runNow, find, _isDue: isDue, _file: TASKS_FILE };
+  return { start, stop, stopRun, register, remove, list, check, pause, resume, archive, setState, runNow, find, _isDue: isDue, _file: taskFile };
 }
 
 // 时间感知文本：统一由 yuanshu-seams 的 promptTimeText 产出（含"过了多久"）。

@@ -18,7 +18,7 @@ export function createComputerUse({ adapter, registry, sessionExists, push = () 
   };
   const status = () => {
     if (grant && grant.expiresAt <= now()) stop();
-    return { supported:adapter.supported, enabled:!!grant, grant:grant ? {sessionId:grant.sessionId,window:grant.window,expiresAt:grant.expiresAt} : null,
+    return { supported:adapter.supported, enabled:!!grant, grant:grant ? {scope:grant.scope || 'desktop',sessionId:grant.sessionId,window:grant.window,expiresAt:grant.expiresAt} : null,
       pending:pending ? registry.list().filter(x=>x.id===pending.id && x.sessionId===pending.sessionId) : [], busy:!!operation };
   };
   const windows = async () => {
@@ -36,7 +36,19 @@ export function createComputerUse({ adapter, registry, sessionExists, push = () 
     if (!candidate || candidate.expiresAt < now()) throw new Error('窗口列表已过期，请重新读取');
     stop();
     // Window identity is revalidated by the native adapter on every read/action.
-    grant = { id:randomUUID(), sessionId, window:candidate.window, expiresAt:now()+600000 };
+    // Authorization is for the controlled desktop session.  The selected
+    // window is only the current observation target and may be changed while
+    // the grant remains active.
+    grant = { id:randomUUID(), scope:'desktop', sessionId, window:candidate.window, expiresAt:now()+600000 };
+    return status();
+  };
+  const selectWindow = ({windowId, sessionId} = {}) => {
+    const current = check(sessionId);
+    if (operation) throw new Error('电脑操作正在进行，请先停止');
+    const candidate = candidates.get(windowId);
+    if (!candidate || candidate.expiresAt < now()) throw new Error('窗口列表已过期，请重新读取');
+    current.window = candidate.window;
+    observation = null;
     return status();
   };
   const observe = async (sid, {signal} = {}) => {
@@ -86,5 +98,5 @@ export function createComputerUse({ adapter, registry, sessionExists, push = () 
       pending=null; signal?.removeEventListener('abort',abort); if(operation===ctrl) operation=null;
     }
   };
-  return {status,windows,grant:enable,observe,act,stop};
+  return {status,windows,grant:enable,selectWindow,observe,act,stop};
 }

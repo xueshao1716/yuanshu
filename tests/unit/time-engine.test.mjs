@@ -13,6 +13,27 @@ function tmpEngine(runner) {
   return { te, file, cleanup: () => fs.rmSync(dir, { recursive: true, force: true }) };
 }
 
+test('independent time engines never overwrite each other storage', t => {
+  const first = tmpEngine(null), second = tmpEngine(null)
+  t.after(first.cleanup); t.after(second.cleanup)
+  first.te.register({ prompt: 'first' })
+  second.te.register({ prompt: 'second' })
+  assert.equal(JSON.parse(fs.readFileSync(first.file, 'utf8')).tasks[0].prompt, 'first')
+  assert.equal(JSON.parse(fs.readFileSync(second.file, 'utf8')).tasks[0].prompt, 'second')
+})
+
+test('schedules use the same local calendar as HH:MM', t => {
+  const { te, cleanup } = tmpEngine(null)
+  t.after(cleanup)
+  const now = new Date(2026, 9, 4, 0, 5)
+  const localDay = '2026-10-04'
+  const once = te.register({ type: 'once', date: localDay, at: '00:05', prompt: 'once' })
+  assert.equal(te._isDue(te.find(once.id), now), true)
+  const daily = te.register({ at: '00:05', prompt: 'daily' })
+  te.find(daily.id).lastRun = new Date(2026, 9, 3, 20, 0).toISOString()
+  assert.equal(te._isDue(te.find(daily.id), now), true, 'previous local day must not suppress today')
+})
+
 test("注册默认 active；pause/resume/archive 状态机与非法转换", async () => {
   const { te, cleanup } = tmpEngine(null);
   const r = te.register({ type: "daily", at: "09:00", prompt: "测试" });
@@ -59,18 +80,23 @@ test("runner 抛错 → error 历史含原因", async () => {
 
 test("stop 拿到业务确认；runner 结束后该次标记 stopped", async () => {
   let resolveRun;
+  let runnerSignal;
   const gate = new Promise(res => { resolveRun = res; });
-  const { te, cleanup } = tmpEngine(async () => { await gate; return "晚到的结果"; });
+  const { te, cleanup } = tmpEngine(async (_task, signal) => { runnerSignal = signal; await gate; return "晚到的结果"; });
   const r = te.register({ type: "daily", at: "23:59", prompt: "x" });
   const runP = te.runNow(r.id).catch(() => {});
   await new Promise(res => setTimeout(res, 50)); // 等 runner 进入
   const stopR = te.stopRun(r.id);
-  assert.equal(stopR.stopped, true);
+  assert.equal(stopR.stopped, false);
+  assert.equal(stopR.stopping, true);
   assert.ok(stopR.queueId);
+  assert.equal(runnerSignal.aborted, true, "stop 应中断实际 runner");
+  assert.equal(te.list()[0].running, true, "停止确认前仍应显示运行中/停止中");
   resolveRun();
   await runP;
   const t = te.find(r.id);
   assert.ok(t.history.some(h => h.status === "stopped"), "应有 stopped 投影");
+  assert.equal(te.list()[0].running, false, "runner 确认结束后才离开活动态");
   // 未在执行的任务 stop 返回未执行
   assert.equal(te.stopRun(r.id).stopped, false);
   cleanup();

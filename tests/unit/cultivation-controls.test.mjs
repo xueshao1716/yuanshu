@@ -76,7 +76,7 @@ test('revision and rollback retain history and reject permissions or foreign des
   const unrelated = await f.execute(f.command('design.submit', {design: draft()}), 'mother');
   await assert.rejects(f.execute(f.command('agent.adopt', {agentId, designId: unrelated.result.id}), 'mother'), /design_lineage/);
   await assert.rejects(f.execute(f.command('design.revise', {parentId: designId,
-    design: {...draft(), permissions: {...draft().permissions, tools: ['shell']}}}), 'mother'), /permission_expansion/);
+    design: {...draft(), permissions: {...draft().permissions, tools: ['custom_tool']}}}), 'mother'), /permission_expansion/);
 });
 
 test('population and malformed business records fail closed', async t => {
