@@ -33,6 +33,9 @@ export default defineConfig({
     port: 5173,
     // 钉死 IPv4 回环：默认可能只绑 [::1]，配合系统代理时本机都连不上
     host: '127.0.0.1',
+    // 不接受虚拟网卡/远程转发带来的 Host；开发页只给本机浏览器联调。
+    // 这不能替代关闭旧进程，但能阻止后续启动的 Vite 服务被当作内网网页入口。
+    allowedHosts: ['localhost', '127.0.0.1'],
     proxy: {
       '/api': { target: 'http://127.0.0.1:8787', changeOrigin: true },
       '/static': { target: 'http://127.0.0.1:8787', changeOrigin: true },
