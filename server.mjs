@@ -126,6 +126,7 @@ import { initUnifiedChat, unifiedChat, engineCurrentModel, initEngine, getCodeRu
 import { completedTaskText } from "./engine/task-continuation.mjs";
 import { createApprovalInterceptor } from "./engine/tools/approval.mjs";
 import * as confirmRegistry from "./engine/tools/confirm-registry.mjs";
+import { createSandboxAskFactory } from "./engine/sandbox-ask.mjs";
 import { isLocalMaintenanceApproval } from "./engine/maintenance-approval.mjs";
 import { createGeneApproval } from './engine/gene-approval.mjs';
 import { createPersonaGovernance } from './engine/persona-governance.mjs';
@@ -731,14 +732,7 @@ initUnifiedChat({
   authPath: AUTH_PATH, modelsPath: MODELS_PATH, cwd: CONFIG.cwd, sessionDir: SESSIONS_DIR,
   piPackage: CONFIG.piPackage, UNIFIED_TOOLS, getAgentDir, THINK_TOOL,
   // 元枢沙箱升级与 pi 共用同一人工确认注册表；没有前端应答时由注册表超时并 fail-closed。
-  createSandboxAsk: ({ writer, sessionId, taskId }) => async (toolName, args, reason) => {
-    const sid = sessionId || taskId || "new";
-    const rid = args?.runId || taskId || sid;
-    if (maintenanceApi?.hasLease({ sessionId: sid, taskId: taskId || sid, runId: rid })) return "allowed-once";
-    const reg = confirmRegistry.register(sid, { toolName, reason, src: "sandbox" });
-    writer.push("confirm", { id: reg.id, toolName, reason, args: args || {}, sessionId: sid });
-    return reg.promise;
-  },
+  createSandboxAsk: createSandboxAskFactory({ registry: confirmRegistry, hasLease: (q) => !!maintenanceApi?.hasLease(q) }),
 }); // 统一对话通道注入
 initRefineApi({ cwd: CONFIG.cwd }); // 经验沉淀台注入
 initMcpServer({ modelRouter: (await import("./engine/model-router.mjs")), memoryApi: memoryApi, emotion, getDefaultModel: () => defaultModel, wsRoot: () => CONFIG.cwd, getToken: () => CONFIG.token, json }); // MCP 认知层注入
