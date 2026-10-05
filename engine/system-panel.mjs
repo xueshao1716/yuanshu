@@ -102,10 +102,30 @@ export function systemInfo(wsRoot, agentDir, fsMod = fs) {
   };
 }
 
+/** 本地与远端的先后：只有远端提交不是本地 HEAD 的祖先时才算「有更新」。
+ *  本地领先（有未推送提交）时误报更新，会诱导用户点「立即更新」白白重启并中断任务。 */
+function gitDefault(args, repoDir) {
+  try { return { ok: true, out: execFileSync("git", args, { cwd: repoDir, timeout: 5000, stdio: ["ignore", "pipe", "ignore"] }).toString().trim() }; }
+  catch (e) { return { ok: false, code: typeof e?.status === "number" ? e.status : -1 }; }
+}
+export function relateCommits(repoDir, remoteSha, git = gitDefault) {
+  if (!remoteSha) return { relation: "unknown" };
+  // 远端提交不在本地对象库 → 本地从没见过它，只能是落后或分叉；保守当作有更新
+  const known = git(["cat-file", "-e", `${remoteSha}^{commit}`], repoDir);
+  if (!known.ok) return { relation: "behind" };
+  const anc = git(["merge-base", "--is-ancestor", remoteSha, "HEAD"], repoDir);
+  if (anc.ok) {
+    const n = git(["rev-list", "--count", `${remoteSha}..HEAD`], repoDir);
+    return { relation: "ahead", ahead: n.ok ? Number(n.out) || 0 : null };
+  }
+  if (anc.code === 1) return { relation: "diverged" }; // 两边各有新提交
+  return { relation: "unknown" };
+}
+
 /** 检测更新：本地 git HEAD vs 远端仓库最新提交（GitHub→Gitee 双源回退） */
-export async function checkUpdate(repoDir, fsMod = fs) {
+export async function checkUpdate(repoDir, fsMod = fs, { fetchImpl = fetch, git = gitDefault } = {}) {
   let localShaFull = "";
-  try { localShaFull = execFileSync("git", ["rev-parse", "HEAD"], { cwd: repoDir, timeout: 5000 }).toString().trim(); } catch {}
+  { const r = git(["rev-parse", "HEAD"], repoDir); if (r.ok) localShaFull = r.out; }
   const localSha = localShaFull.slice(0, 7);
   const sources = [
     { name: "github", url: "https://api.github.com/repos/xueshao1716/yuanshu/commits/main",
@@ -116,14 +136,17 @@ export async function checkUpdate(repoDir, fsMod = fs) {
   let lastErr = null;
   for (const s of sources) {
     try {
-      const resp = await fetch(s.url, { signal: AbortSignal.timeout(8000), headers: { "User-Agent": "pi-web" } });
+      const resp = await fetchImpl(s.url, { signal: AbortSignal.timeout(8000), headers: { "User-Agent": "pi-web" } });
       if (!resp.ok) { lastErr = new Error(`${s.name} 返回 ${resp.status}`); continue; }
       const remote = s.pick(await resp.json());
       if (!remote.sha) continue;
       // 远端 API 只保留短 SHA；本地必须有提交号且前缀一致，才可确认“已是最新”。
       // 本地提交号缺失时保持未知，不能把未知当成最新。
-      const upToDate = !!localShaFull && localSha === remote.sha;
-      return { ok: true, source: s.name, localSha, remote, upToDate, checkable: !!localShaFull };
+      const same = !!localShaFull && localSha === remote.sha;
+      const rel = same ? { relation: "same" } : localShaFull ? relateCommits(repoDir, remote.sha, git) : { relation: "unknown" };
+      // 领先 = 没有可拉取的东西，对「更新」而言就是最新；分叉/落后/未知仍提示
+      const upToDate = same || rel.relation === "ahead";
+      return { ok: true, source: s.name, localSha, remote, upToDate, checkable: !!localShaFull, ...rel };
     } catch (e) { lastErr = e; }
   }
   return { ok: false, error: "无法连接 github / gitee：" + (lastErr?.message || "网络不可达"), localSha };

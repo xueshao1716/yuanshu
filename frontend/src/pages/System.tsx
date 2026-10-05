@@ -171,6 +171,8 @@ export default function System() {
                   <div className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-pi-md text-xs font-medium ${update.upToDate ? 'bg-pi-success/15 text-pi-success' : 'bg-pi-warning/15 text-pi-warning'}`}>
                     {update.checkable === false
                       ? <><AlertTriangle className="w-3.5 h-3.5" aria-hidden="true" />暂时无法确认本机版本（本地提交号不可读）</>
+                      : update.upToDate && update.relation === 'ahead'
+                      ? <><CheckCircle2 className="w-3.5 h-3.5" aria-hidden="true" />本地领先远端{update.ahead ? ` ${update.ahead} 个提交` : ''}，待推送（{update.source} · 本地 {update.localSha}）</>
                       : update.upToDate
                       ? <><CheckCircle2 className="w-3.5 h-3.5" aria-hidden="true" />已是最新（{update.source} · 本地 {update.localSha}）</>
                       : <><AlertTriangle className="w-3.5 h-3.5" aria-hidden="true" />有更新：本地 {update.localSha} → 远端 {update.remote?.sha}</>}
