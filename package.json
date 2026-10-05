@@ -23,7 +23,8 @@
     "version:bump": "node scripts/bump-version.mjs",
     "prune:dist": "node scripts/prune-dist.mjs",
     "sync:frontend": "node scripts/sync-frontend.mjs",
-    "build:mobile:web": "npm run build:frontend && npm run sync:frontend",
+    "build:mobile:web": "npm run deploy:frontend",
+    "deploy:frontend": "npm run build:frontend && node scripts/prune-dist.mjs --apply && npm run sync:frontend",
     "serve:public": "node scripts/serve-public-entries.mjs",
     "sync:persona": "node scripts/sync-persona.mjs",
     "visual:run": "node scripts/visual-engine.mjs"

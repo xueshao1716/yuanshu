@@ -311,9 +311,12 @@ cp models.example.json ~/.pi/agent/models-store.json
 `frontend/` 是唯一的 React 前端源码，`frontend/dist/` 是唯一构建产物源。同步脚本把同一份产物复制到服务端静态目录 `public/` 和 Tauri 目录 `app/dist/`；Capacitor 直接使用 `frontend/dist/`，避免不同 Android 壳打包出不同界面。
 
 ```bash
-npm run build:mobile:web
-# 等价于：npm run build:frontend && npm run sync:frontend
+npm run deploy:frontend
+# 等价于：build:frontend → prune-dist --apply → sync:frontend
+# 旧命令 npm run build:mobile:web 仍可用，是它的别名
 ```
+
+顺序不能反：`vite.config.ts` 故意 `emptyOutDir:false` 保留旧指纹分块，先清理再同步，`public/` 与 `app/dist/` 才不会拿到未清理的全集。清理只删「当前入口 + 最近 2 个发布入口」都不可达的分块。
 
 Tauri Android 构建使用 `app/src-tauri` 的 Gradle/Tauri 工程，Capacitor Android 构建使用 Capacitor 工程；构建前先执行上面的前端命令。APK 交付文件名必须标明 ABI：单架构使用 `arm64`、`armeabi-v7a`、`x86` 或 `x86_64`，四 ABI 合包才使用 `universal`，不能把单架构包称为通用包。
 
