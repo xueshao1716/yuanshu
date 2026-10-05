@@ -9,7 +9,7 @@ export function DesignView({row}:{row:Design}) {
   const d=row.design
   return <div className="cultivation-design">
     <h4>{d.name}</h4><p>{d.rationale}</p>
-    <dl className="soul-facts"><div><dt>设计作者</dt><dd>{row.author.actorId}</dd></div><div><dt>设计版本</dt><dd>{row.id}</dd></div></dl>
+    <dl className="soul-facts"><div><dt>设计作者</dt><dd title={row.author.actorId}>{row.author.actorId.startsWith('mother:')?'小语':row.author.actorId.startsWith('human:')?'伙伴':row.author.actorId}</dd></div><div><dt>设计版本</dt><dd>{row.id}</dd></div></dl>
     <h4>目标与课程</h4><ul>{d.goals.map((s,i)=><li key={i}>{s}</li>)}</ul><ol>{d.curriculum.map((s,i)=><li key={i}>{s}</li>)}</ol>
     <p>暂时表达：{d.temporaryExpression}</p><p>观察方法：{d.observation}</p><p>恢复方式：{d.recovery}</p>
     <dl>{([['appearance','人物外貌'],['clothing','服装设计'],['voice','声音设计']] as const).map(([key,label])=><div key={key}><dt>{label}</dt><dd>{d[key].description}<br/>{d[key].asset?`个体绑定资产 ${d[key].asset.id} · 版本 ${d[key].asset.version}`:'尚未绑定媒体资产'}</dd></div>)}</dl>

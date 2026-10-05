@@ -3637,6 +3637,21 @@ async function sweepSessionsQuietly() {
 setTimeout(sweepSessionsQuietly, 2 * 60 * 1000);
 setInterval(sweepSessionsQuietly, SWEEP_MS);
 
+// ── 跨会话回忆索引定时增量重建（2026-10-05）──────────────────────────────────
+// 背景：rebuildIndex 只挂在 POST /api/recall/rebuild 上，没人点就一直停在 09-04。
+// 增量按 mtime+size 只重提取变过的会话，实测 0.25s；每小时一次，启动 5 分钟后先跑一次。
+const RECALL_REBUILD_MS = 60 * 60 * 1000;
+function rebuildRecallQuietly() {
+  try {
+    const r = rebuildIndex();
+    if (r?.rebuilt) console.log(`[recall] 增量重建 ${r.rebuilt}/${r.total} 个会话`);
+  } catch (e) {
+    console.log("[recall]", String(e?.message || e).slice(0, 120));
+  }
+}
+setTimeout(rebuildRecallQuietly, 5 * 60 * 1000).unref?.();
+setInterval(rebuildRecallQuietly, RECALL_REBUILD_MS).unref?.();
+
 // ── 事件循环停顿监测（2026-09-19）────────────────────────────────────────────
 // 背景：真机实测服务端出现过一次 ~90 秒的整段阻塞（/api/health 连续三次 30s 超时，之后恢复 12ms）。
 // 阻塞时任何接口都会跟着卡（"电脑感觉卡"里有一部分就是它）。先装仪表，卡了留证据，再修。

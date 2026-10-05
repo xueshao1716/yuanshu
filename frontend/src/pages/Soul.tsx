@@ -20,6 +20,8 @@ export default function Soul() {
   const { currentSessionId } = useApp()
   const [section,setSection] = useState<Section>('overview'), [visited,setVisited] = useState<Section[]>(['overview'])
   const [sessionId,setSessionId] = useState(currentSessionId || '')
+  // 会话列表异步加载：进页面时当前会话可能还没就绪，就绪后自动补上，不让人从几百个会话里挑。
+  useEffect(()=>{if(!sessionId&&currentSessionId)setSessionId(currentSessionId)},[currentSessionId,sessionId])
   const [busy,setBusy] = useState(false), [message,setMessage] = useState(''), [failed,setFailed] = useState(false), [dirty,setDirty] = useState(false)
   const running = useRef(false), heading = useRef<HTMLHeadingElement>(null)
   const open = (id: Section) => {setSection(id); setVisited(prev=>prev.includes(id)?prev:[...prev,id]); requestAnimationFrame(()=>heading.current?.focus())}

@@ -14,6 +14,17 @@ test('diagnostics support legacy strings and typed messages without serializing 
   assert.deepEqual(diagnosticMessages(['old', { type:'warning',message:'重复技能',path:'private',collision:{} }, null, 42, {message:{}}, '']), ['old','重复技能']);
   assert.deepEqual(diagnosticMessages({bad:true}), []);
 });
+test('skill loader diagnostics are translated into plain Chinese without leaking paths', async () => {
+  const { diagnosticMessages } = await import(new URL('../../frontend/src/soul/diagnostics.mjs', import.meta.url));
+  const out = diagnosticMessages([
+    { type:'warning', message:'name contains invalid characters (must be lowercase a-z, 0-9, hyphens only)', path:'C:\\Users\\x\\.agents\\skills\\PDF Processing Pro\\SKILL.md' },
+    { type:'collision', message:'name "impeccable" collision', path:'C:\\Users\\x\\.agents\\skills\\impeccable\\SKILL.md', collision:{ name:'impeccable' } },
+  ]);
+  assert.equal(out.length, 2);
+  assert.match(out[0], /PDF Processing Pro/); assert.match(out[0], /命名规范/);
+  assert.match(out[1], /impeccable/); assert.match(out[1], /两份/);
+  for (const line of out) { assert.ok(!/[A-Za-z]:\\/.test(line), 'no private path'); assert.ok(!/collision|invalid characters/.test(line), 'no raw English'); }
+});
 test('composer separates send from utility controls and labels primary actions', () => {
   const jsx = source('frontend/src/components/SendBox.tsx');
   const css = source('frontend/src/components/composer-toolbar.css');
