@@ -17,6 +17,22 @@ export function createAIBodyStore({ rootDir, now, maxRuns, maxEvents }) {
     try { atomicWriteJson(file, { version: 1, runs }); error = null }
     catch { error = '运行记录暂未写入磁盘' }
   }
+  // 超出保留上限的运行不再直接丢弃：按月追加到 archive/YYYY-MM.jsonl（已脱敏的同一份记录），
+  // 首页仍只读最近 maxRuns 条；归档失败不影响主流程。（2026-10-05）
+  const archive = (evicted) => {
+    if (!evicted.length) return
+    try {
+      const dir = path.join(rootDir, 'archive')
+      fs.mkdirSync(dir, { recursive: true })
+      const byMonth = new Map()
+      for (const run of evicted) {
+        const { _seen, ...clean } = run
+        const month = String(run.startedAt || run.updatedAt || now()).slice(0, 7).replace(/[^0-9-]/g, '') || 'unknown'
+        byMonth.set(month, (byMonth.get(month) || '') + JSON.stringify(clean) + '\n')
+      }
+      for (const [month, lines] of byMonth) fs.appendFileSync(path.join(dir, `${month}.jsonl`), lines, 'utf8')
+    } catch { /* archive is best effort */ }
+  }
   for (const run of runs) {
     run.events = Array.isArray(run.events) ? run.events.slice(-maxEvents) : []
     if (run.status !== 'running') continue
@@ -30,7 +46,10 @@ export function createAIBodyStore({ rootDir, now, maxRuns, maxEvents }) {
     save(run) {
       const index = runs.findIndex(item => item.runId === run.runId)
       if (index < 0) runs.push(run); else runs[index] = run
-      if (runs.length > maxRuns) runs = runs.slice(-maxRuns)
+      if (runs.length > maxRuns) {
+        archive(runs.slice(0, runs.length - maxRuns))
+        runs = runs.slice(-maxRuns)
+      }
       persist()
     },
     continuity: () => ({ restored, recoveredRuns, ...(error ? { error } : {}) }),

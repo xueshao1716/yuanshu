@@ -84,6 +84,24 @@ test('modes distinguish implementation, judgment, answer and conversation', t =>
   assert.match(runtime.beginTurn(input({ runId: 'analysis-only', message: '先分析问题，不要修改代码' })).directive, /先判断/)
 })
 
+// 2026-10-05 真实台账回放：这些句子曾被判成 conversation（工具数 20–72），AIBody 等于没介入。
+test('real fault reports, lookups and record requests are not swallowed by conversation', async t => {
+  const { chooseMode } = await import('../../engine/aibody-runtime-policy.mjs')
+  const cases = [
+    ['builder', '怎么又报工具循环'], ['builder', '还是找不到'], ['builder', '按钮都是灰色的，不能点'],
+    ['builder', '为啥那么多空消息'], ['builder', '这个表格记到知识库，常用'], ['builder', '可以将你的主题换成亮色的吗'],
+    ['analysis', 'https://mp.weixin.qq.com/s/abc'], ['analysis', '整个系统全局都有啥问题吗'], ['answer', '那个接线干啥的'],
+    ['conversation', '今天有点累'], ['conversation', '这一组效果还都不错'],
+  ]
+  for (const [mode, message] of cases) assert.equal(chooseMode(message, {}, null).mode, mode, message)
+})
+
+test('builder and analysis directives point multi-source lookups at parallel read-only researchers', t => {
+  const { runtime } = fixture(t)
+  assert.match(runtime.beginTurn(input({ runId: 'b', sessionId: 'b', message: '修复登录报错' })).directive, /delegate_task/)
+  assert.doesNotMatch(runtime.beginTurn(input({ runId: 'c', sessionId: 'c', message: '今天有点累' })).directive, /delegate_task/)
+})
+
 test('continuation inherits the same session topic and treats previous result as unverified reference', t => {
   const { runtime } = fixture(t)
   runtime.beginTurn(input())
@@ -189,4 +207,14 @@ test('persisted turns and events are bounded and omit prompts, tool bodies and s
   const raw = fs.readFileSync(path.join(rootDir, 'aibody-runtime.json'), 'utf8')
   assert.doesNotMatch(raw, /private-test-secret|not-for-storage|PRIVATE_TOOL_ARGS|PRIVATE_TOOL_OUTPUT|abcdefghijklmnopqrstuvwxyz|directive/)
   assert.ok(raw.length < 15000)
+})
+
+test('evicted runs are archived by month instead of silently dropped', t => {
+  const { runtime, rootDir } = fixture(t, { maxRuns: 3 })
+  for (let i = 0; i < 5; i++) { runtime.beginTurn(input({ runId: `a${i}`, message: '做一个PPT token=private-test-secret' })); runtime.finishTurn(`a${i}`) }
+  assert.equal(runtime.overview().runs.length, 3)
+  const dir = path.join(rootDir, 'archive')
+  const lines = fs.readdirSync(dir).flatMap(f => fs.readFileSync(path.join(dir, f), 'utf8').trim().split('\n'))
+  assert.deepEqual(lines.map(l => JSON.parse(l).runId), ['a0', 'a1'])
+  assert.doesNotMatch(lines.join(''), /private-test-secret|_seen/)
 })
