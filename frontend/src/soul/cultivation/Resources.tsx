@@ -17,7 +17,7 @@ export default function Resources({value,sessionId,onAction,refresh}:{value:Over
   const prepare=()=>{if(stale)return;try{const policy:Policy=JSON.parse(draft);setError('');onAction({method:'PUT',path:'/policy',payload:{policy},revision:draftRevision,label:'更新培养授权'})}catch{setError('设置不是有效的 JSON，请核对括号和数值。')}}
   return <>
     <dl className="soul-facts"><div><dt>培养授权</dt><dd>{policyState}</dd></div><div><dt>到期时间</dt><dd>{date(value.policy.expiresAt)}</dd></div><div><dt>母体自主采用经验</dt><dd>{motherState}</dd></div><div><dt>小语身份通道</dt><dd>{value.motherIdentityAvailable?'已连接':'未连接'}</dd></div><div><dt>人工签名通道</dt><dd>{value.humanGrantAvailable?'已配置':'待主人配置'}</dd></div><div><dt>执行器</dt><dd>{value.executorAvailable?'已连接':'不可用'}</dd></div></dl>
-    <p className="soul-hint">小语负责设计培养方案，你只需查看并放权。培养与知识后台共用资源额度，前台聊天优先；不需要电脑密码，培养授权也不等于电脑操作授权，电脑操作默认关闭。外部请求同时受知识授权与下方培养授权限制；递归繁殖和工具继承不开放。</p>
+    <p className="soul-hint">培养和知识共用资源额度，聊天优先。不需要电脑密码；电脑操作另有授权，默认关闭。</p>
     {value.usage?<dl className="soul-facts"><div><dt>共享已结算费用</dt><dd>{value.usage.spent} {value.usage.currency}</dd></div><div><dt>已预留费用</dt><dd>{value.usage.reserved} {value.usage.currency}</dd></div><div><dt>用量待确认</dt><dd>{value.usage.unknown}</dd></div></dl>:<p>尚无可读取的资源账本，不按零用量显示。</p>}
     {value.sessionGrantAvailable?<p className="soul-notice">{sessionId?'培养策略可在当前会话确认，安卓和网页均可使用，不需要 Windows 设备绑定。':'请先在上方选择会话，即可确认培养策略。'}其他人工操作仍使用原有签名通道。</p>:null}
     <PolicyPreset value={value} authorized={policyAuthorized} onAction={onAction} refresh={refresh}/>
@@ -27,7 +27,7 @@ export default function Resources({value,sessionId,onAction,refresh}:{value:Over
       <SharedResources refresh={refresh}/>
     </section>
     <details><summary>高级设置（管理员）</summary>
-    <p className="soul-hint">普通培养不需要进入这里。以下项目只用于排查共享资源、处理异常占用或维护既有授权；服务端校验和一次性确认仍然有效。</p>
+    <p className="soul-hint">平时不用打开，排查资源或异常占用时用。</p>
     <Diagnostics revision={value.revision}/>
     <SharedResources refresh={refresh}/>
     <details><summary>其他操作的设备与签名设置</summary><OwnerConfirmation value={value} refresh={refresh}/></details>
@@ -47,6 +47,6 @@ export default function Resources({value,sessionId,onAction,refresh}:{value:Over
       <div className="soul-actions"><button onClick={()=>{setDraft(JSON.stringify(value.policy,null,2));setDraftRevision(value.revision);setError('')}}>重新载入当前设置</button><button disabled={!policyAuthorized||stale} onClick={prepare}>{value.sessionGrantAvailable?'核对并申请确认':'核对并申请签名'}</button></div>
       {error&&<p role="alert">{error}</p>}
     </details></details>
-    <p className="soul-hint">aibody 土壤：尚无独立观察结论。模型自评不等于健康评分、用户认可或基因变更依据。</p>
+    <p className="soul-hint">aibody 土壤：还没有独立观察结论。</p>
   </>
 }

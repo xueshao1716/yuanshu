@@ -21,7 +21,7 @@ export default function Individuals({agents,designs,authorized,onAction}:{agents
   const [error,setError]=useState('')
   const detail=useSWR(selected?['cultivation-agent',selected]:null,()=>CultivationApi.agent(selected!),cultivationPolling)
   return <>
-    {!agents.length&&<p className="soul-hint">还没有登记个体。设计与注册由小语提交，页面不会替她编写人格。</p>}
+    {!agents.length&&<p className="soul-hint">还没有个体。小语提交设计并登记后会出现在这里。</p>}
     <ul className="cultivation-list">{agents.map(a=><li key={a.id}><button aria-expanded={selected===a.id} onClick={()=>setSelected(selected===a.id?null:a.id)}>{designs.find(d=>d.id===a.designId)?.design.name||`个体 ${a.id.slice(0,8)}`} · {statusLabel(a.status)}</button><small>{a.id}</small></li>)}</ul>
     <LoadState loading={detail.isLoading} error={detail.error} retry={async()=>{try{setError('');await detail.mutate()}catch(e){setError(errorText(e))}}}/>
     {error&&<p role="alert">{error}</p>}

@@ -24,10 +24,10 @@ export default function Cultivation({sessionId}:{sessionId:string}) {
   const refresh=async()=>{await mutate(key=>typeof key==='string'?key.startsWith('cultivation-'):Array.isArray(key)&&String(key[0]).startsWith('cultivation-'))}
   const retry=async(fn:()=>Promise<unknown>)=>{setError('');try{await fn()}catch(e){setError(errorText(e))}}
   return <div className="cultivation-panel">
-    <Block title="她的培养空间" hint="小语自己设计和培养。她会在对话里说明方案，你只需查看方案并放权；页面不要求你填写课程、模型或电脑密码。这里呈现真实记录，不代写设计、不编造成长。">
+    <Block title="她的培养空间" hint="小语自己设计和培养，你只需查看方案并放权。">
       <LoadState error={overview.error} loading={overview.isLoading} retry={()=>retry(overview.mutate)}/>
       {overview.data?.state==='waiting_for_design'&&<p className="soul-notice">等待小语提交设计。尚无个体、课程或运行结果。</p>}
-      {overview.data?.state==='waiting_for_design'&&<p className="soul-hint">小语会先在对话里完成培养方案设计，页面只等待她提交后供你查看。</p>}
+      {overview.data?.state==='waiting_for_design'&&<p className="soul-hint">小语在对话里设计好方案后会提交到这里。</p>}
       <div className="soul-actions" aria-label="培养记录分区">{tabs.map(([id,label])=><button key={id} aria-pressed={tab===id} onClick={()=>{setTab(id);setCursor(null);setAction(null);setError('')}}>{label}</button>)}<button onClick={()=>{setCursor(null);setDesignCursor(null);void retry(refresh)}}>刷新记录</button></div>
       {error&&<p role="alert">刷新失败：{error}。保留当前内容，可再次刷新。</p>}
     </Block>
@@ -35,7 +35,7 @@ export default function Cultivation({sessionId}:{sessionId:string}) {
     <Block title={tabs.find(([id])=>id===tab)![1]}>
       {tab!=='resources'&&<LoadState error={current.error} loading={current.isLoading} retry={()=>{setCursor(null);return retry(current.mutate)}}/>}
       {tab==='agents'&&<><LoadState error={designs.error} loading={designs.isLoading} retry={()=>{setDesignCursor(null);return retry(designs.mutate)}}/><Individuals agents={agents.data?.items||[]} designs={designs.data?.items||[]} authorized={authorized} onAction={setAction}/><div className="soul-actions" aria-label="设计分页"><button disabled={!designCursor} onClick={()=>setDesignCursor(null)}>设计第一页</button><button disabled={!designs.data?.nextCursor} onClick={()=>setDesignCursor(designs.data?.nextCursor||null)}>下一页设计</button></div></>}
-      {tab==='runs'&&runs.data&&<><p className="soul-hint">只显示已登记的受限任务。取消请求不等于外部请求已经结束，费用未知时保留预留。</p>{!runs.data.items.length&&<p>还没有运行记录。</p>}<ol className="cultivation-list">{runs.data.items.map(run=><li key={run.id}><h4>{statusLabel(run.status)} · {date(run.createdAt)}</h4><p>个体 {run.cultivation.agentId} · 设计 {run.cultivation.designId}</p>{run.cultivation.reason&&<p>{run.cultivation.reason}</p>}{run.cultivation.output&&<details><summary>查看任务输出（模型生成，尚未核验）</summary><p className="cultivation-output">{run.cultivation.output}</p></details>}{['queued','running'].includes(run.status)&&<button disabled={!authorized} onClick={()=>setAction({method:'POST',path:`/runs/${run.id}/cancel`,payload:{},revision:overview.data!.revision,label:'取消任务'})}>取消任务</button>}</li>)}</ol></>}
+      {tab==='runs'&&runs.data&&<><p className="soul-hint">取消后外部请求可能还在跑，费用未知时先保留预留。</p>{!runs.data.items.length&&<p>还没有运行记录。</p>}<ol className="cultivation-list">{runs.data.items.map(run=><li key={run.id}><h4>{statusLabel(run.status)} · {date(run.createdAt)}</h4><p>个体 {run.cultivation.agentId} · 设计 {run.cultivation.designId}</p>{run.cultivation.reason&&<p>{run.cultivation.reason}</p>}{run.cultivation.output&&<details><summary>查看任务输出（模型生成，尚未核验）</summary><p className="cultivation-output">{run.cultivation.output}</p></details>}{['queued','running'].includes(run.status)&&<button disabled={!authorized} onClick={()=>setAction({method:'POST',path:`/runs/${run.id}/cancel`,payload:{},revision:overview.data!.revision,label:'取消任务'})}>取消任务</button>}</li>)}</ol></>}
       {tab==='experience'&&experience.data&&<Learning items={experience.data.items} coverage={experience.data.coverage} stale={!!experience.error} authorized={authorized} onAction={setAction}/>}
       {tab==='resources'&&overview.data&&<Resources value={overview.data} sessionId={sessionId} onAction={setAction} refresh={refresh}/>}
       {tab!=='resources'&&<div className="soul-actions"><button disabled={!cursor} onClick={()=>setCursor(null)}>回到第一页</button><button disabled={!current.data?.nextCursor} onClick={()=>setCursor(current.data?.nextCursor||null)}>下一页</button></div>}

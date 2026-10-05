@@ -11,12 +11,12 @@ export default function Genes({sessionId, busy, run}: Props) {
   const act = async (action: string, body: unknown) => {const ok = await run(() => SoulApi.gene(action, body)); await state.mutate(); return ok}
   return <>
     <LoadState error={state.error} loading={state.isLoading} retry={state.mutate} />
-    <Block title="长期基线与当前表现" hint="基线是人工批准后的长期设定；表现随有来源的互动变化。数值不是健康评分，也不能替代行为证据。">
+    <Block title="长期基线与当前表现" hint="基线是你批准过的长期设定，表现随互动变化。">
       <div className="soul-table-wrap"><table><thead><tr><th>维度</th><th>批准基线</th><th>当前表现</th><th>偏移</th></tr></thead><tbody>
         {Object.entries(state.data?.genes || {}).map(([key,g]) => <tr key={key}><th scope="row">{geneLabels[key] || key}</th><td>{g.baseline.toFixed(3)}</td><td>{g.expression.toFixed(3)}</td><td>{(g.expression - g.baseline).toFixed(3)}</td></tr>)}
       </tbody></table></div>
     </Block>
-    <Block title="提出基线调整" hint="这里只创建待审提案，不立即改人格。批准时仍核验来源文件或合格互动事件，不能用一段说明代替证据。">
+    <Block title="提出基线调整" hint="提案进入待审，不会立刻改人格；批准时核验证据。">
       <fieldset disabled={busy || !!state.error || !state.data} className="soul-form">
         <label>培养维度<select value={gene} onChange={e => {setGene(e.target.value); setValue(String(state.data?.genes[e.target.value]?.baseline ?? ''))}}>{Object.keys(state.data?.genes || {}).map(key => <option key={key} value={key}>{geneLabels[key] || key}</option>)}</select></label>
         <label>建议基线（0–1）<input type="number" min="0" max="1" step="0.01" value={value} onChange={e => setValue(e.target.value)} /></label>
@@ -27,7 +27,7 @@ export default function Genes({sessionId, busy, run}: Props) {
       <div className="soul-actions"><button className="soul-primary" disabled={busy || !state.data || !!state.error || !reason.trim() || !evidence.trim() || !value || !Number.isFinite(Number(value)) || Number(value)<0 || Number(value)>1} onClick={() => void act('propose', {gene,value:Number(value),reason,evidence:listLines(evidence)})}>保存为待审提案</button>
         <button disabled={busy || !state.data || !!state.error} onClick={() => void act('auto', {})}>检查现有观测并生成提案</button></div>
     </Block>
-    <Block title="待审提案" hint="批准还需本机人工确认；证据不合格或基线已变化时会保留待审并说明原因。">
+    <Block title="待审提案" hint="批准需要本机确认；证据不够时会说明原因。">
       {!state.isLoading && state.data && !state.data.proposals.some(p => p.status === 'pending') && <p>暂无待审提案。</p>}
       {state.data?.proposals.filter(p => p.status === 'pending').map(p => <article className="soul-record" key={p.proposal_id}>
         <h4>{geneLabels[p.gene] || p.gene} · {p.current_baseline} → {p.proposed_baseline}</h4><p>{p.reason || '未提供理由'}</p>

@@ -33,7 +33,7 @@ export default function DesignReadiness({designId,revision,onResult}:{designId:s
         <small>{b.field.startsWith('knowledge.')?'在下方“共享模型与额度设置”核对':'核对培养策略或设计稿'} · {b.field}</small>
       </li>)}</ul>
       {result.warnings.map((b,i)=><p key={i}>{b.message}。{b.nextAction}</p>)}
-      <p className="soul-hint">保存设计、登记个体和执行任务是不同阶段。零执行额度不禁止合规登记，检查通过也不替代主人确认。</p>
+      <p className="soul-hint">检查通过后仍需你确认放权。</p>
     </div>}
   </section>
 }

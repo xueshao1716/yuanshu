@@ -94,7 +94,7 @@ function GrantDialog({ sessionId, close }: { sessionId: string | null; close: ()
           <div className="soul-actions">
             <button onClick={() => { close(); location.hash = '#/soul' }}>去灵魂培养中心补设置</button>
           </div>
-          <p className="soul-hint">路径：授权与资源 → 共享模型与额度设置。这是培养与知识共用的一份设置；填完回来，这里会自动更新。</p>
+          <p className="soul-hint">在「授权与资源」→ 共享模型与额度设置里补齐，回来会自动更新。</p>
         </>}
 
       <h4>授权声明</h4>

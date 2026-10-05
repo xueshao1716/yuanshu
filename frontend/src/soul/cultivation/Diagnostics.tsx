@@ -10,7 +10,7 @@ export default function Diagnostics({revision}:{revision:number}) {
   const [open,setOpen]=useState(false)
   return <details onToggle={e=>setOpen(e.currentTarget.open)}>
     <summary>操作检查与近期拒绝</summary>
-    <p className="soul-hint">只检查配置，不修改授权、不创建个体、不调用模型。目录存在不代表模型可用。</p>
+    <p className="soul-hint">只读配置，不调用模型。</p>
     {open&&<Checks revision={revision}/>}
   </details>
 }
@@ -62,7 +62,7 @@ function Checks({revision}:{revision:number}) {
       </li>)}</ul>
       {result.value.warnings.map((b,i)=><p key={i}>{b.message}。{b.nextAction}</p>)}
       <p>{result.value.nextAction}</p>
-      <p className="soul-hint">提交时仍核对身份、最新版本、设计归属、实时名额和实际费用。本页不会授予权限或保证调用成功。</p>
+      <p className="soul-hint">提交时服务端还会再核对一遍。</p>
     </div>}
     <Catalog revision={revision}/><History/>
   </section>
@@ -77,7 +77,7 @@ function Catalog({revision}:{revision:number}) {
     {open&&<>
       <LoadState error={catalog.error} loading={catalog.isLoading} retry={()=>catalog.mutate().catch(()=>undefined)}/>
       {catalog.data&&!catalog.error&&(!catalog.data.available?<p role="status">模型目录暂不可读或正在变化，请重新读取。不是空白名单，也不是探活失败。</p>:<>
-        <p className="soul-hint">精确标识格式为“提供方/模型”。所有条目尚未探活；此处只读取配置，不产生调用费用。</p>
+        <p className="soul-hint">标识格式为“提供方/模型”。条目尚未探活，读取不产生费用。</p>
         <label>查找模型<input value={query} maxLength={200} onChange={e=>{setQuery(e.target.value);setPage(0)}}/></label>
         {!items.length&&<p>没有匹配的文本模型。请在模型管理核对配置。</p>}
         <ul className="cultivation-list">{items.slice(offset,offset+20).map(m=><li key={m.key}><strong>{m.label}</strong><p><code>{m.key}</code></p>
@@ -97,7 +97,7 @@ function History() {
   return <details onToggle={e=>setOpen(e.currentTarget.open)}><summary>近期被拒操作</summary>
     {open&&<>
       <LoadState error={history.error} loading={history.isLoading} retry={()=>history.mutate().catch(()=>undefined)}/>
-      <p className="soul-hint">仅记录已识别身份、未被接受的请求，不包含任务正文。显示最近 20 条，最多保留 200 条；空列表不代表从未失败。</p>
+      <p className="soul-hint">最近 20 条被拒请求，不含任务正文。</p>
       {history.data&&!history.error&&(!history.data.items.length?<p>暂无可读取的拒绝记录。</p>:<ul className="cultivation-list">
         {history.data.items.map((item,i)=><li key={`${item.requestId}-${i}`}><strong>{actions[item.action]||item.action}</strong> · {item.error}
           <small>{date(item.lastAt)} · 同请求记录 {item.count} 次 · 请求版本 {item.expectedRevision}</small>

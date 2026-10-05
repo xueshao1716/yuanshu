@@ -28,7 +28,7 @@ export default function PersonaEditor({ sessionId, busy, run, onDirtyChange, des
     <LoadState error={state.error} loading={state.isLoading} retry={state.mutate} />
     {!!state.data?.problems.length && <p role="alert" className="soul-notice">{state.data.problems.join('；')}。读取恢复前不能保存。</p>}
     {stale && <p role="alert" className="soul-notice">人格已被其他页面修改。草稿仍保留，请先核对当前内容，再重新载入。</p>}
-    <Block title={designMode ? '人物设计' : '人格定义'} hint={designMode ? '外貌与服装跟随同一份人格定义。留空表示尚未设定，不替你猜人物；批准只更新设计描述，不会自动重画四组立绘。身份和形象共用一个草稿，预览会列出全部修改。' : '这是现有人格文件的编辑入口。草稿不会自动保存；每次提交都要查看差异、人工确认，并留下修订记录。'}>
+    <Block title={designMode ? '人物设计' : '人格定义'} hint={designMode ? '外貌与服装是人格定义的一部分，和身份共用一份草稿。批准只更新描述，不会重画立绘。' : '草稿不会自动保存；提交前看差异，确认后留修订记录。'}>
       <fieldset disabled={busy || blocked} className="soul-form">
         {fields.map(key => <label key={key} htmlFor={`${fieldId}-${key}`} className={multiline(key) ? 'soul-wide' : ''}>
           <span id={`${fieldId}-${key}-label`}>{fieldLabels[key]}</span>
@@ -37,13 +37,13 @@ export default function PersonaEditor({ sessionId, busy, run, onDirtyChange, des
       </fieldset>
       <div className="soul-actions"><button disabled={busy || blocked || !Object.keys(changes).length} onClick={() => setPreview(true)}>查看差异 · {Object.keys(changes).length} 项</button><button disabled={busy || !state.data || !!state.data.problems.length} onClick={reset}>放弃草稿并载入当前版本</button></div>
     </Block>
-    {preview && <Block title="确认修改内容" hint="下面是当前版本与草稿的差异。提交后，本页会出现人工确认卡，60秒内未确认将取消。">
+    {preview && <Block title="确认修改内容" hint="核对差异后提交，本页会弹出确认卡，60 秒内不确认就取消。">
       {Object.entries(changes).map(([key,value]) => <div className="soul-diff" key={key}><h4>{fieldLabels[key]}</h4><div><span>原来</span><p>{formatValue(base?.definition[key]) || '（空）'}</p></div><div><span>修改为</span><p>{formatValue(value) || '（空）'}</p></div></div>)}
       <label className="soul-field">修改理由<textarea value={reason} maxLength={2000} onChange={e => setReason(e.target.value)} /></label>
       <button className="soul-primary" disabled={busy || blocked || !sessionId || !reason.trim()} onClick={() => void save()}>{busy ? '等待人工确认…' : '提交并请求人工确认'}</button>
       {!sessionId && <p>请在页面上方选择确认记录所属会话。</p>}
     </Block>}
     {error && <p role="alert" className="soul-notice">{error}。草稿已保留。</p>}
-    <details className="soul-details"><summary>查看当前定义渲染的人格文本</summary><p className="soul-hint">这是当前定义的预览，不代表已启动的每个会话都重新载入了人格。</p><p className="soul-preserve">{state.data?.rendered || '尚未读取'}</p></details>
+    <details className="soul-details"><summary>查看当前定义渲染的人格文本</summary><p className="soul-hint">当前定义预览。已开着的会话可能还没载入最新版本。</p><p className="soul-preserve">{state.data?.rendered || '尚未读取'}</p></details>
   </>
 }

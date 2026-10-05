@@ -11,7 +11,7 @@ export function EvidenceSummary({items,coverage,stale}:{items:Experience[];cover
       <div><dt>带补证记录</dt><dd>{items.filter(item=>item.observation?.resolutionRecorded).length}</dd></div>
       <div><dt>关联失效</dt><dd>{items.filter(item=>item.observation?.linkState==='invalidated').length}</dd></div>
     </dl>
-    <p className="soul-hint">仅统计本页，分类可重叠，不代表全部历史。{coverage.hasMore?'还有后续页。':'本次列表已到末页。'}
+    <p className="soul-hint">只统计本页。{coverage.hasMore?'还有后续页。':'本次列表已到末页。'}
       记录读取时间：{date(coverage.observedAt)}；不是来源核验时间。记录可能随任务进展变化。</p>
   </section>
 }

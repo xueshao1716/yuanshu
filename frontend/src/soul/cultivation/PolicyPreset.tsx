@@ -60,7 +60,7 @@ export default function PolicyPreset({value,onAction,refresh}:{value:Overview;au
     {grantable&&fixable.length>0&&<p role="status">剩余 {fixable.length} 项都属于培养授权本身，放权时一并写入。</p>}
     {stubborn.length>0&&<p role="status">还有 {stubborn.length} 项放权修不了，请按上方清单核对。</p>}
     {row&&!row.design.permissions.remote&&<p className="soul-hint">放权后，小语还需把方案标为允许外部调用（只改这一项）再登记个体，不增加工具。</p>}
-    <p className="soul-hint">不包含电脑、文件、终端、密码、凭据、工具或私人记忆。放权不会自动开始付费任务，提交时服务端还会复核。</p>
+    <p className="soul-hint">不含电脑、文件、密码或私人记忆。放权不会自动开始付费任务。</p>
     <div className="soul-actions">
       <button className="soul-primary" disabled={!supported||!grantable||!!records.error||records.isValidating} onClick={prepare}>一次性放权</button>
       {(cursor||records.data?.nextCursor)&&<><button disabled={!cursor} onClick={()=>{setCursor(null);setSelected('')}}>返回方案首页</button>
