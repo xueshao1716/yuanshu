@@ -8,7 +8,7 @@ import History from '../soul/History'
 import VoiceAppearance from '../soul/VoiceAppearance'
 import Memory from '../soul/Memory'
 import Cultivation from '../soul/cultivation/Panel'
-import Overview, { sections, type Section } from '../soul/Overview'
+import Overview, { groupOf, groups, sections, type Section } from '../soul/Overview'
 import { Learning, Mother, Rhythm, Team } from '../soul/LiveSections'
 import { Confirmations, SessionChoice } from '../soul/Confirmations'
 import { errorText } from '../soul/shared'
@@ -44,15 +44,20 @@ export default function Soul() {
     return ()=>{window.removeEventListener('beforeunload',unload); window.removeEventListener('yuanshu:before-route',leave)}
   },[dirty,busy])
   const title = sections.find(([id])=>id===section)!
+  const group = groupOf(section)
+  // 回到某组时停在上次看的子标签，而不是每次都跳回第一个。
+  const lastIn = (ids: readonly Section[]) => [...visited].reverse().find(v => ids.includes(v)) || ids[0]
   const props = {sessionId,busy,run}
   return <div className="soul-page">
     <div className="soul-shell">
       <PageHeader title="灵魂培养中心" description="从身份到经历，让每一次改变都有来处，也有退路。" meta={<span>{dirty ? '人格草稿未保存 · 分区切换会保留，离开页面前请处理' : '连接现有人格、aibody 与天团记录'}</span>} actions={<Sparkles aria-hidden="true" className="soul-mark" />} />
       <div className="soul-layout">
-        <nav className="soul-nav" aria-label="培养分区">{sections.map(([id,label,hint])=><button key={id} aria-current={section===id?'page':undefined} onClick={()=>open(id)}><span>{label}</span><small>{hint}</small></button>)}</nav>
-        <label className="soul-mobile-nav">培养分区<select value={section} onChange={e=>open(e.target.value as Section)}>{sections.map(([id,label])=><option key={id} value={id}>{label}</option>)}</select></label>
+        <nav className="soul-nav" aria-label="培养分区">{groups.map(([gid,label,ids])=><button key={gid} aria-current={group[0]===gid?'page':undefined} onClick={()=>open(lastIn(ids))}><span>{label}</span></button>)}</nav>
+        <label className="soul-mobile-nav">培养分区<select value={group[0]} onChange={e=>open(lastIn(groups.find(g=>g[0]===e.target.value)![2]))}>{groups.map(([gid,label])=><option key={gid} value={gid}>{label}</option>)}</select></label>
         <main className="soul-workarea">
-          <header className="soul-section-heading"><h2 ref={heading} tabIndex={-1}>{title[1]}</h2><p>{title[2]}</p></header>
+          <header className="soul-section-heading"><h2 ref={heading} tabIndex={-1}>{group[1]}</h2>
+            {group[2].length>1&&<div className="soul-subtabs" role="group" aria-label={`${group[1]}子分区`}>{group[2].map(id=><button key={id} aria-pressed={section===id} onClick={()=>open(id)}>{sections.find(s=>s[0]===id)![1]}</button>)}</div>}
+            <p>{title[2]}</p></header>
           {['identity','voice','genes','history','cultivation'].includes(section) || busy ? <SessionChoice sessionId={sessionId} setSessionId={setSessionId} disabled={busy} /> : null}
           <Confirmations sessionId={sessionId} active={draftSections.includes(section) || section === 'voice' || busy} busy={busy} />
           {message && <p role={failed?'alert':'status'} className="soul-notice">{message}</p>}

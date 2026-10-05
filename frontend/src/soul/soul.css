@@ -21,6 +21,9 @@
 .soul-section-heading { padding-bottom:20px; border-bottom:1px solid var(--pi-border); }
 .soul-section-heading h2 { font-size:24px; font-weight:650; line-height:1.3; margin:0; }
 .soul-section-heading p { color:var(--pi-dim); margin-top:8px; }
+.soul-subtabs { display:flex; flex-wrap:wrap; gap:6px; margin-top:14px; }
+.soul-page .soul-subtabs button { min-height:36px; padding:6px 14px; border-radius:999px; background:transparent; border-color:var(--pi-border-soft); color:var(--pi-dim); }
+.soul-page .soul-subtabs button[aria-pressed="true"] { background:var(--pi-bg2); border-color:var(--pi-border); color:var(--pi-text); font-weight:600; }
 .soul-block { padding:26px 0; border-bottom:1px solid var(--pi-border-soft); }
 .soul-block h3,.soul-confirm h3 { font-size:17px; font-weight:650; margin:0 0 8px; }
 .soul-block h4 { font-size:14px; font-weight:600; margin-bottom:6px; }

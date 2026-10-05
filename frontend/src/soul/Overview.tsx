@@ -11,20 +11,27 @@ export const sections = [
   ['voice','声音与形象','外貌、服装、声音与现有立绘'], ['history','审批与回退','修订、人工确认与安全撤回'],
 ] as const
 export type Section = typeof sections[number][0]
+// 导航按 6 组呈现，组内用子标签切换；分区本身不变，草稿与确认逻辑照旧按分区判断。
+export const groups = [
+  ['overview','总览',['overview']], ['self','身份与形象',['identity','voice']],
+  ['nature','性格与情绪',['genes','rhythm']], ['mind','记忆与学习',['memory','learning']],
+  ['cultivation','智能体培养',['cultivation']], ['records','记录与协作',['history','team','mother']],
+] as const satisfies readonly (readonly [string,string,readonly Section[]])[]
+export const groupOf = (id: Section) => groups.find(g => (g[2] as readonly Section[]).includes(id))!
 export default function Overview({open}: {open:(section:Section)=>void}) {
   const persona = useSWR('soul-persona', SoulApi.persona), genes = useSWR('soul-genome', SoulApi.genome)
   return <>
-    <Block title="一起培养，不替你决定" hint="调整表达，积累经历，观察改变。长期人格与基因变更需要理由、证据和你的确认；页面不会自行培养出一个评分。">
+    <Block title="现在的小语" hint="长期人格和基因的变更，都要你确认。">
       <LoadState error={persona.error} loading={persona.isLoading} retry={persona.mutate} />
       <LoadState error={genes.error} loading={genes.isLoading} retry={genes.mutate} />
       <dl className="soul-facts"><div><dt>人格来源</dt><dd>{persona.error ? '读取失败' : !persona.data ? '读取中' : persona.data.source === 'file' && !persona.data.problems.length ? String(persona.data.definition.name || '现有人格文件') : '来源需修复'}</dd></div><div><dt>待审基因提案</dt><dd>{genes.error ? '读取失败' : genes.data ? genes.data.proposals.filter(p=>p.status==='pending').length : '读取中'}</dd></div><div><dt>人格修订记录</dt><dd>{persona.error ? '读取失败' : persona.data?.history.length ?? '读取中'}</dd></div></dl>
       {!!persona.data?.problems.length && <p role="alert" className="soul-notice">{persona.data.problems.join('；')}。恢复前禁止保存。</p>}
     </Block>
-    <Block title="培养授权入口" hint="如果你要给小语开放培养权限，请从这里进入；进入后默认就是“授权与资源”页。">
+    <Block title="培养授权入口" hint="给小语放权培养智能体，从这里进入「授权与资源」。">
       <button className="soul-primary-action" onClick={()=>open('cultivation')}>
         <strong>进入培养授权</strong><span>授权与资源（先从这里）</span><ArrowRight size={18} aria-hidden="true" />
       </button>
     </Block>
-    <div className="soul-directory">{sections.slice(1).map(([id,title,hint]) => <button key={id} onClick={()=>open(id)}><strong>{title}</strong><span>{hint}</span><span aria-hidden="true"><ArrowRight size={18}/></span></button>)}</div>
+    <div className="soul-directory">{groups.slice(1).map(([gid,title,ids]) => <button key={gid} onClick={()=>open(ids[0])}><strong>{title}</strong><span>{ids.map(id=>sections.find(s=>s[0]===id)![1]).join(' · ')}</span><span aria-hidden="true"><ArrowRight size={18}/></span></button>)}</div>
   </>
 }

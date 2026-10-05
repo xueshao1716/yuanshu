@@ -6,6 +6,9 @@ import { date, errorText, LoadState } from './shared'
 
 export function SessionChoice({ sessionId, setSessionId, disabled }: {sessionId: string; setSessionId: (sid: string) => void; disabled: boolean}) {
   const sessions = useSWR('sessions', () => SessionsApi.list())
+  // 直接打开灵魂页时没有“当前会话”，回退到最近活动的会话（列表按时间倒序），不让人从几百个里挑。
+  const latest = sessions.data?.sessions[0]?.id
+  useEffect(() => { if (!sessionId && latest && !disabled) setSessionId(latest) }, [latest, sessionId, disabled])
   return <div className="soul-session">
     <label htmlFor="soul-session">确认记录归属</label>
     <select id="soul-session" value={sessionId} disabled={disabled} onChange={e => setSessionId(e.target.value)}>
