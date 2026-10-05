@@ -14,7 +14,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { safeEmotion, observationTime } from './emotion-display.mjs';
-import { cueText, cueMatches } from './emotion-cues.mjs';
+import { cueText, cueMatches, behaviorCues } from './emotion-cues.mjs';
 import { initGene, geneBias, updateGenes, geneDirective, geneSnapshot } from "./gene.mjs";
 import { initSkillGene, bindSkillIndex, detectSkillDomain, updateSkillGene, getSkillGenes, skillDirective } from "./skill-gene.mjs";
 import { extractEntities } from "./yuanshu-memroute.mjs";
@@ -207,6 +207,8 @@ const KEYWORDS = [
   ["无语", -.25, .1, -.05, "user_frustrated"], ["垃圾", -.35, .25, 0, "user_frustrated"], ["失败", -.3, .1, -.1, "user_frustrated"],
   ["坑", -.25, .2, 0, "user_frustrated"], ["bug", -.15, .15, 0, "user_frustrated"], ["挂了", -.2, .2, 0, "user_frustrated"],
   ["出错", -.25, .2, 0, "user_frustrated"], ["又坏", -.25, .25, 0, "user_frustrated"], ["服了", -.3, .25, 0, "user_frustrated"],
+  // 2026-10-05 补：只收无歧义的。「不行/没用/错了/报错」在「行不行都可以」「我没用过」「帮我看个报错」里都会误伤。
+  ["又错", -.25, .2, -.05, "user_frustrated"], ["没反应", -.25, .2, -.05, "user_frustrated"], ["搞错", -.3, .2, -.05, "user_frustrated"],
   // 着急（user_urgent）
   ["急", 0, .3, .1, "user_urgent"], ["赶紧", 0, .25, .1, "user_urgent"], ["马上", 0, .2, .1, "user_urgent"],
   ["尽快", 0, .2, .1, "user_urgent"], ["快点", 0, .25, .1, "user_urgent"],
@@ -227,6 +229,10 @@ const KEYWORDS = [
   ["方案", 0, .1, .15, "task_deep"], ["研究", .1, .15, .1, "task_deep"], ["分析", .05, .1, .15, "task_deep"],
   ["深挖", .1, .2, .15, "task_deep"], ["排查", -.05, .2, .1, "task_deep"], ["复盘", 0, .1, .15, "task_deep"],
   ["架构", .05, .15, .15, "task_deep"],
+  // 2026-10-05 补：只收「说出口就是这个意思」的词。不收「为什么/实现/验证/定位/细节」——日常话里太常见，
+  // 「为什么天是蓝的」「帮我定位一下北京」都会被当成重活；重活的结构证据交给 behaviorCues。
+  ["原理", .05, .15, .15, "task_deep"], ["根因", 0, .15, .15, "task_deep"], ["源码", .05, .15, .15, "task_deep"],
+  ["链路", .05, .1, .15, "task_deep"],
 ];
 const CLAMP_SHIFT = 0.15; // 单轮词表增量上限（曦式）
 
@@ -297,6 +303,10 @@ export function updateEmotion(key, message, context = {}) {
   updateLabel(st);
   st.tags = tags;
 
+  // 行为信号（见 emotion-cues.mjs behaviorCues）：只喂基因链路，不进 st.tags / residue / 情绪向量。
+  // 探针/评测会话由下方 isProbeKey 挡掉，不会进基因。
+  const behaviorTags = behaviorCues(message);
+
   // 长期情绪残留：全局三维 + 实体边（对谁/对什么）
   const RESIDUE_UP = { user_happy: "warmth", task_accomplish: "warmth", user_anxious: "hurt", user_frustrated: "hurt", alert_risk: "hurt", task_deep: "curiosity" };
   const kindsThisTurn = [];
@@ -340,7 +350,8 @@ export function updateEmotion(key, message, context = {}) {
   st.lastResidueAt = st.lastResidueAt || nowR;
   // 基因联动：互动标签驱动基因 expression 微调（性格长期塑造）
   if (!isProbeKey(key)) {
-    const result = updateGenes(tags, { sessionId: String(key || ''), message: String(message || ''), turnId: context.turnId });
+    const geneTags = [...new Set([...tags, ...behaviorTags])];
+    const result = updateGenes(geneTags, { sessionId: String(key || ''), message: String(message || ''), turnId: context.turnId });
     if (result?.error) console.warn('[gene-observation]', result.error);
   }
   if (turnKey) {
