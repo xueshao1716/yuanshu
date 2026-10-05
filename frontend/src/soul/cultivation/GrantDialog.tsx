@@ -4,6 +4,7 @@ import { CultivationApi, cultivationPolling, type Design, type Overview, type Pr
 import { KnowledgeApi, knowledgePolling, type KnowledgePolicyData } from '../../knowledge/api'
 import Authorization, { type Action } from './Authorization'
 import DesignReadiness from './DesignReadiness'
+import { classifyBlocked, grantPolicy, grantSummary, supportedDesign } from './grant-preset.mjs'
 import { LoadState } from '../shared'
 import './cultivation.css'
 
@@ -54,30 +55,14 @@ function GrantDialog({ sessionId, close }: { sessionId: string | null; close: ()
   const rateConfirmed = !!rate && (rate.free === true || (typeof rate.input === 'number' && typeof rate.output === 'number'))
   const sharedReady = modelListed && rateConfirmed
   const fresh = !!preflight && !!data && preflight.revision === data.revision
-  // 与 PolicyPreset 同一份判据：只剩授权本身字段时，放权就是修复动作，不该卡按钮。
-  const grantableFields = ['policy.enabled', 'policy.expiresAt', 'policy.models', 'policy.tools', 'policy.dataScopes',
-    'policy.allowRemote', 'policy.dailyRequests', 'policy.dailyBudgetCents', 'design.remote', 'design.permissions.remote']
-  const stubborn = fresh ? preflight!.blockedBy.filter(b => !grantableFields.includes(b.field)) : []
-  const fixable = fresh ? preflight!.blockedBy.filter(b => grantableFields.includes(b.field)) : []
-  const supported = !!latest && latest.design.permissions.tools.length === 0
-    && latest.design.permissions.costUpperBoundCents <= 50
-    && latest.design.permissions.dataScopes.every(s => s === 'knowledge:approved-cultivation')
+  // 与 PolicyPreset 同一份判据与预设（grant-preset.mjs），两处不会各写各的。
+  const { fixable, shared, stubborn } = classifyBlocked(fresh ? preflight!.blockedBy : [], { includeShared: true })
+  const supported = !!latest && supportedDesign(latest.design)
   const revision = data?.revision ?? 0
-  // 放权预设与「授权与资源」页的一次性放权完全一致：七天、一个个体、每天一次文本请求、
-  // 每天 50 美分；不含电脑、文件、终端、密码、凭据、工具或私人记忆。
   const prepare = () => {
     if (!latest || !supported || !data) return
-    setAction({
-      method: 'PUT', path: '/policy', revision: data.revision,
-      label: `开启七天受限培养 · ${latest.design.name}`,
-      payload: { policy: {
-        enabled: true, maxAgents: 1, maxConcurrent: 1, dailyRequests: 1, dailyBudgetCents: 50, currency: 'USD',
-        allowRemote: true, recursive: false, models: [latest.design.permissions.model], tools: [],
-        dataScopes: ['knowledge:approved-cultivation'],
-        expiresAt: new Date(Date.now() + 7 * 86400000).toISOString(), timeoutMs: 60000, motherLearning: false,
-        schedule: { timezone: 'UTC', days: [0, 1, 2, 3, 4, 5, 6], startMinute: 0, endMinute: 1440 },
-      } },
-    })
+    setAction({ method: 'PUT', path: '/policy', revision: data.revision,
+      label: `开启七天受限培养 · ${latest.design.name}`, payload: { policy: grantPolicy(latest.design) } })
   }
   return <div className="cultivation-gate-mask" onClick={close}>
     <section className="cultivation-gate-dialog" role="dialog" aria-modal="true" aria-label="培养授权"
@@ -113,9 +98,10 @@ function GrantDialog({ sessionId, close }: { sessionId: string | null; close: ()
         </>}
 
       <h4>授权声明</h4>
-      <p className="soul-hint">放权范围固定为七天、最多一个个体、每天一次文本请求、每天最多 0.50 美元；不包含电脑、文件、终端、密码、凭据、工具或私人记忆。一次性放权不会自动开始付费任务；登记个体与提交任务时，服务端会再次核对实际资源与费用。</p>
+      <p className="soul-hint">放权范围固定为{grantSummary}；不包含电脑、文件、终端、密码、凭据、工具或私人记忆。一次性放权不会自动开始付费任务；登记个体与提交任务时，服务端会再次核对实际资源与费用。</p>
 
       {latest && <DesignReadiness key={latest.id} designId={latest.id} revision={revision} onResult={setPreflight} />}
+      {shared.length > 0 && <p role="status">共享模型设置还差 {shared.length} 项，可在灵魂培养中心一键补齐。</p>}
       {stubborn.length > 0 && <p role="status">还有 {stubborn.length} 项无法由本次放权修复（如共享资源、个体数量、执行器或设计本身），请先按上方清单核对。</p>}
       {fresh && stubborn.length === 0 && fixable.length > 0 && <p role="status">剩余 {fixable.length} 项待核对全部属于培养授权本身（授权开关、有效期、模型白名单、每日额度），本次放权会一并写入。</p>}
 

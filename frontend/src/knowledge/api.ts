@@ -40,7 +40,7 @@ const post = <T,>(path: string, body: unknown) => api<T>(path, { method: 'POST',
 export const KnowledgeApi = {
   status: () => api<KnowledgeStatus>('/api/knowledge/status'),
   policy: () => api<KnowledgePolicyData>('/api/knowledge/policy'),
-  models: () => api<Array<{ key: string; label: string }>>('/api/knowledge/models'),
+  models: () => api<Array<{ key: string; label: string; cost?: { input: number; output: number } }>>('/api/knowledge/models'),
   jobs: (offset: number) => api<{ items: KnowledgeJob[]; total: number }>(`/api/knowledge/jobs?offset=${offset}&limit=20`),
   job: (id: string) => api<KnowledgeJob>(`/api/knowledge/jobs/${encodeURIComponent(id)}`),
   updatePolicy: (patch: Partial<KnowledgePolicyData>, revision: number) => post<KnowledgePolicyData>('/api/knowledge/policy', { patch, revision }),
