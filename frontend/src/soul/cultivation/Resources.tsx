@@ -21,6 +21,11 @@ export default function Resources({value,sessionId,onAction,refresh}:{value:Over
     {value.usage?<dl className="soul-facts"><div><dt>共享已结算费用</dt><dd>{value.usage.spent} {value.usage.currency}</dd></div><div><dt>已预留费用</dt><dd>{value.usage.reserved} {value.usage.currency}</dd></div><div><dt>用量待确认</dt><dd>{value.usage.unknown}</dd></div></dl>:<p>尚无可读取的资源账本，不按零用量显示。</p>}
     {value.sessionGrantAvailable?<p className="soul-notice">{sessionId?'培养策略可在当前会话确认，安卓和网页均可使用，不需要 Windows 设备绑定。':'请先在上方选择会话，即可确认培养策略。'}其他人工操作仍使用原有签名通道。</p>:null}
     <PolicyPreset value={value} authorized={policyAuthorized} onAction={onAction}/>
+    <section aria-label="共享模型与额度设置">
+      <h4>共享模型与额度设置（培养前必须核对）</h4>
+      <p className="soul-notice">这里直接管理：<strong>允许共享后台调用外部模型、共享模型白名单、模型价格与每日额度</strong>。它与知识后台共用，保存后同时影响知识与培养。</p>
+      <SharedResources refresh={refresh}/>
+    </section>
     <details><summary>高级设置（管理员）</summary>
     <p className="soul-hint">普通培养不需要进入这里。以下项目只用于排查共享资源、处理异常占用或维护既有授权；服务端校验和一次性确认仍然有效。</p>
     <Diagnostics revision={value.revision}/>

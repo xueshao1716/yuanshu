@@ -27,3 +27,26 @@
 .cultivation-evidence li + li { margin-top: 12px; }
 @media (max-width: 640px) { .cultivation-panel .soul-actions { gap: 10px; } }
 @media (max-width: 640px) { .cultivation-lineage { grid-template-columns: minmax(0, 1fr); } }
+
+/* ── 对话内培养授权浮动入口与弹窗（GrantDialog.tsx）──
+   挂在 AppLayout 的 chat 路由下，不在 .soul-page 作用域内，
+   按钮与排版需自带样式；视觉与灵魂培养中心共用同一套主题变量。 */
+.cultivation-gate-fab { position: fixed; right: 20px; bottom: 20px; z-index: 45; display: flex; align-items: center; gap: 8px; min-height: 44px; padding: 10px 16px; border: 1px solid var(--pi-accent); border-radius: 999px; background: var(--pi-bg1); color: var(--pi-accent); font: inherit; font-weight: 600; font-size: 13px; cursor: pointer; box-shadow: 0 8px 24px rgb(0 0 0 / .18); transition: background-color .15s ease, transform .15s ease; }
+.cultivation-gate-fab:hover { background: var(--pi-bg2); transform: translateY(-1px); }
+.cultivation-gate-fab:focus-visible { outline: 2px solid var(--pi-accent); outline-offset: 3px; }
+.cultivation-gate-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--pi-accent); animation: cultivation-gate-pulse 1.8s ease-in-out infinite; }
+@keyframes cultivation-gate-pulse { 0%, 100% { opacity: 1; } 50% { opacity: .35; } }
+@media (prefers-reduced-motion: reduce) { .cultivation-gate-dot { animation: none; } .cultivation-gate-fab { transition: none; } }
+.cultivation-gate-mask { position: fixed; inset: 0; z-index: 60; display: flex; align-items: center; justify-content: center; padding: 20px; background: rgb(0 0 0 / .45); }
+.cultivation-gate-dialog { width: min(560px, 100%); max-height: min(84dvh, 720px); overflow: auto; padding: 24px; border: 1px solid var(--pi-border); border-radius: 12px; background: var(--pi-bg1); color: var(--pi-text); font-size: 14px; line-height: 1.65; scrollbar-color: var(--pi-border) transparent; box-shadow: 0 24px 64px rgb(0 0 0 / .3); }
+.cultivation-gate-dialog h3 { font-size: 18px; font-weight: 650; margin: 0 0 8px; }
+.cultivation-gate-dialog h4 { font-size: 14px; font-weight: 650; margin: 22px 0 10px; }
+.cultivation-gate-dialog p { max-width: 75ch; margin: 8px 0; overflow-wrap: anywhere; }
+.cultivation-gate-dialog ul { margin: 8px 0; padding-left: 20px; }
+.cultivation-gate-dialog li + li { margin-top: 6px; }
+.cultivation-gate-dialog button { min-height: 44px; padding: 9px 14px; border: 1px solid var(--pi-border); border-radius: var(--pi-radius-sm, 8px); background: var(--pi-bg2); color: var(--pi-text); font: inherit; text-align: center; cursor: pointer; transition: background-color .15s ease; }
+.cultivation-gate-dialog button:hover:not(:disabled) { border-color: var(--pi-accent); }
+.cultivation-gate-dialog button:disabled { opacity: .5; cursor: not-allowed; }
+.cultivation-gate-dialog :focus-visible { outline: 2px solid var(--pi-accent); outline-offset: 3px; }
+.cultivation-gate-dialog [role="status"] { padding: 10px 12px; border: 1px solid var(--pi-border-soft); border-radius: 8px; background: var(--pi-bg2); margin: 10px 0; overflow-wrap: anywhere; }
+@media (max-width: 640px) { .cultivation-gate-fab { right: 14px; bottom: 76px; } .cultivation-gate-mask { padding: 0; align-items: flex-end; } .cultivation-gate-dialog { width: 100%; max-height: 88dvh; border-radius: 12px 12px 0 0; border-bottom: none; } }

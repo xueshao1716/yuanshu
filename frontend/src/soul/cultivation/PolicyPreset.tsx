@@ -8,11 +8,20 @@ import DesignReadiness from './DesignReadiness'
 export default function PolicyPreset({value,authorized,onAction}:{value:Overview;authorized:boolean;onAction:(a:Action)=>void}) {
   const [cursor,setCursor]=useState<string|null>(null),[selected,setSelected]=useState(''),[preflight,setPreflight]=useState<Preflight|null>(null)
   const records=useSWR(['cultivation-preset-designs',cursor],()=>CultivationApi.list<Design>('designs',cursor),cultivationPolling)
-  const row=records.data?.items.find(d=>d.id===selected)
+  const rows=records.data?.items||[]
+  const row=rows.find(d=>d.id===selected)
+  // 下列字段正是「一次性放权」要写入的值：授权开关、有效期、模型白名单、外发、每日次数与预算。
+  // 预检只剩这些待核对项时按钮仍应可点——放权本身就是修复动作，否则从零状态永远点不了。
+  const grantableFields=['policy.enabled','policy.expiresAt','policy.models','policy.tools','policy.dataScopes','policy.allowRemote','policy.dailyRequests','policy.dailyBudgetCents','design.remote','design.permissions.remote']
+  const fresh=!!preflight&&preflight.revision===value.revision
+  const stubborn=fresh?preflight!.blockedBy.filter(b=>!grantableFields.includes(b.field)):[]
+  const grantable=fresh&&stubborn.length===0
+  const fixable=fresh?preflight!.blockedBy.filter(b=>grantableFields.includes(b.field)):[]
   const supported=!!row&&row.design.permissions.tools.length===0&&row.design.permissions.costUpperBoundCents<=50&&
     row.design.permissions.dataScopes.every(s=>s==='knowledge:approved-cultivation')
   const prepare=()=>{
-    if(!row||!supported||records.error||records.isValidating||!authorized)return
+    // 放权的目的正是把授权从关到开，因此不能要求调用方已 authorized；supported 与记录状态仍要卡。
+    if(!row||!supported||records.error||records.isValidating)return
     onAction({method:'PUT',path:'/policy',revision:value.revision,label:`开启七天受限培养 · ${row.design.name}`,payload:{policy:{
       enabled:true,maxAgents:1,maxConcurrent:1,dailyRequests:1,dailyBudgetCents:50,currency:'USD',
       allowRemote:true,recursive:false,models:[row.design.permissions.model],tools:[],dataScopes:['knowledge:approved-cultivation'],
@@ -39,11 +48,15 @@ export default function PolicyPreset({value,authorized,onAction}:{value:Overview
       revision={value.revision}
       onResult={setPreflight}
     />}
+    {grantable&&fixable.length>0&&<p role="status">剩余 {fixable.length} 项待核对全部属于培养授权本身（如授权开关、有效期、模型白名单、每日额度），本次放权会一并写入，确认后自动解决。</p>}
+    {stubborn.length>0&&<p role="status">还有 {stubborn.length} 项无法由本次放权修复（如共享资源、个体数量、执行器或设计本身），请先按上方清单核对。</p>}
     <p className="soul-hint">放权范围固定为七天、最多一个个体、每天一次文本请求、每天最多 0.50 美元；不包含电脑、文件、终端、密码、凭据、工具或私人记忆。外部调用、模型价格和共享额度仍由自动预检与服务端在提交时复核。</p>
     <div className="soul-actions">
       <button disabled={!cursor} onClick={()=>{setCursor(null);setSelected('')}}>返回设计首页</button>
       <button disabled={!records.data?.nextCursor} onClick={()=>{setCursor(records.data?.nextCursor||null);setSelected('')}}>更多培养设计</button>
-      <button disabled={!authorized||!supported||!preflight?.ready||preflight.revision!==value.revision||!!records.error||records.isValidating} onClick={prepare}>一次性放权</button>
+      <button
+        disabled={!supported||!grantable||!!records.error||records.isValidating}
+        onClick={prepare}>一次性放权</button>
     </div>
   </section>
 }

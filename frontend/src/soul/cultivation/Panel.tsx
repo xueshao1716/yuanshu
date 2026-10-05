@@ -8,10 +8,10 @@ import Learning from './Learning'
 import Authorization, { type Action } from './Authorization'
 import './cultivation.css'
 
-const tabs=[['agents','个体与设计'],['runs','运行时间线'],['experience','学习证据'],['resources','授权与资源']] as const
+const tabs=[['resources','授权与资源（先从这里）'],['agents','个体与设计'],['runs','运行时间线'],['experience','学习证据']] as const
 type Tab=typeof tabs[number][0]
 export default function Cultivation({sessionId}:{sessionId:string}) {
-  const [tab,setTab]=useState<Tab>('agents'),[cursor,setCursor]=useState<string|null>(null),[action,setAction]=useState<Action|null>(null)
+  const [tab,setTab]=useState<Tab>('resources'),[cursor,setCursor]=useState<string|null>(null),[action,setAction]=useState<Action|null>(null)
   const [designCursor,setDesignCursor]=useState<string|null>(null),[error,setError]=useState('')
   const {mutate}=useSWRConfig()
   const overview=useSWR('cultivation-overview',CultivationApi.overview,cultivationPolling)

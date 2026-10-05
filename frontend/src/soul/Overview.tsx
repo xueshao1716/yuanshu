@@ -20,6 +20,11 @@ export default function Overview({open}: {open:(section:Section)=>void}) {
       <dl className="soul-facts"><div><dt>人格来源</dt><dd>{persona.error ? '读取失败' : !persona.data ? '读取中' : persona.data.source === 'file' && !persona.data.problems.length ? String(persona.data.definition.name || '现有人格文件') : '来源需修复'}</dd></div><div><dt>待审基因提案</dt><dd>{genes.error ? '读取失败' : genes.data ? genes.data.proposals.filter(p=>p.status==='pending').length : '读取中'}</dd></div><div><dt>人格修订记录</dt><dd>{persona.error ? '读取失败' : persona.data?.history.length ?? '读取中'}</dd></div></dl>
       {!!persona.data?.problems.length && <p role="alert" className="soul-notice">{persona.data.problems.join('；')}。恢复前禁止保存。</p>}
     </Block>
+    <Block title="培养授权入口" hint="如果你要给小语开放培养权限，请从这里进入；进入后默认就是“授权与资源”页。">
+      <button className="soul-primary-action" onClick={()=>open('cultivation')}>
+        <strong>进入培养授权</strong><span>授权与资源（先从这里）</span><ArrowRight size={18} aria-hidden="true" />
+      </button>
+    </Block>
     <div className="soul-directory">{sections.slice(1).map(([id,title,hint]) => <button key={id} onClick={()=>open(id)}><strong>{title}</strong><span>{hint}</span><span aria-hidden="true"><ArrowRight size={18}/></span></button>)}</div>
   </>
 }
