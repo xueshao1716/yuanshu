@@ -1,4 +1,4 @@
-// OpenHands AgentDelegate 精简版：主循环可派 flash 子代理，只回收结论。
+// OpenHands AgentDelegate 精简版：主循环可派只读研究员（research 画像），只回收结论与证据。
 import { spawnSubagent } from "./subagent.mjs";
 import { forkSeedFromHistory } from "./subagent-fork.mjs";
 import { DELEGATE_CONTRACT } from './subagent-contract.mjs';
@@ -13,7 +13,7 @@ export const DELEGATE_TASK_TOOL = {
       properties: {
         task: { type: "string", description: "子任务：要做什么、输出什么结论" },
         context: { type: "array", items: { type: "string" }, description: "最小必要上下文，不要贴整段历史" },
-        role: { type: "string", enum: ["analyst", "planner", "reviewer"], description: "有限职责标签，仅用于记录与路由" },
+        role: { type: "string", enum: ["analyst", "planner", "reviewer"], description: "analyst 查证 / planner 拆方案 / reviewer 复核；仅用于记录与展示" },
       },
       required: ["task"],
     },
@@ -35,7 +35,8 @@ export async function execDelegateTask(args = {}, ctx = {}) {
     onEvent: ctx.onEvent,
     aibodyContext: ctx.aibodyContext,
     model: args.model || ctx.model,
-    timeoutMs: args.timeoutMs || ctx.timeoutMs,
+    timeoutMs: args.timeoutMs || ctx.timeoutMs || 180000,
+    profile: "research",
   });
   if (!r?.done) return { text: `子任务失败：${r?.error || "未知错误"}`, isError: true, subagentRunId: r?.subagentRunId, cancelled: r?.cancelled };
   const evidence = (r.evidence || []).slice(0, 6).join("；");
@@ -59,7 +60,7 @@ export const DELEGATE_FORK_TOOL = {
       properties: {
         task: { type: "string", description: "子任务：要做什么、输出什么结论" },
         context: { type: "array", items: { type: "string" }, description: "需要额外点明的、前文里没有的事实" },
-        role: { type: "string", enum: ["analyst", "planner", "reviewer"], description: "有限职责标签，仅用于记录与路由" },
+        role: { type: "string", enum: ["analyst", "planner", "reviewer"], description: "analyst 查证 / planner 拆方案 / reviewer 复核；仅用于记录与展示" },
       },
       required: ["task"],
     },
@@ -85,7 +86,8 @@ export async function execDelegateFork(args = {}, ctx = {}) {
     onEvent: ctx.onEvent,
     aibodyContext: ctx.aibodyContext,
     model: args.model || ctx.model,
-    timeoutMs: args.timeoutMs || ctx.timeoutMs,
+    timeoutMs: args.timeoutMs || ctx.timeoutMs || 180000,
+    profile: "research",
     parentDepth: Number(ctx.depth) || 0,
   });
   if (!r?.done) return { text: `子任务失败：${r?.error || "未知错误"}`, isError: true, subagentRunId: r?.subagentRunId, cancelled: r?.cancelled };

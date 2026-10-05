@@ -2,7 +2,7 @@ import { estimateHistoryTokens } from './context-headroom.mjs';
 import { clampOutputTokens } from './output-budget.mjs';
 
 export const RESULT_SCHEMA = '{"result":"完整任务正文（字符串）","evidence":["关键证据"],"confidence":0.8}';
-export const DELEGATE_CONTRACT = '仅分析已提供的文本：对比、摘要、规划或审阅。不联网、不读文件、不看图片、不运行命令、不生成真实媒体；检索或执行由主代理完成后提供必要材料。内部返回 ' + RESULT_SCHEMA + '；需要列表或业务 JSON 时写入 result 字符串。task 最多8000字符，context 最多8条、每条2000字符；超限会明确拒绝，不会静默删尾。输出 token 按模型能力有界分配，不保证等量字符；长任务拆成独立子任务。';
+export const DELEGATE_CONTRACT = '派一个只读研究员去查一个独立子问题：它能自己 read / list / grep 工作区文件、web_search 联网（最多 8 轮工具），不写文件、不运行命令、不看图片、不生成真实媒体，改动和执行仍由你来做。适合：多处代码/文档定位、资料调研、方案比对、独立复核。**同一轮里并列调用多个 delegate_task 会并行执行**，可分派 2–3 个互不依赖的子问题，再由你综合。简单的一两步查询自己做更快，不必派。内部返回 ' + RESULT_SCHEMA + '；需要列表或业务 JSON 时写入 result 字符串。task 最多8000字符，context 最多8条、每条2000字符；超限会明确拒绝，不会静默删尾。输出 token 按模型能力有界分配，不保证等量字符；长任务拆成独立子任务。';
 
 export function subagentError(code, message) {
   return Object.assign(new Error(message), { code });

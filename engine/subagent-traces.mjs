@@ -68,7 +68,7 @@ function normalizeRecord(input = {}) {
 
 function safeDiagnostics(value) {
   const out = {};
-  for (const key of ['outputBudget', 'inputTokensEstimate', 'inputTokens', 'outputTokens', 'reasoningTokens']) {
+  for (const key of ['outputBudget', 'inputTokensEstimate', 'inputTokens', 'outputTokens', 'reasoningTokens', 'toolCalls']) {
     out[key] = Number.isFinite(value[key]) && value[key] >= 0 ? Math.floor(value[key]) : null;
   }
   for (const key of ['errorCode', 'finishReason', 'usedModel']) out[key] = bounded(value[key], 180);

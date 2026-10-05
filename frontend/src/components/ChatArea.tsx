@@ -27,6 +27,7 @@ import { StreamAssembler, type AssemblerSnapshot } from '../lib/stream-assembler
 import { advanceRunCursor, isTerminalRunStatus, interruptionNotice, type RunCursor, type RunEvent } from '../lib/run-events'
 import { scrapeVideos, dedupeMediaUrls, mediaPathKey } from '../lib/media-embed'
 import { reconcileImageMessages } from '../lib/image-identity'
+import { workRole, workTool } from '../lib/work-explanation'
 import { createSessionViewOwner } from '../realtime/session-owner.mjs'
 
 // 流式状态：覆盖服务端全部 SSE 事件（delta/think/think_end/tool/tool_output/
@@ -614,7 +615,11 @@ export default function ChatArea({ compactHeader, rightPanel, onRightPanel, onVo
         break
       case 'subagent_started':
       case 'subagent_finished':
-        updStream(p => ({ ...p, notes: [...p.notes, `${d.agent || '角色'} · ${event.type === 'subagent_started' ? '开始协作' : d.status === 'failed' ? '执行失败' : '已返回，待最终检查'}`].slice(-40) }))
+        updStream(p => ({ ...p, notes: [...p.notes, `研究员·${workRole(String(d.agent || 'analyst'))} · ${event.type === 'subagent_started' ? '开始调研' : d.status === 'failed' ? '执行失败' : '已返回，待主角色核对'}`].slice(-40) }))
+        break
+      case 'subagent_tool':
+        // 只读研究员每次查证都留一行：在读哪个文件、搜什么（2026-10-05，让"派出去的人在干什么"看得见）
+        updStream(p => ({ ...p, notes: [...p.notes, `研究员·${workRole(String(d.agent || 'analyst'))} · ${workTool(String(d.tool || ''))}${d.target ? ' ' + String(d.target).slice(0, 80) : ''}${d.isError ? '（未成功）' : ''}`].slice(-40) }))
         break
       case 'engine_selected': {
         // ② 每轮标出"主驾引擎 + 原因"（2026-09-16）：服务端一直有这个事件，

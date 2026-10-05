@@ -105,9 +105,13 @@ test('fork marks per-message clipping and fits its notice inside the character b
   assert.equal(forkSeedFromHistory([{ role: 'assistant', content: '文'.repeat(1000) }]).truncated, true);
 });
 
-test('delegate descriptions state analysis-only capabilities and the real output envelope', () => {
+// 2026-10-05：子智能体升级为只读研究员（read/list/grep/web_search）。描述必须如实写清边界：
+// 只读、不写文件、不运行命令，且不得吹成"廉价 flash"。
+test('delegate descriptions state read-only research capabilities and the real output envelope', () => {
   for (const tool of [DELEGATE_TASK_TOOL, DELEGATE_FORK_TOOL]) {
-    assert.match(tool.function.description, /不联网/);
+    assert.match(tool.function.description, /只读/);
+    assert.match(tool.function.description, /不写文件/);
+    assert.match(tool.function.description, /不运行命令/);
     assert.match(tool.function.description, /result/);
     assert.doesNotMatch(tool.function.description, /廉价 flash|独立调研/);
   }

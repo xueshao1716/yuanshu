@@ -56,7 +56,7 @@ import { initSessionFiles, scanSessionFiles, parseSessionFile, parseSessionFileC
 import { httpJsonFetch, httpBufferFetch } from "./engine/http.mjs";
 import { createReplyTts } from './engine/reply-tts.mjs';
 // ── 统一工具集（拆模块）：schema + 执行器；安全线（deny/危险命令/受保护路径/路径越权）在 engine/tools/security.mjs ──
-import { BASE_TOOL_SCHEMAS, SHARE_PROJECT_SCHEMA, createUnifiedToolExecutorGuarded } from "./engine/tools/unified-tools.mjs";
+import { BASE_TOOL_SCHEMAS, SHARE_PROJECT_SCHEMA, createUnifiedToolExecutorGuarded, webSearchTool } from "./engine/tools/unified-tools.mjs";
 import { safeJoin } from "./engine/tools/security.mjs";
 // ── dsh 执行臂工具（拆模块）：双引擎派单/并发控制/结构化回传解析 ──
 import { createDshTool } from "./engine/dsh-tool.mjs";
@@ -548,6 +548,9 @@ try {
       || modelList.find(m => m.provider === "xiaomi-token-plan-cn" && /mimo-v2\.5$/i.test(m.id))
       || defaultModel,
     traceDir: path.join(AGENT_DIR, "yuanshu-subagents"),
+    // 只读研究员（delegate_task / delegate_fork）：可读工作区 + 系统本体目录，可联网搜索
+    researchRoots: () => [WS_ROOT, __dirname],
+    webSearch: (q) => webSearchTool(q),
   });
 } catch (e) { console.log("[元枢] subagent 初始化失败: " + String(e?.message || e).slice(0, 80)); }
 // P3 资产路由：技能库摘要索引注入（任务→技能自动匹配）
