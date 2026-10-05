@@ -12,7 +12,7 @@ export class StandardAgentLoop {
     this.name = options.name || "标准工具循环";
     this.version = "2.0.0";
     this.maxTurns = options.maxTurns || 20;
-    this.maxLoopCalls = options.maxLoopCalls || 3;      // 相同工具+参数连续 N 次 → 中断
+    this.maxLoopCalls = options.maxLoopCalls || 3;      // 相同工具+参数连续 N 次成功 → 中断（第 N-1 次起软提醒）
     this.maxFailRetries = options.maxFailRetries || 5;  // 失败重试上限
     this.maxParallel = options.maxParallel || 4;        // 并行工具调用的并发上限（有界滚动池）
     this.getModel = options.getModel || (() => null);   // () => 当前模型 { id, provider, ... }
@@ -27,7 +27,9 @@ export class StandardAgentLoop {
     const m = model || this.getModel();
     if (!m) return { error: "未选择模型" };
     const messages = buildMessages(history, message, opts.system);
-    const seenCalls = new Map();
+    // 防死循环按“连续相同”判定：累计计数会把“读同一文件多次、无参工具重复调用”等正常推进误判为循环
+    let lastSig = null;
+    let lastSigCount = 0;
     let turn = 0;
 
     while (turn < this.maxTurns) {
@@ -52,12 +54,6 @@ export class StandardAgentLoop {
         } else {
           messages.push({ role: "assistant", content: null, tool_calls: r.toolCalls });
         }
-        for (const tc of r.toolCalls) {
-          let a = {};
-          try { a = JSON.parse(tc.function?.arguments || "{}"); } catch {}
-          const sig = (tc.function?.name || "") + ":" + JSON.stringify(a);
-          seenCalls.set(sig, (seenCalls.get(sig) || 0) + 1);
-        }
         // 调度执行：排他工具成屏障，其余有界并行；结果按模型顺序返回；abort 未启动的补合成结果
         const results = await scheduleToolCalls({
           toolCalls: r.toolCalls,
@@ -70,11 +66,19 @@ export class StandardAgentLoop {
         for (const item of results) {
           const { id: tcId, name: fnName, args, out } = item;
           const sig = fnName + ":" + JSON.stringify(args);
+          if (sig === lastSig) lastSigCount += 1; else { lastSig = sig; lastSigCount = 1; }
           const failed = out.isError === true;
-          if (!failed && seenCalls.get(sig) >= this.maxLoopCalls) {
-            return { error: "模型工具调用陷入循环，已中断（建议换一种方式提问）", history: messages };
+          if (!failed && lastSigCount >= this.maxLoopCalls) {
+            return {
+              error: `模型工具调用陷入循环，已中断（工具 ${fnName} 连续 ${lastSigCount} 次以相同参数调用；请更换参数或工具，或直接基于已有信息输出结论）`,
+              history: messages,
+            };
           }
-          if (failed && seenCalls.get(sig) >= this.maxFailRetries) {
+          if (!failed && lastSigCount >= 2 && lastSigCount < this.maxLoopCalls) {
+            // 软提醒：真正打转前给模型一次自纠机会，不再一上来就枪毙整轮
+            out.text = `[系统提示] 这已是你连续第 ${lastSigCount} 次以相同参数调用 ${fnName} 且均成功。若无新信息可获取，请停止重复调用，换一种方式推进或直接输出结论。\n${out.text}`;
+          }
+          if (failed && lastSigCount >= this.maxFailRetries) {
             out.text = `[系统提示] 工具 ${fnName} 已连续失败 ${this.maxFailRetries} 次（最近错误：${String(out.text || "").slice(0, 100)}）。请换一种方式完成任务，不要重复相同的失败操作。`;
           }
           messages.push({ role: "tool", tool_call_id: tcId, content: out.text });
