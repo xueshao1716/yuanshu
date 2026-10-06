@@ -57,6 +57,19 @@ const FORCE = opt('force');
 const log = (...m) => console.log(`[build ${new Date().toTimeString().slice(0, 8)}]`, ...m);
 const run = (cmd, argv, o = {}) => execFileSync(cmd, argv, { stdio: 'inherit', windowsHide: true, ...o });
 const rm = (p) => fs.rmSync(p, { recursive: true, force: true });
+// 运行时从不加载的类型声明/源码映射：删掉既缩包，也给最深的路径腾出 MAX_PATH 余量
+function pruneNodeModules(dir) {
+  let n = 0;
+  const walk = (d) => {
+    for (const ent of fs.readdirSync(d, { withFileTypes: true })) {
+      const p = path.join(d, ent.name);
+      if (ent.isDirectory()) { if (ent.name === 'dist-types') { rm(p); n++; } else walk(p); }
+      else if (/\.d\.[cm]?ts$|\.map$/.test(ent.name)) { fs.rmSync(p, { force: true }); n++; }
+    }
+  };
+  if (fs.existsSync(dir)) walk(dir);
+  return n;
+}
 const mk = (p) => fs.mkdirSync(p, { recursive: true });
 const marker = (step) => path.join(CACHE, `.done-${step}`);
 
@@ -113,6 +126,7 @@ const STEPS = {
     if (fs.existsSync(path.join(dst, 'mcp-server', 'package-lock.json'))) {
       run(NODE, [NPM_CLI, 'ci', '--omit=dev', '--no-audit', '--no-fund', `--registry=${NPM_REGISTRY}`], { cwd: path.join(dst, 'mcp-server') });
     }
+    log('裁掉类型声明/映射', pruneNodeModules(path.join(dst, 'node_modules')) + pruneNodeModules(path.join(dst, 'mcp-server', 'node_modules')));
   },
 
   // 2. Node 运行时（与构建机同版本）+ npm + pi/dsh 引擎
@@ -121,10 +135,19 @@ const STEPS = {
     rm(dst); mk(dst);
     const nodeDir = path.dirname(process.execPath);
     fs.copyFileSync(process.execPath, NODE);
+    // config.mjs / dsh-tool.mjs 会在 node.exe 同级 node_modules 里找引擎。
+    // 用本地安装而不是 -g：全局安装不去重，dsh 的同版本依赖会层层嵌套到 280+ 字符，超 Windows MAX_PATH，NSIS 打包失败。
+    const deps = Object.fromEntries(NPM_GLOBALS.map((s) => { const i = s.lastIndexOf('@'); return [s.slice(0, i), s.slice(i + 1)]; }));
+    fs.writeFileSync(path.join(dst, 'package.json'), JSON.stringify({ name: 'yuanshu-runtime', private: true, dependencies: deps }, null, 2));
+    run(NODE, [path.join(path.dirname(process.execPath), 'node_modules', 'npm', 'bin', 'npm-cli.js'), 'install', '--omit=dev', '--no-audit', '--no-fund', '--no-package-lock', `--registry=${NPM_REGISTRY}`], { cwd: dst });
+    fs.rmSync(path.join(dst, 'package.json'), { force: true });
+    // npm 自身最后拷：本地安装会把不在依赖里的包当作多余删掉
     for (const f of ['npm', 'npm.cmd', 'npx', 'npx.cmd']) if (fs.existsSync(path.join(nodeDir, f))) fs.copyFileSync(path.join(nodeDir, f), path.join(dst, f));
     copyTree(path.join(nodeDir, 'node_modules', 'npm'), path.join(dst, 'node_modules', 'npm'));
-    // config.mjs 会在 node.exe 同级 node_modules 里找 pi 引擎；--prefix 指到这里，npm 会把包和 .cmd 垫片放进来
-    run(NODE, [NPM_CLI, 'i', '-g', `--prefix=${dst}`, '--no-audit', '--no-fund', `--registry=${NPM_REGISTRY}`, ...NPM_GLOBALS]);
+    const shim = (bin) => `@echo off\r\n"%~dp0node.exe" "%~dp0node_modules\\${bin.replace(/\//g, '\\')}" %*\r\n`;
+    fs.writeFileSync(path.join(dst, 'pi.cmd'), shim('@earendil-works/pi-coding-agent/dist/bundle/cli.js'));
+    fs.writeFileSync(path.join(dst, 'dsh.cmd'), shim('@deepseek-ai/dsh/lib/bin.js'));
+    log('裁掉类型声明/映射', pruneNodeModules(path.join(dst, 'node_modules')));
   },
 
   // 3. Python 嵌入版 + 常用库
@@ -195,7 +218,10 @@ const STEPS = {
 
   // 8. NSIS 打包
   nsis() {
-    const makensis = process.env.MAKENSIS || path.join(process.env.LOCALAPPDATA || '', 'tauri', 'NSIS', 'makensis.exe');
+    // 优先 Bin/makensis.exe 本体（Tauri 根目录那个是转发壳，多一层进程）。
+    // 注意：SOLID lzma 先把 4 万多个文件读进临时文件、最后才压缩；前几分钟 CPU 很低、-V2 下没有输出是正常的，不是卡死
+    const tauriNsis = path.join(process.env.LOCALAPPDATA || '', 'tauri', 'NSIS');
+    const makensis = process.env.MAKENSIS || [path.join(tauriNsis, 'Bin', 'makensis.exe'), path.join(tauriNsis, 'makensis.exe')].find((p) => fs.existsSync(p)) || '';
     if (!fs.existsSync(makensis)) throw new Error('找不到 makensis.exe，请安装 NSIS 3 或设置 MAKENSIS');
     // 冲烟测试跑过的 stage 会多出令牌/日志/崩溃记录：不在源码清单里的一律不进包（node_modules 除外）
     const manifest = new Set(JSON.parse(fs.readFileSync(path.join(CACHE, 'app-manifest.json'), 'utf8')));
@@ -211,8 +237,21 @@ const STEPS = {
     scan('');
     for (const r of stray) fs.rmSync(path.join(appDir, r), { force: true });
     if (stray.length) log('清理非源码文件', stray.length, stray.slice(0, 8).join(', '));
+    // 安装目录前缀最长：C:\Users\ (9) + 用户名 (Windows 上限 20) + \AppData\Local\Programs\Yuanshu\ (32) = 61；
+    // 相对路径 ≤ 195 → 全路径 ≤ 256 < MAX_PATH 260。自选更深的安装目录可能超限（README 已注明）
+    const MAX_REL = 195;
+    const longOnes = [];
+    const walk = (abs, rel) => {
+      for (const ent of fs.readdirSync(abs, { withFileTypes: true })) {
+        const r = rel ? `${rel}\\${ent.name}` : ent.name;
+        if (r.length > MAX_REL) longOnes.push(r);
+        if (ent.isDirectory()) walk(path.join(abs, ent.name), r);
+      }
+    };
+    walk(STAGE, '');
+    if (longOnes.length) throw new Error(`${longOnes.length} 个路径超过 ${MAX_REL} 字符，装机会超 MAX_PATH：\n${longOnes.slice(0, 5).join('\n')}`);
     const out = path.join(CACHE, `元枢-离线安装包-${VERSION}-x64.exe`);
-    run(makensis, ['-V2', '-INPUTCHARSET', 'UTF8', `-DSTAGE=${STAGE}`, `-DVERSION=${VERSION}`, `-DOUTFILE=${out}`, path.join(HERE, 'yuanshu.nsi')]);
+    run(makensis, ['-V2', '-INPUTCHARSET', 'UTF8', `-DSTAGE=${STAGE}`, `-DVERSION=${VERSION}`, `-DOUTFILE=${out}`, path.join(HERE, 'yuanshu.nsi')], { stdio: ['ignore', 'inherit', 'inherit'] });
     log('安装包', out, (fs.statSync(out).size / 1048576).toFixed(1) + 'MB');
   },
 };
