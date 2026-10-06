@@ -296,6 +296,31 @@ export function dismissMemoryNudge(id) {
 // 红线同前：提案制 + 自动备份；最近 14 天条目永不触碰。
 const LOG_HEADING_RE = /^#{2,4}\s\d{4}-\d{2}-\d{2}/;
 const FRESH_DAYS = 14, COMPRESS_MIN = 20;
+// 2026-10-06：只按条数判会漏掉「条数不多但每条很长」——当时日志 193 条、322KB，会话开头每次读 50KB。
+const COMPRESS_BYTES = 150 * 1024, COMPRESS_MIN_BY_SIZE = 5;
+
+/**
+ * 压缩摘要的出处闸门（借 OpenClaw dreaming：晋升进长期记忆的每一条都带 Source 引用）。
+ * 每行要点结尾必须是「（来源：YYYY-MM-DD[, YYYY-MM-DD]）」，日期必须真实出现在被压缩的旧条目里。
+ * 任何一行引用了不存在的日期 = 编造，整份拒绝；带出处的行不到 80% 也拒绝。
+ */
+export function validateCompressSummary(summary, oldDates) {
+  const known = new Set(oldDates || []);
+  const lines = String(summary || "").split("\n").map(s => s.trim()).filter(s => /^[-*]\s/.test(s));
+  if (!lines.length) return { ok: false, reason: "摘要没有要点行" };
+  let grounded = 0;
+  for (const ln of lines) {
+    const m = ln.match(/[（(]来源[：:]\s*([^）)]+)[）)]\s*$/);
+    if (!m) continue;
+    const dates = m[1].match(/\d{4}-\d{2}-\d{2}/g) || [];
+    if (!dates.length) continue;
+    const bad = dates.find(d => !known.has(d));
+    if (bad) return { ok: false, reason: `引用了旧日志里没有的日期 ${bad}：${ln.slice(0, 60)}` };
+    grounded++;
+  }
+  if (grounded / lines.length < 0.8) return { ok: false, reason: `只有 ${grounded}/${lines.length} 行带出处` };
+  return { ok: true, lines: lines.length, grounded };
+}
 function logPath() { return path.join(wsRoot, "记忆", "记忆日志.md"); }
 function splitLogBlocks(raw) {
   const lines = raw.split("\n"); const blocks = []; let cur = [];
@@ -310,7 +335,8 @@ export function analyzeMemoryCompress() {
   try {
     const fp = logPath();
     if (!fs.existsSync(fp)) return { total: 0, fresh: 0, old: 0 };
-    const blocks = splitLogBlocks(fs.readFileSync(fp, "utf8"));
+    const raw = fs.readFileSync(fp, "utf8");
+    const blocks = splitLogBlocks(raw);
     const cutoff = Date.now() - FRESH_DAYS * 86400000;
     let fresh = 0, old = 0, oldest = "";
     for (const b of blocks) {
@@ -318,27 +344,34 @@ export function analyzeMemoryCompress() {
       if (d && new Date(d).getTime() < cutoff) { old++; if (!oldest || d < oldest) oldest = d; }
       else fresh++;
     }
-    return { total: blocks.length, fresh, old, oldest, worthIt: old >= COMPRESS_MIN };
+    const bytes = Buffer.byteLength(raw, "utf8");
+    const worthIt = old >= COMPRESS_MIN || (bytes >= COMPRESS_BYTES && old >= COMPRESS_MIN_BY_SIZE);
+    return { total: blocks.length, fresh, old, oldest, bytes, worthIt };
   } catch (e) { return { error: String(e?.message || e).slice(0, 100) }; }
 }
 export async function proposeMemoryCompress(model) {
   if (!llmChat || !model) return { error: "LLM 未注入" };
   const a = analyzeMemoryCompress();
   if (a.error) return a;
-  if (!a.worthIt) return { error: `早期条目仅 ${a.old} 条（需 ≥${COMPRESS_MIN}），暂不值得压缩` };
+  if (!a.worthIt) return { error: `早期条目仅 ${a.old} 条、日志 ${Math.round((a.bytes || 0) / 1024)}KB，暂不值得压缩` };
+  if (loadPool().some(x => x.kind === "memory-compress" && x.state === "open")) return { error: "已有一份待审的压缩提案，先处理它" };
   const fp = logPath();
   const blocks = splitLogBlocks(fs.readFileSync(fp, "utf8"));
   const cutoff = Date.now() - FRESH_DAYS * 86400000;
   const oldBlocks = blocks.filter(b => { const d = b.match(/(\d{4}-\d{2}-\d{2})/)?.[1]; return d && new Date(d).getTime() < cutoff; });
-  // smartSummary：压缩到 ≤30 行要点，保留可复用结论/踩坑/约定，丢弃过程性流水账
+  const oldDates = [...new Set(oldBlocks.map(b => b.match(/(\d{4}-\d{2}-\d{2})/)?.[1]).filter(Boolean))];
+  // smartSummary：压缩到 ≤30 行要点，保留可复用结论/踩坑/约定，丢弃过程性流水账。
+  // 每条带日志块日期当出处；喂给模型的每块开头就是日期，引用可核对。
   const input = oldBlocks.map(b => b.replace(/\s+/g, " ").slice(0, 300)).join("\n").slice(0, 24000);
   const r = await llmChat(model, [
-    { role: "system", content: "你是记忆压缩器。把一段时间的工作日志压缩成要点摘要：保留仍然有效的可复用结论、踩坑教训、约定和资产路径；丢弃过程性叙述和已完成的临时事项。输出 markdown 列表，≤30 行，每行一条，不写开头结尾客套。" },
+    { role: "system", content: "你是记忆压缩器。把一段时间的工作日志压缩成要点摘要：保留仍然有效的可复用结论、踩坑教训、约定和资产路径；丢弃过程性叙述和已完成的临时事项。输出 markdown 列表，≤30 行，每行一条，每行结尾必须写出处：（来源：YYYY-MM-DD），日期只能用日志里出现过的，多个用逗号隔开。不写开头结尾客套。" },
     { role: "user", content: `# 待压缩的历史日志（共 ${oldBlocks.length} 条）\n${input}` },
   ]);
   if (!r || r.error || !r.text) return { error: "摘要生成失败: " + (r?.error || "空响应").slice(0, 80) };
   const summaryText = String(r.text).trim();
   if (summaryText.length < 50) return { error: "摘要过短，疑似异常" };
+  const check = validateCompressSummary(summaryText, oldDates);
+  if (!check.ok) return { error: `摘要没过出处检查：${check.reason}` };
   const pool = loadPool();
   const id = `mcp-${Date.now()}`;
   pool.push({ id, kind: "memory-compress", file: "记忆/记忆日志.md",

@@ -22,6 +22,8 @@ const BODY_SESSIONS = 6;          // 最多读几个会话的正文
 const BODY_PER_SESSION = 1800;    // 每个会话正文上限
 const BODY_TOTAL = 9000;          // 正文总量上限
 const BODY_LINE = 300;            // 单条消息截断
+const STALE_DAYS = 7;             // 行动挂超这么多天就要求复盘给结论
+const STALE_LIST_CAP = 20;        // 每段最多列几条
 
 /** 反思产生的承诺用这个 sessionId 标记，便于"上次兑现"把它们挑出来。 */
 export const REFLECTION_SOURCE = "reflect";
@@ -48,8 +50,20 @@ export function toLocalYmd(iso) {
   return m ? m[1] : "";
 }
 
+// 反思只吃伙伴真实参与的会话（2026-10-06，借 OpenClaw dreaming 的摄入规矩：
+// cron / 子智能体 / 未知来源不进候选）。真测、外部 worker、空壳和探活进来只会挤掉正文名额。
+const REFLECT_GROUPS = new Set(["workspace", "wechat", "terminal"]);
+export function reflectableSessions(list = []) {
+  return (Array.isArray(list) ? list : []).filter((s) => {
+    if (!s) return false;
+    if (s.group && !REFLECT_GROUPS.has(s.group)) return false;
+    return Number(s.messageCount ?? 2) >= 2; // 只有一句开场、没有回复的会话没东西可复盘
+  });
+}
+
 function formatSession(s) {
-  const name = String(s?.name || "未命名").slice(0, 40);
+  const tag = s?.group === "wechat" ? "[微信] " : "";
+  const name = tag + String(s?.name || "未命名").slice(0, 40);
   const preview = String(s?.preview || "").replace(/\s+/g, " ").slice(0, 80);
   return preview ? `- ${name}｜${preview}` : `- ${name}`;
 }
@@ -93,14 +107,16 @@ export function collectReflectionCommitments(wsRoot, { fsMod = fs } = {}) {
   try { all = loadPromises(wsRoot, fsMod); } catch { return { open: [], closed: [] }; }
   const mine = all.filter((p) => String(p.sessionId || "") === REFLECTION_SOURCE);
   const now = Date.now();
-  const age = (p) => {
+  const daysOf = (p) => {
     const t = new Date(p?.at).getTime();
-    if (!Number.isFinite(t)) return "时间未知";
-    const days = Math.floor(Math.max(0, now - t) / 86400000);
-    return days <= 0 ? "今天" : days === 1 ? "昨天" : `${days} 天前`;
+    return Number.isFinite(t) ? Math.floor(Math.max(0, now - t) / 86400000) : null;
   };
+  const age = (days) => days == null ? "时间未知" : days <= 0 ? "今天" : days === 1 ? "昨天" : `${days} 天前`;
   return {
-    open: mine.filter((p) => p.status === "pending").map((p) => ({ text: p.text, phrase: age(p), due: p.due })),
+    open: mine.filter((p) => p.status === "pending").map((p) => {
+      const days = daysOf(p);
+      return { text: p.text, kind: p.kind || "track", days, phrase: age(days), due: p.due };
+    }),
     closed: mine.filter((p) => p.status !== "pending").slice(-8).map((p) => ({ text: p.text, status: p.status, evidence: p.evidence })),
   };
 }
@@ -109,7 +125,14 @@ function formatCommitments(c) {
   if (!c || (!c.open?.length && !c.closed?.length)) return "（还没有历史行动清单）";
   const parts = [];
   if (c.open?.length) {
-    parts.push(`仍挂着（${c.open.length}）：\n` + c.open.slice(0, 8).map((x) => `- ${x.phrase}：${x.text}`).join("\n"));
+    // 2026-10-06：原来只给最老的 8 条，挂账涨到 30+ 条后新近的永远看不见，老的也没人清。
+    // 现在全列（上限 STALE_LIST_CAP），按新旧分两段；挂超 STALE_DAYS 天的要求逐条给结论。
+    const stale = c.open.filter((x) => (x.days ?? 0) > STALE_DAYS);
+    const fresh = c.open.filter((x) => (x.days ?? 0) <= STALE_DAYS);
+    const line = (x) => `- ${x.phrase}｜${x.kind}｜${x.text}`;
+    parts.push(`仍挂着（${c.open.length}）`);
+    if (fresh.length) parts.push(`近 ${STALE_DAYS} 天（${fresh.length}）：\n` + fresh.slice(-STALE_LIST_CAP).map(line).join("\n"));
+    if (stale.length) parts.push(`挂超 ${STALE_DAYS} 天（${stale.length}，必须逐条给结论）：\n` + stale.slice(0, STALE_LIST_CAP).map(line).join("\n"));
   }
   if (c.closed?.length) {
     parts.push(`已结清（${c.closed.length}）：\n` + c.closed.map((x) => `- ${x.text}${x.evidence ? `（证据：${x.evidence}）` : "（无证据）"}`).join("\n"));
@@ -119,13 +142,15 @@ function formatCommitments(c) {
 
 export function collectTimeTaskBrief({ wsRoot, sessions = [], now = new Date(), fsMod = fs } = {}) {
   const ymd = yesterdayYmd(now);
-  const list = Array.isArray(sessions) ? sessions : [];
+  const list = reflectableSessions(sessions);
   const matched = list.filter((s) => toLocalYmd(s.updatedAt || s.createdAt) === ymd);
   const sessionLines = matched.slice(0, 12).map(formatSession);
   const recentLines = matched.length ? [] : list.slice(0, 8).map(formatSession);
-  // ① 会话正文：反思此前只看得到开场那 60 字
+  // ① 会话正文：反思此前只看得到开场那 60 字。
+  // 正文名额给聊得最多的会话（不是最近的）：一晚上十几个两句话的会话会把真正的长对话挤出去。
   const bodies = [];
-  for (const s of matched.slice(0, BODY_SESSIONS)) {
+  const bySubstance = [...matched].sort((a, b) => Number(b.messageCount || 0) - Number(a.messageCount || 0));
+  for (const s of bySubstance.slice(0, BODY_SESSIONS)) {
     const body = sessionDigest(s.file, ymd, BODY_PER_SESSION);
     if (body) bodies.push(`### ${String(s.name || "未命名").slice(0, 40)}\n${body}`);
   }
@@ -168,6 +193,8 @@ ${memory}
 - **必须覆盖会话侧**：用户在聊天里要了什么、交付到什么程度、有没有留在「记录里没有」的地方。
   不能只谈引擎/后端的工作——会话正文就在上方。
 - 若上面有【上次复盘的行动清单与兑现情况】，先逐条交代兑现与否，再说今天。
+- 「挂超 N 天」的每一条必须给结论：继续（说清卡在哪、下一步是什么）/ 转 ask（需要伙伴拍板）/ 建议作废（理由）。
+  建议作废的写进行动清单，kind=ask，text 以「建议作废：」开头——作废要伙伴点头，你只提。
 - 需要细节可 read 记忆.md、记忆/记忆日志.md 或会话文件；不要 bash/write。
 
 结尾必须再附一个 JSON 代码块（只能是 JSON，前后不要解释），列出你今天要做的行动：

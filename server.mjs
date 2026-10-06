@@ -148,7 +148,7 @@ import { createStaticServer } from "./lib/static.mjs";
 import { CodeRuntime } from "./code-mode/code-runtime.mjs";
 import { createCodeMode } from "./code-mode/code-mode.mjs";
 import { createTimeEngine } from "./engine/time-engine.mjs";
-import { composeTimeTaskMessages, timeTaskReadTools, recordReflectionActions, yesterdayYmd } from "./engine/time-task-run.mjs";
+import { composeTimeTaskMessages, timeTaskReadTools, recordReflectionActions, parseReflectionActions, yesterdayYmd } from "./engine/time-task-run.mjs";
 import { planReflectionExecution, buildActionExecutionPrompt, parseActionResult, recordActionAttempt, summarizeExecution, runOnTheSpotFix } from "./engine/reflection-exec.mjs";
 import { loadEpisodes, dream, writeDreamLog, dreamPaths, currentWeights, promoteWeights, resetWeights, recordSkillChoice } from "./engine/dream.mjs";
 import { createDreamCollector } from "./engine/dream-collector.mjs";
@@ -182,12 +182,12 @@ import { verifyArtifacts } from "./engine/verifier.mjs";
 import { MATCH_WEIGHTS } from "./engine/yuanshu-protocol.mjs";
 import { sanitizeSessionFile } from "./engine/session-sanitize.mjs";
 import { createCorsPolicy } from "./engine/cors-policy.mjs";
-import { initSessionDb, handleDbList, handleDbRebuild, handleDbSanitize, handleDbMeta, handleDbStats, handleDbSweep, sweepSessionsNow, ensureSessionSequence } from "./engine/session-db.mjs";
+import { initSessionDb, sessionPinnedIds, handleDbList, handleDbRebuild, handleDbSanitize, handleDbMeta, handleDbStats, handleDbSweep, sweepSessionsNow, ensureSessionSequence } from "./engine/session-db.mjs";
 import { repairSessionFile, repairSessionDir } from "./engine/session-repair.mjs";
 import { outputRoomTokens, headroomNote } from "./engine/context-headroom.mjs";
 import { loadPersonaDefinition, renderPersonaSection, syncAppendSystemPersona } from "./engine/persona-def.mjs";
 import { voiceAllowedOrigins } from "./engine/network-endpoints.mjs";
-import { isListedGroup } from "./engine/session-groups.mjs";
+import { isListedGroup, normalizeCreateGroup } from "./engine/session-groups.mjs";
 import { createAIBodyRuntime } from "./engine/aibody-runtime.mjs";
 import { createAIBodyHost } from "./engine/aibody-host.mjs";
 import { initRecallApi, rebuildIndex, handleRecall, handleRecallAsk, handleSummaries, buildSummaries, recallStats } from "./engine/recall-api.mjs";
@@ -2780,11 +2780,14 @@ const API_ROUTES = [
   ["POST", "/api/memorynudge/dismiss", async (res, req) => { const b = await readBody(req); return json(res, 200, dismissMemoryNudge(b.id)); }],
   // ── 记忆进化压缩（EvoX MemoryOptimizer 思想）──
   ["GET", "/api/memcompress/analyze", (res) => json(res, 200, analyzeMemoryCompress())],
-  ["POST", "/api/memcompress/propose", (res) => json(res, 200, proposeMemoryCompress(defaultModel))],
+  ["POST", "/api/memcompress/propose", async (res) => json(res, 200, await proposeMemoryCompress(defaultModel))],
   ["GET", "/api/memcompress/list", (res) => json(res, 200, { proposals: listMemoryCompress() })],
   ["POST", "/api/memcompress/apply", async (res, req) => { const b = await readBody(req); return json(res, 200, applyMemoryCompress(b.id)); }],
   ["POST", "/api/memcompress/dismiss", async (res, req) => { const b = await readBody(req); return json(res, 200, dismissMemoryCompress(b.id)); }],
-  ["GET", "/api/sessions", (res) => json(res, 200, { sessions: getSessionList().filter(s => isListedGroup(s.group)) })],
+  ["GET", "/api/sessions", (res) => {
+    const pinned = sessionPinnedIds();
+    return json(res, 200, { sessions: getSessionList().filter(s => isListedGroup(s.group)).map(s => (pinned.has(s.id) ? { ...s, pinned: true } : s)) });
+  }],
   // 编辑与回退共用有效会话、本机单次确认、版本检查与不可变修订记录。
   ...['apply', 'rollback'].map(action => ['POST', `/api/persona/${action}`, async (res, req) => {
     const result = await requestPersonaApproval(action, await readBody(req, 2));
@@ -2858,7 +2861,7 @@ const API_ROUTES = [
   }],
   ["POST", "/api/sessions", async (res, req) => {
     const body = await readBody(req);
-    const group = body.group === "test" || body.group === "terminal" ? body.group : "workspace";
+    const group = normalizeCreateGroup(body.group);
     const id = await createSession(body.name, { group });
     return json(res, 200, { id, name: body.name || "新会话", group });
   }],
@@ -3587,6 +3590,13 @@ ${rows.map((r) => `- [${r.status}${r.closed ? "/已结清" : ""}] ${r.text}\n  �
             // 不要静默：这条链上任何一步失败（派发/执行/回账/写日志）都必须留下痕迹，
             // 否则"复盘说要做、实际没做"会以"什么都没发生"的形式藏起来——正是这个项目在治的病。
             console.log(`[time-engine] 复盘→执行阶段异常: ${String(e?.stack || e?.message || e).slice(0, 300)}`);
+          }
+          // 2026-10-06：复盘之后顺手做「整理」——日志太胖就出一份带出处的压缩提案（只提案，应用仍要人点）。
+          // 只在真正的复盘（产出了行动清单）之后触发；已有待审提案时 proposeMemoryCompress 自己会跳过。
+          if (!signal?.aborted && parseReflectionActions(out).length && analyzeMemoryCompress()?.worthIt) {
+            proposeMemoryCompress(defaultModel)
+              .then((p) => console.log(`[memcompress] ${p?.ok ? `已出压缩提案 ${p.id}：归档 ${p.archiveCount} 条，待伙伴审` : `未出提案：${p?.error || "未知"}`}`))
+              .catch((e) => console.log(`[memcompress] 提案异常: ${String(e?.message || e).slice(0, 120)}`));
           }
           console.log(`[time-engine] 任务 ${task.id} 完成，已记录到 ${logFile}`);
         } catch (e) {

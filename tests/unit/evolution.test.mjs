@@ -176,3 +176,14 @@ test("analyzeMemoryCompress：14 天内条目不算早期", () => {
   assert.equal(a.old, 0);
   assert.equal(a.worthIt, false);
 });
+
+test("记忆压缩摘要必须带出处，编造日期整份拒绝", async () => {
+  const { validateCompressSummary } = await import("../../engine/evolution-api.mjs");
+  const dates = ["2026-08-01", "2026-08-02"];
+  assert.equal(validateCompressSummary("- 约定 A（来源：2026-08-01）\n- 踩坑 B（来源：2026-08-01, 2026-08-02）", dates).ok, true);
+  const fake = validateCompressSummary("- 约定 A（来源：2026-08-01）\n- 编的（来源：2026-07-30）", dates);
+  assert.equal(fake.ok, false);
+  assert.match(fake.reason, /2026-07-30/);
+  assert.equal(validateCompressSummary("- 无出处一\n- 无出处二\n- 有（来源：2026-08-02）", dates).ok, false);
+  assert.equal(validateCompressSummary("没有列表", dates).ok, false);
+});
