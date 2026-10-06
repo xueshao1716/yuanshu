@@ -241,17 +241,27 @@ const STEPS = {
     // 相对路径 ≤ 195 → 全路径 ≤ 256 < MAX_PATH 260。自选更深的安装目录可能超限（README 已注明）
     const MAX_REL = 195;
     const longOnes = [];
+    let totalBytes = 0;
     const walk = (abs, rel) => {
       for (const ent of fs.readdirSync(abs, { withFileTypes: true })) {
         const r = rel ? `${rel}\\${ent.name}` : ent.name;
         if (r.length > MAX_REL) longOnes.push(r);
         if (ent.isDirectory()) walk(path.join(abs, ent.name), r);
+        else totalBytes += fs.statSync(path.join(abs, ent.name)).size;
       }
     };
     walk(STAGE, '');
     if (longOnes.length) throw new Error(`${longOnes.length} 个路径超过 ${MAX_REL} 字符，装机会超 MAX_PATH：\n${longOnes.slice(0, 5).join('\n')}`);
     const out = path.join(CACHE, `元枢-离线安装包-${VERSION}-x64.exe`);
-    run(makensis, ['-V2', '-INPUTCHARSET', 'UTF8', `-DSTAGE=${STAGE}`, `-DVERSION=${VERSION}`, `-DOUTFILE=${out}`, path.join(HERE, 'yuanshu.nsi')], { stdio: ['ignore', 'inherit', 'inherit'] });
+    // -V4 写到日志文件：终端不刷 4 万行，又能用行数看进度（读文件阶段 CPU 很低，只看 CPU 会误判卡死）
+    const nsisLog = path.join(CACHE, 'makensis.log');
+    log('makensis 详细日志', nsisLog, '（读文件约 5~10 分钟，压缩约 20 分钟）');
+    try {
+      run(makensis, ['-V4', `-O${nsisLog}`, '-INPUTCHARSET', 'UTF8', `-DSTAGE=${STAGE}`, `-DVERSION=${VERSION}`, `-DOUTFILE=${out}`, `-DESTSIZE_KB=${Math.ceil(totalBytes / 1024)}`, path.join(HERE, 'yuanshu.nsi')], { stdio: ['ignore', 'inherit', 'inherit'] });
+    } catch (e) {
+      const tail = fs.existsSync(nsisLog) ? fs.readFileSync(nsisLog, 'utf8').split(/\r?\n/).slice(-15).join('\n') : '';
+      throw new Error(`makensis 失败，日志末尾：\n${tail}`);
+    }
     log('安装包', out, (fs.statSync(out).size / 1048576).toFixed(1) + 'MB');
   },
 };

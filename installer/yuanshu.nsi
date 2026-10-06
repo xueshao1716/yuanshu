@@ -9,6 +9,9 @@ SetCompressorDictSize 64
 
 !include "MUI2.nsh"
 !include "FileFunc.nsh"
+!ifndef ESTSIZE_KB
+  !define ESTSIZE_KB 0
+!endif
 !include "LogicLib.nsh"
 
 !ifndef STAGE
@@ -54,8 +57,10 @@ VIAddVersionKey /LANG=${LANG_SIMPCHINESE} "LegalCopyright" "元枢开源项目"
 Var NoTask
 
 ; 停掉本安装目录里正在跑的服务进程（升级/卸载前），不碰别处的 node
+; 只动「属于本安装目录」的计划任务与进程：同一台机器上可能还有源码版元枢在跑（同名任务 yuanshu-watchdog），不能误伤
+!define OWN_TASK `$$t = Get-ScheduledTask -TaskName yuanshu-watchdog -ErrorAction SilentlyContinue; $$own = $$t -and ($$t.Actions | Where-Object { $$_.Execute -like '$INSTDIR\*' })`
 !macro StopService
-  nsExec::Exec 'schtasks.exe /End /TN yuanshu-watchdog'
+  nsExec::Exec `powershell.exe -NoProfile -ExecutionPolicy Bypass -Command "${OWN_TASK}; if ($$own) { Stop-ScheduledTask -TaskName yuanshu-watchdog }"`
   nsExec::Exec `powershell.exe -NoProfile -ExecutionPolicy Bypass -Command "Get-Process node -ErrorAction SilentlyContinue | Where-Object { $$_.Path -like '$INSTDIR\runtime\*' } | Stop-Process -Force"`
   Sleep 1500
 !macroend
@@ -107,8 +112,8 @@ Section "元枢" SecCore
   WriteRegStr HKCU "${UNINSTKEY}" "UninstallString" '"$INSTDIR\uninstall.exe"'
   WriteRegDWORD HKCU "${UNINSTKEY}" "NoModify" 1
   WriteRegDWORD HKCU "${UNINSTKEY}" "NoRepair" 1
-  ${GetSize} "$INSTDIR" "/S=0K" $0 $1 $2
-  WriteRegDWORD HKCU "${UNINSTKEY}" "EstimatedSize" "$0"
+  ; 体积由 build.mjs 在构建时算好传进来：${GetSize} 是脚本级循环，4 万多个文件实测 25 分钟还没跑完
+  WriteRegDWORD HKCU "${UNINSTKEY}" "EstimatedSize" ${ESTSIZE_KB}
 
   SetOutPath "$INSTDIR"
   CreateDirectory "$SMPROGRAMS\元枢"
@@ -127,7 +132,7 @@ SectionEnd
 
 Section "Uninstall"
   !insertmacro StopService
-  nsExec::Exec 'schtasks.exe /Delete /TN yuanshu-watchdog /F'
+  nsExec::Exec `powershell.exe -NoProfile -ExecutionPolicy Bypass -Command "${OWN_TASK}; if ($$own) { Unregister-ScheduledTask -TaskName yuanshu-watchdog -Confirm:$$false }"`
   Delete "$SMSTARTUP\元枢服务.lnk"
   Delete "$DESKTOP\元枢.lnk"
   RMDir /r "$SMPROGRAMS\元枢"
