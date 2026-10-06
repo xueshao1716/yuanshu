@@ -88,3 +88,9 @@ test('检测更新：没有 .git 时用构建提交号，不同即落后，可�
   const same = await checkUpdate(root, fs, { fetchImpl: async () => ({ ok: true, json: async () => ({ sha: 'b'.repeat(40), commit: { message: 'x', author: {} } }) }), git: noGit });
   assert.equal(same.upToDate, true);
 });
+
+test('构建：nsis 步骤清理杂散文件时保留构建信息，缺了就拒绝打包', () => {
+  const src = fs.readFileSync(path.resolve(import.meta.dirname, '../../installer/build.mjs'), 'utf8');
+  assert.ok(src.includes('r !== BUILD_INFO'), '清理规则必须放过 .yuanshu-build.json');
+  assert.match(src, /existsSync\(path\.join\(appDir, BUILD_INFO\)\)\) throw/);
+});

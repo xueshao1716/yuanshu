@@ -254,12 +254,14 @@ const STEPS = {
       for (const ent of fs.readdirSync(path.join(appDir, rel), { withFileTypes: true })) {
         const r = rel ? `${rel}/${ent.name}` : ent.name;
         if (ent.isDirectory()) { if (ent.name !== 'node_modules') scan(r); continue; }
-        if (!manifest.has(r)) stray.push(r);
+        if (!manifest.has(r) && r !== BUILD_INFO) stray.push(r);
       }
     };
     scan('');
     for (const r of stray) fs.rmSync(path.join(appDir, r), { force: true });
     if (stray.length) log('清理非源码文件', stray.length, stray.slice(0, 8).join(', '));
+    // 没有它装好的元枢检测不到更新、也没法第一次在线更新
+    if (!fs.existsSync(path.join(appDir, BUILD_INFO))) throw new Error(`stage/app 缺 ${BUILD_INFO}，先跑 --force=app`);
     // 安装目录前缀最长：C:\Users\ (9) + 用户名 (Windows 上限 20) + \AppData\Local\Programs\Yuanshu\ (32) = 61；
     // 相对路径 ≤ 195 → 全路径 ≤ 256 < MAX_PATH 260。自选更深的安装目录可能超限（README 已注明）
     const MAX_REL = 195;
