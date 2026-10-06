@@ -172,3 +172,44 @@ test("isDue 对非 active 状态直接返回 false", () => {
   assert.equal(te._isDue(te.find(r.id), noon), false);
   cleanup();
 });
+
+test('missed daily/weekly slots catch up later the same day, once only', t => {
+  const { te, cleanup } = tmpEngine(null)
+  t.after(cleanup)
+  const daily = te.find(te.register({ at: '00:00', prompt: 'reflect' }).id)
+  daily.created = new Date(2026, 9, 1, 12, 0).toISOString()
+  const late = new Date(2026, 9, 6, 0, 3)
+  assert.equal(te._isDue(daily, late), true, 'server was down at 00:00 → run on restart')
+  assert.equal(te._isDue(daily, new Date(2026, 9, 5, 23, 59)), true)
+  daily.lastStart = new Date(2026, 9, 6, 0, 1).toISOString()
+  assert.equal(te._isDue(daily, late), false, 'a crashed run today must not loop')
+  assert.equal(te._isDue(daily, new Date(2026, 9, 7, 0, 0)), true, 'next day is due again')
+  const weekly = te.find(te.register({ type: 'weekly', day: 2, at: '09:00', prompt: 'w' }).id)
+  weekly.created = new Date(2026, 8, 1).toISOString()
+  assert.equal(te._isDue(weekly, new Date(2026, 9, 6, 15, 0)), true, 'Tuesday afternoon catches the morning slot')
+  assert.equal(te._isDue(weekly, new Date(2026, 9, 6, 8, 59)), false, 'not before the slot')
+  assert.equal(te._isDue(weekly, new Date(2026, 9, 7, 15, 0)), false, 'other weekdays never catch up')
+})
+
+test('a task created after today\'s slot waits for tomorrow', t => {
+  const { te, cleanup } = tmpEngine(null)
+  t.after(cleanup)
+  const daily = te.find(te.register({ at: '09:00', prompt: 'x' }).id)
+  daily.created = new Date(2026, 9, 6, 15, 0).toISOString()
+  assert.equal(te._isDue(daily, new Date(2026, 9, 6, 15, 1)), false)
+  assert.equal(te._isDue(daily, new Date(2026, 9, 7, 9, 0)), true)
+})
+
+test('execute stamps lastStart before the runner finishes', async t => {
+  let release
+  const gate = new Promise(r => { release = r })
+  const { te, file, cleanup } = tmpEngine(async () => { await gate; return 'ok' })
+  t.after(cleanup)
+  const id = te.register({ at: '09:00', prompt: 'x' }).id
+  const pending = te.runNow(id)
+  await new Promise(r => setImmediate(r))
+  const saved = JSON.parse(fs.readFileSync(file, 'utf8')).tasks.find(x => x.id === id)
+  assert.ok(saved.lastStart, 'lastStart persisted while running')
+  assert.equal(saved.lastRun, null)
+  release(); await pending
+})

@@ -93,6 +93,9 @@ export function createTimeEngine(runner, opts = {}) {
     running.set(t.id, queueId);
     controllers.set(t.id, controller);
     stopRequested.delete(t.id);
+    // 开跑前先落盘：执行中进程崩溃时 lastRun 写不进去，补跑判定靠它避免重启后反复重跑同一天。
+    t.lastStart = new Date(startedAt).toISOString();
+    save();
     let status = "ok", result = "";
     try {
       const out = runner ? await runner({ ...t, firedAt: new Date().toISOString(), queueId, trigger }, controller.signal) : null;
@@ -145,12 +148,19 @@ export function createTimeEngine(runner, opts = {}) {
 
   // 判断任务在 now 是否到期（含防重复）
   const localYmd = date => `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
+  // 到点之后当天都算到期（不再要求恰好在那一分钟）：服务在 at 那分钟宕机或重启，
+  // 起来后当天补跑一次。当天新建/在 at 之后才建的任务不补跑，免得一建就触发。
   function isDue(t, now) {
     if (t.state !== "active") return false;
-    const hm = `${String(now.getHours()).padStart(2, "0")}:${String(now.getMinutes()).padStart(2, "0")}`;
-    if (hm !== t.at) return false;
+    const [hh, mm] = String(t.at || "").split(":").map(Number);
+    if (!Number.isFinite(hh) || !Number.isFinite(mm)) return false;
+    const slot = new Date(now.getFullYear(), now.getMonth(), now.getDate(), hh, mm);
+    if (now < slot) return false;
     const today = localYmd(now);
-    const last = t.lastRun ? new Date(t.lastRun) : null;
+    const created = t.created ? new Date(t.created) : null;
+    if (created && localYmd(created) === today && created > slot) return false;
+    const stamps = [t.lastRun, t.lastStart].filter(Boolean).map(v => new Date(v)).filter(d => !Number.isNaN(d.getTime()));
+    const last = stamps.length ? new Date(Math.max(...stamps.map(d => d.getTime()))) : null;
     if (t.type === "once") {
       if (t.date !== today) return false;
       if (last) return false;
