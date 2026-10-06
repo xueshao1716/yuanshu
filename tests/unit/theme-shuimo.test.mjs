@@ -54,3 +54,20 @@ test("牛皮纸必须有纤维纸面特化，阴影是完整 box-shadow 不是�
   assert.ok(css.includes('[data-theme="kraft"] body'), "牛皮纸必须铺纤维底");
   assert.ok(palettes.includes("纤维纸面"), "主题目录描述必须点出纤维纸面");
 });
+
+test("舰桥：科幻主题进目录/种子/apply，有 HUD 特化且不破坏弹层定位", () => {
+  const palettes = read("theme", "palettes.ts");
+  const generate = read("theme", "generate.mjs");
+  const apply = read("theme", "apply.ts");
+  const css = read("styles.css");
+  assert.ok(palettes.includes("id: 'bridge'") && palettes.includes("name: '舰桥'"), "色板缺少舰桥");
+  assert.ok(generate.includes("bridge:"), "生成器缺少 bridge 种子");
+  assert.ok(apply.includes("'bridge'"), "applyThemeVars 必须给 bridge 写 data-theme");
+  assert.ok(css.includes("舰桥·HUD"), "舰桥必须有 HUD 特化区块");
+  assert.ok(css.includes('[data-theme="bridge"] body'), "舰桥必须有网格底");
+  // 2026-10-06：给 .panel 加 position: relative 会以更高优先级盖掉 .fixed/.absolute，对话框和下拉会掉位
+  const block = css.split("舰桥·HUD")[1];
+  for (const m of block.matchAll(/([^{}]+)\{[^}]*position:\s*relative/g)) {
+    assert.ok(/:not\(\.absolute, \.fixed, \.sticky\)/.test(m[1]), `舰桥给 ${m[1].trim()} 加 relative 必须排除已定位弹层`);
+  }
+});

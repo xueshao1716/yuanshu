@@ -138,6 +138,21 @@ export const SEEDS = {
                          '--pi-accent-glow': 'rgba(63,158,110,0.28)', '--pi-glow-purple': 'rgba(90,140,110,0.10)', '--pi-glow-cyan': 'rgba(80,150,120,0.06)' } },
   azure:  { bg: '#0a101c', text: '#e0eaff', accent: '#38bdf8', step: 0.041,
             overrides: { '--pi-accent2': '#7dd3fc', '--pi-accent-deep': '#0284c7', '--pi-accent-glow': 'rgba(56,189,248,0.30)', '--pi-glow-purple': 'rgba(80,120,200,0.12)', '--pi-glow-cyan': 'rgba(56,189,248,0.10)' } },
+  // 舰桥（10-06）：深海军蓝底 + 冰青信号色，细线框/角标/网格见 styles.css「舰桥·HUD」
+  bridge: { bg: '#060a11', text: '#d6e4f0', accent: '#2fd3e6', step: 0.038,
+            overrides: {
+              '--pi-accent2': '#7ee8f3', '--pi-accent-deep': '#0e9fb3',
+              '--pi-accent-glow': 'rgba(47,211,230,0.22)',
+              '--pi-green': '#3ee6a0', '--pi-red': '#ff6b78', '--pi-yellow': '#ffc44d',
+              '--pi-glow-purple': 'rgba(40,90,160,0.18)', '--pi-glow-cyan': 'rgba(47,211,230,0.12)',
+              '--pi-border-hi': 'rgba(126,232,243,0.10)',
+              '--pi-border': '#1a3140', '--pi-border-soft': '#12232f',
+              '--pi-r-sm': '2px', '--pi-r-md': '3px', '--pi-r-lg': '4px', '--pi-r-xl': '6px',
+              '--pi-shadow-sm': '0 0 0 1px rgba(0,0,0,.35)',
+              '--pi-shadow-md': '0 0 0 1px rgba(0,0,0,.4), 0 6px 18px rgba(0,0,0,.35)',
+              '--pi-shadow-lg': '0 0 0 1px rgba(0,0,0,.45), 0 12px 32px rgba(0,0,0,.45)',
+              '--pi-font-display': '"Bahnschrift","Segoe UI","PingFang SC","Microsoft YaHei",system-ui,sans-serif',
+            } },
   // 中式水墨（09-03）：宣纸底 + 墨分五色灰阶 + 朱砂唯一强调；楷体 + 宣纸纹理见 styles.css 手写特化区
   shuimo: { bg: '#F7F4EC', text: '#2A2620', accent: '#B54334', light: true, step: 0.030,
             overrides: {

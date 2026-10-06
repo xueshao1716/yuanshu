@@ -2682,3 +2682,73 @@ body.has-color-card .col-right::before { left: 0; }
 @media (prefers-reduced-motion: reduce) {
   .mood-panel__backdrop, .mood-panel { animation: none; }
 }
+
+/* ══ 舰桥·HUD（2026-10-06）：深海军蓝 + 冰青，细线框、四角角标、网格底，像飞船操作台 ══
+   颜色全部走 token（generate.mjs 的 bridge 种子）；这里只管「科幻语法」：网格、角标、发光描边、等宽数字。 */
+html[data-theme="bridge"] { color-scheme: dark; }
+[data-theme="bridge"] body {
+  background-color: var(--pi-bg);
+  background-image:
+    radial-gradient(90% 60% at 50% -10%, rgba(47,211,230,.08), transparent 60%),
+    linear-gradient(rgba(47,211,230,.04) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(47,211,230,.04) 1px, transparent 1px);
+  background-size: auto, 32px 32px, 32px 32px;
+}
+[data-theme="bridge"] body:not(.has-wallpaper) .col-canvas { background: transparent; }
+[data-theme="bridge"] .col-sidebar {
+  background: rgba(5,10,17,.92);
+  border-right: 1px solid rgba(47,211,230,.16);
+}
+[data-theme="bridge"] .desktop-rail { box-shadow: inset -1px 0 0 rgba(47,211,230,.14); }
+[data-theme="bridge"] .desktop-rail-item[aria-current="page"] {
+  background: linear-gradient(90deg, rgba(47,211,230,.16), rgba(47,211,230,.02));
+  box-shadow: inset 2px 0 0 var(--pi-accent);
+}
+[data-theme="bridge"] .panel,
+[data-theme="bridge"] .card,
+[data-theme="bridge"] .stat-card,
+[data-theme="bridge"] .status-tile,
+[data-theme="bridge"] .utility-panel {
+  background: linear-gradient(180deg, rgba(14,26,40,.88), rgba(8,16,26,.88));
+  border-color: rgba(47,211,230,.20);
+  box-shadow: inset 0 1px 0 rgba(126,232,243,.07), 0 0 0 1px rgba(0,0,0,.4);
+}
+/* 角标要定位锚点；已是 absolute/fixed/sticky 的弹层不能被改成 relative（否则对话框会掉回文档流） */
+[data-theme="bridge"] :is(.panel, .card, .stat-card, .status-tile):not(.absolute, .fixed, .sticky) { position: relative; }
+/* 四角角标：左上 + 右下两只 L 形，伪元素不吃点击 */
+[data-theme="bridge"] .panel::after,
+[data-theme="bridge"] .card::after,
+[data-theme="bridge"] .stat-card::after,
+[data-theme="bridge"] .status-tile::after {
+  content: ""; position: absolute; inset: -1px; pointer-events: none; border-radius: inherit;
+  background:
+    linear-gradient(var(--pi-accent), var(--pi-accent)) top left / 12px 1px no-repeat,
+    linear-gradient(var(--pi-accent), var(--pi-accent)) top left / 1px 12px no-repeat,
+    linear-gradient(var(--pi-accent), var(--pi-accent)) bottom right / 12px 1px no-repeat,
+    linear-gradient(var(--pi-accent), var(--pi-accent)) bottom right / 1px 12px no-repeat;
+}
+[data-theme="bridge"] .panel:hover,
+[data-theme="bridge"] .card-hover:hover { border-color: rgba(47,211,230,.38); }
+[data-theme="bridge"] .btn-primary {
+  background: rgba(47,211,230,.10);
+  color: var(--pi-accent2);
+  border: 1px solid var(--pi-accent);
+  box-shadow: 0 0 12px rgba(47,211,230,.22), inset 0 0 8px rgba(47,211,230,.10);
+  letter-spacing: .06em;
+}
+[data-theme="bridge"] .btn-primary:hover { background: rgba(47,211,230,.18); box-shadow: 0 0 18px rgba(47,211,230,.32), inset 0 0 10px rgba(47,211,230,.14); }
+[data-theme="bridge"] .btn-primary:disabled { box-shadow: none; }
+[data-theme="bridge"] .msg-bubble-user {
+  background: rgba(47,211,230,.10);
+  border: 1px solid rgba(47,211,230,.30);
+  color: var(--pi-text);
+}
+[data-theme="bridge"] .input-pi:focus,
+[data-theme="bridge"] textarea:focus { border-color: var(--pi-accent); box-shadow: 0 0 0 1px rgba(47,211,230,.35), 0 0 14px rgba(47,211,230,.15); }
+[data-theme="bridge"] .page-title { letter-spacing: .06em; }
+/* 读数用等宽：数字是 HUD 的主角，宽度不跳 */
+[data-theme="bridge"] .stat-num,
+[data-theme="bridge"] .review-summary strong,
+[data-theme="bridge"] .assets-overview-stats strong { font-family: var(--pi-font-mono); letter-spacing: 0; }
+[data-theme="bridge"] ::selection { background: rgba(47,211,230,.30); }
+[data-theme="bridge"] canvas[aria-hidden="true"] { opacity: .5; }

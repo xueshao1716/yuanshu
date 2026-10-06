@@ -10,7 +10,7 @@ export type ThemeSeed = { bg: string; text: string; accent: string; step: number
 
 export function applyThemeVars(theme: string, accent: string) {
   const el = document.documentElement as any
-  if (['mist', 'ink', 'violet', 'kraft', 'shuimo', 'bamboo', 'wood', 'liquid-glass'].includes(theme)) el.dataset.theme = theme
+  if (['mist', 'ink', 'violet', 'kraft', 'shuimo', 'bamboo', 'wood', 'liquid-glass', 'bridge'].includes(theme)) el.dataset.theme = theme
   else delete el.dataset.theme
 
   const seed: ThemeSeed = (SEEDS as any)[theme] || (SEEDS as any).mist
