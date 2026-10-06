@@ -15,6 +15,7 @@ import { readEntriesFromFile } from "./session-files.mjs";
 import { extractMessages } from "./session-utils.mjs";
 import { loadPromises, recordPromises } from "./promises.mjs";
 import { normalizeActionKind } from "./reflection-exec.mjs";
+import { recentLessonTopics } from "./lesson-promotion.mjs";
 
 const READ_TOOLS = new Set(["read", "web_search", "search_files"]);
 const CLIP_CAP = 6000;
@@ -161,6 +162,7 @@ export function collectTimeTaskBrief({ wsRoot, sessions = [], now = new Date(), 
     sessionBodies: bodies.join("\n\n").slice(0, BODY_TOTAL),
     memoryClip: clipMemoryLog(wsRoot, ymd),
     commitments: formatCommitments(collectReflectionCommitments(wsRoot, { fsMod })),
+    lessonTopics: recentLessonTopics(wsRoot, { fsMod }),
   };
 }
 
@@ -199,9 +201,12 @@ ${memory}
 
 结尾必须再附一个 JSON 代码块（只能是 JSON，前后不要解释），列出你今天要做的行动：
 \`\`\`json
-{"actions":[{"text":"要做什么（≤60字，具体到可核查）","kind":"fix|track|ask","due":"可选，ISO 日期，没有就空"}]}
+{"actions":[{"text":"要做什么（≤60字，具体到可核查）","kind":"fix|track|ask","due":"可选，ISO 日期，没有就空"}],"lessons":[{"text":"昨天学到/踩到的一条教训（≤60字，写成下次怎么做）","topic":"2-8字主题词，同类教训用同一个词"}]}
 \`\`\`
 3-7 条。只写你确实打算做的。写下来就会进承诺账，下一轮复盘会被追问兑现。
+lessons 0-3 条，没有真教训就给空数组，别凑。同一个坑跨天反复出现，会被提案写进经验库（伙伴点头才写）。${(brief.lessonTopics || []).length
+    ? `\n已有教训主题词（同类教训**必须沿用原词**，确实是新类才起新词）：${brief.lessonTopics.join("、")}`
+    : ""}
 
 **kind 怎么填（2026-09-17 起，这决定了谁会去做）**：
 - \`fix\`：当场能修好的（改代码/补测试/改配置/补文档/沉淀技能），**新一轮会自动挑最多 3 条去执行**，

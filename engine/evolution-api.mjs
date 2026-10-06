@@ -262,6 +262,22 @@ export function proposeMemoryNudge(info) {
   savePool(pool);
   return { ok: true, id };
 }
+
+// 复盘教训晋升（2026-10-07，engine/lesson-promotion.mjs 算出「跨日复现」后调这里）：
+// 和情绪 nudge 同一个提案池、同一个写入/驳回按钮，只是目标是经验库、去重按正文而不是按天。
+export const LESSON_TARGET = "工程/经验库/experience.md";
+export function proposeLessonPromotion({ draft, topic = "", days = [], earlier = [] } = {}) {
+  const text = String(draft || "").trim();
+  if (text.length < 8) return { error: "教训正文太短" };
+  const pool = loadPool();
+  if (pool.some(x => x.kind === "memory-nudge" && x.subtype === "lesson" && x.draft === text)) return { skip: true, reason: "同一条已提过" };
+  const id = `mem-lesson-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
+  pool.push({ id, kind: "memory-nudge", subtype: "lesson", targetFile: LESSON_TARGET, draft: text,
+    topic: String(topic).slice(0, 24), days: days.slice(0, 10), messagePreview: earlier.slice(0, 3).join(" / ").slice(0, 200),
+    created: new Date().toISOString(), state: "open" });
+  savePool(pool);
+  return { ok: true, id };
+}
 export function listMemoryNudges() {
   return loadPool().filter(x => x.kind === "memory-nudge")
     .sort((a, b) => String(b.created).localeCompare(String(a.created)))

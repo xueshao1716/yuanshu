@@ -15,6 +15,7 @@ import {
   applyMemoryNudge,
   listMemoryNudges,
   analyzeMemoryCompress,
+  proposeLessonPromotion,
 } from "../../engine/evolution-api.mjs";
 
 function harness() {
@@ -186,4 +187,21 @@ test("记忆压缩摘要必须带出处，编造日期整份拒绝", async () =>
   assert.match(fake.reason, /2026-07-30/);
   assert.equal(validateCompressSummary("- 无出处一\n- 无出处二\n- 有（来源：2026-08-02）", dates).ok, false);
   assert.equal(validateCompressSummary("没有列表", dates).ok, false);
+});
+
+test('教训晋升提案：进记忆提案池，点「写入」才追加到经验库；同文不重复提', () => {
+  const { root, prompts, skills } = harness();
+  initEvolutionApi({ root, prompts, skills });
+  const exp = path.join(root, '工程', '经验库', 'experience.md');
+  fs.writeFileSync(exp, '# 经验\n');
+  const draft = '- [2026-10-07] [编码] 写中文后 grep U+FFFD（晋升：复盘 2 天复现；来源：2026-10-05、2026-10-06）';
+  const p = proposeLessonPromotion({ draft, topic: '编码', days: ['2026-10-05', '2026-10-06'] });
+  assert.equal(p.ok, true);
+  assert.equal(fs.readFileSync(exp, 'utf8'), '# 经验\n', '提案阶段不碰文件');
+  assert.equal(proposeLessonPromotion({ draft }).skip, true);
+  const n = listMemoryNudges().find((x) => x.id === p.id);
+  assert.equal(n.subtype, 'lesson');
+  assert.equal(n.targetFile, '工程/经验库/experience.md');
+  assert.equal(applyMemoryNudge(p.id).ok, true);
+  assert.ok(fs.readFileSync(exp, 'utf8').endsWith(draft + '\n'));
 });

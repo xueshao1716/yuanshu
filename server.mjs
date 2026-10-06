@@ -123,7 +123,7 @@ import { initSelfHeal, createRepairCheckpoint, handleUpdateCheck, handleUpdateAp
 import { frontendVersionPayload } from "./engine/frontend-version.mjs";
 import { withSamplingParams } from './engine/sampling-params.mjs';
 import { initImproveApi, analyzeImprovements, openImprovements, getImprovementDiagnostics, setImprovementStatus } from "./engine/improve-api.mjs";
-import { initEvolutionApi, proposeEvolution, applyEvolution, listEvolution, dismissEvolution, nudgeSkill, applySkillNudge, dismissSkillNudge, listSkillNudges, startEvolutionEvaluation, proposeMemoryNudge, listMemoryNudges, applyMemoryNudge, dismissMemoryNudge, analyzeMemoryCompress, proposeMemoryCompress, listMemoryCompress, applyMemoryCompress, dismissMemoryCompress } from "./engine/evolution-api.mjs";
+import { initEvolutionApi, proposeEvolution, applyEvolution, listEvolution, dismissEvolution, nudgeSkill, applySkillNudge, dismissSkillNudge, listSkillNudges, startEvolutionEvaluation, proposeMemoryNudge, proposeLessonPromotion, listMemoryNudges, applyMemoryNudge, dismissMemoryNudge, analyzeMemoryCompress, proposeMemoryCompress, listMemoryCompress, applyMemoryCompress, dismissMemoryCompress } from "./engine/evolution-api.mjs";
 import { initSessionManager, initComputerTool, createSession, cloneSessionFromEntry, evictInactiveSessions, slimSessionImages, compactSession, openSession, initSearchTool, initShareTool, createSessionAgent, ensureAgent, isFirstTurn, deleteSession, setOnTheSpotFixRunner, ensureContextHeadroom, canAccessSessionOrigin, withIdleSession, compactSessionAgent } from "./engine/session-manager.mjs";
 import { initUnifiedChat, unifiedChat, engineCurrentModel, initEngine, getCodeRuntime, getCodeMode, toolBindingDesc, toolBindingArgs, toolBindingArgsObj, handleNotices, handleUnifiedChat, touchTask, clearTask, taskProgress, handleAgentEventIn, handleAgentEventOut } from "./engine/unified-chat.mjs";
 import { completedTaskText } from "./engine/task-continuation.mjs";
@@ -149,7 +149,9 @@ import { CodeRuntime } from "./code-mode/code-runtime.mjs";
 import { createCodeMode } from "./code-mode/code-mode.mjs";
 import { createTimeEngine } from "./engine/time-engine.mjs";
 import { composeTimeTaskMessages, timeTaskReadTools, recordReflectionActions, parseReflectionActions, yesterdayYmd } from "./engine/time-task-run.mjs";
-import { planReflectionExecution, buildActionExecutionPrompt, parseActionResult, recordActionAttempt, summarizeExecution, runOnTheSpotFix } from "./engine/reflection-exec.mjs";
+import { promoteReflectionLessons, lessonDraft } from "./engine/lesson-promotion.mjs";
+import { buildLastNight } from "./engine/last-night.mjs";
+import { planReflectionExecution, recordActionAttempt, summarizeExecution, runOnTheSpotFix, executeReflectionAction } from "./engine/reflection-exec.mjs";
 import { loadEpisodes, dream, writeDreamLog, dreamPaths, currentWeights, promoteWeights, resetWeights, recordSkillChoice } from "./engine/dream.mjs";
 import { createDreamCollector } from "./engine/dream-collector.mjs";
 import { createLearningIntake } from "./engine/learning-intake.mjs";
@@ -178,7 +180,6 @@ import { grant, revoke, loadCharter, autoUsedToday, loadLedger } from "./engine/
 import { listTraces, loadTrace, replayAcrossTraces, candidatePolicies, recordDelegation } from "./engine/trace.mjs";
 import { heartbeat, liveInstances, portOwner, recordStartup, recentStartups, selfCheck, reconcileInstances } from "./engine/runtime-registry.mjs";
 import { currentExplorePolicy, promoteExplorePolicy, resetExplorePolicy, replayExploreAcross, exploreCandidates } from "./engine/explore-policy.mjs";
-import { verifyArtifacts } from "./engine/verifier.mjs";
 import { MATCH_WEIGHTS } from "./engine/yuanshu-protocol.mjs";
 import { sanitizeSessionFile } from "./engine/session-sanitize.mjs";
 import { createCorsPolicy } from "./engine/cors-policy.mjs";
@@ -2482,6 +2483,12 @@ const API_ROUTES = [
       logTail,
     });
   }],
+  // 灵魂页「昨夜」卡：复盘/自动执行/教训晋升/做梦的只读汇总（engine/last-night.mjs）
+  ["GET", "/api/soul/last-night", (res) => {
+    const skillEps = loadSkillEvidence(WS_ROOT, taskEvidence);
+    json(res, 200, { ok: true, ...buildLastNight({ wsRoot: WS_ROOT, tasks: timeEngine ? timeEngine.list() : [], nudges: listMemoryNudges(),
+      dream: { observed: skillEps.length, eligible: skillEps.filter(verifiedSkillEpisode).length } }) }, { "Cache-Control": "no-store" });
+  }],
   ["GET", "/api/dream/evidence", (res) => taskEvidenceApi.list(res)],
   ["GET", /^\/api\/dream\/evidence\/([a-zA-Z0-9_-]{1,100})$/, (res, req, url, m) => taskEvidenceApi.get(res, m[1])],
   ["POST", /^\/api\/dream\/evidence\/([a-zA-Z0-9_-]{1,100})$/, async (res, req, url, m) => {
@@ -3544,36 +3551,17 @@ ${String(out).slice(0, 16000)}
             }
             const rows = [];
             for (const action of executable) {
-              let result = null;
-              try {
-                const prompt = buildActionExecutionPrompt(action, { ymd: yesterdayYmd() });
-                const rr = await unifiedChat(defaultModel, [{ role: "user", content: prompt }], { tools: UNIFIED_TOOLS, signal });
-                const completed = signal?.aborted || rr?.aborted ? null : completedTaskText(rr);
-                if (signal?.aborted || rr?.aborted) break;
-                result = parseActionResult(completed);
-              } catch (e) {
-                result = { status: "failed", evidence: `执行轮异常：${String(e?.message || e).slice(0, 120)}`, files: [], summary: "" };
-              }
-              // 独立验证（2026-09-18）：执行轮自称 done 不算数——再派一个只看产物、
-              // 看不到执行者推理的验证轮；不过验证就把结果降级，绝不让"自证成功"进账。
-              if (result?.status === "done" && !signal?.aborted) {
-                try {
-                  const v = await verifyArtifacts({
-                    claim: `${action.text}（执行轮自述：${result.evidence || "无证据"}）`,
-                    artifacts: Array.isArray(result.files) ? result.files : [],
-                    runTurn: async (prompt) => {
-                      const rr = await unifiedChat(defaultModel, [{ role: "user", content: prompt }], { tools: timeTaskReadTools(UNIFIED_TOOLS), signal });
-                      return completedTaskText(rr);
-                    },
-                  });
-                  if (v.verdict !== "PASS") {
-                    result = { ...result, status: v.verdict === "FAIL" ? "failed" : "blocked", evidence: `独立验证未通过（${v.verdict}）：${v.evidence}` };
-                  }
-                  console.log(`[time-engine] 独立验证「${String(action.text).slice(0, 30)}」→ ${v.verdict}`);
-                } catch (e) {
-                  result = { ...result, status: "blocked", evidence: `验证轮异常：${String(e?.message || e).slice(0, 120)}` };
-                }
-              }
+              // 2026-10-07：执行轮/重试/独立验证/落 fix-attempt 轨迹统一走 executeReflectionAction，
+              // 做梦回放「失败后再试几次」从此有夜间样本（以前这里不落轨迹，那条回放一直饿着）。
+              const turn = (tools) => async (prompt) => {
+                const rr = await unifiedChat(defaultModel, [{ role: "user", content: prompt }], { tools, signal });
+                return signal?.aborted || rr?.aborted ? null : completedTaskText(rr);
+              };
+              const ex = await executeReflectionAction(action, { wsRoot: CONFIG.cwd, ymd: yesterdayYmd(),
+                runTurn: turn(UNIFIED_TOOLS), verifyTurn: turn(timeTaskReadTools(UNIFIED_TOOLS)), isAborted: () => !!signal?.aborted });
+              if (ex.aborted) break;
+              const result = ex.result;
+              if (ex.verification) console.log(`[time-engine] 独立验证「${String(action.text).slice(0, 30)}」→ ${ex.verification.verdict}`);
               if (signal?.aborted) break;
               const rec2 = recordActionAttempt(CONFIG.cwd, action, result);
               rows.push({ text: action.text, status: result?.status || "failed", closed: rec2?.closed, evidence: result?.evidence || "" });
@@ -3590,6 +3578,15 @@ ${rows.map((r) => `- [${r.status}${r.closed ? "/已结清" : ""}] ${r.text}\n  �
             // 不要静默：这条链上任何一步失败（派发/执行/回账/写日志）都必须留下痕迹，
             // 否则"复盘说要做、实际没做"会以"什么都没发生"的形式藏起来——正是这个项目在治的病。
             console.log(`[time-engine] 复盘→执行阶段异常: ${String(e?.stack || e?.message || e).slice(0, 300)}`);
+          }
+          // 2026-10-07：教训晋升——今晚的 lessons 落账；与别的日子复现的，出一条写进经验库的提案（只提案）。
+          if (!signal?.aborted) {
+            try {
+              const today = new Date().toISOString().slice(0, 10);
+              const lp = promoteReflectionLessons(CONFIG.cwd, out, { ymd: yesterdayYmd(),
+                propose: (c) => proposeLessonPromotion({ draft: lessonDraft(c, today), topic: c.topic, days: c.days, earlier: c.earlier }) });
+              if (lp.recorded) console.log(`[lesson] 教训落账 ${lp.recorded} 条，复现出提案 ${lp.proposed.length} 条${lp.proposed.length ? `：${lp.proposed.map((x) => x.topic || x.text.slice(0, 12)).join("、")}` : ""}`);
+            } catch (e) { console.log(`[lesson] 晋升异常: ${String(e?.message || e).slice(0, 120)}`); }
           }
           // 2026-10-06：复盘之后顺手做「整理」——日志太胖就出一份带出处的压缩提案（只提案，应用仍要人点）。
           // 只在真正的复盘（产出了行动清单）之后触发；已有待审提案时 proposeMemoryCompress 自己会跳过。

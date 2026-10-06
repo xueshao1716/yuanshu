@@ -294,3 +294,67 @@ export async function runOnTheSpotFix({ problem, runTurn, sessionKey = "anon", n
     ].filter(Boolean).join("\n"),
   };
 }
+
+/**
+ * 夜间复盘里的一条 fix 行动：执行轮（按现役探索策略重试）→ 独立验证 → 落 fix-attempt 轨迹。
+ *
+ * 2026-10-07：以前这段循环写在 server.mjs 里，**不落轨迹**也不听探索策略——
+ * 承诺账里攒了 42 条验证过的 fix，做梦的 fix-attempt 回放却一条数据都没有（只有当场修会落）。
+ * 抽到这里和当场修共用同一个契约：每次尝试一个节点，验证 PASS/FAIL 挂在被验那次尝试下，
+ * 做梦回放「失败后再试几次」才有真样本。
+ *
+ * runTurn(prompt) → 执行轮最终文本（被中止返回 null）；verifyTurn 同理，但只给只读工具。
+ * 返回 { aborted, result, verification }；aborted 时不落账，调用方直接停。
+ */
+export async function executeReflectionAction(action, { wsRoot = "", runTurn, verifyTurn, ymd = "", isAborted = () => false } = {}) {
+  let traceId = "", attemptId = null, result = null, verification = null;
+  if (wsRoot) {
+    try { const o = openTrace(wsRoot, { kind: "fix-attempt", goal: String(action?.text || "") }); if (o?.ok) traceId = o.trace.id; } catch {}
+  }
+  let retryTimes = DEFAULT_EXPLORE_POLICY.retryOnFailure;
+  if (wsRoot) { try { retryTimes = Math.max(0, Number(currentExplorePolicy(wsRoot).retryOnFailure) || 0); } catch {} }
+  const startedAt = Date.now();
+  const close = (status) => {
+    if (!traceId) return;
+    try { closeTrace(wsRoot, traceId, { result: status, score: status === "done" ? 1 : 0, cost: Number(((Date.now() - startedAt) / 1000).toFixed(2)) }); } catch {}
+  };
+  for (let attempt = 0; attempt <= retryTimes; attempt++) {
+    const t0 = Date.now();
+    let r;
+    try {
+      const reply = await runTurn(buildActionExecutionPrompt(action, { ymd }));
+      if (isAborted() || reply === null) { close("aborted"); return { aborted: true, result: null, verification: null }; }
+      r = parseActionResult(reply) || { status: "failed", evidence: "执行轮没有按契约给出结果（缺 JSON 块或 status 不合法）", files: [], summary: "" };
+    } catch (e) {
+      if (isAborted()) { close("aborted"); return { aborted: true, result: null, verification: null }; }
+      r = { status: "failed", evidence: `执行轮异常：${String(e?.message || e).slice(0, 120)}`, files: [], summary: "" };
+    }
+    result = r;
+    if (traceId) {
+      try {
+        attemptId = addNode(wsRoot, traceId, { action: attempt === 0 ? "执行轮" : `执行轮·重试${attempt}`, input: String(action?.text || ""),
+          cost: Number(((Date.now() - t0) / 1000).toFixed(2)), outcome: r.status, score: 0 })?.node?.id || null;
+      } catch {}
+    }
+    // blocked 是「缺东西/要人」，再试一次也一样；只有 failed 值得重来
+    if (r.status !== "failed") break;
+  }
+  if (result.status === "done") {
+    try {
+      verification = await verifyArtifacts({
+        wsRoot, traceId, attemptId,
+        claim: `${action.text}（执行轮自述：${result.evidence || "无证据"}）`,
+        artifacts: Array.isArray(result.files) ? result.files : [],
+        runTurn: verifyTurn,
+      });
+      if (verification.verdict !== "PASS") {
+        result = { ...result, status: verification.verdict === "FAIL" ? "failed" : "blocked", evidence: `独立验证未通过（${verification.verdict}）：${verification.evidence}` };
+      }
+    } catch (e) {
+      if (isAborted()) { close("aborted"); return { aborted: true, result: null, verification: null }; }
+      result = { ...result, status: "blocked", evidence: `验证轮异常：${String(e?.message || e).slice(0, 120)}` };
+    }
+  }
+  close(result.status);
+  return { aborted: false, result, verification };
+}
