@@ -38,7 +38,8 @@ export const modelsDir = (env) => env?.U2NET_HOME || path.join(runtimeRoot(env),
 function runDefault(cmd, args, { timeout = 15 * 60 * 1000, env } = {}) {
   return new Promise((resolve) => {
     execFile(cmd, args, { timeout, windowsHide: true, encoding: 'utf8', env: env || process.env, maxBuffer: 32 << 20 }, (err, stdout, stderr) => {
-      resolve({ ok: !err, out: String(stdout || '').trim(), err: String(stderr || err?.message || '').trim() });
+      const why = err && !String(stderr || '').trim() ? (err.killed || err.signal ? '进程被终止（超时或被外部结束）' : `退出码 ${err.code ?? '?'}：${String(stdout || '').trim().split(/\r?\n/).slice(-2).join(' ') || err.message}`) : '';
+      resolve({ ok: !err, out: String(stdout || '').trim(), err: String(stderr || '').trim() || why });
     });
   });
 }
@@ -145,11 +146,22 @@ export const ADDONS = [
 
 const byId = (id) => ADDONS.find((a) => a.id === id);
 
-export async function listAddons({ run = runDefault, env = process.env } = {}) {
+// 优先用运行时目录里的 python/ffmpeg，不靠 PATH 碰运气（小语从别的终端调 CLI 时 PATH 可能指向系统 Python）
+function resolveCmd(cmd, env) {
+  const exe = process.platform === 'win32' ? '.exe' : '';
+  const cand = cmd === 'python' ? path.join(runtimeRoot(env), 'python', 'python' + exe)
+    : cmd === 'ffmpeg' || cmd === 'ffprobe' ? path.join(ffmpegBin(env), cmd + exe) : '';
+  return cand && fs.existsSync(cand) ? cand : cmd;
+}
+const bindRun = (run, env) => (cmd, args, o = {}) => run(resolveCmd(cmd, env), args, { env, ...o });
+
+export async function listAddons({ run: rawRun = runDefault, env = process.env } = {}) {
+  const run = bindRun(rawRun, env);
   return Promise.all(ADDONS.map(async (a) => ({ id: a.id, label: a.label, size: a.size, use: a.use, installed: await a.check({ run, env }).catch(() => false) })));
 }
 
-export async function installAddon(id, { run = runDefault, env = process.env, fetchImpl = fetch, log = () => {} } = {}) {
+export async function installAddon(id, { run: rawRun = runDefault, env = process.env, fetchImpl = fetch, log = () => {} } = {}) {
+  const run = bindRun(rawRun, env);
   const a = byId(id);
   if (!a) throw new Error(`没有这个组件：${id}（可选：${ADDONS.map((x) => x.id).join(' / ')}）`);
   if (await a.check({ run, env }).catch(() => false)) { log(`${a.label} 已经装好了`); return { id, already: true }; }
@@ -161,14 +173,16 @@ export async function installAddon(id, { run = runDefault, env = process.env, fe
 
 // 后台任务：页面点一下就返回，轮询看进度；同一组件同时只跑一个
 const jobs = new Map();
+// 后台任务串行跑：多个 pip 同时写一个 site-packages 可能互相覆盖，排队最稳
+let chain = Promise.resolve();
 export function startAddonJob(id, deps = {}) {
   if (!byId(id)) throw new Error(`没有这个组件：${id}`);
   const cur = jobs.get(id);
   if (cur?.state === 'running') return cur;
-  const job = { id, state: 'running', log: [], startedAt: Date.now(), error: '' };
+  const job = { id, state: 'running', log: ['排队中…'], startedAt: Date.now(), error: '' };
   jobs.set(id, job);
   const log = (m) => { job.log.push(m); if (job.log.length > 40) job.log.shift(); };
-  installAddon(id, { ...deps, log }).then(() => { job.state = 'done'; }, (e) => { job.state = 'error'; job.error = e?.message || String(e); });
+  chain = chain.then(() => installAddon(id, { ...deps, log })).then(() => { job.state = 'done'; }, (e) => { job.state = 'error'; job.error = e?.message || String(e); });
   return job;
 }
 export const addonJobs = () => Object.fromEntries([...jobs].map(([k, v]) => [k, { state: v.state, log: v.log.slice(-6), error: v.error }]));

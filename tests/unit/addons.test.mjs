@@ -58,3 +58,15 @@ test('addons: pip components fall back across indexes and verify after install',
   assert.match(calls[0], /aliyun/);
   await assert.rejects(installAddon('nope', { run, env }), /没有这个组件/);
 });
+
+test('addons: prefers the bundled runtime python over whatever python is on PATH', async () => {
+  const env = tmpEnv();
+  const exe = path.join(env.YUANSHU_RUNTIME, 'python', process.platform === 'win32' ? 'python.exe' : 'python');
+  fs.mkdirSync(path.dirname(exe), { recursive: true });
+  fs.writeFileSync(exe, '');
+  const cmds = [];
+  const run = async (cmd) => { cmds.push(cmd); return { ok: false, out: '', err: '' }; };
+  await listAddons({ run, env });
+  assert.ok(cmds.includes(exe), '用运行时目录里的 python');
+  assert.ok(cmds.includes('ffmpeg'), 'ffmpeg 未装时退回 PATH');
+});
