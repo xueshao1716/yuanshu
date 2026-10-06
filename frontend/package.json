@@ -1,7 +1,7 @@
 {
   "name": "yuanshu-frontend",
   "private": true,
-  "version": "2.117.0",
+  "version": "2.118.0",
   "type": "module",
   "scripts": {
     "dev": "vite",
@@ -26,6 +26,7 @@
     "highlight.js": "^11.12.0",
     "lucide-react": "1.39.0",
     "mermaid": "^11.13.0",
+    "qrcode": "^1.5.4",
     "react": "^19.1.0",
     "react-dom": "^19.1.0",
     "react-markdown": "^10.1.0",
@@ -34,6 +35,7 @@
     "three": "^0.185.1"
   },
   "devDependencies": {
+    "@types/qrcode": "^1.5.6",
     "@types/react": "^19.2.18",
     "@types/react-dom": "^19.2.4",
     "@vitejs/plugin-react": "^5.2.0",

@@ -70,3 +70,48 @@
 @media(max-width:900px) { .soul-shell { padding:20px 20px 48px; } .soul-layout { gap:24px; grid-template-columns:180px minmax(0,1fr); } .soul-galleries { grid-template-columns:repeat(2,minmax(0,1fr)); } }
 @media(max-width:640px) { .soul-shell { padding:18px 16px 48px; } .soul-layout { display:block; margin-top:20px; } .soul-nav { display:none; } .soul-mobile-nav { display:flex; flex-direction:column; gap:6px; margin-bottom:24px; } .soul-form { grid-template-columns:1fr; } .soul-page .soul-directory button { grid-template-columns:1fr 18px; gap:4px 12px; } .soul-directory button span:first-of-type { grid-column:1; grid-row:2; font-size:13px; } .soul-directory button span:last-child { grid-column:2; grid-row:1 / 3; align-self:center; } .soul-section-heading h2 { font-size:22px; } .soul-confirm { padding:14px; } .soul-facts { gap:16px 24px; } }
 @media(prefers-reduced-motion:reduce) { .soul-page button { transition:none; } }
+
+/* 灵魂图谱（2026-10-06）：画布画线与辉光，节点是绝对定位的按钮，由 JS 每帧写 transform */
+.sg { margin-top:14px; }
+.sg-crumbs { display:flex; align-items:center; gap:6px; flex-wrap:wrap; font-size:13px; color:var(--pi-dim); margin-bottom:10px; }
+.soul-page .sg-crumbs button { min-height:32px; padding:4px 10px; border-color:transparent; background:transparent; color:var(--pi-dim); }
+.soul-page .sg-crumbs button[aria-current] { color:var(--pi-text); font-weight:600; }
+.sg-crumbs > span[aria-current] { color:var(--pi-text); font-weight:600; padding:0 4px; }
+.sg-crumb-hint { margin-left:auto; font-size:12px; color:var(--pi-dim2); font-family:var(--pi-mono,ui-monospace,monospace); }
+.sg-body { display:grid; grid-template-columns:minmax(0,1fr) 280px; gap:16px; }
+.sg-stage { position:relative; height:440px; border:1px solid var(--pi-border-soft); border-radius:var(--pi-radius-md,12px); background:radial-gradient(ellipse at 50% 50%, var(--pi-bg1), var(--pi-bg) 72%); overflow:hidden; }
+.sg-canvas { position:absolute; inset:0; width:100%; height:100%; }
+.soul-page .sg-node { position:absolute; left:0; top:0; will-change:transform,opacity; min-height:0; padding:0; border:0; background:transparent; transition:none; display:flex; align-items:center; gap:6px; white-space:nowrap; }
+.soul-page .sg-node:hover:not(:disabled) { background:transparent; }
+.soul-page .sg-core, .soul-page .sg-hub { flex-direction:column; justify-content:center; gap:2px; border-radius:999px; border:1px solid var(--pi-border); background:color-mix(in srgb, var(--pi-bg1) 86%, transparent); backdrop-filter:blur(6px); }
+.soul-page .sg-core { width:104px; height:104px; border-color:var(--pi-accent); box-shadow:0 0 0 6px color-mix(in srgb, var(--pi-accent) 10%, transparent), 0 0 36px var(--pi-accent-glow, transparent); }
+.soul-page .sg-core .sg-label { font-size:20px; font-weight:650; }
+.soul-page .sg-hub { width:78px; height:78px; }
+.soul-page .sg-hub:hover:not(:disabled), .soul-page .sg-hub[data-picked] { border-color:var(--pi-accent); background:color-mix(in srgb, var(--pi-bg2) 90%, transparent); }
+.sg-hub .sg-label { font-size:15px; font-weight:600; color:var(--pi-text); }
+.sg-en { font-size:10.5px; color:var(--pi-dim2); font-family:var(--pi-mono,ui-monospace,monospace); letter-spacing:.02em; max-width:70px; overflow:hidden; text-overflow:ellipsis; }
+.soul-page .sg-leaf { transform-origin:11.5px 50%; padding:5px 9px 5px 7px; border-radius:999px; border:1px solid transparent; }
+.soul-page .sg-leaf:hover:not(:disabled), .soul-page .sg-leaf[data-picked] { border-color:var(--pi-border); background:color-mix(in srgb, var(--pi-bg2) 88%, transparent); }
+.sg-dot { width:9px; height:9px; border-radius:50%; background:var(--pi-accent); box-shadow:0 0 10px var(--pi-accent-glow, transparent); flex-shrink:0; }
+.sg-leaf .sg-label { font-size:13px; color:var(--pi-text); }
+.sg-metric { font-size:11.5px; color:var(--pi-dim2); font-family:var(--pi-mono,ui-monospace,monospace); font-variant-numeric:tabular-nums; }
+.sg-panel { border:1px solid var(--pi-border-soft); border-radius:var(--pi-radius-md,12px); padding:16px 18px; background:var(--pi-bg1); max-height:440px; overflow:auto; }
+.sg-kicker { display:flex; gap:8px; align-items:baseline; font-size:11px; letter-spacing:.08em; text-transform:uppercase; color:var(--pi-accent); font-family:var(--pi-mono,ui-monospace,monospace); }
+.sg-kicker span { text-transform:none; letter-spacing:0; color:var(--pi-dim2); font-family:inherit; }
+.sg-panel h4 { font-size:20px; font-weight:650; margin:4px 0 6px; }
+.sg-lead { color:var(--pi-dim); font-size:13px; }
+.sg-meter { height:4px; border-radius:2px; background:var(--pi-bg3); margin:12px 0 4px; overflow:hidden; }
+.sg-meter i { display:block; height:100%; background:var(--pi-accent); border-radius:inherit; }
+.sg-facts { margin-top:12px; display:grid; gap:6px; }
+.sg-facts div { display:flex; justify-content:space-between; gap:12px; font-size:13px; border-bottom:1px dashed var(--pi-border-soft); padding-bottom:5px; }
+.sg-facts dt { color:var(--pi-dim); flex-shrink:0; }
+.sg-facts dd { text-align:right; font-variant-numeric:tabular-nums; min-width:0; overflow-wrap:anywhere; }
+.sg-items-title { margin-top:14px; font-size:12px; color:var(--pi-dim2); }
+.sg-items { margin-top:6px; display:grid; gap:6px; font-size:13px; }
+.sg-items li { padding-left:10px; border-left:2px solid var(--pi-border); overflow-wrap:anywhere; }
+.sg-hub-list { margin-top:14px; display:grid; grid-template-columns:1fr 1fr; gap:6px; }
+.soul-page .sg-hub-list button { min-height:44px; padding:6px 10px; text-align:left; display:flex; flex-direction:column; }
+.sg-hub-list small { font-size:11.5px; font-family:var(--pi-mono,ui-monospace,monospace); }
+.sg-panel > a { display:inline-block; margin-top:14px; font-size:13px; }
+@media (max-width:900px) { .sg-body { grid-template-columns:1fr; } .sg-panel { max-height:none; } }
+@media (max-width:520px) { .sg-stage { height:380px; } .soul-page .sg-core { width:84px; height:84px; } .soul-page .sg-hub { width:64px; height:64px; } .sg-hub .sg-label { font-size:13.5px; } .sg-crumb-hint { display:none; } }

@@ -586,6 +586,14 @@ export function listBuiltinSkills() {
 }
 export async function handleSkills(res) {
   try {
+    json(res, 200, await listSkills());
+  } catch (e) {
+    json(res, 500, { error: String(e?.message || e) });
+  }
+}
+
+// 技能目录（/api/skills 与灵魂图谱共用）
+export async function listSkills() {
     const agentDir = _getAgentDir();
     const loader = new _DefaultResourceLoader({ cwd: _cwd, agentDir });
     await loader.reload();
@@ -607,15 +615,12 @@ export async function handleSkills(res) {
       sources[skill.source] = (sources[skill.source] || 0) + 1;
       categories[skill.category] = (categories[skill.category] || 0) + 1;
     }
-    json(res, 200, {
+    return {
       skills: merged,
       sources,
       categories,
       diagnostics: diagnostics || [],
-    });
-  } catch (e) {
-    json(res, 500, { error: String(e?.message || e) });
-  }
+    };
 }
 
 // GET /api/skills/read?path= —— 技能详情（SKILL.md）

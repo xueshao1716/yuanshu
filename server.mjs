@@ -117,7 +117,7 @@ import { createVoiceTaskAuthorizer } from './engine/voice-task-auth.mjs';
 import { connectVoiceProvider } from './engine/chat-voice-provider.mjs';
 import { listLingXi, addLingXi, setLingXi, removeLingXi } from "./engine/lingxi.mjs";
 import { initDshKeys, dshResolveBin, handleDshStatus, handleDshWebStart, handleKeysStatus, loadPolicies, toolMatch, policyDecide, handleKeysApply, handleKeysPresets, refreshModelList, handleModelsManage, handleModelsAdd, handleModelsDiscover, handleModelsVerify, KNOWN_PROVIDERS, PROVIDER_PRESETS, resolveAuth } from "./engine/dsh-keys.mjs";
-import { initStatsApi, handleGlobalStats, handleProviderStats, handleDailyStats, handleSubagentRuns, handleSubagentHistory, safeSessionStats, handleStats, handleCompact, listBuiltinSkills, handleSkills, handleSkillRead, handleParseFile, escHtml, handleExport, resolveFsPath, handleFsList, handleFsRead, handleRename } from "./engine/stats-api.mjs";
+import { initStatsApi, handleGlobalStats, handleProviderStats, handleDailyStats, handleSubagentRuns, handleSubagentHistory, safeSessionStats, handleStats, handleCompact, listBuiltinSkills, handleSkills, listSkills, handleSkillRead, handleParseFile, escHtml, handleExport, resolveFsPath, handleFsList, handleFsRead, handleRename } from "./engine/stats-api.mjs";
 import { initModelClient, directChat, handleThink, handleDirectChat, maybeCompactHistory } from "./engine/model-client.mjs";
 import { initSelfHeal, createRepairCheckpoint, handleUpdateCheck, handleUpdateApply, handleRepair, handleDesignerGenerate, handleDesignerSave, handleCompare } from "./engine/self-heal.mjs";
 import { frontendVersionPayload } from "./engine/frontend-version.mjs";
@@ -199,6 +199,8 @@ const emotion = await import("./engine/emotion.mjs");
 const { createEmotionDisplay } = await import('./engine/emotion-display.mjs');
 const { createCompanionFacts } = await import('./engine/companion-facts.mjs');
 const { createCompanionStore } = await import('./engine/companion-store.mjs');
+const { createWechatBridge, createLoopbackChat } = await import('./engine/wechat-bridge.mjs');
+const { buildSoulGraph, readMemoryFiles } = await import('./engine/soul-graph.mjs');
 const { createCompanionDecision } = await import('./engine/companion-decision.mjs');
 const { createCompanionSessionReader } = await import('./engine/companion-session.mjs');
 const { createCompanionRoutes } = await import('./engine/companion-api.mjs');
@@ -2191,6 +2193,17 @@ const voiceTaskRuntime = createVoiceTaskRuntime({ rootDir: RUNS_DIR, manager: ru
 const companionFacts = createCompanionFacts({ manager: runManager, serverEpoch: RUN_INSTANCE_ID,
   activeSessions: () => [...activeSessions].filter(([, entry]) => entry.busy).map(([id]) => id) });
 const companionStore = createCompanionStore({ root: CONFIG.cwd });
+// 微信接入（2026-10-06，小语自己接通后收编进来）：凭证与游标在工作区 .yuanshu/wechat，对话走本机 /api/chat。
+const wechat = createWechatBridge({
+  dir: path.join(CONFIG.cwd, '.yuanshu', 'wechat'),
+  legacyDir: path.join(CONFIG.cwd, '工程'),
+  chat: createLoopbackChat({ base: () => `http://127.0.0.1:${CONFIG.port}`, token: () => CONFIG.token }),
+  log: (m) => console.log(m),
+});
+const wechatAction = (fn) => async (res, req) => {
+  try { json(res, 200, { ...(await fn(req)), status: wechat.status() }); }
+  catch (e) { json(res, e.status || 500, { error: String(e.message || e) }); }
+};
 const companionReadSession = createCompanionSessionReader({ activeSessions, findSession, readEntriesFromFile,
   extractMessages, resolveLeafId, isAutoModel, getModels: () => modelList, getDefaultModel: () => defaultModel });
 const companionDecisions = createCompanionDecision({ store: companionStore, facts: companionFacts,
@@ -2390,6 +2403,28 @@ const API_ROUTES = [
   ["PATCH", "/api/sessions/db/meta", async (res, req) => handleDbMeta(res, await readBody(req))],
   ["POST", "/api/sessions/db/sweep", async (res, req) => handleDbSweep(res, await readBody(req))],
   // ── 会话 ──
+  // 灵魂图谱（2026-10-06）：性格/情绪/记忆/技能/学习一次汇总，灵魂页总览画成神经网络图。只读。
+  ["GET", "/api/soul/graph", async (res) => {
+    const safe = async (fn, fallback) => { try { return await fn(); } catch { return fallback; } };
+    const [skills, knowledge] = await Promise.all([safe(listSkills, { skills: [] }), safe(() => knowledgeRuntime.status(), null)]);
+    json(res, 200, buildSoulGraph({
+      persona: await safe(() => personaGovernance.read().definition, {}),
+      genome: await safe(() => emotion.getGenome(), {}),
+      emotion: await safe(() => emotion.getLatestSnapshot(), {}),
+      memory: await safe(() => readMemoryFiles(WS_ROOT), []),
+      skills: skills.skills || [],
+      knowledge,
+      learning: await safe(() => learningIntake.status().entries || [], []),
+    }));
+  }],
+  ["GET", "/api/wechat/status", (res) => json(res, 200, wechat.status())],
+  ["POST", "/api/wechat/login", wechatAction(() => wechat.startLogin())],
+  ["POST", "/api/wechat/login/cancel", wechatAction(() => wechat.cancelLogin())],
+  ["POST", "/api/wechat/start", wechatAction(() => wechat.start())],
+  ["POST", "/api/wechat/stop", wechatAction(() => wechat.stop())],
+  ["POST", "/api/wechat/logout", wechatAction(() => wechat.logout())],
+  ["POST", "/api/wechat/settings", wechatAction(async (req) => wechat.setNotify((await readBody(req, 1)).notify))],
+  ["POST", "/api/wechat/notify", wechatAction(async (req) => wechat.notifyOwner(String((await readBody(req, 1)).text || '').slice(0, 2000)))],
   ["GET", "/api/emotion", (res, req, url) => handleEmotion(res, url)],
   ["GET", "/api/companion/emotion", (res) => json(res, 200, companionEmotion.read())],
   ["GET", "/api/run/overview", withCache(60000, "run-overview", (res, req, url) => runApi.overview(res, req, url), { bypass: (_req, url) => url.searchParams.has("session") })],
@@ -3407,6 +3442,7 @@ function startServer() {
       onDiagnostic: createVoiceDiagnostics({ rootDir: RUNS_DIR }),
       connect: modelKey => { const model = voiceModels.resolve(modelKey); return connectVoiceProvider(model.key, model.modelKey); } });
     try { initTuiBridge(server, { token: CONFIG.token, cwd: WS_ROOT }); console.log("  TUI 桥接: ws://…/ws/tui 已就绪"); } catch {}
+    try { wechat.boot(); const w = wechat.status(); if (w.loggedIn) console.log(`  微信接入: ${w.running ? '收发中' : '已登录，未开启'}`); } catch (e) { console.log('  微信接入: 启动失败', String(e?.message || e).slice(0, 80)); }
     console.log("");
     console.log("╭──────────────────────────────────────────────╮");
     console.log("│                元枢已启动                    │");
