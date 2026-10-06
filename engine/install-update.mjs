@@ -48,6 +48,8 @@ export async function updateInstalledApp({ root, git, npm, sources = UPDATE_SOUR
       ['init', '-q'],
       ['config', 'core.sparseCheckout', 'true'],
       ['config', 'core.autocrlf', 'false'],
+      // 安装目录本身就长（AppData\Local\Programs\元枢\app\…），以后仓库加深路径也不至于检出失败
+      ['config', 'core.longpaths', 'true'],
       ['config', 'remote.origin.url', sources[0]],
       ['config', 'remote.origin.promisor', 'true'],
       ['config', 'remote.origin.partialclonefilter', 'blob:none'],

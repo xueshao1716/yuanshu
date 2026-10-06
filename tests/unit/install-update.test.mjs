@@ -40,6 +40,7 @@ test('第一次更新：就地 init 成稀疏浅仓库，Gitee 优先，reset �
   assert.ok(fs.existsSync(path.join(root, '.git', 'info', 'sparse-checkout')));
   const flat = r.calls.map((c) => c.join(' '));
   assert.ok(flat.some((c) => c.includes('core.sparseCheckout true')));
+  assert.ok(flat.some((c) => c.includes('core.longpaths true')));
   assert.ok(flat.some((c) => c.includes('fetch --depth=1 --filter=blob:none origin main')));
   assert.ok(flat.some((c) => c.includes('reset -q --hard FETCH_HEAD')));
   const npm = r.calls.filter((c) => c[0] === 'npm');
