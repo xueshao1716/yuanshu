@@ -133,8 +133,19 @@ node server.mjs            # 启动，浏览器开 http://127.0.0.1:8787
 ## 📱 多端
 
 - **Web**：浏览器直接用（服务端同源）
-- **Android**：Capacitor/Tauri 双壳打包，交付 APK 按 ABI 命名（arm64 等）
-- **前端构建**：`npm run deploy:frontend`（build → 清理 → 同步到 `public/` 与 `app/dist/`）
+- **Android**：Capacitor/Tauri 双壳打包。APK 文件名必须标明 ABI：单架构用 `arm64`、`armeabi-v7a`、`x86` 或 `x86_64`，四 ABI 合包才叫 `universal`
+- **前端构建**：`frontend/` 是唯一前端源码，`frontend/dist/` 是唯一产物源。`npm run deploy:frontend`（build → 清理 → 同步到 `public/` 与 `app/dist/`），旧命令 `npm run build:mobile:web` 是它的别名
+- **手机局域网直连**：默认只听 `127.0.0.1`，设 `YUANSHU_LAN=1` 后监听 `0.0.0.0`，配合防火墙与访问令牌
+
+## 👥 交流群
+
+扫码加入元枢微信交流群（「元枢—向上生长」）：
+
+<p align="center">
+  <img src="docs/images/group-qr.jpg" alt="元枢交流群" width="280">
+</p>
+
+> 微信群二维码 7 天有效，过期请留意仓库更新或联系作者换新。
 
 ## 💰 赞赏支持
 
