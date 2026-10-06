@@ -340,4 +340,10 @@ Windows 发布脚本默认把 Cargo、Gradle、npm 和临时文件放到 `D:\pi-
 
 ## License
 
-MIT
+Apache-2.0 © 2026 xueshao1716
+
+- 允许任何人自由使用、修改、分发（含商业用途），无需付费
+- 分发时必须保留原始版权与许可声明（注明原作者）
+- **二次开发后分发必须显著注明基于元枢（Yuanshu）修改**
+
+详见 [LICENSE](LICENSE)
