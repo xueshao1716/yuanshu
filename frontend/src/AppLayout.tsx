@@ -1,5 +1,5 @@
 import { Suspense, lazy, useCallback, useEffect, useRef, useState, type ComponentType, type LazyExoticComponent, type ReactNode } from 'react'
-import { MessagesSquare, BrainCircuit, Images, Clock4, Download, LayoutGrid, LayoutDashboard, Settings2, FolderClosed, PanelLeftOpen, Sparkles, Factory, MonitorCog, Cpu, Palette, Database, GitCompare, LogOut, Ellipsis, Globe2 } from 'lucide-react'
+import { MessagesSquare, BrainCircuit, Images, Clock4, Download, LayoutGrid, LayoutDashboard, Settings2, FolderClosed, PanelLeftOpen, Sparkles, Factory, MonitorCog, Cpu, Palette, Database, GitCompare, LogOut, Ellipsis, Globe2, ShieldCheck } from 'lucide-react'
 import { useApp } from './store'
 import { useIsMobile } from './hooks/useIsMobile'
 import { useHashRoute, PageErrorBoundary, type Route } from './hooks/useHashRoute'
@@ -33,6 +33,7 @@ const LingXiPage = lazy(() => import('./pages/LingXi'))
 const BoardPage = lazy(() => import('./pages/Board'))
 const SystemPage = lazy(() => import('./pages/System'))
 const SoulPage = lazy(() => import('./pages/Soul'))
+const GrantsPage = lazy(() => import('./pages/Grants'))
 const ThemesPage = lazy(() => import('./pages/Themes'))
 const SessionDbPage = lazy(() => import('./pages/SessionDb'))
 const WorkshopPage = lazy(() => import('./pages/Workshop'))
@@ -68,6 +69,7 @@ type PageRoute = {
 // 页面注册表是路由、页面渲染和桌面导航的单一来源；移动端导航是刻意不同的信息架构。
 const PAGE_ROUTES: PageRoute[] = [
   { route: 'soul', icon: Sparkles, label: ROUTE_LABELS.soul, Page: SoulPage },
+  { route: 'grants', icon: ShieldCheck, label: ROUTE_LABELS.grants, Page: GrantsPage },
   { route: 'board', icon: LayoutDashboard, label: ROUTE_LABELS.board, Page: BoardPage },
   // 改动验收已并入工作台（页内视图）。保留 review 路由作为深链别名，
   // 让 #/review、手机「更多」和聊天右栏的「打开验收」继续可用。

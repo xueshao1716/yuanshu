@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import * as D from '@radix-ui/react-dialog'
 import { useRestoreFocus } from '../hooks/useRestoreFocus'
-import { MessagesSquare, BrainCircuit, ClipboardCheck, Images, Clock4, LayoutGrid, FolderClosed, Package, SquareTerminal, Settings2, Plus, CornerDownLeft, LayoutDashboard, Sparkles, Factory, Palette, Database, MonitorCog, Cpu, Activity, ChevronsLeftRight } from 'lucide-react'
+import { MessagesSquare, BrainCircuit, ClipboardCheck, Images, Clock4, LayoutGrid, FolderClosed, Package, SquareTerminal, Settings2, Plus, CornerDownLeft, LayoutDashboard, Sparkles, Factory, Palette, Database, MonitorCog, Cpu, Activity, ChevronsLeftRight, ShieldCheck } from 'lucide-react'
 import { useApp } from '../store'
 import { toast } from './Toast'
 import { SessionsApi } from '../api'
@@ -58,6 +58,7 @@ export default function CommandPalette({ open, onClose, nav, onRightPanel, onMod
       page('themes', '打开主题', Palette),
       page('sessiondb', '打开会话库', Database),
       page('system', '打开系统', MonitorCog),
+      page('grants', '打开授权中心（放权 / 提权 / 批准）', ShieldCheck),
       { key: 'rp-inspect', icon: ClipboardCheck, label: '右栏 · 任务检查', hint: '对话页', run: () => { onRightPanel('inspect'); nav('chat'); onClose() } },
       { key: 'rp-workspace', icon: FolderClosed, label: '右栏 · 工作空间', hint: '对话页', run: () => { onRightPanel('workspace'); nav('chat'); onClose() } },
       { key: 'rp-deliveries', icon: Package, label: '右栏 · 交付物', hint: '对话页', run: () => { onRightPanel('deliveries'); nav('chat'); onClose() } },

@@ -1,7 +1,7 @@
 import { useEffect, useRef } from 'react'
 import {
   Activity, BrainCircuit, ClipboardCheck, Cpu, Database, Download, Factory, FolderKanban,
-  Globe2, LayoutDashboard, LayoutGrid, LogOut, MonitorCog, PackageCheck, Palette, PanelRight, Sparkles,
+  Globe2, LayoutDashboard, LayoutGrid, LogOut, MonitorCog, PackageCheck, Palette, PanelRight, ShieldCheck, Sparkles,
   TerminalSquare, X,
 } from 'lucide-react'
 import type { Route } from '../hooks/useHashRoute'
@@ -14,6 +14,7 @@ export type UtilityPanelKey = 'workspace' | 'deliveries' | 'terminal' | 'activit
 // 和「工作台」并列就是同一个页面出现两次。
 const MORE_ROUTES: { route: Route; icon: typeof Sparkles; label: string }[] = [
   { route: 'soul', icon: Sparkles, label: ROUTE_LABELS.soul },
+  { route: 'grants', icon: ShieldCheck, label: ROUTE_LABELS.grants },
   { route: 'board', icon: LayoutDashboard, label: ROUTE_LABELS.board },
   { route: 'lingxi', icon: Sparkles, label: ROUTE_LABELS.lingxi },
   { route: 'workshop', icon: Factory, label: ROUTE_LABELS.workshop },

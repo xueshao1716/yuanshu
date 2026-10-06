@@ -16,6 +16,7 @@ export const ROUTE_LABELS = {
   sessiondb: '会话库',
   system: '系统',
   soul: '灵魂培养',
+  grants: '授权中心',
 } as const
 
 // 桌面主栏只放用户每天会找的工作入口；引擎从“更多”提升为一等入口。
@@ -25,4 +26,4 @@ export const ROUTE_LABELS = {
 // 附带修复：手机「更多」菜单里从来没有连续创作入口，并入创作后手机端才到得了。
 export const RAIL_PRIMARY = ['chat', 'board', 'workshop', 'assets', 'tasks', 'engine'] as const
 
-export const RAIL_MORE = ['soul', 'lingxi', 'apps', 'sessiondb', 'downloads', 'system'] as const
+export const RAIL_MORE = ['soul', 'grants', 'lingxi', 'apps', 'sessiondb', 'downloads', 'system'] as const

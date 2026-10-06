@@ -92,16 +92,16 @@ function GrantDialog({ sessionId, close }: { sessionId: string | null; close: ()
             {!rateConfirmed && <li>该模型价格未确认（可标记为免费）。</li>}
           </ul>
           <div className="soul-actions">
-            <button onClick={() => { close(); location.hash = '#/soul' }}>去灵魂培养中心补设置</button>
+            <button onClick={() => { close(); location.hash = '#/grants' }}>去授权中心补设置</button>
           </div>
-          <p className="soul-hint">在「授权与资源」→ 共享模型与额度设置里补齐，回来会自动更新。</p>
+          <p className="soul-hint">在「授权中心 · 培养与母体学习」的共享模型与额度设置里补齐，回来会自动更新。</p>
         </>}
 
       <h4>授权声明</h4>
       <p className="soul-hint">放权范围固定为{grantSummary}；不包含电脑、文件、终端、密码、凭据、工具或私人记忆。一次性放权不会自动开始付费任务；登记个体与提交任务时，服务端会再次核对实际资源与费用。</p>
 
       {latest && <DesignReadiness key={latest.id} designId={latest.id} revision={revision} onResult={setPreflight} />}
-      {shared.length > 0 && <p role="status">共享模型设置还差 {shared.length} 项，可在灵魂培养中心一键补齐。</p>}
+      {shared.length > 0 && <p role="status">共享模型设置还差 {shared.length} 项，可在授权中心一键补齐。</p>}
       {stubborn.length > 0 && <p role="status">还有 {stubborn.length} 项无法由本次放权修复（如共享资源、个体数量、执行器或设计本身），请先按上方清单核对。</p>}
       {fresh && stubborn.length === 0 && fixable.length > 0 && <p role="status">剩余 {fixable.length} 项待核对全部属于培养授权本身（授权开关、有效期、模型白名单、每日额度），本次放权会一并写入。</p>}
 

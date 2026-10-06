@@ -10,8 +10,10 @@ import MaintenanceModePanel from './MaintenanceModePanel'
 const RANK = ['read-only', 'workspace-write', 'danger-full-access']
 const rank = (m?: string) => RANK.indexOf(String(m || ''))
 
-export default function SandboxModePanel() {
-  const { currentSessionId } = useApp()
+export default function SandboxModePanel({ sessionId }: { sessionId?: string } = {}) {
+  const app = useApp()
+  // 授权中心会传入页内选中的会话；能力页不传，沿用当前会话。
+  const currentSessionId = sessionId || app.currentSessionId
   if (!currentSessionId) return <section className="border-t border-pi-border-soft py-5"><h2 className="text-sm font-semibold text-pi-text">沙箱与超维模式</h2><p role="status" className="text-sm text-pi-dim mt-2">请先选择一个会话，再查看或调整权限。</p></section>
   return <SessionSandboxModePanel key={currentSessionId} sessionId={currentSessionId} />
 }
