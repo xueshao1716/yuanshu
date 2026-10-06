@@ -19,7 +19,7 @@ test('doctor: fresh machine without keys reports models fail and missing tools w
   assert.equal(by.workspace.status, 'ok');
   assert.equal(by.models.status, 'fail');
   assert.equal(by.persona.status, 'warn');
-  for (const k of ['pi', 'dsh', 'python', 'ffmpeg', 'git', 'bash']) assert.equal(by[k].status, 'warn', k);
+  for (const k of ['pi', 'dsh', 'python', 'git', 'bash']) assert.equal(by[k].status, 'warn', k);
   assert.equal(r.summary.fail, 1);
   assert.equal(by.autostart, undefined, 'autostart only checked on windows');
 });
@@ -32,7 +32,7 @@ test('doctor: complete install is all green and reports missing python libs by n
   fs.writeFileSync(path.join(ws, '工程', '经验库', 'genome.json'), '{}');
   fs.writeFileSync(path.join(agent, 'auth.json'), JSON.stringify({ zhipu: { type: 'api_key', key: 'k' }, empty: { key: '' } }));
   const pi = path.join(agent, 'pi.js'); fs.writeFileSync(pi, '');
-  let libs = { pptx: true, rembg: true };
+  let libs = { pptx: true, docx: true };
   const run = async (cmd, args) => {
     if (cmd === 'python') return { ok: true, out: JSON.stringify(libs) };
     if (cmd === 'schtasks.exe') return { ok: true, out: 'yuanshu-watchdog' };
@@ -42,11 +42,12 @@ test('doctor: complete install is all green and reports missing python libs by n
   let r = await runDoctor(opts);
   assert.deepEqual(r.summary, { ok: r.items.length, warn: 0, fail: 0 });
   assert.match(r.items.find((i) => i.key === 'models').detail, /1 个服务/);
-  libs = { pptx: true, rembg: false };
+  libs = { pptx: true, docx: false };
   r = await runDoctor(opts);
   const py = r.items.find((i) => i.key === 'python');
   assert.equal(py.status, 'warn');
-  assert.match(py.detail, /rembg/);
+  assert.match(py.detail, /docx/);
+  assert.equal(r.items.find((i) => i.key === 'ffmpeg'), undefined, 'ffmpeg 改由可选组件管理');
 });
 
 test('seed workspace: fills missing files and never overwrites existing data', () => {

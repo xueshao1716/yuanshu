@@ -1,5 +1,5 @@
 import useSWR from 'swr'
-import { RefreshCw } from 'lucide-react'
+import { Download, Loader2, RefreshCw } from 'lucide-react'
 import { SystemApi } from '../api'
 import SectionHeader from './SectionHeader'
 
@@ -30,6 +30,45 @@ export default function DoctorPanel() {
           </div>
         ))}
       </div>
+      <AddonList />
     </section>
+  )
+}
+
+// 可选组件：安装包不带，用到时联网装（国内镜像直连）。小语缺组件时也会自己装。
+function AddonList() {
+  const { data, mutate } = useSWR('system-addons', () => SystemApi.addons(), {
+    revalidateOnFocus: false,
+    refreshInterval: (d) => (d && Object.values(d.jobs).some((j) => j.state === 'running') ? 2000 : 0),
+  })
+  if (!data) return null
+  const install = async (id: string) => { await SystemApi.installAddon(id); mutate() }
+  return (
+    <div className="mt-4">
+      <div className="mb-2 text-xs text-pi-dim">可选组件 · 用到时再装，需要联网</div>
+      <div className="panel !p-0 overflow-hidden">
+        {data.addons.map((a) => {
+          const job = data.jobs[a.id]
+          const running = job?.state === 'running'
+          return (
+            <div key={a.id} className="flex items-start gap-3 px-4 py-2.5 border-b border-pi-border-soft last:border-none">
+              <span className={`mt-1.5 h-2 w-2 flex-shrink-0 rounded-full ${a.installed ? 'bg-pi-green' : 'bg-pi-dim2'}`} aria-hidden />
+              <span className="w-32 flex-shrink-0 text-xs text-pi-text">{a.label}</span>
+              <span className="flex-1 min-w-0 text-xs text-pi-dim">
+                {a.use}
+                {running && job.log.length > 0 && <span className="block text-pi-dim2 break-all">{job.log[job.log.length - 1]}</span>}
+                {job?.state === 'error' && <span className="block text-pi-red break-all">{job.error}</span>}
+              </span>
+              {a.installed
+                ? <span className="flex-shrink-0 text-[11px] text-pi-dim2">已安装</span>
+                : <button className="btn-ghost flex-shrink-0 inline-flex items-center gap-1 px-2 text-[11px]" disabled={running} onClick={() => install(a.id)}>
+                    {running ? <Loader2 className="h-3 w-3 animate-spin" /> : <Download className="h-3 w-3" />}
+                    {running ? '安装中' : `安装 · ${a.size}`}
+                  </button>}
+            </div>
+          )
+        })}
+      </div>
+    </div>
   )
 }

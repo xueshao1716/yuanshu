@@ -15,7 +15,8 @@ function runDefault(cmd, args, { timeout = 15000, env } = {}) {
 }
 
 const firstLine = (s) => String(s || '').split(/\r?\n/)[0].slice(0, 120);
-const PY_CHECK = 'import importlib,json;m=["pptx","docx","openpyxl","pandas","PIL","fitz","rembg","onnxruntime","edge_tts"];r={};\nfor n in m:\n  try: importlib.import_module(n); r[n]=True\n  except Exception: r[n]=False\nprint(json.dumps(r))';
+// 基本盘只查安装包自带的库；pandas/PDF/抠图/ffmpeg 属于可选组件，由 addons.mjs 列出与安装
+const PY_CHECK = 'import importlib,json;m=["pptx","docx","openpyxl","PIL","edge_tts"];r={};\nfor n in m:\n  try: importlib.import_module(n); r[n]=True\n  except Exception: r[n]=False\nprint(json.dumps(r))';
 
 export async function runDoctor({ wsRoot, agentDir, piPackage, bashPath, port, run = runDefault, fsMod = fs, platform = process.platform } = {}) {
   const items = [];
@@ -56,11 +57,8 @@ export async function runDoctor({ wsRoot, agentDir, piPackage, bashPath, port, r
     let mods = {};
     try { mods = JSON.parse(py.out.split(/\r?\n/).pop()); } catch {}
     const missing = Object.entries(mods).filter(([, v]) => !v).map(([k]) => k);
-    add('python', 'Python 与常用库', missing.length ? 'warn' : 'ok', missing.length ? `缺少：${missing.join('、')}` : '文档/表格/PPT/图片/抠图/语音库齐全');
+    add('python', 'Python 与常用库', missing.length ? 'warn' : 'ok', missing.length ? `缺少：${missing.join('、')}` : '文档/表格/PPT/图片/语音库齐全');
   }
-
-  const ff = await run('ffmpeg', ['-version'], { timeout: 10000 });
-  add('ffmpeg', 'ffmpeg', ff.ok ? 'ok' : 'warn', ff.ok ? firstLine(ff.out) : '未找到：视频合成不可用');
 
   const git = await run('git', ['--version'], { timeout: 10000 });
   add('git', 'Git', git.ok ? 'ok' : 'warn', git.ok ? firstLine(git.out) : '未找到：版本管理与检测更新不可用');

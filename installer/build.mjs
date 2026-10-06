@@ -37,7 +37,9 @@ const SOURCES = {
 };
 // 引擎版本钉死，保证每次构建可复现
 const NPM_GLOBALS = ['@earendil-works/pi-coding-agent@0.87.1', '@deepseek-ai/dsh@0.1.5-rc.2'];
-const PIP_PACKAGES = ['python-pptx', 'python-docx', 'openpyxl', 'xlrd', 'pandas', 'numpy', 'pillow', 'pymupdf', 'requests', 'edge-tts', 'rembg[cpu]==2.0.84'];
+// 基本盘：文档/表格/PPT/图片/语音。pandas、PDF、抠图、ffmpeg 是可选组件（engine/addons.mjs），装机后按需联网安装；--full 全部打进包
+const PIP_CORE = ['python-pptx', 'python-docx', 'openpyxl', 'xlrd', 'pillow', 'requests', 'edge-tts'];
+const PIP_FULL = [...PIP_CORE, 'pandas', 'numpy', 'pymupdf', 'rembg[cpu]==2.0.84'];
 
 // 进安装包的仓库文件：只取 git 已跟踪文件（天然排除密钥/令牌/日志/备份/本机数据），再剔除开发用目录
 const EXCLUDE_PREFIX = ['tests/', 'bench/', 'android/', 'app/', 'docs/', 'output/', 'installer/', '.superpowers/', '.impeccable/', 'public-backup-'];
@@ -53,17 +55,37 @@ const args = process.argv.slice(2);
 const opt = (name) => (args.find((a) => a.startsWith(`--${name}=`)) || '').split('=')[1]?.split(',').filter(Boolean) || [];
 const ONLY = opt('only');
 const FORCE = opt('force');
+const FULL = args.includes('--full');
 
 const log = (...m) => console.log(`[build ${new Date().toTimeString().slice(0, 8)}]`, ...m);
 const run = (cmd, argv, o = {}) => execFileSync(cmd, argv, { stdio: 'inherit', windowsHide: true, ...o });
 const rm = (p) => fs.rmSync(p, { recursive: true, force: true });
-// 运行时从不加载的类型声明/源码映射：删掉既缩包，也给最深的路径腾出 MAX_PATH 余量
+// 平台专属包（esbuild/sharp/ripgrep 等按 package.json 的 os/cpu 声明分平台发布）：只留 win32-x64
+function foreignPlatform(pkgDir) {
+  try {
+    const j = JSON.parse(fs.readFileSync(path.join(pkgDir, 'package.json'), 'utf8'));
+    const bad = (list, want) => {
+      if (!Array.isArray(list) || !list.length) return false;
+      if (list.includes('!' + want)) return true;
+      const pos = list.filter((x) => !x.startsWith('!'));
+      return pos.length > 0 && !pos.includes(want);
+    };
+    return bad(j.os, 'win32') || bad(j.cpu, 'x64');
+  } catch { return false; }
+}
+// 运行时从不加载的类型声明/源码映射、别的平台的二进制：删掉既缩包，也给最深的路径腾出 MAX_PATH 余量
 function pruneNodeModules(dir) {
   let n = 0;
   const walk = (d) => {
     for (const ent of fs.readdirSync(d, { withFileTypes: true })) {
       const p = path.join(d, ent.name);
-      if (ent.isDirectory()) { if (ent.name === 'dist-types') { rm(p); n++; } else walk(p); }
+      if (ent.isDirectory()) {
+        if (ent.name === 'dist-types') { rm(p); n++; continue; }
+        // node-gyp-build 约定的 prebuilds/<平台-架构>
+        if (path.basename(d) === 'prebuilds' && !/^win32-x64/.test(ent.name)) { rm(p); n++; continue; }
+        if (/node_modules([\\/]@[^\\/]+)?$/.test(d) && foreignPlatform(p)) { rm(p); n++; continue; }
+        walk(p);
+      }
       else if (/\.d\.[cm]?ts$|\.map$/.test(ent.name)) { fs.rmSync(p, { force: true }); n++; }
     }
   };
@@ -160,7 +182,7 @@ const STEPS = {
     const py = path.join(dst, 'python.exe');
     const pipEnv = { ...process.env, PIP_DISABLE_PIP_VERSION_CHECK: '1', PYTHONUTF8: '1' };
     run(py, [download('getpip'), '--no-warn-script-location', '-i', PIP_INDEX], { env: pipEnv });
-    run(py, ['-m', 'pip', 'install', '--no-warn-script-location', '--no-cache-dir', '-i', PIP_INDEX, ...PIP_PACKAGES], { env: pipEnv });
+    run(py, ['-m', 'pip', 'install', '--no-warn-script-location', '--no-cache-dir', '-i', PIP_INDEX, ...(FULL ? PIP_FULL : PIP_CORE)], { env: pipEnv });
     // 字节码缓存与测试目录不进包
     const prune = (dir) => {
       for (const ent of fs.readdirSync(dir, { withFileTypes: true })) {
@@ -188,7 +210,9 @@ const STEPS = {
     const dst = path.join(RT, 'git');
     rm(dst); mk(dst);
     run(download('git'), ['-y', `-o${dst}`]);
-    for (const rel of ['usr/share/doc', 'usr/share/man', 'usr/share/info', 'mingw64/share/doc', 'mingw64/share/gtk-doc', 'mingw64/doc']) rm(path.join(dst, rel));
+    // 文档、vim 运行时、git-lfs 不进包（新版 PortableGit 用 ucrt64，老版用 mingw64，两套都清）
+    for (const rel of ['usr/share/doc', 'usr/share/man', 'usr/share/info', 'usr/share/vim', 'mingw64/share/doc', 'mingw64/share/gtk-doc', 'mingw64/doc', 'ucrt64/share/doc', 'ucrt64/share/gtk-doc', 'ucrt64/doc']) rm(path.join(dst, rel));
+    for (const exe of ['mingw64/bin/git-lfs.exe', 'ucrt64/bin/git-lfs.exe']) fs.rmSync(path.join(dst, exe), { force: true });
   },
 
   // 6. 抠图模型（rembg 通过 U2NET_HOME 找它）
@@ -267,7 +291,9 @@ const STEPS = {
 };
 
 mk(CACHE);
-const order = ['node', 'app', 'python', 'ffmpeg', 'git', 'models', 'launcher', 'nsis'];
+const order = FULL ? ['node', 'app', 'python', 'ffmpeg', 'git', 'models', 'launcher', 'nsis'] : ['node', 'app', 'python', 'git', 'launcher', 'nsis'];
+// 精简包：上一次 --full 留在 stage 里的 ffmpeg/模型要清掉，否则会被打进包
+if (!FULL && (!ONLY.length || ONLY.includes('nsis'))) for (const d of ['ffmpeg', 'models']) rm(path.join(RT, d));
 for (const step of order) {
   if (ONLY.length && !ONLY.includes(step)) continue;
   const always = step === 'launcher' || step === 'nsis';

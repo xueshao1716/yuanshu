@@ -763,6 +763,8 @@ export const SystemApi = {
   info: () => api<any>('/api/system/info'),
   checkUpdate: () => api<any>('/api/system/check-update'),
   doctor: () => api<{ checkedAt: string; summary: { ok: number; warn: number; fail: number }; items: { key: string; label: string; status: 'ok' | 'warn' | 'fail'; detail: string }[] }>('/api/system/doctor'),
+  addons: () => api<{ addons: { id: string; label: string; size: string; use: string; installed: boolean }[]; jobs: Record<string, { state: 'running' | 'done' | 'error'; log: string[]; error: string }> }>('/api/system/addons'),
+  installAddon: (id: string) => api<{ id: string; state: string }>(`/api/system/addons/${encodeURIComponent(id)}/install`, { method: 'POST', body: {} }),
   applyUpdate: (body?: { engine?: boolean }) => api<any>('/api/update/apply', { method: 'POST', body: body || {}, timeoutMs: 190000 }),
   saveNetwork: (body: { domains: { domain: string; desc: string }[] }) =>
     api<{ ok: boolean; domains: { domain: string; desc: string }[] }>('/api/system/network', { method: 'POST', body }),
