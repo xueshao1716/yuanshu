@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { normalizeMessage, splitForWechat, updatesOk, createIlinkClient } from "../../engine/wechat-ilink.mjs";
+import { normalizeMessage, splitForWechat, stripMarkdownForWechat, updatesOk, createIlinkClient } from "../../engine/wechat-ilink.mjs";
 import { createWechatBridge, maskId, readChatStream } from "../../engine/wechat-bridge.mjs";
 
 const tmp = () => fs.mkdtempSync(path.join(os.tmpdir(), "wx-"));
@@ -155,4 +155,11 @@ test("退出登录后重启不会从独立桥复活", () => {
   const again = createWechatBridge({ dir, client: w.client, chat: w.chat, legacyDir: legacy });
   again.boot();
   assert.equal(again.status().loggedIn, false);
+});
+
+test("微信回复剥掉 markdown 语法，只留文字，且幂等", () => {
+  const md = "## 结论\n\n| 项 | 状态 |\n|---|---|\n| 构建 | **通过** |\n\n- 看 `log`\n> 引用\n[链接](https://x.y)";
+  const out = stripMarkdownForWechat(md);
+  assert.equal(out, "结论\n\n· 项：状态\n\n· 构建：通过\n\n· 看 log\n引用\n链接（https://x.y）");
+  assert.equal(stripMarkdownForWechat(out), out);
 });

@@ -82,6 +82,39 @@ export function normalizeMessage(message, selfId) {
   };
 }
 
+// 微信纯文本安全化（2026-10-06）：微信不渲染 markdown，表格/井号/星号全是符号墙。
+// 发送前剥掉渲染语法，保留文字。幂等：已转换文本再过一遍不变。
+export function stripMarkdownForWechat(text) {
+  if (!text || typeof text !== "string") return text || "";
+  let t = text;
+  // 1) 代码围栏：删 ``` 行，保留内容
+  t = t.replace(/```[^\n]*\n?/g, "").replace(/```/g, "");
+  // 2) 表格：分隔行整行删；数据行 | a | b | → · a：b
+  t = t.replace(/^[ \t]*\|?[ \t]*:?-{2,}[^\n]*$/gm, (line) => (line.includes("|") ? "" : line));
+  t = t.replace(/^[ \t]*\|(.+)\|[ \t]*$/gm, (_, row) => {
+    const cells = row.split("|").map((c) => c.trim()).filter(Boolean);
+    if (!cells.length) return "";
+    return "· " + cells.join("：");
+  });
+  t = t.replace(/^[ \t]*\|(.+)$/gm, (_, row) => "· " + row.split("|").map((c) => c.trim()).filter(Boolean).join("："));
+  // 3) 标题：删井号留文字
+  t = t.replace(/^[ \t]{0,3}#{1,6}[ \t]+/gm, "");
+  // 4) 粗体/斜体
+  t = t.replace(/\*\*([^*]+)\*\*/g, "$1").replace(/__([^_]+)__/g, "$1");
+  t = t.replace(/(^|[\s，。；：（「])\*([^*\n]+)\*/g, "$1$2").replace(/(^|[\s，。；：（「])_([^_\n]+)_/g, "$1$2");
+  // 5) 行内代码
+  t = t.replace(/`([^`]+)`/g, "$1");
+  // 6) 链接 [t](u) → t（u）
+  t = t.replace(/\[([^\]]+)\]\(([^)]+)\)/g, "$1（$2）");
+  // 7) 引用符
+  t = t.replace(/^[ \t]{0,3}>[ \t]?/gm, "");
+  // 8) 无序列表符号统一成 ·
+  t = t.replace(/^([ \t]*)[-*+][ \t]+/gm, "$1· ");
+  // 9) 压缩 3 行以上连续空行
+  t = t.replace(/\n{3,}/g, "\n\n");
+  return t.trim();
+}
+
 // 微信单条上限 2000 字：长回复按段落切开，尽量不从句子中间断。
 export function splitForWechat(text, limit = MAX_TEXT) {
   const out = [];

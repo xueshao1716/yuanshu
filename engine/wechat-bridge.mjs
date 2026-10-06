@@ -4,7 +4,7 @@
 // 对话走本机 /api/chat 回环，和网页里聊天是同一条链路。
 import fs from "node:fs";
 import path from "node:path";
-import { createIlinkClient, normalizeMessage, splitForWechat, updatesOk, RATE_LIMITED, ILINK_BASE } from "./wechat-ilink.mjs";
+import { createIlinkClient, normalizeMessage, splitForWechat, stripMarkdownForWechat, updatesOk, RATE_LIMITED, ILINK_BASE } from "./wechat-ilink.mjs";
 
 const QR_POLL_MS = 1500;
 const QR_DEADLINE_MS = 4 * 60_000;
@@ -140,7 +140,7 @@ export function createWechatBridge({
     } finally { flushing = false; }
   }
   const reply = (acc, to, text, contextToken) => {
-    for (const part of splitForWechat(text)) queue.push({ to, text: part, contextToken });
+    for (const part of splitForWechat(stripMarkdownForWechat(text))) queue.push({ to, text: part, contextToken });
     return flush(acc);
   };
 
