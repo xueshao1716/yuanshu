@@ -9,7 +9,7 @@ import path from "node:path";
 import net from "node:net";
 import { httpJsonFetch } from "../http.mjs";
 import {
-  matchDenyRule, isProtectedPath, DANGEROUS_CMD_RE, PI_CMDS, INTERACTIVE_CMD_RE, safeJoin,
+  matchDenyRule, isProtectedPath, DANGEROUS_CMD_RE, PI_CMDS, INTERACTIVE_CMD_RE, safeJoin, normalizeToolPath,
 } from "./security.mjs";
 import { isSensitivePath, commandTouchesSensitive, redactSecrets } from "./secrets-guard.mjs";
 import { withFileLock, FileLockTimeoutError } from "../file-lock.mjs";
@@ -530,6 +530,12 @@ export function createUnifiedToolExecutor(deps = {}) {
 export function createUnifiedToolExecutorGuarded(deps = {}) {
   const inner = createUnifiedToolExecutor(deps);
   return async function executeUnifiedTool(name, args, ctx) {
+    // git-bash 风格路径（/d/x、/tmp/x、~/x）统一归一：否则 safeJoin 会去掉开头的 /，
+    // 把 /d/pi-workspace/a.md 变成 <工作区>/d/pi-workspace/a.md，写到错误位置。
+    if (args && typeof args === "object" && typeof args.path === "string") {
+      const np = normalizeToolPath(args.path);
+      if (np !== args.path) args = { ...args, path: np };
+    }
     const r = await inner(name, args, ctx);
     if (r && typeof r?.text === "string") {
       const redacted = redactSecrets(r.text);

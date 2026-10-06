@@ -1,5 +1,11 @@
 // 元枢沙箱阶梯（dsh：read-only → workspace-write → danger，只升不降，拒绝词模型可见）
 import path from "node:path";
+import { fileURLToPath } from "node:url";
+import { normalizeToolPath } from "./tools/security.mjs";
+
+// 系统本体目录（仓库根）。工具层的 write/edit 本来就是「工作区 + 系统目录」双根白名单
+// （unified-tools resolveToolPath），沙箱必须用同一张白名单，否则工具层放行的路径在沙箱先被拦。
+export const SYSTEM_ROOT = path.resolve(fileURLToPath(new URL("..", import.meta.url)));
 
 export const SANDBOX_MODES = ["read-only", "workspace-write", "danger-full-access"];
 
@@ -32,12 +38,22 @@ export function toolSandboxNeed(name, args = {}) {
 }
 
 export function pathInWorkspace(wsRoot, p) {
-  if (!p || !wsRoot) return true;
-  const root = path.resolve(wsRoot);
-  const abs = path.isAbsolute(p) ? path.resolve(p) : path.resolve(root, p);
-  const a = abs.replace(/\\/g, "/").toLowerCase();
-  const r = root.replace(/\\/g, "/").toLowerCase();
-  return a === r || a.startsWith(r + "/");
+  const roots = (Array.isArray(wsRoot) ? wsRoot : [wsRoot]).filter(Boolean);
+  if (!p || !roots.length) return true;
+  const raw = normalizeToolPath(p);
+  return roots.some((r0) => {
+    const root = path.resolve(r0);
+    const abs = path.isAbsolute(raw) ? path.resolve(raw) : path.resolve(root, raw);
+    const a = abs.replace(/\\/g, "/").toLowerCase();
+    const r = root.replace(/\\/g, "/").toLowerCase();
+    return a === r || a.startsWith(r + "/");
+  });
+}
+
+// 沙箱写白名单 = 工作区 + 系统本体目录（与工具层一致）。
+export function sandboxWriteRoots(wsRoot) {
+  const roots = (Array.isArray(wsRoot) ? wsRoot : [wsRoot]).filter(Boolean);
+  return roots.length ? [...roots, SYSTEM_ROOT] : [];
 }
 
 export function checkSandboxCall({
@@ -72,9 +88,14 @@ export function checkSandboxCall({
       note: `工具 ${name} 需要 ${need}。当前 ${current}。升级请带 sandbox_permissions + justification。`,
     };
   }
-  if ((name === "read" || name === "write" || name === "edit") && args?.path && wsRoot) {
-    if (current !== "danger-full-access" && !pathInWorkspace(wsRoot, args.path)) {
-      return { ok: false, escalate: false, denied: true, tag: sandboxDeniedTag(current), note: "路径超出工作区" };
+  // read 不在这里卡路径：工具层对双根外的绝对路径本就开放只读（凭据文件由 secrets-guard 拦），
+  // 沙箱再拦一次只会制造「看得见、读不到」。写类只认双根白名单。
+  if ((name === "write" || name === "edit") && args?.path && wsRoot) {
+    if (current !== "danger-full-access" && !pathInWorkspace(sandboxWriteRoots(wsRoot), args.path)) {
+      return {
+        ok: false, escalate: false, denied: true, tag: sandboxDeniedTag(current),
+        note: `路径超出可写范围：写/改只限工作区与系统目录（${sandboxWriteRoots(wsRoot).map((r) => String(r).replace(/\\/g, "/")).join("、")}）。临时文件请放工作区 tmp/。`,
+      };
     }
   }
   return { ok: true, mode: current };
@@ -96,13 +117,14 @@ export async function gateSandboxCall({
   if (hit.ok) return { ok: true, mode };
   if (hit.escalate) {
     if (typeof ask !== "function") {
-      return { ok: false, denied: true, tag: hit.tag, note: `${hit.note}（无应答者，fail-closed）`, mode };
+      // 定时/微信/后台这类通道没人能当场点卡片：告诉模型去哪里放权，而不是让它换写法重试。
+      return { ok: false, denied: true, tag: hit.tag, note: `${hit.note}（无应答者，fail-closed：这条通道没人能当场批。要做就请伙伴在元枢对话里发起，或在「授权中心 → 本会话执行权限」预先放开）`, mode };
     }
     const outcome = await ask(name, args, hit.note);
     if (outcome === "allowed-once") {
       return { ok: true, mode: applyEscalation(mode, { to: hit.to, approved: true }) };
     }
-    return { ok: false, denied: true, tag: hit.tag, note: hit.note, mode };
+    return { ok: false, denied: true, tag: hit.tag, note: `${hit.note}（伙伴没批准这次升级：不要换个写法绕过去，先问清楚要不要做）`, mode };
   }
   return { ok: false, denied: true, tag: hit.tag, note: hit.note, mode };
 }

@@ -24,6 +24,7 @@ const description='智能体培养：由小语自己设计和推进，先在对�
   '本阶段tools=[]是正常且推荐的文本培养设计，不要为让个体能工作而加工具；培养设计不得包含电脑、文件、终端、密码或凭据权限，电脑操作另有独立授权且默认关闭；HTTP模型需要remote=true，只有用户策略已明确允许时才可修订此标记。'+
   '无真实设计时先向用户说明，不能预填演示人物。无独立证据的任务输出只是待核验假设；失败、取消或未知结果仅为执行记录，不是已核验知识。';
 const recovery = Object.freeze({
+  cultivation_identity_denied:'本轮没有母体执行身份：培养工具只在伙伴直接发起的元枢对话里可用；微信转发、定时任务、语音任务和 /team 子任务里没有这个身份。这不是授权问题，不要让伙伴去授权页改什么；把要做的培养操作记下来，等伙伴在元枢对话里时再做。',
   cultivation_policy_disabled:'培养策略尚未开启。请用户到灵魂培养中心 → 智能体培养 → 授权与资源，选择真实设计并核对七天受限培养，完成会话确认。确认前不要重复注册；草稿不会因此丢失。',
   cultivation_policy_expired:'培养授权已过期。请用户在授权与资源中核对并重新确认有效期与额度；不要重复原请求，也不要自行续期。',
   cultivation_permission_expansion:'本次修订扩大了设计权限。文本培养使用 tools=[]，不要为了运行而添加工具。仅 remote:false→true 可在用户已授权相应模型、数据范围和额度后修订。不要重复请求；先读取 overview 核对策略，未经授权的其他扩权保持拒绝。',
@@ -35,7 +36,11 @@ export const CULTIVATION_TOOL_SCHEMA={type:'function',function:{name:'cultivatio
     payload:{type:'object',properties:{design:CULTIVATION_DESIGN_SCHEMA}}},required:['action']}}};
 export async function cultivationTool(runtime,args,host) {
   try {
-    if(!host?.executionIdentity||!args||!actions.includes(args.action))throw new Error('cultivation_identity_denied');
+    // 动作名拼错（真机：design.rev）不是身份问题——报 identity_denied 会让模型以为没权限、转去找人授权。
+    if(args&&typeof args==='object'&&!actions.includes(args.action))
+      return {text:JSON.stringify({error:'cultivation_unknown_action',retryable:true,got:String(args.action??''),
+        expected:actions,nextAction:'动作名必须完全匹配 expected 里的一项（如 design.revise，不能缩写），改正后用新 requestId 重试。'}),isError:true};
+    if(!host?.executionIdentity||!args)throw new Error('cultivation_identity_denied');
     const read=!args.action.includes('.')||args.action==='learning.context';
     if(read&&!['learning.context','preflight'].includes(args.action)&&!exact(args,['action']))throw new Error('cultivation_invalid_command');
     const result=read?await runtime.readMother(args,host.executionIdentity):await runtime.execute(args,'mother',host.executionIdentity);

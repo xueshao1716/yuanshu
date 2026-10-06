@@ -162,3 +162,24 @@ test('tool does not expose arbitrary exception fields or messages as validation 
   const result = await cultivationTool(runtime, {action:'design.submit'}, {executionIdentity:{}});
   assert.equal(result.text, 'cultivation_invalid_design');
 });
+
+test('misspelled action is a format error, not an identity denial', async t => {
+  const {cultivationTool}=await import('../../engine/cultivation/tool.mjs'),f=await controlFixture(t);
+  const runtime=createCultivationRuntime({wsRoot:f.root,identityAdapters:{
+    resolveMother:s=>s===f.mother&&s.active?{actorId:'fixture-mother',originId:'fixture-run'}:null}});
+  const typo=await cultivationTool(runtime,{action:'design.rev',payload:{}},{executionIdentity:f.mother});
+  assert.equal(typo.isError,true);
+  const body=JSON.parse(typo.text);
+  assert.equal(body.error,'cultivation_unknown_action');
+  assert.equal(body.got,'design.rev');
+  assert.ok(body.expected.includes('design.revise'));
+  const human=await cultivationTool(runtime,{action:'policy.set'},{executionIdentity:f.mother});
+  assert.equal(human.isError,true);
+  assert.equal(JSON.parse(human.text).expected.includes('policy.set'),false);
+  const noIdentity=await cultivationTool(runtime,{action:'overview'},{});
+  assert.equal(noIdentity.isError,true);
+  const denied=JSON.parse(noIdentity.text);
+  assert.equal(denied.error,'cultivation_identity_denied');
+  assert.equal(denied.retryable,false);
+  assert.match(denied.nextAction,/不是授权问题/);
+});

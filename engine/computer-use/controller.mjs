@@ -5,7 +5,7 @@ export function createComputerUse({ adapter, registry, sessionExists, push = () 
   let grant = null, observation = null, pending = null, operation = null;
   let candidates = new Map(), windowEpoch = 0;
   const check = sid => {
-    if (!grant || grant.expiresAt <= now()) { stop(); throw new Error('电脑操作未授权或授权已过期，请在本机系统页开启'); }
+    if (!grant || grant.expiresAt <= now()) { stop(); throw new Error('电脑操作未授权或授权已过期：请伙伴在本机「授权中心 → 桌面操作」为这个会话开启（链接 #/grants）。这是授权问题，换路径或重试都没用'); }
     if (sid !== grant.sessionId || !sessionExists(sid)) throw new Error('电脑操作仅限授权的有效会话');
     return grant;
   };

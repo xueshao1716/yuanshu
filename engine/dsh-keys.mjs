@@ -8,6 +8,7 @@ import { json, readBody } from "./http-utils.mjs";
 import { modelCapabilities, effectiveCapabilities } from "./model-probe.mjs";
 import { createModelOnboarding } from './model-onboarding.mjs';
 import { buildModelCatalog } from './model-catalog.mjs';
+import { denyCheckSegments } from './tools/security.mjs';
 
 // 支持的 provider 清单（模型管理下拉）；随块从 server.mjs 迁入
 const SUPPORTED_PROVIDERS = ["deepseek", "openai", "openrouter", "anthropic", "google", "qwen", "xai", "moonshotai", "zai", "together", "mistral", "modelscope", "cloudflare-ai"];
@@ -201,7 +202,9 @@ export function policyDecide(tool, args) {
       let hit = true;
       for (const [k, re] of Object.entries(r.match)) {
         const v = String(args?.[k] ?? "");
-        try { if (!new RegExp(re, "i").test(v)) { hit = false; break; } } catch { hit = false; break; }
+        // bash 命令走和宪法红线同一套归一：按语句判、grep 的搜索词不算「操作」。
+        const subjects = k === "command" && (tool === "bash" || tool === "dsh") ? denyCheckSegments(v) : [v];
+        try { const rx = new RegExp(re, "i"); if (!subjects.some((s) => rx.test(s))) { hit = false; break; } } catch { hit = false; break; }
       }
       if (!hit) continue;
     }

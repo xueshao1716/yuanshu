@@ -77,3 +77,20 @@ test("runYuanshuToolRound：read-only 不执行 write", async () => {
   assert.equal(ran.length, 0);
   assert.match(String(history[0].content), /sandbox: file access denied under read-only mode/);
 });
+
+test("git-bash 路径归一：/d/x、/tmp/x 不再误判越界", () => {
+  assert.equal(pathInWorkspace("D:/ws", "/d/ws/a.md"), process.platform === "win32");
+  const ok = checkSandboxCall({ mode: "workspace-write", name: "write", args: { path: "/d/ws/x.html" }, wsRoot: "D:/ws" });
+  assert.equal(ok.ok, process.platform === "win32");
+});
+
+test("read 不卡路径；write/edit 认工作区 + 系统目录双根", async () => {
+  const { SYSTEM_ROOT } = await import("../../engine/yuanshu-sandbox.mjs");
+  const ws = process.platform === "win32" ? "Z:/ws-none" : "/ws-none";
+  assert.equal(checkSandboxCall({ mode: "workspace-write", name: "read", args: { path: "/tmp/a.txt" }, wsRoot: ws }).ok, true);
+  assert.equal(checkSandboxCall({ mode: "workspace-write", name: "write", args: { path: `${SYSTEM_ROOT}/tmp/p.mjs` }, wsRoot: ws }).ok, true);
+  const out = checkSandboxCall({ mode: "workspace-write", name: "edit", args: { path: "../../outside/x" }, wsRoot: ws });
+  assert.equal(out.ok, false);
+  assert.match(out.note, /可写范围/);
+  assert.equal(checkSandboxCall({ mode: "read-only", name: "write", args: { path: "a.md" }, wsRoot: ws }).ok, false);
+});

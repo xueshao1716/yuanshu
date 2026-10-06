@@ -4,6 +4,7 @@
 
 import path from "node:path";
 import fs from "node:fs";
+import os from "node:os";
 
 // ── User 层 deny 规则（宪法硬性红线 → 代码硬拦截，deny 永远赢）──
 // 来源：宪法.json 条款（no-tunnel / no-secrets / no-engine-edit 等）
@@ -45,12 +46,102 @@ export const PI_CMDS = new Set(["install", "remove", "uninstall", "update", "lis
 // 交互式命令（无输出、挂起等待输入）
 export const INTERACTIVE_CMD_RE = /^(pip|npm|npx|yarn|pnpm|git)\s+(login|init\s+-y?)/i;
 
+// ── 红线判定前的命令归一（2026-10-06）──
+// 真机误伤：`grep -rn "token" x 2>/dev/null` 被 no-secrets-write 拦（token 后面有个 >），
+// `grep -n "cloudflared" server.mjs` 被 no-tunnel 拦。查源码不是写密钥，也不是开隧道。
+// 归一只做三件事，红线本身一条不改：
+//   ① 丢掉无害重定向（2>/dev/null、>nul、2>&1）；
+//   ② 按 ; && || 换行切成独立语句（引号内不切），每句单独判，"grep token" 和 "echo ---" 不再拼成一条；
+//      管道 | 不切——数据顺着管道流，`printenv | grep TOKEN > x` 仍是一句、照拦；
+//   ③ 语句里没有写文件的重定向时，搜索命令（grep/rg/findstr/Select-String…）去掉「搜索词」，
+//      文件路径保留（grep x ~/.cloudflared/config.yml 照拦）。
+const HARMLESS_REDIRECT_RE = /(^|\s)(?:\d?>>?|&>)\s*(?:\/dev\/null|nul)(?=\s|$|[;|&])|(^|\s)\d?>&\d(?=\s|$|[;|&])/gi;
+const SEARCH_CMDS = new Set(["grep", "egrep", "fgrep", "rg", "ag", "ack", "findstr", "select-string", "sls"]);
+const PATTERN_OPTS = new Set(["-e", "--regexp", "-pattern"]);
+
+// 引号感知地切；pipes=true 切管道级，否则切语句级（; && || & 换行）。
+export function splitShellSegments(cmd, { pipes = false } = {}) {
+  const out = [];
+  const s = String(cmd || "");
+  let cur = "", q = "";
+  const flush = () => { if (cur.trim()) out.push(cur.trim()); cur = ""; };
+  for (let i = 0; i < s.length; i++) {
+    const ch = s[i];
+    if (q) { cur += ch; if (ch === q) q = ""; continue; }
+    if (ch === "'" || ch === '"') { q = ch; cur += ch; continue; }
+    if (pipes) {
+      if (ch === "|") { flush(); continue; }
+    } else if (ch === ";" || ch === "\n") { flush(); continue; }
+    else if ((ch === "&" || ch === "|") && s[i + 1] === ch) { flush(); i++; continue; }
+    else if (ch === "&" && s[i - 1] !== ">" && s[i + 1] !== ">") { flush(); continue; }
+    cur += ch;
+  }
+  flush();
+  return out;
+}
+
+function shellTokens(seg) {
+  const toks = [];
+  let cur = "", q = "", has = false;
+  for (const ch of seg) {
+    if (q) { if (ch === q) q = ""; else cur += ch; continue; }
+    if (ch === "'" || ch === '"') { q = ch; has = true; continue; }
+    if (/\s/.test(ch)) { if (has || cur) toks.push(cur); cur = ""; has = false; continue; }
+    cur += ch;
+  }
+  if (has || cur) toks.push(cur);
+  return toks;
+}
+
+function stripSearchPattern(seg) {
+  const toks = shellTokens(seg);
+  let i = 0;
+  while (i < toks.length && /^[A-Za-z_][A-Za-z0-9_]*=/.test(toks[i])) i++;
+  if (toks[i] === "git" && toks[i + 1] === "grep") i += 2;
+  else if (SEARCH_CMDS.has(String(toks[i] || "").toLowerCase())) i += 1;
+  else return seg;
+  const kept = toks.slice(0, i);
+  let sawPattern = false;
+  for (; i < toks.length; i++) {
+    const t = toks[i];
+    if (PATTERN_OPTS.has(t.toLowerCase())) { sawPattern = true; i++; continue; }
+    if (t.startsWith("--regexp=") || (/^-e./.test(t) && !t.startsWith("--"))) { sawPattern = true; continue; }
+    if (t.startsWith("-") || /^\d+$/.test(t)) { kept.push(t); continue; }
+    if (!sawPattern) { sawPattern = true; continue; }
+    kept.push(t);
+  }
+  return kept.join(" ");
+}
+
+// 红线判定用的命令段（归一后）。dsh-keys 的策略规则也走它，两处口径一致。
+export function denyCheckSegments(cmd) {
+  const cleaned = String(cmd || "").replace(HARMLESS_REDIRECT_RE, " ");
+  return splitShellSegments(cleaned).map((stmt) => {
+    if (/>/.test(stmt.replace(/(['"])(?:(?!\1).)*\1/g, ""))) return stmt; // 写文件的句子原样判
+    return splitShellSegments(stmt, { pipes: true }).map(stripSearchPattern).join(" | ");
+  }).filter(Boolean);
+}
+
 // 命中任一 deny 规则 → { id }；未命中 → null
 export function matchDenyRule(cmd) {
+  const segs = denyCheckSegments(cmd);
   for (const rule of USER_DENY_PATTERNS) {
-    if (rule.re.test(cmd)) return rule;
+    if (segs.some((seg) => rule.re.test(seg))) return rule;
   }
   return null;
+}
+
+// 模型常把 git-bash 写法带进文件工具：/d/pi-workspace/x、/tmp/x、~/x。
+// 不归一的话 /d/... 会被当成「当前盘根下的 d 目录」，工作区里的文件也报越界。
+export function normalizeToolPath(p, { platform = process.platform, home = os.homedir(), tmp = os.tmpdir() } = {}) {
+  const s = String(p ?? "");
+  if (!s) return s;
+  if (s === "~" || s.startsWith("~/") || s.startsWith("~\\")) return path.join(home, s.slice(2));
+  if (platform !== "win32") return s;
+  const m = s.match(/^\/(?:cygdrive\/|mnt\/)?([a-zA-Z])(\/.*)?$/);
+  if (m) return `${m[1].toUpperCase()}:${m[2] || "/"}`;
+  if (s === "/tmp" || s.startsWith("/tmp/")) return path.join(tmp, s.slice(5));
+  return s;
 }
 
 // 工作空间路径安全：解析后必须落在 root 内（防 ../ 越权 + symlink 越权）
