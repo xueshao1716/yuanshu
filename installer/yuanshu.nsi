@@ -79,7 +79,7 @@ Function ShowGuide
 FunctionEnd
 
 Function LaunchYuanshu
-  Exec '"$SYSDIR\wscript.exe" "$INSTDIR\launcher\open.vbs"'
+  Exec '"$INSTDIR\launcher\yuanshu.exe"'
 FunctionEnd
 
 Section "元枢" SecCore
@@ -117,16 +117,16 @@ Section "元枢" SecCore
 
   SetOutPath "$INSTDIR"
   CreateDirectory "$SMPROGRAMS\元枢"
-  CreateShortcut "$SMPROGRAMS\元枢\元枢.lnk" "$SYSDIR\wscript.exe" '"$INSTDIR\launcher\open.vbs"' "$INSTDIR\launcher\yuanshu.ico"
+  CreateShortcut "$SMPROGRAMS\元枢\元枢.lnk" "$INSTDIR\launcher\yuanshu.exe" "" "$INSTDIR\launcher\yuanshu.exe"
   CreateShortcut "$SMPROGRAMS\元枢\开始使用.lnk" "$WINDIR\notepad.exe" '"$INSTDIR\开始使用.md"'
   CreateShortcut "$SMPROGRAMS\元枢\打开工作区.lnk" "$PROFILE\pi-workspace"
   CreateShortcut "$SMPROGRAMS\元枢\卸载元枢.lnk" "$INSTDIR\uninstall.exe"
-  CreateShortcut "$DESKTOP\元枢.lnk" "$SYSDIR\wscript.exe" '"$INSTDIR\launcher\open.vbs"' "$INSTDIR\launcher\yuanshu.ico"
+  CreateShortcut "$DESKTOP\元枢.lnk" "$INSTDIR\launcher\yuanshu.exe" "" "$INSTDIR\launcher\yuanshu.exe"
 
   ${If} $NoTask != "1"
     DetailPrint "正在注册开机自启并启动服务…"
     nsExec::ExecToLog 'powershell.exe -NoProfile -ExecutionPolicy Bypass -File "$INSTDIR\launcher\register-task.ps1" -Root "$INSTDIR"'
-    nsExec::Exec '"$SYSDIR\wscript.exe" "$INSTDIR\launcher\open.vbs" --service-only'
+    nsExec::Exec '"$INSTDIR\launcher\yuanshu.exe" --service-only'
   ${EndIf}
 SectionEnd
 

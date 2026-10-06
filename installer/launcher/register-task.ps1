@@ -18,8 +18,8 @@ try {
   $startup = [Environment]::GetFolderPath('Startup')
   $ws = New-Object -ComObject WScript.Shell
   $lnk = $ws.CreateShortcut((Join-Path $startup '元枢服务.lnk'))
-  $lnk.TargetPath = Join-Path $env:WINDIR 'System32\wscript.exe'
-  $lnk.Arguments = '"' + (Join-Path $Root 'launcher\open.vbs') + '" --service-only'
+  $lnk.TargetPath = Join-Path $Root 'launcher\yuanshu.exe'
+  $lnk.Arguments = '--service-only'
   $lnk.WorkingDirectory = $Root
   $lnk.Save()
   Write-Output ('STARTUP_FALLBACK ' + $_.Exception.Message)

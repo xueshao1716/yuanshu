@@ -234,6 +234,12 @@ const STEPS = {
       else fs.writeFileSync(path.join(dst, f), text, 'utf8');
     }
     fs.copyFileSync(path.join(REPO, 'app', 'src-tauri', 'icons', 'icon.ico'), path.join(dst, 'yuanshu.ico'));
+    // 桌面快捷方式的目标：原生小启动器，不再经 wscript.exe（VBScript 在下线、常被拦，且「打开文件位置」会落到 System32）。
+    // .NET Framework 4 自带 csc.exe，Win10/11 都有；源码 UTF-8，必须 /codepage:65001，否则中文提示乱码
+    const csc = path.join(process.env.WINDIR || 'C:\\Windows', 'Microsoft.NET', 'Framework64', 'v4.0.30319', 'csc.exe');
+    if (!fs.existsSync(csc)) throw new Error('找不到 csc.exe（.NET Framework 4），无法编译启动器');
+    run(csc, ['/nologo', '/codepage:65001', '/target:winexe', '/optimize+', `/win32icon:${path.join(dst, 'yuanshu.ico')}`,
+      `/out:${path.join(dst, 'yuanshu.exe')}`, '/r:System.Windows.Forms.dll', '/r:System.Drawing.dll', path.join(HERE, 'launcher-src', 'YuanshuLauncher.cs')]);
     rm(path.join(STAGE, 'template'));
     copyTree(path.join(HERE, 'template'), path.join(STAGE, 'template'));
     fs.copyFileSync(path.join(HERE, 'template', 'workspace', '开始使用.md'), path.join(STAGE, '开始使用.md'));
