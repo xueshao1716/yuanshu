@@ -201,6 +201,7 @@ const { createCompanionFacts } = await import('./engine/companion-facts.mjs');
 const { createCompanionStore } = await import('./engine/companion-store.mjs');
 const { createWechatBridge, createLoopbackChat } = await import('./engine/wechat-bridge.mjs');
 const { buildSoulGraph, readMemoryFiles } = await import('./engine/soul-graph.mjs');
+const { soulContextPrompt } = await import('./engine/soul-context.mjs');
 const { createCompanionDecision } = await import('./engine/companion-decision.mjs');
 const { createCompanionSessionReader } = await import('./engine/companion-session.mjs');
 const { createCompanionRoutes } = await import('./engine/companion-api.mjs');
@@ -1518,6 +1519,14 @@ async function handleChat(req, res, body) {
         );
       } catch {}
     }
+    // 灵魂快照：纠正与关系记忆每轮都给（不再指望模型自己去 read 记忆文件）
+    try {
+      const soul = soulContextPrompt(CONFIG.cwd);
+      if (soul) await entry.agent?.sendCustomMessage?.(
+        { customType: "context", content: [{ type: "text", text: soul }] },
+        { deliverAs: "nextTurn" }
+      );
+    } catch {}
     // 时间上下文：统一由 promptTimeText 产出（含"距上次对话多久" + 观测到的作息/节律）
     try {
       const rhythm = readActivityRhythm(CONFIG.cwd, { now: new Date(), sessionDir: SESSIONS_DIR });

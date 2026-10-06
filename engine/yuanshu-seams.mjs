@@ -3,6 +3,7 @@ import { buildYuanshuSections } from "./yuanshu-prompt.mjs";
 import { runtimeIdentity } from "./runtime-identity.mjs";
 import { rhythmPhrase } from "./activity-rhythm.mjs";
 import { loadPersonaDefinition, renderPersonaSection } from "./persona-def.mjs";
+import { soulContextPrompt } from "./soul-context.mjs";
 
 export const SEAM_PROMPT = "prompt-section";
 
@@ -131,6 +132,10 @@ export function assembleYuanshuSystem(baseOpts = {}, registry = null, ctx = {}) 
     if (!persona) persona = promptPersonaText(ctx.model);
     if (persona) merged.persona = persona;
   }
+  try {
+    const soul = soulContextPrompt(ctx.wsRoot || process.env.PI_WORKSPACE || process.cwd());
+    if (soul) merged.persona = [merged.persona, soul].filter(Boolean).join("\n\n");
+  } catch {}
   const identity = runtimeIdentity(ctx);
   if (identity) merged.runtime = [merged.runtime, identity].filter(Boolean).join('\n\n');
   return merged;
