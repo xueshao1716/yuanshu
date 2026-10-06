@@ -56,7 +56,8 @@ import { initSessionFiles, scanSessionFiles, parseSessionFile, parseSessionFileC
 import { httpJsonFetch, httpBufferFetch } from "./engine/http.mjs";
 import { createReplyTts } from './engine/reply-tts.mjs';
 // ── 统一工具集（拆模块）：schema + 执行器；安全线（deny/危险命令/受保护路径/路径越权）在 engine/tools/security.mjs ──
-import { BASE_TOOL_SCHEMAS, SHARE_PROJECT_SCHEMA, createUnifiedToolExecutorGuarded, webSearchTool } from "./engine/tools/unified-tools.mjs";
+import { BASE_TOOL_SCHEMAS, SHARE_PROJECT_SCHEMA, createUnifiedToolExecutorGuarded, webSearchTool, detectBashShell } from "./engine/tools/unified-tools.mjs";
+import { runDoctor } from "./engine/install-doctor.mjs";
 import { safeJoin } from "./engine/tools/security.mjs";
 // ── dsh 执行臂工具（拆模块）：双引擎派单/并发控制/结构化回传解析 ──
 import { createDshTool } from "./engine/dsh-tool.mjs";
@@ -2623,6 +2624,7 @@ const API_ROUTES = [
     json(res, 200, { ok: true, domains: r.domains });
   }],
   ["GET", "/api/system/check-update", async (res) => json(res, 200, await checkUpdate(__dirname))],
+  ["GET", "/api/system/doctor", async (res) => json(res, 200, await runDoctor({ wsRoot: WS_ROOT, agentDir: AGENT_DIR, piPackage: CONFIG.piPackage, bashPath: detectBashShell(), port: CONFIG.port }))],
   // ── 灵犀：双向灵感池（user/xiaoyu 分源记录，攒着一起过）──
   ["GET", "/api/lingxi", (res, req, url) => {
     const source = url.searchParams.get("source") || undefined;

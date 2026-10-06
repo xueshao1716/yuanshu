@@ -5,6 +5,7 @@ import { saveNativeDownload } from './lib/native-download'
 import { requestBrowserSave, writeBrowserSave } from './lib/browser-save'
 import { fileAccess } from './lib/file-access'
 import type { WorkExplanationData } from './lib/work-explanation'
+import { consumeHashToken } from './lib/hash-token.mjs'
 
 // ── 本地鉴权 ──
 // 元枢只把访问令牌留在当前设备的浏览器存储中；旧 key 只用于一次性迁移，避免升级后掉线。
@@ -26,6 +27,8 @@ function readLocal(key: string, legacyKey?: string) {
   } catch { return '' }
 }
 
+// 安装版快捷方式带 #t=令牌 打开：先落盘再读，免手输令牌
+try { if (typeof window !== 'undefined') consumeHashToken({ location: window.location, history: window.history, storage: localStorage, tokenKey: LOCAL_TOKEN_KEY, apiBaseKey: LOCAL_API_BASE_KEY }) } catch {}
 let _token = readLocal(LOCAL_TOKEN_KEY, LEGACY_TOKEN_KEY)
 let _apiBase = readLocal(LOCAL_API_BASE_KEY, LEGACY_API_BASE_KEY)
 
@@ -759,6 +762,7 @@ export const MaintenanceApi = {
 export const SystemApi = {
   info: () => api<any>('/api/system/info'),
   checkUpdate: () => api<any>('/api/system/check-update'),
+  doctor: () => api<{ checkedAt: string; summary: { ok: number; warn: number; fail: number }; items: { key: string; label: string; status: 'ok' | 'warn' | 'fail'; detail: string }[] }>('/api/system/doctor'),
   applyUpdate: (body?: { engine?: boolean }) => api<any>('/api/update/apply', { method: 'POST', body: body || {}, timeoutMs: 190000 }),
   saveNetwork: (body: { domains: { domain: string; desc: string }[] }) =>
     api<{ ok: boolean; domains: { domain: string; desc: string }[] }>('/api/system/network', { method: 'POST', body }),

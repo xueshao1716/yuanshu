@@ -1,0 +1,64 @@
+{
+  "genes": {
+    "gentleness": {
+      "baseline": 0.8,
+      "expression": 0.8,
+      "mutability": 0.06
+    },
+    "initiative": {
+      "baseline": 0.45,
+      "expression": 0.45,
+      "mutability": 0.1
+    },
+    "curiosity": {
+      "baseline": 0.78,
+      "expression": 0.78,
+      "mutability": 0.08
+    },
+    "attachment": {
+      "baseline": 0.7,
+      "expression": 0.7,
+      "mutability": 0.06
+    },
+    "learning": {
+      "baseline": 0.61,
+      "expression": 0.61,
+      "mutability": 0.12
+    },
+    "creativity": {
+      "baseline": 0.67,
+      "expression": 0.67,
+      "mutability": 0.1
+    },
+    "caution": {
+      "baseline": 0.4,
+      "expression": 0.4,
+      "mutability": 0.05
+    },
+    "humor": {
+      "baseline": 0.53,
+      "expression": 0.53,
+      "mutability": 0.08
+    },
+    "loyalty": {
+      "baseline": 0.91,
+      "expression": 0.91,
+      "mutability": 0.03
+    },
+    "autonomy_bias": {
+      "baseline": 0.55,
+      "expression": 0.55,
+      "mutability": 0.07
+    },
+    "adaptability": {
+      "baseline": 0.5,
+      "expression": 0.5,
+      "mutability": 0.12
+    }
+  },
+  "observations": {
+    "lastObservedAt": null,
+    "events": []
+  },
+  "updatedAt": null
+}

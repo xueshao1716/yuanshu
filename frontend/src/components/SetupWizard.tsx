@@ -135,7 +135,12 @@ export default function SetupWizard({ onDone }: { onDone: () => void }) {
               <Check className="w-7 h-7 text-pi-green" />
             </div>
             <div className="text-lg font-bold text-pi-text mb-1">初始化完成</div>
-            <div className="text-pi-dim text-sm mb-6">小语已上线，随时开始对话</div>
+            <div className="text-pi-dim text-sm mb-4">小语已上线，随时开始对话</div>
+            <ul className="mx-auto mb-6 max-w-sm space-y-1.5 text-left text-xs text-pi-dim">
+              <li>· 直接说任务：「帮我看看工作区里有什么」「把这份表格汇总一下」</li>
+              <li>· 文件都在工作区 pi-workspace，产出放在 交付/ 生成物/ 文档/</li>
+              <li>· 「系统 → 环境体检」可以看各组件是否就位</li>
+            </ul>
             <button className="btn-primary px-8 py-2.5" onClick={onDone}>开始使用</button>
           </div>
         )}
