@@ -1,7 +1,7 @@
 {
   "name": "yuanshu-frontend",
   "private": true,
-  "version": "2.120.1",
+  "version": "2.121.0",
   "type": "module",
   "scripts": {
     "dev": "vite",
