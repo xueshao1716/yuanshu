@@ -4,7 +4,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { normalizeMessage, splitForWechat, stripMarkdownForWechat, updatesOk, createIlinkClient } from "../../engine/wechat-ilink.mjs";
-import { createWechatBridge, maskId, readChatStream } from "../../engine/wechat-bridge.mjs";
+import { createWechatBridge, createLoopbackChat, maskId, readChatStream, readRunStream } from "../../engine/wechat-bridge.mjs";
 
 const tmp = () => fs.mkdtempSync(path.join(os.tmpdir(), "wx-"));
 const tick = (ms = 5) => new Promise((r) => setTimeout(r, ms));
@@ -72,7 +72,7 @@ function fakeWorld() {
   const chat = {
     n: 0,
     createSession: async () => `s${++chat.n}`,
-    ask: async (text, sid) => { asked.push([text, sid]); return `回：${text}`; },
+    ask: async (text, sid, opts = {}) => { asked.push([text, sid, !!opts.owner]); return `回：${text}`; },
   };
   return { client, chat, sent, asked, push: (m) => inbox.push(m) };
 }
@@ -162,4 +162,57 @@ test("微信回复剥掉 markdown 语法，只留文字，且幂等", () => {
   const out = stripMarkdownForWechat(md);
   assert.equal(out, "结论\n\n· 项：状态\n\n· 构建：通过\n\n· 看 log\n引用\n链接（https://x.y）");
   assert.equal(stripMarkdownForWechat(out), out);
+});
+
+test("只有扫码绑定的本人走任务链路（才有母体执行身份），陌生人不走", async () => {
+  const dir = tmp(), w = fakeWorld();
+  fs.writeFileSync(path.join(dir, "account.json"), JSON.stringify({ token: "T", botId: "bot@im.bot", userId: "owner@im.wechat" }));
+  const b = createWechatBridge({ dir, client: w.client, chat: w.chat, sleep: () => tick() });
+  b.start();
+  w.push(dm("owner@im.wechat", "我本人"));
+  await until(() => w.sent.length === 1);
+  w.push(dm("u9@im.wechat", "陌生人"));
+  await until(() => w.sent.length === 2);
+  assert.deepEqual(w.asked.map((a) => [a[0], a[2]]), [["我本人", true], ["陌生人", false]]);
+  await b.stop(); await b._waitIdle();
+});
+
+const sse = (events) => new Response(events.map((e, i) => `id: ${i + 1}\nevent: ${e.type}\ndata: ${JSON.stringify(e)}\n\n`).join(""));
+
+test("readRunStream 只收 delta 正文；失败且无正文时抛错，404 类带 status", async () => {
+  assert.equal(await readRunStream(sse([{ type: "tool", data: { name: "cultivation" } }, { type: "delta", data: { text: "你" } }, { type: "delta", data: { text: "好" } }, { type: "completed", data: {} }])), "你好");
+  await assert.rejects(readRunStream(sse([{ type: "failed", data: { message: "session not found" } }])), (e) => e.status === 404);
+  assert.equal(await readRunStream(sse([{ type: "delta", data: { text: "半句" } }, { type: "interrupted", data: {} }])), "半句");
+});
+
+test("回环聊天：本人走 /api/runs（不续跑），其他人仍走 /api/chat", async () => {
+  const calls = [];
+  const f = async (url, init = {}) => {
+    calls.push([url.replace("http://h", ""), init.body ? JSON.parse(init.body) : null]);
+    if (url.endsWith("/api/runs")) return new Response(JSON.stringify({ runId: "r1" }), { status: 202 });
+    if (url.includes("/api/runs/r1/events")) return sse([{ type: "delta", data: { text: "好" } }, { type: "completed", data: {} }]);
+    return new Response('event: delta\ndata: {"text":"旧"}\n\n');
+  };
+  const chat = createLoopbackChat({ base: () => "http://h", token: () => "k", fetch: f, now: () => 7 });
+  assert.equal(await chat.ask("hi", "s1", { owner: true }), "好");
+  assert.equal(await chat.ask("hi", "s2"), "旧");
+  assert.deepEqual(calls.map((c) => c[0]), ["/api/runs", "/api/runs/r1/events?after=0", "/api/chat"]);
+  assert.equal(calls[0][1].backgroundRecovery, false);
+  assert.equal(calls[0][1].clientRequestId, "wechat-s1-7");
+});
+
+test("readRunStream 收到终态就断开，不等服务端关流（真机：桥会一直挂着）", async () => {
+  let cancelled = false;
+  const body = new ReadableStream({
+    start(c) {
+      const enc = new TextEncoder();
+      c.enqueue(enc.encode('event: delta\ndata: {"type":"delta","data":{"text":"通了"}}\n\n'));
+      c.enqueue(enc.encode('event: completed\ndata: {"type":"completed","data":{}}\n\n'));
+      // 故意不 close：服务端事件流在任务结束后保持心跳
+    },
+    cancel() { cancelled = true; },
+  });
+  const r = await Promise.race([readRunStream(new Response(body)), new Promise((_, no) => setTimeout(() => no(new Error("挂住了")), 1000))]);
+  assert.equal(r, "通了");
+  assert.equal(cancelled, true);
 });

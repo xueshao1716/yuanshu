@@ -1,7 +1,9 @@
 // 微信接入（iLink Bot）：扫码登录、收发消息、每个好友对应一个元枢会话。
 // 状态全部落在 <dir>：account.json（凭证，只本机）、cursor.json（轮询游标）、
 // sessions.json（好友 → 会话）、settings.json（是否开启）。status() 从不返回凭证。
-// 对话走本机 /api/chat 回环，和网页里聊天是同一条链路。
+// 对话走本机回环：伙伴本人（扫码绑定的 userId）走 /api/runs，和网页聊天同一条任务链路，
+// 才铸得出母体执行身份（培养工具要它）；其他发信人仍走 /api/chat，没有执行身份。
+// 2026-10-07：以前全走 /api/chat——那条路不建 run，身份永远为空，培养工具每次都报 identity_denied。
 import fs from "node:fs";
 import path from "node:path";
 import { createIlinkClient, normalizeMessage, splitForWechat, stripMarkdownForWechat, updatesOk, RATE_LIMITED, ILINK_BASE } from "./wechat-ilink.mjs";
@@ -54,7 +56,42 @@ export async function readChatStream(res) {
   return answer.trim();
 }
 
-export function createLoopbackChat({ base, token, fetch: f = globalThis.fetch }) {
+// 从 /api/runs/:id/events 的 SSE 里只收正文 delta；任务以 failed/stopped/interrupted 结束时报错。
+export async function readRunStream(res) {
+  const reader = res.body.getReader();
+  const decoder = new TextDecoder();
+  let buf = "", answer = "", ended = "", failure = "";
+  // 事件流在任务结束后不会自己关（连接时已结束才会），收到终态事件就主动断开，否则桥会一直挂着
+  while (!ended) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    buf += decoder.decode(value, { stream: true });
+    let idx;
+    while ((idx = buf.indexOf("\n\n")) !== -1) {
+      const block = buf.slice(0, idx);
+      buf = buf.slice(idx + 2);
+      const data = (block.split("\n").find((l) => l.startsWith("data:")) || "").slice(5).trim();
+      if (!data) continue;
+      let ev;
+      try { ev = JSON.parse(data); } catch { continue; }
+      if (ev.type === "delta") answer += ev.data?.text || "";
+      else if (["completed", "failed", "stopped", "interrupted"].includes(ev.type)) {
+        ended = ev.type;
+        failure = String(ev.data?.message || ev.data?.reason || ev.type);
+        break;
+      }
+    }
+  }
+  if (ended) await reader.cancel().catch(() => {});
+  if (ended && ended !== "completed" && !answer.trim()) {
+    const err = new Error(`任务${ended}：${failure.slice(0, 160)}`);
+    if (/404|not.?found|不存在/i.test(failure)) err.status = 404;
+    throw err;
+  }
+  return answer.trim();
+}
+
+export function createLoopbackChat({ base, token, fetch: f = globalThis.fetch, now = () => Date.now() }) {
   const headers = () => ({ "Content-Type": "application/json", ...(token() ? { Authorization: `Bearer ${token()}` } : {}) });
   return {
     async createSession(name) {
@@ -64,7 +101,23 @@ export function createLoopbackChat({ base, token, fetch: f = globalThis.fetch })
       if (!j.id) throw new Error("建会话失败：没有 id");
       return j.id;
     },
-    async ask(message, sessionId) {
+    async ask(message, sessionId, { owner = false } = {}) {
+      if (owner) {
+        const created = await f(`${base()}/api/runs`, { method: "POST", headers: headers(), body: JSON.stringify({
+          sessionId, message, clientRequestId: `wechat-${sessionId}-${now()}`,
+          backgroundRecovery: false, // 服务重启后续跑出来的回复没人往微信送，宁可明着失败
+        }) });
+        if (!created.ok) {
+          const t = await created.text().catch(() => "");
+          const err = new Error(`/api/runs ${created.status}: ${t.slice(0, 160)}`);
+          err.status = created.status;
+          throw err;
+        }
+        const { runId } = await created.json();
+        const res = await f(`${base()}/api/runs/${encodeURIComponent(runId)}/events?after=0`, { headers: headers() });
+        if (!res.ok || !res.body) throw Object.assign(new Error(`/api/runs events ${res.status}`), { status: res.status });
+        return readRunStream(res);
+      }
       const res = await f(`${base()}/api/chat`, { method: "POST", headers: headers(), body: JSON.stringify({ message, sessionId }) });
       if (!res.ok || !res.body) {
         const t = await res.text().catch(() => "");
@@ -156,11 +209,13 @@ export function createWechatBridge({
     inflight.add(m.sender);
     try {
       let answer;
+      // 只有扫码绑定的本人算「伙伴亲自发起」；陌生发信人拿不到母体执行身份
+      const owner = !!acc?.userId && m.sender === acc.userId;
       try {
-        answer = await chat.ask(m.text, await sessionFor(m.sender));
+        answer = await chat.ask(m.text, await sessionFor(m.sender), { owner });
       } catch (e) {
         if (e.status !== 404 && e.status !== 400) throw e;
-        answer = await chat.ask(m.text, await sessionFor(m.sender, true)); // 会话被删：换新会话重来一次
+        answer = await chat.ask(m.text, await sessionFor(m.sender, true), { owner }); // 会话被删：换新会话重来一次
       }
       await reply(acc, m.sender, answer || "这次没组织出回复，稍后再问我一次。", m.contextToken);
     } catch (e) {
