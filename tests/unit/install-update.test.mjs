@@ -48,18 +48,24 @@ test('第一次更新：就地 init 成稀疏浅仓库，Gitee 优先，reset �
   assert.ok(npm[0].includes('--omit=dev'), '安装版不装开发依赖（没有前端源码，用不上 vite）');
 });
 
-test('Gitee 连不上回退 GitHub；两个都失败时报清楚、不检出', async (t) => {
+test('Gitee 连不上回退 GitHub；两轮都失败时报清楚、不检出、origin 复位到 Gitee', async (t) => {
   const root = tmpApp(t);
   const one = recorder({ fetch: 1 });
   const ok = await updateInstalledApp({ root, git: one.git, npm: one.npm });
   assert.equal(ok.ok, true);
   assert.match(ok.source, /github\.com/);
-  const both = recorder({ fetch: 2 });
+  const both = recorder({ fetch: 4 });
   const bad = await updateInstalledApp({ root: tmpApp(t), git: both.git, npm: both.npm });
   assert.equal(bad.ok, false);
   assert.equal(bad.stage, 'fetch');
   assert.match(bad.error, /gitee\.com.*github\.com/);
   assert.ok(!both.calls.some((c) => c.includes('reset')), '没拿到新版本不能 reset');
+  assert.equal(both.calls.filter((c) => c.includes('fetch')).length, 4, '两个源各试两轮');
+  assert.match(both.calls.at(-1).join(' '), /remote\.origin\.url https:\/\/gitee\.com/);
+  const flaky = recorder({ fetch: 3 });
+  const third = await updateInstalledApp({ root: tmpApp(t), git: flaky.git, npm: flaky.npm });
+  assert.equal(third.ok, true, '第二轮再试 GitHub 成功');
+  assert.ok(flaky.calls.some((c) => c.join(' ').includes('http.lowSpeedTime=20')), '卡住不出数据要主动放弃，别挂满超时');
 });
 
 test('更新入口：有构建信息走安装版路径，且不做 npm -g 引擎升级', async (t) => {

@@ -62,14 +62,22 @@ export async function updateInstalledApp({ root, git, npm, sources = UPDATE_SOUR
   }
   const errors = [];
   let source = '';
-  for (const url of sources) {
-    // 从哪个源拿到的就把 origin 指向哪个：之后按需补 blob 也走同一个源
-    await git(['config', 'remote.origin.url', url]);
-    const r = await git(['fetch', '--depth=1', '--filter=blob:none', 'origin', 'main']);
-    if (r.ok) { source = url; break; }
-    errors.push(`${new URL(url).hostname}: ${r.err}`);
+  // 实测遇到过 Gitee 连上了却一直不出数据、挂满 60 秒被杀，紧接着重试 2 秒就好：
+  // 20 秒低于 1KB/s 就主动放弃，两个源各轮两次，而不是死等一次就判失败
+  const fetchArgs = ['-c', 'http.lowSpeedLimit=1000', '-c', 'http.lowSpeedTime=20', 'fetch', '--depth=1', '--filter=blob:none', 'origin', 'main'];
+  for (let round = 0; round < 2 && !source; round++) {
+    for (const url of sources) {
+      // 从哪个源拿到的就把 origin 指向哪个：之后按需补 blob 也走同一个源
+      await git(['config', 'remote.origin.url', url]);
+      const r = await git(fetchArgs);
+      if (r.ok) { source = url; break; }
+      errors.push(`${new URL(url).hostname}: ${String(r.err || '').split('\n').filter(Boolean).pop() || '超时'}`);
+    }
   }
-  if (!source) return { ok: false, stage: 'fetch', error: '两个更新源都连不上 — ' + errors.join('；') };
+  if (!source) {
+    await git(['config', 'remote.origin.url', sources[0]]);
+    return { ok: false, stage: 'fetch', error: '两个更新源都连不上，稍后再试 — ' + [...new Set(errors)].join('；') };
+  }
   const reset = await git(['reset', '-q', '--hard', 'FETCH_HEAD']);
   if (!reset.ok) return { ok: false, stage: 'checkout', error: '检出新版本失败: ' + reset.err };
   for (const dir of [root, path.join(root, 'mcp-server')]) {
