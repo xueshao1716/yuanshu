@@ -97,3 +97,22 @@ test('upstream circuit cooldown survives worker recreation',async t=>{
  t.after(()=>replacement.stop());
  assert.equal((await replacement.tick()).state,'cooldown');
 });
+test('run-source jobs queued with a placeholder version rebind once readable; other sources still guard',async t=>{
+ const f=await fixture(t);
+ const runSources=[{kind:'run',runId:'r1',sessionId:'s1'}];
+ const fileSnaps=await collectLocalSources({wsRoot:f.wsRoot,sources:[{kind:'file',path:'docs/source.txt'}],policy:await f.store.policy()});
+ const placeholder=digest(['r1','completed',null,'missing']);
+ const runJob=await f.store.enqueue({sourceId:'run:r1',sourceVersion:placeholder,event:'completed',runId:'r1',sessionId:'s1',sources:runSources});
+ await f.store.control(f.job.id,'cancel',f.job.revision).catch(()=>{});
+ const worker=createKnowledgeWorker({store:f.store,collect:async({job})=>job.sources[0].kind==='run'?fileSnaps:collectLocalSources({wsRoot:f.wsRoot,sources:job.sources,policy:await f.store.policy()}),
+   extract:extractLocal,validate:validateCandidate,foregroundBusy:()=>false,now:()=>1800000000000,random:()=>0});
+ t.after(()=>worker.stop());
+ await worker.tick();
+ const after=await f.store.get(runJob.id);
+ assert.notEqual(after.reason,'source_changed');
+ assert.notEqual(after.sourceVersion,placeholder);
+ assert.deepEqual(after.sources,runSources,'run source list is kept as-is');
+ const bad=await f.store.enqueue({sourceId:'docs/other',sourceVersion:digest(['x']),event:'manual',sources:[{kind:'file',path:'docs/source.txt'}]});
+ for(let i=0;i<3&&(await f.store.get(bad.id)).state==='queued';i++)await worker.tick();
+ assert.equal((await f.store.get(bad.id)).reason,'source_changed');
+});

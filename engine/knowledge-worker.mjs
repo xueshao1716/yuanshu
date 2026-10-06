@@ -27,7 +27,7 @@ export function createKnowledgeWorker({store,collect,extract,validate,admission,
       const policy=await check();
       const snapshots=await collect({job,policy,signal});
       const version=digest(snapshots.map(s=>[s.locator,s.hash]));
-      if(job.state==='collecting'&&job.sources.length&&job.sources.every(s=>s.kind==='url'&&!s.hash))job=await store.bindSources(job.id,guardFor(job),snapshots);
+      if(job.state==='collecting'&&job.sources.length&&(job.sources.every(s=>s.kind==='url'&&!s.hash)||job.sources.every(s=>s.kind==='run')&&version!==job.sourceVersion))job=await store.bindSources(job.id,guardFor(job),snapshots);
       if(version!==job.sourceVersion)fail('source_changed');
       if(job.state==='collecting')await step({state:'extracting'});
       let candidate=job.candidate;

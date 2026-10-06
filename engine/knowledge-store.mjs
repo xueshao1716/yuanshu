@@ -54,8 +54,11 @@ export function createKnowledgeStore({wsRoot,now=Date.now,leaseMs=90000,fault,ru
     }),
     bindSources:(id,guard,snapshots)=>io.transaction(data=>{
       const job=getJob(data,id);assertClaim(job,guard,data.policy,now());
-      if(job.state!=='collecting'||!job.sources.length||job.sources.some(s=>s.kind!=='url'||s.hash))fail('invalid_source_binding');
-      job.sources=snapshots.map(s=>clone(s.reference));job.sourceVersion=digest(snapshots.map(s=>[s.locator,s.hash]));job.revision++;return job;
+      // 运行来源：入队时读不到（过大/缺失）会记一个占位版本；采集阶段还没抽取任何内容，
+      // 绑定到此刻读到的内容是安全的，提交前仍按新版本复核。来源列表保持原样。
+      const runOnly=job.sources.length&&job.sources.every(s=>s.kind==='run');
+      if(job.state!=='collecting'||!job.sources.length||!runOnly&&job.sources.some(s=>s.kind!=='url'||s.hash))fail('invalid_source_binding');
+      if(!runOnly)job.sources=snapshots.map(s=>clone(s.reference));job.sourceVersion=digest(snapshots.map(s=>[s.locator,s.hash]));job.revision++;return job;
     }),
     enqueue:input=>io.transaction(data=>{
       if(!input||typeof input.sourceId!=='string'||!input.sourceId||input.sourceId.length>2048||! /^[a-f0-9]{64}$/.test(input.sourceVersion)||
