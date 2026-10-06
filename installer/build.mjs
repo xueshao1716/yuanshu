@@ -293,7 +293,7 @@ const STEPS = {
 mk(CACHE);
 const order = FULL ? ['node', 'app', 'python', 'ffmpeg', 'git', 'models', 'launcher', 'nsis'] : ['node', 'app', 'python', 'git', 'launcher', 'nsis'];
 // 精简包：上一次 --full 留在 stage 里的 ffmpeg/模型要清掉，否则会被打进包
-if (!FULL && (!ONLY.length || ONLY.includes('nsis'))) for (const d of ['ffmpeg', 'models']) rm(path.join(RT, d));
+if (!FULL && (!ONLY.length || ONLY.includes('nsis'))) for (const d of ['ffmpeg', 'models']) { rm(path.join(RT, d)); fs.rmSync(marker(d), { force: true }); }
 for (const step of order) {
   if (ONLY.length && !ONLY.includes(step)) continue;
   const always = step === 'launcher' || step === 'nsis';

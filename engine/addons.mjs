@@ -9,6 +9,7 @@ import crypto from 'node:crypto';
 import { pipeline } from 'node:stream/promises';
 import { Readable } from 'node:stream';
 import { execFile } from 'node:child_process';
+import { fileURLToPath } from 'node:url';
 
 const PIP_INDEXES = ['https://mirrors.aliyun.com/pypi/simple', 'https://pypi.tuna.tsinghua.edu.cn/simple', 'https://pypi.org/simple'];
 
@@ -34,6 +35,12 @@ export function runtimeRoot(env = process.env) {
 }
 export const ffmpegBin = (env) => path.join(runtimeRoot(env), 'ffmpeg', 'bin');
 export const modelsDir = (env) => env?.U2NET_HOME || path.join(runtimeRoot(env), 'models');
+// 已有的 u2net 模型：运行时目录 → rembg 默认的 ~/.u2net → 源码仓库的 models/（开发机），找到哪个用哪个，免得重复下 168MB
+export function findU2net(env = process.env) {
+  const repoModels = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'models');
+  const dirs = [modelsDir(env), path.join(env.USERPROFILE || os.homedir(), '.u2net'), repoModels];
+  return dirs.find((d) => fs.existsSync(path.join(d, 'u2net.onnx'))) || '';
+}
 
 function runDefault(cmd, args, { timeout = 15 * 60 * 1000, env } = {}) {
   return new Promise((resolve) => {
@@ -121,7 +128,7 @@ export const ADDONS = [
   {
     id: 'cutout', label: '抠图（rembg + u2net 模型）', size: '下载约 230MB',
     use: '去背景、商品图/人像抠图、贴纸',
-    async check({ run, env }) { return fs.existsSync(path.join(modelsDir(env), 'u2net.onnx')) && pyHas(run, ['rembg', 'onnxruntime']); },
+    async check({ run, env }) { return !!findU2net(env) && pyHas(run, ['rembg', 'onnxruntime']); },
     async install({ env, fetchImpl, log, run }) {
       await pipInstall(run, ['rembg[cpu]==2.0.84'], log);
       const dir = modelsDir(env);
@@ -191,6 +198,6 @@ export const addonJobs = () => Object.fromEntries([...jobs].map(([k, v]) => [k, 
 export function ensureAddonPaths(env = process.env) {
   const bin = ffmpegBin(env);
   if (fs.existsSync(path.join(bin, 'ffmpeg.exe')) || fs.existsSync(path.join(bin, 'ffmpeg'))) prependPath(bin, env);
-  const models = modelsDir(env);
-  if (!env.U2NET_HOME && fs.existsSync(path.join(models, 'u2net.onnx'))) env.U2NET_HOME = models;
+  const models = findU2net(env);
+  if (!env.U2NET_HOME && models) env.U2NET_HOME = models;
 }

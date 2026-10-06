@@ -1,6 +1,8 @@
 # 元枢离线全量安装包
 
-一个 exe 装好元枢全套服务。新电脑不需要联网，也不需要另装 Node / Python / Git / ffmpeg。
+一个 exe 装好元枢基本盘（约 145MB）。新电脑装机不需要联网，也不需要另装 Node / Python / Git。
+
+视频、抠图、数据分析、PDF 四样是**可选组件**，不进默认包，用到时联网装。需要完全离线的场合用 `--full` 出全量包（约 505MB）。
 
 ## 包里有什么
 | 组件 | 说明 |
@@ -8,11 +10,23 @@
 | 元枢 | 仓库里 git 已跟踪的源码（排除测试、安卓、桌面壳源码、文档）+ 生产依赖 |
 | Node.js | 与构建机同版本的 `node.exe` + npm |
 | pi / dsh 引擎 | `@earendil-works/pi-coding-agent`、`@deepseek-ai/dsh`，版本在 `build.mjs` 里钉死 |
-| Python 3.12 | 嵌入版 + python-pptx / python-docx / openpyxl / xlrd / pandas / numpy / Pillow / PyMuPDF / requests / edge-tts / rembg |
-| 抠图模型 | u2net.onnx（rembg 通过 `U2NET_HOME` 找到它） |
-| ffmpeg / ffprobe | BtbN 共享库版 |
-| Git Bash | PortableGit，元枢的命令工具用它 |
+| Python 3.12 | 嵌入版 + python-pptx / python-docx / openpyxl / xlrd / Pillow / requests / edge-tts |
+| Git Bash | PortableGit（去掉文档、vim 运行时、git-lfs），元枢的命令工具用它 |
 | 初始工作区 | `template/workspace`：小语的人格定义与 11 项性格基因基线、空白记忆骨架、「开始使用」说明 |
+
+构建时会删掉非 win32-x64 平台的二进制（esbuild/sharp/ripgrep 等可选依赖会把所有平台都装上，约 284MB）。
+
+## 可选组件
+`engine/addons.mjs` 管理，装到运行时目录（安装版 `runtime/`，源码版 `~/.yuanshu/runtime`），升级保留、卸载删除。
+
+| id | 内容 | 下载 | 来源（按顺序回退） |
+|---|---|---|---|
+| media | ffmpeg / ffprobe 6.1.1 | 约 60MB | npmmirror → GitHub，sha256 钉死 |
+| cutout | rembg[cpu]==2.0.84 + u2net.onnx | 约 230MB | 阿里云/清华 PyPI；hf-mirror → huggingface → GitHub，sha256 钉死 |
+| data | pandas + numpy | 约 30MB | 阿里云 → 清华 → pypi.org |
+| pdf | PyMuPDF | 约 20MB | 同上 |
+
+三个入口：「系统 → 环境体检 → 可选组件」点安装；`node scripts/addon.mjs install <id>`（小语缺组件时自己跑，模板技能记忆里写了做法）；`POST /api/system/addons/:id/install`。安装任务串行，装完立即可用，不用重启服务。
 
 初始工作区**不含**任何个人数据：没有记忆内容、会话、密钥。人格模板由 `make-template.mjs` 从人格定义生成，只保留性格本体（名字、语气、价值观、边界、禁忌、基因基线），去掉来历与签名。
 
@@ -33,7 +47,8 @@
 ```bash
 npm run deploy:frontend                 # 先构建前端
 node installer/make-template.mjs <工作区>  # 可选：从你的人格定义重新生成模板
-node installer/build.mjs                # 全部步骤，完成的步骤会缓存跳过
+node installer/build.mjs                # 精简包：全部步骤，完成的步骤会缓存跳过
+node installer/build.mjs --full --force=python   # 全量离线包（带 ffmpeg、抠图、pandas、PDF）
 node installer/build.mjs --only=app,launcher,nsis   # 改了代码后只重打这几步
 ```
 
