@@ -3,6 +3,7 @@ import { ArrowRight } from 'lucide-react'
 import { SoulApi } from './api'
 import { Block, LoadState } from './shared'
 import SoulGraph from './SoulGraph'
+import LastNight from './LastNight'
 export const sections = [
   ['overview','培养总览','从真实记录开始，找到下一步'], ['identity','身份与表达','身份、价值观、关系与边界'],
   ['genes','性格基因','长期基线、互动表现与提案'], ['rhythm','情绪与节律','情绪观测、主动陪伴与免打扰'],
@@ -25,6 +26,7 @@ export default function Overview({open}: {open:(section:Section)=>void}) {
     <Block title="灵魂图谱" hint="性格、情绪、记忆、技能、学习，都是实时数据。点枢纽展开，点叶子看详情。">
       <SoulGraph />
     </Block>
+    <LastNight />
     <Block title="现在的小语" hint="长期人格和基因的变更，都要你确认。">
       <LoadState error={persona.error} loading={persona.isLoading} retry={persona.mutate} />
       <LoadState error={genes.error} loading={genes.isLoading} retry={genes.mutate} />

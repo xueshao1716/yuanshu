@@ -115,3 +115,12 @@
 .sg-panel > a { display:inline-block; margin-top:14px; font-size:13px; }
 @media (max-width:900px) { .sg-body { grid-template-columns:1fr; } .sg-panel { max-height:none; } }
 @media (max-width:520px) { .sg-stage { height:380px; } .soul-page .sg-core { width:84px; height:84px; } .soul-page .sg-hub { width:64px; height:64px; } .sg-hub .sg-label { font-size:13.5px; } .sg-crumb-hint { display:none; } }
+/* 灵魂页「昨夜」卡 */
+.soul-night h4 { font-size:14px; font-weight:600; }
+.soul-night ul { margin-top:10px; display:grid; gap:8px; padding-left:0; list-style:none; }
+.soul-night li { line-height:1.6; font-size:13.5px; }
+.soul-night li strong { font-variant-numeric:tabular-nums; }
+.soul-night-tag { display:inline-block; margin-right:8px; padding:0 7px; border-radius:999px; font-size:11.5px; line-height:20px; border:1px solid var(--pi-border-soft); color:var(--pi-dim); white-space:nowrap; }
+.soul-night-tag.is-done { color:var(--pi-success); border-color:color-mix(in srgb, var(--pi-success) 40%, transparent); }
+.soul-night-tag.is-failed { color:var(--pi-danger); border-color:color-mix(in srgb, var(--pi-danger) 40%, transparent); }
+.soul-night-tag.is-blocked { color:var(--pi-warning); border-color:color-mix(in srgb, var(--pi-warning) 40%, transparent); }

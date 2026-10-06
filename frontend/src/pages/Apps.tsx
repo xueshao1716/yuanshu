@@ -265,7 +265,11 @@ function ImproveView() {
 }
 
 export default function Apps() {
-  const [tab, setTab] = useState<Tab>('refine')
+  // 灵魂页「昨夜」卡等处用 #/apps?tab=evolution 直达对应工具
+  const [tab, setTab] = useState<Tab>(() => {
+    const t = new URLSearchParams(location.hash.split('?')[1] || '').get('tab')
+    return TOOLS.some(tool => tool.key === t) ? t as Tab : 'refine'
+  })
   const currentTool = TOOLS.find(tool => tool.key === tab) || TOOLS[0]
 
   return (
@@ -523,7 +527,7 @@ function MemCompressSection() {
   )
 }
 
-const MEM_LABELS: Record<string, string> = { correction: '纠正记忆', warmth: '温暖瞬间', curiosity: '探索方向' }
+const MEM_LABELS: Record<string, string> = { correction: '纠正记忆', warmth: '温暖瞬间', curiosity: '探索方向', lesson: '教训晋升' }
 function MemoryNudgeSection() {
   const { data, mutate } = useSWR('memorynudge', () => MemoryNudgeApi.list())
   const [busy, setBusy] = useState('')
@@ -544,8 +548,8 @@ function MemoryNudgeSection() {
     <div className="panel !p-3.5">
       <div className="flex items-center gap-2">
         <HeartPulse className="w-4 h-4 text-pi-accent" />
-        <span className="text-[13px] font-semibold text-pi-text">情绪记忆提案</span>
-        <span className="text-[11px] text-pi-dim2">情绪残留跨过阈值时自动生成，人工确认写入记忆文件</span>
+        <span className="text-[13px] font-semibold text-pi-text">记忆提案</span>
+        <span className="text-[11px] text-pi-dim2">情绪残留跨阈值、或复盘教训跨日复现时自动生成，你确认才写入</span>
         {nudges.length > 0 && <span className="ml-auto text-[10px] px-1.5 py-0.5 rounded-pi-pill bg-pi-accent-soft text-pi-accent">{nudges.length} 条待审</span>}
       </div>
       {msg && <div className="text-[11px] text-pi-dim mt-1.5">{msg}</div>}
@@ -554,7 +558,8 @@ function MemoryNudgeSection() {
           <div key={n.id} className="rounded-pi-md border border-pi-border-soft p-2.5">
             <div className="flex items-center gap-2">
               <span className="text-[10px] px-1.5 py-0.5 rounded-pi-pill bg-pi-bg3 text-pi-dim border border-pi-border-soft">{MEM_LABELS[n.subtype] || n.subtype}</span>
-              <span className="text-[11px] text-pi-dim2">残留 {n.residue}</span>
+              {n.residue != null && <span className="text-[11px] text-pi-dim2">残留 {n.residue}</span>}
+              {Array.isArray(n.days) && n.days.length > 0 && <span className="text-[11px] text-pi-dim2">复现 {n.days.length} 天 · 写入 {n.targetFile}</span>}
               <span className="ml-auto text-[10px] text-pi-dim2">{String(n.created).slice(5, 16).replace('T', ' ')}</span>
             </div>
             <div className="text-[12px] text-pi-dim mt-1.5 leading-relaxed">{n.draft}</div>
