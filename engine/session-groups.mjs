@@ -1,10 +1,20 @@
-// 会话三主分组：工作会话 / 小语真测 / 小语终端
+// 会话分组（2026-10-06 重排）：对话 / 微信 / 终端 / 真测
+// 对话按时间分段（前端做）；微信桥会话单独成组，不再混进终端。
 // 分组写入 session_info.group；未写入时按名字与 cwd 推断。Cursor 家目录会话标 foreign，不进侧栏。
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
-export const LISTED_GROUPS = ["workspace", "test", "terminal"];
+export const LISTED_GROUPS = ["workspace", "wechat", "terminal", "test"];
+export const CREATABLE_GROUPS = new Set(LISTED_GROUPS);
+export function normalizeCreateGroup(group) {
+  return CREATABLE_GROUPS.has(group) ? group : "workspace";
+}
+
+// 微信桥建的会话名固定是「微信·<掩码>」
+export function isWechatBridgeName(name) {
+  return /^微信[·・]/.test(String(name || "").trim());
+}
 const LISTED = new Set(LISTED_GROUPS);
 
 export function isListedGroup(group) {
@@ -39,8 +49,10 @@ function isHomeCwd(cwd) {
 }
 
 export function classifySessionGroup({ name = "", cwd = "", group = "", workspaceCwd = "" } = {}) {
-  if (LISTED.has(group)) return group;
   const n = String(name || "").trim();
+  // 微信桥早期以 group=workspace/terminal 落盘，名字前缀是唯一可靠标记，优先于已写入的 group
+  if (isWechatBridgeName(n) && group !== "test") return "wechat";
+  if (LISTED.has(group)) return group;
   if (/^(\[真测\]|真测[·.:：]?|E2E)/i.test(n)) return "test";
   if (isPingName(n)) return "test"; // ping 探活名一律归 test（09-04 去家目录特判）
   if (isTerminalName(n)) return "terminal";

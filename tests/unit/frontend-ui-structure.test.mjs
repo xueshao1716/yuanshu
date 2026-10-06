@@ -2,7 +2,7 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { existsSync, readFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
-import { fileURLToPath } from 'node:url'
+import { fileURLToPath, pathToFileURL } from 'node:url'
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..', '..')
 const SRC = join(ROOT, 'frontend', 'src')
@@ -54,12 +54,14 @@ test('壁纸模式下主画布与新建对话首页保持透明', () => {
   assert.match(styles, /body\.has-wallpaper \.chat-welcome\s*\{\s*background:\s*transparent;/s, '壁纸开启时新建对话欢迎页必须透明')
 })
 
-test('侧栏三个主分组：工作会话、小语真测、小语终端，工作会话在前', () => {
+test('侧栏分组：置顶 → 对话（按时间分段）→ 微信 → 终端 → 真测', async () => {
   const sidebar = read('components', 'Sidebar.tsx')
-  assert.ok(sidebar.includes("workspace: '工作会话'"), '工作分组文案必须是工作会话')
-  assert.ok(sidebar.includes("test: '小语真测'"), '真测分组文案必须是小语真测')
-  assert.ok(sidebar.includes("terminal: '小语终端'"), '终端分组文案必须是小语终端')
-  assert.ok(sidebar.includes("const GROUP_ORDER = ['workspace', 'test', 'terminal']"), '分组顺序必须是工作会话 → 小语真测 → 小语终端')
+  assert.ok(sidebar.includes("from '../lib/session-sidebar.mjs'"), '分段逻辑必须来自可单测的 session-sidebar.mjs')
+  assert.ok(sidebar.includes('planSidebar('), '侧栏必须用 planSidebar 分段')
+  assert.ok(sidebar.includes('SessionsApi.pin('), '会话菜单必须能置顶')
+  const lib = await import(pathToFileURL(join(ROOT, 'frontend', 'src', 'lib', 'session-sidebar.mjs')).href)
+  assert.deepEqual(lib.SESSION_GROUPS.map(g => g.key), ['workspace', 'wechat', 'terminal', 'test'])
+  assert.deepEqual(lib.SESSION_GROUPS.map(g => g.label), ['对话', '微信', '终端', '真测'])
   assert.ok(!sidebar.includes('工作空间会话'), '不得继续使用工作空间会话旧文案')
   assert.ok(!sidebar.includes('小语会话（终端）'), '不得继续使用小语会话（终端）旧文案')
 })

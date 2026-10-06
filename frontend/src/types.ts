@@ -27,6 +27,7 @@ export interface Session {
   file?: string
   cwd?: string
   group?: string
+  pinned?: boolean
 }
 
 export interface ToolCall {

@@ -5,7 +5,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { createPiTeamTool } from './team-tool-context.mjs';
 import { invalidateSessionCache, getSessionList, findSession } from "./session-files.mjs";
-import { appendSessionGroup } from "./session-groups.mjs";
+import { appendSessionGroup, normalizeCreateGroup } from "./session-groups.mjs";
 import { appendArchiveJsonl, archivePathFor } from "./yuanshu-compact.mjs";
 import { headroomCheck, estimateTokensFromText } from "./context-headroom.mjs";
 import { execActivateSkill } from "./context-loader.mjs";
@@ -83,7 +83,7 @@ export async function createSession(name, { group } = {}) {
   const sm = _SessionManager.create(_cwd, _sessionsDir);
   const id = sm.getSessionId();
   const file = sm.getSessionFile();
-  const g = group === "test" || group === "terminal" ? group : "workspace";
+  const g = normalizeCreateGroup(group);
   // 2026-08-19 收敛：新会话一律用默认模型（千问）。不再继承 lastModelKey——
   //   否则用户切过的 nvidia/deepseek 残留会污染新会话默认（“后端不是千问”死循环根源）。
   //   用户切模型只锁当前会话（session-model-keys 持久化），新会话永远回到默认。

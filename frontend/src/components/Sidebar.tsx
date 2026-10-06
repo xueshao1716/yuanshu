@@ -6,19 +6,16 @@ import { useApp } from '../store'
 import { SessionsApi } from '../api'
 import type { Session } from '../types'
 import { useRestoreFocus } from '../hooks/useRestoreFocus'
-import { ChevronRight, Ellipsis, MessageSquare, PanelLeftClose, PencilLine, Plus, Trash2 } from 'lucide-react'
+import { ChevronRight, Ellipsis, MessageSquare, PanelLeftClose, PencilLine, Pin, PinOff, Plus, Trash2 } from 'lucide-react'
+import { DEFAULT_COLLAPSED, displayName, planSidebar } from '../lib/session-sidebar.mjs'
 
-const GROUP_LABEL: Record<string, string> = {
-  workspace: '工作会话',
-  test: '小语真测',
-  terminal: '小语终端',
-}
-// 分组排序：工作会话 → 小语真测 → 小语终端
-const GROUP_ORDER = ['workspace', 'test', 'terminal']
-
-// 分组折叠状态持久化（记住用户偏好）
+// 分组折叠状态持久化（v2：分组改成 对话按时间分段 / 微信 / 终端 / 真测，旧键作废）
+const COLLAPSE_KEY = 'pi_groups_collapsed_v2'
 function loadCollapsed(): Set<string> {
-  try { return new Set(JSON.parse(localStorage.getItem('pi_groups_collapsed') || '[]')) } catch { return new Set() }
+  try {
+    const raw = localStorage.getItem(COLLAPSE_KEY)
+    return new Set(raw ? JSON.parse(raw) : DEFAULT_COLLAPSED)
+  } catch { return new Set(DEFAULT_COLLAPSED) }
 }
 
 export default function Sidebar({ onNavigated, onCollapse }: { onNavigated?: () => void; onCollapse?: () => void } = {}) {
@@ -42,25 +39,49 @@ export default function Sidebar({ onNavigated, onCollapse }: { onNavigated?: () 
     if (renaming?.name.trim()) { try { await SessionsApi.rename(renaming.sid, renaming.name.trim()); await refreshSessions() } catch {} }
     setRenaming(null)
   }
+  const handlePin = async (s: Session) => {
+    try { await SessionsApi.pin(s.id, !s.pinned); await refreshSessions() } catch {}
+  }
   const handleDelete = async (s: Session) => {
     try { await SessionsApi.remove(s.id); await refreshSessions() } catch {}
     setConfirming(null)
   }
 
-  const kw = search.trim().toLowerCase()
-  const filtered = kw
-    ? sessions.filter(s => (s.name || '').toLowerCase().includes(kw) || (s.preview || '').toLowerCase().includes(kw))
-    : sessions
-  const groups: Record<string, Session[]> = {}
-  for (const s of filtered) {
-    const g = s.group || 'workspace'
-    if (!GROUP_LABEL[g]) continue
-    (groups[g] = groups[g] || []).push(s)
-  }
-  const groupKeys = Object.keys(groups).sort((a, b) => {
-    const ia = GROUP_ORDER.indexOf(a), ib = GROUP_ORDER.indexOf(b)
-    return (ia < 0 ? 99 : ia) - (ib < 0 ? 99 : ib)
+  const kw = search.trim()
+  const sections = planSidebar(sessions, { search: kw })
+  // 搜索时全部展开：命中的会话不该藏在收起的分组里
+  const isOpen = (key: string) => !!kw || !collapsed.has(key)
+  const toggle = (key: string) => setCollapsed(prev => {
+    const n = new Set(prev); n.has(key) ? n.delete(key) : n.add(key)
+    try { localStorage.setItem(COLLAPSE_KEY, JSON.stringify([...n])) } catch {}
+    return n
   })
+
+  const renderRow = (s: Session) => {
+    const title = displayName(s)
+    return (
+      <div key={s.id} className="session-row" data-active={s.id === currentSessionId}>
+        <button type="button" className="session-select" aria-current={s.id === currentSessionId ? 'page' : undefined} title={title} onClick={() => { selectSession(s.id); onNavigated?.() }}>
+          {s.pinned
+            ? <Pin className="w-4 h-4 shrink-0 text-pi-dim2" strokeWidth={1.6} aria-label="已置顶" />
+            : <MessageSquare className="w-4 h-4 shrink-0 text-pi-dim2" strokeWidth={1.6} />}
+          <span className="min-w-0 flex-1"><span className="block text-[13px] truncate text-pi-text">{title}</span><span className="block text-[11px] text-pi-dim2 truncate mt-0.5">{s.preview || ''}</span></span>
+        </button>
+        <DropdownMenu.Root>
+          <DropdownMenu.Trigger asChild><button type="button" className="session-menu-trigger" aria-label={`会话操作 ${title}`} title="会话操作"><Ellipsis className="w-4 h-4" /></button></DropdownMenu.Trigger>
+          <DropdownMenu.Portal>
+            <DropdownMenu.Content align="end" sideOffset={4} collisionPadding={8} className="session-menu" onCloseAutoFocus={event => { if (renaming || confirming) event.preventDefault() }}>
+              <DropdownMenu.Item className="session-menu-item" onSelect={() => { void handlePin(s) }}>
+                {s.pinned ? <><PinOff className="w-4 h-4" />取消置顶</> : <><Pin className="w-4 h-4" />置顶</>}
+              </DropdownMenu.Item>
+              <DropdownMenu.Item className="session-menu-item" onSelect={() => setRenaming({ sid: s.id, name: s.name || '' })}><PencilLine className="w-4 h-4" />重命名</DropdownMenu.Item>
+              <DropdownMenu.Item className="session-menu-item text-pi-danger" onSelect={() => setConfirming(s)}><Trash2 className="w-4 h-4" />删除会话</DropdownMenu.Item>
+            </DropdownMenu.Content>
+          </DropdownMenu.Portal>
+        </DropdownMenu.Root>
+      </div>
+    )
+  }
 
   return (
     <aside className="session-sidebar w-full md:w-64 flex-shrink-0 flex flex-col col-sidebar md:border-r border-pi-border/50 min-h-0 h-full relative z-10">
@@ -99,41 +120,38 @@ export default function Sidebar({ onNavigated, onCollapse }: { onNavigated?: () 
 
       {/* 会话列表 */}
       <div className="flex-1 overflow-y-auto px-2 pb-3">
-        {groupKeys.map(g => groups[g].length > 0 && (
-          <div key={g} className="mb-3">
+        {sections.map(sec => (
+          <div key={sec.key} className="mb-3">
             {/* 分组头：可点击折叠，chevron+计数让归属一眼可辨 */}
             <button
+              type="button"
               className="w-full flex items-center gap-1 px-2 py-1.5 rounded-pi-sm hover:bg-pi-bg3 transition-colors duration-fast"
-              aria-expanded={!collapsed.has(g)}
-              onClick={() => setCollapsed(prev => {
-                const n = new Set(prev); n.has(g) ? n.delete(g) : n.add(g)
-                try { localStorage.setItem('pi_groups_collapsed', JSON.stringify([...n])) } catch {}
-                return n
-              })}>
-              <ChevronRight className={`w-3 h-3 text-pi-dim2 transition-transform duration-fast ${collapsed.has(g) ? '' : 'rotate-90'}`} />
-              <span className="text-[11px] text-pi-dim font-medium">{GROUP_LABEL[g] || g}</span>
-              <span className="ml-auto text-[11px] text-pi-dim2">{groups[g].length}</span>
+              aria-expanded={isOpen(sec.key)}
+              onClick={() => toggle(sec.key)}>
+              <ChevronRight className={`w-3 h-3 text-pi-dim2 transition-transform duration-fast ${isOpen(sec.key) ? 'rotate-90' : ''}`} />
+              <span className="text-[11px] text-pi-dim font-medium">{sec.label}</span>
+              <span className="ml-auto text-[11px] text-pi-dim2">{sec.count}</span>
             </button>
-            {!collapsed.has(g) && groups[g].map(s => (
-              <div key={s.id} className="session-row" data-active={s.id === currentSessionId}>
-                <button type="button" className="session-select" aria-current={s.id === currentSessionId ? 'page' : undefined} title={s.name || '新会话'} onClick={() => { selectSession(s.id); onNavigated?.() }}>
-                  <MessageSquare className="w-4 h-4 shrink-0 text-pi-dim2" strokeWidth={1.6} />
-                  <span className="min-w-0 flex-1"><span className="block text-[13px] truncate text-pi-text">{s.name || '新会话'}</span><span className="block text-[11px] text-pi-dim2 truncate mt-0.5">{s.preview || ''}</span></span>
-                </button>
-                <DropdownMenu.Root>
-                  <DropdownMenu.Trigger asChild><button type="button" className="session-menu-trigger" aria-label={`会话操作 ${s.name || '新会话'}`} title="会话操作"><Ellipsis className="w-4 h-4" /></button></DropdownMenu.Trigger>
-                  <DropdownMenu.Portal>
-                    <DropdownMenu.Content align="end" sideOffset={4} collisionPadding={8} className="session-menu" onCloseAutoFocus={event => { if (renaming || confirming) event.preventDefault() }}>
-                      <DropdownMenu.Item className="session-menu-item" onSelect={() => setRenaming({ sid: s.id, name: s.name || '' })}><PencilLine className="w-4 h-4" />重命名</DropdownMenu.Item>
-                      <DropdownMenu.Item className="session-menu-item text-pi-danger" onSelect={() => setConfirming(s)}><Trash2 className="w-4 h-4" />删除会话</DropdownMenu.Item>
-                    </DropdownMenu.Content>
-                  </DropdownMenu.Portal>
-                </DropdownMenu.Root>
-              </div>
-            ))}
+            {isOpen(sec.key) && sec.items?.map(renderRow)}
+            {isOpen(sec.key) && sec.buckets?.map(b => {
+              const bk = `${sec.key}:${b.key}`
+              // 只有「更早」可折叠：近期分段永远展开，避免多一层点击
+              const foldable = b.key === 'older'
+              return (
+                <div key={bk} className="mt-1">
+                  {foldable
+                    ? <button type="button" className="w-full flex items-center gap-1 px-2 pt-1.5 pb-1 text-[11px] text-pi-dim2 hover:text-pi-dim transition-colors duration-fast" aria-expanded={isOpen(bk)} onClick={() => toggle(bk)}>
+                        <ChevronRight className={`w-3 h-3 transition-transform duration-fast ${isOpen(bk) ? 'rotate-90' : ''}`} />
+                        <span>{b.label}</span><span className="ml-auto">{b.items.length}</span>
+                      </button>
+                    : <div className="px-2 pt-1.5 pb-1 text-[11px] text-pi-dim2">{b.label}</div>}
+                  {(!foldable || isOpen(bk)) && b.items.map(renderRow)}
+                </div>
+              )
+            })}
           </div>
         ))}
-        {!groupKeys.length && <p className="px-2 py-8 text-xs text-center text-pi-dim2">{kw ? '没有匹配的会话' : '新建会话，开始工作'}</p>}
+        {!sections.length && <p className="px-2 py-8 text-xs text-center text-pi-dim2">{kw ? '没有匹配的会话' : '新建会话，开始工作'}</p>}
       </div>
 
       {/* 删除确认（Radix AlertDialog：焦点陷阱 + 归还 + Esc 内置）*/}

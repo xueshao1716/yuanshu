@@ -178,6 +178,7 @@ export const SessionsApi = {
   },
   rename: (sid: string, name: string) => api<{ ok: boolean }>(`/api/sessions/${encodeURIComponent(sid)}/rename`, { method: 'POST', body: { name } }),
   remove: (sid: string) => api<{ ok: boolean }>(`/api/sessions/${encodeURIComponent(sid)}`, { method: 'DELETE' }),
+  pin: (sid: string, pinned: boolean) => api<{ ok: boolean; pinned: boolean }>('/api/sessions/db/meta', { method: 'PATCH', body: { id: sid, pinned } }),
   stats: (sid: string) => api<any>(`/api/sessions/${encodeURIComponent(sid)}/stats`),
   export: (sid: string, format = 'html') => `/api/sessions/${encodeURIComponent(sid)}/export?format=${encodeURIComponent(format)}`,
 }

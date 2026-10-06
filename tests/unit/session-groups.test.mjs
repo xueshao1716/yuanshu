@@ -35,7 +35,7 @@ test("classifySessionGroup：三主分组 + 外部 Cursor 会话不进侧栏", (
   assert.equal(classifySessionGroup({ name: "cursor提示This model", cwd: HOME, workspaceCwd: WS }), "foreign");
 });
 
-test("isListedGroup：侧栏只展示工作会话 / 小语真测 / 小语终端", () => {
+test("isListedGroup：侧栏只展示 对话 / 微信 / 终端 / 真测", () => {
   assert.equal(isListedGroup("workspace"), true);
   assert.equal(isListedGroup("test"), true);
   assert.equal(isListedGroup("terminal"), true);
@@ -116,4 +116,12 @@ test("parseSessionFile 读出 session_info.group；列表对 foreign 打标", ()
     invalidateSessionCache();
     fs.rmSync(root, { recursive: true, force: true });
   }
+});
+
+test("微信桥会话单独成组，旧数据按名字前缀迁过来", () => {
+  assert.equal(isListedGroup("wechat"), true);
+  assert.equal(classifySessionGroup({ name: "微信·o9cq80wXRB4rZ", cwd: WS, group: "workspace", workspaceCwd: WS }), "wechat");
+  assert.equal(classifySessionGroup({ name: "微信·o9cq80wXRB4rZ", cwd: WS, group: "terminal", workspaceCwd: WS }), "wechat");
+  assert.equal(classifySessionGroup({ name: "微信·x", cwd: WS, group: "test", workspaceCwd: WS }), "test");
+  assert.equal(classifySessionGroup({ name: "微信联系人 张三", cwd: HOME, workspaceCwd: WS }), "terminal");
 });

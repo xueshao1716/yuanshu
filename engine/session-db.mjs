@@ -156,6 +156,12 @@ export async function handleDbSanitize(res, body) {
   json(res, 200, { ok: true, results });
 }
 
+// 置顶集合（会话列表接口用；侧栏「置顶」分组）
+export function sessionPinnedIds() {
+  const db = loadDb();
+  return new Set(Object.keys(db.pinned || {}).filter(id => db.pinned[id]));
+}
+
 // PATCH /api/sessions/db/meta {id, pinned?, tags?}
 export function handleDbMeta(res, body) {
   const id = String(body?.id || "");

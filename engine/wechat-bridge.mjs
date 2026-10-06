@@ -58,7 +58,7 @@ export function createLoopbackChat({ base, token, fetch: f = globalThis.fetch })
   const headers = () => ({ "Content-Type": "application/json", ...(token() ? { Authorization: `Bearer ${token()}` } : {}) });
   return {
     async createSession(name) {
-      const res = await f(`${base()}/api/sessions`, { method: "POST", headers: headers(), body: JSON.stringify({ name, group: "workspace" }) });
+      const res = await f(`${base()}/api/sessions`, { method: "POST", headers: headers(), body: JSON.stringify({ name, group: "wechat" }) });
       if (!res.ok) throw new Error(`建会话失败 ${res.status}`);
       const j = await res.json();
       if (!j.id) throw new Error("建会话失败：没有 id");
