@@ -7,6 +7,7 @@ import path from "node:path";
 import os from "node:os";
 import { execFileSync } from "node:child_process";
 import { atomicWriteJson } from "./atomic-io.mjs";
+import { readBuildInfo } from "./install-update.mjs";
 
 const STARTED_AT = Date.now();
 
@@ -126,6 +127,9 @@ export function relateCommits(repoDir, remoteSha, git = gitDefault) {
 export async function checkUpdate(repoDir, fsMod = fs, { fetchImpl = fetch, git = gitDefault } = {}) {
   let localShaFull = "";
   { const r = git(["rev-parse", "HEAD"], repoDir); if (r.ok) localShaFull = r.out; }
+  // 安装版第一次更新前没有 .git：用构建时写下的提交号
+  const build = readBuildInfo(repoDir);
+  if (!localShaFull && /^[0-9a-f]{40}$/.test(String(build?.commit || ""))) localShaFull = build.commit;
   const localSha = localShaFull.slice(0, 7);
   const sources = [
     { name: "github", url: "https://api.github.com/repos/xueshao1716/yuanshu/commits/main",
@@ -143,7 +147,8 @@ export async function checkUpdate(repoDir, fsMod = fs, { fetchImpl = fetch, git 
       // 远端 API 只保留短 SHA；本地必须有提交号且前缀一致，才可确认“已是最新”。
       // 本地提交号缺失时保持未知，不能把未知当成最新。
       const same = !!localShaFull && localSha === remote.sha;
-      const rel = same ? { relation: "same" } : localShaFull ? relateCommits(repoDir, remote.sha, git) : { relation: "unknown" };
+      // 安装版本地不会有自己的提交，不同就是落后。也不能跑 cat-file：按需取对象的仓库会因此偷偷联网
+      const rel = same ? { relation: "same" } : build && localShaFull ? { relation: "behind" } : localShaFull ? relateCommits(repoDir, remote.sha, git) : { relation: "unknown" };
       // 领先 = 没有可拉取的东西，对「更新」而言就是最新；分叉/落后/未知仍提示
       const upToDate = same || rel.relation === "ahead";
       return { ok: true, source: s.name, localSha, remote, upToDate, checkable: !!localShaFull, ...rel };

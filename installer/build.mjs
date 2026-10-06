@@ -14,6 +14,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
+import { keepRepoFile, BUILD_INFO } from '../engine/install-update.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const REPO = path.resolve(HERE, '..');
@@ -41,15 +42,8 @@ const NPM_GLOBALS = ['@earendil-works/pi-coding-agent@0.87.1', '@deepseek-ai/dsh
 const PIP_CORE = ['python-pptx', 'python-docx', 'openpyxl', 'xlrd', 'pillow', 'requests', 'edge-tts'];
 const PIP_FULL = [...PIP_CORE, 'pandas', 'numpy', 'pymupdf', 'rembg[cpu]==2.0.84'];
 
-// 进安装包的仓库文件：只取 git 已跟踪文件（天然排除密钥/令牌/日志/备份/本机数据），再剔除开发用目录
-const EXCLUDE_PREFIX = ['tests/', 'bench/', 'android/', 'app/', 'docs/', 'output/', 'installer/', '.superpowers/', '.impeccable/', 'public-backup-'];
-const EXCLUDE_FILE = /^(AGENTS\.md|CHANGES-.*|capacitor\.config\.ts|cross-review\.py|server-new\.mjs|install(-all|-lite|-demo)?\.ps1|autostart\.ps1|.*\.cmd|\.gitignore)$/;
-const keepRepoFile = (f) => {
-  if (f.startsWith('frontend/')) return f.startsWith('frontend/dist/');
-  if (EXCLUDE_PREFIX.some((p) => f.startsWith(p))) return false;
-  if (!f.includes('/') && EXCLUDE_FILE.test(f)) return false;
-  return true;
-};
+// 进安装包的仓库文件：只取 git 已跟踪文件（天然排除密钥/令牌/日志/备份/本机数据），再剔除开发用目录。
+// 规则 keepRepoFile 放在 engine/install-update.mjs：装机后在线更新的稀疏检出用同一份，两边不会分叉。
 
 const args = process.argv.slice(2);
 const opt = (name) => (args.find((a) => a.startsWith(`--${name}=`)) || '').split('=')[1]?.split(',').filter(Boolean) || [];
@@ -141,6 +135,11 @@ const STEPS = {
       n++;
     }
     log('源码文件', n);
+    // 装机后的「检测更新」靠它知道自己是哪个提交；第一次在线更新时据此把 app/ 变成 git 仓库
+    const commit = execFileSync('git', ['rev-parse', 'HEAD'], { cwd: REPO, encoding: 'utf8' }).trim();
+    const dirty = execFileSync('git', ['status', '--porcelain', '--untracked-files=no'], { cwd: REPO, encoding: 'utf8' }).trim();
+    if (dirty) log('⚠ 工作区有未提交改动，包里的文件可能与提交', commit.slice(0, 7), '不一致');
+    fs.writeFileSync(path.join(dst, BUILD_INFO), JSON.stringify({ commit, builtAt: new Date().toISOString() }, null, 2));
     fs.writeFileSync(path.join(CACHE, 'app-manifest.json'), JSON.stringify(files));
     if (!fs.existsSync(NODE)) throw new Error('先跑 node 步骤');
     run(NODE, [NPM_CLI, 'ci', '--omit=dev', '--no-audit', '--no-fund', `--registry=${NPM_REGISTRY}`], { cwd: dst });

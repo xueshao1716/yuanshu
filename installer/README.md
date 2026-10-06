@@ -41,6 +41,16 @@
 
 同一台电脑先装过源码版（install-all.ps1）再装离线包：离线包会接管 `yuanshu-watchdog` 任务和 8787 端口，源码版不再自启。
 
+## 在线更新
+
+离线包只管第一次装机，之后和源码版一样从 Gitee / GitHub 更新（系统页「检测更新」→「立即更新」）。
+
+- 构建时在 `app/.yuanshu-build.json` 写下提交号，检测更新靠它比对远端。
+- 第一次更新时把 `app/` 就地变成 git 仓库：稀疏检出（规则与打包同源，见 `engine/install-update.mjs` 的 `keepRepoFile`）+ 浅克隆 + 按需取文件，`.git` 约 26MB。
+- Gitee 优先，连不上换 GitHub；依赖只装生产包，走 npmmirror。
+- `node_modules`、`.token`、运行数据是未跟踪文件，更新不会动。
+- 运行时（Node / Python / Git）和 pi 引擎随安装包走，不在线升级；要换大版本就装新安装包（覆盖安装，数据保留）。
+
 ## 自己构建
 需要 Windows x64、Node ≥ 20、git、NSIS 3（装过 Tauri 的机器自带，见 `%LOCALAPPDATA%\tauri\NSIS`；或设 `MAKENSIS` 指向 makensis.exe）。构建机需要联网，装机不需要。
 

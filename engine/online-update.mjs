@@ -2,6 +2,7 @@
 import path from 'node:path';
 import { execFile } from 'node:child_process';
 import { json } from './http-utils.mjs';
+import { isInstalledApp, updateInstalledApp } from './install-update.mjs';
 
 const GIT_NO_PROXY = ['-c', 'http.proxy=', '-c', 'https.proxy='];
 function execute(file, args, options) {
@@ -14,7 +15,7 @@ function execute(file, args, options) {
 }
 
 export function createUpdateHandler({ root, platform = process.platform, execute: run = execute,
-  scheduleRestart = () => setTimeout(() => process.exit(0), 1500),
+  scheduleRestart = () => setTimeout(() => process.exit(0), 1500), updateSources,
 }) {
   let busy = false;
   const git = args => run('git', ['-C', root, ...GIT_NO_PROXY, ...args], { cwd: root, timeout: 60000, windowsHide: true });
@@ -28,10 +29,21 @@ export function createUpdateHandler({ root, platform = process.platform, execute
     let restartScheduled = false;
     try {
       const messages = [];
-      if (body?.engine) {
+      // 安装版的引擎在 runtime/node 里，npm -g 会装到别处还以为成功了，这里不接
+      if (body?.engine && !isInstalledApp(root)) {
         const engine = await npm(['install', '-g', '@earendil-works/pi-coding-agent@latest'], root);
         if (!engine.ok) return json(res, 500, { error: '引擎升级失败: ' + engine.err });
         messages.push('引擎已升级');
+      }
+      // 安装版：app/ 没有 .git、没有前端源码，走稀疏浅仓库那条路
+      if (isInstalledApp(root)) {
+        const r = await updateInstalledApp({ root, git, npm, ...(updateSources ? { sources: updateSources } : {}) });
+        if (!r.ok) return json(res, r.stage === 'fetch' ? 502 : 500, { stage: r.stage, codeUpdated: !!r.codeUpdated, restartScheduled: false, error: r.error });
+        messages.push('程序已更新，来源 ' + new URL(r.source).hostname);
+        json(res, 200, { ok: true, message: `更新成功（${messages.join(' + ')}），服务重启中…（约 10 秒）` });
+        scheduleRestart();
+        restartScheduled = true;
+        return;
       }
       const fetched = await git(['fetch', 'origin']);
       if (!fetched.ok) return json(res, 500, { error: 'fetch 失败: ' + fetched.err });
