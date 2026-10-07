@@ -79,7 +79,7 @@ export async function readRunStream(res) {
         answer += chunk;
         // 2026-10-07 真机：推理模型发散，answer 里出现大量重复 token（fertilit...）。
         // 每 200 字检测一次：取末 120 字，统计最高频 4-gram 占比，超 40% 就截断。
-        if (answer.length > 0 && answer.length % 200 === 0) {
+        if (answer.length > 0 && Math.floor(answer.length / 200) > Math.floor((answer.length - chunk.length) / 200)) {
           const tail = answer.slice(-120);
           const freq = {};
           for (let i = 0; i <= tail.length - 4; i++) {
