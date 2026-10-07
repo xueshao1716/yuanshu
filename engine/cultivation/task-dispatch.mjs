@@ -1,3 +1,4 @@
+// 2026-10-07 真机：前台聊天不再挡培养（admission 不让前台）；这里的 foregroundBusy 只由宿主接语音等真正独占的前台。
 // Never race abort against the provider promise: a slot remains held until the
 // underlying operation finishes. Unknown usage stays reserved across restart.
 export function createTaskDispatch({repo,assertRun,ownerId,active,admission,budget,knowledge,provider,
@@ -7,7 +8,7 @@ export function createTaskDispatch({repo,assertRun,ownerId,active,admission,budg
     let run,slot,reservation,controller,watchdog,deadline,invoked=false;
     const patch=(status,changes)=>{const r=repo.get(run.id);return repo.update(run.id,{status,cultivation:{...r.cultivation,...changes}});};
     try{
-      slot=await admission.acquire('cultivation');if(!slot)return;
+      slot=await admission.acquire('cultivation',{yieldForeground:false});if(!slot)return;
       await repo.transaction(async()=>{
         for await(const row of repo.scan())if(row.status==='queued'){run=row;break;}
         if(!run)return;

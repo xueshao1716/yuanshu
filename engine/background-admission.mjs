@@ -39,9 +39,11 @@ export function createBackgroundAdmission({wsRoot,foregroundBusy=()=>false,resol
     status:async()=>{const s=read().slot;return s?{state:'held',id:s.id,consumer:s.consumer,at:s.at,
       recoveryRequired:!!hostTermination(s)}:{state:'idle'};},
     receipt:requestId=>read().recoveries?.find(row=>row.requestId===requestId)??null,
-    acquire:consumer=>io.transaction(()=>{
+    // 2026-10-07 真机：培养作业要等前台空闲，小语在同一轮里等它的结果，两边互相等死。
+    // 培养走独立的远端模型、不碰前台会话，调用方可声明不让前台（yieldForeground:false）；知识整理仍让前台。
+    acquire:(consumer,{yieldForeground=true}={})=>io.transaction(()=>{
       if(!['knowledge','cultivation'].includes(consumer))throw new Error('background_invalid_consumer');
-      if(foregroundBusy())return null;
+      if(yieldForeground&&foregroundBusy())return null;
       const data=read();if(data.slot)return null;
       if(!Number.isFinite(now()))throw new Error('background_invalid_clock');
       data.slot={id:randomUUID(),owner,consumer,at:now(),pid:process.pid,host:os.hostname()};

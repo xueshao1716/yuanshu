@@ -13,7 +13,7 @@ const description='智能体培养：由小语自己设计和推进，先在对�
   '必须提供新 UUID requestId、expectedRevision、payload。design.submit payload={design}；design.revise={parentId,design}；'+
   'agent.register={designId}；agent.adopt={agentId,designId}；run.submit={agentId,input,goal,criterion}。'+
   // 2026-10-07 真机：小语提交后在同一轮里 sleep 轮询 runs，而后台作业要等前台空闲才开跑，互相等到被循环检测掐掉。
-  'run.submit 只是排队：作业要等你这一轮回复结束、前台空闲后才开始执行。提交后直接结束本轮并告诉主人已排队，不要 sleep 或反复读 runs 等结果；下一轮再读 runs 查看结论。'+
+  'run.submit 只是排队：作业在后台和你并行执行，推理模型一次要几十秒到几分钟。提交后直接结束本轮并告诉主人已排队，不要 sleep 或反复读 runs 等结果；下一轮再读 runs 查看结论。'+
   'learning.decide={jobId,scope:原个体ID或mother,decision:adopt或retire,reason}，expectedRevision 使用知识记录版本。'+
   '采用须有独立来源；scope=mother 只有用户明确确认开启且仍有效的 motherLearning 事先授权才允许你自行决定，默认关闭，可被撤销；不得自行修改授权。'+
   '自主采用绑定当时控制版本，授权、设计或个体操作改变控制版本后需重新核验采用；不开启人格、基因基线或权限修改权。'+
@@ -29,7 +29,7 @@ const description='智能体培养：由小语自己设计和推进，先在对�
   '无真实设计时先向用户说明，不能预填演示人物。无独立证据的任务输出只是待核验假设；失败、取消或未知结果仅为执行记录，不是已核验知识。';
 const recovery = Object.freeze({
   cultivation_identity_denied:'本轮没有母体执行身份（不是被拒，是这一轮根本没带身份）：培养工具只在伙伴亲自发起的对话里可用，即元枢网页对话，或伙伴本人扫码绑定的微信号发来的消息；陌生微信联系人、定时任务、语音任务和 /team 子任务里没有这个身份。这不是授权问题，授权页改什么都没用，不要让伙伴去点开关；把要做的培养操作记下来，等伙伴本人发起下一轮时再做。',
-  cultivation_policy_disabled:'培养策略尚未开启。请用户到灵魂培养中心 → 智能体培养 → 授权与资源，选择真实设计并核对七天受限培养，完成会话确认。确认前不要重复注册；草稿不会因此丢失。',
+  cultivation_policy_disabled:'培养策略尚未开启。请用户到灵魂培养中心 → 智能体培养 → 授权与资源，选择真实设计并点一次性放权，完成会话确认。确认前不要重复注册；草稿不会因此丢失。',
   cultivation_policy_expired:'培养授权已过期。请用户在授权与资源中核对并重新确认有效期与额度；不要重复原请求，也不要自行续期。',
   cultivation_permission_expansion:'本次修订扩大了设计权限。文本培养使用 tools=[]，不要为了运行而添加工具。仅 remote:false→true 可在用户已授权相应模型、数据范围和额度后修订。不要重复请求；先读取 overview 核对策略，未经授权的其他扩权保持拒绝。',
   cultivation_request_denied:'设计请求超出当前培养策略。先读取 overview，对照模型、remote/allowRemote、数据范围、dailyRequests 与 dailyBudgetCents（均是上限）；不匹配时请用户在授权与资源中核对。不要重复原请求，不要伪造批准。',

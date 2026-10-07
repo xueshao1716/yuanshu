@@ -4,7 +4,7 @@ import { CultivationApi, cultivationPolling, type Design, type Overview, type Pr
 import { KnowledgeApi, knowledgePolling, type KnowledgePolicyData } from '../../knowledge/api'
 import Authorization, { type Action } from './Authorization'
 import DesignReadiness from './DesignReadiness'
-import { classifyBlocked, grantPolicy, grantSummary, supportedDesign } from './grant-preset.mjs'
+import { GRANT_DAYS, classifyBlocked, grantPolicy, grantSummary, supportedDesign } from './grant-preset.mjs'
 import { LoadState } from '../shared'
 import './cultivation.css'
 
@@ -62,7 +62,7 @@ function GrantDialog({ sessionId, close }: { sessionId: string | null; close: ()
   const prepare = () => {
     if (!latest || !supported || !data) return
     setAction({ method: 'PUT', path: '/policy', revision: data.revision,
-      label: `开启七天受限培养 · ${latest.design.name}`, payload: { policy: grantPolicy(latest.design) } })
+      label: `开启 ${GRANT_DAYS} 天受限培养 · ${latest.design.name}`, payload: { policy: grantPolicy(latest.design) } })
   }
   return <div className="cultivation-gate-mask" onClick={close}>
     <section className="cultivation-gate-dialog" role="dialog" aria-modal="true" aria-label="培养授权"

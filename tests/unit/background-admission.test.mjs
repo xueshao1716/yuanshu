@@ -13,7 +13,10 @@ test('one durable background slot covers knowledge and cultivation, foreground w
   let busy=true;
   const a=createBackgroundAdmission({wsRoot,foregroundBusy:()=>busy});
   const b=createBackgroundAdmission({wsRoot});
-  assert.equal(await a.acquire('cultivation'),null);busy=false;
+  assert.equal(await a.acquire('cultivation'),null);
+  // 2026-10-07：声明不让前台的调用方（培养）可以拿槽；默认（知识整理）仍让前台。
+  const free=await a.acquire('cultivation',{yieldForeground:false});assert.ok(free);assert.equal(await a.release(free.id),true);
+  busy=false;
   const first=await a.acquire('knowledge');assert.ok(first);
   assert.equal(await b.acquire('cultivation'),null);
   assert.equal(await b.release(first.id),false);

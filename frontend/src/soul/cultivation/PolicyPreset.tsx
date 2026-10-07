@@ -5,7 +5,7 @@ import { KnowledgeApi, knowledgePolling } from '../../knowledge/api'
 import type { Action } from './Authorization'
 import { LoadState, errorText } from '../shared'
 import DesignReadiness from './DesignReadiness'
-import { classifyBlocked, grantPolicy, grantSummary, sharedPatch, supportedDesign } from './grant-preset.mjs'
+import { GRANT_DAYS, classifyBlocked, grantPolicy, grantSummary, sharedPatch, supportedDesign } from './grant-preset.mjs'
 
 // 放权不能要求调用方已 authorized：它的目的正是把授权从关到开。supported 与记录状态仍要卡。
 export default function PolicyPreset({value,onAction,refresh}:{value:Overview;authorized?:boolean;onAction:(a:Action)=>void;refresh?:()=>Promise<unknown>}) {
@@ -33,7 +33,7 @@ export default function PolicyPreset({value,onAction,refresh}:{value:Overview;au
   }
   const prepare=()=>{
     if(!row||!supported||records.error||records.isValidating)return
-    onAction({method:'PUT',path:'/policy',revision:value.revision,label:`开启七天受限培养 · ${row.design.name}`,payload:{policy:grantPolicy(row.design)}})
+    onAction({method:'PUT',path:'/policy',revision:value.revision,label:`开启 ${GRANT_DAYS} 天受限培养 · ${row.design.name}`,payload:{policy:grantPolicy(row.design)}})
   }
   return <section aria-label="受限智能体培养">
     <h4>小语的培养方案</h4>

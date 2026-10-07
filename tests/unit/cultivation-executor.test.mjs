@@ -17,8 +17,8 @@ async function fixture(t){
   await f.execute(f.command('policy.set',{policy}));
   const knowledge=createKnowledgeStore({wsRoot:f.root,now}),budget=createKnowledgeBudget({wsRoot:f.root,now});
   await knowledge.updatePolicy({remoteEnabled:true,maxModelRequests:10},1);
-  let busy=false,calls=0,answer=async()=>({text:'Synthetic result',usage:{cost:0,currency:'USD'}});
-  const admission=createBackgroundAdmission({wsRoot:f.root,now,foregroundBusy:()=>busy});
+  let busy=false,chatBusy=false,calls=0,answer=async()=>({text:'Synthetic result',usage:{cost:0,currency:'USD'}});
+  const admission=createBackgroundAdmission({wsRoot:f.root,now,foregroundBusy:()=>busy||chatBusy});
   const provider={prepare:async()=>({maxCost:0,currency:'USD',free:true,remote:false}),
     invoke:async args=>{calls++;return answer(args);}};
   const options={store:f.store,controls:f.controls,authority:f.authority,wsRoot:f.root,
@@ -27,7 +27,7 @@ async function fixture(t){
   const submit=()=>f.command('run.submit',{agentId,input:'Only this explicit input',goal:'Check result',criterion:'A bounded textual result'});
   const execute=(c,kind='mother')=>tasks.execute(c,f.authority.issue(kind,kind==='mother'?f.mother:f.human,c));
   return {...f,agentId,tasks,options,submit,execute,admission,budget,knowledge,
-    calls:()=>calls,busy:v=>{busy=v;},answer:v=>{answer=v;}};
+    calls:()=>calls,busy:v=>{busy=v;},chatBusy:v=>{chatBusy=v;},answer:v=>{answer=v;}};
 }
 
 test('tasks persist before dispatch; retry is idempotent and foreground blocks calls',async t=>{
@@ -231,4 +231,13 @@ test('definite provider failure settles real usage and records failed with the r
   assert.equal(run.status,'failed');assert.equal(run.cultivation.reason,'cultivation_output_truncated');
   const s=await f.budget.status();assert.equal(s.unknown,0);
   assert.notEqual(f.tasks.cancellation(run.cultivation.agentId),'outcome_unknown');
+});
+
+// 2026-10-07 真机「互相等」：小语在前台一轮里等培养结果，培养又等前台空闲。
+// 现在前台聊天忙（admission 的 foregroundBusy）不挡培养；宿主传进来的独占前台（语音）仍然挡。
+test('cultivation runs alongside a busy chat foreground but still yields to exclusive foreground',async t=>{
+  const f=await fixture(t);await f.execute(f.submit());
+  f.chatBusy(true);await f.tasks.tick();assert.equal(f.calls(),1,'chat busy must not block cultivation');
+  await f.execute(f.command('run.submit',{agentId:f.agentId,input:'Second explicit input',goal:'Check result',criterion:'A bounded textual result'}));
+  f.busy(true);await f.tasks.tick();assert.equal(f.calls(),1,'exclusive foreground still blocks');
 });

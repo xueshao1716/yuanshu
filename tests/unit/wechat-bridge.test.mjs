@@ -258,8 +258,8 @@ test("处理中落盘，回完清掉；处理中再来的消息排队接着回�
   await until(() => w.sent.length === 3);
   assert.equal(w.sent[1].text, "回：长任务");
   assert.equal(w.sent[2].text, "回：第二句\n第三句");
-  assert.deepEqual(JSON.parse(fs.readFileSync(path.join(dir, "inbox.json"), "utf-8")), {});
   await until(() => fs.readFileSync(path.join(dir, "inbox.json"), "utf-8").trim() === "{}");
+  await b.stop(); await b._waitIdle();
 });
 
 test("长任务超过时限先回一句在处理，答完再回正文", async () => {

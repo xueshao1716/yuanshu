@@ -2177,7 +2177,8 @@ const cultivationRuntime = createCultivationRuntime({ wsRoot: WS_ROOT,
     workspace=>ownerConfigProvider({workspace}),
   execution: { knowledge: knowledgeRuntime.store, budget: knowledgeRuntime.budget, admission: knowledgeRuntime.admission,
     provider: createCultivationProvider({catalog: () => modelList, directChat,learning:knowledgeRuntime.cultivationLearning}),
-    foregroundBusy: () => [...activeSessions.values()].some(entry => entry.busy) || voiceAdmission.isActive(),
+    // 2026-10-07 真机：伙伴「互相等」——培养跑自己的模型，前台聊天忙不再让它停；只给实时语音让路。
+    foregroundBusy: () => voiceAdmission.isActive(),
   },
 });
 const cultivationApi = createCultivationApi({ runtime: cultivationRuntime, readBody, json,

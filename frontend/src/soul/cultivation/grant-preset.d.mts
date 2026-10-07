@@ -2,7 +2,9 @@ import type { Design, Policy, Preflight } from './api'
 import type { KnowledgePolicyData } from '../../knowledge/api'
 type Blocked = Preflight['blockedBy'][number]
 export const GRANT_DAYS: number
+export const GRANT_MAX_AGENTS: number
 export const GRANT_DAILY_REQUESTS: number
+export const SHARED_MODEL_REQUESTS: number
 export const GRANT_DAILY_BUDGET_CENTS: number
 export const GRANT_SCOPE: string
 export const GRANTABLE_FIELDS: string[]
@@ -15,3 +17,6 @@ export function grantPolicy(design: Design['design'], now?: number): Policy
 export function classifyBlocked(blockedBy: Blocked[] | undefined, opts?: { includeShared?: boolean }): { fixable: Blocked[]; shared: Blocked[]; stubborn: Blocked[] }
 export function sharedPatch(knowledgePolicy: KnowledgePolicyData | undefined, model: string, catalogCost?: { input: number; output: number }, opts?: { reasoning?: boolean }):
   { needsManualPrice: boolean; patch: Partial<KnowledgePolicyData> | null } | null
+export type WidenKey = 'maxAgents' | 'dailyRequests' | 'dailyBudgetCents' | 'timeoutMs' | 'expiresAt'
+export function widenPolicy(policy: Policy, now?: number): { policy: Policy; changed: WidenKey[] } | null
+export function sharedRequestPatch(knowledgePolicy: KnowledgePolicyData | undefined): Partial<KnowledgePolicyData> | null

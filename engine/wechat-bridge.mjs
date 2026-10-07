@@ -134,6 +134,8 @@ export function createWechatBridge({
   dir, chat, client = createIlinkClient(), legacyDir = "",
   sleep = (ms) => new Promise((r) => setTimeout(r, ms)),
   now = () => Date.now(), log = () => {},
+  // 2026-10-07 真机：长任务一跑十几分钟，微信那头只看到沉默，以为不回。过了这个时长先回一句「在处理」。
+  ackAfterMs = 90_000,
 }) {
   const file = (n) => path.join(dir, n);
   const loadAccount = () => readJson(file("account.json"), null);
@@ -160,6 +162,12 @@ export function createWechatBridge({
   };
   let loop = null, stopping = false;
   const inflight = new Set();
+  // 2026-10-07 真机：「那你给注册了吧」「怎么不回话了」两条都在服务重启时被掐断（桥和服务同进程），回复永远丢了。
+  // 处理中的消息落盘；下次启动发现还在，就告诉对方没回完、请再发一次。不自动重跑：消息可能触发了不可重复的操作。
+  const inbox = { ...readJson(file("inbox.json"), {}) };
+  const saveInbox = () => writeJson(file("inbox.json"), inbox);
+  // 处理中又来的消息：以前回「稍等」后直接丢掉，伙伴第二句永远没人回。现在排着，上一条做完接着处理。
+  const pending = new Map();
   const queue = [];
   let flushing = false;
 
@@ -207,6 +215,11 @@ export function createWechatBridge({
 
   async function handle(acc, m) {
     inflight.add(m.sender);
+    inbox[m.sender] = { text: preview(m.text, 60), contextToken: m.contextToken || "", at: now() };
+    saveInbox();
+    let done = false;
+    const ack = ackAfterMs > 0 ? setTimeout(() => { if (!done) void reply(acc, m.sender, "收到，这件事要多做一会儿，做完回你。", m.contextToken); }, ackAfterMs) : null;
+    ack?.unref?.();
     try {
       let answer;
       // 只有扫码绑定的本人算「伙伴亲自发起」；陌生发信人拿不到母体执行身份
@@ -217,14 +230,39 @@ export function createWechatBridge({
         if (e.status !== 404 && e.status !== 400) throw e;
         answer = await chat.ask(m.text, await sessionFor(m.sender, true), { owner }); // 会话被删：换新会话重来一次
       }
+      done = true;
       await reply(acc, m.sender, answer || "这次没组织出回复，稍后再问我一次。", m.contextToken);
     } catch (e) {
+      done = true;
       stats.failed++;
       stats.lastError = preview(e.message, 160);
       await reply(acc, m.sender, "我这边出了点问题，稍后再发一次试试。", m.contextToken);
     } finally {
+      done = true;
+      if (ack) clearTimeout(ack);
+      delete inbox[m.sender];
+      saveInbox();
       inflight.delete(m.sender);
+      const next = pending.get(m.sender);
+      if (next?.length && !stopping) {
+        pending.delete(m.sender);
+        const last = next[next.length - 1];
+        void handle(acc, { ...last, text: next.map((x) => x.text).join("\n") });
+      }
     }
+  }
+
+  // 启动时还在 inbox 里的，就是上次处理到一半被重启打断的。
+  async function reportInterrupted(acc) {
+    const left = Object.entries(inbox);
+    if (!left.length) return;
+    for (const [sender, it] of left) {
+      delete inbox[sender];
+      saveInbox(); // 先清再发：发送失败也不在下次启动重复提醒
+      const when = new Date(it.at || now()).toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit", hour12: false });
+      await reply(acc, sender, `刚才服务重启，你 ${when} 发的「${it.text}」我没来得及回完。还要的话再发我一次。`, contexts[sender] || it.contextToken || "");
+    }
+    log(`[微信] ${left.length} 条消息被重启打断，已告知对方重发`);
   }
 
   async function run() {
@@ -233,6 +271,7 @@ export function createWechatBridge({
     let cursor = { buf: "", ack: "", ...readJson(file("cursor.json"), {}) };
     let backoff = 2000;
     stats.startedAt = now();
+    try { await reportInterrupted(acc); } catch (e) { stats.lastError = preview(e.message, 160); }
     while (!stopping) {
       try {
         const r = await client.getUpdates(acc.token, cursor, at);
@@ -251,7 +290,12 @@ export function createWechatBridge({
           stats.received++; stats.lastAt = now();
           remember(m.sender, m.contextToken);
           note("in", m.sender, m.text);
-          if (inflight.has(m.sender)) { void reply(acc, m.sender, "上一条我还在想，稍等一下。", m.contextToken); continue; }
+          if (inflight.has(m.sender)) {
+            const list = pending.get(m.sender) || [];
+            if (!list.length) void reply(acc, m.sender, "上一条还在处理，这条记下了，做完接着回你。", m.contextToken);
+            list.push(m); pending.set(m.sender, list);
+            continue;
+          }
           void handle(acc, m);
         }
       } catch (e) {

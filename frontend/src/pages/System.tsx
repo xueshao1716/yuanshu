@@ -52,6 +52,18 @@ export default function System() {
     try {
       const r = await SystemApi.applyUpdate()
       setApplyMsg(r?.message || '更新已提交，服务正在重启…')
+      // 2026-10-07 真机：另一台电脑更新后页面一直停在「正在重启」，看不出服务是起来了还是没起来。
+      // 等服务退出后轮询健康检查，起来就自动刷新；两分钟没起来就明确说，并给出处理办法。
+      await new Promise(r => setTimeout(r, 4000))
+      const deadline = Date.now() + 120000
+      let back = false
+      while (Date.now() < deadline) {
+        try { const h = await fetch('/api/health', { cache: 'no-store', signal: AbortSignal.timeout(3000) }); if (h.ok) { back = true; break } } catch {}
+        setApplyMsg(`服务正在重启…（已等 ${Math.round((Date.now() - deadline + 120000) / 1000) + 4} 秒）`)
+        await new Promise(r => setTimeout(r, 2000))
+      }
+      if (back) { setApplyMsg('服务已重启，正在刷新页面…'); window.location.reload(); return }
+      setApplyMsg('更新已装好，但服务两分钟内没有自动起来。请从桌面「元枢」图标重新打开一次；仍不行请把安装目录 app\\watchdog.log 发给我。')
     } catch (e: any) {
       setApplyMsg(e?.message || '更新失败：请检查本地是否有未提交修改')
     } finally { setApplying(false) }

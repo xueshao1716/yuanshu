@@ -171,6 +171,10 @@ const startServer = singleFlight(async function () {
         }
       }
       setTimeout(() => startServer(), 3000);
+    } else {
+      // 2026-10-07 真机：在线更新后 server 以 code 0 退出等人拉起，以前只靠 30 秒巡检兜底；现在 3 秒就拉。
+      // startServer 自带「已有健康实例 / 端口占用」判断，不会起两个。
+      setTimeout(() => startServer(), 3000);
     }
   });
   // 启动后 15s 确认响应
@@ -214,8 +218,18 @@ async function main() {
   monitorLoop();
 }
 
-module.exports = { decideRollback, serverSyntaxOk, rollbackServer, ROLLBACK_AFTER, ENV_ERROR_RE, CODE_ERROR_RE };
+// 2026-10-07 真机：另一台电脑在线更新后服务不再起来。安装版由 launcher/service.cjs require 本文件，
+// require.main 是 service.cjs，「只在直接运行时启动」的判断把守护整个拦掉了：安装版从来没有守护，更新退出后没人拉起。
+// launcher 目录不随在线更新下发，所以判断放在这里：直接运行，或被安装版启动器加载，都要启动。
+function shouldRunMain(mainModule, self) {
+  if (!mainModule) return false;
+  if (mainModule === self) return true;
+  const file = String(mainModule.filename || "").replace(/\\/g, "/").toLowerCase();
+  return /(^|\/)launcher\/service\.cjs$/.test(file);
+}
 
-if (require.main === module) {
+module.exports = { decideRollback, serverSyntaxOk, rollbackServer, shouldRunMain, ROLLBACK_AFTER, ENV_ERROR_RE, CODE_ERROR_RE };
+
+if (shouldRunMain(require.main, module)) {
   main().catch((e) => { log("watchdog 启动失败: " + String((e && e.stack) || e)); process.exit(1); });
 }

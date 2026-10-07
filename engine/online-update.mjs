@@ -3,6 +3,7 @@ import path from 'node:path';
 import { execFile } from 'node:child_process';
 import { json } from './http-utils.mjs';
 import { isInstalledApp, updateInstalledApp } from './install-update.mjs';
+import { createUpdateRestart } from './update-restart.mjs';
 
 const GIT_NO_PROXY = ['-c', 'http.proxy=', '-c', 'https.proxy='];
 function execute(file, args, options) {
@@ -15,8 +16,10 @@ function execute(file, args, options) {
 }
 
 export function createUpdateHandler({ root, platform = process.platform, execute: run = execute,
-  scheduleRestart = () => setTimeout(() => process.exit(0), 1500), updateSources,
+  scheduleRestart, updateSources,
 }) {
+  // 2026-10-07 真机：更新后服务没起来。默认退出前确认有守护，没有就先拉一个（见 update-restart.mjs）。
+  scheduleRestart ??= createUpdateRestart({ root, log: m => console.log(m) });
   let busy = false;
   const git = args => run('git', ['-C', root, ...GIT_NO_PROXY, ...args], { cwd: root, timeout: 60000, windowsHide: true });
   // Only fixed internal arguments enter cmd.exe; never interpolate request data.

@@ -5,7 +5,7 @@ import { date } from '../shared'
 import OwnerConfirmation from './OwnerConfirmation'
 import PolicyPreset from './PolicyPreset'
 import Diagnostics from './Diagnostics'
-import { GRANT_TIMEOUT_MS } from './grant-preset.mjs'
+import WidenCard from './WidenCard'
 import SharedResources from './SharedResources'
 export default function Resources({value,sessionId,onAction,refresh}:{value:Overview;sessionId:string;onAction:(a:Action)=>void;refresh:()=>Promise<unknown>}) {
   const [draft,setDraft]=useState(JSON.stringify(value.policy,null,2)),[error,setError]=useState('')
@@ -22,12 +22,7 @@ export default function Resources({value,sessionId,onAction,refresh}:{value:Over
     {value.usage?<dl className="soul-facts"><div><dt>共享已结算费用</dt><dd>{value.usage.spent} {value.usage.currency}</dd></div><div><dt>已预留费用</dt><dd>{value.usage.reserved} {value.usage.currency}</dd></div><div><dt>用量待确认</dt><dd>{value.usage.unknown}</dd></div></dl>:<p>尚无可读取的资源账本，不按零用量显示。</p>}
     {value.sessionGrantAvailable?<p className="soul-notice">{sessionId?'培养策略可在当前会话确认，安卓和网页均可使用，不需要 Windows 设备绑定。':'请先在上方选择会话，即可确认培养策略。'}其他人工操作仍使用原有签名通道。</p>:null}
     <PolicyPreset value={value} authorized={policyAuthorized} onAction={onAction} refresh={refresh}/>
-    {/* 2026-10-07 真机：持衡已登记，一次性放权被个体数量上限挡住；推理模型只差单次超时，单独给一个只改这一项的确认。 */}
-    {value.policy.enabled&&(value.policy.timeoutMs??60000)<GRANT_TIMEOUT_MS&&<section aria-label="单次超时" className="soul-notice">
-      <p>单次任务超时现在是 {Math.round((value.policy.timeoutMs??60000)/1000)} 秒。推理模型先思考再作答，实测要 45 秒以上，建议调到 {GRANT_TIMEOUT_MS/1000} 秒。只改这一项，次数、预算、模型和有效期都不变。</p>
-      <div className="soul-actions"><button disabled={!policyAuthorized} onClick={()=>onAction({method:'PUT',path:'/policy',revision:value.revision,
-        label:`单次超时调到 ${GRANT_TIMEOUT_MS/1000} 秒`,payload:{policy:{...value.policy,timeoutMs:GRANT_TIMEOUT_MS}}})}>调到 {GRANT_TIMEOUT_MS/1000} 秒</button></div>
-    </section>}
+    <WidenCard value={value} authorized={policyAuthorized} onAction={onAction} refresh={refresh}/>
     <section aria-label="共享模型与额度设置">
       <h4>共享模型与额度设置（培养前必须核对）</h4>
       <p className="soul-notice">这里直接管理：<strong>允许共享后台调用外部模型、共享模型白名单、模型价格与每日额度</strong>。它与知识后台共用，保存后同时影响知识与培养。</p>
