@@ -225,9 +225,13 @@ export function createRunManager({ store, eventLog, executeChat, instanceId, onS
   }
 
   const finish = (runId, status, data = {}) => {
-    identities.revoke(executions.get(runId))
+    const control = executions.get(runId)
+    identities.revoke(control)
     const current = store.get(runId)
     if (!current || TERMINAL.has(current.status)) return current
+    // 插话进来时引擎已过最后一轮：必须在终态事件之前留痕，前端收到终态就收尾了，排在后面等于没说。
+    const leftover = control?.body?.__runContext?.steering?.take?.() || []
+    if (leftover.length) { try { append(current, 'steer_unused', { count: leftover.length }) } catch {} }
     if (status === 'interrupted' && recovery.trySchedule(current, data.reason)) return store.get(runId)
     const failureText = String(data.message || data.error || current.error || '')
     const resumableFailure = status === 'failed'
@@ -308,8 +312,6 @@ export function createRunManager({ store, eventLog, executeChat, instanceId, onS
         finish(running.id, 'failed', { message: String(error?.message || error) })
       }
     } finally {
-      const leftover = control.body?.__runContext?.steering?.queue?.length || 0
-      if (leftover) { try { append(store.get(running.id) || running, 'steer_unused', { count: leftover }) } catch {} }
       identities.revoke(control)
       executions.delete(running.id)
     }

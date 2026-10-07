@@ -448,6 +448,8 @@ test('steer 进来但引擎没取（已过最后一轮）→ steer_unused 留痕
     release()
     await waitFor(() => fx.manager.get(run.id)?.status === 'completed' && fx2.manager.get(run2.id)?.status === 'completed')
     assert.ok(fx.eventLog.readAfter(run.id, 0).some(e => e.type === 'steer_unused' && e.data.count === 1))
+    const order = fx.eventLog.readAfter(run.id, 0).map(e => e.type)
+    assert.ok(order.indexOf('steer_unused') < order.indexOf('completed'), '留痕必须早于终态，前端才看得到')
     assert.deepEqual(sunk, ['走原生'])
     assert.ok(!fx2.eventLog.readAfter(run2.id, 0).some(e => e.type === 'steer_unused'))
   } finally { fx.cleanup(); fx2.cleanup() }

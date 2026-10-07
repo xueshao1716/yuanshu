@@ -691,6 +691,9 @@ export default function ChatArea({ compactHeader, rightPanel, onRightPanel, onVo
       case 'note':
         updStream(p => ({ ...p, notes: [...p.notes, d.text || d.note || ''].filter(Boolean) }))
         break
+      case 'steer_unused':
+        updStream(p => ({ ...p, notes: [...p.notes, '插话到的时候这一轮已在收尾，没来得及用上；需要的话直接再发一条。'] }))
+        break
       case 'emotion':
         if (d.state && typeof d.state.valence !== 'undefined') publishEmotion(d.state)
         break
@@ -942,8 +945,14 @@ export default function ChatArea({ compactHeader, rightPanel, onRightPanel, onVo
   // 中途插话：任务跑着时输入框不锁，发出去的话在下一步模型调用前送达，不用停掉重派。
   const steer = async (raw: string) => {
     const text = raw.trim()
+    if (!text) return false
+    // 输入框一发送就进入插话态，但 runId 要等 create 返回（真机常有几秒）。这段空窗里的插话不能静默吞掉。
+    const sid = sessionIdRef.current
+    for (let i = 0; i < 60 && !activeRunRef.current && streamRef.current && sessionIdRef.current === sid; i++)
+      await new Promise(r => setTimeout(r, 250))
     const active = activeRunRef.current
-    if (!text || !active || active.status === 'stopping') return false
+    if (!active) { toast('任务还没建好，插话没送出；稍等再发。', 'error'); return false }
+    if (active.status === 'stopping') return false
     try {
       await RunsApi.steer(active.runId, text)
       if (isCurrentView() && activeRunRef.current?.runId === active.runId)
