@@ -12,6 +12,8 @@ const description='智能体培养：由小语自己设计和推进，先在对�
   '读取 action=overview/agents/designs/runs/experience；写入 action=design.submit/design.revise/agent.register/agent.adopt/run.submit，'+
   '必须提供新 UUID requestId、expectedRevision、payload。design.submit payload={design}；design.revise={parentId,design}；'+
   'agent.register={designId}；agent.adopt={agentId,designId}；run.submit={agentId,input,goal,criterion}。'+
+  // 2026-10-07 真机：小语提交后在同一轮里 sleep 轮询 runs，而后台作业要等前台空闲才开跑，互相等到被循环检测掐掉。
+  'run.submit 只是排队：作业要等你这一轮回复结束、前台空闲后才开始执行。提交后直接结束本轮并告诉主人已排队，不要 sleep 或反复读 runs 等结果；下一轮再读 runs 查看结论。'+
   'learning.decide={jobId,scope:原个体ID或mother,decision:adopt或retire,reason}，expectedRevision 使用知识记录版本。'+
   '采用须有独立来源；scope=mother 只有用户明确确认开启且仍有效的 motherLearning 事先授权才允许你自行决定，默认关闭，可被撤销；不得自行修改授权。'+
   '自主采用绑定当时控制版本，授权、设计或个体操作改变控制版本后需重新核验采用；不开启人格、基因基线或权限修改权。'+

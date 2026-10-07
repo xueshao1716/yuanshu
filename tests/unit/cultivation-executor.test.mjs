@@ -221,3 +221,14 @@ test('run.submit 校验失败报出具体字段与期望，不回传输入值',a
   }
   assert.equal(f.tasks.list().items.length,0);
 });
+
+// 2026-10-07 真机：模型明确答复被截断，不该记成 outcome_unknown（会把个体卡在「取消状态未知」）。
+test('definite provider failure settles real usage and records failed with the reason',async t=>{
+  const f=await fixture(t);
+  f.answer(()=>{const e=new Error('cultivation_output_truncated');e.definite=true;e.usage={cost:0.001,currency:'USD'};throw e;});
+  const submitted=await f.execute(f.submit());await f.tasks.tick();
+  const run=f.tasks.get(submitted.result.id);
+  assert.equal(run.status,'failed');assert.equal(run.cultivation.reason,'cultivation_output_truncated');
+  const s=await f.budget.status();assert.equal(s.unknown,0);
+  assert.notEqual(f.tasks.cancellation(run.cultivation.agentId),'outcome_unknown');
+});

@@ -40,13 +40,16 @@ export function createTaskDispatch({repo,assertRun,ownerId,active,admission,budg
       if(typeof result?.text!=='string'||!result.text.trim()||result.text.length>16000)throw new Error('cultivation_provider_format');
       patch('completed',{output:result.text,usage:result.usage??null,reason:null,completedAt:now()});
     }catch(error){
-      if(reservation)try{await budget.settle(reservation.id,invoked?null:{cost:0,currency:reservation.currency});}
+      // 2026-10-07：模型明确答复了（如输出被截断）就不是「结果未知」——按实际用量结算，记为失败并给出原因。
+      const known=invoked&&error?.definite===true&&!controller?.signal.aborted&&error.usage;
+      if(reservation)try{await budget.settle(reservation.id,known?error.usage:invoked?null:{cost:0,currency:reservation.currency});}
       catch{
         // Persist an unknown outcome, not a phantom running task or a replay.
         // The reservation stays held for explicit accounting reconciliation.
         if(run)patch('interrupted',{reason:'settlement_pending',output:null});
         return;
       }
+      if(run&&known&&repo.get(run.id).status==='running')return void patch('failed',{reason:error.message,output:null,usage:error.usage});
       if(run){const interrupted=controller?.signal.aborted||repo.get(run.id).status==='stopping';
         const waiting=!invoked&&!interrupted&&['cultivation_outside_window','cultivation_foreground_busy'].includes(error.message);
         patch(waiting?'queued':invoked?'interrupted':'stopped',{reason:invoked?'outcome_unknown':interrupted?'cancelled':

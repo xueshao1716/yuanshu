@@ -86,6 +86,7 @@ export function createKnowledgeRuntime({wsRoot,runRoot,runStore,catalog,directCh
     projection:input=>store.projection(input),
     async status(){return {summary:await store.summary(),budget:await budget.status(),admission:await admission.status(),worker:worker.status(),intake:intake.status(),lastError};},
     async models(){return (await catalog()).filter(isTextModel).map(m=>({key:`${m.provider}/${m.id}`,label:m.name||m.id,
+      ...(m.reasoning?{reasoning:true}:{}),
       ...(m.cost&&Number.isFinite(m.cost.input)&&Number.isFinite(m.cost.output)?{cost:{input:m.cost.input,output:m.cost.output}}:{})}));},
     async updatePolicy(patch,revision){
       const previous=await store.policy(),proposed=patchKnowledgePolicy(previous,patch,revision);

@@ -21,7 +21,8 @@ export default function PolicyPreset({value,onAction,refresh}:{value:Overview;au
   const fresh=!!preflight&&preflight.revision===value.revision
   const {fixable,shared,stubborn}=classifyBlocked(fresh?preflight!.blockedBy:[],{includeShared:true})
   const model=row?.design.permissions.model||''
-  const fix=sharedPatch(knowledge.data,model,catalog.data?.find(m=>m.key===model)?.cost)
+  const entry=catalog.data?.find(m=>m.key===model)
+  const fix=sharedPatch(knowledge.data,model,entry?.cost,{reasoning:!!entry?.reasoning})
   const supported=!!row&&supportedDesign(row.design)
   const grantable=fresh&&stubborn.length===0&&shared.length===0
   const fixShared=async()=>{
@@ -51,7 +52,7 @@ export default function PolicyPreset({value,onAction,refresh}:{value:Overview;au
     </dl>}
     {row&&<DesignReadiness key={`${row.id}:${recheck}`} designId={row.id} revision={value.revision} onResult={setPreflight}/>}
     {shared.length>0&&<div role="status" className="soul-notice">
-      <p>共享模型设置还差 {shared.length} 项：把 {model} 加入共享白名单{fix?.needsManualPrice?'，并填写它的价格':'，并按模型目录标记为免费'}。</p>
+      <p>共享模型设置还差 {shared.length} 项：把 {model} 加入共享白名单{fix?.needsManualPrice?'，并填写它的价格':'，并按模型目录标记为免费'}{fix?.patch?.outputTokens?`；它是推理模型，单次输出上限调到 ${fix.patch.outputTokens}`:''}。</p>
       {fix?.needsManualPrice
         ?<p>模型目录里没有它的价格，不能替你猜。请展开下方“共享模型与额度设置”填写单价。</p>
         :<button disabled={sharedBusy||!fix?.patch} onClick={()=>void fixShared()}>{sharedBusy?'正在补齐…':'补齐共享模型设置'}</button>}

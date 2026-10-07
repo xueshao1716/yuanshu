@@ -221,3 +221,10 @@ test('preflight 与 run.submit 校验失败也报字段，不回传输入值', a
   const r4 = await cultivationTool(runtime, {action:'designs', payload:{}}, ctx);
   assert.equal(JSON.parse(r4.text).field, 'payload');
 });
+
+// 2026-10-07 真机：提交后同轮 sleep 轮询，后台作业等前台空闲，互相卡死。
+test('tool tells the caller run.submit only queues and not to poll in the same turn',async()=>{
+  const {CULTIVATION_TOOL_SCHEMA}=await import('../../engine/cultivation/tool.mjs');
+  const text=CULTIVATION_TOOL_SCHEMA.function.description;
+  for(const word of ['只是排队','结束本轮','不要 sleep'])assert.ok(text.includes(word),word);
+});

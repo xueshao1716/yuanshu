@@ -51,3 +51,16 @@ test('model catalog passes through finite catalog prices only', async () => {
   assert.equal(list.find(m => m.id === 'none').cost, undefined);
   assert.equal(list.find(m => m.id === 'bad').cost, undefined);
 });
+
+// 2026-10-07 真机：推理模型 1200 输出额度 + 60 秒超时，持衡首份作业必然截断。
+test('grant preset gives reasoning models enough output and time', () => {
+  const m = design.permissions.model;
+  assert.equal(grantPolicy(design).timeoutMs, mod.GRANT_TIMEOUT_MS);
+  assert.ok(mod.GRANT_TIMEOUT_MS >= 120000);
+  assert.ok(mod.GRANTABLE_FIELDS.includes('policy.timeoutMs'));
+  assert.ok(mod.SHARED_FIELDS.includes('knowledge.outputTokens'));
+  const priced = { allowedModels: [m], rates: { [m]: { input: 0, output: 0, currency: 'USD', free: true, tokenBound: 'utf8-bytes' } } };
+  assert.equal(sharedPatch(kp({ ...priced, outputTokens: 1200 }), m, undefined, { reasoning: true }).patch.outputTokens, 4096);
+  assert.deepEqual(sharedPatch(kp({ ...priced, outputTokens: 1200 }), m, undefined).patch, null, 'non-reasoning keeps owner limit');
+  assert.deepEqual(sharedPatch(kp({ ...priced, outputTokens: 4096 }), m, undefined, { reasoning: true }).patch, null);
+});

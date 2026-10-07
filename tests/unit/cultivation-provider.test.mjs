@@ -63,3 +63,24 @@ test('provider does not retrieve or send learning without explicit policy AND de
   }
   assert.equal(reads,0);
 });
+
+// 2026-10-07 真机：持衡首份作业，step-5-preview 推理把 1200 输出额度吃光，正文为空、被记成「结果未知」。
+test('reasoning model needs enough output tokens and timeout; refused before dispatch',async()=>{
+  const {createCultivationProvider,reasoningShortfall}=await import('../../engine/cultivation/provider.mjs');
+  const model={provider:'fixture',id:'text',reasoning:true};let calls=0;
+  const provider=createCultivationProvider({catalog:()=>[model],directChat:async()=>{calls++;return {text:'ok',usedModel:model};}});
+  const f=await fixture();
+  await assert.rejects(provider.prepare({...f.input,sharedPolicy:{...f.input.sharedPolicy,outputTokens:1200,inputTokens:8000}}),/reasoning_budget/);
+  await assert.rejects(provider.prepare({...f.input,policy:{...f.input.policy,timeoutMs:60000},sharedPolicy:{...f.input.sharedPolicy,outputTokens:4096,inputTokens:8000}}),/reasoning_budget/);
+  await provider.prepare({...f.input,policy:{...f.input.policy,timeoutMs:180000},sharedPolicy:{...f.input.sharedPolicy,outputTokens:4096,inputTokens:8000}});
+  assert.equal(calls,0);
+  assert.equal(reasoningShortfall({reasoning:false},{outputTokens:10,timeoutMs:1000}),null,'non-reasoning models keep old limits');
+});
+test('truncated reply with usage is a definite failure carrying usage, not an unknown outcome',async()=>{
+  const f=await fixture(),plan=await f.provider.prepare(f.input);
+  f.result({text:null,truncated:true,usedModel:{provider:'fixture',id:'text'},usage:{prompt_tokens:10,completion_tokens:256}});
+  await assert.rejects(f.provider.invoke({...f.input,plan}),e=>e.message==='cultivation_output_truncated'&&e.definite===true&&e.usage.cost>0);
+  const plan2=await f.provider.prepare(f.input);
+  f.result({text:null,truncated:true,usedModel:{provider:'fixture',id:'text'}});
+  await assert.rejects(f.provider.invoke({...f.input,plan:plan2}),e=>e.message==='cultivation_provider_format'&&!e.definite,'no usage → stays unknown');
+});

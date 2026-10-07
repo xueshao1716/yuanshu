@@ -1,7 +1,9 @@
 import {isTextModel} from '../../shared/model-capabilities.mjs';
 import {blocker} from './policy-diagnostics.mjs';
+import {reasoningShortfall,REASONING_MIN_OUTPUT_TOKENS,REASONING_MIN_TIMEOUT_MS} from './provider.mjs';
 export async function inspectProvider(catalog,{design,policy,sharedPolicy:p}) {
-  const models=(await catalog()).filter(isTextModel).map(m=>({key:`${m.provider}/${m.id}`,label:String(m.name||m.id).slice(0,200),
+  const all=(await catalog()).filter(isTextModel);
+  const models=all.map(m=>({key:`${m.provider}/${m.id}`,label:String(m.name||m.id).slice(0,200),
     cultivationAuthorized:policy.models.includes(`${m.provider}/${m.id}`),sharedAuthorized:p.allowedModels.includes(`${m.provider}/${m.id}`),health:'not_checked'}));
   const blockedBy=[],add=(...args)=>blockedBy.push(blocker(...args));
   if(!design)return {models,blockedBy};
@@ -9,6 +11,10 @@ export async function inspectProvider(catalog,{design,policy,sharedPolicy:p}) {
     add('input_limit','knowledge.inputTokens/outputTokens','共享模型输入或输出上限无效','输入上限须为正整数，输出须为 1–4096；实际输入长度仍在执行前核对。');
   const key=design.permissions.model,rate=p.rates[key];
   if(!models.some(m=>m.key===key))add('model_unavailable','design.permissions.model','设计模型不在当前文本模型目录','使用 models 返回的精确标识（提供方/模型）；目录存在不代表探活成功。');
+  // 两项分开查：放权卡与共享设置各修一项，同时列出来，不让人修完一项才看见下一项。
+  const target=all.find(m=>`${m.provider}/${m.id}`===key);
+  if(reasoningShortfall(target,{outputTokens:p.outputTokens,timeoutMs:Infinity})==='output')add('reasoning_budget','knowledge.outputTokens','推理模型的输出额度会被思考过程吃光',`共享输出上限须达到 ${REASONING_MIN_OUTPUT_TOKENS}，或换非推理模型。`);
+  if(reasoningShortfall(target,{outputTokens:Infinity,timeoutMs:policy.timeoutMs})==='timeout')add('reasoning_budget','policy.timeoutMs','推理模型在当前单次超时内写不完',`单次超时须达到 ${REASONING_MIN_TIMEOUT_MS / 1000} 秒，或换非推理模型。`);
   if(!design.permissions.remote||!policy.allowRemote)add('remote_required','design.permissions.remote','HTTP 模型需要明确的外部请求授权','先由主人核对外部授权，再在授权范围内修订 remote 标记。');
   if(!p.allowedModels.includes(key))add('model_not_authorized','knowledge.allowedModels','共享模型白名单尚未包含设计模型','请主人在知识资源配置核对共享模型白名单。');
   if(!rate||![rate.input,rate.output].every(n=>Number.isFinite(n)&&n>=0)||rate.input===0&&rate.output===0&&rate.free!==true)
