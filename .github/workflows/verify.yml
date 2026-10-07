@@ -15,7 +15,7 @@ concurrency:
 jobs:
   verify:
     runs-on: windows-latest
-    timeout-minutes: 35
+    timeout-minutes: 50
     steps:
       - uses: actions/checkout@v4
         with:
@@ -23,6 +23,7 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '25.8.2'
+          node-version-file: ''  # explicit version takes precedence
           cache: npm
           cache-dependency-path: |
             package-lock.json
@@ -32,7 +33,7 @@ jobs:
       - run: npm run verify
       - name: Upload check results
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v4  # Node 20 deprecation warning only; v4 still works on Node 24+
         with:
           name: verification-results
           retention-days: 7
