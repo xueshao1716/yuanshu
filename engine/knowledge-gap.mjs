@@ -22,6 +22,11 @@ export async function enqueueKnowledgeGap({run,wsRoot,runRoot,runStore,store}){
     if(sources.length>=5)break;
   }
   if(!sources.length&&policy.networkEnabled)for(const url of policy.allowedUrls.slice(0,5))sources.push({kind:'url',url});
+  // 2026-10-07 真机：一处资料都没授权时，每条检索没命中的消息（连「继续」「图直接发出来」）都会落一条
+  // 永久 blocked 的 source_missing 任务，一周攒了 77 条，谁也处理不了。什么都没授权就不立案：
+  // run 记录里的 knowledgeGap 还在，伙伴授权目录/网址后 intake.reconcile 发现来源策略变了会把它重新捡回来。
+  const nothingAuthorized=!(run.request?.files||[]).length&&!policy.allowedRoots.length&&!(policy.networkEnabled&&policy.allowedUrls.length);
+  if(!sources.length&&nothingAuthorized)return;
   if(!sources.length){const job=await store.enqueue({sourceId:`gap:${run.id}`,sourceVersion:digest([run.id,'no_sources']),
     event:'gap',runId:run.id,sessionId:run.sessionId,focus:run.knowledgeGap.focus,sources:[],title:'知识缺口等待获准资料'});
     await store.block(job.id,'source_missing');return;}

@@ -74,6 +74,7 @@ const reasons: Record<string, string> = {
   correction_requires_review: '补充证据已关联原任务，仍需核查，不会自动批准原结论。',
   source_missing: '暂未找到可读的获准来源。可补充文件，或核对资料授权。',
   source_replaced: '已找到获准资料，由关联的新任务继续处理；本条保留历史。',
+  no_authorized_sources: '当时没有授权任何资料目录或网址，已收起；授权后会自动重新查找。',
   source_path_denied: '该路径不可作为来源，请选择工作空间内的普通资料文件。',
   currency_mismatch: '价格币种与预算币种不一致，请核对价格；系统不会自动换算。',
 }

@@ -24,6 +24,8 @@ const SECRET_VALUE_RES = [
   { re: /\bAKIA[0-9A-Z]{16}\b/g, label: "AWS密钥" },
   { re: /\bAIza[0-9A-Za-z_-]{30,}/g, label: "Google密钥" },
   { re: /\bgsk_[A-Za-z0-9]{20,}/g, label: "Groq密钥" },
+  // 2026-10-07 真机：伙伴在对话里贴的 cpk- 密钥被当作「知识缺口」原文写进了知识库 state.json。
+  { re: /\b(?:cpk|tvly|pplx|xai)-[A-Za-z0-9_]{24,}/g, label: "前缀密钥" },
   { re: /\bxox[bpars]-[A-Za-z0-9-]{10,}/g, label: "Slack令牌" },
   { re: /\beyJ[A-Za-z0-9_-]{40,}\.eyJ[A-Za-z0-9_-]{20,}\.[A-Za-z0-9_-]{10,}/g, label: "JWT" },
   { re: /-----BEGIN [A-Z ]*PRIVATE KEY-----/g, label: "PEM私钥" },

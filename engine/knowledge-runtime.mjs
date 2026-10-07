@@ -13,6 +13,7 @@ import {fetchKnowledgeSource,authorizedUrl} from './knowledge-fetch.mjs';
 import {isTextModel} from '../shared/model-capabilities.mjs';
 import {digest,fail} from './knowledge-state.mjs';
 import {createKnowledgeMaintenance,knowledgePolicyWakeReasons} from './knowledge-maintenance.mjs';
+import {redactSecrets} from './tools/secrets-guard.mjs';
 import {inWorkspace} from './learning-intake.mjs';
 import {createTaskEvidence} from './task-evidence.mjs';
 import {createKnowledgeProvenance} from './knowledge-provenance.mjs';
@@ -135,7 +136,8 @@ export function createKnowledgeRuntime({wsRoot,runRoot,runStore,catalog,directCh
         if(run?.sessionId===input.sessionId)runStore.update(run.id,{knowledgeReferences:{sessionId:input.sessionId,ids:result.entries.map(e=>e.id)}});}
       else if(result.available&&input.runId){const run=runStore.get(input.runId);
         if(run?.sessionId===input.sessionId&&inWorkspace(run,wsRoot)&&!['knowledge','cultivation'].includes(run.request?.origin)&&run.request?.message?.trim())
-          runStore.update(run.id,{knowledgeGap:{sessionId:run.sessionId,focus:run.request.message.trim().slice(0,240)}});}
+          // focus 会落进知识库并展示，先脱敏：用户消息里可能贴着密钥（2026-10-07 真机）。
+          runStore.update(run.id,{knowledgeGap:{sessionId:run.sessionId,focus:redactSecrets(run.request.message.trim()).slice(0,240)}});}
       return result;
     },
     enqueueFinished(run){

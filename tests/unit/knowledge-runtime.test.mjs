@@ -261,12 +261,19 @@ test('a gap waiting for sources resumes discovery after authorization without ne
  const run=runStore.create({sessionId:'later',clientRequestId:'later',message:'网络配置',backgroundRecovery:{scope:wsRoot}});
  await r.context({query:'网络配置',sessionId:run.sessionId,runId:run.id});
  runStore.update(run.id,{status:'completed'});await r.onRunFinished(run);await r.worker.tick();
- assert.ok((await r.store.list()).items.some(j=>j.event==='gap'&&j.reason==='source_missing'));
+ // 什么都没授权：不立永久 blocked 的空缺口任务（2026-10-07 真机攒了 77 条），缺口只留在 run 记录里
+ assert.ok(!(await r.store.list()).items.some(j=>j.event==='gap'));
+ assert.ok(runStore.get(run.id).knowledgeGap);
  await r.updatePolicy({allowedRoots:['docs']},1);await r.worker.tick();await r.worker.tick();await r.worker.tick();
- assert.ok((await r.store.list()).items.some(j=>j.event==='gap'&&j.state==='committed'));
- const prior=(await r.store.list()).items.find(j=>j.event==='gap'&&!j.sources.length);
- assert.equal(prior.state,'skipped');assert.equal(prior.reason,'source_replaced');
- assert.equal((await r.store.get(prior.replacementJobId)).sessionId,run.sessionId);
+ assert.ok((await r.store.list()).items.some(j=>j.event==='gap'&&j.state==='committed'&&j.sessionId===run.sessionId));
+});
+test('knowledge gap focus is redacted before it is stored',async t=>{
+ const {runtime:r,wsRoot,runStore}=fixture(t);await r.retrieval.refresh();
+ const key='cpk-'+'gkflTAxZfaPjPcigA9cCvxSFQEILlKaTCI8ah5';
+ const run=runStore.create({sessionId:'secret',clientRequestId:'secret',message:`用这个密钥 ${key} 试试`,backgroundRecovery:{scope:wsRoot}});
+ await r.context({query:'密钥',sessionId:run.sessionId,runId:run.id});
+ const focus=runStore.get(run.id).knowledgeGap?.focus||'';
+ assert.ok(focus.includes('已脱敏'));assert.ok(!focus.includes(key));
 });
 
 test('aibody projection is scoped and contains stages but no source contents or growth claims',async t=>{
