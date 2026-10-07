@@ -131,20 +131,17 @@ Section "元枢" SecCore
 SectionEnd
 
 Section "桌面客户端" SecDesktop
-  ; 可选组件：Tauri WebView 桌面端安装包（独立 NSIS exe，静默安装到用户目录）
-  ; 安装后桌面快捷方式指向桌面端，开机任务仍用 Node 服务
+  ; 可选组件：Tauri WebView 裸 exe，直接装进 $INSTDIR\desktop\，无需二级安装器
+  ; 安装后桌面快捷方式更新为指向桌面端 exe，开机自启任务仍使用 Node 服务
   !ifdef HAVE_DESKTOP
-    DetailPrint "正在安装桌面客户端（WebView 原生窗口）…"
-    File /oname=$TEMP\yuanshu-desktop-setup.exe "${STAGE}\desktop\*.exe"
-    ExecWait '"$TEMP\yuanshu-desktop-setup.exe" /S' $0
-    Delete "$TEMP\yuanshu-desktop-setup.exe"
-    ; Tauri 默认安装路径
-    StrCpy $1 "$LOCALAPPDATA\元枢"
-    ${If} ${FileExists} "$1\元枢.exe"
-      ; 把桌面快捷方式更新为桌面端可执行文件
-      CreateShortcut "$DESKTOP\元枢.lnk" "$1\元枢.exe" "" "$1\元枢.exe"
-      CreateShortcut "$SMPROGRAMS\元枢\元枢（桌面端）.lnk" "$1\元枢.exe" "" "$1\元枢.exe"
-    ${EndIf}
+    DetailPrint "正在复制桌面客户端（WebView 原生窗口）…"
+    CreateDirectory "$INSTDIR\desktop"
+    SetOutPath "$INSTDIR\desktop"
+    File "${STAGE}\desktop\yuanshu-desktop.exe"
+    ; 更新桌面和开始菜单快捷方式指向桌面端
+    CreateShortcut "$DESKTOP\元枢.lnk" "$INSTDIR\desktop\yuanshu-desktop.exe" "" "$INSTDIR\launcher\yuanshu.ico"
+    CreateShortcut "$SMPROGRAMS\元枢\元枢（桌面端）.lnk" "$INSTDIR\desktop\yuanshu-desktop.exe" "" "$INSTDIR\launcher\yuanshu.ico"
+    CreateShortcut "$SMPROGRAMS\元枢\元枢（浏览器）.lnk" "$INSTDIR\launcher\yuanshu.exe" "" "$INSTDIR\launcher\yuanshu.ico"
   !endif
 SectionEnd
 

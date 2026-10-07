@@ -222,29 +222,30 @@ const STEPS = {
     fs.copyFileSync(fs.existsSync(local) ? local : download('u2net'), path.join(dst, 'u2net.onnx'));
   },
 
-  // 7a. 桌面端（Tauri NSIS 包）：复用 app/build-nsis.cmd 的构建结果，或触发一次构建
+  // 7a. 桌面端（Tauri 裸 exe）：直接把 cargo release 产物展开到 stage/desktop/，NSIS 一起打包
+  // 不用二级安装器，装完 yuanshu-desktop.exe 就在 $INSTDIR\desktop\ 下
   desktop() {
     const dst = path.join(STAGE, 'desktop');
     rm(dst); mk(dst);
-    const tauriBundle = path.join(CACHE, 'cargo', 'release', 'bundle', 'nsis');
-    // 找最新的 Tauri NSIS exe（版本号对应当前构建版本）
-    const exeName = `元枢_${VERSION}_x64-setup.exe`;
-    const src = path.join(tauriBundle, exeName);
-    if (!fs.existsSync(src)) {
-      // 没有缓存就触发 Tauri 构建
-      log('未找到桌面端缓存，正在构建 Tauri…', src);
+    const cargoRelease = path.join(CACHE, 'cargo', 'release');
+    const srcExe = path.join(cargoRelease, 'yuanshu.exe');
+    if (!fs.existsSync(srcExe)) {
+      // 没有裸 exe 缓存就触发 Tauri 构建（只编译，不打 nsis 包）
+      log('未找到 Tauri 裸 exe，正在构建…', srcExe);
       const env = {
         ...process.env,
         CARGO_TARGET_DIR: path.join(CACHE, 'cargo'),
         CARGO_HOME: path.join(CACHE, 'cargo-home'),
       };
-      run(process.execPath, [path.join(path.dirname(process.execPath), 'node_modules', 'npm', 'bin', 'npm-cli.js'),
-        'run', 'tauri', '--', 'build', '--bundles', 'nsis', '--ci'],
+      run(process.execPath,
+        [path.join(path.dirname(process.execPath), 'node_modules', 'npm', 'bin', 'npm-cli.js'),
+          'run', 'tauri', '--', 'build', '--bundles', 'nsis', '--ci'],
         { cwd: path.join(REPO, 'app'), env });
     }
-    if (!fs.existsSync(src)) throw new Error(`Tauri 桌面端构建失败，找不到 ${src}`);
-    fs.copyFileSync(src, path.join(dst, exeName));
-    log('桌面端', exeName, (fs.statSync(src).size / 1048576).toFixed(1) + 'MB');
+    if (!fs.existsSync(srcExe)) throw new Error(`Tauri 构建失败，找不到裸 exe：${srcExe}`);
+    // 把裸 exe 复制为固定名，方便 NSIS 脚本引用
+    fs.copyFileSync(srcExe, path.join(dst, 'yuanshu-desktop.exe'));
+    log('桌面端裸 exe', (fs.statSync(srcExe).size / 1048576).toFixed(1) + 'MB');
   },
 
   // 7b. 启动器、工作区模板、图标（编码转换：VBS 要 UTF-16LE，PS1 要 UTF-8 BOM）
