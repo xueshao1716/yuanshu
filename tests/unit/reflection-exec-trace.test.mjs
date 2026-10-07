@@ -73,3 +73,13 @@ test('server 夜间执行段走共享函数，不再自己拼执行轮/验证轮
   assert.match(src, /executeReflectionAction\(action, \{ wsRoot: CONFIG\.cwd/);
   assert.doesNotMatch(src, /verifyArtifacts\(/);
 });
+
+// 2026-10-07：夜间反思 45–103 分钟，执行轮没有总上限。
+test('夜间执行轮有总预算：超时不开新的一条，且各段用时进日志', async () => {
+  const { REFLECTION_EXEC_BUDGET_MS } = await import('../../engine/reflection-exec.mjs');
+  assert.equal(REFLECTION_EXEC_BUDGET_MS, 30 * 60 * 1000);
+  const src = (await import('node:fs')).readFileSync(new URL('../../server.mjs', import.meta.url), 'utf8');
+  const loop = src.slice(src.indexOf('const execStartedAt = Date.now();'), src.indexOf('executeReflectionAction(action,'));
+  assert.match(loop, /for \(const action of executable\) \{\s*if \(Date\.now\(\) - execStartedAt >= REFLECTION_EXEC_BUDGET_MS\)[\s\S]*?break;/);
+  assert.match(src, /复盘轮用时/);
+});

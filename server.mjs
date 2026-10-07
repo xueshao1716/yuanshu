@@ -151,7 +151,7 @@ import { createTimeEngine } from "./engine/time-engine.mjs";
 import { composeTimeTaskMessages, timeTaskReadTools, recordReflectionActions, parseReflectionActions, yesterdayYmd } from "./engine/time-task-run.mjs";
 import { promoteReflectionLessons, lessonDraft } from "./engine/lesson-promotion.mjs";
 import { buildLastNight } from "./engine/last-night.mjs";
-import { planReflectionExecution, recordActionAttempt, summarizeExecution, runOnTheSpotFix, executeReflectionAction } from "./engine/reflection-exec.mjs";
+import { planReflectionExecution, recordActionAttempt, summarizeExecution, runOnTheSpotFix, executeReflectionAction, REFLECTION_EXEC_BUDGET_MS } from "./engine/reflection-exec.mjs";
 import { loadEpisodes, dream, writeDreamLog, dreamPaths, currentWeights, promoteWeights, resetWeights, recordSkillChoice } from "./engine/dream.mjs";
 import { createDreamCollector } from "./engine/dream-collector.mjs";
 import { createLearningIntake } from "./engine/learning-intake.mjs";
@@ -3535,8 +3535,10 @@ function startServer() {
             sessions: getSessionList(),
             now: new Date(),
           });
+          const tReflect0 = Date.now();
           const r = await unifiedChat(defaultModel, messages, { tools: timeTaskReadTools(UNIFIED_TOOLS), signal });
           const completed = signal?.aborted || r?.aborted ? null : completedTaskText(r);
+          console.log(`[time-engine] 任务 ${task.id} 复盘轮用时 ${Math.round((Date.now() - tReflect0) / 60000)} 分钟`);
           if (signal?.aborted || r?.aborted) return { aborted: true };
           out = completed || "(无输出)";
           if (signal?.aborted) return { aborted: true };
@@ -3563,7 +3565,16 @@ ${String(out).slice(0, 16000)}
               console.log(`[time-engine] 留给跟踪/人工 ${deferred.length} 条：${deferred.map((a) => `${a.kind}(${a.reason || "-"})`).join('、').slice(0, 160)}`);
             }
             const rows = [];
+            // 2026-10-07：夜间反思常跑 45–100 分钟，大头在复盘后的执行轮（每条 fix＝执行+重试+独立验证），以前没有总上限。
+            // 超过预算就不再开新的一条（正在跑的不打断），没轮到的仍在承诺账上，下一轮复盘会看到。
+            const execStartedAt = Date.now();
             for (const action of executable) {
+              if (Date.now() - execStartedAt >= REFLECTION_EXEC_BUDGET_MS) {
+                const left = executable.length - rows.length;
+                console.log(`[time-engine] 执行轮已用 ${Math.round((Date.now() - execStartedAt) / 60000)} 分钟，超过预算；剩 ${left} 条留在承诺账，下一轮再做`);
+                break;
+              }
+              const tAction0 = Date.now();
               // 2026-10-07：执行轮/重试/独立验证/落 fix-attempt 轨迹统一走 executeReflectionAction，
               // 做梦回放「失败后再试几次」从此有夜间样本（以前这里不落轨迹，那条回放一直饿着）。
               const turn = (tools) => async (prompt) => {
@@ -3578,7 +3589,7 @@ ${String(out).slice(0, 16000)}
               if (signal?.aborted) break;
               const rec2 = recordActionAttempt(CONFIG.cwd, action, result);
               rows.push({ text: action.text, status: result?.status || "failed", closed: rec2?.closed, evidence: result?.evidence || "" });
-              console.log(`[time-engine] 自动执行「${String(action.text).slice(0, 40)}」→ ${result?.status || "failed"}${rec2?.closed ? "（已结清）" : ""}：${String(result?.evidence || "").slice(0, 100)}`);
+              console.log(`[time-engine] 自动执行「${String(action.text).slice(0, 40)}」→ ${result?.status || "failed"}${rec2?.closed ? "（已结清）" : ""}（${Math.round((Date.now() - tAction0) / 60000)} 分钟）：${String(result?.evidence || "").slice(0, 100)}`);
             }
             if (rows.length && !signal?.aborted) {
               const logLine = `

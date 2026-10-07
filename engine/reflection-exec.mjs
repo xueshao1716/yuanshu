@@ -295,6 +295,10 @@ export async function runOnTheSpotFix({ problem, runTurn, sessionKey = "anon", n
   };
 }
 
+// 2026-10-07 实测：夜间反思 45–103 分钟，复盘轮约 10 分钟，其余全耗在执行轮上。
+// 执行轮总预算：超了就不开新的一条（在跑的不打断），剩下的留在承诺账上。
+export const REFLECTION_EXEC_BUDGET_MS = 30 * 60 * 1000;
+
 /**
  * 夜间复盘里的一条 fix 行动：执行轮（按现役探索策略重试）→ 独立验证 → 落 fix-attempt 轨迹。
  *
