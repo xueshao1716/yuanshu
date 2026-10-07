@@ -203,3 +203,21 @@ test('shutdown is bounded without releasing an unsettled provider slot',async t=
   assert.equal(closed,true,'close must return while transport is unresponsive');
   assert.equal(tasks.get(submitted.result.id).cultivation.output,null);
 });
+
+test('run.submit 校验失败报出具体字段与期望，不回传输入值',async t=>{
+  const {commandValidationDetails}=await import('../../engine/cultivation/control-transition.mjs');
+  const f=await fixture(t),c=f.submit();
+  const cases=[
+    [{...c,payload:{agentId:f.agentId,input:'私密输入原文',goal:'g'}},'payload',/criterion/],
+    [(({expectedRevision,...rest})=>rest)(c),'expectedRevision',/revision/],
+    [{...c,payload:{...c.payload,goal:'  '}},'payload.goal',/4000/],
+  ];
+  for(const [cmd,field,expected] of cases){
+    const error=await f.execute(cmd).then(()=>null,e=>e);
+    const d=commandValidationDetails(error);
+    assert.ok(d,`${field} 应得到字段级说明`);
+    assert.equal(d.field,field);assert.match(d.expected,expected);
+    assert.ok(!JSON.stringify(d).includes('私密输入原文'));
+  }
+  assert.equal(f.tasks.list().items.length,0);
+});

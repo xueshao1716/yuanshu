@@ -2,7 +2,7 @@ import {exact} from './control-state.mjs';
 import {getTeamToolContext} from '../team-tool-context.mjs';
 import {CULTIVATION_DESIGN_SCHEMA} from './design-schema.mjs';
 import {designValidationDetails} from './designs.mjs';
-import {commandValidationDetails} from './control-transition.mjs';
+import {commandValidationDetails, badCommand} from './control-transition.mjs';
 import {cultivationFailureDetails} from './diagnostics.mjs';
 
 const actions=['overview','agents','designs','runs','experience','preflight','models','denials','learning.context','design.submit','design.revise','agent.register','agent.adopt','run.submit','learning.decide','asset.bind'];
@@ -44,7 +44,7 @@ export async function cultivationTool(runtime,args,host) {
         expected:actions,nextAction:'动作名必须完全匹配 expected 里的一项（如 design.revise，不能缩写），改正后用新 requestId 重试。'}),isError:true};
     if(!host?.executionIdentity||!args)throw new Error('cultivation_identity_denied');
     const read=!args.action.includes('.')||args.action==='learning.context';
-    if(read&&!['learning.context','preflight'].includes(args.action)&&!exact(args,['action']))throw new Error('cultivation_invalid_command');
+    if(read&&!['learning.context','preflight'].includes(args.action)&&!exact(args,['action']))badCommand(Object.keys(args).find(k=>k!=='action')||'action',`读取动作 ${args.action} 只收 action，不带 payload`);
     const result=read?await runtime.readMother(args,host.executionIdentity):await runtime.execute(args,'mother',host.executionIdentity);
     return {text:JSON.stringify(result),isError:false};
   }catch(error){

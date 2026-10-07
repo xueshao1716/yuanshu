@@ -1,6 +1,7 @@
 import {randomUUID} from 'node:crypto';
 import {clonePayload} from './state.mjs';
 import {exact,id} from './control-state.mjs';
+import {badCommand} from './control-transition.mjs';
 import {assertAdoptable} from './designs.mjs';
 import {assertDispatchWindow} from './policy.mjs';
 import {createCultivationTaskRepository} from './task-repository.mjs';
@@ -29,11 +30,20 @@ export function createCultivationTasks(options) {
   const experience=createCultivationExperience({repo,knowledge:options.knowledge,workspace:store.workspace});
   const execute=async(input,principal)=>{
     const c=clonePayload(input),cancel=c.action==='run.cancel';
-    if(!exact(c,['action','payload','requestId','expectedRevision'])||!id(c.requestId)||
-      !Number.isSafeInteger(c.expectedRevision)||c.expectedRevision<0||
-      !['run.submit','run.cancel'].includes(c.action)||!exact(c.payload,cancel?['runId']:['agentId','input','goal','criterion']))fail('invalid_command');
-    if(!id(cancel?c.payload.runId:c.payload.agentId)||!cancel&&['input','goal','criterion'].some(k=>
-      typeof c.payload[k]!=='string'||!c.payload[k].trim()||c.payload[k].length>4000))fail('invalid_command');
+    // 逐项报字段与期望格式（绝不回传输入值），省得模型对着一句 invalid_command 猜。
+    if(!c||typeof c!=='object'||Array.isArray(c))badCommand('command','{action, payload, requestId, expectedRevision}');
+    const top=['action','payload','requestId','expectedRevision'];
+    for(const k of top)if(!Object.hasOwn(c,k))badCommand(k,k==='expectedRevision'?'非负整数修订号（取 overview/runs 顶层 revision）':k==='requestId'?'新 UUID':'必填');
+    const extraTop=Object.keys(c).find(k=>!top.includes(k));
+    if(extraTop)badCommand(extraTop,'顶层只收 action/payload/requestId/expectedRevision');
+    if(!id(c.requestId))badCommand('requestId','新 UUID');
+    if(!Number.isSafeInteger(c.expectedRevision)||c.expectedRevision<0)badCommand('expectedRevision','非负整数修订号（取 overview/runs 顶层 revision）');
+    if(!['run.submit','run.cancel'].includes(c.action))badCommand('action','run.submit / run.cancel');
+    const want=cancel?['runId']:['agentId','input','goal','criterion'];
+    if(!c.payload||typeof c.payload!=='object'||Array.isArray(c.payload)||!exact(c.payload,want))badCommand('payload',`恰好包含 ${want.join('、')}`);
+    if(!id(cancel?c.payload.runId:c.payload.agentId))badCommand(cancel?'payload.runId':'payload.agentId','完整 id（UUID）');
+    if(!cancel)for(const k of ['input','goal','criterion'])
+      if(typeof c.payload[k]!=='string'||!c.payload[k].trim()||c.payload[k].length>4000)badCommand(`payload.${k}`,'非空字符串，最多 4000 字');
     const authenticate=()=>authority.assert(principal,c,[cancel?'human':'mother']);
     return repo.transaction(()=>{
       const actor=authenticate(),state=controls.read();

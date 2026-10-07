@@ -9,7 +9,7 @@ const fields = {'policy.set': ['policy'], 'design.submit': ['design'],
 // 2026-10-07 真机：design.revise 漏 expectedRevision 只得到「本次操作未通过校验」，模型猜了一轮才补上。
 // 只回字段名和期望格式，绝不回传输入值。
 const commandErrors = new WeakSet();
-const badCommand = (field, expected) => {
+export const badCommand = (field, expected) => {
   const error = Object.assign(new Error('cultivation_invalid_command'), {field, expected});
   commandErrors.add(error);
   throw error;

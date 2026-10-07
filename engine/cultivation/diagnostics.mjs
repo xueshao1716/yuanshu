@@ -1,4 +1,5 @@
 import {id} from './control-state.mjs';
+import {badCommand} from './control-transition.mjs';
 import {policyBlockers,blocker} from './policy-diagnostics.mjs';
 import {assertDispatchWindow} from './policy.mjs';
 import {LEARNING_SCOPE} from './learning-permissions.mjs';
@@ -18,12 +19,22 @@ export function createCultivationDiagnostics({controls,execution,verifyAsset,now
     }catch{return {models:[],available:false,reason:'diagnostics_unavailable'};}
   };
   const preflight=async query=>{
-    if(!query||!actions.includes(query.action)||Object.keys(query).some(k=>!['action','designId','agentId'].includes(k))||
-      ['designId','agentId'].some(k=>query[k]!==undefined&&!id(query[k])))throw new Error('cultivation_invalid_command');
-    const designOnly=['design.check','agent.register'].includes(query.action);
-    if(designOnly?(query.agentId!==undefined||!query.designId):
-      !query.agentId||(!['agent.adopt','agent.rollback'].includes(query.action)&&query.designId!==undefined)||
-      (['agent.adopt','agent.rollback'].includes(query.action)&&!query.designId))throw new Error('cultivation_invalid_command');
+    // 2026-10-07 真机：小语给 preflight run.submit 塞了 input/goal/criterion，只拿到一句光秃秃的 invalid_command。
+    // 预检只认 {action, designId|agentId}；逐项报字段与期望，绝不回传输入值。
+    if(!query||typeof query!=='object')badCommand('payload','{action, designId 或 agentId}');
+    if(!actions.includes(query.action))badCommand('payload.action',actions.join(' / '));
+    const extra=Object.keys(query).find(k=>!['action','designId','agentId'].includes(k));
+    if(extra)badCommand(`payload.${extra}`,'预检只收 action 与 designId/agentId；作业正文等字段留给真正的 run.submit');
+    for(const k of ['designId','agentId'])if(query[k]!==undefined&&!id(query[k]))badCommand(`payload.${k}`,'完整 id（UUID）');
+    const designOnly=['design.check','agent.register'].includes(query.action),pair=['agent.adopt','agent.rollback'].includes(query.action);
+    if(designOnly){
+      if(query.agentId!==undefined)badCommand('payload.agentId',`${query.action} 只收 designId`);
+      if(!query.designId)badCommand('payload.designId','完整 id（UUID）');
+    }else{
+      if(!query.agentId)badCommand('payload.agentId','完整 id（UUID）');
+      if(pair&&!query.designId)badCommand('payload.designId',`${query.action} 需要 agentId 与 designId`);
+      if(!pair&&query.designId!==undefined)badCommand('payload.designId',`${query.action} 只收 agentId`);
+    }
     const state=controls.read(),{data,revision}=state,p=data.policy,run=query.action.startsWith('run.')||query.action==='design.check',dispatch=query.action==='run.dispatch';
     const agent=query.agentId&&data.agents.find(a=>a.id===query.agentId);
     const target=query.designId??agent?.designId,design=data.designs.find(d=>d.id===target)?.design;

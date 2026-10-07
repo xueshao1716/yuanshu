@@ -203,3 +203,21 @@ test('invalid command names the missing field without echoing input values', asy
   assert.ok(!r2.text.includes('secret-short-id'));
   assert.deepEqual(f.store.read('control'), before);
 });
+
+test('preflight 与 run.submit 校验失败也报字段，不回传输入值', async t => {
+  const {cultivationTool} = await import('../../engine/cultivation/tool.mjs'), f = await controlFixture(t);
+  const runtime = createCultivationRuntime({wsRoot: f.root, identityAdapters: {
+    resolveMother: s => s === f.mother && s.active ? {actorId:'fixture-mother',originId:'fixture-run'} : null}});
+  const ctx = {executionIdentity:f.mother};
+  const agentId = '00000000-0000-4000-8000-000000000001';
+  // 真机 2026-10-07：preflight run.submit 塞了作业正文
+  const r1 = await cultivationTool(runtime, {action:'preflight', payload:{action:'run.submit', agentId, goal:'私密目标原文'}}, ctx);
+  const d1 = JSON.parse(r1.text);
+  assert.equal(d1.error, 'cultivation_invalid_command');
+  assert.equal(d1.field, 'payload.goal');
+  assert.ok(!r1.text.includes('私密目标原文'));
+  const r2 = await cultivationTool(runtime, {action:'preflight', payload:{action:'agent.register'}}, ctx);
+  assert.equal(JSON.parse(r2.text).field, 'payload.designId');
+  const r4 = await cultivationTool(runtime, {action:'designs', payload:{}}, ctx);
+  assert.equal(JSON.parse(r4.text).field, 'payload');
+});
