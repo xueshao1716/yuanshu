@@ -222,7 +222,32 @@ const STEPS = {
     fs.copyFileSync(fs.existsSync(local) ? local : download('u2net'), path.join(dst, 'u2net.onnx'));
   },
 
-  // 7. 启动器、工作区模板、图标（编码转换：VBS 要 UTF-16LE，PS1 要 UTF-8 BOM）
+  // 7a. 桌面端（Tauri NSIS 包）：复用 app/build-nsis.cmd 的构建结果，或触发一次构建
+  desktop() {
+    const dst = path.join(STAGE, 'desktop');
+    rm(dst); mk(dst);
+    const tauriBundle = path.join(CACHE, 'cargo', 'release', 'bundle', 'nsis');
+    // 找最新的 Tauri NSIS exe（版本号对应当前构建版本）
+    const exeName = `元枢_${VERSION}_x64-setup.exe`;
+    const src = path.join(tauriBundle, exeName);
+    if (!fs.existsSync(src)) {
+      // 没有缓存就触发 Tauri 构建
+      log('未找到桌面端缓存，正在构建 Tauri…', src);
+      const env = {
+        ...process.env,
+        CARGO_TARGET_DIR: path.join(CACHE, 'cargo'),
+        CARGO_HOME: path.join(CACHE, 'cargo-home'),
+      };
+      run(process.execPath, [path.join(path.dirname(process.execPath), 'node_modules', 'npm', 'bin', 'npm-cli.js'),
+        'run', 'tauri', '--', 'build', '--bundles', 'nsis', '--ci'],
+        { cwd: path.join(REPO, 'app'), env });
+    }
+    if (!fs.existsSync(src)) throw new Error(`Tauri 桌面端构建失败，找不到 ${src}`);
+    fs.copyFileSync(src, path.join(dst, exeName));
+    log('桌面端', exeName, (fs.statSync(src).size / 1048576).toFixed(1) + 'MB');
+  },
+
+  // 7b. 启动器、工作区模板、图标（编码转换：VBS 要 UTF-16LE，PS1 要 UTF-8 BOM）
   launcher() {
     const dst = path.join(STAGE, 'launcher');
     rm(dst); mk(dst);
@@ -288,7 +313,11 @@ const STEPS = {
     const nsisLog = path.join(CACHE, 'makensis.log');
     log('makensis 详细日志', nsisLog, '（读文件约 5~10 分钟，压缩约 20 分钟）');
     try {
-      run(makensis, ['-V4', `-O${nsisLog}`, '-INPUTCHARSET', 'UTF8', `-DSTAGE=${STAGE}`, `-DVERSION=${VERSION}`, `-DOUTFILE=${out}`, `-DESTSIZE_KB=${Math.ceil(totalBytes / 1024)}`, path.join(HERE, 'yuanshu.nsi')], { stdio: ['ignore', 'inherit', 'inherit'] });
+      const desktopDir = path.join(STAGE, 'desktop');
+      const hasDesktop = fs.existsSync(desktopDir) && fs.readdirSync(desktopDir).some(f => f.endsWith('.exe'));
+      const nsisArgs = ['-V4', `-O${nsisLog}`, '-INPUTCHARSET', 'UTF8', `-DSTAGE=${STAGE}`, `-DVERSION=${VERSION}`, `-DOUTFILE=${out}`, `-DESTSIZE_KB=${Math.ceil(totalBytes / 1024)}`];
+      if (hasDesktop) nsisArgs.push('-DHAVE_DESKTOP');
+      run(makensis, [...nsisArgs, path.join(HERE, 'yuanshu.nsi')], { stdio: ['ignore', 'inherit', 'inherit'] });
     } catch (e) {
       const tail = fs.existsSync(nsisLog) ? fs.readFileSync(nsisLog, 'utf8').split(/\r?\n/).slice(-15).join('\n') : '';
       throw new Error(`makensis 失败，日志末尾：\n${tail}`);
@@ -298,7 +327,7 @@ const STEPS = {
 };
 
 mk(CACHE);
-const order = FULL ? ['node', 'app', 'python', 'ffmpeg', 'git', 'models', 'launcher', 'nsis'] : ['node', 'app', 'python', 'git', 'launcher', 'nsis'];
+const order = FULL ? ['node', 'app', 'python', 'ffmpeg', 'git', 'models', 'desktop', 'launcher', 'nsis'] : ['node', 'app', 'python', 'git', 'desktop', 'launcher', 'nsis'];
 // 精简包：上一次 --full 留在 stage 里的 ffmpeg/模型要清掉，否则会被打进包
 if (!FULL && (!ONLY.length || ONLY.includes('nsis'))) for (const d of ['ffmpeg', 'models']) { rm(path.join(RT, d)); fs.rmSync(marker(d), { force: true }); }
 for (const step of order) {

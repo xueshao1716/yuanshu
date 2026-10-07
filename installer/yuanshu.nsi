@@ -130,6 +130,24 @@ Section "元枢" SecCore
   ${EndIf}
 SectionEnd
 
+Section "桌面客户端" SecDesktop
+  ; 可选组件：Tauri WebView 桌面端安装包（独立 NSIS exe，静默安装到用户目录）
+  ; 安装后桌面快捷方式指向桌面端，开机任务仍用 Node 服务
+  !ifdef HAVE_DESKTOP
+    DetailPrint "正在安装桌面客户端（WebView 原生窗口）…"
+    File /oname=$TEMP\yuanshu-desktop-setup.exe "${STAGE}\desktop\*.exe"
+    ExecWait '"$TEMP\yuanshu-desktop-setup.exe" /S' $0
+    Delete "$TEMP\yuanshu-desktop-setup.exe"
+    ; Tauri 默认安装路径
+    StrCpy $1 "$LOCALAPPDATA\元枢"
+    ${If} ${FileExists} "$1\元枢.exe"
+      ; 把桌面快捷方式更新为桌面端可执行文件
+      CreateShortcut "$DESKTOP\元枢.lnk" "$1\元枢.exe" "" "$1\元枢.exe"
+      CreateShortcut "$SMPROGRAMS\元枢\元枢（桌面端）.lnk" "$1\元枢.exe" "" "$1\元枢.exe"
+    ${EndIf}
+  !endif
+SectionEnd
+
 Section "Uninstall"
   !insertmacro StopService
   nsExec::Exec `powershell.exe -NoProfile -ExecutionPolicy Bypass -Command "${OWN_TASK}; if ($$own) { Unregister-ScheduledTask -TaskName yuanshu-watchdog -Confirm:$$false }"`
