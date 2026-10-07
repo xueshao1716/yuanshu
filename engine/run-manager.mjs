@@ -174,6 +174,8 @@ export function createRunManager({ store, eventLog, executeChat, instanceId, onS
       ? Math.max(1, Math.min(RUN_SLICE_MS, Date.parse(run.backgroundRecovery.deadlineAt) - now)) : RUN_SLICE_MS
     const runContext = {
       executionBudgetMs,
+      // 中途插话：元枢循环在下一轮模型调用前 take()；Pi 引擎挂 sink 走原生 steer()。
+      steering: { queue: [], sink: null, take() { return this.queue.splice(0) } },
       executionDeadlineAt: now + executionBudgetMs,
       runId: run.id,
       attempt: Number.isInteger(run.checkpoint?.attempt) ? run.checkpoint.attempt : 0,
@@ -306,6 +308,8 @@ export function createRunManager({ store, eventLog, executeChat, instanceId, onS
         finish(running.id, 'failed', { message: String(error?.message || error) })
       }
     } finally {
+      const leftover = control.body?.__runContext?.steering?.queue?.length || 0
+      if (leftover) { try { append(store.get(running.id) || running, 'steer_unused', { count: leftover }) } catch {} }
       identities.revoke(control)
       executions.delete(running.id)
     }
@@ -336,6 +340,20 @@ export function createRunManager({ store, eventLog, executeChat, instanceId, onS
     readAfter(runId, after) { return eventLog.readAfter(runId, after) },
     readAfterAsync(runId, after) { return eventLog.readAfterAsync(runId, after) },
     subscribe(runId, listener) { return eventLog.subscribe(runId, listener) },
+    steer(runId, message) {
+      const run = store.get(runId)
+      if (!run) throw Object.assign(new Error('run_not_found'), { code: 'run_not_found' })
+      const text = typeof message === 'string' ? message.trim() : ''
+      if (!text || text.length > 4000) throw Object.assign(new Error('invalid_message'), { code: 'invalid_request' })
+      const control = executions.get(runId)
+      const steering = control?.body?.__runContext?.steering
+      if (TERMINAL.has(run.status) || run.status === 'stopping' || control?.stopRequested || !steering)
+        throw Object.assign(new Error('run_not_steerable'), { code: 'run_not_steerable', status: run.status })
+      if (typeof steering.sink === 'function') steering.sink(text)
+      else steering.queue.push(text)
+      append(run, 'steer_queued', { length: text.length })
+      return store.get(runId)
+    },
     stop(runId) {
       const run = store.get(runId)
       if (!run) throw Object.assign(new Error('run_not_found'), { code: 'run_not_found' })

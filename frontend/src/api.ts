@@ -280,6 +280,9 @@ export const RunsApi = {
   get: (runId: string) => api<RunInfo>(`/api/runs/${encodeURIComponent(runId)}`),
   resume: (runId: string) => api<RunInfo>(`/api/runs/${encodeURIComponent(runId)}/resume`, { method: 'POST' }),
   stop: (runId: string) => api<RunInfo>(`/api/runs/${encodeURIComponent(runId)}/stop`, { method: 'POST' }),
+  steer: (runId: string, message: string) => api<RunInfo>(`/api/runs/${encodeURIComponent(runId)}/steer`, {
+    method: 'POST', body: { message },
+  }),
   disableRecovery: (runId: string) => api<RunInfo>(`/api/runs/${encodeURIComponent(runId)}/recovery/disable`, { method: 'POST' }),
   stream: (
     runId: string,

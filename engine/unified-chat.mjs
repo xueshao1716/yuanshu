@@ -511,6 +511,16 @@ export async function unifiedChat(model, messages, opts = {}) {
     // 客户端已断开 → 立即停止（打断场景：前端 abort 后不再继续消耗模型调用）
     if (opts.signal?.aborted) return { aborted: true, history, text: lastPartialAssistantText(history) };
     if (Date.now() >= continuation.deadline) { pauseReason = 'execution_budget'; break; }
+    // 中途插话：只在工具结果已全部回填、下一次模型调用之前注入，不会切断 tool_call/tool_result 配对。
+    // 用 system 而不是 user：快照置顶、工具轨迹落盘、压缩都以「最后一条 user」为当前任务，插话不能顶替它。
+    if (turn > 0 && typeof opts.takeSteering === "function") {
+      let steered = [];
+      try { steered = opts.takeSteering() || []; } catch {}
+      for (const text of steered) {
+        history.push({ role: "system", content: `【伙伴中途插话】${text}\n以这句为准调整接下来的做法；已完成的工具结果仍然有效，原任务里没被这句改掉的部分照旧。` });
+        try { opts.onSteer?.(text); } catch {}
+      }
+    }
     if (turn >= batchLimit) {
       if (!continuation.automatic) break;
       // A recoverable tool failure at a batch boundary must reach the model
@@ -965,6 +975,8 @@ export async function handleUnifiedChat(res, entry, message, sessionId, params, 
     userPersisted = true;
   };
   try { persistUser(); } catch {}
+  const steeringTake = typeof runContext?.steering?.take === "function" ? () => runContext.steering.take() : null;
+  const steeringNote = text => writer.push("note", { text: `收到插话，下一步按它调整：${String(text).slice(0, 120)}` });
   const mediaIntents = detectMediaIntents(message);
   const imageIntent = mediaIntents.some(i => i.type === "image");
   const videoIntent = mediaIntents.some(i => i.type === "video");
@@ -1109,7 +1121,7 @@ export async function handleUnifiedChat(res, entry, message, sessionId, params, 
   }
   async function runLockedChat(locked) {
     // history 末条已是 handleChat 改写后的规划指令消息（含需求），直接复用；只传只读工具定义
-    const result = await unifiedChat(chatModel, history, { executionBudgetMs: runContext?.executionBudgetMs, executionDeadlineAt: runContext?.executionDeadlineAt, onTool: onToolStart, onToolEnd, onCheckpoint, params, signal, tools: locked, sandboxMode: "read-only", sandboxWsRoot: _cwd, sandboxAsk: approvalAsk, effects: runContext?.effects, resumeSnapshot: runContext?.resume ? runContext.checkpoint?.historySnapshot : null, resumeCheckpointKind: runContext?.resume ? runContext.checkpoint?.checkpointKind : null, resumeToolPlan: runContext?.resume && runContext.checkpoint?.checkpointKind === "tool_plan" ? runContext.checkpoint?.toolPlan : null, executionContext: { runId: runContext?.runId, executionIdentity: runContext?.executionIdentity, sessionId: runContext?.sessionId, attempt: runContext?.attempt, onEvent: runContext?.onEvent, aibodyContext: runContext?.aibodyContext, history } });
+    const result = await unifiedChat(chatModel, history, { executionBudgetMs: runContext?.executionBudgetMs, executionDeadlineAt: runContext?.executionDeadlineAt, onTool: onToolStart, onToolEnd, onCheckpoint, params, signal, takeSteering: steeringTake, onSteer: steeringNote, tools: locked, sandboxMode: "read-only", sandboxWsRoot: _cwd, sandboxAsk: approvalAsk, effects: runContext?.effects, resumeSnapshot: runContext?.resume ? runContext.checkpoint?.historySnapshot : null, resumeCheckpointKind: runContext?.resume ? runContext.checkpoint?.checkpointKind : null, resumeToolPlan: runContext?.resume && runContext.checkpoint?.checkpointKind === "tool_plan" ? runContext.checkpoint?.toolPlan : null, executionContext: { runId: runContext?.runId, executionIdentity: runContext?.executionIdentity, sessionId: runContext?.sessionId, attempt: runContext?.attempt, onEvent: runContext?.onEvent, aibodyContext: runContext?.aibodyContext, history } });
     if (!result || result.error) {
       clearTask(taskId, "error"); writer.push("error", { message: result?.error || "模型未返回内容" }); finishEmotion(); return;
     }
@@ -1166,6 +1178,8 @@ export async function handleUnifiedChat(res, entry, message, sessionId, params, 
     sandboxWsRoot: _cwd,
     sandboxAsk: approvalAsk,
     effects: runContext?.effects,
+    takeSteering: steeringTake,
+    onSteer: steeringNote,
     resumeSnapshot: runContext?.resume ? runContext.checkpoint?.historySnapshot : null,
     resumeCheckpointKind: runContext?.resume ? runContext.checkpoint?.checkpointKind : null,
     resumeToolPlan: runContext?.resume && runContext.checkpoint?.checkpointKind === "tool_plan" ? runContext.checkpoint?.toolPlan : null,

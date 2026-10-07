@@ -158,6 +158,16 @@ export function createRunApi({ manager, json, readContext = null, readDeliveries
         throw error
       }
     },
+    steer(res, runId, body) {
+      try {
+        return json(res, 202, publicRun(manager.steer(runId, body?.message)))
+      } catch (error) {
+        if (error?.code === 'run_not_found') return json(res, 404, { error: 'run_not_found' })
+        if (error?.code === 'invalid_request') return json(res, 400, { error: 'invalid_message', expected: '非空字符串 message，最多 4000 字' })
+        if (error?.code === 'run_not_steerable') return json(res, 409, { error: 'run_not_steerable', status: error.status })
+        throw error
+      }
+    },
     stop(res, runId) {
       try {
         return json(res, 200, publicRun(manager.stop(runId)))

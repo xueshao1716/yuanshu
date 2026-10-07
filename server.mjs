@@ -1712,7 +1712,19 @@ async function handleChat(req, res, body) {
         configurable: false,
         writable: false,
       });
-      await withTeamToolContext(piTeamToolContext, () => withSamplingParams(agent, body.params, () => agent.prompt(promptMsg, { images })));
+      // 中途插话走 SDK 原生 steer()：当前助手轮工具跑完、下一次模型调用前送达。先排空启动前已排队的。
+      const steering = body.__runContext?.steering;
+      if (steering && typeof agent.steer === 'function') {
+        const deliver = text => {
+          try { sseWrite(res, "note", { text: `收到插话，下一步按它调整：${String(text).slice(0, 120)}` }); } catch {}
+          Promise.resolve(agent.steer(`【伙伴中途插话】${text}`)).catch(() => {});
+        };
+        steering.sink = deliver;
+        for (const text of steering.take()) deliver(text);
+      }
+      try {
+        await withTeamToolContext(piTeamToolContext, () => withSamplingParams(agent, body.params, () => agent.prompt(promptMsg, { images })));
+      } finally { if (steering) steering.sink = null; }
     } finally {
       // 处理完恢复原模型（避免把会话默认模型悄悄改掉）
       if (visionSwitched && origAgentModel) {
@@ -3028,6 +3040,7 @@ const API_ROUTES = [
   ["POST", new RegExp('^/api/runs/([^/]+)/recovery/disable$'), (res, req, url, m) => runApi.disableRecovery(res, decodeURIComponent(m[1]))],
   ["GET", /^\/api\/runs\/([^/]+)$/, (res, req, url, m) => runApi.get(res, decodeURIComponent(m[1]))],
   ["GET", /^\/api\/runs\/([^/]+)\/events$/, (res, req, url, m) => runApi.events(res, req, url, decodeURIComponent(m[1]))],
+  ["POST", /^\/api\/runs\/([^/]+)\/steer$/, async (res, req, url, m) => runApi.steer(res, decodeURIComponent(m[1]), await readBody(req, 1))],
   ["POST", /^\/api\/runs\/([^/]+)\/stop$/, (res, req, url, m) => runApi.stop(res, decodeURIComponent(m[1]))],
   ["POST", /^\/api\/runs\/([^/]+)\/resume$/, (res, req, url, m) => runApi.resume(res, decodeURIComponent(m[1]), req)],
   ["POST", "/api/chat", async (res, req) => handleChat(req, res, await readBody(req, 12))],

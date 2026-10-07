@@ -26,6 +26,8 @@ interface Props {
   streaming: boolean
   onStop: () => void
   onSend: (text: string, files: FileAttachment[]) => void
+  /** 任务进行中时发送 = 中途插话；返回是否送达（失败保留输入）。 */
+  onSteer?: (text: string) => Promise<boolean>
   onCommand?: (cmd: string) => void
   onVoice?: (dataB64: string, format: string) => void
   voiceBusy?: boolean
@@ -81,7 +83,7 @@ async function blobToWavBase64(blob: Blob): Promise<string> {
   return btoa(bin)
 }
 
-export default function SendBox({ streaming, onStop, onSend, onCommand, onVoice, voiceBusy, onOpenCall, onVoiceTextReady, sessionId, ensureSession, onUploaded }: Props) {
+export default function SendBox({ streaming, onStop, onSend, onSteer, onCommand, onVoice, voiceBusy, onOpenCall, onVoiceTextReady, sessionId, ensureSession, onUploaded }: Props) {
   const callActive = useCallActive()
   const taRef = useRef<HTMLTextAreaElement>(null)
   const rootRef = useRef<HTMLDivElement>(null)
@@ -239,8 +241,14 @@ export default function SendBox({ streaming, onStop, onSend, onCommand, onVoice,
     finally { readingRef.current = false; setAtReading(false) }
   }
 
+  const canSteer = streaming && !!onSteer
   const doSend = () => {
     const v = value.trim()
+    if (canSteer) {
+      if (!v || files.length || v.startsWith('/')) return
+      void onSteer!(v).then(ok => { if (ok) setValue('') })
+      return
+    }
     if (!v || streaming || readingRef.current) return
     onSend(v, files)
     setValue(''); setFiles([]); setSlashQuery(null); setAtQuery(null)
@@ -317,8 +325,8 @@ export default function SendBox({ streaming, onStop, onSend, onCommand, onVoice,
       )}
 
       <div className="sendbox-shell field-container rounded-2xl transition-[background-color,border-color,box-shadow] duration-300 shadow-lg">
-        <textarea ref={taRef} rows={2} value={value} disabled={streaming}
-          placeholder='给小语发消息…　"/" 命令 · "@ 引用文件'
+        <textarea ref={taRef} rows={2} value={value} disabled={streaming && !canSteer}
+          placeholder={canSteer ? '插一句话，下一步就按它调整（Enter 发送）' : '给小语发消息…　"/" 命令 · "@ 引用文件'}
           role="combobox"
           aria-expanded={showSlash || showAt}
           aria-label="消息输入框"
@@ -392,11 +400,19 @@ export default function SendBox({ streaming, onStop, onSend, onCommand, onVoice,
           </div>
           <div className="composer-submit">
           {streaming ? (
+            <>
+            {canSteer && value.trim() && (
+              <button onClick={doSend} title="插话 (Enter)" aria-label="发送插话"
+                className="press btn-send h-7 w-7 rounded-full text-white flex items-center justify-center touch-hit">
+                <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><polyline points="12 19 12 5"/><polyline points="5 12 12 5 19 12"/></svg>
+              </button>
+            )}
             <button onClick={onStop}
               className="h-7 w-7 rounded-full bg-red-500/90 text-white flex items-center justify-center hover:bg-red-500 transition-colors touch-hit"
               title="停止" aria-label="停止生成">
               <span className="w-2.5 h-2.5 bg-white rounded-[2px]" />
             </button>
+            </>
           ) : (
             <button onClick={doSend} title="发送 (Enter)" aria-label="发送消息"
               className="press btn-send h-7 w-7 rounded-full text-white flex items-center justify-center disabled:opacity-40 touch-hit"

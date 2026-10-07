@@ -939,6 +939,23 @@ export default function ChatArea({ compactHeader, rightPanel, onRightPanel, onVo
     }
   }
 
+  // 中途插话：任务跑着时输入框不锁，发出去的话在下一步模型调用前送达，不用停掉重派。
+  const steer = async (raw: string) => {
+    const text = raw.trim()
+    const active = activeRunRef.current
+    if (!text || !active || active.status === 'stopping') return false
+    try {
+      await RunsApi.steer(active.runId, text)
+      if (isCurrentView() && activeRunRef.current?.runId === active.runId)
+        updStream(p => ({ ...p, notes: [...p.notes, `已插话：${text.slice(0, 80)}`] }))
+      return true
+    } catch (error: any) {
+      const msg = String(error?.message || error)
+      toast(/409|not_steerable/.test(msg) ? '这一轮已经收尾，插话没送到；等它结束后直接发新消息。' : `插话失败：${msg}`, 'error')
+      return false
+    }
+  }
+
   const resumeRun = async (run: RunSummary) => {
     if (streamRef.current || !run?.id || run.sessionId !== sessionIdRef.current) return
     try {
@@ -1311,7 +1328,7 @@ export default function ChatArea({ compactHeader, rightPanel, onRightPanel, onVo
       )}
       <div className="mobile-composer border-t border-pi-border bg-pi-bg1 px-3 sm:px-4 py-2.5 flex-shrink-0">
         <div className="chat-reading-column mx-auto">
-          <SendBox key={sessionViewKey} streaming={!!stream} onStop={stop} onSend={send} onCommand={runCommand}
+          <SendBox key={sessionViewKey} streaming={!!stream} onStop={stop} onSend={send} onSteer={steer} onCommand={runCommand}
             onOpenCall={() => setVoiceOpen(true)}
             voiceBusy={voiceBusy} onVoice={handleVoice} onVoiceTextReady={fn => { voiceTextRef.current = fn }}
             sessionId={currentSessionId} ensureSession={ensureSessionId}

@@ -6,7 +6,7 @@
 .composer-actions .touch-hit::after { inset: 0; pointer-events: none; }
 .composer-actions .composer-call { background: var(--pi-accent-soft); color: var(--pi-accent); }
 .composer-actions .composer-call:hover:not(:disabled) { background: var(--pi-bg3); color: var(--pi-text); }
-.composer-submit { display: flex; flex: 0 0 auto; margin-left: 8px; }
+.composer-submit { display: flex; flex: 0 0 auto; gap: 6px; margin-left: 8px; }
 .composer-submit > button { min-width: var(--composer-control-width); min-height: var(--composer-control-height); flex-shrink: 0; }
 .composer-submit .touch-hit::after { inset: 0; pointer-events: none; }
 .composer-toolbar button:focus-visible { outline: 2px solid var(--pi-accent); outline-offset: 2px; }

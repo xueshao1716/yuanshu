@@ -398,3 +398,57 @@ test('真实 checkpoint writer 事件不会把 canonical checkpointKind 覆盖�
     assert.deepEqual(contexts[1].checkpoint.toolPlan, toolPlan)
   } finally { eventLog.close(); fs.rmSync(rootDir, { recursive: true, force: true }) }
 })
+
+test('steer 在执行中排队并由引擎取走；结束后拒绝；未消费的留痕', async () => {
+  let release, seen = null
+  const gate = new Promise(resolve => { release = resolve })
+  const fx = fixture(async (_req, res, body) => {
+    res.writeHead(200, { 'Content-Type': 'text/event-stream' })
+    await gate
+    seen = body.__runContext.steering.take()
+    res.end()
+  })
+  try {
+    const run = fx.manager.create({ sessionId: 'steer', clientRequestId: 'one', message: 'work' })
+    await waitFor(() => fx.manager.get(run.id)?.status === 'running')
+    assert.throws(() => fx.manager.steer(run.id, '  '), e => e.code === 'invalid_request')
+    fx.manager.steer(run.id, '换个方向：直接改 ea1006d0')
+    fx.manager.steer(run.id, '第二句')
+    release()
+    await waitFor(() => fx.manager.get(run.id)?.status === 'completed')
+    assert.deepEqual(seen, ['换个方向：直接改 ea1006d0', '第二句'])
+    assert.throws(() => fx.manager.steer(run.id, 'late'), e => e.code === 'run_not_steerable')
+    assert.throws(() => fx.manager.steer('nope', 'x'), e => e.code === 'run_not_found')
+    const types = fx.eventLog.readAfter(run.id, 0).map(e => e.type)
+    assert.equal(types.filter(t => t === 'steer_queued').length, 2)
+    assert.ok(!types.includes('steer_unused'))
+  } finally { fx.cleanup() }
+})
+
+test('steer 进来但引擎没取（已过最后一轮）→ steer_unused 留痕；有 sink 时直接投递', async () => {
+  let release, sunk = []
+  const gate = new Promise(resolve => { release = resolve })
+  const fx = fixture(async (_req, res, body) => {
+    res.writeHead(200, { 'Content-Type': 'text/event-stream' })
+    await gate
+    res.end()
+  })
+  const fx2 = fixture(async (_req, res, body) => {
+    body.__runContext.steering.sink = t => sunk.push(t)
+    res.writeHead(200, { 'Content-Type': 'text/event-stream' })
+    await gate
+    res.end()
+  })
+  try {
+    const run = fx.manager.create({ sessionId: 'steer2', clientRequestId: 'one', message: 'work' })
+    const run2 = fx2.manager.create({ sessionId: 'steer3', clientRequestId: 'one', message: 'work' })
+    await waitFor(() => fx.manager.get(run.id)?.status === 'running' && fx2.manager.get(run2.id)?.status === 'running')
+    fx.manager.steer(run.id, '太晚了')
+    fx2.manager.steer(run2.id, '走原生')
+    release()
+    await waitFor(() => fx.manager.get(run.id)?.status === 'completed' && fx2.manager.get(run2.id)?.status === 'completed')
+    assert.ok(fx.eventLog.readAfter(run.id, 0).some(e => e.type === 'steer_unused' && e.data.count === 1))
+    assert.deepEqual(sunk, ['走原生'])
+    assert.ok(!fx2.eventLog.readAfter(run2.id, 0).some(e => e.type === 'steer_unused'))
+  } finally { fx.cleanup(); fx2.cleanup() }
+})
