@@ -1,6 +1,7 @@
 import {describeFailure} from './diagnostics.mjs';
 import {designValidationDetails} from './designs.mjs';
 import {blocker} from './policy-diagnostics.mjs';
+import {commandValidationDetails} from './control-transition.mjs';
 
 const denied=new Set(['invalid_command','invalid_payload','invalid_design','invalid_policy','revision_conflict','idempotency_conflict',
   'identity_denied','identity_expired','policy_disabled','policy_expired','request_denied','permission_expansion','population_limit',
@@ -18,7 +19,7 @@ export function createFailureReporting({history,controls,diagnostics}) {
         report=await diagnostics.preflight(query);}catch{}
     }
     let audit;try{audit=await history.record(command,actor,error.message);}catch{audit={recorded:false,reason:'audit_unavailable'};}
-    const validation=designValidationDetails(error);
+    const validation=designValidationDetails(error)??commandValidationDetails(error);
     const nextAction=code==='permission_expansion'?'本次修订扩大权限，不能自行批准；文本执行器使用 tools=[]。请核对现有授权，不要重复原请求。':
       code==='revision_conflict'?'状态已更新，重新读取当前版本并核对后再提交新请求。':
       validation?'按 field 和 expected 修正格式后，重新读取版本并使用新 requestId。':

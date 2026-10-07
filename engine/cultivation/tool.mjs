@@ -2,6 +2,7 @@ import {exact} from './control-state.mjs';
 import {getTeamToolContext} from '../team-tool-context.mjs';
 import {CULTIVATION_DESIGN_SCHEMA} from './design-schema.mjs';
 import {designValidationDetails} from './designs.mjs';
+import {commandValidationDetails} from './control-transition.mjs';
 import {cultivationFailureDetails} from './diagnostics.mjs';
 
 const actions=['overview','agents','designs','runs','experience','preflight','models','denials','learning.context','design.submit','design.revise','agent.register','agent.adopt','run.submit','learning.decide','asset.bind'];
@@ -20,6 +21,7 @@ const description='智能体培养：由小语自己设计和推进，先在对�
   'goals和curriculum各含1至32个不重复非空字符串；课程每阶段把标题、内容和过关标准写进同一字符串，不传对象。'+
   'appearance/clothing/voice 各为 {description,asset:null 或 {id,version}},permissions={model,tools:[],dataScopes:[],remote,costUpperBoundCents},'+
   'protectedProposalRefs:[]。格式错误返回field和expected，保留设计内容修正格式，重新读取revision并用新requestId重试；不必搜索引擎源码。'+
+  'designs 按提交先后排列，越靠后越新；修订最新一份就用列表最后一条的 id 作 parentId。培养数据只经本工具读写，不要去磁盘 grep 找时间戳。'+
   '策略关闭仍可提交草稿，但注册、采用及运行必须满足用户授权。返回retryable=false时停止重复调用，按nextAction说明等待用户在授权与资源中会话确认。'+
   '本阶段tools=[]是正常且推荐的文本培养设计，不要为让个体能工作而加工具；培养设计不得包含电脑、文件、终端、密码或凭据权限，电脑操作另有独立授权且默认关闭；HTTP模型需要remote=true，只有用户策略已明确允许时才可修订此标记。'+
   '无真实设计时先向用户说明，不能预填演示人物。无独立证据的任务输出只是待核验假设；失败、取消或未知结果仅为执行记录，不是已核验知识。';
@@ -46,7 +48,7 @@ export async function cultivationTool(runtime,args,host) {
     const result=read?await runtime.readMother(args,host.executionIdentity):await runtime.execute(args,'mother',host.executionIdentity);
     return {text:JSON.stringify(result),isError:false};
   }catch(error){
-    const details=cultivationFailureDetails(error) || designValidationDetails(error) || (Object.hasOwn(recovery,error?.message)
+    const details=cultivationFailureDetails(error) || designValidationDetails(error) || commandValidationDetails(error) || (Object.hasOwn(recovery,error?.message)
       ? {error:error.message,retryable:false,nextAction:recovery[error.message]} : null);
     return {text:details?JSON.stringify(details):/^cultivation_[a-z_]+$/.test(error?.message)?error.message:'cultivation_unavailable',isError:true};
   }

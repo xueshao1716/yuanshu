@@ -183,3 +183,23 @@ test('misspelled action is a format error, not an identity denial', async t => {
   assert.equal(denied.retryable,false);
   assert.match(denied.nextAction,/不是授权问题/);
 });
+
+test('invalid command names the missing field without echoing input values', async t => {
+  const {cultivationTool} = await import('../../engine/cultivation/tool.mjs'), f = await controlFixture(t);
+  const runtime = createCultivationRuntime({wsRoot: f.root, identityAdapters: {
+    resolveMother: s => s === f.mother && s.active ? {actorId:'fixture-mother',originId:'fixture-run'} : null}});
+  const ctx = {executionIdentity:f.mother};
+  const {expectedRevision, ...noRev} = f.command('design.submit', {design:draft()});
+  const before = f.store.read('control');
+  const r1 = await cultivationTool(runtime, noRev, ctx);
+  assert.equal(r1.isError, true);
+  const d1 = JSON.parse(r1.text);
+  assert.equal(d1.error, 'cultivation_invalid_command');
+  assert.equal(d1.field, 'expectedRevision');
+  assert.match(d1.expected, /revision/);
+  const r2 = await cultivationTool(runtime, f.command('design.revise', {parentId:'secret-short-id', design:draft()}), ctx);
+  const d2 = JSON.parse(r2.text);
+  assert.equal(d2.field, 'payload.parentId');
+  assert.ok(!r2.text.includes('secret-short-id'));
+  assert.deepEqual(f.store.read('control'), before);
+});

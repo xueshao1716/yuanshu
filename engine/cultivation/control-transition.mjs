@@ -6,13 +6,31 @@ const fields = {'policy.set': ['policy'], 'design.submit': ['design'],
   'design.revise': ['parentId', 'design'], 'agent.register': ['designId'],
   'agent.pause': ['agentId'], 'agent.resume': ['agentId'], 'agent.archive': ['agentId'],
   'agent.adopt': ['agentId', 'designId'], 'agent.rollback': ['agentId', 'designId']};
+// 2026-10-07 真机：design.revise 漏 expectedRevision 只得到「本次操作未通过校验」，模型猜了一轮才补上。
+// 只回字段名和期望格式，绝不回传输入值。
+const commandErrors = new WeakSet();
+const badCommand = (field, expected) => {
+  const error = Object.assign(new Error('cultivation_invalid_command'), {field, expected});
+  commandErrors.add(error);
+  throw error;
+};
+export const commandValidationDetails = error => commandErrors.has(error)
+  ? {error:'cultivation_invalid_command', field:error.field, expected:error.expected} : null;
+const TOP = ['action', 'payload', 'requestId', 'expectedRevision'];
 export function commandKinds(c) {
-  if (!exact(c, ['action', 'payload', 'requestId', 'expectedRevision']) || !id(c.requestId) ||
-      !Number.isSafeInteger(c.expectedRevision) || c.expectedRevision < 0 ||
-      !Object.hasOwn(fields, c.action) || !exact(c.payload, fields[c.action]))
-    throw new Error('cultivation_invalid_command');
+  if (!c || typeof c !== 'object' || Array.isArray(c)) badCommand('command', `对象，字段恰为：${TOP.join(', ')}`);
+  const missing = TOP.find(k => !Object.hasOwn(c, k));
+  if (missing) badCommand(missing, missing === 'expectedRevision'
+    ? '必填：非负整数，取 designs/overview 顶层 revision' : missing === 'requestId' ? '必填：新的 UUID' : `必填；顶层字段恰为：${TOP.join(', ')}`);
+  const extra = Object.keys(c).find(k => !TOP.includes(k));
+  if (extra) badCommand(extra, `不允许的顶层字段；顶层字段恰为：${TOP.join(', ')}`);
+  if (!id(c.requestId)) badCommand('requestId', '新的 UUID（小写 8-4-4-4-12）');
+  if (!Number.isSafeInteger(c.expectedRevision) || c.expectedRevision < 0)
+    badCommand('expectedRevision', '非负整数，取 designs/overview 顶层 revision');
+  if (!Object.hasOwn(fields, c.action)) badCommand('action', Object.keys(fields).join(' | '));
+  if (!exact(c.payload, fields[c.action])) badCommand('payload', `${c.action} 的 payload 字段恰为：${fields[c.action].join(', ')}`);
   for (const key of ['agentId', 'designId', 'parentId'])
-    if (Object.hasOwn(c.payload, key) && !id(c.payload[key])) throw new Error('cultivation_invalid_command');
+    if (Object.hasOwn(c.payload, key) && !id(c.payload[key])) badCommand(`payload.${key}`, '完整 UUID（不能截短）');
   return ['design.submit', 'design.revise', 'agent.register', 'agent.adopt'].includes(c.action) ? ['mother'] : ['human'];
 }
 const fail = reason => {throw new Error(`cultivation_${reason}`);};
