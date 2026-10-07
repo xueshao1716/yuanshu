@@ -273,3 +273,11 @@ test("engine/tools 执行器工厂（createUnifiedToolExecutor）", (t) => {
     assert.equal(r.think, "分析…");
   });
 });
+
+// 2026-10-07 真机：git-bash 的 taskkill //F 与 /F 后置写法曾绕过拦截。
+test("DANGEROUS_CMD_RE 拦住 taskkill 强杀的各种写法，放过普通查询", () => {
+  for (const c of ["taskkill /F /PID 1", "taskkill //F //PID 1", "taskkill /PID 1 /F", "taskkill //PID 1 //F", "TASKKILL /im node.exe /f"])
+    assert.ok(DANGEROUS_CMD_RE.test(c), c);
+  for (const c of ["taskkill /PID 1", "tasklist /FI \"PID eq 1\"", "taskkill /fi \"x\""])
+    assert.ok(!DANGEROUS_CMD_RE.test(c), c);
+});
