@@ -116,3 +116,10 @@ test('run-source jobs queued with a placeholder version rebind once readable; ot
  for(let i=0;i<3&&(await f.store.get(bad.id)).state==='queued';i++)await worker.tick();
  assert.equal((await f.store.get(bad.id)).reason,'source_changed');
 });
+
+// 2026-10-07 真机：两份 xlsx 以 source_format_unsupported 永久挂在 blocked。
+test('unsupported binary source is settled as skipped, not left blocked',async t=>{
+ let root;const f=await fixture(t,{collect:()=>{throw Object.assign(new Error('source_format_unsupported'),{code:'source_format_unsupported'});}});root=f.wsRoot;
+ await f.worker.tick();const job=await f.store.get(f.job.id);
+ assert.equal(job.state,'skipped');assert.equal(job.reason,'source_format_unsupported');assert.ok(root);
+});

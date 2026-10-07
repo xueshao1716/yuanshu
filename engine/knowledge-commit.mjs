@@ -54,7 +54,8 @@ export function knowledgeCommit(storage,now,fault=()=>{},sourceContext={}) {
           const snapshots=await collectLocalSources({wsRoot:storage.root,...sourceContext,sources:job.sources,policy:data.policy,now});
           if(digest(snapshots.map(s=>[s.locator,s.hash]))!==job.sourceVersion)fail('source_changed');
         }catch(e){
-          Object.assign(job,{state:'blocked',stage:'collecting',reason:/^source_[a-z_]+$/.test(e.code||'')?e.code:'source_unavailable',lease:null,revision:job.revision+1,updatedAt:now()});
+          const reason=/^source_[a-z_]+$/.test(e.code||'')?e.code:'source_unavailable';
+          Object.assign(job,{state:reason==='source_format_unsupported'?'skipped':'blocked',stage:'collecting',reason,lease:null,revision:job.revision+1,updatedAt:now()});
           recovered++;continue;
         }
         if(finish(data,journal))recovered++;

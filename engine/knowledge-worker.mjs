@@ -61,7 +61,9 @@ export function createKnowledgeWorker({store,collect,extract,validate,admission,
           if(transient&&++failures>=3)cooldownUntil=now()+30*60000;
           if(transient)await store.saveWorkerState({failures,cooldownUntil});
           const retry=reason==='foreground_busy'||error.name==='AbortError'||transient&&attempts<3;
-          const patch={state:retry?'retry_wait':transient?'failed':'blocked',reason,attempts,
+          // 2026-10-07 真机：两份 xlsx 以 source_format_unsupported 永久挂在 blocked，谁也解不开。
+          // 格式不支持不是「等人处理」，是确定的结论：直接收起（skipped），原文件仍在原处，需要时直接读文件。
+          const patch={state:retry?'retry_wait':transient?'failed':reason==='source_format_unsupported'?'skipped':'blocked',reason,attempts,
             nextAttemptAt:now()+(reason==='foreground_busy'?1000:attempts<2?60000:300000)+Math.floor(random()*10000)};
           try{job=await store.transition(job.id,guardFor(job),patch);}catch(e){if(!['policy_changed','stale_claim'].includes(e.code))throw e;}
         }

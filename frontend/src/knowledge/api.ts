@@ -40,7 +40,7 @@ const post = <T,>(path: string, body: unknown) => api<T>(path, { method: 'POST',
 export const KnowledgeApi = {
   status: () => api<KnowledgeStatus>('/api/knowledge/status'),
   policy: () => api<KnowledgePolicyData>('/api/knowledge/policy'),
-  models: () => api<Array<{ key: string; label: string; cost?: { input: number; output: number } }>>('/api/knowledge/models'),
+  models: () => api<Array<{ key: string; label: string; reasoning?: boolean; cost?: { input: number; output: number } }>>('/api/knowledge/models'),
   jobs: (offset: number) => api<{ items: KnowledgeJob[]; total: number }>(`/api/knowledge/jobs?offset=${offset}&limit=20`),
   job: (id: string) => api<KnowledgeJob>(`/api/knowledge/jobs/${encodeURIComponent(id)}`),
   updatePolicy: (patch: Partial<KnowledgePolicyData>, revision: number) => post<KnowledgePolicyData>('/api/knowledge/policy', { patch, revision }),
@@ -75,6 +75,7 @@ const reasons: Record<string, string> = {
   source_missing: '暂未找到可读的获准来源。可补充文件，或核对资料授权。',
   source_replaced: '已找到获准资料，由关联的新任务继续处理；本条保留历史。',
   no_authorized_sources: '当时没有授权任何资料目录或网址，已收起；授权后会自动重新查找。',
+  source_format_unsupported: '表格、压缩包等二进制文件不进知识库，已收起；原文件仍在原处，需要时直接让小语读文件。',
   source_path_denied: '该路径不可作为来源，请选择工作空间内的普通资料文件。',
   currency_mismatch: '价格币种与预算币种不一致，请核对价格；系统不会自动换算。',
 }
