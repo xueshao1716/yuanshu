@@ -201,6 +201,7 @@ const { createEmotionDisplay } = await import('./engine/emotion-display.mjs');
 const { createCompanionFacts } = await import('./engine/companion-facts.mjs');
 const { createCompanionStore } = await import('./engine/companion-store.mjs');
 const { createWechatBridge, createLoopbackChat } = await import('./engine/wechat-bridge.mjs');
+const emailBridge = await import('./engine/email-bridge.mjs');
 const { buildSoulGraph, readMemoryFiles } = await import('./engine/soul-graph.mjs');
 const { soulContextPrompt } = await import('./engine/soul-context.mjs');
 const { createCompanionDecision } = await import('./engine/companion-decision.mjs');
@@ -2463,6 +2464,25 @@ const API_ROUTES = [
   ["POST", "/api/wechat/logout", wechatAction(() => wechat.logout())],
   ["POST", "/api/wechat/settings", wechatAction(async (req) => wechat.setNotify((await readBody(req, 1)).notify))],
   ["POST", "/api/wechat/notify", wechatAction(async (req) => wechat.notifyOwner(String((await readBody(req, 1)).text || '').slice(0, 2000)))],
+  // 邮件接入：Gmail + Outlook，2026-10-08
+  ["GET", "/api/email/status", (res) => json(res, 200, emailBridge.status())],
+  ["GET", "/api/email/config", (res) => {
+    const cfg = emailBridge.getConfig();
+    // 脱敏：clientSecret 和 refreshToken 不返回给前端
+    const safe = { ...(cfg), accounts: (cfg.accounts||[]).map(a => ({ email: a.email, provider: a.provider, enabled: a.enabled, clientId: a.clientId, hasRefreshToken: !!a.refreshToken })) };
+    return json(res, 200, safe);
+  }],
+  ["POST", "/api/email/config", async (res, req) => {
+    const body = await readBody(req, 4);
+    emailBridge.saveConfig(body);
+    return json(res, 200, { ok: true });
+  }],
+  ["POST", "/api/email/start", (res) => { emailBridge.startPolling(60_000); return json(res, 200, emailBridge.status()); }],
+  ["POST", "/api/email/stop", (res) => { emailBridge.stopPolling(); return json(res, 200, emailBridge.status()); }],
+  ["POST", "/api/email/poll", async (res) => {
+    try { const mails = await emailBridge.pollNow(); return json(res, 200, { mails }); }
+    catch (e) { return json(res, 500, { error: String(e.message) }); }
+  }],
   ["GET", "/api/emotion", (res, req, url) => handleEmotion(res, url)],
   ["GET", "/api/companion/emotion", (res) => json(res, 200, companionEmotion.read())],
   ["GET", "/api/run/overview", withCache(60000, "run-overview", (res, req, url) => runApi.overview(res, req, url), { bypass: (_req, url) => url.searchParams.has("session") })],
@@ -3503,6 +3523,15 @@ function startServer() {
       connect: modelKey => { const model = voiceModels.resolve(modelKey); return connectVoiceProvider(model.key, model.modelKey); } });
     try { initTuiBridge(server, { token: CONFIG.token, cwd: WS_ROOT }); console.log("  TUI 桥接: ws://…/ws/tui 已就绪"); } catch {}
     try { wechat.boot(); const w = wechat.status(); if (w.loggedIn) console.log(`  微信接入: ${w.running ? '收发中' : '已登录，未开启'}`); } catch (e) { console.log('  微信接入: 启动失败', String(e?.message || e).slice(0, 80)); }
+    // 邮件桥：把微信通知函数传进去，按配置决定是否自动启动轮询
+    try {
+      emailBridge.setNotifyFn((msg) => wechat.notifyOwner(msg));
+      const emailCfg = emailBridge.getConfig();
+      if ((emailCfg.accounts || []).some(a => a.enabled)) {
+        emailBridge.startPolling(60_000);
+        console.log('  邮件桥: 轮询已启动');
+      }
+    } catch (e) { console.log('  邮件桥: 启动失败', String(e?.message || e).slice(0, 80)); }
     console.log("");
     console.log("╭──────────────────────────────────────────────╮");
     console.log("│                元枢已启动                    │");
