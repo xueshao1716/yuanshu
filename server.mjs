@@ -2104,6 +2104,21 @@ process.on("uncaughtException", (err) => {
   try { server?.close?.(); } catch {}
   setTimeout(() => process.exit(1), 2000).unref();
 });
+// 2026-10-07 真机：10-06 23:29 服务以 code=1 退出，无 crash.log、无 stderr，分不清是内部 exit 还是被外部结束。
+// 记下谁调了 process.exit 与退出码/运行时长；若下次退出 crash.log 里没有 [exit] 行，就是被外部强杀（不触发 exit 事件）。
+let exitCaller = "";
+const rawExit = process.exit.bind(process);
+process.exit = (code) => {
+  exitCaller = String(new Error("process.exit").stack || "").split("\n").slice(2, 7).map(s => s.trim()).join(" <- ");
+  return rawExit(code);
+};
+process.on("exit", (code) => {
+  try {
+    const up = Math.round(process.uptime());
+    fs.appendFileSync(path.join(__dirname, "crash.log"),
+      `[${new Date().toLocaleString("zh-CN")}] [exit] code=${code} uptime=${up}s pid=${process.pid} caller=${exitCaller || "(无 process.exit 调用：事件循环自然结束或 exitCode)"}\n`);
+  } catch {}
+});
 
 // ── 路由表（声明式：method + 匹配器 + handler，替代 if/else 链）──
 // 匹配器：字符串=精确 pathname；正则=捕获组传给 handler（$1 $2 ...）
