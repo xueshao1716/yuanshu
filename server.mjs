@@ -2698,6 +2698,18 @@ const API_ROUTES = [
   ["GET", "/api/color-prefs", (res) => json(res, 200, loadColorPrefs())],
   ["POST", "/api/color-prefs", async (res, req) => { const b = await readBody(req, 12); return json(res, 200, saveColorPrefs(b || {})) }],
   ["GET", "/api/system/info", (res) => json(res, 200, buildSystemInfo(WS_ROOT, AGENT_DIR))],
+  // 2026-10-07 真机：安装包首页没有令牌管理入口，安装好了改不了令牌。
+  ["GET", "/api/system/token", (res) => json(res, 200, { token: CONFIG.token, tokenFile: CONFIG.tokenFile })],
+  ["POST", "/api/system/token", async (res, req) => {
+    const body = await readBody(req);
+    const raw = typeof body === "string" ? JSON.parse(body) : body;
+    const newToken = String(raw?.token || "").trim();
+    if (!newToken || newToken.length < 8) return json(res, 400, { error: "令牌至少 8 个字符" });
+    const fs2 = (await import("node:fs")).default;
+    fs2.writeFileSync(CONFIG.tokenFile, newToken, { mode: 0o600 });
+    CONFIG.token = newToken;
+    return json(res, 200, { ok: true });
+  }],
   ["POST", "/api/system/network", async (res, req) => {
     const b = await readBody(req);
     const r = saveNetworkConfig(AGENT_DIR, b);

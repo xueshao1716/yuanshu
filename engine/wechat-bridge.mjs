@@ -74,8 +74,25 @@ export async function readRunStream(res) {
       if (!data) continue;
       let ev;
       try { ev = JSON.parse(data); } catch { continue; }
-      if (ev.type === "delta") answer += ev.data?.text || "";
-      else if (["completed", "failed", "stopped", "interrupted"].includes(ev.type)) {
+      if (ev.type === "delta") {
+        const chunk = ev.data?.text || "";
+        answer += chunk;
+        // 2026-10-07 真机：推理模型发散，answer 里出现大量重复 token（fertilit...）。
+        // 每 200 字检测一次：取末 120 字，统计最高频 4-gram 占比，超 40% 就截断。
+        if (answer.length > 0 && answer.length % 200 === 0) {
+          const tail = answer.slice(-120);
+          const freq = {};
+          for (let i = 0; i <= tail.length - 4; i++) {
+            const g = tail.slice(i, i + 4);
+            freq[g] = (freq[g] || 0) + 1;
+          }
+          const maxFreq = Math.max(...Object.values(freq), 0);
+          if (maxFreq / (tail.length - 3) > 0.4) {
+            answer = answer.trimEnd() + "…（回复似乎出了点问题，截断了。）";
+            ended = "completed"; break;
+          }
+        }
+      } else if (["completed", "failed", "stopped", "interrupted"].includes(ev.type)) {
         ended = ev.type;
         failure = String(ev.data?.message || ev.data?.reason || ev.type);
         break;
@@ -218,8 +235,24 @@ export function createWechatBridge({
     inbox[m.sender] = { text: preview(m.text, 60), contextToken: m.contextToken || "", at: now() };
     saveInbox();
     let done = false;
-    const ack = ackAfterMs > 0 ? setTimeout(() => { if (!done) void reply(acc, m.sender, "收到，这件事要多做一会儿，做完回你。", m.contextToken); }, ackAfterMs) : null;
-    ack?.unref?.();
+    // 2026-10-07 真机：固定话术「收到，这件事要多做一会儿」看多了烦。先轻读消息内容，生成一句贴着内容的简短开场，再跑主任务。
+    let quickAckTimer = null;
+    if (ackAfterMs > 0) {
+      quickAckTimer = setTimeout(async () => {
+        if (done) return;
+        try {
+          // 轻量调用：只要一句话，走非 owner 路径，不建 run
+          const quickSession = await sessionFor(m.sender);
+          const hint = await chat.ask(
+            `你正在处理这条消息，还需要一段时间。先回一句简短的中文，贴着消息内容，15字以内，不要解释，不要说「好的」：${m.text.slice(0, 120)}`,
+            quickSession, { owner: false }
+          ).catch(() => null);
+          if (!done) await reply(acc, m.sender, hint && hint.length < 60 ? hint : "在看，做完回你。", m.contextToken);
+        } catch {}
+      }, ackAfterMs);
+      quickAckTimer.unref?.();
+    }
+    const ack = quickAckTimer; // alias，finally 里统一 clear
     try {
       let answer;
       // 只有扫码绑定的本人算「伙伴亲自发起」；陌生发信人拿不到母体执行身份

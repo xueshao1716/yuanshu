@@ -266,8 +266,13 @@ test("长任务超过时限先回一句在处理，答完再回正文", async ()
   const dir = tmp(), w = fakeWorld();
   let release;
   const gate = new Promise((r) => { release = r; });
-  const ask = w.chat.ask;
-  w.chat.ask = async (t, sid, o) => { await gate; return ask(t, sid, o); };
+  const origAsk = w.chat.ask;
+  w.chat.ask = async (t, sid, o) => {
+    // ack 快速调用的提示词以「你正在处理」开头，立即返回简短文本；主任务等 gate。
+    if (t.startsWith("你正在处理")) return "在看，做完回你。";
+    await gate;
+    return origAsk(t, sid, o);
+  };
   fs.writeFileSync(path.join(dir, "account.json"), JSON.stringify({ token: "T", botId: "bot@im.bot", userId: "owner@im.wechat" }));
   const b = createWechatBridge({ dir, client: w.client, chat: w.chat, sleep: () => tick(), ackAfterMs: 20 });
   b.start();

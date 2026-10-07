@@ -39,6 +39,23 @@ export default function System() {
 
   const [update, setUpdate] = useState<any>(null)
   const [checking, setChecking] = useState(false)
+  const [tokenVal, setTokenVal] = useState('')
+  const [tokenInput, setTokenInput] = useState('')
+  const [tokenMsg, setTokenMsg] = useState('')
+  const [tokenBusy, setTokenBusy] = useState(false)
+  const [tokenVisible, setTokenVisible] = useState(false)
+  useEffect(() => {
+    SystemApi.token().then((r: any) => { setTokenVal(r.token); setTokenInput(r.token) }).catch(() => {})
+  }, [])
+  const saveToken = async () => {
+    if (!tokenInput.trim() || tokenInput.trim().length < 8) { setTokenMsg('令牌至少 8 个字符'); return }
+    setTokenBusy(true); setTokenMsg('')
+    try {
+      await SystemApi.changeToken(tokenInput.trim())
+      setTokenVal(tokenInput.trim()); setTokenMsg('已保存，刷新页面生效')
+    } catch (e: any) { setTokenMsg(e?.message || '保存失败') }
+    finally { setTokenBusy(false) }
+  }
   const [applying, setApplying] = useState(false)
   const [applyMsg, setApplyMsg] = useState('')
   const checkUpdate = async () => {
@@ -170,6 +187,43 @@ export default function System() {
         <WechatPanel />
 
         <ComputerUsePanel />
+
+        <section data-slot="token-management" className="mb-8">
+          <SectionHeader title="访问令牌" description="浏览器访问本服务所需的令牌，可在此查看或修改。改完刷新页面生效。" />
+          <div className="panel !p-5 space-y-3 max-w-xl">
+            <div className="flex items-center gap-2">
+              <input
+                className="input-pi font-mono text-xs flex-1"
+                type={tokenVisible ? 'text' : 'password'}
+                value={tokenInput}
+                onChange={e => setTokenInput(e.target.value)}
+                onKeyDown={e => e.key === 'Enter' && saveToken()}
+                placeholder="访问令牌"
+              />
+              <button
+                type="button"
+                className="btn-ghost text-xs px-3 py-1.5 shrink-0"
+                onClick={() => setTokenVisible(v => !v)}
+              >{tokenVisible ? '隐藏' : '显示'}</button>
+            </div>
+            {tokenMsg && <p className={`text-xs ${tokenMsg.includes('已保存') ? 'text-pi-green' : 'text-pi-red'}`}>{tokenMsg}</p>}
+            <div className="flex gap-2">
+              <button type="button" className="btn-primary text-xs px-4 py-1.5" onClick={saveToken} disabled={tokenBusy || !tokenInput.trim()}>
+                {tokenBusy ? '保存中…' : '保存'}
+              </button>
+              <button type="button" className="btn-ghost text-xs px-4 py-1.5" onClick={() => { setTokenInput(tokenVal); setTokenMsg('') }}>
+                重置
+              </button>
+              <button type="button" className="btn-ghost text-xs px-4 py-1.5" onClick={() => {
+                const t = Array.from(crypto.getRandomValues(new Uint8Array(24))).map(b => b.toString(16).padStart(2,'0')).join('')
+                setTokenInput(t); setTokenMsg('')
+              }}>
+                生成新令牌
+              </button>
+            </div>
+            <p className="text-[11px] text-pi-dim2">令牌写在服务目录的 .token 文件里，服务端保留一份明文；请勿分享给他人。</p>
+          </div>
+        </section>
 
         <section data-slot="system-primary" className="grid grid-cols-1 lg:grid-cols-2 gap-5 mb-8">
           <div>
