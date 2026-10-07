@@ -79,3 +79,12 @@ test('空体仍然解析成 {}（调用方普遍依赖这个默认值）', async
     assert.deepEqual(await r.json(), {});
   } finally { await close(); }
 });
+
+// 2026-10-05 真机：Git Bash 的 curl -d 把中文按 GBK 发出，宽松解码把审核人/驳回理由写成 U+FFFD 永久落盘。
+test('非 UTF-8 请求体直接 400 并说明怎么发，不让乱码进库', async () => {
+  const gbk = Buffer.concat([Buffer.from('{"reviewer":"'), Buffer.from([0xc4, 0xe3, 0xba, 0xc3]), Buffer.from('"}')]);
+  const req = new PassThrough();
+  const result = readBody(req);
+  req.end(gbk);
+  await assert.rejects(result, e => e.statusCode === 400 && e.code === 'invalid_encoding' && /UTF-8/.test(e.message));
+});
