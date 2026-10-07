@@ -82,37 +82,60 @@ export function normalizeMessage(message, selfId) {
   };
 }
 
-// 微信纯文本安全化（2026-10-06）：微信不渲染 markdown，表格/井号/星号全是符号墙。
-// 发送前剥掉渲染语法，保留文字。幂等：已转换文本再过一遍不变。
+// 微信排版化（2026-10-07 升级）：微信不渲染 markdown，但纯文本也有版式——
+// 把语法"翻译"成微信友好的 Unicode 版式，而不是剥光：
+// 标题给层级（〖〗/▎/▸）、强调给「」、表格变竖式卡片、列表变 •/①、代码块变竖线框。
+// 幂等：已转换文本再过一遍不变。
 export function stripMarkdownForWechat(text) {
   if (!text || typeof text !== "string") return text || "";
-  let t = text;
-  // 1) 代码围栏：删 ``` 行，保留内容
-  t = t.replace(/```[^\n]*\n?/g, "").replace(/```/g, "");
-  // 2) 表格：分隔行整行删；数据行 | a | b | → · a：b
-  t = t.replace(/^[ \t]*\|?[ \t]*:?-{2,}[^\n]*$/gm, (line) => (line.includes("|") ? "" : line));
-  t = t.replace(/^[ \t]*\|(.+)\|[ \t]*$/gm, (_, row) => {
-    const cells = row.split("|").map((c) => c.trim()).filter(Boolean);
-    if (!cells.length) return "";
-    return "· " + cells.join("：");
+  let t = text.replace(/\r\n?/g, "\n");
+  const indent = (sp) => "　".repeat(Math.floor(sp.length / 2));
+  // 1) 代码围栏 → 竖线框
+  t = t.replace(/```([^\n]*)\n([\s\S]*?)```/g, (_, _lang, code) => {
+    const lines = code.replace(/\n$/, "").split("\n").map((l) => `│ ${l}`);
+    return ["┌──────", ...lines, "└──────"].join("\n");
   });
-  t = t.replace(/^[ \t]*\|(.+)$/gm, (_, row) => "· " + row.split("|").map((c) => c.trim()).filter(Boolean).join("："));
-  // 3) 标题：删井号留文字
+  t = t.replace(/```/g, "");
+  // 2) 表格 → 竖式卡片：分隔行删；首行当表头；一行一条 ▪，多列逐行缩进
+  t = t.replace(/(?:^[ \t]*\|[^\n]*(?:\n|$))+/gm, (block) => {
+    const cells = block.trim().split("\n").map((l) => l.trim().replace(/\\\|/g, "\u0001").replace(/^\|/, "").replace(/\|[ \t]*$/, "").split("|").map((c) => c.trim().replace(/\u0001/g, "|")));
+    const isSep = (row) => row.every((c) => c === "" || /^:?-{2,}:?$/.test(c));
+    const body = cells.filter((r) => r.some((c) => c) && !isSep(r));
+    if (!body.length) return "";
+    if (body.length === 1) return body[0].filter(Boolean).map((v) => `• ${v}`).join("\n");
+    const [head, ...data] = body;
+    const card = data.map((row) => row.map((v, i) => (head[i] && v ? (i === 0 ? `▪ ${head[i]}：${v}` : `　${head[i]}：${v}`) : i === 0 ? `▪ ${v || "—"}` : v ? `　${v}` : "")).filter((l, i) => l || i === 0).join("\n")).join("\n\n");
+    return card + "\n"; // 补尾换行：表格块吞掉了行尾 \n，不补会吃掉与下文的空行
+  });
+  // 3) 标题层级：## ▎、### ▸、# 〖〗（长在前防误吃），残留井号兜底删
+  t = t.replace(/^[ \t]{0,3}##[ \t]+([^\n]+)$/gm, "▎$1");
+  t = t.replace(/^[ \t]{0,3}###[ \t]+([^\n]+)$/gm, "▸ $1");
+  t = t.replace(/^[ \t]{0,3}#[ \t]+([^\n]+)$/gm, "〖$1〗");
   t = t.replace(/^[ \t]{0,3}#{1,6}[ \t]+/gm, "");
-  // 4) 粗体/斜体
-  t = t.replace(/\*\*([^*]+)\*\*/g, "$1").replace(/__([^_]+)__/g, "$1");
-  t = t.replace(/(^|[\s，。；：（「])\*([^*\n]+)\*/g, "$1$2").replace(/(^|[\s，。；：（「])_([^_\n]+)_/g, "$1$2");
-  // 5) 行内代码
-  t = t.replace(/`([^`]+)`/g, "$1");
-  // 6) 链接 [t](u) → t（u）
+  // 4) 行内代码、粗体、斜体（先代码再星号，防 `a*b` 误吞）
+  t = t.replace(/`([^`\n]+)`/g, "「$1」");
+  t = t.replace(/\*\*([^*\n]+)\*\*/g, "「$1」").replace(/__([^_\n]+)__/g, "「$1」");
+  t = t.replace(/(^|[\s，。；：（「」(【])\*([^*\n]+)\*/g, "$1$2").replace(/(^|[\s，。；：（「」(【])_([^_\n]+)_/g, "$1$2");
+  // 5) 链接 [t](u) → t（u）
   t = t.replace(/\[([^\]]+)\]\(([^)]+)\)/g, "$1（$2）");
-  // 7) 引用符
-  t = t.replace(/^[ \t]{0,3}>[ \t]?/gm, "");
-  // 8) 无序列表符号统一成 ·
-  t = t.replace(/^([ \t]*)[-*+][ \t]+/gm, "$1· ");
-  // 9) 压缩 3 行以上连续空行
-  t = t.replace(/\n{3,}/g, "\n\n");
-  return t.trim();
+  // 6) 引用行 → ┃ 前缀
+  t = t.replace(/^[ \t]{0,3}>+[ \t]?/gm, "┃ ");
+  // 7) 分隔线 → 长横线
+  t = t.replace(/^[ \t]{0,3}(-{3,}|\*{3,}|_{3,})[ \t]*$/gm, "────────");
+  // 8) 任务复选框 → ☐/☑（放无序列表前，避免被 • 吃掉）
+  t = t.replace(/^([ \t]*)[-*+][ \t]+\[( |x|X)\][ \t]*/gm, (_, sp, m) => indent(sp) + (m.trim() ? "☑ " : "☐ "));
+  // 9) 无序列表 → •（半角缩进两格折一全角）
+  t = t.replace(/^([ \t]*)[-*+][ \t]+/gm, (_, sp) => indent(sp) + "• ");
+  // 10) 有序列表 → ①②…⑳，超出保留数字
+  t = t.replace(/^([ \t]*)(\d{1,3})[.、)][ \t]+/gm, (_, sp, n) => {
+    const i = parseInt(n, 10);
+    const circ = "①②③④⑤⑥⑦⑧⑨⑩⑪⑫⑬⑭⑮⑯⑰⑱⑲⑳";
+    return indent(sp) + (i >= 1 && i <= 20 ? circ[i - 1] + " " : `${i}. `);
+  });
+  // 11) 中文后的「去掉前导半角空格（中文排版引号前不留空格）
+  t = t.replace(/([\u4e00-\u9fff，。；：、（」]) 「/g, "$1「");
+  // 12) 压缩 3 行以上连续空行
+  return t.replace(/\n{3,}/g, "\n\n").trim();
 }
 
 // 微信单条上限 2000 字：长回复按段落切开，尽量不从句子中间断。
