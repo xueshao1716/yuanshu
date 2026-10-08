@@ -10,7 +10,11 @@ const PORT = 8787;
 // 换盘、迁移、换机器都不用改。写死 "D:/pi-web" 时 watchdog 找不到 server.mjs，服务拉不起来。
 const WEB_DIR = __dirname;
 const LOCK = path.join(WEB_DIR, ".watchdog.lock");
-const LOG = path.join(WEB_DIR, "watchdog.log");
+// 2026-10-08 日志写到工作空间而非 WEB_DIR（Program Files 下无写权限）
+// 优先用 YUANSHU_CWD，fallback 到 USERPROFILE/pi-workspace，再 fallback 到 WEB_DIR
+const _logDir = process.env.YUANSHU_CWD || path.join(process.env.USERPROFILE || require('os').homedir(), 'pi-workspace');
+try { fs.mkdirSync(_logDir, { recursive: true }); } catch {}
+const LOG = (() => { try { const p = path.join(_logDir, 'watchdog.log'); fs.appendFileSync(p, ''); return p; } catch { return path.join(WEB_DIR, 'watchdog.log'); } })();
 let restartCount = 0;
 let lastRestartAt = 0;
 let child = null;
