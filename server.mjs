@@ -2151,7 +2151,7 @@ function handleAgentStatus(res) {
   json(res, 200, { busy, anyBusy: busy.length > 0 });
 }
 
-const RUNS_DIR = path.join(AGENT_DIR, "pi-web-runs");
+const RUNS_DIR = path.join(AGENT_DIR, "yuanshu-runs");
 const RUN_INSTANCE_ID = `${process.pid}-${Date.now().toString(36)}`;
 // 被压缩掉的工具结果原件归档到 agent 目录（与 pi-web-runs 同级）——
 // 不进用户工作区、不污染生成物，但给出的是**可执行的**回读路径。
@@ -3798,10 +3798,8 @@ ${rows.map((r) => `- [${r.status}${r.closed ? "/已结清" : ""}] ${r.text}\n  �
       const discoverDir = path.join(getAgentDir());
       fs.mkdirSync(discoverDir, { recursive: true });
       const disc = `# 元枢（个人智能系统）
-\n这是本机已安装的元枢 Web 工作台。\n\n- 访问地址: http://${CONFIG.host}:${CONFIG.port}\n- 访问令牌: 见服务器 .token 文件\n- 工作目录: ${CONFIG.cwd}\n- 一键打开: 运行 \`yuanshu\` 命令（兼容 \`pi-web\`）\n- 目录: ${__dirname}\n`;
+\n这是本机已安装的元枢 Web 工作台。\n\n- 访问地址: http://${CONFIG.host}:${CONFIG.port}\n- 访问令牌: 见服务器 .token 文件\n- 工作目录: ${CONFIG.cwd}\n- 一键打开: 运行 \`yuanshu\` 命令\n- 目录: ${__dirname}\n`;
       fs.writeFileSync(path.join(discoverDir, "元枢.md"), disc, "utf8");
-      // 旧文件名继续保留兼容，但内容和品牌统一为元枢。
-      fs.writeFileSync(path.join(discoverDir, "pi-web.md"), disc, "utf8");
       console.log(`  📍 已写入发现文件: ${path.join(discoverDir, "元枢.md")}`);
     } catch (e) {
       console.log(`  ⚠️ 发现文件写入失败: ${String(e?.message || e).slice(0, 60)}`);

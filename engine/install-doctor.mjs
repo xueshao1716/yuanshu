@@ -44,7 +44,7 @@ export async function runDoctor({ wsRoot, agentDir, piPackage, bashPath, port, r
   } catch {}
   add('models', '模型服务', keys > 0 ? 'ok' : 'fail', keys > 0 ? `已配置 ${keys} 个服务` : '还没有配置模型服务的 API Key，到「模型」页添加');
 
-  add('pi', 'pi 引擎', piPackage && fsMod.existsSync(piPackage) ? 'ok' : 'warn', piPackage && fsMod.existsSync(piPackage) ? '已就位' : '未找到，将只用元枢自研引擎');
+  add('pi', '兼容适配器', piPackage && fsMod.existsSync(piPackage) ? 'ok' : 'warn', piPackage && fsMod.existsSync(piPackage) ? '已就位' : '未找到（可选，不影响核心功能）');
 
   const dsh = platform === 'win32'
     ? await run(process.env.ComSpec || 'cmd.exe', ['/d', '/s', '/c', 'dsh --version'], { timeout: 10000 })

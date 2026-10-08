@@ -5,9 +5,11 @@ param([string]$Root = (Split-Path -Parent $PSScriptRoot))
 $ErrorActionPreference = 'Stop'
 $node = Join-Path $Root 'runtime\node\node.exe'
 $svc  = Join-Path $Root 'launcher\service.cjs'
+$vbs  = Join-Path $Root 'launcher\run-hidden.vbs'
 $user = "$env:USERDOMAIN\$env:USERNAME"
 try {
-  $action = New-ScheduledTaskAction -Execute $node -Argument ('"' + $svc + '"') -WorkingDirectory $Root
+  # 2026-10-08 用 wscript.exe 无窗口启动 node，避免托盘出现黑色控制台窗口
+  $action = New-ScheduledTaskAction -Execute 'wscript.exe' -Argument ('/B "' + $vbs + '"') -WorkingDirectory $Root
   $repeat = New-ScheduledTaskTrigger -Once -At (Get-Date).AddMinutes(1) -RepetitionInterval (New-TimeSpan -Minutes 5)
   $triggers = @((New-ScheduledTaskTrigger -AtLogOn -User $user), $repeat)
   $settings = New-ScheduledTaskSettingsSet -StartWhenAvailable -ExecutionTimeLimit (New-TimeSpan -Hours 0) -MultipleInstances IgnoreNew -RestartCount 3 -RestartInterval (New-TimeSpan -Minutes 1) -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -Hidden
@@ -20,6 +22,14 @@ try {
   $lnk = $ws.CreateShortcut((Join-Path $startup '元枢服务.lnk'))
   $lnk.TargetPath = Join-Path $Root 'launcher\yuanshu.exe'
   $lnk.Arguments = '--service-only'
+  $lnk.WorkingDirectory = $Root
+  $lnk.Save()
+  # 2026-10-08 fallback 也改用 wscript 无窗口启动
+  $startup = [Environment]::GetFolderPath('Startup')
+  $ws = New-Object -ComObject WScript.Shell
+  $lnk = $ws.CreateShortcut((Join-Path $startup '元枢服务.lnk'))
+  $lnk.TargetPath = 'wscript.exe'
+  $lnk.Arguments = '/B "' + $vbs + '"'
   $lnk.WorkingDirectory = $Root
   $lnk.Save()
   Write-Output ('STARTUP_FALLBACK ' + $_.Exception.Message)

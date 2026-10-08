@@ -127,22 +127,36 @@ Section "元枢" SecCore
     DetailPrint "正在注册开机自启并启动服务…"
     nsExec::ExecToLog 'powershell.exe -NoProfile -ExecutionPolicy Bypass -File "$INSTDIR\launcher\register-task.ps1" -Root "$INSTDIR"'
     nsExec::Exec '"$INSTDIR\launcher\yuanshu.exe" --service-only'
+    ; 2026-10-08 安装完成后展示访问令牌，新用户首次登录需要它
+    ; 令牌在服务启动后写入 $INSTDIR\app\.token
+    ; 稍待服务初始化
+    Sleep 3000
+    ClearErrors
+    FileOpen $0 "$INSTDIR\app\.token" r
+    ${IfNot} ${Errors}
+      FileRead $0 $1
+      FileClose $0
+      StrCpy $1 $1 -1  ; 去掉末尾换行符
+      MessageBox MB_OK|MB_ICONINFORMATION "元枢已安装完成！$\n$\n访问令牌（登录时需要）：$\n$1$\n$\n请复制以上令牌并妥善保存。"
+    ${Else}
+      MessageBox MB_OK|MB_ICONINFORMATION "元枢已安装完成！$\n$\n访问令牌在：$INSTDIR\app\.token$\n首次登录时请查看该文件。"
+    ${EndIf}
   ${EndIf}
 SectionEnd
 
 Section "桌面客户端" SecDesktop
-  ; 2026-10-08 可选组件：Tauri NSIS setup，静默调用安装（包含 WebView2 运行时检查）
-  ; 安装完成后桌面快捷方式更新为指向桌面端 exe，开机自启任务仍使用 Node 服务
+  ; 2026-10-08 可选组件：Tauri NSIS setup，静默调用安装（Tauri 固定装到 %LOCALAPPDATA%\元枢）
+  ; 安装完成后桌面快捷方式指向实际位置，开机自启任务仍使用 Node 服务
   !ifdef HAVE_DESKTOP
     DetailPrint "正在安装桌面客户端（WebView 原生窗口）…"
     ; 先把 Tauri setup 复制到临时目录
     CreateDirectory "$TEMP\yuanshu-desktop-setup"
     SetOutPath "$TEMP\yuanshu-desktop-setup"
     File "${STAGE}\desktop\yuanshu-desktop.exe"
-    ; 静默安装到 $INSTDIR\desktop\（Tauri 默认装到 AppData，用 /D 覆盖目标路径）
-    ; /S 静默模式，/D 必须是最后一个参数
+    ; 静默安装（Tauri NSIS 会装到 %LOCALAPPDATA%\元枢，/D 参数无效）
+    ; /S 静默模式
     DetailPrint "正在运行 Tauri 安装器（静默模式）…"
-    ExecWait '"$TEMP\yuanshu-desktop-setup\yuanshu-desktop.exe" /S /D=$INSTDIR\desktop' $0
+    ExecWait '"$TEMP\yuanshu-desktop-setup\yuanshu-desktop.exe" /S' $0
     ; 清理临时 setup
     Delete "$TEMP\yuanshu-desktop-setup\yuanshu-desktop.exe"
     RMDir "$TEMP\yuanshu-desktop-setup"
@@ -152,9 +166,9 @@ Section "桌面客户端" SecDesktop
       MessageBox MB_OK|MB_ICONEXCLAMATION "桌面客户端安装失败（错误码 $0）。$\n元枢主服务已安装完成，可通过浏览器访问。"
     ${Else}
       DetailPrint "桌面客户端安装成功"
-      ; 更新桌面和开始菜单快捷方式指向桌面端（Tauri 装在 $INSTDIR\desktop\元枢.exe）
-      CreateShortcut "$DESKTOP\元枢.lnk" "$INSTDIR\desktop\元枢.exe" "" "$INSTDIR\launcher\yuanshu.ico"
-      CreateShortcut "$SMPROGRAMS\元枢\元枢（桌面端）.lnk" "$INSTDIR\desktop\元枢.exe" "" "$INSTDIR\launcher\yuanshu.ico"
+      ; Tauri 实际装到 %LOCALAPPDATA%\元枢\yuanshu.exe，快捷方式指向实际位置
+      CreateShortcut "$DESKTOP\元枢.lnk" "$LOCALAPPDATA\元枢\yuanshu.exe" "" "$INSTDIR\launcher\yuanshu.ico"
+      CreateShortcut "$SMPROGRAMS\元枢\元枢（桌面端）.lnk" "$LOCALAPPDATA\元枢\yuanshu.exe" "" "$INSTDIR\launcher\yuanshu.ico"
       CreateShortcut "$SMPROGRAMS\元枢\元枢（浏览器）.lnk" "$INSTDIR\launcher\yuanshu.exe" "" "$INSTDIR\launcher\yuanshu.ico"
     ${EndIf}
   !endif
@@ -173,6 +187,8 @@ Section "Uninstall"
   Delete "$INSTDIR\开始使用.md"
   Delete "$INSTDIR\uninstall.exe"
   RMDir "$INSTDIR"
+  ; 2026-10-08 Tauri 桌面端卸载（装在 %LOCALAPPDATA%\元枢）
+  ExecWait '"$LOCALAPPDATA\元枢\uninstall.exe" /S'
   DeleteRegKey HKCU "${UNINSTKEY}"
   DeleteRegKey HKCU "Software\Yuanshu"
   IfSilent done
