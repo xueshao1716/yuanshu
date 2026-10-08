@@ -4,7 +4,10 @@ import { maxTokensFieldOf } from './output-budget.mjs';
 import { isTextModel } from '../shared/model-capabilities.mjs';
 
 // Explicit, bounded text check only. Never silently switches model or generates media.
-export async function verifyTextModel(model, key, { httpFetch = httpJsonFetch, timeoutMs = 15000 } = {}) {
+export async function verifyTextModel(model, key, { httpFetch = httpJsonFetch, timeoutMs } = {}) {
+  // 探测超时：调用方可传；其次读模型定义的 verifyTimeoutMs（慢通道如本地桥接 big-pickle 思考+转发 8-45s，15s 默认必超时）
+  const effectiveTimeout = Number(timeoutMs) > 0 ? Number(timeoutMs)
+    : Number(model?.verifyTimeoutMs) > 0 ? Number(model.verifyTimeoutMs) : 15000;
   const started = Date.now(), api = model.api || 'openai-completions';
   const common = { api, requestedModel: model.id, checkedAt: new Date().toISOString() };
   try {
@@ -15,11 +18,11 @@ export async function verifyTextModel(model, key, { httpFetch = httpJsonFetch, t
     const endpoint = api === 'anthropic-messages' ? 'messages' : responses ? 'responses' : 'chat/completions';
     const body = responses ? { model: model.id, input: 'Reply with OK.', max_output_tokens: 64, stream: false }
       : { model: model.id, messages: [{ role: 'user', content: 'Reply with OK.' }], [api === 'anthropic-messages' ? 'max_tokens' : maxTokensFieldOf(model.compat)]: 64, stream: false };
-    const request = { method: 'POST', timeout: timeoutMs,
+    const request = { method: 'POST', timeout: effectiveTimeout,
       headers: { ...catalogHeaders(key, api), ...sessionAffinityHeaders({ provider: model.provider, compat: model.compat }) }, body: JSON.stringify(body) };
     let r = await httpFetch(modelEndpoint(model.baseUrl, endpoint), request);
     if (r.status === 404 && new URL(normalizeModelBase(model.baseUrl)).pathname === '/') {
-      r = await httpFetch(`${normalizeModelBase(model.baseUrl)}/${endpoint}`, { ...request, timeout: Math.max(1, timeoutMs - (Date.now() - started)) });
+      r = await httpFetch(`${normalizeModelBase(model.baseUrl)}/${endpoint}`, { ...request, timeout: Math.max(1, effectiveTimeout - (Date.now() - started)) });
     }
     if (!r.ok) throw modelProbeError(r.status);
     const data = await r.json();
