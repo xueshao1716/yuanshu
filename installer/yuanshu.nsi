@@ -131,17 +131,32 @@ Section "元枢" SecCore
 SectionEnd
 
 Section "桌面客户端" SecDesktop
-  ; 可选组件：Tauri WebView 裸 exe，直接装进 $INSTDIR\desktop\，无需二级安装器
-  ; 安装后桌面快捷方式更新为指向桌面端 exe，开机自启任务仍使用 Node 服务
+  ; 2026-10-08 可选组件：Tauri NSIS setup，静默调用安装（包含 WebView2 运行时检查）
+  ; 安装完成后桌面快捷方式更新为指向桌面端 exe，开机自启任务仍使用 Node 服务
   !ifdef HAVE_DESKTOP
-    DetailPrint "正在复制桌面客户端（WebView 原生窗口）…"
-    CreateDirectory "$INSTDIR\desktop"
-    SetOutPath "$INSTDIR\desktop"
+    DetailPrint "正在安装桌面客户端（WebView 原生窗口）…"
+    ; 先把 Tauri setup 复制到临时目录
+    CreateDirectory "$TEMP\yuanshu-desktop-setup"
+    SetOutPath "$TEMP\yuanshu-desktop-setup"
     File "${STAGE}\desktop\yuanshu-desktop.exe"
-    ; 更新桌面和开始菜单快捷方式指向桌面端
-    CreateShortcut "$DESKTOP\元枢.lnk" "$INSTDIR\desktop\yuanshu-desktop.exe" "" "$INSTDIR\launcher\yuanshu.ico"
-    CreateShortcut "$SMPROGRAMS\元枢\元枢（桌面端）.lnk" "$INSTDIR\desktop\yuanshu-desktop.exe" "" "$INSTDIR\launcher\yuanshu.ico"
-    CreateShortcut "$SMPROGRAMS\元枢\元枢（浏览器）.lnk" "$INSTDIR\launcher\yuanshu.exe" "" "$INSTDIR\launcher\yuanshu.ico"
+    ; 静默安装到 $INSTDIR\desktop\（Tauri 默认装到 AppData，用 /D 覆盖目标路径）
+    ; /S 静默模式，/D 必须是最后一个参数
+    DetailPrint "正在运行 Tauri 安装器（静默模式）…"
+    ExecWait '"$TEMP\yuanshu-desktop-setup\yuanshu-desktop.exe" /S /D=$INSTDIR\desktop' $0
+    ; 清理临时 setup
+    Delete "$TEMP\yuanshu-desktop-setup\yuanshu-desktop.exe"
+    RMDir "$TEMP\yuanshu-desktop-setup"
+    ; 检查安装结果
+    ${If} $0 != 0
+      DetailPrint "桌面客户端安装失败，错误码：$0"
+      MessageBox MB_OK|MB_ICONEXCLAMATION "桌面客户端安装失败（错误码 $0）。$\n元枢主服务已安装完成，可通过浏览器访问。"
+    ${Else}
+      DetailPrint "桌面客户端安装成功"
+      ; 更新桌面和开始菜单快捷方式指向桌面端（Tauri 装在 $INSTDIR\desktop\元枢.exe）
+      CreateShortcut "$DESKTOP\元枢.lnk" "$INSTDIR\desktop\元枢.exe" "" "$INSTDIR\launcher\yuanshu.ico"
+      CreateShortcut "$SMPROGRAMS\元枢\元枢（桌面端）.lnk" "$INSTDIR\desktop\元枢.exe" "" "$INSTDIR\launcher\yuanshu.ico"
+      CreateShortcut "$SMPROGRAMS\元枢\元枢（浏览器）.lnk" "$INSTDIR\launcher\yuanshu.exe" "" "$INSTDIR\launcher\yuanshu.ico"
+    ${EndIf}
   !endif
 SectionEnd
 

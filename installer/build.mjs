@@ -222,16 +222,26 @@ const STEPS = {
     fs.copyFileSync(fs.existsSync(local) ? local : download('u2net'), path.join(dst, 'u2net.onnx'));
   },
 
-  // 7a. 桌面端（Tauri 裸 exe）：直接把 cargo release 产物展开到 stage/desktop/，NSIS 一起打包
-  // 不用二级安装器，装完 yuanshu-desktop.exe 就在 $INSTDIR\desktop\ 下
+  // 7a. 桌面端（Tauri NSIS 安装包）：把 Tauri 打出的 setup.exe 放进 stage/desktop/
+  // 2026-10-08 改为用 NSIS setup 而非裸 exe：裸 exe 依赖特定 DLL 版本（webauthn.dll
+  // 在旧版 Windows 10 上缺少入口点），且没有 WebView2 运行时检查；NSIS setup 会自动
+  // 检测并安装 WebView2，兼容性更好。元枢外层 NSIS 静默调用它完成安装。
   desktop() {
     const dst = path.join(STAGE, 'desktop');
     rm(dst); mk(dst);
-    const cargoRelease = path.join(CACHE, 'cargo', 'release');
-    const srcExe = path.join(cargoRelease, 'yuanshu.exe');
-    if (!fs.existsSync(srcExe)) {
-      // 没有裸 exe 缓存就触发 Tauri 构建（只编译，不打 nsis 包）
-      log('未找到 Tauri 裸 exe，正在构建…', srcExe);
+    const nsisDir = path.join(CACHE, 'cargo', 'release', 'bundle', 'nsis');
+    // 找最新的 setup.exe
+    let srcExe = null;
+    if (fs.existsSync(nsisDir)) {
+      const setups = fs.readdirSync(nsisDir)
+        .filter(f => f.endsWith('_x64-setup.exe'))
+        .map(f => ({ f, t: fs.statSync(path.join(nsisDir, f)).mtimeMs }))
+        .sort((a, b) => b.t - a.t);
+      if (setups.length) srcExe = path.join(nsisDir, setups[0].f);
+    }
+    if (!srcExe) {
+      // 没有缓存就触发 Tauri 构建（同时产出 NSIS setup）
+      log('未找到 Tauri NSIS setup，正在构建…');
       const env = {
         ...process.env,
         CARGO_TARGET_DIR: path.join(CACHE, 'cargo'),
@@ -241,11 +251,17 @@ const STEPS = {
         [path.join(path.dirname(process.execPath), 'node_modules', 'npm', 'bin', 'npm-cli.js'),
           'run', 'tauri', '--', 'build', '--bundles', 'nsis', '--ci'],
         { cwd: path.join(REPO, 'app'), env });
+      const setups = fs.existsSync(nsisDir)
+        ? fs.readdirSync(nsisDir).filter(f => f.endsWith('_x64-setup.exe'))
+            .map(f => ({ f, t: fs.statSync(path.join(nsisDir, f)).mtimeMs }))
+            .sort((a, b) => b.t - a.t)
+        : [];
+      if (!setups.length) throw new Error(`Tauri 构建失败，找不到 NSIS setup：${nsisDir}`);
+      srcExe = path.join(nsisDir, setups[0].f);
     }
-    if (!fs.existsSync(srcExe)) throw new Error(`Tauri 构建失败，找不到裸 exe：${srcExe}`);
-    // 把裸 exe 复制为固定名，方便 NSIS 脚本引用
+    // 复制为固定名，方便 NSIS 脚本引用
     fs.copyFileSync(srcExe, path.join(dst, 'yuanshu-desktop.exe'));
-    log('桌面端裸 exe', (fs.statSync(srcExe).size / 1048576).toFixed(1) + 'MB');
+    log('桌面端 NSIS setup', (fs.statSync(srcExe).size / 1048576).toFixed(1) + 'MB');
   },
 
   // 7b. 启动器、工作区模板、图标（编码转换：VBS 要 UTF-16LE，PS1 要 UTF-8 BOM）
@@ -313,15 +329,15 @@ const STEPS = {
     // -V4 写到日志文件：终端不刷 4 万行，又能用行数看进度（读文件阶段 CPU 很低，只看 CPU 会误判卡死）
     const nsisLog = path.join(CACHE, 'makensis.log');
     log('makensis 详细日志', nsisLog, '（读文件约 5~10 分钟，压缩约 20 分钟）');
-    try {
-      const desktopDir = path.join(STAGE, 'desktop');
-      const hasDesktop = fs.existsSync(desktopDir) && fs.readdirSync(desktopDir).some(f => f.endsWith('.exe'));
-      const nsisArgs = ['-V4', `-O${nsisLog}`, '-INPUTCHARSET', 'UTF8', `-DSTAGE=${STAGE}`, `-DVERSION=${VERSION}`, `-DOUTFILE=${out}`, `-DESTSIZE_KB=${Math.ceil(totalBytes / 1024)}`];
-      if (hasDesktop) nsisArgs.push('-DHAVE_DESKTOP');
-      run(makensis, [...nsisArgs, path.join(HERE, 'yuanshu.nsi')], { stdio: ['ignore', 'inherit', 'inherit'] });
-    } catch (e) {
+    const desktopDir = path.join(STAGE, 'desktop');
+    const hasDesktop = fs.existsSync(desktopDir) && fs.readdirSync(desktopDir).some(f => f.endsWith('.exe'));
+    const nsisArgs = ['-V4', `-O${nsisLog}`, '-INPUTCHARSET', 'UTF8', `-DSTAGE=${STAGE}`, `-DVERSION=${VERSION}`, `-DOUTFILE=${out}`, `-DESTSIZE_KB=${Math.ceil(totalBytes / 1024)}`];
+    if (hasDesktop) nsisArgs.push('-DHAVE_DESKTOP');
+    // 2026-10-08 makensis 某些版本成功但返回非零退出码，改为检查产物是否存在
+    try { run(makensis, [...nsisArgs, path.join(HERE, 'yuanshu.nsi')], { stdio: ['ignore', 'inherit', 'inherit'] }); } catch (_) {}
+    if (!fs.existsSync(out)) {
       const tail = fs.existsSync(nsisLog) ? fs.readFileSync(nsisLog, 'utf8').split(/\r?\n/).slice(-15).join('\n') : '';
-      throw new Error(`makensis 失败，日志末尾：\n${tail}`);
+      throw new Error(`makensis 失败，产物不存在，日志末尾：\n${tail}`);
     }
     log('安装包', out, (fs.statSync(out).size / 1048576).toFixed(1) + 'MB');
   },
