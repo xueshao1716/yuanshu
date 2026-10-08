@@ -126,7 +126,8 @@ export default function ChatArea({ compactHeader, rightPanel, onRightPanel, onVo
     requestAnimationFrame(() => document.querySelector<HTMLButtonElement>('[data-voice-entry]')?.focus())
   }
   // 人格定义（2026-09-19）：顶栏显示"名字 · 年龄"，让定义在界面上看得见（改定义这里跟着变）
-  const { data: personaData } = useSWR('persona', () => fetch('/api/persona', { headers: { Authorization: 'Bearer ' + (localStorage.getItem('yuanshu_access_token') || '') } }).then(r => r.json()))
+  // 2026-10-08 refreshInterval 30s：灵魂培养改名后顶栏自动跟上，不用刷页面
+  const { data: personaData } = useSWR('persona', () => fetch('/api/persona', { headers: { Authorization: 'Bearer ' + (localStorage.getItem('yuanshu_access_token') || '') } }).then(r => r.json()), { refreshInterval: 30000, revalidateOnFocus: true })
   // 顶栏只显示名字（用户 2026-09-19：手机端左上角写「小语」就行，别带「· 20岁」；
   // 年龄仍然在挂件气泡里能看到——那是"定义驱动"该露的地方，不是标题栏）
   const personaLabel = (() => { const d = personaData?.definition; return d?.name || '小语' })()
@@ -580,7 +581,7 @@ export default function ChatArea({ compactHeader, rightPanel, onRightPanel, onVo
       const shouldNotify = document.visibilityState === 'hidden' || wasBackgroundRef.current
       if (shouldNotify) {
         const preview = (s.text || '').replace(/\s+/g, ' ').trim().slice(0, 60) || (s.error ? `出错：${s.error}` : '有新回复')
-        notifyTaskDone('小语 · 任务完成', preview)
+        notifyTaskDone(`${personaLabel} · 任务完成`, preview)
       }
       wasBackgroundRef.current = false // 收尾已处理完，重置供下一轮使用
     }

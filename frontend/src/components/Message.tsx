@@ -1,6 +1,6 @@
 import { lazy, Suspense, useMemo, useState } from 'react'
 import { TOOL_COLORS, COLOR_ERROR, COLOR_TOOL_FALLBACK } from '../theme/palettes'
-import { Brain, FileText, Check, X, Pencil, ChevronRight, Square, Info, Download, RefreshCw, Scissors, Copy, RotateCcw, Save } from 'lucide-react'
+import { Brain, FileText, Check, X, Pencil, ChevronRight, Square, Info, Download, RefreshCw, Scissors, Copy, RotateCcw, Save, ChevronDown, ChevronUp, Users } from 'lucide-react'
 import ImageViewer from './ImageViewer'
 import { useChatMedia } from './ChatMediaProvider'
 import { mediaFilename, type ChatMedia } from '../lib/chat-media'
@@ -28,6 +28,42 @@ import { AgentWorkflow } from './AgentWorkflow'
 import { useProcessVisibility } from '../hooks/useProcessVisibility'
 import ProcessVisibilityToggle from './ProcessVisibilityToggle'
 import SpeechControls from './SpeechControls'
+
+// 2026-10-08 子智能体派单记录折叠块：把「研究员·」行集中显示在执行记录下方
+function DispatchLog({ notes, streaming }: { notes: string[]; streaming: boolean }) {
+  const [open, setOpen] = useState(false)
+  const running = streaming && notes.length > 0 && notes[notes.length - 1].includes('开始调研')
+  // 统计研究员数量
+  const agents = [...new Set(notes.map(n => n.split(' · ')[0]))].length
+  return (
+    <div className="my-2 rounded-lg border border-pi-border-soft bg-pi-bg2/40 overflow-hidden">
+      <button
+        type="button"
+        onClick={() => setOpen(o => !o)}
+        className="w-full flex items-center gap-2 px-3 py-2 text-[12px] text-pi-dim hover:text-pi-text hover:bg-pi-bg2/60 transition-colors"
+      >
+        <Users className="w-3.5 h-3.5 flex-shrink-0" aria-hidden="true" />
+        <span className="font-medium">派单记录</span>
+        <span className="text-pi-dim2">{agents} 位研究员 · {notes.length} 条</span>
+        {running && <span className="ml-1 w-1.5 h-1.5 rounded-full bg-amber-400 animate-pulse" />}
+        <span className="ml-auto">{open ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}</span>
+      </button>
+      {open && (
+        <div className="px-3 pb-2 pt-0.5 space-y-1 max-h-64 overflow-y-auto">
+          {notes.map((n, i) => {
+            const [who, ...rest] = n.split(' · ')
+            return (
+              <div key={i} className="flex items-start gap-1.5 text-[11.5px]">
+                <span className="text-pi-dim2 flex-shrink-0 pt-px">{who}</span>
+                <span className="text-pi-dim">{rest.join(' · ')}</span>
+              </div>
+            )
+          })}
+        </div>
+      )}
+    </div>
+  )
+}
 
 // 兼容两种来源：流式 RunningTool / 历史消息里的 ToolCall（无 running 态）
 function ToolCard({ tool }: { tool: Partial<RunningTool> & { name: string } }) {
@@ -316,13 +352,17 @@ export default function Message({ msg, onEdit, onRetry, onBranch, onNotice }: { 
             />
           </div>
         )}
-        {msg.notes?.length ? (
-          <div className="mb-2 space-y-1">
-            {msg.notes.map((n, i) => (
-              <div key={i} className="text-[12px] text-pi-info bg-pi-info/8 border border-pi-info/20 rounded-pi-sm px-2.5 py-1 w-fit inline-flex items-center gap-1.5"><Info className="w-3.5 h-3.5" aria-hidden="true" />{n}</div>
-            ))}
-          </div>
-        ) : null}
+        {/* 2026-10-08 系统提示行保持原位显示 */}
+        {(() => {
+          const sysNotes = msg.notes?.filter(n => !n.startsWith('研究员·')) ?? []
+          return sysNotes.length > 0 ? (
+            <div className="mb-2 space-y-1">
+              {sysNotes.map((n, i) => (
+                <div key={i} className="text-[12px] text-pi-info bg-pi-info/8 border border-pi-info/20 rounded-pi-sm px-2.5 py-1 w-fit inline-flex items-center gap-1.5"><Info className="w-3.5 h-3.5" aria-hidden="true" />{n}</div>
+              ))}
+            </div>
+          ) : null
+        })()}
         {!streaming && <Thinking text={msg.think} live={streaming} />}
         {streaming && msg.think && <Thinking text={msg.think} live={!msg.text} />}
         {msg.tools?.length ? (
@@ -332,6 +372,11 @@ export default function Message({ msg, onEdit, onRetry, onBranch, onNotice }: { 
             <div data-tool-details hidden={!showTools} className="mb-2">{showTools && msg.tools.map((t, i) => <ToolCard key={t.id || i} tool={t} />)}</div>
           </>
         ) : null}
+        {/* 2026-10-08 派单记录显示在执行记录下方 */}
+        {(() => {
+          const researchNotes = msg.notes?.filter(n => n.startsWith('研究员·')) ?? []
+          return researchNotes.length > 0 ? <DispatchLog notes={researchNotes} streaming={!!streaming} /> : null
+        })()}
         {/* 阶段分区（stream-assembler）：conclusion 存在时，工具前文字在上、结论在工具卡之后；
             历史消息无 conclusion 字段，保持原渲染不变 */}
         {msg.conclusion != null && msg.text ? (

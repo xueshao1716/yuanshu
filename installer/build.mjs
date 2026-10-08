@@ -12,6 +12,7 @@
 //       NSIS 3（makensis.exe；默认找 Tauri 自带的 %LOCALAPPDATA%\tauri\NSIS，或设 MAKENSIS）。
 import fs from 'node:fs';
 import path from 'node:path';
+import zlib from 'node:zlib';
 import { execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { keepRepoFile, BUILD_INFO } from '../engine/install-update.mjs';
@@ -326,24 +327,61 @@ const STEPS = {
     walk(STAGE, '');
     if (longOnes.length) throw new Error(`${longOnes.length} 个路径超过 ${MAX_REL} 字符，装机会超 MAX_PATH：\n${longOnes.slice(0, 5).join('\n')}`);
     const out = path.join(CACHE, `元枢-离线安装包-${VERSION}-x64.exe`);
+    // 2026-10-08 nsi 改用英文临时输出名，避免中文路径按 ANSI 解码导致 CRC 失败，构建完成后再 rename
+    const outTmp = path.join(STAGE, 'yuanshu-setup-out.exe');
+    if (fs.existsSync(outTmp)) fs.rmSync(outTmp);
+    if (fs.existsSync(out)) fs.rmSync(out);
     // -V4 写到日志文件：终端不刷 4 万行，又能用行数看进度（读文件阶段 CPU 很低，只看 CPU 会误判卡死）
     const nsisLog = path.join(CACHE, 'makensis.log');
     log('makensis 详细日志', nsisLog, '（读文件约 5~10 分钟，压缩约 20 分钟）');
     const desktopDir = path.join(STAGE, 'desktop');
     const hasDesktop = fs.existsSync(desktopDir) && fs.readdirSync(desktopDir).some(f => f.endsWith('.exe'));
-    const nsisArgs = ['-V4', `-O${nsisLog}`, '-INPUTCHARSET', 'UTF8', `-DSTAGE=${STAGE}`, `-DVERSION=${VERSION}`, `-DOUTFILE=${out}`, `-DESTSIZE_KB=${Math.ceil(totalBytes / 1024)}`];
+    const nsisArgs = ['-V4', `-O${nsisLog}`, '-INPUTCHARSET', 'UTF8', `-DSTAGE=${STAGE}`, `-DVERSION=${VERSION}`, `-DESTSIZE_KB=${Math.ceil(totalBytes / 1024)}`];
     if (hasDesktop) nsisArgs.push('-DHAVE_DESKTOP');
     // 2026-10-08 makensis 某些版本成功但返回非零退出码，改为检查产物是否存在
+    if (fs.existsSync(outTmp)) fs.rmSync(outTmp);
     try { run(makensis, [...nsisArgs, path.join(HERE, 'yuanshu.nsi')], { stdio: ['ignore', 'inherit', 'inherit'] }); } catch (_) {}
-    if (!fs.existsSync(out)) {
+    if (!fs.existsSync(outTmp)) {
       const tail = fs.existsSync(nsisLog) ? fs.readFileSync(nsisLog, 'utf8').split(/\r?\n/).slice(-15).join('\n') : '';
       throw new Error(`makensis 失败，产物不存在，日志末尾：\n${tail}`);
     }
-    log('安装包', out, (fs.statSync(out).size / 1048576).toFixed(1) + 'MB');
+    // 2026-10-08 rename 到中文名（nsi 输出用英文临时名避免 CRC 乱码）
+    fs.renameSync(outTmp, out);
+    // 2026-10-08 构建后 CRC 自检：两个 makensis 并发写同一产物时出过坏包，装机报 integrity check failed。
+    // NSIS 的 CRC32 从偏移 512 算到数据末尾前 4 字节，末 4 字节存校验值（已用完好的包校准过）。
+    const crcBad = verifyNsisCrc(out);
+    if (crcBad) { fs.rmSync(out, { force: true }); throw new Error(`安装包 CRC 自检失败，已删除坏包：${crcBad}`); }
+    log('安装包', out, (fs.statSync(out).size / 1048576).toFixed(1) + 'MB', 'CRC 自检通过');
   },
 };
 
+// 2026-10-08 校验 NSIS 安装包完整性，返回 null 表示通过，否则返回原因
+function verifyNsisCrc(file) {
+  const d = fs.readFileSync(file);
+  const fh = d.indexOf(Buffer.from([0xef, 0xbe, 0xad, 0xde, ...Buffer.from('NullsoftInst')])) - 4;
+  if (fh < 0) return '找不到 NSIS 头';
+  const end = fh + d.readUInt32LE(fh + 24);
+  if (end !== d.length) return `长度不符：头部声明 ${end}，实际 ${d.length}`;
+  const stored = d.readUInt32LE(end - 4);
+  const actual = zlib.crc32(d.subarray(512, end - 4)) >>> 0;
+  return stored === actual ? null : `存储 ${stored.toString(16)}，实算 ${actual.toString(16)}`;
+}
+
+// 2026-10-08 构建锁：防止两个构建同时写同一个安装包（坏包事故的根因）
+const LOCK = path.join(CACHE, '.build.lock');
 mk(CACHE);
+try {
+  const fd = fs.openSync(LOCK, 'wx');
+  fs.writeSync(fd, String(process.pid));
+  fs.closeSync(fd);
+} catch {
+  const pid = Number(fs.readFileSync(LOCK, 'utf8')) || 0;
+  let alive = false;
+  try { if (pid) { process.kill(pid, 0); alive = true; } } catch {}
+  if (alive) { console.error(`另一个构建正在运行（pid ${pid}），退出。`); process.exit(1); }
+  fs.writeFileSync(LOCK, String(process.pid));
+}
+process.on('exit', () => { try { if (fs.readFileSync(LOCK, 'utf8') === String(process.pid)) fs.rmSync(LOCK); } catch {} });
 const order = FULL ? ['node', 'app', 'python', 'ffmpeg', 'git', 'models', 'desktop', 'launcher', 'nsis'] : ['node', 'app', 'python', 'git', 'desktop', 'launcher', 'nsis'];
 // 精简包：上一次 --full 留在 stage 里的 ffmpeg/模型要清掉，否则会被打进包
 if (!FULL && (!ONLY.length || ONLY.includes('nsis'))) for (const d of ['ffmpeg', 'models']) { rm(path.join(RT, d)); fs.rmSync(marker(d), { force: true }); }

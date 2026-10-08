@@ -8,7 +8,15 @@
 
 ## [Unreleased]
 
-## [2.123.2] - 2026-10-07
+## [2.124.0] - 2026-10-08
+
+### 修复与改进
+
+- **安装包 CRC 修复**：makensis 用中文路径作为 OutFile 时按 ANSI 解码导致输出文件名乱码，产物 CRC 校验必然失败（安装时报 integrity check failed）。改为 nsi 内输出英文临时名，build.mjs 构建完成后 rename 成中文名；同时补构建锁防止两个并发构建写同一产物，补构建后 CRC 自检，坏包直接报错删除
+- **构建锁 + CRC 自检**：`installer/build.mjs` 新增 `.build.lock` 文件锁；`verifyNsisCrc()` 从偏移 512 算 CRC32，与 NSIS 3 校准一致
+- **右上角名字跟随灵魂培养**：persona SWR 改为 `refreshInterval: 30000 + revalidateOnFocus`，改名后 30s 内顶栏自动更新；`notifyTaskDone` 也改用 `personaLabel` 而非硬编码
+- **派单记录折叠块**：`Message.tsx` 新增 `DispatchLog` 组件，「研究员·」前缀行从系统提示平铺中分离，收纳进可折叠面板显示在执行记录下方；折叠头显示研究员人数和条数，流式期间有呼吸动效
+- **子智能体工作区扩大**：折叠区最大高度从无限制改为 `max-h-64` 可滚动，展开后可独立滚动查看所有派单行，不撑开主消息体
 
 ## [2.123.1] - 2026-10-08
 
