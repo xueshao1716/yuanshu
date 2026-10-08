@@ -42,7 +42,9 @@ async function main() {
   if (quiet) return;
   let token = "";
   try { token = fs.readFileSync(TOKEN_FILE, "utf8").trim(); } catch {}
-  const url = `http://127.0.0.1:${PORT}/` + (/^[0-9a-f]{16,128}$/i.test(token) ? `#t=${token}` : "");
+  // 2026-10-08 token 可以是任意可打印字符（非纯十六进制），只要非空就带上 #t= 实现自动登录
+  const safeToken = token.replace(/[^\x20-\x7E]/g, '').trim();
+  const url = `http://127.0.0.1:${PORT}/` + (safeToken ? `#t=${encodeURIComponent(safeToken)}` : "");
   spawn("rundll32.exe", ["url.dll,FileProtocolHandler", url], { detached: true, stdio: "ignore", windowsHide: true }).unref();
 }
 

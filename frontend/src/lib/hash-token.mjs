@@ -5,8 +5,11 @@ const LOOPBACK = new Set(['127.0.0.1', 'localhost', '[::1]']);
 
 export function readHashToken(loc) {
   if (!loc || !LOOPBACK.has(String(loc.hostname || ''))) return '';
-  const m = /^#t=([0-9a-fA-F]{16,128})$/.exec(String(loc.hash || ''));
-  return m ? m[1] : '';
+  // 2026-10-08 放宽正则：token 可以是任意可打印 ASCII（open.cjs 用 encodeURIComponent 编码过）
+  const raw = String(loc.hash || '');
+  const m = /^#t=(.{8,256})$/.exec(raw);
+  if (!m) return '';
+  try { return decodeURIComponent(m[1]); } catch { return m[1]; }
 }
 
 /** 读到令牌就写入存储、清空远程地址（本机直连），并把片段从地址栏去掉。返回令牌或空串。 */
