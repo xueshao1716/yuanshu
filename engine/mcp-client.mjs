@@ -1,8 +1,55 @@
 // engine/mcp-client.mjs —— MCP client，连接外部 MCP server（Windows-MCP 等），2026-10-08
 // 支持 streamable-http 和 SSE 传输；动态发现工具并注册到元枢工具集。
+// autoStart: 配置了 cmd 就自动 spawn 进程，不用用户手动跑 shell。
 import { randomUUID } from 'node:crypto';
 import path from 'node:path';
 import fs from 'node:fs';
+import { spawn } from 'node:child_process';
+
+// ── 自动启动子进程 ───────────────────────────────────────────────────────────
+const spawnedProcesses = new Map(); // name -> ChildProcess
+
+export async function autoStartServer(serverCfg) {
+  if (!serverCfg.cmd) return; // 无 cmd 配置，跳过
+  if (spawnedProcesses.has(serverCfg.name)) return; // 已启动
+
+  const [exe, ...args] = serverCfg.cmd.split(/\s+/);
+  const child = spawn(exe, args, {
+    detached: false,
+    stdio: ['ignore', 'pipe', 'pipe'],
+    windowsHide: true,
+    shell: process.platform === 'win32', // Windows 上 uvx 需要 shell
+  });
+  spawnedProcesses.set(serverCfg.name, child);
+
+  child.stderr?.on('data', chunk => {
+    const msg = chunk.toString().trim();
+    if (msg) console.log(`[MCP:${serverCfg.name}] ${msg.slice(0, 120)}`);
+  });
+  child.on('exit', (code) => {
+    spawnedProcesses.delete(serverCfg.name);
+    console.log(`[MCP:${serverCfg.name}] 进程退出，code=${code}`);
+  });
+
+  // 等待 server 启动就绪（轮询 url，最多 10s）
+  const deadline = Date.now() + 10_000;
+  while (Date.now() < deadline) {
+    try {
+      await fetch(serverCfg.url, { method: 'POST', signal: AbortSignal.timeout(1000),
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ jsonrpc: '2.0', id: '0', method: 'ping', params: {} }) });
+      return; // 连上了
+    } catch {
+      await new Promise(r => setTimeout(r, 600));
+    }
+  }
+  // 超时也不报错，继续尝试连接
+}
+
+export function stopServer(name) {
+  const child = spawnedProcesses.get(name);
+  if (child) { child.kill(); spawnedProcesses.delete(name); }
+}
 
 // ── 持久化配置 ──────────────────────────────────────────────────────────────
 export function getMcpConfigPath(wsRoot) {
@@ -136,6 +183,8 @@ export function createMcpManager({ wsRoot }) {
     for (const s of servers) {
       if (!s.enabled) continue;
       try {
+        // 2026-10-08 autoStart：配置了 cmd 就自动 spawn 进程，不用用户手跑 shell
+        await autoStartServer(s);
         const conn = createMcpConnection({ url: s.url, name: s.name, transport: s.transport || 'streamable-http' });
         await conn.connect();
         connections.set(s.name, conn);
@@ -149,6 +198,8 @@ export function createMcpManager({ wsRoot }) {
 
   // 连接单个 server
   async function connect(serverCfg) {
+    // 2026-10-08 autoStart：配置了 cmd 就自动 spawn 进程，不用用户手跑 shell
+    await autoStartServer(serverCfg);
     const conn = createMcpConnection({ url: serverCfg.url, name: serverCfg.name, transport: serverCfg.transport || 'streamable-http' });
     await conn.connect();
     connections.set(serverCfg.name, conn);

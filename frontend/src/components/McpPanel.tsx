@@ -20,9 +20,10 @@ type McpServerCfg = {
   url: string
   transport: 'streamable-http' | 'sse'
   enabled: boolean
+  cmd?: string  // 可选：自动启动命令，配置后元枢启动时自动 spawn 进程
 }
 
-const EMPTY: McpServerCfg = { name: '', url: '', transport: 'streamable-http', enabled: true }
+const EMPTY: McpServerCfg = { name: '', url: '', transport: 'streamable-http', enabled: true, cmd: '' }
 
 export default function McpPanel() {
   const { data, mutate } = useSWR<{ servers: McpServerStatus[] }>('mcp-status', () => api('/api/mcp/status'), { refreshInterval: 15000 })
@@ -178,6 +179,17 @@ export default function McpPanel() {
               onChange={e => setForm(f => ({ ...f, url: e.target.value }))}
               placeholder="http://127.0.0.1:8100/mcp"
               className="w-full text-sm px-3 py-2 rounded-lg border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-900 text-neutral-800 dark:text-neutral-200 placeholder-neutral-400 focus:outline-none focus:ring-2 focus:ring-blue-500/30"
+            />
+          </div>
+          <div>
+            <label className="block text-xs text-neutral-500 mb-1">
+              启动命令 <span className="text-neutral-400">（可选，填写后元枢会自动拉起进程）</span>
+            </label>
+            <input
+              value={form.cmd || ''}
+              onChange={e => setForm(f => ({ ...f, cmd: e.target.value }))}
+              placeholder="uvx windows-mcp serve --transport streamable-http --port 8100"
+              className="w-full text-sm px-3 py-2 rounded-lg border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-900 text-neutral-800 dark:text-neutral-200 placeholder-neutral-400 focus:outline-none focus:ring-2 focus:ring-blue-500/30 font-mono"
             />
           </div>
           <p className="text-xs text-neutral-400">
