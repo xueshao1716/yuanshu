@@ -202,6 +202,8 @@ const { createCompanionFacts } = await import('./engine/companion-facts.mjs');
 const { createCompanionStore } = await import('./engine/companion-store.mjs');
 const { createWechatBridge, createLoopbackChat } = await import('./engine/wechat-bridge.mjs');
 const emailBridge = await import('./engine/email-bridge.mjs');
+const { createMcpManager, mcpToolToSchema, mcpToolName } = await import('./engine/mcp-client.mjs');
+const mcpManager = createMcpManager({ wsRoot: WS_ROOT });
 const { buildSoulGraph, readMemoryFiles } = await import('./engine/soul-graph.mjs');
 const { soulContextPrompt } = await import('./engine/soul-context.mjs');
 const { createCompanionDecision } = await import('./engine/companion-decision.mjs');
@@ -699,6 +701,10 @@ const executeUnifiedTool = createUnifiedToolExecutorGuarded({
       return r;
     },
     delegate_team: (args, ctx) => executeTeam(args, { ...ctx, wsRoot: WS_ROOT, model: ctx?.model || defaultModel }),
+    // 2026-10-08 MCP 外部工具转发：mcp_ 前缀的工具调用路由到对应 MCP server
+    ...Object.fromEntries(
+      mcpManager.allTools().map(t => [`mcp_${t.name}`, (args) => mcpManager.callTool(t.name, args)])
+    ),
     delegate_fork: async (args, ctx) => {
       const t0 = Date.now();
       const r = await execDelegateFork(args, ctx);
@@ -2463,7 +2469,7 @@ const API_ROUTES = [
   ["POST", "/api/wechat/stop", wechatAction(() => wechat.stop())],
   ["POST", "/api/wechat/logout", wechatAction(() => wechat.logout())],
   ["POST", "/api/wechat/settings", wechatAction(async (req) => wechat.setNotify((await readBody(req, 1)).notify))],
-  ["POST", "/api/wechat/notify", wechatAction(async (req) => wechat.notifyOwner(String((await readBody(req, 1)).text || '').slice(0, 2000)))],
+  ["POST", "/api/wechat/notify", wechatAction(async (req) => { const b = await readBody(req, 1); return wechat.notifyOwner(String(b.text || '').slice(0, 2000), String(b.image || '').slice(0, 500)); })],
   // 邮件接入：Gmail + Outlook，2026-10-08
   ["GET", "/api/email/status", (res) => json(res, 200, emailBridge.status())],
   ["GET", "/api/email/config", (res) => {
@@ -2482,6 +2488,46 @@ const API_ROUTES = [
   ["POST", "/api/email/poll", async (res) => {
     try { const mails = await emailBridge.pollNow(); return json(res, 200, { mails }); }
     catch (e) { return json(res, 500, { error: String(e.message) }); }
+  }],
+  // MCP 外部 server 管理，2026-10-08
+  ["GET", "/api/mcp/status", (res) => json(res, 200, { servers: mcpManager.status() })],
+  ["GET", "/api/mcp/config", (res) => json(res, 200, { servers: mcpManager.load() })],
+  ["POST", "/api/mcp/config", async (res, req) => {
+    const body = await readBody(req, 4);
+    mcpManager.save(body.servers || []);
+    return json(res, 200, { ok: true });
+  }],
+  ["POST", "/api/mcp/connect", async (res, req) => {
+    const body = await readBody(req, 1);
+    try {
+      globalThis.__yuanshuMcpManager = mcpManager;
+      const tools = await mcpManager.connect(body);
+      // 将新工具动态注入 UNIFIED_TOOLS（执行走 globalThis.__yuanshuMcpManager 兜底）
+      for (const t of tools) {
+        const schema = mcpToolToSchema(t);
+        if (!UNIFIED_TOOLS.some(u => u?.function?.name === schema.function.name)) {
+          UNIFIED_TOOLS.push(schema);
+        }
+      }
+      return json(res, 200, { ok: true, tools: tools.length });
+    } catch (e) { return json(res, 500, { error: String(e.message) }); }
+  }],
+  ["POST", "/api/mcp/disconnect", async (res, req) => {
+    const { name } = await readBody(req, 0.1);
+    mcpManager.disconnect(name);
+    // 从 UNIFIED_TOOLS 移除对应工具
+    const before = UNIFIED_TOOLS.length;
+    const idx = [];
+    UNIFIED_TOOLS.forEach((t, i) => { if (t?._mcpServer === name) idx.push(i); });
+    for (let i = idx.length - 1; i >= 0; i--) UNIFIED_TOOLS.splice(idx[i], 1);
+    return json(res, 200, { ok: true, removed: before - UNIFIED_TOOLS.length });
+  }],
+  ["POST", "/api/mcp/reconnect", async (res, req) => {
+    const { name } = await readBody(req, 0.1);
+    try {
+      const tools = await mcpManager.reconnect(name);
+      return json(res, 200, { ok: true, tools: tools.length });
+    } catch (e) { return json(res, 500, { error: String(e.message) }); }
   }],
   ["GET", "/api/emotion", (res, req, url) => handleEmotion(res, url)],
   ["GET", "/api/companion/emotion", (res) => json(res, 200, companionEmotion.read())],
@@ -3532,6 +3578,27 @@ function startServer() {
         console.log('  邮件桥: 轮询已启动');
       }
     } catch (e) { console.log('  邮件桥: 启动失败', String(e?.message || e).slice(0, 80)); }
+    // MCP 外部 server 连接：把已连接工具动态注入 UNIFIED_TOOLS，2026-10-08
+    try {
+      globalThis.__yuanshuMcpManager = mcpManager;
+      const mcpResults = await mcpManager.bootAll();
+      for (const r of mcpResults) {
+        if (r.ok) {
+          const conn = mcpManager.status().find(s => s.name === r.name);
+          const tools = mcpManager.allTools().filter(t => t.serverName === r.name);
+          for (const t of tools) {
+            const schema = mcpToolToSchema(t);
+            if (!UNIFIED_TOOLS.some(u => u?.function?.name === schema.function.name)) {
+              UNIFIED_TOOLS.push(schema);
+            }
+          }
+          console.log(`  MCP [${r.name}]: 已连接，${r.tools} 个工具`);
+        } else {
+          console.log(`  MCP [${r.name}]: 连接失败 — ${String(r.error).slice(0, 60)}`);
+        }
+      }
+      if (mcpResults.length === 0) console.log('  MCP: 无已配置 server');
+    } catch (e) { console.log('  MCP: 启动失败', String(e?.message || e).slice(0, 80)); }
     console.log("");
     console.log("╭──────────────────────────────────────────────╮");
     console.log("│                元枢已启动                    │");

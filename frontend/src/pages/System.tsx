@@ -11,6 +11,7 @@ import ComputerUsePanel from '../components/ComputerUsePanel'
 import DoctorPanel from '../components/DoctorPanel'
 import WechatPanel from '../components/WechatPanel'
 import EmailPanel from '../components/EmailPanel'
+import McpPanel from '../components/McpPanel'
 
 const CAP_ICONS: Record<string, any> = {
   chat: MessagesSquare, sparkles: Sparkles, clock: Clock, factory: Factory,
@@ -187,6 +188,7 @@ export default function System() {
 
         <WechatPanel />
         <EmailPanel />
+        <McpPanel />
 
         <ComputerUsePanel />
 

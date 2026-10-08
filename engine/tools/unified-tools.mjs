@@ -279,7 +279,12 @@ export function createUnifiedToolExecutor(deps = {}) {
   return async function executeUnifiedTool(name, args, ctx = {}) {
     try {
       // 外部注册的自定义工具（2026-08-22）：dsh_task 等 pi 格式工具的统一兜底执行入口
-      const extra = deps.extraExecutors?.[name] || yuanshuExecutor(name);
+      // 2026-10-08 mcp_* 前缀工具走 globalThis.__yuanshuMcpManager 兜底
+      let extra = deps.extraExecutors?.[name] || yuanshuExecutor(name);
+      if (!extra && name.startsWith('mcp_') && globalThis.__yuanshuMcpManager) {
+        const rawName = name.slice(4);
+        extra = (a) => globalThis.__yuanshuMcpManager.callTool(rawName, a);
+      }
       if (extra) {
         const r = await extra(args, ctx);
         return typeof r === "object" && r !== null && "text" in r ? r : { text: String(r ?? "") };
