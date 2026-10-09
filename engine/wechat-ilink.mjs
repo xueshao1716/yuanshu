@@ -2,6 +2,7 @@
 // 协议常量来自小语 2026-10-06 自己接通的桥（工程/ilink-weixin-bridge.mjs，参考 hermes-agent），
 // 这里只管协议：扫码登录、长轮询收消息、发消息。会话、调度、落盘在 wechat-bridge.mjs。
 import crypto from "node:crypto";
+import fs from "node:fs/promises";
 
 export const ILINK_BASE = "https://ilinkai.weixin.qq.com";
 const APP_ID = "bot";
@@ -12,14 +13,27 @@ export const EP = {
   qrStatus: "ilink/bot/get_qrcode_status",
   updates: "ilink/bot/getupdates",
   send: "ilink/bot/sendmessage",
+  getUploadUrl: "ilink/bot/getuploadurl",
 };
+// 素材 CDN：图片先加密传到这个域，再拿 x-encrypted-param 拼进消息引用（2026-10-08 逆向官方 2.4.9）。
+export const CDN_BASE = "https://novac2c.cdn.weixin.qq.com/c2c";
 export const LONG_POLL_MS = 35_000;
 export const RATE_LIMITED = -2;
 const API_TIMEOUT_MS = 15_000;
 const MSG_TYPE_BOT = 2;
 const MSG_STATE_FINISH = 2;
 const ITEM_TEXT = 1;
+const ITEM_IMAGE = 2;
+const UPLOAD_TYPE_IMAGE = 1;
 export const MAX_TEXT = 2000;
+const UPLOAD_TIMEOUT_MS = 60_000; // 素材可能几 MB，比普通接口放宽
+// 发图前把原图用随机 aeskey 做 AES-128-ECB 加密再上 CDN；密文按 16 字节块 PKCS#7 补齐，
+// 报给 getUploadUrl 的 filesize 是密文尺寸、不是原图尺寸。
+const aesEcbPaddedSize = (rawsize) => Math.ceil((rawsize + 1) / 16) * 16;
+const aesEncryptEcb = (plaintext, key) => {
+  const c = crypto.createCipheriv("aes-128-ecb", key, null);
+  return Buffer.concat([c.update(plaintext), c.final()]);
+};
 
 export function ilinkHeaders(token) {
   const h = {
@@ -46,6 +60,22 @@ export function createIlinkClient({ fetch: f = globalThis.fetch, base = ILINK_BA
   const get = async (endpoint, timeoutMs = API_TIMEOUT_MS, at = base) => parse(await f(`${at}/${endpoint}`, {
     method: "GET", headers: ilinkHeaders(null), signal: AbortSignal.timeout(timeoutMs),
   }));
+  const getUploadUrl = (payload, token, at) => post(EP.getUploadUrl, payload, token, API_TIMEOUT_MS, at);
+  // CDN 上传走独立域名、不带 iLink 头，只发密文；成功响应头 x-encrypted-param 是后续下载参数。
+  const uploadToCdn = async (cdnUrl, ciphertext) => {
+    const res = await f(cdnUrl, {
+      method: "POST",
+      headers: { "Content-Type": "application/octet-stream" },
+      body: new Uint8Array(ciphertext),
+      signal: AbortSignal.timeout(UPLOAD_TIMEOUT_MS),
+    });
+    const downloadParam = res.headers.get("x-encrypted-param");
+    if (!res.ok || !downloadParam) {
+      const t = await res.text().catch(() => "");
+      throw new Error(`CDN 上传失败 ${res.status} ${t.slice(0, 120) || "没拿到 x-encrypted-param"}`);
+    }
+    return downloadParam;
+  };
   return {
     async fetchQr(at = base) {
       const r = await get(`${EP.qr}?bot_type=3`, LONG_POLL_MS, at);
@@ -61,6 +91,37 @@ export function createIlinkClient({ fetch: f = globalThis.fetch, base = ILINK_BA
       };
       if (contextToken) msg.context_token = contextToken;
       return post(EP.send, { msg }, token, API_TIMEOUT_MS, at);
+    },
+    // 发送一张本地图片：读文件 → md5 → getUploadUrl → AES-128-ECB 加密 → 上 CDN → 拿 x-encrypted-param → 发 image_item。
+    // aes_key 用 base64(hex 密钥文本)、mid_size 用密文字节数——这两处是逆向确认的官方编码，别改成原始密钥/原图尺寸。
+    async sendImage(token, filePath, to, contextToken, at = base) {
+      const plaintext = await fs.readFile(filePath);
+      const rawsize = plaintext.length;
+      const rawfilemd5 = crypto.createHash("md5").update(plaintext).digest("hex");
+      const filesize = aesEcbPaddedSize(rawsize);
+      const filekey = crypto.randomBytes(16).toString("hex");
+      const aeskey = crypto.randomBytes(16);
+      const up = await getUploadUrl({ filekey, media_type: UPLOAD_TYPE_IMAGE, to_user_id: to, rawsize, rawfilemd5, filesize, no_need_thumb: true, aeskey: aeskey.toString("hex") }, token, at);
+      const uploadFullUrl = String(up.upload_full_url || "").trim();
+      const uploadParam = up.upload_param;
+      if (!uploadFullUrl && !uploadParam) throw new Error(`getUploadUrl 没返回上传地址: ${JSON.stringify(up).slice(0, 140)}`);
+      const cdnUrl = uploadFullUrl || `${CDN_BASE}/upload?encrypted_query_param=${encodeURIComponent(uploadParam)}&filekey=${encodeURIComponent(filekey)}`;
+      const downloadParam = await uploadToCdn(cdnUrl, aesEncryptEcb(plaintext, aeskey));
+      const imageItem = {
+        type: ITEM_IMAGE,
+        image_item: {
+          media: {
+            encrypt_query_param: downloadParam,
+            aes_key: Buffer.from(aeskey.toString("hex")).toString("base64"),
+            encrypt_type: 1,
+          },
+          mid_size: filesize,
+        },
+      };
+      const msg = { from_user_id: "", to_user_id: to, client_id: crypto.randomUUID(), message_type: MSG_TYPE_BOT, message_state: MSG_STATE_FINISH, item_list: [imageItem] };
+      if (contextToken) msg.context_token = contextToken;
+      const r = await post(EP.send, { msg }, token, API_TIMEOUT_MS, at);
+      return { ...r, fileSize: rawsize, fileSizeCiphertext: filesize };
     },
   };
 }

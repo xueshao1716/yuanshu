@@ -148,7 +148,9 @@ const startServer = singleFlight(async function () {
     outBuf.push(s);
     if (outBuf.length > 200) outBuf = outBuf.slice(-200);
   };
-  child = spawn(process.execPath, ["server.mjs"], { cwd: WEB_DIR, stdio: ["ignore", "pipe", "pipe"], windowsHide: true });
+  // 2026-10-09 透传 LAN=1：让服务监听 0.0.0.0，手机客户端可通过局域网 IP 访问
+  const childEnv = Object.assign({}, process.env, { YUANSHU_LAN: '1' });
+  child = spawn(process.execPath, ["server.mjs"], { cwd: WEB_DIR, env: childEnv, stdio: ["ignore", "pipe", "pipe"], windowsHide: true });
   child.on('error', error => { log(`启动子进程失败: ${error.message}`); child = null; });
   child.stdout.on("data", pushOut);
   child.stderr.on("data", pushOut);

@@ -209,16 +209,24 @@ export function createWechatBridge({
     try {
       while (queue.length) {
         const job = queue.shift();
-        let r = await client.sendText(acc.token, job.to, job.text, job.contextToken, acc.base_url || ILINK_BASE);
-        if (r?.ret === RATE_LIMITED) { await sleep(3000); r = await client.sendText(acc.token, job.to, job.text, job.contextToken, acc.base_url || ILINK_BASE); }
-        if (r?.ret && r.ret !== 0) { stats.failed++; stats.lastError = `发送失败 ret=${r.ret} ${r.errmsg || ""}`.trim(); }
-        else { stats.replied++; note("out", job.to, job.text); }
+        // 图片任务（2026-10-08 补）：走 sendImage 加密上 CDN；文字任务照旧 sendText。
+        const send = () => (job.image
+          ? client.sendImage(acc.token, job.image, job.to, job.contextToken, acc.base_url || ILINK_BASE)
+          : client.sendText(acc.token, job.to, job.text, job.contextToken, acc.base_url || ILINK_BASE));
+        let r = null, err = null;
+        try { r = await send(); } catch (e) { err = e; }
+        if (r?.ret === RATE_LIMITED) { await sleep(3000); try { r = await send(); err = null; } catch (e) { err = e; } }
+        if (err) { stats.failed++; stats.lastError = `发送异常 ${String(err?.message || err).slice(0, 120)}`; }
+        else if (r?.ret && r.ret !== 0) { stats.failed++; stats.lastError = `发送失败 ret=${r.ret} ${r.errmsg || ""}`.trim(); }
+        else { stats.replied++; note("out", job.to, job.image ? `[图片 ${job.image.split(/[\\/]/).pop()}]` : job.text); }
         if (queue.length) await sleep(REPLY_GAP_MS);
       }
     } finally { flushing = false; }
   }
-  const reply = (acc, to, text, contextToken) => {
+  // image 可选：带上时文字切分发完后，再排一张本地图片（sendImage 通路，2026-10-08）。
+  const reply = (acc, to, text, contextToken, image) => {
     for (const part of splitForWechat(stripMarkdownForWechat(text))) queue.push({ to, text: part, contextToken });
+    if (image) queue.push({ to, image, contextToken });
     return flush(acc);
   };
 
@@ -419,11 +427,11 @@ export function createWechatBridge({
     },
     setNotify(on) { writeJson(file("settings.json"), { ...settings(), notify: !!on }); return { notify: !!on }; },
     // 主动发给机器人的主人（扫码的那个人），给交付通知用；要先在面板里打开「通知发到微信」。
-    async notifyOwner(text) {
+    async notifyOwner(text, imagePath) {
       const acc = loadAccount();
       if (!acc?.token || !acc.userId) throw Object.assign(new Error("微信没登录"), { status: 409 });
       if (!settings().notify) throw Object.assign(new Error("没打开「通知发到微信」"), { status: 409 });
-      await reply(acc, acc.userId, text, contexts[acc.userId] || "");
+      await reply(acc, acc.userId, text || "", contexts[acc.userId] || "", imagePath || "");
       return { ok: true };
     },
     _waitIdle: async () => { while (loop || flushing) await sleep(10); },

@@ -39,7 +39,7 @@ export default function Workshop({ initialTab }: { initialTab?: Tab } = {}) {
     if (initialTab) return initialTab
     try {
       const saved = localStorage.getItem('pi_workshop_tab')
-      if (saved === 'wanxiang') return 'image'
+      if (saved === 'wanxiang' || saved === 'canvas') return 'image'
       return TABS.some(([key]) => key === saved) ? saved as Tab : 'image'
     } catch { return 'image' }
   })
@@ -48,6 +48,7 @@ export default function Workshop({ initialTab }: { initialTab?: Tab } = {}) {
     setTab(next)
     try { localStorage.setItem('pi_workshop_tab', next) } catch {}
   }
+
 
   return (
     <div className="flex-1 min-h-0 overflow-y-auto page-enter">

@@ -1,12 +1,12 @@
 import { Suspense, lazy, useCallback, useEffect, useRef, useState, type ComponentType, type LazyExoticComponent, type ReactNode } from 'react'
-import { MessagesSquare, BrainCircuit, Images, Clock4, Download, LayoutGrid, LayoutDashboard, Settings2, FolderClosed, PanelLeftOpen, Sparkles, Factory, MonitorCog, Cpu, Palette, Database, GitCompare, LogOut, Ellipsis, Globe2, ShieldCheck } from 'lucide-react'
+import { MessagesSquare, BrainCircuit, Images, Clock4, Download, LayoutGrid, LayoutDashboard, Settings2, FolderClosed, PanelLeftOpen, Sparkles, Factory, MonitorCog, Cpu, Palette, Database, GitCompare, LogOut, Ellipsis, Globe2, ShieldCheck, Workflow } from 'lucide-react'
 import { useApp } from './store'
 import { useIsMobile } from './hooks/useIsMobile'
 import { useHashRoute, PageErrorBoundary, type Route } from './hooks/useHashRoute'
 import Login from './components/Login'
 import TitleBar from './components/TitleBar'
 import SetupWizard from './components/SetupWizard'
-import { KeysApi } from './api'
+import { KeysApi, SystemApi, getToken } from './api'
 import Sidebar from './components/Sidebar'
 import ChatArea from './components/ChatArea'
 import ThemeSwitcher from './components/ThemeSwitcher'
@@ -37,6 +37,7 @@ const GrantsPage = lazy(() => import('./pages/Grants'))
 const ThemesPage = lazy(() => import('./pages/Themes'))
 const SessionDbPage = lazy(() => import('./pages/SessionDb'))
 const WorkshopPage = lazy(() => import('./pages/Workshop'))
+const CanvasPage = lazy(() => import('./pages/Canvas'))
 const TuiTerminal = lazy(() => import('./components/TuiTerminal'))
 const WorkSpace = lazy(() => import('./components/Workspace'))
 const Deliveries = lazy(() => import('./components/Deliveries'))
@@ -77,6 +78,8 @@ const PAGE_ROUTES: PageRoute[] = [
   { route: 'team', icon: LayoutDashboard, label: ROUTE_LABELS.team, Page: BoardTeamPage, nav: false },
   { route: 'lingxi', icon: Sparkles, label: ROUTE_LABELS.lingxi, Page: LingXiPage },
   { route: 'workshop', icon: Factory, label: ROUTE_LABELS.workshop, Page: WorkshopPage },
+  // 无限画布从创作页内 Tab 解耦为独立页面（可深链 #/canvas）；图标与命令面板一致。
+  { route: 'canvas', icon: Workflow, label: ROUTE_LABELS.canvas, Page: CanvasPage },
   // 连续创作已并入创作（页内视图）。保留 story 路由作为深链别名，
   // 让 #/story 与既有收藏继续可用。
   { route: 'story', icon: Sparkles, label: ROUTE_LABELS.story, Page: WorkshopStoryPage },
@@ -135,15 +138,29 @@ function PageBody({ route }: { route: Route }) {
 }
 
 export default function AppLayout() {
-  const { authed, logout, selectSession, currentSessionId } = useApp()
+  const { authed, login, logout, selectSession, currentSessionId } = useApp()
   const themeReady = useThemePreferences(authed)
-  // 首启向导（M1）：登录后零密钥 → 引导初始化；?setup=1 强制唤出
-  const [needsSetup, setNeedsSetup] = useState(false)
+  // 首启向导：服务端 .setup-pending 标记（新装生成令牌时落盘）或 ?setup=1 唤出。
+  // 新装 + 本机直连：自动领取令牌登录，不让用户先输令牌；手机/远程仍走登录页，登录后进向导。
+  const [setupPhase, setSetupPhase] = useState<'checking' | 'needed' | 'none'>('checking')
+  const needsSetup = setupPhase === 'needed'
   useEffect(() => {
-    if (!authed) return
-    try { if (new URLSearchParams(location.search).get('setup') === '1') { setNeedsSetup(true); return } } catch {}
-    KeysApi.status().then((s: any) => { if (s && Array.isArray(s.pi) && s.pi.length === 0) setNeedsSetup(true) }).catch(() => {})
-  }, [authed])
+    let alive = true
+    ;(async () => {
+      let forced = false
+      try { forced = new URLSearchParams(location.search).get('setup') === '1' } catch {}
+      const { needsSetup: pending } = await SystemApi.setupStatus()
+      if (!alive) return
+      if (!pending && !forced) { setSetupPhase('none'); return }
+      if (pending) {
+        const tk = await SystemApi.setupClaim()
+        if (tk && tk !== getToken()) { try { await login(tk) } catch {} }
+      }
+      if (alive) setSetupPhase('needed')
+    })()
+    return () => { alive = false }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
   const isMobile = useIsMobile()
   // 原生壳标记（2026-09-18，真机截图后加）：安卓 WebView/Tauri 边到边绘制时**不报**状态栏
   // 高度（env(safe-area-inset-top) 退化成 0），标题会压在时钟上。这里标出"我在壳里"，
@@ -266,9 +283,14 @@ export default function AppLayout() {
     </Suspense>
   )
 
+  if (setupPhase === 'checking') return <ShellFrame><div className="flex-1 flex items-center justify-center bg-pi-bg text-pi-dim text-sm" role="status">正在连接...</div></ShellFrame>
   if (!authed) return <ShellFrame><Login /></ShellFrame>
+  // 向导排在主题加载之前：新装时先走完 令牌 → 模型 → 灵魂
+  if (needsSetup) return <ShellFrame><SetupWizard onDone={() => {
+    setSetupPhase('none')
+    try { if (location.search.includes('setup=1')) history.replaceState(null, '', location.pathname + location.hash) } catch {}
+  }} /></ShellFrame>
   if (!themeReady) return <ShellFrame><div className="flex-1 flex items-center justify-center bg-pi-bg text-pi-dim text-sm" role="status">正在加载工作区...</div></ShellFrame>
-  if (needsSetup) return <ShellFrame><SetupWizard onDone={() => setNeedsSetup(false)} /></ShellFrame>
 
   /* ── 页面容器（非 chat 路由共用）── */
   // min-w-0：flex 子项默认 min-width:auto，内部宽表格会把整页撑出横向滚动（M3 手机审计修复）

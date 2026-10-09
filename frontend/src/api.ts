@@ -132,7 +132,8 @@ export async function downloadApiFile(path: string, filename?: string, onProgres
 const TIMEOUT = 30000
 
 export async function api<T = any>(path: string, opts: any = {}): Promise<T> {
-  const headers: any = { ...(opts.headers || {}), Authorization: `Bearer ${_token}` }
+  const sentToken = _token
+  const headers: any = { ...(opts.headers || {}), Authorization: `Bearer ${sentToken}` }
   if (opts.body && typeof opts.body === 'object') {
     headers['Content-Type'] = 'application/json'
     opts.body = JSON.stringify(opts.body)
@@ -145,7 +146,8 @@ export async function api<T = any>(path: string, opts: any = {}): Promise<T> {
     const data = ct.includes('json') ? await r.json() : null
     if (!r.ok) {
       // 401 = 令牌失效/无效：广播全局事件，store 踢回登录页（消除“幽灵登录态”）
-      if (r.status === 401) { try { window.dispatchEvent(new Event('pi-unauthorized')) } catch {} }
+      // 只在令牌没变时才踢：向导改令牌后，旧令牌发出的在途请求回来的 401 不能把新登录踢掉
+      if (r.status === 401 && sentToken === _token) { try { window.dispatchEvent(new Event('pi-unauthorized')) } catch {} }
       // error 可能是字符串或对象（如 code/run 的 {kind, message}）——统一转成可读字符串
       let emsg: string
       if (data && typeof data.error === 'string') emsg = data.error
@@ -771,6 +773,26 @@ export const SystemApi = {
   installAddon: (id: string) => api<{ id: string; state: string }>(`/api/system/addons/${encodeURIComponent(id)}/install`, { method: 'POST', body: {} }),
   applyUpdate: (body?: { engine?: boolean }) => api<any>('/api/update/apply', { method: 'POST', body: body || {}, timeoutMs: 190000 }),
   token: () => api<{ token: string; tokenFile: string }>('/api/system/token'),
+  // 首启向导：status 免鉴权、只回布尔值；soul/done 需要登录且仅在新装 pending 期间有效
+  setupStatus: async (): Promise<{ needsSetup: boolean }> => {
+    // 5 秒超时：远程地址不通时别卡在「检查中」，按非新装处理 → 走登录页
+    const ctrl = new AbortController(); const tmo = setTimeout(() => ctrl.abort(), 5000)
+    try { const r = await fetch(apiUrl('/api/setup/status'), { signal: ctrl.signal }); return r.ok ? await r.json() : { needsSetup: false } }
+    catch { return { needsSetup: false } }
+    finally { clearTimeout(tmo) }
+  },
+  // 新装且本机直连时领取令牌（Tauri 桌面端打开不带 ?t=），其余情况返回空串 → 走登录页
+  setupClaim: async (): Promise<string> => {
+    try {
+      const r = await fetch(apiUrl('/api/setup/claim'), { method: 'POST' })
+      if (!r.ok) return ''
+      const d = await r.json()
+      return typeof d?.token === 'string' ? d.token : ''
+    } catch { return '' }
+  },
+  setupSoul: (body: { name?: string; called?: string }) => api<{ ok: boolean; unchanged: boolean; name?: string; called?: string }>('/api/setup/soul', { method: 'POST', body }),
+  setupDone: () => api<{ ok: boolean }>('/api/setup/done', { method: 'POST', body: {} }),
+  persona: () => api<{ definition: { name: string; age: number; gender: string; kind: string; called: string }; source: string }>('/api/persona'),
   changeToken: (token: string) => api<{ ok: boolean }>('/api/system/token', { method: 'POST', body: { token } }),
   saveNetwork: (body: { domains: { domain: string; desc: string }[] }) =>
     api<{ ok: boolean; domains: { domain: string; desc: string }[] }>('/api/system/network', { method: 'POST', body }),

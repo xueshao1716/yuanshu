@@ -84,7 +84,8 @@ export function createTeamLauncher({ wsRoot, repoRoot, port, token, spawnProcess
       try {
         child = spawnProcess(process.execPath, [path.join(repoRoot, 'scripts', 'team-run-live.mjs'), state.task], {
           cwd: wsRoot, detached: true, stdio: onEvent ? ['ignore', 'pipe', 'ignore'] : 'ignore', windowsHide: true, shell: false,
-          env: { ...process.env, YUANSHU_CWD: wsRoot, YUANSHU_TOKEN: token,
+          // token 可以是字符串或 getter：改令牌后新启动的天团子进程拿到的是当前令牌
+          env: { ...process.env, YUANSHU_CWD: wsRoot, YUANSHU_TOKEN: typeof token === 'function' ? token() : token,
             YUANSHU_TEAM_BASE_URL: `http://127.0.0.1:${port}`, YUANSHU_TEAM_LAUNCH_ID: state.id,
             YUANSHU_TEAM_RESUME_ID: checkpointId || '', YUANSHU_TEAM_RUN_ID: binding.runId || '',
             YUANSHU_TEAM_SESSION_ID: binding.sessionId || '', YUANSHU_TEAM_CONTEXT: binding.context || '',

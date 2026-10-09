@@ -60,7 +60,9 @@ export function initTuiBridge(httpServer, { token, cwd, cols = 120, rows = 30 } 
       try {
         const d = JSON.parse(msg.toString());
         if (!authenticated) {
-          if (d.type !== "auth" || !token || d.token !== token) {
+          // token 可以是字符串或 getter：向导/系统页改令牌后，TUI 立即按新令牌校验
+          const expected = typeof token === "function" ? token() : token;
+          if (d.type !== "auth" || !expected || d.token !== expected) {
             try { ws.close(1008, "unauthorized"); } catch {}
             return;
           }

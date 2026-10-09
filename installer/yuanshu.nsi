@@ -126,21 +126,19 @@ Section "元枢" SecCore
 
   ${If} $NoTask != "1"
     DetailPrint "正在注册开机自启并启动服务…"
+    ; 启动服务前判断新装/升级：已有 .token 即升级（令牌与设置保留，不进向导）
+    StrCpy $2 "new"
+    ${If} ${FileExists} "$INSTDIR\app\.token"
+      StrCpy $2 "upgrade"
+    ${EndIf}
     nsExec::ExecToLog 'powershell.exe -NoProfile -ExecutionPolicy Bypass -File "$INSTDIR\launcher\register-task.ps1" -Root "$INSTDIR"'
     nsExec::Exec '"$INSTDIR\launcher\yuanshu.exe" --service-only'
-    ; 2026-10-08 安装完成后展示访问令牌，新用户首次登录需要它
-    ; 令牌在服务启动后写入 $INSTDIR\app\.token
-    ; 稍待服务初始化
-    Sleep 3000
-    ClearErrors
-    FileOpen $0 "$INSTDIR\app\.token" r
-    ${IfNot} ${Errors}
-      FileRead $0 $1
-      FileClose $0
-      StrCpy $1 $1 -1  ; 去掉末尾换行符
-      MessageBox MB_OK|MB_ICONINFORMATION "元枢已安装完成！$\n$\n访问令牌（登录时需要）：$\n$1$\n$\n请复制以上令牌并妥善保存。"
+    ; 2026-10-09 不再弹窗展示令牌（旧逻辑 StrCpy -1 会截掉令牌最后一位）。
+    ; 新装由首启向导引导：令牌 → 模型 → 灵魂；令牌在向导第一步展示、可复制、可修改。
+    ${If} $2 == "new"
+      MessageBox MB_OK|MB_ICONINFORMATION "元枢已安装完成。$\n$\n打开桌面上的「元枢」，按引导依次完成：$\n1. 确认访问令牌$\n2. 配置第一个模型$\n3. 确认灵魂设定" /SD IDOK
     ${Else}
-      MessageBox MB_OK|MB_ICONINFORMATION "元枢已安装完成！$\n$\n访问令牌在：$INSTDIR\app\.token$\n首次登录时请查看该文件。"
+      MessageBox MB_OK|MB_ICONINFORMATION "元枢已更新完成。$\n$\n原有令牌、模型和灵魂设定都已保留。" /SD IDOK
     ${EndIf}
   ${EndIf}
 SectionEnd

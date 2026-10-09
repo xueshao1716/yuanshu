@@ -55,6 +55,17 @@ const FULL = args.includes('--full');
 const log = (...m) => console.log(`[build ${new Date().toTimeString().slice(0, 8)}]`, ...m);
 const run = (cmd, argv, o = {}) => execFileSync(cmd, argv, { stdio: 'inherit', windowsHide: true, ...o });
 const rm = (p) => fs.rmSync(p, { recursive: true, force: true });
+// 打包自检：index.html 引用的入口 chunk 必须存在且带当前版本号，否则装出来就是旧版界面（2.124 显示 123 的教训）
+function assertFrontendVersion(appDir) {
+  const dist = path.join(appDir, 'frontend', 'dist');
+  const html = fs.readFileSync(path.join(dist, 'index.html'), 'utf8');
+  const entry = html.match(/assets\/index-[A-Za-z0-9_-]+\.js/)?.[0];
+  if (!entry) throw new Error('frontend/dist/index.html 找不到入口 chunk，先跑 npm run build');
+  const p = path.join(dist, entry);
+  if (!fs.existsSync(p)) throw new Error(`入口 chunk ${entry} 没进包，先跑 npm run build`);
+  if (!fs.readFileSync(p, 'utf8').includes(VERSION)) throw new Error(`前端产物不是 ${VERSION}（${entry}），先跑 npm run build 再打包`);
+  log('前端版本自检通过', VERSION, entry);
+}
 // 平台专属包（esbuild/sharp/ripgrep 等按 package.json 的 os/cpu 声明分平台发布）：只留 win32-x64
 function foreignPlatform(pkgDir) {
   try {
@@ -125,8 +136,11 @@ const STEPS = {
   app() {
     const dst = path.join(STAGE, 'app');
     rm(dst); mk(dst);
-    const files = execFileSync('git', ['-c', 'core.quotepath=off', 'ls-files', '-z'], { cwd: REPO, encoding: 'utf8', maxBuffer: 64 << 20 })
-      .split('\0').filter(Boolean).filter(keepRepoFile);
+    const gitList = (args) => execFileSync('git', ['-c', 'core.quotepath=off', 'ls-files', '-z', ...args], { cwd: REPO, encoding: 'utf8', maxBuffer: 64 << 20 })
+      .split('\0').filter(Boolean);
+    // 前端产物常常是新 build 出来还没提交的：只拷已跟踪文件会把旧版 chunk 打进包（2.124 装出来显示 123 的根因）。
+    // 所以 frontend/dist 下未跟踪（但未被 ignore）的产物也一并带上。
+    const files = [...new Set([...gitList([]), ...gitList(['--others', '--exclude-standard', '--', 'frontend/dist'])])].filter(keepRepoFile);
     let n = 0;
     for (const f of files) {
       const s = path.join(REPO, f);
@@ -136,6 +150,7 @@ const STEPS = {
       n++;
     }
     log('源码文件', n);
+    assertFrontendVersion(dst);
     // 装机后的「检测更新」靠它知道自己是哪个提交；第一次在线更新时据此把 app/ 变成 git 仓库
     const commit = execFileSync('git', ['rev-parse', 'HEAD'], { cwd: REPO, encoding: 'utf8' }).trim();
     const dirty = execFileSync('git', ['status', '--porcelain', '--untracked-files=no'], { cwd: REPO, encoding: 'utf8' }).trim();

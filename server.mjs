@@ -133,6 +133,7 @@ import { createSandboxAskFactory } from "./engine/sandbox-ask.mjs";
 import { isLocalMaintenanceApproval } from "./engine/maintenance-approval.mjs";
 import { createGeneApproval } from './engine/gene-approval.mjs';
 import { createPersonaGovernance } from './engine/persona-governance.mjs';
+import { isSetupPending, clearSetupPending, applySetupSoul, isLocalSetupRequest } from './engine/setup-state.mjs';
 import { createPersonaApproval } from './engine/persona-approval.mjs';
 import { createComputerUse } from './engine/computer-use/controller.mjs';
 import { createWindowsAdapter } from './engine/computer-use/windows.mjs';
@@ -2197,7 +2198,7 @@ const behaviorExperiments = createBehaviorExperiments({ wsRoot: WS_ROOT, rootDir
 const taskEvidenceApi = createTaskEvidenceApi({ service: taskEvidence, json, onReview: () => runDreamCycle(true) });
 const runEventLog = createRunEventLog({ rootDir: RUNS_DIR });
 const runEffects = createRunEffects({ rootDir: RUNS_DIR });
-const teamLauncher = createTeamLauncher({ wsRoot: CONFIG.cwd, repoRoot: __dirname, port: CONFIG.port, token: CONFIG.token });
+const teamLauncher = createTeamLauncher({ wsRoot: CONFIG.cwd, repoRoot: __dirname, port: CONFIG.port, token: () => CONFIG.token });
 const teamRunRead = createTeamRunRead({ wsRoot: CONFIG.cwd, json, getLaunch: () => teamLauncher.status() });
 const teamChat = createTeamChat({ launcher: teamLauncher, wsRoot: CONFIG.cwd, openSession, aibodyHost,
   readMessages: entry => extractMessages(entry.sm.fileEntries, entry.sm.getLeafId?.() || resolveLeafId(entry.sm.fileEntries))
@@ -2766,6 +2767,28 @@ const API_ROUTES = [
   ["GET", "/api/system/info", (res) => json(res, 200, buildSystemInfo(WS_ROOT, AGENT_DIR))],
   // 2026-10-07 真机：安装包首页没有令牌管理入口，安装好了改不了令牌。
   ["GET", "/api/system/token", (res) => json(res, 200, { token: CONFIG.token, tokenFile: CONFIG.tokenFile })],
+  // ── 首启向导（令牌 → 模型 → 灵魂）──
+  // status 免鉴权（登录页要用来提示「用桌面快捷方式打开」），只回布尔值，不含令牌
+  ["GET", "/api/setup/status", (res) => json(res, 200, { needsSetup: isSetupPending(path.dirname(CONFIG.tokenFile)) })],
+  ["POST", "/api/setup/soul", async (res, req) => {
+    if (!isSetupPending(path.dirname(CONFIG.tokenFile))) return json(res, 409, { error: "初始化已完成，请到「灵魂」页修改人格", code: "setup_done" });
+    const body = await readBody(req);
+    const raw = typeof body === "string" ? JSON.parse(body || "{}") : (body || {});
+    try {
+      const r = applySetupSoul(personaGovernance, { ...(raw.name !== undefined ? { name: raw.name } : {}), ...(raw.called !== undefined ? { called: raw.called } : {}) });
+      return json(res, 200, { ok: true, unchanged: r.unchanged, name: r.definition?.name, called: r.definition?.called });
+    } catch (e) { return json(res, 400, { error: String(e?.message || e).slice(0, 300) }); }
+  }],
+  // 仅首启 pending 期间、仅本机直连（排除隧道/局域网/DNS rebinding）可领取令牌，供 Tauri 桌面端免输令牌进入向导
+  ["POST", "/api/setup/claim", (res, req) => {
+    if (!isSetupPending(path.dirname(CONFIG.tokenFile))) return json(res, 403, { error: "仅首启向导期间可用" });
+    if (!isLocalSetupRequest(req, CONFIG.port)) return json(res, 403, { error: "仅限本机直接访问" });
+    return json(res, 200, { token: CONFIG.token });
+  }],
+  ["POST", "/api/setup/done", (res) => {
+    try { clearSetupPending(path.dirname(CONFIG.tokenFile)); return json(res, 200, { ok: true }); }
+    catch (e) { return json(res, 500, { error: String(e?.message || e).slice(0, 200) }); }
+  }],
   ["POST", "/api/system/token", async (res, req) => {
     const body = await readBody(req);
     const raw = typeof body === "string" ? JSON.parse(body) : body;
@@ -3444,7 +3467,10 @@ const server = http.createServer(async (req, res) => {
         isSignedFile = fb.verifySigned(req).ok;
       }
     } catch {}
-    if (!isStatic && !isSignedFile && !checkAuth(req)) {
+    // 首启向导状态免鉴权：只回 needsSetup 布尔值。令牌本身永远要鉴权（旧的 isTokenCheck 旁路会泄露令牌，已删）
+    const isSetupStatus = (url.pathname === "/api/setup/status" && req.method === "GET")
+      || (url.pathname === "/api/setup/claim" && req.method === "POST"); // claim 在路由内做 pending + 本机直连校验
+    if (!isStatic && !isSignedFile && !isSetupStatus && !checkAuth(req)) {
       return json(res, 401, { error: "未授权，请提供访问令牌" });
     }
 
@@ -3571,7 +3597,7 @@ function startServer() {
       runtime: voiceTaskRuntime, canAccess: canAccessSessionOrigin,
       onDiagnostic: createVoiceDiagnostics({ rootDir: RUNS_DIR }),
       connect: modelKey => { const model = voiceModels.resolve(modelKey); return connectVoiceProvider(model.key, model.modelKey); } });
-    try { initTuiBridge(server, { token: CONFIG.token, cwd: WS_ROOT }); console.log("  TUI 桥接: ws://…/ws/tui 已就绪"); } catch {}
+    try { initTuiBridge(server, { token: () => CONFIG.token, cwd: WS_ROOT }); console.log("  TUI 桥接: ws://…/ws/tui 已就绪"); } catch {}
     try { wechat.boot(); const w = wechat.status(); if (w.loggedIn) console.log(`  微信接入: ${w.running ? '收发中' : '已登录，未开启'}`); } catch (e) { console.log('  微信接入: 启动失败', String(e?.message || e).slice(0, 80)); }
     // 邮件桥：把微信通知函数传进去，按配置决定是否自动启动轮询
     try {

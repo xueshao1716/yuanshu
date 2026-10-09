@@ -13,6 +13,7 @@ const TOKEN_FILE = path.join(__dirname, ".token");
 // 环境变量统一入口：新名 YUANSHU_* 优先，旧名 PI_WEB_* 继续认。
 // 实现在 engine/env.mjs，engine/ 下的模块也复用它（避免各写一份导致行为漂移）。
 import { env } from "./engine/env.mjs";
+import { markSetupPending } from "./engine/setup-state.mjs";
 import { defaultWorkspace } from "./engine/workspace-default.mjs";
 
 // 访问令牌：环境变量 YUANSHU_TOKEN（旧名 PI_WEB_TOKEN）优先，其次 .token 文件，否则生成一个并保存
@@ -26,6 +27,8 @@ function loadToken() {
   const t = crypto.randomBytes(24).toString("hex");
   try {
     fs.writeFileSync(TOKEN_FILE, t, { mode: 0o600 });
+    // 新装：令牌是刚生成的 → 标记首启向导待完成（令牌 → 模型 → 灵魂），向导走完后删除
+    markSetupPending(path.dirname(TOKEN_FILE));
   } catch {}
   return t;
 }

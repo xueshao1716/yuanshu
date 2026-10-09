@@ -408,3 +408,45 @@ export interface SseEvent {
   data: any
   ts: number
 }
+
+// ── 无限画布节点（复刻可乐 AI 画布，见 文档/逆向-可乐AI无限画布架构.md）──
+export type CanvasNodeKind = 'prompt' | 'config' | 'image'
+export type CanvasNodeStatus = 'idle' | 'running' | 'done' | 'error'
+
+export interface CanvasNode {
+  id: string
+  kind: CanvasNodeKind
+  x: number
+  y: number
+  w: number
+  h: number
+  title: string
+  /** 提示词节点正文 / 图片节点自己的兜底提示词 */
+  text: string
+  /** plain = 原样；panorama = 注入三条全景硬约束 */
+  template: 'plain' | 'panorama'
+  /** 配置节点字段，图片节点可留空走继承 */
+  model: string
+  size: string
+  /** /api/image 的契约字段：provider + modelId 缺一个就 400，model 只是给人看的展示串 */
+  provider: string
+  modelId: string
+  status: CanvasNodeStatus
+  url: string
+  error: string
+  /** 参考图（图生全景分支） */
+  ref: string
+}
+
+export interface CanvasEdge {
+  id: string
+  from: string
+  to: string
+  kind: 'prompt' | 'config'
+}
+
+export interface CanvasView {
+  x: number
+  y: number
+  z: number
+}

@@ -3,6 +3,7 @@
 .token*
 .token
 *.token
+.setup-*
 .env
 .env.*
 !.env.example
