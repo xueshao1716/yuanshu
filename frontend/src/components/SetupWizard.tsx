@@ -41,6 +41,8 @@ export default function SetupWizard({ onDone }: { onDone: () => void }) {
   // Step 2/3 — 模型
   const [presets, setPresets] = useState<Preset[]>([])
   const [picked, setPicked] = useState<Preset | null>(null)
+  const [customMode, setCustomMode] = useState(false)
+  const [customProviderId, setCustomProviderId] = useState('')
   const [apiKey, setApiKey] = useState('')
   const [baseUrl, setBaseUrl] = useState('')
   const [modelBusy, setModelBusy] = useState(false)
@@ -109,9 +111,11 @@ export default function SetupWizard({ onDone }: { onDone: () => void }) {
   // ── Step 3：填 Key ────────────────────────────────────────────
   const submitKey = async () => {
     if (!apiKey.trim()) { setModelErr('请输入 API Key'); return }
+    if (customMode && !customProviderId.trim()) { setModelErr('请输入服务商标识'); return }
     setModelBusy(true); setModelErr('')
     try {
-      await KeysApi.apply({ provider: picked!.id, apiKey: apiKey.trim(), baseUrl: baseUrl.trim() })
+      const providerId = customMode ? customProviderId.trim() : picked!.id
+      await KeysApi.apply({ provider: providerId, apiKey: apiKey.trim(), baseUrl: baseUrl.trim() })
       try {
         const s = await KeysApi.status()
         setModelCount(Array.isArray(s?.pi) ? s.pi.length : 1)
@@ -216,7 +220,7 @@ export default function SetupWizard({ onDone }: { onDone: () => void }) {
 
       {/* 右侧内容区 */}
       <div className="flex-1 flex items-center justify-center px-6 py-12">
-        <div className="w-full max-w-md">
+        <div className="w-full max-w-xl">
 
           {/* 移动端品牌头 */}
           <div className="lg:hidden text-center mb-8">

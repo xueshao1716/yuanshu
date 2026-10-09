@@ -12,6 +12,7 @@ export const CANVAS_LIMITS = {
 }
 
 export const NODE_KINDS = {
+  text: { label: '文本', w: 280, h: 160, outputs: [], inputs: [] },
   prompt: { label: '提示词', w: 300, h: 176, outputs: ['prompt'], inputs: [] },
   config: { label: '配置', w: 264, h: 168, outputs: ['config'], inputs: [] },
   image: { label: '图片', w: 300, h: 320, outputs: [], inputs: ['prompt', 'config'] },

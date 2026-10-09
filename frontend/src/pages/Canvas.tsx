@@ -302,6 +302,9 @@ export default function Canvas({ models: modelsProp, bare }: { models?: Model[];
       {/* 工具栏 */}
       <div className={`flex-none pb-3 flex flex-wrap items-center gap-1.5 ${bare ? 'px-3 sm:px-6' : 'px-3 sm:px-6'}`}>
         <div className="flex items-center gap-1 mr-1">
+          <button className="btn-tool !min-h-11 sm:!min-h-9" title="添加文本节点" onClick={() => addNode('text')}>
+            <Type className="w-3.5 h-3.5" /><span className="hidden sm:inline">文本</span>
+          </button>
           <button className="btn-tool !min-h-11 sm:!min-h-9" title="添加提示词节点" onClick={() => addNode('prompt')}>
             <PromptIcon className="w-3.5 h-3.5" /><span className="hidden sm:inline">提示词</span>
           </button>
