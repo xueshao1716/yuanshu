@@ -69,7 +69,7 @@ export default function Workshop({ initialTab }: { initialTab?: Tab } = {}) {
               </button>
             ))}
           </div>
-          <div className="flex flex-col" style={{ minHeight: '1200px', height: 'calc(100dvh - 160px)' }}>
+          <div className="flex flex-col" style={{ height: '864px' }}>
             <Canvas bare />
           </div>
         </div>
