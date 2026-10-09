@@ -69,7 +69,7 @@ export default function Workshop({ initialTab }: { initialTab?: Tab } = {}) {
               </button>
             ))}
           </div>
-          <div style={{ height: 'calc(100dvh - 220px)' }}>
+          <div style={{ height: 'calc(100dvh - 160px)' }}>
             <Canvas bare />
           </div>
         </div>
@@ -79,7 +79,7 @@ export default function Workshop({ initialTab }: { initialTab?: Tab } = {}) {
 
   return (
     <div className="flex-1 min-h-0 overflow-y-auto page-enter">
-      <div className={`${tab === 'ui' ? 'max-w-[1600px]' : 'max-w-6xl'} mx-auto px-3 sm:px-6 py-4 sm:py-6`}>
+      <div className="max-w-[1600px] mx-auto px-3 sm:px-6 py-4 sm:py-6">
         <PageHeader title="创作" description={TAB_DESC[tab]} />
 
         <div data-slot="workshop-tabs" className="grid grid-cols-2 w-full sm:inline-flex sm:w-auto gap-1 mb-5 p-1 rounded-pi-lg bg-pi-bg2/60 border border-pi-border-soft">
@@ -94,7 +94,7 @@ export default function Workshop({ initialTab }: { initialTab?: Tab } = {}) {
         </div>
 
         {tab === 'image' && (
-          <div className="max-w-3xl space-y-4">
+          <div className="space-y-4">
             <GeneratePanel onGenerated={() => {}} prompt={imagePrompt} onPromptChange={setImagePrompt} />
             <div className="panel !p-3">
               <div className="text-sm font-semibold text-pi-text">万像人物 · 构图骨架写提示词</div>
@@ -104,7 +104,7 @@ export default function Workshop({ initialTab }: { initialTab?: Tab } = {}) {
           </div>
         )}
         {tab === 'video' && (
-          <div className="max-w-3xl space-y-4">
+          <div className="space-y-4">
             <VideoGeneratePanel
               onGenerated={() => {}}
               prompt={videoPrompt}
