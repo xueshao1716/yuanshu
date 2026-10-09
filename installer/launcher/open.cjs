@@ -43,8 +43,10 @@ async function main() {
   let token = "";
   try { token = fs.readFileSync(TOKEN_FILE, "utf8").trim(); } catch {}
   // 2026-10-08 token 可以是任意可打印字符（非纯十六进制），只要非空就带上 #t= 实现自动登录
+  // 2026-10-08 fix: 不能对整个 token 做 encodeURIComponent，因为 URL 中 # 会截断 location.hash
+  // 只过滤非打印字符，直接拼入；hash-token.mjs 正则 .{8,256} 可匹配任意可打印字符
   const safeToken = token.replace(/[^\x20-\x7E]/g, '').trim();
-  const url = `http://127.0.0.1:${PORT}/` + (safeToken ? `#t=${encodeURIComponent(safeToken)}` : "");
+  const url = `http://127.0.0.1:${PORT}/` + (safeToken ? `#t=${safeToken}` : "");
   spawn("rundll32.exe", ["url.dll,FileProtocolHandler", url], { detached: true, stdio: "ignore", windowsHide: true }).unref();
 }
 
