@@ -300,7 +300,7 @@ export default function Canvas({ models: modelsProp, bare }: { models?: Model[];
       )}
 
       {/* 工具栏 */}
-      <div className={`pb-3 flex flex-wrap items-center gap-1.5 ${bare ? 'px-0' : 'px-3 sm:px-6'}`}>
+      <div className={`flex-none pb-3 flex flex-wrap items-center gap-1.5 ${bare ? 'px-3 sm:px-6' : 'px-3 sm:px-6'}`}>
         <div className="flex items-center gap-1 mr-1">
           <button className="btn-tool !min-h-11 sm:!min-h-9" title="添加提示词节点" onClick={() => addNode('prompt')}>
             <PromptIcon className="w-3.5 h-3.5" /><span className="hidden sm:inline">提示词</span>
@@ -340,7 +340,7 @@ export default function Canvas({ models: modelsProp, bare }: { models?: Model[];
       </div>
 
       {/* 舞台 + 检查器 */}
-      <div className={`flex-1 min-h-0 flex gap-3 ${bare ? 'px-0 pb-0' : 'px-3 sm:px-6 pb-3 sm:pb-6'}`}>
+      <div className={`flex-1 min-h-0 flex gap-3 ${bare ? 'px-3 sm:px-6 pb-3 sm:pb-4' : 'px-3 sm:px-6 pb-3 sm:pb-6'}`}>
         <div
           ref={stageRef}
           data-testid="canvas-stage"

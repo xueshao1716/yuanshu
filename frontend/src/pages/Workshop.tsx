@@ -1,5 +1,5 @@
-import { useState } from 'react'
-import { ImagePlus, Presentation, BookOpen, Smartphone, Film, Clapperboard } from 'lucide-react'
+import { useState, useRef, useLayoutEffect } from 'react'
+import { ImagePlus, Presentation, BookOpen, Smartphone, Film, Clapperboard, Workflow } from 'lucide-react'
 import PageHeader from '../components/PageHeader'
 import GeneratePanel from '../components/GeneratePanel'
 import VideoGeneratePanel from '../components/VideoGeneratePanel'
@@ -9,10 +9,11 @@ import NovelStudioView from '../components/NovelStudioView'
 import WanXiang from '../components/WanXiang'
 import WorkshopUiBoard from '../components/WorkshopUiBoard'
 import { StoryPanel } from './StoryWorkbench'
+import Canvas from './Canvas'
 
-// ── 专项工作台：出图 / 视频 / PPT / 小说 / 界面工坊 / 连续创作 ──
+// ── 专项工作台：出图 / 视频 / PPT / 小说 / 界面工坊 / 连续创作 / 无限画布 ──
 
-type Tab = 'image' | 'video' | 'ppt' | 'novel' | 'ui' | 'story'
+type Tab = 'image' | 'video' | 'ppt' | 'novel' | 'ui' | 'story' | 'canvas'
 const TABS: [Tab, typeof ImagePlus | typeof Film, string][] = [
   ['image', ImagePlus, 'AI 绘画'],
   ['video', Film, '视频工坊'],
@@ -20,6 +21,7 @@ const TABS: [Tab, typeof ImagePlus | typeof Film, string][] = [
   ['novel', BookOpen, '小说工坊'],
   ['story', Clapperboard, '连续创作'],
   ['ui', Smartphone, '界面工坊'],
+  ['canvas', Workflow, '无限画布'],
 ]
 const TAB_DESC: Record<Tab, string> = {
   image: '万像写提示词，选模型出图，成品自动归档到资产库',
@@ -28,6 +30,7 @@ const TAB_DESC: Record<Tab, string> = {
   novel: '项目管理：产品化 → 五层 → 真相 → 写章 → 修订 → 导出',
   story: '先完成一段好故事，再让人物和情节接着走；分镜、设定与成品都在同一处',
   ui: '直接编辑真实网页，AI 辅助局部修改；预览、版本与分享在同一处',
+  canvas: '自由排布节点、拖拽连线，把想法和信息组织成可视化的思维图谱',
 }
 
 export default function Workshop({ initialTab }: { initialTab?: Tab } = {}) {
@@ -49,6 +52,30 @@ export default function Workshop({ initialTab }: { initialTab?: Tab } = {}) {
     try { localStorage.setItem('pi_workshop_tab', next) } catch {}
   }
 
+
+  // canvas tab：顶栏与其他 Tab 保持一致，画布撑满剩余空间
+  if (tab === 'canvas') {
+    return (
+      <div className="flex-1 min-h-0 overflow-y-auto page-enter">
+        <div className="max-w-[1600px] mx-auto px-3 sm:px-6 py-4 sm:py-6">
+          <PageHeader title="创作" description={TAB_DESC['canvas']} />
+          <div data-slot="workshop-tabs" className="grid grid-cols-2 w-full sm:inline-flex sm:w-auto gap-1 mt-4 mb-5 p-1 rounded-pi-lg bg-pi-bg2/60 border border-pi-border-soft">
+            {TABS.map(([k, Icon, label]) => (
+              <button key={k} onClick={() => chooseTab(k)}
+                className={`flex items-center justify-center gap-1.5 min-h-11 px-2 sm:px-3.5 text-xs rounded-pi-md transition-colors duration-fast ${
+                  tab === k ? 'bg-pi-accent text-pi-on-accent font-medium' : 'text-pi-dim hover:text-pi-text'}`}>
+                <Icon className="w-3.5 h-3.5" strokeWidth={1.8} />
+                <span className="truncate">{label}</span>
+              </button>
+            ))}
+          </div>
+          <div style={{ height: 'calc(100dvh - 220px)' }}>
+            <Canvas bare />
+          </div>
+        </div>
+      </div>
+    )
+  }
 
   return (
     <div className="flex-1 min-h-0 overflow-y-auto page-enter">

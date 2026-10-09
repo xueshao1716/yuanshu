@@ -27,4 +27,4 @@ export const ROUTE_LABELS = {
 // 附带修复：手机「更多」菜单里从来没有连续创作入口，并入创作后手机端才到得了。
 export const RAIL_PRIMARY = ['chat', 'board', 'workshop', 'assets', 'tasks', 'engine'] as const
 
-export const RAIL_MORE = ['soul', 'grants', 'canvas', 'lingxi', 'apps', 'sessiondb', 'downloads', 'system'] as const
+export const RAIL_MORE = ['soul', 'grants', 'lingxi', 'apps', 'sessiondb', 'downloads', 'system'] as const

@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import useSWR from 'swr'
 import * as D from '@radix-ui/react-dialog'
 import * as AL from '@radix-ui/react-alert-dialog'
 import * as DropdownMenu from '@radix-ui/react-dropdown-menu'
@@ -19,7 +20,13 @@ function loadCollapsed(): Set<string> {
 }
 
 export default function Sidebar({ onNavigated, onCollapse }: { onNavigated?: () => void; onCollapse?: () => void } = {}) {
-  const { sessions, currentSessionId, selectSession, refreshSessions } = useApp()
+  const { sessions, currentSessionId, selectSession, refreshSessions, authed } = useApp()
+  const { data: personaData } = useSWR(
+    authed ? 'persona' : null,
+    () => fetch('/api/persona', { headers: { Authorization: 'Bearer ' + (localStorage.getItem('yuanshu_access_token') || '') } }).then(r => r.json()),
+    { refreshInterval: 30000, revalidateOnFocus: true }
+  )
+  const personaName = personaData?.definition?.name || '小语'
   const [renaming, setRenaming] = useState<{ sid: string; name: string } | null>(null)
   const [confirming, setConfirming] = useState<Session | null>(null)
   const [search, setSearch] = useState('')
@@ -87,13 +94,24 @@ export default function Sidebar({ onNavigated, onCollapse }: { onNavigated?: () 
     <aside className="session-sidebar w-full md:w-64 flex-shrink-0 flex flex-col col-sidebar md:border-r border-pi-border/50 min-h-0 h-full relative z-10">
       {/* 品牌头 */}
       <div className="flex items-center gap-2.5 px-4 h-14 border-b border-pi-border-soft/50 flex-shrink-0">
-        <img
-          className="h-8 w-8 shrink-0 rounded-pi-md"
-          src="/static/branding/yuanshu-app-icon.png?v=desk"
-          alt="元枢"
-        />
+        {/* 波形图标：三条不等高竖线，带错峰脉冲动画，暗示「对话」与活跃状态 */}
+        <div className="h-8 w-8 shrink-0 flex items-center justify-center" aria-hidden="true">
+          <svg width="22" height="22" viewBox="0 0 22 22" fill="none" xmlns="http://www.w3.org/2000/svg">
+            <style>{`
+              @keyframes sb-wave-a { 0%,100%{height:6px;y:8px} 50%{height:12px;y:5px} }
+              @keyframes sb-wave-b { 0%,100%{height:10px;y:6px} 50%{height:16px;y:3px} }
+              @keyframes sb-wave-c { 0%,100%{height:6px;y:8px} 50%{height:10px;y:6px} }
+              .sb-bar-a{animation:sb-wave-a 1.4s ease-in-out infinite}
+              .sb-bar-b{animation:sb-wave-b 1.4s ease-in-out infinite 0.2s}
+              .sb-bar-c{animation:sb-wave-c 1.4s ease-in-out infinite 0.4s}
+            `}</style>
+            <rect className="sb-bar-a" x="3" y="8" width="3.5" height="6" rx="1.75" fill="currentColor" style={{opacity: 0.55}}/>
+            <rect className="sb-bar-b" x="9.25" y="6" width="3.5" height="10" rx="1.75" fill="currentColor" style={{opacity: 0.9}}/>
+            <rect className="sb-bar-c" x="15.5" y="8" width="3.5" height="6" rx="1.75" fill="currentColor" style={{opacity: 0.55}}/>
+          </svg>
+        </div>
         <div className="min-w-0">
-          <div className="font-semibold text-[15px] leading-tight">小语</div>
+          <div className="font-semibold text-[15px] leading-tight truncate">{personaName}</div>
         </div>
         {onCollapse && (
           <button className="ml-auto touch-hit p-1.5 text-pi-dim2 hover:text-pi-text hover:bg-pi-bg3 rounded-pi-sm transition-colors"
