@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   PenLine as PromptIcon, Sliders, Image as ImageIcon, Download, Upload, Trash2,
   ZoomIn, ZoomOut, Maximize, Crosshair, Loader2, Link2, Unlink, Wand2,
+  Type, Undo2, Redo2,
 } from 'lucide-react'
 import PageHeader from '../components/PageHeader'
 import CanvasNodeCard from '../components/CanvasNodeCard'

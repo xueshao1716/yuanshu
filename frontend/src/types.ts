@@ -410,7 +410,7 @@ export interface SseEvent {
 }
 
 // ── 无限画布节点（复刻可乐 AI 画布，见 文档/逆向-可乐AI无限画布架构.md）──
-export type CanvasNodeKind = 'prompt' | 'config' | 'image'
+export type CanvasNodeKind = 'text' | 'prompt' | 'config' | 'image'
 export type CanvasNodeStatus = 'idle' | 'running' | 'done' | 'error'
 
 export interface CanvasNode {
