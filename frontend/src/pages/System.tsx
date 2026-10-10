@@ -227,6 +227,44 @@ export default function System() {
             </div>
         </section>
 
+
+        {/* ── 外网配置 ── */}
+        <section>
+          <SectionHeader title="外网配置" description="登记公网域名与局域网入口；不会自动配置 DNS 或隧道。" />
+          <div className="panel !p-4 space-y-3">
+            <div className="space-y-2">
+              {domains.map((d, i) => (
+                <div key={i} className="flex items-center gap-2">
+                  <input aria-label={`域名 ${i + 1}`} className="input-pi !py-1.5 text-xs font-mono flex-1 min-w-0" placeholder="example.com" value={d.domain} onChange={e => editRow(i, 'domain', e.target.value)} />
+                  <input aria-label={`域名说明 ${i + 1}`} className="input-pi !py-1.5 text-xs w-28 sm:w-36 flex-shrink-0" placeholder="说明（可选）" value={d.desc} onChange={e => editRow(i, 'desc', e.target.value)} />
+                  <button type="button" className="btn-tool touch-hit hover:!text-pi-danger flex-shrink-0" title="删除此域名" aria-label="删除此域名" onClick={() => delRow(i)}><Trash2 className="w-4 h-4" /></button>
+                </div>
+              ))}
+            </div>
+            <div className="flex items-center gap-2">
+              <button type="button" className="btn-ghost text-xs px-3 py-1.5 inline-flex items-center gap-1.5" onClick={addRow}><Plus className="w-3.5 h-3.5" />添加域名</button>
+              <button type="button" className="btn-primary text-xs px-3.5 py-1.5 ml-auto inline-flex items-center gap-1.5 disabled:opacity-40" disabled={!dirty} onClick={saveNet}><Save className="w-3.5 h-3.5" />保存</button>
+              {netMsg && <span className="text-[12px] text-pi-accent">{netMsg}</span>}
+            </div>
+            {(info.network?.lanIPs || []).length > 0 && (
+              <div className="pt-3 border-t border-pi-border-soft space-y-1.5">
+                <p className="text-[11px] text-pi-dim2">局域网直连（同一 WiFi）</p>
+                {(info.network.lanIPs).map((ip: string) => {
+                  const lanUrl = `http://${ip}:${port}`
+                  return (
+                    <div key={ip} className="flex items-center gap-2">
+                      <code className="font-mono text-xs text-pi-text bg-pi-bg2 px-2 py-0.5 rounded-pi-sm flex-1 min-w-0 truncate">{lanUrl}</code>
+                      <button type="button" className="btn-tool text-[11px] !px-1.5 !py-0.5 inline-flex items-center gap-1 shrink-0" onClick={() => copyText(lanUrl)}>
+                        <Copy className="w-3 h-3" />{copiedIp === lanUrl ? '已复制' : '复制'}
+                      </button>
+                    </div>
+                  )
+                })}
+              </div>
+            )}
+          </div>
+        </section>
+
         {/* ── 接入模式 ── */}
         <section>
           <SectionHeader title="接入模式" description="微信、邮件、MCP 等外部服务接入。" />
