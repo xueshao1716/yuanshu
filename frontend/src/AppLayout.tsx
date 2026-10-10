@@ -1,5 +1,5 @@
 import { Suspense, lazy, useCallback, useEffect, useRef, useState, type ComponentType, type LazyExoticComponent, type ReactNode } from 'react'
-import { MessagesSquare, BrainCircuit, Images, Clock4, Download, LayoutGrid, LayoutDashboard, Settings2, FolderClosed, PanelLeftOpen, Sparkles, Factory, MonitorCog, Cpu, Palette, Database, GitCompare, LogOut, Ellipsis, Globe2, ShieldCheck, Workflow } from 'lucide-react'
+import { MessagesSquare, BrainCircuit, Images, Clock4, Download, LayoutGrid, LayoutDashboard, Settings2, FolderClosed, PanelLeftOpen, Sparkles, Factory, MonitorCog, Cpu, Palette, Database, GitCompare, LogOut, Ellipsis, Globe2, ShieldCheck, Workflow, PenLine } from 'lucide-react'
 import { useApp } from './store'
 import { useIsMobile } from './hooks/useIsMobile'
 import { useHashRoute, PageErrorBoundary, type Route } from './hooks/useHashRoute'
@@ -330,9 +330,9 @@ export default function AppLayout() {
           {([
             { key: 'chat', icon: MessagesSquare, label: '对话', active: !mobileMoreOpen && route === 'chat' && mobileDrawer === 'none', onClick: () => { setMobileMoreOpen(false); setMobileDrawer('none'); nav('chat') } },
             { key: 'sessions', icon: FolderClosed, label: '会话', active: !mobileMoreOpen && mobileDrawer === 'sessions', onClick: () => { setMobileMoreOpen(false); setMobileDrawer('sessions') } },
+            { key: 'workshop', icon: PenLine, label: '创作', active: !mobileMoreOpen && route === 'workshop' && mobileDrawer === 'none', onClick: () => { setMobileMoreOpen(false); setMobileDrawer('none'); nav('workshop') } },
             { key: 'assets', icon: Images, label: '资产', active: !mobileMoreOpen && route === 'assets' && mobileDrawer === 'none', onClick: () => { setMobileMoreOpen(false); setMobileDrawer('none'); nav('assets') } },
-            { key: 'tasks', icon: Clock4, label: '任务', active: !mobileMoreOpen && route === 'tasks' && mobileDrawer === 'none', onClick: () => { setMobileMoreOpen(false); setMobileDrawer('none'); nav('tasks') } },
-            { key: 'more', icon: Ellipsis, label: '更多', active: mobileMoreOpen || (mobileDrawer === 'none' && !['chat', 'assets', 'tasks'].includes(route)), onClick: () => { setMobileDrawer('none'); setMobileMoreOpen(open => !open) } },
+            { key: 'more', icon: Ellipsis, label: '更多', active: mobileMoreOpen || (mobileDrawer === 'none' && !['chat', 'workshop', 'assets'].includes(route)), onClick: () => { setMobileDrawer('none'); setMobileMoreOpen(open => !open) } },
           ] as const).map(item => (
             <button
               key={item.key}
