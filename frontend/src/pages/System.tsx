@@ -1,7 +1,6 @@
 import { useEffect, useState } from 'react'
-import { MonitorCog, RefreshCw, CheckCircle2, AlertTriangle, Plus, Trash2, Save, Copy,
-  MessagesSquare, Sparkles, Clock, Factory, Image, Brain, FlaskConical, Sprout, TerminalSquare, Globe,
-  Server, GitBranch, Timer, Wifi, ChevronDown, KeyRound, Shield } from 'lucide-react'
+import { RefreshCw, CheckCircle2, AlertTriangle, Plus, Trash2, Save, Copy,
+  Server, GitBranch, Timer, Wifi, KeyRound, Shield } from 'lucide-react'
 import useSWR from 'swr'
 import { SystemApi } from '../api'
 import PageHeader from '../components/PageHeader'
@@ -13,12 +12,6 @@ import WechatPanel from '../components/WechatPanel'
 import EmailPanel from '../components/EmailPanel'
 import McpPanel from '../components/McpPanel'
 import SandboxModePanel from '../components/engine/SandboxModePanel'
-
-const CAP_ICONS: Record<string, any> = {
-  chat: MessagesSquare, sparkles: Sparkles, clock: Clock, factory: Factory,
-  image: Image, brain: Brain, flask: FlaskConical, sprout: Sprout, terminal: TerminalSquare, globe: Globe,
-}
-const CAP_FALLBACK = MonitorCog
 
 type DomainRow = { domain: string; desc: string }
 
@@ -336,40 +329,15 @@ export default function System() {
           </div>
         </section>
 
-        {/* ── 功能一览（折叠） ── */}
-        <details className="panel !p-0 overflow-hidden">
-          <summary className="px-4 py-3 cursor-pointer select-none flex items-center justify-between gap-3">
-            <span className="inline-flex items-center gap-2 text-[13px] font-semibold text-pi-text">
-              <MonitorCog className="w-4 h-4 text-pi-accent" aria-hidden="true" />功能一览
-            </span>
-            <span className="inline-flex items-center gap-1.5 text-[11px] text-pi-dim2">
-              技术信息<ChevronDown className="w-3.5 h-3.5" aria-hidden="true" />
-            </span>
-          </summary>
-          <div className="border-t border-pi-border-soft p-4 space-y-4">
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
-              {(info.capabilities || []).map((c: any) => {
-                const Icon = CAP_ICONS[c.icon] || CAP_FALLBACK
-                return (
-                  <div key={c.name} className="panel !p-3.5 flex gap-3 items-start card-hover">
-                    <div className="w-8 h-8 rounded-pi-md bg-pi-accent/12 text-pi-accent flex items-center justify-center flex-shrink-0">
-                      <Icon className="w-[17px] h-[17px]" strokeWidth={1.8} aria-hidden="true" />
-                    </div>
-                    <div className="min-w-0">
-                      <div className="text-[13px] font-medium text-pi-text">{c.name}</div>
-                      <div className="text-[12px] text-pi-dim2 mt-0.5 leading-relaxed">{c.desc}</div>
-                    </div>
-                  </div>
-                )
-              })}
-            </div>
-            <div className="pt-3 border-t border-pi-border-soft">
-              <KV k="运行平台" v={info.platform} />
-              <KV k="工作目录" v={info.wsRoot} />
-              <KV k="启动时间" v={info.startedAt} />
-            </div>
+        {/* 运行环境 KV */}
+        <section>
+          <SectionHeader title="运行环境" description="服务进程的技术参数。" />
+          <div className="panel !p-4">
+            <KV k="运行平台" v={info.platform} />
+            <KV k="工作目录" v={info.wsRoot} />
+            <KV k="启动时间" v={info.startedAt} />
           </div>
-        </details>
+        </section>
 
       </div>
     </div>
