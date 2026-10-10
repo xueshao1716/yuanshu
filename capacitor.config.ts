@@ -17,6 +17,12 @@ const config: CapacitorConfig = {
   appId: 'com.pixinyu.app',
   appName: '元枢',
   webDir: 'frontend/dist',
+  server: {
+    // 局域网模式：APK 直接加载本机服务，改代码不需要重打包。
+    // 打正式发布包时注释掉 url 这行，改回静态资源模式。
+    url: 'http://192.168.10.130:8787',
+    cleartext: true,
+  },
   ios: {
     contentInset: 'never',
     backgroundColor: '#0d1117',
