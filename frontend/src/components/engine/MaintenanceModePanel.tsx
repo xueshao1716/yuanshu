@@ -1,8 +1,12 @@
 import { useState } from 'react'
 import useSWR from 'swr'
 import { MaintenanceApi, ConfirmApi } from '../../api'
+import { useApp } from '../../store'
 
-export default function MaintenanceModePanel({ sessionId }: { sessionId: string }) {
+export default function MaintenanceModePanel({ sessionId: propSessionId }: { sessionId?: string } = {}) {
+  const app = useApp()
+  const sessionId = propSessionId || app.currentSessionId || ''
+  if (!sessionId) return <section className="border-t border-pi-border-soft py-5"><h2 className="text-sm font-semibold text-pi-text">超维模式 · 授权维护</h2><p role="status" className="text-sm text-pi-dim mt-2">请先选择一个会话，再查看或调整超维权限。</p></section>
   const { data, error, mutate } = useSWR(['maintenance-status', sessionId], () => MaintenanceApi.status(sessionId), { keepPreviousData: false, dedupingInterval: 1000, refreshInterval: 2000 })
   const [answering, setAnswering] = useState(false)
   const [busy, setBusy] = useState(false)

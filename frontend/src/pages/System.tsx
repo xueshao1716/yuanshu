@@ -12,6 +12,7 @@ import WechatPanel from '../components/WechatPanel'
 import EmailPanel from '../components/EmailPanel'
 import McpPanel from '../components/McpPanel'
 import SandboxModePanel from '../components/engine/SandboxModePanel'
+import MaintenanceModePanel from '../components/engine/MaintenanceModePanel'
 
 type DomainRow = { domain: string; desc: string }
 
@@ -274,23 +275,31 @@ export default function System() {
           </div>
         </section>
 
-        {/* ── 权限与模式 ── */}
+        {/* ── 电脑控制 ── */}
+        <section>
+          <SectionHeader title="电脑控制" description="允许元枢通过截图与鼠标键盘操作控制桌面应用。" />
+          <ComputerUsePanel />
+        </section>
+
+        {/* ── 沙箱模式 ── */}
         <section>
           <SectionHeader
-            title="权限与模式"
-            description="电脑控制权限、沙箱模式和超维授权，集中在这里管理。"
+            title="沙箱模式"
+            description="限制元枢执行器的文件访问范围。收紧随时可以；放宽需写明理由，会写入审计日志。与超维模式相互独立。"
           />
-          <div className="space-y-4">
-            <ComputerUsePanel />
-            <div className="panel !p-5">
-              <div className="flex items-center gap-2 mb-4">
-                <div className="w-7 h-7 rounded-lg bg-pi-accent/10 text-pi-accent flex items-center justify-center">
-                  <Shield className="w-3.5 h-3.5" />
-                </div>
-                <span className="text-[13px] font-semibold text-pi-text">沙箱与超维模式</span>
-              </div>
-              <SandboxModePanel />
-            </div>
+          <div className="panel !p-5">
+            <SandboxModePanel />
+          </div>
+        </section>
+
+        {/* ── 超维模式 ── */}
+        <section>
+          <SectionHeader
+            title="超维模式"
+            description="开启后元枢可执行高权限维护操作，需本机手动批准，到期自动收紧。与沙箱模式相互独立，开启超维不会自动放宽沙箱档位。"
+          />
+          <div className="panel !p-5">
+            <MaintenanceModePanel />
           </div>
         </section>
 

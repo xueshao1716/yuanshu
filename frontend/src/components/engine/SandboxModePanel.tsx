@@ -3,7 +3,7 @@ import useSWR from 'swr'
 import { Shield, AlertTriangle } from 'lucide-react'
 import { SandboxApi } from '../../api'
 import { useApp } from '../../store'
-import MaintenanceModePanel from './MaintenanceModePanel'
+
 
 // 会话级沙箱模式（台前）。引擎侧是 append-only 日志 + fold：收紧随时可以，放宽必须写明理由。
 // 这里只负责把「当前是什么档、切到哪、什么时候被谁为什么放宽过」摊开给人看。
@@ -49,7 +49,7 @@ function SessionSandboxModePanel({ sessionId }: { sessionId: string }) {
     finally { inFlight.current = false; if (mounted.current) setBusy('') }
   }
 
-  return <><section className="border-t border-pi-border-soft py-5" aria-labelledby="sandbox-mode-title">
+  return <section className="border-t border-pi-border-soft py-5" aria-labelledby="sandbox-mode-title">
     <h2 id="sandbox-mode-title" className="text-sm font-semibold text-pi-text mb-1 inline-flex items-center gap-2"><Shield className="w-4 h-4" />沙箱模式（本会话）</h2>
     <p className="text-sm text-pi-dim mb-3 leading-relaxed break-words">
       作用于元枢自制循环（yuanshu），不覆盖 Pi SDK。切换写入会话记录——
@@ -85,5 +85,5 @@ function SessionSandboxModePanel({ sessionId }: { sessionId: string }) {
         </div>)}
       </div>
     </div> : null}
-  </section><MaintenanceModePanel sessionId={sessionId} /></>
+  </section>
 }
