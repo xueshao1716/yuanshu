@@ -8,6 +8,7 @@
     "@capacitor/android": "8.5.1",
     "@capacitor/core": "8.5.1",
     "@capacitor/ios": "8.5.1",
+    "@capacitor/status-bar": "^8.0.4",
     "@lydell/node-pty": "^1.2.0-beta.15",
     "linkedom": "^0.18.13",
     "postcss": "^8.5.28",

@@ -30,7 +30,7 @@ html, body, #root { height: 100%; }
   padding-top: var(--pi-safe-top, env(safe-area-inset-top, 0px));
 }
 html[data-app-shell="1"] .mobile-safe-top {
-  --pi-safe-top: max(env(safe-area-inset-top, 0px), 28px);
+  --pi-safe-top: env(safe-area-inset-top, 0px);
 }
 
 /* ── 文字密集场景：稳定阅读列，不用卡片墙承载长内容 ── */
