@@ -23,7 +23,7 @@ SetCompressorDictSize 64
 Name "${APPNAME} ${VERSION}"
 ; 2026-10-08 输出用英文临时名，避免 makensis 将中文路径按 ANSI 解码导致 CRC 失败，build.mjs 构建后 rename 成中文名
 OutFile "${STAGE}\yuanshu-setup-out.exe"
-InstallDir "$LOCALAPPDATA\Programs\Yuanshu"
+InstallDir "C:\Yuanshu"
 InstallDirRegKey HKCU "Software\Yuanshu" "InstallDir"
 BrandingText "元枢 · 小语 AI 工作台"
 
