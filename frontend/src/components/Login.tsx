@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { useApp } from '../store'
 import WebglBackdrop from './WebglBackdrop'
-import { mobileApiBaseError } from '../lib/shell-origin'
+import { mobileApiBaseError, isBundledShellOrigin } from '../lib/shell-origin'
 import { ArrowUpRight, Check, Eye, EyeOff, KeyRound, LockKeyhole, Server, Sparkles } from 'lucide-react'
 
 export default function Login() {
@@ -12,13 +12,19 @@ export default function Login() {
   const [err, setErr] = useState('')
   const [showToken, setShowToken] = useState(false)
 
+  const origin = typeof location !== 'undefined' ? location.origin : ''
+  const isShell = isBundledShellOrigin(origin)
+
   const submit = async () => {
     const tk = token.trim(); if (!tk) return
-    const origin = typeof location !== 'undefined' ? location.origin : ''
-    const addressErr = mobileApiBaseError(apiBase, origin)
+    const filledBase = apiBase.trim()
+    // 地址字段：填了就用填的；没填时 bundled shell 必须填，非 shell 用当前 origin
+    if (!filledBase && isShell) { setErr('手机端必须填写服务器地址'); return }
+    const effectiveBase = filledBase || origin
+    const addressErr = mobileApiBaseError(effectiveBase, origin)
     if (addressErr) { setErr(addressErr); return }
     setLoading(true); setErr('')
-    try { await login(tk, apiBase.trim()) }
+    try { await login(tk, effectiveBase) }
     catch (e: any) { setErr(e?.status === 401 ? '令牌无效' : '连接失败：' + (e?.message || e)) }
     finally { setLoading(false) }
   }
