@@ -25,6 +25,6 @@ export const ROUTE_LABELS = {
 // 已并入工作台作为页内视图；#/review 仍保留为深链别名。
 // 连续创作同理：它是创作的一条产线，已并入创作作为页内视图；#/story 保留为深链别名。
 // 附带修复：手机「更多」菜单里从来没有连续创作入口，并入创作后手机端才到得了。
-export const RAIL_PRIMARY = ['chat', 'board', 'workshop', 'canvas', 'assets', 'tasks', 'engine'] as const
+export const RAIL_PRIMARY = ['chat', 'board', 'workshop', 'assets', 'tasks', 'engine'] as const
 
 export const RAIL_MORE = ['soul', 'grants', 'lingxi', 'apps', 'sessiondb', 'downloads', 'system'] as const
