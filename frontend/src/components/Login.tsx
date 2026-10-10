@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useApp } from '../store'
 import WebglBackdrop from './WebglBackdrop'
 import { mobileApiBaseError, isBundledShellOrigin } from '../lib/shell-origin'
@@ -14,6 +14,24 @@ export default function Login() {
 
   const origin = typeof location !== 'undefined' ? location.origin : ''
   const isShell = isBundledShellOrigin(origin)
+
+  // 处理来自 Tauri startup 的 hash 自动登录：#_t=TOKEN&_b=BASE
+  useEffect(() => {
+    if (typeof location === 'undefined') return
+    const hash = location.hash
+    if (!hash.startsWith('#_t=')) return
+    const params = new URLSearchParams(hash.slice(1))
+    const t = params.get('_t')
+    const b = params.get('_b')
+    if (!t) return
+    // 清除 hash，令牌不留在地址栏
+    history.replaceState(null, '', location.pathname + location.search)
+    const effectiveBase = (b || origin).replace(/\/+$/, '')
+    setLoading(true); setErr('')
+    login(t, effectiveBase)
+      .catch((e: any) => setErr(e?.status === 401 ? '令牌无效' : '连接失败：' + (e?.message || e)))
+      .finally(() => setLoading(false))
+  }, [])
 
   const submit = async () => {
     const tk = token.trim(); if (!tk) return
