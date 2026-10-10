@@ -27,12 +27,7 @@ pub fn run() {
             #[cfg(desktop)]
             {
                 // Windows starts from a bundled page even when the backend is offline.
-                #[cfg(not(target_os = "windows"))]
-                let url = "http://127.0.0.1:8787/";
-                #[cfg(target_os = "windows")]
-                let entry = tauri::WebviewUrl::App("startup.html".into());
-                #[cfg(not(target_os = "windows"))]
-                let entry = tauri::WebviewUrl::External(url.parse().expect("bad url"));
+                let entry = tauri::WebviewUrl::External("http://127.0.0.1:8787/".parse().expect("bad url"));
                 let win = tauri::WebviewWindowBuilder::new(
                     app,
                     "main",

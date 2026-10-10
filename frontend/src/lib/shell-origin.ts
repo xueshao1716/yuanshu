@@ -6,6 +6,8 @@ export function isBundledShellOrigin(origin = ''): boolean {
     || o.includes('tauri.localhost')
     || o.startsWith('capacitor:')
     || o.startsWith('https://asset.localhost')
+    || o === 'http://localhost'
+    || o === 'https://localhost'
 }
 
 function isPhoneLoopback(url: string): boolean {
