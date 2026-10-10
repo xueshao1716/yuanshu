@@ -1149,7 +1149,7 @@ export default function ChatArea({ compactHeader, rightPanel, onRightPanel, onVo
         <RefreshCw className={`w-4 h-4 text-pi-dim ${pull.spin ? 'animate-spin' : ''}`} strokeWidth={2} />
       </div>
       {/* 顶栏：手机端 48px（原来 56px 加上状态栏显得顶部过高），≥640px 回到 56px */}
-      <div className="chat-topbar flex items-center px-4 sm:px-5 h-12 sm:h-14 border-b border-pi-border flex-shrink-0 gap-2">
+      <div className="chat-topbar flex items-center px-4 sm:px-5 h-10 sm:h-14 border-b border-pi-border flex-shrink-0 gap-2">
         <div className="font-medium text-[15px] text-pi-text min-w-0 truncate">{compactHeader ? personaLabel : '对话'}</div>
         <div className="ml-auto" />
         {/* 执行状态（对标老版 .status-pill；aria-live 让屏幕阅读器感知流式开始/结束）*/}

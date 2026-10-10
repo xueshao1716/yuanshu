@@ -17,7 +17,6 @@ const MORE_ROUTES: { route: Route; icon: typeof Sparkles; label: string }[] = [
   { route: 'grants', icon: ShieldCheck, label: ROUTE_LABELS.grants },
   { route: 'board', icon: LayoutDashboard, label: ROUTE_LABELS.board },
   { route: 'lingxi', icon: Sparkles, label: ROUTE_LABELS.lingxi },
-  { route: 'canvas', icon: Workflow, label: ROUTE_LABELS.canvas },
   { route: 'workshop', icon: Factory, label: ROUTE_LABELS.workshop },
   { route: 'models', icon: BrainCircuit, label: ROUTE_LABELS.models },
   { route: 'apps', icon: LayoutGrid, label: ROUTE_LABELS.apps },

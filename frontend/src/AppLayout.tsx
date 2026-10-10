@@ -331,8 +331,8 @@ export default function AppLayout() {
             { key: 'chat', icon: MessagesSquare, label: '对话', active: !mobileMoreOpen && route === 'chat' && mobileDrawer === 'none', onClick: () => { setMobileMoreOpen(false); setMobileDrawer('none'); nav('chat') } },
             { key: 'sessions', icon: FolderClosed, label: '会话', active: !mobileMoreOpen && mobileDrawer === 'sessions', onClick: () => { setMobileMoreOpen(false); setMobileDrawer('sessions') } },
             { key: 'workshop', icon: PenLine, label: '创作', active: !mobileMoreOpen && route === 'workshop' && mobileDrawer === 'none', onClick: () => { setMobileMoreOpen(false); setMobileDrawer('none'); nav('workshop') } },
-            { key: 'canvas', icon: LayoutTemplate, label: '画布', active: !mobileMoreOpen && route === 'canvas' && mobileDrawer === 'none', onClick: () => { setMobileMoreOpen(false); setMobileDrawer('none'); nav('canvas') } },
-            { key: 'more', icon: Ellipsis, label: '更多', active: mobileMoreOpen || (mobileDrawer === 'none' && !['chat', 'workshop', 'canvas'].includes(route)), onClick: () => { setMobileDrawer('none'); setMobileMoreOpen(open => !open) } },
+            { key: 'assets', icon: Images, label: '资产', active: !mobileMoreOpen && route === 'assets' && mobileDrawer === 'none', onClick: () => { setMobileMoreOpen(false); setMobileDrawer('none'); nav('assets') } },
+            { key: 'more', icon: Ellipsis, label: '更多', active: mobileMoreOpen || (mobileDrawer === 'none' && !['chat', 'workshop', 'assets'].includes(route)), onClick: () => { setMobileDrawer('none'); setMobileMoreOpen(open => !open) } },
           ] as const).map(item => (
             <button
               key={item.key}
