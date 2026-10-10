@@ -265,44 +265,6 @@ export default function System() {
           </div>
         </section>
 
-        {/* ── 接入 ── */}
-        <section>
-          <SectionHeader title="接入配置" description="微信、邮件、MCP 等外部服务接入。" />
-          <div className="space-y-4">
-            <WechatPanel />
-            <EmailPanel />
-            <McpPanel />
-          </div>
-        </section>
-
-        {/* ── 电脑控制 ── */}
-        <section>
-          <SectionHeader title="电脑控制" description="允许元枢通过截图与鼠标键盘操作控制桌面应用。" />
-          <ComputerUsePanel />
-        </section>
-
-        {/* ── 沙箱模式 ── */}
-        <section>
-          <SectionHeader
-            title="沙箱模式"
-            description="限制元枢执行器的文件访问范围。收紧随时可以；放宽需写明理由，会写入审计日志。与超维模式相互独立。"
-          />
-          <div className="panel !p-5">
-            <SandboxModePanel />
-          </div>
-        </section>
-
-        {/* ── 超维模式 ── */}
-        <section>
-          <SectionHeader
-            title="超维模式"
-            description="开启后元枢可执行高权限维护操作，需本机手动批准，到期自动收紧。与沙箱模式相互独立，开启超维不会自动放宽沙箱档位。"
-          />
-          <div className="panel !p-5">
-            <MaintenanceModePanel />
-          </div>
-        </section>
-
         {/* ── 访问令牌 ── */}
         <section>
           <SectionHeader title="访问令牌" description="浏览器访问本服务所需的令牌，可在此查看或修改。改完刷新页面生效。" />
@@ -338,7 +300,45 @@ export default function System() {
           </div>
         </section>
 
-        {/* 运行环境 KV */}
+        {/* ── 接入模式 ── */}
+        <section>
+          <SectionHeader title="接入模式" description="微信、邮件、MCP 等外部服务接入。" />
+          <div className="space-y-4">
+            <WechatPanel />
+            <EmailPanel />
+            <McpPanel />
+          </div>
+        </section>
+
+        {/* ── 电脑控制 ── */}
+        <section>
+          <SectionHeader title="电脑控制" description="允许元枢通过截图与鼠标键盘操作控制桌面应用。" />
+          <ComputerUsePanel />
+        </section>
+
+        {/* ── 沙箱模式 ── */}
+        <section>
+          <SectionHeader
+            title="沙箱模式"
+            description="限制元枢执行器的文件访问范围。收紧随时可以；放宽需写明理由，会写入审计日志。与超维模式相互独立。"
+          />
+          <div className="panel !p-5">
+            <SandboxModePanel />
+          </div>
+        </section>
+
+        {/* ── 超维模式 ── */}
+        <section>
+          <SectionHeader
+            title="超维模式"
+            description="开启后元枢可执行高权限维护操作，需本机手动批准，到期自动收紧。与沙箱模式相互独立，开启超维不会自动放宽沙箱档位。"
+          />
+          <div className="panel !p-5">
+            <MaintenanceModePanel />
+          </div>
+        </section>
+
+        {/* ── 运行环境 ── */}
         <section>
           <SectionHeader title="运行环境" description="服务进程的技术参数。" />
           <div className="panel !p-4">
