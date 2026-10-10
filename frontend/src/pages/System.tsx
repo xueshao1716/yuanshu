@@ -184,10 +184,9 @@ export default function System() {
         {/* ── 诊断 ── */}
         <DoctorPanel />
 
-        {/* ── 更新 + 网络 并排 ── */}
-        <section className="grid grid-cols-1 lg:grid-cols-2 gap-5">
-          <div>
-            <SectionHeader title="检测更新" description="对比远端仓库，确认当前工作台是否需要更新。" />
+        {/* ── 检测更新 ── */}
+        <section>
+          <SectionHeader title="检测更新" description="对比远端仓库，确认当前工作台是否需要更新。" />
             <div className="panel !p-4 min-h-[140px] flex flex-col justify-center">
               {!update ? (
                 <button type="button" className="btn-primary text-xs px-3.5 py-1.5 inline-flex items-center gap-1.5 self-start" disabled={checking} onClick={checkUpdate}>
@@ -226,78 +225,6 @@ export default function System() {
                 </div>
               )}
             </div>
-          </div>
-
-          <div>
-            <SectionHeader title="外网配置" description="登记公网域名与局域网入口；不会自动配置 DNS 或隧道。" />
-            <div className="panel !p-4 space-y-3">
-              <div className="space-y-2">
-                {domains.map((d, i) => (
-                  <div key={i} className="flex items-center gap-2">
-                    <input aria-label={`域名 ${i + 1}`} className="input-pi !py-1.5 text-xs font-mono flex-1 min-w-0" placeholder="example.com" value={d.domain} onChange={e => editRow(i, 'domain', e.target.value)} />
-                    <input aria-label={`域名说明 ${i + 1}`} className="input-pi !py-1.5 text-xs w-28 sm:w-36 flex-shrink-0" placeholder="说明（可选）" value={d.desc} onChange={e => editRow(i, 'desc', e.target.value)} />
-                    <button type="button" className="btn-tool touch-hit hover:!text-pi-danger flex-shrink-0" title="删除此域名" aria-label="删除此域名" onClick={() => delRow(i)}><Trash2 className="w-4 h-4" /></button>
-                  </div>
-                ))}
-              </div>
-              <div className="flex items-center gap-2">
-                <button type="button" className="btn-ghost text-xs px-3 py-1.5 inline-flex items-center gap-1.5" onClick={addRow}><Plus className="w-3.5 h-3.5" />添加域名</button>
-                <button type="button" className="btn-primary text-xs px-3.5 py-1.5 ml-auto inline-flex items-center gap-1.5 disabled:opacity-40" disabled={!dirty} onClick={saveNet}><Save className="w-3.5 h-3.5" />保存</button>
-                {netMsg && <span className="text-[12px] text-pi-accent">{netMsg}</span>}
-              </div>
-              {(info.network?.lanIPs || []).length > 0 && (
-                <div className="pt-3 border-t border-pi-border-soft space-y-1.5">
-                  <p className="text-[11px] text-pi-dim2">局域网直连（同一 WiFi）</p>
-                  {(info.network.lanIPs).map((ip: string) => {
-                    const lanUrl = `http://${ip}:${port}`
-                    return (
-                      <div key={ip} className="flex items-center gap-2">
-                        <code className="font-mono text-xs text-pi-text bg-pi-bg2 px-2 py-0.5 rounded-pi-sm flex-1 min-w-0 truncate">{lanUrl}</code>
-                        <button type="button" className="btn-tool text-[11px] !px-1.5 !py-0.5 inline-flex items-center gap-1 shrink-0" onClick={() => copyText(lanUrl)}>
-                          <Copy className="w-3 h-3" />{copiedIp === lanUrl ? '已复制' : '复制'}
-                        </button>
-                      </div>
-                    )
-                  })}
-                </div>
-              )}
-            </div>
-          </div>
-        </section>
-
-        {/* ── 访问令牌 ── */}
-        <section>
-          <SectionHeader title="访问令牌" description="浏览器访问本服务所需的令牌，可在此查看或修改。改完刷新页面生效。" />
-          <div className="panel !p-5 space-y-3">
-            <div className="flex items-center gap-2">
-              <div className="relative flex-1">
-                <KeyRound className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-pi-dim2 pointer-events-none" />
-                <input
-                  className="input-pi font-mono text-xs w-full !pl-8"
-                  type={tokenVisible ? 'text' : 'password'}
-                  value={tokenInput}
-                  onChange={e => setTokenInput(e.target.value)}
-                  onKeyDown={e => e.key === 'Enter' && saveToken()}
-                  placeholder="访问令牌"
-                />
-              </div>
-              <button type="button" className="btn-ghost text-xs px-3 py-1.5 shrink-0" onClick={() => setTokenVisible(v => !v)}>
-                {tokenVisible ? '隐藏' : '显示'}
-              </button>
-            </div>
-            {tokenMsg && <p className={`text-xs ${tokenMsg.includes('已保存') ? 'text-pi-green' : 'text-pi-red'}`}>{tokenMsg}</p>}
-            <div className="flex gap-2 flex-wrap">
-              <button type="button" className="btn-primary text-xs px-4 py-1.5" onClick={saveToken} disabled={tokenBusy || !tokenInput.trim()}>
-                {tokenBusy ? '保存中…' : '保存'}
-              </button>
-              <button type="button" className="btn-ghost text-xs px-4 py-1.5" onClick={() => { setTokenInput(tokenVal); setTokenMsg('') }}>重置</button>
-              <button type="button" className="btn-ghost text-xs px-4 py-1.5" onClick={() => {
-                const t = Array.from(crypto.getRandomValues(new Uint8Array(24))).map(b => b.toString(16).padStart(2, '0')).join('')
-                setTokenInput(t); setTokenMsg('')
-              }}>生成新令牌</button>
-            </div>
-            <p className="text-[11px] text-pi-dim2">令牌写在服务目录的 .token 文件里，请勿分享给他人。</p>
-          </div>
         </section>
 
         {/* ── 接入模式 ── */}
