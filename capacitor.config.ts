@@ -17,12 +17,7 @@ const config: CapacitorConfig = {
   appId: 'com.pixinyu.app',
   appName: '元枢',
   webDir: 'frontend/dist',
-  server: {
-    // 统一用外网域名：局域网和外网都能访问，APK 不需要因网络环境重打包。
-    // 打正式发布包时注释掉 url 这行，改回静态资源模式。
-    url: 'https://pi.myxinyu.xin',
-    cleartext: false,
-  },
+
   ios: {
     contentInset: 'never',
     backgroundColor: '#0d1117',

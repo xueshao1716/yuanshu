@@ -64,12 +64,6 @@ pub fn enter_local_workspace(window: tauri::WebviewWindow) -> Result<(), String>
         .map_err(|_| "NAVIGATION_FAILED".to_string())
 }
 
-#[tauri::command]
-pub fn navigate_to_url(window: tauri::WebviewWindow, url: String) -> Result<(), String> {
-    window.navigate(url.parse().map_err(|_| "NAVIGATION_FAILED")?)
-        .map_err(|_| "NAVIGATION_FAILED".to_string())
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
