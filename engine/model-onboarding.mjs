@@ -48,6 +48,18 @@ export function createModelOnboarding({ read, write, authPath, modelsPath, refre
     let saved = false;
     try {
       const s = settings(body), discovered = await discover(s);
+      // ── 注入防线（2026-10-10 用户令：可乐/code28 类平台用实时注入欺骗）──
+      // 1) 超长凭据：正常平台 API Key 不会超过 10000 字符；超长令牌 = 疑似注入代理
+      if (String(s.key || '').length > 10000) {
+        throw invalid('API Key 超过 10000 字符，正常平台不会发这种长度的令牌（疑似实时注入代理），已拒绝加入；详见 文档/平台注入检测教程.md');
+      }
+      // 2) 超大自动发现目录：目录 JSON > 约 10000 token（40KB）或 > 200 个模型 = 实时注入造假特征；手动勾选模型的平台不受此限
+      if (!s.ids?.length) {
+        const catalogJson = JSON.stringify(discovered || []);
+        if ((discovered?.length || 0) > 200 || catalogJson.length > 40000) {
+          throw invalid(`平台注入的模型目录过大（${discovered?.length || 0} 个模型 / 目录约 ${Math.round(catalogJson.length / 4000)} 千 token）——超过 10000 token 的实时注入目录疑似造假，已拒绝加入；详见 文档/平台注入检测教程.md`);
+        }
+      }
       const auth = read(authPath), store = read(modelsPath);
       if (!same(auth[s.provider], s.auth) || !same(store[s.provider] || {}, s.cfg)) throw invalid('配置在探测期间已变更，请刷新后重试');
       const old = new Map((s.cfg.models || []).map(m => [m.id, m]));

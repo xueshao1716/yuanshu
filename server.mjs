@@ -421,6 +421,7 @@ if (!defaultModel) {
   // 用户定（2026-09-04）：Agnes 旗舰 agnes-2.5-pro 作为默认模型（付费套餐要用起来），
   // 降级链保留商汤/火山/智谱免费通道。
   defaultModel = modelList.find(m => m.provider === "agnes" && /2\.5-pro$/i.test(m.id))
+    || modelList.find(m => m.provider === "agnes" && /3\.0-flash$|2\.5-flash$/i.test(m.id))
     || modelList.find(m => m.provider === "sensenova" && /flash-lite/i.test(m.id))
     || modelList.find(m => m.provider === "volces-ark" && /ark-code/i.test(m.id))
     || modelList.find(m => m.provider === "zai-coding-cn" && /glm-5\.3-flash/i.test(m.id))
