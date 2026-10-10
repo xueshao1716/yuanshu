@@ -268,7 +268,7 @@ export default function System() {
         {/* ── 访问令牌 ── */}
         <section>
           <SectionHeader title="访问令牌" description="浏览器访问本服务所需的令牌，可在此查看或修改。改完刷新页面生效。" />
-          <div className="panel !p-5 max-w-xl space-y-3">
+          <div className="panel !p-5 space-y-3">
             <div className="flex items-center gap-2">
               <div className="relative flex-1">
                 <KeyRound className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-pi-dim2 pointer-events-none" />
