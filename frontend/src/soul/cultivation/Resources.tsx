@@ -31,7 +31,6 @@ export default function Resources({value,sessionId,onAction,refresh}:{value:Over
     <details><summary>高级设置（管理员）</summary>
     <p className="soul-hint">平时不用打开，排查资源或异常占用时用。</p>
     <Diagnostics revision={value.revision}/>
-    <SharedResources refresh={refresh}/>
     <details><summary>其他操作的设备与签名设置</summary><OwnerConfirmation value={value} refresh={refresh}/></details>
     <section aria-label="受限自主学习"><h4>仅采用已核查经验</h4><p>七天有效，仅允许采用所属个体有独立来源且已核查的培养经验。不开放外网、付费生成、工具、私人记忆或人格与基因修改；没有合格经验时保持等待。</p><div className="soul-actions">
       <button disabled={!policyAuthorized} onClick={()=>onAction({method:'PUT',path:'/policy',revision:value.revision,label:'开启七天受限学习',payload:{policy:{...value.policy,enabled:true,motherLearning:true,allowRemote:false,recursive:false,dailyRequests:0,dailyBudgetCents:0,models:[],tools:[],dataScopes:['knowledge:approved-cultivation'],schedule:null,expiresAt:new Date(Date.now()+7*86400000).toISOString()}}})}>核对七天受限学习</button>
