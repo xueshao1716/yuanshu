@@ -37,6 +37,12 @@ const config: CapacitorConfig = {
       launchShowDuration: 200,
       backgroundColor: '#0e1116',
     },
+    // Capacitor 8 内置 SystemBars 插件默认用 CSS 模式垫充 insets/加道床，
+    // 造成状态栏区域一层与主题不符的深灰。disable 后页面像素直接延伸到
+    // 状态栏底下，颜色随前端主题/壁纸走；顶部安全距离由 CSS 兑底 24px。
+    SystemBars: {
+      insetsHandling: 'disable',
+    },
   },
 };
 
