@@ -2145,6 +2145,7 @@ function handleEmotion(res, url) {
   json(res, 200, key ? emotion.getSnapshot(key) : emotion.getLatestSnapshot());
 }
 
+
 // 全局执行状态：哪些会话的 agent 正在跑（前端状态灯轮询用，含后台/他端发起的执行）
 function handleAgentStatus(res) {
   const busy = [];
@@ -2537,6 +2538,15 @@ const API_ROUTES = [
   ["GET", "/api/emotion", (res, req, url) => handleEmotion(res, url)],
   ["GET", "/api/companion/emotion", (res) => json(res, 200, companionEmotion.read())],
   ["GET", "/api/run/overview", withCache(60000, "run-overview", (res, req, url) => runApi.overview(res, req, url), { bypass: (_req, url) => url.searchParams.has("session") })],
+  ["GET", "/api/emotion/curve", (res, req, url) => {
+    // 灵魂曲线 + 讨好曲线（2026-10-11）：情绪潮汐按日聚合；讨好=安抚触发密度，附带承诺账本待兑现数
+    const q = Object.fromEntries(url.searchParams);
+    const sessionId = String(q.sessionId || "").slice(0, 64);
+    const days = Math.min(Math.max(parseInt(String(q.days || "14"), 10) || 14, 3), 90);
+    const curve = emotion.emotionCurves({ sessionId, days });
+    curve.pendingPromises = pendingPromises(WS_ROOT, {}).length;
+    json(res, 200, curve);
+  }],
   ["GET", "/api/emotion/tide", (res) => json(res, 200, { tide: emotion.getTide(300) })],
   ["GET", "/api/emotion/feelings", (res) => json(res, 200, { feelings: emotion.getFeelings(50) })],
   ["GET", "/api/agent-status", (res) => handleAgentStatus(res)],

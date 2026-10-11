@@ -29,7 +29,8 @@ test('absent, fake and revoked host identities cannot supply chat knowledge',asy
  }
  f.entry.gen++;
  assert.equal(await mod.cultivationChatContext(runtime,knowledge,{...input(),executionIdentity:f.source},n=>notes.push(n)),'');
- assert.equal(notes.length,0);assert.ok(offers.every(ids=>ids.length===0));
+ // 2026-10-11：禁用策略下她确实拿不到经验，允许说一句带出路的实话（不含任何私密内容）；身份防线只看 offers 恒空
+ assert.ok(notes.length<=1);assert.ok(notes.every(t=>t.includes('开启培养')));assert.ok(offers.every(ids=>ids.length===0));
 });
 
 test('learning failure is bounded and private errors do not stop text chat or leave stale offers',async()=>{
@@ -41,6 +42,12 @@ test('learning failure is bounded and private errors do not stop text chat or le
   assert.equal(await mod.cultivationChatContext({readMother},{offerCultivationReferences:(_scope,ids)=>offers.push(ids)},input(),n=>notes.push(n)),'');
   assert.equal(notes.length,expect);if(expect)assert.ok(!notes[0].includes('private'));assert.deepEqual(offers,[[]]);
  }
+ test('授权未开：经验确实拿不到，要说实话并指出她自己能走的路',async()=>{
+  const notes=[],offers=[];
+  const readMother=async()=>{throw Error('cultivation_policy_disabled');};
+  assert.equal(await mod.cultivationChatContext({readMother},{offerCultivationReferences:(_scope,ids)=>offers.push(ids)},input(),n=>notes.push(n)),'');
+  assert.equal(notes.length,1);assert.match(notes[0],/开启培养/);assert.deepEqual(offers,[[]]);
+ });
 });
 
 test('host refreshes cultivation context on both text paths and again before fallback',()=>{

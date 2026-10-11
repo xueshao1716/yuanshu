@@ -4,9 +4,10 @@ import { AIBodyApi, SkillsApi, TeamRunApi } from '../api'
 import { KnowledgeApi, knowledgePolling } from '../knowledge/api'
 import { useCompanionContext } from '../components/xiaoyu/CompanionProvider'
 import { Block, date, LoadState } from './shared'
+import SoulCurves from './SoulCurves'
 import { diagnosticMessages } from './diagnostics.mjs'
 
-export function Rhythm() {
+export function Rhythm({ sessionId }: { sessionId?: string } = {}) {
   const c = useCompanionContext(), [saving,setSaving] = useState(false)
   const labels = {observed:'已观测',historical:'历史记录',stale:'连接已过期',unavailable:'暂无可靠观测'}
   return <>
@@ -17,6 +18,7 @@ export function Rhythm() {
       {!c.preferencesReady && <p role="status">正在等待可靠的偏好设置，暂不允许修改。</p>}
       {c.feedback && <p role="status">{c.feedback}</p>}
     </Block>
+    <SoulCurves sessionId={sessionId || ''} />
     <Block title="想调整情绪？" hint="情绪来自互动，不能手动设数值；想长期调整性格，去性格基因提提案。"><a href="#/chat">回到对话，打开右上角情绪潮汐</a></Block>
   </>
 }

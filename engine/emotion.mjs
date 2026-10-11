@@ -559,6 +559,41 @@ export function getTide(limit = 300) {
   return pts.slice(-Math.max(1, limit));
 }
 
+// ══ 灵魂曲线 + 讨好曲线（2026-10-11 伙伴："灵魂培养就该是这个样子"）══
+// 数据源 = 情绪潮汐 jsonl（每轮 VAD + 温暖/伤害/好奇残留 + 行为标签），评测 key 天然排除。
+// 讨好指数(安抚密度)= 当轮 valence<-0.25 / 伤害残留≥0.4 / 用户挫败标签 的占比——
+// 她被要求软化的频率：高=这段关系在谈判，低=她在正常的对抗与工作状态。配上"待兑现承诺"账本
+// （模型最廉价的讨好方式 engine/promises.mjs）做双表。曲线是观测，不是诊断结论。
+export function emotionCurves({ sessionId = "", days = 14, now = Date.now } = {}) {
+  const t = typeof now === "function" ? now() : now;
+  const all = readTidePoints().filter((p) => !isProbeKey(String(p?.key || "")));
+  const keyed = sessionId ? all.filter((p) => String(p.key) === shortKey(sessionId)) : all;
+  const bucketStart = t - Math.max(3, Math.min(90, days)) * 86400000;
+  const byDay = new Map();
+  for (const p of keyed) {
+    const ts = Number(p?.ts || 0);
+    if (!ts || ts < bucketStart || ts > t) continue;
+    const day = new Date(ts); day.setHours(0, 0, 0, 0);
+    const dk = day.getTime();
+    const tags = Array.isArray(p?.tags) ? p.tags : [];
+    const v = +p.v || 0, h = +p.h || 0, w = +p.w || 0, a = +p.a || 0, c = +p.c || 0;
+    const soothing = v < -0.25 || h >= 0.4 || tags.includes("user_frustrated") || tags.includes("user_angry");
+    const b = byDay.get(dk) || { ts: dk, points: 0, v: 0, a: 0, w: 0, h: 0, c: 0, soothing: 0 };
+    b.points += 1; b.v += v; b.a += a; b.w += w; b.h += h; b.c += c; if (soothing) b.soothing += 1;
+    byDay.set(dk, b);
+  }
+  const daysSeries = [...byDay.values()].sort((a, b) => a.ts - b.ts).map((b) => ({
+    ts: b.ts, points: b.points,
+    valence: +(b.v / b.points).toFixed(3), arousal: +(b.a / b.points).toFixed(3),
+    warmth: +(b.w / b.points).toFixed(3), hurt: +(b.h / b.points).toFixed(3), curiosity: +(b.c / b.points).toFixed(3),
+    soothingTurns: b.soothing, soothingRatio: +(b.soothing / b.points).toFixed(3),
+  }));
+  const totalPts = daysSeries.reduce((s, d) => s + d.points, 0);
+  const soothingIndex = totalPts
+    ? +(daysSeries.reduce((s, d) => s + d.soothingTurns, 0) / totalPts).toFixed(3) : 0;
+  return { ok: true, sessionIdUsed: sessionId ? shortKey(sessionId) : "", days: daysSeries, soothingIndex, pointsTotal: totalPts };
+}
+
 // ══ 组合 facade：re-export 基因 / 技能基因（server.mjs 兼容，无需改 import 侧）══
 export { geneBias, updateGenes, geneDirective, getGenome, proposeBaselineChange, approveProposal, rejectProposal, rollbackSnapshot, autoProposeFromDrift } from "./gene.mjs";
 export { detectSkillDomain, updateSkillGene, getSkillGenes, skillDirective, routerSkill, bindSkillIndex } from "./skill-gene.mjs";

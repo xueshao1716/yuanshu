@@ -28,3 +28,9 @@
 @media (max-width: 640px) { .cultivation-panel .soul-actions { gap: 10px; } }
 @media (max-width: 640px) { .cultivation-lineage { grid-template-columns: minmax(0, 1fr); } }
 
+
+/* ── 灵魂曲线 / 讨好曲线（SoulCurves.tsx；不引入图表库，svg 直接画） ── */
+.curves-wrap { padding: 8px 4px 2px; }
+.curves-svg { width: 100%; height: 120px; display: block; border-bottom: 1px solid var(--pi-border-soft, rgba(128,128,128,.25)); }
+.curves-x { display: flex; justify-content: space-between; font-size: 10px; color: var(--pi-dim2, #888); margin-top: 2px; }
+.curves-legend { display: flex; gap: 12px; font-size: 11px; margin-top: 6px; }
