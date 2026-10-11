@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { Printer, Pencil, Check, Loader2, X, Play, ChevronLeft, ChevronRight, Maximize } from 'lucide-react'
 import { WorkshopApi } from '../api'
+import ScaledSlide from './ScaledSlide'
 
 // ── PPT 设计稿工作室（2026-09-03，对标扣子/Gamma 网页 PPT）──
 // 每页是 agent 产出的 1280×720 自包含 HTML：缩略图 iframe 真渲染（所见即所得），
@@ -8,11 +9,7 @@ import { WorkshopApi } from '../api'
 
 export interface DeckPage { file: string; title: string; layout: string; html: string }
 
-const SCALE_THUMB = 0.22 // 282×158 缩略图
 
-function renderScaled(html: string, scale: number) {
-  return html.replace('<body', `<body style="transform:scale(${scale});transform-origin:top left"`)
-}
 
 function setField(html: string, field: string, value: string) {
   // 在该 data-field 节点的开标签后替换首个文本段（到下一个 < 为止）
@@ -180,15 +177,13 @@ export default function PptStudio({ pages, dir, onSaved }: {
         </span>
       </div>
 
-      {/* 缩略图行 */}
+      {/* 缩略图行（2026-10-11：手机端从固定 282px 改为 40vw，不再撑爆横向空间）*/}
       <div ref={boxRef} className="flex gap-2 overflow-x-auto pb-1">
         {pages.map((p, i) => (
           <button key={p.file} onClick={() => setActive(i)}
-            className={`flex-shrink-0 rounded-pi-md overflow-hidden border-2 transition-colors ${i === active ? 'border-pi-accent' : 'border-transparent hover:border-pi-border'}`}
-            style={{ width: 1280 * SCALE_THUMB, height: 720 * SCALE_THUMB }}
+            className={`flex-shrink-0 w-[40vw] max-w-[282px] rounded-pi-md overflow-hidden border-2 transition-colors ${i === active ? 'border-pi-accent' : 'border-transparent hover:border-pi-border'}`}
             title={p.title}>
-            <iframe srcDoc={renderScaled(p.html, SCALE_THUMB)} style={{ width: 1280, height: 720, border: 0, pointerEvents: 'none' }}
-              sandbox="" title={p.title} />
+            <ScaledSlide html={p.html} title={p.title} />
           </button>
         ))}
       </div>
@@ -196,8 +191,8 @@ export default function PptStudio({ pages, dir, onSaved }: {
       {/* 大预览 + 编辑面板 */}
       <div className="grid lg:grid-cols-[1fr_260px] gap-3 items-start">
         <div ref={fullRef} className="ppt-stage rounded-pi-md overflow-hidden border border-pi-border-soft bg-black/20 relative">
-          <iframe key={cur.file + (editing ? '-edit' : '')} srcDoc={editing && draft ? draft.html : mergedPages[active].html}
-            style={{ width: '100%', aspectRatio: '1280/720', border: 0, display: 'block' }} sandbox="" title={cur.title} />
+          {/* 2026-10-11：改 ScaledSlide —— 原 width:100% 无缩放变换，手机上等效放大 3.5 倍只看得到页面左上角 */}
+          <ScaledSlide key={cur.file + (editing ? '-edit' : '')} html={editing && draft ? draft.html : mergedPages[active].html} title={cur.title} />
           {!editing && (
             <button className="absolute inset-0 w-full flex items-center justify-center bg-black/0 hover:bg-black/25 group/play transition-colors"
               onClick={() => setPlaying(true)} title="点击放映">

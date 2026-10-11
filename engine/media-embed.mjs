@@ -35,7 +35,7 @@ export function toWorkspaceRel(p) {
   const unified = s.replace(/\//g, "\\");
   const ws = unified.match(/^[A-Za-z]:\\(?:[^\\]+\\)*pi-workspace\\(.+)$/i);
   if (ws) return ws[1].replace(/\\/g, "/");
-  if (/^(生成物|工程|workshop-out)[\\/]/i.test(s)) return s.replace(/\\/g, "/");
+  if (/^(生成物|工程|workshop-out|交付)[\\/]/i.test(s)) return s.replace(/\\/g, "/");
   return "";
 }
 
@@ -48,7 +48,7 @@ export function extractPlayableMedia(text) {
   const hits = new Set();
   for (const m of raw.matchAll(/\/api\/ws\/file\?path=[^\s)）"'<>]+/g)) hits.add(m[0].replace(/[.,;。，]+$/, ""));
   for (const m of raw.matchAll(/[A-Za-z]:\\[^\s)）"'<>]+/g)) hits.add(m[0].replace(/[.,;。，]+$/, ""));
-  for (const m of raw.matchAll(/(?:生成物|工程|workshop-out)[\\/][^\s)）"'<>]+/g)) hits.add(m[0].replace(/[.,;。，]+$/, ""));
+  for (const m of raw.matchAll(/(?:生成物|工程|workshop-out|交付)[\\/][^\s)）"'<>]+/g)) hits.add(m[0].replace(/[.,;。，]+$/, ""));
   for (const m of raw.matchAll(/📎\s*交付:\s*(\S+)/g)) hits.add(m[1]);
   for (const rawHit of hits) {
     const hit = clipMediaPath(rawHit);

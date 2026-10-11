@@ -115,6 +115,21 @@ for (const file of ['package-lock.json', 'frontend/package-lock.json', 'app/pack
   results.push({ file, from: current, changed: updated !== raw });
 }
 
+// Android：versionName 同步版本号；versionCode = major*1e6 + minor*1e3 + patch（2.127.1 → 2127001，单调递增）。
+// 2026-10-11 补：之前漏了这个文件，APK 装出来一直显示 2.126.0。
+{
+  const file = 'android/app/build.gradle', full = path.join(ROOT, file);
+  const raw = fs.readFileSync(full, 'utf8');
+  const codeRe = /(versionCode\s+)(\d+)/;
+  const nameRe = /(versionName\s+")([^"]+)(")/;
+  if (!codeRe.test(raw) || !nameRe.test(raw)) fail(`${file} 找不到 versionCode/versionName——契约变了？请同步更新 scripts/bump-version.mjs`);
+  const [vmajor, vminor, vpatch] = next.split('.').map(Number);
+  const code = vmajor * 1_000_000 + vminor * 1_000 + vpatch;
+  const updated = raw.replace(codeRe, (_a, p) => `${p}${code}`).replace(nameRe, (_a, p, _o, s) => `${p}${next}${s}`);
+  if (!dry) fs.writeFileSync(full, updated, 'utf8');
+  results.push({ file: `${file} (versionCode ${code})`, from: current, changed: updated !== raw });
+}
+
 // CHANGELOG：把 [Unreleased] 收成正式版本，并留一个空的 [Unreleased] 在上面。
 // sync 只做对齐，不代表发版，所以不动 CHANGELOG。
 const today = new Date().toISOString().slice(0, 10);
