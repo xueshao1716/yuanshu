@@ -18,8 +18,8 @@ import '../soul/cultivation/cultivation.css'
 // 各面板仍是原来那一份组件（同一套判据与确认流程），这里只负责把它们放到一起，
 // 原页面上的入口保留——就近操作还在，找不到时来这里。
 const AREAS = [
-  ['pending', '等我确认', '小语发起、需要你点头的操作都排在这里。'],
-  ['cultivation', '培养与母体学习', '智能体培养的一次性放权、母体自主采用经验、共享模型与额度。'],
+  ['pending', '等我确认', '全部会话的越线确认都排在这里；常规培养开关她自己执行，不进这里。'],
+  ['cultivation', '培养与母体学习', '受限封套（小语自管）之外的授权：加大额度、母体学习、共享模型白名单与价格。'],
   ['knowledge', '知识自动积累', '允许读取的目录与网址、能否联网、可用模型与每日额度。'],
   ['session', '本会话执行权限', '沙箱、超维模式与维护模式：决定当前会话能动哪些文件和命令。'],
   ['desktop', '桌面操作', '让小语看屏幕、操作窗口的限时授权，默认关闭。'],
@@ -40,6 +40,7 @@ function CultivationGrants({ sessionId }: { sessionId: string }) {
   const overview = useSWR('cultivation-overview', CultivationApi.overview, cultivationPolling)
   const refresh = async () => { await mutate(key => typeof key === 'string' ? key.startsWith('cultivation-') || key.startsWith('knowledge-') : Array.isArray(key) && String(key[0]).startsWith('cultivation-')) }
   return <div className="cultivation-panel">
+    <p className="soul-hint">看养了谁、跑成啥样 → <a href="#/soul">灵魂培养 · 智能体培养</a>；这页管的是封套（额度、模型白名单、签名通道）。</p>
     <LoadState error={overview.error} loading={overview.isLoading} retry={() => overview.mutate()} />
     {action && <Authorization key={JSON.stringify([sessionId, action])} action={action} owner={overview.data?.ownerConfirmation} sessionId={sessionId}
       sessionGrantAvailable={!!overview.data?.sessionGrantAvailable} close={() => setAction(null)} refresh={refresh} />}
@@ -91,7 +92,7 @@ export default function Grants() {
           {area !== 'pending' && (area === 'cultivation' || area === 'session') && <SessionChoice sessionId={sessionId} setSessionId={setSessionId} disabled={false} />}
           {area === 'pending' && <>
             <AllConfirmations />
-            <p className="soul-hint">已收全部会话的待确认卡（确认卡所属对话直接标注在卡上，不用选）。人格与基因提案在这里点到；培养策略确认仍去「培养与母体学习」分区发起。</p>
+            <p className="soul-hint">已收全部会话的待确认卡（卡片自带归属对话，不用选）。常规培养开关小语自己执行，不会进这里；出现卡片的就是越线操作，需要你把关。</p>
           </>}
           {area === 'cultivation' && <CultivationGrants sessionId={sessionId} />}
           {area === 'knowledge' && <KnowledgeGrants />}

@@ -41,7 +41,7 @@ export default function PolicyPreset({value,onAction,refresh}:{value:Overview;au
   }
   return <section aria-label="受限智能体培养">
     <h4>小语的培养方案</h4>
-    <p>小语在对话里设计方案并提交到这里。默认选中最新一版；核对下面的范围后点一次放权。</p>
+    <p>小语在对话里设计方案并提交到这里，受限预设内的开启与暂停她自己执行。默认选中最新一版；这个按钮是你保留的显式通道——不想等她、或想当场核对范围时用。</p>
     <LoadState error={records.error} loading={records.isLoading} retry={()=>records.mutate()}/>
     {rows.length>1&&<label>方案版本<select value={row?selected:''} onChange={e=>{setSelected(e.target.value);setPreflight(null)}}>
       {rows.map((d,i)=><option key={d.id} value={d.id}>{d.design.name} · 第 {i+1} 版{i===rows.length-1?'（最新）':''}</option>)}

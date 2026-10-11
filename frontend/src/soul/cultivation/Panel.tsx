@@ -71,7 +71,7 @@ export default function Cultivation({sessionId}:{sessionId:string}) {
   }
 
   return <div className="cultivation-panel">
-    <Block title="小语的培养工作室" hint="小语自己设计和培养子智能体，你只需查看方案并放权。不需要电脑密码。">
+    <Block title="小语的培养工作室" hint="小语设计和培养子智能体，受限预设以内的开关她自己执行；你只需要看结果、在越线时把关。不需要电脑密码。">
       <LoadState error={overview.error} loading={overview.isLoading} retry={() => retry(overview.mutate)}/>
       {overview.data && (
         <>
@@ -250,11 +250,12 @@ export default function Cultivation({sessionId}:{sessionId:string}) {
     </details>
 
     {overview.data && (
-      <Block title="授权与资源" hint={policyAuthorized ? '已放权，小语可以自主跑任务' : '还没放权，需要一次性同意'}>
+      <Block title="授权与资源" hint={policyAuthorized ? '已放权，小语可以自主跑任务；封套内她就动，越线才找你' : '还没放权。小语可以自己在对话里开启受限预设（纯文本、零工具、有上限）；预设之外才需要你'}>
         {!policyAuthorized && overview.data.sessionGrantAvailable && !sessionId && (
           <p className="soul-notice">请先在页面上方选择会话，就可以一键同意</p>
         )}
         <PolicyPreset value={overview.data} authorized={policyAuthorized} onAction={setAction} refresh={refresh} />
+        <p className="soul-hint">加大额度、共享模型白名单、签名通道 → <a href="#/grants">授权中心 · 培养与母体学习</a>。</p>
       </Block>
     )}
 

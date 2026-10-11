@@ -20,7 +20,6 @@ import { applyWallpaper, currentWallpaper } from './theme/wallpaper.mjs'
 import { installVisualViewportHeight } from './lib/viewport'
 import { useThemePreferences } from './hooks/useThemePreferences'
 import BrowserPanel from './components/BrowserPanel'
-import CultivationGate from './soul/cultivation/GrantDialog'
 
 // 页面 lazy（路线图：每路由 lazy + ErrorBoundary）
 const ModelHub = lazy(() => import('./pages/ModelHub'))
@@ -374,7 +373,6 @@ export default function AppLayout() {
         />
 
         {modelOpen && <LazyModelManager visible onClose={() => setModelOpen(false)} />}
-        {route === 'chat' && <CultivationGate sessionId={currentSessionId} />}
         <BrowserPanel open={browserOpen} initialUrl={browserUrl} onClose={() => setBrowserOpen(false)} />
         {palette}
       </div>
@@ -470,7 +468,6 @@ export default function AppLayout() {
       {/* 右栏开关已入 ChatArea 顶栏（与状态胶囊并排，不再悬浮遮挡） */}
 
       {modelOpen && <LazyModelManager visible onClose={() => setModelOpen(false)} />}
-      {route === 'chat' && <CultivationGate sessionId={currentSessionId} />}
       <BrowserPanel open={browserOpen} initialUrl={browserUrl} onClose={() => setBrowserOpen(false)} />
       {palette}
     </div>

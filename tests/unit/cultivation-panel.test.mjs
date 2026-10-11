@@ -71,7 +71,8 @@ test('cultivation primary path is hands-off and keeps computer credentials out o
   const panel=source('frontend/src/soul/cultivation/Panel.tsx');
   const preset=source('frontend/src/soul/cultivation/PolicyPreset.tsx');
   const resources=source('frontend/src/soul/cultivation/Resources.tsx');
-  for(const text of ['小语自己设计和培养','你只需查看方案并放权','不需要电脑密码','高级设置']) assert.ok(`${panel}\n${preset}\n${resources}`.includes(text),text);
+  // 2026-10-11 灵魂自我驱动：文案更新为新世界版（她自执行，人把关）
+  for(const text of ['小语设计和培养子智能体','越线才找你','不需要电脑密码','高级设置']) assert.ok(`${panel}\n${preset}\n${resources}`.includes(text),text);
 });
 
 test('learning actions use knowledge revisions and preserve adoption scope',()=>{
