@@ -66,20 +66,16 @@ test('侧栏分组：置顶 → 对话（按时间分段）→ 微信 → 终端
   assert.ok(!sidebar.includes('小语会话（终端）'), '不得继续使用小语会话（终端）旧文案')
 })
 
-test('侧栏品牌头使用与安装包一致的元枢 App 图标，并只保留小语身份名', () => {
+test('侧栏品牌头用波形动画标识 + persona 动态身份名，不得回退静态图标/渐变字标', () => {
   const sidebar = read('components', 'Sidebar.tsx')
-  const brand = join(ROOT, 'frontend', 'public', 'branding', 'yuanshu-app-icon.png')
-  const desktop = join(ROOT, 'app', 'src-tauri', 'icons', '128x128.png')
-  assert.ok(existsSync(brand), '前端静态目录必须提供元枢 App 图标')
-  assert.ok(existsSync(desktop), '桌面安装包图标必须存在')
-  assert.deepEqual(readFileSync(brand), readFileSync(desktop), '网页顶栏图标必须与桌面 128 图标同一份，不能再用「元」字渐变图')
-  assert.match(sidebar, /src="\/static\/branding\/yuanshu-app-icon\.png/, '侧栏品牌头必须引用元枢 App 图标的服务端静态路径')
-  assert.match(sidebar, /alt="元枢"/, '品牌图标必须提供元枢替代文本')
-  assert.ok(sidebar.includes('>小语</div>'), '侧栏必须保留小语作为伙伴身份名')
-  assert.doesNotMatch(sidebar, />元枢工作台</, '侧栏不得继续展示与元枢图标重复的文字副标题')
-  assert.doesNotMatch(sidebar, /from-pi-accent to-pi-accent2/, '品牌头不得继续使用旧的渐变“语”字标')
+  // 2026-10 重设计：品牌头是「三条错峰脉冲竖线」波形 SVG（暗示对话与活跃），身份名走 /api/persona 动态取
+  assert.ok(sidebar.includes('sb-wave-a') && sidebar.includes('sb-bar-c'), '品牌头必须保留波形脉冲动画图标')
+  assert.ok(sidebar.includes('aria-hidden="true"'), '装饰性波形必须 aria-hidden')
+  assert.match(sidebar, /personaData\?\.definition\?\.name/, '身份名必须从 persona API 动态取，不得写死')
+  assert.ok(sidebar.includes('personaName'), '侧栏必须渲染 persona 身份名')
+  assert.doesNotMatch(sidebar, />元枢工作台</, '侧栏不得展示与身份名重复的文字副标题')
+  assert.doesNotMatch(sidebar, /from-pi-accent to-pi-accent2/, '品牌头不得回退旧的渐变“语”字标')
 })
-
 test('移动底栏固定为对话、会话、资产、任务、更多，且删除可拖动 MobileFab', () => {
   const layout = read('AppLayout.tsx')
   const labels = [...layout.matchAll(/label: '([^']+)'/g)].map(match => match[1])
@@ -269,14 +265,15 @@ test('系统页以公共页头和四项真实状态摘要开场，主任务位�
   const system = read('pages', 'System.tsx')
   assert.ok(system.includes('<PageHeader'), '系统页必须使用 PageHeader')
   assert.doesNotMatch(system, /<h1\b/, '系统页不得手写 h1 页面头')
+  // 2026-10 重构后结构：PageHeader → 当前状态(4 tile) → 诊断 → 检测更新 → 外网配置
   const order = [
     system.indexOf('<PageHeader'),
-    system.indexOf('data-slot="system-status"'),
-    system.indexOf('data-slot="system-primary"'),
-    system.indexOf('<details'),
+    system.indexOf('label="服务状态"'),
+    system.indexOf('title="检测更新"'),
+    system.indexOf('title="外网配置"'),
   ]
-  assert.ok(order.every(index => index >= 0), '系统页缺少 PageHeader → 状态摘要 → 主任务 → 能力折叠结构')
-  assert.deepEqual([...order].sort((a, b) => a - b), order, '系统页必须先显示真实状态和主任务，能力清单置底')
+  assert.ok(order.every(index => index >= 0), '系统页缺少 PageHeader → 状态概览 → 检测更新 → 外网配置 结构')
+  assert.deepEqual([...order].sort((a, b) => a - b), order, '系统页顺序必须为：页头 → 状态 → 更新 → 网络')
   assert.equal((system.match(/<StatusTile\b/g) || []).length, 4, '系统顶部必须显示服务、版本、运行时长、网络四项摘要')
   for (const label of ['服务状态', '服务端版本', '运行时长', '网络状态']) {
     assert.ok(system.includes(`label="${label}"`), `系统状态摘要缺少：${label}`)
@@ -296,16 +293,11 @@ test('系统网络摘要只陈述已发现入口，不把配置数据解释为�
   assert.doesNotMatch(networkTile, /可用|未配置|待配置|在线|离线/, '网络摘要不得把入口配置解释为网络可达性')
 })
 
-test('功能一览默认折叠，保留更新、网络编辑保存与实际端口 LAN 复制行为', () => {
+test('系统页保留更新、网络编辑保存与实际端口 LAN 复制行为（平铺 section）', () => {
   const system = read('pages', 'System.tsx')
-  const detailsStart = system.indexOf('<details')
-  const detailsEnd = system.indexOf('</details>', detailsStart)
-  assert.ok(detailsStart >= 0 && detailsEnd > detailsStart, '功能一览必须位于 details')
-  const details = system.slice(detailsStart, detailsEnd)
-  assert.ok(!/<details[^>]*\sopen(?:=|\s|>)/.test(details), '功能一览必须默认折叠')
-  // 不能叫「系统能力」：主栏的「能力」是引擎运行时页，同名会让人以为两页重复
-  assert.ok(details.includes('功能一览'), '折叠区必须包含功能清单')
-  assert.ok(!details.includes('系统能力'), '折叠区不得再叫「系统能力」，与主栏「能力」页撞名')
+  // 2026-10 重构：功能从折叠 details 改为平铺 section；行为契约不变
+  assert.ok(system.includes('title="检测更新"'), '检测更新 section 必须存在')
+  assert.ok(!system.includes('系统能力'), '不得再叫「系统能力」，与主栏「能力」页撞名')
   for (const behavior of [
     "useSWR('system-info', () => SystemApi.info(), { dedupingInterval: 30000, refreshInterval: 30000 })",
     'SystemApi.checkUpdate()',
@@ -319,7 +311,6 @@ test('功能一览默认折叠，保留更新、网络编辑保存与实际端�
   }
   assert.doesNotMatch(system, /copiedIp === `http:\/\/\$\{ip\}:8787`/, '复制状态不得硬编码 8787')
 })
-
 test('主题与系统页清除固定 emerald、非 badge 10px 与 emoji 式勾号，ModelChannels 删除未使用 X import', () => {
   const targets = [read('pages', 'Themes.tsx'), read('pages', 'System.tsx')]
   for (const source of targets) {

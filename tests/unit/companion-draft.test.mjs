@@ -14,6 +14,7 @@ test('explicit handoff is session scoped, one-shot and expires', () => {
 test('handoff preserves existing draft and rejects empty or oversized input', () => {
   assert.equal(mergeDraft('已有草稿', '新任务'), '已有草稿\n新任务');
   assert.equal(mergeDraft('', '新任务'), '新任务');
-  for (const text of ['', ' ', 'x'.repeat(501), null]) assert.equal(queueDraft(storage(), 'one', text, 100), false);
+  for (const text of ['', ' ', 'x'.repeat(4001), null]) assert.equal(queueDraft(storage(), 'one', text, 100), false);
+  assert.equal(queueDraft(storage(), 'one', 'x'.repeat(4000), 100), true, '上限 4000 字符可存');
   assert.equal(queueDraft(storage(), null, 'hello', 100), false);
 });

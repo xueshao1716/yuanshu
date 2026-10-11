@@ -70,6 +70,19 @@ test('owner config never enrolls, validates workspace and disables on corruption
   assert.equal(read().mode,'windows-hello');
   fs.writeFileSync(file,'{}');assert.throws(()=>read());
 });
+test('owner config reads XDG config path on Linux/macOS',async t=>{
+  const url=new URL('../../engine/cultivation/owner-config.mjs',import.meta.url);
+  const {ownerConfigProvider}=await import(url),root=fs.mkdtempSync(path.join(os.tmpdir(),'owner-xdg-'));
+  t.after(()=>fs.rmSync(root,{recursive:true,force:true}));
+  const workspace='b'.repeat(64),dir=path.join(root,'Yuanshu','owner-confirmation'),file=path.join(dir,workspace+'.json');
+  const read=ownerConfigProvider({workspace,env:{XDG_CONFIG_HOME:root},platform:'linux'});
+  assert.equal(read(),null);assert.equal(fs.existsSync(dir),false);
+  fs.mkdirSync(dir,{recursive:true});const c=credential();
+  fs.writeFileSync(file,JSON.stringify({version:1,workspace,authenticatorData:c.auth.toString('base64url')}));
+  const cred=read();
+  assert.ok(cred&&cred.mode,'Linux XDG 路径可读 owner 凭据');
+  fs.writeFileSync(file,'{}');assert.throws(()=>read());
+});
 test('owner UI distinguishes pairing, unavailable Hello, advanced signing and bounded preset',()=>{
   const source=p=>fs.existsSync(p)?fs.readFileSync(p,'utf8'):'';
   const owner=source('frontend/src/soul/cultivation/OwnerConfirmation.tsx');

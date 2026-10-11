@@ -13,7 +13,7 @@ import {
 } from '../../frontend/src/lib/canvas-nodes.mjs'
 
 const P = () => createNode('prompt', { id: 'p1', x: 0, y: 0, text: '一条河，正午' })
-const C = () => createNode('config', { id: 'c1', x: 400, y: 0, model: 'm-x', size: '1024x1024' })
+const C = () => createNode('config', { id: 'c1', x: 400, y: 0, provider: 'prov-x', modelId: 'm-x', size: '1024x1024' })
 const I = () => createNode('image', { id: 'i1', x: 800, y: 0, text: '兜底提示词' })
 
 test('节点尺寸：全景图节点是 2:1 横盒，普通图是竖盒', () => {
@@ -63,11 +63,17 @@ test('连线：prompt/config 只能指向 image，image 是终点，自连与重
   assert.equal(r1.ok, true)
   assert.equal(r1.edges.length, 1)
   assert.equal(r1.edge.kind, 'prompt')
+  // 同一条线重复连：静默去重（ok=true / 已存在），不产生新边
   const r2 = addEdge(r1.edges, p, i)
-  assert.equal(r2.ok, false)
-  assert.match(r2.reason, /已连接/)
-  assert.equal(r2.edges.length, 1, '被拒的连线不能改坏 edges')
-  assert.equal(removeEdge(r1.edges, r1.edge.id).length, 0)
+  assert.equal(r2.ok, true)
+  assert.match(r2.reason, /已存在/)
+  assert.equal(r2.edges.length, 1, '重复连线不产生新边')
+  // 同类新源顶掉旧源：同一图片节点的提示词输入只保留一条
+  const p2 = createNode('prompt', { id: 'p2', x: 0, y: 300, text: '另一条河' })
+  const r3 = addEdge(r1.edges, p2, i)
+  assert.equal(r3.ok, true)
+  assert.equal(r3.edges.filter(e => e.kind === 'prompt' && e.to === 'i1').length, 1, '提示词输入只留最新')
+  assert.equal(removeEdge(r3.edges, r3.edge.id).filter(e => e.id === r3.edge.id).length, 0)
 })
 
 test('提示词继承：图片节点没接提示词时用自己的兜底文案', () => {
@@ -92,7 +98,9 @@ test('配置继承：图片节点没填模型/尺寸时，接上的 config 说�
   const c = C(), i = I()
   const { edges } = addEdge([], c, i)
   const cfg = resolveConfig(i, [c, i], edges)
-  assert.equal(cfg.model, 'm-x')
+  assert.equal(cfg.model, 'prov-x/m-x', 'model 展示串由 provider/modelId 拼出')
+  assert.equal(cfg.provider, 'prov-x')
+  assert.equal(cfg.modelId, 'm-x')
   assert.equal(cfg.size, '1024x1024')
   assert.equal(cfg.sourceId, 'c1')
 
@@ -125,33 +133,33 @@ test('finalPrompt：按节点自己的模板决定要不要注入全景约束', 
   assert.match(finalPrompt(i, [p, i], edges), /equirectangular/)
 })
 
-test('RenderGuard：超过上限就踢最早的，同屏只保最近激活的 4 个', () => {
-  assert.equal(CANVAS_LIMITS.render, 4)
-  const g = new RenderGuard(4)
-  assert.deepEqual(g.touch('a'), ['a'])
-  assert.deepEqual(g.touch('b'), ['a', 'b'])
-  g.touch('c'); g.touch('d')
-  assert.deepEqual(g.ids, ['a', 'b', 'c', 'd'])
+test('RenderGuard：LRU 上限 6，超限自动踢最老，再次激活移到队尾', () => {
+  assert.equal(CANVAS_LIMITS.render, 6)
+  const g = new RenderGuard(6)
+  for (const id of ['a', 'b', 'c', 'd', 'e']) g.touch(id)
+  assert.deepEqual(g.ids, ['a', 'b', 'c', 'd', 'e'])
   g.touch('a')
-  assert.deepEqual(g.ids, ['b', 'c', 'd', 'a'], '再次激活要移到队尾')
-  assert.deepEqual(g.touch('e'), ['b', 'c', 'd', 'a', 'e'], '原始顺序留给界面决定踢谁')
-  assert.deepEqual(g.evict(), ['b'], 'evict 返回被踢掉的那个')
-  assert.equal(g.size, 4)
+  assert.deepEqual(g.ids, ['b', 'c', 'd', 'e', 'a'], '再次激活要移到队尾')
+  assert.deepEqual(g.touch('f'), [], '第 6 个进来正好到上限，无人被踢')
+  assert.deepEqual(g.ids, ['b', 'c', 'd', 'e', 'a', 'f'])
+  assert.deepEqual(g.touch('g'), ['b'], '第 7 个进来自动踢最老的 b 并返回被踢者')
+  assert.deepEqual(g.ids, ['c', 'd', 'e', 'a', 'f', 'g'])
+  assert.equal(g.size, 6)
   assert.equal(g.has('b'), false)
-  assert.equal(g.has('e'), true)
+  assert.equal(g.has('g'), true)
 })
 
-test('selectRenderable：超限的降级成静态图，不降级的不受影响', () => {
-  const g = new RenderGuard(4)
-  for (const id of ['n1', 'n2', 'n3', 'n4']) g.touch(id)
-  g.touch('n1') // n1 最近激活，n2 变成最旧
+test('selectRenderable：超过 guard 上限的降级成静态图，按激活新近排序', () => {
+  const g = new RenderGuard(2)
+  g.touch('n1'); g.touch('n2')
+  g.touch('n1') // 顺序变 n2, n1（n1 最新）
   const r = selectRenderable(['n1', 'n2', 'n5'], g)
-  assert.deepEqual(r.render, ['n1', 'n5'])
-  assert.deepEqual(r.degraded, ['n2'], '最久没激活的降级')
+  assert.deepEqual(r.render, ['n1', 'n2'], 'guard 限额内按新近排序渲染')
+  assert.deepEqual(r.degraded, ['n5'], 'guard 装不下的降级成静态图')
 })
 
-test('缩放：夹在 0.2~3，且缩放锚在指针处', () => {
-  assert.equal(clampZoom(99), 3)
+test('缩放：夹在 0.2~2.5，且缩放锚在指针处', () => {
+  assert.equal(clampZoom(99), 2.5)
   assert.equal(clampZoom(0.01), 0.2)
   assert.equal(clampZoom(1.5), 1.5)
 
@@ -166,11 +174,17 @@ test('缩放：夹在 0.2~3，且缩放锚在指针处', () => {
   assert.ok(Math.abs(back.x - p.x) < 1e-6)
 })
 
-test('nextPosition：按已有节点数量错开摆放，不重叠', () => {
+test('nextPosition：4 列横向错开摆放，放不下自动下移', () => {
   const a = nextPosition([], 'prompt')
-  const b = nextPosition([createNode('prompt', { x: a.x, y: a.y })], 'prompt')
-  assert.notEqual(b.y, a.y)
-  assert.ok(b.y > a.y)
+  assert.equal(a.x, 96); assert.equal(a.y, 96)
+  const nodeA = createNode('prompt', { x: a.x, y: a.y })
+  const b = nextPosition([nodeA], 'prompt')
+  assert.equal(b.x, a.x + 340, '第 2 个节点横向错开一格')
+  const row = [nodeA]
+  let last = a
+  for (let k = 0; k < 3; k++) { last = nextPosition(row, 'prompt'); row.push(createNode('prompt', { x: last.x, y: last.y })) }
+  const below = nextPosition(row, 'prompt')
+  assert.ok(below.y > a.y, '一行放满后往下找空位')
 })
 
 test('序列化：导出可再导入，坏数据被剔掉并报出来', () => {

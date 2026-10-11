@@ -2182,7 +2182,9 @@ const cultivationRuntime = createCultivationRuntime({ wsRoot: WS_ROOT,
   identityAdapters: { resolveMother: cultivationHostIdentity.resolveMother },
   sessionApproval: {registry:confirmRegistry, canAccess:canAccessSessionOrigin, push:busPush},
   humanConfig: optionalCultivationHumanConfig(),
-  ownerProvider: process.platform!=='win32'||process.env.YUANSHU_CULTIVATION_HUMAN_PUBLIC_KEY_FILE||process.env.YUANSHU_CULTIVATION_HUMAN_ACTOR?undefined:
+  // 2026-10-11：ownerConfigProvider 已支持 Linux/macOS（XDG 配置目录），不再按平台关死；
+  // 显式 env（公钥文件/actor）仍优先于文件凭据
+  ownerProvider: process.env.YUANSHU_CULTIVATION_HUMAN_PUBLIC_KEY_FILE||process.env.YUANSHU_CULTIVATION_HUMAN_ACTOR?undefined:
     workspace=>ownerConfigProvider({workspace}),
   execution: { knowledge: knowledgeRuntime.store, budget: knowledgeRuntime.budget, admission: knowledgeRuntime.admission,
     provider: createCultivationProvider({catalog: () => modelList, directChat,learning:knowledgeRuntime.cultivationLearning}),

@@ -14,7 +14,12 @@ test('desktop owner bridge is restricted and has real platform verification',()=
   assert.ok(read('app/src-tauri/src/owner/storage.rs').includes('create_new(true)'));
 });
 test('owner provider never mislabels unsupported platforms or hides challenge errors',()=>{
-  assert.ok(read('server.mjs').includes("process.platform!=='win32'"));
+  // 2026-10-11：ownerConfigProvider 支持全平台（win32=LOCALAPPDATA，其余=XDG 配置目录），
+  // server 不再按平台关死文件凭据；显式 env（公钥文件/actor）仍优先
+  const server = read('server.mjs');
+  assert.ok(!server.includes("process.platform!=='win32'||process.env.YUANSHU_CULTIVATION_HUMAN_PUBLIC_KEY_FILE"), '不得再按平台关死 owner 文件凭据');
+  assert.ok(server.includes('workspace=>ownerConfigProvider({workspace})'), 'env 显式 human 配置仍优先于文件凭据');
+  assert.ok(read('engine/cultivation/owner-config.mjs').includes('XDG_CONFIG_HOME'), 'owner-config 必须支持 Linux/macOS XDG 配置目录');
   assert.ok(read('frontend/src/soul/cultivation/Authorization.tsx').includes("stage==='native'"));
 });
 

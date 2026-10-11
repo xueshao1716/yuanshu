@@ -138,13 +138,16 @@ export function resolveConfig(node, nodes, edges) {
   const provider = node.provider || cfg.provider
   const modelId = node.modelId || cfg.modelId
   const ownTemplate = node.template && node.template !== 'plain' ? node.template : ''
+  // 继承归属：节点自己填过任一项（provider/modelId/尺寸/模板）才算自己的，
+  // 否则标记继承来源（10-11 修：原条件拿合并后的 provider 判断，继承路径 sourceId 永远为 null）
+  const hasOwn = node.provider || node.modelId || node.size || ownTemplate
   return {
     provider,
     modelId,
     model: provider && modelId ? `${provider}/${modelId}` : (node.model || cfg.model || ''),
     size: node.size || cfg.size,
     template: ownTemplate || cfg.template,
-    sourceId: provider || node.size || ownTemplate ? null : cfg.sourceId,
+    sourceId: hasOwn ? null : cfg.sourceId,
   }
 }
 
