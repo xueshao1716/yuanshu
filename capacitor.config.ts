@@ -20,12 +20,12 @@ const config: CapacitorConfig = {
 
   ios: {
     contentInset: 'never',
-    backgroundColor: '#0d1117',
+    backgroundColor: '#0e1116',
     scrollEnabled: true,
     limitsNavigationsToAppBoundDomains: false,
   },
   android: {
-    backgroundColor: '#0d1117',
+    backgroundColor: '#0e1116',
     allowMixedContent: false,
   },
   plugins: {
@@ -35,7 +35,14 @@ const config: CapacitorConfig = {
     SplashScreen: {
       launchAutoHide: true,
       launchShowDuration: 200,
-      backgroundColor: '#0d1117',
+      backgroundColor: '#0e1116',
+    },
+    // 沉浸式状态栏（2026-10-11）：加载时就 overlay 透明，不用等 JS；
+    // backgroundColor 必须 = app 底色 token --pi-bg(#0e1116)，否则插件默认值是纯黑（Android<15 生效）
+    StatusBar: {
+      overlaysWebView: true,
+      style: 'DARK',
+      backgroundColor: '#0e1116',
     },
   },
 };
