@@ -9,7 +9,11 @@ test('sandbox client carries explicit session on reads and writes', () => {
 });
 test('sandbox panel isolates cache, remounts, locks concurrent changes and handles errors', () => {
   const panel = read('frontend/src/components/engine/SandboxModePanel.tsx');
-  for (const required of ["['sandbox-mode', sessionId]", 'key={currentSessionId}', 'disabled={!!busy || active}', 'inFlight.current', 'mounted.current', 'role="alert"', '重新读取', '请先选择一个会话', '界面/API 记录', '<MaintenanceModePanel']) assert.ok(panel.includes(required), required);
+  for (const required of ["['sandbox-mode', sessionId]", 'key={currentSessionId}', 'disabled={!!busy || active}', 'role="alert"', '重新读取', '请先选择一个会话', '界面/API 记录']) assert.ok(panel.includes(required), required);
+  // 2026-10（1cf67db1）：沙箱与超维拆成两张独立卡片，各自直接挂在系统页，不再互嵌
+  assert.ok(!panel.includes('<MaintenanceModePanel'), '沙箱面板不得再内嵌超维面板（已拆分）');
+  const system = read('frontend/src/pages/System.tsx');
+  assert.ok(system.includes('<SandboxModePanel') && system.includes('<MaintenanceModePanel'), '系统页必须分别渲染沙箱与超维两张卡片');
 });
 test('maintenance UI requests human approval but cannot directly grant permissions', () => {
   const panel = read('frontend/src/components/engine/MaintenanceModePanel.tsx');

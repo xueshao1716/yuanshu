@@ -43,10 +43,9 @@ test("sendImage：getuploadurl 参数、CDN 密文可解密回原图、item_list
       const upBody = JSON.parse(calls[0].body);
       const key = Buffer.from(upBody.aeskey, "hex");
       const d = crypto.createDecipheriv("aes-128-ecb", key, null);
+      // Node decipher 默认自动去 PKCS7，plain.length = 原图长度；绝不能再手动减尾字节（会双解调成空串）
       const plain = Buffer.concat([d.update(cipher), d.final()]);
-      // AES-ECB 密文比明文长（PKCS7 填充），解开后去掉尾部填充
-      const unpadded = plain.subarray(0, plain.length - plain[plain.length - 1]);
-      assert.equal(crypto.createHash("md5").update(unpadded).digest("hex"), crypto.createHash("md5").update(raw).digest("hex"), "解开必须是原图");
+      assert.equal(crypto.createHash("md5").update(plain).digest("hex"), crypto.createHash("md5").update(raw).digest("hex"), "解开必须是原图");
       return new Response(null, { status: 200, headers: { "x-encrypted-param": "enc-param-xyz" } });
     }
     return new Response(JSON.stringify({ ret: 0 }), { status: 200 });
@@ -54,7 +53,7 @@ test("sendImage：getuploadurl 参数、CDN 密文可解密回原图、item_list
 
   const c = createIlinkClient({ fetch: fetch3 });
   const r = await c.sendImage("tok", png, "owner@im.wechat", "ctx-1");
-  assert.deepEqual(r, { ret: 0 });
+  assert.deepEqual(r, { ret: 0, fileSize: 40, fileSizeCiphertext: 48 });
   assert.equal(calls.length, 3);
 
   // sendmessage 的 item_list[0] 是图片项（MessageItemType.IMAGE = 2）
@@ -89,14 +88,15 @@ test("sendImage：upload_param 回退时拼 CDN URL（没有 upload_full_url）"
   const urls = [];
   const c = createIlinkClient({ fetch: async (url, init = {}) => {
     urls.push(url);
-    if (url.endsWith("/getuploadurl")) return new Response(JSON.stringify({ ret: 0, filekey: "f", upload_param: "p%20q" }), { status: 200 });
-    if (url.startsWith("http")) return new Response(null, { status: 200, headers: { "x-encrypted-param": "e2" } });
-    return new Response(JSON.stringify({ ret: 0 }), { status: 200 });
+    if (url.endsWith("/getuploadurl")) return new Response(JSON.stringify({ ret: 0, upload_param: "p%20q" }), { status: 200 });
+    if (url.includes("/upload?")) return new Response(null, { status: 200, headers: { "x-encrypted-param": "e2" } }); // 只拦 CDN 上传
+    return new Response(JSON.stringify({ ret: 0 }), { status: 200 }); // sendmessage 等 iLink 接口
   } });
   const r = await c.sendImage("tok", png, "owner");
-  assert.deepEqual(r, { ret: 0 });
+  // sendImage 返回值带 fileSize / fileSizeCiphertext（审计与状态用到）
+  assert.deepEqual(r, { ret: 0, fileSize: 18, fileSizeCiphertext: 32 });
   assert.ok(urls[1].includes("encrypted_query_param=p%2520q"), "upload_param 要再编码一次");
-  assert.ok(urls[1].includes("filekey=f"));
+  assert.match(urls[1], /filekey=%3F|filekey=[0-9a-f]{32}/, "filekey 是客户端自生成的 32 hex");
 });
 
 // ── 桥接层：flush 图片任务 / notifyOwner 带图 / 失败不断队列 ──
@@ -106,6 +106,8 @@ function imgWorld() {
   const client = {
     sendText: async (_t, to, text, ctx) => { sent.push({ to, text, ctx }); return { ret: 0 }; },
     sendImage: async (_t, image, to, ctx) => { fs.readFileSync(image); images.push({ to, image, ctx }); return { ret: 0 }; },
+    // 收件轮询空跑但要真挂起：立即返回会把 run 循环变纯微任务热循环，饿死定时器（flush 的 REPLY_GAP 永远醒不来）
+    getUpdates: async () => { await tick(50); return { ret: 0 }; },
   };
   const chat = { n: 0, createSession: async () => `s${++chat.n}`, ask: async (text, sid) => `回：${text}` };
   return { client, chat, sent, images };
