@@ -13,6 +13,14 @@
         <item name="windowActionBar">false</item>
         <item name="windowNoTitle">true</item>
         <item name="android:background">@null</item>
+        <!-- 状态栏实色 = 前端底色 token（就绪行同色）。windowDrawsSystemBarBackgrounds 是
+             statusBarColor 生效的前置 flag（缺了系统画默认黑，10-11 三轮教训）。
+             Android 15+ 忽略颜色走 edge-to-edge，透出的 windowBackground 也是同色。 -->
+        <item name="android:windowBackground">#0e1116</item>
+        <item name="android:windowDrawsSystemBarBackgrounds">true</item>
+        <item name="android:statusBarColor">#0e1116</item>
+        <item name="android:navigationBarColor">#0e1116</item>
+        <item name="android:windowLightStatusBar">false</item>
     </style>
 
 

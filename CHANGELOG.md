@@ -8,6 +8,11 @@
 
 ## [Unreleased]
 
+## [2.127.5] - 2026-10-11
+
+### 修复与改进
+- 状态栏改实色方案：statusBarColor=#0e1116（与就绪行底色一致）+ windowDrawsSystemBarBackgrounds flag 齐备，Android 全版本同一色；不再做透明 overlay（已随 2.127.4 移除插件）
+
 ## [2.127.4] - 2026-10-11
 
 ### 修复与改进
