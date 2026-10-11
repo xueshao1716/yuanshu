@@ -8,6 +8,12 @@
 
 ## [Unreleased]
 
+## [2.127.2] - 2026-10-11
+
+### 修复与改进
+- 状态栏颜色全链路对齐 --pi-bg(#0e1116)：原生窗口背景/导航栏/Splash/WebView/StatusBar 插件五处统一，插件加载即 overlay 透明（修 Android<15 加载瞬间默认纯黑）
+- APK 版本号每次发版随 version:bump 自动同步（versionCode = major×1e6+minor×1e3+patch）
+
 ## [2.127.1] - 2026-10-10
 
 ### 修复与改进
