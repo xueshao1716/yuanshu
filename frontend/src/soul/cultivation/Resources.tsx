@@ -32,6 +32,7 @@ export default function Resources({value,sessionId,onAction,refresh}:{value:Over
     <p className="soul-hint">平时不用打开，排查资源或异常占用时用。</p>
     <Diagnostics revision={value.revision}/>
     <details><summary>其他操作的设备与签名设置</summary><OwnerConfirmation value={value} refresh={refresh}/></details>
+    </details>
     <section aria-label="受限自主学习"><h4>仅采用已核查经验</h4><p>七天有效，仅允许采用所属个体有独立来源且已核查的培养经验。不开放外网、付费生成、工具、私人记忆或人格与基因修改；没有合格经验时保持等待。</p><div className="soul-actions">
       <button disabled={!policyAuthorized} onClick={()=>onAction({method:'PUT',path:'/policy',revision:value.revision,label:'开启七天受限学习',payload:{policy:{...value.policy,enabled:true,motherLearning:true,allowRemote:false,recursive:false,dailyRequests:0,dailyBudgetCents:0,models:[],tools:[],dataScopes:['knowledge:approved-cultivation'],schedule:null,expiresAt:new Date(Date.now()+7*86400000).toISOString()}}})}>核对七天受限学习</button>
       <button disabled={!policyAuthorized||!value.policy.enabled} onClick={()=>onAction({method:'PUT',path:'/policy',revision:value.revision,label:'暂停全部培养与学习',payload:{policy:{...value.policy,enabled:false,motherLearning:false}}})}>暂停全部培养与学习</button>
@@ -47,7 +48,7 @@ export default function Resources({value,sessionId,onAction,refresh}:{value:Over
       <label>授权设置<textarea rows={18} value={draft} onChange={e=>setDraft(e.target.value)} spellCheck={false}/></label>
       <div className="soul-actions"><button onClick={()=>{setDraft(JSON.stringify(value.policy,null,2));setDraftRevision(value.revision);setError('')}}>重新载入当前设置</button><button disabled={!policyAuthorized||stale} onClick={prepare}>{value.sessionGrantAvailable?'核对并申请确认':'核对并申请签名'}</button></div>
       {error&&<p role="alert">{error}</p>}
-    </details></details>
+    </details>
     <p className="soul-hint">aibody 土壤：还没有独立观察结论。</p>
   </>
 }

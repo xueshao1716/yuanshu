@@ -422,7 +422,12 @@ export const AgentEventsApi = {
 }
 
 // ── 危险操作确认（dsh user-approval seam）：后端弹确认事件 → 前端回传结果 ──
+export interface PendingConfirmation {
+  id: string; sessionId: string; toolName: string; kind: string; localOnly: boolean
+  canApprove: boolean; src: string; reason: string; expiresAt: number
+}
 export const ConfirmApi = {
+  pending: () => api<{ ok: boolean; items: PendingConfirmation[] }>('/api/agent/pending'),
   answer: (sessionId: string, id: string, ok: boolean) =>
     api<{ ok: boolean; outcome: string }>('/api/agent/confirm', { method: 'POST', body: { sessionId, id, ok }, timeoutMs: 8000 }),
 }

@@ -3,7 +3,7 @@ import useSWR, { useSWRConfig } from 'swr'
 import { useApp } from '../store'
 import PageHeader from '../components/PageHeader'
 import { Block, LoadState, date } from '../soul/shared'
-import { Confirmations, SessionChoice } from '../soul/Confirmations'
+import { AllConfirmations, SessionChoice } from '../soul/Confirmations'
 import { CultivationApi, cultivationPolling, type Overview } from '../soul/cultivation/api'
 import Resources from '../soul/cultivation/Resources'
 import Authorization, { type Action } from '../soul/cultivation/Authorization'
@@ -88,10 +88,10 @@ export default function Grants() {
           {AREAS.map(([id, label]) => <option key={id} value={id}>{label}</option>)}</select></label>
         <main className="soul-workarea">
           <header className="soul-section-heading"><h2>{current[1]}</h2><p>{current[2]}</p></header>
-          {(area === 'pending' || area === 'cultivation' || area === 'session') && <SessionChoice sessionId={sessionId} setSessionId={setSessionId} disabled={false} />}
+          {area !== 'pending' && (area === 'cultivation' || area === 'session') && <SessionChoice sessionId={sessionId} setSessionId={setSessionId} disabled={false} />}
           {area === 'pending' && <>
-            <Confirmations sessionId={sessionId} active busy={false} />
-            <p className="soul-hint">没有卡片就是没有待确认的事。性格基因的变更提案在「灵魂培养 · 性格基因」里发起，批准请求也会出现在这里。</p>
+            <AllConfirmations />
+            <p className="soul-hint">已收全部会话的待确认卡（确认卡所属对话直接标注在卡上，不用选）。人格与基因提案在这里点到；培养策略确认仍去「培养与母体学习」分区发起。</p>
           </>}
           {area === 'cultivation' && <CultivationGrants sessionId={sessionId} />}
           {area === 'knowledge' && <KnowledgeGrants />}

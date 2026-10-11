@@ -129,6 +129,7 @@ import { initUnifiedChat, unifiedChat, engineCurrentModel, initEngine, getCodeRu
 import { completedTaskText } from "./engine/task-continuation.mjs";
 import { createApprovalInterceptor } from "./engine/tools/approval.mjs";
 import * as confirmRegistry from "./engine/tools/confirm-registry.mjs";
+import { pendingOverview } from "./engine/agent-pending.mjs";
 import { createSandboxAskFactory } from "./engine/sandbox-ask.mjs";
 import { isLocalMaintenanceApproval } from "./engine/maintenance-approval.mjs";
 import { createGeneApproval } from './engine/gene-approval.mjs';
@@ -3168,6 +3169,11 @@ const API_ROUTES = [
   // ── Agent 活动事件（pi 事件广播扩展 → 前端实时显示小语在干嘛）──
   ["POST", "/api/agent/events", async (res, req) => handleAgentEventIn(req, res, await readBody(req, 2))],
   ["GET", "/api/agent/events", async (res) => handleAgentEventOut(res, buildPersistentActivity(await runStore.listAsync(), WS_ROOT))],
+  // 未决确认总览（2026-10-11 授权中心/确认归属改造）：全部会话的确认卡一次摊开，
+  // 卡片自带"属于哪条对话"，不用人挑会话。批准/拒绝仍走 /api/agent/confirm，本机受限在那里拦。
+  ["GET", "/api/agent/pending", (res, req) => {
+    return json(res, 200, pendingOverview({ registry: confirmRegistry, localApprovalOk: isLocalMaintenanceApproval(req) }));
+  }],
   // 危险操作确认回传：前端弹框后调这里（ok=true 放行 / ok=false 拒绝）
   ["POST", "/api/agent/confirm", async (res, req) => {
     try {
