@@ -92,7 +92,9 @@ export async function handleUpdateCheck(res) {
     } catch {}
     try {
       engineLatest = await new Promise((resolve) => {
-        execFile("cmd.exe", ["/c", "npm view @earendil-works/pi-coding-agent version"], { encoding: "utf8", timeout: 20000, windowsHide: true }, (err, stdout) => resolve(err ? "" : String(stdout || "").trim()));
+        const isWin = process.platform === "win32";
+        const args = isWin ? ["/c", "npm view @earendil-works/pi-coding-agent version"] : ["view", "@earendil-works/pi-coding-agent", "version"];
+        execFile(isWin ? "cmd.exe" : "npm", args, { encoding: "utf8", timeout: 20000, windowsHide: true }, (err, stdout) => resolve(err ? "" : String(stdout || "").trim()));
       });
     } catch {}
     json(res, 200, {

@@ -23,9 +23,13 @@ test('startup failure stays local, explains the issue and allows retry', async (
   assert.deepEqual(calls, ['ensure_local_service']);
   fail = false; await run(); assert.equal(states.at(-1).phase, 'ready');
 });
-test('native startup permissions are local only and Android entry remains external', () => {
+test('native shell entry: desktop direct to local service, android keeps bundled connect page', () => {
   const lib = read('app/src-tauri/src/lib.rs');
-  assert.ok(lib.includes('WebviewUrl::App("startup.html".into())'), 'desktop needs an offline first screen');
+  // 2026-10-10 设计定版（伙伴确认）：壳零业务逻辑，桌面端直接跳本机 8787 服务，
+  // 不再走 startup.html 离线首屏（那是「启动检查未完成」卡屏的根源）
+  assert.ok(lib.includes('WebviewUrl::External("http://127.0.0.1:8787/"'), 'desktop must jump straight to the local service');
+  assert.ok(!lib.includes('WebviewUrl::App("startup.html"'), 'offline startup.html entry must stay removed');
+  assert.ok(lib.includes('WebviewUrl::App("connect.html"'), 'android keeps the bundled connect page');
   const cap = JSON.parse(read('app/src-tauri/capabilities/desktop-startup.json'));
   assert.equal(cap.local, true); assert.equal(cap.remote, undefined);
   assert.deepEqual(cap.platforms, ['windows']);

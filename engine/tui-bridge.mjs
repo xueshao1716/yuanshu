@@ -37,8 +37,8 @@ export function initTuiBridge(httpServer, { token, cwd, cols = 120, rows = 30 } 
 
     const start = () => {
       try {
-        // Windows 下 conPTY 走 cmd 包装启动 pi TUI；cwd 为工作空间根
-        proc = pty.spawn("cmd.exe", ["/c", "pi"], {
+        // Windows 下 conPTY 走 cmd 包装启动 pi TUI；Unix 直接从 PATH 起 pi；cwd 为工作空间根
+        proc = pty.spawn(process.platform === "win32" ? "cmd.exe" : "pi", process.platform === "win32" ? ["/c", "pi"] : [], {
           name: "xterm-256color",
           cols, rows,
           cwd: cwd || process.cwd(),

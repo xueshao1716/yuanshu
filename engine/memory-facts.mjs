@@ -1,4 +1,5 @@
 // 记忆现行事实：同 topic 只留一条 current，写时作废旧条
+import os from "node:os";
 import fs from "node:fs";
 import path from "node:path";
 import { atomicWriteText } from "./atomic-io.mjs";
@@ -118,7 +119,7 @@ export function upsertMemoryFact(wsRoot, { section = "", topic = "", text = "", 
     const entry = `### ${stampNow()}\n- topic: ${key}\n- status: current\n- 要点：${body}${reason ? `\n- 原因：${String(reason).trim()}` : ""}\n`;
     atomicWriteText(p.log, marked.raw.replace(/\n*$/, "\n") + entry + "\n");
     try {
-      const live = process.env.PI_WEB_CWD || "D:/pi-workspace";
+      const live = process.env.PI_WEB_CWD || (process.platform === "win32" ? "D:/pi-workspace" : path.join(os.homedir(), "pi-workspace"));
       if (path.resolve(wsRoot) === path.resolve(live)) syncMemoryToTui();
     } catch {}
     return { ok: true, key, superseded: marked.count };

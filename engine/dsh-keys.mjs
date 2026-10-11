@@ -113,6 +113,9 @@ export function dshResolveBin() {
     path.join(path.dirname(process.execPath), "node_modules", "@deepseek-ai", "dsh", "lib", "bin.js"),
     path.join(process.env.APPDATA || "", "npm", "node_modules", "@deepseek-ai", "dsh", "lib", "bin.js"),
     path.join(process.env.ProgramFiles || "", "nodejs", "node_modules", "npm", "node_modules", "@deepseek-ai", "dsh", "lib", "bin.js"),
+    // Linux/macOS 全局 npm 路径（2026-10-11 Linux 兼容审计补充）
+    "/usr/lib/node_modules/@deepseek-ai/dsh/lib/bin.js",
+    "/usr/local/lib/node_modules/@deepseek-ai/dsh/lib/bin.js",
   ];
   for (const c of cands) { try { if (fs.existsSync(c)) return c; } catch {} }
   return null;
@@ -139,7 +142,7 @@ export async function handleDshWebStart(res) {
   } catch {}
   // detached 拉起：独立于元枢生命周期，日志落 dsh-web.log 便于排查
   try {
-    const { resolveDshEnv } = await import("./engine/dsh-tool.mjs");
+    const { resolveDshEnv } = await import("./dsh-tool.mjs");
     const logFd = fs.openSync(path.join(os.tmpdir(), "dsh-web.log"), "a");
     const child = spawn(process.execPath, [bin, "web"], {
       detached: true, stdio: ["ignore", logFd, logFd], windowsHide: true, env: resolveDshEnv(),
