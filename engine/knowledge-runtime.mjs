@@ -129,9 +129,10 @@ export function createKnowledgeRuntime({wsRoot,runRoot,runStore,catalog,directCh
     },
     async context(input){
       if(input.signal?.aborted||input.runId&&['knowledge','cultivation'].includes(runStore.get(input.runId)?.request?.origin))
-        return {available:false,entries:[],context:''};
+        // origin 排除是"本来就不该检索"，不是故障；带原因，别让通知层当作知识库坏了。
+        return {available:false,entries:[],context:'',reason:'origin_excluded'};
       const result=await retrieval.retrieve(input);
-      if(input.signal?.aborted)return {available:false,entries:[],context:''};
+      if(input.signal?.aborted)return {available:false,entries:[],context:'',reason:'aborted'};
       // Record what this specific run was offered; merely offering it is not use feedback.
       if(result.entries.length&&input.runId){const run=runStore.get(input.runId);
         if(run?.sessionId===input.sessionId)runStore.update(run.id,{knowledgeReferences:{sessionId:input.sessionId,ids:result.entries.map(e=>e.id)}});}

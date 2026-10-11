@@ -34,10 +34,12 @@ test('absent, fake and revoked host identities cannot supply chat knowledge',asy
 
 test('learning failure is bounded and private errors do not stop text chat or leave stale offers',async()=>{
  assert.equal(typeof mod.cultivationChatContext,'function');
- for(const readMother of [async()=>{throw Error('private-token-path');},async()=>({available:false,entries:[],context:''})]){
+ // 2026-10-11 消除误报：真机证明"还没培养经验"会准时出现在任务恭会话里徒增唠叨——
+ // available:false（培养经验为空）静默，不吭声；私密错误/真故障路径依旧吴声但不泄露内容
+ for(const [readMother,expect] of [[async()=>{throw Error('private-token-path');},1],[async()=>({available:false,entries:[],context:''}),0]]){
   const notes=[],offers=[];
   assert.equal(await mod.cultivationChatContext({readMother},{offerCultivationReferences:(_scope,ids)=>offers.push(ids)},input(),n=>notes.push(n)),'');
-  assert.equal(notes.length,1);assert.ok(!notes[0].includes('private'));assert.deepEqual(offers,[[]]);
+  assert.equal(notes.length,expect);if(expect)assert.ok(!notes[0].includes('private'));assert.deepEqual(offers,[[]]);
  }
 });
 

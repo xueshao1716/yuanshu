@@ -4,6 +4,7 @@ import { useApp } from './store'
 import { useIsMobile } from './hooks/useIsMobile'
 import { useHashRoute, PageErrorBoundary, type Route } from './hooks/useHashRoute'
 import Login from './components/Login'
+import PendingCallout from './components/PendingCallout'
 import TitleBar from './components/TitleBar'
 import SetupWizard from './components/SetupWizard'
 import { KeysApi, SystemApi, getToken } from './api'
@@ -308,6 +309,7 @@ export default function AppLayout() {
     return (
       <div data-voice-view={voiceViewOpen || undefined} className={`mobile-app-root mobile-safe-top flex flex-col text-pi-text relative ${route === 'chat' ? 'mobile-chat-root' : ''}`}>
         <div id="pi-wallpaper" className="fixed inset-0 z-0 pointer-events-none" />
+        <PendingCallout />
         {/* 删除装饰性径向渐变背景 */}
         {/* 主内容层 */}
         <div className="flex-1 flex min-h-0 relative z-10" inert={mobilePanelOpen}>
@@ -384,6 +386,7 @@ export default function AppLayout() {
     <ShellFrame>
     <div data-voice-view={voiceViewOpen || undefined} className={`flex-1 flex min-w-0 text-pi-text relative ${rightPanel !== 'chat' ? 'has-utility-panel' : ''}`}>
       <div id="pi-wallpaper" className="fixed inset-0 z-0 pointer-events-none" />
+      <PendingCallout />
       {/* 图标导航 rail：实底 Logo，不用渐变 */}
       <nav className="desktop-rail flex-shrink-0 flex flex-col items-center py-4 px-2 gap-1.5 col-sidebar border-r border-pi-border relative z-20" aria-label="主导航">
         <div className="desktop-brand">
