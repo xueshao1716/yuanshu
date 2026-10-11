@@ -1,4 +1,5 @@
 import {validatePolicy, assertRequest} from './policy.mjs';
+import {isBoundedPresetPolicy, isPresetPausePolicy} from './grant-preset.mjs';
 import {validateDesign, assertAdoptable, assertNoExpansion} from './designs.mjs';
 import {exact, id} from './control-state.mjs';
 
@@ -31,6 +32,9 @@ export function commandKinds(c) {
   if (!exact(c.payload, fields[c.action])) badCommand('payload', `${c.action} 的 payload 字段恰为：${fields[c.action].join(', ')}`);
   for (const key of ['agentId', 'designId', 'parentId'])
     if (Object.hasOwn(c.payload, key) && !id(c.payload[key])) badCommand(`payload.${key}`, '完整 UUID（不能截短）');
+  // 2026-10-11 灵魂自我驱动边界：母亲身份可以自行开关**受限封套内**的培养策略
+  // （标准预设或纯停用）。任何越线（加工具、母体学习、加钱/加次数/拖长有效期、扩范围）仍是人专属。
+  if (c.action === 'policy.set' && (isBoundedPresetPolicy(c.payload.policy) || isPresetPausePolicy(c.payload.policy))) return ['mother', 'human'];
   return ['design.submit', 'design.revise', 'agent.register', 'agent.adopt'].includes(c.action) ? ['mother'] : ['human'];
 }
 const fail = reason => {throw new Error(`cultivation_${reason}`);};
@@ -43,7 +47,11 @@ export function transition(data, c, actor, {now, verifyAsset, entityId, intentId
     assertNoExpansion(next, previous, {allowRemoteExpansion:remoteExpansion});
     if (remoteExpansion) assertRequest(data.policy, next.permissions, now());
   };
-  if (c.action === 'policy.set') {data.policy = validatePolicy(p.policy); return {id: 'control'};}
+  if (c.action === 'policy.set') {
+    // 第二道闸（不依赖调用方传什么 kinds）：母亲出的 policy.set 必须仍在受限封套内，否则红牌。
+    if (actor.kind === 'mother' && !(isBoundedPresetPolicy(p.policy) || isPresetPausePolicy(p.policy))) fail('identity_denied');
+    data.policy = validatePolicy(p.policy); return {id: 'control'};
+  }
   if (c.action.startsWith('design.')) {
     const d = validateDesign(p.design);
     if (p.parentId) {

@@ -49,9 +49,8 @@ export default function Authorization({action,owner,sessionId,sessionGrantAvaila
       const cmd:Command={method:action.method,path:action.path,body:{requestId:crypto.randomUUID(),expectedRevision:action.revision,payload:action.payload}}
       const next=await CultivationApi.sessionChallenge(cmd,sessionId);confirmation.current=next.id
       if(!alive.current){await ConfirmApi.answer(sessionId,next.id,false);return}
-      const ok=window.confirm(`请确认本次培养操作：${action.label}\n\n${JSON.stringify(action.payload,null,2)}\n\n仅批准以上培养策略；不开放电脑、文件或其他系统权限。`)
-      const answered=await ConfirmApi.answer(sessionId,next.id,ok)
-      if(!ok){setMessage('已取消本次培养授权，没有提交。');return}
+      // 2026-10-11 去仪式化：按钮点击即本人确认，原生窗复述一遍只是卡壳（取消走「返回，不操作」）。
+      const answered=await ConfirmApi.answer(sessionId,next.id,true)
       if(!answered.ok)throw new Error('确认已失效，请刷新后重新核对')
       if(!alive.current)return
       const proof=await CultivationApi.sessionConfirm(next,cmd,sessionId)

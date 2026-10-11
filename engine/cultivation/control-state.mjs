@@ -76,7 +76,8 @@ function receiptLinks(record, data, designs, agents) {
     const event = record.audit[index], source = receipt.actor, resultId = receipt.result.id;
     if (!event || event.actor !== `${source.kind}:${source.actorId}`) fail();
     if (event.action === 'policy.set') {
-      if (source.kind !== 'human' || resultId !== 'control') fail();
+      // 2026-10-11 灵魂自我驱动：受限封套内/暂停的 policy.set 可由 mother 出账，其余仍只认 human
+      if (!['human', 'mother'].includes(source.kind) || resultId !== 'control') fail();
     } else if (['design.submit', 'design.revise'].includes(event.action)) {
       const row = designs.get(resultId);
       if (!row || createdDesigns.has(resultId) || source.kind !== 'mother' ||

@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import useSWR from 'swr'
 import { CultivationApi, cultivationPolling, type Design, type Overview, type Preflight } from './api'
 import { KnowledgeApi, knowledgePolling } from '../../knowledge/api'
@@ -23,6 +23,10 @@ export default function PolicyPreset({value,onAction,refresh}:{value:Overview;au
   const model=row?.design.permissions.model||''
   const entry=catalog.data?.find(m=>m.key===model)
   const fix=sharedPatch(knowledge.data,model,entry?.cost,{reasoning:!!entry?.reasoning})
+  // 去仪式化（2026-10-11）：补丁已知安全（免费或目录已核价）就自动写进去；只有"不知道价格"才停下等主人。只试一次防循环。
+  const triedFix=useRef(false)
+  useEffect(()=>{if(triedFix.current||sharedBusy||shared.length===0||!fix?.patch||fix.needsManualPrice)return
+    triedFix.current=true;void fixShared()},[JSON.stringify(fix||null)])
   const supported=!!row&&supportedDesign(row.design)
   const grantable=fresh&&stubborn.length===0&&shared.length===0
   const fixShared=async()=>{
@@ -52,10 +56,10 @@ export default function PolicyPreset({value,onAction,refresh}:{value:Overview;au
     </dl>}
     {row&&<DesignReadiness key={`${row.id}:${recheck}`} designId={row.id} revision={value.revision} onResult={setPreflight}/>}
     {shared.length>0&&<div role="status" className="soul-notice">
-      <p>共享模型设置还差 {shared.length} 项：把 {model} 加入共享白名单{fix?.needsManualPrice?'，并填写它的价格':'，并按模型目录标记为免费'}{fix?.patch?.outputTokens?`；它是推理模型，单次输出上限调到 ${fix.patch.outputTokens}`:''}。</p>
+      <p>共享模型设置还差 {shared.length} 项，正在自动补齐 {model}（按模型目录价格标记，免费直接标免费）{fix?.patch?.outputTokens?`；它是推理模型，单次输出上限会调到 ${fix.patch.outputTokens}`:''}，不需要你点。</p>
       {fix?.needsManualPrice
-        ?<p>模型目录里没有它的价格，不能替你猜。请展开下方“共享模型与额度设置”填写单价。</p>
-        :<button disabled={sharedBusy||!fix?.patch} onClick={()=>void fixShared()}>{sharedBusy?'正在补齐…':'补齐共享模型设置'}</button>}
+        ?<p role="alert">模型目录里没有 {model} 的价格，不能替你猜。请展开下方“共享模型与额度设置”填写单价，或让小语换免费模型。</p>
+        :<button disabled={sharedBusy||!fix?.patch} onClick={()=>void fixShared()}>{sharedBusy?'正在自动补齐…':'自动补齐失败？点这重试'}</button>}
       {sharedError&&<p role="alert">补齐失败：{sharedError}</p>}
     </div>}
     {grantable&&fixable.length>0&&<p role="status">剩余 {fixable.length} 项都属于培养授权本身，放权时一并写入。</p>}

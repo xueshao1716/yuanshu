@@ -57,7 +57,8 @@ test('session approval is policy-only, answered through registry and invalidated
   assert.ok(panel.includes('sessionId={sessionId}'));
 });
 test('bounded cultivation preset uses a real design and keeps tools and unrelated actions closed',()=>{
-  const preset=source('frontend/src/soul/cultivation/PolicyPreset.tsx')+source('frontend/src/soul/cultivation/grant-preset.mjs');
+  // 2026-10-11 预设唯一事实源已移入引擎，断言改读引擎文件（前端只是再导出）
+  const preset=source('frontend/src/soul/cultivation/PolicyPreset.tsx')+source('engine/cultivation/grant-preset.mjs');
   for(const text of ['design.permissions.model','dailyRequests: GRANT_DAILY_REQUESTS','GRANT_DAILY_REQUESTS = 30','GRANT_DAILY_BUDGET_CENTS = 200','tools: []',
     'allowRemote: true','maxAgents: GRANT_MAX_AGENTS','GRANT_MAX_AGENTS = 3','maxConcurrent: 1','recursive: false','motherLearning: false','knowledge:approved-cultivation',
     '不会自动开始付费任务','nextCursor'])assert.ok(preset.includes(text),text);
