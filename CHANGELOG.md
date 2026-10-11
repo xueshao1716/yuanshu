@@ -8,6 +8,12 @@
 
 ## [Unreleased]
 
+## [2.127.3] - 2026-10-11
+
+### 修复与改进
+- 状态栏黑条根治：补 `windowDrawsSystemBarBackgrounds=true`（此前 statusBarColor=transparent 因缺 flag 被系统无视，画的是主题默认黑）
+- 壳内 safe-area 兜底恢复为 24px（安卓 WebView 不报状态栏高度，非刘海机透明后标题不顶时钟）
+
 ## [2.127.2] - 2026-10-11
 
 ### 修复与改进

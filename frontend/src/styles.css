@@ -30,7 +30,9 @@ html, body, #root { height: 100%; }
   padding-top: var(--pi-safe-top, env(safe-area-inset-top, 0px));
 }
 html[data-app-shell="1"] .mobile-safe-top {
-  --pi-safe-top: env(safe-area-inset-top, 0px);
+  /* 壳里安卓 WebView 只报挖孔不报状态栏（09-18 真机结论）：
+     透明状态栏后非刘海机 env()=0，标题会顶进时钟 → 克制兖底 24px，刘海机仍取 env() */
+  --pi-safe-top: max(env(safe-area-inset-top, 0px), 24px);
 }
 
 /* ── 文字密集场景：稳定阅读列，不用卡片墙承载长内容 ── */
