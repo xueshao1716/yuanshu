@@ -161,7 +161,7 @@ function rollback(snapshotId, reviewer, reason, expected) {
 // 查看基因/提案状态
 export function getGenome() {
   if (store) install(store.read());
-  return structuredClone({ genes: genome || DEFAULT_GENES, proposals: proposalStore?.proposals || [], reviews: proposalStore?.reviews || [], snapshots: proposalStore?.snapshots || [] });
+  return structuredClone({ genes: genome || DEFAULT_GENES, observations: observations || { lastObservedAt: null, events: [] }, proposals: proposalStore?.proposals || [], reviews: proposalStore?.reviews || [], snapshots: proposalStore?.snapshots || [] });
 }
 
 // 至少三条带来源的互动，跨度 >=24h；标签是启发式信号，不是人格测量。
