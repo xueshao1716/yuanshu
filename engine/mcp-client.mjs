@@ -70,6 +70,74 @@ export function saveMcpConfig(wsRoot, cfg) {
   fs.writeFileSync(p, JSON.stringify(cfg, null, 2), 'utf8');
 }
 
+// ── stdio 传输连接（2026-10-12 接 REA：`rea mcp` 是 stdio 服务）────────────────
+// 协议：MCP stdio = 按行分隔的 JSON-RPC 2.0。子进程由本管理器托管，随 disconnect/进程退出回收。
+const stdioChildren = new Map(); // name -> ChildProcess
+
+export function stopStdioServer(name) {
+  const child = stdioChildren.get(name);
+  if (child) { try { child.kill(); } catch {} stdioChildren.delete(name); }
+}
+process.on('exit', () => { for (const c of stdioChildren.values()) { try { c.kill(); } catch {} } });
+
+export function createStdioConnection({ name, cmd, cwd, timeoutMs = 120000 }) {
+  let tools = [], connected = false, error = null;
+  const pending = new Map();
+  let child = null, buf = '';
+  const rpc = (method, params = {}) => new Promise((resolve, reject) => {
+    if (!child || !child.stdin?.writable) return reject(new Error(`MCP ${name}: stdio 服务未在运行`));
+    const id = randomUUID();
+    const timer = setTimeout(() => { pending.delete(id); reject(new Error(`MCP ${name}: ${method} 超时`)); }, timeoutMs);
+    pending.set(id, { resolve: v => { clearTimeout(timer); resolve(v); }, reject: e => { clearTimeout(timer); reject(e); } });
+    child.stdin.write(JSON.stringify({ jsonrpc: '2.0', id, method, params }) + '\n');
+  });
+  const handleLine = (line) => {
+    const text = line.trim();
+    if (!text || !text.startsWith('{')) return;
+    let msg;
+    try { msg = JSON.parse(text); } catch { return; }
+    if (msg.id !== undefined && pending.has(msg.id)) {
+      const entry = pending.get(msg.id); pending.delete(msg.id);
+      if (msg.error) entry.reject(new Error(`MCP ${name}: ${msg.error.message || JSON.stringify(msg.error)}`));
+      else entry.resolve(msg.result);
+    }
+  };
+  async function connect() {
+    try {
+      child = spawn(cmd, { cwd: cwd || undefined, shell: process.platform === 'win32', windowsHide: true, stdio: ['pipe', 'pipe', 'pipe'] });
+      stdioChildren.set(name, child);
+      child.stdout.setEncoding('utf8');
+      child.stdout.on('data', chunk => {
+        buf += chunk;
+        const lines = buf.split('\n');
+        buf = lines.pop() || '';
+        for (const l of lines) handleLine(l);
+      });
+      child.stderr.setEncoding('utf8');
+      child.stderr.on('data', chunk => { const m = chunk.trim(); if (m) console.log(`[MCP:${name}] ${m.slice(0, 120)}`); });
+      child.on('exit', code => { stdioChildren.delete(name); child = null; connected = false;
+        for (const [, entry] of pending) entry.reject(new Error(`MCP ${name}: 进程退出 code=${code}`)); pending.clear(); });
+      // 握手：initialize → initialized 通知 → tools/list
+      const init = await rpc('initialize', { protocolVersion: '2025-03-26', capabilities: { tools: {} }, clientInfo: { name: 'yuanshu', version: '2.127.10' } });
+      child.stdin.write(JSON.stringify({ jsonrpc: '2.0', method: 'notifications/initialized' }) + '\n');
+      const result = await rpc('tools/list', {});
+      tools = (result?.tools || []).map(t => ({ name: t.name, description: t.description || '', inputSchema: t.inputSchema || { type: 'object', properties: {} }, serverName: name }));
+      connected = true; error = null;
+      return tools;
+    } catch (e) { connected = false; error = e.message; tools = [];
+      try { child?.kill(); } catch {} stdioChildren.delete(name); child = null;
+      throw e;
+    }
+  }
+  async function callTool(toolName, args = {}) {
+    return rpc('tools/call', { name: toolName, arguments: args });
+  }
+  const status = () => ({ name, cmd, transport: 'stdio', connected, error, toolCount: tools.length });
+  const getTools = () => tools;
+  const kill = () => { try { child?.kill(); } catch {} stdioChildren.delete(name); };
+  return { connect, callTool, status, getTools, kill };
+}
+
 // ── 单个 MCP server 连接 ─────────────────────────────────────────────────────
 // 协议：JSON-RPC 2.0，通过 HTTP POST (streamable-http) 或 SSE 传输。
 // Windows-MCP 默认是 streamable-http；SSE 也支持。
@@ -166,14 +234,17 @@ export function createMcpConnection({ url, name, transport = 'streamable-http' }
 // ── MCP 管理器：管理多个连接 ───────────────────────────────────────────────
 export function createMcpManager({ wsRoot }) {
   const connections = new Map(); // name -> connection
+  // 2026-10-12 修复：wsRoot 支持传函数延迟求值——原先在 server.mjs 模块顶层传 WS_ROOT（空串，
+  // initWorkspaceApi 之后才赋值），bootAll/status/save 全部读错目录（进程 cwd/.yuanshu）。
+  const ws = () => (typeof wsRoot === 'function' ? wsRoot() : wsRoot);
 
   function load() {
-    const cfg = loadMcpConfig(wsRoot);
+    const cfg = loadMcpConfig(ws());
     return cfg.servers || [];
   }
 
   function save(servers) {
-    saveMcpConfig(wsRoot, { servers });
+    saveMcpConfig(ws(), { servers });
   }
 
   // 启动时连接所有已启用的 server
@@ -183,9 +254,15 @@ export function createMcpManager({ wsRoot }) {
     for (const s of servers) {
       if (!s.enabled) continue;
       try {
-        // 2026-10-08 autoStart：配置了 cmd 就自动 spawn 进程，不用用户手跑 shell
-        await autoStartServer(s);
-        const conn = createMcpConnection({ url: s.url, name: s.name, transport: s.transport || 'streamable-http' });
+        let conn;
+        if (s.transport === 'stdio') {
+          // 2026-10-12 接 REA：stdio 服务由连接内部托管子进程
+          conn = createStdioConnection({ name: s.name, cmd: s.cmd, cwd: s.cwd });
+        } else {
+          // 2026-10-08 autoStart：配置了 cmd 就自动 spawn 进程，不用用户手跑 shell
+          await autoStartServer(s);
+          conn = createMcpConnection({ url: s.url, name: s.name, transport: s.transport || 'streamable-http' });
+        }
         await conn.connect();
         connections.set(s.name, conn);
         results.push({ name: s.name, ok: true, tools: conn.getTools().length });
@@ -198,9 +275,15 @@ export function createMcpManager({ wsRoot }) {
 
   // 连接单个 server
   async function connect(serverCfg) {
-    // 2026-10-08 autoStart：配置了 cmd 就自动 spawn 进程，不用用户手跑 shell
-    await autoStartServer(serverCfg);
-    const conn = createMcpConnection({ url: serverCfg.url, name: serverCfg.name, transport: serverCfg.transport || 'streamable-http' });
+    let conn;
+    if (serverCfg.transport === 'stdio') {
+      // 2026-10-12 接 REA：stdio 服务由连接内部托管子进程
+      conn = createStdioConnection({ name: serverCfg.name, cmd: serverCfg.cmd, cwd: serverCfg.cwd });
+    } else {
+      // 2026-10-08 autoStart：配置了 cmd 就自动 spawn 进程，不用用户手跑 shell
+      await autoStartServer(serverCfg);
+      conn = createMcpConnection({ url: serverCfg.url, name: serverCfg.name, transport: serverCfg.transport || 'streamable-http' });
+    }
     await conn.connect();
     connections.set(serverCfg.name, conn);
     return conn.getTools();
@@ -209,6 +292,7 @@ export function createMcpManager({ wsRoot }) {
   // 断开单个 server
   function disconnect(name) {
     connections.delete(name);
+    stopStdioServer(name); // stdio 子进程一并回收（无则 no-op）
   }
 
   // 所有已连接工具的扁平列表（去重）

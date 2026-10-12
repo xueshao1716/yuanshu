@@ -206,7 +206,7 @@ const { createCompanionStore } = await import('./engine/companion-store.mjs');
 const { createWechatBridge, createLoopbackChat } = await import('./engine/wechat-bridge.mjs');
 const emailBridge = await import('./engine/email-bridge.mjs');
 const { createMcpManager, mcpToolToSchema, mcpToolName } = await import('./engine/mcp-client.mjs');
-const mcpManager = createMcpManager({ wsRoot: WS_ROOT });
+const mcpManager = createMcpManager({ wsRoot: () => WS_ROOT }); // 延迟求值：WS_ROOT 在 initWorkspaceApi 后才有值
 const { buildSoulGraph, readMemoryFiles } = await import('./engine/soul-graph.mjs');
 const { soulContextPrompt } = await import('./engine/soul-context.mjs');
 const { createCompanionDecision } = await import('./engine/companion-decision.mjs');
