@@ -1,5 +1,5 @@
 import { Suspense, lazy, useCallback, useEffect, useRef, useState, type ComponentType, type LazyExoticComponent, type ReactNode } from 'react'
-import { MessagesSquare, BrainCircuit, Images, Clock4, Download, LayoutGrid, LayoutDashboard, Settings2, FolderClosed, PanelLeftOpen, Sparkles, Factory, MonitorCog, Cpu, Palette, Database, GitCompare, LogOut, Ellipsis, Globe2, ShieldCheck, Workflow, PenLine, LayoutTemplate, UserRound } from 'lucide-react'
+import { MessagesSquare, BrainCircuit, Images, Clock4, Download, LayoutGrid, LayoutDashboard, Settings2, FolderClosed, PanelLeftOpen, Sparkles, Factory, MonitorCog, Cpu, Palette, Database, GitCompare, LogOut, Ellipsis, Globe2, ShieldCheck, Workflow, PenLine, LayoutTemplate, UserRound, Plug } from 'lucide-react'
 import { useApp } from './store'
 import { useIsMobile } from './hooks/useIsMobile'
 import { useHashRoute, PageErrorBoundary, type Route } from './hooks/useHashRoute'
@@ -29,6 +29,7 @@ const Assets = lazy(() => import('./pages/Assets'))
 const Tasks = lazy(() => import('./pages/Tasks'))
 const Downloads = lazy(() => import('./pages/Downloads'))
 const Apps = lazy(() => import('./pages/Apps'))
+const McpPage = lazy(() => import('./pages/McpPage'))
 const EnginePage = lazy(() => import('./pages/Engine'))
 const LingXiPage = lazy(() => import('./pages/LingXi'))
 const BoardPage = lazy(() => import('./pages/Board'))
@@ -92,6 +93,7 @@ const PAGE_ROUTES: PageRoute[] = [
   { route: 'engine', icon: Cpu, label: ROUTE_LABELS.engine, Page: EnginePage },
   { route: 'themes', icon: Palette, label: ROUTE_LABELS.themes, Page: ThemesPage, nav: false },
   { route: 'sessiondb', icon: Database, label: ROUTE_LABELS.sessiondb, Page: SessionDbPage },
+  { route: 'mcp', icon: Plug, label: ROUTE_LABELS.mcp, Page: McpPage },
   { route: 'system', icon: MonitorCog, label: ROUTE_LABELS.system, Page: SystemPage },
 ]
 const APP_ROUTES: Route[] = ['chat', ...PAGE_ROUTES.map(p => p.route)]
