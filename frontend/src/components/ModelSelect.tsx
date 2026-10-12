@@ -97,7 +97,7 @@ export default function ModelSelect({ compact = false, zClass = 'z-50', side = '
                       <span className={`text-[13px] font-medium truncate ${active ? 'text-pi-accent' : 'text-pi-text'}`}>{m.name}</span>
                       {free && <span className="text-[10px] px-1 py-px rounded-pi-sm bg-emerald-500/15 text-emerald-400 font-medium flex-shrink-0">免费</span>}
                     </div>
-                    <div className="text-[11px] text-pi-dim2 truncate">{m.provider}{!isChatSelectable(m) ? ' · 请在语音入口选择' : ''}</div>
+                    <div className="text-[11px] text-pi-dim2 truncate">{m.provider}{m.mediaOnly ? ' · 纯出图，出图任务自动用' : (!isChatSelectable(m) ? ' · 请在语音入口选择' : '')}</div>
                   </div>
                   {active && <span className="text-[10px] px-1.5 py-0.5 rounded-pi-sm bg-pi-accent/20 text-pi-accent font-medium flex-shrink-0">当前</span>}
                 </DM.RadioItem>

@@ -4,6 +4,7 @@ export interface Model {
   id: string
   name: string
   enabled?: boolean
+  mediaOnly?: boolean
   contextWindow?: number
   vision?: boolean
   reasoning?: boolean

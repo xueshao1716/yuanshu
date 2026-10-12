@@ -29,4 +29,7 @@ export function effectiveCapabilities(model, infer = modelCapabilities) {
 }
 
 export const isTextModel = model => model?.enabled !== false && effectiveCapabilities(model).chat === true;
-export const isChatSelectable = model => model?.enabled !== false && ['chat', 'image', 'video'].some(kind => effectiveCapabilities(model)[kind] === true);
+// mediaOnly（纯出图/视频等媒体模型）：后台与出图路由可见可用，但不能被选为对话主驾（2026-10-12）。
+// 替代历史上"一刀切 enabled:false"——那会把它们连出图路由一起隐藏，aieyra 就这么丢过。
+export const isChatSelectable = model => model?.enabled !== false && model?.mediaOnly !== true
+  && ['chat', 'image', 'video'].some(kind => effectiveCapabilities(model)[kind] === true);

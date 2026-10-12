@@ -23,6 +23,8 @@ export function createModelSessionApi(deps) {
         return {
           provider: m.provider, id: m.id, name: m.name || m.id,
           contextWindow: m.contextWindow,
+          // mediaOnly：纯出图/媒体模型标记（不能选为对话主驾，出图路由可用）——前端靠它刻画区分徽章和禁选
+          mediaOnly: !!(m.mediaOnly ?? sm.mediaOnly),
           api: sm.api || m.api,
           discoverySource: sm.discoverySource || 'configured',
           capabilitySource: sm.capabilitySource || 'configured',
