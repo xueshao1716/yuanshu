@@ -647,7 +647,7 @@ export async function handleParseFile(res, body) {
   const ext = path.extname(name).toLowerCase();
   if (![".docx", ".xlsx", ".pptx"].includes(ext)) return json(res, 400, { error: "不支持的格式" });
   if (b64.length > 7 * 1024 * 1024) return json(res, 413, { error: "文件过大" });
-  const tmp = path.join(os.tmpdir(), "pi-web-" + Date.now() + ext);
+  const tmp = path.join(os.tmpdir(), "yuanshu-" + Date.now() + ext);
   try {
     fs.writeFileSync(tmp, Buffer.from(b64, "base64"));
     // 路径通过 argv 传给 python（execFile 不会经过 shell），杜绝字符串拼接注入

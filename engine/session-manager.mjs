@@ -317,7 +317,7 @@ ${inputText}`;
     const compEntry = {
       type: "compaction", id: compId, parentId: null,
       timestamp: new Date().toISOString(), summary, firstKeptEntryId: cutMsg.id, tokensBefore: estTok,
-      details: { via: "pi-web-auto" },
+      details: { via: "yuanshu-auto" },
     };
     // 保留链条：从 cutMsg 沿 parentId 收集所有后代
     const byId = new Map(entries.map(e => [e.id, e]));

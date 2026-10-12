@@ -266,7 +266,7 @@ export function createUnifiedToolExecutor(deps = {}) {
   const getCwd = deps.cwd || (() => process.cwd());
   const safePath = deps.safePath || ((p) => path.resolve(getCwd(), p || ""));
   // 2026-08-30 双根白名单：工作空间（CONFIG.cwd）+ 系统本体目录（server.mjs 所在 D:/pi-web）。
-  // 自进化系统：模型需要能读写 pi-web 自身源码。注入 deps.systemDir 后 read/write/edit 双根可达；
+  // 自进化系统：模型需要能读写元枢自身源码。注入 deps.systemDir 后 read/write/edit 双根可达；
   // 其余磁盘仍仅 read 只读。敏感凭据文件由 secrets-guard 在通道层拦截。
   const systemDir = deps.systemDir || "";
   const resolveToolPath = (p) => safePath(p) || (systemDir ? safeJoin(systemDir, p) : null);

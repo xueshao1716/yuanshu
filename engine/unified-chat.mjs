@@ -877,7 +877,7 @@ export async function handleNotices(res) {
       const py = `import urllib.request, json, sys, io
 sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8")
 try:
-    req = urllib.request.Request("https://api.github.com/repos/earendil-works/pi/releases?per_page=8", headers={"User-Agent":"pi-web","Accept":"application/vnd.github+json"})
+    req = urllib.request.Request("https://api.github.com/repos/earendil-works/pi/releases?per_page=8", headers={"User-Agent":"yuanshu","Accept":"application/vnd.github+json"})
     data = json.loads(urllib.request.urlopen(req, timeout=20).read())
     for r in data:
         print(json.dumps({"tag": r.get("tag_name",""), "name": r.get("name",""), "date": (r.get("published_at") or "")[:10], "body": (r.get("body") or "")[:300]}, ensure_ascii=False))
@@ -899,7 +899,7 @@ except Exception as e:
     const pkg = JSON.parse(fs.readFileSync(path.join(path.dirname(_piPackage), "..", "package.json"), "utf8"));
     piVersion = pkg.version || "?";
   } catch {}
-  // pi-web 自身更新日志（CHANGELOG.md 最近 5 个版本，每个最多 6 行）
+  // 元枢自身更新日志（CHANGELOG.md 最近 5 个版本，每个最多 6 行）
   let changelog = [];
   try {
     const cl = fs.readFileSync(path.join(import.meta.dirname, "..", "CHANGELOG.md"), "utf8");

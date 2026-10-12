@@ -1,6 +1,6 @@
-// engine/tools/approval.mjs —— 危险操作确认（dsh user-approval seam 的 pi-web 移植）
+// engine/tools/approval.mjs —— 危险操作确认（dsh user-approval seam 的元枢移植）
 // dsh 设计：审批 seam 与 UI/通道无关；fail-closed（无应答/出错=拒绝）；一次性授权；审计成对。
-// pi-web 落点：包装 pi 引擎 agent.beforeToolCall（工具执行前），命中危险规则时
+// 元枢落点：包装 pi 引擎 agent.beforeToolCall（工具执行前），命中危险规则时
 //   发 SSE 确认事件 → 等前端回答（Promise）→ 放行/阻断。
 //
 // 对外单一入口：createApprovalInterceptor() → { wrapBeforeToolCall(orig) }

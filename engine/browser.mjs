@@ -33,7 +33,7 @@ export async function startChrome(port = 9222) {
   if (chromeProc) return { ok: true, already: true, port };
   const exe = findChrome();
   if (!exe) return { error: "未找到 Chrome" };
-  const profileDir = path.join(os.tmpdir(), "piweb-chrome-" + Date.now());
+  const profileDir = path.join(os.tmpdir(), "yuanshu-chrome-" + Date.now());
   chromeProc = spawn(exe, [
     `--remote-debugging-port=${port}`,
     `--user-data-dir=${profileDir}`,

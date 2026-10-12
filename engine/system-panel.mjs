@@ -140,7 +140,7 @@ export async function checkUpdate(repoDir, fsMod = fs, { fetchImpl = fetch, git 
   let lastErr = null;
   for (const s of sources) {
     try {
-      const resp = await fetchImpl(s.url, { signal: AbortSignal.timeout(8000), headers: { "User-Agent": "pi-web" } });
+      const resp = await fetchImpl(s.url, { signal: AbortSignal.timeout(8000), headers: { "User-Agent": "yuanshu" } });
       if (!resp.ok) { lastErr = new Error(`${s.name} 返回 ${resp.status}`); continue; }
       const remote = s.pick(await resp.json());
       if (!remote.sha) continue;
