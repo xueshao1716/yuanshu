@@ -543,6 +543,9 @@ const CRLF = "\r\n";
 // ── 模块化拆分接线（2026-08-29 #7 红线治理）：workspace杂项API / model-keys / session-bus / model-session ──
 const modelKeysApi = createModelKeys({ readJsonFile, getAgentDir, getModelList: () => modelList });
 const { saveSessionModelKey, loadSessionModelKey, saveLastModel } = modelKeysApi;
+// 在线更新回滚（2026-10-12）：recordPreUpdate 在 apply 前记锚点；回滚=reset+依赖重装+安全重启
+const handleUpdateRollback = createRollbackHandler({ root: __dirname });
+
 const miscApi = createMiscApi({ json, readJsonFile, writeJsonFile, getAgentDir, authPath: AUTH_PATH, modelsPath: MODELS_PATH, openSession, ensureAgent, cloneSessionFromEntry, getDefaultModel: () => defaultModel, refreshModelList, scanSessionFiles, extractText, parseSessionFile, cwd: CONFIG.cwd, gitCwd: __dirname, scanExclude: /(^|[\\/])(node_modules|\.git|\.cache|backups?|temp|tmp|\.token)([\\/]|$)/i });
 const { scanRecentArtifacts, handlePrompts, handleSessionTree, handleSessionBranch, handleSessionBranchSession, handleModelsRemove, handleSearch, handleAIBody, runGit, handleGitStatus, handleGitDiff, handleGitReview } = miscApi;
 const sessionBusApi = createSessionBus({ json });
@@ -3062,7 +3065,7 @@ const API_ROUTES = [
       try { recordPreUpdate(__dirname) } catch {}
       return handleUpdateApply(res, await readBody(req));
     }],
-  ["POST", "/api/update/rollback", (res, req) => handleUpdateRollback(res, await readBody(req, 2).catch(() => ({})))],
+  ["POST", "/api/update/rollback", async (res, req) => handleUpdateRollback(res, await readBody(req, 2).catch(() => ({})))],
   // ── 设计器 ──
   ["POST", "/api/designer/generate", async (res, req) => handleDesignerGenerate(res, await readBody(req))],
   ["POST", "/api/designer/save", async (res, req) => handleDesignerSave(res, await readBody(req))],
