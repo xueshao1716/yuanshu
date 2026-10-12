@@ -206,6 +206,7 @@ export function createWechatBridge({
   async function flush(acc) {
     if (flushing) return;
     flushing = true;
+    let sent = 0, failed = 0, failedText = 0, error = null;
     try {
       while (queue.length) {
         const job = queue.shift();
@@ -216,12 +217,14 @@ export function createWechatBridge({
         let r = null, err = null;
         try { r = await send(); } catch (e) { err = e; }
         if (r?.ret === RATE_LIMITED) { await sleep(3000); try { r = await send(); err = null; } catch (e) { err = e; } }
-        if (err) { stats.failed++; stats.lastError = `发送异常 ${String(err?.message || err).slice(0, 120)}`; }
-        else if (r?.ret && r.ret !== 0) { stats.failed++; stats.lastError = `发送失败 ret=${r.ret} ${r.errmsg || ""}`.trim(); }
-        else { stats.replied++; note("out", job.to, job.image ? `[图片 ${job.image.split(/[\\/]/).pop()}]` : job.text); }
+        if (err) { stats.failed++; failed++; if (!job.image) failedText++; error = `发送异常 ${String(err?.message || err).slice(0, 120)}`; stats.lastError = error; }
+        else if (r?.ret && r.ret !== 0) { stats.failed++; failed++; if (!job.image) failedText++; error = `发送失败 ret=${r.ret} ${r.errmsg || ""}`.trim(); stats.lastError = error; }
+        else { stats.replied++; sent++; note("out", job.to, job.image ? `[图片 ${job.image.split(/[\\/]/).pop()}]` : job.text); }
         if (queue.length) await sleep(REPLY_GAP_MS);
       }
     } finally { flushing = false; }
+    // 2026-10-12 诚实化：把本次结果返回给调用方；只有文字失败才算整体失败（图片是可选附件，挂了不抛）
+    return { sent, failed, failedText, error };
   }
   // image 可选：带上时文字切分发完后，再排一张本地图片（sendImage 通路，2026-10-08）。
   const reply = (acc, to, text, contextToken, image) => {
@@ -431,7 +434,9 @@ export function createWechatBridge({
       const acc = loadAccount();
       if (!acc?.token || !acc.userId) throw Object.assign(new Error("微信没登录"), { status: 409 });
       if (!settings().notify) throw Object.assign(new Error("没打开「通知发到微信」"), { status: 409 });
-      await reply(acc, acc.userId, text || "", contexts[acc.userId] || "", imagePath || "");
+      const result = await reply(acc, acc.userId, text || "", contexts[acc.userId] || "", imagePath || "");
+      // 2026-10-12 诚实化：文字发送失败不再返回 200 假成功（图片附件失败不算，不抛）
+      if (result && result.failedText > 0) throw Object.assign(new Error(`微信发送失败：${result.error || result.failedText + " 条未送达"}`), { status: 502 });
       return { ok: true };
     },
     _waitIdle: async () => { while (loop || flushing) await sleep(10); },

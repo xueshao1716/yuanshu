@@ -136,6 +136,16 @@ test("首次启动接管独立桥凭证（默认不自动开），notifyOwner �
   b.setNotify(true);
   await b.notifyOwner("构建好了");
   assert.deepEqual(w.sent[1], { to: "owner@im.wechat", text: "构建好了", ctx: "ctx-owner" });
+
+  // 2026-10-12 诚实化：sendText 被拒（如 iLink 限频 ret=-2）时 notifyOwner 必须抛错，不再假成功
+  const dir2 = tmp(), legacy2 = tmp();
+  fs.writeFileSync(path.join(legacy2, "ilink-weixin-account.json"), JSON.stringify({ token: "T2", botId: "bot@im.bot", userId: "owner@im.wechat" }));
+  const failing = { ...w.client, sendText: async () => ({ ret: -2, errmsg: "prepare failed" }) };
+  const b2 = createWechatBridge({ dir: dir2, client: failing, chat: w.chat, legacyDir: legacy2, sleep: () => tick() });
+  b2.boot();
+  b2.setNotify(true);
+  await assert.rejects(b2.notifyOwner("收不到").then(() => { throw new Error("不该假成功"); }), /微信发送失败.*prepare failed/);
+  await b2.logout(); await b2._waitIdle();
   await b.logout(); await b._waitIdle();
   assert.equal(b.status().loggedIn, false);
   // 已接管过就不再从旧目录覆盖回来之外，旧文件保持原样
