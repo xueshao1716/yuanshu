@@ -777,6 +777,7 @@ export const SystemApi = {
   addons: () => api<{ addons: { id: string; label: string; size: string; use: string; installed: boolean }[]; jobs: Record<string, { state: 'running' | 'done' | 'error'; log: string[]; error: string }> }>('/api/system/addons'),
   installAddon: (id: string) => api<{ id: string; state: string }>(`/api/system/addons/${encodeURIComponent(id)}/install`, { method: 'POST', body: {} }),
   applyUpdate: (body?: { engine?: boolean }) => api<any>('/api/update/apply', { method: 'POST', body: body || {}, timeoutMs: 190000 }),
+  rollbackUpdate: () => api<{ ok?: true; message?: string; error?: string }>('/api/update/rollback', { method: 'POST', body: {}, timeoutMs: 190000 }),
   token: () => api<{ token: string; tokenFile: string }>('/api/system/token'),
   // 首启向导：status 免鉴权、只回布尔值；soul/done 需要登录且仅在新装 pending 期间有效
   setupStatus: async (): Promise<{ needsSetup: boolean }> => {

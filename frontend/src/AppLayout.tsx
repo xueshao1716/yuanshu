@@ -1,10 +1,11 @@
 import { Suspense, lazy, useCallback, useEffect, useRef, useState, type ComponentType, type LazyExoticComponent, type ReactNode } from 'react'
-import { MessagesSquare, BrainCircuit, Images, Clock4, Download, LayoutGrid, LayoutDashboard, Settings2, FolderClosed, PanelLeftOpen, Sparkles, Factory, MonitorCog, Cpu, Palette, Database, GitCompare, LogOut, Ellipsis, Globe2, ShieldCheck, Workflow, PenLine, LayoutTemplate } from 'lucide-react'
+import { MessagesSquare, BrainCircuit, Images, Clock4, Download, LayoutGrid, LayoutDashboard, Settings2, FolderClosed, PanelLeftOpen, Sparkles, Factory, MonitorCog, Cpu, Palette, Database, GitCompare, LogOut, Ellipsis, Globe2, ShieldCheck, Workflow, PenLine, LayoutTemplate, UserRound } from 'lucide-react'
 import { useApp } from './store'
 import { useIsMobile } from './hooks/useIsMobile'
 import { useHashRoute, PageErrorBoundary, type Route } from './hooks/useHashRoute'
 import Login from './components/Login'
 import PendingCallout from './components/PendingCallout'
+import ProfileManager from './components/ProfileManager'
 import TitleBar from './components/TitleBar'
 import SetupWizard from './components/SetupWizard'
 import { KeysApi, SystemApi, getToken } from './api'
@@ -201,6 +202,7 @@ export default function AppLayout() {
     return () => query.removeEventListener('change', update)
   }, [])
   const sidebarAutoHidden = compactDesktop && rightPanel !== 'chat'
+  const [accountsOpen, setAccountsOpen] = useState(false)
   const [modelOpen, setModelOpen] = useState(false)
   // 移动端：sessions 抽屉与统一“更多”菜单
   const [mobileDrawer, setMobileDrawer] = useState<'none' | 'sessions'>('none')
@@ -376,7 +378,8 @@ export default function AppLayout() {
 
         {modelOpen && <LazyModelManager visible onClose={() => setModelOpen(false)} />}
         <BrowserPanel open={browserOpen} initialUrl={browserUrl} onClose={() => setBrowserOpen(false)} />
-        {palette}
+        {accountsOpen && <ProfileManager open onClose={() => setAccountsOpen(false)} onLogout={logout} />}
+      {palette}
       </div>
     )
   }
@@ -439,7 +442,7 @@ export default function AppLayout() {
         <div className="mt-auto mb-2 flex flex-col gap-1.5">
           <ThemeSwitcher />
           <button className="w-9 h-9 rounded-pi-md flex items-center justify-center text-pi-dim2 hover:text-pi-text hover:bg-pi-bg3 transition-colors" title="模型与通道" aria-label="模型与通道" onClick={() => nav('models')}><Settings2 className="w-[18px] h-[18px]" strokeWidth={1.8} /></button>
-          <button className="w-9 h-9 rounded-pi-md flex items-center justify-center text-pi-dim2 hover:text-pi-red hover:bg-pi-bg3 transition-colors" title="退出登录" aria-label="退出登录" onClick={logout}><LogOut className="w-[18px] h-[18px]" strokeWidth={1.8} /></button>
+          <button className="w-9 h-9 rounded-pi-md flex items-center justify-center text-pi-dim2 hover:text-pi-text hover:bg-pi-bg3 transition-colors" title="账号管理" aria-label="账号管理" onClick={() => setAccountsOpen(true)}><UserRound className="w-[18px] h-[18px]" strokeWidth={1.8} /></button>
         </div>
       </nav>
 

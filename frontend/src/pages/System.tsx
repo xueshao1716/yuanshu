@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useRef } from 'react'
 import { RefreshCw, CheckCircle2, AlertTriangle, Plus, Trash2, Save, Copy,
   Server, GitBranch, Timer, Wifi, KeyRound, Shield } from 'lucide-react'
 import useSWR from 'swr'
@@ -58,6 +58,25 @@ export default function System() {
 
   const [applying, setApplying] = useState(false)
   const [applyMsg, setApplyMsg] = useState('')
+  const rollingRef = useRef(false)
+  const rollbackUpdate = async () => {
+    if (rollingRef.current) return
+    if (!window.confirm('回滚到上一次更新前的版本：代码会退回、依赖重装、服务重启，未完成的任务将中断。确定吗？')) return
+    rollingRef.current = true; setApplying(true); setApplyMsg('正在回滚到上一版本…')
+    try {
+      const r = await SystemApi.rollbackUpdate()
+      setApplyMsg(r?.message || '回滚已提交，服务正在重启…')
+      await new Promise(res => setTimeout(res, 4000))
+      const deadline = Date.now() + 120000
+      let back = false
+      while (Date.now() < deadline) {
+        try { const h = await fetch('/api/health', { cache: 'no-store', signal: AbortSignal.timeout(3000) }); if (h.ok) { back = true; break } } catch {}
+        await new Promise(res => setTimeout(res, 2000))
+      }
+      if (back) { setApplyMsg('服务已重启（回滚完成），正在刷新…'); window.location.reload(); return }
+      setApplyMsg('回滚已执行；服务尚未响应，请稍后手动刷新')
+    } catch (e: any) { setApplyMsg(e?.error || e?.message || '回滚失败') } finally { rollingRef.current = false; setApplying(false) }
+  }
   const checkUpdate = async () => {
     setChecking(true); setUpdate(null)
     try { setUpdate(await SystemApi.checkUpdate()) } catch (e: any) { setUpdate({ ok: false, error: e?.message || String(e) }) } finally { setChecking(false) }
@@ -219,6 +238,7 @@ export default function System() {
                         {applying ? '更新中…' : '更新并重启'}
                       </button>
                     )}
+                    <button type="button" className="btn-tool text-[11px] !px-2.5 !py-1 text-pi-warning" disabled={applying} onClick={rollbackUpdate} title="回到上一次更新前的版本">回滚上一版本</button>
                     <button type="button" className="btn-tool text-[11px] !px-2 !py-1" onClick={checkUpdate}>重新检测</button>
                     {applyMsg && <span className="text-[11px] text-pi-dim2">{applyMsg}</span>}
                   </div>

@@ -286,10 +286,28 @@ input, select, textarea { font: inherit; color: inherit; }
 ::selection { background: var(--pi-accent-soft); color: var(--pi-text); }
 select {
   color-scheme: inherit;
-  background-color: var(--pi-input-bg);
-  border-color: var(--pi-input-border);
   accent-color: var(--pi-accent);
+  /* 2026-10-12 后台下下拉统一主题化：原生 select 不再是浏览器默认土样。
+     有自己的 input-pi/自定义类的组件依旧用 !important 或 class 覆盖，不冲突。 */
+  appearance: none;
+  -webkit-appearance: none;
+  background: var(--pi-input-bg, #1c2026)
+    url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12' fill='none'><path d='M2.5 4.5L6 8l3.5-3.5' stroke='%2398a0a8' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'/></svg>")
+    right 10px center / 12px no-repeat;
+  border: 1px solid var(--pi-input-border, var(--pi-border, #2c3036));
+  border-radius: var(--pi-radius-md, 10px);
+  padding: 8px 30px 8px 10px;
+  min-height: 40px;
+  color: var(--pi-text, #e8ecf0);
+  font: inherit;
+  max-width: 100%;
 }
+select option {
+  background: var(--pi-bg1, #181b20);
+  color: var(--pi-text, #e8ecf0);
+}
+select:focus-visible { border-color: var(--pi-accent); outline: none; }
+select:disabled { opacity: .55; }
 input[type="time"],
 input[type="date"] {
   color-scheme: inherit;
@@ -2754,3 +2772,67 @@ html[data-theme="bridge"] { color-scheme: dark; }
 [data-theme="bridge"] .assets-overview-stats strong { font-family: var(--pi-font-mono); letter-spacing: 0; }
 [data-theme="bridge"] ::selection { background: rgba(47,211,230,.30); }
 [data-theme="bridge"] canvas[aria-hidden="true"] { opacity: .5; }
+
+/* ── 聊天长串换行 + 表格自适应/弹窗扩看（2026-10-12 伙伴反馈）──────── */
+/* 邮箱/URL/长 token 不再撑破聊天固定宽度：正文与表格全部 anywhere 换行 */
+.markdown-body, .markdown-body p, .markdown-body li, .markdown-body td, .markdown-body th {
+  overflow-wrap: anywhere;
+  word-break: break-word;
+  min-width: 0;
+}
+.md-table-wrap:not(.absolute, .fixed, .sticky) { position: relative; max-width: 100%; } /* not a positioned modal; guard per bridge contract */
+.md-table-wrap .md-table { width: 100%; border-collapse: collapse; table-layout: auto; }
+.md-table-wrap th, .md-table-wrap td {
+  white-space: normal;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+.md-table-zoom {
+  position: absolute; top: -26px; right: 0;
+  display: inline-flex; align-items: center; gap: 4px;
+  padding: 2px 8px; border-radius: 8px;
+  border: 1px solid var(--pi-border-soft, rgba(128,128,128,.3));
+  background: var(--pi-bg2, #22252a); color: var(--pi-dim2, #98a0a8);
+  font-size: 11px; cursor: pointer; z-index: 2;
+  transition: color var(--pi-motion-fast, .15s), border-color var(--pi-motion-fast, .15s);
+}
+.md-table-zoom:hover { color: var(--pi-text, #e8ecf0); border-color: var(--pi-accent); }
+.md-table-modal-mask {
+  position: fixed; inset: 0; z-index: 90;
+  background: rgba(8,10,14,.72);
+  -webkit-backdrop-filter: blur(6px); backdrop-filter: blur(6px);
+  display: flex; align-items: center; justify-content: center;
+  padding: max(1rem, env(safe-area-inset-top, 0px)) 1rem max(1rem, env(safe-area-inset-bottom, 0px));
+  animation: md-table-enter var(--pi-motion-base, .18s) both;
+}
+@keyframes md-table-enter { from { opacity: 0; transform: scale(.985); } to { opacity: 1; transform: none; } }
+.md-table-modal {
+  width: min(92vw, 960px); max-height: 86vh;
+  display: flex; flex-direction: column;
+  background: var(--pi-bg1, #181b20); border: 1px solid var(--pi-border);
+  border-radius: var(--pi-radius-lg, 14px);
+  box-shadow: 0 24px 64px rgba(0,0,0,.45);
+  overflow: hidden;
+}
+.md-table-modal-head {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 10px 14px; border-bottom: 1px solid var(--pi-border-soft);
+  color: var(--pi-dim, #b6bdc4); font-size: 12px; flex-shrink: 0;
+}
+.md-table-modal-body { overflow: auto; padding: 12px 16px 16px; }
+.md-table-modal-body .md-table { min-width: max-content; }
+
+/* ── 账号管理（账号切换/多元枢档案）弹层 ───────────────────────── */
+.profile-mask {
+  position: fixed; inset: 0; z-index: 80;
+  background: rgba(8,10,14,.66); -webkit-backdrop-filter: blur(5px); backdrop-filter: blur(5px);
+  display: flex; align-items: flex-start; justify-content: center;
+  padding: max(2.5rem, env(safe-area-inset-top, 0px) + 1.5rem) 1rem max(1.5rem, env(safe-area-inset-bottom, 0px));
+  animation: profile-enter var(--pi-motion-base, .18s) both;
+}
+@keyframes profile-enter { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+.profile-sheet {
+  width: min(88vw, 460px); max-height: 84vh; display: flex; flex-direction: column;
+  background: var(--pi-bg1, #181b20); border: 1px solid var(--pi-border);
+  border-radius: var(--pi-radius-lg, 14px); box-shadow: 0 24px 64px rgba(0,0,0,.45); overflow: hidden;
+}

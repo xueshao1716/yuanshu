@@ -1,9 +1,10 @@
-import { useEffect, useRef } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import {
   Activity, BrainCircuit, ClipboardCheck, Cpu, Database, Download, Factory, FolderKanban,
   Globe2, LayoutDashboard, LayoutGrid, LogOut, MonitorCog, PackageCheck, Palette, PanelRight, ShieldCheck, Sparkles, Workflow,
   TerminalSquare, X,
 } from 'lucide-react'
+import ProfileManager from './ProfileManager'
 import type { Route } from '../hooks/useHashRoute'
 import { ROUTE_LABELS } from '../nav'
 
@@ -48,6 +49,7 @@ export default function MobileMoreMenu({ open, onClose, route, nav, onOpenPanel,
   onOpenBrowser: () => void
   onLogout: () => void
 }) {
+  const [accountsOpen, setAccountsOpen] = useState(false)
   const sheetRef = useRef<HTMLElement>(null)
   const closeButtonRef = useRef<HTMLButtonElement>(null)
 
@@ -152,12 +154,13 @@ export default function MobileMoreMenu({ open, onClose, route, nav, onOpenPanel,
 
           <div className="my-3 border-t border-pi-border-soft" />
           <button
-            className="mobile-more-action w-full justify-start gap-2 rounded-pi-md px-3 text-xs text-pi-red hover:bg-pi-bg3"
-            onClick={() => { onClose(); onLogout() }}
+            className="mobile-more-action w-full justify-start gap-2 rounded-pi-md px-3 text-xs text-pi-text hover:bg-pi-bg3"
+            onClick={() => { setAccountsOpen(true) }}
           >
             <LogOut className="h-[18px] w-[18px]" strokeWidth={1.8} />
-            <span>退出登录</span>
+            <span>账号管理</span>
           </button>
+          {accountsOpen && <ProfileManager open onClose={() => setAccountsOpen(false)} onLogout={onLogout} />}
         </div>
       </section>
     </div>

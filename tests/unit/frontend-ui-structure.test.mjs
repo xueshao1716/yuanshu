@@ -96,7 +96,8 @@ test('更多菜单承载设置路由和辅助面板，并提供可访问状态',
   }
   assert.ok(menu.includes("e.key === 'Escape'"), '更多菜单必须支持 Esc 关闭')
   assert.ok(menu.includes('aria-current'), '更多菜单当前路由必须暴露 aria-current')
-  assert.ok(menu.includes('退出登录'), '手机更多菜单必须提供退出登录')
+  // 2026-10-12：退出入口升级为账号管理（多元枢切换 sheet，退出收进 sheet 底部）
+  assert.ok(menu.includes('账号管理') && menu.includes('ProfileManager'), '手机更多菜单必须提供账号管理（ProfileManager）')
   assert.ok(menu.includes('onLogout'), '退出必须走壳层 logout，不能只跳路由')
 })
 

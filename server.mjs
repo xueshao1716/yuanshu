@@ -104,6 +104,7 @@ import { gardenMemory, scanMemoryHealth, markReviewed, unmarkReviewed, dedupeLog
 import { upsertMemoryFact } from "./engine/memory-facts.mjs";
 import { readSubscriptionText } from "./engine/subscription-reminder.mjs";
 import { systemInfo as buildSystemInfo, loadNetworkConfig, saveNetworkConfig, checkUpdate } from "./engine/system-panel.mjs";
+import { recordPreUpdate, createRollbackHandler } from "./engine/update-rollback.mjs";
 import { initTuiBridge } from "./engine/tui-bridge.mjs";
 import { createVoiceSessionReader } from './engine/chat-voice-context.mjs';
 import { createVoiceAdmission } from './engine/chat-voice-admission.mjs';
@@ -3056,7 +3057,12 @@ const API_ROUTES = [
       json(res, 200, frontendVersionPayload({ appVersion: APP_VERSION, html }));
     } catch { json(res, 200, frontendVersionPayload({ appVersion: APP_VERSION })); }
   }],
-  ["POST", "/api/update/apply", async (res, req) => handleUpdateApply(res, await readBody(req))],
+  ["POST", "/api/update/apply", async (res, req) => {
+      // 动代码前先记"上一个好版本"，给 /api/update/rollback 留锚点（记录失败不拦更新）
+      try { recordPreUpdate(__dirname) } catch {}
+      return handleUpdateApply(res, await readBody(req));
+    }],
+  ["POST", "/api/update/rollback", (res, req) => handleUpdateRollback(res, await readBody(req, 2).catch(() => ({})))],
   // ── 设计器 ──
   ["POST", "/api/designer/generate", async (res, req) => handleDesignerGenerate(res, await readBody(req))],
   ["POST", "/api/designer/save", async (res, req) => handleDesignerSave(res, await readBody(req))],

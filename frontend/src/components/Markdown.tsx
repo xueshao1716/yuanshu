@@ -1,13 +1,11 @@
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
-import { useEffect, useRef } from 'react'
+import { useEffect, useRef, useState } from 'react'
+import { Maximize2, X } from 'lucide-react'
 import { highlightCode, highlightAuto } from '../lib/highlight'
 import GenUIBlock from './GenUI'
 import SafeBlock from './SafeBlock'
 import FileLink from './FileLink'
-
-
-import { useState } from 'react'
 import { Check, Copy } from 'lucide-react'
 
 // 代码块容器，带复制按钮
@@ -104,6 +102,39 @@ function MermaidBlock({ code }: { code: string }) {
   return <div ref={ref} className="my-2 overflow-x-auto" data-mermaid-code={code}></div>
 }
 
+// 表格：容器自适应 + 单元格 anywhere 换行（长串不再撑破聊天宽度）；
+// 角磊"放大":""按钮弹全屏扩看（豆包式）：桌面居中大窗、手机全屏，横向滚动，Esc/点外关闭。
+function TableBlock({ children }: { children?: React.ReactNode }) {
+  const [open, setOpen] = useState(false)
+  useEffect(() => {
+    if (!open) return
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') setOpen(false) }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [open])
+  return (
+    <div className="md-table-wrap my-2">
+      <button type="button" className="md-table-zoom" aria-label="放大查看表格" onClick={() => setOpen(true)}>
+        <Maximize2 className="w-3.5 h-3.5" strokeWidth={1.8} />
+      </button>
+      <table className="md-table">{children}</table>
+      {open && (
+        <div className="md-table-modal-mask" onClick={() => setOpen(false)} role="presentation">
+          <div className="md-table-modal" role="dialog" aria-modal="true" aria-label="表格放大视图" onClick={e => e.stopPropagation()}>
+            <div className="md-table-modal-head">
+              <span>表格 · 可横向滚动</span>
+              <button type="button" className="btn-tool !px-2 !py-1" onClick={() => setOpen(false)} aria-label="关闭放大表格">
+                <X className="w-4 h-4" strokeWidth={1.8} />
+              </button>
+            </div>
+            <div className="md-table-modal-body"><table className="md-table">{children}</table></div>
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
 export default function Markdown({ text }: { text: string }) {
   return (
     <div className="markdown-body text-[15px] leading-relaxed">
@@ -141,7 +172,7 @@ export default function Markdown({ text }: { text: string }) {
             return <code className="markdown-inline-code rounded px-1.5 py-0.5 text-[13px]" {...props}>{children}</code>
           },
           a({ children, href }) { return <FileLink href={href}>{children}</FileLink> },
-          table({ children }) { return <div className="overflow-x-auto my-2"><table className="w-full border-collapse">{children}</table></div> },
+          table({ children }) { return <TableBlock>{children}</TableBlock> },
           th({ children }) { return <th className="border border-gray-700 px-3 py-1.5 bg-gray-800/50 font-semibold text-left">{children}</th> },
           td({ children }) { return <td className="border border-gray-700 px-3 py-1.5">{children}</td> },
         }}>{text}</ReactMarkdown>
