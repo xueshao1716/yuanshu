@@ -27,7 +27,8 @@ test('选模型在各工坊内部，不跟顶级页签放一起', () => {
   const bench = read('components', 'novel', 'NovelWorkbench.tsx')
   const gen = read('components', 'GeneratePanel.tsx')
   assert.ok(!workshop.includes('ModelSelect'), '顶级页签旁不得放选模型')
-  assert.ok(gen.includes('imageModels') && gen.includes('<select'), '绘图工坊内必须能选出图模型')
+  // 2026-10-12：原生 select 升级 ThemedSelect（Android 系统弹层无法被 CSS 主题化）
+  assert.ok(gen.includes('imageModels') && gen.includes('ThemedSelect'), '绘图工坊内必须能选出图模型')
   assert.ok(ppt.includes('WorkshopModelPicker'), 'PPT 工坊内必须能选文本模型')
   assert.ok(bench.includes('WorkshopModelPicker'), '小说工坊内必须能选文本模型')
 })

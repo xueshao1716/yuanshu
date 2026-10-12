@@ -1,3 +1,4 @@
+import ThemedSelect from '../components/ThemedSelect'
 import { useState } from 'react'
 import { EvolutionApi } from '../api'
 
@@ -42,9 +43,9 @@ export default function EvolutionReview({ id, index, evaluation, onChange }: {
           </div>)}
         </div>
         <label className="block text-pi-text">第 {i + 1} 题对比结论
-          <select className="input min-h-11 w-full mt-1" value={comparisons[i] || ''} onChange={e => setComparisons(old => { const next = [...old]; next[i] = e.target.value; return next })}>
+          <ThemedSelect className="input min-h-11 w-full mt-1" value={comparisons[i] || ''} onChange={e => setComparisons(old => { const next = [...old]; next[i] = e.target.value; return next })}>
             <option value="">请核对后选择</option><option value="better">候选更好</option><option value="equal">没有退步</option><option value="worse">候选退步，不能采用</option>
-          </select>
+          </ThemedSelect>
         </label>
       </div>)}
       <label className="block text-pi-text">核对说明<textarea className="input w-full mt-1" rows={3} maxLength={2000} value={note} onChange={e => setNote(e.target.value)} placeholder="具体改善了什么，核对了哪些风险" /></label>

@@ -1,3 +1,4 @@
+import ThemedSelect from '../../components/ThemedSelect'
 import { withFileToken } from '../../api'
 import { STYLE_PRESETS, stylePresetById } from '../../lib/story-styles'
 import { COLOR_CARDS, CARD_FAMILIES, colorCardGradient, resolveColorCard } from '../../theme/colorcards.mjs'
@@ -101,11 +102,11 @@ export default function StorySettings({ values, busy, characters, locations = []
     {/* 风格预设：把"这部戏长什么样"从自由发挥变成可选的统一画风——
         画风一旦漂移，人物锁得再准也救不回来 */}
     <div className="story-style-presets">
-      <label>统一画风<select aria-label="风格预设" disabled={busy} defaultValue=""
+      <label>统一画风<ThemedSelect aria-label="风格预设" disabled={busy} defaultValue=""
         onChange={e => { const p = stylePresetById(e.target.value); if (p) onChange({ ...values, style: `${p.visual}；${p.tone}（${p.name}）` }) }}>
         <option value="">选一个预设填进「文字与画面风格」</option>
         {STYLE_PRESETS.map(p => <option key={p.id} value={p.id}>{p.name}（{p.tags.join('/')}）</option>)}
-      </select></label>
+      </ThemedSelect></label>
       <span className="story-hint">预置了 {STYLE_PRESETS.length} 种画风，选完仍可手改</span>
     </div>
     {/* 配色卡（2026-09-16）：画风决定"长什么样"，配色决定"是什么颜色"。

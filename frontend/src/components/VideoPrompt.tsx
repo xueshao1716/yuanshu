@@ -1,3 +1,4 @@
+import ThemedSelect from '../components/ThemedSelect'
 import { useMemo, useRef, useState } from 'react'
 import { Sparkles, Copy, Check } from 'lucide-react'
 import { VIDEO_GRAMMARS, VIDEO_EXAMPLES, VIDEO_SCENES, buildVideoPrompt, composeVideoScript } from '../lib/video-prompt.mjs'
@@ -141,15 +142,15 @@ export default function VideoPrompt({ onUsePrompt, onSpecChange }: {
         <Field label="约束"><input className="input-pi text-[12px] min-h-11" value={constraint} onChange={e => setConstraint(e.target.value)} /></Field>
         <div className="grid grid-cols-2 gap-2">
           <Field label="时长">
-            <select className="input-pi !py-2 text-[12px] min-h-11" value={seconds} onChange={e => { setSeconds(e.target.value); onSpecChange?.({ seconds: e.target.value, frame }) }}>
+            <ThemedSelect className="input-pi !py-2 text-[12px] min-h-11" value={seconds} onChange={e => { setSeconds(e.target.value); onSpecChange?.({ seconds: e.target.value, frame }) }}>
               {['5', '8', '10', '12'].map(s => <option key={s} value={s}>{s} 秒</option>)}
-            </select>
+            </ThemedSelect>
           </Field>
           <Field label="画幅">
-            <select className="input-pi !py-2 text-[12px] min-h-11" value={frame} onChange={e => { setFrame(e.target.value); onSpecChange?.({ seconds, frame: e.target.value }) }}>
+            <ThemedSelect className="input-pi !py-2 text-[12px] min-h-11" value={frame} onChange={e => { setFrame(e.target.value); onSpecChange?.({ seconds, frame: e.target.value }) }}>
               <option value="16:9">横版 16:9</option>
               <option value="9:16">竖版 9:16</option>
-            </select>
+            </ThemedSelect>
           </Field>
         </div>
         <div className="flex gap-1.5">

@@ -1,3 +1,4 @@
+import ThemedSelect from '../components/ThemedSelect'
 import { useState } from 'react'
 import { KnowledgeApi, knowledgeError, type KnowledgeJob } from './api'
 
@@ -23,14 +24,14 @@ export default function KnowledgeReview({ job, policyRevision, refreshed }: { jo
         <fieldset disabled={busy} className="space-y-3">
           <legend className="sr-only">知识来源人工裁决</legend>
           <p className="text-pi-dim leading-6">只选择哪一份来源可被引用，不将来源陈述变成已验证事实，也不批准技能、人格、基因或天团终稿。提交后会重新核对来源及授权。</p>
-          {eligible ? <label className="block">采用哪一份来源<select className="input-pi min-h-11 w-full mt-1" value={decision} onChange={e => setDecision(e.target.value)}>
+          {eligible ? <label className="block">采用哪一份来源<ThemedSelect className="input-pi min-h-11 w-full mt-1" value={decision} onChange={e => setDecision(e.target.value)}>
             <option value="accept_source">采用本条来源，冲突旧版保留归档</option>
             {!!job.validation?.conflicts?.length && <option value="keep_existing">保留一条现有来源，不采用本条</option>}
             <option value="reject">暂不采用，保留记录</option>
-          </select></label> : <p className="text-pi-dim">此内容缺少独立证据或含不可信指令，不能人工绕过证据门；本处只能选择不采用。</p>}
-          {decision === 'keep_existing' && eligible && <label className="block">有效的现有来源<select required className="input-pi min-h-11 w-full mt-1" value={selectedEntryId} onChange={e => setSelectedEntryId(e.target.value)}>
+          </ThemedSelect></label> : <p className="text-pi-dim">此内容缺少独立证据或含不可信指令，不能人工绕过证据门；本处只能选择不采用。</p>}
+          {decision === 'keep_existing' && eligible && <label className="block">有效的现有来源<ThemedSelect required className="input-pi min-h-11 w-full mt-1" value={selectedEntryId} onChange={e => setSelectedEntryId(e.target.value)}>
             <option value="">请选择已核对的来源</option>{job.validation?.conflicts?.map(id => <option key={id} value={id}>{job.reviewOptions?.find(e => e.id === id)?.text || id.slice(0, 12)}</option>)}
-          </select></label>}
+          </ThemedSelect></label>}
           {job.candidate?.text && <p className="text-pi-text leading-6 whitespace-pre-wrap">本条候选原文：{job.candidate.text}</p>}
           {!!job.reviewOptions?.length && <ul className="space-y-2">{job.reviewOptions.map(entry => <li key={entry.id} className="text-pi-dim leading-6">现有资料：{entry.text}<br />{entry.sources.map(s => s.locator).join('；')}</li>)}</ul>}
           <label className="block">核对依据与选择理由<textarea required maxLength={1000} className="input-pi min-h-22 w-full mt-1" rows={3} value={note} onChange={e => setNote(e.target.value)} /></label>

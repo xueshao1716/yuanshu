@@ -1,3 +1,4 @@
+import ThemedSelect from '../components/ThemedSelect'
 import { useEffect, useState } from 'react'
 import useSWR, { useSWRConfig } from 'swr'
 import { useApp } from '../store'
@@ -85,8 +86,8 @@ export default function Grants() {
             <span>{label}</span>{badge[id] && <small>{badge[id]}</small>}
           </button>)}
         </nav>
-        <label className="soul-mobile-nav">授权分区<select value={area} onChange={e => setArea(e.target.value as Area)}>
-          {AREAS.map(([id, label]) => <option key={id} value={id}>{label}</option>)}</select></label>
+        <label className="soul-mobile-nav">授权分区<ThemedSelect value={area} onChange={e => setArea(e.target.value as Area)}>
+          {AREAS.map(([id, label]) => <option key={id} value={id}>{label}</option>)}</ThemedSelect></label>
         <main className="soul-workarea">
           <header className="soul-section-heading"><h2>{current[1]}</h2><p>{current[2]}</p></header>
           {area !== 'pending' && (area === 'cultivation' || area === 'session') && <SessionChoice sessionId={sessionId} setSessionId={setSessionId} disabled={false} />}

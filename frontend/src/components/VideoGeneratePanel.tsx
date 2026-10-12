@@ -1,3 +1,4 @@
+import ThemedSelect from '../components/ThemedSelect'
 import { useState } from 'react'
 import { mutate } from 'swr'
 import { Film } from 'lucide-react'
@@ -79,7 +80,7 @@ export default function VideoGeneratePanel({ onGenerated, prompt: promptProp, on
       ) : (
         <>
           <div className="flex flex-col sm:flex-row gap-2">
-            <select aria-label="视频模型" disabled={busy} className="input-pi min-h-11 !py-2 text-xs w-full sm:max-w-[260px]" value={selectedModel ? selection : ''}
+            <ThemedSelect aria-label="视频模型" disabled={busy} className="input-pi min-h-11 !py-2 text-xs w-full sm:max-w-[260px]" value={selectedModel ? selection : ''}
               onChange={e => setSelection(e.target.value)}>
               {!selectedModel && <option value="" disabled>所选模型已不可用，请重新选择</option>}
               {videoModels.map(m => (
@@ -87,16 +88,16 @@ export default function VideoGeneratePanel({ onGenerated, prompt: promptProp, on
                   {m.name}（{m.provider}）{m.free ? ' · 免费' : ''}
                 </option>
               ))}
-            </select>
-            <select className="input-pi min-h-11 !py-2 text-xs w-full sm:w-28" value={sec} onChange={e => setSec(e.target.value)}>
+            </ThemedSelect>
+            <ThemedSelect className="input-pi min-h-11 !py-2 text-xs w-full sm:w-28" value={sec} onChange={e => setSec(e.target.value)}>
               {SECONDS.map(s => <option key={s} value={s}>{s} 秒</option>)}
-            </select>
-            <select className="input-pi min-h-11 !py-2 text-xs w-full sm:w-28" value={size} onChange={e => setSize(e.target.value)}>
+            </ThemedSelect>
+            <ThemedSelect className="input-pi min-h-11 !py-2 text-xs w-full sm:w-28" value={size} onChange={e => setSize(e.target.value)}>
               {SIZES.map(s => <option key={s} value={s}>{s}</option>)}
-            </select>
-            <select className="input-pi min-h-11 !py-2 text-xs w-full sm:w-32" value={aspect} onChange={e => setAspect(e.target.value)}>
+            </ThemedSelect>
+            <ThemedSelect className="input-pi min-h-11 !py-2 text-xs w-full sm:w-32" value={aspect} onChange={e => setAspect(e.target.value)}>
               {Object.entries(FRAMES).map(([k, label]) => <option key={k} value={k}>{label}</option>)}
-            </select>
+            </ThemedSelect>
           </div>
           <textarea className="input-pi text-[13px] resize-none min-h-[88px]" rows={4}
             placeholder="描述想要的镜头：谁、在哪、做什么。写一句也可以，点智能填充再出片"

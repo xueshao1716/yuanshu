@@ -1,3 +1,4 @@
+import ThemedSelect from '../components/ThemedSelect'
 import { useRef, useState } from 'react'
 import { SessionsApi, TeamRunApi } from '../api'
 import { useApp } from '../store'
@@ -37,10 +38,10 @@ export function TeamRunStart({ running = false }: { running?: boolean }) {
   return <div className="panel p-3 flex flex-col gap-3">
     <label htmlFor="team-task" className="text-sm font-semibold text-pi-text">让天团协作</label>
     <label className="text-sm text-pi-text">协作类型
-      <select aria-label="协作类型" value={workflow} disabled={busy || !!pending.current} onChange={e => setWorkflow(e.target.value as typeof workflow)} className="input min-h-11 w-full mt-2">
+      <ThemedSelect aria-label="协作类型" value={workflow} disabled={busy || !!pending.current} onChange={e => setWorkflow(e.target.value as typeof workflow)} className="input min-h-11 w-full mt-2">
         <option value="team-general">通用协作：策划、脚本、方案</option>
         <option value="team-video">视频专用：10 秒、3 镜头送审</option>
-      </select>
+      </ThemedSelect>
     </label>
     <p className="text-sm text-pi-dim">通用协作依次完成方案、质疑、正文和复核，交付文件回到当前会话，在任务验收中核对。视频专用沿用原送审流程。聊天中可用 /team 加需求启动通用协作。</p>
     <textarea id="team-task" value={task} rows={4} maxLength={taskLimit} disabled={busy || !!pending.current} onChange={e => setTask(e.target.value)} placeholder="写清目标、限制，以及要交付的脚本或方案" aria-describedby="team-task-limit" className="min-h-11 rounded-pi-md bg-pi-bg2 px-3 py-2 text-sm text-pi-text focus-visible:outline focus-visible:outline-pi-accent" />

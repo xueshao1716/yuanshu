@@ -1,3 +1,4 @@
+import ThemedSelect from '../../components/ThemedSelect'
 import { useEffect, useRef, useState } from 'react'
 import useSWR from 'swr'
 import { ChevronLeft } from 'lucide-react'
@@ -103,10 +104,10 @@ export default function NovelWorkbench({ id, onBack }: { id: string; onBack: () 
 
       <div className="panel !p-3 flex items-baseline gap-2.5 flex-wrap">
         <h2 className="text-[17px] font-bold text-pi-text min-w-0 truncate">《{meta.title}》</h2>
-        <select className="input-pi !py-2 text-[11px] w-24 min-h-11" value={meta.status || 'draft'}
+        <ThemedSelect className="input-pi !py-2 text-[11px] w-24 min-h-11" value={meta.status || 'draft'}
           onChange={e => NovelApi.update({ id, status: e.target.value }).then(() => mutate())}>
           {STATUSES.map(([k, l]) => <option key={k} value={k}>{l}</option>)}
-        </select>
+        </ThemedSelect>
         <span className="text-[11px] text-pi-dim">{genreLabel[meta.genre] || meta.genre} · {meta.narrator || '第三人称'} · {chapters.length} 章 · 第 {nextCh} 章</span>
       </div>
 

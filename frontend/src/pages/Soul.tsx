@@ -1,3 +1,4 @@
+import ThemedSelect from '../components/ThemedSelect'
 import { useEffect, useRef, useState } from 'react'
 import { Sparkles } from 'lucide-react'
 import PageHeader from '../components/PageHeader'
@@ -53,7 +54,7 @@ export default function Soul() {
       <PageHeader title="灵魂培养中心" description="从身份到经历，让每一次改变都有来处，也有退路。" meta={<span>{dirty ? '人格草稿未保存 · 分区切换会保留，离开页面前请处理' : '连接现有人格、aibody 与天团记录'}</span>} actions={<Sparkles aria-hidden="true" className="soul-mark" />} />
       <div className="soul-layout">
         <nav className="soul-nav" aria-label="培养分区">{groups.map(([gid,label,ids])=><button key={gid} aria-current={group[0]===gid?'page':undefined} onClick={()=>open(lastIn(ids))}><span>{label}</span></button>)}</nav>
-        <label className="soul-mobile-nav">培养分区<select value={group[0]} onChange={e=>open(lastIn(groups.find(g=>g[0]===e.target.value)![2]))}>{groups.map(([gid,label])=><option key={gid} value={gid}>{label}</option>)}</select></label>
+        <label className="soul-mobile-nav">培养分区<ThemedSelect value={group[0]} onChange={e=>open(lastIn(groups.find(g=>g[0]===e.target.value)![2]))}>{groups.map(([gid,label])=><option key={gid} value={gid}>{label}</option>)}</ThemedSelect></label>
         <main className="soul-workarea">
           <header className="soul-section-heading"><h2 ref={heading} tabIndex={-1}>{group[1]}</h2>
             {group[2].length>1&&<div className="soul-subtabs" role="group" aria-label={`${group[1]}子分区`}>{group[2].map(id=><button key={id} aria-pressed={section===id} onClick={()=>open(id)}>{sections.find(s=>s[0]===id)![1]}</button>)}</div>}

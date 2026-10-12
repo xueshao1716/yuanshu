@@ -1,3 +1,4 @@
+import ThemedSelect from '../../components/ThemedSelect'
 import { useState } from 'react'
 import useSWR from 'swr'
 import { NovelApi, WsApi, withFileToken, type NovelBook, type NovelChapter } from '../../api'
@@ -97,28 +98,28 @@ export default function StoryMaterials({ materials, busy, onChange }: {
       </div>
       {tab === 'artifact' && <>
         <div className="story-material-row">
-          <select aria-label="素材类型" value={kind} onChange={e => { setKind(e.target.value as 'image' | 'video'); setPick('') }}>
+          <ThemedSelect aria-label="素材类型" value={kind} onChange={e => { setKind(e.target.value as 'image' | 'video'); setPick('') }}>
             <option value="image">画面</option>
             <option value="video">视频</option>
-          </select>
-          <select aria-label="选择产物" value={pick} onChange={e => setPick(e.target.value)}>
+          </ThemedSelect>
+          <ThemedSelect aria-label="选择产物" value={pick} onChange={e => setPick(e.target.value)}>
             <option value="">{candidates.length ? `从生成物里选（${candidates.length} 个）` : '生成物里还没有这类文件'}</option>
             {candidates.slice(0, 200).map(a => <option key={a.url} value={a.url}>{a.name}</option>)}
-          </select>
+          </ThemedSelect>
           <button className="btn-ghost" disabled={busy || !pick} onClick={addArtifact}>挂上</button>
         </div>
         <p className="story-hint">来源：AI 绘画 / 视频工坊的产物（工作空间「生成物」）。画面素材会作为图生图/参考图，视频素材会作为 reference 输入。</p>
       </>}
       {tab === 'novel' && <>
         <div className="story-material-row">
-          <select aria-label="选择小说" value={bookId} onChange={e => { setBookId(e.target.value); setChapterFile('') }}>
+          <ThemedSelect aria-label="选择小说" value={bookId} onChange={e => { setBookId(e.target.value); setChapterFile('') }}>
             <option value="">{books.length ? '选一本书' : '小说工坊里还没有书'}</option>
             {books.map(b => <option key={b.id} value={b.id}>{b.title || b.id}</option>)}
-          </select>
-          <select aria-label="选择章节" value={chapterFile} onChange={e => setChapterFile(e.target.value)} disabled={!bookId}>
+          </ThemedSelect>
+          <ThemedSelect aria-label="选择章节" value={chapterFile} onChange={e => setChapterFile(e.target.value)} disabled={!bookId}>
             <option value="">{bookId ? (chapters.length ? '选一章' : '这本书还没有章节') : '先选书'}</option>
             {chapters.map(c => <option key={c.file} value={c.file}>{c.title || c.file}（{c.chars ?? c.size} 字）</option>)}
-          </select>
+          </ThemedSelect>
           <button className="btn-ghost" disabled={busy || loading || !chapterFile} onClick={addChapter}>{loading ? '读取中…' : '挂上正文'}</button>
         </div>
         <p className="story-hint">正文会作为这一段的创作依据写进提示词（最多 {TEXT_LIMIT} 字），内容存在项目里，源文件删了也不影响。</p>

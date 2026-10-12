@@ -1,3 +1,4 @@
+import ThemedSelect from '../components/ThemedSelect'
 import { useState } from 'react'
 import { FlaskConical, Puzzle, StickyNote, TrendingUp, Sprout, Dna, Check, ChevronDown, ChevronRight, Loader2, HeartPulse, Archive as ArchiveIcon, Search, Laptop, Globe2, Package, SlidersHorizontal } from 'lucide-react'
 import EmptyState from '../components/EmptyState'
@@ -280,7 +281,7 @@ export default function Apps() {
           description="在知识资产与系统改进工具之间切换，让每类工作保留自己的操作语境。"
         />
 
-        <select
+        <ThemedSelect
           aria-label="选择应用工具"
           className="input-pi min-h-11 !py-2 text-[13px] w-full md:hidden mb-5"
           value={tab}
@@ -291,7 +292,7 @@ export default function Apps() {
               {group.tools.map(tool => <option key={tool.key} value={tool.key}>{tool.label}</option>)}
             </optgroup>
           ))}
-        </select>
+        </ThemedSelect>
 
         <div className="md:grid md:grid-cols-[190px_minmax(0,1fr)] md:gap-6 items-start">
           <aside className="hidden md:block sticky top-6">
@@ -390,10 +391,10 @@ function EvolutionView() {
           <span className="text-[11px] text-pi-dim2">从会话轨迹里的纠正样本学习为什么失败，人工审批后才写回</span>
         </div>
         <div className="flex items-center gap-2 mt-2.5">
-          <select value={target} onChange={e => setTarget(e.target.value)} className="text-[13px] px-2 py-1.5 rounded-pi-md border border-pi-border bg-pi-bg1 text-pi-text min-w-[180px]">
+          <ThemedSelect value={target} onChange={e => setTarget(e.target.value)} className="text-[13px] px-2 py-1.5 rounded-pi-md border border-pi-border bg-pi-bg1 text-pi-text min-w-[180px]">
             <option value="">选择提示词模板…</option>
             {templates.map(p => <option key={p.name} value={p.name}>{p.name}</option>)}
-          </select>
+          </ThemedSelect>
           <button className="btn-primary text-[13px] px-3 py-1.5 disabled:opacity-60 inline-flex items-center gap-1.5" onClick={propose} disabled={!!busy || !target}>
             {busy === target ? <><Loader2 className="w-3.5 h-3.5 animate-spin" />进化中…</> : <><Dna className="w-3.5 h-3.5" />开始进化</>}
           </button>

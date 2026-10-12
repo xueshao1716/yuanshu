@@ -1,3 +1,4 @@
+import ThemedSelect from '../components/ThemedSelect'
 import { useRef, useState } from 'react'
 import { Trash2, Play, Pause, RotateCcw, Archive, ChevronDown, ChevronRight, Loader2, Square, CalendarClock, Clock3, AlertTriangle, Plus, CheckCircle2, CircleX, Timer, ChevronUp } from 'lucide-react'
 import useSWR from 'swr'
@@ -357,10 +358,10 @@ export default function Tasks() {
             <input type="time" className="input-pi !py-1.5 text-xs w-28" value={form.at}
               onChange={e => setForm(f => ({ ...f, at: e.target.value }))} />
             {form.type === 'weekly' && (
-              <select className="input-pi !py-1.5 text-xs w-24" value={form.day}
+              <ThemedSelect className="input-pi !py-1.5 text-xs w-24" value={form.day}
                 onChange={e => setForm(f => ({ ...f, day: +e.target.value }))}>
                 {DAY_LABEL.slice(1).map((l, i) => <option key={l} value={i + 1}>{l}</option>)}
-              </select>
+              </ThemedSelect>
             )}
             {form.type === 'once' && (
               <input type="date" className="input-pi !py-1.5 text-xs w-40" value={form.date}

@@ -1,3 +1,4 @@
+import ThemedSelect from '../../components/ThemedSelect'
 import { useEffect, useRef, useState } from 'react'
 import { KeysApi } from '../../api'
 
@@ -43,9 +44,9 @@ export default function ModelConnectionForm({ existing, onSaved, onCancel }: {
       <p className="text-sm text-pi-dim">发现模型只读取目录，不会自动生图或逐个调用。保存后可单独验证文本响应。</p>
       <fieldset disabled={busy} className="space-y-3 min-w-0">
         {!existing && <label className="block text-sm text-pi-text">服务商预设
-          <select className="input-pi mt-1 !text-base" defaultValue="" onChange={e => changed(() => {
+          <ThemedSelect className="input-pi mt-1 !text-base" defaultValue="" onChange={e => changed(() => {
             const preset = presets[e.target.value]; setProvider(e.target.value); setBaseUrl(preset?.baseUrl || ''); setApi(preset?.api || 'openai-completions')
-          })}><option value="">自定义接入</option>{Object.entries(presets).map(([id, p]) => <option key={id} value={id}>{p.name}</option>)}</select>
+          })}><option value="">自定义接入</option>{Object.entries(presets).map(([id, p]) => <option key={id} value={id}>{p.name}</option>)}</ThemedSelect>
         </label>}
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
           <label className="block text-sm text-pi-text">服务商名称
@@ -53,9 +54,9 @@ export default function ModelConnectionForm({ existing, onSaved, onCancel }: {
               placeholder="例如 my-provider" onChange={e => changed(() => setProvider(e.target.value))} />
           </label>
           <label className="block text-sm text-pi-text">接口协议
-            <select className="input-pi mt-1 !text-base" value={api} onChange={e => changed(() => setApi(e.target.value))}>
+            <ThemedSelect className="input-pi mt-1 !text-base" value={api} onChange={e => changed(() => setApi(e.target.value))}>
               <option value="openai-completions">OpenAI Chat</option><option value="anthropic-messages">Anthropic Messages</option>
-            </select>
+            </ThemedSelect>
           </label>
         </div>
         <label className="block text-sm text-pi-text">API Key{existing?.hasKey ? '（留空沿用已保存密钥）' : ''}

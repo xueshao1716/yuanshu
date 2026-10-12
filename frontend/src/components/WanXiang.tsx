@@ -1,3 +1,4 @@
+import ThemedSelect from '../components/ThemedSelect'
 import { useState, useCallback } from 'react'
 import { Sparkles, Copy, Check } from 'lucide-react'
 import { composeImagePrompt, composeImageShot, IMAGE_SCENES, IMAGE_GRAMMARS, IMAGE_EXAMPLES } from '../lib/image-prompt.mjs'
@@ -245,13 +246,13 @@ export default function WanXiang({ onUsePrompt }: { onUsePrompt?: (prompt: strin
         </h3>
         <div className="grid grid-cols-3 gap-2">
           <Field label="性别">
-            <select className="input-pi !py-1.5 text-[12px]" value={gender} onChange={e => setGender(e.target.value)}><option>女性</option><option>男性</option></select>
+            <ThemedSelect className="input-pi !py-1.5 text-[12px]" value={gender} onChange={e => setGender(e.target.value)}><option>女性</option><option>男性</option></ThemedSelect>
           </Field>
           <Field label="年龄">
             <input type="number" min={16} max={80} className="input-pi !py-1.5 text-[12px]" value={age} onChange={e => setAge(+e.target.value)} />
           </Field>
           <Field label="类型">
-            <select className="input-pi !py-1.5 text-[12px]" value={ptype} onChange={e => setPtype(e.target.value)}><option>真人</option><option>古风</option><option>漫画</option></select>
+            <ThemedSelect className="input-pi !py-1.5 text-[12px]" value={ptype} onChange={e => setPtype(e.target.value)}><option>真人</option><option>古风</option><option>漫画</option></ThemedSelect>
           </Field>
         </div>
         <Field label="外貌特征">
@@ -262,16 +263,16 @@ export default function WanXiang({ onUsePrompt }: { onUsePrompt?: (prompt: strin
           <Field label="体重 kg"><input type="number" className="input-pi !py-1.5 text-[12px]" value={weight} onChange={e => setWeight(+e.target.value)} /></Field>
         </div>
         <div className="grid grid-cols-3 gap-2">
-          <Field label="身材"><select className="input-pi !py-1.5 text-[12px]" value={body} onChange={e => setBody(e.target.value)}><option>沙漏形</option><option>梨形</option><option>矩形</option><option>倒三角</option><option>纤细型</option><option>匀称型</option></select></Field>
-          <Field label="脸型"><select className="input-pi !py-1.5 text-[12px]" value={face} onChange={e => setFace(e.target.value)}><option>鹅蛋脸</option><option>瓜子脸</option><option>圆脸</option><option>方脸</option><option>心形脸</option><option>长脸</option></select></Field>
-          <Field label="肤色"><select className="input-pi !py-1.5 text-[12px]" value={skintone} onChange={e => setSkintone(e.target.value)}><option>瓷白</option><option>暖白</option><option>蜜色</option><option>小麦色</option></select></Field>
+          <Field label="身材"><ThemedSelect className="input-pi !py-1.5 text-[12px]" value={body} onChange={e => setBody(e.target.value)}><option>沙漏形</option><option>梨形</option><option>矩形</option><option>倒三角</option><option>纤细型</option><option>匀称型</option></ThemedSelect></Field>
+          <Field label="脸型"><ThemedSelect className="input-pi !py-1.5 text-[12px]" value={face} onChange={e => setFace(e.target.value)}><option>鹅蛋脸</option><option>瓜子脸</option><option>圆脸</option><option>方脸</option><option>心形脸</option><option>长脸</option></ThemedSelect></Field>
+          <Field label="肤色"><ThemedSelect className="input-pi !py-1.5 text-[12px]" value={skintone} onChange={e => setSkintone(e.target.value)}><option>瓷白</option><option>暖白</option><option>蜜色</option><option>小麦色</option></ThemedSelect></Field>
         </div>
         <Field label="服装">
           <input className="input-pi text-[12px]" placeholder="服装描述。空着就一句话填。" value={outfit} onChange={e => setOutfit(e.target.value)} />
         </Field>
         <div className="grid grid-cols-2 gap-2">
-          <Field label="景别"><select className="input-pi !py-1.5 text-[12px]" value={shot} onChange={e => setShot(e.target.value)}><option>半身特写</option><option>全身</option><option>特写</option><option>七分身</option><option>胸部以上</option></select></Field>
-          <Field label="视角"><select className="input-pi !py-1.5 text-[12px]" value={angle} onChange={e => setAngle(e.target.value)}><option>平视</option><option>仰视</option><option>俯视</option><option>微仰视</option></select></Field>
+          <Field label="景别"><ThemedSelect className="input-pi !py-1.5 text-[12px]" value={shot} onChange={e => setShot(e.target.value)}><option>半身特写</option><option>全身</option><option>特写</option><option>七分身</option><option>胸部以上</option></ThemedSelect></Field>
+          <Field label="视角"><ThemedSelect className="input-pi !py-1.5 text-[12px]" value={angle} onChange={e => setAngle(e.target.value)}><option>平视</option><option>仰视</option><option>俯视</option><option>微仰视</option></ThemedSelect></Field>
         </div>
         <Field label="肢体动作"><input className="input-pi text-[12px]" placeholder="肢体动作描述" value={pose} onChange={e => setPose(e.target.value)} /></Field>
         <Field label="表情"><input className="input-pi text-[12px]" placeholder="表情描述" value={expression} onChange={e => setExpression(e.target.value)} /></Field>

@@ -1,3 +1,4 @@
+import ThemedSelect from '../components/ThemedSelect'
 import { useState } from 'react'
 import useSWR from 'swr'
 import { Server, Plus, Trash2, RefreshCw, Power, PowerOff } from 'lucide-react'
@@ -162,14 +163,14 @@ export default function McpPanel() {
             </div>
             <div>
               <label className="block text-xs text-neutral-500 mb-1">传输方式</label>
-              <select
+              <ThemedSelect
                 value={form.transport}
                 onChange={e => setForm(f => ({ ...f, transport: e.target.value as 'streamable-http' | 'sse' }))}
                 className="w-full text-sm px-3 py-2 rounded-lg border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-900 text-neutral-800 dark:text-neutral-200 focus:outline-none focus:ring-2 focus:ring-blue-500/30"
               >
                 <option value="streamable-http">Streamable HTTP</option>
                 <option value="sse">SSE</option>
-              </select>
+              </ThemedSelect>
             </div>
           </div>
           <div>

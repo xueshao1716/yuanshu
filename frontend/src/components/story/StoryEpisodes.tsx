@@ -1,3 +1,4 @@
+import ThemedSelect from '../../components/ThemedSelect'
 import { useState } from 'react'
 import useSWR from 'swr'
 import { StoryApi } from '../../api'
@@ -82,10 +83,10 @@ export default function StoryEpisodes({ project, busy, onDone, onPickScene }: {
           <ul>{g.scenes.map(s => <li key={s.id}>
             <button className="story-link" onClick={() => onPickScene?.(s.id)}>{s.title || s.id}</button>
             <span>{s.beats} 段</span>
-            <select aria-label={`${s.title || s.id} 归属`} disabled={busy} value={g.episode?.id || ''} onChange={e => assign(s.id, e.target.value)}>
+            <ThemedSelect aria-label={`${s.title || s.id} 归属`} disabled={busy} value={g.episode?.id || ''} onChange={e => assign(s.id, e.target.value)}>
               <option value="">未分集</option>
               {episodes.map(ep => <option key={ep.id} value={ep.id}>第 {ep.no} 集 · {ep.title}</option>)}
-            </select>
+            </ThemedSelect>
           </li>)}</ul>
         </div>)}
       </div>

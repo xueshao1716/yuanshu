@@ -1,3 +1,4 @@
+import ThemedSelect from '../components/ThemedSelect'
 import { Trash2, Wand2, Link2, Loader2, ImageOff } from 'lucide-react'
 import type { CanvasNode } from '../types'
 import { NODE_KINDS } from '../lib/canvas-nodes.mjs'
@@ -101,7 +102,7 @@ export default function CanvasNodeCard({
 
         {node.kind === 'config' && (
           <>
-            <select aria-label="出图模型" className="input-pi !min-h-0 !py-1 text-[11px]" value={modelKey({ id: node.modelId, provider: node.provider })}
+            <ThemedSelect aria-label="出图模型" className="input-pi !min-h-0 !py-1 text-[11px]" value={modelKey({ id: node.modelId, provider: node.provider })}
               onChange={e => {
                 const m = imageModels.find(x => modelKey(x) === e.target.value)
                 if (m) onPatch({ provider: m.provider, modelId: m.id, model: `${m.name}（${m.provider}）` })
@@ -111,12 +112,12 @@ export default function CanvasNodeCard({
               {imageModels.map(m => (
                 <option key={modelKey(m)} value={modelKey(m)}>{m.name}（{m.provider}）{m.free ? ' · 免费' : ''}</option>
               ))}
-            </select>
-            <select aria-label="尺寸" className="input-pi !min-h-0 !py-1 text-[11px]" value={node.size}
+            </ThemedSelect>
+            <ThemedSelect aria-label="尺寸" className="input-pi !min-h-0 !py-1 text-[11px]" value={node.size}
               onChange={e => onPatch({ size: e.target.value })} onPointerDown={e => e.stopPropagation()}>
               <option value="">跟随默认</option>
               {SIZE_OPTIONS.map(s => <option key={s} value={s}>{SIZE_LABEL[s] ?? s}</option>)}
-            </select>
+            </ThemedSelect>
             <div className="flex items-center gap-1">
               <span className="text-[10px] text-pi-dim2">模板</span>
               {(['plain', 'panorama'] as const).map(t => (

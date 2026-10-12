@@ -1,3 +1,4 @@
+import ThemedSelect from '../../components/ThemedSelect'
 import { useEffect, useRef, useState } from 'react'
 import useSWR from 'swr'
 import { CultivationApi, statusLabel, type Agent, type Design, type Preflight } from './api'
@@ -36,16 +37,16 @@ function Checks({revision}:{revision:number}) {
   }
   const retryList=()=>list.mutate().catch(()=>undefined)
   return <section aria-label="培养操作检查">
-    <label>要检查的操作<select value={action} onChange={e=>{setAction(e.target.value);setCursor(null);setTarget('');setError('')}}>
+    <label>要检查的操作<ThemedSelect value={action} onChange={e=>{setAction(e.target.value);setCursor(null);setTarget('');setError('')}}>
       {Object.entries(actions).map(([key,label])=><option key={key} value={key}>{label}</option>)}
-    </select></label>
+    </ThemedSelect></label>
     <LoadState error={list.error} loading={list.isLoading} retry={retryList}/>
     {list.data&&!list.error&&<>
       {!list.data.items.length?<p>当前页没有{kind==='designs'?'设计稿':'个体'}。{kind==='designs'?'可先保存设计草稿，再检查登记条件。':'先在设计稿页登记个体，运行前仍须核对授权与额度。'}</p>:
-        <label>{kind==='designs'?'选择设计稿':'选择个体'}<select value={target} onChange={e=>{setTarget(e.target.value);setError('')}}>
+        <label>{kind==='designs'?'选择设计稿':'选择个体'}<ThemedSelect value={target} onChange={e=>{setTarget(e.target.value);setError('')}}>
           <option value="">请选择检查对象</option>
           {list.data.items.map(item=><option key={item.id} value={item.id}>{'design' in item?item.design.name:statusLabel(item.status)} · {item.id}</option>)}
-        </select></label>}
+        </ThemedSelect></label>}
       <nav className="soul-actions" aria-label="检查对象分页">
         {cursor&&<button onClick={()=>{setCursor(null);setTarget('')}}>返回第一页</button>}
         {list.data.nextCursor&&<button onClick={()=>{setCursor(list.data!.nextCursor);setTarget('')}}>下一页对象</button>}

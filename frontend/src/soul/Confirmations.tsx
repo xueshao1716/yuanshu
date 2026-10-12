@@ -1,3 +1,4 @@
+import ThemedSelect from '../components/ThemedSelect'
 import { useEffect, useRef, useState } from 'react'
 import useSWR from 'swr'
 import { ConfirmApi, SessionsApi } from '../api'
@@ -11,10 +12,10 @@ export function SessionChoice({ sessionId, setSessionId, disabled }: {sessionId:
   useEffect(() => { if (!sessionId && latest && !disabled) setSessionId(latest) }, [latest, sessionId, disabled])
   return <div className="soul-session">
     <label htmlFor="soul-session">确认记录归属</label>
-    <select id="soul-session" value={sessionId} disabled={disabled} onChange={e => setSessionId(e.target.value)}>
+    <ThemedSelect id="soul-session" value={sessionId} disabled={disabled} onChange={e => setSessionId(e.target.value)}>
       <option value="">请选择已有会话</option>
       {sessions.data?.sessions.map(s => <option key={s.id} value={s.id}>{s.name || s.id}</option>)}
-    </select>
+    </ThemedSelect>
     <p className="soul-hint">不用特意选：已默认当前对话。这里的会话只是把确认卡和策略申请挂进哪条对话做记录；待确认总览在授权中心一区收齐，不需要挑会话。</p>
     {!sessionId && <a href="#/chat">没有会话？先去对话创建</a>}
     <LoadState error={sessions.error} retry={sessions.mutate} />

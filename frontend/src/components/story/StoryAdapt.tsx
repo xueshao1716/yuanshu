@@ -1,3 +1,4 @@
+import ThemedSelect from '../../components/ThemedSelect'
 import { useState } from 'react'
 import useSWR from 'swr'
 import { NovelApi, StoryApi, type NovelBook, type NovelChapter } from '../../api'
@@ -89,10 +90,10 @@ export default function StoryAdapt({ project, busy, onDone }: {
       </div>
       {mode === 'text' ? <textarea aria-label="小说原文" rows={8} value={sourceText} disabled={running} placeholder="把小说正文粘贴进来（建议一次一章或一个完整段落，超长会截断）" onChange={e => setSourceText(e.target.value)} />
         : <div className="story-adapt-novel">
-          <select aria-label="选择小说" value={bookId} disabled={running} onChange={e => { setBookId(e.target.value); setFiles([]) }}>
+          <ThemedSelect aria-label="选择小说" value={bookId} disabled={running} onChange={e => { setBookId(e.target.value); setFiles([]) }}>
             <option value="">选一本书…</option>
             {books.map(b => <option key={b.id} value={b.id}>{b.title || b.id}</option>)}
-          </select>
+          </ThemedSelect>
           {bookId && !chapters.length && <p className="story-hint">这本书还没有章节。</p>}
           {chapters.length > 0 && <>
             <div className="story-adapt-chapters">

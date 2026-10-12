@@ -1,10 +1,11 @@
+import ThemedSelect from '../../components/ThemedSelect'
 import { useState } from 'react'
 import { StoryApi } from '../../api'
 import type { StoryProject } from '../../types'
 
 // 项目架：把「选项目」从一个下拉框换成一份列表。
 //
-// 为什么换掉下拉框：项目一多，`<select>` 里只看得见标题——哪个是上周的、哪个有成片、
+// 为什么换掉下拉框：项目一多，`<ThemedSelect>` 里只看得见标题——哪个是上周的、哪个有成片、
 // 哪个是随手建的草稿，全看不出来；更不能删。用户的原话是"或者项目那款不用下拉框了"。
 // 这里每个项目一行：标题 + 场/段/成片 + 最近改动时间，行内就能打开或删除。
 //

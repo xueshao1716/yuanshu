@@ -1,3 +1,4 @@
+import ThemedSelect from '../../components/ThemedSelect'
 import type { AssetFilterQuery, AssetKind, AssetTimeRange } from '../../types'
 
 const kinds: { value: AssetKind | 'all'; label: string }[] = [
@@ -55,17 +56,17 @@ export default function AssetToolbar({ counts, filters, projects, onKindChange, 
         </div>
         <label className="asset-select-label">
           <span>项目</span>
-          <select aria-label="按项目筛选" value={filters.project} onChange={e => onProjectChange(e.target.value)}>
+          <ThemedSelect aria-label="按项目筛选" value={filters.project} onChange={e => onProjectChange(e.target.value)}>
             <option value="all">全部项目</option>
             {projects.map(project => <option key={project} value={project}>{project}</option>)}
-          </select>
+          </ThemedSelect>
         </label>
         <label className="asset-select-label">
           <span>排序</span>
-          <select aria-label="资产排序" value={filters.order} onChange={e => onOrderChange(e.target.value as 'newest' | 'oldest')}>
+          <ThemedSelect aria-label="资产排序" value={filters.order} onChange={e => onOrderChange(e.target.value as 'newest' | 'oldest')}>
             <option value="newest">最新优先</option>
             <option value="oldest">最早优先</option>
-          </select>
+          </ThemedSelect>
         </label>
         {(filters.kind !== 'all' || filters.timeRange !== 'all' || filters.project !== 'all' || filters.search) && (
           <button type="button" className="asset-clear-button" onClick={onClear}>清除筛选</button>

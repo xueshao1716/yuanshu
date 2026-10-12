@@ -1,3 +1,4 @@
+import ThemedSelect from '../../components/ThemedSelect'
 import { useState } from 'react'
 import useSWR from 'swr'
 import { StoryApi, downloadApiFile } from '../../api'
@@ -47,11 +48,11 @@ export default function StoryScript({ project, busy, onPatchProject }: {
         <span>说话人：{stats.speakers.length ? stats.speakers.slice(0, 6).join('、') : '（还没有台词）'}</span>
       </div>}
       <div className="story-script-row">
-        <label>格式<select aria-label="导出格式" value={format} disabled={busy || saving} onChange={e => setFormat(e.target.value)}>
+        <label>格式<ThemedSelect aria-label="导出格式" value={format} disabled={busy || saving} onChange={e => setFormat(e.target.value)}>
           <option value="txt">中文剧本（.txt）</option>
           <option value="fountain">Fountain（.fountain）</option>
           <option value="fdx">Final Draft（.fdx）</option>
-        </select></label>
+        </ThemedSelect></label>
         <button className="btn-ghost" disabled={busy || saving} onClick={exportIt}>{saving ? '导出中…' : '导出剧本'}</button>
         {onPatchProject && <button className="btn-ghost" disabled={busy} onClick={onPatchProject}>刷新</button>}
       </div>

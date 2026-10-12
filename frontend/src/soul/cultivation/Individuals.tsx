@@ -1,3 +1,4 @@
+import ThemedSelect from '../../components/ThemedSelect'
 import { useState } from 'react'
 import useSWR from 'swr'
 import { CultivationApi, cultivationPolling, statusLabel, type Agent, type Design } from './api'
@@ -30,7 +31,7 @@ export default function Individuals({agents,designs,authorized,onAction}:{agents
       {(['appearance','clothing','voice'] as const).map(kind=><Media key={`${selected}:${kind}:${detail.data!.design.id}:${detail.data!.design.design[kind].asset?.id}`} agentId={selected!} kind={kind} design={detail.data!.design.design[kind]} revision={detail.data!.revision} authorized={authorized} onAction={onAction}/>)}
       <p>初始化：{detail.data.initialization==='complete'?'完成':'待完成'} · 取消状态：{detail.data.agent.cancellation==='pending_confirmation'?'已请求取消，等待执行器确认':detail.data.agent.cancellation==='confirmed'?'执行器已确认结束':detail.data.agent.cancellation==='outcome_unknown'?'外部结果未知，需要核对':'未请求'}</p>
       <div className="soul-actions">{(detail.data.agent.status==='archived'?[]:detail.data.agent.status==='paused'?['resume','archive']:['pause','archive']).map(action=><button key={action} disabled={!authorized} onClick={()=>onAction({method:'POST',path:`/agents/${selected}/${action}`,payload:{},revision:detail.data!.revision,label:{pause:'暂停个体',resume:'恢复个体',archive:'归档个体'}[action]!})}>{({pause:'暂停',resume:'恢复',archive:'归档'} as Record<string,string>)[action]}</button>)}</div>
-      {detail.data.agent.history.length>1&&<label>回退到历史设计<select defaultValue="" disabled={!authorized||detail.data.agent.status==='archived'} onChange={e=>{if(e.target.value)onAction({method:'POST',path:`/agents/${selected}/rollback`,payload:{designId:e.target.value},revision:detail.data!.revision,label:'回退设计'});e.target.value=''}}><option value="">选择已采用的版本</option>{[...new Set(detail.data.agent.history)].filter(id=>id!==detail.data!.agent.designId).map(id=><option key={id} value={id}>{id}</option>)}</select></label>}
+      {detail.data.agent.history.length>1&&<label>回退到历史设计<ThemedSelect defaultValue="" disabled={!authorized||detail.data.agent.status==='archived'} onChange={e=>{if(e.target.value)onAction({method:'POST',path:`/agents/${selected}/rollback`,payload:{designId:e.target.value},revision:detail.data!.revision,label:'回退设计'});e.target.value=''}}><option value="">选择已采用的版本</option>{[...new Set(detail.data.agent.history)].filter(id=>id!==detail.data!.agent.designId).map(id=><option key={id} value={id}>{id}</option>)}</ThemedSelect></label>}
     </>}
     <h4>已提交设计</h4>
     {!designs.length&&<p className="soul-hint">暂无设计版本。</p>}

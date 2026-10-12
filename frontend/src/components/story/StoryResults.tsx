@@ -1,3 +1,4 @@
+import ThemedSelect from '../../components/ThemedSelect'
 import { useState } from 'react'
 import { downloadApiFile, withFileToken } from '../../api'
 import type { StoryAssetRef, StoryBeat, StoryGenerationRun, StoryScene } from '../../types'
@@ -21,7 +22,7 @@ const metaOf = (run: StoryGenerationRun) => [
 ]
 
 // 本段结果：**所有版本平铺**，新的在最上面；顶部再加一条版本条 + 并排对比。
-// 此前只渲染最新一版，旧版藏在一个 <select> 里——界面明明写着"旧版本会保留"，
+// 此前只渲染最新一版，旧版藏在一个 <ThemedSelect> 里——界面明明写着"旧版本会保留"，
 // 实际上新的一出来旧的就在视野里消失了。产物本来就全在 scene.outputs 里（只追加不覆盖），
 // 这里只是把它们如实摊开。
 function Assets({ run, saving, onSave }: { run: StoryGenerationRun; saving: boolean; onSave: (url: string, name: string) => void }) {

@@ -1,3 +1,4 @@
+import ThemedSelect from '../components/ThemedSelect'
 import { useEffect, useId } from 'react'
 import { Play, Square, LoaderCircle } from 'lucide-react'
 import { useCallActive } from '../realtime/use-call-active'
@@ -22,11 +23,11 @@ export function SpeechSettings() {
     </div>
     <div className="speech-field">
       <label htmlFor={`${id}-model`}>朗读模型</label>
-      <select id={`${id}-model`} aria-label="朗读通道" disabled={callActive} value={options.mode}
+      <ThemedSelect id={`${id}-model`} aria-label="朗读通道" disabled={callActive} value={options.mode}
         onChange={e => setSpeechMode(e.target.value as 'device' | 'cloud')}>
         <option value="device" disabled={!deviceSpeechSupported}>设备朗读 · 系统引擎{!deviceSpeechSupported ? '（不支持）' : ''}</option>
         <option value="cloud">阶跃云端{options.model ? ` · ${options.model}` : ''}</option>
-      </select>
+      </ThemedSelect>
     </div>
     <div className="speech-field">
       {isCloud ? <>
@@ -34,11 +35,11 @@ export function SpeechSettings() {
         <div className="speech-fixed-voice"><strong>{options.voiceLabel || options.voice || '等待通道就绪'}</strong><span>与语音通话使用同款音色</span></div>
       </> : <>
         <label htmlFor={`${id}-voice`}>朗读音色</label>
-        <select id={`${id}-voice`} aria-label="朗读音色" disabled={callActive || !deviceSpeechSupported} value={device.selected}
+        <ThemedSelect id={`${id}-voice`} aria-label="朗读音色" disabled={callActive || !deviceSpeechSupported} value={device.selected}
           onChange={e => setDeviceVoice(e.target.value)}>
           <option value="">自动选择中文音色</option>
           {device.voices.map(voice => <option key={voice.id} value={voice.id}>{voice.name} · {voice.lang}</option>)}
-        </select>
+        </ThemedSelect>
         <p className="speech-hint">{device.voices.length ? '来自设备已安装的音色，选择会保存在本机。' : '系统尚未提供音色列表，将使用默认中文朗读。'}</p>
       </>}
     </div>

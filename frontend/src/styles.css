@@ -2836,3 +2836,19 @@ html[data-theme="bridge"] { color-scheme: dark; }
   background: var(--pi-bg1, #181b20); border: 1px solid var(--pi-border);
   border-radius: var(--pi-radius-lg, 14px); box-shadow: 0 24px 64px rgba(0,0,0,.45); overflow: hidden;
 }
+
+/* ThemedSelect 触发器：与 .input-pi 同一视觉族（触发器本体） */
+.select-themed {
+  background: var(--pi-input-bg, #1c2026);
+  border: 1px solid var(--pi-input-border, var(--pi-border, #2c3036));
+  border-radius: var(--pi-radius-md, 10px);
+  padding: 8px 10px;
+  min-height: 40px;
+  color: var(--pi-text, #e8ecf0);
+  cursor: pointer;
+}
+.select-themed:focus-visible { border-color: var(--pi-accent); outline: none; }
+.select-themed[disabled] { opacity: .55; cursor: default; }
+
+/* 表格弹窗竖屏模式（手机竖持阅读宽度；宽表转横向滚动） */
+.md-table-modal-tall { width: min(88vw, 430px); }

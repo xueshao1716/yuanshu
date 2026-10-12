@@ -106,6 +106,8 @@ function MermaidBlock({ code }: { code: string }) {
 // 角磊"放大":""按钮弹全屏扩看（豆包式）：桌面居中大窗、手机全屏，横向滚动，Esc/点外关闭。
 function TableBlock({ children }: { children?: React.ReactNode }) {
   const [open, setOpen] = useState(false)
+  // 预览方向：wide=横屏（全宽，横向滚动看宽表）；tall=竖屏（手机竖持宽度，接近真实手机阅读）。
+  const [mode, setMode] = useState<'wide' | 'tall'>('wide')
   useEffect(() => {
     if (!open) return
     const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') setOpen(false) }
@@ -114,18 +116,23 @@ function TableBlock({ children }: { children?: React.ReactNode }) {
   }, [open])
   return (
     <div className="md-table-wrap my-2">
-      <button type="button" className="md-table-zoom" aria-label="放大查看表格" onClick={() => setOpen(true)}>
+      <button type="button" className="md-table-zoom" aria-label="放大查看表格"
+        onClick={e => { e.stopPropagation(); e.preventDefault(); setOpen(true) }}>
         <Maximize2 className="w-3.5 h-3.5" strokeWidth={1.8} />
       </button>
       <table className="md-table">{children}</table>
       {open && (
-        <div className="md-table-modal-mask" onClick={() => setOpen(false)} role="presentation">
-          <div className="md-table-modal" role="dialog" aria-modal="true" aria-label="表格放大视图" onClick={e => e.stopPropagation()}>
+        <div className="md-table-modal-mask" onClick={e => { if (e.target === e.currentTarget) setOpen(false) }} role="presentation">
+          <div className={`md-table-modal ${mode === 'tall' ? 'md-table-modal-tall' : ''}`} role="dialog" aria-modal="true" aria-label="表格放大视图" onClick={e => e.stopPropagation()}>
             <div className="md-table-modal-head">
-              <span>表格 · 可横向滚动</span>
-              <button type="button" className="btn-tool !px-2 !py-1" onClick={() => setOpen(false)} aria-label="关闭放大表格">
-                <X className="w-4 h-4" strokeWidth={1.8} />
-              </button>
+              <span>表格 · 可{mode === 'wide' ? '横向滚动' : '竖屏阅读'}</span>
+              <div className="flex items-center gap-1.5">
+                <button type="button" className={`btn-tool !px-2 !py-1 ${mode === 'wide' ? 'text-pi-accent' : ''}`} aria-pressed={mode === 'wide'} onClick={() => setMode('wide')}>横屏</button>
+                <button type="button" className={`btn-tool !px-2 !py-1 ${mode === 'tall' ? 'text-pi-accent' : ''}`} aria-pressed={mode === 'tall'} onClick={() => setMode('tall')}>竖屏</button>
+                <button type="button" className="btn-tool !px-2 !py-1" onClick={() => setOpen(false)} aria-label="关闭放大表格">
+                  <X className="w-4 h-4" strokeWidth={1.8} />
+                </button>
+              </div>
             </div>
             <div className="md-table-modal-body"><table className="md-table">{children}</table></div>
           </div>

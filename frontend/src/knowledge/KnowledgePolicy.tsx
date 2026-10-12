@@ -1,3 +1,4 @@
+import ThemedSelect from '../components/ThemedSelect'
 import { useState } from 'react'
 import useSWR from 'swr'
 import { KnowledgeApi, knowledgeError, type KnowledgePolicyData } from './api'
@@ -47,11 +48,11 @@ export default function KnowledgePolicy({ policy, refreshed }: { policy: Knowled
         <label className="flex min-h-11 items-center gap-2"><input type="checkbox" checked={draft.remoteEnabled} onChange={e => update({remoteEnabled:e.target.checked})} />允许共享后台调用已授权的外部模型</label>
         <p className="text-pi-dim leading-6">本开关、模型白名单、价格和额度由知识与培养共用。培养还须单独满足主人确认的培养策略；在此保存不会替你开启培养或提交任务。</p>
         <p className="text-pi-dim leading-6">默认关闭；不开启也能本地摘录。模型结论保留为待核查，不会因此自动验证、改写人格或批准基因提案。任务会话不会发送给外部提炼模型。</p>
-        <label className="block">知识提炼模型<select className="input-pi mt-1 w-full min-h-11" value={draft.model} onChange={e => update({model:e.target.value})}>
+        <label className="block">知识提炼模型<ThemedSelect className="input-pi mt-1 w-full min-h-11" value={draft.model} onChange={e => update({model:e.target.value})}>
           <option value="">不使用外部模型</option>
           {draft.model && !models.data?.some(m => m.key === draft.model) && <option value={draft.model}>{draft.model}（等待核对可用性）</option>}
           {models.data?.map(m => <option key={m.key} value={m.key}>{m.label} · {m.key}</option>)}
-        </select></label>
+        </ThemedSelect></label>
         <fieldset className="space-y-2">
           <legend className="font-medium">共享模型白名单</legend>
           <p className="text-pi-dim leading-6">选择默认提炼模型不会替换白名单。仅勾选你允许后台调用的模型；目录暂不可读时，已有授权仍保留。</p>
@@ -61,7 +62,7 @@ export default function KnowledgePolicy({ policy, refreshed }: { policy: Knowled
         </fieldset>
         {models.error && <p role="alert">模型目录读取失败。<button type="button" className="btn-tool min-h-11 px-3" onClick={() => void models.mutate()}>重试读取</button></p>}
         <label className="block">允许外发的目录（一行一个，必须也有读取授权）<textarea className="input-pi mt-1 w-full min-h-24" value={outboundRoots} onChange={e => setOutbound(e.target.value)} /></label>
-        <label className="block">核对哪个模型的价格<select className="input-pi mt-1 w-full min-h-11" value={priceModel} onChange={e => setPriceModel(e.target.value)}><option value="">选择要核对的模型</option>{priceModels.map(key => <option key={key} value={key}>{key}</option>)}</select></label>
+        <label className="block">核对哪个模型的价格<ThemedSelect className="input-pi mt-1 w-full min-h-11" value={priceModel} onChange={e => setPriceModel(e.target.value)}><option value="">选择要核对的模型</option>{priceModels.map(key => <option key={key} value={key}>{key}</option>)}</ThemedSelect></label>
         {priceModel && <>
           <p className="text-pi-dim leading-6">价格由你按服务商实际计费填写，不猜测余额。下方为每百万 token 的价格；所有请求先预留费用。</p>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">{(['input','output'] as const).map(key => <label key={key}>{key === 'input' ? '输入' : '输出'}价格（{rate.currency} / 百万 token）<input required type="number" min="0" step="any" className="input-pi mt-1 w-full min-h-11" value={rate[key]} onChange={e => setRate({[key]:Number(e.target.value)})} /></label>)}</div>
@@ -73,7 +74,7 @@ export default function KnowledgePolicy({ policy, refreshed }: { policy: Knowled
       <fieldset className="space-y-3" disabled={busy}>
         <legend className="font-medium mb-2">每日预算与单次上限</legend>
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-          <label>计费币种<select className="input-pi mt-1 w-full min-h-11" value={draft.currency} onChange={e => update({currency:e.target.value})}>{['USD','CNY','EUR'].map(c => <option key={c}>{c}</option>)}</select></label>
+          <label>计费币种<ThemedSelect className="input-pi mt-1 w-full min-h-11" value={draft.currency} onChange={e => update({currency:e.target.value})}>{['USD','CNY','EUR'].map(c => <option key={c}>{c}</option>)}</ThemedSelect></label>
           {([['dailyCost','每日费用上限'],['maxModelRequests','每日模型请求次数'],['maxNetworkRequests','每日网页请求次数'],['inputTokens','单次输入 token 上限'],['outputTokens','单次输出 token 上限']] as const).map(([key,label]) => <label key={key}>{label}<input required type="number" min="0" max="1000000" step={key === 'dailyCost' ? 'any' : '1'} className="input-pi mt-1 w-full min-h-11" value={draft[key]} onChange={e => update({[key]:Number(e.target.value)})} /></label>)}
         </div>
         <p className="text-pi-dim leading-6">按 UTC 日结算。用量未知时保留全部预留额度，不把它当成免费；授权变更不会清掉历史账目。</p>

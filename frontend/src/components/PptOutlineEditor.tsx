@@ -1,3 +1,4 @@
+import ThemedSelect from '../components/ThemedSelect'
 import { useMemo, useState } from 'react'
 import { Plus, Trash2, RefreshCw, Loader2 } from 'lucide-react'
 import { WorkshopApi } from '../api'
@@ -62,9 +63,9 @@ export default function PptOutlineEditor({ jsonPath, initialSlides, onRebuilt }:
           <div key={i} className={`rounded-pi-md border p-2.5 space-y-2 ${!s.title.trim() ? 'border-red-500/40' : 'border-pi-border-soft'} bg-pi-bg2/40`}>
             <div className="flex items-center gap-2">
               <span className="w-5 h-5 rounded-pi-sm bg-pi-bg3 text-[10px] font-mono font-bold flex items-center justify-center text-pi-dim flex-shrink-0">{i + 1}</span>
-              <select className="input-pi !py-1 text-[11px] w-28" value={s.layout} onChange={e => patch(i, { layout: e.target.value })}>
+              <ThemedSelect className="input-pi !py-1 text-[11px] w-28" value={s.layout} onChange={e => patch(i, { layout: e.target.value })}>
                 {LAYOUT_OPTIONS.map(([k, label]) => <option key={k} value={k}>{label}</option>)}
-              </select>
+              </ThemedSelect>
               <span className="text-[10px] text-pi-dim2 hidden sm:inline font-mono">{s.layout}</span>
               <button className="ml-auto touch-hit p-1 text-pi-dim2 hover:text-pi-red" title="删除此页"
                 onClick={() => setSlides(prev => prev.filter((_, j) => j !== i))}>

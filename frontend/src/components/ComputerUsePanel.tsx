@@ -1,3 +1,4 @@
+import ThemedSelect from '../components/ThemedSelect'
 import { useEffect, useRef, useState } from 'react'
 import useSWR from 'swr'
 import { Monitor, Square } from 'lucide-react'
@@ -92,9 +93,9 @@ export default function ComputerUsePanel() {
           <button type="button" className="btn-ghost min-h-11 px-3" disabled={busy} onClick={() => perform(async () => { setChoosingTarget(true); await loadTargets() })}>切换目标窗口</button>
           {choosingTarget && <div className="space-y-3">
             <label className="text-sm text-pi-text space-y-2">新的观察窗口
-              <select aria-label="新的观察窗口" className="input-pi min-h-11 w-full min-w-0 block" value={windowId} onChange={e => setWindowId(e.target.value)}>
+              <ThemedSelect aria-label="新的观察窗口" className="input-pi min-h-11 w-full min-w-0 block" value={windowId} onChange={e => setWindowId(e.target.value)}>
                 <option value="">请选择窗口</option>{windows.map(w => <option key={w.id} value={w.id}>{w.title} · {w.process}</option>)}
-              </select>
+              </ThemedSelect>
             </label>
             <button type="button" className="btn-primary min-h-11 px-4" disabled={busy || !windowId} onClick={() => perform(chooseTarget)}>应用观察窗口</button>
           </div>}
@@ -107,14 +108,14 @@ export default function ComputerUsePanel() {
           {loaded && <div className="space-y-3">
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <label className="text-sm text-pi-text space-y-2">操作会话
-                <select aria-label="操作会话" className="input-pi min-h-11 w-full min-w-0 block" value={sessionId} onChange={e => setSessionId(e.target.value)}>
+                <ThemedSelect aria-label="操作会话" className="input-pi min-h-11 w-full min-w-0 block" value={sessionId} onChange={e => setSessionId(e.target.value)}>
                   <option value="">请选择会话</option>{sessions.map(s => <option key={s.id} value={s.id}>{s.name || s.id}</option>)}
-                </select>
+                </ThemedSelect>
               </label>
               <label className="text-sm text-pi-text space-y-2">目标窗口
-                <select aria-label="目标窗口" className="input-pi min-h-11 w-full min-w-0 block" value={windowId} onChange={e => setWindowId(e.target.value)}>
+                <ThemedSelect aria-label="目标窗口" className="input-pi min-h-11 w-full min-w-0 block" value={windowId} onChange={e => setWindowId(e.target.value)}>
                   <option value="">请选择窗口</option>{windows.map(w => <option key={w.id} value={w.id}>{w.title} · {w.process}</option>)}
-                </select>
+                </ThemedSelect>
               </label>
             </div>
             {!windows.length && <p className="text-sm text-pi-dim">没有找到可观察的桌面窗口。请确认桌面已登录，并重新读取；某些应用不提供可操作控件。</p>}

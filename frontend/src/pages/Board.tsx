@@ -1,3 +1,4 @@
+import ThemedSelect from '../components/ThemedSelect'
 import { useEffect, useMemo, useState } from 'react'
 import useSWR from 'swr'
 import {MessagesSquare, Clock4, Wallet, Activity as ActivityIcon, Package,
@@ -181,14 +182,14 @@ export default function Board({ initialView = 'overview' }: { initialView?: Boar
         {(bootError || bootIncomplete) && <div role="alert" className="panel p-3 text-[12px] text-pi-text">概览部分数据未能加载，正在分项重试；当前数字可能不完整。</div>}
 
         {/* 视图切换：概览 / 改动验收（移动端 select，桌面分段按钮；沿用 Apps.tsx 的页内多视图模式） */}
-        <select
+        <ThemedSelect
           aria-label="选择工作台视图"
           className="input-pi min-h-11 !py-2 text-[13px] w-full md:hidden"
           value={view}
           onChange={event => setView(event.target.value as BoardView)}
         >
           {BOARD_VIEWS.map(v => <option key={v.key} value={v.key}>{v.label}</option>)}
-        </select>
+        </ThemedSelect>
         <nav aria-label="工作台视图" className="hidden md:flex items-center gap-1">
           {BOARD_VIEWS.map(v => (
             <button key={v.key} type="button" aria-current={view === v.key ? 'page' : undefined} onClick={() => setView(v.key)}

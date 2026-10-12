@@ -1,3 +1,4 @@
+import ThemedSelect from '../components/ThemedSelect'
 import { useRef, useState } from 'react'
 import { Package, History } from 'lucide-react'
 import useSWR from 'swr'
@@ -197,9 +198,9 @@ export default function WorkshopView({ kind }: { kind: Kind }) {
               <input type="number" min={3} max={25} className="input-pi min-h-11 !py-2 text-xs w-full sm:w-20" value={pages} onChange={e => setPages(+e.target.value)} />
             </label>
             <label className="text-xs text-pi-dim flex flex-col sm:flex-row sm:items-center gap-1.5">风格
-              <select className="input-pi min-h-11 !py-2 text-xs w-full sm:w-28" value={style} onChange={e => setStyle(e.target.value)}>
+              <ThemedSelect className="input-pi min-h-11 !py-2 text-xs w-full sm:w-28" value={style} onChange={e => setStyle(e.target.value)}>
                 <option>专业商务</option><option>学术汇报</option><option>简约科技</option><option>创意活泼</option><option>国风典雅</option>
-              </select>
+              </ThemedSelect>
             </label>
             <label className="text-xs text-pi-dim flex flex-col sm:flex-row sm:items-center gap-1.5">受众
               <input className="input-pi min-h-11 !py-2 text-xs w-full sm:w-32" placeholder="可选" value={audience} onChange={e => setAudience(e.target.value)} />
@@ -229,9 +230,9 @@ export default function WorkshopView({ kind }: { kind: Kind }) {
             {engine === 'html' && (
               <div className="flex flex-col sm:flex-row sm:items-center gap-2">
                 <label className="text-xs text-pi-dim flex flex-col sm:flex-row sm:items-center gap-1.5">模板
-                  <select className="input-pi min-h-11 !py-2 text-xs w-full sm:w-32" value={themeKey} onChange={e => setThemeKey(e.target.value)}>
+                  <ThemedSelect className="input-pi min-h-11 !py-2 text-xs w-full sm:w-32" value={themeKey} onChange={e => setThemeKey(e.target.value)}>
                     {themeList.map(t => <option key={t.key} value={t.key}>{t.label}{t.builtin === false ? '' : ''}</option>)}
-                  </select>
+                  </ThemedSelect>
                 </label>
                 <button className="min-h-11 text-[11px] px-3 rounded-pi-md border border-dashed border-pi-border-soft text-pi-dim hover:text-pi-accent hover:border-pi-accent/50 transition-colors w-full sm:w-auto"
                   onClick={() => setDistillOpen(v => !v)} title="从喜欢的网页提取配色与字体，生成新模板">从网址提炼模板</button>

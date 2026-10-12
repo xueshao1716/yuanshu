@@ -1,3 +1,4 @@
+import ThemedSelect from '../../components/ThemedSelect'
 import { useState } from 'react'
 import type { Experience, ExperienceCoverage } from './api'
 import { statusLabel } from './api'
@@ -17,7 +18,7 @@ function Decision({item,authorized,onAction}:{item:Experience;authorized:boolean
   return <details><summary>查看采用记录与处理</summary>
     {!item.learning.length?<p>尚无采用记录。</p>:<ol>{item.learning.map((row,i)=><li key={i}>{row.scope==='mother'?'母体':`原个体 ${row.scope}`} · {row.decision==='adopt'?'采用':'退役'} · 版本 {row.version}<p>{row.reason}</p><small>{row.actor.kind==='human'?'人工授权':'母体决定'} · {date(row.at)}</small></li>)}</ol>}
     <p className="soul-hint">采用前服务端会核查独立来源与数据授权。小语只在有效的事先授权内自行采用；撤回只停止后续使用。</p>
-    <label>采用范围<select value={scope} onChange={e=>setScope(e.target.value)}><option value={item.agentId}>仅原个体</option><option value="mother">分享给母体</option></select></label>
+    <label>采用范围<ThemedSelect value={scope} onChange={e=>setScope(e.target.value)}><option value={item.agentId}>仅原个体</option><option value="mother">分享给母体</option></ThemedSelect></label>
     <label>处理理由<textarea rows={3} maxLength={1000} value={reason} onChange={e=>setReason(e.target.value)}/></label>
     <div className="soul-actions"><button disabled={!authorized||item.revision===null||!item.resolution||!reason.trim()||last?.decision==='adopt'} onClick={()=>prepare('adopt')}>核对并采用</button><button disabled={!authorized||item.revision===null||!reason.trim()||last?.decision!=='adopt'} onClick={()=>prepare('retire')}>核对并退役</button></div>
   </details>

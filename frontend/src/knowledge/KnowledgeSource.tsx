@@ -1,3 +1,4 @@
+import ThemedSelect from '../components/ThemedSelect'
 import { useState } from 'react'
 import { KnowledgeApi, knowledgeError, type KnowledgeJob } from './api'
 
@@ -19,10 +20,10 @@ export default function KnowledgeSource({ revision, refreshed, parent }: { revis
       <fieldset disabled={busy} className="space-y-3">
       <legend className="sr-only">{parent ? '任务补证来源' : '知识来源'}</legend>
       <p className="text-pi-dim leading-6">只处理你授权的资料。已完成任务会自动登记；网页和外部模型仍需单独授权。</p>
-      <label className="block">来源类型<select className="input-pi mt-1 w-full min-h-11" value={kind} onChange={e => {setKind(e.target.value); setValue(''); setMessage('')}}>
+      <label className="block">来源类型<ThemedSelect className="input-pi mt-1 w-full min-h-11" value={kind} onChange={e => {setKind(e.target.value); setValue(''); setMessage('')}}>
         <option value="file">工作空间内的文件</option><option value="run">已结束的任务记录</option><option value="url">获准的 HTTPS 网页</option>
         {!parent && <option value="method">固定契约验证的方法资料</option>}
-      </select></label>
+      </ThemedSelect></label>
       <label className="block">{kind === 'file' ? '相对工作空间的文件路径' : kind === 'method' ? 'JSON 验证清单的相对路径' : kind === 'url' ? '完整网页地址' : '任务 ID'}
         <input className="input-pi mt-1 w-full min-h-11" required value={value} onChange={e => setValue(e.target.value)} maxLength={2048} type={kind === 'url' ? 'url' : 'text'} />
       </label>

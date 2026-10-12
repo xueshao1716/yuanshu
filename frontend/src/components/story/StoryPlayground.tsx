@@ -1,3 +1,4 @@
+import ThemedSelect from '../../components/ThemedSelect'
 import { useState } from 'react'
 import { StoryApi } from '../../api'
 import type { StoryCharacter, StoryProject } from '../../types'
@@ -48,9 +49,9 @@ export default function StoryPlayground({ project, sceneId, beatId, characters, 
       {!characters.length && <p className="story-hint">这个故事还没有角色：先在下方设定里加一个，或让 AI 补一段设定。</p>}
       {characters.length > 0 && <>
         <div className="story-playground-row">
-          <label>扮演谁<select aria-label="试戏角色" value={who} disabled={busy || sending} onChange={e => { setWho(e.target.value); onPick?.(e.target.value) }}>
+          <label>扮演谁<ThemedSelect aria-label="试戏角色" value={who} disabled={busy || sending} onChange={e => { setWho(e.target.value); onPick?.(e.target.value) }}>
             {characters.map(c => <option key={c.id} value={c.id}>{c.name || c.id}</option>)}
-          </select></label>
+          </ThemedSelect></label>
           <button className="btn-ghost" disabled={busy || sending || !turns.length} onClick={clear}>清空记录</button>
         </div>
         {turns.length > 0 && <ul className="story-playground-turns">

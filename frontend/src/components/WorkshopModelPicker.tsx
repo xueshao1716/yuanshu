@@ -1,3 +1,4 @@
+import ThemedSelect from '../components/ThemedSelect'
 import { useState } from 'react'
 import { useApp } from '../store'
 import type { Model } from '../types'
@@ -35,14 +36,14 @@ export default function WorkshopModelPicker({ value, onChange, textModels, label
   return (
     <label className="text-xs text-pi-dim flex flex-col sm:flex-row sm:items-center gap-1.5 w-full sm:w-auto">
       {label}
-      <select className="input-pi min-h-11 !py-2 text-xs w-full sm:max-w-[260px]" value={value} onChange={e => onChange(e.target.value)}>
+      <ThemedSelect className="input-pi min-h-11 !py-2 text-xs w-full sm:max-w-[260px]" value={value} onChange={e => onChange(e.target.value)}>
         {value && !textModels.some(m => `${m.provider}/${m.id}` === value) && <option value={value} disabled>已选模型不可用，请重新选择</option>}
         {textModels.map(m => (
           <option key={`${m.provider}/${m.id}`} value={`${m.provider}/${m.id}`}>
             {m.name}（{m.provider}）{m.free ? ' · 免费' : ''}
           </option>
         ))}
-      </select>
+      </ThemedSelect>
     </label>
   )
 }

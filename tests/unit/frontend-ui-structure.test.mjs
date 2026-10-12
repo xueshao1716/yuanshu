@@ -330,8 +330,9 @@ test('应用中心使用公共页头、桌面分组侧栏与移动单一选择�
   assert.ok(apps.includes('aria-label="应用工具导航"'), '桌面工具导航必须有可访问名称')
   assert.ok(apps.includes('aria-current={tab === tool.key ? \'page\' : undefined}'), '桌面工具导航必须暴露当前工具')
   assert.match(apps, /<aside[^>]*className="[^"]*hidden md:block/, '桌面端必须显示左侧工具导航')
-  assert.match(apps, /<select[^>]*aria-label="选择应用工具"[^>]*className="[^"]*md:hidden/, '移动端必须使用单一紧凑工具选择器')
-  assert.match(apps, /<select[^>]*aria-label="选择应用工具"[^>]*className="[^"]*min-h-11/, '移动端工具选择器触控高度不得小于 44px')
+  // 2026-10-12：原生 select 全站升级 ThemedSelect（Android 系统弹层无法被 CSS 主题化）
+  assert.match(apps, /<ThemedSelect[^>]*aria-label="选择应用工具"[^>]*className="[^"]*md:hidden/, '移动端必须使用单一紧凑工具选择器')
+  assert.match(apps, /<ThemedSelect[^>]*aria-label="选择应用工具"[^>]*className="[^"]*min-h-11/, '移动端工具选择器触控高度不得小于 44px')
   for (const group of ['知识资产', '系统改进']) assert.ok(apps.includes(group), `应用导航缺少分组：${group}`)
   for (const view of ['<RefineView', '<SkillsView', '<PromptsView', '<ImproveView', '<EvolutionView', '<GardenerView']) {
     assert.ok(apps.includes(view), `应用中心必须保留内部 View：${view}`)

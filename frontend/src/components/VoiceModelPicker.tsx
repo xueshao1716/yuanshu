@@ -1,3 +1,4 @@
+import ThemedSelect from '../components/ThemedSelect'
 import { useId } from 'react'
 import type { VoiceModel } from '../realtime/ticket'
 import { callError } from '../realtime/errors'
@@ -8,11 +9,11 @@ export default function VoiceModelPicker({ models, modelKey, setModelKey, loadin
   const id = useId(), selected = models.some(m => m.modelKey === modelKey)
   return <div className="voice-model-picker" aria-busy={loading}>
     <label htmlFor={id}>通话模型</label>
-    <select id={id} aria-describedby={`${id}-hint`} disabled={locked || loading || !!error || !models.length}
+    <ThemedSelect id={id} aria-describedby={`${id}-hint`} disabled={locked || loading || !!error || !models.length}
       value={selected ? modelKey : ''} onChange={e => setModelKey(e.target.value)}>
       {!selected && <option value="" disabled>{loading ? '正在加载…' : '请选择实时通话模型'}</option>}
       {models.map(m => <option key={m.modelKey} value={m.modelKey}>{m.name}（{m.provider}）</option>)}
-    </select>
+    </ThemedSelect>
     <p id={`${id}-hint`} className="voice-secondary" role="status">{error ? `模型列表加载失败。${callError(error)}`
       : loading ? '正在读取已配置的实时通话模型…'
         : !models.length ? '尚无已配置的实时通话模型，请到模型管理配置阶跃通道后刷新。'

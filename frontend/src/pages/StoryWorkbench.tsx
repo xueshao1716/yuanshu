@@ -1,3 +1,4 @@
+import ThemedSelect from '../components/ThemedSelect'
 import { useEffect, useState } from 'react'
 import useSWR from 'swr'
 import { ModelsApi, StoryApi, ColorApi, withFileToken } from '../api'
@@ -476,7 +477,7 @@ export function StoryPanel() {
     <div aria-live="polite">{busy && !loading && <p role="status" className="story-notice">{busy}…</p>}{notice && <p role="status" className="story-notice">{notice}</p>}</div>
     {error && <p role="alert" className="story-notice story-error">{error}</p>}
     {planningModelMissing && <p role="alert" className="story-notice story-error">已选构思模型不可用，请重新选择；不会自动换用其他模型。</p>}
-    {loading ? <StorySkeleton /> : !project ? <StoryStart busy={Boolean(busy)} onStart={start}><label className="story-model-select">构思模型<select value={planningModel} disabled={Boolean(busy)} onChange={e=>setPlanningModel(e.target.value)}><option value="">自动选择文本模型</option>{planningModelMissing && <option value={planningModel} disabled>已选模型不可用</option>}{models.filter(m=>capable(m,'novel')).map(m=><option key={modelKey(m)} value={modelKey(m)}>{m.name || m.id}（{m.provider}）</option>)}</select></label></StoryStart> : <>
+    {loading ? <StorySkeleton /> : !project ? <StoryStart busy={Boolean(busy)} onStart={start}><label className="story-model-select">构思模型<ThemedSelect value={planningModel} disabled={Boolean(busy)} onChange={e=>setPlanningModel(e.target.value)}><option value="">自动选择文本模型</option>{planningModelMissing && <option value={planningModel} disabled>已选模型不可用</option>}{models.filter(m=>capable(m,'novel')).map(m=><option key={modelKey(m)} value={modelKey(m)}>{m.name || m.id}（{m.provider}）</option>)}</ThemedSelect></label></StoryStart> : <>
       {/* 状态条必须放在 .story-layout **外面**：那是个两列网格（时间线 | 编辑器），
           当成第一个 grid 子元素塞进去，它自己会占掉 200px 的时间线列，
           把时间线、编辑器、结果整列挤偏——真机上的"排版乱了"就是这么来的。 */}
@@ -492,7 +493,7 @@ export function StoryPanel() {
         <div className="story-steps"><span className="is-ready">1 想法已建立</span><span className={project.bible.characters?.length?'is-ready':''}>2 确定人物与设定</span><span className={hasOutput?'is-ready':''}>3 生成并预览</span></div>
         <section className="story-studio" aria-label="制作台">
           <div className="story-studio-row">
-            <label className="story-studio-count">段数<select aria-label="分镜段数" value={storyboardCount} disabled={Boolean(busy)} onChange={e=>setStoryboardCount(e.target.value)}>{['4','6','8','10','12'].map(n=><option key={n} value={n}>{n}</option>)}</select></label>
+            <label className="story-studio-count">段数<ThemedSelect aria-label="分镜段数" value={storyboardCount} disabled={Boolean(busy)} onChange={e=>setStoryboardCount(e.target.value)}>{['4','6','8','10','12'].map(n=><option key={n} value={n}>{n}</option>)}</ThemedSelect></label>
             <input className="story-studio-idea" aria-label="分镜想法" placeholder="想讲什么（可留空，按梗概排）" value={storyboardIdea} disabled={Boolean(busy)} onChange={e=>setStoryboardIdea(e.target.value)} />
             <button className="btn-ghost" disabled={Boolean(busy)} onClick={runStoryboard}>一键分镜</button>
             <button className="btn-primary" disabled={Boolean(busy)} onClick={makeFilm}>合成成片</button>
@@ -515,13 +516,13 @@ export function StoryPanel() {
         </section>
         <div className="story-editor-layout"><section className="story-editor">
           <div className="story-section-head"><h2>{scene?.title || '故事开场'}</h2><span>{beat?.inheritFromBeatId?'承接前文':'故事起点'}</span></div>
-          <div className="story-form-row"><label>输出类型<select aria-label="选择输出类型" disabled={Boolean(busy)} value={selectedKind} onChange={e=>setGenerationKind(e.target.value as StoryBeat['kind'])}><option value="novel">小说段落</option><option value="image">故事画面</option><option value="video">视频片段</option></select></label><label>生成模型<select aria-label="选择模型" disabled={Boolean(busy)} value={selectedModel} onChange={e=>setSelectedModel(e.target.value)}><option value="">自动选择模型</option>{selectedModelMissing && <option value={selectedModel} disabled>已选模型不可用</option>}{availableModels.map(m=><option key={modelKey(m)} value={modelKey(m)}>{m.name || m.id}（{m.provider}）</option>)}</select></label></div>
+          <div className="story-form-row"><label>输出类型<ThemedSelect aria-label="选择输出类型" disabled={Boolean(busy)} value={selectedKind} onChange={e=>setGenerationKind(e.target.value as StoryBeat['kind'])}><option value="novel">小说段落</option><option value="image">故事画面</option><option value="video">视频片段</option></ThemedSelect></label><label>生成模型<ThemedSelect aria-label="选择模型" disabled={Boolean(busy)} value={selectedModel} onChange={e=>setSelectedModel(e.target.value)}><option value="">自动选择模型</option>{selectedModelMissing && <option value={selectedModel} disabled>已选模型不可用</option>}{availableModels.map(m=><option key={modelKey(m)} value={modelKey(m)}>{m.name || m.id}（{m.provider}）</option>)}</ThemedSelect></label></div>
           {selectedModelMissing && <p role="alert" className="story-notice story-error">已选生成模型不可用，请重新选择；不会自动换用其他模型。</p>}
           <label>本段内容<textarea aria-label="本段内容" disabled={Boolean(busy)} value={promptDraft} onChange={e=>{setPromptDraft(e.target.value);setCompiled('')}} rows={6} placeholder="写下本段想发生的事，或让 AI 帮你完善" /></label>
           <label>本段台词 · 对白<textarea aria-label="本段台词" disabled={Boolean(busy)} value={dialogueDraft} onChange={e=>{setDialogueDraft(e.target.value);setCompiled('')}} rows={4} placeholder={'一行一句，写成「角色名：台词」。这是故事的骨头——人物说了什么，比镜头怎么推更重要。'} /></label>
           {/* 主按钮跟在"写内容 / 写台词"后面，不压在一堆折叠行底下：
               写完就能按，不用先滚过七组配置去找按钮。 */}
-          <div className="story-form-row"><label>构思模型<select value={planningModel} disabled={Boolean(busy)} onChange={e=>setPlanningModel(e.target.value)}><option value="">自动选择文本模型</option>{planningModelMissing && <option value={planningModel} disabled>已选模型不可用</option>}{models.filter(m=>capable(m,'novel')).map(m=><option key={modelKey(m)} value={modelKey(m)}>{m.name || m.id}（{m.provider}）</option>)}</select></label><div className="story-actions"><button className="btn-ghost" disabled={Boolean(busy)||planningModelMissing} onClick={assist}>让 AI 完善本段</button></div></div>
+          <div className="story-form-row"><label>构思模型<ThemedSelect value={planningModel} disabled={Boolean(busy)} onChange={e=>setPlanningModel(e.target.value)}><option value="">自动选择文本模型</option>{planningModelMissing && <option value={planningModel} disabled>已选模型不可用</option>}{models.filter(m=>capable(m,'novel')).map(m=><option key={modelKey(m)} value={modelKey(m)}>{m.name || m.id}（{m.provider}）</option>)}</ThemedSelect></label><div className="story-actions"><button className="btn-ghost" disabled={Boolean(busy)||planningModelMissing} onClick={assist}>让 AI 完善本段</button></div></div>
           <div className="story-actions"><button className="btn-primary" disabled={Boolean(busy)||selectedModelMissing||!promptDraft.trim()} onClick={run}>生成当前{kindLabel[selectedKind]}</button><button className="btn-ghost" disabled={Boolean(busy)||selectedModelMissing||!promptDraft.trim()} onClick={preview}>检查生成输入</button><button className="btn-ghost" disabled={Boolean(busy)||planningModelMissing||!hasOutput} onClick={continueFromBeat}>从此处继续 · AI 构思下一段</button></div>
           {!hasOutput && <p className="story-hint">先生成本段成品，再继续下一段。结果不满意时可以修改内容重新生成，旧版本会保留。</p>}
           {assistResult && <div className="story-draft"><h3>AI 草稿 · 确认后一起保存</h3><p>{assistResult.scene?.summary}</p><p>{assistResult.beat?.prompt}</p><p className="story-hint">人物：{assistResult.characters?.map((c:any)=>[c.name,c.appearance].filter(Boolean).join(' · ')).join('；') || '沿用既有设定'}</p><div className="story-actions"><button className="btn-primary" disabled={Boolean(busy)} onClick={applyAssist}>采用并保存设定</button><button className="btn-ghost" disabled={Boolean(busy)} onClick={()=>setAssistResult(null)}>暂不采用</button></div></div>}
@@ -533,7 +534,7 @@ export function StoryPanel() {
             <label>转场<input aria-label="转场" disabled={Boolean(busy)} value={transitionDraft} onChange={e=>setTransitionDraft(e.target.value)} placeholder="例如 切至 / CUT TO:" /></label>
           </div>
           <div className="story-form-row">
-            <label>内外景<select aria-label="内外景" disabled={Boolean(busy)} value={slugDraft.interior} onChange={e=>setSlugDraft({...slugDraft, interior:e.target.value})}><option value="interior">内景</option><option value="exterior">外景</option><option value="mixed">内外景</option></select></label>
+            <label>内外景<ThemedSelect aria-label="内外景" disabled={Boolean(busy)} value={slugDraft.interior} onChange={e=>setSlugDraft({...slugDraft, interior:e.target.value})}><option value="interior">内景</option><option value="exterior">外景</option><option value="mixed">内外景</option></ThemedSelect></label>
             <label>地点<input aria-label="场景地点" disabled={Boolean(busy)} value={slugDraft.location} onChange={e=>setSlugDraft({...slugDraft, location:e.target.value})} placeholder="留空用场景名" /></label>
             <label>时间<input aria-label="场景时间" disabled={Boolean(busy)} value={slugDraft.timeOfDay} onChange={e=>setSlugDraft({...slugDraft, timeOfDay:e.target.value})} placeholder="例如 夜 / 清晨" /></label>
           </div>
@@ -543,14 +544,14 @@ export function StoryPanel() {
           <label>本段负向提示词 · 不要出现什么<textarea aria-label="本段负向提示词" disabled={Boolean(busy)} value={negativeDraft} onChange={e=>{setNegativeDraft(e.target.value);setCompiled('')}} rows={2} placeholder="一行一条，例如：多余的手指、文字水印、现代服装" /></label>
           <div className="story-form-row">
             <label>seed（留空=每版现掷并记下来）<input aria-label="seed" disabled={Boolean(busy)} value={seedDraft} onChange={e=>setSeedDraft(e.target.value.replace(/[^0-9]/g,''))} placeholder="填数字即锁定，可复现" /></label>
-            <label>一次出几版<select aria-label="变体数量" value={variantsDraft} disabled={Boolean(busy)} onChange={e=>setVariantsDraft(e.target.value)}>{['1','2','3','4'].map(n=><option key={n} value={n}>{n} 版</option>)}</select></label>
-            {selectedKind === 'image' && <label>尺寸<select aria-label="尺寸" disabled={Boolean(busy)} value={paramDraft.size || ''} onChange={e=>setParam('size', e.target.value)}><option value="">默认</option>{IMAGE_SIZES.map(sz=><option key={sz} value={sz}>{sz}</option>)}</select></label>}
-            {selectedKind === 'video' && <label>尺寸<select aria-label="尺寸" disabled={Boolean(busy)} value={paramDraft.size || ''} onChange={e=>setParam('size', e.target.value)}><option value="">默认</option>{VIDEO_SIZES.map(sz=><option key={sz} value={sz}>{sz}</option>)}</select></label>}
-            {selectedKind === 'video' && <label>时长<select aria-label="时长" disabled={Boolean(busy)} value={paramDraft.seconds || ''} onChange={e=>setParam('seconds', e.target.value)}><option value="">默认</option>{VIDEO_SECONDS.map(s=><option key={s} value={s}>{s} 秒</option>)}</select></label>}
+            <label>一次出几版<ThemedSelect aria-label="变体数量" value={variantsDraft} disabled={Boolean(busy)} onChange={e=>setVariantsDraft(e.target.value)}>{['1','2','3','4'].map(n=><option key={n} value={n}>{n} 版</option>)}</ThemedSelect></label>
+            {selectedKind === 'image' && <label>尺寸<ThemedSelect aria-label="尺寸" disabled={Boolean(busy)} value={paramDraft.size || ''} onChange={e=>setParam('size', e.target.value)}><option value="">默认</option>{IMAGE_SIZES.map(sz=><option key={sz} value={sz}>{sz}</option>)}</ThemedSelect></label>}
+            {selectedKind === 'video' && <label>尺寸<ThemedSelect aria-label="尺寸" disabled={Boolean(busy)} value={paramDraft.size || ''} onChange={e=>setParam('size', e.target.value)}><option value="">默认</option>{VIDEO_SIZES.map(sz=><option key={sz} value={sz}>{sz}</option>)}</ThemedSelect></label>}
+            {selectedKind === 'video' && <label>时长<ThemedSelect aria-label="时长" disabled={Boolean(busy)} value={paramDraft.seconds || ''} onChange={e=>setParam('seconds', e.target.value)}><option value="">默认</option>{VIDEO_SECONDS.map(s=><option key={s} value={s}>{s} 秒</option>)}</ThemedSelect></label>}
           </div>
           {selectedKind !== 'novel' && <div className="story-form-row">
-            <label>参考图张数<select aria-label="参考图张数" disabled={Boolean(busy)} value={String(refDraft.images)} onChange={e=>setRefDraft({ ...refDraft, images: Number(e.target.value) })}>{['0','1','2','3','4'].map(n=><option key={n} value={n}>{n === '0' ? '不用' : `${n} 张`}</option>)}</select></label>
-            <label>谁优先<select aria-label="参考图优先" disabled={Boolean(busy) || refDraft.images === 0} value={refDraft.prefer} onChange={e=>setRefDraft({ ...refDraft, prefer: e.target.value as 'material' | 'portrait' })}><option value="material">挂载素材优先</option><option value="portrait">定妆照优先</option></select></label>
+            <label>参考图张数<ThemedSelect aria-label="参考图张数" disabled={Boolean(busy)} value={String(refDraft.images)} onChange={e=>setRefDraft({ ...refDraft, images: Number(e.target.value) })}>{['0','1','2','3','4'].map(n=><option key={n} value={n}>{n === '0' ? '不用' : `${n} 张`}</option>)}</ThemedSelect></label>
+            <label>谁优先<ThemedSelect aria-label="参考图优先" disabled={Boolean(busy) || refDraft.images === 0} value={refDraft.prefer} onChange={e=>setRefDraft({ ...refDraft, prefer: e.target.value as 'material' | 'portrait' })}><option value="material">挂载素材优先</option><option value="portrait">定妆照优先</option></ThemedSelect></label>
             <span className="story-hint">当前：{refStrategyLabel(selectedKind, refDraft)}</span>
           </div>}
           </details>
@@ -596,9 +597,9 @@ export function StoryPanel() {
           {selectedKind !== 'novel' && <>
           <details className="story-fold"><summary>镜头规格<span>景别 / 机位 / 运镜 / 光线 / 落幅（画面与视频用）</span></summary>
           <div className="story-form-row story-shot-spec">
-            <label>景别<select aria-label="景别" disabled={Boolean(busy)} value={shotDraft.size} onChange={e=>{setShotDraft({...shotDraft, size:e.target.value});setCompiled('')}}><option value="">不指定</option>{['大远景','远景','全景','中全景','中景','中近景','近景','特写','大特写'].map(v=><option key={v} value={v}>{v}</option>)}</select></label>
-            <label>机位<select aria-label="机位" disabled={Boolean(busy)} value={shotDraft.angle} onChange={e=>{setShotDraft({...shotDraft, angle:e.target.value});setCompiled('')}}><option value="">不指定</option>{['平视','俯拍','仰拍','斜角','过肩','主观'].map(v=><option key={v} value={v}>{v}</option>)}</select></label>
-            <label>运镜<select aria-label="运镜" disabled={Boolean(busy)} value={shotDraft.move} onChange={e=>{setShotDraft({...shotDraft, move:e.target.value});setCompiled('')}}><option value="">不指定</option>{['固定','缓缓推近','拉远','横移','跟拍','摇镜','升降','环绕','手持'].map(v=><option key={v} value={v}>{v}</option>)}</select></label>
+            <label>景别<ThemedSelect aria-label="景别" disabled={Boolean(busy)} value={shotDraft.size} onChange={e=>{setShotDraft({...shotDraft, size:e.target.value});setCompiled('')}}><option value="">不指定</option>{['大远景','远景','全景','中全景','中景','中近景','近景','特写','大特写'].map(v=><option key={v} value={v}>{v}</option>)}</ThemedSelect></label>
+            <label>机位<ThemedSelect aria-label="机位" disabled={Boolean(busy)} value={shotDraft.angle} onChange={e=>{setShotDraft({...shotDraft, angle:e.target.value});setCompiled('')}}><option value="">不指定</option>{['平视','俯拍','仰拍','斜角','过肩','主观'].map(v=><option key={v} value={v}>{v}</option>)}</ThemedSelect></label>
+            <label>运镜<ThemedSelect aria-label="运镜" disabled={Boolean(busy)} value={shotDraft.move} onChange={e=>{setShotDraft({...shotDraft, move:e.target.value});setCompiled('')}}><option value="">不指定</option>{['固定','缓缓推近','拉远','横移','跟拍','摇镜','升降','环绕','手持'].map(v=><option key={v} value={v}>{v}</option>)}</ThemedSelect></label>
             <label>光线<input aria-label="光线" disabled={Boolean(busy)} value={shotDraft.light} onChange={e=>{setShotDraft({...shotDraft, light:e.target.value});setCompiled('')}} placeholder="例如 窗外折射的柔和自然光" /></label>
             {/* 色调：留空 = 按整片配色卡的色调走；写了 = 这一镜有意识地破格（体检会盯"明显打架"的那种） */}
             <label>色调<input aria-label="色调" disabled={Boolean(busy)} value={shotDraft.tone} onChange={e=>{setShotDraft({...shotDraft, tone:e.target.value});setCompiled('')}} placeholder="留空就是整片配色；写了就是这一镜破格" /></label>

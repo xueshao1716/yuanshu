@@ -1,3 +1,4 @@
+import ThemedSelect from '../../components/ThemedSelect'
 import { useState } from 'react'
 import useSWR from 'swr'
 import { BookOpen, Library, Plus, Trash2 } from 'lucide-react'
@@ -57,14 +58,14 @@ export default function NovelShelf({ onOpen }: { onOpen: (id: string) => void })
           <input className="input-pi min-h-11 text-[13px]" placeholder="书名 *" value={form.title} onChange={e => setForm(f => ({ ...f, title: e.target.value }))} />
           <div className="grid grid-cols-1 sm:flex sm:flex-wrap gap-2">
             <label className="text-xs text-pi-dim flex flex-col sm:flex-row sm:items-center gap-1.5">题材
-              <select className="input-pi min-h-11 !py-2 text-xs w-full sm:w-24" value={form.genre} onChange={e => setForm(f => ({ ...f, genre: e.target.value }))}>
+              <ThemedSelect className="input-pi min-h-11 !py-2 text-xs w-full sm:w-24" value={form.genre} onChange={e => setForm(f => ({ ...f, genre: e.target.value }))}>
                 {GENRES.map(([k, l]) => <option key={k} value={k}>{l}</option>)}
-              </select>
+              </ThemedSelect>
             </label>
             <label className="text-xs text-pi-dim flex flex-col sm:flex-row sm:items-center gap-1.5">叙事
-              <select className="input-pi min-h-11 !py-2 text-xs w-full sm:w-24" value={form.narrator} onChange={e => setForm(f => ({ ...f, narrator: e.target.value }))}>
+              <ThemedSelect className="input-pi min-h-11 !py-2 text-xs w-full sm:w-24" value={form.narrator} onChange={e => setForm(f => ({ ...f, narrator: e.target.value }))}>
                 {NARRATORS.map(n => <option key={n}>{n}</option>)}
-              </select>
+              </ThemedSelect>
             </label>
           </div>
           <input className="input-pi min-h-11 text-[13px]" placeholder="主角设定（可选）" value={form.protagonist} onChange={e => setForm(f => ({ ...f, protagonist: e.target.value }))} />

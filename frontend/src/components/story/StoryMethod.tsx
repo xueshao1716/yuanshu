@@ -1,3 +1,4 @@
+import ThemedSelect from '../../components/ThemedSelect'
 import { useState } from 'react'
 import useSWR from 'swr'
 import { StoryApi } from '../../api'
@@ -77,10 +78,10 @@ export default function StoryMethod({ project, busy, onDone }: {
         套用后一键分镜与原著改编会照这套方法走。
       </p>
       <div className="story-method-pick">
-        <select aria-label="选择方法包" disabled={busy} value={pick || project.methodId || ''} onChange={e => setPick(e.target.value)}>
+        <ThemedSelect aria-label="选择方法包" disabled={busy} value={pick || project.methodId || ''} onChange={e => setPick(e.target.value)}>
           <option value="">看一个方法包…</option>
           {methods.map(m => <option key={m.id} value={m.id}>{m.name}（{sourceLabel[m.source] || m.source}）</option>)}
-        </select>
+        </ThemedSelect>
         <button className="btn-primary" disabled={busy || !pick} onClick={() => apply(pick)}>套用到本项目</button>
         {project.methodId && <button className="btn-ghost" disabled={busy} onClick={() => apply('')}>解除</button>}
       </div>

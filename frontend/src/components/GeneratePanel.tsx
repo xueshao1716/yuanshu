@@ -1,3 +1,4 @@
+import ThemedSelect from '../components/ThemedSelect'
 import { useState } from 'react'
 import { mutate } from 'swr'
 import { ImagePlus, X } from 'lucide-react'
@@ -55,7 +56,7 @@ export default function GeneratePanel({ onClose, onGenerated, prompt: promptProp
       ) : (
         <>
           <div className="flex flex-col sm:flex-row gap-2">
-            <select aria-label="绘图模型" disabled={busy} className="input-pi min-h-11 !py-2 text-xs w-full sm:max-w-[260px]" value={selectedModel ? selection : ''}
+            <ThemedSelect aria-label="绘图模型" disabled={busy} className="input-pi min-h-11 !py-2 text-xs w-full sm:max-w-[260px]" value={selectedModel ? selection : ''}
               onChange={e => setSelection(e.target.value)}>
               {!selectedModel && <option value="" disabled>所选模型已不可用，请重新选择</option>}
               {imageModels.map(m => (
@@ -63,10 +64,10 @@ export default function GeneratePanel({ onClose, onGenerated, prompt: promptProp
                   {m.name}（{m.provider}）{m.free ? ' · 免费' : ''}
                 </option>
               ))}
-            </select>
-            <select className="input-pi min-h-11 !py-2 text-xs w-full sm:w-36" value={size} onChange={e => setSize(e.target.value)}>
+            </ThemedSelect>
+            <ThemedSelect className="input-pi min-h-11 !py-2 text-xs w-full sm:w-36" value={size} onChange={e => setSize(e.target.value)}>
               {SIZE_OPTIONS.map(s => <option key={s} value={s}>{SIZE_LABEL[s]}</option>)}
-            </select>
+            </ThemedSelect>
           </div>
           <textarea className="input-pi text-[13px] resize-none min-h-[88px]" rows={3}
             placeholder="描述想要的画面… 写一句也可以，点智能填充再出图"

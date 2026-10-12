@@ -1,3 +1,4 @@
+import ThemedSelect from '../components/ThemedSelect'
 import { useEffect, useMemo, useState } from 'react'
 import { Database, RefreshCw, Search, Trash2, Pin, CheckSquare, Square, Pencil, ExternalLink, MessagesSquare, Brain } from 'lucide-react'
 import EmptyState from '../components/EmptyState'
@@ -169,18 +170,18 @@ export default function SessionDb() {
             <input value={q} onChange={e => setQ(e.target.value)} placeholder="搜名称或编号…" aria-label="搜索会话名称或编号"
               className="w-full input-pi !py-1.5 !pl-8 text-[13px]" />
           </div>
-          <select value={filter} onChange={e => setFilter(e.target.value)} aria-label="筛选会话健康状态" className="input-pi !py-1.5 text-[13px] w-24">
+          <ThemedSelect value={filter} onChange={e => setFilter(e.target.value)} aria-label="筛选会话健康状态" className="input-pi !py-1.5 text-[13px] w-24">
             <option value="">全部</option>
             <option value="ok">正常</option>
             <option value="large">偏大</option>
             <option value="oversized">超限</option>
-          </select>
-          <select value={sortMode} onChange={e => setSortMode(e.target.value as typeof sortMode)} aria-label="会话排序方式" className="input-pi !py-1.5 text-[13px] w-32">
+          </ThemedSelect>
+          <ThemedSelect value={sortMode} onChange={e => setSortMode(e.target.value as typeof sortMode)} aria-label="会话排序方式" className="input-pi !py-1.5 text-[13px] w-32">
             <option value="recent">最近更新</option>
             <option value="oldest">最早更新</option>
             <option value="seq-asc">编号升序</option>
             <option value="seq-desc">编号降序</option>
-          </select>
+          </ThemedSelect>
           <button onClick={rebuild} disabled={busy} className="btn-ghost text-xs px-3 py-1.5 inline-flex items-center gap-1.5">
             <RefreshCw className={`w-3.5 h-3.5 ${busy ? 'animate-spin' : ''}`} />重建索引
           </button>

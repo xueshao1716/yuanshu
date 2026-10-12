@@ -1,3 +1,4 @@
+import ThemedSelect from '../../components/ThemedSelect'
 import {useEffect,useState} from 'react'
 import type {Component,Editor} from 'grapesjs'
 import {Copy,Trash2,ArrowUp,Plus} from 'lucide-react'
@@ -27,8 +28,8 @@ export default function WebsiteInspector({editor,selected,onError}:{editor:Edito
       {selected.is('image')&&<><label>图片地址（HTTPS）<input value={source} onChange={e=>setSource(e.target.value)} onBlur={()=>{if(/^https:\/\//i.test(source))selected.addAttributes({src:source});else onError('图片地址需要以 https:// 开头')}}/></label><label>替换本机图片<input type="file" accept="image/png,image/jpeg,image/webp" onChange={e=>{const file=e.target.files?.[0];if(!file)return;if(!['image/png','image/jpeg','image/webp'].includes(file.type)||file.size>350000){onError('请选择小于 350KB 的 PNG、JPEG 或 WebP 图片；大图可用 HTTPS 地址');return}const target=selected,reader=new FileReader();reader.onload=()=>target.addAttributes({src:String(reader.result)});reader.onerror=()=>onError('图片读取失败');reader.readAsDataURL(file);e.target.value=''}}/></label><label>图片说明<input key={selected.getId()} defaultValue={selected.getAttributes().alt||''} onBlur={e=>selected.addAttributes({alt:e.target.value})}/></label></>}
       {selected.get('tagName')==='a'&&<label>跳转链接<input value={href} onChange={e=>setHref(e.target.value)} onBlur={()=>{if(safeLink(href))selected.addAttributes({href});else onError('链接请使用 HTTPS、锚点、邮箱或电话')}}/></label>}
       <div className="site-property-grid">{input('文字颜色','color','#ffffff')}{input('背景颜色','background-color','#172013')}{input('字号','font-size','48px')}{input('行高','line-height','1.4')}{input('内边距','padding','24px')}{input('外边距','margin','0')}{input('宽度','width','100%')}{input('最小高度','min-height','200px')}{input('圆角','border-radius','16px')}{input('元素间距','gap','24px')}</div>
-      <label>布局<select value={String(selected.getStyle().display||'')} onChange={e=>style('display',e.target.value)}><option value="">跟随原样式</option><option value="block">纵向区块</option><option value="flex">弹性排列</option><option value="grid">网格</option></select></label>
-      <label>对齐<select value={String(selected.getStyle()['text-align']||'')} onChange={e=>style('text-align',e.target.value)}><option value="">跟随原样式</option><option value="left">居左</option><option value="center">居中</option><option value="right">居右</option></select></label>
+      <label>布局<ThemedSelect value={String(selected.getStyle().display||'')} onChange={e=>style('display',e.target.value)}><option value="">跟随原样式</option><option value="block">纵向区块</option><option value="flex">弹性排列</option><option value="grid">网格</option></ThemedSelect></label>
+      <label>对齐<ThemedSelect value={String(selected.getStyle()['text-align']||'')} onChange={e=>style('text-align',e.target.value)}><option value="">跟随原样式</option><option value="left">居左</option><option value="center">居中</option><option value="right">居右</option></ThemedSelect></label>
     </>}
   </div>
 }

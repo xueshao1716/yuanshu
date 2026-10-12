@@ -1,3 +1,4 @@
+import ThemedSelect from '../components/ThemedSelect'
 import { useState } from 'react'
 import useSWR from 'swr'
 import type { LucideIcon } from 'lucide-react'
@@ -164,14 +165,14 @@ export default function EmailPanel() {
             </div>
             <div>
               <label className="block text-xs text-neutral-500 mb-1">服务商</label>
-              <select
+              <ThemedSelect
                 value={form.provider}
                 onChange={e => setForm(f => ({ ...f, provider: e.target.value as 'gmail' | 'outlook' }))}
                 className="w-full text-sm px-3 py-2 rounded-lg border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-900 text-neutral-800 dark:text-neutral-200 focus:outline-none focus:ring-2 focus:ring-blue-500/30"
               >
                 <option value="gmail">Gmail</option>
                 <option value="outlook">Outlook</option>
-              </select>
+              </ThemedSelect>
             </div>
           </div>
           <div>

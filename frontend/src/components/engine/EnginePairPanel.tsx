@@ -1,3 +1,4 @@
+import ThemedSelect from '../../components/ThemedSelect'
 import { useRef, useState } from 'react'
 import { ArrowLeftRight } from 'lucide-react'
 import { EngineApi } from '../../api'
@@ -30,10 +31,10 @@ export default function EnginePairPanel({ data, error, onReload }: { data?: Pair
       {(['primary', 'secondary'] as const).map((slot, index) => <div key={slot} className="flex items-end gap-3 flex-1 min-w-0">
         {index === 1 && <button type="button" title="对调主次引擎" aria-label="对调主次引擎" className="btn-ghost min-h-11 min-w-11 shrink-0" disabled={busy || !data || !!error} onClick={() => void save({ swap: true })}><ArrowLeftRight className="w-4 h-4" /></button>}
         <label className="block flex-1 min-w-0 text-sm text-pi-dim">{slot === 'primary' ? '主引擎' : '次引擎'}
-          <select className="input-pi mt-1 min-h-11" value={data?.[slot] || ''} disabled={busy || !data || !!error} onChange={e => pick(slot, e.target.value)}>
+          <ThemedSelect className="input-pi mt-1 min-h-11" value={data?.[slot] || ''} disabled={busy || !data || !!error} onChange={e => pick(slot, e.target.value)}>
             {!data && <option value="">加载中</option>}
             {catalog.map(e => <option key={e.id} value={e.id}>{e.label}{e.canLead ? '' : '（暂不能主驾）'}</option>)}
-          </select>
+          </ThemedSelect>
         </label>
       </div>)}
     </div>

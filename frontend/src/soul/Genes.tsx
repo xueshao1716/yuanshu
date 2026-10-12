@@ -1,3 +1,4 @@
+import ThemedSelect from '../components/ThemedSelect'
 import { useState } from 'react'
 import useSWR from 'swr'
 import { SoulApi } from './api'
@@ -18,7 +19,7 @@ export default function Genes({sessionId, busy, run}: Props) {
     </Block>
     <Block title="提出基线调整" hint="提案进入待审，不会立刻改人格；批准时核验证据。">
       <fieldset disabled={busy || !!state.error || !state.data} className="soul-form">
-        <label>培养维度<select value={gene} onChange={e => {setGene(e.target.value); setValue(String(state.data?.genes[e.target.value]?.baseline ?? ''))}}>{Object.keys(state.data?.genes || {}).map(key => <option key={key} value={key}>{geneLabels[key] || key}</option>)}</select></label>
+        <label>培养维度<ThemedSelect value={gene} onChange={e => {setGene(e.target.value); setValue(String(state.data?.genes[e.target.value]?.baseline ?? ''))}}>{Object.keys(state.data?.genes || {}).map(key => <option key={key} value={key}>{geneLabels[key] || key}</option>)}</ThemedSelect></label>
         <label>建议基线（0–1）<input type="number" min="0" max="1" step="0.01" value={value} onChange={e => setValue(e.target.value)} /></label>
         <label className="soul-wide">调整理由<textarea value={reason} maxLength={2000} onChange={e => setReason(e.target.value)} /></label>
         <label className="soul-wide">已有证据引用（每行一条）<textarea value={evidence} onChange={e => setEvidence(e.target.value)} placeholder="粘贴已有的 source-file 或 gene-event 引用" /></label>

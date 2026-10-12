@@ -1,3 +1,4 @@
+import ThemedSelect from '../../components/ThemedSelect'
 import { useEffect, useRef, useState } from 'react'
 import useSWR from 'swr'
 import { CultivationApi, cultivationPolling, type Design, type Overview, type Preflight } from './api'
@@ -43,9 +44,9 @@ export default function PolicyPreset({value,onAction,refresh}:{value:Overview;au
     <h4>小语的培养方案</h4>
     <p>小语在对话里设计方案并提交到这里，受限预设内的开启与暂停她自己执行。默认选中最新一版；这个按钮是你保留的显式通道——不想等她、或想当场核对范围时用。</p>
     <LoadState error={records.error} loading={records.isLoading} retry={()=>records.mutate()}/>
-    {rows.length>1&&<label>方案版本<select value={row?selected:''} onChange={e=>{setSelected(e.target.value);setPreflight(null)}}>
+    {rows.length>1&&<label>方案版本<ThemedSelect value={row?selected:''} onChange={e=>{setSelected(e.target.value);setPreflight(null)}}>
       {rows.map((d,i)=><option key={d.id} value={d.id}>{d.design.name} · 第 {i+1} 版{i===rows.length-1?'（最新）':''}</option>)}
-    </select></label>}
+    </ThemedSelect></label>}
     {records.data&&!rows.length&&<p>还没有方案。先让小语在对话里提交设计。</p>}
     {row&&!supported&&<p role="status">这份方案要的权限超出受限预设（工具、费用或数据范围），需要小语先收窄。</p>}
     {row&&<dl className="soul-facts">
