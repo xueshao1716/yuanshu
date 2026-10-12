@@ -8,6 +8,13 @@
 
 ## [Unreleased]
 
+## [Unreleased]
+
+## [2.127.7] - 2026-10-12
+
+### 修复与改进
+- **手机壳键盘遮输入框（回归修复）**：根因是上轮状态栏修复把 Capacitor SystemBars 的 insets 处理整关，连带把键盘 inset 兜底也关了；而 IME 修复链此前只落在 Tauri 包。现在 Capacitor MainActivity 直接读取 WindowInsets ime() 派发 `yuanshu-ime` 事件（物理像素换 CSS 像素），Manifest 补 `adjustResize`，与前端既有 viewport 控制器接上——Tauri/Capacitor 两壳同一契约。
+
 ## [2.127.6] - 2026-10-11
 
 ### 修复与改进

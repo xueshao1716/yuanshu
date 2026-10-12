@@ -20,6 +20,18 @@ test('Tauri Manifest 必须保留 adjustResize', () => {
   assert.match(manifest, /android:windowSoftInputMode="adjustResize"/)
 })
 
+test('Capacitor 手机壳（实际交付的 APK）必须有同一套 IME 契约——不能只管 Tauri', () => {
+  // 2026-10-12 回归：IME 修复只落在 Tauri 包，Capacitor 包没有；状态栏修复关闭 insetsHandling 后键盘直接盖输入框
+  const java = read('android', 'app', 'src', 'main', 'java', 'com', 'pixinyu', 'app', 'MainActivity.java')
+  assert.match(java, /WindowInsetsCompat\.Type\.ime\(\)/, '必须读取 Android IME WindowInsets')
+  assert.match(java, /ViewCompat\.setOnApplyWindowInsetsListener/, '必须监听 WebView 的 WindowInsets')
+  assert.match(java, /evaluateJavascript/, '必须把 IME 状态通知给 WebView')
+  assert.match(java, /yuanshu-ime/, '必须发送稳定的原生键盘事件名')
+  assert.match(java, /\/\s*safeDensity|density/, '物理像素必须换 CSS 像素')
+  const manifest = read('android', 'app', 'src', 'main', 'AndroidManifest.xml')
+  assert.match(manifest, /android:windowSoftInputMode="adjustResize"/, 'Capacitor manifest 必须保留 adjustResize')
+})
+
 test('前端必须消费原生 IME 高度且不与 visualViewport 双重缩短', () => {
   const viewport = read('frontend', 'src', 'lib', 'viewport.ts')
   const css = read('frontend', 'src', 'styles.css')
