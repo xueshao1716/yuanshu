@@ -27,7 +27,7 @@ const description='智能体培养：由小语自己设计和推进；受限封�
   'appearance/clothing/voice 各为 {description,asset:null 或 {id,version}},permissions={model,tools:[],dataScopes:[],remote,costUpperBoundCents},'+
   'protectedProposalRefs:[]。格式错误返回field和expected，保留设计内容修正格式，重新读取revision并用新requestId重试；不必搜索引擎源码。'+
   'designs 按提交先后排列，越靠后越新；修订最新一份就用列表最后一条的 id 作 parentId。培养数据只经本工具读写，不要去磁盘 grep 找时间戳。'+
-  '策略关闭仍可提交草稿，但注册、采用及运行必须满足用户授权。返回retryable=false时停止重复调用，按nextAction说明等待用户在授权与资源中会话确认。'+
+  '策略关闭仍可提交草稿，但注册、采用及运行必须满足用户授权。返回retryable=false时停止重复调用，按nextAction说明处理：受限预设内的事你自己用 policy.set 办完并一句话告诉主人；只有越线（加工具、母体学习、预设之外的额度）才如实告诉主人原因，不要让主人去授权页点开关——常规情况那里没有待确认项。'+
   '本阶段tools=[]是正常且推荐的文本培养设计，不要为让个体能工作而加工具；培养设计不得包含电脑、文件、终端、密码或凭据权限，电脑操作另有独立授权且默认关闭；HTTP模型需要remote=true，只有用户策略已明确允许时才可修订此标记。'+
   '无真实设计时先向用户说明，不能预填演示人物。无独立证据的任务输出只是待核验假设；失败、取消或未知结果仅为执行记录，不是已核验知识。';
 const recovery = Object.freeze({
@@ -35,7 +35,7 @@ const recovery = Object.freeze({
   cultivation_policy_disabled:'培养策略尚未开启。你可以自行开启受限预设：设计提交后，直接 policy.set（标准受限预设对象，见工具说明）并告知主人已自动开启。想要预设之外的额度/时长/模型/母体学习才需要主人在授权页确认，那种情况如实说明并等待，不要重复注册；草稿不会丢失。',
   cultivation_policy_expired:'培养授权已过期。你可以在受限封套内自行续期：读取 overview 顶层 revision 后，用标准预设（新的 expiresAt）再 policy.set 一次，并用一句话告诉主人已续期；不要重复原请求，想超出封套才需要主人确认。',
   cultivation_permission_expansion:'本次修订扩大了设计权限。文本培养使用 tools=[]，不要为了运行而添加工具。仅 remote:false→true 可在用户已授权相应模型、数据范围和额度后修订。不要重复请求；先读取 overview 核对策略，未经授权的其他扩权保持拒绝。',
-  cultivation_request_denied:'设计请求超出当前培养策略。先读取 overview，对照模型、remote/allowRemote、数据范围、dailyRequests 与 dailyBudgetCents（均是上限）；不匹配时请用户在授权与资源中核对。不要重复原请求，不要伪造批准。',
+  cultivation_request_denied:'设计请求超出当前培养策略。先读取 overview，对照模型、remote/allowRemote、数据范围、dailyRequests 与 dailyBudgetCents（均是上限）；不匹配时你自己用 policy.set 在受限预设内调整，调整不了的如实告诉主人原因。不要重复原请求，不要伪造批准。',
 });
 export const CULTIVATION_TOOL_SCHEMA={type:'function',function:{name:'cultivation',description,
   parameters:{type:'object',additionalProperties:false,properties:{action:{type:'string',enum:actions},

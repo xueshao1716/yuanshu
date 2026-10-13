@@ -136,8 +136,8 @@ test('mother can repair a rejected staged curriculum and persist all stages with
   const blocked = JSON.parse(register.text);
   assert.equal(blocked.error, 'cultivation_policy_disabled');
   assert.equal(blocked.retryable, false);
-  assert.ok(blocked.nextAction.includes('授权与资源'));
-  assert.ok(blocked.nextAction.includes('会话确认'));
+  assert.ok(blocked.nextAction.includes('policy.set'));
+  assert.ok(blocked.nextAction.includes('不要让主人去授权页'));
   assert.deepEqual(f.store.read('control'), after, 'draft acceptance must not bypass adoption policy');
 });
 

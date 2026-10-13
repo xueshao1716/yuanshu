@@ -149,7 +149,8 @@ const startServer = singleFlight(async function () {
     if (outBuf.length > 200) outBuf = outBuf.slice(-200);
   };
   // 2026-10-09 透传 LAN=1：让服务监听 0.0.0.0，手机客户端可通过局域网 IP 访问
-  const childEnv = Object.assign({}, process.env, { YUANSHU_LAN: '1', YUANSHU_CWD: 'D:\\pi-workspace' });
+  // 2026-10-14：工作区必须沿用服务原本所在的那个（灵魂/记忆/培养数据都在里面），绝不写死盘符
+  const childEnv = Object.assign({}, process.env, { YUANSHU_LAN: '1', YUANSHU_CWD: resolveWorkspace(process.env) });
   child = spawn(process.execPath, ["server.mjs"], { cwd: WEB_DIR, env: childEnv, stdio: ["ignore", "pipe", "pipe"], windowsHide: true });
   child.on('error', error => { log(`启动子进程失败: ${error.message}`); child = null; });
   child.stdout.on("data", pushOut);
@@ -234,7 +235,16 @@ function shouldRunMain(mainModule, self) {
   return /(^|\/)launcher\/service\.cjs$/.test(file);
 }
 
-module.exports = { decideRollback, serverSyntaxOk, rollbackServer, shouldRunMain, ROLLBACK_AFTER, ENV_ERROR_RE, CODE_ERROR_RE };
+// 与 engine/workspace-default.mjs 同一套探测顺序；已显式给了 YUANSHU_CWD 就原样沿用。
+function resolveWorkspace(env = process.env, { isDirectory = (p) => { try { return fs.statSync(p).isDirectory(); } catch { return false; } },
+  home = require("os").homedir(), platform = process.platform } = {}) {
+  if (env.YUANSHU_CWD) return env.YUANSHU_CWD;
+  const own = path.join(env.USERPROFILE || home, "pi-workspace");
+  const candidates = platform === "win32" ? ["D:\\pi-workspace", "E:\\pi-workspace", "C:\\pi-workspace", own] : [own];
+  return candidates.find(isDirectory) || own;
+}
+
+module.exports = { resolveWorkspace, decideRollback, serverSyntaxOk, rollbackServer, shouldRunMain, ROLLBACK_AFTER, ENV_ERROR_RE, CODE_ERROR_RE };
 
 if (shouldRunMain(require.main, module)) {
   main().catch((e) => { log("watchdog 启动失败: " + String((e && e.stack) || e)); process.exit(1); });
