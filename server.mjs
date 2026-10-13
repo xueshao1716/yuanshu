@@ -207,6 +207,18 @@ const { createWechatBridge, createLoopbackChat } = await import('./engine/wechat
 const emailBridge = await import('./engine/email-bridge.mjs');
 const { createMcpManager, mcpToolToSchema, mcpToolName } = await import('./engine/mcp-client.mjs');
 const mcpManager = createMcpManager({ wsRoot: () => WS_ROOT }); // 延迟求值：WS_ROOT 在 initWorkspaceApi 后才有值
+
+// 反馈收集收件箱（2026-10-13）：分发出去的主机提交 bug/改进意见 → 服务器落盘，系统页查看
+let shellVersion = CONFIG.version || "";
+if (!shellVersion) { try { shellVersion = JSON.parse(fs.readFileSync(path.join(__dirname, "version.json"), "utf8")).version || ""; } catch {} }
+const { createFeedbackStore } = await import("./engine/feedback.mjs");
+const feedbackStore = createFeedbackStore({
+  wsRoot: () => WS_ROOT,
+  version: shellVersion,
+  readCrashTail: () => {
+    try { return fs.readFileSync(path.join(__dirname, "crash.log"), "utf8").slice(-4000); } catch { return ""; }
+  },
+});
 const { buildSoulGraph, readMemoryFiles } = await import('./engine/soul-graph.mjs');
 const { soulContextPrompt } = await import('./engine/soul-context.mjs');
 const { createCompanionDecision } = await import('./engine/companion-decision.mjs');
@@ -2501,6 +2513,19 @@ const API_ROUTES = [
   }],
   // MCP 外部 server 管理，2026-10-08
   ["GET", "/api/mcp/status", (res) => json(res, 200, { servers: mcpManager.status() })],
+  // ── 反馈收集（2026-10-13）：bug 报告 / 改进意见，分发出去的主机提交到工作台服务器 ──
+  ["POST", "/api/feedback", async (res, req) => {
+    const b = await readBody(req, 8);
+    const r = feedbackStore.add({ type: b?.type, title: b?.title, detail: b?.detail, contact: b?.contact, withDiagnostics: !!b?.withDiagnostics, env: b?.env || null });
+    if (r.error) return json(res, 400, { error: r.error });
+    json(res, 200, { ok: true, id: r.item.id });
+  }],
+  ["GET", "/api/feedback", (res) => json(res, 200, { items: feedbackStore.list() })],
+  ["PATCH", /^\/api\/feedback\/([^/]+)$/, async (res, req, url, m) => {
+    const b = await readBody(req, 1);
+    const r = feedbackStore.mark(m[1], String(b?.status || ""));
+    json(res, r.error ? (r.error === "not_found" ? 404 : 400) : 200, r.error ? { error: r.error } : { ok: true });
+  }],
   ["GET", "/api/mcp/config", (res) => json(res, 200, { servers: mcpManager.load() })],
   ["POST", "/api/mcp/config", async (res, req) => {
     const body = await readBody(req, 4);
