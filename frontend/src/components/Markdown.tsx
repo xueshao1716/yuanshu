@@ -1,6 +1,6 @@
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
-import { useEffect, useRef, useState } from 'react'
+import { memo, useEffect, useRef, useState } from 'react'
 import { Maximize2, X } from 'lucide-react'
 import { highlightCode, highlightAuto } from '../lib/highlight'
 import GenUIBlock from './GenUI'
@@ -143,7 +143,7 @@ function TableBlock({ children }: { children?: React.ReactNode }) {
   )
 }
 
-export default function Markdown({ text }: { text: string }) {
+function Markdown({ text }: { text: string }) {
   return (
     <div className="markdown-body text-[15px] leading-relaxed">
       <ReactMarkdown remarkPlugins={[remarkGfm]}
@@ -193,3 +193,5 @@ export default function Markdown({ text }: { text: string }) {
     </div>
   )
 }
+
+export default memo(Markdown)

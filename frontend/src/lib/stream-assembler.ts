@@ -137,7 +137,13 @@ export class StreamAssembler {
     this.flushTimer = setTimeout(() => {
       this.flushTimer = null
       this.flushNow()
-    }, this.flushDelayMs)
+    }, this.flushDelayMs * this.backoff())
+  }
+
+  // 每次刷新都会让 Markdown 重新解析整段文本；文本越长越贵，所以越长刷得越稀（短文本仍是 1 帧）
+  private backoff() {
+    const n = this.preToolText.length + this.conclusion.length + this.think.length
+    return n > 20000 ? 8 : n > 8000 ? 5 : n > 3000 ? 3 : 1
   }
 
   /** 完整状态快照：text 恒为完整逻辑文本，渲染分区不丢内容 */

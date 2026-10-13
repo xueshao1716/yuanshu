@@ -141,3 +141,14 @@ test('flushNow 后缓冲清空，无新事件时不再触发 flush', () => {
   assert.equal(flushes.length, 1)
   asm.dispose()
 })
+
+test('长文本放慢合帧：避免每 16ms 重解析整段 Markdown', async () => {
+  const flushes = []
+  const asm = new StreamAssembler(snap => flushes.push(snap), { flushDelayMs: 16 })
+  asm.addDelta('x'.repeat(9000))
+  await new Promise(r => setTimeout(r, 40))
+  assert.equal(flushes.length, 0, '9000 字时 40ms 内不应刷新（退避 5 倍=80ms）')
+  await new Promise(r => setTimeout(r, 80))
+  assert.equal(flushes.length, 1)
+  asm.dispose?.()
+})
