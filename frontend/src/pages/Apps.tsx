@@ -1,6 +1,6 @@
 import ThemedSelect from '../components/ThemedSelect'
 import { useState } from 'react'
-import { FlaskConical, Puzzle, StickyNote, TrendingUp, Sprout, Dna, Check, ChevronDown, ChevronRight, Loader2, HeartPulse, Archive as ArchiveIcon, Search, Laptop, Globe2, Package, SlidersHorizontal } from 'lucide-react'
+import { FlaskConical, Puzzle, StickyNote, TrendingUp, Sprout, Dna, Database, Check, ChevronDown, ChevronRight, Loader2, HeartPulse, Archive as ArchiveIcon, Search, Laptop, Globe2, Package, SlidersHorizontal } from 'lucide-react'
 import EmptyState from '../components/EmptyState'
 import PageHeader from '../components/PageHeader'
 import SectionHeader from '../components/SectionHeader'
@@ -13,10 +13,11 @@ import MechanismExperimentPanel from '../components/MechanismExperimentPanel'
 import TaskEvidencePanel from '../components/TaskEvidencePanel'
 import EvolutionReview from '../components/EvolutionReview'
 import LearningIntakePanel from '../components/LearningIntakePanel'
+import MemoryPanel from '../components/MemoryPanel'
 
 // ── 应用中心（Phase 3）：经验沉淀台 / 技能库 / 提示词库 / 改进提案 ──
 
-type Tab = 'refine' | 'skills' | 'prompts' | 'improve' | 'gardener' | 'evolution'
+type Tab = 'refine' | 'skills' | 'prompts' | 'memorydb' | 'improve' | 'gardener' | 'evolution'
 type Tool = { key: Tab; icon: LucideIcon; label: string; description: string }
 
 const TOOL_GROUPS: { label: string; tools: Tool[] }[] = [
@@ -26,6 +27,7 @@ const TOOL_GROUPS: { label: string; tools: Tool[] }[] = [
       { key: 'refine', icon: FlaskConical, label: '经验沉淀台', description: '从近期工作中提炼、审核并应用可复用经验。' },
       { key: 'skills', icon: Puzzle, label: '技能库', description: '检索工作台已经收录的技能与能力说明。' },
       { key: 'prompts', icon: StickyNote, label: '提示词库', description: '浏览、展开并复制可复用的提示词资产。' },
+      { key: 'memorydb', icon: Database, label: '记忆库', description: '中长期记忆资产管理：浏览、过滤、编辑、删除元枢跨会话记忆（向量检索+结构化表格）。' },
     ],
   },
   {
@@ -326,6 +328,7 @@ export default function Apps() {
             <SectionHeader title={currentTool.label} description={currentTool.description} icon={currentTool.icon} />
             <div key={tab} className="page-enter">
               {tab === 'refine' && <RefineView />}
+              {tab === 'memorydb' && <MemoryPanel />}
               {tab === 'skills' && <SkillsView />}
               {tab === 'prompts' && <PromptsView />}
               {tab === 'improve' && <ImproveView />}
