@@ -1,12 +1,12 @@
 import { useEffect, useRef, useState } from 'react'
 import {
-  Activity, BrainCircuit, ClipboardCheck, Cpu, Database, Download, Factory, FolderKanban,
+  Activity, BrainCircuit, ClipboardCheck, Cpu, Factory, FolderKanban,
   Globe2, LayoutDashboard, LayoutGrid, LogOut, MonitorCog, PackageCheck, Palette, PanelRight, ShieldCheck, Sparkles, Workflow,
   TerminalSquare, X,
 } from 'lucide-react'
 import ProfileManager from './ProfileManager'
 import type { Route } from '../hooks/useHashRoute'
-import { ROUTE_LABELS } from '../nav'
+import { ROUTE_LABELS, railOwner } from '../nav'
 
 export type UtilityPanelKey = 'workspace' | 'deliveries' | 'terminal' | 'activity' | 'tui' | 'inspect'
 
@@ -17,14 +17,11 @@ const MORE_ROUTES: { route: Route; icon: typeof Sparkles; label: string }[] = [
   { route: 'soul', icon: Sparkles, label: ROUTE_LABELS.soul },
   { route: 'grants', icon: ShieldCheck, label: ROUTE_LABELS.grants },
   { route: 'board', icon: LayoutDashboard, label: ROUTE_LABELS.board },
-  { route: 'lingxi', icon: Sparkles, label: ROUTE_LABELS.lingxi },
   { route: 'workshop', icon: Factory, label: ROUTE_LABELS.workshop },
   { route: 'models', icon: BrainCircuit, label: ROUTE_LABELS.models },
   { route: 'apps', icon: LayoutGrid, label: ROUTE_LABELS.apps },
   { route: 'engine', icon: Cpu, label: ROUTE_LABELS.engine },
   { route: 'themes', icon: Palette, label: ROUTE_LABELS.themes },
-  { route: 'sessiondb', icon: Database, label: ROUTE_LABELS.sessiondb },
-  { route: 'downloads', icon: Download, label: ROUTE_LABELS.downloads },
   { route: 'system', icon: MonitorCog, label: ROUTE_LABELS.system },
 ]
 
@@ -118,8 +115,8 @@ export default function MobileMoreMenu({ open, onClose, route, nav, onOpenPanel,
             {MORE_ROUTES.map(item => (
               <button
                 key={item.route}
-                className={`mobile-more-action flex-col gap-1 rounded-pi-md px-1 text-xs ${route === item.route ? 'bg-pi-accent/10 text-pi-text' : 'text-pi-dim hover:bg-pi-bg3 hover:text-pi-text'}`}
-                aria-current={route === item.route ? 'page' : undefined}
+                className={`mobile-more-action flex-col gap-1 rounded-pi-md px-1 text-xs ${railOwner(route) === item.route ? 'bg-pi-accent/10 text-pi-text' : 'text-pi-dim hover:bg-pi-bg3 hover:text-pi-text'}`}
+                aria-current={railOwner(route) === item.route ? 'page' : undefined}
                 onClick={() => openRoute(item.route)}
               >
                 <item.icon className="h-5 w-5" strokeWidth={1.8} />

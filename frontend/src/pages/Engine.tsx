@@ -1,5 +1,5 @@
-import { useRef, useState } from 'react'
-import { Activity, Boxes, CheckCircle2, ChevronDown, LoaderCircle, RefreshCw, SlidersHorizontal, SquareTerminal, Wrench } from 'lucide-react'
+import { useEffect, useRef, useState } from 'react'
+import { Activity, Boxes, CheckCircle2, ChevronDown, LoaderCircle, RefreshCw, SlidersHorizontal, SquareTerminal, Wrench, Plug } from 'lucide-react'
 import useSWR from 'swr'
 import { EngineApi, RunApi } from '../api'
 import { useApp } from '../store'
@@ -9,13 +9,16 @@ import EnginePairPanel from '../components/engine/EnginePairPanel'
 import EngineTools from '../components/engine/EngineTools'
 import EngineGatewayPanels from '../components/engine/EngineGatewayPanels'
 import EngineRunDiagnostics from '../components/engine/EngineRunDiagnostics'
+import McpPanel from '../components/McpPanel'
 
-export default function Engine() {
+export default function Engine({ openMcp = false }: { openMcp?: boolean } = {}) {
   const { currentModel, selectSession } = useApp()
   const { data: status, error: statusError, mutate: mutateStatus, isValidating } = useSWR('engine-status', () => EngineApi.status(), { refreshInterval: 60000 })
   const { data: toolsData, error: toolsError, mutate: mutateTools } = useSWR('engine-tools', () => EngineApi.tools(), { refreshInterval: 60000 })
   const { data: pair, error: pairError, mutate: mutatePair } = useSWR('engine-pair', () => EngineApi.pair(), { refreshInterval: 60000 })
   const { data: runData, error: runError, mutate: mutateRuns } = useSWR('engine-run-overview', () => RunApi.overview(), { refreshInterval: 10000 })
+  const mcpRef = useRef<HTMLDetailsElement>(null)
+  useEffect(() => { if (openMcp && mcpRef.current) mcpRef.current.open = true }, [openMcp])
   const [refreshing, setRefreshing] = useState(false)
   const refreshingRef = useRef(false)
   const [refreshError, setRefreshError] = useState('')
@@ -101,6 +104,10 @@ export default function Engine() {
         <details className="engine-detail" name="engine-section">
           <summary><Wrench aria-hidden="true" /><span className="engine-detail-title">工具目录</span><span className="engine-detail-hint">{toolsUnavailable ? '暂不可用' : toolsData ? `${toolCount} 个已注册` : '加载中'}</span><ChevronDown className="engine-detail-chevron" aria-hidden="true" /></summary>
           <div className="engine-detail-content"><EngineTools data={toolsData} error={toolsError || refreshFailed.tools} /></div>
+        </details>
+        <details className="engine-detail" name="engine-section" ref={mcpRef}>
+          <summary><Plug aria-hidden="true" /><span className="engine-detail-title">MCP 外部工具</span><span className="engine-detail-hint">桌面控制、文件、截图等外部 server</span><ChevronDown className="engine-detail-chevron" aria-hidden="true" /></summary>
+          <div className="engine-detail-content"><McpPanel /></div>
         </details>
         <details className="engine-detail" name="engine-section">
           <summary><Boxes aria-hidden="true" /><span className="engine-detail-title">Gateway 与旁路</span><span className="engine-detail-hint">{statusUnavailable ? '暂不可用' : status ? `${mountedPluginCount} 个插件已挂载` : '加载中'}</span><ChevronDown className="engine-detail-chevron" aria-hidden="true" /></summary>

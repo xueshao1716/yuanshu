@@ -117,7 +117,7 @@ function SourceColumn({ source, icon: Icon, title, hint, entries, filter, onChan
   )
 }
 
-export default function LingXi() {
+export default function LingXi({ embedded = false }: { embedded?: boolean } = {}) {
   const [filter, setFilter] = useState<Filter>('all')
   const [draft, setDraft] = useState('')
   const [draftSource, setDraftSource] = useState<LingXiSource>('user')
@@ -137,10 +137,12 @@ export default function LingXi() {
   const aiEntries = entries.filter(e => e.source === 'xiaoyu')
 
   return (
-    <div className="flex-1 min-h-0 overflow-y-auto page-enter">
-      <div className="max-w-6xl mx-auto px-4 sm:px-6 py-6">
+    <div className={embedded ? "" : "flex-1 min-h-0 overflow-y-auto page-enter"}>
+      <div className={embedded ? "" : "max-w-6xl mx-auto px-4 sm:px-6 py-6"}>
+        {!embedded && <>
         <h1 className="page-title mb-1">灵犀</h1>
         <p className="text-xs text-pi-dim2 mb-5">心有灵犀——灵感分源速记，攒着一起过。有用的采纳展开工作，没用的归档。</p>
+        </>}
 
         {/* 快速记 */}
         <div className="panel !p-3 mb-5">

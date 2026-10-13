@@ -88,7 +88,8 @@ test('移动底栏固定为对话、会话、资产、任务、更多，且删�
 
 test('更多菜单承载设置路由和辅助面板，并提供可访问状态', () => {
   const menu = read('components', 'MobileMoreMenu.tsx')
-  for (const route of ['board', 'lingxi', 'workshop', 'models', 'apps', 'engine', 'themes', 'sessiondb', 'system']) {
+  // 灵感/会话库/下载/MCP 已并入知识/工作台/资产/能力（深链别名仍在 AppLayout），不再单列
+  for (const route of ['board', 'workshop', 'models', 'apps', 'engine', 'themes', 'system']) {
     assert.ok(menu.includes(`route: '${route}'`), `更多菜单缺少 ${route} 路由`)
   }
   for (const panel of ['workspace', 'deliveries', 'terminal', 'activity', 'tui']) {
@@ -454,7 +455,7 @@ test('助手配图必须在正文后面，不能插在思考过程和工具卡�
 
 test('移动更多菜单当前项在主题底色上使用主文字色，避免同色吞字', () => {
   const moreMenu = read('components', 'MobileMoreMenu.tsx')
-  assert.match(moreMenu, /route === item\.route \? 'bg-pi-accent\/10 text-pi-text'/, '当前菜单项必须使用中性高对比文字色')
+  assert.match(moreMenu, /railOwner\(route\) === item\.route \? 'bg-pi-accent\/10 text-pi-text'/, '当前菜单项必须使用中性高对比文字色')
 })
 
 test('助手消息装饰层保持低存在感半透明，不能压过长正文', () => {

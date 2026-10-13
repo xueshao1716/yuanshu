@@ -11,6 +11,7 @@ import Authorization, { type Action } from '../soul/cultivation/Authorization'
 import { KnowledgeApi, knowledgePolling } from '../knowledge/api'
 import KnowledgePolicy from '../knowledge/KnowledgePolicy'
 import SandboxModePanel from '../components/engine/SandboxModePanel'
+import MaintenanceModePanel from '../components/engine/MaintenanceModePanel'
 import ComputerUsePanel from '../components/ComputerUsePanel'
 import '../soul/soul.css'
 import '../soul/cultivation/cultivation.css'
@@ -97,7 +98,10 @@ export default function Grants() {
           </>}
           {area === 'cultivation' && <CultivationGrants sessionId={sessionId} />}
           {area === 'knowledge' && <KnowledgeGrants />}
-          {area === 'session' && <SandboxModePanel sessionId={sessionId} />}
+          {area === 'session' && <div className="space-y-4">
+            <SandboxModePanel sessionId={sessionId} />
+            <MaintenanceModePanel sessionId={sessionId} />
+          </div>}
           {area === 'desktop' && <ComputerUsePanel />}
         </main>
       </div>

@@ -54,7 +54,7 @@ function compareRows(a: Row, b: Row) {
   return a.id.localeCompare(b.id)
 }
 
-export default function SessionDb() {
+export default function SessionDb({ embedded = false }: { embedded?: boolean } = {}) {
   const { selectSession, currentSessionId } = useApp()
   const [rows, setRows] = useState<Row[]>([])
   const [stats, setStats] = useState<Stats | null>(null)
@@ -151,17 +151,23 @@ export default function SessionDb() {
   const hcls = (h: string) => HEALTH[h]?.cls || HEALTH.ok.cls
 
   return (
-    <div className="h-full overflow-y-auto session-db-page">
-    <div className="session-db-reading mx-auto px-4 sm:px-6 py-5 sm:py-7">
-        <PageHeader
-          title="会话数据库"
-          description="按稳定编号查看会话体量与健康状态，并对选中会话执行安全清理。"
-          meta={stats ? (
-            <div className="text-[11px] text-pi-dim2">
-              共 <b className="text-pi-text">{stats.total}</b> 条 · 占用 <b className="text-pi-text">{stats.totalMB}MB</b> · 正常 {stats.health.ok} / 偏大 {stats.health.large} / 超限 {stats.health.oversized}
-            </div>
-          ) : <span className="text-[11px] text-pi-dim2">加载中…</span>}
-        />
+    <div className={embedded ? "session-db-page" : "h-full overflow-y-auto session-db-page"}>
+    <div className={embedded ? "session-db-reading" : "session-db-reading mx-auto px-4 sm:px-6 py-5 sm:py-7"}>
+        {embedded
+          ? <div className="mb-3">{stats ? (
+            <div className="text-[11px] text-pi-dim2">
+              共 <b className="text-pi-text">{stats.total}</b> 条 · 占用 <b className="text-pi-text">{stats.totalMB}MB</b> · 正常 {stats.health.ok} / 偏大 {stats.health.large} / 超限 {stats.health.oversized}
+            </div>
+          ) : <span className="text-[11px] text-pi-dim2">加载中…</span>}</div>
+          : <PageHeader
+          title="会话数据库"
+          description="按稳定编号查看会话体量与健康状态，并对选中会话执行安全清理。"
+          meta={stats ? (
+            <div className="text-[11px] text-pi-dim2">
+              共 <b className="text-pi-text">{stats.total}</b> 条 · 占用 <b className="text-pi-text">{stats.totalMB}MB</b> · 正常 {stats.health.ok} / 偏大 {stats.health.large} / 超限 {stats.health.oversized}
+            </div>
+          ) : <span className="text-[11px] text-pi-dim2">加载中…</span>}
+        />}
 
         {/* 工具条 */}
         <div className="session-db-toolbar flex flex-wrap items-center gap-2 mb-4">

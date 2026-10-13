@@ -3,7 +3,7 @@ import { useEffect, useMemo, useState } from 'react'
 import useSWR from 'swr'
 import {MessagesSquare, Clock4, Wallet, Activity as ActivityIcon, Package,
   Play, Pause, CheckCircle2, AlertTriangle, ArrowRight,
-  LayoutDashboard, GitCompare, Users } from 'lucide-react'
+  LayoutDashboard, GitCompare, Users, Database } from 'lucide-react'
 import { api, SessionsApi, TasksApi, StatsApi, WsApi, SubagentApi, EmotionApi, RunApi, type TimeTask } from '../api'
 import { useApp } from '../store'
 import { useEmotionSummary } from '../lib/useEmotionSummary'
@@ -18,6 +18,7 @@ import { ReviewPanel } from './ReviewWorkbench'
 import { PendingChanges } from '../components/PendingChanges'
 import { HistoryPanel } from '../components/HistoryPanel'
 import { TeamRunView } from '../components/TeamRunView'
+import SessionDb from './SessionDb'
 import BoardWelcome, { BoardShortcuts } from '../components/board/BoardWelcome'
 import BoardFocus from '../components/board/BoardFocus'
 import { chooseResumeSession } from '../lib/board-home-state.mjs'
@@ -113,12 +114,13 @@ function UsageChart({ days }: { days: { label: string; input: number; output: nu
   )
 }
 
-type BoardView = 'overview' | 'review' | 'team'
+type BoardView = 'overview' | 'sessions' | 'review' | 'team'
 
 // 页内多视图（沿用 Apps.tsx 的模式）：概览 = 运行态总览；改动验收 = 原独立页，
 // 因其板块与工作台重复（近期工作说明、子智能体记录）而并入，不再占独立主栏入口。
 const BOARD_VIEWS: { key: BoardView; label: string; icon: typeof MessagesSquare }[] = [
   { key: 'overview', label: '概览', icon: LayoutDashboard },
+  { key: 'sessions', label: '会话库', icon: Database },
   { key: 'review', label: '改动验收', icon: GitCompare },
   { key: 'team', label: '天团', icon: Users },   // 多AI角色扮演系统：运行态只读窗口
 ]
@@ -207,6 +209,8 @@ export default function Board({ initialView = 'overview' }: { initialView?: Boar
         </>}
 
         {view === 'team' && <TeamRunView />}
+
+        {view === 'sessions' && <SessionDb embedded />}
 
         {view === 'overview' && <>
         <div className="board-home">

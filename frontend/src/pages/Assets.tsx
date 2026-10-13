@@ -1,6 +1,7 @@
 import { useMemo, useState } from 'react'
 import useSWR from 'swr'
-import { Download } from 'lucide-react'
+import { Download, Images } from 'lucide-react'
+import Downloads from './Downloads'
 import PageHeader from '../components/PageHeader'
 import Gallery from '../components/Gallery'
 import { WsApi, withFileToken, downloadApiFile } from '../api'
@@ -11,7 +12,8 @@ import AssetCollection from '../components/assets/AssetCollection'
 import AssetPreview from '../components/assets/AssetPreview'
 import AssetDetails from '../components/assets/AssetDetails'
 
-export default function Assets() {
+export default function Assets({ initialView = 'library' }: { initialView?: 'library' | 'downloads' } = {}) {
+  const [view, setView] = useState<'library' | 'downloads'>(initialView)
   const { data: artData, error: artifactsError, isLoading: artifactsLoading, mutate: mutateArtifacts } = useSWR('artifacts', () => WsApi.artifacts(), { revalidateOnFocus: false, dedupingInterval: 10000 })
   const { data: delData, error: deliveriesError, isLoading: deliveriesLoading, mutate: mutateDeliveries } = useSWR('deliveries', () => WsApi.deliveries(), { revalidateOnFocus: false, dedupingInterval: 60000 })
   const [selectedAsset, setSelectedAsset] = useState<AssetItem | null>(null)
@@ -71,7 +73,17 @@ export default function Assets() {
   return (
     <div className="assets-page flex-1 overflow-y-auto relative z-10">
       <div className="assets-page__inner max-w-7xl mx-auto px-4 sm:px-6 py-5 sm:py-6">
-        <PageHeader title="资产库" description="生成物与交付物集中浏览，按项目、类型和时间快速定位" meta={<span>{allAssets.length} 项资产{selectedAsset ? ` · 已选 ${selectedAsset.name}` : ''}</span>} actions={<button type="button" className="btn-ghost text-xs px-3 min-h-10 inline-flex items-center gap-1.5" onClick={() => { location.hash = '#/downloads' }}><Download className="w-3.5 h-3.5" />下载中心</button>} />
+        <PageHeader title="资产库" description="生成物与交付物集中浏览，按项目、类型和时间快速定位" meta={<span>{allAssets.length} 项资产{selectedAsset ? ` · 已选 ${selectedAsset.name}` : ''}</span>} />
+
+        <nav aria-label="资产视图" className="flex items-center gap-1 mb-4">
+          {([['library', '资产库', Images], ['downloads', '下载记录', Download]] as const).map(([key, label, Icon]) => (
+            <button key={key} type="button" aria-current={view === key ? 'page' : undefined} onClick={() => setView(key)}
+              className={`min-h-10 px-3 rounded-pi-md inline-flex items-center gap-2 text-[13px] transition-colors ${view === key ? 'nav-active font-medium' : 'text-pi-dim hover:text-pi-text hover:bg-pi-bg-hover'}`}>
+              <Icon className="w-4 h-4" strokeWidth={1.8} aria-hidden="true" /><span>{label}</span>
+            </button>
+          ))}
+        </nav>
+        {view === 'downloads' ? <Downloads embedded /> : <>
         <Gallery />
         <AssetToolbar counts={{ total: allAssets.length, visible: filteredAssets.length, selected: selectedAsset ? 1 : 0 }} filters={{ kind, timeRange, project, search, order }} projects={projects} onKindChange={setKind} onTimeChange={setTimeRange} onProjectChange={setProject} onSearchChange={setSearch} onOrderChange={setOrder} onClear={clearFilters} />
         {feedback && <div className={`asset-feedback asset-feedback--${feedback.tone}`} role="status">{feedback.text}</div>}
@@ -83,6 +95,7 @@ export default function Assets() {
           {selectedAsset && <button type="button" className="asset-details-backdrop" aria-label="关闭资产详情" onClick={closeDetails} />}
           <AssetDetails item={selectedAsset} onRename={renameAsset} onDelete={deleteAsset} onDownload={downloadAsset} onOpen={openAsset} onPreview={setPreviewAsset} onClose={closeDetails} />
         </div>
+        </>}
       </div>
       <AssetPreview item={previewAsset} onClose={closePreview} onAction={action => previewAsset && (action === 'open' ? openAsset(previewAsset) : downloadAsset(previewAsset))} />
     </div>

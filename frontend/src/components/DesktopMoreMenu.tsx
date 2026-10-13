@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { Ellipsis } from 'lucide-react'
 import * as Menu from '@radix-ui/react-dropdown-menu'
 import type { Route } from '../hooks/useHashRoute'
-import { RAIL_MORE } from '../nav'
+import { RAIL_MORE, railOwner } from '../nav'
 
 export default function DesktopMoreMenu({
   items,
@@ -14,7 +14,7 @@ export default function DesktopMoreMenu({
   nav: (r: Route) => void
 }) {
   const [open, setOpen] = useState(false)
-  const moreActive = (RAIL_MORE as readonly string[]).includes(route)
+  const moreActive = (RAIL_MORE as readonly string[]).includes(railOwner(route))
 
   return (
     <Menu.Root open={open} onOpenChange={setOpen}>

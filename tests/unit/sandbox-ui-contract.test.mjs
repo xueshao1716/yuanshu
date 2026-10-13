@@ -12,8 +12,11 @@ test('sandbox panel isolates cache, remounts, locks concurrent changes and handl
   for (const required of ["['sandbox-mode', sessionId]", 'key={currentSessionId}', 'disabled={!!busy || active}', 'role="alert"', '重新读取', '请先选择一个会话', '界面/API 记录']) assert.ok(panel.includes(required), required);
   // 2026-10（1cf67db1）：沙箱与超维拆成两张独立卡片，各自直接挂在系统页，不再互嵌
   assert.ok(!panel.includes('<MaintenanceModePanel'), '沙箱面板不得再内嵌超维面板（已拆分）');
+  // 2026-10 功能板块整理：两张卡片集中到授权中心「本会话执行权限」，系统页不再重复放
+  const grants = read('frontend/src/pages/Grants.tsx');
+  assert.ok(grants.includes('<SandboxModePanel') && grants.includes('<MaintenanceModePanel'), '授权中心必须分别渲染沙箱与超维两张卡片');
   const system = read('frontend/src/pages/System.tsx');
-  assert.ok(system.includes('<SandboxModePanel') && system.includes('<MaintenanceModePanel'), '系统页必须分别渲染沙箱与超维两张卡片');
+  assert.ok(!system.includes('<SandboxModePanel') && !system.includes('<MaintenanceModePanel'), '系统页不得重复渲染沙箱/超维面板');
 });
 test('maintenance UI requests human approval but cannot directly grant permissions', () => {
   const panel = read('frontend/src/components/engine/MaintenanceModePanel.tsx');

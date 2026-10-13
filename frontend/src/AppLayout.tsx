@@ -16,7 +16,7 @@ import CommandPalette from './components/CommandPalette'
 import MobileMoreMenu, { type UtilityPanelKey } from './components/MobileMoreMenu'
 import DesktopMoreMenu from './components/DesktopMoreMenu'
 import UtilityPanel from './components/UtilityPanel'
-import { RAIL_MORE, RAIL_PRIMARY, ROUTE_LABELS } from './nav'
+import { RAIL_MORE, RAIL_PRIMARY, ROUTE_LABELS, railOwner } from './nav'
 import * as T from '@radix-ui/react-tooltip'
 import { applyWallpaper, currentWallpaper } from './theme/wallpaper.mjs'
 import { installVisualViewportHeight } from './lib/viewport'
@@ -26,17 +26,13 @@ import { useThemePreferences } from './hooks/useThemePreferences'
 const ModelHub = lazy(() => import('./pages/ModelHub'))
 const Assets = lazy(() => import('./pages/Assets'))
 const Tasks = lazy(() => import('./pages/Tasks'))
-const Downloads = lazy(() => import('./pages/Downloads'))
 const Apps = lazy(() => import('./pages/Apps'))
-const McpPage = lazy(() => import('./pages/McpPage'))
 const EnginePage = lazy(() => import('./pages/Engine'))
-const LingXiPage = lazy(() => import('./pages/LingXi'))
 const BoardPage = lazy(() => import('./pages/Board'))
 const SystemPage = lazy(() => import('./pages/System'))
 const SoulPage = lazy(() => import('./pages/Soul'))
 const GrantsPage = lazy(() => import('./pages/Grants'))
 const ThemesPage = lazy(() => import('./pages/Themes'))
-const SessionDbPage = lazy(() => import('./pages/SessionDb'))
 const WorkshopPage = lazy(() => import('./pages/Workshop'))
 const CanvasPage = lazy(() => import('./pages/Canvas'))
 const TuiTerminal = lazy(() => import('./components/TuiTerminal'))
@@ -53,6 +49,20 @@ function BoardReviewPage() {
 }
 function BoardTeamPage() {
   return <BoardPage initialView="team" />
+}
+// 会话库并入工作台；#/sessiondb 渲染工作台的「会话库」视图
+function BoardSessionsPage() {
+  return <BoardPage initialView="sessions" />
+}
+// 下载中心并入资产；灵感并入知识；MCP 并入能力（深链别名）
+function AssetsDownloadsPage() {
+  return <Assets initialView="downloads" />
+}
+function AppsLingxiPage() {
+  return <Apps initialTab="lingxi" />
+}
+function EngineMcpPage() {
+  return <EnginePage openMcp />
 }
 
 // 深链别名：#/story 渲染创作并把 tab 预设为「连续创作」
@@ -77,7 +87,7 @@ const PAGE_ROUTES: PageRoute[] = [
   // 让 #/review、手机「更多」和聊天右栏的「打开验收」继续可用。
   { route: 'review', icon: GitCompare, label: ROUTE_LABELS.review, Page: BoardReviewPage },
   { route: 'team', icon: LayoutDashboard, label: ROUTE_LABELS.team, Page: BoardTeamPage, nav: false },
-  { route: 'lingxi', icon: Sparkles, label: ROUTE_LABELS.lingxi, Page: LingXiPage },
+  { route: 'lingxi', icon: Sparkles, label: ROUTE_LABELS.lingxi, Page: AppsLingxiPage, nav: false },
   { route: 'workshop', icon: Factory, label: ROUTE_LABELS.workshop, Page: WorkshopPage },
   // 无限画布从创作页内 Tab 解耦为独立页面（可深链 #/canvas）；图标与命令面板一致。
   { route: 'canvas', icon: Workflow, label: ROUTE_LABELS.canvas, Page: CanvasPage },
@@ -87,12 +97,12 @@ const PAGE_ROUTES: PageRoute[] = [
   { route: 'models', icon: BrainCircuit, label: ROUTE_LABELS.models, Page: ModelHub, nav: false },
   { route: 'assets', icon: Images, label: ROUTE_LABELS.assets, Page: Assets },
   { route: 'tasks', icon: Clock4, label: ROUTE_LABELS.tasks, Page: Tasks },
-  { route: 'downloads', icon: Download, label: ROUTE_LABELS.downloads, Page: Downloads },
+  { route: 'downloads', icon: Download, label: ROUTE_LABELS.downloads, Page: AssetsDownloadsPage, nav: false },
   { route: 'apps', icon: LayoutGrid, label: ROUTE_LABELS.apps, Page: Apps },
   { route: 'engine', icon: Cpu, label: ROUTE_LABELS.engine, Page: EnginePage },
   { route: 'themes', icon: Palette, label: ROUTE_LABELS.themes, Page: ThemesPage, nav: false },
-  { route: 'sessiondb', icon: Database, label: ROUTE_LABELS.sessiondb, Page: SessionDbPage },
-  { route: 'mcp', icon: Plug, label: ROUTE_LABELS.mcp, Page: McpPage },
+  { route: 'sessiondb', icon: Database, label: ROUTE_LABELS.sessiondb, Page: BoardSessionsPage, nav: false },
+  { route: 'mcp', icon: Plug, label: ROUTE_LABELS.mcp, Page: EngineMcpPage, nav: false },
   { route: 'system', icon: MonitorCog, label: ROUTE_LABELS.system, Page: SystemPage },
 ]
 const APP_ROUTES: Route[] = ['chat', ...PAGE_ROUTES.map(p => p.route)]
@@ -324,7 +334,7 @@ export default function AppLayout() {
             { key: 'sessions', icon: FolderClosed, label: '会话', active: !mobileMoreOpen && mobileDrawer === 'sessions', onClick: () => { setMobileMoreOpen(false); setMobileDrawer('sessions') } },
             { key: 'assets', icon: Images, label: '资产', active: !mobileMoreOpen && route === 'assets' && mobileDrawer === 'none', onClick: () => { setMobileMoreOpen(false); setMobileDrawer('none'); nav('assets') } },
             { key: 'tasks', icon: Clock4, label: '任务', active: !mobileMoreOpen && route === 'tasks' && mobileDrawer === 'none', onClick: () => { setMobileMoreOpen(false); setMobileDrawer('none'); nav('tasks') } },
-            { key: 'more', icon: Ellipsis, label: '更多', active: mobileMoreOpen || (mobileDrawer === 'none' && !['chat', 'assets', 'tasks'].includes(route)), onClick: () => { setMobileDrawer('none'); setMobileMoreOpen(open => !open) } },
+            { key: 'more', icon: Ellipsis, label: '更多', active: mobileMoreOpen || (mobileDrawer === 'none' && !['chat', 'assets', 'tasks'].includes(railOwner(route))), onClick: () => { setMobileDrawer('none'); setMobileMoreOpen(open => !open) } },
           ] as const).map(item => (
             <button
               key={item.key}
@@ -405,9 +415,9 @@ export default function AppLayout() {
         {RAIL_PRIMARY.map(railItem).map(n => (
           <T.Root key={n.route}>
             <T.Trigger asChild>
-              <button aria-label={n.label} aria-current={route === n.route ? 'page' : undefined} title={n.label}
+              <button aria-label={n.label} aria-current={railOwner(route) === n.route ? 'page' : undefined} title={n.label}
                 className={`desktop-rail-item rounded-pi-md flex items-center gap-2 relative transition-[background-color,color,border-color,box-shadow,transform] duration-200 ${
-                  route === n.route ? 'bg-pi-accent text-pi-on-accent shadow-md shadow-pi-accent/25' : 'text-pi-dim hover:text-pi-text hover:bg-pi-bg3'}`}
+                  railOwner(route) === n.route ? 'bg-pi-accent text-pi-on-accent shadow-md shadow-pi-accent/25' : 'text-pi-dim hover:text-pi-text hover:bg-pi-bg3'}`}
                 onClick={() => nav(n.route)}>
                 <n.icon className="w-[18px] h-[18px]" strokeWidth={1.8} />
                 <span className="desktop-rail-label">{n.label}</span>

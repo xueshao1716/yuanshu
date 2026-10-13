@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import * as D from '@radix-ui/react-dialog'
 import { useRestoreFocus } from '../hooks/useRestoreFocus'
-import { MessagesSquare, BrainCircuit, ClipboardCheck, Images, Clock4, LayoutGrid, FolderClosed, Package, SquareTerminal, Settings2, Plus, CornerDownLeft, LayoutDashboard, Sparkles, Factory, Palette, Database, MonitorCog, Cpu, Activity, ChevronsLeftRight, ShieldCheck, Workflow } from 'lucide-react'
+import { MessagesSquare, BrainCircuit, ClipboardCheck, Images, Clock4, LayoutGrid, FolderClosed, Package, SquareTerminal, Settings2, Plus, CornerDownLeft, LayoutDashboard, Sparkles, Factory, Palette, Database, MonitorCog, Cpu, Activity, ChevronsLeftRight, ShieldCheck, Workflow, Download, Plug } from 'lucide-react'
 import { useApp } from '../store'
 import { toast } from './Toast'
 import { SessionsApi } from '../api'
@@ -48,7 +48,7 @@ export default function CommandPalette({ open, onClose, nav, onRightPanel, onMod
       { key: 'new', icon: Plus, label: '新建会话', hint: '动作', run: async () => { try { const d = await SessionsApi.create(); await refreshSessions(); selectSession(d.id); nav('chat') } catch { toast('新建会话失败，请重试', 'error') } onClose() } },
       page('chat', '打开对话', MessagesSquare),
       page('board', '打开工作台', LayoutDashboard),
-      page('lingxi', '打开灵感', Sparkles),
+      page('lingxi', '打开灵感（知识 · 灵感）', Sparkles),
       page('workshop', '打开创作', Factory),
       page('canvas', '打开无限画布', Workflow),
       page('models', '打开模型', BrainCircuit),
@@ -57,7 +57,9 @@ export default function CommandPalette({ open, onClose, nav, onRightPanel, onMod
       page('apps', '打开知识', LayoutGrid),
       page('engine', '打开能力', Cpu),
       page('themes', '打开主题', Palette),
-      page('sessiondb', '打开会话库', Database),
+      page('sessiondb', '打开会话库（工作台 · 会话库）', Database),
+      page('downloads', '打开下载记录（资产 · 下载记录）', Download),
+      page('mcp', '打开 MCP 外部工具（能力 · MCP）', Plug),
       page('system', '打开系统', MonitorCog),
       page('grants', '打开授权中心（放权 / 提权 / 批准）', ShieldCheck),
       { key: 'rp-inspect', icon: ClipboardCheck, label: '右栏 · 任务检查', hint: '对话页', run: () => { onRightPanel('inspect'); nav('chat'); onClose() } },

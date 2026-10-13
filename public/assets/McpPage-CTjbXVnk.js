@@ -1,1 +1,0 @@
-import{t as e}from"./jsx-runtime-DE3RlOCf.js";import{t}from"./McpPanel-C-mrqE-s.js";import{t as n}from"./PageHeader-BYP_ByVw.js";var r=e();function i(){return(0,r.jsxs)(`div`,{className:`space-y-6`,children:[(0,r.jsx)(n,{title:`MCP`,description:`外部 MCP server 接入：桌面控制、文件、截图等工具直接注入智能体。`}),(0,r.jsx)(t,{})]})}export{i as default};

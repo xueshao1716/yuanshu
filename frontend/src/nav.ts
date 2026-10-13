@@ -28,4 +28,17 @@ export const ROUTE_LABELS = {
 // 附带修复：手机「更多」菜单里从来没有连续创作入口，并入创作后手机端才到得了。
 export const RAIL_PRIMARY = ['chat', 'board', 'workshop', 'assets', 'tasks', 'engine'] as const
 
-export const RAIL_MORE = ['soul', 'grants', 'lingxi', 'apps', 'sessiondb', 'downloads', 'mcp', 'system'] as const
+// 2026-10 功能板块整理：相近页面并入同一板块，旧深链保留为别名（见 RAIL_OWNER）。
+//   资产 ⊃ 下载记录；工作台 ⊃ 改动验收 / 天团 / 会话库；知识 ⊃ 灵感；能力 ⊃ MCP；创作 ⊃ 连续创作 / 画布。
+//   沙箱 / 超维模式只在授权中心（本会话执行权限）；系统页不再重复放一份。
+export const RAIL_MORE = ['soul', 'grants', 'apps', 'system'] as const
+
+// 别名路由 → 它所属的导航板块；导航高亮、手机「更多」激活态都按板块算。
+export const RAIL_OWNER: Record<string, string> = {
+  review: 'board', team: 'board', sessiondb: 'board',
+  story: 'workshop', canvas: 'workshop',
+  downloads: 'assets',
+  lingxi: 'apps',
+  mcp: 'engine',
+}
+export const railOwner = (route: string): string => RAIL_OWNER[route] ?? route

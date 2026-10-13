@@ -14,7 +14,7 @@ const formatTime = (value: string) => {
   return Number.isNaN(date.getTime()) ? '时间未知' : date.toLocaleString('zh-CN', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit', hour12: false })
 }
 
-export default function Downloads() {
+export default function Downloads({ embedded = false }: { embedded?: boolean } = {}) {
   const [records, setRecords] = useState<DownloadRecord[]>(() => readDownloadHistory())
   const [busyId, setBusyId] = useState<string | null>(null)
   const [folderBusy, setFolderBusy] = useState(false)
@@ -57,9 +57,11 @@ export default function Downloads() {
   )
 
   return (
-    <div className="flex-1 overflow-y-auto relative z-10">
-      <div className="downloads-page max-w-3xl mx-auto px-4 sm:px-6 py-5 sm:py-6">
-        <PageHeader title="下载中心" description="查看最近下载、保存位置，或重新获取文件。" meta={<span>{records.length} 条记录</span>} actions={headerActions} />
+    <div className={embedded ? "" : "flex-1 overflow-y-auto relative z-10"}>
+      <div className={embedded ? "downloads-page" : "downloads-page max-w-3xl mx-auto px-4 sm:px-6 py-5 sm:py-6"}>
+        {embedded
+          ? <div className="flex flex-wrap items-center justify-between gap-2 mb-4"><span className="text-sm text-pi-dim">查看最近下载、保存位置，或重新获取文件 · {records.length} 条记录</span>{headerActions}</div>
+          : <PageHeader title="下载中心" description="查看最近下载、保存位置，或重新获取文件。" meta={<span>{records.length} 条记录</span>} actions={headerActions} />}
         {actionError && <p role="alert" className="text-sm text-pi-danger mb-4 break-words">{actionError}</p>}
         {!records.length ? <EmptyState icon={FileDown} title="还没有下载记录" hint="在资产库、会话导出或交付物中点击下载，记录会自动出现在这里。" className="py-20" /> : (
           <section className="downloads-list" aria-label="最近下载">

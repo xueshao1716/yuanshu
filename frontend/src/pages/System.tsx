@@ -9,9 +9,6 @@ import StatusTile from '../components/StatusTile'
 import DoctorPanel from '../components/DoctorPanel'
 import WechatPanel from '../components/WechatPanel'
 import EmailPanel from '../components/EmailPanel'
-import McpPanel from '../components/McpPanel'
-import SandboxModePanel from '../components/engine/SandboxModePanel'
-import MaintenanceModePanel from '../components/engine/MaintenanceModePanel'
 
 type DomainRow = { domain: string; desc: string }
 
@@ -315,35 +312,14 @@ export default function System() {
 
         {/* ── 接入模式 ── */}
         <section>
-          <SectionHeader title="接入模式" description="微信、邮件、MCP 等外部服务接入。" />
+          <SectionHeader title="接入模式" description="微信、邮件等外部服务接入；MCP 外部工具在「能力」页。" />
           <div className="space-y-4">
             <WechatPanel />
             <EmailPanel />
-            <McpPanel />
           </div>
         </section>
 
-        {/* ── 沙箱模式 ── */}
-        <section>
-          <SectionHeader
-            title="沙箱模式"
-            description="限制元枢执行器的文件访问范围。收紧随时可以；放宽需写明理由，会写入审计日志。与超维模式相互独立。"
-          />
-          <div className="panel !p-5">
-            <SandboxModePanel />
-          </div>
-        </section>
-
-        {/* ── 超维模式 ── */}
-        <section>
-          <SectionHeader
-            title="超维模式"
-            description="开启后元枢可执行高权限维护操作，需本机手动批准，到期自动收紧。与沙箱模式相互独立，开启超维不会自动放宽沙箱档位。"
-          />
-          <div className="panel !p-5">
-            <MaintenanceModePanel />
-          </div>
-        </section>
+        {/* 沙箱 / 超维模式已集中到「授权中心 → 本会话执行权限」，这里不再重复放一份 */}
 
         {/* ── 运行环境 ── */}
         <section>
