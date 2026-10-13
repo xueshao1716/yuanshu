@@ -5,7 +5,7 @@
 // 鉴权走全局 checkAuth（query token 即可，img 标签带不了 header）。
 
 const MAX_BYTES = 10 * 1024 * 1024; // 10MB 上限：图片代理不是文件下载
-const ALLOWED_TYPES = /^image\//(jpeg|png|gif|webp|avif|bmp|svg\+xml)/i;
+const ALLOWED_TYPES = /^image\/(jpeg|png|gif|webp|avif|bmp|x-icon|vnd\.microsoft\.icon|svg\+xml)/i;
 const UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36";
 
 /** 校验代理目标：只放行 http(s) 外链，拒绝内网/本机地址（防 SSRF 打内网服务）。 */
