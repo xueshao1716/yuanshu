@@ -3138,11 +3138,15 @@ const API_ROUTES = [
   ["GET", "/api/aibody", async (res, req, url) => json(res, 200, await knowledgeOverview({ sessionId: url?.searchParams?.get("session") || undefined, runId: url?.searchParams?.get("run") || undefined }))],
   ["GET", "/api/aibody/overview", async (res, req, url) => json(res, 200, await knowledgeOverview({ sessionId: url?.searchParams?.get("session") || undefined, runId: url?.searchParams?.get("run") || undefined }))],
   // ── 浏览器操作（CDP 控制 Chrome）──
-  ["POST", "/api/browser/start", async (res, req) => { const b = await import("./engine/browser.mjs"); const r = await b.startChrome(); json(res, r.error ? 500 : 200, r); }],
-  ["POST", "/api/browser/stop", async (res) => { const b = await import("./engine/browser.mjs"); json(res, 200, b.stopChrome()); }],
-  ["POST", "/api/browser/navigate", async (res, req) => { const b = await import("./engine/browser.mjs"); const body = await readBody(req); json(res, 200, await b.navigate(String(body.url || ""))); }],
-  ["POST", "/api/browser/screenshot", async (res) => { const b = await import("./engine/browser.mjs"); json(res, 200, await b.screenshot()); }],
-  ["POST", "/api/browser/text", async (res) => { const b = await import("./engine/browser.mjs"); json(res, 200, await b.pageText()); }],
+  // ── 外链图片代理（2026-10-12）：替代内置浏览器的图片通路，防盗链/混合内容/CSP 一次消除 ──
+  ["GET", "/api/proxy/image", async (res, req, url) => {
+    try {
+      const b = await import("./engine/image-proxy.mjs");
+      const { body, contentType } = await b.fetchProxiedImage(url.searchParams.get("url"));
+      res.writeHead(200, { "Content-Type": contentType, "Cache-Control": "public, max-age=3600", "Content-Length": body.byteLength, "X-Content-Type-Options": "nosniff" });
+      res.end(Buffer.from(body));
+    } catch (e) { json(res, 502, { error: String(e.message || e) }); }
+  }],
   ["GET", "/api/fs", (res, req, url) => handleFsList(res, url.searchParams.get("path") || ".")],
   ["GET", "/api/fs/read", (res, req, url) => handleFsRead(res, url.searchParams.get("path") || "")],
   // ── 模型 ──

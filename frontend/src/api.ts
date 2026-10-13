@@ -62,6 +62,13 @@ export function withFileToken(url: string): string {
   return fileAccess(url, getApiBase(), _token).url
 }
 
+/** 外链图片走同源代理（防盗链/混合内容/CSP 一次消除）；img 标签用 query token 鉴权。 */
+export function imageProxyUrl(url: string): string {
+  const base = getApiBase() || ''
+  const params = new URLSearchParams({ url, ...( _token ? { token: _token } : {}) })
+  return `${base}/api/proxy/image?${params.toString()}`
+}
+
 /** Download a non-JSON API/file response with the current local token. */
 export async function downloadApiFile(path: string, filename?: string, onProgress?: (message: string) => void): Promise<string> {
   const saveHandle = await requestBrowserSave(filename || 'download')

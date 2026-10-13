@@ -13,7 +13,7 @@ import { createUpdateHandler } from "./online-update.mjs";
 const REPAIR_BACKUP_FILES = [
   "server.mjs", "config.mjs", "public/index.html",
   "engine/workshop.mjs", "engine/memory.mjs", "engine/emotion.mjs", "engine/sanitize.mjs",
-  "engine/filebox.mjs", "engine/browser.mjs", "engine/search-web.mjs",
+  "engine/filebox.mjs", "engine/search-web.mjs",
 ];
 
 let _directChat = null, _runGit = null, _cwd = "", _getModelList = () => [], _getDefaultModel = () => null, _piPackage = "";

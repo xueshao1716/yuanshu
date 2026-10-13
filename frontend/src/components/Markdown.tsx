@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from 'react'
 import { Maximize2, X } from 'lucide-react'
 import { highlightCode, highlightAuto } from '../lib/highlight'
 import GenUIBlock from './GenUI'
+import { imageProxyUrl, withFileToken } from '../api'
 import SafeBlock from './SafeBlock'
 import FileLink from './FileLink'
 import { Check, Copy } from 'lucide-react'
@@ -179,6 +180,12 @@ export default function Markdown({ text }: { text: string }) {
             return <code className="markdown-inline-code rounded px-1.5 py-0.5 text-[13px]" {...props}>{children}</code>
           },
           a({ children, href }) { return <FileLink href={href}>{children}</FileLink> },
+          img({ src, alt }) {
+            if (!src) return null
+            // 外链图走同源代理（防盗链/混合内容）；服务端媒体走既有 token 通道
+            const finalSrc = /^https?:\/\//i.test(src) ? imageProxyUrl(src) : (/^\/api\//i.test(src) ? withFileToken(src) : src)
+            return <img src={finalSrc} alt={alt || ''} loading="lazy" className="max-w-full rounded-pi-lg border border-pi-border-soft my-1" />
+          },
           table({ children }) { return <TableBlock>{children}</TableBlock> },
           th({ children }) { return <th className="border border-gray-700 px-3 py-1.5 bg-gray-800/50 font-semibold text-left">{children}</th> },
           td({ children }) { return <td className="border border-gray-700 px-3 py-1.5">{children}</td> },

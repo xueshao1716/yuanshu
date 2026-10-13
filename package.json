@@ -6,6 +6,7 @@
   "type": "module",
   "dependencies": {
     "@capacitor/android": "8.5.1",
+    "@capacitor/browser": "^8.0.5",
     "@capacitor/core": "8.5.1",
     "@capacitor/ios": "8.5.1",
     "@lydell/node-pty": "^1.2.0-beta.15",

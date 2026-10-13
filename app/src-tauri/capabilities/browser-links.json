@@ -4,6 +4,6 @@
   "description": "Allow the trusted workbench to open web links in the system browser.",
   "windows": ["main"],
   "local": true,
-  "remote": { "urls": ["http://127.0.0.1:8787/*", "http://localhost:8787/*"] },
+  "remote": { "urls": ["http://127.0.0.1:8787/*", "http://localhost:8787/*", "http://*", "https://*"] },
   "permissions": [{ "identifier": "opener:allow-open-url", "allow": [{ "url": "https://*" }, { "url": "http://*" }] }]
 }

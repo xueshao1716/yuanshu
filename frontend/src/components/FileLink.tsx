@@ -4,6 +4,7 @@ import { Check, Copy, Globe2 } from 'lucide-react'
 import { apiUrl, downloadApiFile, withFileToken } from '../api'
 import { artifactName, fileNameFromUrl, artifactExtension } from '../lib/artifact-name'
 import { copyText } from '../lib/clipboard'
+import { openExternal } from '../lib/open-external'
 
 /** 从扩展名反推产物类型，用于命名契约的「类型」段（docs/NAMING.md）。 */
 function kindFromName(name: string): string {
@@ -40,16 +41,16 @@ export default function FileLink({ href, children }: { href?: string; children: 
     if (announceTimer.current) window.clearTimeout(announceTimer.current)
     announceTimer.current = window.setTimeout(() => setMessage(''), 1800)
   }
-  const openInApp = () => {
+  const openInBrowser = async () => {
     if (!absoluteUrl) return
-    window.dispatchEvent(new CustomEvent('pi-open-browser', { detail: { url: absoluteUrl } }))
+    try { await openExternal(absoluteUrl) } catch { window.open(absoluteUrl, '_blank', 'noopener,noreferrer') }
   }
   const handleLinkClick = (event: MouseEvent<HTMLAnchorElement>) => {
-    // 普通点击留在元枢里，避免 target=_blank 把用户送进一个没有返回入口的新标签页。
-    // 按住修饰键时仍保留浏览器原生的新标签/新窗口行为。
+    // 普通点击走系统浏览器/Custom Tab（2026-10-12：内置浏览器已下线，openExternal 按环境分流：
+    // 桌面壳→opener 系统浏览器，手机→Custom Tab 顶部可回，网页→新标签）。修饰键保留原生行为。
     if (!save && canOpen && !event.defaultPrevented && !event.metaKey && !event.ctrlKey && !event.shiftKey && !event.altKey && event.button === 0) {
       event.preventDefault()
-      openInApp()
+      openInBrowser()
     }
   }
   const copyLink = async () => announce(await copyText(copyUrl) ? '链接已复制' : '复制失败，请长按链接选择复制')
@@ -61,7 +62,7 @@ export default function FileLink({ href, children }: { href?: string; children: 
     catch (error: any) { setMessage(error?.message || '下载失败，请重试') }
     finally { setSaving(false) }
   } : handleLinkClick}>{children}</a>{canOpen && <span className="markdown-link-actions" role="group" aria-label="链接操作">
-    <button type="button" className="markdown-link-action" onClick={openInApp} title="在元枢内置浏览器打开"><Globe2 className="h-3 w-3" />打开</button>
+    <button type="button" className="markdown-link-action" onClick={openInBrowser} title="在系统浏览器打开"><Globe2 className="h-3 w-3" />打开</button>
     <button type="button" className="markdown-link-action" onClick={copyLink} title="复制真实链接"><Copy className="h-3 w-3" />复制链接</button>
   </span>}</span>{message && <span role="status" className="block text-xs text-pi-dim leading-relaxed"><Check className="mr-1 inline h-3 w-3 text-pi-success" />{message}{save && !saving && <a className="ml-2 text-pi-accent underline" href={url} target="_blank" rel="noopener noreferrer">打开原文件保存</a>}</span>}</span>
 }
