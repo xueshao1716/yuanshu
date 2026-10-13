@@ -15,6 +15,21 @@ const TYPES = new Set(["bug", "idea"]);
 const RATE_LIMIT_MS = 12 * 60 * 60 * 1000; // 同 IP 12 小时内最多 N 条（防公开端点被刷）
 const RATE_MAX = 8;
 
+// 2026-10-13 自动分析：错误签名（规范化指纹）+ 粗分类，同机同错合并计数用
+function signatureOf(title, detail) {
+  const s = `${title} ${String(detail || "").slice(0, 200)}`.toLowerCase()
+    .replace(/\d+/g, "n").replace(/0xn|[a-f0-9]{8,}/g, "h")
+    .replace(/\s+/g, " ").trim();
+  return s.slice(0, 80);
+}
+function classifyOf(title, detail) {
+  const s = `${title} ${detail}`.toLowerCase();
+  if (/crash|崩溃|打不开|无法启动|起不来|启动即|connection error|403|500|502/.test(s)) return "crash";
+  if (/慢|卡|性能|超时|timeout|memory|内存/.test(s)) return "perf";
+  if (/建议|希望|能不能|要是|如果可以/.test(s)) return "suggestion";
+  return "bug";
+}
+
 export function createFeedbackStore({ wsRoot, version = "", readCrashTail }) {
   // 2026-10-13：wsRoot 支持函数延迟求值——store 初始化早于 initWorkspaceApi，直接传 WS_ROOT 会拿空串写错目录
   const ws = () => (typeof wsRoot === "function" ? wsRoot() : wsRoot);
@@ -56,6 +71,7 @@ export function createFeedbackStore({ wsRoot, version = "", readCrashTail }) {
     const item = {
       id: randomUUID(), at: Date.now(), type: cleanType,
       title: cleanTitle, detail: cleanDetail, contact: String(contact || "").slice(0, 200),
+      signature: signatureOf(cleanTitle, cleanDetail), kind: classifyOf(cleanTitle, cleanDetail),
       status: "open", env: env || null,
       source, ip: source === "public" ? ip : "",
       diagnostics: withDiagnostics ? collectDiagnostics() : null,
@@ -68,6 +84,19 @@ export function createFeedbackStore({ wsRoot, version = "", readCrashTail }) {
 
   function list() { return load().items.slice().reverse(); }
 
+  // 聚合视图：同签名合并（同机同错刷多条只算一案），按最近出现排序
+  function summary() {
+    const groups = new Map();
+    for (const it of load().items) {
+      const g = groups.get(it.signature) || { signature: it.signature, kind: it.kind, type: it.type, count: 0, firstAt: it.at, lastAt: it.at, sampleId: it.id, title: it.title, status: it.status, sources: new Set() };
+      g.count++; g.lastAt = Math.max(g.lastAt, it.at); g.firstAt = Math.min(g.firstAt, it.at);
+      if (it.status === "open") g.status = "open";
+      g.sources.add(it.source || "workbench");
+      groups.set(it.signature, g);
+    }
+    return [...groups.values()].sort((a, b) => b.lastAt - a.lastAt);
+  }
+
   function mark(id, status) {
     if (!["open", "done", "wontfix"].includes(status)) return { error: "invalid_status" };
     const box = load();
@@ -78,5 +107,5 @@ export function createFeedbackStore({ wsRoot, version = "", readCrashTail }) {
     return { item: it };
   }
 
-  return { add, list, mark, collectDiagnostics };
+  return { add, list, mark, summary, collectDiagnostics };
 }

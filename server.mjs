@@ -219,6 +219,29 @@ const feedbackStore = createFeedbackStore({
     try { return fs.readFileSync(path.join(__dirname, "crash.log"), "utf8").slice(-4000); } catch { return ""; }
   },
 });
+
+// 自动问题上报（2026-10-13）：分发主机的元枢自动把 crash/重启/模型连败整理成报告发回开发者。
+// 开发机自己（D:/pi-workspace）不发——开发者知道自己出了什么问题。
+const { collectIncidents, reportIncidents, isEnabled, setEnabled } = await import("./engine/telemetry.mjs");
+const WATCHDOG_LOG = path.join(process.env.YUANSHU_CWD || path.join(process.env.USERPROFILE || os.homedir(), "pi-workspace"), "watchdog.log");
+async function telemetrySweep(manual = false) {
+  try {
+    if (!isEnabled(WS_ROOT)) return { sent: false, reason: "disabled" };
+        if (String(WS_ROOT).split(path.sep).join("/").toLowerCase() === "d:/pi-workspace") return { sent: false, reason: "dev_machine" };
+    let watchdogRestarts = 0, crashTail = "";
+    try {
+      const tail = fs.readFileSync(WATCHDOG_LOG, "utf8").slice(-20000);
+      watchdogRestarts = (tail.match(/检测到 server 掉线/g) || []).length;
+    } catch {}
+    try { crashTail = fs.readFileSync(path.join(__dirname, "crash.log"), "utf8").slice(-4000); } catch {}
+    const incidents = collectIncidents({ crashTail, watchdogRestarts, modelFailStreak: 0, version: shellVersion });
+    if (!manual && !incidents.incidents.length) return { sent: false, reason: "nothing" };
+    return await reportIncidents(WS_ROOT, incidents);
+  } catch (e) { return { sent: false, reason: String(e.message || e).slice(0, 80) }; }
+}
+// 启动 5 分钟后首查，之后每小时一查；掉线计数按 watchdog.log 近 2 万字符窗口
+setTimeout(() => { void telemetrySweep(); }, 5 * 60000);
+setInterval(() => { void telemetrySweep(); }, 60 * 60000);
 const { buildSoulGraph, readMemoryFiles } = await import('./engine/soul-graph.mjs');
 const { soulContextPrompt } = await import('./engine/soul-context.mjs');
 const { createCompanionDecision } = await import('./engine/companion-decision.mjs');
@@ -2525,6 +2548,13 @@ const API_ROUTES = [
     const b = await readBody(req, 1);
     const r = feedbackStore.mark(m[1], String(b?.status || ""));
     json(res, r.error ? (r.error === "not_found" ? 404 : 400) : 200, r.error ? { error: r.error } : { ok: true });
+  }],
+  ["GET", "/api/feedback/summary", (res) => json(res, 200, { groups: feedbackStore.summary() })],
+  ["GET", "/api/telemetry", (res) => json(res, 200, isEnabled(WS_ROOT))],
+  ["POST", "/api/telemetry", async (res, req) => {
+    const b = await readBody(req, 1);
+    if (b?.action === "sweep") return json(res, 200, await telemetrySweep(true));
+    json(res, 200, setEnabled(WS_ROOT, !!b?.enabled));
   }],
   // ── 回厂反馈通道（2026-10-13）：免令牌，给 GitHub 下载的陌生用户；IP 限频防滥用 ──
   ["POST", "/api/public/feedback", async (res, req) => {

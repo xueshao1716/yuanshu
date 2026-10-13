@@ -82,6 +82,13 @@ export default function FeedbackPanel() {
   }
 
   const items = data?.items || []
+  const { data: summaryData } = useSWR<{ groups: Array<{ signature: string; kind: string; count: number; lastAt: number; status: string; sources: string[]; title: string }> }>(local ? 'feedback-summary' : null, () => api('/api/feedback/summary'), { refreshInterval: 60000 })
+  const { data: telemetryOn, mutate: mutateTele } = useSWR<boolean>(local ? 'telemetry' : null, () => api('/api/telemetry'), { fallbackData: true })
+  async function toggleTelemetry() {
+    await api('/api/telemetry', { method: 'POST', body: JSON.stringify({ enabled: !telemetryOn }) })
+    mutateTele()
+  }
+  const groups = summaryData?.groups || []
 
   return (
     <div className="space-y-4">
@@ -143,7 +150,27 @@ export default function FeedbackPanel() {
           </button>
           {showInbox && (
             <div className="mt-3 space-y-2">
-              {items.length === 0 && <p className="text-xs text-neutral-400 py-1">还没有收到反馈。</p>}
+              <div className="flex items-center justify-between">
+                <p className="text-xs text-neutral-400">{items.length === 0 ? '还没有收到反馈。' : `共 ${items.length} 条`}</p>
+                <label className="flex items-center gap-1.5 text-xs text-neutral-500 cursor-pointer select-none" title="分发主机的元枢自动把 crash/重启等异常整理发回开发者">
+                  <input type="checkbox" checked={telemetryOn !== false} onChange={toggleTelemetry} className="accent-blue-600" />
+                  自动问题上报
+                </label>
+              </div>
+              {groups.length > 0 && (
+                <div className="rounded-xl border border-neutral-100 dark:border-neutral-700/50 divide-y divide-neutral-100 dark:divide-neutral-800">
+                  <p className="px-3 py-1.5 text-[11px] text-neutral-400">按问题签名聚合（同因合并）</p>
+                  {groups.slice(0, 8).map(g => (
+                    <div key={g.signature} className="flex items-center justify-between px-3 py-1.5 text-xs">
+                      <span className="truncate min-w-0">
+                        <span className={`mr-1.5 px-1.5 py-0.5 rounded-full text-[10px] ${g.kind === 'crash' ? 'bg-red-500/10 text-red-500' : g.kind === 'perf' ? 'bg-amber-500/10 text-amber-600' : 'bg-neutral-400/10 text-neutral-500'}`}>{g.kind}</span>
+                        <span className="text-neutral-600 dark:text-neutral-300" title={g.signature}>{g.title}</span>
+                      </span>
+                      <span className="shrink-0 text-neutral-400">×{g.count}{g.sources.includes('public') && <span className="ml-1 text-[10px] text-blue-400">外部</span>}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
               {items.map(it => (
                 <div key={it.id} className="px-3 py-2.5 rounded-xl bg-neutral-50 dark:bg-neutral-800/60 border border-neutral-100 dark:border-neutral-700/50">
                   <div className="flex items-start justify-between gap-2">
