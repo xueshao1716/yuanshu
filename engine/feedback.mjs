@@ -12,6 +12,8 @@ const MAX_TITLE = 120;
 const MAX_DETAIL = 8000;
 const MAX_ITEMS = 500;
 const TYPES = new Set(["bug", "idea"]);
+const RATE_LIMIT_MS = 12 * 60 * 60 * 1000; // 同 IP 12 小时内最多 N 条（防公开端点被刷）
+const RATE_MAX = 8;
 
 export function createFeedbackStore({ wsRoot, version = "", readCrashTail }) {
   // 2026-10-13：wsRoot 支持函数延迟求值——store 初始化早于 initWorkspaceApi，直接传 WS_ROOT 会拿空串写错目录
@@ -40,16 +42,22 @@ export function createFeedbackStore({ wsRoot, version = "", readCrashTail }) {
     return diag;
   }
 
-  function add({ type, title, detail, contact = "", withDiagnostics = false, env = null }) {
+  function add({ type, title, detail, contact = "", withDiagnostics = false, env = null, source = "workbench", ip = "" }) {
     const cleanType = TYPES.has(type) ? type : "idea";
     const cleanTitle = String(title || "").trim().slice(0, MAX_TITLE);
     const cleanDetail = String(detail || "").trim().slice(0, MAX_DETAIL);
     if (!cleanTitle) return { error: "标题不能为空" };
     const box = load();
+    if (source === "public" && ip) {
+      const cutoff = Date.now() - RATE_LIMIT_MS;
+      const recent = box.items.filter(x => x.source === "public" && x.ip === ip && x.at >= cutoff).length;
+      if (recent >= RATE_MAX) return { error: "rate_limited" };
+    }
     const item = {
       id: randomUUID(), at: Date.now(), type: cleanType,
       title: cleanTitle, detail: cleanDetail, contact: String(contact || "").slice(0, 200),
       status: "open", env: env || null,
+      source, ip: source === "public" ? ip : "",
       diagnostics: withDiagnostics ? collectDiagnostics() : null,
     };
     box.items.push(item);

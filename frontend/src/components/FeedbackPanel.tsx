@@ -20,6 +20,11 @@ type FeedbackItem = {
 
 const STATUS_LABEL: Record<string, string> = { open: '待处理', done: '已处理', wontfix: '不修' }
 
+// 回厂反馈通道：开发者的收集端点（与工作台地址无关，所有分发主机都能把反馈送回开发者）
+const DEV_FEEDBACK_URL = 'https://pi.myxinyu.xin/api/public/feedback'
+const DEV_ISSUES_URL = 'https://github.com/xueshao1716/yuanshu/issues'
+const DRAFT_KEY = 'yuanshu.feedback.draft'
+
 function isLocalWorkbench(): boolean {
   const base = getApiBase()
   if (!base) return true
@@ -37,15 +42,37 @@ export default function FeedbackPanel() {
   const [busy, setBusy] = useState(false)
   const [msg, setMsg] = useState('')
   const [showInbox, setShowInbox] = useState(false)
+  const [draft, setDraft] = useState<string | null>(() => { try { return localStorage.getItem(DRAFT_KEY) } catch { return null } })
 
-  async function submit() {
-    if (!title.trim()) { setMsg('标题不能为空'); return }
+  // 上次提交失败暂存的草稿：面板打开时提示一键重试
+  useEffect(() => {
+    if (!draft) return
+    try { const d = JSON.parse(draft); if (d?.title) setMsg('有一条未送出的反馈，点击下方“重试发送”再试一次') } catch { }
+  }, [draft])
+
+  async function submit(retryBody?: string) {
+    const payload = retryBody || JSON.stringify({ type, title, detail, contact, withDiagnostics: withDiag })
+    if (!retryBody && !title.trim()) { setMsg('标题不能为空'); return }
     setBusy(true); setMsg('')
     try {
-      await api('/api/feedback', { method: 'POST', body: JSON.stringify({ type, title, detail, contact, withDiagnostics: withDiag }) })
-      setMsg(type === 'bug' ? '已提交，谢谢反馈！诊断信息不含令牌与密钥。' : '已提交，谢谢建议！')
-      setTitle(''); setDetail(''); setContact('')
-    } catch (e: any) { setMsg(`提交失败：${e?.message || '未知错误'}`) }
+      if (local) {
+        // 本机就是工作台服务器：直接落自己的收件箱
+        await api('/api/feedback', { method: 'POST', body: payload })
+      } else {
+        // 回厂通道：发开发者的公开收集端点（text/plain 避免预检依赖；免令牌，服务端 IP 限频）
+        const res = await fetch(DEV_FEEDBACK_URL, { method: 'POST', headers: { 'Content-Type': 'text/plain;charset=UTF-8' }, body: payload })
+        if (!res.ok) {
+          const j = await res.json().catch(() => ({}))
+          throw new Error(j?.error || `HTTP ${res.status}`)
+        }
+      }
+      try { localStorage.removeItem(DRAFT_KEY); setDraft(null) } catch { }
+      setMsg(type === 'bug' || (!retryBody && JSON.parse(payload).type === 'bug') ? '已提交，谢谢反馈！诊断信息不含令牌与密钥。' : '已提交，谢谢建议！')
+      if (!retryBody) { setTitle(''); setDetail(''); setContact('') }
+    } catch (e: any) {
+      try { localStorage.setItem(DRAFT_KEY, payload) } catch { }
+      setMsg(`反馈通道暂不可达（${e?.message || '网络错误'}），内容已保留在本机——可点“重试发送”，或复制去 GitHub Issues`)
+    }
     finally { setBusy(false); mutate() }
   }
 
@@ -61,7 +88,7 @@ export default function FeedbackPanel() {
       <SectionHeader
         icon={Bug as LucideIcon}
         title="反馈与建议"
-        description="遇到问题或想改进元枢，直接提交到工作台服务器，开发者在这里集中收。"
+        description="遇到问题或想改进元枢，提交后直接送达开发者；本机是工作台服务器时也会同步进自己的收件箱。"
       />
 
       <div className="flex gap-2">
@@ -91,12 +118,20 @@ export default function FeedbackPanel() {
             附带诊断信息（版本/系统/错误日志尾，不含令牌密钥）
           </label>
         </div>
-        <div className="flex items-center gap-3">
-          <button onClick={submit} disabled={busy || !title.trim()}
+        <div className="flex items-center gap-3 flex-wrap">
+          <button onClick={() => submit()} disabled={busy || !title.trim()}
             className="flex items-center gap-1.5 text-sm px-4 py-2 rounded-lg bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-40 transition-colors">
             <Send size={13} /> {busy ? '提交中…' : '提交反馈'}
           </button>
-          {msg && <span className="text-xs text-neutral-500">{msg}</span>}
+          {draft && (
+            <button onClick={() => { if (draft) { setBusy(true); submit(draft).finally(() => setBusy(false)) } }} disabled={busy}
+              className="text-sm px-3 py-2 rounded-lg border border-amber-500/40 text-amber-600 hover:bg-amber-500/5 transition-colors">
+              重试发送未送出的反馈
+            </button>
+          )}
+          {msg && <span className="text-xs text-neutral-500 flex-1 min-w-0">{msg}
+            {msg.includes('GitHub Issues') && <a href={DEV_ISSUES_URL} target="_blank" rel="noopener noreferrer" className="ml-1 text-blue-500 underline">去 Issues</a>}
+          </span>}
         </div>
       </div>
 

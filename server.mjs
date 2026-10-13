@@ -2526,6 +2526,14 @@ const API_ROUTES = [
     const r = feedbackStore.mark(m[1], String(b?.status || ""));
     json(res, r.error ? (r.error === "not_found" ? 404 : 400) : 200, r.error ? { error: r.error } : { ok: true });
   }],
+  // ── 回厂反馈通道（2026-10-13）：免令牌，给 GitHub 下载的陌生用户；IP 限频防滥用 ──
+  ["POST", "/api/public/feedback", async (res, req) => {
+    const b = await readBody(req, 8);
+    const ip = String(req.headers["cf-connecting-ip"] || req.socket?.remoteAddress || "").replace(/^::ffff:/, "");
+    const r = feedbackStore.add({ type: b?.type, title: b?.title, detail: b?.detail, contact: b?.contact, withDiagnostics: !!b?.withDiagnostics, env: b?.env || null, source: "public", ip });
+    if (r.error) return json(res, r.error === "rate_limited" ? 429 : 400, { error: r.error === "rate_limited" ? "提交太频繁，请稍后再试" : r.error });
+    json(res, 200, { ok: true, id: r.item.id });
+  }],
   ["GET", "/api/mcp/config", (res) => json(res, 200, { servers: mcpManager.load() })],
   ["POST", "/api/mcp/config", async (res, req) => {
     const body = await readBody(req, 4);
@@ -3527,7 +3535,9 @@ const server = http.createServer(async (req, res) => {
     // 首启向导状态免鉴权：只回 needsSetup 布尔值。令牌本身永远要鉴权（旧的 isTokenCheck 旁路会泄露令牌，已删）
     const isSetupStatus = (url.pathname === "/api/setup/status" && req.method === "GET")
       || (url.pathname === "/api/setup/claim" && req.method === "POST"); // claim 在路由内做 pending + 本机直连校验
-    if (!isStatic && !isSignedFile && !isSetupStatus && !checkAuth(req)) {
+    // 公开反馈端点免令牌：分发出去的主机没有本机令牌，回厂通道走 IP 限频防滥用（引擎内 12h/8 条）
+    const isPublicFeedback = url.pathname === "/api/public/feedback" && req.method === "POST";
+    if (!isStatic && !isSignedFile && !isSetupStatus && !isPublicFeedback && !checkAuth(req)) {
       return json(res, 401, { error: "未授权，请提供访问令牌" });
     }
 
