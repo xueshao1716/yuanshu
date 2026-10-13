@@ -6,12 +6,10 @@ import { SystemApi } from '../api'
 import PageHeader from '../components/PageHeader'
 import SectionHeader from '../components/SectionHeader'
 import StatusTile from '../components/StatusTile'
-import ComputerUsePanel from '../components/ComputerUsePanel'
 import DoctorPanel from '../components/DoctorPanel'
 import WechatPanel from '../components/WechatPanel'
 import EmailPanel from '../components/EmailPanel'
 import McpPanel from '../components/McpPanel'
-import FeedbackPanel from '../components/FeedbackPanel'
 import SandboxModePanel from '../components/engine/SandboxModePanel'
 import MaintenanceModePanel from '../components/engine/MaintenanceModePanel'
 
@@ -199,10 +197,8 @@ export default function System() {
               tone={error ? 'danger' : data && networkEntryCount > 0 ? 'info' : 'neutral'}
             />
           </div>
+          <DoctorPanel />
         </section>
-
-        {/* ── 诊断 ── */}
-        <DoctorPanel />
 
         {/* ── 访问令牌（2026-10-13 恢复：UI 整理时渲染块丢失，逻辑一直在）── */}
         <section>
@@ -324,14 +320,7 @@ export default function System() {
             <WechatPanel />
             <EmailPanel />
             <McpPanel />
-            <FeedbackPanel />
           </div>
-        </section>
-
-        {/* ── 电脑控制 ── */}
-        <section>
-          <SectionHeader title="电脑控制" description="允许元枢通过截图与鼠标键盘操作控制桌面应用。" />
-          <ComputerUsePanel />
         </section>
 
         {/* ── 沙箱模式 ── */}

@@ -14,6 +14,7 @@ import TaskEvidencePanel from '../components/TaskEvidencePanel'
 import EvolutionReview from '../components/EvolutionReview'
 import LearningIntakePanel from '../components/LearningIntakePanel'
 import MemoryPanel from '../components/MemoryPanel'
+import FeedbackPanel from '../components/FeedbackPanel'
 
 // ── 应用中心（Phase 3）：经验沉淀台 / 技能库 / 提示词库 / 改进提案 ──
 
@@ -237,6 +238,7 @@ function ImproveView() {
   const dismiss = async (id: string) => { try { await ImprovementsApi.setStatus(id, 'dismissed'); await mutate() } catch {} }
   return (
     <div className="space-y-3">
+      <FeedbackPanel />
       <button className="btn-primary text-[13px] px-3 py-1.5 disabled:opacity-60" onClick={analyze} disabled={busy}>
         {busy ? '分析中…' : '分析运行数据找改进点'}
       </button>

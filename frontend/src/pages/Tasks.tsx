@@ -6,6 +6,7 @@ import { TasksApi } from '../api'
 import type { TimeTask } from '../api'
 import EmptyState from '../components/EmptyState'
 import PageHeader from '../components/PageHeader'
+import ComputerUsePanel from '../components/ComputerUsePanel'
 import SectionHeader from '../components/SectionHeader'
 
 // ── 任务中心 v2（08-25，MyAgents 路线）：状态机 / 手动执行 / 运行历史 ──
@@ -233,6 +234,12 @@ export default function Tasks() {
             </div>
           ) : undefined}
         />
+
+        {/* 电脑控制（自系统页迁入 2026-10-13：执行现场归任务页） */}
+        <section className="mb-8">
+          <SectionHeader title="电脑控制" description="元枢通过截图与鼠标键盘操作桌面应用的授权与现场。" />
+          <ComputerUsePanel />
+        </section>
 
         {/* 任务列表 */}
         <section className="mb-8">
