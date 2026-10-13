@@ -1079,11 +1079,14 @@ export async function handleUnifiedChat(res, entry, message, sessionId, params, 
   if (videoIntent) {
     try { writer.push("note", { text: "视频模型正在出片，完成后会显示在对话里。" }); } catch {}
   }
-  const onToolStart = (id, name, args, context = {}) => { touchTask(taskId, { stage: "执行工具", toolName: name }); writer.push("tool", { name, args, id, effectKey: context.effectKey || null, turn: context.turn ?? null, ordinal: context.ordinal ?? null, argsHash: context.argsHash || null }); };
+  const toolStartedAt = new Map();
+  const onToolStart = (id, name, args, context = {}) => { toolStartedAt.set(id, Date.now()); touchTask(taskId, { stage: "执行工具", toolName: name }); writer.push("tool", { name, args, id, effectKey: context.effectKey || null, turn: context.turn ?? null, ordinal: context.ordinal ?? null, argsHash: context.argsHash || null }); };
   const onToolEnd = (id, name, args, out, context = {}) => {
     touchTask(taskId, { stage: "工具完成", toolName: name });
     const text = out?.text || "";
-    writer.push("tool_end", { name, id, effectKey: context.effectKey || null, turn: context.turn ?? null, ordinal: context.ordinal ?? null, isError: out?.isError === true, uncertain: out?.uncertain === true, reused: out?.reused === true, output: text.slice(0, 2000) });
+    const startedAt = toolStartedAt.get(id);
+    toolStartedAt.delete(id);
+    writer.push("tool_end", { name, id, durationMs: startedAt ? Date.now() - startedAt : null, effectKey: context.effectKey || null, turn: context.turn ?? null, ordinal: context.ordinal ?? null, isError: out?.isError === true, uncertain: out?.uncertain === true, reused: out?.reused === true, output: text.slice(0, 2000) });
     const media = explicitToolMedia(out, { id, name });
     if (media?.url) writer.push("media", media);
   };

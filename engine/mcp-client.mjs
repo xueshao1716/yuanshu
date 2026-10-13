@@ -288,7 +288,7 @@ export function createMcpManager({ wsRoot }) {
     }
     await conn.connect();
     connections.set(serverCfg.name, conn);
-    return conn.getTools();
+    return allTools().filter(t => t.serverName === serverCfg.name);
   }
 
   // 断开单个 server
@@ -300,18 +300,26 @@ export function createMcpManager({ wsRoot }) {
   // 所有已连接工具的扁平列表（去重）
   function allTools() {
     const list = [];
+    const taken = new Set();
     for (const conn of connections.values()) {
-      for (const t of conn.getTools()) list.push(t);
+      for (const t of conn.getTools()) {
+        let exposedName = t.name;
+        if (taken.has(exposedName)) exposedName = `${String(t.serverName).replace(/[^A-Za-z0-9_-]/g, '_')}__${t.name}`;
+        taken.add(exposedName);
+        list.push({ ...t, exposedName });
+      }
     }
     return list;
   }
 
   // 调用工具（找到对应 server 的连接转发）
   async function callTool(toolName, args = {}) {
+    const target = allTools().find(t => t.exposedName === toolName);
     for (const conn of connections.values()) {
       const tools = conn.getTools();
-      if (tools.some(t => t.name === toolName)) {
-        const result = await conn.callTool(toolName, args);
+      const rawName = target ? target.name : toolName;
+      if (target ? target.serverName === conn.status().name && tools.some(t => t.name === rawName) : tools.some(t => t.name === toolName)) {
+        const result = await conn.callTool(rawName, args);
         // 把 MCP content 数组转成文本
         if (result?.content) {
           const text = result.content.map(c => c.text || c.data || '').join('\n');
@@ -345,11 +353,12 @@ export function createMcpManager({ wsRoot }) {
 
 // ── 把 MCP 工具转成元枢工具 schema 格式 ─────────────────────────────────────
 export function mcpToolToSchema(mcpTool) {
-  registerMcpToolTraits(`mcp_${mcpTool.name}`, { readOnly: mcpTool.readOnly === true });
+  const exposed = mcpTool.exposedName || mcpTool.name;
+  registerMcpToolTraits(`mcp_${exposed}`, { readOnly: mcpTool.readOnly === true });
   return {
     type: 'function',
     function: {
-      name: `mcp_${mcpTool.name}`,  // 加前缀避免和内置工具冲突
+      name: `mcp_${exposed}`,  // 加前缀避免和内置工具冲突；跨 server 重名的后来者带 server 名前缀
       description: `[MCP:${mcpTool.serverName}] ${mcpTool.description}`,
       parameters: mcpTool.inputSchema,
     },

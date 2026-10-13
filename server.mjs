@@ -784,7 +784,7 @@ const executeUnifiedTool = createUnifiedToolExecutorGuarded({
     delegate_team: (args, ctx) => executeTeam(args, { ...ctx, wsRoot: WS_ROOT, model: ctx?.model || defaultModel }),
     // 2026-10-08 MCP 外部工具转发：mcp_ 前缀的工具调用路由到对应 MCP server
     ...Object.fromEntries(
-      mcpManager.allTools().map(t => [`mcp_${t.name}`, (args) => mcpManager.callTool(t.name, args)])
+      mcpManager.allTools().map(t => [`mcp_${t.exposedName}`, (args) => mcpManager.callTool(t.exposedName, args)])
     ),
     delegate_fork: async (args, ctx) => {
       const t0 = Date.now();

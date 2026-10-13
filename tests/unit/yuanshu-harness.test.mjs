@@ -93,7 +93,7 @@ test("handleUnifiedChat Auto 必须走 routeForAuto，循环中段必须能压�
   const loop = src.slice(src.indexOf("export async function unifiedChat"), src.indexOf("export async function unifiedChat") + 12000);
   assert.ok(loop.includes("needsMidLoopCompact") || loop.includes("maybeCompactHistory"), "中段要压上下文，不能等开场那一次");
   assert.ok(loop.includes("compactKeepArchive"), "压缩必须留 archive，不能只换成摘要");
-  const handle = src.slice(src.indexOf("export async function handleUnifiedChat"), src.indexOf("export async function handleUnifiedChat") + 12000);
+  const handle = src.slice(src.indexOf("export async function handleUnifiedChat"), src.indexOf("export async function handleUnifiedChat") + 16000);
   assert.ok(handle.includes("assembleYuanshuSystem") || handle.includes("buildYuanshuSections"), "system 必须走命名区段");
   assert.ok(handle.includes("sandboxMode"), "规划只读要落到沙箱阶梯");
 });
