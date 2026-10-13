@@ -171,7 +171,8 @@ import { optionalCultivationHumanConfig } from './engine/cultivation/human-confi
 import { ownerConfigProvider } from './engine/cultivation/owner-config.mjs';
 import { createCultivationProvider } from './engine/cultivation/provider.mjs';
 import { CULTIVATION_TOOL_SCHEMA, cultivationTool, createPiCultivationTool } from './engine/cultivation/tool.mjs';
-import { initCultivationTool } from './engine/session-manager.mjs';
+import { createPiMemoryTool } from './engine/memory-tool.mjs';
+import { initCultivationTool, initMemoryTool } from './engine/session-manager.mjs';
 import { buildPersistentActivity } from "./engine/persistent-activity.mjs";
 import { runEvolutionCycle, evolutionStatus, revertEvolution } from './engine/evolution-cycle.mjs';
 import { createTaskEvidence } from './engine/task-evidence.mjs';
@@ -212,6 +213,42 @@ const mcpManager = createMcpManager({ wsRoot: () => WS_ROOT }); // 延迟求值�
 let shellVersion = CONFIG.version || "";
 if (!shellVersion) { try { shellVersion = JSON.parse(fs.readFileSync(path.join(__dirname, "version.json"), "utf8")).version || ""; } catch {} }
 const { createFeedbackStore } = await import("./engine/feedback.mjs");
+
+// 记忆库存储层（2026-10-13，Phase 1 地基）：中长期记忆（偏好/任务记录/事实），
+// 惰性打开（路径依赖运行时注入的 WS_ROOT）；增删改查全走 /api/memory，元枢后端直接读写
+const memoryDb = await import("./engine/memory-db.mjs");
+memoryDb.initMemoryDb(() => WS_ROOT);
+const memoryVectors = await import("./engine/vector-store.mjs");
+memoryVectors.initVectorStore(() => WS_ROOT);
+const memoryEmbedding = await import("./engine/embedding.mjs");
+memoryEmbedding.initEmbedding(() => WS_ROOT);
+
+// 写入管线（伙伴定稿）：摘要条目 → 向量化拿 vector_id → 多维表格建行绑定。embedding 失败降级：行照建 vector_id 空。
+// 顺序：先建行（校验失败此处抛，零副作用）→ 再向量化 → 成功后回写绑定，杜绝孤儿向量。
+async function memoryIngest(body) {
+  const item = memoryDb.addMemory({ ...body, vector_id: null });
+  let vector_id = null, embedNote = "";
+  try {
+    const vec = await memoryEmbedding.embed(body?.summary || "");
+    vector_id = memoryVectors.add(null, vec, { memory_type: body?.memory_type || "fact", user_id: body?.user_id || "owner" });
+    memoryDb.updateMemory(item.memory_id, { vector_id });
+  } catch (e) { embedNote = String(e.message || e).slice(0, 100); }
+  return { item: memoryDb.getMemory(item.memory_id), vector_id, embedNote };
+}
+
+// 召回管线：提问 → 向量检索拿 vector_id 列表 → 表格回查完整记忆 → 重要性加权排序
+async function memoryRecall(query, opts = {}) {
+  const user_id = opts.user_id || "owner";
+  const topK = opts.topK || 5;
+  const qvec = await memoryEmbedding.embed(query);
+  const hits = memoryVectors.search(qvec, Math.max(topK * 3, 12));
+  const byId = new Map(hits.map(h => [h.id, h]));
+  const rows = memoryDb.listByVectorIds(hits.map(h => h.id), user_id);
+  return rows.map(r => {
+    const h = byId.get(r.vector_id);
+    return { memory_id: r.memory_id, summary: r.summary, memory_type: r.memory_type, importance_score: r.importance_score, source: r.source, similarity: h ? Number(h.score.toFixed(4)) : 0, weight: Number((h.score * (0.5 + r.importance_score)).toFixed(4)) };
+  }).sort((a, b) => b.weight - a.weight).slice(0, topK);
+}
 const feedbackStore = createFeedbackStore({
   wsRoot: () => WS_ROOT,
   version: shellVersion,
@@ -2377,6 +2414,10 @@ const maintenanceSessionExists = sid => activeSessions.has(sid) || !!findSession
 const computerUse = createComputerUse({adapter:createWindowsAdapter(),registry:confirmRegistry,sessionExists:maintenanceSessionExists,push:busPush});
 initComputerTool((Type, sessionId) => createPiComputerTool(Type, () => computerUse, sessionId));
 initCultivationTool(Type => createPiCultivationTool(Type, () => cultivationRuntime));
+initMemoryTool(Type => createPiMemoryTool(Type, {
+  db: memoryDb, vectors: memoryVectors, embedding: memoryEmbedding,
+  ingest: memoryIngest, recall: memoryRecall,
+}));
 const requestGeneApproval = createGeneApproval({ api: emotion, registry: confirmRegistry, sessionExists: maintenanceSessionExists, push: busPush });
 const personaGovernance = createPersonaGovernance({ wsRoot: CONFIG.cwd, agentDir: getAgentDir() });
 const requestPersonaApproval = createPersonaApproval({ api: personaGovernance, registry: confirmRegistry, sessionExists: maintenanceSessionExists, push: busPush });
@@ -2548,6 +2589,41 @@ const API_ROUTES = [
     const b = await readBody(req, 1);
     const r = feedbackStore.mark(m[1], String(b?.status || ""));
     json(res, r.error ? (r.error === "not_found" ? 404 : 400) : 200, r.error ? { error: r.error } : { ok: true });
+  }],
+  // ── 记忆库 CRUD（2026-10-13）：中长期记忆（偏好/任务记录/事实），增删改查全 API ──
+  // 身份模型：MVP 单用户 owner（user_id 自声明）；小程序/Agent 多用户接入时此参数改由认证态解析，存储层已按 user_id 隔离
+  ["GET", "/api/memory", (res, req, url) => {
+    const q = Object.fromEntries(url.searchParams);
+    json(res, 200, memoryDb.listMemories({ user_id: q.user_id || "owner", memory_type: q.memory_type || "", status: q.status || "active", q: q.q || "", view: q.view || "", limit: q.limit, offset: q.offset }));
+  }],
+  ["POST", "/api/memory", async (res, req) => {
+    const b = await readBody(req, 8);
+    try {
+      const r = await memoryIngest(b || {});
+      json(res, 200, { ok: true, item: r.item, vector_id: r.vector_id, embedded: !!r.vector_id, embedNote: r.embedNote });
+    } catch (e) { json(res, 400, { error: String(e.message || e) }); }
+  }],
+  ["POST", "/api/memory/sweep", (res) => json(res, 200, memoryDb.sweepExpired())],
+  ["GET", "/api/memory/recall", async (res, req, url) => {
+    const q = url.searchParams.get("q") || "";
+    if (!q) return json(res, 400, { error: "缺少 q" });
+    try { json(res, 200, { ok: true, results: await memoryRecall(q, { user_id: url.searchParams.get("user_id") || "owner", topK: Number(url.searchParams.get("topK")) || 5 }) }); }
+    catch (e) { json(res, 502, { error: String(e.message || e).slice(0, 150) }); }
+  }],
+  ["GET", "/api/memory/embedding", (res) => json(res, 200, memoryEmbedding.configInfo())],
+  ["GET", /^\/api\/memory\/([^/]+)$/, (res, req, url, m) => {
+    const it = memoryDb.getMemory(m[1], { touch: url.searchParams.get("touch") === "1" });
+    json(res, it ? 200 : 404, it || { error: "not_found" });
+  }],
+  ["PATCH", /^\/api\/memory\/([^/]+)$/, async (res, req, url, m) => {
+    const b = await readBody(req, 8);
+    try { json(res, 200, { ok: true, item: memoryDb.updateMemory(m[1], b || {}) }); }
+    catch (e) { json(res, 400, { error: String(e.message || e) }); }
+  }],
+  ["DELETE", /^\/api\/memory\/([^/]+)$/, (res, req, url, m) => {
+    const r = memoryDb.deleteMemory(m[1]);
+    if (r.ok && r.vector_id) { try { memoryVectors.remove(r.vector_id); } catch { } } // 联动清向量，防孤儿
+    json(res, r.ok ? 200 : 404, r.ok ? { ok: true, vector_id: r.vector_id } : { error: "not_found" });
   }],
   ["GET", "/api/feedback/summary", (res) => json(res, 200, { groups: feedbackStore.summary() })],
   ["GET", "/api/telemetry", (res) => json(res, 200, isEnabled(WS_ROOT))],

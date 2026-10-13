@@ -12,6 +12,7 @@ import WechatPanel from '../components/WechatPanel'
 import EmailPanel from '../components/EmailPanel'
 import McpPanel from '../components/McpPanel'
 import FeedbackPanel from '../components/FeedbackPanel'
+import MemoryPanel from '../components/MemoryPanel'
 import SandboxModePanel from '../components/engine/SandboxModePanel'
 import MaintenanceModePanel from '../components/engine/MaintenanceModePanel'
 
@@ -325,6 +326,7 @@ export default function System() {
             <EmailPanel />
             <McpPanel />
             <FeedbackPanel />
+            <MemoryPanel />
           </div>
         </section>
 

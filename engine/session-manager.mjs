@@ -22,6 +22,8 @@ let computerToolFactory = null;
 export function initComputerTool(factory) { computerToolFactory = factory; }
 let cultivationToolFactory = null;
 export function initCultivationTool(factory) { cultivationToolFactory = factory; }
+let memoryToolFactory = null;
+export function initMemoryTool(factory) { memoryToolFactory = factory; }
 
 const lifecycle = createSessionLifecycle();
 const lazySessionManagers = new WeakSet();
@@ -759,6 +761,7 @@ export async function createSessionAgent(sm, model) {
   customTools.push(createPiTeamTool(teamRequire(_piPackage)('typebox').Type));
   if (computerToolFactory) customTools.push(computerToolFactory(teamRequire(_piPackage)('typebox').Type, () => sm.getSessionId()));
   if (cultivationToolFactory) customTools.push(cultivationToolFactory(teamRequire(_piPackage)('typebox').Type));
+  if (memoryToolFactory) customTools.push(memoryToolFactory(teamRequire(_piPackage)('typebox').Type));
   const st = await initSearchTool();
   if (st) customTools.push(st);
   const sh = await initShareTool();
