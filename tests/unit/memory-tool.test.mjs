@@ -38,3 +38,17 @@ test("user_id 隔离 + 非法动作拒绝", async () => {
     assert.equal(bad.isError, true);
   } finally { h.close(); }
 });
+
+test("信念保鲜：needs_review 视图 + confirm 刷新确认时间", async () => {
+  const h = await createMemoryDbTestHarness();
+  try {
+    const db = h.db;
+    const fresh = db.addMemory({ user_id: "u1", memory_type: "preference", summary: "新偏好" });
+    const old = db.addMemory({ user_id: "u1", memory_type: "preference", summary: "四十天前的偏好", last_confirmed_at: new Date(Date.now() - 40 * 86400000).toISOString() });
+    const r1 = db.listMemories({ user_id: "u1", view: "needs_review", limit: 50 });
+    assert.deepEqual(r1.items.map(x => x.memory_id), [old.memory_id], "只有超30天未确认的进视图");
+    db.confirmMemory(old.memory_id);
+    const r2 = db.listMemories({ user_id: "u1", view: "needs_review", limit: 50 });
+    assert.equal(r2.total, 0, "确认后出视图");
+  } finally { h.close(); }
+});

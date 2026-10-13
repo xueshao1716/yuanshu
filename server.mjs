@@ -2625,12 +2625,16 @@ const API_ROUTES = [
     catch (e) { json(res, 502, { error: String(e.message || e).slice(0, 150) }); }
   }],
   ["GET", "/api/memory/embedding", (res) => json(res, 200, memoryEmbedding.configInfo())],
-  ["GET", "/api/belief-audit", (res) => {
-    // 信念体检手动预览（夜间自动跑的同一逻辑，只读不落盘）
+  ["GET", "/api/belief-audit", (res, req, url) => {
+    // 信念体检：默认只读预览；?run=1 真跑并落盘复核清单（同夜间逻辑）
     try {
-      const { scanBeliefs } = beliefAuditModule || {};
-      if (typeof scanBeliefs !== "function") return json(res, 503, { error: "belief-audit not ready" });
-      return json(res, 200, scanBeliefs({ wsRoot: WS_ROOT, listMemories: memoryDb.listMemories, now: new Date() }));
+      const ba = beliefAuditModule;
+      const run = url.searchParams.get("run") === "1";
+      if (run) {
+        const out = ba.runBeliefAudit({ wsRoot: WS_ROOT, listMemories: memoryDb.listMemories, now: new Date() });
+        return json(res, 200, { ...out.report, reportPath: out.reportPath });
+      }
+      return json(res, 200, ba.scanBeliefs({ wsRoot: WS_ROOT, listMemories: memoryDb.listMemories, now: new Date() }));
     } catch (e) { return json(res, 502, { error: String(e?.message || e).slice(0, 150) }); }
   }],
   ["GET", /^\/api\/memory\/([^/]+)$/, (res, req, url, m) => {
@@ -2641,6 +2645,11 @@ const API_ROUTES = [
     const b = await readBody(req, 8);
     try { json(res, 200, { ok: true, item: memoryDb.updateMemory(m[1], b || {}) }); }
     catch (e) { json(res, 400, { error: String(e.message || e) }); }
+  }],
+  ["POST", /^\/api\/memory\/([^/]+)\/confirm$/, (res, req, url, m) => {
+    // ToM 信念层（Phase 2）：伙伴复核过这条信念仍是现行意愿 → 推确认时间（refresh 保鲜期）
+    const it = memoryDb.confirmMemory(m[1]);
+    json(res, it ? 200 : 404, it ? { ok: true, item: it } : { error: "not_found" });
   }],
   ["DELETE", /^\/api\/memory\/([^/]+)$/, (res, req, url, m) => {
     const r = memoryDb.deleteMemory(m[1]);

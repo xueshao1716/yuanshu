@@ -28,19 +28,22 @@ export function scanBeliefs({ wsRoot, listMemories, progressMdPath, now = new Da
   // 源 1：记忆库 preference/fact——updated_at >30 天即视为未经伙伴再次确认（召回本身不算确认，MVP 简化）
   if (typeof listMemories === "function") {
     try {
-      const r = listMemories({ user_id: "owner", limit: 200, status: "all" });
+      // Phase 2：与记忆库共用统一规则口径（needs_review 视图：确认时间缺失或 >30 天）
+      let r = null;
+      try { r = listMemories({ user_id: "owner", limit: 200, view: "needs_review" }); } catch { }
+      if (!r || !Array.isArray(r.items)) r = listMemories({ user_id: "owner", limit: 200, status: "all" });
       out.sources.push("memory-db");
       for (const it of r.items || []) {
         if (!["preference", "fact"].includes(it.memory_type)) continue;
-        const updated = it.updated_at || it.created_at;
-        if (!updated) continue;
-        const days = Math.floor((now.getTime() - Number(updated)) / 86400000);
+        const confirmed = Number(it.last_confirmed_at || it.updated_at || it.created_at || 0);
+        if (!confirmed) continue;
+        const days = Math.floor((now.getTime() - confirmed) / 86400000);
         if (days > STALE_DAYS) {
           out.stale_memories.push({
             memory_id: it.memory_id, kind: it.memory_type, age_days: days,
             summary: String(it.summary || "").slice(0, 120),
             importance_score: it.importance_score,
-            suggestion: `last_confirmed_at 缺失 ${days} 天，请确认这条「${it.memory_type}」是否仍是伙伴的现行意愿；不再成立请删除或降分。`,
+            suggestion: `未被伙伴确认 ${days} 天，请复核这条「${it.memory_type}」是否仍是现行意愿：仍成立点确认/不再成立删除或降分。`,
           });
         }
       }

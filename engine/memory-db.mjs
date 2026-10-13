@@ -48,6 +48,14 @@ function openDb() {
     CREATE INDEX IF NOT EXISTS idx_mem_importance ON memories(importance_score DESC);
     CREATE INDEX IF NOT EXISTS idx_mem_status ON memories(status);
   `);
+  // 信念保鲜字段（ToM 信念层 Phase 2，2026-10-13）：last_confirmed_at = 伙伴最近一次行为支持该条目。
+  // 旧库兼容：无该列则 ALTER 补列，并初始化为创建时间（保守正确，不伪造确认）。
+  const cols = _db.prepare("PRAGMA table_info(memories)").all().map(c => c.name);
+  if (!cols.includes("last_confirmed_at")) {
+    _db.exec("ALTER TABLE memories ADD COLUMN last_confirmed_at INTEGER;");
+    _db.exec("UPDATE memories SET last_confirmed_at = created_at WHERE last_confirmed_at IS NULL;");
+  }
+  _db.exec("CREATE INDEX IF NOT EXISTS idx_mem_confirmed ON memories(last_confirmed_at) WHERE last_confirmed_at IS NOT NULL;");
   return _db;
 }
 
@@ -59,7 +67,7 @@ function validExpire(v) {
 }
 
 /** 新增记忆。importance 缺省按来源给初值：manual 0.9 / skill 0.7 / auto 0.5 / feedback 0.6 */
-export function addMemory({ user_id = "owner", memory_type, summary, raw_content = null, importance_score = null, expire_at = null, source = "manual", vector_id = null } = {}) {
+export function addMemory({ user_id = "owner", memory_type, summary, raw_content = null, importance_score = null, expire_at = null, source = "manual", vector_id = null, last_confirmed_at = null } = {}) {
   if (!TYPES.has(memory_type)) throw new Error(`memory_type 必须是 ${[...TYPES].join("/")}`);
   if (!String(summary || "").trim()) throw new Error("summary 不能为空");
   if (!SOURCES.has(source)) throw new Error(`source 必须是 ${[...SOURCES].join("/")}`);
@@ -69,9 +77,11 @@ export function addMemory({ user_id = "owner", memory_type, summary, raw_content
   const imp = importance_score === null || importance_score === undefined
     ? { manual: 0.9, skill: 0.7, feedback: 0.6, auto: 0.5 }[source] ?? 0.5
     : Math.max(0, Math.min(1, Number(importance_score)));
-  db.prepare(`INSERT INTO memories (memory_id, user_id, memory_type, summary, raw_content, created_at, updated_at, importance_score, expire_at, source, vector_id)
-              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
-    .run(id, user_id, memory_type, String(summary).trim().slice(0, 2000), raw_content, now, now, imp, validExpire(expire_at), source, vector_id);
+  // 信念保鲜：last_confirmed_at = 伙伴最近一次行为支持该条目的时间。未传则视为刚确认（创建=确认，保守正确）。
+  const confirmed = last_confirmed_at ? (new Date(last_confirmed_at).getTime() || now) : now;
+  db.prepare(`INSERT INTO memories (memory_id, user_id, memory_type, summary, raw_content, created_at, updated_at, importance_score, expire_at, source, vector_id, last_confirmed_at)
+              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+    .run(id, user_id, memory_type, String(summary).trim().slice(0, 2000), raw_content, now, now, imp, validExpire(expire_at), source, vector_id, confirmed);
   return getMemory(id);
 }
 
@@ -93,6 +103,11 @@ export function listMemories({ user_id = "owner", memory_type = "", status = "",
   } else if (view === "important") {
     where.push("importance_score >= 0.7", "status = 'active'");
     order = "importance_score DESC";
+  } else if (view === "needs_review") {
+    // ToM 信念层（2026-10-13）：信念保鲜审计。preference/fact 中确认时间缺失或 >30 天 → 待复核视图。
+    where.push("memory_type IN ('preference','fact')", "status = 'active'", "(last_confirmed_at IS NULL OR last_confirmed_at < ?)");
+    args.push(Date.now() - 30 * 86400000);
+    order = "last_confirmed_at ASC";
   } else if (view === "expired") {
     where.push("(status = 'archived' OR (expire_at IS NOT NULL AND expire_at < ?))");
     args.push(Date.now());
@@ -146,10 +161,25 @@ export function updateMemory(id, patch = {}) {
   }
   if (patch.raw_content !== undefined) allowed.raw_content = patch.raw_content;
   if (patch.vector_id !== undefined) allowed.vector_id = patch.vector_id; // 绑定向量（写入流程第 2→3 步的桥）
+  if (patch.last_confirmed_at !== undefined) {
+    const t = patch.last_confirmed_at ? new Date(patch.last_confirmed_at).getTime() : Date.now();
+    if (Number.isNaN(t)) throw new Error("last_confirmed_at 非法时间");
+    allowed.last_confirmed_at = t; // 信念保鲜：确认动作只由伙伴复核触发（confirmMemory / PATCH）
+  }
   const keys = Object.keys(allowed);
   if (!keys.length) throw new Error("没有可更新字段");
   db.prepare(`UPDATE memories SET ${keys.map(k => `${k} = ?`).join(", ")}, updated_at = ? WHERE memory_id = ?`)
     .run(...keys.map(k => allowed[k]), Date.now(), String(id));
+  return getMemory(String(id));
+}
+
+/** 确认信念（ToM Phase 2）：伙伴复核过这条信念仍是现行意愿。只推确认时间，不碰其他字段。 */
+export function confirmMemory(id) {
+  const db = openDb();
+  const it = db.prepare("SELECT memory_id FROM memories WHERE memory_id = ?").get(String(id));
+  if (!it) return null;
+  db.prepare("UPDATE memories SET last_confirmed_at = ?, updated_at = ? WHERE memory_id = ?")
+    .run(Date.now(), Date.now(), String(id));
   return getMemory(String(id));
 }
 
