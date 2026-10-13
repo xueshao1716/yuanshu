@@ -6,12 +6,12 @@ import Learning from './Learning'
 import type { Action } from './Authorization'
 import Authorization from './Authorization'
 import PolicyPreset from './PolicyPreset'
-import { queueDraft } from '../../components/xiaoyu/companion-draft.mjs'
+import GrantStatus, { grantState } from './GrantStatus'
 import './cultivation.css'
 
 export default function Cultivation({sessionId}:{sessionId:string}) {
   const [expandDesign, setExpandDesign] = useState<string|null>(null)
-  const [expandRun, setExpandRun] = useState<boolean>(false)
+  const [expandRun, setExpandRun] = useState<boolean>(true)
   const [expandExperience, setExpandExperience] = useState<boolean>(false)
   const [action, setAction] = useState<Action|null>(null)
   const [error, setError] = useState('')
@@ -55,88 +55,31 @@ export default function Cultivation({sessionId}:{sessionId:string}) {
     return line
   })
 
-  const unregistered = designsReversed.filter(d => ![...agentMap.values()].some(a => a.designId === d.id))
   const activeRuns = (runs.data?.items || []).filter(r => ['queued','running'].includes(r.status))
-  const pendingExp = (experience.data?.items || []).filter(e => e.state === 'review_required')
 
-  const needsAttention = unregistered.length + activeRuns.length + pendingExp.length
-
-  const sendToChat = (text: string) => {
-    if (!sessionId || !queueDraft(sessionStorage, sessionId, text.trim())) {
-      alert('暂存失败，请手动复制文字到对话')
-      return
-    }
-    window.dispatchEvent(new Event('yuanshu-companion-draft'))
-    window.location.hash = '/chat'
-  }
+  const finishedRuns = (runs.data?.items || []).filter(r => r.status === 'completed')
+  const latestRunOf = (agentId?: string) => (runs.data?.items || []).find(r => r.cultivation.agentId === agentId)
 
   return <div className="cultivation-panel">
-    <Block title="小语的培养工作室" hint="小语设计和培养子智能体，受限预设以内的开关她自己执行；你只需要看结果、在越线时把关。不需要电脑密码。">
+    <Block title="小语的培养工作室" hint="小语设计和培养子智能体，开关与额度她自己管，越线才找你；你只需要看她养了谁、结果好不好。不需要电脑密码。">
       <LoadState error={overview.error} loading={overview.isLoading} retry={() => retry(overview.mutate)}/>
       {overview.data && (
         <>
           <p className="soul-notice">
             {overview.data.state === 'waiting_for_design' && '等待小语提交设计'}
-            {overview.data.state === 'designs_available' && !agentMap.size && '有设计稿，还没登记个体'}
+            {overview.data.state === 'designs_available' && !agentMap.size && '有设计稿，小语还没登记个体'}
             {overview.data.state === 'designs_available' && agentMap.size > 0 && `培养中 · ${agentMap.size} 个个体`}
+            {grantState(overview.data) !== 'on' && ' · 授权未开启，小语会在对话里自己开启'}
           </p>
           <dl className="soul-facts">
-            <div><dt>设计稿</dt><dd>{designsReversed.length} 份</dd></div>
-            <div><dt>已登记个体</dt><dd>{agentMap.size} 个</dd></div>
-            <div><dt>授权到期</dt><dd>{overview.data.policy.expiresAt ? date(overview.data.policy.expiresAt) : '未设置'}</dd></div>
+            <div><dt>个体</dt><dd>{agentMap.size} 个</dd></div>
+            <div><dt>运行中</dt><dd>{activeRuns.length} 个任务</dd></div>
+            <div><dt>已出结果</dt><dd>{finishedRuns.length} 次</dd></div>
             <div><dt>今日已用</dt><dd>{overview.data.usage ? `${overview.data.usage.spent} ${overview.data.usage.currency}` : '—'}</dd></div>
           </dl>
         </>
       )}
     </Block>
-
-    {needsAttention > 0 && (
-      <Block title={`等你点头（${needsAttention}）`} hint="她设计好了，需要你确认">
-        {unregistered.length > 0 && (
-          <details open>
-            <summary>未登记的设计稿（{unregistered.length}）</summary>
-            <ul className="cultivation-list">
-              {unregistered.map(d => (
-                <li key={d.id}>
-                  <h4>{d.design.name}</h4>
-                  <p className="soul-dim">{d.design.rationale}</p>
-                  <button onClick={() => sendToChat(`请登记「${d.design.name}」设计稿（${d.id.slice(0,8)}）`)}>
-                    让小语登记
-                  </button>
-                </li>
-              ))}
-            </ul>
-          </details>
-        )}
-        {activeRuns.length > 0 && (
-          <details>
-            <summary>运行中的任务（{activeRuns.length}）</summary>
-            <ul className="cultivation-list">
-              {activeRuns.map(run => {
-                const agent = agentMap.get(run.cultivation.agentId)
-                const design = designMap.get(agent?.designId || '')
-                return (
-                  <li key={run.id}>
-                    <h4>{design?.design.name || '未知个体'} · {statusLabel(run.status)}</h4>
-                    <p className="soul-dim">{date(run.createdAt)}</p>
-                    <button onClick={() => setAction({
-                      method: 'POST', path: `/runs/${run.id}/cancel`,
-                      payload: {}, revision: overview.data!.revision, label: '取消任务'
-                    })}>叫停这个任务</button>
-                  </li>
-                )
-              })}
-            </ul>
-          </details>
-        )}
-        {pendingExp.length > 0 && (
-          <details>
-            <summary>待核查经验（{pendingExp.length}）</summary>
-            <p className="soul-hint">展开「反哺的经验」查看详情并处理</p>
-          </details>
-        )}
-      </Block>
-    )}
 
     {action && (
       <Authorization
@@ -150,21 +93,25 @@ export default function Cultivation({sessionId}:{sessionId:string}) {
       />
     )}
 
-    <Block title="个体与设计" hint="按血缘分组，最新版优先">
+    <Block title="个体与设计" hint="每个个体最近一次成果在最前面；设计细节展开才看">
       <LoadState error={designs.error || agents.error} loading={designs.isLoading || agents.isLoading}
         retry={() => { retry(designs.mutate); retry(agents.mutate) }} />
       {lineages.map((line, i) => {
         const latest = line[line.length - 1]
         const agent = [...agentMap.values()].find(a => line.some(d => d.id === a.designId))
         const isExpanded = expandDesign === latest.id
+        const latestRun = latestRunOf(agent?.id)
         return (
           <details key={i} open={isExpanded} onToggle={e => setExpandDesign(e.currentTarget.open ? latest.id : null)}>
             <summary>
               <strong>{latest.design.name}</strong>
               {agent && <span className="cultivation-badge">{statusLabel(agent.status)}</span>}
-              <span className="soul-dim">· {line.length} 版本</span>
+              {!agent && <span className="cultivation-badge">设计稿</span>}
+              <span className="soul-dim">· {line.length} 版本{latestRun ? ` · 最近：${statusLabel(latestRun.status)}` : ''}</span>
             </summary>
             <div className="cultivation-design">
+              {latestRun?.cultivation.output && <><h4>最近一次成果</h4><p className="cultivation-output">{latestRun.cultivation.output}</p></>}
+              {latestRun?.error?.message && <p role="alert">{latestRun.error.message}</p>}
               <p>{latest.design.rationale}</p>
               <dl className="soul-facts">
                 <div><dt>模型</dt><dd>{latest.design.permissions.model}</dd></div>
@@ -223,12 +170,11 @@ export default function Cultivation({sessionId}:{sessionId:string}) {
               <p className="soul-dim">{date(run.createdAt)}</p>
               {run.cultivation.reason && <p>{run.cultivation.reason}</p>}
               {run.cultivation.output && (
-                <details>
-                  <summary>输出</summary>
-                  <p className="cultivation-output">{run.cultivation.output}</p>
-                </details>
+                <p className="cultivation-output">{run.cultivation.output}</p>
               )}
               {run.error?.message && <p role="alert">{run.error.message}</p>}
+              {['queued','running'].includes(run.status) && <button onClick={() => setAction({ method: 'POST', path: `/runs/${run.id}/cancel`,
+                payload: {}, revision: overview.data!.revision, label: '取消任务' })}>叫停这个任务</button>}
             </li>
           )
         })}
@@ -250,12 +196,13 @@ export default function Cultivation({sessionId}:{sessionId:string}) {
     </details>
 
     {overview.data && (
-      <Block title="授权与资源" hint={policyAuthorized ? '已放权，小语可以自主跑任务；封套内她就动，越线才找你' : '还没放权。小语可以自己在对话里开启受限预设（纯文本、零工具、有上限）；预设之外才需要你'}>
-        {!policyAuthorized && overview.data.sessionGrantAvailable && !sessionId && (
+      <Block title="授权与资源" hint="开没开、用了多少、怎么收回；加大额度等细节在授权中心。">
+        <GrantStatus value={overview.data} onAction={setAction} />
+        {grantState(overview.data) !== 'on' && !policyAuthorized && overview.data.sessionGrantAvailable && !sessionId && (
           <p className="soul-notice">请先在页面上方选择会话，就可以一键同意</p>
         )}
-        <PolicyPreset value={overview.data} authorized={policyAuthorized} onAction={setAction} refresh={refresh} />
-        <p className="soul-hint">加大额度、共享模型白名单、签名通道 → <a href="#/grants">授权中心 · 培养与母体学习</a>。</p>
+        {grantState(overview.data) !== 'on' && <PolicyPreset value={overview.data} authorized={policyAuthorized} onAction={setAction} refresh={refresh} />}
+        <p className="soul-hint">高级设置 → <a href="#/grants">授权中心 · 智能体培养</a>。</p>
       </Block>
     )}
 

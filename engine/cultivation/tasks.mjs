@@ -44,7 +44,7 @@ export function createCultivationTasks(options) {
     if(!id(cancel?c.payload.runId:c.payload.agentId))badCommand(cancel?'payload.runId':'payload.agentId','完整 id（UUID）');
     if(!cancel)for(const k of ['input','goal','criterion'])
       if(typeof c.payload[k]!=='string'||!c.payload[k].trim()||c.payload[k].length>4000)badCommand(`payload.${k}`,'非空字符串，最多 4000 字');
-    const authenticate=()=>authority.assert(principal,c,[cancel?'human':'mother']);
+    const authenticate=()=>authority.assert(principal,c,cancel?['human','mother']:['mother']);
     return repo.transaction(()=>{
       const actor=authenticate(),state=controls.read();
       const prior=repo.list().find(r=>cancel?r.cultivation.cancel?.id===c.requestId:r.clientRequestId===c.requestId);

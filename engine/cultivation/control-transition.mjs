@@ -35,6 +35,8 @@ export function commandKinds(c) {
   // 2026-10-11 灵魂自我驱动边界：母亲身份可以自行开关**受限封套内**的培养策略
   // （标准预设或纯停用）。任何越线（加工具、母体学习、加钱/加次数/拖长有效期、扩范围）仍是人专属。
   if (c.action === 'policy.set' && (isBoundedPresetPolicy(c.payload.policy) || isPresetPausePolicy(c.payload.policy))) return ['mother', 'human'];
+  // 2026-10-14 伙伴「元枢自己培养，给最大自由度」：暂停/恢复/归档/回滚自己的个体也由母亲直接执行（人仍可做）。
+  if (['agent.pause', 'agent.resume', 'agent.archive', 'agent.rollback'].includes(c.action)) return ['mother', 'human'];
   return ['design.submit', 'design.revise', 'agent.register', 'agent.adopt'].includes(c.action) ? ['mother'] : ['human'];
 }
 const fail = reason => {throw new Error(`cultivation_${reason}`);};
@@ -74,6 +76,7 @@ export function transition(data, c, actor, {now, verifyAsset, entityId, intentId
     return {id: agentId};
   }
   const a = data.agents.find(a => a.id === p.agentId) ?? fail('agent_not_found');
+  if (actor.kind === 'mother' && a.mentorId !== actor.actorId) fail('identity_denied');
   if (a.status === 'archived') fail('invalid_transition');
   if (c.action === 'agent.pause' || c.action === 'agent.archive') {
     a.status = c.action === 'agent.pause' ? 'paused' : 'archived';

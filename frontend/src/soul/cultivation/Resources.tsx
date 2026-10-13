@@ -3,9 +3,7 @@ import type { Overview, Policy } from './api'
 import type { Action } from './Authorization'
 import { date } from '../shared'
 import OwnerConfirmation from './OwnerConfirmation'
-import PolicyPreset from './PolicyPreset'
 import Diagnostics from './Diagnostics'
-import WidenCard from './WidenCard'
 import SharedResources from './SharedResources'
 export default function Resources({value,sessionId,onAction,refresh}:{value:Overview;sessionId:string;onAction:(a:Action)=>void;refresh:()=>Promise<unknown>}) {
   const [draft,setDraft]=useState(JSON.stringify(value.policy,null,2)),[error,setError]=useState('')
@@ -21,8 +19,6 @@ export default function Resources({value,sessionId,onAction,refresh}:{value:Over
     <p className="soul-hint">培养和知识共用资源额度，聊天优先。不需要电脑密码；电脑操作另有授权，默认关闭。</p>
     {value.usage?<dl className="soul-facts"><div><dt>共享已结算费用</dt><dd>{value.usage.spent} {value.usage.currency}</dd></div><div><dt>已预留费用</dt><dd>{value.usage.reserved} {value.usage.currency}</dd></div><div><dt>用量待确认</dt><dd>{value.usage.unknown}</dd></div></dl>:<p>尚无可读取的资源账本，不按零用量显示。</p>}
     {value.sessionGrantAvailable?<p className="soul-notice">{sessionId?'培养策略可在当前会话确认，安卓和网页均可使用，不需要 Windows 设备绑定。':'请先在上方选择会话，即可确认培养策略。'}其他人工操作仍使用原有签名通道。</p>:null}
-    <PolicyPreset value={value} authorized={policyAuthorized} onAction={onAction} refresh={refresh}/>
-    <WidenCard value={value} authorized={policyAuthorized} onAction={onAction} refresh={refresh}/>
     <section aria-label="共享模型与额度设置">
       <h4>共享模型与额度设置（培养前必须核对）</h4>
       <p className="soul-notice">这里直接管理：<strong>允许共享后台调用外部模型、共享模型白名单、模型价格与每日额度</strong>。它与知识后台共用，保存后同时影响知识与培养。</p>

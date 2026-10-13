@@ -7,6 +7,9 @@ import { Block, LoadState, date } from '../soul/shared'
 import { AllConfirmations, SessionChoice } from '../soul/Confirmations'
 import { CultivationApi, cultivationPolling, type Overview } from '../soul/cultivation/api'
 import Resources from '../soul/cultivation/Resources'
+import GrantStatus from '../soul/cultivation/GrantStatus'
+import PolicyPreset from '../soul/cultivation/PolicyPreset'
+import WidenCard from '../soul/cultivation/WidenCard'
 import Authorization, { type Action } from '../soul/cultivation/Authorization'
 import { KnowledgeApi, knowledgePolling } from '../knowledge/api'
 import KnowledgePolicy from '../knowledge/KnowledgePolicy'
@@ -21,7 +24,7 @@ import '../soul/cultivation/cultivation.css'
 // 原页面上的入口保留——就近操作还在，找不到时来这里。
 const AREAS = [
   ['pending', '等我确认', '全部会话的越线确认都排在这里；常规培养开关她自己执行，不进这里。'],
-  ['cultivation', '培养与母体学习', '受限封套（小语自管）之外的授权：加大额度、母体学习、共享模型白名单与价格。'],
+  ['cultivation', '智能体培养', '开没开、用了多少、怎么收回。开关与额度小语自己管，你随时可以收回。'],
   ['knowledge', '知识自动积累', '允许读取的目录与网址、能否联网、可用模型与每日额度。'],
   ['session', '本会话执行权限', '沙箱、超维模式与维护模式：决定当前会话能动哪些文件和命令。'],
   ['desktop', '桌面操作', '让小语看屏幕、操作窗口的限时授权，默认关闭。'],
@@ -42,11 +45,18 @@ function CultivationGrants({ sessionId }: { sessionId: string }) {
   const overview = useSWR('cultivation-overview', CultivationApi.overview, cultivationPolling)
   const refresh = async () => { await mutate(key => typeof key === 'string' ? key.startsWith('cultivation-') || key.startsWith('knowledge-') : Array.isArray(key) && String(key[0]).startsWith('cultivation-')) }
   return <div className="cultivation-panel">
-    <p className="soul-hint">看养了谁、跑成啥样 → <a href="#/soul">灵魂培养 · 智能体培养</a>；这页管的是封套（额度、模型白名单、签名通道）。</p>
+    <p className="soul-hint">看养了谁、跑成啥样 → <a href="#/soul">灵魂培养 · 智能体培养</a>。</p>
     <LoadState error={overview.error} loading={overview.isLoading} retry={() => overview.mutate()} />
     {action && <Authorization key={JSON.stringify([sessionId, action])} action={action} owner={overview.data?.ownerConfirmation} sessionId={sessionId}
       sessionGrantAvailable={!!overview.data?.sessionGrantAvailable} close={() => setAction(null)} refresh={refresh} />}
-    {overview.data && <Block title="培养授权与资源"><Resources value={overview.data} sessionId={sessionId} onAction={setAction} refresh={refresh} /></Block>}
+    {overview.data && <Block title="培养授权">
+      <GrantStatus value={overview.data} onAction={setAction} />
+      {!overview.data.policy.enabled && <PolicyPreset value={overview.data} onAction={setAction} refresh={refresh} />}
+      <details><summary>高级设置（额度、共享模型、母体学习、签名通道）</summary>
+        <WidenCard value={overview.data} authorized onAction={setAction} refresh={refresh} />
+        <Resources value={overview.data} sessionId={sessionId} onAction={setAction} refresh={refresh} />
+      </details>
+    </Block>}
   </div>
 }
 

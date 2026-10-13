@@ -1,12 +1,13 @@
 // 一次性放权的唯一预设：页面「授权与资源」与对话里的浮动授权弹窗共用，避免两处数字各写各的。
-// 2026-10-07 伙伴「给被培养的智能体更大权限，时间更长，额度更大」：14 天、最多 3 个个体、每天 30 次、每天最多 2 美元、单次 10 分钟。
+// 2026-10-14 伙伴「培养体系可以复杂，授权一定要简单；元枢自己培养，给最大自由度」：封套放宽到 30 天、10 个个体、每天 300 次、每天 10 美元、单次 10 分钟。
 // 仍不含工具、电脑、文件、私人记忆，这是红线，放大的只是时间与额度。
-export const GRANT_DAYS = 14;
-export const GRANT_MAX_AGENTS = 3;
-export const GRANT_DAILY_REQUESTS = 30;
-export const GRANT_DAILY_BUDGET_CENTS = 200;
-// 共享后台（知识 + 培养）每天模型调用总数；低于它时培养的 30 次会被共享上限先卡住。
-export const SHARED_MODEL_REQUESTS = 60;
+export const GRANT_DAYS = 30;
+export const GRANT_MAX_AGENTS = 10;
+export const GRANT_MAX_CONCURRENT = 2;
+export const GRANT_DAILY_REQUESTS = 300;
+export const GRANT_DAILY_BUDGET_CENTS = 1000;
+// 共享后台（知识 + 培养）每天模型调用总数；低于它时培养的每日次数会被共享上限先卡住。
+export const SHARED_MODEL_REQUESTS = 600;
 export const GRANT_SCOPE = 'knowledge:approved-cultivation';
 // 预检里这些字段由放权本身写入或由放权后小语改一个布尔值解决；剩下只要不出现别的项，按钮就该可点。
 export const GRANTABLE_FIELDS = ['policy.enabled', 'policy.expiresAt', 'policy.models', 'policy.tools', 'policy.dataScopes',
@@ -28,7 +29,7 @@ export function supportedDesign(design) {
 
 export function grantPolicy(design, now = Date.now()) {
   return {
-    enabled: true, maxAgents: GRANT_MAX_AGENTS, maxConcurrent: 1, dailyRequests: GRANT_DAILY_REQUESTS, dailyBudgetCents: GRANT_DAILY_BUDGET_CENTS, currency: 'USD',
+    enabled: true, maxAgents: GRANT_MAX_AGENTS, maxConcurrent: GRANT_MAX_CONCURRENT, dailyRequests: GRANT_DAILY_REQUESTS, dailyBudgetCents: GRANT_DAILY_BUDGET_CENTS, currency: 'USD',
     allowRemote: true, recursive: false, models: [design.permissions.model], tools: [], dataScopes: [GRANT_SCOPE],
     expiresAt: new Date(now + GRANT_DAYS * 86400000).toISOString(), timeoutMs: GRANT_TIMEOUT_MS, motherLearning: false,
     schedule: { timezone: 'UTC', days: [0, 1, 2, 3, 4, 5, 6], startMinute: 0, endMinute: 1440 },
@@ -96,10 +97,10 @@ export function isBoundedPresetPolicy(policy, now = Date.now()) {
   if (policy.enabled !== true || policy.recursive !== false || policy.motherLearning !== false) return false;
   if (Array.isArray(policy.tools) && policy.tools.length) return false;
   if (Array.isArray(policy.dataScopes) && policy.dataScopes.some(s => s !== GRANT_SCOPE)) return false;
-  if (!Array.isArray(policy.models) || policy.models.length < 1 || policy.models.length > 4) return false;
+  if (!Array.isArray(policy.models) || policy.models.length < 1 || policy.models.length > 8) return false;
   const n = v => (typeof v === 'number' && Number.isSafeInteger(v)) ? v : -1;
   if ((n(policy.maxAgents) < 0 ? policy.maxAgents ?? 3 : policy.maxAgents) > GRANT_MAX_AGENTS) return false;
-  if (policy.maxConcurrent !== undefined && (n(policy.maxConcurrent) < 0 || policy.maxConcurrent > 2)) return false;
+  if (policy.maxConcurrent !== undefined && (n(policy.maxConcurrent) < 0 || policy.maxConcurrent > 3)) return false;
   if (n(policy.dailyRequests) > GRANT_DAILY_REQUESTS) return false;
   if (n(policy.dailyBudgetCents) > GRANT_DAILY_BUDGET_CENTS) return false;
   if (policy.timeoutMs !== undefined && (n(policy.timeoutMs) < 0 || policy.timeoutMs > GRANT_TIMEOUT_MS)) return false;

@@ -89,8 +89,8 @@ function receiptLinks(record, data, designs, agents) {
       const row = agents.get(resultId);
       const mother = ['agent.register', 'agent.adopt'].includes(event.action);
       if (!row || !['agent.register', 'agent.adopt', 'agent.pause', 'agent.resume', 'agent.archive', 'agent.rollback']
-        .includes(event.action) || source.kind !== (mother ? 'mother' : 'human') ||
-          mother && source.actorId !== row.mentorId) fail();
+        .includes(event.action) || (mother ? source.kind !== 'mother' : !['mother', 'human'].includes(source.kind)) ||
+          source.kind === 'mother' && source.actorId !== row.mentorId) fail();
       if (event.action === 'agent.register') {
         if (createdAgents.has(resultId) || !createdDesigns.has(row.history[0])) fail();
         createdAgents.add(resultId);

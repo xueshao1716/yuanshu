@@ -52,7 +52,9 @@ test('registration is isolated by UUID and durable pause is not a false cancella
   assert.equal(reopened.status, 'paused');
   assert.equal(reopened.cancellation, 'pending_confirmation');
   assert.equal(reopened.dispatchAllowed, false);
-  await assert.rejects(f.execute(f.command('agent.resume', {agentId}), 'mother'), /identity_denied/);
+  await f.execute(f.command('agent.resume', {agentId}), 'mother');
+  assert.equal(f.controls.read().data.agents[0].status, 'ready');
+  await f.execute(f.command('agent.pause', {agentId}), 'mother');
   await f.execute(f.command('policy.set', {policy: {...enabledPolicy(), enabled: false}}));
   await assert.rejects(f.execute(f.command('agent.resume', {agentId})), /policy_disabled/);
   await f.execute(f.command('agent.archive', {agentId}));
