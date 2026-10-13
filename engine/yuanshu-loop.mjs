@@ -9,6 +9,7 @@ import { recordStuckEvent, detectStuck } from "./yuanshu-stuck.mjs";
 import { coachSearchRound } from "./yuanshu-session.mjs";
 import { gateSandboxCall } from "./yuanshu-sandbox.mjs";
 import { hashArgs } from "./run-effects.mjs";
+import { validateToolArgs, toolSchemaIndex, argsErrorText } from "./tool-schema.mjs";
 
 const handlers = Object.create(null);
 
@@ -108,10 +109,14 @@ export async function runYuanshuToolRound({
   sandboxAsk,
   effects = null,
   executionContext = null,
+  toolDefs = null,
 } = {}) {
+  const schemas = toolSchemaIndex(toolDefs);
   const tools = {
     getDef: exclusiveDef,
     execute: async (name, args) => {
+      const checked = validateToolArgs(schemas.get(name), args);
+      if (!checked.ok) return { text: argsErrorText(name, checked.errors), isError: true };
       const pd = policyDecide(name, args);
       if (pd?.decision === "deny") return { text: `[系统拦截] ${pd.note}`, isError: true, denied: true };
       const sb = await gateSandboxCall({ mode: sandboxMode, name, args, wsRoot: sandboxWsRoot, ask: sandboxAsk });

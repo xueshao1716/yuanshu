@@ -47,7 +47,7 @@ test('update installs root and frontend dependencies before success and restart'
   assert.deepEqual(f.events.slice(-2), ['response', 'restart']);
 });
 
-for (const failedStage of ['fetch', 'pull', 'root', 'frontend', 'engine']) {
+for (const failedStage of ['fetch', 'root', 'frontend', 'engine']) {
   test(`${failedStage} failure never reports success or schedules restart`, async () => {
     const f = fixture({ fail: failedStage === 'engine' ? '-g' : ['fetch', 'pull'].includes(failedStage) ? failedStage : '' });
     let installs = 0;
@@ -67,6 +67,23 @@ for (const failedStage of ['fetch', 'pull', 'root', 'frontend', 'engine']) {
     if (['root', 'frontend'].includes(failedStage)) assert.match(res.body.error, /未重启/);
   });
 }
+
+// pull 分叉自愈（2026-10-13 bug 弹窗实证）：pull 失败→快照+reset→继续走依赖安装并重启；自愈失败才 409
+test('pull divergence self-heals: snapshot then reset then success', async () => {
+  const f = fixture({ fail: 'pull' }), res = f.response();
+  await f.handler(res, {});
+  assert.equal(res.status, 200, res.body.error || '');
+  assert.equal(res.body.ok, true);
+  assert.ok(f.events.includes('restart'));
+  assert.match(res.body.message, /快照/);
+});
+test('self-heal failure (no snapshot dir) still reports 409 without restart', async () => {
+  const { reconcileDiverged } = await import('../../engine/online-update.mjs');
+  const fakeGit = async (args) => args[0] === 'diff' || args[0] === 'ls-files' || args[0] === 'log' ? { ok: true, out: '' } : { ok: true, out: '' };
+  const badFs = { mkdirSync: () => { throw new Error('E:/ 不在, 权限拒绝'); }, writeFileSync: () => { throw new Error('写失败'); } };
+  const r = await reconcileDiverged({ git: fakeGit, root: os.tmpdir(), fsMod: badFs });
+  assert.equal(r.ok, false, '快照失败必须拒绝 reset（宁可人工介入）');
+});
 
 test('Windows npm commands use a hidden command interpreter, not execFile npm.cmd', async () => {
   const f = fixture({ platform: 'win32' }), res = f.response();
