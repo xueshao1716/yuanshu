@@ -204,6 +204,37 @@ export default function System() {
         {/* ── 诊断 ── */}
         <DoctorPanel />
 
+        {/* ── 访问令牌（2026-10-13 恢复：UI 整理时渲染块丢失，逻辑一直在）── */}
+        <section>
+          <SectionHeader title="访问令牌" description="浏览器访问本服务所需的令牌，可在此查看或修改。改完刷新页面生效。" />
+          <div className="panel !p-5 space-y-3 max-w-xl">
+            <div className="flex items-center gap-2">
+              <input
+                className="input-pi font-mono text-xs flex-1"
+                type={tokenVisible ? 'text' : 'password'}
+                value={tokenInput}
+                onChange={e => setTokenInput(e.target.value)}
+                onKeyDown={e => e.key === 'Enter' && saveToken()}
+                placeholder="访问令牌"
+              />
+              <button
+                type="button"
+                className="btn-ghost text-xs px-3 py-1.5 shrink-0"
+                onClick={() => setTokenVisible(v => !v)}
+              >{tokenVisible ? '隐藏' : '显示'}</button>
+            </div>
+            {tokenMsg && <p className={`text-xs ${tokenMsg.includes('已保存') ? 'text-pi-green' : 'text-pi-red'}`}>{tokenMsg}</p>}
+            <div className="flex gap-2">
+              <button type="button" className="btn-primary text-xs px-4 py-1.5" onClick={saveToken} disabled={tokenBusy || !tokenInput.trim()}>
+                {tokenBusy ? '保存中…' : '保存'}
+              </button>
+              <button type="button" className="btn-ghost text-xs px-4 py-1.5" onClick={() => { setTokenInput(tokenVal); setTokenMsg('') }}>
+                重置
+              </button>
+            </div>
+          </div>
+        </section>
+
         {/* ── 检测更新 ── */}
         <section>
           <SectionHeader title="检测更新" description="对比远端仓库，确认当前工作台是否需要更新。" />
