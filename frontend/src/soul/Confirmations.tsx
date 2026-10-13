@@ -10,16 +10,9 @@ export function SessionChoice({ sessionId, setSessionId, disabled }: {sessionId:
   // 直接打开灵魂页时没有“当前会话”，回退到最近活动的会话（列表按时间倒序），不让人从几百个里挑。
   const latest = sessions.data?.sessions[0]?.id
   useEffect(() => { if (!sessionId && latest && !disabled) setSessionId(latest) }, [latest, sessionId, disabled])
-  return <div className="soul-session">
-    <label htmlFor="soul-session">确认记录归属</label>
-    <ThemedSelect id="soul-session" value={sessionId} disabled={disabled} onChange={e => setSessionId(e.target.value)}>
-      <option value="">请选择已有会话</option>
-      {sessions.data?.sessions.map(s => <option key={s.id} value={s.id}>{s.name || s.id}</option>)}
-    </ThemedSelect>
-    <p className="soul-hint">不用特意选：已默认当前对话。这里的会话只是把确认卡和策略申请挂进哪条对话做记录；待确认总览在授权中心一区收齐，不需要挑会话。</p>
-    {!sessionId && <a href="#/chat">没有会话？先去对话创建</a>}
-    <LoadState error={sessions.error} retry={sessions.mutate} />
-  </div>
+  // 确认卡在后端按会话存放，这只是内部归属：自动用当前/最近的对话，不让人选；一个会话都没有时才提示。
+  if (sessions.data && !sessions.data.sessions.length) return <p className="soul-hint" role="status">还没有对话。<a href="#/chat">先去对话里和小语说一句话</a>，这里的修改才能留下记录。</p>
+  return sessions.error ? <LoadState error={sessions.error} retry={sessions.mutate} /> : null
 }
 // 授权中心「等我确认」：全部会话的未决确认卡一次摊开（引擎 agent-pending.mjs 聚合）。
 // 卡片自带归属对话，不用人挑会话；本机受限类（人格/基因/电脑/超维）远程只能看和拒。
