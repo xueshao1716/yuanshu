@@ -22,6 +22,7 @@ export async function autoStartServer(serverCfg) {
     shell: process.platform === 'win32', // Windows 上 uvx 需要 shell
   });
   spawnedProcesses.set(serverCfg.name, child);
+  child.on('error', e => { spawnedProcesses.delete(serverCfg.name); console.log(`[MCP:${serverCfg.name}] 启动失败：${e.message}`); });
 
   child.stderr?.on('data', chunk => {
     const msg = chunk.toString().trim();
@@ -105,7 +106,10 @@ export function createStdioConnection({ name, cmd, cwd, timeoutMs = 120000 }) {
   };
   async function connect() {
     try {
-      child = spawn(cmd, { cwd: cwd || undefined, shell: process.platform === 'win32', windowsHide: true, stdio: ['pipe', 'pipe', 'pipe'] });
+      // cmd 是整条命令行（含空格/参数），所有平台都必须走 shell；否则 Linux 上整串当可执行名 → ENOENT
+      child = spawn(cmd, { cwd: cwd || undefined, shell: true, windowsHide: true, stdio: ['pipe', 'pipe', 'pipe'] });
+      // spawn 失败（ENOENT 等）只让本次连接失败，绝不能变成未捕获异常拖垮整个服务
+      child.on('error', e => { error = e.message; connected = false; for (const [, entry] of pending) entry.reject(new Error(`MCP ${name}: 启动失败 ${e.message}`)); pending.clear(); });
       stdioChildren.set(name, child);
       child.stdout.setEncoding('utf8');
       child.stdout.on('data', chunk => {
