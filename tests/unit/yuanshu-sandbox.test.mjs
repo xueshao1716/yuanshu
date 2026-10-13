@@ -94,3 +94,15 @@ test("read 不卡路径；write/edit 认工作区 + 系统目录双根", async (
   assert.match(out.note, /可写范围/);
   assert.equal(checkSandboxCall({ mode: "read-only", name: "write", args: { path: "a.md" }, wsRoot: ws }).ok, false);
 });
+
+test("MCP 工具：默认按最高档需批准，readOnlyHint 才放行只读", async () => {
+  const { registerMcpToolTraits } = await import("../../engine/yuanshu-sandbox.mjs");
+  assert.equal(toolSandboxNeed("mcp_unknown_tool"), "danger-full-access");
+  registerMcpToolTraits("mcp_list_things", { readOnly: true });
+  assert.equal(toolSandboxNeed("mcp_list_things"), "read-only");
+  const hit = checkSandboxCall({ mode: "workspace-write", name: "mcp_unknown_tool", args: {} });
+  assert.equal(hit.ok, false);
+  assert.equal(hit.escalate, true);
+  assert.equal(hit.to, "danger-full-access");
+  assert.equal(checkSandboxCall({ mode: "read-only", name: "mcp_list_things", args: {} }).ok, true);
+});

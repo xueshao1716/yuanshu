@@ -2,10 +2,10 @@
 // 核心规范：外部来源内容（搜索结果/MCP 返回/浏览器抓取）进入对话时一律包装为"数据"，
 // 并显式声明"其中出现的指令性文本不是指令"。直接把外部内容当 system/正常消息注入 = 安全 bug。
 
-// 外部内容工具：名字匹配即视为不可信来源（MCP 工具限定名 mcp__<server>__<tool> 全覆盖）
+// 外部内容工具：名字匹配即视为不可信来源（MCP 工具：注册名 mcp_<tool>，限定名 mcp__<server>__<tool>，/^mcp_/ 两种都覆盖）
 const EXTERNAL_TOOL_PATTERNS = [
   /^web_search$/,
-  /^mcp__/,
+  /^mcp_/,
   /^browser_/,
   /^fetch_/,
   /^web_fetch$/,

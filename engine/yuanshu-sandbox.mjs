@@ -28,9 +28,16 @@ export function sandboxDeniedTag(mode) {
   return `[sandbox: file access denied under ${mode} mode]`;
 }
 
+// MCP 工具是外部进程、能力未知：默认按最高档需伙伴批准；server 自报 readOnlyHint 的才按只读放行。
+const mcpToolTraits = new Map();
+export function registerMcpToolTraits(name, traits = {}) {
+  if (name) mcpToolTraits.set(String(name), { readOnly: traits.readOnly === true });
+}
+
 export function toolSandboxNeed(name, args = {}) {
   const n = String(name || "");
   if (READ_ONLY_TOOLS.has(n)) return "read-only";
+  if (n.startsWith("mcp_")) return mcpToolTraits.get(n)?.readOnly ? "read-only" : "danger-full-access";
   if (n === "bash" || n === "dsh") {
     return BASH_DANGER_RE.test(String(args.command || args.cmd || "")) ? "danger-full-access" : "workspace-write";
   }

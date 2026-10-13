@@ -5,6 +5,7 @@ import { randomUUID } from 'node:crypto';
 import path from 'node:path';
 import fs from 'node:fs';
 import { spawn } from 'node:child_process';
+import { registerMcpToolTraits } from './yuanshu-sandbox.mjs';
 
 // ── 自动启动子进程 ───────────────────────────────────────────────────────────
 const spawnedProcesses = new Map(); // name -> ChildProcess
@@ -121,7 +122,7 @@ export function createStdioConnection({ name, cmd, cwd, timeoutMs = 120000 }) {
       const init = await rpc('initialize', { protocolVersion: '2025-03-26', capabilities: { tools: {} }, clientInfo: { name: 'yuanshu', version: '2.127.10' } });
       child.stdin.write(JSON.stringify({ jsonrpc: '2.0', method: 'notifications/initialized' }) + '\n');
       const result = await rpc('tools/list', {});
-      tools = (result?.tools || []).map(t => ({ name: t.name, description: t.description || '', inputSchema: t.inputSchema || { type: 'object', properties: {} }, serverName: name }));
+      tools = (result?.tools || []).map(t => ({ name: t.name, description: t.description || '', inputSchema: t.inputSchema || { type: 'object', properties: {} }, readOnly: t.annotations?.readOnlyHint === true, serverName: name }));
       connected = true; error = null;
       return tools;
     } catch (e) { connected = false; error = e.message; tools = [];
@@ -205,6 +206,7 @@ export function createMcpConnection({ url, name, transport = 'streamable-http' }
         name: t.name,
         description: t.description || '',
         inputSchema: t.inputSchema || { type: 'object', properties: {} },
+        readOnly: t.annotations?.readOnlyHint === true,
         serverName: name,
       }));
       connected = true;
@@ -343,6 +345,7 @@ export function createMcpManager({ wsRoot }) {
 
 // ── 把 MCP 工具转成元枢工具 schema 格式 ─────────────────────────────────────
 export function mcpToolToSchema(mcpTool) {
+  registerMcpToolTraits(`mcp_${mcpTool.name}`, { readOnly: mcpTool.readOnly === true });
   return {
     type: 'function',
     function: {
