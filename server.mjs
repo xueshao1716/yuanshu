@@ -172,6 +172,7 @@ import { ownerConfigProvider } from './engine/cultivation/owner-config.mjs';
 import { createCultivationProvider } from './engine/cultivation/provider.mjs';
 import { CULTIVATION_TOOL_SCHEMA, cultivationTool, createPiCultivationTool } from './engine/cultivation/tool.mjs';
 import { createPiMemoryTool } from './engine/memory-tool.mjs';
+import { initMemoryAutoStore, autoStoreStats } from './engine/memory-autostore.mjs';
 import { initCultivationTool, initMemoryTool } from './engine/session-manager.mjs';
 import { buildPersistentActivity } from "./engine/persistent-activity.mjs";
 import { runEvolutionCycle, evolutionStatus, revertEvolution } from './engine/evolution-cycle.mjs';
@@ -2418,6 +2419,18 @@ initMemoryTool(Type => createPiMemoryTool(Type, {
   db: memoryDb, vectors: memoryVectors, embedding: memoryEmbedding,
   ingest: memoryIngest, recall: memoryRecall,
 }));
+// 记忆自循环第 1/2 步自动化（伙伴授权 2026-10-13）：轮次结束自动判断+沉淀，fire-and-forget
+initMemoryAutoStore({
+  wsRoot: () => WS_ROOT,
+  ingest: memoryIngest,
+  recall: memoryRecall,
+  chat: (model, messages) => {
+    const m = model || defaultModel;
+    if (!m) throw new Error("no-judge-model");
+    return unifiedChat(m, messages);
+  },
+  getModel: () => defaultModel || undefined,
+});
 const requestGeneApproval = createGeneApproval({ api: emotion, registry: confirmRegistry, sessionExists: maintenanceSessionExists, push: busPush });
 const personaGovernance = createPersonaGovernance({ wsRoot: CONFIG.cwd, agentDir: getAgentDir() });
 const requestPersonaApproval = createPersonaApproval({ api: personaGovernance, registry: confirmRegistry, sessionExists: maintenanceSessionExists, push: busPush });

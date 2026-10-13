@@ -9,6 +9,7 @@ import { execFile } from "node:child_process";
 import { json, readBody } from "./http-utils.mjs";
 import { markModelBlocked, isAuthErrorStatus, pickFallbackDefault, pickFallbackExcluding, routeProCandidate, routeForAuto } from "./model-router.mjs";
 import { classifyAnomaly, recordReply, lastAssistantReply } from "./output-guard.mjs";
+import { settleTurnMemory } from "./memory-autostore.mjs";
 import { clampOutputTokens, escalateOutputTokens, maxTokensFieldOf, OUTPUT_TOKEN_FALLBACK } from "./output-budget.mjs";
 import { budgetWithinWindow, estimateHistoryTokens } from "./context-headroom.mjs";
 import { continuationLimits, truncationRecoveryPrompt, toolTurnLimitResult } from "./task-continuation.mjs";
@@ -1140,6 +1141,7 @@ export async function handleUnifiedChat(res, entry, message, sessionId, params, 
     writer.push("done", { sessionId, model: result.usedModel, requestedModel });
     collected = text;
     clearTask(taskId, "done");
+    settleTurnMemory({ sessionId: sessionId || "new", user: emotionInput.message, assistant: text, executionIdentity: runContext?.executionIdentity, model: result.usedModel }); // 自循环沉淀，fire-and-forget
     finishEmotion();
   }
   async function finishPausedChat(result) {
@@ -1151,6 +1153,7 @@ export async function handleUnifiedChat(res, entry, message, sessionId, params, 
     if (result.text && !result.streamed) writer.push('delta', { text: result.text });
     collected = text;
     clearTask(taskId, 'interrupted');
+    settleTurnMemory({ sessionId: sessionId || 'new', user: emotionInput.message, assistant: text, executionIdentity: runContext?.executionIdentity, model: result.usedModel }); // 暂停态也沉淀（内容已完成）
     finishEmotion();
     writer.push('interrupted', { reason: result.pauseReason, message: result.message, model: result.usedModel, requestedModel });
   }
@@ -1343,6 +1346,7 @@ export async function handleUnifiedChat(res, entry, message, sessionId, params, 
   writer.push("done", { sessionId, model: result.usedModel || { provider: chatModel.provider, id: chatModel.id }, requestedModel });
   collected = text;
   clearTask(taskId, "done");
+  settleTurnMemory({ sessionId: sessionId || "new", user: message, assistant: text, executionIdentity: runContext?.executionIdentity, model: result.usedModel }); // 自循环沉淀（主聊天路径），fire-and-forget
   finishEmotion();
   console.log(`[元枢] 统一通道: ${(result.usedModel || chatModel).provider}/${(result.usedModel || chatModel).id}`);
 }
