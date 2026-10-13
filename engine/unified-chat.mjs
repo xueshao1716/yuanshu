@@ -501,6 +501,7 @@ export async function unifiedChat(model, messages, opts = {}) {
       sandboxWsRoot: opts.sandboxWsRoot || _cwd,
       sandboxAsk: resumeSandboxAsk,
       effects: opts.effects,
+      toolDefs,
       executionContext: { ...(opts.executionContext || {}), turn: resumeTurn },
     });
     try { opts.onCheckpoint?.({ phase: "tool_results", turn: resumeTurn, toolPlan: toolPlanFor(resumeCalls, resumed.toolPlan), ...createRunHistorySnapshot(history, { turn: resumeTurn }) }); } catch {}
@@ -618,7 +619,7 @@ export async function unifiedChat(model, messages, opts = {}) {
           toolCalls: validCalls, history, execute: _executeUnifiedTool, signal: opts.signal,
           onTool: opts.onTool, onToolEnd: opts.onToolEnd, seenCalls, jitInjected, spill: spillIfHuge,
           stuckEvents, sandboxMode: opts.sandboxMode, sandboxWsRoot: opts.sandboxWsRoot || _cwd,
-          sandboxAsk: resumeSandboxAsk, effects: opts.effects,
+          sandboxAsk: resumeSandboxAsk, effects: opts.effects, toolDefs,
           executionContext: { ...(opts.executionContext || {}), turn },
         });
         try { opts.onCheckpoint?.({ phase: "tool_results", turn, toolPlan: toolPlanFor(validCalls, recovered.toolPlan), ...createRunHistorySnapshot(history, { turn }) }); } catch {}
@@ -663,6 +664,7 @@ export async function unifiedChat(model, messages, opts = {}) {
         stuckEvents, sandboxMode: opts.sandboxMode, sandboxWsRoot: opts.sandboxWsRoot || _cwd,
         sandboxAsk: opts.sandboxAsk,
         effects: opts.effects,
+        toolDefs,
         executionContext: { ...(opts.executionContext || {}), turn },
       });
       try { opts.onCheckpoint?.({ phase: "tool_results", turn, toolPlan: toolPlanFor(tcs, official.toolPlan), ...createRunHistorySnapshot(history, { turn }) }); } catch {}
@@ -689,6 +691,7 @@ export async function unifiedChat(model, messages, opts = {}) {
         stuckEvents, sandboxMode: opts.sandboxMode, sandboxWsRoot: opts.sandboxWsRoot || _cwd,
         sandboxAsk: opts.sandboxAsk,
         effects: opts.effects,
+        toolDefs,
         executionContext: { ...(opts.executionContext || {}), turn },
       });
       try { opts.onCheckpoint?.({ phase: "tool_results", turn, toolPlan: toolPlanFor(scavCalls, scavengedRound.toolPlan), ...createRunHistorySnapshot(history, { turn }) }); } catch {}
