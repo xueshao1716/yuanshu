@@ -173,6 +173,7 @@ import { createCultivationProvider } from './engine/cultivation/provider.mjs';
 import { CULTIVATION_TOOL_SCHEMA, cultivationTool, createPiCultivationTool } from './engine/cultivation/tool.mjs';
 import { createPiMemoryTool } from './engine/memory-tool.mjs';
 import { initMemoryAutoStore, autoStoreStats } from './engine/memory-autostore.mjs';
+const beliefAuditModule = await import("./engine/belief-audit.mjs"); // ToM 信念层（2026-10-13）
 import { initCultivationTool, initMemoryTool } from './engine/session-manager.mjs';
 import { buildPersistentActivity } from "./engine/persistent-activity.mjs";
 import { runEvolutionCycle, evolutionStatus, revertEvolution } from './engine/evolution-cycle.mjs';
@@ -2624,6 +2625,14 @@ const API_ROUTES = [
     catch (e) { json(res, 502, { error: String(e.message || e).slice(0, 150) }); }
   }],
   ["GET", "/api/memory/embedding", (res) => json(res, 200, memoryEmbedding.configInfo())],
+  ["GET", "/api/belief-audit", (res) => {
+    // 信念体检手动预览（夜间自动跑的同一逻辑，只读不落盘）
+    try {
+      const { scanBeliefs } = beliefAuditModule || {};
+      if (typeof scanBeliefs !== "function") return json(res, 503, { error: "belief-audit not ready" });
+      return json(res, 200, scanBeliefs({ wsRoot: WS_ROOT, listMemories: memoryDb.listMemories, now: new Date() }));
+    } catch (e) { return json(res, 502, { error: String(e?.message || e).slice(0, 150) }); }
+  }],
   ["GET", /^\/api\/memory\/([^/]+)$/, (res, req, url, m) => {
     const it = memoryDb.getMemory(m[1], { touch: url.searchParams.get("touch") === "1" });
     json(res, it ? 200 : 404, it || { error: "not_found" });
@@ -3897,6 +3906,12 @@ ${String(out).slice(0, 16000)}
           try {
             const rec = recordReflectionActions(CONFIG.cwd, out, { taskId: task.id });
             if (rec?.ok) console.log(`[time-engine] 任务 ${task.id} 的行动清单 → 承诺账：解析 ${rec.parsed} 条，新增 ${rec.added} 条`);
+            // 信念体检（ToM 信念层 Phase 1）：复盘后离线跑一次，纯读+报告不碰源文件（文档/ToM信念层设计-20261013.md）
+            try {
+              const ba = await import("./engine/belief-audit.mjs");
+              const audit = ba.runBeliefAudit({ wsRoot: CONFIG.cwd, listMemories: memoryDb.listMemories });
+              console.log(`[time-engine] ${ba.beliefAuditSummary(audit.report)} → ${audit.reportPath}`);
+            } catch (e) { console.log(`[time-engine] 信念体检静默失败: ${String(e?.message || e).slice(0, 120)}`); }
             // 2026-09-17：清单不再止于清单——kind=fix 且不碰红线的，当场派一个执行轮做掉，
             // 做完带证据结清；做不了就 blocked/failed 留在账上（下一轮复盘会带着"上次试过什么"追问）。
             // 复盘那轮只有只读工具（这是刻意的），执行轮才发可写工具，且一次只做一条、最多 3 条。

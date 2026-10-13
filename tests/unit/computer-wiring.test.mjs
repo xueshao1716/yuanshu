@@ -14,7 +14,9 @@ test('computer tool is wired to both engines and local approval',()=>{
 test('system UI exposes scoped grant, clear support boundary and stop',()=>{
   const panel=read('frontend/src/components/ComputerUsePanel.tsx');
   for(const word of ['立即停止','授权本次桌面操作 10 分钟','操作会话','目标窗口','屏幕文字','/api/computer/stop','/api/computer/grant','/api/computer/target'])assert.ok(panel.includes(word),word);
-  assert.ok(read('frontend/src/pages/System.tsx').includes('<ComputerUsePanel />'));
+  // 2026-10-13 面板迁址：电脑控制从系统页 → 任务页（执行现场归任务）；系统页不得残留旧入口
+  assert.ok(read('frontend/src/pages/Tasks.tsx').includes('<ComputerUsePanel />'));
+  assert.ok(!read('frontend/src/pages/System.tsx').includes('<ComputerUsePanel />'));
   assert.ok(panel.includes('selectSession(active.sessionId)'));
   assert.ok(panel.includes("location.hash = '#/chat'"));
   assert.ok(panel.includes('电脑操作（一次授权）'));
