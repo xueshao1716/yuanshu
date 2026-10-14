@@ -581,7 +581,7 @@ export default function ChatArea({ compactHeader, rightPanel, onRightPanel, onVo
       const shouldNotify = document.visibilityState === 'hidden' || wasBackgroundRef.current
       if (shouldNotify) {
         const preview = (s.text || '').replace(/\s+/g, ' ').trim().slice(0, 60) || (s.error ? `出错：${s.error}` : '有新回复')
-        notifyTaskDone(`${personaLabel} · 任务完成`, preview)
+        notifyTaskDone(`${personaLabel} · 任务完成`, preview, sessionIdRef.current ? `run:${sessionIdRef.current}` : undefined)
       }
       wasBackgroundRef.current = false // 收尾已处理完，重置供下一轮使用
     }

@@ -100,6 +100,8 @@ test('更多菜单承载设置路由和辅助面板，并提供可访问状态',
   // 2026-10-12：退出入口升级为账号管理（多元枢切换 sheet，退出收进 sheet 底部）
   assert.ok(menu.includes('账号管理') && menu.includes('ProfileManager'), '手机更多菜单必须提供账号管理（ProfileManager）')
   assert.ok(menu.includes('onLogout'), '退出必须走壳层 logout，不能只跳路由')
+  const layout = read('AppLayout.tsx')
+  assert.equal((layout.match(/accountsOpen && <ProfileManager/g) || []).length, 2, '手机与桌面两个布局分支都必须渲染 ProfileManager')
 })
 
 test('更多菜单打开时底栏只能有更多一个 aria-current', () => {

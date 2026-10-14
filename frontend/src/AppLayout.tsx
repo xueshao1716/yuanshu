@@ -8,7 +8,8 @@ import PendingCallout from './components/PendingCallout'
 import ProfileManager from './components/ProfileManager'
 import TitleBar from './components/TitleBar'
 import SetupWizard from './components/SetupWizard'
-import { KeysApi, SystemApi, getToken } from './api'
+import { KeysApi, SystemApi, getToken, streamNotifications } from './api'
+import { armBrowserNotifications, notifyTaskDone } from './lib/notify'
 import Sidebar from './components/Sidebar'
 import ChatArea from './components/ChatArea'
 import ThemeSwitcher from './components/ThemeSwitcher'
@@ -187,6 +188,17 @@ export default function AppLayout() {
       if (inShell) document.documentElement.dataset.appShell = '1'
     } catch {}
   }, [])
+  // 服务端主动通知（长任务做完 / 智能体主动汇报）：不依赖当前打开的会话，网页、桌面端、手机端都订阅
+  const watchedSessionRef = useRef(currentSessionId)
+  watchedSessionRef.current = currentSessionId
+  useEffect(() => {
+    if (!authed) return
+    armBrowserNotifications()
+    return streamNotifications(n => {
+      const watching = n.kind === 'run' && document.visibilityState === 'visible' && n.sessionId === watchedSessionRef.current
+      if (!watching) void notifyTaskDone(n.title, n.body, n.kind === 'run' ? n.key : n.id)
+    })
+  }, [authed])
   const [route, nav] = useHashRoute(APP_ROUTES)
   // 桌面会话栏折叠（08-26）：持久化到 localStorage
   const [sidebarCollapsed, setSidebarCollapsed] = useState(() => {
@@ -467,6 +479,7 @@ export default function AppLayout() {
       {/* 右栏开关已入 ChatArea 顶栏（与状态胶囊并排，不再悬浮遮挡） */}
 
       {modelOpen && <LazyModelManager visible onClose={() => setModelOpen(false)} />}
+      {accountsOpen && <ProfileManager open onClose={() => setAccountsOpen(false)} onLogout={logout} />}
       {palette}
     </div>
     </ShellFrame>

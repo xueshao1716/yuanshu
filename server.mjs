@@ -23,6 +23,7 @@ import { rateLimit, rateLimitKey } from "./engine/rate-limit.mjs";
 import { createMiscApi } from "./engine/misc-api.mjs";
 import { createModelKeys } from "./engine/model-keys.mjs";
 import { createSessionBus } from "./engine/session-bus.mjs";
+import { createNotifier, NOTIFY_USER_TOOL, execNotifyUser } from "./engine/notifier.mjs";
 import { createModelSessionApi } from "./engine/model-session.mjs";
 import { buildModelCatalog } from './engine/model-catalog.mjs';
 // ── Reasonix 机制（esengine/DeepSeek-Reasonix 借鉴）：工具结果压缩 / NEEDS_PRO 自报升级 / scavenge 捞回 ──
@@ -624,6 +625,8 @@ const miscApi = createMiscApi({ json, readJsonFile, writeJsonFile, getAgentDir, 
 const { scanRecentArtifacts, handlePrompts, handleSessionTree, handleSessionBranch, handleSessionBranchSession, handleModelsRemove, handleSearch, handleAIBody, runGit, handleGitStatus, handleGitDiff, handleGitReview } = miscApi;
 const sessionBusApi = createSessionBus({ json });
 const { busGet, busPush, handleSessionStream } = sessionBusApi;
+// 主动通知中枢：wechat 在后面才创建，这里用闭包延迟取。
+const notifier = createNotifier({ file: path.join(AGENT_DIR, "notifications.json"), wechat: { notifyOwner: (...a) => wechat.notifyOwner(...a) } });
 const { handleModels, handleSwitchModel } = createModelSessionApi({ json, readJsonFile, resolveAuth, modelCapabilities, modelsPath: MODELS_PATH, getModelList: () => modelList, getDefaultModel: () => defaultModel, getModelRuntime: () => modelRuntime, getConfig: () => CONFIG, activeSessions, createSessionAgent, saveLastModel, saveSessionModelKey });
 
 // ── 隔离子任务执行器初始化（P2）──
@@ -728,6 +731,7 @@ const UNIFIED_TOOLS = [
   DELEGATE_FORK_TOOL,
   DELEGATE_TEAM_TOOL,
   FIX_PROBLEM_TOOL,
+  NOTIFY_USER_TOOL,
 ];
 // ══ 外部思考工具（externalThinking 调试开关，默认关）══
 // 思路：关闭模型原生隐藏思考后，给它一张外部"草稿纸"（think 工具），
@@ -781,6 +785,7 @@ const executeUnifiedTool = createUnifiedToolExecutorGuarded({
       } catch {}
       return r;
     },
+    notify_user: (args, ctx) => execNotifyUser(notifier, args, ctx),
     delegate_team: (args, ctx) => executeTeam(args, { ...ctx, wsRoot: WS_ROOT, model: ctx?.model || defaultModel }),
     // 2026-10-08 MCP 外部工具转发：mcp_ 前缀的工具调用路由到对应 MCP server
     ...Object.fromEntries(
@@ -2304,6 +2309,7 @@ const runManager = createRunManager({
   effects: runEffects,
   workspaceScope: () => CONFIG.cwd,
   onRunFinished: run => {
+    notifier.runFinished(run)?.catch?.(() => {});
     knowledgeRuntime.enqueueFinished(run);
     return learningIntake.enqueue(run);
   },
@@ -2573,6 +2579,8 @@ const API_ROUTES = [
   ["POST", "/api/wechat/stop", wechatAction(() => wechat.stop())],
   ["POST", "/api/wechat/logout", wechatAction(() => wechat.logout())],
   ["POST", "/api/wechat/settings", wechatAction(async (req) => wechat.setNotify((await readBody(req, 1)).notify))],
+  ["GET", "/api/notify/stream", (res, req, url) => notifier.subscribe(res, req, url.searchParams.has("after") ? parseInt(url.searchParams.get("after"), 10) : undefined)],
+  ["GET", "/api/notify/recent", (res, req, url) => json(res, 200, { events: notifier.list(parseInt(url.searchParams.get("after") || "0", 10) || 0), lastSeq: notifier.lastSeq })],
   ["POST", "/api/wechat/notify", wechatAction(async (req) => { const b = await readBody(req, 1); return wechat.notifyOwner(String(b.text || '').slice(0, 2000), String(b.image || '').slice(0, 500)); })],
   // 邮件接入：Gmail + Outlook，2026-10-08
   ["GET", "/api/email/status", (res) => json(res, 200, emailBridge.status())],
@@ -3994,7 +4002,14 @@ ${rows.map((r) => `- [${r.status}${r.closed ? "/已结清" : ""}] ${r.text}\n  �
           throw e; // 上抛给任务中心记 error 历史
         }
         return String(out);
-      }, { onTaskDone: (info) => nudgeSkill(info) }); // 技能自主沉淀钩子（09-03，Hermes 闭环）
+      }, {
+        onTaskDone: (info) => nudgeSkill(info),
+        // 定时任务失败一定告诉用户；成功只在任务本身标了 notify 时才打扰（内部复盘/做梦天天跑，不该刷屏）
+        onTaskFinished: (t) => {
+          if (t.status === "error") return notifier.notify({ kind: "task", title: "元枢 · 定时任务失败", body: `${t.label}：${t.result}`, key: `task:${t.id}` });
+          if (t.status === "ok" && t.notify) return notifier.notify({ kind: "task", title: `元枢 · ${t.label} 已完成`, body: t.result || "任务已完成", key: `task:${t.id}`, toWechat: true });
+        },
+      }); // 技能自主沉淀钩子（09-03，Hermes 闭环）
       timeEngine.start();
     } catch (e) { console.log("[time-engine] 启动失败:", String(e?.message || e).slice(0, 100)); }
     knowledgeRuntime.start();

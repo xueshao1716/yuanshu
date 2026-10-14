@@ -16,11 +16,16 @@ import com.getcapacitor.BridgeActivity;
  * 且只在布局没有自行缩短时用它兜底，不会双重缩短。
  */
 public class MainActivity extends BridgeActivity {
+    // 必须在 Activity 构造期注册系统保存窗口的回调（STARTED 之后注册会抛异常）
+    private final YuanshuDownloads downloads = new YuanshuDownloads(this);
+
     @Override
     public void onStart() {
         super.onStart();
         WebView webView = this.bridge.getWebView();
         if (webView == null) return;
+        downloads.attach(webView);
+        webView.addJavascriptInterface(downloads, "YuanshuDownloads");
         ViewCompat.setOnApplyWindowInsetsListener(webView, (view, insets) -> {
             int imeBottom = insets.getInsets(WindowInsetsCompat.Type.ime()).bottom;
             float density = view.getResources().getDisplayMetrics().density;
@@ -36,5 +41,11 @@ public class MainActivity extends BridgeActivity {
             return insets;
         });
         ViewCompat.requestApplyInsets(webView);
+    }
+
+    @Override
+    public void onDestroy() {
+        downloads.dispose();
+        super.onDestroy();
     }
 }

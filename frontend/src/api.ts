@@ -348,6 +348,55 @@ export const RunsApi = {
   },
 }
 
+// 全局主动通知订阅（长任务做完 / 智能体主动汇报）。不绑定会话：没人盯着的会话做完了也能收到。
+// 首次连接不带游标 = 只收以后的；断线重连带上已收到的 seq，服务端补发期间错过的。
+export interface ServerNotice { id: string; seq: number; kind: string; title: string; body: string; sessionId: string; key: string; ts: number }
+export function streamNotifications(onNotice: (n: ServerNotice) => void): () => void {
+  let closed = false
+  let cursor: number | null = null
+  let ctrl: AbortController | null = null
+  let retryTimer: ReturnType<typeof setTimeout> | null = null
+  const connect = async () => {
+    if (closed) return
+    ctrl = new AbortController()
+    try {
+      const response = await fetch(apiUrl(`/api/notify/stream${cursor === null ? '' : `?after=${cursor}`}`), {
+        headers: { Authorization: `Bearer ${_token}` }, signal: ctrl.signal,
+      })
+      if (!response.ok || !response.body) throw new Error(`HTTP ${response.status}`)
+      const reader = response.body.getReader()
+      const decoder = new TextDecoder()
+      let buffer = ''
+      while (!closed) {
+        const { done, value } = await reader.read()
+        if (done) break
+        buffer += decoder.decode(value, { stream: true })
+        const blocks = buffer.replace(/\r\n/g, '\n').split('\n\n')
+        buffer = blocks.pop() || ''
+        for (const block of blocks) {
+          let type = 'message'
+          const data: string[] = []
+          for (const line of block.split('\n')) {
+            if (line.startsWith('event:')) type = line.slice(6).trim()
+            else if (line.startsWith('data:')) data.push(line.slice(5).trimStart())
+          }
+          if (!data.length) continue
+          try {
+            const payload = JSON.parse(data.join('\n'))
+            if (type === 'subscribed' && cursor === null && Number.isInteger(payload.lastSeq)) cursor = payload.lastSeq
+            else if (type === 'notify' && Number.isInteger(payload.seq)) { cursor = Math.max(cursor ?? 0, payload.seq); onNotice(payload) }
+          } catch {}
+        }
+      }
+    } catch (error: any) {
+      if (closed || error?.name === 'AbortError') return
+    }
+    if (!closed && !retryTimer) retryTimer = setTimeout(() => { retryTimer = null; connect() }, 5000)
+  }
+  connect()
+  return () => { closed = true; if (retryTimer) clearTimeout(retryTimer); ctrl?.abort() }
+}
+
 // 会话实时订阅（SSE，多端同步）。使用 fetch 是因为 EventSource 不能设置 Authorization 头。
 export function streamSession(sid: string, after = 0, onEvent: (ev: any) => void, onError?: () => void): () => void {
   let closed = false

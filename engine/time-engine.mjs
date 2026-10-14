@@ -18,6 +18,7 @@ const RESULT_CAP = 16000; // 反思/长输出要能复盘，200 字会把正文�
 
 export function createTimeEngine(runner, opts = {}) {
   const taskFile = opts.file || DEFAULT_TASKS_FILE;
+  const onTaskFinished = opts.onTaskFinished || null; // 主动通知钩子：每次终态（含失败/停止）都回调，fire-and-forget
   const onTaskDone = opts.onTaskDone || null; // 技能沉淀钩子（09-03）：任务成功完成后 fire-and-forget，不阻塞
   let tasks = [];
   let timer = null;
@@ -46,10 +47,10 @@ export function createTimeEngine(runner, opts = {}) {
   }
 
   // 注册：type=once(需 date+at) / daily(at) / weekly(day+at, 周一=1)
-  function register({ type = "daily", at = "09:00", day, date, prompt = "", label = "" }) {
+  function register({ type = "daily", at = "09:00", day, date, prompt = "", label = "", notify = false }) {
     if (!prompt) return { error: "缺少任务描述 prompt" };
     if (!/^\d{2}:\d{2}$/.test(at)) return { error: "at 格式应为 HH:MM（如 09:00）" };
-    const t = { id: randomUUID().slice(0, 8), type, at, day: day ?? null, date: date ?? null, prompt, label, created: new Date().toISOString(), lastRun: null, runs: 0, state: "active", history: [] };
+    const t = { id: randomUUID().slice(0, 8), type, at, day: day ?? null, date: date ?? null, prompt, label, created: new Date().toISOString(), lastRun: null, runs: 0, state: "active", history: [], notify: notify === true };
     if (type === "once" && !/^\d{4}-\d{2}-\d{2}$/.test(date || "")) return { error: "once 任务需要 date（YYYY-MM-DD）" };
     if (type === "weekly" && !(day >= 1 && day <= 7)) return { error: "weekly 任务需要 day（1-7，周一=1）" };
     tasks.push(t); save();
@@ -116,6 +117,9 @@ export function createTimeEngine(runner, opts = {}) {
       recordRun(t, queueId, startedAt, status, result);
       if (t.type === "once" && t.state === "active") t.state = "done"; // 一次性完成自动入档
       save();
+      if (onTaskFinished) {
+        try { Promise.resolve(onTaskFinished({ id: t.id, label: t.label || String(t.prompt || "").slice(0, 60), status, result: String(result || "").slice(0, 400), notify: t.notify === true, trigger })).catch(() => {}); } catch {}
+      }
       // 技能自主沉淀钩子：任务成功且有实质结果 → 异步评估是否值得沉淀为技能（Hermes 闭环）
       if (onTaskDone && status === "ok" && result && result.length >= 120) {
         try { Promise.resolve(onTaskDone({ label: t.label || t.prompt?.slice(0, 60), result: String(result).slice(0, 4000), trigger: "time-task", taskId: t.id })).catch(() => {}); } catch {}

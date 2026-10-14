@@ -53,8 +53,8 @@ export default function Assets({ initialView = 'library' }: { initialView?: 'lib
     if (item.isDirectory || !item.url) return
     const downloadUrl = item.url + (item.url.includes('?') ? '&' : '?') + 'download=1'
     try {
-      await downloadApiFile(downloadUrl, item.name)
-      showFeedback('ok', '下载已开始')
+      const saved = await downloadApiFile(downloadUrl, item.name)
+      showFeedback('ok', saved || '下载已开始')
       dismissMobileDetails()
     } catch (error: any) {
       showFeedback('error', '下载失败：' + (error?.message || '请稍后重试'))

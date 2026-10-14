@@ -20,6 +20,7 @@ const ENGINE_LABEL: Record<string, string> = {
 import { downloadApiFile, withFileToken } from '../api'
 import { copyText } from '../lib/clipboard'
 import { requestBrowserSave, writeBrowserSave } from '../lib/browser-save'
+import { saveNativeDownload } from '../lib/native-download'
 import { scrapeVideos, dedupeMediaUrls, mediaPathKey } from '../lib/media-embed'
 import { artifactName, fileNameFromUrl } from '../lib/artifact-name'
 import { fmtMsgTime } from '../lib/fmt-time'
@@ -301,7 +302,9 @@ export default function Message({ msg, onEdit, onRetry, onBranch, onNotice }: { 
     const blob = new Blob([answerText + '\n'], { type: 'text/markdown;charset=utf-8' })
     try {
       const handle = await requestBrowserSave(filename)
+      let nativeSaved: Awaited<ReturnType<typeof saveNativeDownload>> = null
       if (handle) await writeBrowserSave(handle, blob)
+      else if ((nativeSaved = await saveNativeDownload(blob, filename))) { /* 系统保存窗口已让用户选了位置 */ }
       else {
         const url = URL.createObjectURL(blob)
         const anchor = document.createElement('a')
@@ -309,7 +312,7 @@ export default function Message({ msg, onEdit, onRetry, onBranch, onNotice }: { 
         window.setTimeout(() => URL.revokeObjectURL(url), 1000)
       }
       setMessageAction('saved')
-      onNotice?.(`${handle ? '已保存' : '已下载'}：${filename}`, 'ok')
+      onNotice?.(`${handle || nativeSaved ? '已保存' : '已下载'}：${filename}${nativeSaved ? `（${nativeSaved.location}）` : ''}`, 'ok')
     } catch (error: any) {
       if (/已取消保存|AbortError/i.test(String(error?.message || error))) {
         setMessageAction('')

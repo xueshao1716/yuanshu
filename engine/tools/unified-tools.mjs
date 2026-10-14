@@ -306,7 +306,7 @@ export function createUnifiedToolExecutor(deps = {}) {
           if (!timeEngine) return { text: "时间引擎未初始化", isError: true };
           const a = String(args?.action || "");
           if (a === "register") {
-            const r = timeEngine.register(args);
+            const r = timeEngine.register({ notify: true, ...args }); // 智能体替用户登记的任务，做完默认主动通知
             if (r.error) return { text: `注册失败：${r.error}`, isError: true };
             return { text: `✅ 定时任务已注册（id=${r.id}）：${args.type} ${args.at}${args.day ? " 周" + args.day : ""}${args.date ? " " + args.date : ""} → ${String(args.prompt || "").slice(0, 60)}` };
           }

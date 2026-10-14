@@ -16,9 +16,18 @@ export async function probeModelCapabilities(baseUrl, key, modelId, { api = 'ope
   return { ...modelCapabilities(modelId), ...(result.ok ? { chat: true } : {}), verification: result };
 }
 
-export function catalogModel(id, baseUrl, api = 'openai-completions', name = id, source = 'catalog') {
-  return { id, name, api, baseUrl, reasoning: false, input: ['text'], contextWindow: 32768, maxTokens: 4096,
-    capabilities: modelCapabilities(id), capabilitySource: 'inferred', limitsSource: 'default', discoverySource: source };
+// 模型目录里厂商若已声明窗口/输出上限（OpenRouter、vLLM、Gemini 等各用不同字段名）就用它；
+// 否则保持占位值并标 limitsSource:'default'，运行时不会把占位值当成真实限额。
+const positive = (...v) => v.map(Number).find((n) => Number.isFinite(n) && n > 0);
+export function declaredLimits(m) {
+  const contextWindow = positive(m?.context_length, m?.context_window, m?.max_context_length, m?.max_model_len, m?.inputTokenLimit, m?.top_provider?.context_length);
+  const maxTokens = positive(m?.max_completion_tokens, m?.max_output_tokens, m?.max_tokens, m?.outputTokenLimit, m?.top_provider?.max_completion_tokens);
+  return contextWindow || maxTokens ? { ...(contextWindow ? { contextWindow: Math.floor(contextWindow) } : {}), ...(maxTokens ? { maxTokens: Math.floor(maxTokens) } : {}) } : null;
+}
+export function catalogModel(id, baseUrl, api = 'openai-completions', name = id, source = 'catalog', limits = null) {
+  const real = limits && Object.keys(limits).length ? limits : null;
+  return { id, name, api, baseUrl, reasoning: false, input: ['text'], contextWindow: real?.contextWindow ?? 32768, maxTokens: real?.maxTokens ?? 4096,
+    capabilities: modelCapabilities(id), capabilitySource: 'inferred', limitsSource: real ? 'provider' : 'default', discoverySource: source };
 }
 
 // Listing is cheap and never proves inference access. Errors are not capability evidence.
@@ -43,7 +52,7 @@ export async function discoverCustomModels(base, apiKey, _oldCaps = new Map(), {
     for (const m of list) {
       const id = typeof m?.id === 'string' ? m.id.trim() : '';
       if (!id || id.length > 512) continue;
-      models.set(id, catalogModel(id, endpoint.split('?')[0].replace(/\/models$/, ''), api, m.name || m.display_name || id));
+      models.set(id, catalogModel(id, endpoint.split('?')[0].replace(/\/models$/, ''), api, m.name || m.display_name || id, 'catalog', declaredLimits(m)));
     }
     if (!data.has_more) {
       if (!models.size) throw modelProbeError(0, 'empty_catalog');

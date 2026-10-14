@@ -69,3 +69,11 @@ test("占位限额（limitsSource=default：32768/4096）不当输出上限：�
   assert.equal(escalateOutputTokens(4096, declared), 4096);
   assert.equal(declaredContextWindow(declared), 200000);
 });
+
+test("模型目录里有厂商声明的限额就采用并标 provider；没有才用占位值", async () => {
+  const { catalogModel, declaredLimits } = await import("../../engine/model-probe.mjs");
+  const real = catalogModel("m", "http://x", "openai-completions", "m", "catalog", declaredLimits({ id: "m", context_length: 200000, top_provider: { max_completion_tokens: 65536 } }));
+  assert.deepEqual([real.contextWindow, real.maxTokens, real.limitsSource], [200000, 65536, "provider"]);
+  const none = catalogModel("m", "http://x", "openai-completions", "m", "catalog", declaredLimits({ id: "m" }));
+  assert.deepEqual([none.contextWindow, none.maxTokens, none.limitsSource], [32768, 4096, "default"]);
+});
