@@ -55,3 +55,17 @@ test('两条请求路径都必须用预算模块，不能再用写死的 8192（
   assert.match(st, /已自动尝试分块接续/, '只描述实际执行的恢复，不声称已抬到模型最大值');
   assert.doesNotMatch(st, /回我一句「分块写」/);
 });
+
+test("占位限额（limitsSource=default：32768/4096）不当输出上限：大工具参数能抬到 32k，也不按占位窗口压预算", async () => {
+  const { clampOutputTokens, escalateOutputTokens, declaredContextWindow } = await import("../../engine/output-budget.mjs");
+  const placeholder = { contextWindow: 32768, maxTokens: 4096, limitsSource: "default" };
+  assert.equal(clampOutputTokens(placeholder), 8192);
+  assert.equal(escalateOutputTokens(8192, placeholder), 16384);
+  assert.equal(escalateOutputTokens(16384, placeholder), 32768);
+  assert.equal(escalateOutputTokens(32768, placeholder), 32768);
+  assert.equal(declaredContextWindow(placeholder), 0);
+  const declared = { contextWindow: 200000, maxTokens: 4096 };
+  assert.equal(clampOutputTokens(declared), 4096);
+  assert.equal(escalateOutputTokens(4096, declared), 4096);
+  assert.equal(declaredContextWindow(declared), 200000);
+});

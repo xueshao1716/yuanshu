@@ -170,3 +170,22 @@ test("分类: 极长无关键词文本因长度自动 complex", () => {
   assert.ok(r.reasons.includes("长任务"));
 });
 
+
+test("兜底链不会落到 agnes 的视频/图像模型（模型清单里它们排在文本模型前面）", () => {
+  const saved = pool;
+  pool = [
+    { provider: "agnes", id: "agnes-video-2.5-flash" },
+    { provider: "agnes", id: "agnes-image-2.5-flash" },
+    { provider: "agnes", id: "agnes-image-2.1-flash" },
+    ...makePool(),
+  ];
+  try {
+    resetModelHealth();
+    const excl = { provider: "zai-api", id: "glm-5.3-flashx" };
+    assert.equal(pickFallbackExcluding(excl).id, "agnes-2.5-flash");
+    assert.equal(pickFallbackDefault().id, "agnes-3.0-flash");
+    markModelBlocked({ provider: "agnes", id: "agnes-2.5-flash" }, { reason: "t" });
+    markModelBlocked({ provider: "agnes", id: "agnes-3.0-flash" }, { reason: "t" });
+    assert.ok(!/video|image/.test(pickFallbackExcluding(excl).id));
+  } finally { pool = saved; resetModelHealth(); }
+});

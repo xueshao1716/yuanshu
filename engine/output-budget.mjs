@@ -12,7 +12,13 @@ export const OUTPUT_TOKEN_FALLBACK = 8192;
 export const OUTPUT_TOKEN_CEILING = 32768;   // 起步上限：32k 输出 ≈ 2.4 万汉字，一次写文件足够
 export const OUTPUT_TOKEN_HARD_CAP = 131072; // 截断重试时最多抬到这里
 
+// 用户自加的模型常是占位值（32768 窗口 / 4096 输出，limitsSource==='default'），不是厂商声明。
+// 占位值既不能当输出上限（会让大工具参数永远在 4096 处被截断），也不能当上下文窗口。
+export const limitsAreDeclared = (mdef) => mdef?.limitsSource !== 'default';
+export const declaredContextWindow = (mdef) => (limitsAreDeclared(mdef) ? Number(mdef?.contextWindow) || 0 : 0);
+
 export function clampOutputTokens(mdef, { fallback = OUTPUT_TOKEN_FALLBACK, ceiling = OUTPUT_TOKEN_CEILING } = {}) {
+  if (!limitsAreDeclared(mdef)) return fallback;
   const n = Number(mdef?.maxTokens);
   if (!Number.isFinite(n) || n <= 0) return fallback;
   return Math.max(1, Math.min(Math.floor(n), ceiling));
@@ -20,7 +26,7 @@ export function clampOutputTokens(mdef, { fallback = OUTPUT_TOKEN_FALLBACK, ceil
 
 // 截断后的下一次预算：翻倍，但不超过「模型声明」与硬上限。
 export function escalateOutputTokens(current, mdef, { hardCap = OUTPUT_TOKEN_HARD_CAP } = {}) {
-  const declared = Number(mdef?.maxTokens);
+  const declared = limitsAreDeclared(mdef) ? Number(mdef?.maxTokens) : OUTPUT_TOKEN_CEILING;
   const limit = Number.isFinite(declared) && declared > 0 ? Math.min(Math.floor(declared), hardCap) : hardCap;
   const next = Math.max(Math.floor(Number(current) || OUTPUT_TOKEN_FALLBACK) * 2, OUTPUT_TOKEN_FALLBACK + 4096);
   return Math.max(1, Math.min(next, limit));

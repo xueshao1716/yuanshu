@@ -108,3 +108,14 @@ test("出图旁路提示不能禁止工具，也不能让模型以为必须自�
   assert.ok(!out.includes("禁止"));
   assert.ok(/\/api\/image/.test(out), "必须拆穿自己去调绘图 API 这条弯路");
 });
+
+test("本轮没有助手正文时不回收上一轮的回答（否则失败会显示成重复上一条）", () => {
+  const history = [
+    { role: "user", content: "上一问" },
+    { role: "assistant", content: "上一轮的完整回答" },
+    { role: "user", content: "放弃，重新养一个" },
+    { role: "assistant", content: null, tool_calls: [{ id: "1" }] },
+    { role: "tool", content: "ok" },
+  ];
+  assert.equal(lastPartialAssistantText(history), "");
+});

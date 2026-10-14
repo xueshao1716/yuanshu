@@ -85,8 +85,8 @@ export function pickFallbackDefault() {
   if (defaultModel && !isModelBlocked(defaultModel)) return defaultModel;
   // 用户定（2026-09-04）：默认模型已指向 Agnes 旗舰；冷却时先落 agnes-flash，再走免费通道
   // 2026-09-09：3.0-flash 发布，作为 2.5 后备位
-  return findLive("agnes", /2\.5-flash/i)
-    || findLive("agnes", /3\.0-flash/i)
+  return findLive("agnes", /^(?:agnes-)?2\.5-flash$/i)
+    || findLive("agnes", /^(?:agnes-)?3\.0-flash$/i)
     || findLive("sensenova", /flash-lite/i)
     || findLive("nvidia", /llama-3\.1-8b/i)
     || defaultModel; // 全部冷却时仍返回 defaultModel（宁可重试已知模型，不可无模型可用）
@@ -99,8 +99,8 @@ export function pickFallbackExcluding(excludeModel) {
   // 2026-08-27 调序：ox-alpha 已下架；小米不再优先——商汤 → 智谱glm-flash → 小米
   // （之前只有 flash-lite 兜底，mimo 复读时切去更弱的模型，体验差）
   const cands = [
-    findLive("agnes", /2\.5-flash/i),
-    findLive("agnes", /3\.0-flash/i),
+    findLive("agnes", /^(?:agnes-)?2\.5-flash$/i),
+    findLive("agnes", /^(?:agnes-)?3\.0-flash$/i),
     findLive("sensenova", /flash-lite/i),
     findLive("zai-coding-cn", /glm-5\.3-flash/i),
     findLive("xiaomi-token-plan-cn", /mimo-v2\.5$/i),
@@ -146,8 +146,8 @@ export function classifyTaskComplexity(text) {
 // 商汤 flash-lite（免费实测稳）→ 智谱 glm-5.3-flash（coding 套餐免费）→ 小米 mimo → ocGo flash → nvidia → ark
 export function flashCandidate() {
   // 2026-09-09：3.0-flash 发布，挂在 2.5 后备位（2.5 冷却/限流时先落 3.0 再走免费通道）
-  return findLive("agnes", /2\.5-flash/i)
-    || findLive("agnes", /3\.0-flash/i)
+  return findLive("agnes", /^(?:agnes-)?2\.5-flash$/i)
+    || findLive("agnes", /^(?:agnes-)?3\.0-flash$/i)
     || findLive("sensenova", /flash-lite/i)
     || findLive("zai-coding-cn", /glm-5\.3-flash/i)
     || findLive("xiaomi-token-plan-cn", /mimo-v2\.5$/i)
@@ -163,8 +163,8 @@ export function routeProCandidate() {
   // 用户定（2026-09-04）：Agnes 旗舰首选 pro；09-04 晚换 cpk 新 key（TokenPlan 套餐）后无 pro，
   // 降级到 agnes-2.5-flash 顶 pro 位（仍是 Agnes 优先），ocGo 套餐随后。
   // 2026-09-09：agnes-3.0-flash（思考型）发布，顶旗舰位，2.5-flash 退居其后
-  return findLive("agnes", /3\.0-flash/i)
-    || findLive("agnes", /2\.5-flash$/i)
+  return findLive("agnes", /^(?:agnes-)?3\.0-flash$/i)
+    || findLive("agnes", /^(?:agnes-)?2\.5-flash$/i)
     || ocGoCandidate(/deepseek-v4-pro/i);
 }
 

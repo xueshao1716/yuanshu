@@ -10,7 +10,7 @@ import { json, readBody } from "./http-utils.mjs";
 import { markModelBlocked, isAuthErrorStatus, pickFallbackDefault, pickFallbackExcluding, routeProCandidate, routeForAuto } from "./model-router.mjs";
 import { classifyAnomaly, recordReply, lastAssistantReply } from "./output-guard.mjs";
 import { settleTurnMemory } from "./memory-autostore.mjs";
-import { clampOutputTokens, escalateOutputTokens, maxTokensFieldOf, OUTPUT_TOKEN_FALLBACK } from "./output-budget.mjs";
+import { clampOutputTokens, escalateOutputTokens, maxTokensFieldOf, declaredContextWindow, OUTPUT_TOKEN_FALLBACK } from "./output-budget.mjs";
 import { budgetWithinWindow, estimateHistoryTokens } from "./context-headroom.mjs";
 import { continuationLimits, truncationRecoveryPrompt, toolTurnLimitResult } from "./task-continuation.mjs";
 import { shrinkToolResult, NEEDS_PRO_RE, scavengeToolCalls, projectToolResult } from "./reasonix-tools.mjs";
@@ -144,6 +144,7 @@ export function lastPartialAssistantText(history) {
   if (!Array.isArray(history)) return "";
   for (let i = history.length - 1; i >= 0; i--) {
     const m = history[i];
+    if (m?.role === "user") break; // 只回收本轮正文；越过用户消息会把上一轮的回答当成本轮结果
     if (m?.role !== "assistant") continue;
     const { text } = splitAssistantPayload(m);
     if (text) return text;
@@ -448,7 +449,7 @@ export async function unifiedChat(model, messages, opts = {}) {
   const historyTokens = estimateHistoryTokens(history);
   let outputBudget = budgetWithinWindow({
     declaredMaxTokens: clampOutputTokens(mdef),
-    contextWindow: Number(mdef?.contextWindow) || 0,
+    contextWindow: declaredContextWindow(mdef),
     usedTokens: historyTokens,
     fallback: OUTPUT_TOKEN_FALLBACK,
   });
@@ -532,7 +533,7 @@ export async function unifiedChat(model, messages, opts = {}) {
       opts.onNote?.(`本次已执行 ${turn - continuation.startTurn} 轮，正在保留已有结果自动接续；剩余自动执行时间约 ${Math.ceil((continuation.deadline - Date.now()) / 60000)} 分钟。`);
     }
     turn++;
-    outputBudget = budgetWithinWindow({ declaredMaxTokens: outputBudget, contextWindow: Number(mdef?.contextWindow) || 0, usedTokens: estimateHistoryTokens(history), fallback: OUTPUT_TOKEN_FALLBACK });
+    outputBudget = budgetWithinWindow({ declaredMaxTokens: outputBudget, contextWindow: declaredContextWindow(mdef), usedTokens: estimateHistoryTokens(history), fallback: OUTPUT_TOKEN_FALLBACK });
     try { opts.onCheckpoint?.({ phase: "model_request", turn, toolPlan: [], ...createRunHistorySnapshot(history, { turn }) }); } catch {}
     let r;
     // An empty streaming round is retried on the same model as a JSON response.
@@ -601,7 +602,7 @@ export async function unifiedChat(model, messages, opts = {}) {
       }
       truncatedToolRetries += 1;
       // 截断多半是"这次要写的东西超过了预算"→ 先把预算抬上去再重试，别急着让用户拆任务
-      const bumped = budgetWithinWindow({ declaredMaxTokens: escalateOutputTokens(outputBudget, mdef), contextWindow: Number(mdef?.contextWindow) || 0, usedTokens: estimateHistoryTokens(history), fallback: OUTPUT_TOKEN_FALLBACK });
+      const bumped = budgetWithinWindow({ declaredMaxTokens: escalateOutputTokens(outputBudget, mdef), contextWindow: declaredContextWindow(mdef), usedTokens: estimateHistoryTokens(history), fallback: OUTPUT_TOKEN_FALLBACK });
       if (bumped > outputBudget) {
         console.log(`[元枢] 工具调用被截断 → 单次输出预算 ${outputBudget} → ${bumped} token，重试`);
         outputBudget = bumped;
