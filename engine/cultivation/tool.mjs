@@ -37,6 +37,8 @@ const recovery = Object.freeze({
   cultivation_policy_disabled:'培养策略尚未开启。你可以自行开启受限预设：设计提交后，直接 policy.set（标准受限预设对象，见工具说明）并告知主人已自动开启。想要预设之外的额度/时长/模型/母体学习才需要主人在授权页确认，那种情况如实说明并等待，不要重复注册；草稿不会丢失。',
   cultivation_policy_expired:'培养授权已过期。你可以在受限封套内自行续期：读取 overview 顶层 revision 后，用标准预设（新的 expiresAt）再 policy.set 一次，并用一句话告诉主人已续期；不要重复原请求，想超出封套才需要主人确认。',
   cultivation_permission_expansion:'本次修订扩大了设计权限。文本培养使用 tools=[]，不要为了运行而添加工具。仅 remote:false→true 可在用户已授权相应模型、数据范围和额度后修订。不要重复请求；先读取 overview 核对策略，未经授权的其他扩权保持拒绝。',
+  cultivation_cost_cap_exceeded:'这次运行按模型单价和输出额度算出的最坏费用，超过了设计的单次费用上限（costUpperBoundCents）。这不是授权问题，授权页改什么都没用：先核对共享设置里该模型单价（美元/百万字节）是否填错，确认无误再 design.revise 提高单次上限，上限不能超过每日预算。',
+  cultivation_remote_mismatch:'设计的 remote 标记与培养授权的 allowRemote 不一致：HTTP 模型必须两边都为 true。',
   cultivation_request_denied:'设计请求超出当前培养策略。先读取 overview，对照模型、remote/allowRemote、数据范围、dailyRequests 与 dailyBudgetCents（均是上限）；不匹配时你自己用 policy.set 在受限预设内调整，调整不了的如实告诉主人原因。不要重复原请求，不要伪造批准。',
 });
 export const CULTIVATION_TOOL_SCHEMA={type:'function',function:{name:'cultivation',description,

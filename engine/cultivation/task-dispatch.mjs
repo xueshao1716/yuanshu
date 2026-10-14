@@ -40,9 +40,10 @@ export function createTaskDispatch({repo,assertRun,ownerId,active,admission,budg
       if(!run)return;
       const {policy,design}=assertRun(run),sharedPolicy=await knowledge.policy();
       const plan=await provider.prepare({run,design,policy,sharedPolicy});
-      if(plan.remote!==design.permissions.remote||plan.remote&&!policy.allowRemote||
-        !Number.isFinite(plan.maxCost)||plan.maxCost<0||Math.ceil(plan.maxCost*100)>design.permissions.costUpperBoundCents)
-        throw new Error('cultivation_request_denied');
+      // 拒绝原因分开报：真机上笼统的 request_denied 让人查了两天授权，实际是单价×额度算出的最坏费用超过设计单次上限。
+      if(plan.remote!==design.permissions.remote||plan.remote&&!policy.allowRemote)throw new Error('cultivation_remote_mismatch');
+      if(!Number.isFinite(plan.maxCost)||plan.maxCost<0)throw new Error('cultivation_price_invalid');
+      if(Math.ceil(plan.maxCost*100)>design.permissions.costUpperBoundCents)throw new Error('cultivation_cost_cap_exceeded');
       assertRun(run);if(foregroundBusy())throw new Error('cultivation_foreground_busy');
       if(repo.get(run.id).status!=='running')throw new Error('cultivation_cancel_requested');
       reservation=await budget.reserve({kind:'model',policy:sharedPolicy,maxCost:plan.maxCost,

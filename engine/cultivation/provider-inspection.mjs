@@ -19,6 +19,11 @@ export async function inspectProvider(catalog,{design,policy,sharedPolicy:p}) {
   if(!p.allowedModels.includes(key))add('model_not_authorized','knowledge.allowedModels','共享模型白名单尚未包含设计模型','共享模型白名单由设置页自动补齐；若仍缺，如实告诉主人是哪个模型缺。');
   if(!rate||![rate.input,rate.output].every(n=>Number.isFinite(n)&&n>=0)||rate.input===0&&rate.output===0&&rate.free!==true)
     add('price_unknown','knowledge.rates','模型价格缺失或未明确标记免费','核对输入/输出单价；零价须明确 free=true。');
+  // 最坏费用 = 单价 × 输出上限（输入另算，只会更高）。设计单次上限比它还低，运行时必被拒。
+  if(rate&&Number.isFinite(rate.output)&&!(rate.free===true&&rate.input===0&&rate.output===0)){
+    const floorCents=Math.ceil(p.outputTokens*rate.output/1e4);
+    if(floorCents>design.permissions.costUpperBoundCents)add('cost_cap_exceeded','design.permissions.costUpperBoundCents','按当前单价，仅输出额度的最坏费用就约 '+floorCents+' 美分，高于设计单次上限 '+design.permissions.costUpperBoundCents+' 美分，运行必被拒','核对模型单价是否填错（单位是美元/百万字节）；确认无误再用 design.revise 提高单次上限，或在共享设置里调低输出上限。');
+  }
   if(rate&&rate.currency!==p.currency||p.currency!=='USD')add('currency_mismatch','knowledge.currency','共享账本币种与模型价格不一致','培养账本使用 USD，请核对币种。');
   if(rate&&rate.tokenBound!=='utf8-bytes')add('token_bound_unknown','knowledge.rates.tokenBound','未配置保守输入计费边界','请核对该模型的 utf8-bytes 计费边界。');
   if(rate&&!(rate.input===0&&rate.output===0&&rate.free===true)&&policy.dailyBudgetCents===0)
