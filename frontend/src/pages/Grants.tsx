@@ -7,6 +7,7 @@ import { Block, LoadState, date } from '../soul/shared'
 import { AllConfirmations, SessionChoice } from '../soul/Confirmations'
 import { CultivationApi, cultivationPolling, type Overview } from '../soul/cultivation/api'
 import Resources from '../soul/cultivation/Resources'
+import SlotRecovery from '../soul/cultivation/SlotRecovery'
 import GrantStatus from '../soul/cultivation/GrantStatus'
 import PolicyPreset from '../soul/cultivation/PolicyPreset'
 import WidenCard from '../soul/cultivation/WidenCard'
@@ -50,6 +51,7 @@ function CultivationGrants({ sessionId }: { sessionId: string }) {
     {action && <Authorization key={JSON.stringify([sessionId, action])} action={action} owner={overview.data?.ownerConfirmation} sessionId={sessionId}
       sessionGrantAvailable={!!overview.data?.sessionGrantAvailable} close={() => setAction(null)} refresh={refresh} />}
     {overview.data && <Block title="培养授权">
+      <SlotRecovery value={overview.data} sessionId={sessionId} onAction={setAction} />
       <GrantStatus value={overview.data} onAction={setAction} />
       {!overview.data.policy.enabled && <PolicyPreset value={overview.data} onAction={setAction} refresh={refresh} />}
       <details><summary>高级设置（额度、共享模型、母体学习、签名通道）</summary>

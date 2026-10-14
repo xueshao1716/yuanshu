@@ -64,7 +64,7 @@ test('bounded cultivation preset uses a real design and keeps tools and unrelate
     '不会自动开始付费任务','nextCursor'])assert.ok(preset.includes(text),text);
   const resources=source('frontend/src/soul/cultivation/Resources.tsx');
   assert.ok(resources.includes('value.sessionGrantAvailable&&!!sessionId'));
-  assert.ok(resources.includes('disabled={!recoveryAuthorized||!reason.trim()}'));
+  assert.ok(source('frontend/src/soul/cultivation/SlotRecovery.tsx').includes('disabled={!authorized || !reason.trim()}'));
 });
 
 test('cultivation primary path is hands-off and keeps computer credentials out of the design flow',()=>{
@@ -87,7 +87,7 @@ test('owned media is loaded on demand through authenticated API and unknown outc
   assert.ok(!media.includes('autoPlay'));
   assert.ok(api.includes('api<{mime:string;base64:string}>'));
   assert.ok(source('frontend/src/soul/cultivation/Individuals.tsx').includes('outcome_unknown'));
-  assert.ok(source('frontend/src/soul/cultivation/Resources.tsx').includes("path:'/resources/reconcile'"));
+  assert.ok(source('frontend/src/soul/cultivation/SlotRecovery.tsx').includes("path: '/resources/reconcile'"));
 });
 
 test('learning observation is page-scoped and stale data cannot prepare adoption',()=>{
