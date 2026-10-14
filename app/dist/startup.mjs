@@ -1,6 +1,6 @@
 const messages = {
   TASK_UNAVAILABLE: '无法读取元枢守护任务。请检查是否已安装，以及当前用户是否有访问权限。',
-  TASK_DISABLED: '元枢守护任务已禁用。请在 Windows 任务计划程序中启用后重试。',
+  TASK_DISABLED: '元枢守护任务已禁用，且客户端无权自动启用。请在 Windows 任务计划程序中启用 yuanshu-watchdog 后重试。',
   TASK_START_DENIED: 'Windows 未允许启动守护任务。请检查该任务的运行账户与权限后重试。',
   HEALTH_TIMEOUT: '已请求启动，但服务尚未就绪。请检查服务目录的 watchdog.log；修复后可再次连接。',
   START_BUSY: '另一个启动请求正在处理，请稍后重试。',

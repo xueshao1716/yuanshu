@@ -26,7 +26,7 @@ test('native helper rejects string truthiness in health JSON', { skip: !windows 
 });
 test('native helper distinguishes unavailable, disabled, denied, and timeout', { skip: !windows }, () => {
   assert.equal(run(`${noNetwork}\nfunction Get-ScheduledTask { throw 'missing' }`), 'TASK_UNAVAILABLE');
-  assert.equal(run(`${noNetwork}\nfunction Get-ScheduledTask { [pscustomobject]@{State='Disabled'} }`), 'TASK_DISABLED');
+  assert.equal(run(`${noNetwork}\nfunction Get-ScheduledTask { [pscustomobject]@{State='Disabled'} }\nfunction Enable-ScheduledTask { throw 'denied' }`), 'TASK_DISABLED');
   assert.equal(run(`${noNetwork}\n${readyTask}\nfunction Start-ScheduledTask { throw 'denied' }`), 'TASK_START_DENIED');
   assert.equal(run(`${noNetwork}\n${readyTask}\nfunction Start-ScheduledTask { }`, { timeout: true }), 'HEALTH_TIMEOUT');
 });
@@ -35,4 +35,12 @@ test('native helper waits for readiness after starting exactly the fixed task', 
     function Invoke-WebRequest { if (-not $script:started) { throw 'offline' }; [pscustomobject]@{StatusCode=200;Content='{"ok":true}'} }
     ${readyTask}
     function Start-ScheduledTask { param($TaskName) if ($TaskName -ne 'yuanshu-watchdog') { throw 'wrong task' }; $script:started=$true }`), 'READY');
+});
+
+test('native helper re-enables its own disabled task, then starts it and waits for readiness', { skip: !windows }, () => {
+  assert.equal(run(`$script:enabled=$false; $script:started=$false
+    function Invoke-WebRequest { if (-not $script:started) { throw 'offline' }; [pscustomobject]@{StatusCode=200;Content='{"ok":true}'} }
+    function Get-ScheduledTask { [pscustomobject]@{State='Disabled'} }
+    function Enable-ScheduledTask { param($TaskName) if ($TaskName -ne 'yuanshu-watchdog') { throw 'wrong task' }; $script:enabled=$true }
+    function Start-ScheduledTask { param($TaskName) if (-not $script:enabled -or $TaskName -ne 'yuanshu-watchdog') { throw 'not enabled' }; $script:started=$true }`), 'READY');
 });

@@ -11,7 +11,10 @@ function Ensure-YuanshuService {
   if (Test-YuanshuHealth) { return 'READY' }
   try { $task = Get-ScheduledTask -TaskName 'yuanshu-watchdog' -ErrorAction Stop }
   catch { return 'TASK_UNAVAILABLE' }
-  if ($task.State -eq 'Disabled') { return 'TASK_DISABLED' }
+  if ($task.State -eq 'Disabled') {
+    try { Enable-ScheduledTask -TaskName 'yuanshu-watchdog' -ErrorAction Stop | Out-Null }
+    catch { return 'TASK_DISABLED' }
+  }
   try { Start-ScheduledTask -TaskName 'yuanshu-watchdog' -ErrorAction Stop }
   catch { return 'TASK_START_DENIED' }
   $deadline = [DateTime]::UtcNow.AddSeconds(45)
