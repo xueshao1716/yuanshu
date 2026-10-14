@@ -17,6 +17,7 @@ import { shrinkToolResult, NEEDS_PRO_RE, scavengeToolCalls, projectToolResult } 
 import { normalizeToolArgs } from "./tool-args.mjs";
 import { extractMessages, extractText, attachmentLines } from "./session-utils.mjs";
 import { createSseWriter } from "./sse.mjs";
+import { slimToolDefs } from "./tool-payload.mjs";
 import { httpJsonFetch, httpRawFetch, httpHedgedFetch, sessionAffinityHeaders, describeHttpError } from "./http.mjs";
 import { PRODUCT_VERSION } from "./version.mjs";
 import { createGateway } from "./gateway.mjs";
@@ -384,7 +385,7 @@ export async function unifiedChat(model, messages, opts = {}) {
   if (noTools && !history.some(message => message?.role === "system" && String(message.content || "").includes("【无工具模式】"))) {
     history.unshift({ role: "system", content: "【无工具模式】本次对话你没有工具可用（不能读写文件、执行命令、搜索网页）。不要输出 <tool_call>、<function_call> 等任何形式的工具调用——那只是文本，没有系统会执行它们。若任务需要文件内容或命令输出，请直接请用户粘贴相关内容，再基于内容回答。" });
   }
-  const toolDefs = opts.tools === false || noTools ? undefined : (opts.tools || _unifiedTools);
+  const toolDefs = opts.tools === false || noTools ? undefined : slimToolDefs(opts.tools || _unifiedTools);
   // Refresh our own capability note on continuation; never infer permission from history.
   history = history.filter(message => !(message.role === 'system' && typeof message.content === 'string' && message.content.startsWith('【本轮工具事实】')));
   history.unshift({ role: 'system', content: toolAvailabilityPrompt(toolDefs?.map(tool => tool.function?.name || tool.name) || []) });
