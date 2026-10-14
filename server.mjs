@@ -2575,7 +2575,8 @@ const API_ROUTES = [
   ["GET", "/api/email/config", (res) => {
     const cfg = emailBridge.getConfig();
     // 脱敏：clientSecret 和 refreshToken 不返回给前端
-    const safe = { ...(cfg), accounts: (cfg.accounts||[]).map(a => ({ email: a.email, provider: a.provider, enabled: a.enabled, clientId: a.clientId, hasRefreshToken: !!a.refreshToken })) };
+    // IMAP 授权码（password）同样不回显；只告诉前端「已配置」
+    const safe = { ...(cfg), accounts: (cfg.accounts||[]).map(a => ({ email: a.email, provider: a.provider, enabled: a.enabled, clientId: a.clientId, preset: a.preset, host: a.host, port: a.port, hasRefreshToken: !!(a.refreshToken || a.password) })) };
     return json(res, 200, safe);
   }],
   ["POST", "/api/email/config", async (res, req) => {
