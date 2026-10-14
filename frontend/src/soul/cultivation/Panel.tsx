@@ -8,6 +8,7 @@ import Authorization from './Authorization'
 import PolicyPreset from './PolicyPreset'
 import GrantStatus, { grantState } from './GrantStatus'
 import VerdictBadge from './VerdictBadge'
+import { queueDraft } from '../../components/xiaoyu/companion-draft.mjs'
 import './cultivation.css'
 
 export default function Cultivation({sessionId}:{sessionId:string}) {
@@ -56,6 +57,17 @@ export default function Cultivation({sessionId}:{sessionId:string}) {
     return line
   })
 
+  const unregistered = designsReversed.filter(d => ![...agentMap.values()].some(a => a.designId === d.id))
+  const pendingExp = (experience.data?.items || []).filter(e => e.state === 'review_required')
+  const sendToChat = (text: string) => {
+    if (!sessionId || !queueDraft(sessionStorage, sessionId, text.trim())) {
+      alert('暂存失败，请手动复制文字到对话')
+      return
+    }
+    window.dispatchEvent(new Event('yuanshu-companion-draft'))
+    window.location.hash = '/chat'
+  }
+
   const activeRuns = (runs.data?.items || []).filter(r => ['queued','running'].includes(r.status))
 
   const finishedRuns = (runs.data?.items || []).filter(r => r.status === 'completed')
@@ -81,6 +93,28 @@ export default function Cultivation({sessionId}:{sessionId:string}) {
         </>
       )}
     </Block>
+
+    {unregistered.length + pendingExp.length > 0 && (
+      <Block title={`待处理（${unregistered.length + pendingExp.length}）`} hint="她设计好了，或有待核查的经验">
+        {unregistered.length > 0 && (
+          <details open>
+            <summary>未登记的设计稿（{unregistered.length}）</summary>
+            <ul className="cultivation-list">
+              {unregistered.map(d => (
+                <li key={d.id}>
+                  <h4>{d.design.name}</h4>
+                  <p className="soul-dim">{d.design.rationale}</p>
+                  <button onClick={() => sendToChat(`请登记「${d.design.name}」设计稿（${d.id.slice(0,8)}）`)}>让小语登记</button>
+                </li>
+              ))}
+            </ul>
+          </details>
+        )}
+        {pendingExp.length > 0 && (
+          <p className="soul-hint">待核查经验 {pendingExp.length} 条，展开下方「学习证据」查看并处理</p>
+        )}
+      </Block>
+    )}
 
     {action && (
       <Authorization
