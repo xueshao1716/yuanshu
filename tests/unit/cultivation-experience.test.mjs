@@ -97,3 +97,14 @@ test('receipt reconciliation does not attach an obsolete result across an asynch
   await bridge.reconcile();const job=await knowledge.get(run.cultivation.knowledgeJobId);
   assert.equal(job.candidate.text,'Actual final result');assert.equal((await bridge.list()).items[0].state,'review_required');
 });
+
+test('经验闸门：模型输出只有独立验证 pass 才进待核验经验；执行记录照常登记；旧任务保持原行为', async () => {
+  const {experienceOfferable} = await import('../../engine/cultivation/experience-record.mjs');
+  const base = {status: 'completed', cultivation: {output: 'x'}};
+  const withV = v => ({...base, cultivation: {...base.cultivation, verification: v}});
+  assert.equal(experienceOfferable(withV({verdict: 'pass'})), true);
+  for (const verdict of ['partial', 'fail', 'unverified']) assert.equal(experienceOfferable(withV({verdict})), false, verdict);
+  assert.equal(experienceOfferable(withV(null)), false, '验证进行中/崩溃：不放行');
+  assert.equal(experienceOfferable(base), true, '没有 verification 字段 = 机制上线前的旧任务');
+  assert.equal(experienceOfferable({status: 'failed', cultivation: {reason: 'x', verification: {verdict: 'unverified'}}}), true, '执行记录不是论断');
+});

@@ -18,7 +18,9 @@ export function cultivationHypotheses({io,now}) {
       title:'培养任务的待核验经验',state:'review_required',stage:'validating',
       reason:'independent_evidence_required',revision:1,generation:0,policyRevision:data.policy.revision,
       lease:null,attempts:0,createdAt:now(),updatedAt:now(),
-      candidate:{kind:'synthesis',text:record.text,scope:record.role==='model_generated'?'模型生成的假设，未经独立核验':'执行结果记录，不是已核验的知识'},
+      candidate:{kind:'synthesis',text:record.text,scope:record.role==='model_generated'?
+        (c.verification?.verdict==='pass'?`独立验证员核对通过（有原文依据），但仍是模型生成的假设，不是独立证据${c.verification.conditions?`；成立条件：${String(c.verification.conditions).slice(0,200)}`:''}`:'模型生成的假设，未经独立核验'):
+        '执行结果记录，不是已核验的知识'},
       provenance:{role:record.role,...(record.outcome?{outcome:record.outcome}:{}),agentId:c.agentId,designId:c.designId,runId:run.id,
         outputHash:sourceVersion,lineage:[sourceId],independentEvidenceCount:0,userAcceptance:null}};
     data.jobs[key]=job;return job;

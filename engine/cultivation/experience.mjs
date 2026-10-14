@@ -1,11 +1,11 @@
 import {digest} from '../knowledge-state.mjs';
 import {experienceObservation} from './experience-observation.mjs';
-import {experienceRecord} from './experience-record.mjs';
+import {experienceRecord,experienceOfferable} from './experience-record.mjs';
 
 export function createCultivationExperience({repo,knowledge,workspace,now=Date.now}) {
   return Object.freeze({
     async reconcile(){
-      for await(const run of repo.scan())if(experienceRecord(run)&&!run.cultivation.knowledgeJobId){
+      for await(const run of repo.scan())if(experienceOfferable(run)&&!run.cultivation.knowledgeJobId){
         // Deterministic knowledge ID survives a second-file receipt failure.
         const job=await knowledge.offerCultivation(run);
         const current=repo.get(run.id);

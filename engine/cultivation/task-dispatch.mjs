@@ -6,10 +6,10 @@ export function createTaskDispatch({repo,assertRun,ownerId,active,admission,budg
   // 独立验证：另起一次隔离调用，只看任务/验收标准/输出，不看设计稿与执行过程。
   // 验证失败或额度不够只记「未验证」，不影响已完成的任务，也绝不当作通过。
   const verifyOutput=async(run,design,policy,sharedPolicy,output)=>{
-    if(typeof provider.verifyPrepare!=='function')return;
     const record=verification=>{const r=repo.get(run.id);if(r)repo.update(run.id,{cultivation:{...r.cultivation,verification:{...verification,at:now()}}});};
     let reservation,controller,deadline;
     try{
+      if(typeof provider.verifyPrepare!=='function')return void record({verdict:'unverified',reason:'verifier_unavailable'});
       const plan=await provider.verifyPrepare({run,design,policy,sharedPolicy,output});
       reservation=await budget.reserve({kind:'model',policy:sharedPolicy,maxCost:plan.maxCost,
         currency:plan.currency,free:plan.free===true,consumer:'cultivation',limits:policy});
@@ -61,7 +61,7 @@ export function createTaskDispatch({repo,assertRun,ownerId,active,admission,budg
       if(controller.signal.aborted||repo.get(run.id).status==='stopping')return void patch('stopped',{reason:'cancelled',output:null,usage:result?.usage??null});
       assertRun(run);
       if(typeof result?.text!=='string'||!result.text.trim()||result.text.length>16000)throw new Error('cultivation_provider_format');
-      patch('completed',{output:result.text,usage:result.usage??null,reason:null,completedAt:now()});
+      patch('completed',{output:result.text,usage:result.usage??null,reason:null,completedAt:now(),verification:null});
       await verifyOutput(run,design,policy,sharedPolicy,result.text);
     }catch(error){
       // 2026-10-07：模型明确答复了（如输出被截断）就不是「结果未知」——按实际用量结算，记为失败并给出原因。

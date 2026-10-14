@@ -278,3 +278,16 @@ test('验证员 verdict 解析加固：无逐字引用不得 pass，格式错误
   assert.equal(parseVerdict(JSON.stringify({verdict: 'maybe'}), out).verdict, 'unverified');
   assert.equal(parseVerdict(JSON.stringify({verdict: 'pass', evidence: ['A 方案成本更低'], gaps: ['未核对数据来源'], confidence: 'low'}), out).verdict, 'partial');
 });
+
+test('验证没通过的输出不进待核验经验，通过的才进，并带上成立条件', async t => {
+  for (const [verdict, expected] of [['partial', 0], ['pass', 1]]) {
+    const f = await fixture(t);
+    f.options.provider.verifyPrepare = async () => ({maxCost: 0, currency: 'USD', free: true, remote: false});
+    f.options.provider.verifyInvoke = async ({output}) => ({usage: {cost: 0, currency: 'USD'},
+      verification: {verdict, evidence: [output.slice(0, 5)], gaps: [], conditions: '仅限本输入', confidence: 'high', grounded: true}});
+    await f.execute(f.submit());
+    await f.tasks.tick();
+    assert.equal((await f.knowledge.list()).total, expected, verdict);
+    if (expected) assert.match((await f.knowledge.list()).items[0].candidate.scope, /仅限本输入/);
+  }
+});

@@ -1,5 +1,15 @@
 import {digest} from '../knowledge-state.mjs';
 
+// 经验闸门（参考 RSIAgent：验证通过才固化）：模型生成的输出必须经独立验证员判为 pass 才进待核验经验；
+// partial/fail/unverified 只留在任务记录里。执行记录（失败/取消/中断）不是论断，照常登记。
+// 没有 verification 字段的是验证机制上线前的旧任务，保持原行为。
+export function experienceOfferable(run){
+  const record=experienceRecord(run);
+  if(!record)return false;
+  if(record.role!=='model_generated')return true;
+  const v=run.cultivation?.verification;
+  return v===undefined?true:v?.verdict==='pass';
+}
 // Record execution outcomes, not imagined lessons or private provider errors.
 export function experienceRecord(run){
   const c=run?.cultivation;
