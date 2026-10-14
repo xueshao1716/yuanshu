@@ -10,7 +10,7 @@ const publicErrors = new Set(['identity_unavailable', 'identity_denied', 'identi
   'revision_conflict', 'idempotency_conflict', 'cursor_stale', 'initialization_conflict',
   'policy_disabled', 'policy_expired', 'request_denied', 'permission_expansion', 'population_limit',
   'protected_proposal_pending', 'asset_unverified', 'design_lineage', 'design_not_found',
-  'agent_not_found', 'run_not_found', 'executor_unavailable', 'unsupported_permissions',
+  'agent_not_found', 'agent_not_yours', 'run_not_found', 'executor_unavailable', 'unsupported_permissions',
   'agent_paused', 'policy_changed', 'independent_evidence_required', 'data_not_authorized', 'recovery_unavailable', 'learning_changed', 'route_not_found', 'state_unreadable', 'state_changing', 'storage_full', 'audit_full']);
 function errorReply(error) {
   const suffix = String(error?.message ?? '').replace(/^cultivation_/, '');

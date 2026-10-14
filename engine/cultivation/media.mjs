@@ -55,7 +55,8 @@ export function createCultivationMedia({wsRoot,store,authority,getControls,now=D
     const authenticate=()=>{
       const actor=authority.assert(principal,c,c.action==='asset.revoke'?['human']:['mother']);
       const state=getControls().read(),agent=state.data.agents.find(a=>a.id===c.payload.agentId);
-      if(!agent||actor.kind==='mother'&&agent.mentorId!==actor.actorId)throw new Error('cultivation_identity_denied');
+      if(!agent)throw new Error('cultivation_agent_not_found');
+      if(actor.kind==='mother'&&agent.mentorId!==actor.actorId)throw new Error('cultivation_agent_not_yours');
       if(state.revision!==c.expectedRevision)throw new Error('cultivation_revision_conflict');
       return actor;
     };

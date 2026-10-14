@@ -34,7 +34,7 @@ test('media refuses foreign ownership, paths, links and non-media content',async
   const f=await fixture(t);
   for(const p of ['../secret','工程/secret','workshop-out/../secret'])
     await assert.rejects(f.runtime.execute({...f.bind,requestId:randomUUID(),payload:{...f.bind.payload,path:p}},'mother',f.mother),/asset_unverified/);
-  await assert.rejects(f.runtime.execute({...f.bind,payload:{...f.bind.payload,agentId:randomUUID()}},'mother',f.mother),/identity_denied/);
+  await assert.rejects(f.runtime.execute({...f.bind,payload:{...f.bind.payload,agentId:randomUUID()}},'mother',f.mother),/agent_not_found/);
   const linked=path.join(f.root,'workshop-out/link.png');fs.linkSync(path.join(f.root,'workshop-out/portrait.png'),linked);
   await assert.rejects(f.runtime.execute({...f.bind,payload:{...f.bind.payload,path:'workshop-out/link.png'}},'mother',f.mother),/asset_unverified/);
   fs.unlinkSync(linked);fs.writeFileSync(path.join(f.root,'workshop-out/portrait.png'),'<svg onload="alert(1)"/>');
@@ -55,4 +55,11 @@ test('asset identity cannot silently change when registry hash and bytes are bot
   fs.writeFileSync(path.join(root,f.agentId,result.asset.id+'.bin'),changed);
   fs.writeFileSync(registry,JSON.stringify(data));
   assert.throws(()=>f.runtime.media({agentId:f.agentId,kind:'appearance',...result.asset}),/asset_unverified/);
+});
+test('asset.bind 把「没这个个体」「不是你的个体」与「没带身份」分开报，且不引向授权页', () => {
+  const src = p => fs.readFileSync(new URL('../../' + p, import.meta.url), 'utf8');
+  assert.ok(src('engine/cultivation/media.mjs').includes("cultivation_agent_not_yours"));
+  const fr = src('engine/cultivation/failure-reporting.mjs');
+  assert.ok(fr.includes("'agent_not_yours'") && fr.includes('不是你培养的') && fr.includes('不要让主人去授权页'));
+  assert.ok(src('engine/cultivation/api.mjs').includes("'agent_not_yours'"));
 });
