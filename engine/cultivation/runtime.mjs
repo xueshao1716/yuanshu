@@ -128,6 +128,8 @@ export function createCultivationRuntime({wsRoot, identityAdapters, humanConfig,
       if(kind==='human')tasks?.interrupt();return result;
       }catch(error){throw await reportFailure(error,command,actor);}
     },
+    runView:runId=>{const r=tasks?.get(runId);return r?{status:r.status,reason:r.cultivation.reason??null,output:r.cultivation.output??null,
+      verification:r.cultivation.verification??null,agentId:r.cultivation.agentId}:null;},
     tick:()=>tasks?.tick(),
     async start(){await controls.reconcile();await tasks?.recover();tasks?.start();},
     async close(){grants?.revoke();sessionGrants.revoke();await tasks?.close();},

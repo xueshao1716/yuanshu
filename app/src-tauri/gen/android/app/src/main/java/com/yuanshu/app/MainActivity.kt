@@ -37,6 +37,7 @@ class MainActivity : TauriActivity() {
     webView.addJavascriptInterface(YuanshuBridge(this, webView), "YuanshuBridge")
     downloads.attach(webView)
     webView.addJavascriptInterface(downloads, "YuanshuDownloads")
+    webView.addJavascriptInterface(YuanshuPush(applicationContext), "YuanshuPush")
 
     // 某些 Android/WebView 组合（尤其是 edge-to-edge 下的厂商 WebView）不会把 IME
     // 反映到布局高度，导致前端的 visualViewport 也看不到键盘。把系统报告的真实
@@ -56,6 +57,17 @@ class MainActivity : TauriActivity() {
       insets
     }
     ViewCompat.requestApplyInsets(webView)
+  }
+
+  // 前台时页面自己会提示，原生后台推送据此不重复弹
+  override fun onStart() {
+    super.onStart()
+    PushListener.visible = true
+  }
+
+  override fun onStop() {
+    PushListener.visible = false
+    super.onStop()
   }
 
   override fun onDestroy() {

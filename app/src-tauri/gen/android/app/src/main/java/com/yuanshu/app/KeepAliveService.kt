@@ -11,11 +11,10 @@ import android.os.IBinder
 import androidx.core.app.NotificationCompat
 
 /**
- * 保活前台服务：只用来把进程优先级提上去，不做任何联网/轮询——
- * 真正的"任务是否完成"判断逻辑在 WebView 里加载的网页 JS 里（那边本来就有 SSE 长连接），
- * 这个服务存在的唯一目的是让 Android 别把 App 进程连着 WebView 一起杀掉，
- * 这样锁屏/切后台时任务完成通知才有机会真正弹出来。
+ * 保活前台服务：把进程优先级提上去，别让 Android 把 App 连同 WebView 一起杀掉；
+ * 同时（登录后）在这里跑 PushListener，App 进后台、WebView 被冻结时仍由原生读通知流并弹系统通知。
  * 常驻通知优先级 LOW（无提示音无震动），不会打扰。
+ * 前台服务类型：Android 14+ 用 specialUse（dataSync 在 Android 15 有 6 小时超时），更早版本用 dataSync。
  */
 class KeepAliveService : Service() {
 
@@ -24,8 +23,11 @@ class KeepAliveService : Service() {
         const val NOTIF_ID = 1001
     }
 
+    private lateinit var push: PushListener
+
     override fun onCreate() {
         super.onCreate()
+        push = PushListener(applicationContext)
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             val nm = getSystemService(NotificationManager::class.java)
             if (nm.getNotificationChannel(CHANNEL_ID) == null) {
@@ -45,12 +47,26 @@ class KeepAliveService : Service() {
             .setOngoing(true)
             .setPriority(NotificationCompat.PRIORITY_LOW)
             .build()
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-            startForeground(NOTIF_ID, notification, ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC)
-        } else {
-            startForeground(NOTIF_ID, notification)
+        try {
+            when {
+                Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE ->
+                    startForeground(NOTIF_ID, notification, ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE)
+                Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q ->
+                    startForeground(NOTIF_ID, notification, ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC)
+                else -> startForeground(NOTIF_ID, notification)
+            }
+        } catch (_: Exception) {
+            // 系统此刻不允许升为前台（如后台重启限制）：不崩，等用户下次打开 App 再起
+            stopSelf()
+            return START_NOT_STICKY
         }
+        push.ensureRunning()
         return START_STICKY
+    }
+
+    override fun onDestroy() {
+        push.stop()
+        super.onDestroy()
     }
 
     override fun onBind(intent: Intent?): IBinder? = null

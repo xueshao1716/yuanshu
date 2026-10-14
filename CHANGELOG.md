@@ -10,6 +10,10 @@
 
 ### Added
 - 主动通知（对齐 dots/muse）：新增 `engine/notifier.mjs` 和全局通知流 `/api/notify/stream`。跑了 45 秒以上的对话任务完成/失败、定时任务失败（或带 notify 的任务完成）、智能体调用新工具 `notify_user` 时，网页（浏览器通知）、Windows 客户端、手机客户端都会弹系统通知；打开了“通知发到微信”时同步发微信。智能体登记的定时任务默认完成后通知。
+- 心跳巡检（`engine/heartbeat.mjs`）：不调模型，每 30 分钟只查确定性事实——逾期的承诺、等你确认的操作、卡住的后台名额；同一件事只提醒一次，夜间不打扰，状态落盘重启不重复。`YUANSHU_HEARTBEAT=0` 可关，`YUANSHU_HEARTBEAT_MIN` 调间隔；`/api/agent-heartbeat` 查看状态。
+- 培养任务跑完/失败会主动通知主人（失败带原因码）；用户主动取消不打扰。
+- `delegate_task` 新增可选 `agent_id`/`criterion`：把子任务改派给自己培养的个体，结果附独立验证结论（`engine/cultivation/delegate.mjs`）。
+- 手机壳后台推送：Capacitor 与 Tauri 两个安卓壳新增原生前台服务，App 进后台后继续读 `/api/notify/stream` 并弹系统通知（前台或页面已处理的不重复弹；登录后启动，退出即停；Android 14+ 用 specialUse 前台服务类型）。
 
 ### Performance
 - 会话回复偏慢的主因：每轮请求都带全部 MCP 工具定义，rea 的 19 个超大工具（单个最大 180KB）让请求体达 740KB，上游每次多等约 60 秒。现在超过 8KB 的 MCP 工具不进默认工具表（`engine/tool-payload.mjs`，环境变量 `YUANSHU_MCP_SCHEMA_MAX_BYTES` 可调），简单问答从约 68 秒降到约 7 秒。

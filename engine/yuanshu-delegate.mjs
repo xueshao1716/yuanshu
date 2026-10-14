@@ -14,6 +14,8 @@ export const DELEGATE_TASK_TOOL = {
         task: { type: "string", description: "子任务：要做什么、输出什么结论" },
         context: { type: "array", items: { type: "string" }, description: "最小必要上下文，不要贴整段历史" },
         role: { type: "string", enum: ["analyst", "planner", "reviewer"], description: "analyst 查证 / planner 拆方案 / reviewer 复核；仅用于记录与展示" },
+        agent_id: { type: "string", description: "可选：改派给自己培养的个体（cultivation agents 里状态 ready 的 id）。个体是纯文本、无工具，用它自己的设计和模型作答，结果带独立验证结论；不填则派只读研究员" },
+        criterion: { type: "string", description: "仅配合 agent_id：验收标准，写成可核对的句子；不填用通用标准" },
       },
       required: ["task"],
     },

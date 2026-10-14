@@ -8,8 +8,9 @@ import PendingCallout from './components/PendingCallout'
 import ProfileManager from './components/ProfileManager'
 import TitleBar from './components/TitleBar'
 import SetupWizard from './components/SetupWizard'
-import { KeysApi, SystemApi, getToken, streamNotifications } from './api'
+import { KeysApi, SystemApi, getApiBase, getToken, streamNotifications } from './api'
 import { armBrowserNotifications, notifyTaskDone } from './lib/notify'
+import { ackNativePush, clearNativePush, syncNativePush } from './lib/native-push'
 import Sidebar from './components/Sidebar'
 import ChatArea from './components/ChatArea'
 import ThemeSwitcher from './components/ThemeSwitcher'
@@ -151,7 +152,7 @@ function PageBody({ route }: { route: Route }) {
 }
 
 export default function AppLayout() {
-  const { authed, login, logout, selectSession, currentSessionId } = useApp()
+  const { authed, token, login, logout, selectSession, currentSessionId } = useApp()
   const themeReady = useThemePreferences(authed)
   // 首启向导：服务端 .setup-pending 标记（新装生成令牌时落盘）或 ?setup=1 唤出。
   // 新装 + 本机直连：自动领取令牌登录，不让用户先输令牌；手机/远程仍走登录页，登录后进向导。
@@ -195,10 +196,17 @@ export default function AppLayout() {
     if (!authed) return
     armBrowserNotifications()
     return streamNotifications(n => {
+      ackNativePush(n.seq)
       const watching = n.kind === 'run' && document.visibilityState === 'visible' && n.sessionId === watchedSessionRef.current
       if (!watching) void notifyTaskDone(n.title, n.body, n.kind === 'run' ? n.key : n.id)
     })
   }, [authed])
+  // 手机壳：把服务器地址+令牌交给原生前台服务，App 进后台后它继续收通知；退出登录即清除
+  const pushArmedRef = useRef(false)
+  useEffect(() => {
+    if (authed && token) { pushArmedRef.current = true; syncNativePush(getApiBase() || window.location.origin, token) }
+    else if (!authed && pushArmedRef.current) { pushArmedRef.current = false; clearNativePush() }
+  }, [authed, token])
   const [route, nav] = useHashRoute(APP_ROUTES)
   // 桌面会话栏折叠（08-26）：持久化到 localStorage
   const [sidebarCollapsed, setSidebarCollapsed] = useState(() => {

@@ -2,7 +2,7 @@
 // Never race abort against the provider promise: a slot remains held until the
 // underlying operation finishes. Unknown usage stays reserved across restart.
 export function createTaskDispatch({repo,assertRun,ownerId,active,admission,budget,knowledge,provider,
-  foregroundBusy=()=>false,now=Date.now}) {
+  foregroundBusy=()=>false,onRunFinished=null,now=Date.now}) {
   // 独立验证：另起一次隔离调用，只看任务/验收标准/输出，不看设计稿与执行过程。
   // 验证失败或额度不够只记「未验证」，不影响已完成的任务，也绝不当作通过。
   const verifyOutput=async(run,design,policy,sharedPolicy,output)=>{
@@ -28,7 +28,10 @@ export function createTaskDispatch({repo,assertRun,ownerId,active,admission,budg
   return async()=>{
     if(foregroundBusy())return;
     let run,slot,reservation,controller,watchdog,deadline,invoked=false;
-    const patch=(status,changes)=>{const r=repo.get(run.id);return repo.update(run.id,{status,cultivation:{...r.cultivation,...changes}});};
+    const patch=(status,changes)=>{const r=repo.get(run.id);const next=repo.update(run.id,{status,cultivation:{...r.cultivation,...changes}});
+      // 终态主动告诉主人（用户主动取消不打扰）；通知失败绝不影响培养本身。
+      if(onRunFinished&&["completed","failed","stopped","interrupted"].includes(status)&&changes?.reason!=="cancelled")try{onRunFinished(next)}catch{}
+      return next;};
     try{
       slot=await admission.acquire('cultivation',{yieldForeground:false});if(!slot)return;
       await repo.transaction(async()=>{

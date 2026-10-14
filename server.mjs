@@ -24,6 +24,7 @@ import { createMiscApi } from "./engine/misc-api.mjs";
 import { createModelKeys } from "./engine/model-keys.mjs";
 import { createSessionBus } from "./engine/session-bus.mjs";
 import { createNotifier, NOTIFY_USER_TOOL, execNotifyUser } from "./engine/notifier.mjs";
+import { createHeartbeat } from "./engine/heartbeat.mjs";
 import { createModelSessionApi } from "./engine/model-session.mjs";
 import { buildModelCatalog } from './engine/model-catalog.mjs';
 // ── Reasonix 机制（esengine/DeepSeek-Reasonix 借鉴）：工具结果压缩 / NEEDS_PRO 自报升级 / scavenge 捞回 ──
@@ -171,6 +172,7 @@ import { createCultivationApi } from "./engine/cultivation/api.mjs";
 import { optionalCultivationHumanConfig } from './engine/cultivation/human-config.mjs';
 import { ownerConfigProvider } from './engine/cultivation/owner-config.mjs';
 import { createCultivationProvider } from './engine/cultivation/provider.mjs';
+import { delegateToCultivatedAgent } from './engine/cultivation/delegate.mjs';
 import { CULTIVATION_TOOL_SCHEMA, cultivationTool, createPiCultivationTool } from './engine/cultivation/tool.mjs';
 import { createPiMemoryTool } from './engine/memory-tool.mjs';
 import { initMemoryAutoStore, autoStoreStats } from './engine/memory-autostore.mjs';
@@ -626,6 +628,7 @@ const { scanRecentArtifacts, handlePrompts, handleSessionTree, handleSessionBran
 const sessionBusApi = createSessionBus({ json });
 const { busGet, busPush, handleSessionStream } = sessionBusApi;
 // 主动通知中枢：wechat 在后面才创建，这里用闭包延迟取。
+let agentBeat = null;
 const notifier = createNotifier({ file: path.join(AGENT_DIR, "notifications.json"), wechat: { notifyOwner: (...a) => wechat.notifyOwner(...a) } });
 const { handleModels, handleSwitchModel } = createModelSessionApi({ json, readJsonFile, resolveAuth, modelCapabilities, modelsPath: MODELS_PATH, getModelList: () => modelList, getDefaultModel: () => defaultModel, getModelRuntime: () => modelRuntime, getConfig: () => CONFIG, activeSessions, createSessionAgent, saveLastModel, saveSessionModelKey });
 
@@ -778,7 +781,7 @@ const executeUnifiedTool = createUnifiedToolExecutorGuarded({
     // 记成轨迹节点后，"该怎么探索"才有可回放的对象（当场修那条是单线的）。
     delegate_task: async (args, ctx) => {
       const t0 = Date.now();
-      const r = await execDelegateTask(args, ctx);
+      const r = args?.agent_id ? await delegateToCultivatedAgent(cultivationRuntime, args, ctx) : await execDelegateTask(args, ctx);
       try {
         const text = typeof r === "string" ? r : (r?.text || "");
         recordDelegation(WS_ROOT, { kind: "delegate_task", task: args?.task || args?.prompt || "", durationMs: Date.now() - t0, ok: !r?.isError, digest: text });
@@ -2279,6 +2282,13 @@ const cultivationRuntime = createCultivationRuntime({ wsRoot: WS_ROOT,
     provider: createCultivationProvider({catalog: () => modelList, directChat,learning:knowledgeRuntime.cultivationLearning}),
     // 2026-10-07 真机：伙伴「互相等」——培养跑自己的模型，前台聊天忙不再让它停；只给实时语音让路。
     foregroundBusy: () => voiceAdmission.isActive(),
+    // 培养任务跑完/失败主动告诉主人：失败带原因码，不让人去授权页瞎查。
+    onRunFinished: run => {
+      const c = run.cultivation || {}, ok = run.status === "completed";
+      notifier.notify({ kind: "cultivation", toWechat: true, key: `cultivation:${run.id}`,
+        title: ok ? "元枢 · 培养任务完成" : "元枢 · 培养任务未完成",
+        body: ok ? String(c.output || "").replace(/\s+/g, " ").slice(0, 120) || "已完成" : `${run.status}${c.reason ? `：${c.reason}` : ""}` })?.catch?.(() => {});
+    },
   },
 });
 const cultivationApi = createCultivationApi({ runtime: cultivationRuntime, readBody, json,
@@ -2580,6 +2590,8 @@ const API_ROUTES = [
   ["POST", "/api/wechat/logout", wechatAction(() => wechat.logout())],
   ["POST", "/api/wechat/settings", wechatAction(async (req) => wechat.setNotify((await readBody(req, 1)).notify))],
   ["GET", "/api/notify/stream", (res, req, url) => notifier.subscribe(res, req, url.searchParams.has("after") ? parseInt(url.searchParams.get("after"), 10) : undefined)],
+  ["GET", "/api/agent-heartbeat", (res) => json(res, 200, agentBeat ? agentBeat.status() : { running: false })],
+  ["POST", "/api/agent-heartbeat/beat", async (res) => json(res, 200, agentBeat ? await agentBeat.beat() : { error: "心跳未启用" })],
   ["GET", "/api/notify/recent", (res, req, url) => json(res, 200, { events: notifier.list(parseInt(url.searchParams.get("after") || "0", 10) || 0), lastSeq: notifier.lastSeq })],
   ["POST", "/api/wechat/notify", wechatAction(async (req) => { const b = await readBody(req, 1); return wechat.notifyOwner(String(b.text || '').slice(0, 2000), String(b.image || '').slice(0, 500)); })],
   // 邮件接入：Gmail + Outlook，2026-10-08
@@ -4013,6 +4025,17 @@ ${rows.map((r) => `- [${r.status}${r.closed ? "/已结清" : ""}] ${r.text}\n  �
       timeEngine.start();
     } catch (e) { console.log("[time-engine] 启动失败:", String(e?.message || e).slice(0, 100)); }
     knowledgeRuntime.start();
+    // 心跳：不调模型，只巡检确定性事实；同一件事只提醒一次，夜里不打扰。YUANSHU_HEARTBEAT=0 可关。
+    if (process.env.YUANSHU_HEARTBEAT !== "0") {
+      agentBeat = createHeartbeat({ notifier, file: path.join(AGENT_DIR, "heartbeat.json"),
+        intervalMs: (Number(process.env.YUANSHU_HEARTBEAT_MIN) || 30) * 60_000,
+        sources: [
+          () => pendingPromises(WS_ROOT, { now: new Date() }).filter((p) => p.age?.overdue).map((p) => ({ key: `promise:${p.id}`, text: `答应过「${String(p.text).slice(0, 40)}」，已逾期（${p.age.phrase}）` })),
+          () => confirmRegistry.list().map((c) => ({ key: `confirm:${c.key}`, text: `有一项操作等你确认：${String(c.toolName || c.reason || "").slice(0, 40)}` })),
+          async () => { const s = await knowledgeRuntime.admission.status(); return s.state === "held" && s.recoveryRequired ? [{ key: `slot:${s.id}`, text: "后台名额被卡住了，后台任务都在排队。授权中心 → 智能体培养 → 点「核对并申请恢复」。" }] : []; },
+        ] });
+      agentBeat.start();
+    }
     await cultivationRuntime.start().catch(() => console.warn('[cultivation] 培养任务恢复失败，调度保持关闭'));
     // 做梦周期：自己跑，不等用户点接口（自决的意义就在这）。失败不影响服务。
     try {
