@@ -189,7 +189,7 @@ import { currentExplorePolicy, promoteExplorePolicy, resetExplorePolicy, replayE
 import { MATCH_WEIGHTS } from "./engine/yuanshu-protocol.mjs";
 import { sanitizeSessionFile } from "./engine/session-sanitize.mjs";
 import { createCorsPolicy } from "./engine/cors-policy.mjs";
-import { initSessionDb, sessionPinnedIds, handleDbList, handleDbRebuild, handleDbSanitize, handleDbMeta, handleDbStats, handleDbSweep, sweepSessionsNow, ensureSessionSequence } from "./engine/session-db.mjs";
+import { initSessionDb, sessionPinnedIds, handleDbList, handleDbRebuild, handleDbSanitize, handleDbMeta, handleDbStats, handleDbSweep, sweepSessionsNow, ensureSessionSequence, hasSessionSequence } from "./engine/session-db.mjs";
 import { repairSessionFile, repairSessionDir } from "./engine/session-repair.mjs";
 import { outputRoomTokens, headroomNote } from "./engine/context-headroom.mjs";
 import { loadPersonaDefinition, renderPersonaSection, syncAppendSystemPersona } from "./engine/persona-def.mjs";
@@ -972,6 +972,10 @@ async function handleChat(req, res, body) {
   let entry;
   if (sessionId) {
     entry = await openSession(sessionId);
+    // 懒落盘的新会话首轮失败/服务重启后只剩编号没有文件：前端仍沿用这个 id，按原 id 重建而不是 404
+    if (!entry && hasSessionSequence(sessionId)) {
+      try { await createSession(undefined, { group: "workspace", id: sessionId }); entry = await openSession(sessionId); } catch (e) { console.log(`[元枢] 重建未落盘会话 ${sessionId} 失败: ${e?.message || e}`); }
+    }
     if (!entry) return json(res, 404, { error: "会话不存在" });
   } else {
     // 未命名会话：body.fresh=true 表示用户点了「新建会话」→ 新建；否则复用上一个（打断续发同一会话）

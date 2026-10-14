@@ -81,8 +81,8 @@ export function initSessionManager({ cwd = "", sessionsDir = "", tools = [], piP
   if (modelCapabilities) _modelCapabilities = modelCapabilities; if (bindOutputGuardDeps) _bindOutputGuardDeps = bindOutputGuardDeps; if (extractMessages) _extractMessages = extractMessages; if (createSseWriter) _createSseWriter = createSseWriter; if (unifiedChat) _unifiedChat = unifiedChat;
 }
 
-export async function createSession(name, { group } = {}) {
-  const sm = _SessionManager.create(_cwd, _sessionsDir);
+export async function createSession(name, { group, id: fixedId } = {}) {
+  const sm = fixedId ? _SessionManager.create(_cwd, _sessionsDir, { id: fixedId }) : _SessionManager.create(_cwd, _sessionsDir);
   const id = sm.getSessionId();
   const file = sm.getSessionFile();
   const g = normalizeCreateGroup(group);

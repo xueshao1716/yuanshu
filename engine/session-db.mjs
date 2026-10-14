@@ -55,6 +55,10 @@ export function ensureSessionSequences(sessions = getSessionList()) {
   return db;
 }
 
+export function hasSessionSequence(id) {
+  return !!id && validSeq(loadDb().seqMap[id]) !== null;
+}
+
 // 创建会话后立即分配编号；列表读取时仍会调用 ensureSessionSequences 做一次兜底补号。
 export function ensureSessionSequence(sessionOrId) {
   const id = typeof sessionOrId === "string" ? sessionOrId : sessionOrId?.id;
