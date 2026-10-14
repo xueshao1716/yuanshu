@@ -46,6 +46,9 @@ test("detectStuck：同一动作观察重复 4 次，或 ABAB，或同工具连�
   const errs = [];
   for (let i = 0; i < 4; i++) errs.push(recordStuckEvent("bash", { command: `curl ${i}` }, { text: "fail", isError: true }));
   assert.match(detectStuck(errs).hint, /失败|换/);
+  assert.equal(detectStuck(errs).soft, true, "连错 4 次只提醒不中断");
+  for (let i = 4; i < 6; i++) errs.push(recordStuckEvent("bash", { command: `curl ${i}` }, { text: "fail", isError: true }));
+  assert.equal(detectStuck(errs).soft, false, "连错 6 次才真正中断");
   assert.equal(detectStuck([recordStuckEvent("read", { path: "x" }, { text: "ok" })]), null);
 });
 

@@ -96,6 +96,22 @@ export function wsFileMime(ext) {
   return WS_MIME[String(ext || "").toLowerCase()] || "application/octet-stream";
 }
 
+// 生图模型常把 PNG 存成 .jpg；扩展名与真实格式不符时以文件头为准，避免严格的 WebView/播放器拒绝。
+export function sniffImageMime(file, ext) {
+  if (![".png", ".jpg", ".jpeg", ".webp", ".gif"].includes(String(ext || "").toLowerCase())) return "";
+  let fd;
+  try {
+    fd = fs.openSync(file, "r");
+    const b = Buffer.alloc(12);
+    const n = fs.readSync(fd, b, 0, 12, 0);
+    if (n >= 8 && b.subarray(0, 8).equals(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]))) return "image/png";
+    if (n >= 3 && b[0] === 0xff && b[1] === 0xd8 && b[2] === 0xff) return "image/jpeg";
+    if (n >= 6 && /^GIF8[79]a$/.test(b.subarray(0, 6).toString("latin1"))) return "image/gif";
+    if (n >= 12 && b.subarray(0, 4).toString("latin1") === "RIFF" && b.subarray(8, 12).toString("latin1") === "WEBP") return "image/webp";
+  } catch {} finally { if (fd !== undefined) try { fs.closeSync(fd); } catch {} }
+  return "";
+}
+
 function toWsRel(fp) {
   return path.relative(WS_ROOT, fp).replace(/\\/g, "/");
 }
@@ -438,7 +454,7 @@ export async function handleWsFile(res, req, url) {
   try { stat = fs.statSync(safe); } catch { return json(res, 404, { error: "文件不存在" }); }
   if (!stat.isFile()) return json(res, 404, { error: "文件不存在" });
   const ext = path.extname(safe).toLowerCase();
-  const mime = wsFileMime(ext);
+  const mime = sniffImageMime(safe, ext) || wsFileMime(ext);
   const headers = { "Content-Type": mime, "Cache-Control": "no-cache" };
   if (url?.searchParams.get("download") === "1") {
     headers["Content-Disposition"] = `attachment; filename*=UTF-8''${encodeURIComponent(path.basename(safe))}`;
@@ -656,7 +672,8 @@ export async function handleWsDeliveries(res) {
         mtimeMs: st.mtimeMs,
         mtime: st.mtime.toISOString(),
         openPath,
-        url: openPath ? `/api/ws/file?path=${encodeURIComponent(openPath)}` : `/api/ws/file?path=${encodeURIComponent(fp)}`,
+        // 没有可打开入口的目录没有文件内容可取，给空 url 而不是必然 404 的链接
+        url: openPath ? `/api/ws/file?path=${encodeURIComponent(openPath)}` : it.isDirectory() ? "" : `/api/ws/file?path=${encodeURIComponent(fp)}`,
         wsPath: `交付/${it.name}`,
       });
     }

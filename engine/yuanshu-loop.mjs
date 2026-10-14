@@ -192,6 +192,7 @@ export async function runYuanshuToolRound({
       if (stuck) {
         out.text = `${out?.text || text}\n[宿主纠偏] ${stuck.hint}`;
         history.push({ role: "tool", tool_call_id: id, content: wrapUntrusted(name, spill(name, out.text)) });
+        if (stuck.soft) continue;
         return { history, toolPlan, stop: { error: stuck.hint } };
       }
     }

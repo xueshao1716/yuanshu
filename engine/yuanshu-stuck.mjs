@@ -23,7 +23,9 @@ export function detectStuck(events) {
     return { hint: "检测到 A/B 交替循环。换做法或直接交付，不要再在这两步之间空转。" };
   }
   if (isSameToolErrors(list)) {
-    return { hint: "同一工具连续失败 4 次。换工具或改参数，不要继续重试相同失败。" };
+    // 前 4~5 次只提醒（提示会拼进工具结果让模型自纠），连错 6 次才真正中断，避免一次校验误差就把整轮任务杀掉。
+    const hard = isSameToolErrors(list, 6);
+    return { hint: `同一工具连续失败 ${hard ? 6 : 4} 次。换工具或改参数，不要继续重试相同失败。`, soft: !hard };
   }
   return null;
 }
@@ -42,8 +44,8 @@ function isAbAb(events) {
     && last[0] !== last[1];
 }
 
-function isSameToolErrors(events) {
-  if (events.length < 4) return false;
-  const last = events.slice(-4);
+function isSameToolErrors(events, n = 4) {
+  if (events.length < n) return false;
+  const last = events.slice(-n);
   return last.every((e) => e.err && e.nameFp === last[0].nameFp);
 }
