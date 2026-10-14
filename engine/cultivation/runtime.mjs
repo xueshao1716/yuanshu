@@ -28,6 +28,11 @@ export function createCultivationRuntime({wsRoot, identityAdapters, humanConfig,
     ? (source,context)=>identityAdapters?.resolveHuman?.(source,context) ??
       grants?.resolveHuman?.(source,context) ?? sessionGrants.resolveHuman(source,context)
     : undefined;
+  const validateSessionCommand=command=>{
+    if(command?.action==='resources.reconcile'){validateRecoveryCommand(command);return;}
+    if(command?.action!=='policy.set')throw new Error('cultivation_identity_denied');
+    commandKinds(command);validatePolicy(command.payload.policy);
+  };
   const adapters={...identityAdapters,resolveHuman};
   const authority = createIdentityAuthority({workspace: store.workspace, now, ...adapters});
   const media=createCultivationMedia({wsRoot,store,authority,getControls:()=>controls,now});
@@ -99,13 +104,11 @@ export function createCultivationRuntime({wsRoot, identityAdapters, humanConfig,
       if(command.action==='policy.set')validatePolicy(command.payload.policy);
       return grants.challenge(command);},
     sessionChallenge(command,sessionId){
-      if(command?.action!=='policy.set')throw new Error('cultivation_identity_denied');
-      commandKinds(command);validatePolicy(command.payload.policy);
+      validateSessionCommand(command);
       return sessionGrants.challenge(command,sessionId);
     },
     sessionConfirm(idValue,command,sessionId){
-      if(command?.action!=='policy.set')throw new Error('cultivation_identity_denied');
-      commandKinds(command);validatePolicy(command.payload.policy);
+      validateSessionCommand(command);
       return sessionGrants.confirm(idValue,command,sessionId);
     },
     verifySession:(proof,command,sessionId)=>({kind:'human',source:sessionGrants.verify(proof,command,sessionId)}),

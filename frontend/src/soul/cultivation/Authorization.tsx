@@ -12,7 +12,7 @@ export default function Authorization({action,owner,sessionId,sessionGrantAvaila
   const pending=useRef(false),submitted=useRef(false),alive=useRef(true),confirmation=useRef<string|null>(null)
   const submittedCommand=useRef<Command|null>(null)
   const policyAction=action.method==='PUT'&&action.path==='/policy'
-  const session=!!sessionGrantAvailable&&action.method==='PUT'&&action.path==='/policy'
+  const session=!!sessionGrantAvailable&&(policyAction||(action.method==='POST'&&action.path==='/resources/reconcile'))
   const hello=!session&&owner?.mode==='windows-hello',android=!!androidBridge()
   useEffect(()=>{alive.current=true;return()=>{alive.current=false
     if(confirmation.current)void ConfirmApi.answer(sessionId,confirmation.current,false).catch(()=>{})

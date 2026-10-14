@@ -7,6 +7,7 @@ import {commandHash} from '../../engine/cultivation/identity.mjs';
 import {controlFixture, draft, enabledPolicy} from '../helpers/cultivation-fixture.mjs';
 import {createCultivationRuntime} from '../../engine/cultivation/runtime.mjs';
 import {createCultivationApi} from '../../engine/cultivation/api.mjs';
+import {createBackgroundAdmission} from '../../engine/background-admission.mjs';
 
 function setup(t) {
   const sessionId=randomUUID(),workspace='a'.repeat(64),pushed=[];
@@ -118,4 +119,33 @@ test('Android confirmation authorizes exactly one policy; genuine mother can the
   const state=await runtime.overview();
   assert.equal(state.agentCount,1);assert.equal(state.executorAvailable,false);
   assert.equal(f.store.read('control').data.designs.length,2);
+});
+test('session confirmation can recover a dead-process admission slot, but still needs host termination proof and binds the command',async t=>{
+  const f=await controlFixture(t),s=setup(t);let terminated=false;
+  const admission=createBackgroundAdmission({wsRoot:f.root,resolveTermination:slot=>terminated?{id:slot.id,terminated:true}:null});
+  const slot=await admission.acquire('knowledge');
+  const runtime=createCultivationRuntime({wsRoot:f.root,sessionApproval:s.host,identityAdapters:{},execution:{admission}});
+  t.after(()=>runtime.close());
+  const routes=createCultivationApi({runtime,readBody:req=>req.body,requireAuth:()=>true,json:(res,status,body)=>Object.assign(res,{status,body})});
+  const call=async(path,body,headers={},method='POST')=>{
+    const res={};await routes.handle({method,body,headers},res,new URL('http://local/api/cultivation'+path));return res;
+  };
+  const body={requestId:randomUUID(),expectedRevision:f.store.read('control').revision??0,payload:{slotId:slot.id,reason:'进程已确认结束'}};
+  const request={method:'POST',path:'/resources/reconcile',body,sessionId:s.sessionId};
+  const approve=async()=>{
+    const challenge=await call('/grants/session/challenge',request);assert.equal(challenge.status,200,JSON.stringify(challenge));
+    assert.equal(registry.list().find(x=>x.id===challenge.body.id).toolName,'cultivation-recovery');
+    registry.settle(s.sessionId,challenge.body.id,true);
+    const confirmed=await call('/grants/session/confirm',{...request,id:challenge.body.id});assert.equal(confirmed.status,200,JSON.stringify(confirmed));
+    return {'x-cultivation-session-proof':JSON.stringify(confirmed.body),'x-cultivation-session-id':s.sessionId};
+  };
+  const headers=await approve();
+  assert.notEqual((await call('/resources/reconcile',{...body,payload:{...body.payload,reason:'换了理由'}},headers)).status,200);
+  const headers2=await approve();
+  assert.notEqual((await call('/resources/reconcile',body,headers2)).status,200);
+  assert.equal((await admission.status()).state,'held');
+  terminated=true;
+  const headers3=await approve();
+  assert.equal((await call('/resources/reconcile',body,headers3)).status,200);
+  assert.equal((await admission.status()).state,'idle');
 });

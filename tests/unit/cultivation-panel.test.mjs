@@ -48,7 +48,7 @@ test('authorization state is isolated by the complete target command',()=>{
   assert.ok(panel.includes('key={JSON.stringify([sessionId,action])}'));
 });
 
-test('session approval is policy-only, answered through registry and invalidated on unmount',()=>{
+test('session approval covers policy and slot recovery only, answered through registry and invalidated on unmount',()=>{
   const auth=source('frontend/src/soul/cultivation/Authorization.tsx');
   for(const text of ["action.method==='PUT'&&action.path==='/policy'",'ConfirmApi.answer(',
     'alive.current=false','if(!alive.current)', '提交结果尚待核对','!sessionId'])assert.ok(auth.includes(text),text);
@@ -64,7 +64,7 @@ test('bounded cultivation preset uses a real design and keeps tools and unrelate
     '不会自动开始付费任务','nextCursor'])assert.ok(preset.includes(text),text);
   const resources=source('frontend/src/soul/cultivation/Resources.tsx');
   assert.ok(resources.includes('value.sessionGrantAvailable&&!!sessionId'));
-  assert.ok(resources.includes('disabled={!value.humanGrantAvailable||!reason.trim()}'));
+  assert.ok(resources.includes('disabled={!recoveryAuthorized||!reason.trim()}'));
 });
 
 test('cultivation primary path is hands-off and keeps computer credentials out of the design flow',()=>{

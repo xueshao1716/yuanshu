@@ -9,7 +9,7 @@ export default function Resources({value,sessionId,onAction,refresh}:{value:Over
   const [draft,setDraft]=useState(JSON.stringify(value.policy,null,2)),[error,setError]=useState('')
   const [draftRevision,setDraftRevision]=useState(value.revision),[reason,setReason]=useState('')
   const stale=draftRevision!==value.revision
-  const policyAuthorized=!!value.humanGrantAvailable||value.sessionGrantAvailable&&!!sessionId
+  const policyAuthorized=!!value.humanGrantAvailable||value.sessionGrantAvailable&&!!sessionId,recoveryAuthorized=policyAuthorized
   const expiry=value.policy.expiresAt?Date.parse(value.policy.expiresAt):NaN
   const policyState=!value.policy.enabled?'未启用':!Number.isFinite(expiry)?'有效期未知':expiry<=Date.now()?'已过期':'已启用'
   const motherState=!value.policy.motherLearning?'未授权':policyState==='已启用'?'已事先授权':`暂不可用（${policyState}）`
@@ -18,7 +18,7 @@ export default function Resources({value,sessionId,onAction,refresh}:{value:Over
     <dl className="soul-facts"><div><dt>培养授权</dt><dd>{policyState}</dd></div><div><dt>到期时间</dt><dd>{date(value.policy.expiresAt)}</dd></div><div><dt>母体自主采用经验</dt><dd>{motherState}</dd></div><div><dt>小语身份通道</dt><dd>{value.motherIdentityAvailable?'已连接':'未连接'}</dd></div><div><dt>人工签名通道</dt><dd>{value.humanGrantAvailable?'已配置':'待主人配置'}</dd></div><div><dt>执行器</dt><dd>{value.executorAvailable?'已连接':'不可用'}</dd></div></dl>
     <p className="soul-hint">培养和知识共用资源额度，聊天优先。不需要电脑密码；电脑操作另有授权，默认关闭。</p>
     {value.usage?<dl className="soul-facts"><div><dt>共享已结算费用</dt><dd>{value.usage.spent} {value.usage.currency}</dd></div><div><dt>已预留费用</dt><dd>{value.usage.reserved} {value.usage.currency}</dd></div><div><dt>用量待确认</dt><dd>{value.usage.unknown}</dd></div></dl>:<p>尚无可读取的资源账本，不按零用量显示。</p>}
-    {value.sessionGrantAvailable?<p className="soul-notice">{sessionId?'培养策略可在当前会话确认，安卓和网页均可使用，不需要 Windows 设备绑定。':'请先在上方选择会话，即可确认培养策略。'}其他人工操作仍使用原有签名通道。</p>:null}
+    {value.sessionGrantAvailable?<p className="soul-notice">{sessionId?'培养策略与恢复后台名额可在当前会话确认，安卓和网页均可使用，不需要 Windows 设备绑定。':'请先在上方选择会话，即可确认培养策略或恢复名额。'}其他人工操作仍使用原有签名通道。</p>:null}
     <section aria-label="共享模型与额度设置">
       <h4>共享模型与额度设置（培养前必须核对）</h4>
       <p className="soul-notice">这里直接管理：<strong>允许共享后台调用外部模型、共享模型白名单、模型价格与每日额度</strong>。它与知识后台共用，保存后同时影响知识与培养。</p>
@@ -34,7 +34,7 @@ export default function Resources({value,sessionId,onAction,refresh}:{value:Over
       <button disabled={!policyAuthorized||!value.policy.enabled} onClick={()=>onAction({method:'PUT',path:'/policy',revision:value.revision,label:'暂停全部培养与学习',payload:{policy:{...value.policy,enabled:false,motherLearning:false}}})}>暂停全部培养与学习</button>
     </div></section>
     {value.admission?.state==='held'&&<p role="status">后台名额由{value.admission.consumer==='cultivation'?'培养任务':'知识任务'}占用。{value.admission.recoveryRequired?'宿主已确认原进程结束，可核对后恢复名额。':'仍需等待宿主确认结束；不会按超时自动释放。'}</p>}
-    {value.admission?.recoveryRequired&&<details><summary>恢复已结束进程占用的名额</summary><p>这只释放本地并发名额，不代表外部请求成功或费用已知；未知费用仍保留。</p><label>恢复理由<input maxLength={1000} value={reason} onChange={e=>setReason(e.target.value)}/></label><button disabled={!value.humanGrantAvailable||!reason.trim()} onClick={()=>onAction({method:'POST',path:'/resources/reconcile',payload:{slotId:value.admission!.id,reason:reason.trim()},revision:value.revision,label:'恢复后台名额'})}>核对并申请恢复</button>{!value.humanGrantAvailable&&<p role="status" className="soul-hint">这一步只认「本人确认」，网页上的会话确认不能代替。需要先在 Windows 桌面客户端里配对 Windows Hello：本页底部「高级设置（管理员）→ 其他操作的设备与签名设置 → 设置本人确认」。用浏览器或安卓打开时没有这个按钮。</p>}</details>}
+    {value.admission?.recoveryRequired&&<details><summary>恢复已结束进程占用的名额</summary><p>这只释放本地并发名额，不代表外部请求成功或费用已知；未知费用仍保留。</p><label>恢复理由<input maxLength={1000} value={reason} onChange={e=>setReason(e.target.value)}/></label><button disabled={!recoveryAuthorized||!reason.trim()} onClick={()=>onAction({method:'POST',path:'/resources/reconcile',payload:{slotId:value.admission!.id,reason:reason.trim()},revision:value.revision,label:'恢复后台名额'})}>核对并申请恢复</button>{!recoveryAuthorized&&<p role="status" className="soul-hint">{value.sessionGrantAvailable?'请先在上方选择会话，即可在当前会话确认恢复。':'当前没有可用的确认方式。'}</p>}</details>}
     <details><summary>编辑资源与运行时段</summary><p>高级设置，一般不用改。金额单位为美分；models 填上方模型目录中的精确标识。启用必须设置 expiresAt（带时区的 ISO 时间，例如 2027-01-01T00:00:00.000Z）。schedule（时区、星期、起止分钟）限制任务执行，不阻止保存草稿或登记个体。零运行额度不等于关闭个体登记；服务器仍校验身份、模型与数据范围。</p>
       <p>学习正文只有在授权和个体设计都列入数据范围 knowledge:approved-cultivation 后，才可发给指定模型；默认不分享私人记忆。</p>
       <p>motherLearning 默认关闭。经你确认开启后，母体可自行采用所属个体有独立来源的经验；每次采用和取用仍核查来源、个体状态与数据授权，不授予人格、基因基线或权限修改权。</p>

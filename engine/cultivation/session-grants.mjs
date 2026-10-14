@@ -10,7 +10,7 @@ const label = value => typeof value === 'string' && value.trim() === value && va
 // and consumed once. It never grants computer, file-system, model, or tool
 // access; the command allow-list is the final boundary.
 export function createSessionGrants({workspace, host, now = Date.now, ttlMs = 60000,
-  allowedActions = ['policy.set']}) {
+  allowedActions = ['policy.set', 'resources.reconcile']}) {
   if (!/^[a-f0-9]{64}$/.test(workspace) || !Number.isSafeInteger(ttlMs) || ttlMs < 1000 || ttlMs > 60000 ||
       !Array.isArray(allowedActions) || allowedActions.some(action => !label(action))) fail('unavailable');
   const challenges = new Map();
@@ -41,8 +41,11 @@ export function createSessionGrants({workspace, host, now = Date.now, ttlMs = 60
         [...challenges.values()].some(row => row.sessionId === sessionId)) fail('denied');
     const createdAt = now(), row = {id: randomUUID(), sessionId, commandHash: commandHash(command),
       createdAt, expiresAt: createdAt + ttlMs, epoch};
-    const payload = {id:row.id, toolName:'cultivation-policy', src:'cultivation-policy',
-      reason:`确认本次培养策略（不授权电脑操作或其他系统权限）：${JSON.stringify(command.payload.policy)}`};
+    const recovery = command.action === 'resources.reconcile';
+    const payload = {id:row.id, toolName:recovery ? 'cultivation-recovery' : 'cultivation-policy', src:'cultivation-policy',
+      reason:recovery
+        ? `确认恢复后台名额（只释放本地并发名额，不授权电脑操作或其他系统权限）：${String(command.payload?.reason ?? '').slice(0, 200)}`
+        : `确认本次培养策略（不授权电脑操作或其他系统权限）：${JSON.stringify(command.payload.policy)}`};
     const reg = host.registry.register(sessionId, payload, ttlMs);
     row.promise = reg.promise.then(outcome => {
       // A declined/closed dialog never asks for a proof. Release it here so
