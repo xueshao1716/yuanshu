@@ -23,6 +23,13 @@ function describe(v) {
   return typeof v;
 }
 
+// 必填字段显式传 null 且 schema 允许 null（如 asset:{anyOf:[{type:'null'},…]}）是合法的“已声明为空”，不能当成缺失。
+function allowsNull(sub) {
+  if (!sub || typeof sub !== "object") return false;
+  if ([].concat(sub.type || []).includes("null")) return true;
+  return ["anyOf", "oneOf"].some((k) => Array.isArray(sub[k]) && sub[k].some(allowsNull));
+}
+
 function walk(schema, value, path, errors) {
   if (errors.length >= MAX_ERRORS || !schema || typeof schema !== "object") return;
   if (schema.anyOf || schema.oneOf || schema.allOf || schema.$ref) return;
@@ -37,7 +44,7 @@ function walk(schema, value, path, errors) {
   }
   if (value && typeof value === "object" && !Array.isArray(value)) {
     for (const key of Array.isArray(schema.required) ? schema.required : []) {
-      if (value[key] === undefined || value[key] === null) errors.push(`${path === "参数" ? "" : path + "."}${key} 为必填`);
+      if (value[key] === undefined || (value[key] === null && !allowsNull(schema.properties?.[key]))) errors.push(`${path === "参数" ? "" : path + "."}${key} 为必填`);
     }
     for (const [key, sub] of Object.entries(schema.properties || {})) {
       if (value[key] !== undefined && value[key] !== null) walk(sub, value[key], `${path === "参数" ? "" : path + "."}${key}`, errors);

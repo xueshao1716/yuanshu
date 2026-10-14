@@ -68,3 +68,14 @@ test("runYuanshuToolRound：未传 toolDefs 行为不变", async () => {
 test("argsErrorText：给模型的提示可操作", () => {
   assert.match(argsErrorText("write", ["path 为必填"]), /不要编造参数/);
 });
+
+test("validateToolArgs：必填字段允许 null 时，显式 null 不算缺失（培养设计 asset:null）", async () => {
+  const { CULTIVATION_TOOL_SCHEMA } = await import("../../engine/cultivation/tool.mjs");
+  const media = { description: "x", asset: null };
+  const design = { name: "n", rationale: "r", goals: ["g"], curriculum: ["c"], temporaryExpression: "t", observation: "o", recovery: "r",
+    appearance: media, clothing: media, voice: media, permissions: { model: "m", tools: [], dataScopes: [], remote: false, costUpperBoundCents: 0 }, protectedProposalRefs: [] };
+  const ok = validateToolArgs(CULTIVATION_TOOL_SCHEMA.function.parameters, { action: "design.submit", payload: { design } });
+  assert.deepEqual(ok.errors, []);
+  const schema = { type: "object", properties: { a: { type: "string" } }, required: ["a"] };
+  assert.equal(validateToolArgs(schema, { a: null }).ok, false, "不允许 null 的必填字段仍然拦截");
+});
