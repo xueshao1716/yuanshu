@@ -2,14 +2,14 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 const read = file => fs.readFileSync(new URL(`../../${file}`, import.meta.url), 'utf8');
-test('sandbox client carries explicit session on reads and writes', () => {
+test('sandbox client is global: no session required on reads and writes', () => {
   const api = read('frontend/src/api.ts');
-  assert.ok(api.split('\n').some(line => line.includes('/api/sandbox/mode?session=') && line.includes('encodeURIComponent(sessionId)')));
-  assert.ok(api.split('\n').some(line => line.includes('/api/sandbox/mode') && line.includes('body: { sessionId, preset, reason }')));
+  assert.ok(api.includes("api<SandboxView>('/api/sandbox/mode')"));
+  assert.ok(api.split('\n').some(line => line.includes('/api/sandbox/mode') && line.includes('body: { preset, reason, sessionId }')));
 });
-test('sandbox panel isolates cache, remounts, locks concurrent changes and handles errors', () => {
+test('sandbox panel is global, locks concurrent changes and handles errors', () => {
   const panel = read('frontend/src/components/engine/SandboxModePanel.tsx');
-  for (const required of ["['sandbox-mode', sessionId]", 'key={currentSessionId}', 'disabled={!!busy || active}', 'role="alert"', '重新读取', '请先选择一个会话', '界面/API 记录']) assert.ok(panel.includes(required), required);
+  for (const required of ["useSWR('sandbox-mode'", 'disabled={!!busy || active}', 'role="alert"', '重新读取', '沙箱模式（全局）', '界面/API 记录']) assert.ok(panel.includes(required), required);
   // 2026-10（1cf67db1）：沙箱与超维拆成两张独立卡片，各自直接挂在系统页，不再互嵌
   assert.ok(!panel.includes('<MaintenanceModePanel'), '沙箱面板不得再内嵌超维面板（已拆分）');
   // 2026-10 功能板块整理：两张卡片集中到授权中心「本会话执行权限」，系统页不再重复放

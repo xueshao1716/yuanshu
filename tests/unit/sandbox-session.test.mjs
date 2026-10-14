@@ -7,7 +7,7 @@ import os from "node:os";
 import path from "node:path";
 import {
   SANDBOX_PRESETS, DEFAULT_PRESET, recordSandboxMode, effectiveSandboxPreset,
-  effectiveSandboxMode, readSandboxLog, sandboxModeView, sandboxSessionPaths,
+  effectiveSandboxMode, readSandboxLog, sandboxModeView, sandboxSessionPaths, GLOBAL_SCOPE,
 } from "../../engine/sandbox-session.mjs";
 import { SANDBOX_MODES, sandboxRank } from "../../engine/yuanshu-sandbox.mjs";
 
@@ -43,19 +43,27 @@ describe("fold：最新一条生效", () => {
     assert.equal(effectiveSandboxMode(d, "s1"), "workspace-write");
   });
 
-  test("同一会话多次切换，最后一条生效", () => {
+  test("同一作用域多次切换，最后一条生效", () => {
     const d = dir();
     rec(d, "s1", "cautious");
     rec(d, "s1", "standard", { reason: "要它改文件了" });
     assert.equal(effectiveSandboxPreset(d, "s1").preset, "standard");
-    assert.equal(readSandboxLog(d).filter((e) => e.sessionId === "s1").length, 2, "append-only：不覆盖旧记录");
+    assert.equal(readSandboxLog(d).filter((e) => e.sessionId === GLOBAL_SCOPE).length, 2, "append-only：不覆盖旧记录");
   });
 
-  test("会话之间互不影响", () => {
+  test("全局生效：在哪个会话改的，所有会话都读到同一档", () => {
     const d = dir();
-    rec(d, "s1", "trusted", { reason: "这个会话要动工作区外" });
+    rec(d, "s1", "trusted", { reason: "要动工作区外" });
     assert.equal(effectiveSandboxMode(d, "s1"), "danger-full-access");
-    assert.equal(effectiveSandboxMode(d, "s2"), "workspace-write", "别的会话不该被带偏");
+    assert.equal(effectiveSandboxMode(d, "s2"), "danger-full-access");
+    assert.equal(readSandboxLog(d)[0].viaSession, "s1", "审计里仍记得是从哪个会话改的");
+  });
+
+  test("老日志里按会话记的放宽不再生效（只会更严，不会更宽）", () => {
+    const d = dir();
+    fs.mkdirSync(sandboxSessionPaths(d).dir, { recursive: true });
+    fs.writeFileSync(sandboxSessionPaths(d).log, JSON.stringify({ sessionId: "old", preset: "trusted", mode: "danger-full-access", at: "2026-10-01T00:00:00.000Z" }) + "\n");
+    assert.equal(effectiveSandboxMode(d, "old"), "workspace-write");
   });
 });
 
@@ -95,8 +103,8 @@ describe("收紧与放宽不对称：放宽必须给理由", () => {
     assert.match(String(r.reason), /standard/);
   });
 
-  test("缺 sessionId 被拒", () => {
-    assert.equal(recordSandboxMode(dir(), "", { preset: "standard" }).ok, false);
+  test("不带会话也能改（全局）", () => {
+    assert.equal(recordSandboxMode(dir(), "", { preset: "standard" }).ok, true);
   });
 });
 

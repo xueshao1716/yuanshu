@@ -2439,7 +2439,7 @@ initMemoryAutoStore({
 const requestGeneApproval = createGeneApproval({ api: emotion, registry: confirmRegistry, sessionExists: maintenanceSessionExists, push: busPush });
 const personaGovernance = createPersonaGovernance({ wsRoot: CONFIG.cwd, agentDir: getAgentDir() });
 const requestPersonaApproval = createPersonaApproval({ api: personaGovernance, registry: confirmRegistry, sessionExists: maintenanceSessionExists, push: busPush });
-const sandboxApi = createSandboxApi({ agentDir: AGENT_DIR, sessionExists: maintenanceSessionExists });
+const sandboxApi = createSandboxApi({ agentDir: AGENT_DIR });
 maintenanceApi = createMaintenanceApi({
   sessionExists: maintenanceSessionExists,
   requestApproval: async ({ sessionId, taskId, runId, durationMs }) => {
@@ -2855,9 +2855,9 @@ const API_ROUTES = [
     });
     json(res, r.ok ? 200 : 400, r);
   }],
-  // ── 会话级沙箱模式：append-only 日志 + fold，收紧随时可以、放宽必须给理由 ──
+  // ── 全局沙箱模式：append-only 日志 + fold，收紧随时可以、放宽必须给理由 ──
   ["GET", "/api/sandbox/mode", (res, req, url) => {
-    const r = sandboxApi.get(url.searchParams.get("session"));
+    const r = sandboxApi.get();
     json(res, r.status, r.body);
   }],
   ["POST", "/api/sandbox/mode", async (res, req) => {

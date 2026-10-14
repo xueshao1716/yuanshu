@@ -26,7 +26,7 @@ const AREAS = [
   ['pending', '等我确认', '全部会话的越线确认都排在这里；常规培养开关她自己执行，不进这里。'],
   ['cultivation', '智能体培养', '开没开、用了多少、怎么收回。开关与额度小语自己管，你随时可以收回。'],
   ['knowledge', '知识自动积累', '允许读取的目录与网址、能否联网、可用模型与每日额度。'],
-  ['session', '本会话执行权限', '沙箱、超维模式与维护模式：决定当前会话能动哪些文件和命令。'],
+  ['session', '执行权限', '沙箱模式全局生效，一处设置所有会话共用；超维授权按任务单独批准，需选会话。'],
   ['desktop', '桌面操作', '让小语看屏幕、操作窗口的限时授权，默认关闭。'],
 ] as const
 type Area = typeof AREAS[number][0]
@@ -101,7 +101,7 @@ export default function Grants() {
           {AREAS.map(([id, label]) => <option key={id} value={id}>{label}</option>)}</ThemedSelect></label>
         <main className="soul-workarea">
           <header className="soul-section-heading"><h2>{current[1]}</h2><p>{current[2]}</p></header>
-          {area !== 'pending' && (area === 'cultivation' || area === 'session') && <SessionChoice sessionId={sessionId} setSessionId={setSessionId} disabled={false} />}
+          {area !== 'pending' && area === 'cultivation' && <SessionChoice sessionId={sessionId} setSessionId={setSessionId} disabled={false} />}
           {area === 'pending' && <>
             <AllConfirmations />
             <p className="soul-hint">已收全部会话的待确认卡（卡片自带归属对话，不用选）。常规培养开关小语自己执行，不会进这里；出现卡片的就是越线操作，需要你把关。</p>
@@ -109,7 +109,8 @@ export default function Grants() {
           {area === 'cultivation' && <CultivationGrants sessionId={sessionId} />}
           {area === 'knowledge' && <KnowledgeGrants />}
           {area === 'session' && <div className="space-y-4">
-            <SandboxModePanel sessionId={sessionId} />
+            <SandboxModePanel />
+            <SessionChoice sessionId={sessionId} setSessionId={setSessionId} disabled={false} />
             <MaintenanceModePanel sessionId={sessionId} />
           </div>}
           {area === 'desktop' && <ComputerUsePanel />}

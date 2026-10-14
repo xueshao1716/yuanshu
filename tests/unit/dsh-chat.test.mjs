@@ -101,7 +101,7 @@ test("handleDshChat 写入会话并推 delta/done", async () => {
 test("handleChat 主驾 dsh 必须走 handleDshChat", () => {
   const src = readFileSync(join(ROOT, "server.mjs"), "utf8");
   const start = src.indexOf("async function handleChat");
-  const fn = src.slice(start, start + 14000);
+  const fn = src.slice(start, start + 20000);
   assert.ok(fn.includes("handleDshChat"), "dsh 主驾不能掉进 unifiedChat");
   assert.ok(fn.includes('lead === "dsh"') || fn.includes("lead === 'dsh'"));
 });

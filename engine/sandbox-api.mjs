@@ -8,22 +8,19 @@ export function sessionProblem(sessionId, sessionExists) {
   return null;
 }
 
-export function createSandboxApi({ agentDir, sessionExists }) {
+// 沙箱模式全局生效：不再要求选会话。sessionId 可选，仅记入审计（从哪个会话改的）。
+export function createSandboxApi({ agentDir }) {
   return {
-    get(sessionId) {
-      return sessionProblem(sessionId, sessionExists) || {
-        status: 200, body: { ok: true, sessionId, ...sandboxModeView(agentDir, sessionId) },
-      };
+    get() {
+      return { status: 200, body: { ok: true, scope: 'global', ...sandboxModeView(agentDir) } };
     },
     set(body) {
-      const sessionId = body?.sessionId;
-      const problem = sessionProblem(sessionId, sessionExists);
-      if (problem) return problem;
-      if (typeof body.preset !== 'string' || !Object.hasOwn(SANDBOX_PRESETS, body.preset) || (body.reason !== undefined && typeof body.reason !== 'string')) {
+      if (typeof body?.preset !== 'string' || !Object.hasOwn(SANDBOX_PRESETS, body.preset) || (body.reason !== undefined && typeof body.reason !== 'string')) {
         return { status: 400, body: { ok: false, reason: 'invalid_input', error: '预设或理由无效' } };
       }
-      const result = recordSandboxMode(agentDir, sessionId, { preset: body.preset, reason: body.reason, origin: 'api' });
-      return { status: result.ok ? 200 : 400, body: { ...result, ...(result.ok ? {} : { error: result.reason }), sessionId, view: result.ok ? sandboxModeView(agentDir, sessionId) : null } };
+      const via = typeof body.sessionId === 'string' ? body.sessionId.slice(0, 256) : '';
+      const result = recordSandboxMode(agentDir, via, { preset: body.preset, reason: body.reason, origin: 'api' });
+      return { status: result.ok ? 200 : 400, body: { ...result, ...(result.ok ? {} : { error: result.reason }), scope: 'global', view: result.ok ? sandboxModeView(agentDir) : null } };
     },
   };
 }

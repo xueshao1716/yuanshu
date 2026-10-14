@@ -1,4 +1,4 @@
-// ===== sandbox-session.mjs —— 会话级沙箱模式（借 dsh-sandbox-policy / permission-presets）=====
+// ===== sandbox-session.mjs —— 沙箱模式（全局生效，2026-10-14 起不再按会话）（借 dsh-sandbox-policy / permission-presets）=====
 //
 // 元枢原本的沙箱模式是**写死的**：`unified-chat.mjs` 里
 // `sandboxMode: isPlanLock ? "read-only" : "workspace-write"`，前端没有任何控件，
@@ -54,6 +54,9 @@ export const SANDBOX_PRESETS = {
 /** 默认预设。改这一行就等于改默认沙箱方向——改之前请读文件头的三条理由。 */
 export const DEFAULT_PRESET = "standard";
 
+/** 沙箱模式是全局的：日志里统一记在这个作用域下；老日志里按会话记的行不再参与 fold。 */
+export const GLOBAL_SCOPE = "*";
+
 export function sandboxSessionPaths(agentDir = "") {
   const dir = path.join(agentDir || ".", "yuanshu-sandbox");
   return { dir, log: path.join(dir, "sandbox-modes.jsonl") };
@@ -76,19 +79,18 @@ export function readSandboxLog(agentDir, { fsMod = fs, limit = 0 } = {}) {
  * 记一次模式切换。append-only，最新一条生效。
  * @returns {{ok:boolean, entry?:object, reason?:string}}
  */
-export function recordSandboxMode(agentDir, sessionId, { preset, origin = "human", reason = "" } = {}, { fsMod = fs, now } = {}) {
-  const sid = String(sessionId || "").trim();
-  if (!sid) return { ok: false, reason: "缺少 sessionId" };
+export function recordSandboxMode(agentDir, fromSessionId, { preset, origin = "human", reason = "" } = {}, { fsMod = fs, now } = {}) {
   const next = SANDBOX_PRESETS[preset];
   if (!next) return { ok: false, reason: `未知预设：${preset}（可用：${Object.keys(SANDBOX_PRESETS).join(" / ")}）` };
-  const current = effectiveSandboxPreset(agentDir, sid, { fsMod });
+  const current = effectiveSandboxPreset(agentDir, GLOBAL_SCOPE, { fsMod });
   const widening = sandboxRank(next.mode) > sandboxRank(current.mode);
   // 规矩：收紧随时可以，放宽必须给理由
   if (widening && !String(reason || "").trim()) {
     return { ok: false, reason: `从 ${current.mode} 放宽到 ${next.mode} 必须写明理由（审计要能回答"谁为什么放开"）` };
   }
   const entry = {
-    sessionId: sid,
+    sessionId: GLOBAL_SCOPE,
+    viaSession: String(fromSessionId || "").trim() || null,
     preset,
     mode: next.mode,
     from: current.preset,
@@ -104,10 +106,9 @@ export function recordSandboxMode(agentDir, sessionId, { preset, origin = "human
   } catch (e) { return { ok: false, reason: String(e?.message || e).slice(0, 80) }; }
 }
 
-/** fold：该会话最后一条记录生效；没有记录就是默认预设。 */
-export function effectiveSandboxPreset(agentDir, sessionId, { fsMod = fs } = {}) {
-  const sid = String(sessionId || "").trim();
-  const rows = readSandboxLog(agentDir, { fsMod }).filter((e) => e.sessionId === sid);
+/** fold：最后一条全局记录生效；没有记录就是默认预设。sessionId 参数只为兼容调用方，不参与判断。 */
+export function effectiveSandboxPreset(agentDir, _sessionId, { fsMod = fs } = {}) {
+  const rows = readSandboxLog(agentDir, { fsMod }).filter((e) => e.sessionId === GLOBAL_SCOPE);
   const last = rows[rows.length - 1];
   const key = last && SANDBOX_PRESETS[last.preset] ? last.preset : DEFAULT_PRESET;
   return { preset: key, ...SANDBOX_PRESETS[key] };
@@ -120,10 +121,10 @@ export function effectiveSandboxMode(agentDir, sessionId, { fsMod = fs, planLock
   return SANDBOX_MODES.includes(mode) ? mode : SANDBOX_PRESETS[DEFAULT_PRESET].mode;
 }
 
-/** 台前用：这个会话的模式变化史 + 可用预设。 */
-export function sandboxModeView(agentDir, sessionId, { fsMod = fs, limit = 20 } = {}) {
-  const eff = effectiveSandboxPreset(agentDir, sessionId, { fsMod });
-  const history = readSandboxLog(agentDir, { fsMod }).filter((e) => e.sessionId === String(sessionId || "").trim()).slice(-limit).reverse();
+/** 台前用：全局模式变化史 + 可用预设。 */
+export function sandboxModeView(agentDir, _sessionId, { fsMod = fs, limit = 20 } = {}) {
+  const eff = effectiveSandboxPreset(agentDir, GLOBAL_SCOPE, { fsMod });
+  const history = readSandboxLog(agentDir, { fsMod }).filter((e) => e.sessionId === GLOBAL_SCOPE).slice(-limit).reverse();
   return {
     preset: eff.preset,
     mode: eff.mode,

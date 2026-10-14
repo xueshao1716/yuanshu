@@ -753,15 +753,15 @@ export const GoalApi = {
 // ── 会话级沙箱模式：引擎侧是 append-only 日志 + fold（收紧随时可以、放宽必须给理由）──
 export interface SandboxPreset { id: string; mode: string; label: string; desc: string }
 export interface SandboxView {
-  ok: boolean; sessionId: string
+  ok: boolean
   preset: string; mode: string; label: string; desc: string; defaultPreset: string
   presets: SandboxPreset[]
   history: { at: string; preset: string; mode: string; from: string; widening: boolean; origin: string; reason: string | null }[]
 }
 export const SandboxApi = {
-  get: (sessionId: string) => api<SandboxView>(`/api/sandbox/mode?session=${encodeURIComponent(sessionId)}`),
-  set: (sessionId: string, preset: string, reason?: string) =>
-    api<{ ok: boolean; reason?: string; sessionId?: string; view?: SandboxView }>('/api/sandbox/mode', { method: 'POST', body: { sessionId, preset, reason } }),
+  get: () => api<SandboxView>('/api/sandbox/mode'),
+  set: (preset: string, reason?: string, sessionId?: string) =>
+    api<{ ok: boolean; reason?: string; view?: SandboxView }>('/api/sandbox/mode', { method: 'POST', body: { preset, reason, sessionId } }),
 }
 
 export interface MaintenanceView {
