@@ -199,6 +199,44 @@ export async function httpRawFetch(url, options = {}) {
   return r;
 }
 
+// 对冲请求：上游偶发 20s+ 的首包尾延迟（agnes 实测约三成请求 19s、其余 1~2s）。
+// hedgeAfterMs 内没有响应头就并行再发一份，谁先到用谁，另一份立刻取消；只在尾部慢请求时多花一次调用。
+export async function httpHedgedFetch(url, options = {}, { hedgeAfterMs = 8000, maxExtra = 1, fetchImpl = httpRawFetch } = {}) {
+  if (!(hedgeAfterMs > 0) || options.signal?.aborted) return fetchImpl(url, options);
+  const attempts = [];
+  const launch = () => {
+    const ctl = new AbortController();
+    const onAbort = () => ctl.abort();
+    options.signal?.addEventListener?.("abort", onAbort, { once: true });
+    const promise = fetchImpl(url, { ...options, signal: ctl.signal });
+    const entry = { ctl, promise, onAbort };
+    attempts.push(entry);
+    return entry;
+  };
+  const cleanup = (winner) => {
+    for (const a of attempts) {
+      options.signal?.removeEventListener?.("abort", a.onAbort);
+      if (a === winner) continue;
+      a.ctl.abort();
+      a.promise.then(r => { try { r?.body?.cancel?.(); } catch {} }, () => {});
+    }
+  };
+  return await new Promise((resolve, reject) => {
+    let settled = false, failed = 0, timer = null, extra = 0;
+    const onWin = (entry) => (r) => { if (settled) return; settled = true; clearTimeout(timer); cleanup(entry); resolve(r); };
+    const onFail = (err) => {
+      if (settled) return;
+      if (++failed >= attempts.length && extra >= maxExtra) { settled = true; clearTimeout(timer); cleanup(null); reject(err); return; }
+      if (failed >= attempts.length) { clearTimeout(timer); fire(); }
+    };
+    const track = (entry) => entry.promise.then(onWin(entry), onFail);
+    const fire = () => { extra++; track(launch()); arm(); };
+    const arm = () => { if (extra < maxExtra) timer = setTimeout(() => { if (!settled) fire(); }, hedgeAfterMs); };
+    track(launch());
+    arm();
+  });
+}
+
 // 二进制版：直接返回 Buffer（替代旧 python 子进程 base64 中转方案）
 export async function httpBufferFetch(url, options = {}) {
   const {r,buf} = await rawFetch(url, options, async r => ({r,buf:Buffer.from(await r.arrayBuffer())}));

@@ -172,7 +172,7 @@ test("attachYuanshuCodeTool 把 run_code 挂进工具表", () => {
 test("unifiedChat 工具轮必须走 runYuanshuToolRound；handleUnifiedChat 启动时 initEngine", () => {
   const src = readFileSync(join(ROOT, "engine", "unified-chat.mjs"), "utf8");
   const start = src.indexOf("export async function unifiedChat");
-  const fn = src.slice(start, start + 9000);
+  const fn = src.slice(start, start + 14000);
   assert.ok(fn.includes("runYuanshuToolRound"), "主循环不能再手写串行 await execute");
   const h = src.slice(src.indexOf("export async function handleUnifiedChat"), src.indexOf("export async function handleUnifiedChat") + 2500);
   // 2026-09-09：initEngine 热身升级为 ensureEngineInit（可观察可重试，见 yuanshu-engine-hardening）

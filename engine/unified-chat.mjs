@@ -17,7 +17,7 @@ import { shrinkToolResult, NEEDS_PRO_RE, scavengeToolCalls, projectToolResult } 
 import { normalizeToolArgs } from "./tool-args.mjs";
 import { extractMessages, extractText, attachmentLines } from "./session-utils.mjs";
 import { createSseWriter } from "./sse.mjs";
-import { httpJsonFetch, httpRawFetch, sessionAffinityHeaders, describeHttpError } from "./http.mjs";
+import { httpJsonFetch, httpRawFetch, httpHedgedFetch, sessionAffinityHeaders, describeHttpError } from "./http.mjs";
 import { PRODUCT_VERSION } from "./version.mjs";
 import { createGateway } from "./gateway.mjs";
 import { CodeRuntime } from "../code-mode/code-runtime.mjs";
@@ -427,7 +427,7 @@ export async function unifiedChat(model, messages, opts = {}) {
     if (withThinking && thinkingParam !== null) body.reasoning_effort = thinkingParam;
     return body;
   };
-  const mkReq = (u, withThinking, wantStream = true) => httpRawFetch(nativeMessages ? messagesEndpoint(base) : u, {
+  const mkReq = (u, withThinking, wantStream = true) => httpHedgedFetch(nativeMessages ? messagesEndpoint(base) : u, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
@@ -439,7 +439,7 @@ export async function unifiedChat(model, messages, opts = {}) {
     body: JSON.stringify(buildBody(withThinking, wantStream)),
     timeout: 300000,
     signal: opts.signal, // P2: 客户端断开时取消 fetch
-  });
+  }, { hedgeAfterMs: isReasoning ? 0 : 8000 }); // 思考模型首包本来就慢，对冲会白白翻倍计费，只对非思考模型开
   let usedThinking = thinkingParam !== null;
   // 单次输出预算：起步 = min(模型声明, 32k)，命中截断时往上抬（见 escalateOutputTokens）。
   // 2026-09-18 补：还要受**剩余窗口**约束——上下文快满时向窗口装不下的量要输出，
