@@ -228,3 +228,9 @@ test('tool tells the caller run.submit only queues and not to poll in the same t
   const text=CULTIVATION_TOOL_SCHEMA.function.description;
   for(const word of ['只是排队','结束本轮','不要 sleep'])assert.ok(text.includes(word),word);
 });
+
+test('工具说明教母体先广后深，并以独立验证员的 verification 为准', async () => {
+  const {CULTIVATION_TOOL_SCHEMA} = await import('../../engine/cultivation/tool.mjs');
+  const d = CULTIVATION_TOOL_SCHEMA.function.description;
+  for (const w of ['先广后深', 'verification', '独立验证员', 'conditions']) assert.ok(d.includes(w), w);
+});

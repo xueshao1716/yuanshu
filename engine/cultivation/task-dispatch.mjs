@@ -3,6 +3,28 @@
 // underlying operation finishes. Unknown usage stays reserved across restart.
 export function createTaskDispatch({repo,assertRun,ownerId,active,admission,budget,knowledge,provider,
   foregroundBusy=()=>false,now=Date.now}) {
+  // 独立验证：另起一次隔离调用，只看任务/验收标准/输出，不看设计稿与执行过程。
+  // 验证失败或额度不够只记「未验证」，不影响已完成的任务，也绝不当作通过。
+  const verifyOutput=async(run,design,policy,sharedPolicy,output)=>{
+    if(typeof provider.verifyPrepare!=='function')return;
+    const record=verification=>{const r=repo.get(run.id);if(r)repo.update(run.id,{cultivation:{...r.cultivation,verification:{...verification,at:now()}}});};
+    let reservation,controller,deadline;
+    try{
+      const plan=await provider.verifyPrepare({run,design,policy,sharedPolicy,output});
+      reservation=await budget.reserve({kind:'model',policy:sharedPolicy,maxCost:plan.maxCost,
+        currency:plan.currency,free:plan.free===true,consumer:'cultivation',limits:policy});
+      controller=new AbortController();active.set(run.id,controller);
+      deadline=setTimeout(()=>controller.abort(),policy.timeoutMs??60000);
+      let result;
+      try{result=await provider.verifyInvoke({plan,output,signal:controller.signal,guard:()=>{assertRun(run);}});}
+      catch(error){try{await budget.settle(reservation.id,null);}catch{}reservation=null;throw error;}
+      await budget.settle(reservation.id,result.usage??null);reservation=null;
+      record(result.verification);
+    }catch(error){
+      if(reservation)try{await budget.settle(reservation.id,null);}catch{}
+      try{record({verdict:'unverified',reason:/^cultivation_[a-z_]+$/.test(error?.message)?error.message:'verifier_unavailable'});}catch{}
+    }finally{clearTimeout(deadline);active.delete(run.id);}
+  };
   return async()=>{
     if(foregroundBusy())return;
     let run,slot,reservation,controller,watchdog,deadline,invoked=false;
@@ -40,6 +62,7 @@ export function createTaskDispatch({repo,assertRun,ownerId,active,admission,budg
       assertRun(run);
       if(typeof result?.text!=='string'||!result.text.trim()||result.text.length>16000)throw new Error('cultivation_provider_format');
       patch('completed',{output:result.text,usage:result.usage??null,reason:null,completedAt:now()});
+      await verifyOutput(run,design,policy,sharedPolicy,result.text);
     }catch(error){
       // 2026-10-07：模型明确答复了（如输出被截断）就不是「结果未知」——按实际用量结算，记为失败并给出原因。
       const known=invoked&&error?.definite===true&&!controller?.signal.aborted&&error.usage;

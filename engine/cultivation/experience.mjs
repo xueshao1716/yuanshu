@@ -27,7 +27,7 @@ export function createCultivationExperience({repo,knowledge,workspace,now=Date.n
           reason:valid?job.reason:'source_unavailable',evidenceCount:0,userAcceptance:null,
           revision:valid?job.revision:null,learning:valid?job.learning??[]:[],
           role:record?.role??'model_generated',...(record?.outcome?{outcome:record.outcome}:{}),resolution:valid?job.resolution??null:null,
-          observation:experienceObservation(run,valid?job:null)});
+          observation:experienceObservation(run,valid?job:null),verification:run.cultivation.verification??null});
       }
       return {...page,items,supported:true,coverage:{basis:'returned_page',
         returnedCount:items.length,hasMore:page.nextCursor!==null,observedAt:now()}};

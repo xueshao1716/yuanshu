@@ -241,3 +241,40 @@ test('cultivation runs alongside a busy chat foreground but still yields to excl
   await f.execute(f.command('run.submit',{agentId:f.agentId,input:'Second explicit input',goal:'Check result',criterion:'A bounded textual result'}));
   f.busy(true);await f.tasks.tick();assert.equal(f.calls(),1,'exclusive foreground still blocks');
 });
+
+test('独立验证：任务完成后另起一次隔离调用，结论与引用写进 run，且只看输出不看设计稿', async t => {
+  const f = await fixture(t);
+  let seen = null;
+  f.options.provider.verifyPrepare = async args => { seen = args; return {maxCost: 0, currency: 'USD', free: true, remote: false}; };
+  f.options.provider.verifyInvoke = async ({output}) => ({usage: {cost: 0, currency: 'USD'},
+    verification: {verdict: 'pass', evidence: [output.slice(0, 5)], gaps: [], conditions: '仅限本输入', confidence: 'high', grounded: true}});
+  const a = await f.execute(f.submit());
+  await f.tasks.tick();
+  const run = f.tasks.get(a.result.id);
+  assert.equal(run.status, 'completed');
+  assert.equal(run.cultivation.verification.verdict, 'pass');
+  assert.equal(run.cultivation.verification.conditions, '仅限本输入');
+  assert.equal(seen.output, 'Synthetic result');
+  assert.equal((await f.budget.status()).modelRequests, 2, '执行 + 验证各占一次额度');
+});
+test('验证员失败不影响已完成的任务，只记「未验证」而不是通过', async t => {
+  const f = await fixture(t);
+  f.options.provider.verifyPrepare = async () => ({maxCost: 0, currency: 'USD', free: true, remote: false});
+  f.options.provider.verifyInvoke = async () => { throw new Error('boom'); };
+  const a = await f.execute(f.submit());
+  await f.tasks.tick();
+  const run = f.tasks.get(a.result.id);
+  assert.equal(run.status, 'completed');
+  assert.equal(run.cultivation.output, 'Synthetic result');
+  assert.equal(run.cultivation.verification.verdict, 'unverified');
+});
+test('验证员 verdict 解析加固：无逐字引用不得 pass，格式错误一律未验证', async () => {
+  const {parseVerdict} = await import('../../engine/cultivation/provider.mjs');
+  const out = '结论：A 方案成本更低。依据：表 2。';
+  assert.equal(parseVerdict(JSON.stringify({verdict: 'pass', evidence: ['A 方案成本更低'], gaps: [], conditions: 'x', confidence: 'high'}), out).verdict, 'pass');
+  const ungrounded = parseVerdict(JSON.stringify({verdict: 'pass', evidence: ['输出里没有的话'], gaps: [], confidence: 'high'}), out);
+  assert.equal(ungrounded.verdict, 'partial'); assert.equal(ungrounded.downgraded, true);
+  assert.equal(parseVerdict('我觉得不错', out).verdict, 'unverified');
+  assert.equal(parseVerdict(JSON.stringify({verdict: 'maybe'}), out).verdict, 'unverified');
+  assert.equal(parseVerdict(JSON.stringify({verdict: 'pass', evidence: ['A 方案成本更低'], gaps: ['未核对数据来源'], confidence: 'low'}), out).verdict, 'partial');
+});

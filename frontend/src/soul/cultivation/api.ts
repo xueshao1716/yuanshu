@@ -15,8 +15,9 @@ export type Design = {id:string;parentId:string|null;author:{actorId:string};des
   permissions:{model:string;tools:string[];dataScopes:string[];remote:boolean;costUpperBoundCents:number}}}
 export type Agent = {id:string;mentorId:string;designId:string;history:string[];status:string;cancellation:string}
 export type AgentDetail = {agent:Agent;design:Design;revision:number;initialization:string}
+export type Verification = {verdict:'pass'|'partial'|'fail'|'unverified';evidence?:string[];gaps?:string[];conditions?:string;confidence?:string;grounded?:boolean;downgraded?:boolean;reason?:string}
 export type Run = {id:string;status:string;createdAt:string;updatedAt:string;error?:{message?:string};
-  cultivation:{agentId:string;designId:string;reason?:string;output?:string|null;knowledgeJobId?:string}}
+  cultivation:{agentId:string;designId:string;reason?:string;output?:string|null;knowledgeJobId?:string;verification?:Verification|null}}
 export type Experience = {id:string;agentId:string;knowledgeJobId:string;state:string;reason:string;observation?:ExperienceObservation;
   outcome?:'failed'|'cancelled'|'unknown'|'not_completed';
   evidenceCount:number;userAcceptance:null;role:string;resolution:null|{jobId:string;entryId:string};revision:number|null;

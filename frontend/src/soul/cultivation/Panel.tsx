@@ -7,6 +7,7 @@ import type { Action } from './Authorization'
 import Authorization from './Authorization'
 import PolicyPreset from './PolicyPreset'
 import GrantStatus, { grantState } from './GrantStatus'
+import VerdictBadge from './VerdictBadge'
 import './cultivation.css'
 
 export default function Cultivation({sessionId}:{sessionId:string}) {
@@ -110,7 +111,7 @@ export default function Cultivation({sessionId}:{sessionId:string}) {
               <span className="soul-dim">· {line.length} 版本{latestRun ? ` · 最近：${statusLabel(latestRun.status)}` : ''}</span>
             </summary>
             <div className="cultivation-design">
-              {latestRun?.cultivation.output && <><h4>最近一次成果</h4><p className="cultivation-output">{latestRun.cultivation.output}</p></>}
+              {latestRun?.cultivation.output && <><h4>最近一次成果</h4><p className="cultivation-output">{latestRun.cultivation.output}</p><VerdictBadge value={latestRun.cultivation.verification} /></>}
               {latestRun?.error?.message && <p role="alert">{latestRun.error.message}</p>}
               <p>{latest.design.rationale}</p>
               <dl className="soul-facts">
@@ -172,6 +173,7 @@ export default function Cultivation({sessionId}:{sessionId:string}) {
               {run.cultivation.output && (
                 <p className="cultivation-output">{run.cultivation.output}</p>
               )}
+              <VerdictBadge value={run.cultivation.verification} />
               {run.error?.message && <p role="alert">{run.error.message}</p>}
               {['queued','running'].includes(run.status) && <button onClick={() => setAction({ method: 'POST', path: `/runs/${run.id}/cancel`,
                 payload: {}, revision: overview.data!.revision, label: '取消任务' })}>叫停这个任务</button>}
