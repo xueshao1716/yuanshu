@@ -9,3 +9,7 @@ test('Android 壳必须允许混合内容，否则 http 局域网地址的图片
   const synced = new URL('../../android/app/src/main/assets/capacitor.config.json', import.meta.url);
   if (fs.existsSync(synced)) assert.equal(JSON.parse(fs.readFileSync(synced, 'utf8')).android.allowMixedContent, true);
 });
+
+test('restart-pi-web.ps1 必须带 YUANSHU_LAN=1，否则重启后服务只听回环，手机端全部连不上', () => {
+  assert.match(fs.readFileSync(new URL('../../scripts/restart-pi-web.ps1', import.meta.url), 'utf8'), /\$env:YUANSHU_LAN\s*=\s*'1'/);
+});

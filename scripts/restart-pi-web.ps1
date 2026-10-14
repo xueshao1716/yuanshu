@@ -61,6 +61,8 @@ if ($remaining.Count -gt 0) {
 
 $node = (Get-Command node.exe -ErrorAction Stop).Source
 Write-Host '启动元枢服务…'
+# 手机客户端走局域网访问，必须监听 0.0.0.0（与 watchdog 一致）；漏了会让手机端资产/图片全部打不开。
+$env:YUANSHU_LAN = '1'
 Start-Process -FilePath $node -ArgumentList @('server.mjs') -WorkingDirectory $root -WindowStyle Hidden | Out-Null
 
 $readyDeadline = (Get-Date).AddSeconds(30)
