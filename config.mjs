@@ -56,6 +56,8 @@ function resolvePiPackage() {
   // ERR_UNSUPPORTED_DIR_IMPORT 崩溃，且 watchdog 永远拉不起来。
   // 这条探测不依赖任何环境变量，放最前面。
   roots.push(path.join(path.dirname(process.execPath), "node_modules"));
+  // Linux 安装包：node 在 bin/，全局包在 ../lib/node_modules
+  roots.push(path.join(path.dirname(process.execPath), "..", "lib", "node_modules"));
   // cwd 固定到仓库根：npm root -g 在无 prefix 时会按 cwd 的 package 上下文漂移
   try { roots.push(execSync("npm root -g", { encoding: "utf8", cwd: __dirname }).trim()); } catch {}
   if (process.platform === "win32" && process.env.APPDATA) {

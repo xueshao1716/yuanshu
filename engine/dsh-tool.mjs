@@ -70,6 +70,7 @@ export function resolveDshBin() {
     const cands = [
       // 安装包把 dsh 放在自带 node.exe 同级的 node_modules（与 config.mjs 找 pi 的规则一致）
       path.join(path.dirname(process.execPath), "node_modules", "@deepseek-ai", "dsh", "lib", "bin.js"),
+      path.join(path.dirname(process.execPath), "..", "lib", "node_modules", "@deepseek-ai", "dsh", "lib", "bin.js"),
       path.join(process.env.APPDATA || "", "npm", "node_modules", "@deepseek-ai", "dsh", "lib", "bin.js"),
       path.join(process.env.ProgramFiles || "", "nodejs", "node_modules", "npm", "node_modules", "@deepseek-ai", "dsh", "lib", "bin.js"),
     ];

@@ -75,3 +75,12 @@ node installer/build.mjs --only=app,launcher,nsis   # 改了代码后只重打�
 - 端口固定 8787。
 - 依赖里最深的文件相对路径接近 190 字符。默认安装目录没问题；自选安装目录请控制在 60 字符以内，否则会碰到 Windows 260 字符路径上限。
 - 精简包约 145MB、全量包约 505MB，超过 GitHub 普通文件上限，发布走 Release 附件或网盘。
+
+## Linux 安装包（x86_64）
+`node installer/build-linux.mjs`（必须在 Linux / WSL 里跑，原生依赖按当前平台安装）→ `元枢-离线安装包-<版本>-linux-x64.run`（约 160MB，自解压，带 sha256 完整性校验）。
+
+- 包里有：元枢源码 + 生产依赖、Node（含 pi / dsh 引擎）、独立 Python 3.12 + 文档库、工作区模板。不带 git / bash，用系统自带的。
+- 安装：`sh 元枢-离线安装包-*.run`，不需要 root，装到 `~/.local/share/yuanshu`；有 systemd 用户会话就注册 `yuanshu.service`（登录自启，崩溃自拉起），否则退回 XDG 自启动。
+- 命令：`yuanshu` 打开界面，`yuanshu uninstall [--purge]` 卸载（默认保留 `~/pi-workspace`）。再次运行 `.run` 即升级，令牌与工作区不动。
+- 可选组件（ffmpeg 等）同样按需联网装；在线更新需要系统有 git。
+- 不可用：电脑控制（Windows 专属）、Windows Hello 确认等 Windows 专属能力。

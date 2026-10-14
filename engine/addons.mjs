@@ -20,6 +20,11 @@ export const FFMPEG_SHA = {
   ffprobe: '3a7e2dc003dc2cd1472827e4c7c4f056ae1ae0ae7c5bbc580c99b49827351ba4',
 };
 
+export const FFMPEG_SHA_LINUX = {
+  ffmpeg: 'e7e7fb30477f717e6f55f9180a70386c62677ef8a4d4d1a5d948f4098aa3eb99',
+  ffprobe: '4f231a1960d83e403d08f7971e271707bec278a9ae18e21b8b5b03186668450d',
+};
+
 const U2NET = {
   sha256: '8d10d2f3bb75ae3b6d527c77944fc5e7dcd94b29809d47a739a7a728a912b491',
   urls: [
@@ -117,8 +122,10 @@ export const ADDONS = [
     async check({ run }) { return (await run('ffmpeg', ['-version'], { timeout: 10000 })).ok && (await run('ffprobe', ['-version'], { timeout: 10000 })).ok; },
     async install({ env, fetchImpl, log, run }) {
       const bin = ffmpegBin(env);
+      const linux = process.platform === 'linux';
       for (const name of ['ffmpeg', 'ffprobe']) {
-        await download({ urls: FFMPEG_BASE.map((b) => `${b}/${name}-win32-x64.gz`), dst: path.join(bin, `${name}.exe`), gunzip: true, sha256: FFMPEG_SHA[name], fetchImpl, log });
+        await download({ urls: FFMPEG_BASE.map((b) => `${b}/${name}-${linux ? 'linux-x64' : 'win32-x64'}.gz`), dst: path.join(bin, linux ? name : `${name}.exe`), gunzip: true, sha256: (linux ? FFMPEG_SHA_LINUX : FFMPEG_SHA)[name], fetchImpl, log });
+        if (linux) fs.chmodSync(path.join(bin, name), 0o755);
       }
       prependPath(bin, env);
       const v = await run('ffmpeg', ['-version'], { timeout: 15000 });
@@ -156,7 +163,7 @@ const byId = (id) => ADDONS.find((a) => a.id === id);
 // 优先用运行时目录里的 python/ffmpeg，不靠 PATH 碰运气（小语从别的终端调 CLI 时 PATH 可能指向系统 Python）
 function resolveCmd(cmd, env) {
   const exe = process.platform === 'win32' ? '.exe' : '';
-  const cand = cmd === 'python' ? path.join(runtimeRoot(env), 'python', 'python' + exe)
+  const cand = cmd === 'python' ? (process.platform === 'win32' ? path.join(runtimeRoot(env), 'python', 'python.exe') : path.join(runtimeRoot(env), 'python', 'bin', 'python3'))
     : cmd === 'ffmpeg' || cmd === 'ffprobe' ? path.join(ffmpegBin(env), cmd + exe) : '';
   return cand && fs.existsSync(cand) ? cand : cmd;
 }

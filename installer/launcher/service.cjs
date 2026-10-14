@@ -11,18 +11,24 @@ const RT = path.join(ROOT, "runtime");
 const APP = path.join(ROOT, "app");
 
 function applyEnv(env = process.env) {
-  const dirs = [
+  const win = process.platform === "win32";
+  // Linux 包布局：node/bin、python/bin、ffmpeg/bin（可选组件）；Windows 沿用平铺
+  const dirs = win ? [
     path.join(RT, "node"),
     path.join(RT, "python"),
     path.join(RT, "python", "Scripts"),
     path.join(RT, "ffmpeg", "bin"),
     path.join(RT, "git", "cmd"),
     path.join(RT, "git", "usr", "bin"),
+  ] : [
+    path.join(RT, "node", "bin"),
+    path.join(RT, "python", "bin"),
+    path.join(RT, "ffmpeg", "bin"),
   ];
   // 不按存在过滤：ffmpeg 等可选组件装完即生效，不用重启服务（PATH 里多一个暂不存在的目录无害）
   const key = Object.keys(env).find((k) => k.toLowerCase() === "path") || "Path";
-  const rest = String(env[key] || "").split(";").filter((p) => p && !dirs.includes(p));
-  env[key] = [...dirs, ...rest].join(";");
+  const rest = String(env[key] || "").split(path.delimiter).filter((p) => p && !dirs.includes(p));
+  env[key] = [...dirs, ...rest].join(path.delimiter);
   if (!env.YUANSHU_CWD) env.YUANSHU_CWD = path.join(env.USERPROFILE || os.homedir(), "pi-workspace");
   const bash = path.join(RT, "git", "usr", "bin", "bash.exe");
   if (!env.YUANSHU_BASH && fs.existsSync(bash)) env.YUANSHU_BASH = bash;

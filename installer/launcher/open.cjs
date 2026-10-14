@@ -24,6 +24,13 @@ function health() {
 }
 
 function startService() {
+  if (process.platform === "linux") {
+    const r = spawnSync("systemctl", ["--user", "start", "yuanshu.service"], { stdio: "ignore" });
+    if (r.status === 0) return "systemd";
+    const child = spawn(process.execPath, [path.join(__dirname, "service.cjs")], { cwd: ROOT, detached: true, stdio: "ignore" });
+    child.unref();
+    return "direct";
+  }
   const r = spawnSync("schtasks.exe", ["/Run", "/TN", "yuanshu-watchdog"], { windowsHide: true });
   if (r.status === 0) return "task";
   // 计划任务不可用（被策略禁用等）时直接起一个后台守护
@@ -46,6 +53,12 @@ async function main() {
   // hash-token.mjs 优先读 location.search 的 ?t= 参数
   const safeToken = token.replace(/[^\x20-\x7E]/g, '').trim();
   const url = `http://127.0.0.1:${PORT}/` + (safeToken ? `?t=${encodeURIComponent(safeToken)}` : "");
+  if (process.platform === "linux") {
+    const opener = ["xdg-open", "gio", "sensible-browser"].find((c) => spawnSync("sh", ["-c", `command -v ${c}`], { stdio: "ignore" }).status === 0);
+    if (!opener) { console.log(`请在浏览器打开：${url}`); return; }
+    spawn(opener, opener === "gio" ? ["open", url] : [url], { detached: true, stdio: "ignore" }).unref();
+    return;
+  }
   spawn("rundll32.exe", ["url.dll,FileProtocolHandler", url], { detached: true, stdio: "ignore", windowsHide: true }).unref();
 }
 
