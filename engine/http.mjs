@@ -82,6 +82,12 @@ function probeProxyAlive(urlStr) {
 }
 let deadProxyLogged = false;
 
+const DOMESTIC_SUFFIXES = [".cn", "stepfun.com", "bigmodel.cn", "zhipuai.cn", "deepseek.com", "aliyuncs.com", "dashscope.com", "volces.com", "volcengine.com", "baidubce.com", "tencent.com", "qq.com", "moonshot.cn", "siliconflow.cn"];
+export function isDomesticHost(host) {
+  const h = String(host || "").toLowerCase();
+  return DOMESTIC_SUFFIXES.some((x) => x.startsWith(".") ? h.endsWith(x) : (h === x || h.endsWith("." + x)));
+}
+
 async function getProxyDispatcher(urlObj) {
   // 显式逃生口：PI_WEB_FORCE_DIRECT=1 强制全部直连
   if (process.env.PI_WEB_FORCE_DIRECT === "1") return null;
@@ -90,6 +96,8 @@ async function getProxyDispatcher(urlObj) {
   if (host === "localhost" || host === "127.0.0.1" || host === "::1" || host === "[::1]") return null;
   const noProxy = (process.env.NO_PROXY || process.env.no_proxy || "").split(",").map((s) => s.trim()).filter(Boolean);
   if (noProxy.some((p) => host === p || host.endsWith(p.startsWith(".") ? p : "." + p))) return null;
+  // 境内模型/接口直连：本机代理常能连上 TCP 却在 TLS 握手上间歇失败，导致境内 API 一天到晚 fetch failed（2026-10-15 真机）。
+  if (isDomesticHost(host)) return null;
   await ensureProxyResolved();
   if (!proxyUrl) return null;
   const alive = await probeProxyAlive(proxyUrl);

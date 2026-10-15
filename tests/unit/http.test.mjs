@@ -99,3 +99,9 @@ test("http.mjs 统一 HTTP 客户端", async (t) => {
     assert.deepEqual([...buf], [0x00, 0xff, 0x10, 0x92]);
   });
 });
+
+test('境内模型域名直连，不走本机代理；境外仍走代理', async () => {
+  const { isDomesticHost } = await import('../../engine/http.mjs');
+  for (const h of ['api.stepfun.com', 'open.bigmodel.cn', 'fast.aieyra.cn', 'stepfun.com']) assert.equal(isDomesticHost(h), true, h);
+  for (const h of ['api.openai.com', 'us-api.tokenhub.com', 'notstepfun.com', 'api-top.com']) assert.equal(isDomesticHost(h), false, h);
+});
