@@ -15,6 +15,9 @@
 - `delegate_task` 新增可选 `agent_id`/`criterion`：把子任务改派给自己培养的个体，结果附独立验证结论（`engine/cultivation/delegate.mjs`）。
 - 手机壳后台推送：Capacitor 与 Tauri 两个安卓壳新增原生前台服务，App 进后台后继续读 `/api/notify/stream` 并弹系统通知（前台或页面已处理的不重复弹；登录后启动，退出即停；Android 14+ 用 specialUse 前台服务类型）。
 
+### Changed
+- 培养放权预设放宽（伙伴「培养体系你设计的，把权放开」）：有效期 90 天、最多 20 个个体（并发 4）、每天 1000 次请求、每天 50 美元，小语自行开启的受限封套允许母体学习；均在 `policy.mjs` 硬上限内。工具、电脑、文件、私人记忆红线不变。
+
 ### Performance
 - 会话回复偏慢的主因：每轮请求都带全部 MCP 工具定义，rea 的 19 个超大工具（单个最大 180KB）让请求体达 740KB，上游每次多等约 60 秒。现在超过 8KB 的 MCP 工具不进默认工具表（`engine/tool-payload.mjs`，环境变量 `YUANSHU_MCP_SCHEMA_MAX_BYTES` 可调），简单问答从约 68 秒降到约 7 秒。
 - 会话回复偏慢（次因）：实测上游模型（agnes）约三成请求首包要 19 秒以上，其余 1~2 秒。非思考模型的流式请求现在 8 秒没出响应头就并行补发一份，谁先到用谁，另一份立刻取消（`httpHedgedFetch`）。

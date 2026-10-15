@@ -9,17 +9,17 @@ const kp = (over = {}) => ({ revision: 3, currency: 'USD', allowedModels: [], ra
 test('grant preset matches agreed limits: 30 days, 300 requests/day, $10.00, no tools', () => {
   const now = Date.UTC(2026, 9, 5);
   const p = grantPolicy(design, now);
-  assert.equal(p.dailyRequests, 300); assert.equal(p.dailyBudgetCents, 1000); assert.equal(p.maxAgents, 10); assert.equal(p.maxConcurrent, 2);
+  assert.equal(p.dailyRequests, 1000); assert.equal(p.dailyBudgetCents, 5000); assert.equal(p.maxAgents, 20); assert.equal(p.maxConcurrent, 4);
   assert.equal(p.timeoutMs, 600000); assert.equal(p.recursive, false);
   assert.deepEqual(p.tools, []); assert.deepEqual(p.models, [design.permissions.model]);
   assert.deepEqual(p.dataScopes, ['knowledge:approved-cultivation']); assert.equal(p.motherLearning, false);
-  assert.equal(Date.parse(p.expiresAt) - now, 30 * 86400000);
-  assert.match(grantSummary, /每天 300 次/); assert.match(grantSummary, /10\.00 美元/); assert.match(grantSummary, /10 个个体/);
+  assert.equal(Date.parse(p.expiresAt) - now, 90 * 86400000);
+  assert.match(grantSummary, /每天 1000 次/); assert.match(grantSummary, /50\.00 美元/); assert.match(grantSummary, /20 个个体/);
 });
 test('designs outside the bounded preset are refused', () => {
   assert.equal(supportedDesign(design), true);
   assert.equal(supportedDesign({ permissions: { ...design.permissions, tools: ['bash'] } }), false);
-  assert.equal(supportedDesign({ permissions: { ...design.permissions, costUpperBoundCents: 1001 } }), false);
+  assert.equal(supportedDesign({ permissions: { ...design.permissions, costUpperBoundCents: 5001 } }), false);
   assert.equal(supportedDesign({ permissions: { ...design.permissions, dataScopes: ['memory:private'] } }), false);
 });
 test('blockers split into grant-fixable, shared-fixable and stubborn', () => {
@@ -75,7 +75,7 @@ test('widenPolicy raises time and quota only, keeps scope, and is idempotent', (
     expiresAt: new Date(now + 6 * 86400000).toISOString(), schedule: null };
   const w = mod.widenPolicy(cur, now);
   assert.deepEqual(w.changed, ['maxAgents', 'dailyRequests', 'dailyBudgetCents', 'timeoutMs', 'expiresAt']);
-  assert.equal(w.policy.timeoutMs, 600000); assert.equal(w.policy.dailyRequests, 300); assert.equal(w.policy.maxAgents, 10);
+  assert.equal(w.policy.timeoutMs, 600000); assert.equal(w.policy.dailyRequests, 1000); assert.equal(w.policy.maxAgents, 20);
   for (const k of ['models', 'tools', 'dataScopes', 'motherLearning', 'recursive', 'maxConcurrent', 'allowRemote']) assert.deepEqual(w.policy[k], cur[k], k);
   assert.equal(mod.widenPolicy(w.policy, now), null, 'already widened');
   assert.equal(mod.widenPolicy({ ...cur, enabled: false }, now), null, 'disabled policy goes through the normal grant');

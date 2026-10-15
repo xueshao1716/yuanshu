@@ -22,5 +22,5 @@ test('母亲可自行暂停/恢复/归档/回滚自己的个体，红线（工�
   const tr = src('engine/cultivation/control-transition.mjs');
   assert.ok(tr.includes("['agent.pause', 'agent.resume', 'agent.archive', 'agent.rollback'].includes(c.action)) return ['mother', 'human']"));
   const preset = src('engine/cultivation/grant-preset.mjs');
-  assert.ok(preset.includes('policy.tools.length) return false') && preset.includes('motherLearning !== false'));
+  assert.ok(preset.includes('policy.tools.length) return false') && preset.includes("typeof policy.motherLearning !== 'boolean'"));
 });

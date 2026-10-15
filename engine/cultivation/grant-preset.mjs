@@ -1,13 +1,14 @@
 // 一次性放权的唯一预设：页面「授权与资源」与对话里的浮动授权弹窗共用，避免两处数字各写各的。
 // 2026-10-14 伙伴「培养体系可以复杂，授权一定要简单；元枢自己培养，给最大自由度」：封套放宽到 30 天、10 个个体、每天 300 次、每天 10 美元、单次 10 分钟。
+// 2026-10-15 伙伴「培养体系你设计的，把权放开」：封套再放宽到 90 天、20 个个体（并发 4）、每天 1000 次、每天 50 美元，并允许母体学习；都是 policy.mjs 的硬上限内。
 // 仍不含工具、电脑、文件、私人记忆，这是红线，放大的只是时间与额度。
-export const GRANT_DAYS = 30;
-export const GRANT_MAX_AGENTS = 10;
-export const GRANT_MAX_CONCURRENT = 2;
-export const GRANT_DAILY_REQUESTS = 300;
-export const GRANT_DAILY_BUDGET_CENTS = 1000;
+export const GRANT_DAYS = 90;
+export const GRANT_MAX_AGENTS = 20;
+export const GRANT_MAX_CONCURRENT = 4;
+export const GRANT_DAILY_REQUESTS = 1000;
+export const GRANT_DAILY_BUDGET_CENTS = 5000;
 // 共享后台（知识 + 培养）每天模型调用总数；低于它时培养的每日次数会被共享上限先卡住。
-export const SHARED_MODEL_REQUESTS = 600;
+export const SHARED_MODEL_REQUESTS = 1500;
 export const GRANT_SCOPE = 'knowledge:approved-cultivation';
 // 预检里这些字段由放权本身写入或由放权后小语改一个布尔值解决；剩下只要不出现别的项，按钮就该可点。
 export const GRANTABLE_FIELDS = ['policy.enabled', 'policy.expiresAt', 'policy.models', 'policy.tools', 'policy.dataScopes',
@@ -94,13 +95,13 @@ export function sharedRequestPatch(knowledgePolicy) {
 // 服务器在 commandKinds 里用同一份判定，别在前端另写第二份。
 export function isBoundedPresetPolicy(policy, now = Date.now()) {
   if (!policy || typeof policy !== 'object') return false;
-  if (policy.enabled !== true || policy.recursive !== false || policy.motherLearning !== false) return false;
+  if (policy.enabled !== true || policy.recursive !== false || (policy.motherLearning !== undefined && typeof policy.motherLearning !== 'boolean')) return false;
   if (Array.isArray(policy.tools) && policy.tools.length) return false;
   if (Array.isArray(policy.dataScopes) && policy.dataScopes.some(s => s !== GRANT_SCOPE)) return false;
   if (!Array.isArray(policy.models) || policy.models.length < 1 || policy.models.length > 8) return false;
   const n = v => (typeof v === 'number' && Number.isSafeInteger(v)) ? v : -1;
   if ((n(policy.maxAgents) < 0 ? policy.maxAgents ?? 3 : policy.maxAgents) > GRANT_MAX_AGENTS) return false;
-  if (policy.maxConcurrent !== undefined && (n(policy.maxConcurrent) < 0 || policy.maxConcurrent > 3)) return false;
+  if (policy.maxConcurrent !== undefined && (n(policy.maxConcurrent) < 0 || policy.maxConcurrent > GRANT_MAX_CONCURRENT)) return false;
   if (n(policy.dailyRequests) > GRANT_DAILY_REQUESTS) return false;
   if (n(policy.dailyBudgetCents) > GRANT_DAILY_BUDGET_CENTS) return false;
   if (policy.timeoutMs !== undefined && (n(policy.timeoutMs) < 0 || policy.timeoutMs > GRANT_TIMEOUT_MS)) return false;
