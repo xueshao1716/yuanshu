@@ -3838,7 +3838,8 @@ function startServer() {
       }
     } catch (e) { console.log('  邮件桥: 启动失败', String(e?.message || e).slice(0, 80)); }
     // MCP 外部 server 连接：把已连接工具动态注入 UNIFIED_TOOLS，2026-10-08
-    try {
+    // 后台连接，不能 await：MCP 串行连接可能耗时数分钟，期间知识库/心跳/培养恢复都启动不了，对话会报「知识检索暂不可用」。
+    void (async () => { try {
       globalThis.__yuanshuMcpManager = mcpManager;
       const mcpResults = await mcpManager.bootAll();
       for (const r of mcpResults) {
@@ -3857,7 +3858,7 @@ function startServer() {
         }
       }
       if (mcpResults.length === 0) console.log('  MCP: 无已配置 server');
-    } catch (e) { console.log('  MCP: 启动失败', String(e?.message || e).slice(0, 80)); }
+    } catch (e) { console.log('  MCP: 启动失败', String(e?.message || e).slice(0, 80)); } })();
     console.log("");
     console.log("╭──────────────────────────────────────────────╮");
     console.log("│                元枢已启动                    │");
