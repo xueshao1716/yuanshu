@@ -13,9 +13,14 @@ test('单价×输出额度的最坏费用超过设计单次上限：预检直接
   const bad = await inspectProvider(catalog, { design: design(30), policy, sharedPolicy: shared(rate(100)) })
   const hit = bad.blockedBy.find((b) => b.code === 'cultivation_cost_cap_exceeded')
   assert.ok(hit, JSON.stringify(bad.blockedBy))
-  assert.match(hit.message, /41 美分/)
+  assert.match(hit.message, /4[6-9] 美分/)
   const ok = await inspectProvider(catalog, { design: design(30), policy, sharedPolicy: shared(rate(1)) })
   assert.ok(!ok.blockedBy.some((b) => b.code === 'cultivation_cost_cap_exceeded'))
+})
+
+test('预检把输入下限也算进去，与执行闸同一公式：仅输出 41 美分的设计在上限 45 时仍会被提前拦下', async () => {
+  const r = await inspectProvider(catalog, { design: design(45), policy, sharedPolicy: shared(rate(100)) })
+  assert.ok(r.blockedBy.some((b) => b.code === 'cultivation_cost_cap_exceeded'), JSON.stringify(r.blockedBy))
 })
 
 test('调度器把拒绝原因分开，不再统一报 request_denied', async () => {
