@@ -8,6 +8,9 @@
 
 ## [Unreleased]
 
+### Changed
+- 默认工作空间目录由 `pi-workspace` 改名 `yuanshu-space`：新装默认建在 `~/yuanshu-space`，已有 `D:\pi-workspace`/`~/pi-workspace` 的老用户自动沿用，数据不搬家（`engine/workspace-default.mjs` 统一探测，新名优先）。环境变量新增 `YUANSHU_WORKSPACE`，老的 `PI_WORKSPACE` 仍认。清掉工具说明、脚本、安装器里写死的 `D:\pi-workspace` 默认地址。
+
 ### Added
 - 主动通知（对齐 dots/muse）：新增 `engine/notifier.mjs` 和全局通知流 `/api/notify/stream`。跑了 45 秒以上的对话任务完成/失败、定时任务失败（或带 notify 的任务完成）、智能体调用新工具 `notify_user` 时，网页（浏览器通知）、Windows 客户端、手机客户端都会弹系统通知；打开了“通知发到微信”时同步发微信。智能体登记的定时任务默认完成后通知。
 - 心跳巡检（`engine/heartbeat.mjs`）：不调模型，每 30 分钟只查确定性事实——逾期的承诺、等你确认的操作、卡住的后台名额；同一件事只提醒一次，夜间不打扰，状态落盘重启不重复。`YUANSHU_HEARTBEAT=0` 可关，`YUANSHU_HEARTBEAT_MIN` 调间隔；`/api/agent-heartbeat` 查看状态。

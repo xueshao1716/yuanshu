@@ -3,7 +3,10 @@ $ErrorActionPreference = 'Stop'
 # Proxy env vars may exist twice (NO_PROXY/no_proxy); PS5.1 Start-Process throws on that. Dedupe first.
 . (Join-Path $PSScriptRoot 'ps-env-dedupe.ps1')
 $dir = $PSScriptRoot
-$workspaceRoot = if ($env:PI_WORKSPACE) { $env:PI_WORKSPACE } else { 'D:\pi-workspace' }
+$workspaceRoot = if ($env:YUANSHU_WORKSPACE) { $env:YUANSHU_WORKSPACE } elseif ($env:PI_WORKSPACE) { $env:PI_WORKSPACE } else {
+  $found = @('D:\yuanshu-space', 'D:\pi-workspace', (Join-Path $env:USERPROFILE 'yuanshu-space'), (Join-Path $env:USERPROFILE 'pi-workspace')) | Where-Object { Test-Path $_ } | Select-Object -First 1
+  if ($found) { $found } else { Join-Path $env:USERPROFILE 'yuanshu-space' }
+}
 $cacheRoot = Join-Path $workspaceRoot '.build-cache'
 New-Item -ItemType Directory -Force -Path (Join-Path $cacheRoot 'cargo'), (Join-Path $cacheRoot 'cargo-home'), (Join-Path $cacheRoot 'gradle'), (Join-Path $cacheRoot 'npm'), (Join-Path $cacheRoot 'tmp') | Out-Null
 $env:CARGO_TARGET_DIR = Join-Path $cacheRoot 'cargo'

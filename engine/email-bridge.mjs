@@ -4,9 +4,10 @@ import fs from "fs";
 import path from "path";
 import tls from "tls";
 import { fetch } from "undici";
+import { defaultWorkspace, workspaceFromEnv } from "./workspace-default.mjs";
 
 // ── 存储路径 ──────────────────────────────────────────────────
-const WS_ROOT = process.env.PI_WORKSPACE || path.join(process.env.USERPROFILE || process.env.HOME || "", "pi-workspace");
+const WS_ROOT = workspaceFromEnv() || defaultWorkspace();
 const EMAIL_DIR = path.join(WS_ROOT, ".yuanshu", "email");
 const CONFIG_FILE = path.join(EMAIL_DIR, "config.json");
 const TOKEN_FILE = path.join(EMAIL_DIR, "tokens.json");

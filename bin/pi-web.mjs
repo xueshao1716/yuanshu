@@ -6,6 +6,7 @@ import http from "node:http";
 import fs from "node:fs";
 import path from "node:path";
 import os from "node:os";
+import { defaultWorkspace } from "../engine/workspace-default.mjs";
 import { createRequire } from "node:module";
 
 // 定位元枢目录：优先环境变量，其次 npm 全局包，最后默认路径
@@ -68,7 +69,7 @@ function isRunning() {
 const isRunningNow = await isRunning();
 if (!isRunningNow) {
   console.log(`📦 启动元枢（${dir}）…`);
-  const cwd = process.env.PI_WEB_CWD || path.join(os.homedir(), "pi-workspace");
+  const cwd = process.env.PI_WEB_CWD || defaultWorkspace();
   try { fs.mkdirSync(cwd, { recursive: true }); } catch {}
   const child = spawn(process.execPath, ["server.mjs"], {
     cwd: dir,

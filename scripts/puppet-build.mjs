@@ -7,10 +7,11 @@
 import fs from 'node:fs'
 import path from 'node:path'
 import { execFileSync } from 'node:child_process'
+import { defaultWorkspace, workspaceFromEnv } from '../engine/workspace-default.mjs'
 
 const args = process.argv.slice(2)
 const opt = (n, d = '') => { const i = args.indexOf(`--${n}`); return i >= 0 ? args[i + 1] : d }
-const WS = process.env.PI_WORKSPACE || 'D:\\pi-workspace'
+const WS = workspaceFromEnv() || defaultWorkspace()
 const labelsFile = opt('labels', path.join(WS, '工程', '小语木偶', 'labels.json'))
 if (!fs.existsSync(labelsFile)) { console.error(`没有标注文件：${labelsFile}\n先在浏览器打开 /static/label.html 拖好 6 个框并点"保存到工作区"。`); process.exit(1) }
 const labels = JSON.parse(fs.readFileSync(labelsFile, 'utf8'))

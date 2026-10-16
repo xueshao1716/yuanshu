@@ -4,6 +4,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { atomicWriteText } from "./atomic-io.mjs";
 import { syncMemoryToTui } from "./memory-sync.mjs";
+import { defaultWorkspace } from "./workspace-default.mjs";
 
 const HEADING_RE = /^#{2,4}\s+\d{4}-\d{2}-\d{2}/;
 
@@ -119,7 +120,7 @@ export function upsertMemoryFact(wsRoot, { section = "", topic = "", text = "", 
     const entry = `### ${stampNow()}\n- topic: ${key}\n- status: current\n- 要点：${body}${reason ? `\n- 原因：${String(reason).trim()}` : ""}\n`;
     atomicWriteText(p.log, marked.raw.replace(/\n*$/, "\n") + entry + "\n");
     try {
-      const live = process.env.PI_WEB_CWD || (process.platform === "win32" ? "D:/pi-workspace" : path.join(os.homedir(), "pi-workspace"));
+      const live = process.env.PI_WEB_CWD || defaultWorkspace();
       if (path.resolve(wsRoot) === path.resolve(live)) syncMemoryToTui();
     } catch {}
     return { ok: true, key, superseded: marked.count };

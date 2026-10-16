@@ -501,7 +501,7 @@ export default function SetupWizard({ onDone }: { onDone: () => void }) {
                   style={{ background: 'var(--pi-bg2)', border: '1px solid var(--pi-border-soft)' }}>
                   {[
                     '直接说任务：「帮我看看工作区里有什么」',
-                    '产出放在 pi-workspace/交付/ 和 生成物/',
+                    '产出放在工作空间的 交付/ 和 生成物/',
                     '「系统 → 环境体检」查看各组件状态',
                   ].map(tip => (
                     <div key={tip} className="flex gap-2 text-xs" style={{ color: 'var(--pi-dim)' }}>

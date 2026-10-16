@@ -20,5 +20,6 @@ pkill -f "$PREFIX/app/server.mjs" 2>/dev/null || true
 rm -f "${XDG_CONFIG_HOME:-$HOME/.config}/autostart/yuanshu-service.desktop" "${XDG_DATA_HOME:-$HOME/.local/share}/applications/yuanshu.desktop" "$HOME/.local/bin/yuanshu"
 sleep 1
 rm -rf "$PREFIX"
-if [ "$PURGE" = 1 ]; then rm -rf "${YUANSHU_CWD:-$HOME/pi-workspace}"; echo "已卸载，工作区一并删除。"
-else echo "已卸载。工作区 ${YUANSHU_CWD:-$HOME/pi-workspace} 保留（要删除请加 --purge）。"; fi
+WS="${YUANSHU_CWD:-$HOME/yuanshu-space}"; [ -z "$YUANSHU_CWD" ] && [ ! -d "$WS" ] && [ -d "$HOME/pi-workspace" ] && WS="$HOME/pi-workspace"
+if [ "$PURGE" = 1 ]; then rm -rf "$WS"; echo "已卸载，工作区一并删除。"
+else echo "已卸载。工作区 $WS 保留（要删除请加 --purge）。"; fi

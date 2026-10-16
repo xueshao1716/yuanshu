@@ -120,6 +120,6 @@ cat <<EOS
 安装完成。
   打开元枢：运行 yuanshu（或在应用菜单里找「元枢」）；确保 $BIN_DIR 在 PATH 里
   浏览器地址：http://127.0.0.1:8787/（访问令牌在 $PREFIX/app/.token）
-  工作区：${YUANSHU_CWD:-$HOME/pi-workspace}
+  工作区：${YUANSHU_CWD:-$([ -d "$HOME/pi-workspace" ] && echo "$HOME/pi-workspace" || echo "$HOME/yuanshu-space")}
   卸载：yuanshu uninstall [--purge]
 EOS

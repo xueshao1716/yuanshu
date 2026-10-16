@@ -33,7 +33,7 @@ export function toWorkspaceRel(p) {
   }
   s = s.replace(/^\uFEFF/, "");
   const unified = s.replace(/\//g, "\\");
-  const ws = unified.match(/^[A-Za-z]:\\(?:[^\\]+\\)*pi-workspace\\(.+)$/i);
+  const ws = unified.match(/^[A-Za-z]:\\(?:[^\\]+\\)*(?:yuanshu-space|pi-workspace)\\(.+)$/i);
   if (ws) return ws[1].replace(/\\/g, "/");
   if (/^(生成物|工程|workshop-out|交付)[\\/]/i.test(s)) return s.replace(/\\/g, "/");
   return "";

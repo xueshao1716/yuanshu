@@ -10,6 +10,7 @@ import fs from "node:fs";
 import path from "node:path";
 import os from "node:os";
 import { fileURLToPath } from "node:url";
+import { defaultWorkspace } from "./engine/workspace-default.mjs";
 
 const require = createRequire(import.meta.url);
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -121,7 +122,7 @@ else {
 console.log("[5/5] 启动服务");
 const flag = process.argv.includes("--start") || process.argv.includes("--install");
 if (flag) {
-  const cwd = process.env.PI_WEB_CWD || path.join(os.homedir(), "pi-workspace");
+  const cwd = process.env.PI_WEB_CWD || defaultWorkspace();
   try { fs.mkdirSync(cwd, { recursive: true }); } catch {}
   try {
     const child = spawn(process.execPath, ["server.mjs"], {

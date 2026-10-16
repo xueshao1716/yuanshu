@@ -132,7 +132,7 @@ export function matchDenyRule(cmd) {
   return null;
 }
 
-// 模型常把 git-bash 写法带进文件工具：/d/pi-workspace/x、/tmp/x、~/x。
+// 模型常把 git-bash 写法带进文件工具：/d/space/x、/tmp/x、~/x。
 // 不归一的话 /d/... 会被当成「当前盘根下的 d 目录」，工作区里的文件也报越界。
 export function normalizeToolPath(p, { platform = process.platform, home = os.homedir(), tmp = os.tmpdir() } = {}) {
   const s = String(p ?? "");

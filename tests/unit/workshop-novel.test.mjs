@@ -10,6 +10,7 @@ import { fileURLToPath } from "node:url";
 let tmp = "";
 process.env.PI_NOVELS_DIR = "";
 const mod = await import("../../engine/workshop-novel.mjs");
+import { defaultWorkspace } from "../../engine/workspace-default.mjs";
 const src = fs.readFileSync(new URL("../../engine/workshop-novel.mjs", import.meta.url), "utf8");
 
 test("novelsDir 不写死 D 盘路径，env 优先、否则工作空间/novels", () => {
@@ -24,7 +25,7 @@ test("novelsDir 不写死 D 盘路径，env 优先、否则工作空间/novels",
   const viaRoot = mod.resolveNovelsDir({ env: {}, wsRoot: "E:\\ws" });
   assert.equal(viaRoot, path.join("E:\\ws", "novels"));
   const viaHome = mod.resolveNovelsDir({ env: {}, wsRoot: "" });
-  assert.equal(viaHome, path.join(os.homedir(), "pi-workspace", "novels"));
+  assert.equal(viaHome, path.join(defaultWorkspace(), "novels"));
 });
 
 describe("workshop-novel 数据层", () => {

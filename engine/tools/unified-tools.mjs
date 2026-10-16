@@ -42,7 +42,7 @@ export const BASE_TOOL_SCHEMAS = [
   // 描述由 bashToolDescription() 动态给：实际用哪个 shell 就写哪个，别再让模型自己猜
   // （真机：描述写 cmd 而 pi 用 bash，同一个模型在两边各试一套命令，循环里白白多花 4~6 次调用）。
   { type: "function", function: { name: "bash", get description() { return bashToolDescription() + "出图/视频/配音用 generate_image / generate_video / generate_tts，不要读 auth.json/.token。不要 curl 本机 /api/image，不要启动 Vite 5173 或第二份 8787。" }, parameters: { type: "object", properties: { command: { type: "string", description: "要运行的命令" } }, required: ["command"] } } },
-  { type: "function", function: { name: "read", description: "读取文件内容（工作空间内相对路径，或磁盘上的绝对路径如 D:/proj/file.json）", parameters: { type: "object", properties: { path: { type: "string", description: "文件路径" } }, required: ["path"] } } },
+  { type: "function", function: { name: "read", description: "读取文件内容（工作空间内相对路径，或磁盘上的绝对路径）", parameters: { type: "object", properties: { path: { type: "string", description: "文件路径" } }, required: ["path"] } } },
   { type: "function", function: { name: "write", description: "写入文件（自动创建目录）。文件很大时**必须分块**：第一块不带 append，后面的块带 append:true 追加（一次写太大的文件会被单次输出上限截断，整轮白费）", parameters: { type: "object", properties: { path: { type: "string", description: "文件路径（相对工作空间）" }, content: { type: "string", description: "文件内容（分块时是这一块的内容）" }, append: { type: "boolean", description: "true = 追加到文件末尾（分块写后续块用）；不传 = 覆盖写" } }, required: ["path", "content"] } } },
   { type: "function", function: { name: "edit", description: "用精确文本替换修改文件（先 read 再 edit）", parameters: { type: "object", properties: { path: { type: "string" }, oldText: { type: "string" }, newText: { type: "string" } }, required: ["path", "oldText", "newText"] } } },
   { type: "function", function: { name: "web_search", description: "联网搜索（Bing，无需 key）。未知事实、时效新闻才搜；独白/剧本/本会话已说过的事先按判断写。一次一两个查询，锁不到人就动手并汇报假设。", parameters: { type: "object", properties: { query: { type: "string", description: "搜索关键词（中文/英文均可）" } }, required: ["query"] } } },
@@ -258,7 +258,7 @@ const SHELL_HYGIENE = " 规矩：① 写中文内容一律用 write 工具，不
 export function bashToolDescription() {
   const shell = detectBashShell();
   return shell
-    ? "运行 bash（git-bash / MINGW64，Unix 语法）。用 grep -n / ls -1 | wc -l / find / sed 这类命令；工作空间路径写 /d/pi-workspace/... 或 D:/pi-workspace/... 都可以。不要用 cmd 的 findstr/dir/type(search 用 grep)。" + SHELL_HYGIENE
+    ? "运行 bash（git-bash / MINGW64，Unix 语法）。用 grep -n / ls -1 | wc -l / find / sed 这类命令；命令默认就在工作空间目录下运行，优先用相对路径；写绝对路径时 /d/x 或 D:/x 两种都认。不要用 cmd 的 findstr/dir/type(search 用 grep)。" + SHELL_HYGIENE
     : "运行 Windows cmd.exe（不是 bash/PowerShell）。优先使用工作空间相对路径，媒体下载先 mkdir 再 curl/ffmpeg；不要用 grep/ls（用 findstr/dir）。" + SHELL_HYGIENE;
 }
 
@@ -536,7 +536,7 @@ export function createUnifiedToolExecutorGuarded(deps = {}) {
   const inner = createUnifiedToolExecutor(deps);
   return async function executeUnifiedTool(name, args, ctx) {
     // git-bash 风格路径（/d/x、/tmp/x、~/x）统一归一：否则 safeJoin 会去掉开头的 /，
-    // 把 /d/pi-workspace/a.md 变成 <工作区>/d/pi-workspace/a.md，写到错误位置。
+    // 把 /d/space/a.md 变成 <工作区>/d/space/a.md，写到错误位置。
     if (args && typeof args === "object" && typeof args.path === "string") {
       const np = normalizeToolPath(args.path);
       if (np !== args.path) args = { ...args, path: np };

@@ -4,7 +4,7 @@
 // 而它们此前只在手动启动时存在（元枢有自己的 watchdog，这两个没有）。
 //
 // 这个脚本按隧道配置把两个本地服务拉起来：
-//   分享入口 → 127.0.0.1:8644 → D:\pi-workspace\外网分享\server.js (PORT=8644)
+//   分享入口 → 127.0.0.1:8644 → <工作空间>\外网分享\server.js (PORT=8644)
 //   novel.example.com → 127.0.0.1:8790 → D:\novel-studio\server.mjs
 // 幂等：端口已经在听就跳过（不再重复 bind，也不会出现两个进程抢同一个端口）。
 // 用法：node scripts/serve-public-entries.mjs [--check]
@@ -13,12 +13,15 @@ import net from "node:net";
 import path from "node:path";
 import { spawn } from "node:child_process";
 
-const LOG_DIR = path.join(process.env.PI_WORKSPACE || "D:\\pi-workspace", "记忆", "运行时");
+import { defaultWorkspace, workspaceFromEnv } from "../engine/workspace-default.mjs";
+
+const WS_ROOT = workspaceFromEnv() || defaultWorkspace();
+const LOG_DIR = path.join(WS_ROOT, "记忆", "运行时");
 const ENTRIES = [
   {
     name: "外网分享",
     port: 8644,
-    cwd: path.join(process.env.PI_WORKSPACE || "D:\\pi-workspace", "外网分享"),
+    cwd: path.join(WS_ROOT, "外网分享"),
     script: "server.js",
     env: { PORT: "8644" },
   },

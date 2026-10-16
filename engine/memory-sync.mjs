@@ -1,11 +1,12 @@
 // 元枢 ↔ TUI 记忆同步脚本
 // 作用：把元枢的记忆文件（记忆.md/记忆日志/经验库）同步到 TUI 项目级 APPEND_SYSTEM.md
-// 这样 TUI 在 D:\pi-workspace 下运行时，加载同一份记忆，两端记忆相通
+// 这样 TUI 在工作空间下运行时，加载同一份记忆，两端记忆相通
 import fs from "node:fs";
 import { atomicWriteText } from "./atomic-io.mjs";
 import path from "node:path";
 import os from "node:os";
 import { env } from "./env.mjs";
+import { existingWorkspace } from "./workspace-default.mjs";
 import { watchMemorySources } from './memory-source-watch.mjs';
 
 // M1 路径外部化：工作空间根不再写死盘符——
@@ -20,12 +21,7 @@ export function initMemorySync({ wsRoot, watch = false, interval = 1000 } = {}) 
 }
 function defaultWs() {
   if (env("CWD")) return env("CWD");
-  for (const drive of ["D:", "E:", "C:"]) {
-    const p = path.join(drive, path.sep === "\\" ? "pi-workspace" : "pi-workspace");
-    try { if (fs.statSync(p).isDirectory()) return p; } catch {}
-  }
-  try { const p = path.join(os.homedir(), "pi-workspace"); if (fs.statSync(p).isDirectory()) return p; } catch {}
-  return process.cwd();
+  return existingWorkspace() || process.cwd();
 }
 const WS = () => _wsOverride || defaultWs();
 const OUT = () => path.join(WS(), ".pi", "APPEND_SYSTEM.md");

@@ -4,6 +4,7 @@ import { runtimeIdentity } from "./runtime-identity.mjs";
 import { rhythmPhrase } from "./activity-rhythm.mjs";
 import { loadPersonaDefinition, renderPersonaSection } from "./persona-def.mjs";
 import { soulContextPrompt } from "./soul-context.mjs";
+import { workspaceFromEnv } from "./workspace-default.mjs";
 
 export const SEAM_PROMPT = "prompt-section";
 
@@ -125,7 +126,7 @@ export function assembleYuanshuSystem(baseOpts = {}, registry = null, ctx = {}) 
     // 只有一句模型来源，所以她在这条路上的"是谁"是不确定的。
     let persona = "";
     try {
-      const wsRoot = ctx.wsRoot || process.env.PI_WORKSPACE || process.cwd();
+      const wsRoot = ctx.wsRoot || workspaceFromEnv() || process.cwd();
       const { def } = loadPersonaDefinition(wsRoot);
       persona = renderPersonaSection(def, { genes: ctx.genes || null, model: ctx.model });
     } catch {}
@@ -133,7 +134,7 @@ export function assembleYuanshuSystem(baseOpts = {}, registry = null, ctx = {}) 
     if (persona) merged.persona = persona;
   }
   try {
-    const soul = soulContextPrompt(ctx.wsRoot || process.env.PI_WORKSPACE || process.cwd());
+    const soul = soulContextPrompt(ctx.wsRoot || workspaceFromEnv() || process.cwd());
     if (soul) merged.persona = [merged.persona, soul].filter(Boolean).join("\n\n");
   } catch {}
   const identity = runtimeIdentity(ctx);

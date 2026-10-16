@@ -263,13 +263,14 @@ const feedbackStore = createFeedbackStore({
 });
 
 // 自动问题上报（2026-10-13）：分发主机的元枢自动把 crash/重启/模型连败整理成报告发回开发者。
-// 开发机自己（D:/pi-workspace）不发——开发者知道自己出了什么问题。
+// 开发机自己（D 盘工作空间）不发——开发者知道自己出了什么问题。
+import { defaultWorkspace } from "./engine/workspace-default.mjs";
 const { collectIncidents, reportIncidents, isEnabled, setEnabled } = await import("./engine/telemetry.mjs");
-const WATCHDOG_LOG = path.join(process.env.YUANSHU_CWD || path.join(process.env.USERPROFILE || os.homedir(), "pi-workspace"), "watchdog.log");
+const WATCHDOG_LOG = path.join(process.env.YUANSHU_CWD || defaultWorkspace(), "watchdog.log");
 async function telemetrySweep(manual = false) {
   try {
     if (!isEnabled(WS_ROOT)) return { sent: false, reason: "disabled" };
-        if (String(WS_ROOT).split(path.sep).join("/").toLowerCase() === "d:/pi-workspace") return { sent: false, reason: "dev_machine" };
+        if (/^d:\/(pi-workspace|yuanshu-space)$/.test(String(WS_ROOT).split(path.sep).join("/").toLowerCase())) return { sent: false, reason: "dev_machine" };
     let watchdogRestarts = 0, crashTail = "";
     try {
       const tail = fs.readFileSync(WATCHDOG_LOG, "utf8").slice(-20000);

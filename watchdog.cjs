@@ -11,8 +11,8 @@ const PORT = 8787;
 const WEB_DIR = __dirname;
 const LOCK = path.join(WEB_DIR, ".watchdog.lock");
 // 2026-10-08 日志写到工作空间而非 WEB_DIR（Program Files 下无写权限）
-// 优先用 YUANSHU_CWD，fallback 到 USERPROFILE/pi-workspace，再 fallback 到 WEB_DIR
-const _logDir = process.env.YUANSHU_CWD || path.join(process.env.USERPROFILE || require('os').homedir(), 'pi-workspace');
+// 优先用 YUANSHU_CWD，fallback 到 USERPROFILE/yuanshu-space（老用户已有 pi-workspace 则沿用），再 fallback 到 WEB_DIR
+const _logDir = process.env.YUANSHU_CWD || (() => { const b = process.env.USERPROFILE || require('os').homedir(); const n = path.join(b, 'yuanshu-space'), o = path.join(b, 'pi-workspace'); return fs.existsSync(n) || !fs.existsSync(o) ? n : o; })();
 try { fs.mkdirSync(_logDir, { recursive: true }); } catch {}
 const LOG = (() => { try { const p = path.join(_logDir, 'watchdog.log'); fs.appendFileSync(p, ''); return p; } catch { return path.join(WEB_DIR, 'watchdog.log'); } })();
 let restartCount = 0;
@@ -239,9 +239,10 @@ function shouldRunMain(mainModule, self) {
 function resolveWorkspace(env = process.env, { isDirectory = (p) => { try { return fs.statSync(p).isDirectory(); } catch { return false; } },
   home = require("os").homedir(), platform = process.platform } = {}) {
   if (env.YUANSHU_CWD) return env.YUANSHU_CWD;
-  const own = path.join(env.USERPROFILE || home, "pi-workspace");
-  const candidates = platform === "win32" ? ["D:\\pi-workspace", "E:\\pi-workspace", "C:\\pi-workspace", own] : [own];
-  return candidates.find(isDirectory) || own;
+  const base = env.USERPROFILE || home;
+  const roots = platform === "win32" ? ["D:\\", "E:\\", "C:\\", base] : [base];
+  const candidates = roots.flatMap((r) => ["yuanshu-space", "pi-workspace"].map((n) => path.join(r, n)));
+  return candidates.find(isDirectory) || path.join(base, "yuanshu-space");
 }
 
 module.exports = { resolveWorkspace, decideRollback, serverSyntaxOk, rollbackServer, shouldRunMain, ROLLBACK_AFTER, ENV_ERROR_RE, CODE_ERROR_RE };

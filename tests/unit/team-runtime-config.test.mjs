@@ -23,8 +23,10 @@ test('workspace precedence is shared and deterministic across drives', () => {
   const seen = [];
   const workspace = defaultWorkspace({ platform: 'win32', home: 'C:\\Users\\fixture', isDirectory: candidate => { seen.push(candidate); return candidate === 'C:\\pi-workspace'; } });
   assert.equal(workspace, 'C:\\pi-workspace');
-  assert.deepEqual(seen, ['D:\\pi-workspace', 'E:\\pi-workspace', 'C:\\pi-workspace']);
-  assert.equal(defaultWorkspace({ platform: 'linux', home: '/home/fixture', isDirectory: () => false }), path.join('/home/fixture', 'pi-workspace'));
+  assert.deepEqual(seen, ['D:\\yuanshu-space', 'D:\\pi-workspace', 'E:\\yuanshu-space', 'E:\\pi-workspace', 'C:\\yuanshu-space', 'C:\\pi-workspace']);
+  assert.equal(defaultWorkspace({ platform: 'linux', home: '/home/fixture', isDirectory: () => false }), path.join('/home/fixture', 'yuanshu-space'));
+  assert.equal(defaultWorkspace({ platform: 'linux', home: '/home/fixture', isDirectory: c => c.endsWith('pi-workspace') }), path.join('/home/fixture', 'pi-workspace'), 'legacy dir keeps working');
+  assert.equal(defaultWorkspace({ platform: 'linux', home: '/home/fixture', isDirectory: () => true }), path.join('/home/fixture', 'yuanshu-space'), 'new name wins when both exist');
 });
 test('token fallback is relative to repository and never generated', () => {
   let requested;

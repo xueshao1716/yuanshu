@@ -16,7 +16,7 @@ export const IMAGE_EXPERIMENT = {
 export function imageExperimentCases() {
   const remote = 'https://images.example.invalid/generated/image.png';
   const other = 'https://other.example.invalid/generated/image.png';
-  const target = 'D:/pi-workspace/生成物/图片/实验样例.png';
+  const target = 'D:/yuanshu-space/生成物/图片/实验样例.png';
   const local = '/api/ws/file?path=' + encodeURIComponent('生成物/图片/实验样例.png');
   const tool = { name: 'bash', running: false, isError: false,
     args: { command: `curl -sL -o "${target}" "${remote}"` }, output: 'download complete' };

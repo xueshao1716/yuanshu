@@ -5,6 +5,7 @@ import path from "node:path";
 import fs from "node:fs";
 import os from "node:os";
 import { WS_ROOT } from "./workspace-api.mjs";
+import { defaultWorkspace } from "./workspace-default.mjs";
 import { PIPELINE_NODES, findNode, nodeTemplate, isNodeReady } from "./workshop-novel-nodes.mjs";
 
 export { PIPELINE_NODES, findNode };
@@ -12,7 +13,7 @@ export { PIPELINE_NODES, findNode };
 export function resolveNovelsDir({ env = process.env, wsRoot = WS_ROOT } = {}) {
   if (env.PI_NOVELS_DIR) return env.PI_NOVELS_DIR;
   if (wsRoot) return path.join(wsRoot, "novels");
-  return path.join(os.homedir(), "pi-workspace", "novels");
+  return path.join(defaultWorkspace(), "novels");
 }
 
 export function novelsDir() {
