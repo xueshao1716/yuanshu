@@ -164,6 +164,9 @@ test('同步各端文件：插核心块、幂等、留备份、原有内容一�
     assert.equal(jd.anchors[0].value, '诚实', '原字段保留');
     assert.equal(jd.persona.name, '曦');
     assert.equal(jd.persona.age, 20);
-    assert.ok(loadSurfaces(dir)['xi-system'], '各端配置可加载');
+    assert.deepEqual(Object.keys(loadSurfaces(dir)), ['yuanshu'], '仓库默认只带元枢自己，不含别的端的个人路径');
+    fs.mkdirSync(path.join(dir, '记忆'), { recursive: true });
+    fs.writeFileSync(path.join(dir, '记忆', '人格-各端.json'), JSON.stringify({ other: { name: '曦', files: [f] } }), 'utf8');
+    assert.ok(loadSurfaces(dir).other, '各端配置从工作空间的 人格-各端.json 加载');
   } finally { fs.rmSync(dir, { recursive: true, force: true }); }
 });

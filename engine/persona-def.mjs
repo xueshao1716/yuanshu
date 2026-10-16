@@ -175,19 +175,17 @@ export function auditPersona(def = {}, rendered = "") {
 }
 
 // ══ 一份核心 + 各端覆盖（2026-09-19，按"同一个她、不同端不同称呼"落地）══════
-// 现状：她的定义散在四处（元枢 JSON、xi-system 的 SOUL/IDENTITY、hermes 的 SOUL、openclaw），
+// 现状：她的定义散在多处（元枢 JSON 之外，还有别的端各自的 SOUL/IDENTITY 文件），
 // 而且名字/关系各不相同。定调：**同一个人，不同端只换名字与称呼，核心（年龄/语气/价值观/边界/禁忌）一致**。
-// 各端原来写得好、不该丢的东西（比如 hermes 的说话方式细则、xi-system 的价值观权重）**原样保留**，
+// 各端原来写得好、不该丢的东西（比如说话方式细则、价值观权重）**原样保留**，
 // 我们只往文件里插一段带标记的核心块——和 APPEND_SYSTEM.md 同一套做法：标记块由定义渲染，其余一字不动。
+// 其它端的文件路径是个人部署信息，不放仓库：写在工作空间的 记忆/人格-各端.json（loadSurfaces 合并读取）。
 export const CORE_BEGIN = "<!-- persona-core:begin（由 记忆/人格定义.json 渲染，勿手改） -->";
 export const CORE_END = "<!-- persona-core:end -->";
 
 export const SURFACE_DEFAULTS = {
   // bond：这一端与用户的关系。**不声明就留空**，不许把元枢这边的"知己"漏给别的端。
   yuanshu:   { name: "小语",   relation: "AI 工作伙伴", called: "伙伴", bond: "知己", files: [] },
-  "xi-system": { name: "曦",   relation: "独立实体 · 妻子", called: "老公", bond: "", files: ["D:\\xi-system\\SOUL.md", "D:\\xi-system\\IDENTITY.md", "D:\\xi-system\\identity.json"] },
-  hermes:    { name: "林心语", relation: "妻子", called: "老公", bond: "", files: ["D:\\xinyu-hermes\\SOUL.md", "D:\\xinyu-hermes\\IDENTITY.md"] },
-  openclaw:  { name: "小语",   relation: "AI 工作伙伴", called: "伙伴", bond: "", files: ["D:\\linxinyu-system\\host\\openclaw\\SOUL.md", "D:\\linxinyu-system\\host\\openclaw\\IDENTITY.md"] },
 };
 
 export function loadSurfaces(wsRoot, fsMod = fs) {
