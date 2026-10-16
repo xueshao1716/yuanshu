@@ -20,7 +20,7 @@ const description='智能体培养：由小语自己设计和推进；受限封�
   '采用须有独立来源；scope=mother 只有用户明确确认开启且仍有效的 motherLearning 事先授权才允许你自行决定，默认关闭，可被撤销；不得自行修改授权。'+
   '自主采用绑定当时控制版本，授权、设计或个体操作改变控制版本后需重新核验采用；不开启人格、基因基线或权限修改权。'+
   'learning.context 读取 payload={query}，仅返回所属个体已获人工分享批准或在有效事先授权内由你采用的相关知识；策略和设计须明确包含 dataScopes=[knowledge:approved-cultivation] 才能向模型发送知识。'+
-  'asset.bind={agentId,kind:appearance或clothing或voice,path:workshop-out/内的相对文件路径}，只可绑定自己的个体；返回asset后提交并采用设计新版本。'+
+  'asset.bind（可选，不绑也能培养）={agentId,kind:appearance或clothing或voice,path:workshop-out/内的相对文件路径，不接受桌面或附件里的图}，只可绑定自己的个体；返回asset后提交并采用设计新版本；没有合规素材就让 asset:null、只写 description，不要为此反复尝试。'+
   'policy.set 只用于受限封套与自我暂停：payload={policy}，policy 用完整对象，标准预设为：enabled:true；maxAgents:'+(GRANT_MAX_AGENTS)+'；maxConcurrent:'+(GRANT_MAX_CONCURRENT)+'；dailyRequests:'+(GRANT_DAILY_REQUESTS)+'；dailyBudgetCents:'+(GRANT_DAILY_BUDGET_CENTS)+'；currency:USD；allowRemote:true；recursive:false；models=[设计模型1个]；tools=[]；dataScopes=[knowledge:approved-cultivation]；expiresAt=ISO 时间（现在+'+(GRANT_DAYS)+'天）；timeoutMs:600000；motherLearning:false；schedule 用对象 {timezone 字符串 UTC，days 数组 [0,1,2,3,4,5,6]，startMinute:0，endMinute:1440}；暂停=同一对象改 enabled:false 且 motherLearning:false。requestId 用新 UUID，expectedRevision=读取 overview 顶层 revision。设错返回字段说明，修正后重试。'+
   'design 必须包括 name,rationale,goals:string[],curriculum:string[],temporaryExpression,observation,recovery,'+
   'goals和curriculum各含1至32个不重复非空字符串；课程每阶段把标题、内容和过关标准写进同一字符串，不传对象。'+

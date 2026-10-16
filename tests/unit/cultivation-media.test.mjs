@@ -63,3 +63,12 @@ test('asset.bind 把「没这个个体」「不是你的个体」与「没带身
   assert.ok(fr.includes("'agent_not_yours'") && fr.includes('不是你培养的') && fr.includes('不要让主人去授权页'));
   assert.ok(src('engine/cultivation/api.mjs').includes("'agent_not_yours'"));
 });
+test('asset_unverified 的失败说明告诉模型素材可选、asset 填 null 即可',async()=>{
+  const {createFailureReporting}=await import('../../engine/cultivation/failure-reporting.mjs');
+  const report=createFailureReporting({history:{record:async()=>({recorded:true})},controls:{read:()=>({data:{receipts:[]}})},diagnostics:{preflight:async()=>null}});
+  const out=await report(new Error('cultivation_asset_unverified'),{action:'design.submit',requestId:'r1',payload:{}},{commandHash:'h'});
+  const {cultivationFailureDetails}=await import('../../engine/cultivation/diagnostics.mjs');
+  const d=JSON.stringify(cultivationFailureDetails(out));
+  assert.match(d,/asset 设为 null/);
+  assert.match(d,/workshop-out/);
+});
