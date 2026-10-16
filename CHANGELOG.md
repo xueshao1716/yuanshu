@@ -8,6 +8,16 @@
 
 ## [Unreleased]
 
+## [2.127.15] - 2026-10-16
+
+## [2.127.14] - 2026-10-16
+
+- 修复：灵魂培养页形象照不显示。根因＝PortraitSlot 用 HEAD 探测 companion.png，而服务端静态白名单只放行 GET，探测被 401 拒掉后整块不渲染。探测改 GET（前端，即改即生效），同时 server.mjs 静态白名单补放行 HEAD（治本，重启后生效）。
+
+## [2.127.13] - 2026-10-16
+
+- 新增通用伙伴形象位：灵魂培养页支持展示部署方自定义形象照（`frontend/src/soul/cultivation/PortraitSlot.tsx`，探测 `/static/portraits/companion.png` + 可选 `companion.json` 文案，无文件则整块不渲染，不影响其他部署）。
+- 本部署启用：小语官方形象 v2（3D 半写实国漫 · 橙白机能风，512px/331KB）落位 `public/portraits/`。
 ### Changed
 - 默认工作空间目录由 `pi-workspace` 改名 `yuanshu-space`：新装默认建在 `~/yuanshu-space`，已有 `D:\pi-workspace`/`~/pi-workspace` 的老用户自动沿用，数据不搬家（`engine/workspace-default.mjs` 统一探测，新名优先）。环境变量新增 `YUANSHU_WORKSPACE`，老的 `PI_WORKSPACE` 仍认。清掉工具说明、脚本、安装器里写死的 `D:\pi-workspace` 默认地址。
 

@@ -3663,7 +3663,7 @@ const server = http.createServer(async (req, res) => {
   // 请求级 request-id：排查并发问题时能关联同一次请求的日志（小米 4.13）
   const reqId = Date.now().toString(36) + "-" + Math.random().toString(36).slice(2, 8);
   res.setHeader("X-Request-Id", reqId);
-  const lifecycle = observeHttpRequest(req, res, reqId, line => console.log(line));
+  const lifecycle = observeHttpRequest(req, res, reqId, line => console.log(line), { slowMs: 1500, onSlow: entry => recordSlowRequest(entry) });
   // CORS：只允许已知本地壳 origin 和显式配置的远程前端，不能反射任意 Origin。
   for (const [name, value] of Object.entries(corsPolicy.headers(req.headers.origin))) res.setHeader(name, value);
   if (req.method === "OPTIONS") { res.writeHead(204); res.end(); return; }
@@ -3684,8 +3684,8 @@ const server = http.createServer(async (req, res) => {
       res.setHeader("X-Frame-Options", "SAMEORIGIN");
       res.setHeader("Content-Security-Policy", "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com https://fonts.loli.net; img-src 'self' data: blob: https:; media-src 'self' data: blob: https:; connect-src 'self' https://fonts.googleapis.com https://fonts.gstatic.com; worker-src 'self' blob:; font-src 'self' data: https://fonts.gstatic.com https://fonts.googleapis.com https://fonts.loli.net https://gstatic.loli.net; frame-ancestors 'self'");
     }
-    const isStatic = (req.method === "GET" && (url.pathname === "/" || url.pathname === "/index.html" || url.pathname === "/sw.js" || url.pathname === "/api/health" || WORKSHOP_PAGES[url.pathname])) ||
-                     (req.method === "GET" && (url.pathname.startsWith("/static/") || url.pathname.startsWith("/assets/") || url.pathname.startsWith("/legacy/") || url.pathname === "/vite.svg" || url.pathname === "/manifest.webmanifest" || url.pathname.startsWith("/icons/")));
+    const isStatic = ((req.method === "GET" || req.method === "HEAD") && (url.pathname === "/" || url.pathname === "/index.html" || url.pathname === "/sw.js" || url.pathname === "/api/health" || WORKSHOP_PAGES[url.pathname])) ||
+                     ((req.method === "GET" || req.method === "HEAD") && (url.pathname.startsWith("/static/") || url.pathname.startsWith("/assets/") || url.pathname.startsWith("/legacy/") || url.pathname === "/vite.svg" || url.pathname === "/manifest.webmanifest" || url.pathname.startsWith("/icons/")));
     // 健康探活接口免 token（只返回 {ok:true}，无敏感信息）：安卓客户端连接页需在没有 token 时也能探地址是否可达（2026-08-31 修：之前需鉴权导致探活永远 401，客户端误判为连不上）
     // 签名文件链接（filebox 签名）免 token：签名本身是凭证
     let isSignedFile = false;
@@ -4147,6 +4147,15 @@ function rebuildRecallQuietly() {
 }
 setTimeout(rebuildRecallQuietly, 5 * 60 * 1000).unref?.();
 setInterval(rebuildRecallQuietly, RECALL_REBUILD_MS).unref?.();
+
+// 慢请求留证据（>1.5s，不含事件流）：和 事件循环停顿.jsonl 对时间戳，就能看出卡的那一刻是谁在占线。
+function recordSlowRequest(entry) {
+  try {
+    const file = path.join(WS_ROOT, "记忆", "运行时", "慢请求.jsonl");
+    try { if (fs.statSync(file).size > 2 * 1024 * 1024) return; } catch {}
+    fs.appendFileSync(file, JSON.stringify(entry) + "\n");
+  } catch {}
+}
 
 // ── 事件循环停顿监测（2026-09-19）────────────────────────────────────────────
 // 背景：真机实测服务端出现过一次 ~90 秒的整段阻塞（/api/health 连续三次 30s 超时，之后恢复 12ms）。

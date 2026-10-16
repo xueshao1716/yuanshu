@@ -1,7 +1,7 @@
 import { json } from './http-utils.mjs';
 
 /** Observe the transport, not the lifetime of the route handler's promise. */
-export function observeHttpRequest(req, res, requestId, log = console.log) {
+export function observeHttpRequest(req, res, requestId, log = console.log, { slowMs = 0, onSlow = null } = {}) {
   const started = performance.now();
   // Capture before static handlers rewrite req.url. Never log queries or headers.
   let pathname = '/';
@@ -15,9 +15,14 @@ export function observeHttpRequest(req, res, requestId, log = console.log) {
     res.off('close', onClose);
     if (pathname.startsWith('/static/')) return;
     try {
-      log(JSON.stringify({ event: 'http_request', requestId, method: req.method,
-        path: pathname, status: res.statusCode, outcome: failed ? 'failed' : outcome,
-        durationMs: Math.round(performance.now() - started) }));
+      const durationMs = Math.round(performance.now() - started);
+      const entry = { event: 'http_request', requestId, method: req.method,
+        path: pathname, status: res.statusCode, outcome: failed ? 'failed' : outcome, durationMs };
+      log(JSON.stringify(entry));
+      // 慢请求单独留证据；长连接（事件流）本来就久，不算。
+      if (onSlow && slowMs > 0 && durationMs >= slowMs && !/event-stream/i.test(String(res.getHeader('content-type') || ''))) {
+        onSlow({ at: new Date().toISOString(), ...entry });
+      }
     } catch { /* Logging must never break a response. */ }
   };
   const onFinish = () => record('finished');

@@ -8,6 +8,7 @@ import Authorization from './Authorization'
 import PolicyPreset from './PolicyPreset'
 import GrantStatus, { grantState } from './GrantStatus'
 import VerdictBadge from './VerdictBadge'
+import PortraitSlot from './PortraitSlot'
 import { queueDraft } from '../../components/xiaoyu/companion-draft.mjs'
 import './cultivation.css'
 
@@ -75,6 +76,7 @@ export default function Cultivation({sessionId}:{sessionId:string}) {
 
   return <div className="cultivation-panel">
     <Block title="小语的培养工作室" hint="小语设计和培养子智能体，开关与额度她自己管，越线才找你；你只需要看她养了谁、结果好不好。不需要电脑密码。">
+      <PortraitSlot/>
       <LoadState error={overview.error} loading={overview.isLoading} retry={() => retry(overview.mutate)}/>
       {overview.data && (
         <>

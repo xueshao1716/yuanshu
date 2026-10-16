@@ -34,3 +34,9 @@
 .curves-svg { width: 100%; height: 120px; display: block; border-bottom: 1px solid var(--pi-border-soft, rgba(128,128,128,.25)); }
 .curves-x { display: flex; justify-content: space-between; font-size: 10px; color: var(--pi-dim2, #888); margin-top: 2px; }
 .curves-legend { display: flex; gap: 12px; font-size: 11px; margin-top: 6px; }
+/* 通用伙伴形象位（v2.127.13）：图片由部署方放 public/portraits/companion.png，无则整块不渲染 */
+.cultivation-portrait { display: flex; align-items: center; gap: 14px; margin: 0 0 14px; }
+.cultivation-portrait img { width: 72px; height: 72px; object-fit: cover; border-radius: 16px; border: 1px solid var(--pi-border-soft); display: block; }
+.cultivation-portrait figcaption { display: grid; gap: 2px; min-width: 0; }
+.cultivation-portrait figcaption strong { font-weight: 650; }
+.cultivation-portrait figcaption span { color: var(--pi-dim); font-size: 14px; }
