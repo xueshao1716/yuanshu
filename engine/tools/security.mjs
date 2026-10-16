@@ -147,7 +147,10 @@ export function normalizeToolPath(p, { platform = process.platform, home = os.ho
 
 // 工作空间路径安全：解析后必须落在 root 内（防 ../ 越权 + symlink 越权）
 export function safeJoin(root, p) {
-  const resolved = path.resolve(root, String(p || "").replace(/^\/+/, ""));
+  const raw = String(p || "");
+  // 绝对路径本身就落在 root 内时原样采用：资产列表的文件地址带的是绝对路径，Linux 下 /home/... 被去掉前导斜杠会拼成 root/home/...，找不到文件，资产库一片空白。
+  const abs = path.isAbsolute(raw) ? path.resolve(raw) : null;
+  const resolved = abs && (abs === root || abs.startsWith(root + path.sep)) ? abs : path.resolve(root, raw.replace(/^\/+/, ""));
   if (resolved !== root && !resolved.startsWith(root + path.sep)) return null;
   // P1 安全加固：symlink 越权防护——解析真实路径后再校验边界
   try {
