@@ -21,6 +21,16 @@ test("readMemoryFiles：缺的文件标出来，不抛", () => {
   assert.equal(files[0].count, 2);
   assert.equal(files[0].label, "固定记忆");
   assert.ok(files.slice(1).every((f) => f.missing));
+  // 经验库真实位置是 工程/经验库/experience.md（记忆/经验库.md 仅作备选）；没文件就是"暂无"，不是"缺失"
+  fs.mkdirSync(path.join(root, "工程", "经验库"), { recursive: true });
+  fs.writeFileSync(path.join(root, "工程", "经验库", "experience.md"), "## 甲\n## 乙\n");
+  const lessons = readMemoryFiles(root).find((f) => f.label === "经验库");
+  assert.equal(lessons.count, 2);
+  assert.equal(lessons.rel, "工程/经验库/experience.md");
+  const g = buildSoulGraph({ memory: readMemoryFiles(root) });
+  const absent = g.nodes.find((n) => n.id === "mem:记忆/纠正记忆.md");
+  assert.equal(absent.metric, "暂无");
+  assert.doesNotMatch(JSON.stringify(g.nodes.filter((n) => n.hub === "memory")), /缺失/);
 });
 
 test("buildSoulGraph：核心 → 五个枢纽 → 叶子，跨枢纽连线只连存在的节点", () => {

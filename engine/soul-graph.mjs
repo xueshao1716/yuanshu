@@ -20,7 +20,7 @@ export const MEMORY_FILES = [
   ["记忆.md", "固定记忆", "Core"],
   ["记忆/纠正记忆.md", "纠正", "Corrections"],
   ["记忆/关系记忆.md", "关系", "Relationship"],
-  ["记忆/经验库.md", "经验库", "Lessons"],
+  ["工程/经验库/experience.md", "经验库", "Lessons", ["记忆/经验库.md"]],
   ["记忆/技能记忆.md", "技能记忆", "Skill notes"],
   ["记忆/记忆日志.md", "记忆日志", "Journal"],
 ];
@@ -44,14 +44,15 @@ export function summarizeMemoryText(text, rel) {
 }
 
 export function readMemoryFiles(wsRoot) {
-  return MEMORY_FILES.map(([rel, label, en]) => {
-    const file = path.join(wsRoot, rel);
-    try {
-      const st = fs.statSync(file);
-      return { rel, label, en, bytes: st.size, mtime: st.mtimeMs, ...summarizeMemoryText(fs.readFileSync(file, "utf-8"), rel) };
-    } catch {
-      return { rel, label, en, missing: true, count: 0, items: [] };
+  return MEMORY_FILES.map(([rel, label, en, alts = []]) => {
+    for (const r of [rel, ...alts]) {
+      const file = path.join(wsRoot, r);
+      try {
+        const st = fs.statSync(file);
+        return { rel: r, label, en, bytes: st.size, mtime: st.mtimeMs, ...summarizeMemoryText(fs.readFileSync(file, "utf-8"), r) };
+      } catch { /* 试下一个候选位置 */ }
     }
+    return { rel, label, en, missing: true, count: 0, items: [] };
   });
 }
 
@@ -115,7 +116,7 @@ export function buildSoulGraph({ persona = {}, genome = {}, emotion = {}, memory
   const memTotal = memory.reduce((s, m) => s + (m.count || 0), 0);
   add({
     id: "memory", kind: "hub", label: "记忆", en: "Memory", metric: `${memTotal} 条`,
-    detail: { title: "记忆", lead: "跨会话靠这些文件接上。条目是按标题和纠正项数的。", facts: memory.map((m) => [m.label, m.missing ? "缺失" : `${m.count} 条`]), items: [] },
+    detail: { title: "记忆", lead: "跨会话靠这些文件接上。条目是按标题和纠正项数的。", facts: memory.map((m) => [m.label, m.missing ? "暂无" : `${m.count} 条`]), items: [] },
   });
   link("core", "memory");
   const maxMem = Math.max(1, ...memory.map((m) => m.count || 0));
@@ -123,8 +124,8 @@ export function buildSoulGraph({ persona = {}, genome = {}, emotion = {}, memory
     const days = m.mtime ? Math.floor((now - m.mtime) / 86400000) : null;
     add({
       id: `mem:${m.rel}`, kind: "leaf", hub: "memory", label: m.label, en: m.en, value: m.missing ? 0 : 0.25 + 0.75 * (m.count || 0) / maxMem,
-      metric: m.missing ? "缺失" : `${m.count}`,
-      detail: { title: m.label, lead: m.missing ? "文件不存在。" : days === null ? "" : days === 0 ? "今天更新过。" : `${days} 天前更新。`, facts: [["文件", m.rel], ["条目", String(m.count || 0)], ["大小", m.bytes ? `${Math.round(m.bytes / 1024)} KB` : "—"]], items: m.items || [], itemsTitle: /纠正/.test(m.rel) ? "最近的纠正" : "最近的条目" },
+      metric: m.missing ? "暂无" : `${m.count}`,
+      detail: { title: m.label, lead: m.missing ? "还没有记录，有内容后会自动生成。" : days === null ? "" : days === 0 ? "今天更新过。" : `${days} 天前更新。`, facts: [["文件", m.rel], ["条目", String(m.count || 0)], ["大小", m.bytes ? `${Math.round(m.bytes / 1024)} KB` : "—"]], items: m.items || [], itemsTitle: /纠正/.test(m.rel) ? "最近的纠正" : "最近的条目" },
     });
     link("memory", `mem:${m.rel}`);
   }
