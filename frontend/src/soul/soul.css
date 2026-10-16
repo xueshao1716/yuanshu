@@ -124,3 +124,9 @@
 .soul-night-tag.is-done { color:var(--pi-success); border-color:color-mix(in srgb, var(--pi-success) 40%, transparent); }
 .soul-night-tag.is-failed { color:var(--pi-danger); border-color:color-mix(in srgb, var(--pi-danger) 40%, transparent); }
 .soul-night-tag.is-blocked { color:var(--pi-warning); border-color:color-mix(in srgb, var(--pi-warning) 40%, transparent); }
+/* 通用伙伴形象位（v2.127.13）：图片由部署方放 public/portraits/companion.png，无则整块不渲染 */
+.cultivation-portrait { display: flex; align-items: center; gap: 14px; margin: 0 0 14px; }
+.cultivation-portrait img { width: 72px; height: 72px; object-fit: cover; border-radius: 16px; border: 1px solid var(--pi-border-soft); display: block; }
+.cultivation-portrait figcaption { display: grid; gap: 2px; min-width: 0; }
+.cultivation-portrait figcaption strong { font-weight: 650; }
+.cultivation-portrait figcaption span { color: var(--pi-dim); font-size: 14px; }

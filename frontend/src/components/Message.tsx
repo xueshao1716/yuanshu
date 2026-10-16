@@ -2,6 +2,7 @@ import { lazy, Suspense, useMemo, useState } from 'react'
 import { TOOL_COLORS, COLOR_ERROR, COLOR_TOOL_FALLBACK } from '../theme/palettes'
 import { Brain, FileText, Check, X, Pencil, ChevronRight, Square, Info, Download, RefreshCw, Scissors, Copy, RotateCcw, Save, ChevronDown, ChevronUp, Users } from 'lucide-react'
 import ImageViewer from './ImageViewer'
+import AvatarPortrait from './AvatarPortrait'
 import { useChatMedia } from './ChatMediaProvider'
 import { mediaFilename, type ChatMedia } from '../lib/chat-media'
 const Markdown = lazy(() => import('./Markdown'))
@@ -331,11 +332,14 @@ export default function Message({ msg, onEdit, onRetry, onBranch, onNotice }: { 
     else if (hasText) phase = 'result'
     else phase = 'thinking'
   }
-
   return (
     <div className="group/msg flex gap-2 py-2 msg-assistant">
-      <div className="w-7 h-7 rounded-lg bg-pi-accent flex items-center justify-center text-white text-[11px] font-bold flex-shrink-0 mt-0.5"
-        style={{ boxShadow: 'var(--pi-shadow-sm)' }}>语</div>
+      <AvatarPortrait
+        fallback={
+          <div className="w-7 h-7 rounded-lg bg-pi-accent flex items-center justify-center text-white text-[11px] font-bold flex-shrink-0 mt-0.5"
+            style={{ boxShadow: 'var(--pi-shadow-sm)' }}>语</div>
+        }
+        className="w-7 h-7 rounded-lg mt-0.5" />
       <div className="min-w-0 flex-1">
         {/* ② 流式期间就把"谁在干活"摆出来：换模型换引擎这件事，不该等回复完了才知道 */}
         {streaming && msg.engine && (
