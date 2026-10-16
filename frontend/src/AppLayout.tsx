@@ -1,5 +1,5 @@
 import { Suspense, lazy, useCallback, useEffect, useRef, useState, type ComponentType, type LazyExoticComponent, type ReactNode } from 'react'
-import { MessagesSquare, BrainCircuit, Images, Clock4, Download, LayoutGrid, LayoutDashboard, Settings2, FolderClosed, PanelLeftOpen, Sparkles, Factory, MonitorCog, Cpu, Palette, Database, GitCompare, LogOut, Ellipsis, Globe2, ShieldCheck, Workflow, PenLine, LayoutTemplate, UserRound, Plug } from 'lucide-react'
+import { Film, MessagesSquare, BrainCircuit, Images, Clock4, Download, LayoutGrid, LayoutDashboard, Settings2, FolderClosed, PanelLeftOpen, Sparkles, Factory, MonitorCog, Cpu, Palette, Database, GitCompare, LogOut, Ellipsis, Globe2, ShieldCheck, Workflow, PenLine, LayoutTemplate, UserRound, Plug } from 'lucide-react'
 import { useApp } from './store'
 import { useIsMobile } from './hooks/useIsMobile'
 import { useHashRoute, PageErrorBoundary, type Route } from './hooks/useHashRoute'
@@ -34,6 +34,7 @@ const BoardPage = lazy(() => import('./pages/Board'))
 const SystemPage = lazy(() => import('./pages/System'))
 const SoulPage = lazy(() => import('./pages/Soul'))
 const GrantsPage = lazy(() => import('./pages/Grants'))
+const TvPage = lazy(() => import('./pages/Tv'))
 const ThemesPage = lazy(() => import('./pages/Themes'))
 const WorkshopPage = lazy(() => import('./pages/Workshop'))
 const CanvasPage = lazy(() => import('./pages/Canvas'))
@@ -84,6 +85,7 @@ type PageRoute = {
 const PAGE_ROUTES: PageRoute[] = [
   { route: 'soul', icon: Sparkles, label: ROUTE_LABELS.soul, Page: SoulPage },
   { route: 'grants', icon: ShieldCheck, label: ROUTE_LABELS.grants, Page: GrantsPage },
+  { route: 'tv', icon: Film, label: ROUTE_LABELS.tv, Page: TvPage },
   { route: 'board', icon: LayoutDashboard, label: ROUTE_LABELS.board, Page: BoardPage },
   // 改动验收已并入工作台（页内视图）。保留 review 路由作为深链别名，
   // 让 #/review、手机「更多」和聊天右栏的「打开验收」继续可用。

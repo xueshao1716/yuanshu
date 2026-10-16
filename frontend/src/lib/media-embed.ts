@@ -64,6 +64,10 @@ export function scrapeVideos(text: string): string[] {
   for (const m of raw.matchAll(/[A-Za-z]:\\[^\s)）"'<>]+/g)) hits.add(m[0].replace(/[.,;。，]+$/, ''))
   for (const m of raw.matchAll(/(?:生成物|工程|workshop-out|交付)[\\/][^\s)）"'<>]+/g)) hits.add(m[0].replace(/[.,;。，]+$/, ''))
   for (const m of raw.matchAll(/📎\s*交付:\s*(\S+)/g)) hits.add(m[1])
+  // 外链视频：只认明确的 m3u8 / mp4 / webm 链接，由播放器经同源代理播放
+  for (const m of raw.matchAll(/https?:\/\/[^\s)）"'<>\]]+?\.(?:m3u8|mp4|webm)(?:\?[^\s)）"'<>\]]*)?/gi)) {
+    if (!m[0].includes('/api/ws/file')) add(m[0].replace(/[.,;。，]+$/, ''))
+  }
   for (const rawHit of hits) {
     const hit = clipMediaPath(rawHit)
     const url = hit.startsWith('/api/ws/file') ? hit.split('&')[0] : workspaceFileUrl(hit)

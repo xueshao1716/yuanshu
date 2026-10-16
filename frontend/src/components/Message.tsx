@@ -22,6 +22,8 @@ import { downloadApiFile, withFileToken } from '../api'
 import { copyText } from '../lib/clipboard'
 import { requestBrowserSave, writeBrowserSave } from '../lib/browser-save'
 import { saveNativeDownload } from '../lib/native-download'
+import VideoPlayer from './VideoPlayer'
+import { isExternalVideo } from '../lib/tv'
 import { scrapeVideos, dedupeMediaUrls, mediaPathKey } from '../lib/media-embed'
 import { artifactName, fileNameFromUrl } from '../lib/artifact-name'
 import { fmtMsgTime } from '../lib/fmt-time'
@@ -204,7 +206,11 @@ function Attachments({ msg }: { msg: ChatMessage }) {
       ))}
       {videos.map((url, index) => (
         <div key={'vid:' + mediaPathKey(url)} className="my-2 w-full max-w-[560px]">
-          <video controls playsInline preload="metadata" src={withFileToken(url)} onError={() => setFailed(state => ({ ...state, [url]: true }))} className="w-full aspect-video rounded-pi-lg border border-pi-border-soft bg-black" />
+          {isExternalVideo(url)
+            ? <VideoPlayer src={url} title={videoLabel(url, index)} />
+            : <video controls playsInline preload="metadata" src={withFileToken(url)} onError={() => setFailed(state => ({ ...state, [url]: true }))} className="w-full aspect-video rounded-pi-lg border border-pi-border-soft bg-black" />
+          }
+          {!isExternalVideo(url) && <>
           <div className="mt-1.5 flex items-center justify-between gap-2">
             <span className="min-w-0 truncate text-[11px] text-pi-dim2">{failed[url] ? '视频暂时无法播放，可直接下载原文件' : videoLabel(url, index)}</span>
             <button type="button" className="btn-tool min-h-11 shrink-0 px-2.5 text-xs" onClick={event => { event.currentTarget.closest('div.my-2')?.querySelector('video')?.pause(); openMedia(url, 'video') }} aria-label={`全屏查看视频${index + 1}`}>全屏查看</button>
@@ -215,6 +221,7 @@ function Attachments({ msg }: { msg: ChatMessage }) {
           </div>
           {downloadStatus[url] && <div role={downloadErrors[url] ? 'alert' : 'status'} className={`mt-2 text-xs leading-relaxed ${downloadErrors[url] ? 'text-pi-danger' : 'text-pi-dim'}`}>{downloadStatus[url]}</div>}
           {downloadStatus[url] && !downloading && <div className="flex flex-wrap gap-4 text-xs text-pi-accent"><a className="inline-flex min-h-11 items-center underline" href={withFileToken(url.includes('/api/ws/file') ? `${url}&download=1` : url)} download={videoName(url, index)} target="_blank" rel="noopener noreferrer">打开原文件保存</a><a className="inline-flex min-h-11 items-center" href="#/downloads">查看下载记录</a></div>}
+          </>}
         </div>
       ))}
       {msg.files?.map((f, i) => (

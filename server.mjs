@@ -3343,6 +3343,33 @@ const API_ROUTES = [
       res.end(Buffer.from(body));
     } catch (e) { json(res, 502, { error: String(e.message || e) }); }
   }],
+  // ── 影视：采集站聚合搜索 + 同源 HLS/MP4 代理（片源由用户配置，仓库不内置）──
+  ["GET", "/api/tv/sources", async (res) => {
+    const tv = await import("./engine/tv.mjs");
+    json(res, 200, { sources: tv.loadSources(WS_ROOT).map(({ name, url, key }) => ({ name, url, key })) });
+  }],
+  ["POST", "/api/tv/sources", async (res, req) => {
+    const tv = await import("./engine/tv.mjs");
+    try {
+      const body = await readBody(req);
+      json(res, 200, { sources: tv.saveSources(WS_ROOT, body?.sources ?? body?.import) });
+    } catch (e) { json(res, 400, { error: String(e.message || e).slice(0, 120) }); }
+  }],
+  ["GET", "/api/tv/search", async (res, req, url) => {
+    const tv = await import("./engine/tv.mjs");
+    const sources = tv.loadSources(WS_ROOT);
+    if (!sources.length) return json(res, 200, { results: [], failed: [], needSources: true });
+    json(res, 200, await tv.searchTv(sources, url.searchParams.get("q") || ""));
+  }],
+  ["GET", "/api/tv/detail", async (res, req, url) => {
+    const tv = await import("./engine/tv.mjs");
+    try { json(res, 200, await tv.tvDetail(tv.loadSources(WS_ROOT), url.searchParams.get("source") || "", url.searchParams.get("id") || "")); }
+    catch (e) { json(res, 502, { error: String(e.message || e).slice(0, 120) }); }
+  }],
+  ["GET", "/api/tv/media", async (res, req, url) => {
+    const tv = await import("./engine/tv.mjs");
+    await tv.handleTvMedia(req, res, url.searchParams.get("url") || "", { token: url.searchParams.get("token") || "" });
+  }],
   ["GET", "/api/fs", (res, req, url) => handleFsList(res, url.searchParams.get("path") || ".")],
   ["GET", "/api/fs/read", (res, req, url) => handleFsRead(res, url.searchParams.get("path") || "")],
   // ── 模型 ──

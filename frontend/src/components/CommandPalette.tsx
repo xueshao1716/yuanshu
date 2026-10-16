@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import * as D from '@radix-ui/react-dialog'
 import { useRestoreFocus } from '../hooks/useRestoreFocus'
-import { MessagesSquare, BrainCircuit, ClipboardCheck, Images, Clock4, LayoutGrid, FolderClosed, Package, SquareTerminal, Settings2, Plus, CornerDownLeft, LayoutDashboard, Sparkles, Factory, Palette, Database, MonitorCog, Cpu, Activity, ChevronsLeftRight, ShieldCheck, Workflow, Download, Plug } from 'lucide-react'
+import { Film, MessagesSquare, BrainCircuit, ClipboardCheck, Images, Clock4, LayoutGrid, FolderClosed, Package, SquareTerminal, Settings2, Plus, CornerDownLeft, LayoutDashboard, Sparkles, Factory, Palette, Database, MonitorCog, Cpu, Activity, ChevronsLeftRight, ShieldCheck, Workflow, Download, Plug } from 'lucide-react'
 import { useApp } from '../store'
 import { toast } from './Toast'
 import { SessionsApi } from '../api'
@@ -54,6 +54,7 @@ export default function CommandPalette({ open, onClose, nav, onRightPanel, onMod
       page('models', '打开模型', BrainCircuit),
       page('assets', '打开资产', Images),
       page('tasks', '打开任务', Clock4),
+      page('tv', '打开影视', Film),
       page('apps', '打开知识', LayoutGrid),
       page('engine', '打开能力', Cpu),
       page('themes', '打开主题', Palette),
