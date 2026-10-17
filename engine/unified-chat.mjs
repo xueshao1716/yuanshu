@@ -19,6 +19,7 @@ import { extractMessages, extractText, attachmentLines } from "./session-utils.m
 import { createSseWriter } from "./sse.mjs";
 import { slimToolDefs } from "./tool-payload.mjs";
 import { httpJsonFetch, httpRawFetch, httpHedgedFetch, sessionAffinityHeaders, describeHttpError } from "./http.mjs";
+import { logModelFailure } from "./model-diagnostics.mjs";
 import { PRODUCT_VERSION } from "./version.mjs";
 import { createGateway } from "./gateway.mjs";
 import { CodeRuntime } from "../code-mode/code-runtime.mjs";
@@ -176,7 +177,18 @@ export function sessionStartedAt(hist = []) {
 // can continue a long task instead of guessing what already happened.
 // projectTool 默认是"前 N 次发全文、之后压缩"，见 reasonix-tools.mjs 的 FULL_SENDS；
 // 做成可注入是为了让测试能控制计数状态，而不是共享模块级 Map。
-export function formatSessionHistory(hist = [], { projectTool = projectToolResult } = {}) {
+// DeepSeek 思考模式硬规则（2026-10-17 真机 400）：
+// 带 tool_calls 的 assistant 消息必须把 reasoning_content 原样回传，否则整轮请求被拒——
+// {"error":{"message":"The `reasoning_content` in the thinking mode must be passed back to the API."}}
+// 会话存储里这条推理在 extractMessages 中被还原成 item.think，重建历史时必须接回去（见下方 push）。
+// 只对 DeepSeek 系模型回传：其他 OpenAI 兼容端点没有这条要求，别给它们塞未知字段。
+function carriesReasoningDuty(model) {
+  const id = String(model?.id || "");
+  const provider = String(model?.provider || "");
+  return provider === "deepseek" || /deepseek/i.test(id);
+}
+
+export function formatSessionHistory(hist = [], { projectTool = projectToolResult, carryReasoning = false } = {}) {
   const project = typeof projectTool === "function" ? projectTool : projectToolResult;
   const out = [];
   for (const item of Array.isArray(hist) ? hist : []) {
@@ -197,9 +209,12 @@ export function formatSessionHistory(hist = [], { projectTool = projectToolResul
       if (text) out.push({ role: "assistant", content: text });
       continue;
     }
+    // DeepSeek 思考模式：带 tool_calls 的这条必须带 reasoning_content，否则 400（见 carriesReasoningDuty）
+    const replayReasoning = carryReasoning ? String(item.think || "").trim() : "";
     out.push({
       role: "assistant",
       content: text || null,
+      ...(replayReasoning ? { reasoning_content: replayReasoning } : {}),
       ...(item.anthropic_content ? { anthropic_content: item.anthropic_content } : {}),
       ...(item.anthropic_model ? { anthropic_model: item.anthropic_model } : {}),
       // 2026-09-16：args 本来就是字符串时，JSON.stringify 会二次编码成 `"{\"…\"}"`，
@@ -565,6 +580,21 @@ export async function unifiedChat(model, messages, opts = {}) {
     }
     if (!r.ok) {
       const errBody = await r.text().catch(() => "");
+      // 取证：把请求形状与上游原文留一行日志，下次同类 400 不用再猜（见 engine/model-diagnostics.mjs）
+      logModelFailure({
+        where: "unified-chat",
+        model,
+        status: r.status,
+        body: errBody,
+        request: {
+          messages: history.length,
+          tools: toolDefs?.length || 0,
+          outputBudget,
+          maxTokensField: maxTokensFieldOf(compat),
+          thinking: usedThinking,
+          stream: wantStream,
+        },
+      });
       // 健康冷却（2026-08-20 泛化）：401/402/403/429/529 标记 30 分钟，Auto 路由与兜底链自动避开该模型
       if (isAuthErrorStatus(r.status)) markModelBlocked(model, { reason: `HTTP ${r.status} ${String(errBody).slice(0, 60)}` });
       else if (model.provider === "opencode-go" && /GoUsageLimit/i.test(errBody)) markModelBlocked(model, { reason: errBody });
@@ -1093,7 +1123,7 @@ export async function handleUnifiedChat(res, entry, message, sessionId, params, 
     if (media?.url) writer.push("media", media);
   };
   const onCheckpoint = createRunCheckpointWriter(writer, runContext);
-  let history = [...formatSessionHistory(hist), { role: "user", content: mediaAwarePrompt(message, []) }];
+  let history = [...formatSessionHistory(hist, { carryReasoning: carriesReasoningDuty(chatModel) }), { role: "user", content: mediaAwarePrompt(message, []) }];
   // Untrusted source material stays below system instructions and separate from the user's request.
   if (runContext?.knowledgeContext) history.splice(history.length - 1, 0, { role: 'user', content: runContext.knowledgeContext });
   if (shouldInjectFullMemory(message)) setLastUserQuery(message);

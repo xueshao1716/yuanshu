@@ -8,6 +8,7 @@
 import { modelEndpoint } from './model-endpoints.mjs';
 import { normalizeToolArgs, normalizeToolCallArguments } from "./tool-args.mjs";
 import { describeHttpError, sessionAffinityHeaders } from "./http.mjs";
+import { logModelFailure } from "./model-diagnostics.mjs";
 import { clampOutputTokens, maxTokensFieldOf } from "./output-budget.mjs";
 import { buildMessagesRequest, decodeMessagesResponse, messagesEndpoint, messagesHeaders } from './anthropic-messages.mjs';
 
@@ -134,7 +135,15 @@ export class HttpModelAdapter {
       if (!r.ok) {
         const errBody = await r.text().catch(() => "");
         // 用 describeHttpError：把 msg / displayMsg.zh / extError.code 摘出来（原来只留 150 字，正好截在关键处）
-        return { error: `HTTP ${r.status}: ${describeHttpError(errBody)}` };
+        // 取证：请求形状 + 上游原文，见 engine/model-diagnostics.mjs
+      logModelFailure({
+        where: "model-adapter",
+        model,
+        status: r.status,
+        body: errBody,
+        request: { messages: history.length, stream: false },
+      });
+      return { error: `HTTP ${r.status}: ${describeHttpError(errBody)}` };
       }
       const data = await r.json();
       if (nativeMessages) {

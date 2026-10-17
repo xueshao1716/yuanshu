@@ -3727,7 +3727,9 @@ const server = http.createServer(async (req, res) => {
       || (url.pathname === "/api/setup/claim" && req.method === "POST"); // claim 在路由内做 pending + 本机直连校验
     // 公开反馈端点免令牌：分发出去的主机没有本机令牌，回厂通道走 IP 限频防滥用（引擎内 12h/8 条）
     const isPublicFeedback = url.pathname === "/api/public/feedback" && req.method === "POST";
-    if (!isStatic && !isSignedFile && !isSetupStatus && !isPublicFeedback && !checkAuth(req)) {
+    // 影院分享页免令牌媒体代理：GET only + 响应面收紧（tv.mjs 内非媒体 content-type 一律 403），防开放代理
+    const isPublicTvMedia = url.pathname === "/api/tv/media" && req.method === "GET";
+    if (!isStatic && !isSignedFile && !isSetupStatus && !isPublicFeedback && !isPublicTvMedia && !checkAuth(req)) {
       return json(res, 401, { error: "未授权，请提供访问令牌" });
     }
 

@@ -52,7 +52,11 @@ export class StandardAgentLoop {
           messages.length = 0;
           messages.push(...r.history);
         } else {
-          messages.push({ role: "assistant", content: null, tool_calls: r.toolCalls });
+          // DeepSeek 思考模式：兜底重建时也要带上推理，否则下一轮请求 400（见 unified-chat 的 carriesReasoningDuty）
+          const fallbackReasoning = typeof r.reasoning_content === "string" && r.reasoning_content
+            ? r.reasoning_content
+            : (typeof r.think === "string" ? r.think : "");
+          messages.push({ role: "assistant", content: null, tool_calls: r.toolCalls, ...(fallbackReasoning ? { reasoning_content: fallbackReasoning } : {}) });
         }
         // 调度执行：排他工具成屏障，其余有界并行；结果按模型顺序返回；abort 未启动的补合成结果
         const results = await scheduleToolCalls({

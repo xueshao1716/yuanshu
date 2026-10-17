@@ -42,7 +42,11 @@ export default function VideoPlayer({ src, poster, title, autoPlay, startAt, cla
         hls = instance
         instance.on(Hls.Events.ERROR, (_e, data) => {
           if (!data.fatal) return
-          if (data.type === Hls.ErrorTypes.NETWORK_ERROR) setError('视频源连接失败，换一个线路试试')
+          if (data.type === Hls.ErrorTypes.NETWORK_ERROR) {
+            if (data.details === Hls.ErrorDetails.MANIFEST_LOAD_ERROR) setError('线路清单加载失败，换一个线路试试')
+            else if (data.details === Hls.ErrorDetails.MANIFEST_PARSING_ERROR) setError('线路格式不受支持，换一个线路试试')
+            else setError('视频源连接失败，换一个线路试试')
+          }
           else if (data.type === Hls.ErrorTypes.MEDIA_ERROR) instance.recoverMediaError()
           else setError('这个视频无法播放，换一个线路试试')
         })

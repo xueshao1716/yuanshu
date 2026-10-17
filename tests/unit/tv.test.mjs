@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { assertPublicUrl, normalizeSources, loadSources, saveSources, parsePlayGroups, rewritePlaylist, searchTv, safeFetch } from "../../engine/tv.mjs";
+import { assertPublicUrl, normalizeSources, loadSources, saveSources, parsePlayGroups, rewritePlaylist, searchTv, safeFetch, handleTvMedia } from "../../engine/tv.mjs";
 
 const pub = async () => [{ address: "93.184.216.34" }];
 
@@ -61,3 +61,39 @@ test("搜索：多源并行、同名合并、坏源只记失败不影响其它",
   assert.equal(r.results[0].variants.length, 2);
   assert.equal(r.failed.length, 1);
 });
+
+// ── 免令牌分享场景：影院页无工作台令牌也能拉媒体，但代理只许搬运媒体字节（2026-10-17）──
+function fakeRes() {
+  const r = { headers: null, status: 0, body: "", on() {}, once() {}, writeHead(s, h) { r.status = s; r.headers = h || {}; }, write(c) { r.body += Buffer.isBuffer(c) ? c.toString("latin1") : String(c); return true; }, end(c) { if (c) r.body += Buffer.isBuffer(c) ? c.toString("latin1") : String(c); } };
+  return r;
+}
+const fakeReq = (range) => ({ headers: range ? { range } : {} });
+
+test("代理免令牌：清单改写后匿名可拉，分片地址不带鉴权参数", async () => {
+  const f = async () => new Response("#EXTM3U\n#EXTINF:4,\nseg1.ts\n", { status: 200, headers: { "content-type": "application/vnd.apple.mpegurl" } });
+  const res = fakeRes();
+  await handleTvMedia(fakeReq(), res, "https://pub.example/v/index.m3u8", { token: "", fetch: f, lookup: pub });
+  assert.equal(res.status, 200);
+  assert.match(res.body, /^#EXTM3U/);
+  assert.doesNotMatch(res.body, /token=/);
+  assert.match(res.body, /\/api\/tv\/media\?url=https%3A%2F%2Fpub\.example%2Fv%2Fseg1\.ts/);
+});
+
+test("代理响应面收紧：非媒体 content-type 一律 403，防开放代理", async () => {
+  for (const ct of ["text/html", "application/json"]) {
+    const f = async () => new Response("<html>ok</html>", { status: 200, headers: { "content-type": ct } });
+    const res = fakeRes();
+    await handleTvMedia(fakeReq(), res, "https://pub.example/page", { token: "", fetch: f, lookup: pub });
+    assert.equal(res.status, 403, ct);
+  }
+});
+
+test("代理响应面放行：video/mp2t 分片带 Range 正常透传", async () => {
+  const f = async () => new Response(new Uint8Array([0x47, 0x40, 0x00, 0x10]), { status: 206, headers: { "content-type": "video/mp2t", "content-range": "bytes 0-3/100" } });
+  const res = fakeRes();
+  await handleTvMedia(fakeReq("bytes=0-3"), res, "https://pub.example/v/seg1.ts", { token: "", fetch: f, lookup: pub });
+  assert.equal(res.status, 206);
+  assert.equal(res.headers["Content-Type"] || res.headers["content-type"], "video/mp2t");
+  assert.equal(res.headers["Content-Range"] || res.headers["content-range"], "bytes 0-3/100");
+});
+

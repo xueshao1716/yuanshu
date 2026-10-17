@@ -218,6 +218,13 @@ export async function handleTvMedia(req, res, target, { token = "", fetch: f, lo
     res.writeHead(up.status, { "Content-Type": type || "application/octet-stream", "X-Content-Type-Options": "nosniff" });
     return res.end(buf);
   }
+  // 响应面收紧：只搬运媒体字节（音视频/字幕/密钥/TS 分片），其余一律 403，防开放代理
+  const mediaUrl = /\.m3u8|\.ts|\.mp4|\.m4s|\.aac|\.vtt|\.key(?:[?#]|$)/i.test(finalUrl);
+  const mediaType = /^(video|audio)\//.test(type) || /^application\/octet-stream$/.test(type);
+  if (!mediaType && !mediaUrl) {
+    res.writeHead(403, { "Content-Type": "application/json; charset=utf-8", "X-Content-Type-Options": "nosniff" });
+    return res.end(JSON.stringify({ error: "not a media resource" }));
+  }
   const out = { "Content-Type": type || "application/octet-stream", "Cache-Control": "public, max-age=300", "X-Content-Type-Options": "nosniff" };
   for (const h of ["content-length", "content-range", "accept-ranges"]) { const v = up.headers.get(h); if (v) out[h] = v; }
   res.writeHead(up.status, out);

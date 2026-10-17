@@ -22,6 +22,11 @@ export function restorePendingToolPlan(history, plan) {
   for (const call of planned) calls.set(call.id, call);
   const allCalls = [...calls.values()];
   const assistant = { role: 'assistant', content: groups[0]?.content ?? null, tool_calls: allCalls };
+  // DeepSeek 思考模式：带 tool_calls 的 assistant 必须回传 reasoning_content，否则 400。
+  // 续跑时把原响应里的推理原样接回；来源不止一条时无法拼成合法前缀，宁可不带。
+  if (groups.length === 1 && typeof groups[0]?.reasoning_content === 'string' && groups[0].reasoning_content) {
+    assistant.reasoning_content = groups[0].reasoning_content;
+  }
   // Preserve an intact native signed response only when it describes exactly
   // this exchange. Never edit/truncate signed blocks to manufacture a match.
   const native = groups.length === 1 ? groups[0].anthropic_content : null;
