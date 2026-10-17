@@ -6,6 +6,18 @@ import {withCrossProcessLock} from '../file-lock.mjs';
 import {id} from './control-state.mjs';
 import {pageRecords} from './pagination.mjs';
 
+// 2026-10-18：运行记录的可观测性修复。
+// 背景：终止原因一直写在 cultivation.reason 里，而 delegate.mjs 读的是顶层 run.reason，
+// 于是模型只看到「没有完成：stopped」，拿不到 cultivation_cost_cap_exceeded 这类真因，
+// 只能反复轮询 runs。这里把原因镜像到顶层，作为记录的唯一可读出口。
+export function normalizeRunUpdate(patch) {
+  const next = { ...patch };
+  const reason = patch?.cultivation?.reason;
+  if (typeof reason === 'string' && reason) next.reason = reason;
+  else if (patch?.status === 'completed') next.reason = null;
+  return next;
+}
+
 // Separate task namespace: generic chat recovery never receives these records.
 // Reuse the existing task record/lifecycle rather than inventing success states.
 export function createCultivationTaskRepository({wsRoot,workspace,now=Date.now}) {
@@ -76,6 +88,8 @@ export function createCultivationTaskRepository({wsRoot,workspace,now=Date.now})
     create(input){if(list().length>=256)throw new Error('cultivation_storage_full');
       // createRunStore is reused with the full cultivation intent in the first atomic write.
       cache=null;return native.create(input);},
-    update(key,patch){get(key);cache=null;return native.update(key,{...patch,resumeAvailable:false});},
+    update(key,patch){get(key);cache=null;return native.update(key,{...normalizeRunUpdate(patch),resumeAvailable:false});},
+    // 进度快照：run-store 早就提供 saveCheckpoint，但培养侧从未调用，checkpoint 永远停在 queued/create。
+    saveCheckpoint(key,patch){get(key);cache=null;return native.saveCheckpoint(key,patch);},
   });
 }

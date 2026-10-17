@@ -8,6 +8,12 @@
 
 ## [Unreleased]
 
+## [2.127.19] - 2026-10-18
+
+- 智能体培养：运行记录的终止原因不只写在 `cultivation.reason`，现在同时镜像到顶层 `reason`。此前 `delegate` 读的是顶层，模型只看到「没有完成：stopped」，拿不到 `cultivation_cost_cap_exceeded`、`cultivation_policy_changed` 这类真因，只能反复轮询 runs。
+- 智能体培养：`checkpoint` 从「永不推进」改为随状态流转落盘（`claimed` / `reserved` / `done`）。此前连已完成的运行都停在 `queued/create`，记录里看不出执行到哪一步。
+- 智能体培养：`task-repository` 暴露 `saveCheckpoint`，复用 run-store 早有的能力，不再自造进度字段。
+
 ## [2.127.18] - 2026-10-17
 
 - 修复 DeepSeek 系模型的 400：从会话存储重放历史时，带 `tool_calls` 的 assistant 消息会丢掉推理文本，而 DeepSeek 思考模式要求把它原样回传（`The reasoning_content in the thinking mode must be passed back to the API`）。现在重建历史、断线续跑与工具轮兜底三处都会按目标模型接回；非 DeepSeek 模型不注入该字段。

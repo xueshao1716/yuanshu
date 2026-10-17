@@ -47,7 +47,9 @@ export async function delegateToCultivatedAgent(runtime,args,host,{waitMs=170000
   run=runtime.runView(runId)??run;
   const label=`${name(agent)}（${agent.id}）`;
   if(!run||!TERMINAL.has(run.status))return {text:`已把任务交给 ${label}，但这一轮等不到结果（作业 ${runId} 仍在培养队列）。下一轮用 cultivation 读 runs 取结论，不要重复提交。`,isError:false,agentRunId:runId};
-  if(run.status!=='completed')return {...err(`${label} 没有完成：${run.reason||run.status}。${run.status==='interrupted'?'实际结果未知，不要当成成功或失败。':''}`),agentRunId:runId};
+  // 原因一直只写在 cultivation.reason，顶层 reason 为空 → 这里只报得出 "stopped"。
+  // 两级都读，模型才能拿到 cultivation_cost_cap_exceeded / cultivation_policy_changed 这类真因。
+  if(run.status!=='completed')return {...err(`${label} 没有完成：${run.reason||run.cultivation?.reason||run.status}。${run.status==='interrupted'?'实际结果未知，不要当成成功或失败。':''}`),agentRunId:runId};
   const v=run.verification;
   const verdict=v?VERDICT[v.verdict]??v.verdict:'验证中';
   const gaps=v?.gaps?.length?`\n未核实：${v.gaps.join('；')}`:'';

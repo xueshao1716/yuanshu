@@ -28,7 +28,10 @@ export function createTaskDispatch({repo,assertRun,ownerId,active,admission,budg
   return async()=>{
     if(foregroundBusy())return;
     let run,slot,reservation,controller,watchdog,deadline,invoked=false;
-    const patch=(status,changes)=>{const r=repo.get(run.id);const next=repo.update(run.id,{status,cultivation:{...r.cultivation,...changes}});
+    // 进度快照随状态一起落盘：此前 checkpoint 从不推进，永远停在 queued/create，
+    // 记录里看不到执行到哪一步（2026-10-18 观测性修复）。
+    const patch=(status,changes,step)=>{const r=repo.get(run.id);const next=repo.update(run.id,{status,cultivation:{...r.cultivation,...changes},
+      checkpoint:{phase:status==='running'?'running':status,step:step||(status==='running'?'running':'done'),attempt:0,updatedAt:new Date(now()).toISOString()}});
       // 终态主动告诉主人（用户主动取消不打扰）；通知失败绝不影响培养本身。
       if(onRunFinished&&["completed","failed","stopped","interrupted"].includes(status)&&changes?.reason!=="cancelled")try{onRunFinished(next)}catch{}
       return next;};
@@ -38,7 +41,8 @@ export function createTaskDispatch({repo,assertRun,ownerId,active,admission,budg
         for await(const row of repo.scan())if(row.status==='queued'){run=row;break;}
         if(!run)return;
         // Claim is durable before reserving money or calling a provider.
-        run=repo.update(run.id,{status:'running',ownerId});
+        run=repo.update(run.id,{status:'running',ownerId,
+          checkpoint:{phase:'running',step:'claimed',attempt:0,updatedAt:new Date(now()).toISOString()}});
       });
       if(!run)return;
       const {policy,design}=assertRun(run),sharedPolicy=await knowledge.policy();
@@ -51,7 +55,7 @@ export function createTaskDispatch({repo,assertRun,ownerId,active,admission,budg
       if(repo.get(run.id).status!=='running')throw new Error('cultivation_cancel_requested');
       reservation=await budget.reserve({kind:'model',policy:sharedPolicy,maxCost:plan.maxCost,
         currency:plan.currency,free:plan.free===true,consumer:'cultivation',limits:policy});
-      patch(repo.get(run.id).status,{reservationId:reservation.id});assertRun(run);
+      patch(repo.get(run.id).status,{reservationId:reservation.id},'reserved');assertRun(run);
       if(repo.get(run.id).status!=='running'||foregroundBusy())throw new Error('cultivation_cancel_requested');
       controller=new AbortController();active.set(run.id,controller);
       watchdog=setInterval(()=>{try{assertRun(run);if(foregroundBusy())controller.abort();}catch{controller.abort();}},1000);
