@@ -142,12 +142,15 @@ export function closePromise(wsRoot, id, { status = "kept", evidence = null, now
 //
 // 真机投诉：「我明确表示不需要了，她一直挂在记忆里当代办。」
 // 根因：closePromise 只有夜间复盘和网页按钮在调，**模型自己没有销账手段**，
-// 于是用户说"不用了"之后这条账只能一直 pending；14 天以上的越积越多（实测 48 条）。
+// 于是用户说"不用了"之后这条账只能一直 pending。
 //
 // 因此补两件事：
 //   ① 给模型一个 promise_close（**只允许 dropped**）。规则①仍然成立：绝不自动/自行标记已兑现。
-//   ② 超期搁置：pending 超过 14 天自动转 expired（不是 done），可人工改回，且不再进提示词。
-export const PROMISE_STALE_DAYS = 14;
+//   ② 超期搁置：pending 超过「承诺保鲜期」自动转 expired（不是 done），可人工改回，且不再进提示词。
+//
+// 2026-10-18 伙伴定口径：「超过三天的都不要了」。所以保鲜期从 14 天缩到 3 天——
+// 三天都没结清的账不再当作欠着的事，也不该继续占她的待办位。
+export const PROMISE_STALE_DAYS = 3;
 
 export const PROMISE_TOOL_SCHEMAS = [{
   type: "function",
