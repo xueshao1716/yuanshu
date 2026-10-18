@@ -54,12 +54,16 @@ export function dedupeMediaUrls(urls: string[]): string[] {
 export function scrapeAudios(text: string): string[] {
   const out: string[] = []
   const raw = String(text || '')
-  for (const m of raw.matchAll(/https?:\/\/[^\s)）"'<>\]]+?\.(?:mp3|m4a|aac|wav|ogg|opus)(?:\?[^\s)）"'<>\]]*)?/gi)) {
-    const url = m[0].replace(/[.,;。，]+$/, '')
-    if (!url || url.includes('/api/ws/file')) continue
+  const push = (url: string) => {
+    if (!url || url.includes('/api/ws/file')) return
     const k = mediaPathKey(url)
-    if (out.some(x => mediaPathKey(x) === k)) continue
+    if (out.some(x => mediaPathKey(x) === k)) return
     out.push(url)
+  }
+  // 同源代理路径（B 站音轨等）：/api/music/stream?u=...，前端会补 token
+  for (const m of raw.matchAll(/\/api\/music\/stream\?u=[A-Za-z0-9_-]+/g)) push(m[0])
+  for (const m of raw.matchAll(/https?:\/\/[^\s)）"'<>\]]+?\.(?:mp3|m4a|aac|wav|ogg|opus)(?:\?[^\s)）"'<>\]]*)?/gi)) {
+    push(m[0].replace(/[.,;。，]+$/, ''))
   }
   return out
 }

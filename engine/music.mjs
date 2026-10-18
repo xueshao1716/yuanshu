@@ -9,6 +9,7 @@
 
 import fs from 'node:fs';
 import path from 'node:path';
+import { streamPathFor } from './music-stream.mjs';
 
 const DEEZER = 'https://api.deezer.com/search';
 const ITUNES = 'https://itunes.apple.com/search';
@@ -87,6 +88,80 @@ export async function neteaseSearch(query, { limit = 5, cookie, base = LOCAL_MUS
   };
 }
 
+// ── B 站音轨（免登录，中文整首）────────────────────────────────────
+// 汽水音乐/酷我/酷狗都要登录或签名（实测 30020/空结果），网易云要 cookie；
+// B 站搜索 + playurl 匿名可用（实测 206 有数据），代价是歌来自用户上传的视频音轨。
+const BILI_UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36';
+
+const cleanTitle = (s) => text(String(s || '').replace(/<[^>]+>/g, '')).replace(/\s+/g, ' ').trim();
+
+export function normalizeBilibiliSearch(json, limit) {
+  const rows = Array.isArray(json?.data?.result) ? json.data.result : [];
+  return rows.slice(0, limit).map((r) => {
+    // 有的返回带 bvid，有的只给 arcurl（/video/av…），兜底从 URL 里取
+    const bvid = text(r?.bvid) || (String(r?.arcurl || '').match(/\/video\/(BV[0-9A-Za-z]+)/)?.[1] ?? '');
+    return {
+      bvid,
+      title: cleanTitle(r?.title),
+      artist: cleanTitle(r?.author),
+      seconds: Number(r?.duration_seconds) || 0,
+      link: bvid ? `https://www.bilibili.com/video/${bvid}` : '',
+    };
+  }).filter((r) => r.bvid);
+}
+
+async function biliJson(url, fetchImpl, cookie = '', extraHeaders = {}) {
+  const res = await fetchImpl(url, {
+    headers: { 'User-Agent': BILI_UA, Referer: 'https://www.bilibili.com/', ...(cookie ? { Cookie: cookie } : {}), ...extraHeaders },
+    signal: AbortSignal.timeout(12000),
+  });
+  if (!res?.ok) throw new Error(`HTTP ${res?.status ?? '?'}`);
+  return res.json();
+}
+
+/** 搜索接口：带搜索页 Referer/Origin；412 是限流，退避后重试一次。 */
+async function biliSearchJson(query, fetchImpl, cookie) {
+  const enc = encodeURIComponent(query);
+  const url = `https://api.bilibili.com/x/web-interface/search/type?search_type=video&keyword=${enc}&page=1`;
+  const headers = { Referer: `https://search.bilibili.com/all?keyword=${enc}`, Origin: 'https://search.bilibili.com', Accept: 'application/json, text/plain, */*' };
+  try {
+    return await biliJson(url, fetchImpl, cookie, headers);
+  } catch (e) {
+    if (!/412/.test(String(e?.message || ''))) throw e;
+    await new Promise((r) => setTimeout(r, 900));
+    return await biliJson(url, fetchImpl, cookie, headers);
+  }
+}
+
+/** 搜索并解析前几首的可播放音轨；返回 items（previewUrl 为同源代理路径）。 */
+export async function bilibiliSearch(query, { limit = 5, fetchImpl = fetch, resolve = 4 } = {}) {
+  const q = text(query);
+  if (!q) return { items: [], reason: 'empty_query' };
+  const n = limitOf(limit);
+  let cookie = '';
+  try {
+    const spi = await biliJson('https://api.bilibili.com/x/frontend/finger/spi', fetchImpl);
+    const b3 = text(spi?.data?.buvid3), b4 = text(spi?.data?.buvid4);
+    if (b3 || b4) cookie = `buvid3=${b3}; buvid4=${b4}`;
+  } catch { /* 没有 buvid 也可能能用 */ }
+  const found = normalizeBilibiliSearch(
+    await biliSearchJson(q, fetchImpl, cookie), n);
+  if (!found.length) return { items: [], reason: 'empty' };
+  const items = [];
+  for (const v of found.slice(0, Math.min(resolve, n))) {
+    try {
+      const pages = await biliJson(`https://api.bilibili.com/x/player/pagelist?bvid=${v.bvid}`, fetchImpl, cookie);
+      const cid = pages?.data?.[0]?.cid;
+      if (!cid) continue;
+      const pu = await biliJson(`https://api.bilibili.com/x/player/playurl?bvid=${v.bvid}&cid=${cid}&fnval=16&fourk=1`, fetchImpl, cookie);
+      const track = pu?.data?.dash?.audio?.[0]?.baseUrl;
+      if (!track) continue;
+      items.push({ title: v.title, artist: v.artist, album: '', previewUrl: streamPathFor(track), link: v.link, seconds: v.seconds, provider: 'bilibili', full: true });
+    } catch { /* 单条失败不影响其他 */ }
+  }
+  return { items, reason: items.length ? '' : 'no_audio' };
+}
+
 export function normalizeDeezer(json, limit) {
   const rows = Array.isArray(json?.data) ? json.data : [];
   return rows.slice(0, limit).map((r) => ({
@@ -132,6 +207,12 @@ export async function searchMusic(query, { limit = 5, fetchImpl = fetch, cookie 
       last = `netease:${r.reason || 'empty'}`;
     } catch (e) { last = `netease:${String(e?.message || e).slice(0, 40)}`; }
   }
+  // 中文整首：B 站优先（免登录），再回落免费试听源
+  try {
+    const r = await bilibiliSearch(q, { limit: n, fetchImpl });
+    if (r.items.length) return { provider: 'bilibili', items: r.items };
+    last = `bilibili:${r.reason || 'empty'}`;
+  } catch (e) { last = `bilibili:${String(e?.message || e).slice(0, 40)}`; }
   const tries = [
     ['deezer', `${DEEZER}?q=${encodeURIComponent(q)}&limit=${n}`, normalizeDeezer],
     ['itunes', `${ITUNES}?term=${encodeURIComponent(q)}&media=music&entity=song&limit=${n}&country=us`, normalizeItunes],

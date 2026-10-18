@@ -53,6 +53,7 @@ import { extractPromises, recordPromises, loadPromises, pendingPromises, closePr
 import { MUSIC_TOOL_SCHEMA, musicExtraExecutors } from "./engine/music.mjs";
 import { musicLoginView, resetMusicLogin } from "./engine/music-login.mjs";
 import { renderMusicLoginPage } from "./engine/music-login-page.mjs";
+import { handleMusicStream } from "./engine/music-stream.mjs";
 import { createSoilReader } from "./engine/aibody-soil.mjs";
 // ── 会话解析纯函数（拆模块）：消息/文本/图片/文件提取 ──
 import { extractMessages, extractText, extractImages, extractFiles, resolveLeafId, windowMessages } from "./engine/session-utils.mjs";
@@ -3264,6 +3265,8 @@ const API_ROUTES = [
   ["GET", "/api/music/login", async (res) => {
     try { json(res, 200, await musicLoginView()) } catch (e) { json(res, 500, { ok: false, error: String(e?.message || e).slice(0, 120) }) }
   }],
+  // 音乐流同源代理：CDN 要 Referer、地址会过期，浏览器直接引用放不出来
+  ["GET", "/api/music/stream", (res, req) => handleMusicStream(req, res)],
   // 服务端渲染、零 JS：全站 CSP 是 script-src 'self'，内联脚本根本跑不起来
   ["GET", "/music-login", async (res, req) => {
     try {
