@@ -18,6 +18,9 @@ export const NODE_KINDS = {
   // 2026-10-18：图片节点也能**输出**并接收「参考图」——上一张满意的结果直接连到下一次生成，
   // 这就是 LingWeave 讲的"连续参考"，不用每次重述产品/角色长什么样。
   image: { label: '图片', w: 300, h: 320, outputs: ['image'], inputs: ['prompt', 'config', 'image'] },
+  // 视频节点吃提示词/配置，也能吃参考图（图生视频）；音频节点先只放素材与链接，暂不生成
+  video: { label: '视频', w: 320, h: 320, outputs: [], inputs: ['prompt', 'config', 'image'] },
+  audio: { label: '音频', w: 300, h: 200, outputs: [], inputs: ['prompt'] },
 }
 
 export const NODE_STATUS = ['idle', 'running', 'done', 'error']
@@ -81,14 +84,18 @@ export function buildPrompt({ userPrompt = '', template = 'plain', hasReference 
   return n ? `${u}。${n}` : u
 }
 
-/** 连线规则：只有图片节点能接收；提示词/配置/图片节点才有输出；不能连自己 */
+/** 连线规则：只有能接收该输入的节点才能作为终点；提示词/配置/图片节点才有输出；不能连自己 */
 export function canConnect(from, to) {
   if (!from || !to) return { ok: false, reason: '缺少节点' }
   if (from.id === to.id) return { ok: false, reason: '不能连自己' }
   const outKind = from.kind === 'prompt' ? 'prompt' : from.kind === 'config' ? 'config' : from.kind === 'image' ? 'image' : ''
   if (!outKind) return { ok: false, reason: `${NODE_KINDS[from.kind]?.label || from.kind}节点没有输出` }
-  if (to.kind !== 'image') return { ok: false, reason: `只有图片节点能接收连线` }
-  if (!NODE_KINDS.image.inputs.includes(outKind)) return { ok: false, reason: '图片节点不接受这类输入' }
+  const sink = NODE_KINDS[to.kind]
+  if (!sink) return { ok: false, reason: '未知的终点节点' }
+  if (!sink.inputs.includes(outKind)) {
+    if (!sink.inputs.length) return { ok: false, reason: `${sink.label}节点不接受连线` }
+    return { ok: false, reason: `${sink.label}节点不接受这类输入` }
+  }
   return { ok: true, reason: '' }
 }
 
@@ -116,14 +123,14 @@ export function incoming(nodeId, edges) {
   return (Array.isArray(edges) ? edges : []).filter(e => e.to === nodeId)
 }
 
-/** 图片节点的提示词来源：上游提示词节点优先，否则用自己写的 */
+/** 提示词来源：上游提示词节点优先，否则用自己写的 */
 export function resolvePrompt(node, nodes, edges) {
   const list = Array.isArray(nodes) ? nodes : []
-  if (node.kind === 'image') {
+  if (node?.kind && NODE_KINDS[node.kind]?.inputs.includes('prompt')) {
     const up = incoming(node.id, edges).map(e => list.find(n => n.id === e.from)).find(n => n && n.kind === 'prompt')
     if (up && String(up.text || '').trim()) return { text: up.text, sourceId: up.id, inherited: true }
   }
-  return { text: String(node.text || ''), sourceId: null, inherited: false }
+  return { text: String(node?.text || ''), sourceId: null, inherited: false }
 }
 
 /**
@@ -133,7 +140,7 @@ export function resolvePrompt(node, nodes, edges) {
 export function resolveConfig(node, nodes, edges) {
   const list = Array.isArray(nodes) ? nodes : []
   let cfg = { provider: '', modelId: '', size: '', template: '', sourceId: null }
-  if (node.kind === 'image') {
+  if (node?.kind && NODE_KINDS[node.kind]?.inputs.includes('config')) {
     const up = incoming(node.id, edges).map(e => list.find(n => n.id === e.from)).find(n => n && n.kind === 'config')
     if (up) cfg = { provider: up.provider || '', modelId: up.modelId || '', size: up.size || '', template: up.template || '', sourceId: up.id }
   }
@@ -153,12 +160,14 @@ export function resolveConfig(node, nodes, edges) {
   }
 }
 
-/** 能不能出图：提示词和模型都齐了才放行 */
+/** 能不能生成：图片/视频要提示词 + 模型；音频节点暂不支持生成 */
 export function imageReady(node, nodes, edges) {
+  if (node?.kind === 'audio') return { ok: false, reason: '音频节点暂不支持生成：把音频链接填进节点里播放' }
+  if (node?.kind && !['image', 'video'].includes(node.kind)) return { ok: false, reason: '这个节点不需要生成' }
   const { text } = resolvePrompt(node, nodes, edges)
   if (!String(text || '').trim()) return { ok: false, reason: '还没有提示词：在节点里写一段，或从提示词节点连一条线进来' }
   const cfg = resolveConfig(node, nodes, edges)
-  if (!cfg.provider || !cfg.modelId) return { ok: false, reason: '还没选出图模型：连一个配置节点，或在本节点上选模型' }
+  if (!cfg.provider || !cfg.modelId) return { ok: false, reason: `还没选${node?.kind === 'video' ? '视频' : '出图'}模型：连一个配置节点，或在本节点上选模型` }
   return { ok: true, reason: '' }
 }
 
@@ -184,7 +193,7 @@ export function shouldApplyRemote(localRevision, remoteRevision, { pendingSave =
  * 只取已经有 url 的——没出图的节点当参考没有意义，跳过而不是报错。
  */
 export function resolveRefs(node, nodes, edges) {
-  if (!node || node.kind !== 'image') return []
+  if (!node || !NODE_KINDS[node.kind]?.inputs.includes('image')) return []
   const list = Array.isArray(nodes) ? nodes : []
   return incoming(node.id, edges)
     .map(e => list.find(n => n.id === e.from))
@@ -205,6 +214,31 @@ export function imageRequest(node, nodes, edges) {
     ...(image ? { image } : {}),
   }
 }
+
+/**
+ * 按节点类型给出对应的生成请求（2026-10-18：视频节点接 /api/media）。
+ * 图片 → /api/image；视频 → /api/media（图生视频时把上游图片当参考图）；
+ * 音频暂不生成（先当素材/链接节点）。
+ */
+export function mediaRequest(node, nodes, edges) {
+  if (node?.kind === 'video') {
+    const cfg = resolveConfig(node, nodes, edges)
+    const refs = resolveRefs(node, nodes, edges)
+    const image = refs[0]?.url || String(node.ref || '').trim() || undefined
+    return {
+      kind: 'video',
+      body: {
+        provider: cfg.provider,
+        modelId: cfg.modelId,
+        prompt: finalPrompt(node, nodes, edges),
+        ...(cfg.size ? { size: cfg.size } : {}),
+        ...(image ? { image } : {}),
+      },
+    }
+  }
+  return { kind: 'image', body: imageRequest(node, nodes, edges) }
+}
+
 
 /** 最终送进 /api/image 的提示词 */
 export function finalPrompt(node, nodes, edges) {

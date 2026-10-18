@@ -15,10 +15,14 @@ import path from 'node:path';
 import { atomicWriteJson } from './atomic-io.mjs';
 
 export const CANVAS_FILE = path.join('记忆', '运行时', '画布.json');
-export const CANVAS_KINDS = ['text', 'prompt', 'config', 'image'];
+export const CANVAS_KINDS = ['text', 'prompt', 'config', 'image', 'video', 'audio'];
 export const CANVAS_MAX = { nodes: 400, edges: 1200, text: 4000, title: 80, id: 64 };
 const NODE_KEYS = ['id', 'kind', 'x', 'y', 'w', 'h', 'title', 'text', 'template', 'model', 'size', 'provider', 'modelId', 'status', 'url', 'error', 'ref'];
-const DEFAULT_SIZE = { text: [280, 160], prompt: [300, 176], config: [264, 168], image: [300, 320] };
+const DEFAULT_SIZE = { text: [280, 160], prompt: [300, 176], config: [264, 168], image: [300, 320], video: [320, 320], audio: [300, 200] };
+// 哪些节点能当终点、能吃哪些输入；哪些能当起点（有输出）
+const SINK_INPUTS = { image: ['prompt', 'config', 'image'], video: ['prompt', 'config', 'image'], audio: ['prompt'] };
+const SOURCE_KINDS = ['prompt', 'config', 'image'];
+const KIND_LABEL = { text: '文本', prompt: '提示词', config: '配置', image: '图片', video: '视频', audio: '音频' };
 
 const num = (v, d = 0) => (Number.isFinite(Number(v)) ? Number(v) : d);
 const str = (v, max) => String(v ?? '').slice(0, max);
@@ -68,8 +72,10 @@ export function normalizeCanvasDoc(raw) {
     const to = byId.get(str(e?.to, CANVAS_MAX.id));
     if (!from || !to) { errors.push('跳过悬空连线'); continue }
     if (from.id === to.id) { errors.push('跳过自连'); continue }
-    if (to.kind !== 'image') { errors.push('只有图片节点能接收连线'); continue }
-    if (from.kind === 'text') { errors.push('文本节点没有输出'); continue }
+    if (!SOURCE_KINDS.includes(from.kind)) { errors.push(`${KIND_LABEL[from.kind] || from.kind}节点没有输出`); continue }
+    const sinkInputs = SINK_INPUTS[to.kind] || [];
+    if (!sinkInputs.length) { errors.push(`${KIND_LABEL[to.kind] || to.kind}节点不接受连线`); continue }
+    if (!sinkInputs.includes(from.kind)) { errors.push(`${KIND_LABEL[to.kind]}节点不接受这类输入`); continue }
     const key = `${from.id}->${to.id}`;
     if (pair.has(key)) { errors.push('跳过重复连线'); continue }
     pair.add(key);
@@ -114,7 +120,7 @@ export const CANVAS_TOOL_SCHEMA = {
         action: { type: 'string', enum: ['read', 'add_node', 'update_node', 'connect', 'disconnect', 'remove_node', 'clear'] },
         nodeId: { type: 'string', description: 'update_node / remove_node / disconnect 用' },
         edgeId: { type: 'string', description: 'disconnect 用' },
-        kind: { type: 'string', enum: ['text', 'prompt', 'config', 'image'], description: 'add_node 用' },
+        kind: { type: 'string', enum: ['text', 'prompt', 'config', 'image', 'video', 'audio'], description: 'add_node 用' },
         text: { type: 'string', description: '节点提示词/文本' },
         title: { type: 'string', description: '节点标题' },
         provider: { type: 'string', description: '出图服务商（配置节点或图片节点）' },
@@ -207,8 +213,10 @@ export function canvasExtraExecutors(wsRoot) {
           const to = doc.nodes.find((n) => n.id === String(args.to || ''));
           if (!from || !to) return { text: 'connect 需要有效的 from/to 节点 id（先 read）', isError: true };
           if (from.id === to.id) return { text: '不能连自己', isError: true };
-          if (to.kind !== 'image') return { text: '只有图片节点能接收连线', isError: true };
-          if (from.kind === 'text') return { text: '文本节点没有输出，请改用提示词节点', isError: true };
+          if (!SOURCE_KINDS.includes(from.kind)) return { text: `${KIND_LABEL[from.kind] || from.kind}节点没有输出`, isError: true };
+          const sinkInputs = SINK_INPUTS[to.kind] || [];
+          if (!sinkInputs.length) return { text: `${KIND_LABEL[to.kind] || to.kind}节点不接受连线`, isError: true };
+          if (!sinkInputs.includes(from.kind)) return { text: `${KIND_LABEL[to.kind]}节点不接受这类输入`, isError: true };
           const dup = doc.edges.some((e) => e.from === from.id && e.to === to.id);
           if (dup) return { text: '这条连线已存在', isError: false };
           const edges = from.kind === 'image'

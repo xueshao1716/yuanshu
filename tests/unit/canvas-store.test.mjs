@@ -99,7 +99,7 @@ test('工具：非法操作被拒且不改文档', () => {
   const exec = canvasExtraExecutors(root).canvas
   const img = exec({ action: 'add_node', kind: 'image' })
   const iId = /节点 (n[0-9a-z]+)/.exec(img.text)[1]
-  assert.equal(exec({ action: 'add_node', kind: 'video' }).isError, true, '未知类型')
+  assert.equal(exec({ action: 'add_node', kind: 'gif' }).isError, true, '未知类型')
   assert.equal(exec({ action: 'connect', from: iId, to: 'nope' }).isError, true, '悬空 id')
   assert.equal(exec({ action: 'connect', from: iId, to: iId }).isError, true, '自连')
   assert.equal(exec({ action: 'update_node', nodeId: 'nope', text: 'x' }).isError, true)
@@ -131,11 +131,28 @@ test('工具：改节点、删节点（连带删线）、清空', () => {
   assert.equal(readCanvasDoc(root).nodes.length, 0)
 })
 
-test('schema：action 必填，节点类型限定四种', () => {
+test('schema：action 必填，节点类型六种（含视频/音频）', () => {
   assert.equal(CANVAS_TOOL_SCHEMA.function.name, 'canvas')
   assert.deepEqual(CANVAS_TOOL_SCHEMA.function.parameters.required, ['action'])
   assert.deepEqual(
     CANVAS_TOOL_SCHEMA.function.parameters.properties.kind.enum,
-    ['text', 'prompt', 'config', 'image'],
+    ['text', 'prompt', 'config', 'image', 'video', 'audio'],
   )
+})
+
+test('视频节点能接提示词/配置/参考图，音频只接提示词', () => {
+  const root = tmpRoot()
+  const exec = canvasExtraExecutors(root).canvas
+  const id = (t) => /节点 (n[0-9a-z]+)/.exec(t)[1]
+  const p = id(exec({ action: 'add_node', kind: 'prompt', text: '海边的镜头' }).text)
+  const img = id(exec({ action: 'add_node', kind: 'image' }).text)
+  const v = id(exec({ action: 'add_node', kind: 'video' }).text)
+  const a = id(exec({ action: 'add_node', kind: 'audio' }).text)
+
+  assert.equal(exec({ action: 'connect', from: p, to: v }).isError, false, '视频接提示词')
+  assert.equal(exec({ action: 'connect', from: img, to: v }).isError, false, '视频接参考图')
+  assert.equal(exec({ action: 'connect', from: p, to: a }).isError, false, '音频接提示词')
+  assert.equal(exec({ action: 'connect', from: img, to: a }).isError, true, '音频不接参考图')
+  assert.equal(exec({ action: 'connect', from: v, to: img }).isError, true, '视频没有输出')
+  assert.equal(readCanvasDoc(root).nodes.length, 4)
 })

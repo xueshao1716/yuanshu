@@ -14,7 +14,7 @@ import {
   CANVAS_LIMITS, NODE_KINDS, createNode, addEdge, removeEdge, incoming,
   resolvePrompt, resolveConfig, resolveRefs, imageReady, imageRequest, nodeSizeFor,
   RenderGuard, selectRenderable, clampZoom, screenToWorld, worldToScreen, zoomAt,
-  nextPosition, serializeCanvas, parseCanvas, shouldApplyRemote,
+  nextPosition, serializeCanvas, parseCanvas, shouldApplyRemote, mediaRequest,
 } from '../lib/canvas-nodes.mjs'
 
 const STORAGE_KEY = 'pi-canvas-doc-v1'
@@ -325,28 +325,46 @@ export default function Canvas({ models: modelsProp, bare }: { models?: Model[];
     say(r.errors.length ? `已导入，跳过 ${r.errors.length} 处无效内容` : '导入完成')
   }
 
-  // ── 出图 ──
+  // ── 生成：图片走 /api/image；视频走 /api/media（可能是异步任务，要轮询）──
   const generate = async (id: string) => {
     if (genRef.current) { say('已有生成任务在进行，等它完成'); return }
     const node = nodes.find(n => n.id === id)
     if (!node) return
     const ready = imageReady(node, nodes, edges)
     if (!ready.ok) { patchNode(id, { error: ready.reason }); say(ready.reason); return }
-    const body = imageRequest(node, nodes, edges)
+    const req = mediaRequest(node, nodes, edges)
     setGen({ id, startedAt: Date.now() })
     patchNode(id, { status: 'running', error: '' })
     try {
-      const r = await MediaApi.image(body)
-      if (r?.image) {
-        patchNode(id, { status: 'done', url: r.image, error: '' })
-        say('出图完成')
+      if (req.kind === 'video') {
+        let r = await MediaApi.video(req.body)
+        let guard = 0
+        // 视频多半是异步任务：拿到 task_id 就轮询，最长约 5 分钟
+        while (!r?.video && r?.task_id && guard < 60) {
+          await new Promise(res => window.setTimeout(res, 5000))
+          r = await MediaApi.video({ provider: req.body.provider, modelId: req.body.modelId, task_id: r.task_id })
+          guard += 1
+        }
+        if (r?.video) {
+          patchNode(id, { status: 'done', url: r.video, error: '' })
+          say('视频生成完成')
+        } else {
+          patchNode(id, { status: 'error', error: r?.error || (r?.task_id ? '视频任务还没回来，稍后重试' : '接口没有返回视频') })
+          say('视频生成失败：' + (r?.error || '接口没有返回视频'))
+        }
       } else {
-        patchNode(id, { status: 'error', error: r?.error || '接口没有返回图片' })
-        say('出图失败：' + (r?.error || '接口没有返回图片'))
+        const r = await MediaApi.image(req.body)
+        if (r?.image) {
+          patchNode(id, { status: 'done', url: r.image, error: '' })
+          say('出图完成')
+        } else {
+          patchNode(id, { status: 'error', error: r?.error || '接口没有返回图片' })
+          say('出图失败：' + (r?.error || '接口没有返回图片'))
+        }
       }
     } catch (e) {
       patchNode(id, { status: 'error', error: String(e) })
-      say('出图失败：' + String(e))
+      say('生成失败：' + String(e))
     } finally {
       setGen(null)
     }
@@ -358,7 +376,7 @@ export default function Canvas({ models: modelsProp, bare }: { models?: Model[];
     config: resolveConfig(selected, nodes, edges),
     refs: resolveRefs(selected, nodes, edges),
   } : null), [selected, nodes, edges])
-  const selReady = useMemo(() => (selected && selected.kind === 'image' ? imageReady(selected, nodes, edges) : { ok: false, reason: '' }), [selected, nodes, edges])
+  const selReady = useMemo(() => (selected && ['image', 'video'].includes(selected.kind) ? imageReady(selected, nodes, edges) : { ok: false, reason: '' }), [selected, nodes, edges])
   const selIncoming = useMemo(() => (selected ? incoming(selected.id, edges) : []), [selected, edges])
 
   const zoomPct = Math.round(clampZoom(view.z) * 100)

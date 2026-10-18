@@ -6,7 +6,7 @@ import {
   NODE_KINDS, PANORAMA, CANVAS_LIMITS,
   createNode, buildPanoramaPrompt, buildPrompt,
   canConnect, addEdge, removeEdge, incoming,
-  resolvePrompt, resolveConfig, resolveRefs, imageReady, imageRequest, finalPrompt, shouldApplyRemote,
+  resolvePrompt, resolveConfig, resolveRefs, imageReady, imageRequest, finalPrompt, shouldApplyRemote, mediaRequest,
   RenderGuard, selectRenderable, clampZoom,
   screenToWorld, worldToScreen, zoomAt, nextPosition,
   serializeCanvas, parseCanvas,
@@ -302,4 +302,48 @@ test('非法 revision 不盖', () => {
   assert.equal(shouldApplyRemote(3, NaN), false)
   assert.equal(shouldApplyRemote(3, undefined), false)
   assert.equal(shouldApplyRemote(NaN, 5), false)
+})
+
+// ── 视频 / 音频节点（2026-10-18）────────────────────────────────────
+test('视频节点吃提示词/配置/参考图，音频只吃提示词', () => {
+  const p = createNode('prompt', { id: 'p', text: '海边的镜头' })
+  const a = createNode('image', { id: 'a', url: '/api/ws/file?path=a.png' })
+  const v = createNode('video', { id: 'v' })
+  const au = createNode('audio', { id: 'au' })
+  assert.equal(canConnect(p, v).ok, true)
+  assert.equal(canConnect(a, v).ok, true, '图生视频要能吃参考图')
+  assert.equal(canConnect(p, au).ok, true)
+  assert.equal(canConnect(a, au).ok, false, '音频不接受参考图')
+  assert.equal(canConnect(v, a).ok, false, '视频节点没有输出')
+})
+
+test('video 的请求走 /api/media，并带上有参考图', () => {
+  const a = createNode('image', { id: 'a', url: '/api/ws/file?path=a.png' })
+  const v = createNode('video', { id: 'v', text: '镜头推进', provider: 'prov', modelId: 'vm', size: '1280x720' })
+  const edges = addEdge([], a, v).edges
+  const req = mediaRequest(v, [a, v], edges)
+  assert.equal(req.kind, 'video')
+  assert.equal(req.body.provider, 'prov')
+  assert.equal(req.body.modelId, 'vm')
+  assert.equal(req.body.image, '/api/ws/file?path=a.png')
+  assert.match(req.body.prompt, /镜头推进/)
+})
+
+test('图片节点仍走 /api/image', () => {
+  const i = createNode('image', { id: 'i', text: 'x', provider: 'p', modelId: 'm' })
+  assert.equal(mediaRequest(i, [i], []).kind, 'image')
+})
+
+test('音频节点不提供生成，理由是「先放链接」', () => {
+  const au = createNode('audio', { id: 'au', text: '随便写点' })
+  const r = imageReady(au, [au], [])
+  assert.equal(r.ok, false)
+  assert.match(r.reason, /音频节点暂不支持生成/)
+})
+
+test('视频节点没选模型时给出「视频模型」的说法', () => {
+  const v = createNode('video', { id: 'v', text: '镜头推进' })
+  const r = imageReady(v, [v], [])
+  assert.equal(r.ok, false)
+  assert.match(r.reason, /视频模型/)
 })

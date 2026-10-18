@@ -5,7 +5,7 @@ export declare const CANVAS_LIMITS: {
   zoom: { min: number; max: number }
   node: { max: number }
 }
-export declare const NODE_KINDS: Record<'prompt' | 'config' | 'image', {
+export declare const NODE_KINDS: Record<'text' | 'prompt' | 'config' | 'image' | 'video' | 'audio', {
   label: string
   w: number
   h: number
@@ -42,6 +42,11 @@ export declare function shouldApplyRemote(localRevision: number, remoteRevision:
 /** 上游图片节点里已经出图的那几张（连续参考）。 */
 export declare function resolveRefs(node: CanvasNode, nodes: CanvasNode[], edges: CanvasEdge[]): CanvasNode[]
 export declare function imageRequest(node: CanvasNode, nodes: CanvasNode[], edges: CanvasEdge[]): { provider: string; modelId: string; prompt: string; size?: string; image?: string }
+/** 按节点类型给出生成请求：图片走 /api/image，视频走 /api/media。 */
+export declare function mediaRequest(node: CanvasNode, nodes: CanvasNode[], edges: CanvasEdge[]): {
+  kind: 'image' | 'video'
+  body: { provider: string; modelId: string; prompt: string; size?: string; image?: string }
+}
 export declare function finalPrompt(node: CanvasNode, nodes: CanvasNode[], edges: CanvasEdge[]): string
 export declare class RenderGuard {
   constructor(limit?: number)

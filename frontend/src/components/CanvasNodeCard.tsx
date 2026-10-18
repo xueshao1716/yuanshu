@@ -160,9 +160,48 @@ export default function CanvasNodeCard({
               value={node.ref} onChange={e => onPatch({ ref: e.target.value })} onPointerDown={e => e.stopPropagation()} />
           </>
         )}
-      </div>
+        {node.kind === 'video' && (
+          <>
+            {node.url ? (
+              <video src={node.url} controls playsInline preload="metadata"
+                className="flex-1 min-h-0 w-full rounded-pi-sm border border-pi-border-soft bg-black" />
+            ) : (
+              <div className="flex-1 min-h-0 rounded-pi-sm border border-dashed border-pi-border-soft flex flex-col items-center justify-center gap-1 text-pi-dim2">
+                <ImageOff className="w-5 h-5" />
+                <span className="text-[10px]">还没有视频</span>
+              </div>
+            )}
+            <div className="flex items-center gap-1.5">
+              <button className="btn-primary !text-[11px] !px-2 !min-h-0 !py-1 flex-1 disabled:opacity-50"
+                disabled={busy || !ready.ok}
+                title={ready.ok ? '生成视频' : ready.reason}
+                onClick={e => { e.stopPropagation(); onGenerate() }}
+                onPointerDown={e => e.stopPropagation()}>
+                {busy ? <><Loader2 className="w-3 h-3 animate-spin inline mr-1" />生成中</> : <><Wand2 className="w-3 h-3 inline mr-1" />生成视频</>}
+              </button>
+            </div>
+            {!ready.ok && node.status !== 'running' && <div className="text-[10px] text-pi-dim2 leading-snug">{ready.reason}</div>}
+            {node.error && <div className="text-[10px] text-pi-red leading-snug break-all">{node.error}</div>}
+            <input className="input-pi !min-h-0 !py-1 text-[11px]" placeholder="参考图 URL（可选，图生视频）"
+              value={node.ref} onChange={e => onPatch({ ref: e.target.value })} onPointerDown={e => e.stopPropagation()} />
+          </>
+        )}
 
-      {/* 输出锚点 */}
+        {node.kind === 'audio' && (
+          <>
+            {node.url ? (
+              <audio src={node.url} controls preload="none" className="w-full h-9" />
+            ) : (
+              <div className="min-h-0 rounded-pi-sm border border-dashed border-pi-border-soft flex items-center justify-center text-[10px] text-pi-dim2 py-3">
+                还没有音频
+              </div>
+            )}
+            <input className="input-pi !min-h-0 !py-1 text-[11px]" placeholder="音频链接（.mp3 / /api/music/stream?u=…）"
+              value={node.url} onChange={e => onPatch({ url: e.target.value })} onPointerDown={e => e.stopPropagation()} />
+            <div className="text-[10px] text-pi-dim2 leading-snug">音频节点只放素材与链接，暂不支持直接生成。</div>
+          </>
+        )}
+      </div>
       {meta.outputs.length > 0 && (
         <button
           title="拖到图片节点上连线"
