@@ -51,6 +51,8 @@ import { createMaintenanceApi } from "./engine/maintenance-api.mjs";
 import { sweepInterruptedRuns } from "./engine/story-store.mjs";
 import { extractPromises, recordPromises, loadPromises, pendingPromises, closePromise, pendingPromiseText, PROMISE_TOOL_SCHEMAS, promiseExtraExecutors, expireStalePromises } from "./engine/promises.mjs";
 import { MUSIC_TOOL_SCHEMA, musicExtraExecutors } from "./engine/music.mjs";
+import { musicLoginView } from "./engine/music-login.mjs";
+import { MUSIC_LOGIN_HTML } from "./engine/music-login-page.mjs";
 import { createSoilReader } from "./engine/aibody-soil.mjs";
 // ── 会话解析纯函数（拆模块）：消息/文本/图片/文件提取 ──
 import { extractMessages, extractText, extractImages, extractFiles, resolveLeafId, windowMessages } from "./engine/session-utils.mjs";
@@ -662,6 +664,11 @@ try { emotion.bindSkillIndex(() => loadSkillIndex()); } catch {}
 // 内置 provider（走兼容 agent）；其余自定义 provider 走直调通道
 // GET /api/prompts —— 提示词模板列表（本机 Agent prompts 目录）
 // ── 鉴权 ───────────────────────────────────────────────────────────
+// 本机直连判定：扫码登录页只在本机可开（它会把登录态写进本机 cookie 文件）
+function isLoopbackReq(req) {
+  const ip = String(req.socket?.remoteAddress || "").replace(/^::ffff:/, "");
+  return ip === "127.0.0.1" || ip === "::1" || ip === "";
+}
 function checkAuth(req) {
   const h = req.headers.authorization || "";
   if (h === `Bearer ${CONFIG.token}`) return true;
@@ -3253,6 +3260,14 @@ const API_ROUTES = [
   // ── 系统 ──
   ["GET", "/api/notices", (res) => handleNotices(res)],
   ["GET", "/api/health", (res) => json(res, 200, { ok: true })],
+  // 网易云扫码登录页（仅本机）：二维码服务端自刷新，解决"5 分钟就过期、扫到的是死码"
+  ["GET", "/api/music/login", async (res) => {
+    try { json(res, 200, await musicLoginView()) } catch (e) { json(res, 500, { ok: false, error: String(e?.message || e).slice(0, 120) }) }
+  }],
+  ["GET", "/music-login", (res) => {
+    res.writeHead(200, { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-store" });
+    res.end(MUSIC_LOGIN_HTML);
+  }],
   ["POST", "/api/repair", async (res, req) => handleRepair(res, await readBody(req))],
   ["GET", "/api/update/check", (res) => handleUpdateCheck(res)],
   // 前端版本号：优先兼容旧 index.html 的 ?v=，同时用产品版本兜底。
@@ -3736,7 +3751,9 @@ const server = http.createServer(async (req, res) => {
     const isPublicFeedback = url.pathname === "/api/public/feedback" && req.method === "POST";
     // 影院分享页免令牌媒体代理：GET only + 响应面收紧（tv.mjs 内非媒体 content-type 一律 403），防开放代理
     const isPublicTvMedia = url.pathname === "/api/tv/media" && req.method === "GET";
-    if (!isStatic && !isSignedFile && !isSetupStatus && !isPublicFeedback && !isPublicTvMedia && !checkAuth(req)) {
+    // 网易云扫码登录页：仅本机直连可开（它只写本机 cookie 文件，不碰账号密码）
+    const isMusicLogin = (url.pathname === "/music-login" || url.pathname === "/api/music/login") && req.method === "GET" && isLoopbackReq(req);
+    if (!isStatic && !isSignedFile && !isSetupStatus && !isPublicFeedback && !isPublicTvMedia && !isMusicLogin && !checkAuth(req)) {
       return json(res, 401, { error: "未授权，请提供访问令牌" });
     }
 

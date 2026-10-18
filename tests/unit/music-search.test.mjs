@@ -4,6 +4,7 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import {
   searchMusic, normalizeDeezer, normalizeItunes, formatMusicReply, musicExtraExecutors, MUSIC_TOOL_SCHEMA,
+  normalizeNeteaseSearch, neteasePlayUrls, neteaseSearch, readMusicCookie,
 } from '../../engine/music.mjs'
 
 const DEEZER_JSON = { data: [
@@ -84,4 +85,56 @@ test('工具执行器：成功返回文本，失败不抛错', async () => {
 test('schema 名称与必填参数', () => {
   assert.equal(MUSIC_TOOL_SCHEMA.function.name, 'music_search')
   assert.deepEqual(MUSIC_TOOL_SCHEMA.function.parameters.required, ['query'])
+})
+
+// ── 网易云（有 cookie 时优先，拿整首）────────────────────────────
+const NE_SEARCH = { result: { songs: [
+  { id: 111, name: '晴天', ar: [{ name: '周杰伦' }], al: { name: '叶惠美' } },
+  { id: 222, name: '七里香', ar: [{ name: '周杰伦' }], al: { name: '七里香' } },
+] } }
+const NE_URL = { data: [
+  { id: 111, url: 'http://m801.music.126.net/a/1.mp3' },
+  { id: 222, url: null },
+] }
+const fake = (map) => async (url) => {
+  for (const [k, v] of Object.entries(map)) if (String(url).includes(k)) return { ok: true, json: async () => v }
+  return { ok: false, status: 500 }
+}
+
+test('网易云搜索结果归一化', () => {
+  const items = normalizeNeteaseSearch(NE_SEARCH, 5)
+  assert.equal(items.length, 2)
+  assert.equal(items[0].title, '晴天')
+  assert.equal(items[0].artist, '周杰伦')
+  assert.equal(items[0].id, 111)
+})
+
+test('播放直链只收有 url 的，并升级成 https', async () => {
+  const urls = await neteasePlayUrls([111, 222], { cookie: 'MUSIC_U=x', fetchImpl: fake({ '/song/url/v1': NE_URL }) })
+  assert.equal(urls[111], 'https://m801.music.126.net/a/1.mp3')
+  assert.equal(urls[222], undefined, '没有直链的（VIP/无版权）不返回')
+})
+
+test('有 cookie 时优先网易云，并标记整首', async () => {
+  const r = await searchMusic('晴天', { cookie: 'MUSIC_U=x', fetchImpl: fake({ '/cloudsearch': NE_SEARCH, '/song/url/v1': NE_URL }) })
+  assert.equal(r.provider, 'netease')
+  assert.equal(r.items.length, 1)
+  assert.equal(r.items[0].full, true)
+  assert.match(formatMusicReply('晴天', r), /整首/)
+})
+
+test('没有 cookie 时不请求网易云', async () => {
+  let hit = 0
+  const probe = async (url) => { if (String(url).includes('cloudsearch')) hit++; return { ok: true, json: async () => ({ data: [] }) } }
+  await searchMusic('x', { cookie: '', fetchImpl: probe })
+  assert.equal(hit, 0)
+})
+
+test('网易云失败时回落到免费试听源', async () => {
+  const r = await searchMusic('jay', { cookie: 'MUSIC_U=x', fetchImpl: fake({ '/cloudsearch': { result: { songs: [] } }, 'api.deezer.com': DEEZER_JSON }) })
+  assert.equal(r.provider, 'deezer')
+})
+
+test('cookie 文件缺失时读成空串，不抛错', () => {
+  assert.equal(readMusicCookie('Z:/definitely/not/here.json'), '')
 })
