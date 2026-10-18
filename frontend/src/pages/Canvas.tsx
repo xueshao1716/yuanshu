@@ -7,7 +7,7 @@ import {
 import PageHeader from '../components/PageHeader'
 import CanvasNodeCard from '../components/CanvasNodeCard'
 import type { CanvasNode, CanvasEdge, CanvasView, Model } from '../types'
-import { MediaApi } from '../api'
+import { MediaApi, getToken, getApiBase } from '../api'
 import { useApp } from '../store'
 import { useMediaModel } from '../hooks/useMediaModel'
 import {
@@ -46,6 +46,8 @@ export default function Canvas({ models: modelsProp, bare }: { models?: Model[];
   const [pointer, setPointer] = useState<{ x: number; y: number } | null>(null)
 
   const stageRef = useRef<HTMLDivElement>(null)
+  // 与服务端同步画布：定时回写 + 「这次改动来自服务端，别再回写」的跳过标记
+  const syncRef = useRef<{ timer: number | null; skip: boolean }>({ timer: null, skip: false })
   const guardRef = useRef(new RenderGuard(CANVAS_LIMITS.render))
   const dragRef = useRef<{ mode: 'pan' | 'node'; id?: string; sx: number; sy: number; wx: number; wy: number } | null>(null)
   const fileRef = useRef<HTMLInputElement>(null)
@@ -55,10 +57,40 @@ export default function Canvas({ models: modelsProp, bare }: { models?: Model[];
   const { nodes, edges, view } = doc
   const say = useCallback((t: string) => { setToast(t); window.setTimeout(() => setToast(''), 2600) }, [])
 
-  // 持久化
+  // 持久化：本地立即存，服务端防抖同步（模型通过 canvas 工具改的就是这份）
   useEffect(() => {
     try { localStorage.setItem(STORAGE_KEY, serializeCanvas(doc)) } catch { /* 隐私模式/超额，静默 */ }
+    const s = syncRef.current
+    if (s.skip) { s.skip = false; return }
+    if (s.timer) window.clearTimeout(s.timer)
+    s.timer = window.setTimeout(() => {
+      void fetch(`${getApiBase()}/api/canvas`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${getToken()}` },
+        body: serializeCanvas(doc),
+      }).catch(() => { /* 离线就用本地，不打扰 */ })
+    }, 700)
   }, [doc])
+
+  // 首屏：服务端文档优先（她可能刚在对话里把链路搭好了）。服务端为空时不覆盖本地。
+  useEffect(() => {
+    let cancelled = false
+    void (async () => {
+      try {
+        const res = await fetch(`${getApiBase()}/api/canvas`, { headers: { Authorization: `Bearer ${getToken()}` } })
+        if (!res.ok) return
+        const data = await res.json()
+        const raw = data?.doc
+        if (!raw || cancelled || !Array.isArray(raw.nodes) || raw.nodes.length === 0) return
+        const parsed = parseCanvas(JSON.stringify({ nodes: raw.nodes, edges: raw.edges, view: raw.view }))
+        if (!parsed.ok || !parsed.doc) return
+        syncRef.current.skip = true
+        setDoc(parsed.doc as Doc)
+        say('已载入服务端画布（可能包含她刚搭的链路）')
+      } catch { /* 保持本地文档 */ }
+    })()
+    return () => { cancelled = true }
+  }, [say])
 
   // 渲染守卫：只对「视口内可见」的候选做 LRU，超出上限的降级为占位卡片
   useEffect(() => {

@@ -54,6 +54,7 @@ import { MUSIC_TOOL_SCHEMA, musicExtraExecutors } from "./engine/music.mjs";
 import { musicLoginView, resetMusicLogin } from "./engine/music-login.mjs";
 import { renderMusicLoginPage } from "./engine/music-login-page.mjs";
 import { handleMusicStream } from "./engine/music-stream.mjs";
+import { CANVAS_TOOL_SCHEMA, canvasExtraExecutors, readCanvasDoc, writeCanvasDoc } from "./engine/canvas.mjs";
 import { createSoilReader } from "./engine/aibody-soil.mjs";
 // ── 会话解析纯函数（拆模块）：消息/文本/图片/文件提取 ──
 import { extractMessages, extractText, extractImages, extractFiles, resolveLeafId, windowMessages } from "./engine/session-utils.mjs";
@@ -741,6 +742,7 @@ const UNIFIED_TOOLS = [
   PLAN_FILES_SCHEMA,
   ...PROMISE_TOOL_SCHEMAS,
   MUSIC_TOOL_SCHEMA,
+  CANVAS_TOOL_SCHEMA,
   ACTIVATE_SKILL_TOOL,
   DELEGATE_TASK_TOOL,
   DELEGATE_FORK_TOOL,
@@ -793,6 +795,8 @@ const executeUnifiedTool = createUnifiedToolExecutorGuarded({
     ...promiseExtraExecutors(WS_ROOT),
     // 对话里听歌：免费源搜索（Deezer → iTunes），只给 30 秒试听直链（2026-10-18）
     ...musicExtraExecutors(),
+    // 画布：让模型能自己搭节点链（读/建/连/改），前端画布与它共享同一份文档（2026-10-18）
+    ...canvasExtraExecutors(WS_ROOT),
     // 派活 = 元枢里真正的"多路探索"：一次派几个子任务、哪个失败、花了多久。
     // 记成轨迹节点后，"该怎么探索"才有可回放的对象（当场修那条是单线的）。
     delegate_task: async (args, ctx) => {
@@ -3267,6 +3271,14 @@ const API_ROUTES = [
   }],
   // 音乐流同源代理：CDN 要 Referer、地址会过期，浏览器直接引用放不出来
   ["GET", "/api/music/stream", (res, req) => handleMusicStream(req, res)],
+  // 画布文档：前端读写同一份，模型通过 canvas 工具改它
+  ["GET", "/api/canvas", (res) => json(res, 200, { ok: true, doc: readCanvasDoc(WS_ROOT) })],
+  ["PUT", "/api/canvas", async (res, req) => {
+    try {
+      const r = writeCanvasDoc(WS_ROOT, await readBody(req));
+      json(res, 200, { ok: true, doc: r.doc, warnings: r.errors.slice(0, 5) });
+    } catch (e) { json(res, 400, { ok: false, error: String(e?.message || e).slice(0, 160) }) }
+  }],
   // 服务端渲染、零 JS：全站 CSP 是 script-src 'self'，内联脚本根本跑不起来
   ["GET", "/music-login", async (res, req) => {
     try {
