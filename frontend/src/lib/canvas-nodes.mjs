@@ -15,7 +15,9 @@ export const NODE_KINDS = {
   text: { label: '文本', w: 280, h: 160, outputs: [], inputs: [] },
   prompt: { label: '提示词', w: 300, h: 176, outputs: ['prompt'], inputs: [] },
   config: { label: '配置', w: 264, h: 168, outputs: ['config'], inputs: [] },
-  image: { label: '图片', w: 300, h: 320, outputs: [], inputs: ['prompt', 'config'] },
+  // 2026-10-18：图片节点也能**输出**并接收「参考图」——上一张满意的结果直接连到下一次生成，
+  // 这就是 LingWeave 讲的"连续参考"，不用每次重述产品/角色长什么样。
+  image: { label: '图片', w: 300, h: 320, outputs: ['image'], inputs: ['prompt', 'config', 'image'] },
 }
 
 export const NODE_STATUS = ['idle', 'running', 'done', 'error']
@@ -79,32 +81,32 @@ export function buildPrompt({ userPrompt = '', template = 'plain', hasReference 
   return n ? `${u}。${n}` : u
 }
 
-/** 连线规则：只有图片节点能接收；提示词/配置节点才有输出；不能连自己 */
+/** 连线规则：只有图片节点能接收；提示词/配置/图片节点才有输出；不能连自己 */
 export function canConnect(from, to) {
   if (!from || !to) return { ok: false, reason: '缺少节点' }
   if (from.id === to.id) return { ok: false, reason: '不能连自己' }
-  const outKind = from.kind === 'prompt' ? 'prompt' : from.kind === 'config' ? 'config' : ''
+  const outKind = from.kind === 'prompt' ? 'prompt' : from.kind === 'config' ? 'config' : from.kind === 'image' ? 'image' : ''
   if (!outKind) return { ok: false, reason: `${NODE_KINDS[from.kind]?.label || from.kind}节点没有输出` }
   if (to.kind !== 'image') return { ok: false, reason: `只有图片节点能接收连线` }
   if (!NODE_KINDS.image.inputs.includes(outKind)) return { ok: false, reason: '图片节点不接受这类输入' }
   return { ok: true, reason: '' }
 }
 
-/** 加连线：去重；同一图片节点的提示词输入只保留一条（新的替换旧的） */
+/** 加连线：去重；提示词/配置输入只保留一条（新的替换旧的），参考图可以连多条 */
 export function addEdge(edges, from, to) {
   const check = canConnect(from, to)
   if (!check.ok) return { ok: false, reason: check.reason, edges }
   const list = Array.isArray(edges) ? edges : []
   const dup = list.some(e => e.from === from.id && e.to === to.id)
   if (dup) return { ok: true, reason: '已存在', edges: list }
-  // 同一图片节点的「提示词输入」只保留一条：新连线顶掉旧的
+  // 提示词/配置各只保留一条：新连线顶掉旧的。参考图不顶——一个场景可能同时参考产品图和人物图。
   const src = from.kind
-  const next = list.filter(e => !(e.to === to.id && edgeKind(e) === src))
+  const next = src === 'image' ? list : list.filter(e => !(e.to === to.id && edgeKind(e) === src))
   const edge = { id: `e${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`, from: from.id, to: to.id, kind: from.kind }
   return { ok: true, reason: '', edges: [...next, edge], edge }
 }
 
-function edgeKind(e) { return e.kind === 'config' ? 'config' : 'prompt' }
+function edgeKind(e) { return e.kind === 'config' ? 'config' : e.kind === 'image' ? 'image' : 'prompt' }
 
 export function removeEdge(edges, id) {
   return (Array.isArray(edges) ? edges : []).filter(e => e.id !== id)
@@ -160,14 +162,30 @@ export function imageReady(node, nodes, edges) {
   return { ok: true, reason: '' }
 }
 
+/**
+ * 参考图来源：连进来的上游图片节点（按连线顺序）。
+ * 只取已经有 url 的——没出图的节点当参考没有意义，跳过而不是报错。
+ */
+export function resolveRefs(node, nodes, edges) {
+  if (!node || node.kind !== 'image') return []
+  const list = Array.isArray(nodes) ? nodes : []
+  return incoming(node.id, edges)
+    .map(e => list.find(n => n.id === e.from))
+    .filter(n => n && n.kind === 'image' && String(n.url || '').trim())
+}
+
 /** 直接拼成 MediaApi.image 的请求体（/api/image 要 provider + modelId + prompt + size） */
 export function imageRequest(node, nodes, edges) {
   const cfg = resolveConfig(node, nodes, edges)
+  const refs = resolveRefs(node, nodes, edges)
+  // /api/image 只收单张参考图（image: URL 或 data URI），多张时取第一张并保留其余给界面提示
+  const image = refs[0]?.url || String(node.ref || '').trim() || undefined
   return {
     provider: cfg.provider,
     modelId: cfg.modelId,
     prompt: finalPrompt(node, nodes, edges),
     size: cfg.size || undefined,
+    ...(image ? { image } : {}),
   }
 }
 
@@ -175,7 +193,8 @@ export function imageRequest(node, nodes, edges) {
 export function finalPrompt(node, nodes, edges) {
   const { text } = resolvePrompt(node, nodes, edges)
   const cfg = resolveConfig(node, nodes, edges)
-  return buildPrompt({ userPrompt: text, template: cfg.template || 'plain', hasReference: !!node.ref })
+  const hasReference = !!(node.ref || resolveRefs(node, nodes, edges).length)
+  return buildPrompt({ userPrompt: text, template: cfg.template || 'plain', hasReference })
 }
 
 // ── 渲染守卫：LRU 上限，超限降级 ──

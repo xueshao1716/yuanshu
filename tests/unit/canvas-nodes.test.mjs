@@ -6,7 +6,7 @@ import {
   NODE_KINDS, PANORAMA, CANVAS_LIMITS,
   createNode, buildPanoramaPrompt, buildPrompt,
   canConnect, addEdge, removeEdge, incoming,
-  resolvePrompt, resolveConfig, imageReady, finalPrompt,
+  resolvePrompt, resolveConfig, resolveRefs, imageReady, imageRequest, finalPrompt,
   RenderGuard, selectRenderable, clampZoom,
   screenToWorld, worldToScreen, zoomAt, nextPosition,
   serializeCanvas, parseCanvas,
@@ -22,7 +22,9 @@ test('节点尺寸：全景图节点是 2:1 横盒，普通图是竖盒', () => 
   assert.equal(pano.w, PANORAMA.nodeSize.width)
   const plain = createNode('image')
   assert.ok(plain.h > plain.w)
-  assert.equal(NODE_KINDS.image.outputs.length, 0, '图片节点是终点，不再往外连')
+  // 2026-10-18 改：图片节点现在能输出，用来做「连续参考」（上一张结果连到下一次生成）
+  assert.deepEqual(NODE_KINDS.image.outputs, ['image'], '图片节点可作为参考图来源')
+  assert.ok(NODE_KINDS.image.inputs.includes('image'), '图片节点也要能接收参考图')
   // patch 显式给了尺寸就以 patch 为准（导入旧画布时不强行改尺寸）
   assert.equal(createNode('image', { template: 'panorama', w: 300, h: 320 }).w, 300)
 })
@@ -50,11 +52,11 @@ test('plain 模板不注入任何约束，panorama 模板才注入', () => {
   assert.equal(buildPrompt({ userPrompt: '   ' }), '', '空白提示词不给下游发')
 })
 
-test('连线：prompt/config 只能指向 image，image 是终点，自连与重复都拒', () => {
+test('连线：prompt/config 只能指向 image，image 可作为参考图来源，自连与重复都拒', () => {
   const [p, c, i] = [P(), C(), I()]
   assert.equal(canConnect(p, i).ok, true)
   assert.equal(canConnect(c, i).ok, true)
-  assert.equal(canConnect(i, p).ok, false, 'image 没有输出')
+  assert.equal(canConnect(i, p).ok, false, 'image 只能连到图片节点')
   assert.equal(canConnect(p, p).ok, false, '不能自连')
   assert.equal(canConnect(p, c).ok, false, 'config 不是终点')
   assert.equal(canConnect(undefined, i).ok, false)
@@ -218,4 +220,66 @@ test('parseCanvas：非法坐标/尺寸回落到默认值，不会出现 NaN', (
   assert.equal(n.h, NODE_KINDS.image.h)
   assert.equal(n.status, 'idle')
   assert.ok(Number.isFinite(n.x) && Number.isFinite(n.y))
+})
+
+// ── 连续参考（2026-10-18）：上一张结果连到下一次生成 ─────────────────
+test('连续参考：image → image 可连，且允许多条', () => {
+  const a = createNode('image', { id: 'a', text: '产品主视觉', url: '/api/ws/file?path=x.png' })
+  const b = createNode('image', { id: 'b', text: '森林场景', url: '/api/ws/file?path=y.png' })
+  const c = createNode('image', { id: 'c', text: '城市场景' })
+  assert.equal(canConnect(a, c).ok, true, '图片节点可以作为参考图来源')
+
+  let edges = addEdge([], a, c).edges
+  edges = addEdge(edges, b, c).edges
+  assert.equal(edges.length, 2, '参考图可以连多张（产品 + 人物）')
+  assert.ok(edges.every(e => e.kind === 'image'))
+
+  const refs = resolveRefs(c, [a, b, c], edges)
+  assert.deepEqual(refs.map(r => r.id), ['a', 'b'])
+})
+
+test('参考图只取已经出图的节点（没 url 的跳过，不报错）', () => {
+  const a = createNode('image', { id: 'a', url: '/api/ws/file?path=a.png' })
+  const b = createNode('image', { id: 'b', url: '' })
+  const t = createNode('image', { id: 't' })
+  const edges = [addEdge([], a, t).edge, addEdge([], b, t).edge]
+  assert.deepEqual(resolveRefs(t, [a, b, t], edges).map(r => r.id), ['a'])
+})
+
+test('imageRequest 带上第一张参考图', () => {
+  const a = createNode('image', { id: 'a', url: '/api/ws/file?path=a.png' })
+  const t = createNode('image', { id: 't', text: '把产品放进森林', provider: 'prov', modelId: 'm' })
+  const edges = addEdge([], a, t).edges
+  const body = imageRequest(t, [a, t], edges)
+  assert.equal(body.image, '/api/ws/file?path=a.png')
+  assert.equal(body.provider, 'prov')
+  assert.match(body.prompt, /把产品放进森林/)
+})
+
+test('没有上游参考图时回落到节点自己的 ref 字段；都没有就不带 image', () => {
+  const t = createNode('image', { id: 't', text: 'x', provider: 'p', modelId: 'm', ref: '/api/ws/file?path=own.png' })
+  assert.equal(imageRequest(t, [t], []).image, '/api/ws/file?path=own.png')
+  const plain = createNode('image', { id: 'z', text: 'y', provider: 'p', modelId: 'm' })
+  assert.equal('image' in imageRequest(plain, [plain], []), false, '没有参考图就不该带这个字段')
+})
+
+test('有参考图时全景模板走「补全四周」分支', () => {
+  const a = createNode('image', { id: 'a', url: '/api/ws/file?path=a.png' })
+  const t = createNode('image', { id: 't', text: '雪山', template: 'panorama', provider: 'p', modelId: 'm' })
+  const edges = addEdge([], a, t).edges
+  const prompt = finalPrompt(t, [a, t], edges)
+  assert.match(prompt, /基于参考图生成一张全景环境图/)
+})
+
+test('提示词输入仍然只保留一条（新连线顶掉旧的），参考图不受影响', () => {
+  const p1 = createNode('prompt', { id: 'p1', text: '甲' })
+  const p2 = createNode('prompt', { id: 'p2', text: '乙' })
+  const a = createNode('image', { id: 'a', url: '/api/ws/file?path=a.png' })
+  const t = createNode('image', { id: 't' })
+  let edges = addEdge([], p1, t).edges
+  edges = addEdge(edges, a, t).edges
+  edges = addEdge(edges, p2, t).edges
+  assert.equal(edges.filter(e => e.kind === 'prompt').length, 1, '提示词只留一条')
+  assert.equal(edges.filter(e => e.kind === 'image').length, 1, '参考图不被顶掉')
+  assert.deepEqual(resolvePrompt(t, [p1, p2, a, t], edges).text, '乙')
 })

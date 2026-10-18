@@ -12,7 +12,7 @@ import { useApp } from '../store'
 import { useMediaModel } from '../hooks/useMediaModel'
 import {
   CANVAS_LIMITS, NODE_KINDS, createNode, addEdge, removeEdge, incoming,
-  resolvePrompt, resolveConfig, imageReady, imageRequest, nodeSizeFor,
+  resolvePrompt, resolveConfig, resolveRefs, imageReady, imageRequest, nodeSizeFor,
   RenderGuard, selectRenderable, clampZoom, screenToWorld, worldToScreen, zoomAt,
   nextPosition, serializeCanvas, parseCanvas,
 } from '../lib/canvas-nodes.mjs'
@@ -286,6 +286,7 @@ export default function Canvas({ models: modelsProp, bare }: { models?: Model[];
   const selDerived = useMemo(() => (selected ? {
     prompt: resolvePrompt(selected, nodes, edges),
     config: resolveConfig(selected, nodes, edges),
+    refs: resolveRefs(selected, nodes, edges),
   } : null), [selected, nodes, edges])
   const selReady = useMemo(() => (selected && selected.kind === 'image' ? imageReady(selected, nodes, edges) : { ok: false, reason: '' }), [selected, nodes, edges])
   const selIncoming = useMemo(() => (selected ? incoming(selected.id, edges) : []), [selected, edges])
@@ -492,6 +493,7 @@ export default function Canvas({ models: modelsProp, bare }: { models?: Model[];
                     <div className="text-[10px] text-pi-dim2">
                       {selDerived.prompt.inherited ? `继承自上游提示词节点` : '来自本节点输入'}
                       {' · '}{selDerived.config.template === 'panorama' ? '全景模板已注入' : '原样模板'}
+                      {' · '}{selDerived.refs.length ? `参考图 ${selDerived.refs.length} 张（取第一张）` : '无参考图'}
                     </div>
                   </div>
                   <div className="flex items-center gap-1.5">
