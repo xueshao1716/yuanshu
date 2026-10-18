@@ -51,8 +51,8 @@ import { createMaintenanceApi } from "./engine/maintenance-api.mjs";
 import { sweepInterruptedRuns } from "./engine/story-store.mjs";
 import { extractPromises, recordPromises, loadPromises, pendingPromises, closePromise, pendingPromiseText, PROMISE_TOOL_SCHEMAS, promiseExtraExecutors, expireStalePromises } from "./engine/promises.mjs";
 import { MUSIC_TOOL_SCHEMA, musicExtraExecutors } from "./engine/music.mjs";
-import { musicLoginView } from "./engine/music-login.mjs";
-import { MUSIC_LOGIN_HTML } from "./engine/music-login-page.mjs";
+import { musicLoginView, resetMusicLogin } from "./engine/music-login.mjs";
+import { renderMusicLoginPage } from "./engine/music-login-page.mjs";
 import { createSoilReader } from "./engine/aibody-soil.mjs";
 // ── 会话解析纯函数（拆模块）：消息/文本/图片/文件提取 ──
 import { extractMessages, extractText, extractImages, extractFiles, resolveLeafId, windowMessages } from "./engine/session-utils.mjs";
@@ -3264,9 +3264,18 @@ const API_ROUTES = [
   ["GET", "/api/music/login", async (res) => {
     try { json(res, 200, await musicLoginView()) } catch (e) { json(res, 500, { ok: false, error: String(e?.message || e).slice(0, 120) }) }
   }],
-  ["GET", "/music-login", (res) => {
-    res.writeHead(200, { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-store" });
-    res.end(MUSIC_LOGIN_HTML);
+  // 服务端渲染、零 JS：全站 CSP 是 script-src 'self'，内联脚本根本跑不起来
+  ["GET", "/music-login", async (res, req) => {
+    try {
+      const url = new URL(req.url, "http://127.0.0.1");
+      if (url.searchParams.has("reset")) resetMusicLogin();
+      const view = await musicLoginView();
+      res.writeHead(200, { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-store" });
+      res.end(renderMusicLoginPage(view));
+    } catch (e) {
+      res.writeHead(500, { "Content-Type": "text/plain; charset=utf-8" });
+      res.end("登录页出错：" + String(e?.message || e).slice(0, 120));
+    }
   }],
   ["POST", "/api/repair", async (res, req) => handleRepair(res, await readBody(req))],
   ["GET", "/api/update/check", (res) => handleUpdateCheck(res)],
