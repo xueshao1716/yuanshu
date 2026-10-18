@@ -252,7 +252,7 @@ export function XiaoyuAvatar({ state, label = '小语', className }: { state?: a
   return (
     <canvas
       ref={canvasRef}
-      className={className}
+      className={`xiaoyu-breathe ${className || ''}`.trim()}
       role="img"
       aria-label={`小语完整形象：${label}`}
     />

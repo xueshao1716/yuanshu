@@ -10,3 +10,13 @@ export function actionFor(facts: CompanionFacts | null | undefined, decision?: C
 export function acceptDecision(decision: CompanionDecision | null | undefined, context: { sessionId: string | null; contextEpoch: string; facts: CompanionFacts | null | undefined; now: number; visible: boolean }): boolean;
 export function shouldAutoDecide(input: { visible: boolean; dnd: boolean; sessionId: string | null; known: boolean; key: string; previous: string; pending?: boolean; currentBusy?: boolean }): boolean;
 export function isConversationEvent(event: unknown): boolean;
+/** 时段划分：lateNight/morning/forenoon/noon/afternoon/evening/unknown */
+export function timeOfDay(hour: number): string;
+/** 主动互动的时机串（刚打开 / 久别回来 / 刚干完活 / 时段），变化一次就能触发一次评估。 */
+export function proactiveMoments(input: {
+  now?: number;
+  mountedAt?: number;
+  lastActivityAt?: number;
+  wasBusy?: boolean;
+  isBusy?: boolean;
+}): string;

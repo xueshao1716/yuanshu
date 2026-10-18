@@ -47,6 +47,38 @@ export function actionFor(facts, decision, ambient = {}) {
 export function shouldAutoDecide({ visible, dnd, sessionId, known, key, previous, pending, currentBusy }) {
   return !!(visible && !dnd && !pending && !currentBusy && sessionId && known && key && key !== previous);
 }
+
+/**
+ * 主动互动的"时机标签"（2026-10-18：伙伴说主动互动弱）。
+ * 原来只有 revision/情绪/30 秒空闲阶段三个变化点，冷启动、久别回来、刚干完活都不会开口。
+ * 这里把几个自然的时机做成纯函数，交给 inputKey 去触发一次 auto 决策（服务端仍然限频和校验）。
+ */
+export function timeOfDay(hour) {
+  const h = Number(hour);
+  if (!Number.isFinite(h) || h < 0 || h > 23) return 'unknown';
+  if (h < 5) return 'lateNight';
+  if (h < 9) return 'morning';
+  if (h < 12) return 'forenoon';
+  if (h < 14) return 'noon';
+  if (h < 18) return 'afternoon';
+  if (h < 23) return 'evening';
+  return 'lateNight';
+}
+
+export function proactiveMoments({ now, mountedAt, lastActivityAt, wasBusy, isBusy } = {}) {
+  const t = Number.isFinite(now) ? now : Date.now();
+  const parts = [`tod:${timeOfDay(new Date(t).getHours())}`];
+  // 刚打开：给她一次"见到你"的机会（只在最初 90 秒内算，不会反复）
+  if (Number.isFinite(mountedAt) && t - mountedAt >= 0 && t - mountedAt < 90_000) parts.push('just-open');
+  // 久别回来：离开超过 5 分钟后回来，重新评估一次
+  if (Number.isFinite(lastActivityAt)) {
+    const idle = t - lastActivityAt;
+    if (idle >= 300_000) parts.push(`resume:${Math.floor(idle / 300_000)}`);
+  }
+  // 刚干完活：从忙到闲的那一刻值得说一句
+  if (wasBusy === true && isBusy === false) parts.push('just-finished');
+  return parts.join('|');
+}
 export function isConversationEvent(event) {
   return !!(event && event.type !== 'subscribed' && !(typeof event.key === 'string' && Number.isInteger(event.lastSeq) && !event.type));
 }

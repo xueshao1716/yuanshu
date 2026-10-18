@@ -4,7 +4,7 @@ import { streamSession, getApiBase } from '../../api'
 import { useApp } from '../../store'
 import { useXiaoyuEmotion } from '../../lib/useXiaoyuEmotion'
 import { CompanionApi, type Trigger } from './companion-api'
-import { acceptDecision, actionFor, shouldAutoDecide, isConversationEvent, type CompanionDecision } from './companion-state.mjs'
+import { acceptDecision, actionFor, shouldAutoDecide, isConversationEvent, proactiveMoments, type CompanionDecision } from './companion-state.mjs'
 
 export function useCompanion(enabled: boolean) {
   const { currentSessionId: sessionId, token, authed } = useApp()
@@ -30,7 +30,14 @@ export function useCompanion(enabled: boolean) {
     currentAction: actionFor(facts, decision, { now: clock, lastActivityAt }) }
   const accepted = acceptDecision(decision, current.current) ? decision : null
   const lastAuto = useRef('')
-  const dnd = prefs.data?.dnd ?? true
+  // 2026-10-18：主动互动默认开着（原来默认免打扰，等于从来不主动说话），用户可以在面板里关掉
+  const dnd = prefs.data?.dnd ?? false
+  // 主动时机：刚打开 / 久别回来 / 刚干完活 / 时段变化
+  const mountedAt = useRef(Date.now())
+  const prevBusy = useRef(false)
+  const busyNow = Boolean(facts?.currentBusy)
+  const justFinished = prevBusy.current && !busyNow
+  useEffect(() => { prevBusy.current = busyNow }, [busyNow])
 
   useEffect(() => {
     const change = () => setVisible(!document.hidden)
@@ -97,7 +104,11 @@ export function useCompanion(enabled: boolean) {
   // 和主动陪伴会显得“卡住”。服务端仍有 30 秒窗口限频，前端只在阶段
   // 变化时唤起一次模型，不会形成任务循环。
   const idlePhase = Math.floor(Math.max(0, clock - lastActivityAt) / 30_000)
-  const inputKey = `${contextEpoch}:${facts?.serverEpoch}:${facts?.revision}:${emotion.snapshot?.serverEpoch}:${emotion.snapshot?.revision}:${idlePhase}`
+  const moments = proactiveMoments({
+    now: clock, mountedAt: mountedAt.current, lastActivityAt,
+    wasBusy: justFinished ? true : false, isBusy: busyNow,
+  })
+  const inputKey = `${contextEpoch}:${facts?.serverEpoch}:${facts?.revision}:${emotion.snapshot?.serverEpoch}:${emotion.snapshot?.revision}:${idlePhase}:${moments}`
   useEffect(() => {
     if (!shouldAutoDecide({ visible: active, dnd, sessionId, known: !!facts?.known, key: inputKey, previous: lastAuto.current, pending, currentBusy: facts?.currentBusy })) return
     const timer = setTimeout(() => { lastAuto.current = inputKey; void interact('auto') }, 500)

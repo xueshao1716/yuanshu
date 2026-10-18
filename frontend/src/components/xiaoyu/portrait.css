@@ -8,6 +8,14 @@
 .xiaoyu-widget[data-skin="portrait"] .xiaoyu-figure[data-paused="true"] { animation-play-state: paused; }
 .xiaoyu-mode-options button:disabled { opacity: .55; cursor: not-allowed; }
 @keyframes xiaoyu-portrait-breathe { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-1px); } }
+/* 2026-10-18 伙伴说公仔"死版"：静态立绘也给它一点呼吸感（很轻，不抢视线，尊重减少动态） */
+.xiaoyu-breathe { animation: xiaoyu-breathe 7s ease-in-out infinite; transform-origin: 50% 85%; will-change: transform; }
+@keyframes xiaoyu-breathe {
+  0%, 100% { transform: translateY(0) scale(1); }
+  50% { transform: translateY(-1.6px) scale(1.004); }
+}
+[data-reduced-motion="true"] .xiaoyu-breathe { animation: none; }
+@media (prefers-reduced-motion: reduce) { .xiaoyu-breathe { animation: none; } }
 [data-reduced-motion="true"] .xiaoyu-widget[data-skin="portrait"] .xiaoyu-figure { animation: none; }
 @media (prefers-reduced-motion: reduce) { .xiaoyu-widget[data-skin="portrait"] .xiaoyu-figure { animation: none; } }
 .companion-portrait { margin: 0; display: flex; flex-direction: column; align-items: center; gap: 4px; }
