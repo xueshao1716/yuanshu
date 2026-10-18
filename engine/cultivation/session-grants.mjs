@@ -34,7 +34,7 @@ export function createSessionGrants({workspace, host, now = Date.now, ttlMs = 60
     if (!available) fail('unavailable');
     if (!accessible(sessionId)) fail('denied');
   };
-  const challenge = (command, sessionId) => {
+  const challenge = (command, sessionId, { silent = false } = {}) => {
     validateSession(sessionId); clean();
     if (!command || !allowedActions.includes(command.action)) fail('denied');
     if (challenges.size + proofs.size >= 128 || !Number.isFinite(now()) ||
@@ -54,8 +54,11 @@ export function createSessionGrants({workspace, host, now = Date.now, ttlMs = 60
       return outcome;
     });
     challenges.set(row.id, row);
-    try {host.push(sessionId, 'confirm', {...payload, sessionId, expiresAt:row.expiresAt});}
-    catch {cancel(row); challenges.delete(row.id); fail('unavailable');}
+    // silent：授权中心已经由人点过确认，这里只走内部凭证，不再推一张重复弹框
+    if (!silent) {
+      try {host.push(sessionId, 'confirm', {...payload, sessionId, expiresAt:row.expiresAt});}
+      catch {cancel(row); challenges.delete(row.id); fail('unavailable');}
+    }
     return Object.freeze({id: row.id, sessionId, commandHash: row.commandHash, expiresAt: row.expiresAt});
   };
   const confirm = async (id, command, sessionId) => {

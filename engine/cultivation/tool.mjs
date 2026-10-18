@@ -6,7 +6,7 @@ import {designValidationDetails} from './designs.mjs';
 import {commandValidationDetails, badCommand} from './control-transition.mjs';
 import {cultivationFailureDetails} from './diagnostics.mjs';
 
-const actions=['overview','agents','designs','runs','experience','preflight','models','denials','learning.context','design.submit','design.revise','agent.register','agent.adopt','agent.pause','agent.resume','agent.archive','agent.rollback','run.submit','learning.decide','asset.bind','policy.set'];
+const actions=['overview','agents','designs','runs','experience','preflight','models','denials','learning.context','design.submit','design.revise','agent.register','agent.adopt','agent.pause','agent.resume','agent.archive','agent.rollback','run.submit','learning.decide','asset.bind','policy.set','request.approval'];
 const description='智能体培养：由小语自己设计和推进；受限封套内的开关由小语自己执行，主人可以事后撤销，不能冒充用户批准更多权限。自主开关的红线：只要是标准受限预设（'+(GRANT_DAYS)+'天、最多'+(GRANT_MAX_AGENTS)+'个个体、每天'+(GRANT_DAILY_REQUESTS)+'次请求、每天≤'+(GRANT_DAILY_BUDGET_CENTS/100)+'美元、单次10分钟、tools=[]、dataScopes 只含 knowledge:approved-cultivation）内的 policy.set，或把 enabled 置 false 的自我暂停，都可以直接执行，不用等主人点卡；执行后在本轮回复里用一句话告诉主人"已自动开启/暂停受限培养"。任何增强动作（加大任何上限、加工具、开 motherLearning、新增数据范围、旧策略已存在则扩有效期超过'+(GRANT_DAYS)+'天）必须由主人确认，不能自行改。' +
   '培养设计只描述目标、课程和文本任务，不向主人索取课程、模型参数、电脑密码或其他凭据。'+
   '登记前用 preflight,payload={action:"design.check",designId} 检查设计、模型、价格和共享配额；操作前也可用 action:agent.register或run.submit或run.dispatch 配合 designId或agentId 一次查看 blockedBy；只读，不注册、不预留、不调用模型。'+
@@ -52,6 +52,20 @@ export async function cultivationTool(runtime,args,host) {
       return {text:JSON.stringify({error:'cultivation_unknown_action',retryable:true,got:String(args.action??''),
         expected:actions,nextAction:'动作名必须完全匹配 expected 里的一项（如 design.revise，不能缩写），改正后用新 requestId 重试。'}),isError:true};
     if(!host?.executionIdentity||!args)throw new Error('cultivation_identity_denied');
+    // 越线申请：她做不到、必须主人点头的事，排进授权中心「等我确认」，批准后只执行这一次
+    if(args.action==='request.approval'){
+      const policy=args?.payload?.policy;
+      if(!policy||typeof policy!=='object')
+        return {text:JSON.stringify({error:'cultivation_invalid_command',retryable:true,
+          nextAction:'payload 需要 {policy: 完整策略对象, reason: 一句话说明为什么要越线}。'}),isError:true};
+      const ask=host?.requestApproval;
+      if(typeof ask!=='function')
+        return {text:JSON.stringify({error:'cultivation_approval_unavailable',retryable:false,
+          nextAction:'当前环境不能提交授权申请，如实告诉主人原因。'}),isError:true};
+      const row=await ask({command:{action:'policy.set',payload:{policy}},reason:String(args?.payload?.reason||'').slice(0,200)});
+      return {text:JSON.stringify({ok:true,requestId:row?.requestId||'',cardId:row?.cardId||'',
+        nextAction:'已排进授权中心「等我确认」；主人批准后这条策略才会生效。不要重复申请，也不要在同一轮里反复读。'}),isError:false};
+    }
     const read=!args.action.includes('.')||args.action==='learning.context';
     if(read&&!['learning.context','preflight'].includes(args.action)&&!exact(args,['action']))badCommand(Object.keys(args).find(k=>k!=='action')||'action',`读取动作 '+(args.action)+' 只收 action，不带 payload`);
     const result=read?await runtime.readMother(args,host.executionIdentity):await runtime.execute(args,'mother',host.executionIdentity);

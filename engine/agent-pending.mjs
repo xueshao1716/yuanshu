@@ -34,6 +34,8 @@ export function pendingOverview({ registry, now = Date.now, localApprovalOk = fa
         canApprove: kind.localOnly ? !!localApprovalOk : true,
         src: String(row.src || ''),
         reason: String(row.reason || '未写明原因'),
+        // 培养越线申请带申请号：授权中心批准时靠它去执行那一条命令
+        ...(row.meta && typeof row.meta === 'object' ? { meta: row.meta } : {}),
         expiresAt: Number(row.expiresAt) || 0,
       };
     })

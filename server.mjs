@@ -54,6 +54,21 @@ import { MUSIC_TOOL_SCHEMA, musicExtraExecutors } from "./engine/music.mjs";
 import { musicLoginView, resetMusicLogin } from "./engine/music-login.mjs";
 import { renderMusicLoginPage } from "./engine/music-login-page.mjs";
 import { handleMusicStream } from "./engine/music-stream.mjs";
+import { createRequest, settleRequest, findRequest } from "./engine/cultivation/approval-requests.mjs";
+import { createApprovalFlow } from "./engine/cultivation/approval-flow.mjs";
+
+// ── 培养越线申请（授权中心「等我确认」）──────────────────────────────
+// 链路细节在 engine/cultivation/approval-flow.mjs：申请落盘 30 分钟 + 挂卡；
+// 批准时用会话授权（60 秒/单次/绑定会话）拿一次性凭证再执行那条命令。
+const cultivationApprovalFlow = createApprovalFlow({
+  registry: confirmRegistry,
+  wsRoot: WS_ROOT,
+  runtime: cultivationRuntime,
+});
+
+function requestCultivationApproval(ctx, { command, reason } = {}) {
+  return cultivationApprovalFlow.request({ sessionId: String(ctx?.sessionId || ""), command, reason });
+}
 import { CANVAS_TOOL_SCHEMA, canvasExtraExecutors, readCanvasDoc, writeCanvasDoc } from "./engine/canvas.mjs";
 import { createSoilReader } from "./engine/aibody-soil.mjs";
 // ── 会话解析纯函数（拆模块）：消息/文本/图片/文件提取 ──
@@ -780,7 +795,19 @@ const executeUnifiedTool = createUnifiedToolExecutorGuarded({
   // 外部自定义工具执行器：dsh_task（pi 格式 execute → unified 结果格式）+ 宿主媒体密文通道
   extraExecutors: {
     computer_use: (args, ctx) => computerTool(computerUse, args, ctx),
-    cultivation: (args, ctx) => cultivationTool(cultivationRuntime, args, ctx),
+    cultivation: (args, ctx) => {
+      // 不能展开 ctx：培养身份是**非枚举属性**，展开复制会把它丢掉，工具就变成"没有母体身份"。
+      // 用 defineProperty 挂一个隐藏的 requestApproval；ctx 被冻结时退化成原型继承（属性读取仍可见）。
+      const ask = ({ command, reason }) => requestCultivationApproval(ctx, { command, reason });
+      let host = ctx;
+      try {
+        Object.defineProperty(host, 'requestApproval', { value: ask, configurable: true, enumerable: false });
+      } catch {
+        host = Object.create(ctx);
+        Object.defineProperty(host, 'requestApproval', { value: ask, enumerable: false });
+      }
+      return cultivationTool(cultivationRuntime, args, host);
+    },
     dsh_task: async (args, ctx) => {
       const t = globalThis.__yuanshuDshTool || globalThis.__piWebDshTool;
       if (!t?.execute) return { text: "[dsh] 执行臂未初始化", isError: true };
@@ -3474,6 +3501,9 @@ const API_ROUTES = [
     return json(res, 200, pendingOverview({ registry: confirmRegistry, localApprovalOk: isLocalMaintenanceApproval(req) }));
   }],
   // 危险操作确认回传：前端弹框后调这里（ok=true 放行 / ok=false 拒绝）
+  // ── 培养越线申请：批准只执行这一次 ──
+  // 内部走会话授权（challenge→confirm）拿一次性凭证再执行命令；
+  // 会话授权本身仍是 60 秒、单次、绑定会话的既有边界，这里只是把"等人"的时间挪到卡片上。
   ["POST", "/api/agent/confirm", async (res, req) => {
     try {
       const b = await readBody(req, 1);
@@ -3487,6 +3517,15 @@ const API_ROUTES = [
       if (ok && pending?.toolName === 'maintenance' && !isLocalMaintenanceApproval(req)) return json(res, 403, { error: '请在运行元枢的电脑上，通过 http://127.0.0.1:8787 的超维面板人工确认。远程入口不能批准。' });
       if (ok && ['gene-governance', 'persona-governance'].includes(pending?.toolName) && !isLocalMaintenanceApproval(req)) return json(res, 403, { error: '人格及基线批准与回退须在运行元枢的电脑上，通过本地人工确认。' });
       const r = confirmRegistry.settle(sid, id, ok);
+      // 培养越线申请：批准→执行那一次（内部一次性凭证）；拒绝→记下来，她下次能看到原因
+      const requestId = pending?.meta?.requestId;
+      if (r?.ok && requestId) {
+        if (ok) {
+          const out = await cultivationApprovalFlow.approve(requestId, sid).catch((e) => ({ ok: false, error: String(e?.message || e).slice(0, 160) }));
+          return json(res, 200, { ...r, cultivation: out });
+        }
+        settleRequest(WS_ROOT, requestId, 'rejected', { by: '授权中心' });
+        return json(res, 200, { ...r, cultivation: { ok: true, rejected: true } });      }
       json(res, 200, r);
     } catch (e) { json(res, 500, { error: String(e?.message || e) }); }
   }],

@@ -103,9 +103,9 @@ export function createCultivationRuntime({wsRoot, identityAdapters, humanConfig,
       else if(command.action==='learning.decide')validateLearningCommand(command);else commandKinds(command);
       if(command.action==='policy.set')validatePolicy(command.payload.policy);
       return grants.challenge(command);},
-    sessionChallenge(command,sessionId){
+    sessionChallenge(command,sessionId,opts){
       validateSessionCommand(command);
-      return sessionGrants.challenge(command,sessionId);
+      return sessionGrants.challenge(command,sessionId,opts);
     },
     sessionConfirm(idValue,command,sessionId){
       validateSessionCommand(command);

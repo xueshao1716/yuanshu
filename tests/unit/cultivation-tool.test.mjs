@@ -27,7 +27,15 @@ test('both chat engines preserve opaque cultivation identity without adding it t
   const read=p=>fs.readFileSync(new URL('../../'+p,import.meta.url),'utf8');
   const server=read('server.mjs'),session=read('engine/session-manager.mjs'),unified=read('engine/unified-chat.mjs');
   assert.ok(server.includes('CULTIVATION_TOOL_SCHEMA,'));
-  assert.ok(server.includes('cultivation: (args, ctx) => cultivationTool(cultivationRuntime, args, ctx)'));
+  // 2026-10-18：包装层要挂 requestApproval，但仍须把 ctx 原样交下去（执行身份是非枚举属性）
+  assert.ok(server.includes('cultivationTool(cultivationRuntime, args, host)'));
+  {
+    const at = server.indexOf('cultivation: (args, ctx) => {')
+    const wrap = server.slice(at, server.indexOf('cultivationTool(cultivationRuntime, args, host)', at) + 60)
+    assert.ok(wrap.includes("Object.defineProperty(host, 'requestApproval'"), '包装层必须用 defineProperty 挂 requestApproval')
+    assert.ok(wrap.includes('enumerable: false'), '挂上去的字段不能变成可枚举')
+    assert.ok(!/\{\s*\.\.\.ctx/.test(wrap), '不能展开 ctx——展开会丢掉非枚举的执行身份')
+  }
   assert.ok(server.includes('initCultivationTool('));
   assert.ok(session.includes('customTools.push(cultivationToolFactory('));
   assert.ok(session.split('\n').find(l=>l.includes('const FIRST_TURN_EXTRA')).includes('"cultivation"'));
