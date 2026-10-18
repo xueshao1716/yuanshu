@@ -8,6 +8,8 @@
 
 ## [Unreleased]
 
+## [2.127.43] - 2026-10-18
+
 ## [2.127.42] - 2026-10-18
 
 - 修 2.127.41 起不来的问题：`createApprovalFlow({runtime: cultivationRuntime})` 写在模块顶层，而 `cultivationRuntime` 后面才初始化 → TDZ ReferenceError 让整个服务起不来。改成惰性创建。

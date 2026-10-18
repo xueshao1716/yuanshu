@@ -72,7 +72,10 @@ function approvalFlow() {
 }
 
 function requestCultivationApproval(ctx, { command, reason } = {}) {
-  return approvalFlow().request({ sessionId: String(ctx?.sessionId || ""), command, reason });
+  // 执行器 ctx 不保证带 sessionId（不同引擎略有差异）：回落到"当前会话"，
+  // 否则这张卡会挂到一个空会话上、授权中心看不到。
+  const sessionId = String(ctx?.sessionId || globalThis.__yuanshuLastSessionKey || "");
+  return approvalFlow().request({ sessionId, command, reason });
 }
 import { CANVAS_TOOL_SCHEMA, canvasExtraExecutors, readCanvasDoc, writeCanvasDoc } from "./engine/canvas.mjs";
 import { createSoilReader } from "./engine/aibody-soil.mjs";
