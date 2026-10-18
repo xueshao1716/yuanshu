@@ -50,6 +50,7 @@ import { createSandboxApi } from "./engine/sandbox-api.mjs";
 import { createMaintenanceApi } from "./engine/maintenance-api.mjs";
 import { sweepInterruptedRuns } from "./engine/story-store.mjs";
 import { extractPromises, recordPromises, loadPromises, pendingPromises, closePromise, pendingPromiseText, PROMISE_TOOL_SCHEMAS, promiseExtraExecutors, expireStalePromises } from "./engine/promises.mjs";
+import { MUSIC_TOOL_SCHEMA, musicExtraExecutors } from "./engine/music.mjs";
 import { createSoilReader } from "./engine/aibody-soil.mjs";
 // ── 会话解析纯函数（拆模块）：消息/文本/图片/文件提取 ──
 import { extractMessages, extractText, extractImages, extractFiles, resolveLeafId, windowMessages } from "./engine/session-utils.mjs";
@@ -731,6 +732,7 @@ const UNIFIED_TOOLS = [
   ...TODO_TOOL_SCHEMAS,
   PLAN_FILES_SCHEMA,
   ...PROMISE_TOOL_SCHEMAS,
+  MUSIC_TOOL_SCHEMA,
   ACTIVATE_SKILL_TOOL,
   DELEGATE_TASK_TOOL,
   DELEGATE_FORK_TOOL,
@@ -781,6 +783,8 @@ const executeUnifiedTool = createUnifiedToolExecutorGuarded({
     ...planFilesExtraExecutors(),
     // 承诺销账：用户说"不用了"时模型要能立刻销账，否则账只能一直挂着当待办（2026-10-18）
     ...promiseExtraExecutors(WS_ROOT),
+    // 对话里听歌：免费源搜索（Deezer → iTunes），只给 30 秒试听直链（2026-10-18）
+    ...musicExtraExecutors(),
     // 派活 = 元枢里真正的"多路探索"：一次派几个子任务、哪个失败、花了多久。
     // 记成轨迹节点后，"该怎么探索"才有可回放的对象（当场修那条是单线的）。
     delegate_task: async (args, ctx) => {

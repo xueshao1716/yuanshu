@@ -6,6 +6,7 @@ import { requestBrowserSave, writeBrowserSave } from './lib/browser-save'
 import { fileAccess } from './lib/file-access'
 import type { WorkExplanationData } from './lib/work-explanation'
 import { consumeHashToken } from './lib/hash-token.mjs'
+import { consumeProfileHandoff, mergeProfileHandoff } from './lib/profile-handoff.mjs'
 
 // ── 本地鉴权 ──
 // 元枢只把访问令牌留在当前设备的浏览器存储中；旧 key 只用于一次性迁移，避免升级后掉线。
@@ -29,6 +30,18 @@ function readLocal(key: string, legacyKey?: string) {
 
 // 安装版快捷方式带 #t=令牌 打开：先落盘再读，免手输令牌
 try { if (typeof window !== 'undefined') consumeHashToken({ location: window.location, history: window.history, storage: localStorage, tokenKey: LOCAL_TOKEN_KEY, apiBaseKey: LOCAL_API_BASE_KEY }) } catch {}
+// 账号档案跨源交接：切换过来时把「标签+地址」并进本地列表（不含令牌）。
+// 不做这一步，换到另一个地址后档案列表就是空的——用户会以为"啥都没有了"。
+try {
+  if (typeof window !== 'undefined') {
+    const incoming = consumeProfileHandoff({ location: window.location, history: window.history })
+    if (incoming.length) {
+      const raw = localStorage.getItem('yuanshu-profiles')
+      const local = raw ? JSON.parse(raw) : []
+      localStorage.setItem('yuanshu-profiles', JSON.stringify(mergeProfileHandoff(local, incoming)))
+    }
+  }
+} catch {}
 let _token = readLocal(LOCAL_TOKEN_KEY, LEGACY_TOKEN_KEY)
 let _apiBase = readLocal(LOCAL_API_BASE_KEY, LEGACY_API_BASE_KEY)
 

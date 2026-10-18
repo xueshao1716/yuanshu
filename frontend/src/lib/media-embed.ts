@@ -50,6 +50,20 @@ export function dedupeMediaUrls(urls: string[]): string[] {
   return out
 }
 
+/** 外链音频（音乐试听直链）：iTunes / Deezer 的试听都是 .m4a / .mp3，直接进 <audio>。 */
+export function scrapeAudios(text: string): string[] {
+  const out: string[] = []
+  const raw = String(text || '')
+  for (const m of raw.matchAll(/https?:\/\/[^\s)）"'<>\]]+?\.(?:mp3|m4a|aac|wav|ogg|opus)(?:\?[^\s)）"'<>\]]*)?/gi)) {
+    const url = m[0].replace(/[.,;。，]+$/, '')
+    if (!url || url.includes('/api/ws/file')) continue
+    const k = mediaPathKey(url)
+    if (out.some(x => mediaPathKey(x) === k)) continue
+    out.push(url)
+  }
+  return out
+}
+
 export function scrapeVideos(text: string): string[] {
   const out: string[] = []
   const add = (u: string) => {

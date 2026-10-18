@@ -2,6 +2,7 @@ import { useMemo, useState } from 'react'
 import { Check, Plus, RefreshCw, Trash2, UserRound, X } from 'lucide-react'
 import { getApiBase, getToken, setApiBase, setToken } from '../api'
 import { resolveSwitchTarget } from '../lib/switch-target.mjs'
+import { encodeProfileHandoff } from '../lib/profile-handoff.mjs'
 
 // ── 账号管理（2026-10-12 伙伴要求）────────────────────────────────
 // 每个人可能养了好多元枢（不同电脑/不同工作区），需要在各元枢之间切换。
@@ -51,9 +52,9 @@ export default function ProfileManager({ open, onClose, onLogout }: { open: bool
     if (list.some(p => p.id === id)) { setMsg('这个组合已经在档案里'); return }
     const profile: Profile = { id, label: hostOf(base), apiBase: base, token, savedAt: Date.now() }
     persist([profile, ...list])
-    // 加完就切过去——否则"新账号"只是列表里多一条，地址并不会变（2026-10-18 修）。
-    setMsg(`已加入 ${hostOf(base)}，正在切换…`)
-    switchTo(profile)
+    // 2026-10-18 回退：不自动跳转。登录态按源隔离，一跳过去就"啥都没有了"。
+    // 加进列表，由用户自己点「切换」；那时会带档案清单（不含令牌）一起过去。
+    setMsg(`已加入 ${hostOf(base)}；点「切换」才过去（那边需要输一次令牌）`)
   }
 
   const switchTo = (p: Profile) => {
@@ -63,10 +64,14 @@ export default function ProfileManager({ open, onClose, onLogout }: { open: bool
       // 地址栏不变、页面仍由当前源提供 → 对远程实例等于没切换。
       const target = resolveSwitchTarget({ apiBase: p.apiBase, token: p.token, currentHref: window.location.href })
       if (target.kind === 'navigate') {
+        // 带档案清单（仅标签+地址）过去，免得新地址上是空列表；令牌绝不进 URL。
+        const handoff = encodeProfileHandoff(list)
+        const base = target.url.replace(/#.*$/, '')
+        const url = handoff ? `${base}${base.includes('#') ? '&' : '#'}ph=${handoff}` : base
         setMsg(target.tokenInQuery
           ? `正在跳转到 ${hostOf(p.apiBase)}（已带上令牌）…`
           : `正在跳转到 ${hostOf(p.apiBase)}；那边的令牌首次需要输入一次，之后由该地址自己记住。`)
-        window.location.assign(target.url)
+        window.location.assign(url)
         return
       }
       if (p.token) setToken(p.token)

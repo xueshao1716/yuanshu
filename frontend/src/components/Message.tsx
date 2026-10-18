@@ -24,7 +24,7 @@ import { requestBrowserSave, writeBrowserSave } from '../lib/browser-save'
 import { saveNativeDownload } from '../lib/native-download'
 import VideoPlayer from './VideoPlayer'
 import { isExternalVideo } from '../lib/tv'
-import { scrapeVideos, dedupeMediaUrls, mediaPathKey } from '../lib/media-embed'
+import { scrapeVideos, scrapeAudios, dedupeMediaUrls, mediaPathKey } from '../lib/media-embed'
 import { artifactName, fileNameFromUrl } from '../lib/artifact-name'
 import { fmtMsgTime } from '../lib/fmt-time'
 import type { ChatMessage, RunningTool, ToolStatus } from '../types'
@@ -149,6 +149,8 @@ function Thinking({ text, live }: { text: string; live?: boolean }) {
 
 function Attachments({ msg }: { msg: ChatMessage }) {
   const videos = dedupeMediaUrls(msg.videos?.length ? msg.videos : scrapeVideos(msg.text || ''))
+  // 音频：附件里的（msg.audios）+ 正文里的试听直链（music_search 返回的 .m4a/.mp3）
+  const audios = Array.from(new Set([...(msg.audios || []), ...scrapeAudios(msg.text || '')]))
   const galleryOpen = useChatMedia()
   const [viewer, setViewer] = useState<ChatMedia | null>(null)
   const openMedia = (src: string, kind: ChatMedia['kind']) => {
@@ -201,8 +203,8 @@ function Attachments({ msg }: { msg: ChatMessage }) {
         </div>
       ))}
       {viewer && <ImageViewer src={viewer.src} items={[viewer]} onClose={() => setViewer(null)} />}
-      {msg.audios?.map((url, i) => (
-        <div key={'aud' + i} className="my-1.5"><audio controls src={withFileToken(url)} className="max-w-full h-9" /></div>
+      {audios.map((url, i) => (
+        <div key={'aud' + i} className="my-1.5"><audio controls preload="none" src={withFileToken(url)} className="max-w-full h-9" /></div>
       ))}
       {videos.map((url, index) => (
         <div key={'vid:' + mediaPathKey(url)} className="my-2 w-full max-w-[560px]">
