@@ -463,6 +463,11 @@ export function explainVideoHttp(status, text = "") {
   if (status === 524 || status === 522 || status === 504 || status === 408) {
     return "上游出片网关超时。任务可能还在排队，请用任务号短轮询，不要一条请求干等三分钟。";
   }
+  // 2026-10-18 真机：agnes 返回 503 video_queue_full（上游队列满）。
+  // 原样甩 JSON 用户既看不懂，也不知道该等还是该改参数。
+  if (/video_queue_full|queue is full/i.test(String(text))) {
+    return "视频服务排队已满（上游队列满），不是参数问题：等一两分钟再点一次「生成视频」就行。";
+  }
   return `视频任务创建失败 ${status}: ${String(text).slice(0, 150)}`;
 }
 
