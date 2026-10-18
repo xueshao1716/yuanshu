@@ -1,4 +1,4 @@
-export type CompanionAction = 'neutral' | 'working' | 'reading' | 'resting' | 'daydreaming' | 'listening' | 'responding';
+export type CompanionAction = 'neutral' | 'working' | 'reading' | 'resting' | 'daydreaming' | 'listening' | 'responding' | 'wave' | 'stretch' | 'lookaround';
 export interface CompanionFacts { sessionId: string; serverEpoch: string; revision: string; observedAt: number; known: boolean; currentBusy: boolean; otherBusy: number; reading: boolean; evidenceIds: string[] }
 export interface CompanionDecision { sessionId: string; contextEpoch: string; serverEpoch: string; basisRevision: string; expiresAt: number; action: CompanionAction; utterance: string; reason: string; decisionId: string; shouldInterrupt: boolean; actualModel: { provider: string; id: string } }
 export const ACTION_LABELS: Record<CompanionAction, string>;

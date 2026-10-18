@@ -8,6 +8,10 @@ export const COMPANION_APPEARANCE = Object.freeze({
   daydreaming: Object.freeze({ label: '放空中', asset: 'yuanshu-daydreaming-v1.webp', description: '真人女性形象，视线游离、神情放空，处于发呆姿态。' }),
   listening: Object.freeze({ label: '倾听中', asset: 'yuanshu-listening-v1.webp', description: '真人女性形象，面向用户，安静倾听。' }),
   responding: Object.freeze({ label: '回应中', asset: 'yuanshu-responding-v1.webp', description: '真人女性形象，面向用户，正在回应。' }),
+  // 2026-10-19 待机小动作：同角色同场景出图（agnes-image-2.5-flash）
+  wave: Object.freeze({ label: '挥手', asset: 'yuanshu-wave-v1.png', description: '真人女性形象，面向镜头抬手打招呼，自然地笑。' }),
+  stretch: Object.freeze({ label: '伸懒腰', asset: 'yuanshu-stretch-v1.png', description: '真人女性形象，双臂上举伸懒腰，神情放松。' }),
+  lookaround: Object.freeze({ label: '东张西望', asset: 'yuanshu-lookaround-v1.png', description: '真人女性形象，身体侧转、视线看向一侧，像在张望。' }),
 });
 
 // Stable identity prompt for the real-person companion. This is descriptive

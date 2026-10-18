@@ -2,7 +2,7 @@ import { createHash, randomUUID } from 'node:crypto';
 import { appearanceCatalog } from './companion-appearance.mjs';
 const ACTIVE = new Set(['queued', 'running', 'stopping', 'recovering']);
 const READ = new Set(['read', 'read_file', 'read_document_text', 'read_pdf']);
-export const ACTIONS = ['neutral', 'working', 'reading', 'resting', 'daydreaming', 'listening', 'responding'];
+export const ACTIONS = ['neutral', 'working', 'reading', 'resting', 'daydreaming', 'listening', 'responding', 'wave', 'stretch', 'lookaround'];
 export function resolveAction(facts, decision) {
   if (!facts?.known) return 'neutral';
   if (facts.currentBusy) return facts.reading ? 'reading' : 'working';

@@ -8,6 +8,13 @@
 
 ## [Unreleased]
 
+## [2.127.46] - 2026-10-18
+
+- 公仔加了三个**待机小动作**：挥手、伸懒腰、东张西望。同角色同场景（黑色楼梯 + 白墙 + 冷白窗光），用 `agnes-image-2.5-flash` 依据 `COMPANION_IDENTITY_PROMPT` 出图，736×1312 竖版。
+- 长空闲时不再死盯一个姿势：每 45 秒在 6 个待机姿态之间轮换（倾听 → 休息 → 放空 → 东张西望 → 伸懒腰 → 挥手）。
+- 动作表前后端同步扩到 10 个（`ACTION_LABELS` / `APPEARANCE_DESCRIPTIONS` / `PORTRAITS` / `COMPANION_APPEARANCE` / `ACTIONS`），模型也能主动选这些姿态。
+- 素材：`frontend/public/assets/portraits/yuanshu-{wave,stretch,lookaround}-v1.png`（约 800KB/张）。
+
 ## [2.127.45] - 2026-10-18
 
 - **久不互动也能把话推到应用外面**：前台每 5 秒轮询 facts 时记下"最后一次看到你"，服务端每 5 分钟判一次——离开 ≥45 分钟、免打扰关着、且距上次推送 ≥3 小时，就通过 `notifier` 发一条（应用内事件 + 微信推送）。文案按时段走（深夜只说"早点睡"，下午问要不要回来接着做），并带上离开了多久。
