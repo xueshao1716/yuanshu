@@ -14,7 +14,8 @@ export function policyBlockers(p,request,{execution=true,now=Date.now()}={}) {
   if(!Number.isSafeInteger(request?.costUpperBoundCents)||request.costUpperBoundCents<0)
     add('request_denied','design.permissions.costUpperBoundCents','单次费用上限格式无效','填写非负整数，单位为美分。');
   else if(execution&&request.costUpperBoundCents>p.dailyBudgetCents)
-    add('request_denied','policy.dailyBudgetCents','设计单次费用上限超过每日培养预算','核对设计单次上限与主人批准的每日预算；零预算可登记但不能付费运行。');
+    add('request_denied','policy.dailyBudgetCents','设计单次费用上限超过每日培养预算',
+      `每日预算 ${p.dailyBudgetCents} 美分。设计稿由你自己提交（design.submit，母体可自行完成，不需要主人确认）：把 costUpperBoundCents 写到 ≤ ${p.dailyBudgetCents} 即可；design.revise 只能收窄，放不开就走新设计稿。`);
   if(execution&&p.dailyRequests===0)add('request_denied','policy.dailyRequests','每日运行次数上限为零','可以登记个体；执行前需主人核对运行次数。');
   return rows;
 }

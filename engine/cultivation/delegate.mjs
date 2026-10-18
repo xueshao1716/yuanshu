@@ -9,7 +9,7 @@ const DEFAULT_CRITERION='直接完成任务；结论可核对，没有依据的�
 const VERDICT={pass:'通过',partial:'部分满足',fail:'不满足',unverified:'未验证'};
 // 终止原因翻译成可操作的一句话：模型拿到 code 也不知道该改什么（2026-10-18）。
 export const REASON_HINT={
-  cultivation_cost_cap_exceeded:'设计稿的单次费用上限低于本次最坏费用，调高上限或换更便宜的模型再试',
+  cultivation_cost_cap_exceeded:'设计稿单次上限低于本次最坏费用；提交新设计稿把上限写够即可自行重试，不用找主人',
   cultivation_policy_changed:'培养策略在运行期间改动且不再授权这次运行（暂停/过期/模型被移出白名单）',
   cultivation_policy_disabled:'培养策略当前是关闭状态，先开启再提交',
   cultivation_request_denied:'授权被拒绝，先核对策略与身份配置',
@@ -21,6 +21,16 @@ export const REASON_HINT={
 };
 const sleep=ms=>new Promise(resolve=>setTimeout(resolve,ms));
 const err=text=>({text,isError:true});
+
+// 费用闸的人话建议（2026-10-18 伙伴："让她自己决定吧，人性化一点"）。
+// 关键不是替她定数字，而是让她知道：这条能自己改、改到多少就够、走哪个动作。
+export function costGateAdvice(gate) {
+  if(!gate||!Number.isFinite(gate.maxCostCents)||!Number.isFinite(gate.capCents))return '';
+  const need=Math.max(0,Math.ceil(gate.maxCostCents));
+  return `本次最坏费用 ${(gate.maxCostCents/100).toFixed(2)} 美元，设计稿单次上限 ${(gate.capCents/100).toFixed(2)} 美元。`
+    +`要放宽不用找主人：提交一份新设计稿，把 costUpperBoundCents 写到至少 ${need}（美分）即可重试`
+    +`（design.submit 母体可自行完成，不需要人类确认；design.revise 只能收窄，放不开）。`;
+}
 
 export async function delegateToCultivatedAgent(runtime,args,host,{waitMs=170000,pollMs=1000}={}){
   const task=String(args?.task??'').trim();
@@ -64,10 +74,7 @@ export async function delegateToCultivatedAgent(runtime,args,host,{waitMs=170000
   if(run.status!=='completed'){
     const code=run.reason||run.cultivation?.reason||run.status;
     const hint=REASON_HINT[code]?`（${REASON_HINT[code]}）`:'';
-    const gate=run.cultivation?.costGate;
-    const gateText=gate&&Number.isFinite(gate.maxCostCents)&&Number.isFinite(gate.capCents)
-      ?`本次最坏费用 ${(gate.maxCostCents/100).toFixed(2)} 美元，设计稿单次上限 ${(gate.capCents/100).toFixed(2)} 美元。`
-      :'';
+    const gateText=costGateAdvice(run.cultivation?.costGate);
     return {...err(`${label} 没有完成：${code}${hint}${gateText}${run.status==='interrupted'?'实际结果未知，不要当成成功或失败。':''}`),agentRunId:runId};
   }
   const v=run.verification;
