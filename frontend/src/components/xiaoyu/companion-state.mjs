@@ -18,10 +18,11 @@ export const PORTRAITS = {
   daydreaming: { src: '/assets/portraits/yuanshu-daydreaming-v1.webp', accepted: true },
   listening: { src: '/assets/portraits/yuanshu-listening-v1.webp', accepted: true },
   responding: { src: '/assets/portraits/yuanshu-responding-v1.webp', accepted: true },
-  // 2026-10-19：待机小动作（挥手/伸懒腰/东张西望），同角色同场景，用 agnes-image-2.5-flash 出的
-  wave: { src: '/assets/portraits/yuanshu-wave-v1.png', accepted: true },
-  stretch: { src: '/assets/portraits/yuanshu-stretch-v1.png', accepted: true },
-  lookaround: { src: '/assets/portraits/yuanshu-lookaround-v1.png', accepted: true },
+  // 2026-10-19：待机小动作（挥手/伸懒腰/东张西望），同角色同场景，用 agnes-image-2.5-flash 出的；
+  // 用 ffmpeg 转 webp（795/796/869 KB → 26/29/29 KB），画质在脸部和发丝上无损可见。
+  wave: { src: '/assets/portraits/yuanshu-wave-v1.webp', accepted: true },
+  stretch: { src: '/assets/portraits/yuanshu-stretch-v1.webp', accepted: true },
+  lookaround: { src: '/assets/portraits/yuanshu-lookaround-v1.webp', accepted: true },
 };
 export function portraitFor(action, manifest = PORTRAITS) {
   const asset = manifest[action];
