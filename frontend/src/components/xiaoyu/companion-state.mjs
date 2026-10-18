@@ -65,7 +65,7 @@ export function timeOfDay(hour) {
   return 'lateNight';
 }
 
-export function proactiveMoments({ now, mountedAt, lastActivityAt, wasBusy, isBusy } = {}) {
+export function proactiveMoments({ now, mountedAt, lastActivityAt, wasBusy, isBusy, errorStreak } = {}) {
   const t = Number.isFinite(now) ? now : Date.now();
   const parts = [`tod:${timeOfDay(new Date(t).getHours())}`];
   // 刚打开：给她一次"见到你"的机会（只在最初 90 秒内算，不会反复）
@@ -77,6 +77,9 @@ export function proactiveMoments({ now, mountedAt, lastActivityAt, wasBusy, isBu
   }
   // 刚干完活：从忙到闲的那一刻值得说一句
   if (wasBusy === true && isBusy === false) parts.push('just-finished');
+  // 连续出错：她该开口了（这类通常已经不在忙态，不会打断任务）
+  const streak = Number.isFinite(errorStreak) ? Math.floor(errorStreak) : 0;
+  if (streak >= 2) parts.push(`err:${Math.min(streak, 5)}`);
   return parts.join('|');
 }
 export function isConversationEvent(event) {

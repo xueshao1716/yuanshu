@@ -32,9 +32,10 @@ export function useCompanion(enabled: boolean) {
   const lastAuto = useRef('')
   // 2026-10-18：主动互动默认开着（原来默认免打扰，等于从来不主动说话），用户可以在面板里关掉
   const dnd = prefs.data?.dnd ?? false
-  // 主动时机：刚打开 / 久别回来 / 刚干完活 / 时段变化
+  // 主动时机：刚打开 / 久别回来 / 刚干完活 / 时段变化 / 连续报错
   const mountedAt = useRef(Date.now())
   const prevBusy = useRef(false)
+  const errorStreak = useRef(0)
   const busyNow = Boolean(facts?.currentBusy)
   const justFinished = prevBusy.current && !busyNow
   useEffect(() => { prevBusy.current = busyNow }, [busyNow])
@@ -69,6 +70,10 @@ export function useCompanion(enabled: boolean) {
     }
     const stop = streamSession(sessionId, 0, ev => {
       if (!isConversationEvent(ev)) return
+      // 连续报错要记账：她该在两次之后开口（不打断任务，因为出错通常已回到空闲）
+      if (/error|failed/i.test(String((ev as { type?: string })?.type || ''))) {
+        errorStreak.current = Math.min(errorStreak.current + 1, 5)
+      }
       abort.current?.abort(); setDecision(null)
       clearTimeout(timer)
       timer = setTimeout(invalidate, 500)
@@ -88,6 +93,8 @@ export function useCompanion(enabled: boolean) {
         interactionId: crypto.randomUUID(), trigger, text, visible: true, currentAction: basis.currentAction }, controller.signal)
       if (controller !== abort.current || basis.contextEpoch !== current.current.contextEpoch) return
       if (result.status === 'ok' && acceptDecision(result.decision, { ...current.current, now: Date.now() })) setDecision(result.decision!)
+      // 人主动搭话说明在场，报错计数清零
+      if (trigger !== 'auto') errorStreak.current = 0
       else if (trigger !== 'auto') setFeedback(result.status === 'rate_limited' || result.status === 'busy'
         ? '互动过于频繁或仍在处理，请稍后再试。' : result.status === 'stale' ? '会话状态已变化，请重新互动。' : '本次互动暂不可用，没有生成替代回复。')
     } catch {
@@ -107,6 +114,7 @@ export function useCompanion(enabled: boolean) {
   const moments = proactiveMoments({
     now: clock, mountedAt: mountedAt.current, lastActivityAt,
     wasBusy: justFinished ? true : false, isBusy: busyNow,
+    errorStreak: errorStreak.current,
   })
   const inputKey = `${contextEpoch}:${facts?.serverEpoch}:${facts?.revision}:${emotion.snapshot?.serverEpoch}:${emotion.snapshot?.revision}:${idlePhase}:${moments}`
   useEffect(() => {

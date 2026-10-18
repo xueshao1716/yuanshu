@@ -56,6 +56,7 @@ import { renderMusicLoginPage } from "./engine/music-login-page.mjs";
 import { handleMusicStream } from "./engine/music-stream.mjs";
 import { createRequest, settleRequest, findRequest } from "./engine/cultivation/approval-requests.mjs";
 import { createApprovalFlow } from "./engine/cultivation/approval-flow.mjs";
+import { runCompanionNudge } from "./engine/companion-nudge.mjs";
 
 // ── 培养越线申请（授权中心「等我确认」）──────────────────────────────
 // 链路细节在 engine/cultivation/approval-flow.mjs：申请落盘 30 分钟 + 挂卡；
@@ -2413,6 +2414,11 @@ const companionReadSession = createCompanionSessionReader({ activeSessions, find
 const companionDecisions = createCompanionDecision({ store: companionStore, facts: companionFacts,
   emotion: companionEmotion, readSession: companionReadSession, callModel: directChat });
 
+// 久不互动推送：每 5 分钟看一眼（45 分钟没来才推、3 小时冷却；unref 不阻止进程退出）
+try {
+  setInterval(() => { void runCompanionNudge({ store: companionStore, notifier }).catch(() => {}) }, 5 * 60 * 1000).unref?.();
+} catch {}
+
 // 连续创作「原著改编」按书导入：从小说工坊读指定章节（不给就是全书）。
 // 放在 server 层而不是编排层：编排层不该知道小说工坊的文件布局，
 // 它只要一份 {title, chapters:[{file,title,chars,content}]} 的纯数据。
@@ -3761,7 +3767,9 @@ const boardApi = createBoardApi({
 
 // Register after dependencies exist, never inside the per-request callback.
 API_ROUTES.push(...createCompanionRoutes({ exists: id => activeSessions.has(id) || !!findSession(id),
-  facts: companionFacts, store: companionStore, decisions: companionDecisions, json, readBody }));
+  facts: companionFacts, store: companionStore, decisions: companionDecisions, json, readBody,
+  // 久不互动把人叫回来：notifier 自带应用内事件，toWechat 时同时推微信
+  nudge: { run: (opts = {}) => runCompanionNudge({ store: companionStore, notifier, force: opts?.force === true }) } }));
 const voiceOrigins = voiceAllowedOrigins({ agentDir: AGENT_DIR, configured: CONFIG.corsOrigins, port: CONFIG.port });
 const readVoiceSession = createVoiceSessionReader({ activeSessions, findSession, readEntriesFromFile, extractMessages, resolveLeafId });
 const voiceModels = createVoiceModelRegistry({ readAuth: () => readJsonFile(AUTH_PATH), getModels: () => Object.entries(readJsonFile(MODELS_PATH) || {}).flatMap(([provider, cfg]) => (Array.isArray(cfg?.models) ? cfg.models : []).map(model => ({ ...model, provider }))) });

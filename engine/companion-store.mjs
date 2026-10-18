@@ -25,5 +25,24 @@ export function createCompanionStore({ root, now = Date.now }) {
       data.history = [...prune(data), entry].slice(-1000); atomicWriteJson(file, data);
     },
     history(sessionId) { return prune(load()).filter(item => sessionId && item.sessionId === sessionId); },
+    // 2026-10-18：记录"最后一次看到用户"。前台每 5 秒轮询 facts，这里按分钟节流写盘；
+    // 久不互动时靠它判断要不要把话推到应用外面（微信/通知）。
+    touchSeen({ throttleMs = 60000 } = {}) {
+      const data = load(), t = now();
+      if (Number.isFinite(data.seenAt) && t - data.seenAt < throttleMs) return { seenAt: data.seenAt };
+      data.seenAt = t; data.history = prune(data); atomicWriteJson(file, data);
+      return { seenAt: t };
+    },
+    seen() {
+      const data = load();
+      return {
+        seenAt: Number.isFinite(data.seenAt) ? data.seenAt : 0,
+        nudgeAt: Number.isFinite(data.nudgeAt) ? data.nudgeAt : 0,
+      };
+    },
+    markNudge(at = now()) {
+      const data = load(); data.nudgeAt = at; data.history = prune(data); atomicWriteJson(file, data);
+      return { nudgeAt: at };
+    },
   };
 }

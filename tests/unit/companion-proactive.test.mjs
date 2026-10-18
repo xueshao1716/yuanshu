@@ -45,3 +45,10 @@ test('时段变化本身就会改变时机串（跨小时能触发一次）', ()
   assert.match(a, /tod:morning/)
   assert.match(b, /tod:morning|tod:forenoon/)
 })
+
+test('连续报错两次以上才算时机，且封顶 5', () => {
+  const now = at(15)
+  assert.doesNotMatch(proactiveMoments({ now, errorStreak: 1 }), /err:/)
+  assert.match(proactiveMoments({ now, errorStreak: 2 }), /err:2/)
+  assert.match(proactiveMoments({ now, errorStreak: 9 }), /err:5/)
+})
