@@ -96,6 +96,10 @@ export function sharedRequestPatch(knowledgePolicy) {
 export function isBoundedPresetPolicy(policy, now = Date.now()) {
   if (!policy || typeof policy !== 'object') return false;
   if (policy.enabled !== true || policy.recursive !== false || (policy.motherLearning !== undefined && typeof policy.motherLearning !== 'boolean')) return false;
+  // 2026-10-18 修复：此前的校验只要求 motherLearning 是布尔值，于是 motherLearning:true
+  // 也能通过封套判定——母体可以自行打开母体学习，与本文件上方注释「放开母体学习…必须回到人工授权」直接冲突。
+  // 自我驱动只允许收紧（false）；放开必须人类确认。
+  if (policy.motherLearning === true) return false;
   if (Array.isArray(policy.tools) && policy.tools.length) return false;
   if (Array.isArray(policy.dataScopes) && policy.dataScopes.some(s => s !== GRANT_SCOPE)) return false;
   if (!Array.isArray(policy.models) || policy.models.length < 1 || policy.models.length > 8) return false;

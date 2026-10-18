@@ -16,6 +16,10 @@ export const draft = () => ({name: 'Synthetic character', rationale: 'Test indep
   protectedProposalRefs: []});
 export const enabledPolicy = () => ({...defaultPolicy(), enabled: true, dailyRequests: 1,
   models: ['fixture-model'], expiresAt: '2027-01-01T00:00:00.000Z'});
+// 2026-10-18：自我驱动封套是 GRANT_DAYS=90 天。上面的 enabledPolicy 距今约 75 天，
+// 属于封套**以内**——母体可以自行开启（产品决定）。需要"越线"样本时用这个：
+// 有效期推到 2028 年，远超 90 天，必须人类确认。
+export const overEnvelopePolicy = () => ({...enabledPolicy(), expiresAt: '2028-01-01T00:00:00.000Z'});
 export async function controlFixture(t, extra = {}) {
   const url = new URL('../../engine/cultivation/controls.mjs', import.meta.url);
   if (!fs.existsSync(url)) throw new Error('controls implementation missing');

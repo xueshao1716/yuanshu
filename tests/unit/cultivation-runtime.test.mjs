@@ -1,17 +1,20 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {controlFixture,draft,enabledPolicy} from '../helpers/cultivation-fixture.mjs';
+import {controlFixture,draft,enabledPolicy,overEnvelopePolicy} from '../helpers/cultivation-fixture.mjs';
 import {createCultivationRuntime} from '../../engine/cultivation/runtime.mjs';
 import {createKnowledgeStore} from '../../engine/knowledge-store.mjs';
 import {createKnowledgeBudget} from '../../engine/knowledge-budget.mjs';
 import {createBackgroundAdmission} from '../../engine/background-admission.mjs';
 
-test('mother can submit her genuine design with human grants unconfigured, but cannot enable policy',async t=>{
+test('mother can self-enable the bounded preset, but an envelope-breaking policy still needs a human',async t=>{
   const f=await controlFixture(t),runtime=createCultivationRuntime({wsRoot:f.root,identityAdapters:{
     resolveMother:s=>s===f.mother?{actorId:'fixture-mother',originId:'fixture-run'}:null}});
   const result=await runtime.execute(f.command('design.submit',{design:draft()}),'mother',f.mother);
   assert.ok(result.result.id);assert.equal((await runtime.overview()).writeIdentityAvailable,false);
-  await assert.rejects(runtime.execute(f.command('policy.set',{policy:enabledPolicy()}),'mother',f.mother),/identity_denied/);
+  // 2026-10-18 产品决定：封套内（enabledPolicy 的 2027-01-01 距今天 90 天内）母亲可自行开启。
+  await runtime.execute(f.command('policy.set',{policy:enabledPolicy()}),'mother',f.mother);
+  // 越线（有效期超出 90 天）仍需人类确认。
+  await assert.rejects(runtime.execute(f.command('policy.set',{policy:overEnvelopePolicy()}),'mother',f.mother),/identity_denied/);
 });
 
 test('runtime composes bounded execution, knowledge reconciliation and real projections',async t=>{

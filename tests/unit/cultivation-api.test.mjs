@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
-import {controlFixture, draft, enabledPolicy} from '../helpers/cultivation-fixture.mjs';
+import {controlFixture, draft, enabledPolicy, overEnvelopePolicy} from '../helpers/cultivation-fixture.mjs';
 
 async function api(t, {trusted = false, resolveRequestIdentity} = {}) {
   const f = await controlFixture(t);
@@ -63,8 +63,11 @@ test('trusted host binding authorizes exact routes without accepting request-sup
   const body = (action, payload) => {const {action: unused, ...rest} = f.command(action, payload); return rest;};
   const human = {kind: 'human', source: f.human}, mother = {kind: 'mother', source: f.mother};
   const policy = body('policy.set', {policy: enabledPolicy()});
+  // 2026-10-18：enabledPolicy 在 90 天封套内，母亲可自行开启（由 controls/self-drive/runtime 覆盖）；
+  // 这里保留 HTTP 通道的意图：匿名 403、越线 403、人类 200。
+  const over = body('policy.set', {policy: overEnvelopePolicy()});
   assert.equal((await f.call('/policy', 'PUT', policy)).status, 403);
-  assert.equal((await f.call('/policy', 'PUT', policy, true, mother)).status, 403);
+  assert.equal((await f.call('/policy', 'PUT', over, true, mother)).status, 403);
   assert.equal((await f.call('/policy', 'PUT', policy, true, human)).status, 200);
   const submission = body('design.submit', {design: draft()});
   const design = await f.call('/designs', 'POST', submission, true, mother);

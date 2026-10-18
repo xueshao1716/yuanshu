@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {controlFixture, draft, enabledPolicy} from '../helpers/cultivation-fixture.mjs';
+import {controlFixture, draft, enabledPolicy, overEnvelopePolicy} from '../helpers/cultivation-fixture.mjs';
 import {createCultivationStorage} from '../../engine/cultivation/storage.mjs';
 
 test('resume clears an earlier cancellation request',async t=>{
@@ -24,7 +24,8 @@ test('empty read is default-deny and drafts have authenticated immutable authors
   assert.equal(row.author.originId, 'fixture-run');
   assert.equal(f.controls.read().data.agents.length, 0);
   await assert.rejects(f.execute(f.command('agent.register', {designId: row.id}), 'mother'), /policy_disabled/);
-  await assert.rejects(f.execute(f.command('policy.set', {policy: enabledPolicy()}), 'mother'), /identity_denied/);
+  // 2026-10-18：封套内的策略母亲可自行开启（产品决定）；这里断言越线仍需人类。
+  await assert.rejects(f.execute(f.command('policy.set', {policy: overEnvelopePolicy()}), 'mother'), /identity_denied/);
 });
 
 test('request retries are idempotent, changed bodies or actors cannot reuse receipts', async t => {
