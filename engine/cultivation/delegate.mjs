@@ -7,6 +7,18 @@ import {randomUUID} from 'node:crypto';
 const TERMINAL=new Set(['completed','failed','stopped','interrupted']);
 const DEFAULT_CRITERION='直接完成任务；结论可核对，没有依据的内容明说「不确定」，不编造事实、数据或来源。';
 const VERDICT={pass:'通过',partial:'部分满足',fail:'不满足',unverified:'未验证'};
+// 终止原因翻译成可操作的一句话：模型拿到 code 也不知道该改什么（2026-10-18）。
+export const REASON_HINT={
+  cultivation_cost_cap_exceeded:'设计稿的单次费用上限低于本次最坏费用，调高上限或换更便宜的模型再试',
+  cultivation_policy_changed:'培养策略在运行期间改动且不再授权这次运行（暂停/过期/模型被移出白名单）',
+  cultivation_policy_disabled:'培养策略当前是关闭状态，先开启再提交',
+  cultivation_request_denied:'授权被拒绝，先核对策略与身份配置',
+  cultivation_reasoning_budget:'推理预算用尽，缩小任务或提高预算后重试',
+  cultivation_remote_mismatch:'设计稿的远端设置与当前策略不一致',
+  cultivation_price_invalid:'模型价格不可用，先确认该模型的计价信息',
+  cultivation_provider_format:'模型输出格式不合规（空输出或超长），换个更小的任务再试',
+  outcome_unknown:'执行结果未知，不要当成成功或失败',
+};
 const sleep=ms=>new Promise(resolve=>setTimeout(resolve,ms));
 const err=text=>({text,isError:true});
 
@@ -48,8 +60,16 @@ export async function delegateToCultivatedAgent(runtime,args,host,{waitMs=170000
   const label=`${name(agent)}（${agent.id}）`;
   if(!run||!TERMINAL.has(run.status))return {text:`已把任务交给 ${label}，但这一轮等不到结果（作业 ${runId} 仍在培养队列）。下一轮用 cultivation 读 runs 取结论，不要重复提交。`,isError:false,agentRunId:runId};
   // 原因一直只写在 cultivation.reason，顶层 reason 为空 → 这里只报得出 "stopped"。
-  // 两级都读，模型才能拿到 cultivation_cost_cap_exceeded / cultivation_policy_changed 这类真因。
-  if(run.status!=='completed')return {...err(`${label} 没有完成：${run.reason||run.cultivation?.reason||run.status}。${run.status==='interrupted'?'实际结果未知，不要当成成功或失败。':''}`),agentRunId:runId};
+  // 两级都读，并翻译成人话，模型才知道下一步该动什么（2026-10-18）。
+  if(run.status!=='completed'){
+    const code=run.reason||run.cultivation?.reason||run.status;
+    const hint=REASON_HINT[code]?`（${REASON_HINT[code]}）`:'';
+    const gate=run.cultivation?.costGate;
+    const gateText=gate&&Number.isFinite(gate.maxCostCents)&&Number.isFinite(gate.capCents)
+      ?`本次最坏费用 ${(gate.maxCostCents/100).toFixed(2)} 美元，设计稿单次上限 ${(gate.capCents/100).toFixed(2)} 美元。`
+      :'';
+    return {...err(`${label} 没有完成：${code}${hint}${gateText}${run.status==='interrupted'?'实际结果未知，不要当成成功或失败。':''}`),agentRunId:runId};
+  }
   const v=run.verification;
   const verdict=v?VERDICT[v.verdict]??v.verdict:'验证中';
   const gaps=v?.gaps?.length?`\n未核实：${v.gaps.join('；')}`:'';

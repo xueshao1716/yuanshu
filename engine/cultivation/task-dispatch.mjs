@@ -50,7 +50,12 @@ export function createTaskDispatch({repo,assertRun,ownerId,active,admission,budg
       // 拒绝原因分开报：真机上笼统的 request_denied 让人查了两天授权，实际是单价×额度算出的最坏费用超过设计单次上限。
       if(plan.remote!==design.permissions.remote||plan.remote&&!policy.allowRemote)throw new Error('cultivation_remote_mismatch');
       if(!Number.isFinite(plan.maxCost)||plan.maxCost<0)throw new Error('cultivation_price_invalid');
-      if(Math.ceil(plan.maxCost*100)>design.permissions.costUpperBoundCents)throw new Error('cultivation_cost_cap_exceeded');
+      if(Math.ceil(plan.maxCost*100)>design.permissions.costUpperBoundCents){
+        // 带上两个数字：只说"超上限"时用户不知道该调什么（2026-10-18）。
+        const error=new Error('cultivation_cost_cap_exceeded');
+        error.costGate={maxCostCents:Math.ceil(plan.maxCost*100),capCents:design.permissions.costUpperBoundCents};
+        throw error;
+      }
       assertRun(run);if(foregroundBusy())throw new Error('cultivation_foreground_busy');
       if(repo.get(run.id).status!=='running')throw new Error('cultivation_cancel_requested');
       reservation=await budget.reserve({kind:'model',policy:sharedPolicy,maxCost:plan.maxCost,
@@ -85,7 +90,8 @@ export function createTaskDispatch({repo,assertRun,ownerId,active,admission,budg
       if(run){const interrupted=controller?.signal.aborted||repo.get(run.id).status==='stopping';
         const waiting=!invoked&&!interrupted&&['cultivation_outside_window','cultivation_foreground_busy'].includes(error.message);
         patch(waiting?'queued':invoked?'interrupted':'stopped',{reason:invoked?'outcome_unknown':interrupted?'cancelled':
-          /^cultivation_[a-z_]+$/.test(error.message)?error.message:'resource_or_provider_unavailable',output:null});}
+          /^cultivation_[a-z_]+$/.test(error.message)?error.message:'resource_or_provider_unavailable',output:null,
+          ...(error?.costGate?{costGate:error.costGate}:{})});}
     }finally{
       clearInterval(watchdog);clearTimeout(deadline);if(run)active.delete(run.id);
       if(slot)await admission.release(slot.id);

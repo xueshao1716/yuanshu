@@ -8,6 +8,7 @@ import {createCultivationTaskRepository} from './task-repository.mjs';
 import {createTaskDispatch} from './task-dispatch.mjs';
 import {createCultivationExperience} from './experience.mjs';
 import {LEARNING_SCOPE} from './learning-permissions.mjs';
+import {runAuthorization} from './run-authorization.mjs';
 
 const fail=code=>{throw new Error(`cultivation_${code}`);};
 export function createCultivationTasks(options) {
@@ -17,8 +18,12 @@ export function createCultivationTasks(options) {
   const assertRun=run=>{
     const state=controls.read(),a=state.data.agents.find(a=>a.id===run.cultivation.agentId);
     if(!a||a.status!=='ready')fail('agent_paused');
-    if(state.revision!==run.cultivation.policyRevision||a.designId!==run.cultivation.designId)fail('policy_changed');
+    if(a.designId!==run.cultivation.designId)fail('policy_changed');
     const design=state.data.designs.find(d=>d.id===a.designId)?.design;
+    // 2026-10-18：不再要求控制面 revision 完全相等——那会让无关写入（他人设计稿、
+    // 另一个体注册、学习裁决）杀掉在跑的任务。只在该策略真的不再授权运行时终止。
+    const auth=runAuthorization({policy:state.data.policy,design,run,atMs:now()});
+    if(!auth.ok)fail(auth.code);
     assertAdoptable(design,state.data.policy,{now:now(),agentId:a.id,verifyAsset});
     assertDispatchWindow(state.data.policy,now());
     const child=store.read(a.id),intent=state.data.intents.find(i=>i.agentId===a.id);

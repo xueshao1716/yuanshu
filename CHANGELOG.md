@@ -8,6 +8,12 @@
 
 ## [Unreleased]
 
+## [2.127.20] - 2026-10-18
+
+- 智能体培养：运行不再因为「控制面 revision 变了」而终止。此前 `assertRun` 要求 revision 与启动时完全相等，于是别人提交设计稿、注册另一个体、做一次学习裁决都会把在跑的任务掐掉（真机 5 次 stopped 即此因）。现改为按「策略是否仍授权这次运行」判定：策略关闭、过期、模型被移出白名单、远端被关闭才终止；额度上调、时间窗调整等无关变更不再打断任务。
+- 智能体培养：费用上限拒绝带数字。`cultivation_cost_cap_exceeded` 现在同时记录 `costGate.maxCostCents` 与 `costGate.capCents`，委派结果里直接写出「本次最坏费用 X 美元，设计稿单次上限 Y 美元」。
+- 智能体培养：终止原因翻译成人话。`delegate` 对常见原因（费用上限、策略变更、预算用尽、输出不合规等）给出可操作的提示，模型不再只拿到一个 code。
+
 ## [2.127.19] - 2026-10-18
 
 - 智能体培养：运行记录的终止原因不只写在 `cultivation.reason`，现在同时镜像到顶层 `reason`。此前 `delegate` 读的是顶层，模型只看到「没有完成：stopped」，拿不到 `cultivation_cost_cap_exceeded`、`cultivation_policy_changed` 这类真因，只能反复轮询 runs。
