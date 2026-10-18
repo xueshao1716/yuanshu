@@ -138,6 +138,75 @@ export function closePromise(wsRoot, id, { status = "kept", evidence = null, now
   } catch (e) { return { ok: false, error: String(e?.message || e).slice(0, 80) }; }
 }
 
+// ── 2026-10-18：销账工具 + 超期自动搁置 ──────────────────────────────
+//
+// 真机投诉：「我明确表示不需要了，她一直挂在记忆里当代办。」
+// 根因：closePromise 只有夜间复盘和网页按钮在调，**模型自己没有销账手段**，
+// 于是用户说"不用了"之后这条账只能一直 pending；14 天以上的越积越多（实测 48 条）。
+//
+// 因此补两件事：
+//   ① 给模型一个 promise_close（**只允许 dropped**）。规则①仍然成立：绝不自动/自行标记已兑现。
+//   ② 超期搁置：pending 超过 14 天自动转 expired（不是 done），可人工改回，且不再进提示词。
+export const PROMISE_STALE_DAYS = 14;
+
+export const PROMISE_TOOL_SCHEMAS = [{
+  type: "function",
+  function: {
+    name: "promise_close",
+    description: "把一条自己承诺过、但用户已明确表示不需要的事从待兑现账上销掉（只能销账，不能标记已兑现）。用户说「不用了 / 不需要 / 别做了 / 算了」时立刻调用，不要留着继续当待办。",
+    parameters: {
+      type: "object",
+      properties: {
+        id: { type: "string", description: "【待兑现承诺】清单里那一条的 id（p_ 开头）" },
+        reason: { type: "string", description: "用户的明确说法，例如「这个不用了」。会作为销账证据留存" },
+      },
+      required: ["id", "reason"],
+    },
+  },
+}];
+
+/** 超期未结清的 pending 自动转 expired。不是"已兑现"，是"不再当待办"。 */
+export function expireStalePromises(wsRoot, { days = PROMISE_STALE_DAYS, now = new Date(), fsMod = fs } = {}) {
+  try {
+    const list = loadPromises(wsRoot, fsMod);
+    const nowMs = (now instanceof Date ? now : new Date()).getTime();
+    let expired = 0;
+    for (const p of list) {
+      if (p.status !== "pending") continue;
+      const at = new Date(p.at).getTime();
+      if (!Number.isFinite(at)) continue;
+      if (nowMs - at <= days * 86400_000) continue;
+      p.status = "expired";
+      p.evidence = `超过 ${days} 天未结清，自动搁置（未标记已兑现，可人工改回）`;
+      p.closedAt = new Date(nowMs).toISOString();
+      expired++;
+    }
+    if (!expired) return { ok: true, expired: 0 };
+    const saved = savePromises(wsRoot, list, fsMod);
+    return saved.ok ? { ok: true, expired } : { ok: false, expired: 0, error: saved.error };
+  } catch (e) { return { ok: false, error: String(e?.message || e).slice(0, 80) }; }
+}
+
+/** 模型侧销账执行器：只允许 dropped，且必须带用户原话作为证据。 */
+export function promiseExtraExecutors(wsRoot, { now = () => new Date() } = {}) {
+  return {
+    promise_close: (args = {}) => {
+      const id = String(args?.id || "").trim();
+      const reason = String(args?.reason || "").trim();
+      if (!id) return { text: "缺少 id：用【待兑现承诺】清单里的 p_ 开头编号，不要编造", isError: true };
+      if (!reason) return { text: "缺少 reason：写清用户是怎么说的（例如「这个不用了」）作为销账证据", isError: true };
+      const hit = loadPromises(wsRoot).find((p) => p.id === id);
+      if (!hit) return { text: `账上没有 ${id}；用清单里的真实 id，不要猜`, isError: true };
+      if (hit.status !== "pending") return { text: `这条已经结清（${hit.status}），不用重复销账`, isError: false };
+      const r = closePromise(wsRoot, id, { status: "dropped", evidence: `用户明确不需要：${reason}`, now: now() });
+      if (!r.ok) return { text: `销账失败：${r.reason || r.error || "未知错误"}`, isError: true };
+      const left = pendingPromises(wsRoot, { now: now() }).length;
+      const brief = hit.text.length > 60 ? `${hit.text.slice(0, 60)}…` : hit.text;
+      return { text: `已销账：${brief}。账上还剩 ${left} 条待兑现。`, isError: false };
+    },
+  };
+}
+
 const dayPhrase = (ms) => {
   const days = Math.floor(ms / 86400_000);
   if (days <= 0) {
@@ -174,10 +243,12 @@ export function pendingPromises(wsRoot, { now = new Date(), limit = 0, fsMod = f
 export function pendingPromiseText(wsRoot, { now = new Date(), limit = 5, fsMod = fs } = {}) {
   const list = pendingPromises(wsRoot, { now, limit, fsMod });
   if (!list.length) return "";
-  const lines = list.map((p) => `- ${p.age.phrase}：${p.text}${p.age.overdue ? "（已逾期）" : ""}`);
+  // 带 id：不给编号，模型没法调用 promise_close 销账（2026-10-18）
+  const lines = list.map((p) => `- [${p.id}] ${p.age.phrase}：${p.text}${p.age.overdue ? "（已逾期）" : ""}`);
   return [
     "【待兑现承诺】以下是你自己此前说过要做的事，账上还没结清。",
-    "主动交代进度：做完了就给出可核查的证据并说明；没做就说没做；不打算做了就明说并让对方决定是否销账。",
+    "主动交代进度：做完了就给出可核查的证据并说明；没做就说没做。",
+    "用户明确说过「不用了 / 不需要 / 别做了 / 算了」的，**立刻用 promise_close(id, reason=他的原话) 销账**，不要留着继续当待办，也不要再提。",
     "不要假装没说过，也不要把「打算做」讲成「已经做了」。",
     ...lines,
   ].join("\n");

@@ -49,7 +49,7 @@ import { advanceGoalTurn, noteGoalError, goalPrompt, listGoals, createGoal, armG
 import { createSandboxApi } from "./engine/sandbox-api.mjs";
 import { createMaintenanceApi } from "./engine/maintenance-api.mjs";
 import { sweepInterruptedRuns } from "./engine/story-store.mjs";
-import { extractPromises, recordPromises, loadPromises, pendingPromises, closePromise, pendingPromiseText } from "./engine/promises.mjs";
+import { extractPromises, recordPromises, loadPromises, pendingPromises, closePromise, pendingPromiseText, PROMISE_TOOL_SCHEMAS, promiseExtraExecutors, expireStalePromises } from "./engine/promises.mjs";
 import { createSoilReader } from "./engine/aibody-soil.mjs";
 // ── 会话解析纯函数（拆模块）：消息/文本/图片/文件提取 ──
 import { extractMessages, extractText, extractImages, extractFiles, resolveLeafId, windowMessages } from "./engine/session-utils.mjs";
@@ -730,6 +730,7 @@ const UNIFIED_TOOLS = [
   ...MEDIA_TOOL_SCHEMAS,
   ...TODO_TOOL_SCHEMAS,
   PLAN_FILES_SCHEMA,
+  ...PROMISE_TOOL_SCHEMAS,
   ACTIVATE_SKILL_TOOL,
   DELEGATE_TASK_TOOL,
   DELEGATE_FORK_TOOL,
@@ -778,6 +779,8 @@ const executeUnifiedTool = createUnifiedToolExecutorGuarded({
     ...mediaExtraExecutors({ getModelList: () => modelList, generateMediaAsync }),
     ...todoExtraExecutors(),
     ...planFilesExtraExecutors(),
+    // 承诺销账：用户说"不用了"时模型要能立刻销账，否则账只能一直挂着当待办（2026-10-18）
+    ...promiseExtraExecutors(WS_ROOT),
     // 派活 = 元枢里真正的"多路探索"：一次派几个子任务、哪个失败、花了多久。
     // 记成轨迹节点后，"该怎么探索"才有可回放的对象（当场修那条是单线的）。
     delegate_task: async (args, ctx) => {
@@ -3896,6 +3899,11 @@ function startServer() {
     console.log(`  本地地址: http://${CONFIG.host}:${CONFIG.port}`);
     console.log("  访问令牌: 已配置（请在本机 .token 文件中查看）");
     console.log(`  工作目录: ${CONFIG.cwd}`);
+    // 承诺账超期搁置：挂着超过 14 天、用户也没再提的 pending 转 expired，不再进提示词当待办。
+    try {
+      const ex = expireStalePromises(WS_ROOT, {});
+      if (ex.ok && ex.expired) console.log(`  承诺账  : ${ex.expired} 条超期未结清，已自动搁置`);
+    } catch {}
     console.log(`  工具集  : ${CONFIG.tools.join(", ")}`);
     console.log(`  默认模型: ${defaultModel ? defaultModel.provider + "/" + defaultModel.id : "(未设置)"}`);
     // 启动预探测 opencode-go（修复 B）：周额度 429 时启动即标记，Auto 路由全程避开，不浪费首轮请求；8/23 额度恢复后探测通过自动回到 opencode-go 优先
