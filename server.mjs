@@ -3270,6 +3270,13 @@ const API_ROUTES = [
       const url = new URL(req.url, "http://127.0.0.1");
       if (url.searchParams.has("reset")) resetMusicLogin();
       const view = await musicLoginView();
+      // 访问留痕：排查"到底有没有人打开这个页面、看到什么状态"（2026-10-18）
+      try {
+        const logDir = path.join(os.homedir(), ".yuanshu");
+        fs.mkdirSync(logDir, { recursive: true });
+        fs.appendFileSync(path.join(logDir, "music-login.log"),
+          `${new Date().toISOString()} ${req.socket?.remoteAddress || "?"} ${url.search} state=${view.state} loggedIn=${view.loggedIn} hasQr=${!!view.qrimg}\n`, "utf8");
+      } catch {}
       res.writeHead(200, { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-store" });
       res.end(renderMusicLoginPage(view));
     } catch (e) {
