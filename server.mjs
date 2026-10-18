@@ -60,14 +60,19 @@ import { createApprovalFlow } from "./engine/cultivation/approval-flow.mjs";
 // ── 培养越线申请（授权中心「等我确认」）──────────────────────────────
 // 链路细节在 engine/cultivation/approval-flow.mjs：申请落盘 30 分钟 + 挂卡；
 // 批准时用会话授权（60 秒/单次/绑定会话）拿一次性凭证再执行那条命令。
-const cultivationApprovalFlow = createApprovalFlow({
-  registry: confirmRegistry,
-  wsRoot: WS_ROOT,
-  runtime: cultivationRuntime,
-});
+// 惰性创建：cultivationRuntime 在模块后面才初始化，顶层直接取会 TDZ 崩掉整个服务。
+let cultivationApprovalFlow = null;
+function approvalFlow() {
+  cultivationApprovalFlow ??= createApprovalFlow({
+    registry: confirmRegistry,
+    wsRoot: WS_ROOT,
+    runtime: cultivationRuntime,
+  });
+  return cultivationApprovalFlow;
+}
 
 function requestCultivationApproval(ctx, { command, reason } = {}) {
-  return cultivationApprovalFlow.request({ sessionId: String(ctx?.sessionId || ""), command, reason });
+  return approvalFlow().request({ sessionId: String(ctx?.sessionId || ""), command, reason });
 }
 import { CANVAS_TOOL_SCHEMA, canvasExtraExecutors, readCanvasDoc, writeCanvasDoc } from "./engine/canvas.mjs";
 import { createSoilReader } from "./engine/aibody-soil.mjs";
@@ -3521,7 +3526,7 @@ const API_ROUTES = [
       const requestId = pending?.meta?.requestId;
       if (r?.ok && requestId) {
         if (ok) {
-          const out = await cultivationApprovalFlow.approve(requestId, sid).catch((e) => ({ ok: false, error: String(e?.message || e).slice(0, 160) }));
+          const out = await approvalFlow().approve(requestId, sid).catch((e) => ({ ok: false, error: String(e?.message || e).slice(0, 160) }));
           return json(res, 200, { ...r, cultivation: out });
         }
         settleRequest(WS_ROOT, requestId, 'rejected', { by: '授权中心' });

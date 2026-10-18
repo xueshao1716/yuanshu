@@ -8,6 +8,11 @@
 
 ## [Unreleased]
 
+## [2.127.42] - 2026-10-18
+
+- 修 2.127.41 起不来的问题：`createApprovalFlow({runtime: cultivationRuntime})` 写在模块顶层，而 `cultivationRuntime` 后面才初始化 → TDZ ReferenceError 让整个服务起不来。改成惰性创建。
+- 工具说明补上 `request.approval` 的用法（否则她仍然只会"如实说明并等待"，这个功能等于睡着）：越线时用它把申请排进授权中心，批准后才生效且只生效一次。
+
 ## [2.127.41] - 2026-10-18
 
 - 授权中心「等我确认」终于能收到**培养越线申请**了。此前 `agent-pending.mjs` 里写着 `cultivation-policy` 这个类型，却**没有任何注册点**（全仓搜过），所以小语要权限时只会拿到一句拒绝，人永远看不到卡片。
