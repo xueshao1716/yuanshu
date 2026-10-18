@@ -163,6 +163,23 @@ export function imageReady(node, nodes, edges) {
 }
 
 /**
+ * 要不要把服务端的画布盖到本地（2026-10-18：她改完画布，用户不刷新也能看到）。
+ * 三条都不满足才盖，否则会打断用户操作或自己盖自己：
+ *   · 服务端 revision 必须真的变了（相等就是自己的回写）
+ *   · 本地没有待发的保存（防抖还没发出去，盖掉就丢改动）
+ *   · 用户没在拖节点（盖掉会让节点跳走）
+ */
+export function shouldApplyRemote(localRevision, remoteRevision, { pendingSave = false, dragging = false } = {}) {
+  const local = Number(localRevision)
+  const remote = Number(remoteRevision)
+  if (!Number.isFinite(remote) || remote <= 0) return false
+  if (!Number.isFinite(local) || remote === local) return false
+  if (pendingSave || dragging) return false
+  // 只接受更新的版本；更旧的（例如别的标签页回滚）不要盖
+  return remote > local
+}
+
+/**
  * 参考图来源：连进来的上游图片节点（按连线顺序）。
  * 只取已经有 url 的——没出图的节点当参考没有意义，跳过而不是报错。
  */

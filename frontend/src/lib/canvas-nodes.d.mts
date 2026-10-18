@@ -37,6 +37,8 @@ export declare function incoming(nodeId: string, edges: CanvasEdge[]): CanvasEdg
 export declare function resolvePrompt(node: CanvasNode, nodes: CanvasNode[], edges: CanvasEdge[]): { text: string; sourceId: string | null; inherited: boolean }
 export declare function resolveConfig(node: CanvasNode, nodes: CanvasNode[], edges: CanvasEdge[]): { provider: string; modelId: string; model: string; size: string; template: string; sourceId: string | null }
 export declare function imageReady(node: CanvasNode, nodes: CanvasNode[], edges: CanvasEdge[]): { ok: boolean; reason: string }
+/** 轮询拿到的服务端画布要不要盖到本地（相等/更旧/正在操作时都不盖）。 */
+export declare function shouldApplyRemote(localRevision: number, remoteRevision: number, opts?: { pendingSave?: boolean; dragging?: boolean }): boolean
 /** 上游图片节点里已经出图的那几张（连续参考）。 */
 export declare function resolveRefs(node: CanvasNode, nodes: CanvasNode[], edges: CanvasEdge[]): CanvasNode[]
 export declare function imageRequest(node: CanvasNode, nodes: CanvasNode[], edges: CanvasEdge[]): { provider: string; modelId: string; prompt: string; size?: string; image?: string }

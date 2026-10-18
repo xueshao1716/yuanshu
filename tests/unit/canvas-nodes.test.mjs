@@ -6,7 +6,7 @@ import {
   NODE_KINDS, PANORAMA, CANVAS_LIMITS,
   createNode, buildPanoramaPrompt, buildPrompt,
   canConnect, addEdge, removeEdge, incoming,
-  resolvePrompt, resolveConfig, resolveRefs, imageReady, imageRequest, finalPrompt,
+  resolvePrompt, resolveConfig, resolveRefs, imageReady, imageRequest, finalPrompt, shouldApplyRemote,
   RenderGuard, selectRenderable, clampZoom,
   screenToWorld, worldToScreen, zoomAt, nextPosition,
   serializeCanvas, parseCanvas,
@@ -282,4 +282,24 @@ test('提示词输入仍然只保留一条（新连线顶掉旧的），参考�
   assert.equal(edges.filter(e => e.kind === 'prompt').length, 1, '提示词只留一条')
   assert.equal(edges.filter(e => e.kind === 'image').length, 1, '参考图不被顶掉')
   assert.deepEqual(resolvePrompt(t, [p1, p2, a, t], edges).text, '乙')
+})
+
+// ── 画布实时同步（2026-10-18）：她改完，用户不刷新也能看到 ─────────────
+test('远程 revision 更新且本地空闲时才盖', () => {
+  assert.equal(shouldApplyRemote(3, 4), true)
+  assert.equal(shouldApplyRemote(3, 3), false, '相等就是自己的回写，不能盖')
+  assert.equal(shouldApplyRemote(4, 3), false, '更旧的不要盖')
+  assert.equal(shouldApplyRemote(0, 0), false, '空画布不动')
+})
+
+test('正在拖节点或还有未发出的保存时不盖（会打断操作/丢改动）', () => {
+  assert.equal(shouldApplyRemote(3, 4, { dragging: true }), false)
+  assert.equal(shouldApplyRemote(3, 4, { pendingSave: true }), false)
+  assert.equal(shouldApplyRemote(3, 4, { dragging: false, pendingSave: false }), true)
+})
+
+test('非法 revision 不盖', () => {
+  assert.equal(shouldApplyRemote(3, NaN), false)
+  assert.equal(shouldApplyRemote(3, undefined), false)
+  assert.equal(shouldApplyRemote(NaN, 5), false)
 })

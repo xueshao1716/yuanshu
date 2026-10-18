@@ -14,7 +14,7 @@ import {
   CANVAS_LIMITS, NODE_KINDS, createNode, addEdge, removeEdge, incoming,
   resolvePrompt, resolveConfig, resolveRefs, imageReady, imageRequest, nodeSizeFor,
   RenderGuard, selectRenderable, clampZoom, screenToWorld, worldToScreen, zoomAt,
-  nextPosition, serializeCanvas, parseCanvas,
+  nextPosition, serializeCanvas, parseCanvas, shouldApplyRemote,
 } from '../lib/canvas-nodes.mjs'
 
 const STORAGE_KEY = 'pi-canvas-doc-v1'
@@ -48,6 +48,8 @@ export default function Canvas({ models: modelsProp, bare }: { models?: Model[];
   const stageRef = useRef<HTMLDivElement>(null)
   // 与服务端同步画布：定时回写 + 「这次改动来自服务端，别再回写」的跳过标记
   const syncRef = useRef<{ timer: number | null; skip: boolean }>({ timer: null, skip: false })
+  // 已知的服务端 revision：用来判断轮询拿到的是不是新版本
+  const revRef = useRef(0)
   const guardRef = useRef(new RenderGuard(CANVAS_LIMITS.render))
   const dragRef = useRef<{ mode: 'pan' | 'node'; id?: string; sx: number; sy: number; wx: number; wy: number } | null>(null)
   const fileRef = useRef<HTMLInputElement>(null)
@@ -68,7 +70,11 @@ export default function Canvas({ models: modelsProp, bare }: { models?: Model[];
         method: 'PUT',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${getToken()}` },
         body: serializeCanvas(doc),
+      }).then(async (r) => {
+        // 记住服务端 revision，避免轮询把自己的回写当成"她改的"
+        if (r.ok) { const j = await r.json().catch(() => null); if (j?.doc?.revision) revRef.current = j.doc.revision }
       }).catch(() => { /* 离线就用本地，不打扰 */ })
+      s.timer = null
     }, 700)
   }, [doc])
 
@@ -84,12 +90,44 @@ export default function Canvas({ models: modelsProp, bare }: { models?: Model[];
         if (!raw || cancelled || !Array.isArray(raw.nodes) || raw.nodes.length === 0) return
         const parsed = parseCanvas(JSON.stringify({ nodes: raw.nodes, edges: raw.edges, view: raw.view }))
         if (!parsed.ok || !parsed.doc) return
+        revRef.current = Number(raw.revision) || 0
         syncRef.current.skip = true
         setDoc(parsed.doc as Doc)
         say('已载入服务端画布（可能包含她刚搭的链路）')
       } catch { /* 保持本地文档 */ }
     })()
     return () => { cancelled = true }
+  }, [say])
+
+  // 她改画布后自动同步：轮询服务端 revision，变了就盖上（不打断拖拽/未发出的保存）
+  useEffect(() => {
+    let stop = false
+    const tick = async () => {
+      if (stop) return
+      try {
+        const res = await fetch(`${getApiBase()}/api/canvas`, { headers: { Authorization: `Bearer ${getToken()}` } })
+        if (res.ok) {
+          const data = await res.json()
+          const raw = data?.doc
+          if (raw && shouldApplyRemote(revRef.current, raw.revision, {
+            pendingSave: !!syncRef.current.timer,
+            dragging: !!dragRef.current,
+          })) {
+            const parsed = parseCanvas(JSON.stringify({ nodes: raw.nodes, edges: raw.edges, view: raw.view }))
+            if (parsed.ok && parsed.doc) {
+              revRef.current = Number(raw.revision) || 0
+              syncRef.current.skip = true
+              setDoc(parsed.doc as Doc)
+              say('画布已更新（她刚改过），已同步')
+            }
+          } else if (raw && !revRef.current) {
+            revRef.current = Number(raw.revision) || 0
+          }
+        }
+      } catch { /* 网络抖动就跳过这一轮 */ }
+    }
+    const timer = window.setInterval(tick, 3000)
+    return () => { stop = true; window.clearInterval(timer) }
   }, [say])
 
   // 渲染守卫：只对「视口内可见」的候选做 LRU，超出上限的降级为占位卡片
