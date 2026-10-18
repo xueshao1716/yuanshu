@@ -35,6 +35,18 @@ export function readBuildInfo(root) {
   try { return JSON.parse(fs.readFileSync(path.join(root, BUILD_INFO), 'utf8')); } catch { return null; }
 }
 
+// 2026-10-18：安装版更新成功后必须刷新构建标记。
+// 之前这个文件只在"安装那一刻"写一次，之后 reset --hard 更新完也不改 →
+// 设置页永远显示安装当天的旧 SHA，于是「发现新版本」一直弹（真实用户也会遇到）。
+export function writeBuildInfo(root, commit, at = new Date()) {
+  const sha = String(commit || "").trim();
+  if (!/^[0-9a-f]{40}$/.test(sha)) return { ok: false, reason: "bad_commit" };
+  try {
+    fs.writeFileSync(path.join(root, BUILD_INFO), JSON.stringify({ commit: sha, builtAt: at.toISOString() }, null, 2), "utf8");
+    return { ok: true, commit: sha };
+  } catch (e) { return { ok: false, reason: String(e?.message || e).slice(0, 80) }; }
+}
+
 export const isInstalledApp = (root) => !!readBuildInfo(root);
 
 /**
@@ -80,6 +92,12 @@ export async function updateInstalledApp({ root, git, npm, sources = UPDATE_SOUR
   }
   const reset = await git(['reset', '-q', '--hard', 'FETCH_HEAD']);
   if (!reset.ok) return { ok: false, stage: 'checkout', error: '检出新版本失败: ' + reset.err };
+  // 更新成功后把构建标记对齐到新 HEAD，否则设置页会一直显示安装时的旧提交并持续提示更新。
+  try {
+    const head = await git(['rev-parse', 'HEAD']);
+    const sha = String(head?.out || '').trim();
+    if (head?.ok && sha) writeBuildInfo(root, sha);
+  } catch {}
   for (const dir of [root, path.join(root, 'mcp-server')]) {
     if (!fs.existsSync(path.join(dir, 'package-lock.json'))) continue;
     // 锁文件里写的是 npmjs.org，npm 会按 --registry 换成镜像（replace-registry-host 默认行为）
