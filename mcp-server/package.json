@@ -1,6 +1,6 @@
 {
   "name": "pi-web-mcp",
-  "version": "2.127.32",
+  "version": "2.127.33",
   "description": "",
   "main": "index.js",
   "scripts": {

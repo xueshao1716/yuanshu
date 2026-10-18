@@ -71,8 +71,15 @@ export function webSocketUrl(path: string): string {
 
 // 文件 URL 补 token（<img>/<audio>/<video> 标签带不了 Authorization 头，服务端 checkAuth 接受 ?token=）
 export function withFileToken(url: string): string {
-  if (!url || !url.includes('/api/ws/file')) return url
-  return fileAccess(url, getApiBase(), _token).url
+  if (!url) return url
+  if (url.includes('/api/ws/file')) return fileAccess(url, getApiBase(), _token).url
+  // 音乐流同源代理也要鉴权：<audio> 带不了 Authorization 头，只能走 query token
+  if (url.includes('/api/music/stream') && _token && !/[?&]token=/.test(url)) {
+    const base = getApiBase() || ''
+    const sep = url.includes('?') ? '&' : '?'
+    return `${base}${url}${sep}token=${encodeURIComponent(_token)}`
+  }
+  return url
 }
 
 /** 外链图片走同源代理（防盗链/混合内容/CSP 一次消除）；img 标签用 query token 鉴权。 */
