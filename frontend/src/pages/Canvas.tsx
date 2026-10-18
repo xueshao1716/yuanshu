@@ -37,6 +37,8 @@ export default function Canvas({ models: modelsProp, bare }: { models?: Model[];
   const { models: appModels } = useApp()
   const models = modelsProp ?? appModels
   const { choices: imageModels, modelKey } = useMediaModel(models, 'image')
+  // 视频节点要能自己选视频模型（配置节点只列图片模型，选不到 agnes-video-*）
+  const { choices: videoModels } = useMediaModel(models, 'video')
   const [doc, setDoc] = useState<Doc>(loadDoc)
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [gen, setGen] = useState<{ id: string; startedAt: number } | null>(null)
@@ -499,6 +501,7 @@ export default function Canvas({ models: modelsProp, bare }: { models?: Model[];
                   busy={gen?.id === n.id}
                   ready={ready}
                   imageModels={imageModels}
+                  videoModels={videoModels}
                   modelKey={modelKey}
                   onSelect={() => setSelectedId(n.id)}
                   onPatch={p => patchNode(n.id, p)}

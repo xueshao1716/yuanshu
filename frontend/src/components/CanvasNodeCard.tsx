@@ -19,7 +19,7 @@ export type CardDerived = {
 }
 
 export default function CanvasNodeCard({
-  node, selected, degraded, derived, busy, ready, imageModels, modelKey, onSelect, onPatch,
+  node, selected, degraded, derived, busy, ready, imageModels, videoModels, modelKey, onSelect, onPatch,
   onHeaderPointerDown, onStartLink, onDelete, onGenerate,
 }: {
   node: CanvasNode
@@ -29,6 +29,7 @@ export default function CanvasNodeCard({
   busy: boolean
   ready: { ok: boolean; reason: string }
   imageModels: { id: string; provider: string; name: string; free?: boolean }[]
+  videoModels: { id: string; provider: string; name: string; free?: boolean }[]
   modelKey: (m: { id: string; provider: string }) => string
   onSelect: () => void
   onPatch: (patch: Partial<CanvasNode>) => void
@@ -162,6 +163,17 @@ export default function CanvasNodeCard({
         )}
         {node.kind === 'video' && (
           <>
+            <ThemedSelect aria-label="视频模型" className="input-pi !min-h-0 !py-1 text-[11px]" value={modelKey({ id: node.modelId, provider: node.provider })}
+              onChange={e => {
+                const m = videoModels.find(x => modelKey(x) === e.target.value)
+                if (m) onPatch({ provider: m.provider, modelId: m.id, model: `${m.name}（${m.provider}）` })
+              }}
+              onPointerDown={e => e.stopPropagation()}>
+              {!node.modelId && <option value="">选择视频模型…</option>}
+              {videoModels.map(m => (
+                <option key={modelKey(m)} value={modelKey(m)}>{m.name}（{m.provider}）{m.free ? ' · 免费' : ''}</option>
+              ))}
+            </ThemedSelect>
             {node.url ? (
               <video src={node.url} controls playsInline preload="metadata"
                 className="flex-1 min-h-0 w-full rounded-pi-sm border border-pi-border-soft bg-black" />
