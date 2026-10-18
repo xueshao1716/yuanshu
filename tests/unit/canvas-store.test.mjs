@@ -156,3 +156,14 @@ test('视频节点能接提示词/配置/参考图，音频只接提示词', () 
   assert.equal(exec({ action: 'connect', from: v, to: img }).isError, true, '视频没有输出')
   assert.equal(readCanvasDoc(root).nodes.length, 4)
 })
+
+test('音频节点能通过工具填链接（否则等于用不了）', () => {
+  const root = tmpRoot()
+  const exec = canvasExtraExecutors(root).canvas
+  const a = /节点 (n[0-9a-z]+)/.exec(exec({ action: 'add_node', kind: 'audio', title: '片头曲' }).text)[1]
+  const r = exec({ action: 'update_node', nodeId: a, url: '/api/music/stream?u=abc', ref: '/api/ws/file?path=x.png' })
+  assert.equal(r.isError, false)
+  const hit = readCanvasDoc(root).nodes.find((n) => n.id === a)
+  assert.equal(hit.url, '/api/music/stream?u=abc')
+  assert.equal(hit.ref, '/api/ws/file?path=x.png')
+})

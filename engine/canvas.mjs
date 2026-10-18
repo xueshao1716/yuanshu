@@ -123,10 +123,11 @@ export const CANVAS_TOOL_SCHEMA = {
         kind: { type: 'string', enum: ['text', 'prompt', 'config', 'image', 'video', 'audio'], description: 'add_node 用' },
         text: { type: 'string', description: '节点提示词/文本' },
         title: { type: 'string', description: '节点标题' },
-        provider: { type: 'string', description: '出图服务商（配置节点或图片节点）' },
-        modelId: { type: 'string', description: '出图模型 id' },
+        provider: { type: 'string', description: '出图服务商（配置节点或图片节点）' },        modelId: { type: 'string', description: '出图模型 id' },
         size: { type: 'string', description: '尺寸，如 1024x1024' },
         template: { type: 'string', enum: ['plain', 'panorama'] },
+        url: { type: 'string', description: '节点媒体地址：音频节点填播放链接（.mp3 或 /api/music/stream?u=…）' },
+        ref: { type: 'string', description: '参考素材地址（图片/视频节点的可选参考图）' },
         from: { type: 'string', description: 'connect 的起点节点 id（提示词/配置/图片）' },
         to: { type: 'string', description: 'connect 的终点图片节点 id' },
       },
@@ -200,7 +201,8 @@ export function canvasExtraExecutors(wsRoot) {
           const hit = doc.nodes.find((n) => n.id === id);
           if (!hit) return { text: `画布上没有节点 ${id}；先 read 看有哪些`, isError: true };
           const patch = {};
-          for (const k of ['text', 'title', 'provider', 'modelId', 'size', 'template']) {
+          // url/ref 也要能改：音频节点就是靠填链接播放的，不能改等于用不了
+          for (const k of ['text', 'title', 'provider', 'modelId', 'size', 'template', 'url', 'ref']) {
             if (args[k] !== undefined) patch[k] = args[k];
           }
           const nodes = doc.nodes.map((n) => (n.id === id ? { ...n, ...patch } : n));
