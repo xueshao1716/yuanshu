@@ -1,7 +1,7 @@
 {
   "name": "yuanshu-frontend",
   "private": true,
-  "version": "2.127.23",
+  "version": "2.127.24",
   "type": "module",
   "scripts": {
     "dev": "vite",
@@ -13,6 +13,7 @@
     "theme": "node scripts/generate-theme.mjs"
   },
   "dependencies": {
+    "@capacitor/browser": "^8.0.5",
     "@icon-park/react": "^1.4.2",
     "@radix-ui/react-alert-dialog": "^1.1.23",
     "@radix-ui/react-dialog": "^1.1.23",

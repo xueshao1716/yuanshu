@@ -1,6 +1,7 @@
 import { useMemo, useState } from 'react'
 import { Check, Plus, RefreshCw, Trash2, UserRound, X } from 'lucide-react'
 import { getApiBase, getToken, setApiBase, setToken } from '../api'
+import { resolveSwitchTarget } from '../lib/switch-target.mjs'
 
 // ── 账号管理（2026-10-12 伙伴要求）────────────────────────────────
 // 每个人可能养了好多元枢（不同电脑/不同工作区），需要在各元枢之间切换。
@@ -48,16 +49,29 @@ export default function ProfileManager({ open, onClose, onLogout }: { open: bool
     const token = window.prompt('访问令牌（就是那台元枢的）:') || ''
     const id = `${base}#${(token || '').slice(0, 8)}`
     if (list.some(p => p.id === id)) { setMsg('这个组合已经在档案里'); return }
-    persist([{ id, label: hostOf(base), apiBase: base, token, savedAt: Date.now() }, ...list])
-    setMsg(`已加入 ${hostOf(base)}，点它的"切换"即用`)
+    const profile: Profile = { id, label: hostOf(base), apiBase: base, token, savedAt: Date.now() }
+    persist([profile, ...list])
+    // 加完就切过去——否则"新账号"只是列表里多一条，地址并不会变（2026-10-18 修）。
+    setMsg(`已加入 ${hostOf(base)}，正在切换…`)
+    switchTo(profile)
   }
 
   const switchTo = (p: Profile) => {
     setBusy(true)
     try {
+      // 2026-10-18：切到"别的元枢"必须真的跳转地址。原来只写 localStorage 再 reload，
+      // 地址栏不变、页面仍由当前源提供 → 对远程实例等于没切换。
+      const target = resolveSwitchTarget({ apiBase: p.apiBase, token: p.token, currentHref: window.location.href })
+      if (target.kind === 'navigate') {
+        setMsg(target.tokenInQuery
+          ? `正在跳转到 ${hostOf(p.apiBase)}（已带上令牌）…`
+          : `正在跳转到 ${hostOf(p.apiBase)}；那边的令牌首次需要输入一次，之后由该地址自己记住。`)
+        window.location.assign(target.url)
+        return
+      }
       if (p.token) setToken(p.token)
-      if (p.apiBase || p.apiBase === '') setApiBase(p.apiBase)
-      setMsg(`切换到 ${hostOf(p.apiBase)}，页面即将刷新…`)
+      setApiBase(p.apiBase)
+      setMsg(`已切换到 ${hostOf(p.apiBase)}，页面即将刷新…`)
       setTimeout(() => { window.location.reload() }, 400)
     } finally { setTimeout(() => setBusy(false), 600) }
   }
