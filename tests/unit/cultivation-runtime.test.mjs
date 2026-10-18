@@ -11,9 +11,9 @@ test('mother can self-enable the bounded preset, but an envelope-breaking policy
     resolveMother:s=>s===f.mother?{actorId:'fixture-mother',originId:'fixture-run'}:null}});
   const result=await runtime.execute(f.command('design.submit',{design:draft()}),'mother',f.mother);
   assert.ok(result.result.id);assert.equal((await runtime.overview()).writeIdentityAvailable,false);
-  // 2026-10-18 产品决定：封套内（enabledPolicy 的 2027-01-01 距今天 90 天内）母亲可自行开启。
+  // 2026-10-18 产品决定：封套内（enabledPolicy 的 2027-01-01 距今天 180 天内）母亲可自行开启。
   await runtime.execute(f.command('policy.set',{policy:enabledPolicy()}),'mother',f.mother);
-  // 越线（有效期超出 90 天）仍需人类确认。
+  // 越线（有效期超出 180 天）仍需人类确认。
   await assert.rejects(runtime.execute(f.command('policy.set',{policy:overEnvelopePolicy()}),'mother',f.mother),/identity_denied/);
 });
 

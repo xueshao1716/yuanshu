@@ -19,10 +19,13 @@ export function validatePolicy(value) {
   if (!value || Object.getPrototypeOf(value) !== Object.prototype ||
       fields.some(k => !Object.hasOwn(value, k)) ||
       Object.keys(value).some(k => ![...fields, 'schedule', 'timeoutMs', 'motherLearning'].includes(k))) bad();
+  // 2026-10-18 伙伴「自己养智能体，权限开大一点，别事事都麻烦我」：
+  // 硬上限跟着自我驱动封套一起放宽（个体 20→30、并发 4→8、每日请求 1000→2000）。
+  // 递归、工具、私人记忆仍是红线，未动。
   if (typeof value.enabled !== 'boolean' || typeof value.allowRemote !== 'boolean' ||
       value.recursive !== false || value.currency !== 'USD' ||
-      !integer(value.maxAgents, 1, 20) || !integer(value.maxConcurrent, 1, value.maxAgents) ||
-      value.maxConcurrent > 4 || !integer(value.dailyRequests, 0, 1000) ||
+      !integer(value.maxAgents, 1, 30) || !integer(value.maxConcurrent, 1, value.maxAgents) ||
+      value.maxConcurrent > 8 || !integer(value.dailyRequests, 0, 2000) ||
       !integer(value.dailyBudgetCents, 0, 1000000) ||
       !list(value.models) || !list(value.tools) || !list(value.dataScopes)) bad();
   const expiry = value.expiresAt;

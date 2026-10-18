@@ -6,20 +6,20 @@ const design = { permissions: { model: 'stepfun-plan/step-5-preview', tools: [],
 const kp = (over = {}) => ({ revision: 3, currency: 'USD', allowedModels: [], rates: {}, ...over });
 
 // 2026-10-07 伙伴要更大额度：14 天、3 个个体、每天 30 次、2 美元、单次 10 分钟；工具与数据范围不放。
-test('grant preset matches agreed limits: 30 days, 300 requests/day, $10.00, no tools', () => {
+test('grant preset matches agreed limits: 180 days, 2000 requests/day, $200.00, 30 agents, no tools', () => {
   const now = Date.UTC(2026, 9, 5);
   const p = grantPolicy(design, now);
-  assert.equal(p.dailyRequests, 1000); assert.equal(p.dailyBudgetCents, 5000); assert.equal(p.maxAgents, 20); assert.equal(p.maxConcurrent, 4);
+  assert.equal(p.dailyRequests, 2000); assert.equal(p.dailyBudgetCents, 20000); assert.equal(p.maxAgents, 30); assert.equal(p.maxConcurrent, 8);
   assert.equal(p.timeoutMs, 600000); assert.equal(p.recursive, false);
   assert.deepEqual(p.tools, []); assert.deepEqual(p.models, [design.permissions.model]);
   assert.deepEqual(p.dataScopes, ['knowledge:approved-cultivation']); assert.equal(p.motherLearning, false);
-  assert.equal(Date.parse(p.expiresAt) - now, 90 * 86400000);
-  assert.match(grantSummary, /每天 1000 次/); assert.match(grantSummary, /50\.00 美元/); assert.match(grantSummary, /20 个个体/);
+  assert.equal(Date.parse(p.expiresAt) - now, 180 * 86400000);
+  assert.match(grantSummary, /每天 2000 次/); assert.match(grantSummary, /200\.00 美元/); assert.match(grantSummary, /30 个个体/);
 });
 test('designs outside the bounded preset are refused', () => {
   assert.equal(supportedDesign(design), true);
   assert.equal(supportedDesign({ permissions: { ...design.permissions, tools: ['bash'] } }), false);
-  assert.equal(supportedDesign({ permissions: { ...design.permissions, costUpperBoundCents: 5001 } }), false);
+  assert.equal(supportedDesign({ permissions: { ...design.permissions, costUpperBoundCents: 20001 } }), false);
   assert.equal(supportedDesign({ permissions: { ...design.permissions, dataScopes: ['memory:private'] } }), false);
 });
 test('blockers split into grant-fixable, shared-fixable and stubborn', () => {
@@ -75,16 +75,16 @@ test('widenPolicy raises time and quota only, keeps scope, and is idempotent', (
     expiresAt: new Date(now + 6 * 86400000).toISOString(), schedule: null };
   const w = mod.widenPolicy(cur, now);
   assert.deepEqual(w.changed, ['maxAgents', 'dailyRequests', 'dailyBudgetCents', 'timeoutMs', 'expiresAt']);
-  assert.equal(w.policy.timeoutMs, 600000); assert.equal(w.policy.dailyRequests, 1000); assert.equal(w.policy.maxAgents, 20);
+  assert.equal(w.policy.timeoutMs, 600000); assert.equal(w.policy.dailyRequests, 2000); assert.equal(w.policy.maxAgents, 30);
   for (const k of ['models', 'tools', 'dataScopes', 'motherLearning', 'recursive', 'maxConcurrent', 'allowRemote']) assert.deepEqual(w.policy[k], cur[k], k);
   assert.equal(mod.widenPolicy(w.policy, now), null, 'already widened');
   assert.equal(mod.widenPolicy({ ...cur, enabled: false }, now), null, 'disabled policy goes through the normal grant');
-  const bigger = { ...w.policy, dailyRequests: 1000, timeoutMs: 600000 };
+  const bigger = { ...w.policy, dailyRequests: 2000, timeoutMs: 600000 };
   assert.equal(mod.widenPolicy(bigger, now), null, 'never lowers a larger grant');
   assert.ok(mod.GRANTABLE_FIELDS.includes('policy.maxAgents'));
 });
 test('sharedRequestPatch lifts the shared daily model-call cap only when it is lower', () => {
   assert.deepEqual(mod.sharedRequestPatch({ maxModelRequests: 20 }), { maxModelRequests: mod.SHARED_MODEL_REQUESTS });
-  assert.equal(mod.sharedRequestPatch({ maxModelRequests: 2000 }), null);
+  assert.equal(mod.sharedRequestPatch({ maxModelRequests: 3000 }), null);
   assert.equal(mod.sharedRequestPatch(undefined), null);
 });

@@ -27,20 +27,25 @@ test('母亲身份可自行暂停（enabled=false 且不开母体学习）', asy
   assert.equal(f.store.read('control').data.policy.enabled, false);
 });
 
-test('越线全部拒绝母亲：加工具/开母体学习/加倍额度/拖长有效期/扩数据范围', async t => {
+test('母体学习自 2026-10-15 起允许母体自开（伙伴明确要求放开）', async t => {
+  const f = await controlFixture(t);
+  await f.execute(f.command('policy.set', { policy: preset({ motherLearning: true }) }), 'mother');
+  assert.equal(f.store.read('control').data.policy.motherLearning, true);
+});
+
+test('越线全部拒绝母亲：加工具/加额度/拖长有效期/扩数据范围', async t => {
   const f = await controlFixture(t);
   const cases = {
     '加工具': preset({ tools: ['run_code'] }),
-    '母体学习': preset({ motherLearning: true }),
-    '超预算': preset({ dailyBudgetCents: 5001 }),
-    '超次数': preset({ dailyRequests: 1001 }),
-    '超个体': preset({ maxAgents: 21 }),
-    '拖长有效期': preset({ expiresAt: new Date(Date.now() + 91 * 86400000).toISOString() }),
+    '超预算': preset({ dailyBudgetCents: 20001 }),
+    '超次数': preset({ dailyRequests: 2001 }),
+    '超个体': preset({ maxAgents: 31 }),
+    '拖长有效期': preset({ expiresAt: new Date(Date.now() + 181 * 86400000).toISOString() }),
     '扩数据范围': preset({ dataScopes: ['knowledge:approved-cultivation', 'knowledge:all'] }),
     '递归': preset({ recursive: true }),
-    '超并发': preset({ maxConcurrent: 5 }),
+    '超并发': preset({ maxConcurrent: 9 }),
     '超时加长': preset({ timeoutMs: 600001 }),
-    '多模型9个': preset({ models: ['a','b','c','d','e','f','g','h','i'] }),
+    '多模型17个': preset({ models: 'abcdefghijklmnopq'.split('').map(c => 'm-' + c) }),
   };
   for (const [name, policy] of Object.entries(cases)) {
     await assert.rejects(() => f.execute(f.command('policy.set', { policy }), 'mother'),
@@ -50,7 +55,7 @@ test('越线全部拒绝母亲：加工具/开母体学习/加倍额度/拖长�
 
 test('人类身份对封套内外都有权（原有契约不回退），母亲被封套外的过期策略拒绝', async t => {
   const f = await controlFixture(t);
-  // 2026-10-18：自我驱动封套是 90 天，enabledPolicy（2027-01-01）在封套内、母体可自行开启；
+  // 2026-10-18：自我驱动封套是 180 天，enabledPolicy（2027-01-01）在封套内、母体可自行开启；
   // 越线样本改用 overEnvelopePolicy（2028 到期）。
   await f.execute(f.command('policy.set', { policy: overEnvelopePolicy() }), 'human'); // 人类可以超出封套
   await assert.rejects(() => f.execute(f.command('policy.set', { policy: overEnvelopePolicy() }), 'mother'), /identity_denied/);
