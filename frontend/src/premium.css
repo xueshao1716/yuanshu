@@ -442,6 +442,20 @@ select.input-pi { padding-right: 26px; }
 }
 .media-history-row > button:hover { transform: translateY(-1px); }
 
+/* 提示词输入区：原来是一块无边框的空白，看着像"空洞" */
+textarea.input-pi {
+  background: color-mix(in srgb, var(--pi-text) 2.6%, transparent);
+  border: 1px solid color-mix(in srgb, var(--pi-border) 62%, transparent);
+  border-radius: 10px;
+  padding: 11px 13px;
+  line-height: 1.65;
+}
+textarea.input-pi::placeholder { color: color-mix(in srgb, var(--pi-dim) 86%, transparent); }
+textarea.input-pi:focus {
+  border-color: color-mix(in srgb, var(--pi-accent) 46%, transparent);
+  background: color-mix(in srgb, var(--pi-text) 3.4%, transparent);
+}
+
 /* ── 5. 细节：滚动条、选中、发丝线 ── */
 
 * { scrollbar-width: thin; scrollbar-color: color-mix(in srgb, var(--pi-text) 14%, transparent) transparent; }
