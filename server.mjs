@@ -3327,7 +3327,7 @@ const API_ROUTES = [
       const body = await readBody(req, 1);
       const source = body?.doc && Array.isArray(body.doc.nodes) ? normalizeCanvasDoc(body.doc).doc : readCanvasDoc(WS_ROOT);
       const brief = body?.brief || source.brief;
-      const r = await auditCanvas(source, { brief });
+      const r = await auditCanvas(source, { brief, wsRoot: WS_ROOT });
       json(res, 200, { ok: r.ok, issues: r.issues, text: formatAudit(r) });
     } catch (e) { json(res, 500, { ok: false, error: String(e?.message || e).slice(0, 160) }) }
   }],

@@ -2,7 +2,10 @@
 // 来源：Lovart 2.0 的 Arti 最值得抄的一点——拿最初规范去核当前画布（它抓到过 1920×1088 差 8 像素）。
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { auditCanvasDoc, auditCanvas, formatAudit, normalizeBrief, briefIsEmpty } from '../../engine/canvas-audit.mjs'
+import fs from 'node:fs'
+import os from 'node:os'
+import path from 'node:path'
+import { auditCanvasDoc, auditCanvas, formatAudit, normalizeBrief, briefIsEmpty, localPathFromUrl, dimensionsFromFile } from '../../engine/canvas-audit.mjs'
 
 const node = (id, kind, extra = {}) => ({ id, kind, x: 0, y: 0, text: '', url: '', provider: '', modelId: '', size: '', template: 'plain', title: kind, ...extra })
 const edge = (from, to, kind) => ({ id: `${from}-${to}`, from, to, kind })
@@ -56,21 +59,23 @@ test('交付件数不够 → warn 而不是 error', () => {
 })
 
 test('尺寸核验：比例不符报 error，读不到只记 info', async () => {
-  const doc = { nodes: [node('i', 'image', { text: '海报', provider: 'p', modelId: 'm', url: '/x.png', size: '1920x1088' })], edges: [] }
-  const mismatch = await auditCanvas(doc, { brief: { ratios: { image: 1.7778 } }, verify: async () => ({ status: 'mismatch', width: 1920, height: 1088 }) })
+  const doc = { nodes: [node('i', 'image', { text: '海报', provider: 'p', modelId: 'm', url: '/x.png', size: '1920x1200' })], edges: [] }
+  // 1920x1200 = 1.6，规范要 16:9(1.7778) → 差 10%，必须报
+  const mismatch = await auditCanvas(doc, { brief: { ratios: { image: 1.7778 } }, verify: async () => ({ width: 1920, height: 1200 }) })
   assert.ok(mismatch.issues.some((i) => i.code === 'ratio_mismatch'))
   assert.equal(mismatch.ok, false)
 
-  const unknown = await auditCanvas(doc, { brief: { ratios: { image: 1.7778 } }, verify: async () => ({ status: 'unverified' }) })
+  const unknown = await auditCanvas(doc, { brief: { ratios: { image: 1.7778 } }, verify: async () => null })
   assert.ok(unknown.issues.some((i) => i.code === 'dimension_unverified' && i.level === 'info'))
   assert.equal(unknown.ok, true)
 })
 
 test('全景模板默认按 2:1 核，不用写规范', async () => {
-  const doc = { nodes: [node('i', 'image', { text: '全景', provider: 'p', modelId: 'm', url: '/x.png', template: 'panorama', size: '2048x1024' })], edges: [] }
-  let asked = ''
-  await auditCanvas(doc, { verify: async (_u, _s, ratio) => { asked = ratio; return { status: 'matched', width: 2048, height: 1024 } } })
-  assert.equal(asked, '2:1')
+  const make = (h) => ({ nodes: [node('i', 'image', { text: '全景', provider: 'p', modelId: 'm', url: '/x.png', template: 'panorama' })], edges: [] })
+  const ok = await auditCanvas(make(1024), { verify: async () => ({ width: 2048, height: 1024 }) })
+  assert.ok(!ok.issues.some((i) => i.code === 'ratio_mismatch'), '正好 2:1 不该报')
+  const bad = await auditCanvas(make(1500), { verify: async () => ({ width: 2048, height: 1500 }) })
+  assert.ok(bad.issues.some((i) => i.code === 'ratio_mismatch' && /2:1/.test(i.message)), '偏离 2:1 要报')
 })
 
 test('formatAudit 汇总条数并给可读结论', () => {
@@ -81,4 +86,23 @@ test('formatAudit 汇总条数并给可读结论', () => {
   assert.match(text, /1 个问题、1 个提醒/)
   assert.match(text, /❌ \[x\] A/)
   assert.match(text, /⚠️ \[y\] B/)
+})
+
+test('本地结果文件：直读文件头核比例（画布地址多是相对路径）', async () => {
+  // 造一张 100x50 的 PNG（2:1），再用 1:1 的规范去核 → 应报比例错误
+  const png = Buffer.from('89504e470d0a1a0a0000000d4948445200000064000000320806000000', 'hex')
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'audit-probe-'))
+  fs.mkdirSync(path.join(dir, '生成物'), { recursive: true })
+  const file = path.join(dir, '生成物', 'a.png')
+  fs.writeFileSync(file, png)
+  const url = `/api/ws/file?path=${encodeURIComponent('生成物/a.png')}`
+  assert.equal(localPathFromUrl(dir, url), path.resolve(file))
+  assert.equal(dimensionsFromFile(file)?.width, 100)
+  const doc = { nodes: [node('i', 'image', { text: 'a', provider: 'p', modelId: 'm', url, title: 'a' })], edges: [] }
+  const r = await auditCanvas(doc, { brief: { ratios: { image: 1 } }, wsRoot: dir })
+  assert.ok(r.issues.some((i) => i.code === 'ratio_mismatch'), JSON.stringify(r.issues))
+})
+
+test('工作区外的路径不许读（防越界）', () => {
+  assert.equal(localPathFromUrl('C:/ws', '/api/ws/file?path=' + encodeURIComponent('../../etc/passwd')), '')
 })

@@ -9,7 +9,9 @@
 //   · 只报"确定偏离"和"确定缺失"，不猜审美；
 //   · 尺寸类结论来自真实文件头（image-dimensions.mjs），不是提示词里的自述。
 
-import { verifyImageDimensions } from './image-dimensions.mjs';
+import fs from 'node:fs';
+import path from 'node:path';
+import { readImageDimensions, verifyImageDimensions } from './image-dimensions.mjs';
 
 export const AUDIT_LEVELS = ['error', 'warn', 'info'];
 const MAX_TEXT = 2000;
@@ -82,7 +84,43 @@ export function auditCanvasDoc(doc, { brief } = {}) {
  * 带尺寸核验的巡检：对已出图的节点读真实文件头，和规范里的比例对一遍。
  * 读不到尺寸只记 info，不误判成失败。
  */
-export async function auditCanvas(doc, { brief, verify = verifyImageDimensions } = {}) {
+/**
+ * 读一张画布结果的真实尺寸。
+ * 画布上的地址多是 `/api/ws/file?path=…`（相对路径），而 verifyImageDimensions 只认 data: 和绝对 http，
+ * 直接交给它永远是"核不了"——所以先按工作区相对路径直读文件头，读不到再走远端核验。
+ */
+export function localPathFromUrl(wsRoot, url) {
+  const m = /[?&]path=([^&]+)/.exec(String(url || ''));
+  if (!m || !wsRoot) return '';
+  try {
+    const root = path.resolve(String(wsRoot));
+    const abs = path.resolve(root, decodeURIComponent(m[1]).replace(/\\/g, '/'));
+    return abs.startsWith(root + path.sep) ? abs : '';
+  } catch { return ''; }
+}
+
+export function dimensionsFromFile(file) {
+  try {
+    const stat = fs.statSync(file);
+    if (!stat.isFile() || stat.size <= 0) return null;
+    const buf = fs.readFileSync(file).subarray(0, 262144);
+    const d = readImageDimensions(buf);
+    return d?.width && d?.height ? { width: d.width, height: d.height } : null;
+  } catch { return null; }
+}
+
+async function dimsOf(node, wsRoot, verify) {
+  const url = String(node.url || '');
+  const file = localPathFromUrl(wsRoot, url);
+  if (file) {
+    const local = dimensionsFromFile(file);
+    if (local) return local;
+  }
+  const v = await verify(url, String(node.size || ''), '');
+  return v?.width && v?.height ? { width: v.width, height: v.height } : null;
+}
+
+export async function auditCanvas(doc, { brief, wsRoot = '', verify = verifyImageDimensions } = {}) {
   const base = auditCanvasDoc(doc, { brief });
   const issues = [...base.issues];
   const b = normalizeBrief(brief);
@@ -92,13 +130,15 @@ export async function auditCanvas(doc, { brief, verify = verifyImageDimensions }
     if (!want || !String(n.url || '').trim()) continue;
     const ratio = `${want}:1`;
     try {
-      const v = await verify(n.url, String(n.size || ''), ratio);
-      if (v?.status === 'mismatch') {
-        const actual = v.width && v.height ? `${v.width}×${v.height}（${(v.width / v.height).toFixed(3)}）` : '读不到尺寸';
-        issues.push({ level: 'error', code: 'ratio_mismatch', nodeId: n.id,
-          message: `${label(n)} 比例不对：要求 ${ratio}，实际 ${actual}。` });
-      } else if (v?.status === 'unverified') {
+      const dims = await dimsOf(n, wsRoot, verify);
+      if (!dims) {
         issues.push({ level: 'info', code: 'dimension_unverified', nodeId: n.id, message: `${label(n)} 的尺寸暂时核不了（文件可能还没落盘）。` });
+        continue;
+      }
+      const actual = dims.width / dims.height;
+      if (Math.abs(actual / want - 1) > 0.01) {
+        issues.push({ level: 'error', code: 'ratio_mismatch', nodeId: n.id,
+          message: `${label(n)} 比例不对：要求 ${ratio}，实际 ${dims.width}×${dims.height}（${actual.toFixed(3)}）。` });
       }
     } catch {
       issues.push({ level: 'info', code: 'dimension_unverified', nodeId: n.id, message: `${label(n)} 的尺寸暂时核不了（文件可能还没落盘）。` });

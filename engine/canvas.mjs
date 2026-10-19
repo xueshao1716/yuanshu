@@ -190,7 +190,7 @@ export function canvasExtraExecutors(wsRoot) {
           const brief = incoming || doc?.brief;
           if (incoming) writeCanvasDoc(wsRoot, { ...doc, brief: incoming });
           // 只有巡检是异步的（要读图片文件头核尺寸）；其余动作保持同步，工具层两种都认
-          return auditCanvas(doc, { brief })
+          return auditCanvas(doc, { brief, wsRoot })
             .then((result) => ({ text: formatAudit(result), isError: false, issues: result.issues }))
             .catch((e) => ({ text: `巡检失败：${String(e?.message || e).slice(0, 120)}`, isError: true }));
         }
