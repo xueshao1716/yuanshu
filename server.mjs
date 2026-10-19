@@ -59,6 +59,7 @@ import { createApprovalFlow } from "./engine/cultivation/approval-flow.mjs";
 import { runCompanionNudge } from "./engine/companion-nudge.mjs";
 import { COMMISSION_TOOL_SCHEMA, commissionExtraExecutors, createCommission, dueCommissions, listCommissions, removeCommission, runCommission as runDesignCommission, setStatus as setCommissionStatus } from "./engine/design-commission.mjs";
 import { RESEARCH_TOOL_SCHEMA, listResearch, readResearch, researchExtraExecutors, runResearch } from "./engine/design-research.mjs";
+import { modelSearchRows } from "./engine/model-research.mjs";
 
 // ── 培养越线申请（授权中心「等我确认」）──────────────────────────────
 // 链路细节在 engine/cultivation/approval-flow.mjs：申请落盘 30 分钟 + 挂卡；
@@ -81,9 +82,19 @@ function requestCultivationApproval(ctx, { command, reason } = {}) {
   return approvalFlow().request({ sessionId, command, reason });
 }
 
+// ── 后台调研：优先用模型自带的联网搜索（在厂商服务器上跑，不吃本机出口），再逐条验活 ──
+function researchModelSearch() {
+  try {
+    const file = path.join(os.homedir(), '.pi', 'agent', 'auth.json');
+    const auth = JSON.parse(fs.readFileSync(file, 'utf8'));
+    const cfg = auth['zai-api'] || auth.zai;
+    if (!cfg?.key || !cfg?.baseUrl) return null;
+    return (topic) => modelSearchRows({ topic, model: 'glm-4.5', baseUrl: cfg.baseUrl, key: cfg.key }).then((r) => r.rows);
+  } catch { return null }
+}
+
 // ── 设计委托：出图并落盘（复用 /api/image 同一条通道，返回本地地址）──────────
-async function generateImageSaved({ provider, modelId, prompt, size } = {}) {
-  let payload = null;
+async function generateImageSaved({ provider, modelId, prompt, size } = {}) {  let payload = null;
   const fakeRes = { writeHead() {}, end(d) { try { payload = JSON.parse(String(d)) } catch { payload = {} } } };
   await handleImage(fakeRes, { provider, modelId, prompt, size });
   if (!payload?.image) throw new Error(String(payload?.error || '接口没有返回图片').slice(0, 160));
@@ -854,8 +865,8 @@ const executeUnifiedTool = createUnifiedToolExecutorGuarded({
       generate: generateImageSaved,
       audit: (doc, opts) => auditCanvas(doc, { ...opts, wsRoot: WS_ROOT }),
     }),
-    // 后台调研：零 key 取公开结果，交带溯源链接的报告（2026-10-19）
-    ...researchExtraExecutors(WS_ROOT),
+    // 后台调研：模型自带联网搜索 + 逐条验活，交带溯源链接的报告（2026-10-19）
+    ...researchExtraExecutors(WS_ROOT, { modelSearch: researchModelSearch() }),
     // 派活 = 元枢里真正的"多路探索"：一次派几个子任务、哪个失败、花了多久。
     // 记成轨迹节点后，"该怎么探索"才有可回放的对象（当场修那条是单线的）。
     delegate_task: async (args, ctx) => {
@@ -3403,7 +3414,7 @@ const API_ROUTES = [
       const body = await readBody(req, 0.5);
       const topic = String(body?.topic || '').trim();
       if (!topic) return json(res, 400, { ok: false, error: '缺少 topic' });
-      const { ok, record } = await runResearch(WS_ROOT, { topic });
+      const { ok, record } = await runResearch(WS_ROOT, { topic, modelSearch: researchModelSearch() });
       json(res, 200, { ok, item: record });
     } catch (e) { json(res, 500, { ok: false, error: String(e?.message || e).slice(0, 160) }) }
   }],

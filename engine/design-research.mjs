@@ -157,10 +157,11 @@ export function rankSources(list) {
 }
 
 /**
- * 跑一次调研。injectable fetchImpl 便于测试。
+ * 跑一次调研。injectable fetchImpl / modelSearch 便于测试。
+ * modelSearch(topic) → [{title,url,site,snippet,verified}]：由 server 注入（模型自带联网搜索 + 逐条验活）。
  * @returns {{ok:boolean, record:object}}
  */
-export async function runResearch(wsRoot, { topic, count = 5, now = Date.now, fetchImpl = fetch } = {}) {
+export async function runResearch(wsRoot, { topic, count = 5, now = Date.now, fetchImpl = fetch, modelSearch = null } = {}) {
   const t = String(topic || '').trim().slice(0, 120);
   const createdAt = nowIso(now);
   const record = { id: idOf(), topic: t, createdAt, status: 'running', queries: buildQueries(t), sources: [], error: '' };
@@ -170,26 +171,40 @@ export async function runResearch(wsRoot, { topic, count = 5, now = Date.now, fe
 
   try {
     const seen = new Set();
-    const providers = searchProviders({ fetchImpl });
-    record.provider = providers[0]?.name || 'none';
-    for (const q of record.queries) {
-      let rows = [];
-      // 供应商链：优先用配了 key 的 API；都失败才落到 Bing
-      for (const p of providers) {
-        try {
-          rows = await p.run(q, count);
-          if (rows.length) { record.provider = p.name; break }
-        } catch { rows = [] }
-      }
-      for (const r of rows) {
-        if (seen.has(r.url) || record.sources.length >= MAX_SOURCES) continue;
-        if (!isRelevant(r, q)) continue;
-        seen.add(r.url);
-        record.sources.push({ ...r, query: q });
+    // 1) 模型自带联网搜索（厂商服务器上跑，不吃本机出口）+ 逐条验活 —— 优先级最高
+    if (typeof modelSearch === 'function') {
+      try {
+        const rows = await modelSearch(t);
+        record.provider = 'model';
+        for (const r of Array.isArray(rows) ? rows : []) {
+          if (seen.has(r.url) || record.sources.length >= MAX_SOURCES) continue;
+          seen.add(r.url);
+          record.sources.push({ ...r, query: t });
+        }
+      } catch (e) { record.modelError = String(e?.message || e).slice(0, 120) }
+    }
+    // 2) 配了 key 的搜索 API / 3) Bing 兜底
+    if (!record.sources.length) {
+      const providers = searchProviders({ fetchImpl });
+      record.provider = providers[0]?.name || 'none';
+      for (const q of record.queries) {
+        let rows = [];
+        for (const p of providers) {
+          try {
+            rows = await p.run(q, count);
+            if (rows.length) { record.provider = p.name; break }
+          } catch { rows = [] }
+        }
+        for (const r of rows) {
+          if (seen.has(r.url) || record.sources.length >= MAX_SOURCES) continue;
+          if (!isRelevant(r, q)) continue;
+          seen.add(r.url);
+          record.sources.push({ ...r, query: q });
+        }
       }
     }
     record.status = record.sources.length ? 'done' : 'empty';
-    if (record.status === 'empty') {
+    if (record.status === 'empty' && !record.error) {
       record.error = record.provider === 'bing'
         ? '搜索源没返回相关结果（Bing 对当前网络出口返回了无关内容）。可以配 BOCHA_API_KEY / TAVILY_API_KEY / SERPER_API_KEY 任一，或换网络出口再试。'
         : `搜索源 ${record.provider} 没有返回相关结果。`;
@@ -246,6 +261,7 @@ export function formatResearch(record) {
 
 export function researchExtraExecutors(wsRoot, deps = {}) {
   const now = deps.now || Date.now;
+  const modelSearch = deps.modelSearch || null;
   return {
     design_research: async (args = {}) => {
       try {
@@ -253,7 +269,7 @@ export function researchExtraExecutors(wsRoot, deps = {}) {
         if (action === 'run') {
           const topic = String(args.topic || '').trim();
           if (!topic) return { text: '先给一个调研主题。', isError: true };
-          const { record } = await runResearch(wsRoot, { topic, now });
+          const { record } = await runResearch(wsRoot, { topic, now, modelSearch });
           return { text: record.status === 'done' ? formatResearch(record) : `调研没跑成：${record.error || record.status}`, isError: record.status !== 'done' };
         }
         if (action === 'read') return { text: formatResearch(readResearch(wsRoot, args.id)), isError: false };
