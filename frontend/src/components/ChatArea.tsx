@@ -1067,17 +1067,38 @@ export default function ChatArea({ compactHeader, rightPanel, onRightPanel, onVo
     { Icon: Database, label: '会话管理', act: () => { location.hash = '#/sessiondb' } },
     { Icon: SquareTerminal, label: '终端', act: () => openPanel('terminal') },
   ]
+  // 欢迎页左栏的状态摘要（2026-10-19 v2.1）：把"空"换成一眼能读的现状
+  const todayStart = new Date(); todayStart.setHours(0, 0, 0, 0)
+  const todayCount = (Array.isArray(sessions) ? sessions : [])
+    .filter((s) => { const t = Date.parse(String(s.createdAt || '')); return Number.isFinite(t) && t >= todayStart.getTime() }).length
+  const openPalette = () => window.dispatchEvent(new Event('pi-open-palette'))
   const welcome = (
     <div className="chat-welcome chat-workstart">
       <div className="chat-reading-column">
-        <div className="workstart-identity">
-          <img src="/static/branding/yuanshu-app-icon.png?v=desk" width="48" height="48" alt="" />
-          <div><h1>元枢</h1><p>小语的工作空间</p></div>
+        <div className="workstart-hero">
+          <div className="workstart-identity">
+            <img src="/static/branding/yuanshu-app-icon.png?v=desk" width="56" height="56" alt="" />
+            <div><h1>元枢</h1><p>小语的工作空间</p></div>
+          </div>
+          <div className="workstart-status">
+            <span>{sessions.length} 段对话</span><i aria-hidden="true" />
+            <span>今天 {todayCount} 段</span><i aria-hidden="true" />
+            <span>{sessions.filter((s) => s.pinned).length} 段置顶</span>
+          </div>
+          <div className="workstart-cta">
+            <button type="button" className="btn-primary" onClick={newSession}>
+              <Plus className="w-4 h-4" strokeWidth={2.2} />开始新对话
+            </button>
+            <button type="button" className="btn-tool" onClick={openPalette} title="搜索命令">
+              <Command className="w-4 h-4" strokeWidth={1.8} />搜索命令
+              <kbd className="workstart-kbd">⌘K</kbd>
+            </button>
+          </div>
         </div>
         <section className="workstart-actions" aria-labelledby="quick-actions-title">
           <div className="chat-section-head workstart-head">
             <h2 id="quick-actions-title">开始工作</h2>
-            <button type="button" className="workstart-search" onClick={() => window.dispatchEvent(new Event('pi-open-palette'))} title="搜索命令"><Command className="w-4 h-4" />搜索</button>
+            <button type="button" className="workstart-search" onClick={openPalette} title="搜索命令"><Command className="w-4 h-4" />搜索</button>
           </div>
           <div className="workstart-command-grid">
             {welcomeActions.map(({ Icon, label, act }) => (
@@ -1089,7 +1110,6 @@ export default function ChatArea({ compactHeader, rightPanel, onRightPanel, onVo
             ))}
           </div>
         </section>
-
       </div>
     </div>
   )
