@@ -86,6 +86,11 @@
 - **工作台（board）接回全局主题**：`board-home.css` 原来自带硬编码 `--board-*`（midnight blue + 薄荷绿），与 `--pi-*` 脱节。现在映射到主题 token：面板/边线/文字/强调全部跟随主题，主按钮改全局强调色实底白字，快捷入口改图标瓦片并去掉分隔线。
 - 注意：`board-home.css` 由组件 import，编译后可能排在 `premium.css` 之后 → **同权重会被它反超**，所以 board 的覆盖统一加 `:root` 前缀（0,2,0 > 0,1,0）。
 
+### v2.6（同日追加）
+- **主题一致性审计结论**：除 board 外，其余页面 CSS 早已使用 `--pi-*`（soul.css 103 处、story.css 370 处、call/mood/portrait 均 20+ 处），**不需要再统一**；创作/任务页截图确认强调色、底色、文字与对话页一致。
+- 修创作页两处折行：`GeneratePanel` 生成按钮补 `shrink-0 whitespace-nowrap min-w-[76px]`；`WorkshopModelPicker` 标签补 `whitespace-nowrap shrink-0`。
+- 通用健壮性：`button` 一律不折行；`input/select/textarea.input-pi` 最小高度 34px、字号 13px。
+
 ## 8. 验证方式
 
 - 无头 Chrome + CDP 截图（`D:\deepseek\shot-app.mjs`，需先向 localStorage 写 `yuanshu_access_token`）。
