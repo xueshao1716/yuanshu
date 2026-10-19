@@ -8,10 +8,23 @@
 
 ## [Unreleased]
 
+## [2.127.77] - 2026-10-19
+
 ## [2.127.76] - 2026-10-19
 
 ## [2.127.75] - 2026-10-19
 
+## [2.127.77] - 2026-10-20
+
+- 修「她自己发起的轮次只能看、不能做」：定时任务/自省轮过去只给 read/web_search/search_files，所以她"为自己活"时什么也做不了，每件动手的事都要等主人开口。
+- 新增 engine/self-agency.mjs「自主执行通道」：
+  - 策略文件 记忆/运行时/自主执行.json（owner 可改）：enabled / scopes / dailyActions / 
+otifyOnAction。
+  - 默认放开 workspaceWrite / shell / localGit / build；**对外发布（external）与花钱（media）默认关**，越线仍走审批。
+  - 工具白名单按 scope 映射；**未知工具一律不给**（新工具默认不放开）；cultivation/delegate_team 不在自主范围。
+  - 每次自主动作写 文档/自主执行审计.md，并按 dailyActions（默认 200/天）限频防跑飞。
+- 时间引擎 runner 接入：每轮按策略给工具、超限自动降回只读，并留痕。
+- 测试：	ests/unit/self-agency.test.mjs 4 条（默认边界、工具过滤、坏文件回落、审计与限频）。
 ## [2.127.76] - 2026-10-20
 
 - 修 watchdog 冷启动误杀：服务实测冷启动要 40–60 秒（依赖多、初始化重），而 watchdog 连续 3 次不健康（约 15 秒）就判僵死强杀 → 反复重启风暴（本次部署时真的发生：进程 23:23 起、新代码 00:0x 才部署，watchdog 见端口占用不重启，手动杀进程后又因 15 秒判死循环）。

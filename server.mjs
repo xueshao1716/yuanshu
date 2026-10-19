@@ -210,6 +210,7 @@ import { createStaticServer } from "./lib/static.mjs";
 import { CodeRuntime } from "./code-mode/code-runtime.mjs";
 import { createCodeMode } from "./code-mode/code-mode.mjs";
 import { createTimeEngine } from "./engine/time-engine.mjs";
+import { loadSelfPolicy, selfTools, recordSelfAction, withinDailyLimit } from "./engine/self-agency.mjs";
 import { composeTimeTaskMessages, timeTaskReadTools, recordReflectionActions, parseReflectionActions, yesterdayYmd } from "./engine/time-task-run.mjs";
 import { promoteReflectionLessons, lessonDraft } from "./engine/lesson-promotion.mjs";
 import { buildLastNight } from "./engine/last-night.mjs";
@@ -4145,11 +4146,24 @@ function startServer() {
             now: new Date(),
           });
           const tReflect0 = Date.now();
-          const r = await unifiedChat(defaultModel, messages, { tools: timeTaskReadTools(UNIFIED_TOOLS), signal });
+          // 2026-10-20：她自己这一轮不再只有只读工具。按「自主执行」策略放开动手能力，
+          // 越线动作（对外发布/花钱）默认仍关，且每条动作写 文档/自主执行审计.md。
+          const selfPolicy = loadSelfPolicy(CONFIG.cwd);
+          const selfToolDefs = selfTools(UNIFIED_TOOLS, selfPolicy);
+          const selfRun = withinDailyLimit(CONFIG.cwd, selfPolicy)
+            ? selfToolDefs.filter(t => (t?.function?.name || t?.name) !== 'read')   // 已含 read
+            : [];
+          console.log(`[time-engine] 自主执行：${selfPolicy.enabled ? '开' : '关'} · 工具 ${selfRun.map(t => t?.function?.name).join(',') || '（只读）'}`);
+          const r = await unifiedChat(defaultModel, messages, { tools: selfToolDefs, signal });
           const completed = signal?.aborted || r?.aborted ? null : completedTaskText(r);
           console.log(`[time-engine] 任务 ${task.id} 复盘轮用时 ${Math.round((Date.now() - tReflect0) / 60000)} 分钟`);
           if (signal?.aborted || r?.aborted) return { aborted: true };
           out = completed || "(无输出)";
+          // 留痕：她这一轮做了什么（只读动作不记，动手才记）
+          try {
+            recordSelfAction(CONFIG.cwd, { task: `定时任务 ${task.id}`, action: '自主轮次完成',
+              detail: selfPolicy.scopes.join('/'), result: String(out).slice(0, 160) });
+          } catch {}
           if (signal?.aborted) return { aborted: true };
           const logDir = path.join(CONFIG.cwd, "文档");
           try { fs.mkdirSync(logDir, { recursive: true }); } catch {}
