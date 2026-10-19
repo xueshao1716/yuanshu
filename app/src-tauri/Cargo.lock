@@ -4937,7 +4937,7 @@ dependencies = [
 
 [[package]]
 name = "yuanshu"
-version = "2.127.71"
+version = "2.127.72"
 dependencies = [
  "base64 0.22.1",
  "serde",

@@ -21,6 +21,11 @@ let child = null;
 let crashTimes = []; // 最近崩溃时间戳（用于连续崩溃检测→回滚）
 let rollbackDone = false; // 回滚只做一次，避免无限回滚
 let lastStartAt = 0; // 最近一次启动时刻（用于分级检查频率：启动期快查，稳态慢查）
+// 2026-10-19：连续不健康计数提到模块级，让 startServer 也能看见。
+// 今天两次「服务静默挂掉」都是同一个死结：子进程还活着但端口没监听，
+// 而 startServer 只判断 `child` 是否存在 → 永远拒绝重拉，日志刷 26 次"端口已占用或子进程仍在启动"。
+let consecutiveFails = 0;
+const STUCK_KILL_AFTER = 3; // 连续 3 次不健康（约 15 秒）就认定子进程僵死，强杀重拉
 
 // ── 崩溃归因 → 是否回滚 ───────────────────────────────────────────────
 // 回滚会把 server.mjs 换成旧的 .bak，属于「静默降级」，误判代价极高：
@@ -115,6 +120,18 @@ function rollbackServer() {
 const startServer = singleFlight(async function () {
   // 健康实例直接待命；异常但仍占端口的实例只告警，不自动终止用户任务。
   if (await serviceHealthy()) { log("已有健康实例，本次跳过启动（不抢占）"); return; }
+  // 子进程已退出（exitCode/signalCode 非空）→ 那是陈旧句柄，不能拿它当"还在启动"
+  if (child && (child.exitCode !== null || child.signalCode)) {
+    log("🧹 清理已退出的子进程句柄");
+    child = null;
+  }
+  // 子进程活着却长期不健康 → 僵死，强杀重拉（否则会像今天那样永久卡住）
+  if (child && consecutiveFails >= STUCK_KILL_AFTER) {
+    log(`⚠️ 子进程存活但连续 ${consecutiveFails} 次健康检查失败，判定僵死，强杀后重拉`);
+    try { child.kill("SIGKILL"); } catch { /* 已经没了也无所谓 */ }
+    child = null;
+    await new Promise(r => setTimeout(r, 1500));
+  }
   if (child || await portOpen()) { log("端口已占用或子进程仍在启动；不强杀、不重复拉起，请检查服务日志"); return; }
   // 重启限频：10 秒内最多重启 1 次，防死循环风暴
   const now = Date.now();
@@ -208,7 +225,6 @@ async function main() {
   // - 新启动 60s 内：5s 快查（快速发现新进程早夭）
   // - 连续失败：保持快查并告警
   // - 稳态：30s 慢查
-  let consecutiveFails = 0;
   const monitorLoop = async () => {
     const ok = await serviceHealthy();
     if (!ok) {
