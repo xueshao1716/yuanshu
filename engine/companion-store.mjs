@@ -31,21 +31,14 @@ export function createCompanionStore({ root, now = Date.now }) {
       const data = load(), t = now();
       const previous = Number.isFinite(data.seenAt) ? data.seenAt : 0;
       if (previous && t - previous < throttleMs) return { seenAt: previous, gapMs: 0 };
-      // 关键：把"这次隔了多久"在覆盖 seenAt 之前算出来。
+      // 关键：把"这次隔了多久"在覆盖 seenAt 之前算出来，并在**同一次响应**里交回去。
       // 否则前端一打开就把 seenAt 刷成现在，"久别回来"永远判不出来（2026-10-19 真机踩到）。
+      // 不落盘暂存：落盘会让同一段间隔被下一次轮询再消费一遍。
       const gapMs = previous ? Math.max(0, t - previous) : 0;
       data.seenAt = t;
-      if (gapMs >= 60_000) data.lastGapMs = gapMs;
       data.history = prune(data);
       atomicWriteJson(file, data);
       return { seenAt: t, gapMs };
-    },
-    /** 上次"隔了多久才回来"（前台轮询时被消费一次，避免每次轮询都当成刚回来）。 */
-    takeGap() {
-      const data = load();
-      const gapMs = Number.isFinite(data.lastGapMs) ? data.lastGapMs : 0;
-      if (gapMs) { data.lastGapMs = 0; data.history = prune(data); atomicWriteJson(file, data); }
-      return gapMs;
     },
     seen() {
       const data = load();
