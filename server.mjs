@@ -57,6 +57,7 @@ import { handleMusicStream } from "./engine/music-stream.mjs";
 import { createRequest, settleRequest, findRequest } from "./engine/cultivation/approval-requests.mjs";
 import { createApprovalFlow } from "./engine/cultivation/approval-flow.mjs";
 import { runCompanionNudge } from "./engine/companion-nudge.mjs";
+import { COMMISSION_TOOL_SCHEMA, commissionExtraExecutors, createCommission, dueCommissions, listCommissions, removeCommission, runCommission as runDesignCommission, setStatus as setCommissionStatus } from "./engine/design-commission.mjs";
 
 // ── 培养越线申请（授权中心「等我确认」）──────────────────────────────
 // 链路细节在 engine/cultivation/approval-flow.mjs：申请落盘 30 分钟 + 挂卡；
@@ -77,6 +78,17 @@ function requestCultivationApproval(ctx, { command, reason } = {}) {
   // 否则这张卡会挂到一个空会话上、授权中心看不到。
   const sessionId = String(ctx?.sessionId || globalThis.__yuanshuLastSessionKey || "");
   return approvalFlow().request({ sessionId, command, reason });
+}
+
+// ── 设计委托：出图并落盘（复用 /api/image 同一条通道，返回本地地址）──────────
+async function generateImageSaved({ provider, modelId, prompt, size } = {}) {
+  let payload = null;
+  const fakeRes = { writeHead() {}, end(d) { try { payload = JSON.parse(String(d)) } catch { payload = {} } } };
+  await handleImage(fakeRes, { provider, modelId, prompt, size });
+  if (!payload?.image) throw new Error(String(payload?.error || '接口没有返回图片').slice(0, 160));
+  const saved = await saveArtifact({ type: 'image', url: payload.image, prompt });
+  if (!saved?.url) throw new Error(String(saved?.reason || '图片落盘失败').slice(0, 160));
+  return { url: saved.url };
 }
 import { CANVAS_TOOL_SCHEMA, canvasExtraExecutors, readCanvasDoc, writeCanvasDoc, normalizeCanvasDoc } from "./engine/canvas.mjs";
 import { auditCanvas, formatAudit } from "./engine/canvas-audit.mjs";
@@ -768,6 +780,7 @@ const UNIFIED_TOOLS = [
   ...PROMISE_TOOL_SCHEMAS,
   MUSIC_TOOL_SCHEMA,
   CANVAS_TOOL_SCHEMA,
+  COMMISSION_TOOL_SCHEMA,
   ACTIVATE_SKILL_TOOL,
   DELEGATE_TASK_TOOL,
   DELEGATE_FORK_TOOL,
@@ -834,6 +847,11 @@ const executeUnifiedTool = createUnifiedToolExecutorGuarded({
     ...musicExtraExecutors(),
     // 画布：让模型能自己搭节点链（读/建/连/改），前端画布与它共享同一份文档（2026-10-18）
     ...canvasExtraExecutors(WS_ROOT),
+    // 设计委托：可试跑、可周期、有积分熔断与执行报告（2026-10-19）
+    ...commissionExtraExecutors(WS_ROOT, {
+      generate: generateImageSaved,
+      audit: (doc, opts) => auditCanvas(doc, { ...opts, wsRoot: WS_ROOT }),
+    }),
     // 派活 = 元枢里真正的"多路探索"：一次派几个子任务、哪个失败、花了多久。
     // 记成轨迹节点后，"该怎么探索"才有可回放的对象（当场修那条是单线的）。
     delegate_task: async (args, ctx) => {
@@ -2420,6 +2438,25 @@ try {
   setInterval(() => { void runCompanionNudge({ store: companionStore, notifier }).catch(() => {}) }, 5 * 60 * 1000).unref?.();
 } catch {}
 
+// 设计委托：每 60 秒看一眼到期的周期委托（一次只跑一单，出错不影响后面的）
+let commissionBusy = false;
+try {
+  setInterval(() => {
+    if (commissionBusy) return;
+    commissionBusy = true;
+    void (async () => {
+      try {
+        for (const c of dueCommissions(WS_ROOT, { now: Date.now })) {
+          await runDesignCommission(WS_ROOT, c.id, {
+            generate: generateImageSaved,
+            audit: (doc, opts) => auditCanvas(doc, { ...opts, wsRoot: WS_ROOT }),
+          });
+        }
+      } catch { /* 单次失败不影响下一轮 */ } finally { commissionBusy = false }
+    })();
+  }, 60 * 1000).unref?.();
+} catch {}
+
 // 连续创作「原著改编」按书导入：从小说工坊读指定章节（不给就是全书）。
 // 放在 server 层而不是编排层：编排层不该知道小说工坊的文件布局，
 // 它只要一份 {title, chapters:[{file,title,chars,content}]} 的纯数据。
@@ -3331,6 +3368,26 @@ const API_ROUTES = [
       json(res, 200, { ok: r.ok, issues: r.issues, text: formatAudit(r) });
     } catch (e) { json(res, 500, { ok: false, error: String(e?.message || e).slice(0, 160) }) }
   }],
+  // 设计委托：列表/创建/试跑/暂停恢复/删除
+  ["GET", "/api/design-commissions", (res) => json(res, 200, { ok: true, items: listCommissions(WS_ROOT) })],
+  ["POST", "/api/design-commissions", async (res, req) => {
+    try { json(res, 200, { ok: true, commission: createCommission(WS_ROOT, await readBody(req, 1)) }) }
+    catch (e) { json(res, 400, { ok: false, error: String(e?.message || e).slice(0, 160) }) }
+  }],
+  ["POST", /^\/api\/design-commissions\/([^/]+)\/run$/, async (res, req, url, m) => {
+    try {
+      const r = await runDesignCommission(WS_ROOT, m[1], {
+        generate: generateImageSaved,
+        audit: (doc, opts) => auditCanvas(doc, { ...opts, wsRoot: WS_ROOT }),
+        fresh: true,
+      });
+      json(res, 200, r);
+    } catch (e) { json(res, 500, { ok: false, error: String(e?.message || e).slice(0, 160) }) }
+  }],
+  ["POST", /^\/api\/design-commissions\/([^/]+)\/(pause|resume)$/, (res, req, url, m) => {
+    json(res, 200, setCommissionStatus(WS_ROOT, m[1], m[2] === 'pause' ? 'paused' : 'running'));
+  }],
+  ["DELETE", /^\/api\/design-commissions\/([^/]+)$/, (res, req, url, m) => json(res, 200, removeCommission(WS_ROOT, m[1]))],
   // 服务端渲染、零 JS：全站 CSP 是 script-src 'self'，内联脚本根本跑不起来
   ["GET", "/music-login", async (res, req) => {
     try {
