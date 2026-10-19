@@ -122,7 +122,47 @@ input:focus-visible,
   border-radius: 8px;
 }
 
+/* ── 6. v2 升级（2026-10-19）：宽屏两栏欢迎页 + 字号分层 ──────────────
+   v1 的问题：1440 宽下身份块挤在左，右边一大片死空；命令卡横向拉到 400px+。
+   v2：宽屏分成「身份 / 能力清单」两栏，能力改成单列行式；窄屏回落单列。
+   对话正文仍保持 860px 阅读宽，只有欢迎页放到 1000px。 */
+@media (min-width: 1100px) {
+  .chat-workstart > .chat-reading-column {
+    display: grid;
+    grid-template-columns: minmax(260px, 0.85fr) minmax(420px, 1.15fr);
+    column-gap: clamp(40px, 5vw, 72px);
+    align-items: start;
+    width: min(100%, 1000px);
+  }
+  .chat-workstart .workstart-identity { margin-bottom: 0; }
+  .chat-workstart .workstart-actions { min-width: 0; }
+  /* 宽屏下能力清单用单列行式：一列 6 行，扫读比 2×3 快 */
+  .chat-workstart .workstart-command-grid { grid-template-columns: 1fr; gap: 8px; }
+  .chat-workstart .workstart-command { min-height: 52px; }
+}
+
+/* 字号分层：标题给体量，副标题回到正文级，分组标签用小号字 + 大写 */
+.workstart-identity h1 {
+  font-size: clamp(28px, 2.6vw, 36px);
+  font-weight: 600;
+  letter-spacing: -0.038em;
+}
+.workstart-identity p {
+  font-size: 14px;
+  line-height: 1.5;
+  color: color-mix(in srgb, var(--pi-dim) 96%, var(--pi-text));
+}
+.workstart-head h2 {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: color-mix(in srgb, var(--pi-dim) 82%, var(--pi-text));
+}
+.workstart-command > span { font-size: 13.5px; }
+
 /* ── 5. 细节：滚动条、选中、发丝线 ── */
+
 * { scrollbar-width: thin; scrollbar-color: color-mix(in srgb, var(--pi-text) 14%, transparent) transparent; }
 *::-webkit-scrollbar { width: 10px; height: 10px; }
 *::-webkit-scrollbar-thumb {
