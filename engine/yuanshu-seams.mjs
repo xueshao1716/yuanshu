@@ -4,6 +4,7 @@ import { runtimeIdentity } from "./runtime-identity.mjs";
 import { rhythmPhrase } from "./activity-rhythm.mjs";
 import { loadPersonaDefinition, renderPersonaSection } from "./persona-def.mjs";
 import { soulContextPrompt } from "./soul-context.mjs";
+import { buildSelfModel, renderSelfSection, writeSelfFile } from "./self-model.mjs";
 import { workspaceFromEnv } from "./workspace-default.mjs";
 
 export const SEAM_PROMPT = "prompt-section";
@@ -136,6 +137,14 @@ export function assembleYuanshuSystem(baseOpts = {}, registry = null, ctx = {}) 
   try {
     const soul = soulContextPrompt(ctx.wsRoot || workspaceFromEnv() || process.cwd());
     if (soul) merged.persona = [merged.persona, soul].filter(Boolean).join("\n\n");
+  } catch {}
+  // 2026-10-20：人格段回答"我是什么样的人"，这里补"我是谁"——活的第一人称自述。
+  try {
+    const selfRoot = ctx.wsRoot || workspaceFromEnv() || process.cwd();
+    const selfModel = buildSelfModel({ wsRoot: selfRoot });
+    const selfSection = renderSelfSection(selfModel);
+    if (selfSection) merged.persona = [merged.persona, selfSection].filter(Boolean).join("\n\n");
+    writeSelfFile(selfRoot, selfModel);
   } catch {}
   const identity = runtimeIdentity(ctx);
   if (identity) merged.runtime = [merged.runtime, identity].filter(Boolean).join('\n\n');

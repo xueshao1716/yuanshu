@@ -1,0 +1,56 @@
+name: Bug 报告
+description: 跑不起来 / 行为不对 / 产出异常，用这个
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        先跑一次环境体检：**系统 → 环境体检**，把失败项贴进来，能省掉一半来回。
+        如果是"跑不起来"，请务必填上安装方式和最后 20 行日志。
+  - type: dropdown
+    id: install
+    attributes:
+      label: 安装方式
+      options:
+        - 离线安装包（exe）
+        - 一行命令（install-lite.ps1）
+        - 源码（git clone + node setup.mjs）
+        - 其他
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: 版本
+      description: 系统页底部或 `version.json` 里的数字
+      placeholder: 2.127.77
+    validations:
+      required: true
+  - type: input
+    id: env
+    attributes:
+      label: 环境
+      placeholder: Windows 11 / Node 22 / 模型 provider
+    validations:
+      required: true
+  - type: textarea
+    id: what
+    attributes:
+      label: 发生了什么
+      description: 你做了什么 → 期望什么 → 实际什么
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: 日志 / 截图
+      description: 系统页可导出日志；贴最后 20 行即可
+      render: shell
+  - type: checkboxes
+    id: checklist
+    attributes:
+      label: 自查
+      options:
+        - label: 我确认已填模型 Key（向导或 auth.json）
+        - label: 我确认端口 8787 没有被别的程序占用
+        - label: 我没有把密钥贴进 issue

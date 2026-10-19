@@ -536,6 +536,13 @@ export const LingXiApi = {
 }
 
 // ── 主题偏好跨端同步（08-26：一端更新，各端打开拉取一致）──
+export type SelfModel = {
+  name: string; called: string; bond?: string; days: number | null; sessions: number
+  autonomy: { enabled: boolean; scopes: string[]; closed: string[] }
+  boundaries: string[]; inner: string[]; growth: string; updatedAt: string
+  section: string; markdown: string; file: string
+}
+export const SelfApi = { get: () => api<SelfModel>('/api/self') }
 export const ThemeApi = {
   get: () => api<{ theme: string; accent: string; wallpaper: string }>('/api/theme-prefs', { timeoutMs: 2500 }),
   save: (theme: string, accent: string, wallpaper?: string) => {

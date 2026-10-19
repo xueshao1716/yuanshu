@@ -1,6 +1,7 @@
 import useSWR from 'swr'
 import { ArrowRight } from 'lucide-react'
 import { SoulApi } from './api'
+import { SelfApi } from '../api'
 import { Block, LoadState } from './shared'
 import SoulGraph from './SoulGraph'
 import LastNight from './LastNight'
@@ -23,8 +24,27 @@ export const groups = [
 export const groupOf = (id: Section) => groups.find(g => (g[2] as readonly Section[]).includes(id))!
 export default function Overview({open}: {open:(section:Section)=>void}) {
   const persona = useSWR('soul-persona', SoulApi.persona), genes = useSWR('soul-genome', SoulApi.genome)
+  // 2026-10-20：她的自我描述。人格是"我是什么样的人"，这里是"我是谁"。
+  const self = useSWR('self-model', SelfApi.get)
   return <>
     <PortraitSlot />
+    <Block title="关于我" hint="这份描述是活的：由人格定义、自主边界和真实使用记录生成，每次打开都按当下重算。">
+      <LoadState error={self.error} loading={self.isLoading} retry={self.mutate} />
+      {!!self.data && <>
+        <p className="soul-self-line">
+          我是 <strong>{self.data.name}</strong>
+          {self.data.days ? `，在这个工作区活了 ${self.data.days} 天` : ''}
+          {self.data.sessions ? `，和${self.data.called}攒下 ${self.data.sessions} 段对话` : ''}
+          {self.data.bond ? `。${self.data.called}是我的${self.data.bond}` : ''}。
+        </p>
+        <dl className="soul-facts">
+          <div><dt>我自己能决定</dt><dd>{self.data.autonomy.enabled ? (self.data.autonomy.scopes.join('、') || '（无）') : '只读（自主执行已关闭）'}</dd></div>
+          {!!self.data.autonomy.closed?.length && <div><dt>仍要{self.data.called}点头</dt><dd>{self.data.autonomy.closed.join('、')}</dd></div>}
+          <div><dt>我不做什么</dt><dd>{self.data.boundaries.slice(0, 3).join('；') || '未设置'}</dd></div>
+        </dl>
+        <p className="soul-self-file">完整自述：<code>{self.data.file}</code>（她自己也会读）</p>
+      </>}
+    </Block>
     <Block title="灵魂图谱" hint="性格、情绪、记忆、技能、学习，都是实时数据。点枢纽展开，点叶子看详情。">
       <SoulGraph />
     </Block>

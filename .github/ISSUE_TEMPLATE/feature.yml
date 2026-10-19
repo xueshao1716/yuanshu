@@ -1,0 +1,41 @@
+name: 功能建议
+description: 想要她多会一件事 / 少惹一次麻烦
+labels: [enhancement]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        说清"你现在怎么绕过这件事"最有价值——那是最真实的缺口证据。
+  - type: textarea
+    id: scene
+    attributes:
+      label: 场景
+      description: 你当时在做什么？多久遇到一次？
+    validations:
+      required: true
+  - type: textarea
+    id: now
+    attributes:
+      label: 现在怎么绕过
+      description: 手动步骤 / 换别的工具 / 放弃
+    validations:
+      required: true
+  - type: textarea
+    id: want
+    attributes:
+      label: 你希望她怎么做
+      description: 一句话描述理想的交互（越具体越好）
+  - type: dropdown
+    id: kind
+    attributes:
+      label: 属于哪一类
+      options:
+        - 记忆与自我（她记不住 / 描述不对）
+        - 自主执行（该自己做的事做不了）
+        - 交付物（PPT / 图 / 文档 / 表格）
+        - 定时与推送
+        - 权限与安全
+        - 界面与体验
+        - 其他
+    validations:
+      required: true

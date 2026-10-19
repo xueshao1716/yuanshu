@@ -210,6 +210,7 @@ import { createStaticServer } from "./lib/static.mjs";
 import { CodeRuntime } from "./code-mode/code-runtime.mjs";
 import { createCodeMode } from "./code-mode/code-mode.mjs";
 import { createTimeEngine } from "./engine/time-engine.mjs";
+import { buildSelfModel, renderSelfSection, renderSelfMarkdown } from "./engine/self-model.mjs";
 import { loadSelfPolicy, selfTools, recordSelfAction, withinDailyLimit } from "./engine/self-agency.mjs";
 import { composeTimeTaskMessages, timeTaskReadTools, recordReflectionActions, parseReflectionActions, yesterdayYmd } from "./engine/time-task-run.mjs";
 import { promoteReflectionLessons, lessonDraft } from "./engine/lesson-promotion.mjs";
@@ -2701,6 +2702,14 @@ const API_ROUTES = [
   ["POST", "/api/sessions/db/sweep", async (res, req) => handleDbSweep(res, await readBody(req))],
   // ── 会话 ──
   // 灵魂图谱（2026-10-06）：性格/情绪/记忆/技能/学习一次汇总，灵魂页总览画成神经网络图。只读。
+  // 2026-10-20：她的「自我描述」——人格回答"我是什么样的人"，这里回答"我是谁"。
+  // 同一个 composer 既喂 prompt（yuanshu-seams）也喂这页，保证她说的和自己看到的一致。
+  ["GET", "/api/self", (res) => {
+    try {
+      const model = buildSelfModel({ wsRoot: WS_ROOT });
+      json(res, 200, { ...model, section: renderSelfSection(model), markdown: renderSelfMarkdown(model), file: '记忆/自我.md' });
+    } catch (e) { json(res, 500, { error: String(e?.message || e).slice(0, 120) }); }
+  }],
   ["GET", "/api/soul/graph", async (res) => {
     const safe = async (fn, fallback) => { try { return await fn(); } catch { return fallback; } };
     const [skills, knowledge] = await Promise.all([safe(listSkills, { skills: [] }), safe(() => knowledgeRuntime.status(), null)]);
