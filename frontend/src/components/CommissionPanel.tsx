@@ -7,7 +7,7 @@ import { getApiBase, getToken } from '../api'
 type Issue = { level: string; code: string; message: string }
 type Report = { at: string; ok: boolean; spent: number; cap: number; files: { name: string; url: string; verified?: boolean }[]; errors: { name: string; error: string }[]; issues: Issue[]; note: string; unverified?: number }
 type Commission = {
-  id: string; title: string; goal: string; status: string; spent: number; cap: number
+  id: string; title: string; subject?: string; goal: string; status: string; spent: number; cap: number
   everyMinutes: number; nextRunAt: number | null; lastReport: Report | null
   brief: { deliverables: string[]; requiredText: string[]; forbidden: string[]; ratios: Record<string, number> }
 }
@@ -32,7 +32,7 @@ export default function CommissionPanel({ onClose }: { onClose: () => void }) {
   const [busy, setBusy] = useState('')
   const [error, setError] = useState('')
   const [showForm, setShowForm] = useState(false)
-  const [form, setForm] = useState({ title: '', goal: '', deliverables: '', cap: 6, everyMinutes: 0 })
+  const [form, setForm] = useState({ title: '', subject: '', goal: '', deliverables: '', cap: 6, everyMinutes: 0 })
 
   const load = useCallback(async () => {
     try {
@@ -56,19 +56,22 @@ export default function CommissionPanel({ onClose }: { onClose: () => void }) {
 
   const create = async () => {
     if (!form.title.trim()) { setError('先给委托起个名字'); return }
+    // 主体是硬要求：没主体硬出图只会得到空画面（2026-10-19 真跑教训）
+    if (!form.subject.trim()) { setError('先写清主体：画面里到底有什么（一个物体/一个人/一处场景）'); return }
     setBusy('create')
     try {
       const j = await api('/api/design-commissions', {
         method: 'POST',
         body: JSON.stringify({
           title: form.title.trim(),
+          subject: form.subject.trim(),
           goal: form.goal.trim(),
           brief: { deliverables: form.deliverables.split(/[,，\n]/).map((s) => s.trim()).filter(Boolean) },
           cap: Number(form.cap) || 0,
           everyMinutes: Number(form.everyMinutes) || 0,
         }),
       })
-      if (j?.ok) { setShowForm(false); setForm({ title: '', goal: '', deliverables: '', cap: 6, everyMinutes: 0 }) } else setError(j?.error || '创建失败')
+      if (j?.ok) { setShowForm(false); setForm({ title: '', subject: '', goal: '', deliverables: '', cap: 6, everyMinutes: 0 }) } else setError(j?.error || '创建失败')
       await load()
     } catch { setError('创建失败') } finally { setBusy('') }
   }
@@ -91,7 +94,8 @@ export default function CommissionPanel({ onClose }: { onClose: () => void }) {
         {showForm && (
           <div className="p-4 border-b border-pi-border-soft space-y-2">
             <input className="pi-input w-full" placeholder="委托名，例如 双11 主视觉" value={form.title} onChange={(e) => setForm({ ...form, title: e.target.value })} />
-            <textarea className="pi-input w-full min-h-[64px]" placeholder="目标与约束（会写进每张图的提示词）" value={form.goal} onChange={(e) => setForm({ ...form, goal: e.target.value })} />
+            <input className="pi-input w-full" placeholder="主体（必填）：画面里到底有什么，例如「一颗悬空的白色陶瓷球」" value={form.subject} onChange={(e) => setForm({ ...form, subject: e.target.value })} />
+            <textarea className="pi-input w-full min-h-[64px]" placeholder="目标与约束（光线、材质、情绪、构图）" value={form.goal} onChange={(e) => setForm({ ...form, goal: e.target.value })} />
             <input className="pi-input w-full" placeholder="交付件，用逗号分隔：主海报, 竖版, 方卡" value={form.deliverables} onChange={(e) => setForm({ ...form, deliverables: e.target.value })} />
             <div className="flex items-center gap-3 text-[12px] text-pi-dim">
               <label className="flex items-center gap-1.5">额度
@@ -123,6 +127,7 @@ export default function CommissionPanel({ onClose }: { onClose: () => void }) {
                     {c.everyMinutes > 0 && <span className="text-[11px] text-pi-dim">· 每 {c.everyMinutes} 分钟</span>}
                   </div>
                   {c.goal && <p className="text-[11px] text-pi-dim mt-1 line-clamp-2">{c.goal}</p>}
+                  {!c.subject && <p className="text-[11px] text-pi-warn mt-1">缺主体：出图前要先问清画面里有什么</p>}
                   {c.brief?.deliverables?.length > 0 && (
                     <p className="text-[11px] text-pi-dim2 mt-1">交付：{c.brief.deliverables.join(' / ')}</p>
                   )}

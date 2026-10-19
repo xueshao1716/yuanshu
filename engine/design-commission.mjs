@@ -56,6 +56,8 @@ export function createCommission(wsRoot, input = {}, { now = Date.now } = {}) {
   const row = {
     id: ids(),
     title: text(input.title || '未命名设计委托', 80),
+    // 主体：画面里到底有什么。没有它就别出图——实测"纯黑+留白+无文字"会生成一张空图。
+    subject: text(input.subject || input.brief?.subject || '', 200),
     goal: text(input.goal || input.brief?.goal || '', 600),
     brief: {
       deliverables,
@@ -133,6 +135,25 @@ export function dueCommissions(wsRoot, { now = Date.now } = {}) {
     && (!c.nextRunAt || c.nextRunAt <= t) && c.spent < c.cap);
 }
 
+/** 缺主体时该问什么：固定三问，别问成访谈。 */
+export function askForSubject(row = {}) {
+  return [
+    `「${row.title || '这单'}」还缺主体：画面里到底要出现什么（一个物体、一个人、一处场景）？`,
+    '另外两项顺手确认：画面里要不要文字（要的话原文是什么）？交付尺寸/比例是多少？',
+  ];
+}
+
+/**
+ * 试跑前的自检：能不能出图。给工具层用，避免"硬出图再返工"。
+ * @returns {{ok:boolean, questions?:string[]}}
+ */
+export function canRun(row) {
+  if (!row) return { ok: false, questions: ['委托不存在。'] };
+  if (row.spent >= row.cap) return { ok: false, questions: [`额度已用尽（${row.spent}/${row.cap} 点）。`] };
+  if (!row.subject && String(row.goal || '').trim().length < 8) return { ok: false, questions: askForSubject(row) };
+  return { ok: true };
+}
+
 /**
  * 跑一轮：按交付件逐张出图，每张 1 点；到上限立刻停（熔断）。
  * @param deps.generate ({prompt,size,provider,modelId}) => {url}
@@ -149,6 +170,10 @@ export async function runCommission(wsRoot, id, { generate, audit, verify = veri
     return { ok: false, reason: 'capped', report: row.lastReport };
   }
   if (typeof generate !== 'function') return { ok: false, reason: 'generator_unavailable' };
+  // 没有主体就别烧钱：先问清楚画面里到底有什么（2026-10-19 真跑教训：空提示词出空图）
+  if (!row.subject && String(row.goal || '').trim().length < 8) {
+    return { ok: false, reason: 'need_subject', questions: askForSubject(row) };
+  }
 
   const names = row.brief.deliverables.length ? row.brief.deliverables : ['交付图'];
   const files = [];
@@ -160,7 +185,7 @@ export async function runCommission(wsRoot, id, { generate, audit, verify = veri
     const textRule = row.brief.requiredText.length
       ? `画面中出现的文字必须严格是：${row.brief.requiredText.join('、')}，不要增删或改写`
       : '不出现任何文字、字母或数字（纯视觉海报），不要自己编标题';
-    const prompt = [row.goal || row.title, `交付件：${name}`, textRule].filter(Boolean).join('；');
+    const prompt = [row.subject, row.goal || row.title, `交付件：${name}`, textRule].filter(Boolean).join('；');
     prompts.push({ name, prompt });
     try {
       const out = await generate({ prompt, size: row.size, provider: row.provider, modelId: row.modelId });
@@ -215,7 +240,7 @@ export const COMMISSION_TOOL_SCHEMA = {
   type: 'function',
   function: {
     name: 'commission',
-    description: '设计委托：把"持续交付"落成工单。create 写清目标与交付件（可设积分上限与周期）；run 试跑一次；list 看进度与最近报告；pause/resume 启停。积分单位是"一次出图 = 1 点"，到上限自动熔断（capped）。交付前配合 canvas.audit 核比例与文案。',
+    description: '设计委托：把"持续交付"落成工单。create 写清目标与交付件（可设积分上限与周期）；run 试跑一次；list 看进度与最近报告；pause/resume 启停。积分单位是"一次出图 = 1 点"，到上限自动熔断（capped）。**创建前必须问清主体**：画面里到底有什么（物体/人/场景）——没有主体就别建单，硬出图会得到空画面；也要问清要不要文字、尺寸比例。交付前配合 canvas.audit 核比例与文案。',
     parameters: {
       type: 'object',
       additionalProperties: false,
@@ -223,6 +248,7 @@ export const COMMISSION_TOOL_SCHEMA = {
         action: { type: 'string', enum: ['create', 'list', 'run', 'pause', 'resume', 'report'] },
         id: { type: 'string', description: 'run/pause/resume/report 用' },
         title: { type: 'string' },
+        subject: { type: 'string', description: '画面主体：具体到"一颗悬空的白色陶瓷球"这种程度。用户没说就先问，不要自己编。' },
         goal: { type: 'string', description: '这一单要达成什么（写清约束）' },
         deliverables: { type: 'array', items: { type: 'string' }, description: '交付件名称列表，一件一次出图' },
         requiredText: { type: 'array', items: { type: 'string' } },
@@ -233,6 +259,7 @@ export const COMMISSION_TOOL_SCHEMA = {
         size: { type: 'string' },
         cap: { type: 'integer', description: '积分上限（一次出图 1 点），默认 10' },
         everyMinutes: { type: 'integer', description: '周期执行间隔（分钟，>=15）；0 或省略=只跑一次' },
+        force: { type: 'boolean', description: '用户明确表示"就按我说的出"时才置 true，跳过主体体检' },
       },
       required: ['action'],
     },
@@ -243,11 +270,12 @@ export function formatCommission(row) {
   if (!row) return '委托不存在。';
   const r = row.lastReport;
   const head = `[${row.id}] ${row.title} · ${row.status} · 已用 ${row.spent}/${row.cap} 点${row.everyMinutes ? ` · 每 ${row.everyMinutes} 分钟` : ''}`;
-  if (!r) return head;
+  const subject = row.subject ? `\n主体：${row.subject}` : '\n主体：（未填——出图前要先问清画面里有什么）';
+  if (!r) return head + subject;
   const files = r.files?.length ? `\n交付：${r.files.map((f) => `${f.name} → ${f.url}${f.verified === false ? '（未验活）' : ''}`).join('；')}` : '';
   const errs = r.errors?.length ? `\n失败：${r.errors.map((e) => `${e.name}（${e.error}）`).join('；')}` : '';
   const issues = r.issues?.length ? `\n巡检：${r.issues.map((i) => `[${i.level}] ${i.message}`).join('；')}` : '\n巡检：无偏离';
-  return `${head}\n最近一次（${r.at}，${r.note}）：${r.ok ? '通过' : '有问题'}${files}${errs}${issues}`;
+  return `${head}${subject}\n最近一次（${r.at}，${r.note}）：${r.ok ? '通过' : '有问题'}${files}${errs}${issues}`;
 }
 
 export function commissionExtraExecutors(wsRoot, deps = {}) {
@@ -257,11 +285,18 @@ export function commissionExtraExecutors(wsRoot, deps = {}) {
       try {
         const action = String(args.action || 'list');
         if (action === 'create') {
-          const row = createCommission(wsRoot, {
-            title: args.title, goal: args.goal, provider: args.provider, modelId: args.modelId, size: args.size,
+          const createInput = {
+            title: args.title, subject: args.subject, goal: args.goal,
+            provider: args.provider, modelId: args.modelId, size: args.size,
             cap: args.cap, everyMinutes: args.everyMinutes,
             brief: { deliverables: args.deliverables, requiredText: args.requiredText, forbidden: args.forbidden, ratios: args.ratios },
-          }, { now });
+          };
+          const probe = canRun(createInput);
+          if (!probe.ok && !args.force) {
+            // 不硬建单：先把该问的问回去（少花一次钱，也少一次返工）
+            return { text: `先别急着建单——${probe.questions.join('\n')}`, isError: false, needsClarification: probe.questions };
+          }
+          const row = createCommission(wsRoot, createInput, { now });
           return { text: `已创建委托：\n${formatCommission(row)}\n要试跑就 action=run id=${row.id}。`, isError: false };
         }
         if (action === 'list') {
@@ -279,7 +314,10 @@ export function commissionExtraExecutors(wsRoot, deps = {}) {
         }
         if (action === 'run') {
           const r = await runCommission(wsRoot, args.id, { generate, audit, now, fresh: true });
-          if (!r.commission) return { text: `跑不了：${r.reason}`, isError: true };
+          if (!r.commission) {
+            const hint = Array.isArray(r.questions) && r.questions.length ? `\n先把这些问清楚：${r.questions.join('\n')}` : '';
+            return { text: `跑不了：${r.reason}${hint}`, isError: true, needsClarification: r.questions || [] };
+          }
           return { text: `试跑完成。\n${formatCommission(r.commission)}`, isError: false };
         }
         return { text: `未知 action：${action}`, isError: true };
