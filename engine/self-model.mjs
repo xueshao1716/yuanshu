@@ -69,6 +69,7 @@ export function buildSelfModel({ wsRoot, now = new Date() } = {}) {
       perActionCny: policy.spend.perActionCny,
       dailyCapCny: policy.spend.dailyCapCny,
       usedToday: spendTodayOf(wsRoot, now),
+      monthlyCapCny: policy.spend.monthlyCapCny,
     } : null,
     boundaries: Array.isArray(def.boundaries) ? def.boundaries : [],
     growth: typeof def.growth === 'string' ? def.growth : '',
@@ -91,7 +92,7 @@ export function renderSelfSection(model) {
     const cannot = model.autonomy.closed?.length ? model.autonomy.closed.join('、') : '';
     lines.push(`· 我自己的时间片里，能自己决定：${can}。${cannot ? `仍然要${model.called}点头：${cannot}。` : ''}`);
     if (model.spend?.enabled) {
-      lines.push(`· 花钱：为有利的事我可以主动花，但先看额度——单次 ≤ ¥${model.spend.perActionCny}、今天 ≤ ¥${model.spend.dailyCapCny}（今天已花 ¥${model.spend.usedToday}）。花之前说清为什么，花完写进 文档/花费审计.md；超额度就停下来先问。`);
+      lines.push(`· 花钱：为有利的事我可以主动花，但先看额度——单次 ≤ ¥${model.spend.perActionCny}、今天 ≤ ¥${model.spend.dailyCapCny}、本月 ≤ ¥${model.spend.monthlyCapCny}（今天已花 ¥${model.spend.usedToday}）。花之前说清为什么，花完写进 文档/花费审计.md；超额度就停下来先问。`);
     }
   } else {
     lines.push(`· 我自己的时间片目前是只读的（${model.called}关掉了自主执行），需要动手时会先说一声。`);

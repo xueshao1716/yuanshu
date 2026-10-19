@@ -30,7 +30,7 @@ export const DEFAULT_SELF_POLICY = Object.freeze({
   notifyOnAction: false,
   // 2026-10-20：主人明确"花钱没事，只要花钱有度，为有利的事可以主动付出"。
   // 放开花钱，但三条约束不能少：单次上限、每日上限、每笔留理由。
-  spend: { enabled: true, perActionCny: 3, dailyCapCny: 10, requireReason: true },
+  spend: { enabled: true, perActionCny: 8, dailyCapCny: 50, monthlyCapCny: 300, requireReason: true },
   note: '她能自己写、能自己跑、能在额度内自己花钱（为有利的事）；对外发布仍要人点头。',
 });
 
@@ -53,6 +53,8 @@ function normalize(raw) {
         ? raw.spend.perActionCny : DEFAULT_SELF_POLICY.spend.perActionCny,
       dailyCapCny: Number.isFinite(raw?.spend?.dailyCapCny) && raw.spend.dailyCapCny >= 0
         ? raw.spend.dailyCapCny : DEFAULT_SELF_POLICY.spend.dailyCapCny,
+      monthlyCapCny: Number.isFinite(raw?.spend?.monthlyCapCny) && raw.spend.monthlyCapCny >= 0
+        ? raw.spend.monthlyCapCny : DEFAULT_SELF_POLICY.spend.monthlyCapCny,
       requireReason: raw?.spend?.requireReason === undefined ? DEFAULT_SELF_POLICY.spend.requireReason : raw.spend.requireReason === true,
     },
     note: typeof raw?.note === 'string' ? raw.note : DEFAULT_SELF_POLICY.note,
@@ -95,6 +97,20 @@ export function spendToday(wsRoot, { now = new Date(), fsMod = fs } = {}) {
   } catch { return 0 }
 }
 
+// 本月累计（跨天看月账，日额管不住月账）
+export function spendThisMonth(wsRoot, { now = new Date(), fsMod = fs } = {}) {
+  try {
+    const month = (now instanceof Date ? now : new Date(now)).toISOString().slice(0, 7);
+    let total = 0;
+    for (const line of fsMod.readFileSync(selfSpendPath(wsRoot), 'utf8').split('\n')) {
+      if (!line.startsWith('- ' + month)) continue;
+      const m = line.match(/¥\s*([0-9]+(?:\.[0-9]+)?)/);
+      if (m) total += Number(m[1]);
+    }
+    return Math.round(total * 100) / 100;
+  } catch { return 0 }
+}
+
 // 还能不能花：额度够 + 单笔不超
 export function canSpend(policy, wsRoot, cny, opts) {
   const spend = policy?.spend;
@@ -103,6 +119,10 @@ export function canSpend(policy, wsRoot, cny, opts) {
   if (amount > spend.perActionCny) return { ok: false, reason: '单笔 ¥' + amount + ' 超过单次上限 ¥' + spend.perActionCny };
   const used = spendToday(wsRoot, opts);
   if (used + amount > spend.dailyCapCny) return { ok: false, reason: '今天已花 ¥' + used + '，再加 ¥' + amount + ' 超过每日上限 ¥' + spend.dailyCapCny };
+  if (Number.isFinite(spend.monthlyCapCny)) {
+    const monthUsed = spendThisMonth(wsRoot, opts);
+    if (monthUsed + amount > spend.monthlyCapCny) return { ok: false, reason: '本月已花 ¥' + monthUsed + '，再加 ¥' + amount + ' 超过每月上限 ¥' + spend.monthlyCapCny };
+  }
   return { ok: true, used, remaining: Math.max(0, spend.dailyCapCny - used - amount) };
 }
 

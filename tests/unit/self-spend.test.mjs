@@ -17,8 +17,9 @@ test('默认策略：花钱开着，但带单次与每日上限', (t) => {
   const root = ws(t);
   const p = loadSelfPolicy(root);
   assert.equal(p.spend.enabled, true);
-  assert.equal(p.spend.perActionCny, 3);
-  assert.equal(p.spend.dailyCapCny, 10);
+  assert.equal(p.spend.perActionCny, 8);
+  assert.equal(p.spend.dailyCapCny, 50);
+  assert.equal(p.spend.monthlyCapCny, 300);
   assert.equal(p.spend.requireReason, true);
   // 2026-10-20：主人放开花钱 → media 在默认范围内
   assert.ok(p.scopes.includes('media'));
@@ -41,9 +42,9 @@ test('canSpend：单笔超额 / 每日超额 / 关闭时都拒绝，并给出人
   const policy = loadSelfPolicy(root);
 
   assert.equal(canSpend(policy, root, 2, { now }).ok, true);
-  assert.match(canSpend(policy, root, 5, { now }).reason, /单次上限/);
+  assert.match(canSpend(policy, root, 9, { now }).reason, /单次上限/);
 
-  recordSpend(root, { cny: 9, action: 'generate_video', reason: '测试' }, { now });
+  recordSpend(root, { cny: 49, action: 'generate_video', reason: '测试' }, { now });
   assert.match(canSpend(policy, root, 2, { now }).reason, /每日上限/);
 
   const off = saveSelfPolicy(root, { spend: { enabled: false } });
