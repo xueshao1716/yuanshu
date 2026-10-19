@@ -31,6 +31,24 @@ export default function Sidebar({ onNavigated, onCollapse }: { onNavigated?: () 
   const [confirming, setConfirming] = useState<Session | null>(null)
   const [search, setSearch] = useState('')
   const [collapsed, setCollapsed] = useState<Set<string>>(loadCollapsed)
+  // 会话行收敛（2026-10-19）：394 条会话不能无限铺开，每组默认只露 6 条，其余按需展开
+  const [rowExpand, setRowExpand] = useState<Set<string>>(new Set())
+  const ROW_CAP = 6
+  const rowsFor = (key: string, items: Session[]) => {
+    if (kw || rowExpand.has(key)) return { items, hidden: 0 }
+    return { items: items.slice(0, ROW_CAP), hidden: Math.max(0, items.length - ROW_CAP) }
+  }
+  const toggleRows = (key: string) => setRowExpand(prev => {
+    const n = new Set(prev)
+    n.has(key) ? n.delete(key) : n.add(key)
+    return n
+  })
+  const moreButton = (key: string, total: number) => (
+    <button type="button" key={`${key}-more`} onClick={() => toggleRows(key)}
+      className="w-full text-left px-2 py-1.5 mb-1 text-[11px] text-pi-dim2 hover:text-pi-text transition-colors duration-fast">
+      {rowExpand.has(key) ? '收起' : `展开其余 ${total - ROW_CAP} 条`}
+    </button>
+  )
 
   // Radix Dialog 关闭不归还焦点（1.x 行为），自补
   useRestoreFocus(!!confirming)
@@ -64,8 +82,7 @@ export default function Sidebar({ onNavigated, onCollapse }: { onNavigated?: () 
     return n
   })
 
-  const renderRow = (s: Session) => {
-    const title = displayName(s)
+  const renderRow = (s: Session) => {    const title = displayName(s)
     return (
       <div key={s.id} className="session-row" data-active={s.id === currentSessionId}>
         <button type="button" className="session-select" aria-current={s.id === currentSessionId ? 'page' : undefined} title={title} onClick={() => { selectSession(s.id); onNavigated?.() }}>
@@ -150,7 +167,12 @@ export default function Sidebar({ onNavigated, onCollapse }: { onNavigated?: () 
               <span className="text-[11px] text-pi-dim font-medium">{sec.label}</span>
               <span className="ml-auto text-[11px] text-pi-dim2">{sec.count}</span>
             </button>
-            {isOpen(sec.key) && sec.items?.map(renderRow)}
+            {isOpen(sec.key) && sec.items && (() => {
+              const { items, hidden } = rowsFor(sec.key, sec.items)
+              const tail = hidden > 0 ? moreButton(sec.key, sec.items.length)
+                : (rowExpand.has(sec.key) && sec.items.length > ROW_CAP ? moreButton(sec.key, sec.items.length) : null)
+              return <>{items.map(renderRow)}{tail}</>
+            })()}
             {isOpen(sec.key) && sec.buckets?.map(b => {
               const bk = `${sec.key}:${b.key}`
               // 只有「更早」可折叠：近期分段永远展开，避免多一层点击
@@ -163,7 +185,12 @@ export default function Sidebar({ onNavigated, onCollapse }: { onNavigated?: () 
                         <span>{b.label}</span><span className="ml-auto">{b.items.length}</span>
                       </button>
                     : <div className="px-2 pt-1.5 pb-1 text-[11px] text-pi-dim2">{b.label}</div>}
-                  {(!foldable || isOpen(bk)) && b.items.map(renderRow)}
+                  {(!foldable || isOpen(bk)) && (() => {
+                    const { items, hidden } = rowsFor(bk, b.items)
+                    const tail = hidden > 0 ? moreButton(bk, b.items.length)
+                      : (rowExpand.has(bk) && b.items.length > ROW_CAP ? moreButton(bk, b.items.length) : null)
+                    return <>{items.map(renderRow)}{tail}</>
+                  })()}
                 </div>
               )
             })}
