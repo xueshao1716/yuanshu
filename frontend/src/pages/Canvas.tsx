@@ -264,6 +264,7 @@ export default function Canvas({ models: modelsProp, bare }: { models?: Model[];
   }, [])
 
   const addNode = (kind: CanvasNode['kind']) => {
+    const wasEmpty = docRef.current.nodes.length === 0
     setDoc(cur => {
       const template = kind === 'image' ? 'panorama' : 'plain'
       const size = nodeSizeFor(kind, template)
@@ -302,7 +303,33 @@ export default function Canvas({ models: modelsProp, bare }: { models?: Model[];
     setDoc(cur => ({ ...cur, view: zoomAt(center, cur.view, factor) }))
   }
 
+  // 适配视图（2026-10-19）：把画布上所有节点装进可视区。
+  // 之前"复位视图"只是回到 (0,0,100%)，节点加在右边就会跑到屏幕外——用户看不到生成按钮。
+  const fitToNodes = useCallback(() => {
+    setDoc(cur => {
+      if (!cur.nodes.length) return { ...cur, view: { x: 0, y: 0, z: 1 } }
+      const el = stageRef.current
+      const w = el?.clientWidth || 900
+      const h = el?.clientHeight || 600
+      const minX = Math.min(...cur.nodes.map(n => n.x))
+      const minY = Math.min(...cur.nodes.map(n => n.y))
+      const maxX = Math.max(...cur.nodes.map(n => n.x + n.w))
+      const maxY = Math.max(...cur.nodes.map(n => n.y + n.h))
+      const pad = 48
+      const z = Math.min(1.1, Math.max(0.35, Math.min((w - pad * 2) / Math.max(1, maxX - minX), (h - pad * 2) / Math.max(1, maxY - minY))))
+      return { ...cur, view: { x: (w - (maxX - minX) * z) / 2 - minX * z, y: (h - (maxY - minY) * z) / 2 - minY * z, z } }
+    })
+  }, [])
+
   const resetView = () => setDoc(cur => ({ ...cur, view: { x: 0, y: 0, z: 1 } }))
+
+  // 空画布第一次出现节点时自动适配视图（2026-10-19 反馈"看不到生成按钮，跑出屏幕了"）：
+  // 节点被放在视口外，用户会以为按钮不存在。这里只在该临界点触发一次，不干扰手动缩放。
+  const prevNodeCount = useRef(0)
+  useEffect(() => {
+    if (prevNodeCount.current === 0 && nodes.length > 0) window.setTimeout(() => fitToNodes(), 40)
+    prevNodeCount.current = nodes.length
+  }, [nodes.length, fitToNodes])
 
   // ── 画布巡检（2026-10-19）：拿规范核当前画布，尺寸读真实文件头 ──
   const [auditState, setAuditState] = useState<{ ok: boolean; issues: { level: string; code: string; message: string; nodeId?: string }[] } | null>(null)
@@ -358,6 +385,7 @@ export default function Canvas({ models: modelsProp, bare }: { models?: Model[];
       setSelectedId(nodes[1]?.id || head.id)
       return { nodes, edges, view: { x: 0, y: 0, z: 1 } }
     })
+    window.setTimeout(() => fitToNodes(), 40)
     say(mode === 'directions' ? '已搭好 3 个方向：点每个节点上的生成' : mode === 'video' ? '已搭好视频链：点「生成视频」' : '已搭好：点「生成图片」即可')
   }, [imageModels, videoModels, say])
 
@@ -506,7 +534,7 @@ export default function Canvas({ models: modelsProp, bare }: { models?: Model[];
         <button className="btn-tool !min-h-11 sm:!min-h-9" title="放大" onClick={() => zoomBy(1.2)}>
           <ZoomIn className="w-3.5 h-3.5" />
         </button>
-        <button className="btn-tool !min-h-11 sm:!min-h-9" title="复位视图" onClick={resetView}>
+        <button className="btn-tool !min-h-11 sm:!min-h-9" title="适配视图：把所有节点装进可视区" onClick={fitToNodes}>
           <Maximize className="w-3.5 h-3.5" />
         </button>
         <div className="ml-auto flex items-center gap-2 text-[11px] text-pi-dim2">
@@ -636,13 +664,12 @@ export default function Canvas({ models: modelsProp, bare }: { models?: Model[];
         <aside className="hidden lg:flex w-72 shrink-0 flex-col gap-3 overflow-y-auto">
           {!selected && (
             <div className="panel !p-3 text-[11px] text-pi-dim2 leading-relaxed">
-              <div className="text-xs font-semibold text-pi-text mb-1.5">怎么用</div>
+              <div className="text-xs font-semibold text-pi-text mb-1.5">怎么出图 / 出视频</div>
               <ul className="space-y-1 list-disc pl-3.5">
-                <li>提示词节点写文案，拖右侧圆点连到图片节点</li>
-                <li>配置节点选模型/尺寸/模板，同样连到图片节点</li>
-                <li>图片节点默认全景模板，注入 2:1 等距柱状硬约束</li>
-                <li>同一图片节点的提示词输入只保留最新一条</li>
-                <li>滚轮以指针为中心缩放，拖空白处平移</li>
+                <li>① 加「提示词」节点，写下要的画面</li>
+                <li>② 加「图片」或「视频」节点，把提示词拖一条线连过去</li>
+                <li>③ 选中那个节点，在<b className="text-pi-text">这里或节点右下角</b>点「生成图片 / 生成视频」</li>
+                <li>想让一张图当参考：把图片节点连到另一个图片/视频节点</li>
               </ul>
             </div>
           )}
@@ -655,6 +682,21 @@ export default function Canvas({ models: modelsProp, bare }: { models?: Model[];
                   <Trash2 className="w-3 h-3" />
                 </button>
               </div>
+
+              {/* 检查器里的生成入口（2026-10-19）：节点上的按钮被画布边缘裁掉时，这里一定点得到 */}
+              {['image', 'video'].includes(selected.kind) && (
+                <div>
+                  <button className="btn-primary w-full !text-[12px] !min-h-0 !py-2 disabled:opacity-60"
+                    disabled={selected.status === 'running' || !selReady.ok}
+                    title={selReady.ok ? (selected.kind === 'video' ? '生成视频' : '生成图片') : selReady.reason}
+                    onClick={() => void generate(selected.id)}>
+                    {selected.status === 'running'
+                      ? <><Loader2 className="w-3.5 h-3.5 animate-spin inline mr-1.5" />生成中…</>
+                      : <><Wand2 className="w-3.5 h-3.5 inline mr-1.5" />{selected.kind === 'video' ? '生成视频' : '生成图片'}</>}
+                  </button>
+                  {!selReady.ok && <p className="text-[10px] text-pi-dim2 mt-1 leading-snug">{selReady.reason}</p>}
+                </div>
+              )}
 
               <label className="block">
                 <span className="text-[10px] text-pi-dim2">标题</span>

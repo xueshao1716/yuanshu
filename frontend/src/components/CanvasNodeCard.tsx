@@ -134,22 +134,24 @@ export default function CanvasNodeCard({
 
         {node.kind === 'image' && (
           <>
-            {node.url ? (
-              isPano ? (
-                <PanoramaViewer url={node.url} mode={degraded ? 'backdrop' : 'equirect'} className="flex-1 min-h-0 rounded-pi-sm border border-pi-border-soft" />
+            {/* 媒体区 + 悬浮生成按钮（2026-10-19）：按钮不参与排版，永远贴在右下角，
+                不会被内容挤出卡片、也不会跑到屏幕外 */}
+            <div className="relative flex-1 min-h-0 flex flex-col">
+              {node.url ? (
+                isPano ? (
+                  <PanoramaViewer url={node.url} mode={degraded ? 'backdrop' : 'equirect'} className="flex-1 min-h-0 rounded-pi-sm border border-pi-border-soft" />
+                ) : (
+                  <img src={node.url} alt={node.title} className="flex-1 min-h-0 w-full object-cover rounded-pi-sm border border-pi-border-soft" draggable={false} />
+                )
               ) : (
-                <img src={node.url} alt={node.title} className="flex-1 min-h-0 w-full object-cover rounded-pi-sm border border-pi-border-soft" draggable={false} />
-              )
-            ) : (
-              <div className="flex-1 min-h-0 rounded-pi-sm border border-dashed border-pi-border-soft flex flex-col items-center justify-center gap-1 text-pi-dim2">
-                <ImageOff className="w-5 h-5" />
-                <span className="text-[10px]">还没有图</span>
-              </div>
-            )}
-            <div className="flex items-center gap-1.5">
-              <button className="btn-primary !text-[11px] !px-2 !min-h-0 !py-1 flex-1 disabled:opacity-50"
+                <div className="flex-1 min-h-0 rounded-pi-sm border border-dashed border-pi-border-soft flex flex-col items-center justify-center gap-1 text-pi-dim2">
+                  <ImageOff className="w-5 h-5" />
+                  <span className="text-[10px]">还没有图</span>
+                </div>
+              )}
+              <button className="btn-primary absolute bottom-2 right-2 z-10 !text-[11px] !px-2.5 !min-h-0 !py-1 shadow-md disabled:opacity-60"
                 disabled={busy || !ready.ok}
-                title={ready.ok ? '生成' : ready.reason}
+                title={ready.ok ? '生成图片' : ready.reason}
                 onClick={e => { e.stopPropagation(); onGenerate() }}
                 onPointerDown={e => e.stopPropagation()}>
                 {busy ? <><Loader2 className="w-3 h-3 animate-spin inline mr-1" />生成中</> : <><Wand2 className="w-3 h-3 inline mr-1" />生成图片</>}
@@ -174,17 +176,17 @@ export default function CanvasNodeCard({
                 <option key={modelKey(m)} value={modelKey(m)}>{m.name}（{m.provider}）{m.free ? ' · 免费' : ''}</option>
               ))}
             </ThemedSelect>
-            {node.url ? (
-              <video src={node.url} controls playsInline preload="metadata"
-                className="flex-1 min-h-0 w-full rounded-pi-sm border border-pi-border-soft bg-black" />
-            ) : (
-              <div className="flex-1 min-h-0 rounded-pi-sm border border-dashed border-pi-border-soft flex flex-col items-center justify-center gap-1 text-pi-dim2">
-                <ImageOff className="w-5 h-5" />
-                <span className="text-[10px]">还没有视频</span>
-              </div>
-            )}
-            <div className="flex items-center gap-1.5">
-              <button className="btn-primary !text-[11px] !px-2 !min-h-0 !py-1 flex-1 disabled:opacity-50"
+            <div className="relative flex-1 min-h-0 flex flex-col">
+              {node.url ? (
+                <video src={node.url} controls playsInline preload="metadata"
+                  className="flex-1 min-h-0 w-full rounded-pi-sm border border-pi-border-soft bg-black" />
+              ) : (
+                <div className="flex-1 min-h-0 rounded-pi-sm border border-dashed border-pi-border-soft flex flex-col items-center justify-center gap-1 text-pi-dim2">
+                  <ImageOff className="w-5 h-5" />
+                  <span className="text-[10px]">还没有视频</span>
+                </div>
+              )}
+              <button className="btn-primary absolute bottom-2 right-2 z-10 !text-[11px] !px-2.5 !min-h-0 !py-1 shadow-md disabled:opacity-60"
                 disabled={busy || !ready.ok}
                 title={ready.ok ? '生成视频' : ready.reason}
                 onClick={e => { e.stopPropagation(); onGenerate() }}
