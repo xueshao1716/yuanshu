@@ -336,6 +336,8 @@ export function createRunManager({ store, eventLog, executeChat, instanceId, onS
     },
     get(runId) { return store.get(runId) },
     resolveExecutionIdentity(source) { return identities.resolve(source) },
+    // 网页直连对话的短时身份（2026-10-19）：没有 run，但同样受时钟/工作区/截止校验
+    mintChatIdentity(opts) { return identities.mintChat(opts) },
     list() { return store.list() },
     listAsync() { return store.listAsync() },
     listActivity() { return store.listActivity() },

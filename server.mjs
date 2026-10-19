@@ -137,6 +137,7 @@ import { mediaObservations } from "./engine/media-observations.mjs";
 import { createRunStore } from "./engine/run-store.mjs";
 import { createRunEventLog } from "./engine/run-event-log.mjs";
 import { createRunManager } from "./engine/run-manager.mjs";
+import { isMotherExecutionCandidate } from "./engine/run-execution-identity.mjs";
 import { createRunEffects } from "./engine/run-effects.mjs";
 import { createRunApi } from "./engine/run-api.mjs";
 import { readGeneralTeamDeliveries } from "./engine/team-general-delivery.mjs";
@@ -1036,6 +1037,14 @@ async function handleChat(req, res, body) {
   if (isTeamRequest(body)) {
     if (!body.__runContext) return json(res, 400, { error: '天团请通过会话任务入口 /api/runs 启动' });
     return body.workflow === 'team-video' ? teamChat(req, res, body) : generalTeamChat(req, res, body);
+  }
+  // 2026-10-19 修：网页直连对话没有 run 上下文 → 培养工具拿不到「母体执行身份」，
+  // 于是"主人亲自在网页里说"也被当成"没有母体身份"。本机直连 + 母亲候选时补发短时身份。
+  if (!body.__runContext && isLoopbackReq(req) && isMotherExecutionCandidate(body)) {
+    try {
+      const identity = runManager.mintChatIdentity({ sessionId: sessionId || '', ttlMs: 30 * 60 * 1000 });
+      if (identity) body.__runContext = { executionIdentity: identity };
+    } catch { /* 签发失败就按原样走：不加身份，培养工具会如实拒绝 */ }
   }
   // 外部思考调试开关：请求级 body.think=true 或全局 CONFIG.externalThinking
   const thinkOn = body.think === true || isExternalThinking();

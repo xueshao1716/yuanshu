@@ -8,6 +8,14 @@
 
 ## [Unreleased]
 
+## [2.127.74] - 2026-10-19
+
+- 修「网页里亲自发消息，培养工具却说没有母体执行身份」：这是**仓库的问题**——`handleChat` 从来不签发执行身份，只有经过 `/api/runs` 的任务才有 `body.__runContext.executionIdentity`，所以"主人本人在网页里说"和"后台任务"被同等对待，一律拿不到身份。
+  - `run-execution-identity.mjs` 新增 `mintChat({sessionId, ttlMs})`：不绑 run 的**短时**身份（默认 30 分钟，上限 2 小时），同样受 disposed / 时钟回拨 / 工作区漂移 / 截止时间四道校验，且 `workspaceScope()` 为空时拒绝签发（不拿空 scope 兜底）。
+  - `run-manager` 暴露 `mintChatIdentity()`；`handleChat` 在「无 run 上下文 + 本机直连 + 母亲候选（无 origin/workflow、非 /team）」时补发身份。
+  - 后台任务、天团、语音、微信等带 `origin`/`workflow` 的通道**不签**，边界不变。
+- 测试：`run-execution-identity` 新增 3 条（可解析、过期/漂移/dispose、无工作区不签发），身份相关 36/36。
+
 ## [2.127.73] - 2026-10-19
 
 - 补「把结果拿出来」的按钮（之前完全没有）：

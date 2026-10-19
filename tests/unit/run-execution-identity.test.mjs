@@ -174,3 +174,33 @@ test('a rebuilt manager preserves eligibility restrictions and denies legacy run
     }
   }
 });
+
+// ── 2026-10-19：网页直连对话的短时身份（没有 run，也必须能解析） ──
+test('mintChat：本机直连对话拿到的身份可解析，且带 chat 标记', (t) => {
+  const f = fixture(t)
+  const source = f.manager.mintChatIdentity({ sessionId: 'web-session', ttlMs: 30 * 60 * 1000 })
+  assert.ok(source, '应该签发成功')
+  const resolved = f.manager.resolveExecutionIdentity(source)
+  assert.equal(resolved?.chat, true)
+  assert.equal(resolved?.motherEligible, true)
+  assert.equal(resolved?.sessionId, 'web-session')
+  assert.equal(resolved?.runId, null)
+})
+
+test('mintChat：过期 / 工作区漂移 / dispose 后都解析为 null', (t) => {
+  const f = fixture(t)
+  const a = f.manager.mintChatIdentity({ ttlMs: 60 * 1000 })
+  assert.ok(f.manager.resolveExecutionIdentity(a))
+  f.setTime(Date.now() + 61 * 1000)          // 超过 TTL
+  assert.equal(f.manager.resolveExecutionIdentity(a), null)
+
+  const b = f.manager.mintChatIdentity({ ttlMs: 60 * 60 * 1000 })
+  f.setWorkspace('/tmp/another-workspace')    // 工作区漂移
+  assert.equal(f.manager.resolveExecutionIdentity(b), null)
+})
+
+test('mintChat：没有工作区就不签发（不拿空 scope 兜底）', (t) => {
+  const f = fixture(t)
+  f.setWorkspace('')
+  assert.equal(f.manager.mintChatIdentity({}), null)
+})
