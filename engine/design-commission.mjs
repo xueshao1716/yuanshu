@@ -11,6 +11,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { atomicWriteJson } from './atomic-io.mjs';
 import { localPathFromUrl } from './canvas-audit.mjs';
+import { learnFromReport, prefsBlock } from './design-prefs.mjs';
 
 export const COMMISSIONS_FILE = path.join('记忆', '运行时', '设计委托.json');
 export const MAX_COMMISSIONS = 30;
@@ -179,14 +180,15 @@ export async function runCommission(wsRoot, id, { generate, audit, verify = veri
   const files = [];
   const errors = [];
   const prompts = [];
+  // 偏好回流：把过往的取舍带进提示词（没有偏好时是空串，不污染提示词）
+  const prefTail = prefsBlock(wsRoot);
   for (const name of names) {
     if (row.spent >= row.cap) break;
     // 文字约束：没指定文案就明确要求"不要任何文字"——否则模型爱自己编字母（实测出过 "FHSN/MO" 这种乱码）
     const textRule = row.brief.requiredText.length
       ? `画面中出现的文字必须严格是：${row.brief.requiredText.join('、')}，不要增删或改写`
       : '不出现任何文字、字母或数字（纯视觉海报），不要自己编标题';
-    const prompt = [row.subject, row.goal || row.title, `交付件：${name}`, textRule].filter(Boolean).join('；');
-    prompts.push({ name, prompt });
+    const prompt = [row.subject, row.goal || row.title, `交付件：${name}`, textRule, prefTail].filter(Boolean).join('；');    prompts.push({ name, prompt });
     try {
       const out = await generate({ prompt, size: row.size, provider: row.provider, modelId: row.modelId });
       if (!out?.url) throw new Error('生成没有返回图片');
@@ -228,6 +230,8 @@ export async function runCommission(wsRoot, id, { generate, audit, verify = veri
   row.lastReport = report;
   row.lastRunAt = report.at;
   row.updatedAt = report.at;
+  // 学一次：把这次的返工原因/通过取向沉淀成偏好，下次自动带上（"越用越会"的闭环）
+  try { learnFromReport(wsRoot, row, report, { now }); } catch { /* 学习失败不影响交付 */ }
   if (row.spent >= row.cap) row.status = 'capped';
   else if (row.everyMinutes > 0) { row.status = 'running'; row.nextRunAt = t + row.everyMinutes * 60000; }
   else row.status = 'done';

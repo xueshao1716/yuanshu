@@ -60,6 +60,7 @@ import { runCompanionNudge } from "./engine/companion-nudge.mjs";
 import { COMMISSION_TOOL_SCHEMA, commissionExtraExecutors, createCommission, dueCommissions, listCommissions, removeCommission, runCommission as runDesignCommission, setStatus as setCommissionStatus } from "./engine/design-commission.mjs";
 import { RESEARCH_TOOL_SCHEMA, listResearch, readResearch, researchExtraExecutors, runResearch } from "./engine/design-research.mjs";
 import { modelSearchRows } from "./engine/model-research.mjs";
+import { DESIGN_PREFS_TOOL_SCHEMA, designPrefsExecutors } from "./engine/design-prefs.mjs";
 
 // ── 培养越线申请（授权中心「等我确认」）──────────────────────────────
 // 链路细节在 engine/cultivation/approval-flow.mjs：申请落盘 30 分钟 + 挂卡；
@@ -794,6 +795,7 @@ const UNIFIED_TOOLS = [
   CANVAS_TOOL_SCHEMA,
   COMMISSION_TOOL_SCHEMA,
   RESEARCH_TOOL_SCHEMA,
+  DESIGN_PREFS_TOOL_SCHEMA,
   ACTIVATE_SKILL_TOOL,
   DELEGATE_TASK_TOOL,
   DELEGATE_FORK_TOOL,
@@ -867,6 +869,8 @@ const executeUnifiedTool = createUnifiedToolExecutorGuarded({
     }),
     // 后台调研：模型自带联网搜索 + 逐条验活，交带溯源链接的报告（2026-10-19）
     ...researchExtraExecutors(WS_ROOT, { modelSearch: researchModelSearch() }),
+    // 设计偏好台账：用户口述的长期取舍，下次委托生成前自动带上（2026-10-19）
+    ...designPrefsExecutors(WS_ROOT),
     // 派活 = 元枢里真正的"多路探索"：一次派几个子任务、哪个失败、花了多久。
     // 记成轨迹节点后，"该怎么探索"才有可回放的对象（当场修那条是单线的）。
     delegate_task: async (args, ctx) => {
