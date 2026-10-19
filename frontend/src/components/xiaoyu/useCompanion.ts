@@ -115,6 +115,8 @@ export function useCompanion(enabled: boolean) {
     now: clock, mountedAt: mountedAt.current, lastActivityAt,
     wasBusy: justFinished ? true : false, isBusy: busyNow,
     errorStreak: errorStreak.current,
+    // 服务端在刷新 seenAt 之前算好的"这次隔了多久"：久别回来她先开口
+    cameBackMs: Number((facts as { awayMs?: number } | null)?.awayMs) || 0,
   })
   const inputKey = `${contextEpoch}:${facts?.serverEpoch}:${facts?.revision}:${emotion.snapshot?.serverEpoch}:${emotion.snapshot?.revision}:${idlePhase}:${moments}`
   useEffect(() => {

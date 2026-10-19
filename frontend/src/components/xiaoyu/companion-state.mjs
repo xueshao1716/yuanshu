@@ -73,11 +73,15 @@ export function timeOfDay(hour) {
   return 'lateNight';
 }
 
-export function proactiveMoments({ now, mountedAt, lastActivityAt, wasBusy, isBusy, errorStreak } = {}) {
+export function proactiveMoments({ now, mountedAt, lastActivityAt, wasBusy, isBusy, errorStreak, cameBackMs } = {}) {
   const t = Number.isFinite(now) ? now : Date.now();
   const parts = [`tod:${timeOfDay(new Date(t).getHours())}`];
   // 刚打开：给她一次"见到你"的机会（只在最初 90 秒内算，不会反复）
   if (Number.isFinite(mountedAt) && t - mountedAt >= 0 && t - mountedAt < 90_000) parts.push('just-open');
+  // 久别回来（服务端算好的真实间隔）：用户回来了，她该先开口
+  if (Number.isFinite(cameBackMs) && cameBackMs >= 45 * 60 * 1000) {
+    parts.push(`back:${Math.floor(cameBackMs / 3_600_000)}`);
+  }
   // 久别回来：离开超过 5 分钟后回来，重新评估一次
   if (Number.isFinite(lastActivityAt)) {
     const idle = t - lastActivityAt;

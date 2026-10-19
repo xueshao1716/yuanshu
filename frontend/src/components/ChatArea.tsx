@@ -365,12 +365,19 @@ export default function ChatArea({ compactHeader, rightPanel, onRightPanel, onVo
   // 追加一条消息：同时写入 SWR 乘机缓存 + IndexedDB 本地持久化。
   // 写本地 IndexedDB 与服务端 JSONL 完全独立，不会产生重复写入问题，因此用户消息也可以安全地立即存本地。
   const appendMessage = (msg: ChatMessage) => {
-    // 去重（2026-09-20）：同 id 覆盖；同角色 + 同长文本（>120 字）视为同一份，跳过。
+    // 去重（2026-09-20）：同 id 覆盖；同内容视为同一份，跳过。
     // 这一层是兜底——即使 finalize 被重复触发，也不会在屏幕上出现两份。
     updateMessages(prev => {
       const i = prev.findIndex(m => m.id === msg.id)
       if (i >= 0) { const next = [...prev]; next[i] = msg; return next }
-      if (msg.text && msg.text.length > 120 && prev.some(m => m.role === msg.role && m.text === msg.text)) return prev
+      // 2026-10-19：同内容跳过的字数门槛从 120 降到 0，但限定 assistant 且限 60 秒窗口——
+      // 原条件（>120 字）让短回复（"好的""已收到"）的双写直接穿透，屏幕上就是两条。
+      // 不限定角色会把用户连发的两条相同话（或 retryFailed 重发）误吞掉，所以只治 assistant 双写。
+      if (msg.role === 'assistant' && msg.text) {
+        const msgTs = msg.ts ? new Date(msg.ts).getTime() : Date.now()
+        if (prev.some(m => m.role === 'assistant' && (m.text || '').trim() === msg.text.trim()
+          && Math.abs((m.ts ? new Date(m.ts).getTime() : Date.now()) - msgTs) < 60_000)) return prev
+      }
       return [...prev, msg]
     })
     saveToLocal(msg)
@@ -404,6 +411,7 @@ export default function ChatArea({ compactHeader, rightPanel, onRightPanel, onVo
     activeRunRef.current = null
     assistantMsgIdRef.current = null
     streamRef.current = null
+    finalizedStreamRef.current = null // 2026-10-19：runId 维度守卫跟着会话清零，别让旧 key 误挡新一轮
     teardownAssembler()
     setStream(null)
   }, [currentSessionId])
@@ -520,8 +528,14 @@ export default function ChatArea({ compactHeader, rightPanel, onRightPanel, onVo
     const finalId = assistantMsgIdRef.current
     // 2026-09-20：同一轮只收尾一次。finalize 有 6 个调用点（SSE done/error/abort/运行终态…），
     // 重复触发时第一次已把 assistantMsgIdRef 清空，第二次会生成新 id → 追加出**第二条同内容消息**（屏幕上就是"消息出现两次"）。
-    if (finalizedStreamRef.current === s) return
-    finalizedStreamRef.current = s
+    // 2026-10-19：守卫从"streamRef.current 引用比较"升级为"runId+assistantId 维度幂等"——
+    // updStream 每个事件都换 streamRef.current 引用，done 之后再来 error/恢复路径时 s 已是新对象，引用比较被穿透；
+    // 而切走再切回时 restore 以 'run-xxx' 新 id 重连同一个 run，穿透后 appendMessage 写出第二条同内容
+    // （id 不同，连 saveMessage 的 put 覆盖都救不了）。同一 run 无论从哪条路径进来都只收尾一次；
+    // assistantId 兜底 create 失败等没有 runId 的场景。
+    const finalizeKey = active?.runId || finalId || ''
+    if (finalizeKey && finalizedStreamRef.current === finalizeKey) return
+    if (finalizeKey) finalizedStreamRef.current = finalizeKey
     streamCloseRef.current?.()
     streamCloseRef.current = null
     assistantMsgIdRef.current = null

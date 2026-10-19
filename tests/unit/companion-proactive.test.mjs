@@ -52,3 +52,10 @@ test('连续报错两次以上才算时机，且封顶 5', () => {
   assert.match(proactiveMoments({ now, errorStreak: 2 }), /err:2/)
   assert.match(proactiveMoments({ now, errorStreak: 9 }), /err:5/)
 })
+
+test('久别回来（服务端算好的间隔）按小时分桶，短离开不算', () => {
+  const now = at(11)
+  assert.doesNotMatch(proactiveMoments({ now, cameBackMs: 20 * 60 * 1000 }), /back:/)
+  assert.match(proactiveMoments({ now, cameBackMs: 3 * 3600 * 1000 }), /back:3/)
+  assert.match(proactiveMoments({ now, cameBackMs: 11 * 3600 * 1000 }), /back:11/)
+})

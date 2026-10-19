@@ -6,9 +6,15 @@ export function createCompanionRoutes({ exists, facts, store, decisions, json, r
     ['GET', '/api/companion/facts', async (res, _req, url) => {
       const id = url.searchParams.get('sessionId');
       if (!valid(id)) return missing(res);
-      // 有人在前台轮询 = 用户在。久不互动推送靠这个时间判断（每分钟最多写一次盘）
-      try { store.touchSeen?.(); } catch { /* 记账失败不影响读数 */ }
-      return json(res, 200, await facts.read(id));
+      // 有人在前台轮询 = 用户在。先记账，再把"这次隔了多久"带回去（消费一次）
+      let awayMs = 0;
+      try {
+        const seen = store.touchSeen?.();
+        if (seen?.gapMs >= 45 * 60 * 1000) awayMs = seen.gapMs;
+        if (!awayMs) awayMs = store.takeGap?.() || 0;
+      } catch { /* 记账失败不影响读数 */ }
+      const payload = await facts.read(id);
+      return json(res, 200, awayMs ? { ...payload, awayMs } : payload);
     }],
     // 手动触发一次"久不互动"推送（force=1 时无视冷却，便于验证通道）
     ['POST', '/api/companion/nudge', async (res, req) => {

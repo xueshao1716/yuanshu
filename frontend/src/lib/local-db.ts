@@ -261,6 +261,31 @@ export function mergeMessages(localMsgs: LocalMessage[], serverMsgs: any[]): Loc
     ...message,
     tools: message.tools?.map(tool => ({ ...tool })),
   }))
+  // 本地双写去重（2026-10-19）：finalize 穿透那次以新 id（'run-xxx' / 'a'+ts）又落盘一条，
+  // IndexedDB 里就是同 role、trim 文本相等、ts 毫秒级差的两条 assistant 消息——不在这里合并，
+  // 刷新后永远显示两份。保留信息更全的那条（带 error / 工具多的优先），删掉另一条。
+  for (let i = merged.length - 1; i > 0; i--) {
+    const a = merged[i]
+    if (a.role !== 'assistant' || !(a.text || '').trim()) continue
+    const aTs = new Date(a.ts).getTime()
+    for (let j = i - 1; j >= 0; j--) {
+      const b = merged[j]
+      if (b.role !== 'assistant' || (b.text || '').trim() !== (a.text || '').trim()) continue
+      if (Math.abs(new Date(b.ts).getTime() - aTs) >= 120_000) continue
+      const richness = (m: any) => (m.error ? 2 : 0) + (m.tools?.length || 0) + (m.notes?.length || 0) + (m.files?.length || 0)
+      // 信息量打平时保留先落盘的那条（正式 id 'a1'），不保留 finalize 穿透写入的 'run-xxx'：
+      // 内存态和 finalize 幂等守卫都认正式 id，读出来换了 id 会再次对不上。
+      const keep = richness(a) > richness(b) ? a : b
+      const drop = keep === a ? b : a
+      const kept = merged[keep === a ? i : j]
+      const dropped = merged[keep === a ? j : i]
+      kept.error = kept.error || dropped.error
+      kept.stopReason = kept.stopReason || dropped.stopReason
+      merged.splice(merged.indexOf(dropped), 1)
+      if (dropped === a) { i--; break }
+      break
+    }
+  }
   const contentKeyOf = (role: string, text: string) => `${role}|${(text || '').trim().slice(0, 300)}`
   const byId = new Map<string, number>()
   const byContent = new Map<string, number[]>()
@@ -288,6 +313,19 @@ export function mergeMessages(localMsgs: LocalMessage[], serverMsgs: any[]): Loc
       for (const i of byContent.get(key) || []) {
         const message = merged[i]
         if (Math.abs(new Date(message.ts).getTime() - serverTs) < 120_000) return i
+      }
+      // 短消息同内容归并（2026-10-19）：双写落盘的第二条 id 与本地正式 id 不同、文本又不足 80 字，
+      // 进不了下面的前缀兜底 → 服务端副本与本地副本各留一条。assistant + trim 相等 + ts 2 分钟内即归并
+      // （助手不会 2 分钟内输出两条一模一样的短回复；user 不治，连发相同话是真实场景）。
+      const serverTextEq = server.text.trim()
+      if (server.role === 'assistant' && serverTextEq) {
+        for (let i = 0; i < merged.length; i++) {
+          const m = merged[i]
+          if (m.role !== 'assistant') continue
+          if ((m.text || '').trim() !== serverTextEq) continue
+          if (Math.abs(new Date(m.ts).getTime() - serverTs) >= 120_000) continue
+          return i
+        }
       }
       // 流式半截副本兜底（2026-09-20）：本地 IndexedDB 存的是断流时刻的 3s 快照（半截文本），
       // 服务端是全文——id 不同（前端生成 vs 引擎 id）、前 300 字指纹对不上（半截不足 300 字）、

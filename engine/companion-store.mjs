@@ -29,9 +29,23 @@ export function createCompanionStore({ root, now = Date.now }) {
     // 久不互动时靠它判断要不要把话推到应用外面（微信/通知）。
     touchSeen({ throttleMs = 60000 } = {}) {
       const data = load(), t = now();
-      if (Number.isFinite(data.seenAt) && t - data.seenAt < throttleMs) return { seenAt: data.seenAt };
-      data.seenAt = t; data.history = prune(data); atomicWriteJson(file, data);
-      return { seenAt: t };
+      const previous = Number.isFinite(data.seenAt) ? data.seenAt : 0;
+      if (previous && t - previous < throttleMs) return { seenAt: previous, gapMs: 0 };
+      // 关键：把"这次隔了多久"在覆盖 seenAt 之前算出来。
+      // 否则前端一打开就把 seenAt 刷成现在，"久别回来"永远判不出来（2026-10-19 真机踩到）。
+      const gapMs = previous ? Math.max(0, t - previous) : 0;
+      data.seenAt = t;
+      if (gapMs >= 60_000) data.lastGapMs = gapMs;
+      data.history = prune(data);
+      atomicWriteJson(file, data);
+      return { seenAt: t, gapMs };
+    },
+    /** 上次"隔了多久才回来"（前台轮询时被消费一次，避免每次轮询都当成刚回来）。 */
+    takeGap() {
+      const data = load();
+      const gapMs = Number.isFinite(data.lastGapMs) ? data.lastGapMs : 0;
+      if (gapMs) { data.lastGapMs = 0; data.history = prune(data); atomicWriteJson(file, data); }
+      return gapMs;
     },
     seen() {
       const data = load();

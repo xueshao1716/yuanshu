@@ -20,4 +20,5 @@ export function proactiveMoments(input: {
   wasBusy?: boolean;
   isBusy?: boolean;
   errorStreak?: number;
+  cameBackMs?: number;
 }): string;
