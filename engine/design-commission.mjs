@@ -10,6 +10,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { atomicWriteJson } from './atomic-io.mjs';
+import { localPathFromUrl } from './canvas-audit.mjs';
 
 export const COMMISSIONS_FILE = path.join('记忆', '运行时', '设计委托.json');
 export const MAX_COMMISSIONS = 30;
@@ -94,7 +95,38 @@ export function removeCommission(wsRoot, id) {
   return { ok: store.items.length !== before };
 }
 
-/** 到期的周期委托：状态 running、有周期、且 nextRunAt 已过、额度未用尽。 */
+/**
+ * 验活：交付件必须真的能拿到。
+ * 本地结果（/api/ws/file?path=…）查文件在不在；远端地址发一次 HEAD（拿不到方法就 GET）。
+ * 2026-10-19：外站链接会过期，报告里写"已交付"但其实打不开，等于骗人。
+ */
+export async function verifyArtifact(url, { wsRoot = '', fetchImpl = fetch, timeoutMs = 8000 } = {}) {
+  const u = String(url || '').trim();
+  if (!u) return { ok: false, reason: '空地址' };
+  const local = localPathFromUrl(wsRoot, u);
+  if (local) {
+    try {
+      const st = fs.statSync(local);
+      if (st.isFile() && st.size > 0) return { ok: true, kind: 'file', bytes: st.size };
+      return { ok: false, reason: '文件为空' };
+    } catch { return { ok: false, reason: '文件不存在' } }
+  }
+  if (!/^https?:\/\//i.test(u)) {
+    // 站内相对地址（无 path 参数）无法核对，按"未知"处理而不是判失败
+    return { ok: true, kind: 'local-url', unchecked: true };
+  }
+  try {
+    for (const method of ['HEAD', 'GET']) {
+      const res = await fetchImpl(u, { method, redirect: 'follow', signal: AbortSignal.timeout(timeoutMs) });
+      if (res.ok) return { ok: true, kind: 'remote', status: res.status };
+      if (method === 'HEAD' && [403, 405, 501].includes(res.status)) continue;
+      return { ok: false, reason: `HTTP ${res.status}` };
+    }
+    return { ok: false, reason: 'HTTP 不可用' };
+  } catch (e) {
+    return { ok: false, reason: String(e?.message || e).slice(0, 60) };
+  }
+}
 export function dueCommissions(wsRoot, { now = Date.now } = {}) {
   const t = nowMs(now);
   return listCommissions(wsRoot).filter((c) => c.status === 'running' && c.everyMinutes > 0
@@ -106,7 +138,7 @@ export function dueCommissions(wsRoot, { now = Date.now } = {}) {
  * @param deps.generate ({prompt,size,provider,modelId}) => {url}
  * @param deps.audit    (doc, {brief, wsRoot}) => {ok, issues}
  */
-export async function runCommission(wsRoot, id, { generate, audit, now = Date.now, fresh = false } = {}) {
+export async function runCommission(wsRoot, id, { generate, audit, verify = verifyArtifact, now = Date.now, fresh = false } = {}) {
   const t = nowMs(now);
   const row = readCommission(wsRoot, id);
   if (!row) return { ok: false, reason: 'not_found' };
@@ -121,14 +153,21 @@ export async function runCommission(wsRoot, id, { generate, audit, now = Date.no
   const names = row.brief.deliverables.length ? row.brief.deliverables : ['交付图'];
   const files = [];
   const errors = [];
+  let unverified = 0;
   for (const name of names) {
     if (row.spent >= row.cap) break;
     const prompt = [row.goal || row.title, `交付件：${name}`, ...row.brief.requiredText].filter(Boolean).join('；');
     try {
       const out = await generate({ prompt, size: row.size, provider: row.provider, modelId: row.modelId });
       if (!out?.url) throw new Error('生成没有返回图片');
-      files.push({ name, url: out.url });
+      // 交付前先验活：文件不在/链接打不开，不能写进"已完成"
+      const check = typeof verify === 'function' ? await verify(out.url, { wsRoot }) : { ok: true };
       row.spent += 1;
+      if (check.ok) files.push({ name, url: out.url, verified: true });
+      else {
+        files.push({ name, url: out.url, verified: false });
+        errors.push({ name, error: `产物拿不到（${check.reason || '未知'}）` });
+      }
     } catch (e) {
       errors.push({ name, error: text(e?.message || e, 160) });
     }
@@ -151,6 +190,7 @@ export async function runCommission(wsRoot, id, { generate, audit, now = Date.no
     files,
     errors,
     issues,
+    unverified: files.filter((f) => f.verified === false).length,
     note: fresh ? '单次试跑' : '周期执行',
   };
   row.lastReport = report;
@@ -197,7 +237,7 @@ export function formatCommission(row) {
   const r = row.lastReport;
   const head = `[${row.id}] ${row.title} · ${row.status} · 已用 ${row.spent}/${row.cap} 点${row.everyMinutes ? ` · 每 ${row.everyMinutes} 分钟` : ''}`;
   if (!r) return head;
-  const files = r.files?.length ? `\n交付：${r.files.map((f) => `${f.name} → ${f.url}`).join('；')}` : '';
+  const files = r.files?.length ? `\n交付：${r.files.map((f) => `${f.name} → ${f.url}${f.verified === false ? '（未验活）' : ''}`).join('；')}` : '';
   const errs = r.errors?.length ? `\n失败：${r.errors.map((e) => `${e.name}（${e.error}）`).join('；')}` : '';
   const issues = r.issues?.length ? `\n巡检：${r.issues.map((i) => `[${i.level}] ${i.message}`).join('；')}` : '\n巡检：无偏离';
   return `${head}\n最近一次（${r.at}，${r.note}）：${r.ok ? '通过' : '有问题'}${files}${errs}${issues}`;

@@ -7,7 +7,7 @@ import os from 'node:os'
 import path from 'node:path'
 import {
   createCommission, listCommissions, readCommission, runCommission, setStatus,
-  removeCommission, dueCommissions, formatCommission, commissionExtraExecutors,
+  removeCommission, dueCommissions, formatCommission, commissionExtraExecutors, verifyArtifact,
 } from '../../engine/design-commission.mjs'
 
 const ws = () => fs.mkdtempSync(path.join(os.tmpdir(), 'commission-'))
@@ -127,4 +127,34 @@ test('formatCommission 一句话说清状态与额度', () => {
   const root = ws()
   const c = createCommission(root, { title: 'x', goal: 'g', cap: 4 }, { now: NOW })
   assert.match(formatCommission(c), /x · running · 已用 0\/4 点/)
+})
+
+test('交付件验活：文件拿不到就记失败，不写进"已完成"', async () => {
+  const root = ws()
+  const c = createCommission(root, { title: 't', goal: 'g', brief: { deliverables: ['A', 'B'] }, cap: 5 }, { now: NOW })
+  let i = 0
+  const r = await runCommission(root, c.id, {
+    generate: async () => ({ url: i++ === 0 ? '/api/ws/file?path=' + encodeURIComponent('missing.png') : '/ok.png' }),
+    verify: async (url) => (String(url).includes('missing') ? { ok: false, reason: '文件不存在' } : { ok: true }),
+    now: NOW,
+  })
+  assert.equal(r.report.files.length, 2, '两件都尝试过')
+  assert.equal(r.report.files[0].verified, false)
+  assert.equal(r.report.files[1].verified, true)
+  assert.equal(r.report.unverified, 1)
+  assert.match(r.report.errors[0].error, /拿不到|文件不存在/)
+  assert.equal(r.ok, false)
+})
+
+test('验活本身：本地文件在不在、远端 HEAD 通了才算', async () => {
+  const root = ws()
+  const dir = path.join(root, '生成物')
+  fs.mkdirSync(dir, { recursive: true })
+  fs.writeFileSync(path.join(dir, 'a.png'), Buffer.from('x'))
+  assert.equal((await verifyArtifact('/api/ws/file?path=' + encodeURIComponent('生成物/a.png'), { wsRoot: root })).ok, true)
+  assert.equal((await verifyArtifact('/api/ws/file?path=' + encodeURIComponent('生成物/没有.png'), { wsRoot: root })).ok, false)
+  const okFetch = async () => ({ ok: true, status: 200 })
+  assert.equal((await verifyArtifact('https://x.com/a.png', { fetchImpl: okFetch })).ok, true)
+  const badFetch = async () => ({ ok: false, status: 404 })
+  assert.equal((await verifyArtifact('https://x.com/a.png', { fetchImpl: badFetch })).ok, false)
 })

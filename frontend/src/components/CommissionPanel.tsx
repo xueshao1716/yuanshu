@@ -5,7 +5,7 @@ import { Play, Pause, Trash2, RefreshCw, Plus, FileText, X } from 'lucide-react'
 import { getApiBase, getToken } from '../api'
 
 type Issue = { level: string; code: string; message: string }
-type Report = { at: string; ok: boolean; spent: number; cap: number; files: { name: string; url: string }[]; errors: { name: string; error: string }[]; issues: Issue[]; note: string }
+type Report = { at: string; ok: boolean; spent: number; cap: number; files: { name: string; url: string; verified?: boolean }[]; errors: { name: string; error: string }[]; issues: Issue[]; note: string; unverified?: number }
 type Commission = {
   id: string; title: string; goal: string; status: string; spent: number; cap: number
   everyMinutes: number; nextRunAt: number | null; lastReport: Report | null
@@ -139,7 +139,9 @@ export default function CommissionPanel({ onClose }: { onClose: () => void }) {
                         <p className="text-pi-warn mt-0.5">{c.lastReport.issues.slice(0, 3).map((i) => i.message).join('；')}</p>
                       )}
                       {c.lastReport.files.length > 0 && (
-                        <p className="text-pi-dim mt-0.5 truncate">{c.lastReport.files.map((f) => f.name).join(' / ')}</p>
+                        <p className="text-pi-dim mt-0.5 truncate">
+                          {c.lastReport.files.map((f) => `${f.name}${f.verified === false ? '（未验活）' : ''}`).join(' / ')}
+                        </p>
                       )}
                     </div>
                   )}
