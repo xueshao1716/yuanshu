@@ -8,6 +8,15 @@
 
 ## [Unreleased]
 
+## [2.127.51] - 2026-10-19
+
+- 新增计划任务 **`yuanshu-companion-nudge`**：每天 09:00 起、每 30 分钟、持续 14 小时跑一次久不互动探针（`launcher/nudge.cjs`），并带 **WakeToRun**（睡眠中也能被叫醒执行）+ `StartWhenAvailable`（错过就补跑）。深夜不唤醒。
+- 同时打开系统「允许使用唤醒定时器」（`powercfg SUB_SLEEP RTCWAKE`，AC/DC 均为 1），否则 WakeToRun 形同虚设。
+- 探针只调本机 `POST /api/companion/nudge`，判断逻辑仍在 `engine/companion-nudge.mjs`（45 分钟 / 3 小时冷却 / 免打扰），不重复实现。
+- 踩坑：`nudge.vbs` 里写了中文注释，wscript 按 ANSI 解析导致脚本静默失败——**VBS 必须只写 ASCII**，已改成英文注释。
+- 真机验证：任务 `Last Result: 0`；`nudge.log` = `status=200 {"ok":false,"reason":"recently_seen"}`；唤醒定时器 AC/DC 均为 `0x1`。
+- `installer/launcher/register-task.ps1` 同步注册该任务（含 powercfg），新装机器自带。
+
 ## [2.127.50] - 2026-10-19
 
 - 修「安装版开机自启没生效」：装机目录的 `launcher/service.cjs` 被改成了「只要 `D:\pi-web\server.mjs` 存在就用开发仓库」，于是这台机器的计划任务 `yuanshu-watchdog` 一直在守护**源码副本**，安装版从未被启动。现在默认固定安装目录，想临时指向源码必须显式设 `YUANSHU_DEV_APP`。
