@@ -60,6 +60,66 @@ async function fetchBing(query, count = 5, { fetchImpl = fetch } = {}) {
   return parseBingHtml(await res.text(), count);
 }
 
+/**
+ * 搜索供应商链。Bing 是零 key 兜底，但它对非本地出口经常返回无关结果
+ * （本机实测：日本出口下"极简海报 版式"返回的是汉字词典条目），
+ * 所以只要配了任一 key 就优先用 API。
+ *   BOCHA_API_KEY / TAVILY_API_KEY / SERPER_API_KEY
+ */
+export function searchProviders({ fetchImpl = fetch, env = process.env } = {}) {
+  const rows = (items) => (Array.isArray(items) ? items : [])
+    .map((it) => {
+      const url = String(it.url || it.link || '');
+      let site = '';
+      try { site = new URL(url).hostname.replace(/^www\./, '') } catch { return null }
+      return { title: String(it.title || '').slice(0, 120), url, site, snippet: String(it.snippet || it.content || it.description || '').slice(0, 240) };
+    })
+    .filter(Boolean);
+
+  const list = [];
+  if (env.BOCHA_API_KEY) {
+    list.push({ name: 'bocha', run: async (q, n) => {
+      const res = await fetchImpl('https://api.bochaai.com/v1/web-search', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${env.BOCHA_API_KEY}` },
+        body: JSON.stringify({ query: q, count: n, summary: false }),
+        signal: AbortSignal.timeout(20000),
+      });
+      if (!res.ok) throw new Error(`bocha_http_${res.status}`);
+      const j = await res.json();
+      return rows(j?.data?.webPages?.value || j?.webPages?.value || []);
+    } });
+  }
+  if (env.TAVILY_API_KEY) {
+    list.push({ name: 'tavily', run: async (q, n) => {
+      const res = await fetchImpl('https://api.tavily.com/search', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ api_key: env.TAVILY_API_KEY, query: q, max_results: n }),
+        signal: AbortSignal.timeout(20000),
+      });
+      if (!res.ok) throw new Error(`tavily_http_${res.status}`);
+      const j = await res.json();
+      return rows(j?.results || []);
+    } });
+  }
+  if (env.SERPER_API_KEY) {
+    list.push({ name: 'serper', run: async (q, n) => {
+      const res = await fetchImpl('https://google.serper.dev/search', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-API-KEY': env.SERPER_API_KEY },
+        body: JSON.stringify({ q, num: n }),
+        signal: AbortSignal.timeout(20000),
+      });
+      if (!res.ok) throw new Error(`serper_http_${res.status}`);
+      const j = await res.json();
+      return rows(j?.organic || []);
+    } });
+  }
+  list.push({ name: 'bing', run: (q, n) => fetchBing(q, n, { fetchImpl }) });
+  return list;
+}
+
 function reportMarkdown(record) {
   const s = record.sources || [];
   const bySite = new Map();
@@ -76,6 +136,14 @@ function reportMarkdown(record) {
   }
   if (!s.length) lines.push('这次没取到结果（Bing 可能限流），换个说法再试。');
   return lines.join('\n');
+}
+
+/** 相关性过滤：标题/摘要里至少要出现查询里的某个词（≥2 字），否则是"拆词"产生的噪声。 */
+export function isRelevant(row, query) {
+  const tokens = String(query || '').split(/[\s,，、]+/).map((s) => s.trim()).filter((s) => s.length >= 2);
+  if (!tokens.length) return true;
+  const hay = `${row.title || ''} ${row.snippet || ''}`.toLowerCase();
+  return tokens.some((t) => hay.includes(t.toLowerCase()));
 }
 
 /** 站点权重：设计类站点优先，百科/问答降权——Bing 原序里它们经常霸榜但参考价值低。 */
@@ -102,16 +170,30 @@ export async function runResearch(wsRoot, { topic, count = 5, now = Date.now, fe
 
   try {
     const seen = new Set();
+    const providers = searchProviders({ fetchImpl });
+    record.provider = providers[0]?.name || 'none';
     for (const q of record.queries) {
       let rows = [];
-      try { rows = await fetchBing(q, count, { fetchImpl }) } catch { rows = []; }
+      // 供应商链：优先用配了 key 的 API；都失败才落到 Bing
+      for (const p of providers) {
+        try {
+          rows = await p.run(q, count);
+          if (rows.length) { record.provider = p.name; break }
+        } catch { rows = [] }
+      }
       for (const r of rows) {
         if (seen.has(r.url) || record.sources.length >= MAX_SOURCES) continue;
+        if (!isRelevant(r, q)) continue;
         seen.add(r.url);
         record.sources.push({ ...r, query: q });
       }
     }
     record.status = record.sources.length ? 'done' : 'empty';
+    if (record.status === 'empty') {
+      record.error = record.provider === 'bing'
+        ? '搜索源没返回相关结果（Bing 对当前网络出口返回了无关内容）。可以配 BOCHA_API_KEY / TAVILY_API_KEY / SERPER_API_KEY 任一，或换网络出口再试。'
+        : `搜索源 ${record.provider} 没有返回相关结果。`;
+    }
     record.sources = rankSources(record.sources);
   } catch (e) {
     record.status = 'failed';
