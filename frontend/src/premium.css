@@ -391,6 +391,14 @@ html[data-theme="ink"] .chat-scroll-region :where([class*="tool"], [class*="Tool
 }
 :root .board-home .board-row { border-bottom-color: color-mix(in srgb, var(--pi-border) 42%, transparent); }
 
+/* ── 9. 表单密度健壮性（2026-10-19 v2.6）──────────────────────────
+   创作页实测：「生成」被挤成两行、选模型标签「填充模型」折行。
+   按钮/标签一律不折行，输入控件统一最小高度。 */
+button { white-space: nowrap; }
+.btn-tool, .btn-primary { white-space: nowrap; }
+input.input-pi, select.input-pi, textarea.input-pi { min-height: 34px; font-size: 13px; }
+select.input-pi { padding-right: 26px; }
+
 /* ── 5. 细节：滚动条、选中、发丝线 ── */
 
 * { scrollbar-width: thin; scrollbar-color: color-mix(in srgb, var(--pi-text) 14%, transparent) transparent; }
