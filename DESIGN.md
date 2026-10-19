@@ -78,6 +78,14 @@
 - 代码块：10px 圆角 + 12×14 内边距 + 12.5px 字号；行内代码加底色圆角；引用改 3px accent 竖条；表格/分割线统一到 alpha 边。
 - 气泡圆角 14px，用户消息阴影改成 accent 12% 的柔和投影。
 
+### v2.4（同日追加）
+- 深色主题取证（`shot-ink-conv.png`）：主题真源是**服务端** `POST /api/theme-prefs`，只改 localStorage 会被 `restoreThemePreferences` 覆盖。
+- 滚动区底部留 84px，避免「回到最新」浮钮压住正文；暗色下工具块不透明度 92%。
+
+### v2.5（同日追加）
+- **工作台（board）接回全局主题**：`board-home.css` 原来自带硬编码 `--board-*`（midnight blue + 薄荷绿），与 `--pi-*` 脱节。现在映射到主题 token：面板/边线/文字/强调全部跟随主题，主按钮改全局强调色实底白字，快捷入口改图标瓦片并去掉分隔线。
+- 注意：`board-home.css` 由组件 import，编译后可能排在 `premium.css` 之后 → **同权重会被它反超**，所以 board 的覆盖统一加 `:root` 前缀（0,2,0 > 0,1,0）。
+
 ## 8. 验证方式
 
 - 无头 Chrome + CDP 截图（`D:\deepseek\shot-app.mjs`，需先向 localStorage 写 `yuanshu_access_token`）。
