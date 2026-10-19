@@ -34,7 +34,7 @@ export default function WorkshopModelPicker({ value, onChange, textModels, label
     return <span className="text-[11px] text-pi-dim2">没有可用文本模型——先到模型管理添加</span>
   }
   return (
-    <label className="text-xs text-pi-dim flex flex-col sm:flex-row sm:items-center gap-1.5 w-full sm:w-auto">
+    <label className="text-xs text-pi-dim flex flex-col sm:flex-row sm:items-center gap-1.5 w-full sm:w-auto whitespace-nowrap shrink-0">
       {label}
       <ThemedSelect className="input-pi min-h-11 !py-2 text-xs w-full sm:max-w-[260px]" value={value} onChange={e => onChange(e.target.value)}>
         {value && !textModels.some(m => `${m.provider}/${m.id}` === value) && <option value={value} disabled>已选模型不可用，请重新选择</option>}

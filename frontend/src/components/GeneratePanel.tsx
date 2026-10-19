@@ -73,7 +73,7 @@ export default function GeneratePanel({ onClose, onGenerated, prompt: promptProp
             placeholder="描述想要的画面… 写一句也可以，点智能填充再出图"
             value={prompt} onChange={e => setPrompt(e.target.value)} />
           <div className="flex flex-col sm:flex-row sm:items-center gap-2">
-            <button className="btn-primary text-xs px-4 min-h-11 w-full sm:w-auto disabled:opacity-60" onClick={gen} disabled={busy || !prompt.trim() || !selectedModel}>
+            <button className="btn-primary text-xs px-4 min-h-11 w-full sm:w-auto shrink-0 whitespace-nowrap min-w-[76px] disabled:opacity-60" onClick={gen} disabled={busy || !prompt.trim() || !selectedModel}>
               {busy ? '生成中…（图像模型较慢，可能 30-120s）' : '生成'}
             </button>
             <PromptSmartFill kind="image" idea={prompt} onFilled={({ prompt: next }) => setPrompt(next)} />
