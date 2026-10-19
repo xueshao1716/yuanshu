@@ -26,6 +26,10 @@ let lastStartAt = 0; // 最近一次启动时刻（用于分级检查频率：�
 // 而 startServer 只判断 `child` 是否存在 → 永远拒绝重拉，日志刷 26 次"端口已占用或子进程仍在启动"。
 let consecutiveFails = 0;
 const STUCK_KILL_AFTER = 3; // 连续 3 次不健康（约 15 秒）就认定子进程僵死，强杀重拉
+// 2026-10-20：冷启动实测要 40–60 秒（依赖多、初始化重）。原来 15 秒就判僵死，
+// 会把正在正常启动的进程杀掉 → 无限重启风暴。给一个启动宽限期，宽限期内只观察不杀。
+const STARTUP_GRACE_MS = 120_000;
+let childStartedAt = 0;
 
 // ── 崩溃归因 → 是否回滚 ───────────────────────────────────────────────
 // 回滚会把 server.mjs 换成旧的 .bak，属于「静默降级」，误判代价极高：
@@ -126,7 +130,7 @@ const startServer = singleFlight(async function () {
     child = null;
   }
   // 子进程活着却长期不健康 → 僵死，强杀重拉（否则会像今天那样永久卡住）
-  if (child && consecutiveFails >= STUCK_KILL_AFTER) {
+  if (child && consecutiveFails >= STUCK_KILL_AFTER && childStartedAt && Date.now() - childStartedAt > STARTUP_GRACE_MS) {
     log(`⚠️ 子进程存活但连续 ${consecutiveFails} 次健康检查失败，判定僵死，强杀后重拉`);
     try { child.kill("SIGKILL"); } catch { /* 已经没了也无所谓 */ }
     child = null;
@@ -169,6 +173,7 @@ const startServer = singleFlight(async function () {
   // 2026-10-14：工作区必须沿用服务原本所在的那个（灵魂/记忆/培养数据都在里面），绝不写死盘符
   const childEnv = Object.assign({}, process.env, { YUANSHU_LAN: '1', YUANSHU_CWD: resolveWorkspace(process.env) });
   child = spawn(process.execPath, ["server.mjs"], { cwd: WEB_DIR, env: childEnv, stdio: ["ignore", "pipe", "pipe"], windowsHide: true });
+  childStartedAt = Date.now();
   child.on('error', error => { log(`启动子进程失败: ${error.message}`); child = null; });
   child.stdout.on("data", pushOut);
   child.stderr.on("data", pushOut);
