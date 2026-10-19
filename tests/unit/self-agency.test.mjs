@@ -27,7 +27,7 @@ test('默认策略：能写能跑能提交本地，但不放开对外发布与�
   assert.equal(allows(p, 'workspaceWrite'), true);
   assert.equal(allows(p, 'shell'), true);
   assert.equal(allows(p, 'localGit'), true);
-  assert.equal(allows(p, 'media'), false);
+  assert.equal(allows(p, 'media'), true);   // 2026-10-20：主人放开花钱（受 spend 额度约束）
   assert.equal(allows(p, 'external'), false);
   assert.equal(allows(p, 'unknown-scope'), false);
 });
@@ -37,7 +37,7 @@ test('selfTools：只读恒在，危险工具按 scope 放行，未知工具一�
   const names = (p) => selfTools(ALL_TOOLS, p).map(t => t.function.name).sort();
 
   const dflt = names(loadSelfPolicy(root));
-  assert.deepEqual(dflt, ['bash', 'edit', 'read', 'search_files', 'todo_write', 'web_search', 'write']);
+  assert.deepEqual(dflt, ['bash', 'edit', 'generate_image', 'generate_video', 'read', 'search_files', 'todo_write', 'web_search', 'write']);
 
   const off = names(saveSelfPolicy(root, { enabled: false }));
   assert.deepEqual(off, ['read', 'search_files', 'web_search']);
