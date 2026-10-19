@@ -61,6 +61,7 @@ import { COMMISSION_TOOL_SCHEMA, commissionExtraExecutors, createCommission, due
 import { RESEARCH_TOOL_SCHEMA, listResearch, readResearch, researchExtraExecutors, runResearch } from "./engine/design-research.mjs";
 import { modelSearchRows } from "./engine/model-research.mjs";
 import { DESIGN_PREFS_TOOL_SCHEMA, designPrefsExecutors } from "./engine/design-prefs.mjs";
+import { createDesignRoutes } from "./engine/design-api.mjs";
 
 // ── 培养越线申请（授权中心「等我确认」）──────────────────────────────
 // 链路细节在 engine/cultivation/approval-flow.mjs：申请落盘 30 分钟 + 挂卡；
@@ -3377,51 +3378,7 @@ const API_ROUTES = [
       json(res, 200, { ok: true, doc: r.doc, warnings: r.errors.slice(0, 5) });
     } catch (e) { json(res, 400, { ok: false, error: String(e?.message || e).slice(0, 160) }) }
   }],
-  // 画布巡检：可带前端当前文档一起核（避免等到防抖保存后才一致），不调模型、不改文档
-  ["POST", "/api/canvas/audit", async (res, req) => {
-    try {
-      const body = await readBody(req, 1);
-      const source = body?.doc && Array.isArray(body.doc.nodes) ? normalizeCanvasDoc(body.doc).doc : readCanvasDoc(WS_ROOT);
-      const brief = body?.brief || source.brief;
-      const r = await auditCanvas(source, { brief, wsRoot: WS_ROOT });
-      json(res, 200, { ok: r.ok, issues: r.issues, text: formatAudit(r) });
-    } catch (e) { json(res, 500, { ok: false, error: String(e?.message || e).slice(0, 160) }) }
-  }],
-  // 设计委托：列表/创建/试跑/暂停恢复/删除
-  ["GET", "/api/design-commissions", (res) => json(res, 200, { ok: true, items: listCommissions(WS_ROOT) })],
-  ["POST", "/api/design-commissions", async (res, req) => {
-    try { json(res, 200, { ok: true, commission: createCommission(WS_ROOT, await readBody(req, 1)) }) }
-    catch (e) { json(res, 400, { ok: false, error: String(e?.message || e).slice(0, 160) }) }
-  }],
-  ["POST", /^\/api\/design-commissions\/([^/]+)\/run$/, async (res, req, url, m) => {
-    try {
-      const r = await runDesignCommission(WS_ROOT, m[1], {
-        generate: generateImageSaved,
-        audit: (doc, opts) => auditCanvas(doc, { ...opts, wsRoot: WS_ROOT }),
-        fresh: true,
-      });
-      json(res, 200, r);
-    } catch (e) { json(res, 500, { ok: false, error: String(e?.message || e).slice(0, 160) }) }
-  }],
-  ["POST", /^\/api\/design-commissions\/([^/]+)\/(pause|resume)$/, (res, req, url, m) => {
-    json(res, 200, setCommissionStatus(WS_ROOT, m[1], m[2] === 'pause' ? 'paused' : 'running'));
-  }],
-  ["DELETE", /^\/api\/design-commissions\/([^/]+)$/, (res, req, url, m) => json(res, 200, removeCommission(WS_ROOT, m[1]))],
-  // 后台调研：列表/按 id 取/跑一次（十几秒，直接等结果，前端显示"调研中"）
-  ["GET", "/api/design-research", (res) => json(res, 200, { ok: true, items: listResearch(WS_ROOT, { limit: 20 }) })],
-  ["GET", /^\/api\/design-research\/([^/]+)$/, (res, req, url, m) => {
-    const row = readResearch(WS_ROOT, m[1]);
-    json(res, row ? 200 : 404, row ? { ok: true, item: row } : { ok: false, error: '没有这条调研' });
-  }],
-  ["POST", "/api/design-research", async (res, req) => {
-    try {
-      const body = await readBody(req, 0.5);
-      const topic = String(body?.topic || '').trim();
-      if (!topic) return json(res, 400, { ok: false, error: '缺少 topic' });
-      const { ok, record } = await runResearch(WS_ROOT, { topic, modelSearch: researchModelSearch() });
-      json(res, 200, { ok, item: record });
-    } catch (e) { json(res, 500, { ok: false, error: String(e?.message || e).slice(0, 160) }) }
-  }],
+  // 画布巡检 / 设计委托 / 后台调研 三组路由已抽到 engine/design-api.mjs（2026-10-19）
   // 服务端渲染、零 JS：全站 CSP 是 script-src 'self'，内联脚本根本跑不起来
   ["GET", "/music-login", async (res, req) => {
     try {
@@ -3872,8 +3829,17 @@ API_ROUTES.push(...createCompanionRoutes({ exists: id => activeSessions.has(id) 
   facts: companionFacts, store: companionStore, decisions: companionDecisions, json, readBody,
   // 久不互动把人叫回来：notifier 自带应用内事件，toWechat 时同时推微信
   nudge: { run: (opts = {}) => runCompanionNudge({ store: companionStore, notifier, force: opts?.force === true }) } }));
-const voiceOrigins = voiceAllowedOrigins({ agentDir: AGENT_DIR, configured: CONFIG.corsOrigins, port: CONFIG.port });
-const readVoiceSession = createVoiceSessionReader({ activeSessions, findSession, readEntriesFromFile, extractMessages, resolveLeafId });
+
+// 设计三组路由（巡检 / 委托 / 调研）在 engine/design-api.mjs；这里只负责注入依赖
+API_ROUTES.push(...createDesignRoutes({
+  wsRoot: WS_ROOT, json, readBody,
+  readCanvasDoc, normalizeCanvasDoc, auditCanvas, formatAudit,
+  createCommission, listCommissions, removeCommission, runCommission: runDesignCommission, setCommissionStatus,
+  listResearch, readResearch, runResearch,
+  modelSearch: researchModelSearch,
+  generateImageSaved,
+}));
+const voiceOrigins = voiceAllowedOrigins({ agentDir: AGENT_DIR, configured: CONFIG.corsOrigins, port: CONFIG.port });const readVoiceSession = createVoiceSessionReader({ activeSessions, findSession, readEntriesFromFile, extractMessages, resolveLeafId });
 const voiceModels = createVoiceModelRegistry({ readAuth: () => readJsonFile(AUTH_PATH), getModels: () => Object.entries(readJsonFile(MODELS_PATH) || {}).flatMap(([provider, cfg]) => (Array.isArray(cfg?.models) ? cfg.models : []).map(model => ({ ...model, provider }))) });
 const voiceAdmission = createVoiceAdmission({ getToken: () => CONFIG.token, readSession: readVoiceSession, resolveModel: voiceModels.resolve });
 const voiceTicket = createVoiceTicketHandler({ admission: voiceAdmission, origins: voiceOrigins });
