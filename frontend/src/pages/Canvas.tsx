@@ -331,6 +331,13 @@ export default function Canvas({ models: modelsProp, bare }: { models?: Model[];
     prevNodeCount.current = nodes.length
   }, [nodes.length, fitToNodes])
 
+  // 版本角标（2026-10-19）：用来判断"页面到底加载的是哪一版"，避免再出现"改了没生效"的来回
+  const [buildVersion, setBuildVersion] = useState('')
+  useEffect(() => {
+    void fetch(`${getApiBase()}/api/system/info`, { headers: { Authorization: `Bearer ${getToken()}` } })
+      .then(r => r.json()).then(j => setBuildVersion(String(j?.version || ''))).catch(() => {})
+  }, [])
+
   // ── 画布巡检（2026-10-19）：拿规范核当前画布，尺寸读真实文件头 ──
   const [auditState, setAuditState] = useState<{ ok: boolean; issues: { level: string; code: string; message: string; nodeId?: string }[] } | null>(null)
   const [showCommissions, setShowCommissions] = useState(false)
@@ -481,6 +488,7 @@ export default function Canvas({ models: modelsProp, bare }: { models?: Model[];
       {!bare && (
         <div className="px-3 sm:px-6 pt-4 sm:pt-6 pb-3">
           <PageHeader title="对比台" description="这里用来并排比较：同一个提示词挂多张图、或把一张图的风格接到下一张。只想要一张图，回对话说一句就行，不用来这儿。" />
+          {buildVersion && <p className="text-[10px] text-pi-dim2 mt-1">当前版本 v{buildVersion}（看到的按钮不对就按 Ctrl+Shift+R 硬刷新）</p>}
         </div>
       )}
 

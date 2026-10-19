@@ -180,9 +180,15 @@ export default function CommissionPanel({ onClose }: { onClose: () => void }) {
                         <p className="text-pi-warn mt-0.5">{c.lastReport.issues.slice(0, 3).map((i) => i.message).join('；')}</p>
                       )}
                       {c.lastReport.files.length > 0 && (
-                        <p className="text-pi-dim mt-0.5 truncate">
-                          {c.lastReport.files.map((f) => `${f.name}${f.verified === false ? '（未验活）' : ''}`).join(' / ')}
-                        </p>
+                        <div className="text-pi-dim mt-0.5">
+                          {c.lastReport.files.map((f) => (
+                            <span key={f.url} className="inline-flex items-center gap-1 mr-2">
+                              <a className="text-pi-accent hover:underline truncate max-w-[150px]" href={withFileToken(f.url)} target="_blank" rel="noreferrer">{f.name}</a>
+                              <a className="text-[10px] text-pi-dim2 hover:underline" href={withFileToken(f.url)} download>下载</a>
+                              {f.verified === false && <span className="text-pi-warn">（未验活）</span>}
+                            </span>
+                          ))}
+                        </div>
                       )}
                     </div>
                   )}

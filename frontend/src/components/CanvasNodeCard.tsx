@@ -3,6 +3,7 @@ import { Trash2, Wand2, Link2, Loader2, ImageOff } from 'lucide-react'
 import type { CanvasNode } from '../types'
 import { NODE_KINDS } from '../lib/canvas-nodes.mjs'
 import PanoramaViewer from './PanoramaViewer'
+import { withFileToken } from '../api'
 
 // ── 画布节点卡片（复刻可乐 AI 画布）──
 // 三种节点：提示词（输出 prompt）/ 配置（输出 provider+modelId+size）/ 图片（吃 prompt+config 出图）。
@@ -149,6 +150,18 @@ export default function CanvasNodeCard({
                   <span className="text-[10px]">还没有图</span>
                 </div>
               )}
+              {node.url && (
+                <div className="absolute top-2 right-2 z-10 flex items-center gap-1">
+                  <a href={withFileToken(node.url)} target="_blank" rel="noreferrer"
+                    className="btn-tool !min-h-0 !py-0.5 !px-1.5 !text-[10px] bg-pi-bg/85 backdrop-blur"
+                    onClick={(e) => e.stopPropagation()} onPointerDown={(e) => e.stopPropagation()}
+                    title="在新标签打开原图">打开</a>
+                  <a href={withFileToken(node.url)} download
+                    className="btn-tool !min-h-0 !py-0.5 !px-1.5 !text-[10px] bg-pi-bg/85 backdrop-blur"
+                    onClick={(e) => e.stopPropagation()} onPointerDown={(e) => e.stopPropagation()}
+                    title="下载到本地">下载</a>
+                </div>
+              )}
               <button className="btn-primary absolute bottom-2 right-2 z-10 !text-[11px] !px-2.5 !min-h-0 !py-1 shadow-md disabled:opacity-60"
                 disabled={busy || !ready.ok}
                 title={ready.ok ? '生成图片' : ready.reason}
@@ -184,6 +197,18 @@ export default function CanvasNodeCard({
                 <div className="flex-1 min-h-0 rounded-pi-sm border border-dashed border-pi-border-soft flex flex-col items-center justify-center gap-1 text-pi-dim2">
                   <ImageOff className="w-5 h-5" />
                   <span className="text-[10px]">还没有视频</span>
+                </div>
+              )}
+              {node.url && (
+                <div className="absolute top-2 right-2 z-10 flex items-center gap-1">
+                  <a href={withFileToken(node.url)} target="_blank" rel="noreferrer"
+                    className="btn-tool !min-h-0 !py-0.5 !px-1.5 !text-[10px] bg-pi-bg/85 backdrop-blur"
+                    onClick={(e) => e.stopPropagation()} onPointerDown={(e) => e.stopPropagation()}
+                    title="在新标签打开原图">打开</a>
+                  <a href={withFileToken(node.url)} download
+                    className="btn-tool !min-h-0 !py-0.5 !px-1.5 !text-[10px] bg-pi-bg/85 backdrop-blur"
+                    onClick={(e) => e.stopPropagation()} onPointerDown={(e) => e.stopPropagation()}
+                    title="下载到本地">下载</a>
                 </div>
               )}
               <button className="btn-primary absolute bottom-2 right-2 z-10 !text-[11px] !px-2.5 !min-h-0 !py-1 shadow-md disabled:opacity-60"
