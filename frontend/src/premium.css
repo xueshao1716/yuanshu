@@ -399,6 +399,49 @@ button { white-space: nowrap; }
 input.input-pi, select.input-pi, textarea.input-pi { min-height: 34px; font-size: 13px; }
 select.input-pi { padding-right: 26px; }
 
+/* ── 10. 创作页版式（2026-10-19 v2.7）────────────────────────────
+   三个实测问题：tab 激活态没对比、往期图片行右缘硬切、区块间距不匀。 */
+[data-slot="workshop-tabs"] {
+  padding: 5px;
+  border-radius: 12px;
+  gap: 3px;
+  background: color-mix(in srgb, var(--pi-text) 3.5%, transparent);
+  border-color: color-mix(in srgb, var(--pi-border) 55%, transparent);
+}
+[data-slot="workshop-tabs"] button {
+  border-radius: 9px;
+  font-size: 12.5px;
+  letter-spacing: 0.005em;
+  min-height: 38px;
+}
+[data-slot="workshop-tabs"] button[data-active="true"] {
+  background: var(--pi-accent);
+  color: #fff;
+  font-weight: 600;
+  box-shadow: 0 8px 20px -12px color-mix(in srgb, var(--pi-accent) 85%, transparent);
+}
+[data-slot="workshop-tabs"] button[data-active="false"] {
+  color: color-mix(in srgb, var(--pi-dim) 92%, var(--pi-text));
+}
+[data-slot="workshop-tabs"] button[data-active="false"]:hover {
+  background: color-mix(in srgb, var(--pi-text) 6%, transparent);
+  color: var(--pi-text);
+}
+
+/* 往期图：右缘用渐隐提示"还能横向滑"，缩略图加深色描边 */
+.media-history-row {
+  scroll-snap-type: x proximity;
+  padding-right: 6px;
+  -webkit-mask-image: linear-gradient(to right, #000 94%, transparent 100%);
+  mask-image: linear-gradient(to right, #000 94%, transparent 100%);
+}
+.media-history-row > button {
+  scroll-snap-align: start;
+  border-color: color-mix(in srgb, var(--pi-border) 60%, transparent);
+  transition: border-color .16s ease, transform .16s ease;
+}
+.media-history-row > button:hover { transform: translateY(-1px); }
+
 /* ── 5. 细节：滚动条、选中、发丝线 ── */
 
 * { scrollbar-width: thin; scrollbar-color: color-mix(in srgb, var(--pi-text) 14%, transparent) transparent; }

@@ -20,14 +20,14 @@ export default function MediaHistory({ kind, onPick }: {
         {/* 70% 的 dim2 在浅底上只有 2.8（真机量的），11px 小字不该再打折 */}
         <span className="text-pi-dim2">点开回看，有提示词会填回</span>
       </div>
-      <div className="flex gap-2 overflow-x-auto pb-1">
+      <div className="media-history-row flex gap-2 overflow-x-auto pb-1">
         {items.map(a => (
           <button key={a.path} type="button" onClick={() => onPick(a)}
-            className="flex-shrink-0 w-20 min-h-11 rounded-pi-md overflow-hidden border border-pi-border-soft hover:border-pi-accent/40 bg-black/30"
+            className="flex-shrink-0 w-24 min-h-11 rounded-pi-md overflow-hidden border border-pi-border-soft hover:border-pi-accent/40 bg-black/30"
             title={a.prompt || a.name}>
             {kind === 'image'
-              ? <img src={withFileToken(a.url)} alt="" className="w-20 h-20 object-cover" />
-              : <video src={withFileToken(a.url)} muted playsInline preload="metadata" className="w-20 h-20 object-cover bg-black" />}
+              ? <img src={withFileToken(a.url)} alt="" className="w-24 h-24 object-cover" />
+              : <video src={withFileToken(a.url)} muted playsInline preload="metadata" className="w-24 h-24 object-cover bg-black" />}
           </button>
         ))}
       </div>

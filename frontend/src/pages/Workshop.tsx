@@ -61,7 +61,7 @@ export default function Workshop({ initialTab }: { initialTab?: Tab } = {}) {
           <PageHeader title="创作" description={TAB_DESC['canvas']} />
           <div data-slot="workshop-tabs" className="grid grid-cols-2 w-full sm:inline-flex sm:w-auto gap-1 mt-4 mb-5 p-1 rounded-pi-lg bg-pi-bg2/60 border border-pi-border-soft">
             {TABS.map(([k, Icon, label]) => (
-              <button key={k} onClick={() => chooseTab(k)}
+              <button key={k} data-active={tab === k} onClick={() => chooseTab(k)}
                 className={`flex items-center justify-center gap-1.5 min-h-11 px-2 sm:px-3.5 text-xs rounded-pi-md transition-colors duration-fast ${
                   tab === k ? 'bg-pi-accent text-pi-on-accent font-medium' : 'text-pi-dim hover:text-pi-text'}`}>
                 <Icon className="w-3.5 h-3.5" strokeWidth={1.8} />
@@ -84,7 +84,7 @@ export default function Workshop({ initialTab }: { initialTab?: Tab } = {}) {
 
         <div data-slot="workshop-tabs" className="grid grid-cols-2 w-full sm:inline-flex sm:w-auto gap-1 mb-5 p-1 rounded-pi-lg bg-pi-bg2/60 border border-pi-border-soft">
           {TABS.map(([k, Icon, label]) => (
-            <button key={k} onClick={() => chooseTab(k)}
+            <button key={k} data-active={tab === k} onClick={() => chooseTab(k)}
               className={`flex items-center justify-center gap-1.5 min-h-11 px-2 sm:px-3.5 text-xs rounded-pi-md transition-colors duration-fast ${
                 tab === k ? 'bg-pi-accent text-pi-on-accent font-medium' : 'text-pi-dim hover:text-pi-text'}`}>
               <Icon className="w-3.5 h-3.5" strokeWidth={1.8} />
