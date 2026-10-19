@@ -74,24 +74,24 @@
   color: color-mix(in srgb, var(--pi-dim) 92%, var(--pi-text));
 }
 
-/* 命令网格：卡片化 + 悬停微抬 */
+/* 命令网格：卡片化 + 悬停微抬（原样式有 border-bottom，这里一并清掉） */
 .workstart-command-grid {
   border: 0 !important;
-  gap: 8px;
+  gap: 10px;
   background: transparent;
 }
 .workstart-command {
+  border: 0 !important;
+  border-bottom: 0 !important;
   border-radius: 12px;
-  border: 1px solid color-mix(in srgb, var(--pi-border) 70%, transparent);
-  background: color-mix(in srgb, var(--pi-bg2) 88%, transparent);
+  background: color-mix(in srgb, var(--pi-text) 3.6%, transparent);
   min-height: 56px;
-  transition: border-color .16s ease, background-color .16s ease, transform .16s ease, box-shadow .16s ease;
+  transition: background-color .16s ease, transform .16s ease, box-shadow .16s ease;
 }
 .workstart-command:hover {
-  border-color: color-mix(in srgb, var(--pi-accent) 42%, transparent);
-  background: color-mix(in srgb, var(--pi-accent) 7%, var(--pi-bg2));
+  background: color-mix(in srgb, var(--pi-accent) 11%, transparent);
   transform: translateY(-1px);
-  box-shadow: 0 10px 24px -14px rgba(0,0,0,.7);
+  box-shadow: 0 10px 24px -16px rgba(0,0,0,.75);
 }
 .workstart-command > span { font-size: 13px; letter-spacing: 0.005em; }
 .workstart-command > svg:first-child { color: color-mix(in srgb, var(--pi-text) 76%, var(--pi-accent)); }
