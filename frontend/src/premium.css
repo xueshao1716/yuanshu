@@ -347,6 +347,50 @@ html[data-theme="ink"] .chat-scroll-region :where([class*="tool"], [class*="Tool
 .board-row strong { font-size: 13.5px; }
 .board-row small { font-size: 11.5px; }
 
+/* ── 8b. board 覆盖的优先级兜底（2026-10-19）─────────────────────
+   board-home.css 由组件 import，编译后可能排在 premium.css 之后，
+   同权重选择器会被它反超。这里用 :root 前缀（0,2,0 > 0,1,0）确保生效。 */
+:root .board-home {
+  --board-bg: color-mix(in srgb, var(--pi-bg2) 94%, transparent);
+  --board-panel: color-mix(in srgb, var(--pi-text) 3.2%, transparent);
+  --board-line: color-mix(in srgb, var(--pi-border) 64%, transparent);
+  --board-text: var(--pi-text);
+  --board-muted: color-mix(in srgb, var(--pi-dim) 94%, var(--pi-text));
+  --board-mint: var(--pi-accent);
+  background:
+    radial-gradient(120% 70% at 8% -10%, color-mix(in srgb, var(--pi-accent) 9%, transparent), transparent 58%),
+    var(--board-bg);
+  border-color: color-mix(in srgb, var(--pi-border) 62%, transparent);
+}
+:root .board-home .board-primary {
+  background: var(--pi-accent);
+  border-color: color-mix(in srgb, var(--pi-accent) 82%, transparent);
+  color: #fff;
+  border-radius: 10px;
+}
+:root .board-home .board-primary:hover { background: color-mix(in srgb, var(--pi-accent) 86%, white); }
+:root .board-home .board-secondary { border-radius: 10px; }
+:root .board-home .board-shortcuts { border-left: 0; padding-left: 0; }
+:root .board-home .board-shortcuts a,
+:root .board-home .board-shortcuts button {
+  border-bottom: 0;
+  border-radius: 12px;
+  padding: 10px 12px;
+  margin-bottom: 4px;
+}
+:root .board-home .board-shortcuts a:hover,
+:root .board-home .board-shortcuts button:hover { background: color-mix(in srgb, var(--pi-text) 5%, transparent); }
+:root .board-home .board-shortcuts svg:first-child {
+  width: 34px; height: 34px; padding: 8px; border-radius: 10px;
+  background: color-mix(in srgb, var(--pi-accent) 12%, transparent);
+  color: color-mix(in srgb, var(--pi-accent) 72%, var(--pi-text));
+}
+:root .board-home .board-focus {
+  border-radius: 14px;
+  border-color: color-mix(in srgb, var(--pi-border) 58%, transparent);
+}
+:root .board-home .board-row { border-bottom-color: color-mix(in srgb, var(--pi-border) 42%, transparent); }
+
 /* ── 5. 细节：滚动条、选中、发丝线 ── */
 
 * { scrollbar-width: thin; scrollbar-color: color-mix(in srgb, var(--pi-text) 14%, transparent) transparent; }
