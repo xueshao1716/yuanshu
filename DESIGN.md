@@ -91,6 +91,12 @@
 - 修创作页两处折行：`GeneratePanel` 生成按钮补 `shrink-0 whitespace-nowrap min-w-[76px]`；`WorkshopModelPicker` 标签补 `whitespace-nowrap shrink-0`。
 - 通用健壮性：`button` 一律不折行；`input/select/textarea.input-pi` 最小高度 34px、字号 13px。
 
+### v2.7（同日追加）
+- 创作页 tab：加 `data-active`，激活态实底强调色 + 白字 + 柔和投影；未激活 hover 有底色；tab 条改统一胶囊底。
+- 往期图片行：缩略图 80→96px，右缘 `mask-image` 渐隐提示可横滑，`scroll-snap` 对齐。
+- 提示词输入区：补可见表面（2.6% 底 + 发丝边 + 10px 圆角），原来是一块无边框空白，看起来像"空洞"。
+- **经验**：组件内的同类名 CSS 会被构建顺序反超 → 用 `data-*` 属性做钩子（`[data-active="true"]`）比猜类名可靠。
+
 ## 8. 验证方式
 
 - 无头 Chrome + CDP 截图（`D:\deepseek\shot-app.mjs`，需先向 localStorage 写 `yuanshu_access_token`）。
