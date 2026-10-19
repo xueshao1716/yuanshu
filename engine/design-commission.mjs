@@ -153,19 +153,24 @@ export async function runCommission(wsRoot, id, { generate, audit, verify = veri
   const names = row.brief.deliverables.length ? row.brief.deliverables : ['交付图'];
   const files = [];
   const errors = [];
-  let unverified = 0;
+  const prompts = [];
   for (const name of names) {
     if (row.spent >= row.cap) break;
-    const prompt = [row.goal || row.title, `交付件：${name}`, ...row.brief.requiredText].filter(Boolean).join('；');
+    // 文字约束：没指定文案就明确要求"不要任何文字"——否则模型爱自己编字母（实测出过 "FHSN/MO" 这种乱码）
+    const textRule = row.brief.requiredText.length
+      ? `画面中出现的文字必须严格是：${row.brief.requiredText.join('、')}，不要增删或改写`
+      : '不出现任何文字、字母或数字（纯视觉海报），不要自己编标题';
+    const prompt = [row.goal || row.title, `交付件：${name}`, textRule].filter(Boolean).join('；');
+    prompts.push({ name, prompt });
     try {
       const out = await generate({ prompt, size: row.size, provider: row.provider, modelId: row.modelId });
       if (!out?.url) throw new Error('生成没有返回图片');
       // 交付前先验活：文件不在/链接打不开，不能写进"已完成"
       const check = typeof verify === 'function' ? await verify(out.url, { wsRoot }) : { ok: true };
       row.spent += 1;
-      if (check.ok) files.push({ name, url: out.url, verified: true });
+      if (check.ok) files.push({ name, url: out.url, verified: true, prompt });
       else {
-        files.push({ name, url: out.url, verified: false });
+        files.push({ name, url: out.url, verified: false, prompt });
         errors.push({ name, error: `产物拿不到（${check.reason || '未知'}）` });
       }
     } catch (e) {
@@ -175,7 +180,8 @@ export async function runCommission(wsRoot, id, { generate, audit, verify = veri
 
   let issues = [];
   if (typeof audit === 'function' && files.length) {
-    const nodes = files.map((f, i) => ({ id: `d${i}`, kind: 'image', title: f.name, text: '', url: f.url, provider: row.provider, modelId: row.modelId, size: row.size }));
+    // 合成文档要带上真实用过的提示词，否则巡检会误报"没有提示词"
+    const nodes = files.map((f, i) => ({ id: `d${i}`, kind: 'image', title: f.name, text: f.prompt || '', url: f.url, provider: row.provider, modelId: row.modelId, size: row.size }));
     try {
       const a = await audit({ nodes, edges: [], view: { x: 0, y: 0, z: 1 }, brief: row.brief }, { brief: row.brief, wsRoot });
       issues = a?.issues || [];
@@ -191,6 +197,7 @@ export async function runCommission(wsRoot, id, { generate, audit, verify = veri
     errors,
     issues,
     unverified: files.filter((f) => f.verified === false).length,
+    prompts: prompts.map((p) => p.name),
     note: fresh ? '单次试跑' : '周期执行',
   };
   row.lastReport = report;
