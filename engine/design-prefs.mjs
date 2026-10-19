@@ -95,8 +95,10 @@ export function prefsBlock(wsRoot, { limit = 4 } = {}) {
   const avoid = byWeight.filter((i) => i.kind === 'avoid').slice(0, limit);
   const prefer = byWeight.filter((i) => i.kind === 'prefer').slice(0, limit);
   const lines = [];
-  if (avoid.length) lines.push(`避免（过往出过问题）：${avoid.map((i) => i.text).join('；')}`);
-  if (prefer.length) lines.push(`可参考（过往通过的取向）：${prefer.map((i) => i.text).join('；')}`);
+  // 条目本身常以"避免/不要"开头，和分栏标题会撞车，这里剥一次
+  const strip = (s, re) => String(s || '').replace(re, '').trim();
+  if (avoid.length) lines.push(`避免（过往出过问题）：${avoid.map((i) => strip(i.text, /^(避免|不要|别用|禁止)/)).join('；')}`);
+  if (prefer.length) lines.push(`可参考（过往通过的取向）：${prefer.map((i) => strip(i.text, /^(可参考|优先|要用|保持)/)).join('；')}`);
   if (!lines.length) return '';
   // 记一次使用，用于之后判断哪条真的有用
   for (const i of [...avoid, ...prefer]) i.uses = (i.uses || 0) + 1;
