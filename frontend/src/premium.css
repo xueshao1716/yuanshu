@@ -275,6 +275,13 @@ input:focus-visible,
   box-shadow: 0 6px 18px -12px color-mix(in srgb, var(--pi-accent) 70%, transparent);
 }
 
+/* ── 7b. 对话滚动区底部留白（2026-10-19）─────────────────────────
+   "回到最新"浮在右下角时会压住最后 1–2 行正文；给滚动区留出安全边。 */
+.chat-scroll-region { padding-bottom: 84px; scroll-padding-bottom: 84px; }
+
+/* 暗色下工具块（read/write/todo_write 彩色药丸）降到 88% 不透明度，避免抢正文的注意力 */
+html[data-theme="ink"] .chat-scroll-region :where([class*="tool"], [class*="Tool"]) { opacity: .92; }
+
 /* ── 5. 细节：滚动条、选中、发丝线 ── */
 
 * { scrollbar-width: thin; scrollbar-color: color-mix(in srgb, var(--pi-text) 14%, transparent) transparent; }
