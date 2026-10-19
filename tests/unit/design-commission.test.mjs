@@ -77,6 +77,17 @@ test('巡检问题会进报告（error 级让整体不通过）', async () => {
   assert.equal(r.report.issues.length, 1)
 })
 
+test('空镜（empty_frame）即使只是 warn 也算不通过', async () => {
+  const root = ws()
+  const c = createCommission(root, { title: 't', subject: '测试主体', goal: 'g', brief: { deliverables: ['A'] }, cap: 5 }, { now: NOW })
+  const r = await runCommission(root, c.id, {
+    generate: fakeGen(['/a.png']), now: NOW,
+    audit: async () => ({ ok: true, issues: [{ level: 'warn', code: 'empty_frame', message: '疑似空镜' }] }),
+  })
+  assert.equal(r.ok, false, '纯色画面等于没交付')
+  assert.equal(r.commission.lastReport.ok, false)
+})
+
 test('周期委托：下一轮到期才算 due，跑完自动排下一次', async () => {
   const root = ws()
   const c = createCommission(root, { title: 't', subject: '测试主体', goal: 'g', brief: { deliverables: ['A'] }, cap: 10, everyMinutes: 60 }, { now: NOW })

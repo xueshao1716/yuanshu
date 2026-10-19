@@ -220,7 +220,8 @@ export async function runCommission(wsRoot, id, { generate, audit, verify = veri
 
   const report = {
     at: new Date(t).toISOString(),
-    ok: errors.length === 0 && !issues.some((i) => i.level === 'error'),
+    // 空镜（empty_frame）也算不通过：画面是纯色就等于没交付，今天 B 那轮正是这么漏过去的
+    ok: errors.length === 0 && !issues.some((i) => i.level === 'error' || i.code === 'empty_frame'),
     spent: row.spent,
     cap: row.cap,
     files,
