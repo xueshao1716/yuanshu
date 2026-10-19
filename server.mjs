@@ -78,7 +78,8 @@ function requestCultivationApproval(ctx, { command, reason } = {}) {
   const sessionId = String(ctx?.sessionId || globalThis.__yuanshuLastSessionKey || "");
   return approvalFlow().request({ sessionId, command, reason });
 }
-import { CANVAS_TOOL_SCHEMA, canvasExtraExecutors, readCanvasDoc, writeCanvasDoc } from "./engine/canvas.mjs";
+import { CANVAS_TOOL_SCHEMA, canvasExtraExecutors, readCanvasDoc, writeCanvasDoc, normalizeCanvasDoc } from "./engine/canvas.mjs";
+import { auditCanvas, formatAudit } from "./engine/canvas-audit.mjs";
 import { createSoilReader } from "./engine/aibody-soil.mjs";
 // ── 会话解析纯函数（拆模块）：消息/文本/图片/文件提取 ──
 import { extractMessages, extractText, extractImages, extractFiles, resolveLeafId, windowMessages } from "./engine/session-utils.mjs";
@@ -3319,6 +3320,16 @@ const API_ROUTES = [
       const r = writeCanvasDoc(WS_ROOT, await readBody(req));
       json(res, 200, { ok: true, doc: r.doc, warnings: r.errors.slice(0, 5) });
     } catch (e) { json(res, 400, { ok: false, error: String(e?.message || e).slice(0, 160) }) }
+  }],
+  // 画布巡检：可带前端当前文档一起核（避免等到防抖保存后才一致），不调模型、不改文档
+  ["POST", "/api/canvas/audit", async (res, req) => {
+    try {
+      const body = await readBody(req, 1);
+      const source = body?.doc && Array.isArray(body.doc.nodes) ? normalizeCanvasDoc(body.doc).doc : readCanvasDoc(WS_ROOT);
+      const brief = body?.brief || source.brief;
+      const r = await auditCanvas(source, { brief });
+      json(res, 200, { ok: r.ok, issues: r.issues, text: formatAudit(r) });
+    } catch (e) { json(res, 500, { ok: false, error: String(e?.message || e).slice(0, 160) }) }
   }],
   // 服务端渲染、零 JS：全站 CSP 是 script-src 'self'，内联脚本根本跑不起来
   ["GET", "/music-login", async (res, req) => {

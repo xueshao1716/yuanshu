@@ -13,6 +13,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { atomicWriteJson } from './atomic-io.mjs';
+import { auditCanvas, briefIsEmpty, formatAudit, normalizeBrief } from './canvas-audit.mjs';
 
 export const CANVAS_FILE = path.join('记忆', '运行时', '画布.json');
 export const CANVAS_KINDS = ['text', 'prompt', 'config', 'image', 'video', 'audio'];
@@ -88,7 +89,9 @@ export function normalizeCanvasDoc(raw) {
     edges.push({ id: str(e.id, 40) || `e${edges.length + 1}`, from: from.id, to: to.id, kind: from.kind });
   }
   const view = { x: num(src.view?.x), y: num(src.view?.y), z: Math.min(2.5, Math.max(0.2, num(src.view?.z, 1))) };
-  return { doc: { v: 1, revision: Math.max(0, Math.floor(num(src.revision))), updatedAt: src.updatedAt || null, nodes, edges, view }, errors };
+  // 规范随画布存档：巡检要用它核"该出现/不该出现/该几比几"
+  const brief = normalizeBrief(src.brief);
+  return { doc: { v: 1, revision: Math.max(0, Math.floor(num(src.revision))), updatedAt: src.updatedAt || null, nodes, edges, view, brief }, errors };
 }
 
 export function readCanvasDoc(wsRoot) {
@@ -113,11 +116,11 @@ export const CANVAS_TOOL_SCHEMA = {
   type: 'function',
   function: {
     name: 'canvas',
-    description: '读写无限画布。agent 可以直接为用户搭好创作链路：建提示词/配置/图片节点、把它们连起来、设置模型和提示词。用户在画布页能看到你改的结果。用户说「基于这张图做三个场景」时，就自己建节点连线。',
+    description: '读写无限画布。agent 可以直接为用户搭好创作链路：建提示词/配置/图片节点、把它们连起来、设置模型和提示词。用户在画布页能看到你改的结果。用户说「基于这张图做三个场景」时，就自己建节点连线。交付前用 action=audit 巡检：它会拿规范（brief）核画布，检查比例（读真实文件头）、必需文案、禁止词、交付件数；发现偏离如实证给用户，不要自己宣布通过。',
     parameters: {
       type: 'object',
       properties: {
-        action: { type: 'string', enum: ['read', 'add_node', 'update_node', 'connect', 'disconnect', 'remove_node', 'clear'] },
+        action: { type: 'string', enum: ['read', 'add_node', 'update_node', 'connect', 'disconnect', 'remove_node', 'clear', 'audit'] },
         nodeId: { type: 'string', description: 'update_node / remove_node / disconnect 用' },
         edgeId: { type: 'string', description: 'disconnect 用' },
         kind: { type: 'string', enum: ['text', 'prompt', 'config', 'image', 'video', 'audio'], description: 'add_node 用' },
@@ -130,6 +133,16 @@ export const CANVAS_TOOL_SCHEMA = {
         ref: { type: 'string', description: '参考素材地址（图片/视频节点的可选参考图）' },
         from: { type: 'string', description: 'connect 的起点节点 id（提示词/配置/图片）' },
         to: { type: 'string', description: 'connect 的终点图片节点 id' },
+        brief: {
+          type: 'object',
+          description: '画布规范（巡检用）：deliverables 交付件名、requiredText 必须出现的文案、forbidden 禁止出现的词、ratios 期望比例（{image:1.7778}）。用户给了要求就带上，之后会随画布存档。',
+          properties: {
+            deliverables: { type: 'array', items: { type: 'string' } },
+            requiredText: { type: 'array', items: { type: 'string' } },
+            forbidden: { type: 'array', items: { type: 'string' } },
+            ratios: { type: 'object' },
+          },
+        },
       },
       required: ['action'],
     },
@@ -170,6 +183,17 @@ export function canvasExtraExecutors(wsRoot) {
       try {
         const doc = readCanvasDoc(wsRoot);
         if (action === 'read') return { text: canvasSummary(doc), isError: false };
+
+        // 巡检：拿规范核画布（尺寸读真实文件头；不调模型、不改文档）
+        if (action === 'audit') {
+          const incoming = args.brief && !briefIsEmpty(args.brief) ? normalizeBrief(args.brief) : null;
+          const brief = incoming || doc?.brief;
+          if (incoming) writeCanvasDoc(wsRoot, { ...doc, brief: incoming });
+          // 只有巡检是异步的（要读图片文件头核尺寸）；其余动作保持同步，工具层两种都认
+          return auditCanvas(doc, { brief })
+            .then((result) => ({ text: formatAudit(result), isError: false, issues: result.issues }))
+            .catch((e) => ({ text: `巡检失败：${String(e?.message || e).slice(0, 120)}`, isError: true }));
+        }
 
         if (action === 'clear') {
           const r = writeCanvasDoc(wsRoot, { ...emptyCanvas(), revision: doc.revision });

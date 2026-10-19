@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   PenLine as PromptIcon, Sliders, Image as ImageIcon, Download, Upload, Trash2,
   ZoomIn, ZoomOut, Maximize, Crosshair, Loader2, Link2, Unlink, Wand2,
-  Type, Undo2, Redo2,
+  Type, Undo2, Redo2, ScanSearch,
 } from 'lucide-react'
 import PageHeader from '../components/PageHeader'
 import CanvasNodeCard from '../components/CanvasNodeCard'
@@ -59,6 +59,9 @@ export default function Canvas({ models: modelsProp, bare }: { models?: Model[];
   genRef.current = gen
 
   const { nodes, edges, view } = doc
+  // 巡检要用"最新"的文档（生成完成后 patch 还没落进闭包），用 ref 拿当前值
+  const docRef = useRef(doc)
+  docRef.current = doc
   const say = useCallback((t: string) => { setToast(t); window.setTimeout(() => setToast(''), 2600) }, [])
 
   // 持久化：本地立即存，服务端防抖同步（模型通过 canvas 工具改的就是这份）
@@ -299,6 +302,23 @@ export default function Canvas({ models: modelsProp, bare }: { models?: Model[];
 
   const resetView = () => setDoc(cur => ({ ...cur, view: { x: 0, y: 0, z: 1 } }))
 
+  // ── 画布巡检（2026-10-19）：拿规范核当前画布，尺寸读真实文件头 ──
+  const [auditState, setAuditState] = useState<{ ok: boolean; issues: { level: string; code: string; message: string; nodeId?: string }[] } | null>(null)
+  const runAudit = useCallback(async () => {
+    try {
+      const res = await fetch(`${getApiBase()}/api/canvas/audit`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${getToken()}` },
+        body: JSON.stringify({ doc: JSON.parse(serializeCanvas(docRef.current)) }),
+      })
+      const j = await res.json()
+      const issues = Array.isArray(j?.issues) ? j.issues : []
+      setAuditState({ ok: !!j?.ok, issues })
+      const errors = issues.filter((i: { level: string }) => i.level === 'error').length
+      say(errors ? `巡检发现 ${errors} 个问题` : issues.length ? `巡检有 ${issues.length} 条提醒` : '巡检通过')
+    } catch { say('巡检失败，稍后再试') }
+  }, [say])
+
   const clearDoc = () => {
     if (!nodes.length) return
     if (!window.confirm(`清空画布？将删除 ${nodes.length} 个节点，此操作不可撤销。`)) return
@@ -350,6 +370,7 @@ export default function Canvas({ models: modelsProp, bare }: { models?: Model[];
         if (r?.video) {
           patchNode(id, { status: 'done', url: r.video, error: '' })
           say('视频生成完成')
+          window.setTimeout(() => void runAudit(), 400)
         } else {
           patchNode(id, { status: 'error', error: r?.error || (r?.task_id ? '视频任务还没回来，稍后重试' : '接口没有返回视频') })
           say('视频生成失败：' + (r?.error || '接口没有返回视频'))
@@ -359,6 +380,8 @@ export default function Canvas({ models: modelsProp, bare }: { models?: Model[];
         if (r?.image) {
           patchNode(id, { status: 'done', url: r.image, error: '' })
           say('出图完成')
+          // 生成完顺手巡检一次：比例/规范这类问题当场就能看出来
+          window.setTimeout(() => void runAudit(), 400)
         } else {
           patchNode(id, { status: 'error', error: r?.error || '接口没有返回图片' })
           say('出图失败：' + (r?.error || '接口没有返回图片'))
@@ -416,6 +439,9 @@ export default function Canvas({ models: modelsProp, bare }: { models?: Model[];
         </button>
         <button className="btn-tool !min-h-11 sm:!min-h-9" title="清空画布" onClick={clearDoc} disabled={!nodes.length}>
           <Trash2 className="w-3.5 h-3.5" />
+        </button>
+        <button className="btn-tool !min-h-11 sm:!min-h-9" title="画布巡检：拿规范核当前画布（比例/必需文案/交付件数）" onClick={() => void runAudit()} disabled={!nodes.length}>
+          <ScanSearch className="w-3.5 h-3.5" /><span className="hidden sm:inline">巡检</span>
         </button>
         <div className="w-px h-6 bg-pi-border-soft mx-0.5" />
         <button className="btn-tool !min-h-11 sm:!min-h-9" title="缩小" onClick={() => zoomBy(1 / 1.2)}>
@@ -625,6 +651,31 @@ export default function Canvas({ models: modelsProp, bare }: { models?: Model[];
           )}
         </aside>
       </div>
+
+      {auditState && (
+        <div className="fixed right-4 bottom-16 z-50 w-[min(420px,92vw)] max-h-[46vh] overflow-y-auto rounded-pi-md bg-pi-bg2 border border-pi-border-soft shadow-lg p-3" role="status" aria-label="画布巡检结果">
+          <div className="flex items-center justify-between mb-1.5">
+            <span className={`text-[12px] font-medium ${auditState.ok ? 'text-pi-success' : 'text-pi-red'}`}>
+              {auditState.ok ? '巡检通过' : '巡检发现问题'}
+            </span>
+            <button type="button" className="btn-tool !px-2 !py-0.5 text-[11px]" onClick={() => setAuditState(null)}>关闭</button>
+          </div>
+          {auditState.issues.length === 0 ? (
+            <p className="text-[11px] text-pi-dim">没有发现偏离。</p>
+          ) : (
+            <ul className="space-y-1">
+              {auditState.issues.slice(0, 12).map((it, i) => (
+                <li key={`${it.code}-${i}`} className="text-[11px] leading-snug flex gap-1.5">
+                  <span className={it.level === 'error' ? 'text-pi-red' : it.level === 'warn' ? 'text-pi-warn' : 'text-pi-dim2'}>
+                    {it.level === 'error' ? '❌' : it.level === 'warn' ? '⚠️' : 'ℹ️'}
+                  </span>
+                  <span className="text-pi-text break-all">{it.message}</span>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+      )}
 
       {toast && (
         <div className="fixed bottom-4 left-1/2 -translate-x-1/2 z-50 px-3 py-2 rounded-pi-md bg-pi-bg2 border border-pi-border-soft text-[12px] text-pi-text shadow-lg max-w-[90vw]" role="status">
