@@ -50,7 +50,7 @@ export default function CommandPalette({ open, onClose, nav, onRightPanel, onMod
       page('board', '打开工作台', LayoutDashboard),
       page('lingxi', '打开灵感（知识 · 灵感）', Sparkles),
       page('workshop', '打开创作', Factory),
-      page('canvas', '打开无限画布', Workflow),
+      page('canvas', '打开对比台（并排比较）', Workflow),
       page('models', '打开模型', BrainCircuit),
       page('assets', '打开资产', Images),
       page('tasks', '打开任务', Clock4),

@@ -21,7 +21,7 @@ const TABS: [Tab, typeof ImagePlus | typeof Film, string][] = [
   ['novel', BookOpen, '小说工坊'],
   ['story', Clapperboard, '连续创作'],
   ['ui', Smartphone, '界面工坊'],
-  ['canvas', Workflow, '无限画布'],
+  ['canvas', Workflow, '对比台'],
 ]
 const TAB_DESC: Record<Tab, string> = {
   image: '万像写提示词，选模型出图，成品自动归档到资产库',

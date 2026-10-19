@@ -446,7 +446,7 @@ export default function Canvas({ models: modelsProp, bare }: { models?: Model[];
     <div className={`flex-1 min-h-0 flex flex-col ${bare ? '' : 'page-enter'}`}>
       {!bare && (
         <div className="px-3 sm:px-6 pt-4 sm:pt-6 pb-3">
-          <PageHeader title="无限画布" description="提示词 · 配置 · 图片三种节点连成流水线，全景图按 2:1 等距柱状投影硬约束生成" />
+          <PageHeader title="对比台" description="这里用来并排比较：同一个提示词挂多张图、或把一张图的风格接到下一张。只想要一张图，回对话说一句就行，不用来这儿。" />
         </div>
       )}
 

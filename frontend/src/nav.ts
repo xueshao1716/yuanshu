@@ -5,7 +5,7 @@ export const ROUTE_LABELS = {
   team: '天团协作',
   lingxi: '灵感',
   workshop: '创作',
-  canvas: '无限画布',
+  canvas: '对比台',
   story: '连续创作',
   models: '模型',
   assets: '资产',
