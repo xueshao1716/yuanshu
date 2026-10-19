@@ -12,6 +12,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { readImageDimensions, verifyImageDimensions } from './image-dimensions.mjs';
+import { imageStats, looksEmpty } from './image-stats.mjs';
 
 export const AUDIT_LEVELS = ['error', 'warn', 'info'];
 const MAX_TEXT = 2000;
@@ -120,14 +121,28 @@ async function dimsOf(node, wsRoot, verify) {
   return v?.width && v?.height ? { width: v.width, height: v.height } : null;
 }
 
-export async function auditCanvas(doc, { brief, wsRoot = '', verify = verifyImageDimensions } = {}) {
+export async function auditCanvas(doc, { brief, wsRoot = '', verify = verifyImageDimensions, stats = imageStats } = {}) {
   const base = auditCanvasDoc(doc, { brief });
   const issues = [...base.issues];
   const b = normalizeBrief(brief);
   // 全景模板硬要求 2:1；其余按规范，没写就不猜
   for (const n of mediaNodes(doc)) {
+    const url = String(n.url || '').trim();
+    if (!url) continue;
+    // 空镜检测（2026-10-19）：比例对了、文案也写了，画面仍可能是一片纯色。
+    // 来源：Huashu-motion 的自检清单"看关键帧有没有空镜"；今天真跑时 B 那一轮就是这样过的。
+    const localFile = localPathFromUrl(wsRoot, url);
+    if (localFile && typeof stats === 'function') {
+      try {
+        const s = await stats(localFile);
+        if (s && looksEmpty(s)) {
+          issues.push({ level: 'warn', code: 'empty_frame', nodeId: n.id,
+            message: `${label(n)} 疑似空镜：画面几乎纯色（标准差 ${s.stddev}，主色占比 ${Math.round(s.dominantShare * 100)}%）。先确认主体有没有真的生成出来。` });
+        }
+      } catch { /* 统计失败不误判 */ }
+    }
     const want = n.template === 'panorama' ? 2 : (b.ratios[n.kind] || b.ratios[n.id] || 0);
-    if (!want || !String(n.url || '').trim()) continue;
+    if (!want) continue;
     const ratio = `${want}:1`;
     try {
       const dims = await dimsOf(n, wsRoot, verify);
