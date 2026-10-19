@@ -3,6 +3,8 @@ import ReactDOM from 'react-dom/client'
 import * as Tooltip from '@radix-ui/react-tooltip'
 import 'virtual:uno.css'
 import './styles.css'
+// 质感层：必须排在 styles.css 之后，才能覆盖层级/字阶/边界（2026-10-19）
+import './premium.css'
 import App from './App'
 import { bootTheme } from './theme/apply'
 

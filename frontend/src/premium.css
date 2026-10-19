@@ -1,0 +1,146 @@
+/* ══════════════════════════════════════════════════════════
+   元枢 · 质感层（2026-10-19）
+   只在既有结构上做「层级、字阶、边界、焦点」四件事，不改信息架构。
+   原则：
+   1) 三栏用亮度分层，而不是靠三根 1px 线；
+   2) 边框降到 alpha 发丝级，让阴影和底色承担分隔；
+   3) 大标题收紧字距、小字放松字距（光学补偿）；
+   4) 焦点/悬停统一成一套语言。
+   ══════════════════════════════════════════════════════════ */
+
+/* ── 1. 表面亮度阶梯：rail（最深）→ 会话列（中）→ 内容（最亮） ── */
+.desktop-rail {
+  background:
+    linear-gradient(180deg, rgba(255,255,255,0.022), rgba(255,255,255,0) 46%),
+    var(--pi-bg);
+  box-shadow: inset -1px 0 0 color-mix(in srgb, var(--pi-border) 55%, transparent);
+}
+.col-sidebar {
+  background:
+    linear-gradient(180deg, rgba(255,255,255,0.014), rgba(255,255,255,0) 30%),
+    color-mix(in oklab, var(--pi-bg2) 92%, var(--pi-bg3));
+  box-shadow: inset -1px 0 0 color-mix(in srgb, var(--pi-border) 42%, transparent);
+  border-right: 0 !important;
+}
+
+/* 内容区：顶部一层极淡的冷光，避免整块死黑 */
+.col-canvas {
+  background:
+    radial-gradient(120% 60% at 50% -10%, color-mix(in srgb, var(--pi-accent) 7%, transparent), transparent 62%),
+    var(--pi-bg1);
+}
+
+/* ── 2. 会话行：去掉逐行分隔线，改成「呼吸的胶囊」 ── */
+.session-row {
+  border-radius: 9px;
+  margin-inline: 6px;
+  margin-block: 1px;
+  min-height: 50px;
+  transition: background-color .14s ease, box-shadow .14s ease;
+}
+.session-row:hover,
+.session-row:focus-within {
+  background: color-mix(in srgb, var(--pi-bg-hover) 86%, var(--pi-accent) 6%);
+}
+.session-row[data-active="true"] {
+  background: color-mix(in srgb, var(--pi-accent) 13%, var(--pi-bg2));
+  box-shadow: inset 2px 0 0 var(--pi-accent);
+}
+.session-row[data-active="true"] .session-select { font-weight: 600; letter-spacing: -0.005em; }
+
+/* ── 3. 欢迎区：让最大的空白承担「第一印象」 ── */
+.chat-workstart {
+  background:
+    radial-gradient(72% 46% at 50% 34%, color-mix(in srgb, var(--pi-accent) 9%, transparent), transparent 70%);
+}
+.workstart-identity { gap: 16px; margin-bottom: 26px; }
+.workstart-identity img {
+  width: 56px; height: 56px;
+  border-radius: 16px;
+  box-shadow: 0 8px 24px -8px color-mix(in srgb, var(--pi-accent) 55%, transparent);
+}
+.workstart-identity h1 {
+  font-family: var(--pi-font-display);
+  font-size: 30px;
+  line-height: 1.1;
+  font-weight: 650;
+  letter-spacing: -0.035em;
+  color: var(--pi-text);
+}
+.workstart-identity p {
+  margin-top: 6px;
+  font-size: 13px;
+  letter-spacing: 0.01em;
+  color: color-mix(in srgb, var(--pi-dim) 92%, var(--pi-text));
+}
+
+/* 命令网格：卡片化 + 悬停微抬 */
+.workstart-command-grid {
+  border: 0 !important;
+  gap: 8px;
+  background: transparent;
+}
+.workstart-command {
+  border-radius: 12px;
+  border: 1px solid color-mix(in srgb, var(--pi-border) 70%, transparent);
+  background: color-mix(in srgb, var(--pi-bg2) 88%, transparent);
+  min-height: 56px;
+  transition: border-color .16s ease, background-color .16s ease, transform .16s ease, box-shadow .16s ease;
+}
+.workstart-command:hover {
+  border-color: color-mix(in srgb, var(--pi-accent) 42%, transparent);
+  background: color-mix(in srgb, var(--pi-accent) 7%, var(--pi-bg2));
+  transform: translateY(-1px);
+  box-shadow: 0 10px 24px -14px rgba(0,0,0,.7);
+}
+.workstart-command > span { font-size: 13px; letter-spacing: 0.005em; }
+.workstart-command > svg:first-child { color: color-mix(in srgb, var(--pi-text) 76%, var(--pi-accent)); }
+.workstart-chevron { opacity: .38; transition: opacity .16s ease, transform .16s ease; }
+.workstart-command:hover .workstart-chevron { opacity: .9; transform: translateX(2px); }
+
+.workstart-head h2 {
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: color-mix(in srgb, var(--pi-dim) 88%, var(--pi-text));
+}
+
+/* ── 4. 输入区：抬起来，和内容分开 ── */
+.composer-surface,
+.send-box,
+[class*="composer"] > form {
+  border-radius: 14px;
+  border-color: color-mix(in srgb, var(--pi-border) 70%, transparent);
+  box-shadow: 0 18px 40px -28px rgba(0,0,0,.9);
+}
+textarea:focus-visible,
+input:focus-visible,
+[contenteditable="true"]:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--pi-accent) 42%, transparent);
+  border-radius: 8px;
+}
+
+/* ── 5. 细节：滚动条、选中、发丝线 ── */
+* { scrollbar-width: thin; scrollbar-color: color-mix(in srgb, var(--pi-text) 14%, transparent) transparent; }
+*::-webkit-scrollbar { width: 10px; height: 10px; }
+*::-webkit-scrollbar-thumb {
+  background: color-mix(in srgb, var(--pi-text) 12%, transparent);
+  border-radius: 999px;
+  border: 3px solid transparent;
+  background-clip: content-box;
+}
+*::-webkit-scrollbar-thumb:hover { background: color-mix(in srgb, var(--pi-text) 22%, transparent); background-clip: content-box; }
+
+:where(button, a, [role="button"]):focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--pi-accent) 55%, transparent);
+  outline-offset: 2px;
+}
+
+::selection { background: color-mix(in srgb, var(--pi-accent) 34%, transparent); color: var(--pi-text); }
+
+/* 数字统一等宽，避免跳动；标题允许更聪明的断行 */
+.tabular-nums, .num, time { font-variant-numeric: tabular-nums; }
+h1, h2, h3 { text-wrap: balance; }
+p { text-wrap: pretty; }
