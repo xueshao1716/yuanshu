@@ -184,7 +184,7 @@ test('mintChat：本机直连对话拿到的身份可解析，且带 chat 标记
   assert.equal(resolved?.chat, true)
   assert.equal(resolved?.motherEligible, true)
   assert.equal(resolved?.sessionId, 'web-session')
-  assert.equal(resolved?.runId, null)
+  assert.equal(resolved?.runId, 'chat:web-session')  // 宿主侧要求 runId 是字符串
 })
 
 test('mintChat：过期 / 工作区漂移 / dispose 后都解析为 null', (t) => {

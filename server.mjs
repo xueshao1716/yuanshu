@@ -838,6 +838,8 @@ const executeUnifiedTool = createUnifiedToolExecutorGuarded({
     cultivation: (args, ctx) => {
       // 不能展开 ctx：培养身份是**非枚举属性**，展开复制会把它丢掉，工具就变成"没有母体身份"。
       // 用 defineProperty 挂一个隐藏的 requestApproval；ctx 被冻结时退化成原型继承（属性读取仍可见）。
+      if (process.env.YUANSHU_DEBUG_IDENTITY) {
+      }
       const ask = ({ command, reason }) => requestCultivationApproval(ctx, { command, reason });
       let host = ctx;
       try {
@@ -1038,14 +1040,6 @@ async function handleChat(req, res, body) {
     if (!body.__runContext) return json(res, 400, { error: '天团请通过会话任务入口 /api/runs 启动' });
     return body.workflow === 'team-video' ? teamChat(req, res, body) : generalTeamChat(req, res, body);
   }
-  // 2026-10-19 修：网页直连对话没有 run 上下文 → 培养工具拿不到「母体执行身份」，
-  // 于是"主人亲自在网页里说"也被当成"没有母体身份"。本机直连 + 母亲候选时补发短时身份。
-  if (!body.__runContext && isLoopbackReq(req) && isMotherExecutionCandidate(body)) {
-    try {
-      const identity = runManager.mintChatIdentity({ sessionId: sessionId || '', ttlMs: 30 * 60 * 1000 });
-      if (identity) body.__runContext = { executionIdentity: identity };
-    } catch { /* 签发失败就按原样走：不加身份，培养工具会如实拒绝 */ }
-  }
   // 外部思考调试开关：请求级 body.think=true 或全局 CONFIG.externalThinking
   const thinkOn = body.think === true || isExternalThinking();
   // 记录对话开始时会话行数（基线）：交付时只提取本轮新增的文件，避免历史文件重复推
@@ -1149,6 +1143,15 @@ async function handleChat(req, res, body) {
     query: emotionInput.message || message,
     runId: body.__runContext?.runId || aibodyTurn.runId, sessionId: sessionId || findKeyByEntry(entry) }, knowledgeNote));
   if (knowledgeRequestStopped(req, res)) return res.end();
+  // 2026-10-19 修：网页直连对话没有 run 上下文 → 培养工具拿不到「母体执行身份」。
+  // 本机直连 + 母亲候选（无 origin/workflow、非 /team）时，为这一轮签发短时身份；
+  // chatRunContext 紧接着构造，会带上它，下面的 cultivationHostIdentity.bind 再把它绑到活会话。
+  if (!body.__runContext && isLoopbackReq(req) && isMotherExecutionCandidate(body)) {
+    try {
+      const identity = runManager.mintChatIdentity({ sessionId: sessionId || findKeyByEntry(entry), ttlMs: 30 * 60 * 1000 });
+      if (identity) body.__runContext = { executionIdentity: identity };
+    } catch { /* 签发失败就按原样走：不加身份，培养工具会如实拒绝 */ }
+  }
   const chatRunContext = {
     ...(body.__runContext || {}),
     emotionInput,
@@ -1204,6 +1207,7 @@ async function handleChat(req, res, body) {
     }
   }
   // 代次机制：每次请求递增，旧请求 finally 只在代次未变时释放 busy（防快速重发竞态）
+
   entry.gen = (entry.gen || 0) + 1;
   const thisGen = entry.gen;
   entry.busy = true;

@@ -53,7 +53,9 @@ export function createRunExecutionIdentity({store, executions, instanceId, works
       }
       if (record.chat) {
         record.lastAt = at;
-        return { runId: null, sessionId: record.sessionId, attempt: 0,
+        // 宿主侧 host-identity 要求 runId 是字符串；对话身份给一个稳定前缀，
+        // 便于它在绑定校验里比对（同一轮内 sessionId 不变 → runId 不变）。
+        return { runId: `chat:${record.sessionId || 'anon'}`, sessionId: record.sessionId, attempt: 0,
           workspace: record.workspace, motherEligible: true, chat: true };
       }
       const current = store.get(record.runId);
