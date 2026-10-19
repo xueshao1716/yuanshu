@@ -114,7 +114,7 @@ import { initSessionFiles, scanSessionFiles, parseSessionFile, parseSessionFileC
 import { httpJsonFetch, httpBufferFetch } from "./engine/http.mjs";
 import { createReplyTts } from './engine/reply-tts.mjs';
 // ── 统一工具集（拆模块）：schema + 执行器；安全线（deny/危险命令/受保护路径/路径越权）在 engine/tools/security.mjs ──
-import { BASE_TOOL_SCHEMAS, SHARE_PROJECT_SCHEMA, createUnifiedToolExecutorGuarded, webSearchTool, detectBashShell } from "./engine/tools/unified-tools.mjs";
+import { BASE_TOOL_SCHEMAS, TIME_TASK_SCHEMA, SHARE_PROJECT_SCHEMA, createUnifiedToolExecutorGuarded, webSearchTool, detectBashShell } from "./engine/tools/unified-tools.mjs";
 import { runDoctor } from "./engine/install-doctor.mjs";
 import { listAddons, startAddonJob, addonJobs, ensureAddonPaths } from "./engine/addons.mjs";
 ensureAddonPaths();
@@ -788,6 +788,7 @@ const UNIFIED_TOOLS = [
   ...BASE_TOOL_SCHEMAS,
   COMPUTER_TOOL_SCHEMA,
   CULTIVATION_TOOL_SCHEMA,
+  TIME_TASK_SCHEMA,
   SHARE_PROJECT_SCHEMA,
   ...MEDIA_TOOL_SCHEMAS,
   ...TODO_TOOL_SCHEMAS,

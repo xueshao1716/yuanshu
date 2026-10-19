@@ -8,6 +8,15 @@
 
 ## [Unreleased]
 
+## [2.127.75] - 2026-10-19
+
+## [2.127.75] - 2026-10-20
+
+- 修「她声称自己没有后台定时能力」的**能力可见性 bug**：	ime_task 执行器代码一直在（时间引擎真调度：30 分钟心跳、到点跑 unifiedChat、结果写 文档/时间引擎日志.md、可推送），但 **schema 从未暴露给模型**，所以她看不见自己的这项能力。
+  - 新增 TIME_TASK_SCHEMA 并加入 UNIFIED_TOOLS；描述里明确「你有这个能力，不要说没有后台能力」。
+  - 动作补全：egister / list / pause / resume / run / remove（原来只有 register/list/remove）。
+  - 校验：egister 必须有 prompt（≤4000 字），任务总量上限 50 条，超额提示先清理。
+  - 测试：	ests/unit/time-task-tool.test.mjs 3 条（schema 可见性、六动作走通、错误可纠正）。
 ## [2.127.74] - 2026-10-19
 
 - 修「网页里亲自发消息，培养工具却说没有母体执行身份」：这是**仓库的问题**——`handleChat` 从来不签发执行身份，只有经过 `/api/runs` 的任务才有 `body.__runContext.executionIdentity`，所以"主人本人在网页里说"和"后台任务"被同等对待，一律拿不到身份。

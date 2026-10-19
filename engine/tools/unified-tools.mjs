@@ -50,6 +50,31 @@ export const BASE_TOOL_SCHEMAS = [
 
 // 外网分享是元枢和 pi 两条入口共用的能力。它只负责把用户明确指定的项目复制到
 // 已由本机 Cloudflare 隧道托管的目录；模型不需要、也不允许自己碰隧道/DNS。
+// 2026-10-20：时间引擎的模型侧入口。此前执行器有代码但没有 schema，
+// 模型看不见自己的能力，于是会对主人说"我没有后台定时能力"——这是能力可见性的 bug。
+export const TIME_TASK_SCHEMA = {
+  type: "function",
+  function: {
+    name: "time_task",
+    description: "管理定时任务（时间引擎，真后台调度）：到点自动跑一轮对话，结果写入 文档/时间引擎日志.md，并可推送通知。你有这个能力，不要说“没有后台能力”。动作：list 查看、register 新建、pause/resume 暂停恢复、run 立刻跑一次、remove 删除。仅在伙伴明确要求“每天/每隔/到点”时注册；注册后把频率和内容说清楚，不要偷偷加。",
+    parameters: {
+      type: "object",
+      properties: {
+        action: { type: "string", enum: ["list", "register", "pause", "resume", "run", "remove"], description: "要做的动作" },
+        id: { type: "string", description: "任务 id（pause/resume/run/remove 必填）" },
+        type: { type: "string", enum: ["daily", "weekly", "once", "interval"], description: "频率类型：daily 每天、weekly 每周、once 一次性、interval 每隔 N 分钟" },
+        at: { type: "string", description: "daily/weekly 用 HH:mm；interval 用分钟数；once 用 YYYY-MM-DDTHH:mm" },
+        day: { type: "string", description: "weekly 时的星期几（1-7，1=周一）" },
+        date: { type: "string", description: "once 时的日期 YYYY-MM-DD" },
+        prompt: { type: "string", description: "到点要执行的事（写给未来的自己，要能独立执行）" },
+        label: { type: "string", description: "任务名（一句话，10 字内）" },
+        notify: { type: "boolean", description: "完成后是否主动通知（默认 true）" },
+      },
+      required: ["action"],
+    },
+  },
+};
+
 export const SHARE_PROJECT_SCHEMA = {
   type: "function",
   function: {
@@ -305,8 +330,27 @@ export function createUnifiedToolExecutor(deps = {}) {
           const timeEngine = getTimeEngine();
           if (!timeEngine) return { text: "时间引擎未初始化", isError: true };
           const a = String(args?.action || "");
+          // 2026-10-20：补齐 pause/resume/run——她有调度器，但之前只暴露了三个动作，
+          // 模型因此以为"自己没有后台能力"。
+          if (a === "pause" || a === "resume") {
+            const fn = a === "pause" ? timeEngine.pause : timeEngine.resume;
+            const r = typeof fn === "function" ? fn.call(timeEngine, String(args?.id || "")) : null;
+            if (!r || r.error) return { text: `未找到任务 ${args?.id}`, isError: true };
+            return { text: `✅ 任务 ${args?.id} 已${a === "pause" ? "暂停" : "恢复"}` };
+          }
+          if (a === "run") {
+            if (typeof timeEngine.runNow !== "function") return { text: "当前版本不支持立即执行", isError: true };
+            const r = await timeEngine.runNow(String(args?.id || ""));
+            if (r?.error) return { text: `执行失败：${r.error}`, isError: true };
+            return { text: `▶️ 已立刻执行任务 ${args?.id}（结果写入 文档/时间引擎日志.md）` };
+          }
           if (a === "register") {
-            const r = timeEngine.register({ notify: true, ...args }); // 智能体替用户登记的任务，做完默认主动通知
+            const prompt = String(args?.prompt || "").trim();
+            if (!prompt) return { text: "register 需要 prompt（到点要做什么）", isError: true };
+            if (prompt.length > 4000) return { text: "prompt 太长（上限 4000 字）", isError: true };
+            const existing = typeof timeEngine.list === "function" ? timeEngine.list() : [];
+            if (existing.length >= 50) return { text: "定时任务已达上限 50 条，先清理再注册", isError: true };
+            const r = timeEngine.register({ notify: true, ...args, prompt }); // 智能体替用户登记的任务，做完默认主动通知
             if (r.error) return { text: `注册失败：${r.error}`, isError: true };
             return { text: `✅ 定时任务已注册（id=${r.id}）：${args.type} ${args.at}${args.day ? " 周" + args.day : ""}${args.date ? " " + args.date : ""} → ${String(args.prompt || "").slice(0, 60)}` };
           }
@@ -319,7 +363,7 @@ export function createUnifiedToolExecutor(deps = {}) {
             const r = timeEngine.remove(String(args?.id || ""));
             return r.removed ? { text: `✅ 已删除定时任务 ${args.id}` } : { text: `未找到任务 ${args.id}`, isError: true };
           }
-          return { text: "未知 action（register/list/remove）", isError: true };
+          return { text: "未知 action（register/list/pause/resume/remove/run）", isError: true };
         } catch (e) { return { text: "time_task 异常: " + String(e?.message || e).slice(0, 100), isError: true }; }
       }
       if (name === "activate_skill") {
