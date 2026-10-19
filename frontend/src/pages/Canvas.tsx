@@ -323,6 +323,38 @@ export default function Canvas({ models: modelsProp, bare }: { models?: Model[];
     } catch { say('巡检失败，稍后再试') }
   }, [say])
 
+  // ── 一键搭链（2026-10-19）：画布对很多人是"不会用"，那就别让他拖节点 ──
+  // 空画布上给两个现成结构，点一下就有节点 + 连线，直接按生成。
+  const applyTemplate = useCallback((mode: 'poster' | 'directions') => {
+    const m = imageModels[0] as { provider?: string; id?: string } | undefined
+    const provider = m?.provider || ''
+    const modelId = m?.id || ''
+    const base = '极简海报：一颗悬空的白色陶瓷球，纯黑背景，一条极细白线延伸到画幅边缘，真实摄影质感'
+    const dirs = ['居中留白：主体居中、四周大量负空间，柔和顶部冷光', '对角切分：主体偏置，一条对角分割线制造张力', '特写质感：主体占画面大半，浅景深，突出材质']
+    setDoc(() => {
+      const head = createNode('prompt', { x: 60, y: 140, title: '提示词', text: base })
+      const nodes = [head]
+      const count = mode === 'directions' ? 3 : 1
+      for (let i = 0; i < count; i++) {
+        nodes.push(createNode('image', {
+          x: 460, y: 60 + i * 300,
+          title: mode === 'directions' ? dirs[i].split('：')[0] : '海报',
+          template: 'plain',
+          text: mode === 'directions' ? dirs[i] : '',
+          provider, modelId,
+        }))
+      }
+      let edges: typeof EMPTY.edges = []
+      for (const n of nodes.slice(1)) {
+        const r = addEdge(edges, head, n)
+        if (r.ok) edges = r.edges
+      }
+      setSelectedId(nodes[1]?.id || head.id)
+      return { nodes, edges, view: { x: 0, y: 0, z: 1 } }
+    })
+    say(mode === 'directions' ? '已搭好 3 个方向：点每个节点上的生成' : '已搭好：点节点上的生成即可')
+  }, [imageModels, say])
+
   const clearDoc = () => {
     if (!nodes.length) return
     if (!window.confirm(`清空画布？将删除 ${nodes.length} 个节点，此操作不可撤销。`)) return
@@ -487,6 +519,25 @@ export default function Canvas({ models: modelsProp, bare }: { models?: Model[];
           onPointerUp={onStagePointerUp}
           onPointerCancel={onStagePointerUp}
         >
+          {/* 空画布引导（2026-10-19）：不要求用户理解节点编辑器，直接给现成结构 */}
+          {!nodes.length && (
+            <div className="absolute inset-0 z-20 flex items-center justify-center p-4">
+              <div className="w-[min(520px,94%)] rounded-pi-md bg-pi-bg2/95 border border-pi-border-soft shadow-lg p-5">
+                <h3 className="text-[14px] font-medium text-pi-text">画布是给「要同时出多张、还要互相对比」的场景用的</h3>
+                <p className="text-[12px] text-pi-dim mt-1.5 leading-relaxed">
+                  日常只做一张图，其实不用来这儿——回对话框说一句「做一张极简海报」，我会自己把节点和连线搭好。
+                </p>
+                <div className="mt-3 flex flex-wrap gap-2">
+                  <button type="button" className="btn-tool !min-h-9" onClick={() => applyTemplate('poster')}>一键搭：单张海报</button>
+                  <button type="button" className="btn-tool !min-h-9" onClick={() => applyTemplate('directions')}>一键搭：三方向对比</button>
+                  <button type="button" className="btn-tool !min-h-9" onClick={() => { window.location.hash = '#/chat' }}>回对话让她搭</button>
+                </div>
+                <p className="text-[11px] text-pi-dim2 mt-3">
+                  搭好之后：点节点上的「生成」出图；想让一张图当参考，就把图片节点连到另一个图片节点上。
+                </p>
+              </div>
+            </div>
+          )}
           <div className="absolute inset-0 origin-top-left" style={{ transform: `translate(${view.x}px, ${view.y}px) scale(${view.z})` }}>
             {/* 连线层 */}
             <svg className="absolute left-0 top-0 overflow-visible pointer-events-none" style={{ width: 1, height: 1 }}>
