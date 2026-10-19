@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   PenLine as PromptIcon, Sliders, Image as ImageIcon, Download, Upload, Trash2,
   ZoomIn, ZoomOut, Maximize, Crosshair, Loader2, Link2, Unlink, Wand2,
-  Type, Undo2, Redo2, ScanSearch, ClipboardList, Telescope,
+  Type, Undo2, Redo2, ScanSearch, ClipboardList, Telescope, Video, Music,
 } from 'lucide-react'
 import PageHeader from '../components/PageHeader'
 import CanvasNodeCard from '../components/CanvasNodeCard'
@@ -325,23 +325,29 @@ export default function Canvas({ models: modelsProp, bare }: { models?: Model[];
 
   // ── 一键搭链（2026-10-19）：画布对很多人是"不会用"，那就别让他拖节点 ──
   // 空画布上给两个现成结构，点一下就有节点 + 连线，直接按生成。
-  const applyTemplate = useCallback((mode: 'poster' | 'directions') => {
+  const applyTemplate = useCallback((mode: 'poster' | 'directions' | 'video') => {
     const m = imageModels[0] as { provider?: string; id?: string } | undefined
     const provider = m?.provider || ''
     const modelId = m?.id || ''
+    const vm = videoModels[0] as { provider?: string; id?: string } | undefined
     const base = '极简海报：一颗悬空的白色陶瓷球，纯黑背景，一条极细白线延伸到画幅边缘，真实摄影质感'
     const dirs = ['居中留白：主体居中、四周大量负空间，柔和顶部冷光', '对角切分：主体偏置，一条对角分割线制造张力', '特写质感：主体占画面大半，浅景深，突出材质']
     setDoc(() => {
-      const head = createNode('prompt', { x: 60, y: 140, title: '提示词', text: base })
+      const head = createNode('prompt', {
+        x: 60, y: 140,
+        title: mode === 'video' ? '视频提示词' : '提示词',
+        text: mode === 'video' ? '白色陶瓷球在黑色空间中缓慢自转，细线轻微摆动，镜头缓慢推近，真实摄影质感' : base,
+      })
       const nodes = [head]
       const count = mode === 'directions' ? 3 : 1
       for (let i = 0; i < count; i++) {
-        nodes.push(createNode('image', {
+        nodes.push(createNode(mode === 'video' ? 'video' : 'image', {
           x: 460, y: 60 + i * 300,
-          title: mode === 'directions' ? dirs[i].split('：')[0] : '海报',
+          title: mode === 'directions' ? dirs[i].split('：')[0] : mode === 'video' ? '产品短片' : '海报',
           template: 'plain',
           text: mode === 'directions' ? dirs[i] : '',
-          provider, modelId,
+          provider: mode === 'video' ? (vm?.provider || '') : provider,
+          modelId: mode === 'video' ? (vm?.id || '') : modelId,
         }))
       }
       let edges: typeof EMPTY.edges = []
@@ -352,8 +358,8 @@ export default function Canvas({ models: modelsProp, bare }: { models?: Model[];
       setSelectedId(nodes[1]?.id || head.id)
       return { nodes, edges, view: { x: 0, y: 0, z: 1 } }
     })
-    say(mode === 'directions' ? '已搭好 3 个方向：点每个节点上的生成' : '已搭好：点节点上的生成即可')
-  }, [imageModels, say])
+    say(mode === 'directions' ? '已搭好 3 个方向：点每个节点上的生成' : mode === 'video' ? '已搭好视频链：点「生成视频」' : '已搭好：点「生成图片」即可')
+  }, [imageModels, videoModels, say])
 
   const clearDoc = () => {
     if (!nodes.length) return
@@ -465,6 +471,13 @@ export default function Canvas({ models: modelsProp, bare }: { models?: Model[];
           <button className="btn-tool !min-h-11 sm:!min-h-9" title="添加图片节点" onClick={() => addNode('image')}>
             <ImageIcon className="w-3.5 h-3.5" /><span className="hidden sm:inline">图片</span>
           </button>
+          {/* 2026-10-19：视频/音频节点引擎早就支持，但工具栏一直没有入口——用户当然"不知道怎么出视频" */}
+          <button className="btn-tool !min-h-11 sm:!min-h-9" title="添加视频节点（提示词 → 视频 → 生成视频）" onClick={() => addNode('video')}>
+            <Video className="w-3.5 h-3.5" /><span className="hidden sm:inline">视频</span>
+          </button>
+          <button className="btn-tool !min-h-11 sm:!min-h-9" title="添加音频节点（放素材与链接）" onClick={() => addNode('audio')}>
+            <Music className="w-3.5 h-3.5" /><span className="hidden sm:inline">音频</span>
+          </button>
         </div>
         <div className="w-px h-6 bg-pi-border-soft mx-0.5" />
         <button className="btn-tool !min-h-11 sm:!min-h-9" title="导入 JSON" onClick={() => fileRef.current?.click()}>
@@ -530,10 +543,11 @@ export default function Canvas({ models: modelsProp, bare }: { models?: Model[];
                 <div className="mt-3 flex flex-wrap gap-2">
                   <button type="button" className="btn-tool !min-h-9" onClick={() => applyTemplate('poster')}>一键搭：单张海报</button>
                   <button type="button" className="btn-tool !min-h-9" onClick={() => applyTemplate('directions')}>一键搭：三方向对比</button>
+                  <button type="button" className="btn-tool !min-h-9" onClick={() => applyTemplate('video')}>一键搭：视频</button>
                   <button type="button" className="btn-tool !min-h-9" onClick={() => { window.location.hash = '#/chat' }}>回对话让她搭</button>
                 </div>
                 <p className="text-[11px] text-pi-dim2 mt-3">
-                  搭好之后：点节点上的「生成」出图；想让一张图当参考，就把图片节点连到另一个图片节点上。
+                  搭好之后：点节点上的「生成图片」出图；要出视频就加一个「视频」节点，连上提示词后点「生成视频」。
                 </p>
               </div>
             </div>

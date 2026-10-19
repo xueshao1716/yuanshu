@@ -152,7 +152,7 @@ export default function CanvasNodeCard({
                 title={ready.ok ? '生成' : ready.reason}
                 onClick={e => { e.stopPropagation(); onGenerate() }}
                 onPointerDown={e => e.stopPropagation()}>
-                {busy ? <><Loader2 className="w-3 h-3 animate-spin inline mr-1" />生成中</> : <><Wand2 className="w-3 h-3 inline mr-1" />生成</>}
+                {busy ? <><Loader2 className="w-3 h-3 animate-spin inline mr-1" />生成中</> : <><Wand2 className="w-3 h-3 inline mr-1" />生成图片</>}
               </button>
             </div>
             {!ready.ok && node.status !== 'running' && <div className="text-[10px] text-pi-dim2 leading-snug">{ready.reason}</div>}
