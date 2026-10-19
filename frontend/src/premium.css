@@ -282,6 +282,71 @@ input:focus-visible,
 /* 暗色下工具块（read/write/todo_write 彩色药丸）降到 88% 不透明度，避免抢正文的注意力 */
 html[data-theme="ink"] .chat-scroll-region :where([class*="tool"], [class*="Tool"]) { opacity: .92; }
 
+/* ── 8. 工作台（board）接回全局主题（2026-10-19 v2.5）───────────────
+   board-home.css 自带一套 midnight blue + 薄荷绿（--board-*），与全局 --pi-* 脱节，
+   所以它在应用里像"另一个产品"。这里把 --board-* 映射到主题 token，保留原布局。 */
+.board-home {
+  --board-bg: color-mix(in srgb, var(--pi-bg2) 94%, transparent);
+  --board-panel: color-mix(in srgb, var(--pi-text) 3.2%, transparent);
+  --board-line: color-mix(in srgb, var(--pi-border) 64%, transparent);
+  --board-text: var(--pi-text);
+  --board-muted: color-mix(in srgb, var(--pi-dim) 94%, var(--pi-text));
+  --board-mint: var(--pi-accent);
+  background:
+    radial-gradient(120% 70% at 8% -10%, color-mix(in srgb, var(--pi-accent) 9%, transparent), transparent 58%),
+    var(--board-bg);
+  border-color: color-mix(in srgb, var(--pi-border) 62%, transparent);
+  box-shadow: 0 24px 60px -40px rgba(0,0,0,.55);
+}
+
+.board-welcome h2 { letter-spacing: -0.038em; font-weight: 600; }
+.board-intro { font-size: 14px; line-height: 1.7; }
+.board-label { font-size: 11px; text-transform: uppercase; letter-spacing: 0.13em; }
+.board-resume h3 { font-size: 19px; letter-spacing: -0.02em; font-weight: 600; }
+
+/* 主行动：用全局强调色实底，白字保证对比 */
+.board-primary {
+  background: var(--pi-accent);
+  border-color: color-mix(in srgb, var(--pi-accent) 80%, transparent);
+  color: #fff;
+  border-radius: 10px;
+  box-shadow: 0 12px 28px -18px color-mix(in srgb, var(--pi-accent) 90%, transparent);
+}
+.board-primary:hover { background: color-mix(in srgb, var(--pi-accent) 88%, white); }
+.board-secondary { border-radius: 10px; }
+
+/* 右侧快捷入口：图标瓦片 + 去分隔线，与对话页统一 */
+.board-shortcuts { border-left: 0; padding-left: 0; }
+.board-shortcuts h3 { font-size: 11px; letter-spacing: 0.13em; text-transform: uppercase; margin-bottom: 10px; }
+.board-shortcuts a, .board-shortcuts button {
+  border-bottom: 0;
+  border-radius: 12px;
+  padding: 10px 12px;
+  margin-bottom: 4px;
+  min-height: 56px;
+  transition: background-color .16s ease, transform .16s ease;
+}
+.board-shortcuts a:hover, .board-shortcuts button:hover { background: color-mix(in srgb, var(--pi-text) 5%, transparent); transform: translateX(1px); }
+.board-shortcuts svg:first-child {
+  width: 34px; height: 34px; padding: 8px; border-radius: 10px;
+  background: color-mix(in srgb, var(--pi-accent) 12%, transparent);
+  color: color-mix(in srgb, var(--pi-accent) 72%, var(--pi-text));
+}
+.board-shortcuts > a > span, .board-shortcuts > button > span { font-size: 13.5px; }
+.board-shortcuts small { font-size: 11.5px; margin-top: 2px; opacity: .86; }
+
+/* 下方两块面板：统一发丝边 + 略深底 */
+.board-focus {
+  border-radius: 14px;
+  border-color: color-mix(in srgb, var(--pi-border) 58%, transparent);
+  padding: 8px 16px 12px;
+}
+.board-focus header { border-bottom-color: color-mix(in srgb, var(--pi-border) 55%, transparent); }
+.board-focus h2 { font-size: 13px; letter-spacing: 0.01em; }
+.board-row { border-bottom-color: color-mix(in srgb, var(--pi-border) 42%, transparent); }
+.board-row strong { font-size: 13.5px; }
+.board-row small { font-size: 11.5px; }
+
 /* ── 5. 细节：滚动条、选中、发丝线 ── */
 
 * { scrollbar-width: thin; scrollbar-color: color-mix(in srgb, var(--pi-text) 14%, transparent) transparent; }
