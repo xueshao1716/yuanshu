@@ -8,7 +8,15 @@ const os = require("node:os");
 
 const ROOT = path.resolve(__dirname, "..");
 const RT = path.join(ROOT, "runtime");
-const APP = path.join(ROOT, "app");
+const INSTALLED_APP = path.join(ROOT, "app");
+// 默认永远用安装目录里的 app。开发机上想临时指向源码仓库，显式设 YUANSHU_DEV_APP 即可：
+// 绝不要写成「D:\pi-web 存在就用它」——那会让这台机器的开机自启一直跑开发副本（2026-10-19 真机踩到）。
+function resolveApp() {
+  const dev = String(process.env.YUANSHU_DEV_APP || "").trim();
+  if (dev && fs.existsSync(path.join(dev, "server.mjs"))) return dev;
+  return INSTALLED_APP;
+}
+const APP = resolveApp();
 
 function applyEnv(env = process.env) {
   const win = process.platform === "win32";
@@ -45,6 +53,12 @@ module.exports = { ROOT, RT, APP, applyEnv };
 
 if (require.main === module) {
   applyEnv();
+  // 留痕：开机自启/计划任务到底拉起了哪个目录、哪个 PID
+  try {
+    const logFile = path.join(ROOT, "launcher.log");
+    if (fs.existsSync(logFile) && fs.statSync(logFile).size > 512 * 1024) fs.renameSync(logFile, logFile + ".1");
+    fs.appendFileSync(logFile, `${new Date().toISOString()} pid=${process.pid} app=${APP} root=${ROOT} dev=${APP !== INSTALLED_APP}\n`);
+  } catch {}
   try { require("./seed-workspace.cjs").seedWorkspace(path.join(ROOT, "template", "workspace"), process.env.YUANSHU_CWD); }
   catch (e) { console.error("[yuanshu] 工作区初始化失败：", e?.message || e); }
   fs.mkdirSync(process.env.YUANSHU_CWD, { recursive: true });

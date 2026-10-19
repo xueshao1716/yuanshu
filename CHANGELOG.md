@@ -8,6 +8,14 @@
 
 ## [Unreleased]
 
+## [2.127.50] - 2026-10-19
+
+- 修「安装版开机自启没生效」：装机目录的 `launcher/service.cjs` 被改成了「只要 `D:\pi-web\server.mjs` 存在就用开发仓库」，于是这台机器的计划任务 `yuanshu-watchdog` 一直在守护**源码副本**，安装版从未被启动。现在默认固定安装目录，想临时指向源码必须显式设 `YUANSHU_DEV_APP`。
+- 自启链路加留痕：每次拉起都往 `<安装根>\launcher.log` 追加 `时间 pid app root dev`，排查「自启到底拉了哪个目录」只看一行。
+- 真机验证：清掉 4 个僵尸实例（都声称持有 8787 但无监听）后，`schtasks /run /tn yuanshu-watchdog` →
+  `launcher.log` 记录 `dev=false`、`app=…\Yuanshu\app`；8787 监听 1 个、`/api/health` = 200。
+- `installer/launcher/service.cjs` 同步加 `resolveApp()` 与启动日志，新装机器不会重犯。
+
 ## [2.127.49] - 2026-10-19
 
 - 修上一版的重复投递：`awayMs` 除了随响应返回，还被我落盘暂存了一份，导致**前两次轮询都会带**（第一次直接返回、第二次从暂存里再消费一次）。现在只在算出间隔的那一次返回，不落盘——同一段离开只触发一次"你回来了"。
