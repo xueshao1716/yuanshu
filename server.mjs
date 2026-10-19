@@ -838,8 +838,6 @@ const executeUnifiedTool = createUnifiedToolExecutorGuarded({
     cultivation: (args, ctx) => {
       // 不能展开 ctx：培养身份是**非枚举属性**，展开复制会把它丢掉，工具就变成"没有母体身份"。
       // 用 defineProperty 挂一个隐藏的 requestApproval；ctx 被冻结时退化成原型继承（属性读取仍可见）。
-      if (process.env.YUANSHU_DEBUG_IDENTITY) {
-      }
       const ask = ({ command, reason }) => requestCultivationApproval(ctx, { command, reason });
       let host = ctx;
       try {
