@@ -58,6 +58,7 @@ import { createRequest, settleRequest, findRequest } from "./engine/cultivation/
 import { createApprovalFlow } from "./engine/cultivation/approval-flow.mjs";
 import { runCompanionNudge } from "./engine/companion-nudge.mjs";
 import { COMMISSION_TOOL_SCHEMA, commissionExtraExecutors, createCommission, dueCommissions, listCommissions, removeCommission, runCommission as runDesignCommission, setStatus as setCommissionStatus } from "./engine/design-commission.mjs";
+import { RESEARCH_TOOL_SCHEMA, listResearch, readResearch, researchExtraExecutors, runResearch } from "./engine/design-research.mjs";
 
 // ── 培养越线申请（授权中心「等我确认」）──────────────────────────────
 // 链路细节在 engine/cultivation/approval-flow.mjs：申请落盘 30 分钟 + 挂卡；
@@ -781,6 +782,7 @@ const UNIFIED_TOOLS = [
   MUSIC_TOOL_SCHEMA,
   CANVAS_TOOL_SCHEMA,
   COMMISSION_TOOL_SCHEMA,
+  RESEARCH_TOOL_SCHEMA,
   ACTIVATE_SKILL_TOOL,
   DELEGATE_TASK_TOOL,
   DELEGATE_FORK_TOOL,
@@ -852,6 +854,8 @@ const executeUnifiedTool = createUnifiedToolExecutorGuarded({
       generate: generateImageSaved,
       audit: (doc, opts) => auditCanvas(doc, { ...opts, wsRoot: WS_ROOT }),
     }),
+    // 后台调研：零 key 取公开结果，交带溯源链接的报告（2026-10-19）
+    ...researchExtraExecutors(WS_ROOT),
     // 派活 = 元枢里真正的"多路探索"：一次派几个子任务、哪个失败、花了多久。
     // 记成轨迹节点后，"该怎么探索"才有可回放的对象（当场修那条是单线的）。
     delegate_task: async (args, ctx) => {
@@ -3388,6 +3392,21 @@ const API_ROUTES = [
     json(res, 200, setCommissionStatus(WS_ROOT, m[1], m[2] === 'pause' ? 'paused' : 'running'));
   }],
   ["DELETE", /^\/api\/design-commissions\/([^/]+)$/, (res, req, url, m) => json(res, 200, removeCommission(WS_ROOT, m[1]))],
+  // 后台调研：列表/按 id 取/跑一次（十几秒，直接等结果，前端显示"调研中"）
+  ["GET", "/api/design-research", (res) => json(res, 200, { ok: true, items: listResearch(WS_ROOT, { limit: 20 }) })],
+  ["GET", /^\/api\/design-research\/([^/]+)$/, (res, req, url, m) => {
+    const row = readResearch(WS_ROOT, m[1]);
+    json(res, row ? 200 : 404, row ? { ok: true, item: row } : { ok: false, error: '没有这条调研' });
+  }],
+  ["POST", "/api/design-research", async (res, req) => {
+    try {
+      const body = await readBody(req, 0.5);
+      const topic = String(body?.topic || '').trim();
+      if (!topic) return json(res, 400, { ok: false, error: '缺少 topic' });
+      const { ok, record } = await runResearch(WS_ROOT, { topic });
+      json(res, 200, { ok, item: record });
+    } catch (e) { json(res, 500, { ok: false, error: String(e?.message || e).slice(0, 160) }) }
+  }],
   // 服务端渲染、零 JS：全站 CSP 是 script-src 'self'，内联脚本根本跑不起来
   ["GET", "/music-login", async (res, req) => {
     try {

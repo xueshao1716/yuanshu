@@ -2,11 +2,12 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   PenLine as PromptIcon, Sliders, Image as ImageIcon, Download, Upload, Trash2,
   ZoomIn, ZoomOut, Maximize, Crosshair, Loader2, Link2, Unlink, Wand2,
-  Type, Undo2, Redo2, ScanSearch, ClipboardList,
+  Type, Undo2, Redo2, ScanSearch, ClipboardList, Telescope,
 } from 'lucide-react'
 import PageHeader from '../components/PageHeader'
 import CanvasNodeCard from '../components/CanvasNodeCard'
 import CommissionPanel from '../components/CommissionPanel'
+import ResearchPanel from '../components/ResearchPanel'
 import type { CanvasNode, CanvasEdge, CanvasView, Model } from '../types'
 import { MediaApi, getToken, getApiBase } from '../api'
 import { useApp } from '../store'
@@ -306,6 +307,7 @@ export default function Canvas({ models: modelsProp, bare }: { models?: Model[];
   // ── 画布巡检（2026-10-19）：拿规范核当前画布，尺寸读真实文件头 ──
   const [auditState, setAuditState] = useState<{ ok: boolean; issues: { level: string; code: string; message: string; nodeId?: string }[] } | null>(null)
   const [showCommissions, setShowCommissions] = useState(false)
+  const [showResearch, setShowResearch] = useState(false)
   const runAudit = useCallback(async () => {
     try {
       const res = await fetch(`${getApiBase()}/api/canvas/audit`, {
@@ -447,6 +449,9 @@ export default function Canvas({ models: modelsProp, bare }: { models?: Model[];
         </button>
         <button className="btn-tool !min-h-11 sm:!min-h-9" title="设计委托：交付件清单 + 额度熔断 + 执行报告" onClick={() => setShowCommissions(true)}>
           <ClipboardList className="w-3.5 h-3.5" /><span className="hidden sm:inline">委托</span>
+        </button>
+        <button className="btn-tool !min-h-11 sm:!min-h-9" title="后台调研：给主题，自己搜完交带溯源链接的报告" onClick={() => setShowResearch(true)}>
+          <Telescope className="w-3.5 h-3.5" /><span className="hidden sm:inline">调研</span>
         </button>
         <div className="w-px h-6 bg-pi-border-soft mx-0.5" />
         <button className="btn-tool !min-h-11 sm:!min-h-9" title="缩小" onClick={() => zoomBy(1 / 1.2)}>
@@ -658,6 +663,7 @@ export default function Canvas({ models: modelsProp, bare }: { models?: Model[];
       </div>
 
       {showCommissions && <CommissionPanel onClose={() => setShowCommissions(false)} />}
+      {showResearch && <ResearchPanel onClose={() => setShowResearch(false)} />}
 
       {auditState && (
         <div className="fixed right-4 bottom-16 z-50 w-[min(420px,92vw)] max-h-[46vh] overflow-y-auto rounded-pi-md bg-pi-bg2 border border-pi-border-soft shadow-lg p-3" role="status" aria-label="画布巡检结果">
