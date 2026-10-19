@@ -242,6 +242,20 @@ export default function SendBox({ streaming, onStop, onSend, onSteer, onCommand,
   }
 
   const canSteer = streaming && !!onSteer
+  // 2026-10-19 修「软键盘开着时发送要点两次」：
+  // 第一次 tap 先把输入框 blur、键盘收起、视口高度变化，click 落在移动后的位置上被丢弃。
+  // 做法：pointerdown 时 preventDefault（保焦点、键盘不收起），并立即发送；随后的 click 去重。
+  const touchSentAt = useRef(0)
+  const sendOnPointerDown = (e: React.PointerEvent) => {
+    if (e.pointerType === 'mouse') return    // 鼠标走原来的 click
+    e.preventDefault()
+    touchSentAt.current = Date.now()
+    doSend()
+  }
+  const sendOnClick = () => {
+    if (Date.now() - touchSentAt.current < 800) return  // 触摸已经发过了
+    doSend()
+  }
   const doSend = () => {
     const v = value.trim()
     if (canSteer) {
@@ -402,7 +416,8 @@ export default function SendBox({ streaming, onStop, onSend, onSteer, onCommand,
           {streaming ? (
             <>
             {canSteer && value.trim() && (
-              <button onClick={doSend} title="插话 (Enter)" aria-label="发送插话"
+              <button onMouseDown={e => e.preventDefault()}
+                onPointerDown={sendOnPointerDown} onClick={sendOnClick} title="插话 (Enter)" aria-label="发送插话"
                 className="press btn-send h-7 w-7 rounded-full text-white flex items-center justify-center touch-hit">
                 <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><polyline points="12 19 12 5"/><polyline points="5 12 12 5 19 12"/></svg>
               </button>
@@ -414,7 +429,8 @@ export default function SendBox({ streaming, onStop, onSend, onSteer, onCommand,
             </button>
             </>
           ) : (
-            <button onClick={doSend} title="发送 (Enter)" aria-label="发送消息"
+            <button onMouseDown={e => e.preventDefault()}
+              onPointerDown={sendOnPointerDown} onClick={sendOnClick} title="发送 (Enter)" aria-label="发送消息"
               className="press btn-send h-7 w-7 rounded-full text-white flex items-center justify-center disabled:opacity-40 touch-hit"
               disabled={!value.trim() && files.length === 0}>
               <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><polyline points="12 19 12 5"/><polyline points="5 12 12 5 19 12"/></svg>
