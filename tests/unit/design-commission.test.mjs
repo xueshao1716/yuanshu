@@ -7,7 +7,7 @@ import os from 'node:os'
 import path from 'node:path'
 import {
   createCommission, listCommissions, readCommission, runCommission, setStatus,
-  removeCommission, dueCommissions, formatCommission, commissionExtraExecutors, verifyArtifact,
+  removeCommission, dueCommissions, formatCommission, commissionExtraExecutors, verifyArtifact, pickDirection,
 } from '../../engine/design-commission.mjs'
 
 const ws = () => fs.mkdtempSync(path.join(os.tmpdir(), 'commission-'))
@@ -169,6 +169,59 @@ test('工具层：缺主体时不建单，改为把问题问回去', async () =>
   const forced = await exec({ action: 'create', title: '空提示', goal: '极简', deliverables: ['A'], force: true })
   assert.match(forced.text, /已创建委托/)
   assert.equal(listCommissions(root).length, 1)
+})
+
+test('三方向选一：先出 N 个方向各扣 1 点并停住，挑完再出正式稿', async () => {
+  const root = ws()
+  const c = createCommission(root, { title: 't', subject: '测试主体', goal: 'g', brief: { deliverables: ['主海报'] }, cap: 9, directions: 3 }, { now: NOW })
+  let seen = []
+  const gen = async ({ prompt }) => { seen.push(prompt); return { url: `/u${seen.length}.png` } }
+  const first = await runCommission(root, c.id, { generate: gen, verify: async () => ({ ok: true }), now: NOW })
+  assert.equal(first.awaitingPick, true)
+  assert.equal(first.candidates.length, 3)
+  assert.equal(readCommission(root, c.id).spent, 3, '三个方向各 1 点')
+  assert.equal(readCommission(root, c.id).status, 'awaiting_pick')
+  assert.match(seen[0], /方向：居中留白/)
+  assert.match(seen[1], /方向：对角切分/)
+
+  // 没挑就再跑：不推进、不花钱，把候选带回来
+  const blocked = await runCommission(root, c.id, { generate: gen, verify: async () => ({ ok: true }), now: NOW })
+  assert.equal(blocked.reason, 'need_pick')
+  assert.equal(readCommission(root, c.id).spent, 3, '没挑不许继续扣点')
+
+  // 挑第 2 个再跑：正式稿用选中的方向
+  const picked = pickDirection(root, c.id, 1, { now: NOW })
+  assert.equal(picked.ok, true)
+  seen = []
+  const done = await runCommission(root, c.id, { generate: gen, verify: async () => ({ ok: true }), now: NOW })
+  assert.equal(done.ok, true)
+  assert.equal(done.commission.status, 'done')
+  assert.equal(done.report.files.length, 1)
+  assert.match(seen[0], /方向：对角切分/, '正式稿要沿用选中的方向')
+  assert.equal(readCommission(root, c.id).spent, 4)
+})
+
+test('挑方向：非法序号/没候选/超额度都拒绝', async () => {
+  const root = ws()
+  const c = createCommission(root, { title: 't', subject: 'x', goal: 'g', brief: { deliverables: ['A'] }, cap: 9, directions: 2 }, { now: NOW })
+  assert.equal(pickDirection(root, c.id, 0).reason, 'no_candidates')
+  await runCommission(root, c.id, { generate: async () => ({ url: '/a.png' }), verify: async () => ({ ok: true }), now: NOW })
+  assert.equal(pickDirection(root, c.id, 7).reason, 'bad_index')
+  assert.equal(pickDirection(root, 'nope', 0).reason, 'not_found')
+})
+
+test('工具：run 返回候选并要求 pick，pick 后再 run 出正式稿', async () => {
+  const root = ws()
+  const exec = commissionExtraExecutors(root, { generate: async () => ({ url: '/a.png' }), verify: async () => ({ ok: true }), now: () => NOW }).commission
+  const created = await exec({ action: 'create', title: '主视觉', subject: '白球', goal: '海报', deliverables: ['主海报'], cap: 6, directions: 2 })
+  const id = /\[(c[0-9a-z]+)\]/.exec(created.text)[1]
+  const r1 = await exec({ action: 'run', id })
+  assert.match(r1.text, /先出了 2 个方向/)
+  assert.equal(r1.candidates.length, 2)
+  const picked = await exec({ action: 'pick', id, index: 0 })
+  assert.match(picked.text, /已选方向「居中留白」/)
+  const r2 = await exec({ action: 'run', id })
+  assert.match(r2.text, /试跑完成/)
 })
 
 test('formatCommission 一句话说清状态与额度', () => {

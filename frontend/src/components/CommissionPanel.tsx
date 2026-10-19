@@ -2,13 +2,16 @@
 // 对标 Lovart 2.0 的 Arti：委托要能被看见——进度、额度、上次报告、试跑与启停都在这一个抽屉里。
 import { useCallback, useEffect, useState } from 'react'
 import { Play, Pause, Trash2, RefreshCw, Plus, FileText, X } from 'lucide-react'
-import { getApiBase, getToken } from '../api'
+import { getApiBase, getToken, withFileToken } from '../api'
 
 type Issue = { level: string; code: string; message: string }
 type Report = { at: string; ok: boolean; spent: number; cap: number; files: { name: string; url: string; verified?: boolean }[]; errors: { name: string; error: string }[]; issues: Issue[]; note: string; unverified?: number }
 type Commission = {
   id: string; title: string; subject?: string; goal: string; status: string; spent: number; cap: number
   everyMinutes: number; nextRunAt: number | null; lastReport: Report | null
+  directions?: number
+  candidates?: { index: number; label: string; url: string; verified?: boolean }[]
+  picked?: number | null
   brief: { deliverables: string[]; requiredText: string[]; forbidden: string[]; ratios: Record<string, number> }
 }
 
@@ -32,7 +35,7 @@ export default function CommissionPanel({ onClose }: { onClose: () => void }) {
   const [busy, setBusy] = useState('')
   const [error, setError] = useState('')
   const [showForm, setShowForm] = useState(false)
-  const [form, setForm] = useState({ title: '', subject: '', goal: '', deliverables: '', cap: 6, everyMinutes: 0 })
+  const [form, setForm] = useState({ title: '', subject: '', goal: '', deliverables: '', cap: 6, everyMinutes: 0, directions: 0 })
 
   const load = useCallback(async () => {
     try {
@@ -69,11 +72,25 @@ export default function CommissionPanel({ onClose }: { onClose: () => void }) {
           brief: { deliverables: form.deliverables.split(/[,，\n]/).map((s) => s.trim()).filter(Boolean) },
           cap: Number(form.cap) || 0,
           everyMinutes: Number(form.everyMinutes) || 0,
+          directions: Number(form.directions) || 0,
         }),
       })
-      if (j?.ok) { setShowForm(false); setForm({ title: '', subject: '', goal: '', deliverables: '', cap: 6, everyMinutes: 0 }) } else setError(j?.error || '创建失败')
+      if (j?.ok) { setShowForm(false); setForm({ title: '', subject: '', goal: '', deliverables: '', cap: 6, everyMinutes: 0, directions: 0 }) } else setError(j?.error || '创建失败')
       await load()
     } catch { setError('创建失败') } finally { setBusy('') }
+  }
+
+  // 三方向选一：挑完立刻接着出正式稿（用户已经在面板上点了，不需要再点一次）
+  const pickAndRun = async (id: string, index: number) => {
+    setBusy(`${id}pick`)
+    try {
+      const picked = await api(`/api/design-commissions/${id}/pick`, { method: 'POST', body: JSON.stringify({ index }) })
+      if (picked?.ok === false) { setError(`选不了：${picked.reason || ''}`); return }
+      const ran = await api(`/api/design-commissions/${id}/run`, { method: 'POST' })
+      if (ran?.ok === false && ran?.reason) setError(`没跑成：${ran.reason === 'capped' ? '额度已用尽' : ran.reason}`)
+      else setError('')
+      await load()
+    } catch { setError('操作失败') } finally { setBusy('') }
   }
 
   return (
@@ -98,6 +115,10 @@ export default function CommissionPanel({ onClose }: { onClose: () => void }) {
             <textarea className="pi-input w-full min-h-[64px]" placeholder="目标与约束（光线、材质、情绪、构图）" value={form.goal} onChange={(e) => setForm({ ...form, goal: e.target.value })} />
             <input className="pi-input w-full" placeholder="交付件，用逗号分隔：主海报, 竖版, 方卡" value={form.deliverables} onChange={(e) => setForm({ ...form, deliverables: e.target.value })} />
             <div className="flex items-center gap-3 text-[12px] text-pi-dim">
+              <label className="flex items-center gap-1.5">先出方向
+                <input type="number" min={0} max={3} className="pi-input w-16" value={form.directions} onChange={(e) => setForm({ ...form, directions: Number(e.target.value) })} />
+                个（0=直接出稿）
+              </label>
               <label className="flex items-center gap-1.5">额度
                 <input type="number" min={0} max={200} className="pi-input w-20" value={form.cap} onChange={(e) => setForm({ ...form, cap: Number(e.target.value) })} />
                 点
@@ -128,6 +149,21 @@ export default function CommissionPanel({ onClose }: { onClose: () => void }) {
                   </div>
                   {c.goal && <p className="text-[11px] text-pi-dim mt-1 line-clamp-2">{c.goal}</p>}
                   {!c.subject && <p className="text-[11px] text-pi-warn mt-1">缺主体：出图前要先问清画面里有什么</p>}
+                  {c.candidates && c.candidates.length > 0 && c.picked == null && (
+                    <div className="mt-2">
+                      <p className="text-[11px] text-pi-dim mb-1">三个方向待选（各已扣 1 点）：点一个继续出正式稿</p>
+                      <div className="grid grid-cols-3 gap-2">
+                        {c.candidates.map((cd) => (
+                          <button key={cd.index} type="button" disabled={busy.startsWith(c.id)}
+                            className="text-left rounded-pi-sm border border-pi-border-soft overflow-hidden hover:border-pi-accent"
+                            onClick={() => void pickAndRun(c.id, cd.index)}>
+                            <img src={withFileToken(cd.url)} alt={cd.label} className="w-full h-24 object-cover" />
+                            <span className="block px-1.5 py-1 text-[11px] text-pi-text truncate">{cd.index + 1}. {cd.label}{cd.verified === false ? '（未验活）' : ''}</span>
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  )}
                   {c.brief?.deliverables?.length > 0 && (
                     <p className="text-[11px] text-pi-dim2 mt-1">交付：{c.brief.deliverables.join(' / ')}</p>
                   )}

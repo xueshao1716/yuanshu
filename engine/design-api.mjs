@@ -21,6 +21,7 @@ export function createDesignRoutes({
   removeCommission,
   runCommission,
   setCommissionStatus,
+  pickDirection,
   // 调研
   listResearch,
   readResearch,
@@ -61,6 +62,13 @@ export function createDesignRoutes({
     }],
     ['POST', /^\/api\/design-commissions\/([^/]+)\/(pause|resume)$/, (res, req, url, m) => {
       json(res, 200, setCommissionStatus(wsRoot, m[1], m[2] === 'pause' ? 'paused' : 'running'));
+    }],
+    // 三方向选一：挑完还要再 run 一次出正式稿
+    ['POST', /^\/api\/design-commissions\/([^/]+)\/pick$/, async (res, req, url, m) => {
+      try {
+        const body = await readBody(req, 0.016);
+        json(res, 200, pickDirection(wsRoot, m[1], body?.index));
+      } catch (e) { fail(res, 400, e) }
     }],
     ['DELETE', /^\/api\/design-commissions\/([^/]+)$/, (res, req, url, m) => json(res, 200, removeCommission(wsRoot, m[1]))],
 

@@ -57,7 +57,7 @@ import { handleMusicStream } from "./engine/music-stream.mjs";
 import { createRequest, settleRequest, findRequest } from "./engine/cultivation/approval-requests.mjs";
 import { createApprovalFlow } from "./engine/cultivation/approval-flow.mjs";
 import { runCompanionNudge } from "./engine/companion-nudge.mjs";
-import { COMMISSION_TOOL_SCHEMA, commissionExtraExecutors, createCommission, dueCommissions, listCommissions, removeCommission, runCommission as runDesignCommission, setStatus as setCommissionStatus } from "./engine/design-commission.mjs";
+import { COMMISSION_TOOL_SCHEMA, commissionExtraExecutors, createCommission, dueCommissions, listCommissions, removeCommission, runCommission as runDesignCommission, setStatus as setCommissionStatus, pickDirection } from "./engine/design-commission.mjs";
 import { RESEARCH_TOOL_SCHEMA, listResearch, readResearch, researchExtraExecutors, runResearch } from "./engine/design-research.mjs";
 import { modelSearchRows } from "./engine/model-research.mjs";
 import { DESIGN_PREFS_TOOL_SCHEMA, designPrefsExecutors } from "./engine/design-prefs.mjs";
@@ -3834,7 +3834,7 @@ API_ROUTES.push(...createCompanionRoutes({ exists: id => activeSessions.has(id) 
 API_ROUTES.push(...createDesignRoutes({
   wsRoot: WS_ROOT, json, readBody,
   readCanvasDoc, normalizeCanvasDoc, auditCanvas, formatAudit,
-  createCommission, listCommissions, removeCommission, runCommission: runDesignCommission, setCommissionStatus,
+  createCommission, listCommissions, removeCommission, runCommission: runDesignCommission, setCommissionStatus, pickDirection,
   listResearch, readResearch, runResearch,
   modelSearch: researchModelSearch,
   generateImageSaved,

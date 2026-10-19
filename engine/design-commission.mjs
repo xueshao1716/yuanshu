@@ -18,6 +18,17 @@ export const COMMISSIONS_FILE = path.join('记忆', '运行时', '设计委托.j
 export const MAX_COMMISSIONS = 30;
 export const DEFAULT_CAP = 10;
 const MAX_DELIVERABLES = 8;
+const MAX_DIRECTIONS = 3;
+
+/**
+ * 三个方向预设（2026-10-19，抄 Huashu-motion 的"三方向选一"）：
+ * 不额外调模型，用三条稳定的构图/光感轴把同一主体拆开，各自出一张真关键帧让用户挑。
+ */
+export const DIRECTION_PRESETS = [
+  { key: 'centered', label: '居中留白', text: '构图：主体居中、四周大量负空间；光：柔和顶部冷白光；整体克制、像高端产品广告' },
+  { key: 'diagonal', label: '对角切分', text: '构图：主体偏置、画面用一条对角分割线制造张力；光：侧逆光强化轮廓；整体有力量感' },
+  { key: 'closeup', label: '特写质感', text: '构图：主体占画面大半、浅景深、背景压低；光：近距离柔光突出材质纹理；整体走质感路线' },
+];
 
 const fileOf = (wsRoot) => path.join(wsRoot, COMMISSIONS_FILE);
 const nowMs = (now) => (typeof now === 'function' ? Number(now()) : Number(now ?? Date.now()));
@@ -72,6 +83,10 @@ export function createCommission(wsRoot, input = {}, { now = Date.now } = {}) {
     size: text(input.size, 40),
     cap: Number.isSafeInteger(input.cap) && input.cap >= 0 ? Math.min(input.cap, 200) : DEFAULT_CAP,
     everyMinutes: Number.isSafeInteger(input.everyMinutes) && input.everyMinutes >= 15 ? Math.min(input.everyMinutes, 1440) : 0,
+    // 方向数：0/1 = 直接出正式稿；2~3 = 先出方向关键帧让你挑
+    directions: Number.isSafeInteger(input.directions) ? Math.max(0, Math.min(MAX_DIRECTIONS, input.directions)) : 0,
+    candidates: [],
+    picked: null,
     spent: 0,
     status: input.startPaused ? 'paused' : 'running',
     createdAt: new Date(t).toISOString(),
@@ -137,6 +152,22 @@ export function dueCommissions(wsRoot, { now = Date.now } = {}) {
     && (!c.nextRunAt || c.nextRunAt <= t) && c.spent < c.cap);
 }
 
+/** 挑方向：0..2。挑完不解锁执行，还要再 run 一次出正式稿。 */
+export function pickDirection(wsRoot, id, index, { now = Date.now } = {}) {
+  const row = readCommission(wsRoot, id);
+  if (!row) return { ok: false, reason: 'not_found' };
+  const list = Array.isArray(row.candidates) ? row.candidates : [];
+  if (!list.length) return { ok: false, reason: 'no_candidates' };
+  const idx = Number(index);
+  if (!Number.isInteger(idx) || !list.some((c) => c.index === idx)) return { ok: false, reason: 'bad_index', candidates: list };
+  if (row.spent >= row.cap) return { ok: false, reason: 'capped' };
+  row.picked = idx;
+  row.status = 'running';
+  row.updatedAt = new Date(nowMs(now)).toISOString();
+  upsert(wsRoot, row);
+  return { ok: true, commission: row, picked: list.find((c) => c.index === idx) };
+}
+
 /** 缺主体时该问什么：固定三问，别问成访谈。 */
 export function askForSubject(row = {}) {
   return [
@@ -185,13 +216,51 @@ export async function runCommission(wsRoot, id, { generate, audit, verify = veri
   const prefTail = prefsBlock(wsRoot);
   // 她原有的手艺：按主体/目标匹配技能库，取最相关的一个方法论要点
   const skillTail = skillBlockFor(row);
+  // 文字约束：没指定文案就明确要求"不要任何文字"——否则模型爱自己编字母（实测出过 "FHSN/MO" 这种乱码）
+  const textRule = row.brief.requiredText.length
+    ? `画面中出现的文字必须严格是：${row.brief.requiredText.join('、')}，不要增删或改写`
+    : '不出现任何文字、字母或数字（纯视觉海报），不要自己编标题';
+  const base = [row.subject, row.goal || row.title, textRule].filter(Boolean);
+
+  // ── 阶段一：先出方向关键帧（每个 1 点），等用户挑一个再出正式稿 ──────────
+  // 来源：Huashu-motion 的"三个方向各出一张真渲染关键帧让你挑"。避免一次赌错方向。
+  if (row.directions >= 2 && !(row.candidates || []).length && row.picked == null) {
+    const candidates = [];
+    for (const [index, d] of DIRECTION_PRESETS.slice(0, row.directions).entries()) {
+      if (row.spent >= row.cap) break;
+      const prompt = [...base, `方向：${d.label}。${d.text}`, skillTail, prefTail].filter(Boolean).join('；');
+      try {
+        const out = await generate({ prompt, size: row.size, provider: row.provider, modelId: row.modelId });
+        if (!out?.url) throw new Error('生成没有返回图片');
+        const check = typeof verify === 'function' ? await verify(out.url, { wsRoot }) : { ok: true };
+        row.spent += 1;
+        candidates.push({ index, label: d.label, url: out.url, verified: Boolean(check.ok), prompt });
+      } catch (e) {
+        errors.push({ name: `方向 ${d.label}`, error: text(e?.message || e, 160) });
+      }
+    }
+    row.candidates = candidates;
+    row.status = candidates.length ? 'awaiting_pick' : (row.spent >= row.cap ? 'capped' : 'running');
+    const report = {
+      at: new Date(t).toISOString(), ok: candidates.length > 0 && errors.length === 0,
+      spent: row.spent, cap: row.cap, files: candidates, errors, issues: [],
+      unverified: candidates.filter((c) => !c.verified).length,
+      note: '三个方向待选', awaitingPick: true,
+    };
+    row.lastReport = report; row.lastRunAt = report.at; row.updatedAt = report.at;
+    upsert(wsRoot, row);
+    return { ok: report.ok, awaitingPick: true, commission: row, report, candidates };
+  }
+  // 有方向没挑：不推进，把候选带回去让用户选
+  if (row.directions >= 2 && row.picked == null) {
+    return { ok: false, reason: 'need_pick', commission: row, candidates: row.candidates || [] };
+  }
+  const pickedDir = row.picked != null ? DIRECTION_PRESETS[row.picked] : null;
+
   for (const name of names) {
     if (row.spent >= row.cap) break;
-    // 文字约束：没指定文案就明确要求"不要任何文字"——否则模型爱自己编字母（实测出过 "FHSN/MO" 这种乱码）
-    const textRule = row.brief.requiredText.length
-      ? `画面中出现的文字必须严格是：${row.brief.requiredText.join('、')}，不要增删或改写`
-      : '不出现任何文字、字母或数字（纯视觉海报），不要自己编标题';
-    const prompt = [row.subject, row.goal || row.title, `交付件：${name}`, textRule, skillTail, prefTail].filter(Boolean).join('；');    prompts.push({ name, prompt });
+    const prompt = [...base, `交付件：${name}`, pickedDir ? `方向：${pickedDir.label}。${pickedDir.text}` : '', skillTail, prefTail].filter(Boolean).join('；');
+    prompts.push({ name, prompt });
     try {
       const out = await generate({ prompt, size: row.size, provider: row.provider, modelId: row.modelId });
       if (!out?.url) throw new Error('生成没有返回图片');
@@ -253,7 +322,7 @@ export const COMMISSION_TOOL_SCHEMA = {
       type: 'object',
       additionalProperties: false,
       properties: {
-        action: { type: 'string', enum: ['create', 'list', 'run', 'pause', 'resume', 'report'] },
+        action: { type: 'string', enum: ['create', 'list', 'run', 'pick', 'pause', 'resume', 'report'] },
         id: { type: 'string', description: 'run/pause/resume/report 用' },
         title: { type: 'string' },
         subject: { type: 'string', description: '画面主体：具体到"一颗悬空的白色陶瓷球"这种程度。用户没说就先问，不要自己编。' },
@@ -268,6 +337,8 @@ export const COMMISSION_TOOL_SCHEMA = {
         cap: { type: 'integer', description: '积分上限（一次出图 1 点），默认 10' },
         everyMinutes: { type: 'integer', description: '周期执行间隔（分钟，>=15）；0 或省略=只跑一次' },
         force: { type: 'boolean', description: '用户明确表示"就按我说的出"时才置 true，跳过主体体检' },
+        directions: { type: 'integer', description: '方向数：0/1=直接出正式稿；2~3=先出方向关键帧让用户挑（每个 1 点）。用户没主意时用它，别赌一个方向。' },
+        index: { type: 'integer', description: 'pick 用：候选方向的序号' },
       },
       required: ['action'],
     },
@@ -279,11 +350,14 @@ export function formatCommission(row) {
   const r = row.lastReport;
   const head = `[${row.id}] ${row.title} · ${row.status} · 已用 ${row.spent}/${row.cap} 点${row.everyMinutes ? ` · 每 ${row.everyMinutes} 分钟` : ''}`;
   const subject = row.subject ? `\n主体：${row.subject}` : '\n主体：（未填——出图前要先问清画面里有什么）';
-  if (!r) return head + subject;
+  const cands = Array.isArray(row.candidates) && row.candidates.length
+    ? `\n候选方向：${row.candidates.map((c) => `${c.index}.${c.label}${row.picked === c.index ? '（已选）' : ''}`).join(' / ')}`
+    : '';
+  if (!r) return head + subject + cands;
   const files = r.files?.length ? `\n交付：${r.files.map((f) => `${f.name} → ${f.url}${f.verified === false ? '（未验活）' : ''}`).join('；')}` : '';
   const errs = r.errors?.length ? `\n失败：${r.errors.map((e) => `${e.name}（${e.error}）`).join('；')}` : '';
   const issues = r.issues?.length ? `\n巡检：${r.issues.map((i) => `[${i.level}] ${i.message}`).join('；')}` : '\n巡检：无偏离';
-  return `${head}${subject}\n最近一次（${r.at}，${r.note}）：${r.ok ? '通过' : '有问题'}${files}${errs}${issues}`;
+  return `${head}${subject}${cands}\n最近一次（${r.at}，${r.note}）：${r.ok ? '通过' : '有问题'}${files}${errs}${issues}`;
 }
 
 export function commissionExtraExecutors(wsRoot, deps = {}) {
@@ -296,7 +370,7 @@ export function commissionExtraExecutors(wsRoot, deps = {}) {
           const createInput = {
             title: args.title, subject: args.subject, goal: args.goal,
             provider: args.provider, modelId: args.modelId, size: args.size,
-            cap: args.cap, everyMinutes: args.everyMinutes,
+            cap: args.cap, everyMinutes: args.everyMinutes, directions: args.directions,
             brief: { deliverables: args.deliverables, requiredText: args.requiredText, forbidden: args.forbidden, ratios: args.ratios },
           };
           const probe = canRun(createInput);
@@ -320,9 +394,25 @@ export function commissionExtraExecutors(wsRoot, deps = {}) {
           return r.ok ? { text: `已${action === 'pause' ? '暂停' : '恢复'}：${formatCommission(r.commission).split('\n')[0]}`, isError: false }
             : { text: '委托不存在。', isError: true };
         }
+        if (action === 'pick') {
+          const r = pickDirection(wsRoot, args.id, args.index, { now });
+          if (!r.ok) {
+            const cands = (r.candidates || []).map((c) => `${c.index}=${c.label}`).join(' / ');
+            return { text: `挑不了（${r.reason}）${cands ? `，可选：${cands}` : ''}`, isError: true };
+          }
+          return { text: `已选方向「${r.picked.label}」。再 action=run id=${r.commission.id} 出正式稿。`, isError: false };
+        }
         if (action === 'run') {
           const r = await runCommission(wsRoot, args.id, { generate, audit, now, fresh: true });
+          if (r.awaitingPick) {
+            const list = (r.candidates || r.commission?.candidates || []).map((c) => `${c.index}. ${c.label} → ${c.url}`).join('\n');
+            return { text: `先出了 ${(r.candidates || r.commission?.candidates || []).length} 个方向（各扣 1 点），请挑一个再出正式稿：\n${list}\n挑好用 action=pick index=<序号>，然后 action=run。`, isError: false, candidates: r.candidates || r.commission?.candidates || [] };
+          }
           if (!r.commission) {
+            if (r.reason === 'need_pick') {
+              const list = (r.candidates || []).map((c) => `${c.index}. ${c.label} → ${c.url}`).join('\n');
+              return { text: `这单还等着挑方向：\n${list}\n用 action=pick index=<序号>。`, isError: true, candidates: r.candidates || [] };
+            }
             const hint = Array.isArray(r.questions) && r.questions.length ? `\n先把这些问清楚：${r.questions.join('\n')}` : '';
             return { text: `跑不了：${r.reason}${hint}`, isError: true, needsClarification: r.questions || [] };
           }
