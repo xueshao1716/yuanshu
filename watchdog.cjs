@@ -25,7 +25,12 @@ let lastStartAt = 0; // 最近一次启动时刻（用于分级检查频率：�
 // 今天两次「服务静默挂掉」都是同一个死结：子进程还活着但端口没监听，
 // 而 startServer 只判断 `child` 是否存在 → 永远拒绝重拉，日志刷 26 次"端口已占用或子进程仍在启动"。
 let consecutiveFails = 0;
-const STUCK_KILL_AFTER = 3; // 连续 3 次不健康（约 15 秒）就认定子进程僵死，强杀重拉
+let firstFailAt = 0; // 这一串失败从什么时候开始
+const STUCK_KILL_AFTER = 3; // 连续 3 次不健康先记为"疑似僵死"
+// 2026-10-20 事故：事件循环被同步任务卡了 25.7 秒（loop-lag maxMs=25770），
+// 三次探活全超时 → 被判僵死强杀；进程其实活得好好的，重启反而打断用户。
+// 现在要求"失败持续 ≥60 秒"才强杀：忙一会儿不算死。
+const STUCK_MIN_MS = 60_000;
 // 2026-10-20：冷启动实测要 40–60 秒（依赖多、初始化重）。原来 15 秒就判僵死，
 // 会把正在正常启动的进程杀掉 → 无限重启风暴。给一个启动宽限期，宽限期内只观察不杀。
 const STARTUP_GRACE_MS = 120_000;
@@ -130,7 +135,8 @@ const startServer = singleFlight(async function () {
     child = null;
   }
   // 子进程活着却长期不健康 → 僵死，强杀重拉（否则会像今天那样永久卡住）
-  if (child && consecutiveFails >= STUCK_KILL_AFTER && childStartedAt && Date.now() - childStartedAt > STARTUP_GRACE_MS) {
+  const failedLongEnough = firstFailAt > 0 && Date.now() - firstFailAt >= STUCK_MIN_MS;
+  if (child && consecutiveFails >= STUCK_KILL_AFTER && failedLongEnough && childStartedAt && Date.now() - childStartedAt > STARTUP_GRACE_MS) {
     log(`⚠️ 子进程存活但连续 ${consecutiveFails} 次健康检查失败，判定僵死，强杀后重拉`);
     try { child.kill("SIGKILL"); } catch { /* 已经没了也无所谓 */ }
     child = null;
@@ -234,10 +240,12 @@ async function main() {
     const ok = await serviceHealthy();
     if (!ok) {
       consecutiveFails++;
-      log(`⚠️ 检测到 server 掉线（连续第 ${consecutiveFails} 次），拉起`);
+      if (!firstFailAt) firstFailAt = Date.now();
+      log(`⚠️ 检测到 server 掉线（连续第 ${consecutiveFails} 次，已持续 ${Math.round((Date.now() - firstFailAt) / 1000)}s），拉起`);
       await startServer();
     } else {
       consecutiveFails = 0;
+      firstFailAt = 0;
     }
     const inBootWindow = Date.now() - lastStartAt < 60000;
     const delay = (inBootWindow || consecutiveFails > 0) ? 5000 : 30000;

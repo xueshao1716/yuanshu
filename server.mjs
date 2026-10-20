@@ -4448,11 +4448,15 @@ try {
     if (maxMs > 500) {
       const line = JSON.stringify({
         at: new Date().toISOString(), pid: process.pid, maxMs,
+        // 2026-10-20：只记"窗口内最大值"定位不到肇事请求，补一个停顿起点，
+        // 事后能拿它去对服务日志里那个时间点之前最后几条请求。
+        stallFrom: new Date(Date.now() - maxMs).toISOString(),
         meanMs: Math.round(lag.mean / 1e6), p99Ms: Math.round(lag.percentile(99) / 1e6),
         rssMB: Math.round(process.memoryUsage().rss / 1048576),
       });
       try { fs.appendFileSync(lagFile, line + "\n"); } catch {}
       console.log("[loop-lag]", line);
+      if (maxMs > 5000) console.log(`[loop-stall] 事件循环停了 ${maxMs}ms（起点 ${new Date(Date.now() - maxMs).toISOString()}，rss ${Math.round(process.memoryUsage().rss / 1048576)}MB）`);
     }
     lag.reset();
   }, 30000).unref?.();
