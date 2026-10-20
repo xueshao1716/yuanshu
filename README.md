@@ -28,6 +28,8 @@
 
 **这就是它和"聊天框"最本质的区别**：她有连续的自我，而不是每次重置的人设。
 
+系统是什么、守什么边界、数据放在哪，都写在一份公开声明里：[docs/STATEMENT.md](docs/STATEMENT.md)（产品内位置：系统 → 关于元枢）。
+
 <p align="center">
   <img src="docs/images/demo-main.png" alt="对话主界面" width="720">
 </p>

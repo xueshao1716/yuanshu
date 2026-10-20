@@ -331,6 +331,47 @@ export default function System() {
           </div>
         </section>
 
+        {/* ── 关于元枢（2026-10-20：系统介绍与声明，之前这块是缺的）── */}
+        <section>
+          <SectionHeader title="关于元枢" description="这套系统是什么、守什么边界、数据在哪。与 docs/STATEMENT.md 同源。" />
+          <div className="panel !p-5 space-y-4 text-sm leading-relaxed text-pi-text">
+            <p>
+              <strong>元枢</strong>是一套装在你自己电脑上的 AI 工作台。和你对话的智能体叫<strong>小语</strong>：
+              她有固定人格、长期记忆和情绪状态，每天夜里复盘自己，把经验写回记忆与技能；
+              她有手，能读写文件、跑命令、出图做 PPT、按时自己干活。
+            </p>
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+              <div className="rounded-pi-lg border border-pi-border-soft bg-pi-bg2/40 p-3">
+                <div className="text-[11px] uppercase tracking-[0.12em] text-pi-dim2">数据主权</div>
+                <p className="mt-1.5 text-[13px] text-pi-dim">会话、记忆、文件、密钥都在本机；服务只监听本机或你显式开放的局域网。</p>
+              </div>
+              <div className="rounded-pi-lg border border-pi-border-soft bg-pi-bg2/40 p-3">
+                <div className="text-[11px] uppercase tracking-[0.12em] text-pi-dim2">权力分层</div>
+                <p className="mt-1.5 text-[13px] text-pi-dim">写文件/跑命令在自主范围；花钱有额度且留理由；对外发布、改人格、动密钥永远要你点头。</p>
+              </div>
+              <div className="rounded-pi-lg border border-pi-border-soft bg-pi-bg2/40 p-3">
+                <div className="text-[11px] uppercase tracking-[0.12em] text-pi-dim2">可核对</div>
+                <p className="mt-1.5 text-[13px] text-pi-dim">人格改动可回滚；自主动手写 <code className="text-[12px]">文档/自主执行审计.md</code>；花费写 <code className="text-[12px]">文档/花费审计.md</code>；改动静 <code className="text-[12px]">文档/harness-试验.md</code>。</p>
+              </div>
+            </div>
+            <div className="rounded-pi-lg border border-pi-border-soft p-3">
+              <div className="text-[11px] uppercase tracking-[0.12em] text-pi-dim2">她不是什么</div>
+              <ul className="mt-1.5 text-[13px] text-pi-dim space-y-1 list-disc pl-5">
+                <li>不是全自动代理：越线会停下来问，不会偷偷做</li>
+                <li>不是无记忆的工具：她的自我描述在 <code className="text-[12px]">记忆/自我.md</code>，每次按真实状态重算</li>
+                <li>不能改自己的权限，也不能改写自己的过去</li>
+              </ul>
+            </div>
+            <div className="flex flex-wrap items-center gap-x-6 gap-y-1.5 text-[12px] text-pi-dim2">
+              <span>版本 <strong className="text-pi-text">v{info.version || '—'}</strong></span>
+              <span>许可 <strong className="text-pi-text">Apache-2.0</strong></span>
+              <a className="hover:text-pi-text underline underline-offset-2" href="https://github.com/xueshao1716/yuanshu" target="_blank" rel="noreferrer">GitHub</a>
+              <a className="hover:text-pi-text underline underline-offset-2" href="https://gitee.com/linxinyu520xue/yuanshu" target="_blank" rel="noreferrer">Gitee</a>
+              <span>完整声明见 <code className="text-[12px]">docs/STATEMENT.md</code></span>
+            </div>
+          </div>
+        </section>
+
       </div>
     </div>
   )
