@@ -212,6 +212,7 @@ import { createCodeMode } from "./code-mode/code-mode.mjs";
 import { createTimeEngine } from "./engine/time-engine.mjs";
 import { buildSelfModel, renderSelfSection, renderSelfMarkdown } from "./engine/self-model.mjs";
 import { shouldProbe, markProbed, splitBeforeAfter, abCompare, appendProbeLog, appendLesson } from "./engine/harness-probe.mjs";
+import { collectEvidence, buildProposePrompt, parseCandidates, writeCandidates, listCandidates, markCandidate } from "./engine/harness-propose.mjs";
 import { withModelFailover } from "./engine/model-failover.mjs";
 import { loadSelfPolicy, selfTools, recordSelfAction, withinDailyLimit } from "./engine/self-agency.mjs";
 import { composeTimeTaskMessages, timeTaskReadTools, recordReflectionActions, parseReflectionActions, yesterdayYmd } from "./engine/time-task-run.mjs";
@@ -3851,6 +3852,34 @@ const boardApi = createBoardApi({
 // Register after dependencies exist, never inside the per-request callback.
   // 2026-10-20 harness 组件清单（只读）：每个组件来自文件还是内置、多大、谁能改。
   // 组件化的意义不在"拆得漂亮"，而在"改的时候知道改的是哪一份、能不能回退"。
+  // Propose 的两条入口：手动提一次 / 看候选与状态。
+  API_ROUTES.push(["POST", "/api/harness/propose", async (res) => {
+    const r = await draftHarnessCandidates(null, "manual");
+    return json(res, r.ok ? 200 : 409, r);
+  }]);
+  API_ROUTES.push(["GET", "/api/harness/candidates", async (res) => {
+    try {
+      const { listCandidates } = await import("./engine/harness-propose.mjs");
+      return json(res, 200, { items: listCandidates(WS_ROOT) });
+    } catch (e) {
+      return json(res, 500, { error: String(e?.message || e).slice(0, 200) });
+    }
+  }]);
+  API_ROUTES.push(["POST", "/api/harness/candidates/mark", async (res, req) => {
+    try {
+      const body = await readBody(req, 0.016);
+      const id = String(body?.id || "").slice(0, 60);
+      const status = String(body?.status || "");
+      if (!id || !["draft", "verified", "rejected", "adopted"].includes(status)) {
+        return json(res, 400, { error: "invalid" });
+      }
+      const { markCandidate } = await import("./engine/harness-propose.mjs");
+      const r = markCandidate(WS_ROOT, id, status, String(body?.note || ""));
+      return json(res, r.ok ? 200 : 404, r);
+    } catch (e) {
+      return json(res, 500, { error: String(e?.message || e).slice(0, 200) });
+    }
+  }]);
   API_ROUTES.push(["GET", "/api/harness", async (res) => {
     try {
       const { harnessManifest } = await import("./engine/harness-components.mjs");
@@ -4305,6 +4334,13 @@ ${rows.map((r) => `- [${r.status}${r.closed ? "/已结清" : ""}] ${r.text}\n  �
                 appendLesson(WS_ROOT, probeRow);
                 markProbed(WS_ROOT, t.id);
                 console.log(`[harness-probe] ${t.id} → ${verdict.verdict}（${verdict.reason}）`);
+                // 变差 = 最值得提候选的时刻；带上是哪条失败，别让模型空想。
+                if (verdict.verdict === "worse") {
+                  void draftHarnessCandidates(
+                    `- ${new Date().toISOString()} · ${t.label || t.id} · 变差 · ${verdict.reason}`,
+                    "probe-worse",
+                  );
+                }
               }
             }
           } catch (e) { console.log("[harness-probe] 跳过:", String(e?.message || e).slice(0, 100)); }
@@ -4314,6 +4350,28 @@ ${rows.map((r) => `- [${r.status}${r.closed ? "/已结清" : ""}] ${r.text}\n  �
       }); // 技能自主沉淀钩子（09-03，Hermes 闭环）
       timeEngine.start();
     } catch (e) { console.log("[time-engine] 启动失败:", String(e?.message || e).slice(0, 100)); }
+    // 2026-10-21 Propose：拿已有证据提两条候选（不落地、不改组件）。
+    // 刻意用单次无工具调用，成本固定，不会因为候选生成把主服务拖慢。
+    const draftHarnessCandidates = async (extraEvidence = null, source = "manual") => {
+      try {
+        const evidence = collectEvidence(WS_ROOT);
+        if (extraEvidence) evidence.probeRows = [...evidence.probeRows, extraEvidence];
+        if (!evidence.hasEvidence && !extraEvidence) return { ok: false, reason: "no-evidence" };
+        const prompt = buildProposePrompt(evidence);
+        const r = await unifiedChat(defaultModel, [{ role: "user", content: prompt }], { tools: [] });
+        const text = completedTaskText(r);
+        const candidates = parseCandidates(text);
+        if (!candidates.length) return { ok: false, reason: "unparsed" };
+        const date = new Date().toISOString().slice(0, 10);
+        const written = writeCandidates(WS_ROOT, { date, candidates, source });
+        console.log(`[harness-propose] 写入 ${written.count} 条候选（${source}）→ ${written.file}`);
+        return written;
+      } catch (e) {
+        console.log("[harness-propose] 跳过:", String(e?.message || e).slice(0, 120));
+        return { ok: false, reason: "error" };
+      }
+    };
+
     knowledgeRuntime.start();
     // 心跳：不调模型，只巡检确定性事实；同一件事只提醒一次，夜里不打扰。YUANSHU_HEARTBEAT=0 可关。
     if (process.env.YUANSHU_HEARTBEAT !== "0") {

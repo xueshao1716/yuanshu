@@ -8,8 +8,19 @@
 
 ## [Unreleased]
 
+## [2.127.97] - 2026-10-20
+
 ## [2.127.96] - 2026-10-20
 
+## [2.127.97] - 2026-10-21
+
+- **harness Propose 步**：补上 Harness² 循环里元枢缺的"提候选"环节（之前只有 Probe）。
+  - 只读既有证据：文档/harness-试验.md（前后对照结论）+ 记忆/运行时/慢请求.jsonl（按路径取最慢一条）。
+  - 一次**无工具**模型调用生成两条候选（一条通用缺陷、一条领域做法），必须绑定证据字段；解析不出来就**什么都不写**（宁可没候选也不写垃圾）。
+  - 落盘 工程/经验库/候选/候选-YYYY-MM-DD.md + 索引.jsonl，状态一律 draft；**绝不写 记忆/harness/**、绝不改协议/护栏。
+  - 触发：夜间定时任务的试验结论为 **worse** 时自动提一次；也可手动 POST /api/harness/propose。
+  - 新增接口：GET /api/harness/candidates、POST /api/harness/candidates/mark（draft/verified/rejected/adopted）。
+  - 新增单测 6 条；相关 309 条全绿。
 ## [2.127.96] - 2026-10-21
 
 - **护栏对齐：17 条不一致逐条落地**（接 2.127.95 的组件化）。
@@ -30,6 +41,15 @@ o-engine-edit 标人批准；skill-full-compliance、url-no-chinese 如实标 **
   - 单测 6 条；相关 289 条全绿。
 ## [2.127.95] - 2026-10-20
 
+## [2.127.97] - 2026-10-21
+
+- **harness Propose 步**：补上 Harness² 循环里元枢缺的"提候选"环节（之前只有 Probe）。
+  - 只读既有证据：文档/harness-试验.md（前后对照结论）+ 记忆/运行时/慢请求.jsonl（按路径取最慢一条）。
+  - 一次**无工具**模型调用生成两条候选（一条通用缺陷、一条领域做法），必须绑定证据字段；解析不出来就**什么都不写**（宁可没候选也不写垃圾）。
+  - 落盘 工程/经验库/候选/候选-YYYY-MM-DD.md + 索引.jsonl，状态一律 draft；**绝不写 记忆/harness/**、绝不改协议/护栏。
+  - 触发：夜间定时任务的试验结论为 **worse** 时自动提一次；也可手动 POST /api/harness/propose。
+  - 新增接口：GET /api/harness/candidates、POST /api/harness/candidates/mark（draft/verified/rejected/adopted）。
+  - 新增单测 6 条；相关 309 条全绿。
 ## [2.127.96] - 2026-10-21
 
 - **护栏对齐：17 条不一致逐条落地**（接 2.127.95 的组件化）。
@@ -64,6 +84,15 @@ o-money、share-via-tool 等）——先如实列出来，不擅自合并。
   - 新增单测 5 条；相关 34 个测试文件共 231 条全绿。
 ## [2.127.94] - 2026-10-20
 
+## [2.127.97] - 2026-10-21
+
+- **harness Propose 步**：补上 Harness² 循环里元枢缺的"提候选"环节（之前只有 Probe）。
+  - 只读既有证据：文档/harness-试验.md（前后对照结论）+ 记忆/运行时/慢请求.jsonl（按路径取最慢一条）。
+  - 一次**无工具**模型调用生成两条候选（一条通用缺陷、一条领域做法），必须绑定证据字段；解析不出来就**什么都不写**（宁可没候选也不写垃圾）。
+  - 落盘 工程/经验库/候选/候选-YYYY-MM-DD.md + 索引.jsonl，状态一律 draft；**绝不写 记忆/harness/**、绝不改协议/护栏。
+  - 触发：夜间定时任务的试验结论为 **worse** 时自动提一次；也可手动 POST /api/harness/propose。
+  - 新增接口：GET /api/harness/candidates、POST /api/harness/candidates/mark（draft/verified/rejected/adopted）。
+  - 新增单测 6 条；相关 309 条全绿。
 ## [2.127.96] - 2026-10-21
 
 - **护栏对齐：17 条不一致逐条落地**（接 2.127.95 的组件化）。
@@ -105,6 +134,15 @@ o-money、share-via-tool 等）——先如实列出来，不擅自合并。
 - 顺带确认：DEEPSEEK_API_KEY 在用户环境里已配置（35 字符），dsh 能正常跑；但在未继承该变量的终端里会报 MISSING_CREDENTIAL。
 ## [2.127.93] - 2026-10-20
 
+## [2.127.97] - 2026-10-21
+
+- **harness Propose 步**：补上 Harness² 循环里元枢缺的"提候选"环节（之前只有 Probe）。
+  - 只读既有证据：文档/harness-试验.md（前后对照结论）+ 记忆/运行时/慢请求.jsonl（按路径取最慢一条）。
+  - 一次**无工具**模型调用生成两条候选（一条通用缺陷、一条领域做法），必须绑定证据字段；解析不出来就**什么都不写**（宁可没候选也不写垃圾）。
+  - 落盘 工程/经验库/候选/候选-YYYY-MM-DD.md + 索引.jsonl，状态一律 draft；**绝不写 记忆/harness/**、绝不改协议/护栏。
+  - 触发：夜间定时任务的试验结论为 **worse** 时自动提一次；也可手动 POST /api/harness/propose。
+  - 新增接口：GET /api/harness/candidates、POST /api/harness/candidates/mark（draft/verified/rejected/adopted）。
+  - 新增单测 6 条；相关 309 条全绿。
 ## [2.127.96] - 2026-10-21
 
 - **护栏对齐：17 条不一致逐条落地**（接 2.127.95 的组件化）。
@@ -151,6 +189,15 @@ o-money、share-via-tool 等）——先如实列出来，不擅自合并。
   - 单轮延迟实测（同一台机器）：glm-5.3-flash 5.4s、gnes-2.5-flash 4.7s、step-5-preview 5.1s —— 模型本身差异不大，慢在**轮数**。
 ## [2.127.92] - 2026-10-20
 
+## [2.127.97] - 2026-10-21
+
+- **harness Propose 步**：补上 Harness² 循环里元枢缺的"提候选"环节（之前只有 Probe）。
+  - 只读既有证据：文档/harness-试验.md（前后对照结论）+ 记忆/运行时/慢请求.jsonl（按路径取最慢一条）。
+  - 一次**无工具**模型调用生成两条候选（一条通用缺陷、一条领域做法），必须绑定证据字段；解析不出来就**什么都不写**（宁可没候选也不写垃圾）。
+  - 落盘 工程/经验库/候选/候选-YYYY-MM-DD.md + 索引.jsonl，状态一律 draft；**绝不写 记忆/harness/**、绝不改协议/护栏。
+  - 触发：夜间定时任务的试验结论为 **worse** 时自动提一次；也可手动 POST /api/harness/propose。
+  - 新增接口：GET /api/harness/candidates、POST /api/harness/candidates/mark（draft/verified/rejected/adopted）。
+  - 新增单测 6 条；相关 309 条全绿。
 ## [2.127.96] - 2026-10-21
 
 - **护栏对齐：17 条不一致逐条落地**（接 2.127.95 的组件化）。
@@ -204,6 +251,15 @@ o-money、share-via-tool 等）——先如实列出来，不擅自合并。
   - 合计每轮少约 3KB（≈2k tokens），在 8 轮的工具任务里约少 16k tokens 的重复输入。
 ## [2.127.91] - 2026-10-20
 
+## [2.127.97] - 2026-10-21
+
+- **harness Propose 步**：补上 Harness² 循环里元枢缺的"提候选"环节（之前只有 Probe）。
+  - 只读既有证据：文档/harness-试验.md（前后对照结论）+ 记忆/运行时/慢请求.jsonl（按路径取最慢一条）。
+  - 一次**无工具**模型调用生成两条候选（一条通用缺陷、一条领域做法），必须绑定证据字段；解析不出来就**什么都不写**（宁可没候选也不写垃圾）。
+  - 落盘 工程/经验库/候选/候选-YYYY-MM-DD.md + 索引.jsonl，状态一律 draft；**绝不写 记忆/harness/**、绝不改协议/护栏。
+  - 触发：夜间定时任务的试验结论为 **worse** 时自动提一次；也可手动 POST /api/harness/propose。
+  - 新增接口：GET /api/harness/candidates、POST /api/harness/candidates/mark（draft/verified/rejected/adopted）。
+  - 新增单测 6 条；相关 309 条全绿。
 ## [2.127.96] - 2026-10-21
 
 - **护栏对齐：17 条不一致逐条落地**（接 2.127.95 的组件化）。
@@ -264,6 +320,15 @@ o-money、share-via-tool 等）——先如实列出来，不擅自合并。
 - 慢请求日志（记忆/运行时/慢请求.jsonl）今日统计：/api/companion/decision 495 次均值 6.5s、/api/companion/facts 96 次均值 5.7s——它们也是被同一个卡顿拖慢的受害者，不是元凶（un/overview 已有 60s 缓存）。
 ## [2.127.90] - 2026-10-20
 
+## [2.127.97] - 2026-10-21
+
+- **harness Propose 步**：补上 Harness² 循环里元枢缺的"提候选"环节（之前只有 Probe）。
+  - 只读既有证据：文档/harness-试验.md（前后对照结论）+ 记忆/运行时/慢请求.jsonl（按路径取最慢一条）。
+  - 一次**无工具**模型调用生成两条候选（一条通用缺陷、一条领域做法），必须绑定证据字段；解析不出来就**什么都不写**（宁可没候选也不写垃圾）。
+  - 落盘 工程/经验库/候选/候选-YYYY-MM-DD.md + 索引.jsonl，状态一律 draft；**绝不写 记忆/harness/**、绝不改协议/护栏。
+  - 触发：夜间定时任务的试验结论为 **worse** 时自动提一次；也可手动 POST /api/harness/propose。
+  - 新增接口：GET /api/harness/candidates、POST /api/harness/candidates/mark（draft/verified/rejected/adopted）。
+  - 新增单测 6 条；相关 309 条全绿。
 ## [2.127.96] - 2026-10-21
 
 - **护栏对齐：17 条不一致逐条落地**（接 2.127.95 的组件化）。
@@ -331,6 +396,15 @@ o-money、share-via-tool 等）——先如实列出来，不擅自合并。
   - 抢锁失败的日志补上 pid 与"不算启动"，不再刷「守护启动」让人误以为在反复拉起。
 ## [2.127.89] - 2026-10-20
 
+## [2.127.97] - 2026-10-21
+
+- **harness Propose 步**：补上 Harness² 循环里元枢缺的"提候选"环节（之前只有 Probe）。
+  - 只读既有证据：文档/harness-试验.md（前后对照结论）+ 记忆/运行时/慢请求.jsonl（按路径取最慢一条）。
+  - 一次**无工具**模型调用生成两条候选（一条通用缺陷、一条领域做法），必须绑定证据字段；解析不出来就**什么都不写**（宁可没候选也不写垃圾）。
+  - 落盘 工程/经验库/候选/候选-YYYY-MM-DD.md + 索引.jsonl，状态一律 draft；**绝不写 记忆/harness/**、绝不改协议/护栏。
+  - 触发：夜间定时任务的试验结论为 **worse** 时自动提一次；也可手动 POST /api/harness/propose。
+  - 新增接口：GET /api/harness/candidates、POST /api/harness/candidates/mark（draft/verified/rejected/adopted）。
+  - 新增单测 6 条；相关 309 条全绿。
 ## [2.127.96] - 2026-10-21
 
 - **护栏对齐：17 条不一致逐条落地**（接 2.127.95 的组件化）。
@@ -404,6 +478,15 @@ o-money、share-via-tool 等）——先如实列出来，不擅自合并。
 - 事件循环监测补一个**停顿起点** stallFrom（= now - maxMs），超过 5s 另打一条 [loop-stall]：以后能拿这个时间点去对服务日志，定位肇事请求，而不是只知道"卡了 25 秒"。
 ## [2.127.88] - 2026-10-20
 
+## [2.127.97] - 2026-10-21
+
+- **harness Propose 步**：补上 Harness² 循环里元枢缺的"提候选"环节（之前只有 Probe）。
+  - 只读既有证据：文档/harness-试验.md（前后对照结论）+ 记忆/运行时/慢请求.jsonl（按路径取最慢一条）。
+  - 一次**无工具**模型调用生成两条候选（一条通用缺陷、一条领域做法），必须绑定证据字段；解析不出来就**什么都不写**（宁可没候选也不写垃圾）。
+  - 落盘 工程/经验库/候选/候选-YYYY-MM-DD.md + 索引.jsonl，状态一律 draft；**绝不写 记忆/harness/**、绝不改协议/护栏。
+  - 触发：夜间定时任务的试验结论为 **worse** 时自动提一次；也可手动 POST /api/harness/propose。
+  - 新增接口：GET /api/harness/candidates、POST /api/harness/candidates/mark（draft/verified/rejected/adopted）。
+  - 新增单测 6 条；相关 309 条全绿。
 ## [2.127.96] - 2026-10-21
 
 - **护栏对齐：17 条不一致逐条落地**（接 2.127.95 的组件化）。
@@ -484,6 +567,15 @@ o-money、share-via-tool 等）——先如实列出来，不擅自合并。
   - package.json 补 uthor 与 license（之前都是空）。
 ## [2.127.87] - 2026-10-20
 
+## [2.127.97] - 2026-10-21
+
+- **harness Propose 步**：补上 Harness² 循环里元枢缺的"提候选"环节（之前只有 Probe）。
+  - 只读既有证据：文档/harness-试验.md（前后对照结论）+ 记忆/运行时/慢请求.jsonl（按路径取最慢一条）。
+  - 一次**无工具**模型调用生成两条候选（一条通用缺陷、一条领域做法），必须绑定证据字段；解析不出来就**什么都不写**（宁可没候选也不写垃圾）。
+  - 落盘 工程/经验库/候选/候选-YYYY-MM-DD.md + 索引.jsonl，状态一律 draft；**绝不写 记忆/harness/**、绝不改协议/护栏。
+  - 触发：夜间定时任务的试验结论为 **worse** 时自动提一次；也可手动 POST /api/harness/propose。
+  - 新增接口：GET /api/harness/candidates、POST /api/harness/candidates/mark（draft/verified/rejected/adopted）。
+  - 新增单测 6 条；相关 309 条全绿。
 ## [2.127.96] - 2026-10-21
 
 - **护栏对齐：17 条不一致逐条落地**（接 2.127.95 的组件化）。
@@ -571,6 +663,15 @@ o-money、share-via-tool 等）——先如实列出来，不擅自合并。
   - 测试：self-model 4/4（含"没配置不出现"与"有配置才注入"）。
 ## [2.127.86] - 2026-10-20
 
+## [2.127.97] - 2026-10-21
+
+- **harness Propose 步**：补上 Harness² 循环里元枢缺的"提候选"环节（之前只有 Probe）。
+  - 只读既有证据：文档/harness-试验.md（前后对照结论）+ 记忆/运行时/慢请求.jsonl（按路径取最慢一条）。
+  - 一次**无工具**模型调用生成两条候选（一条通用缺陷、一条领域做法），必须绑定证据字段；解析不出来就**什么都不写**（宁可没候选也不写垃圾）。
+  - 落盘 工程/经验库/候选/候选-YYYY-MM-DD.md + 索引.jsonl，状态一律 draft；**绝不写 记忆/harness/**、绝不改协议/护栏。
+  - 触发：夜间定时任务的试验结论为 **worse** 时自动提一次；也可手动 POST /api/harness/propose。
+  - 新增接口：GET /api/harness/candidates、POST /api/harness/candidates/mark（draft/verified/rejected/adopted）。
+  - 新增单测 6 条；相关 309 条全绿。
 ## [2.127.96] - 2026-10-21
 
 - **护栏对齐：17 条不一致逐条落地**（接 2.127.95 的组件化）。
@@ -665,6 +766,15 @@ o-money、share-via-tool 等）——先如实列出来，不擅自合并。
   - 之前系统页只有「当前状态 / 访问令牌 / 检测更新 / 外网配置 / 接入模式 / 运行环境」，**没有任何一段说清"这是什么、守什么边界"**——这就是缺的那块。
 ## [2.127.85] - 2026-10-20
 
+## [2.127.97] - 2026-10-21
+
+- **harness Propose 步**：补上 Harness² 循环里元枢缺的"提候选"环节（之前只有 Probe）。
+  - 只读既有证据：文档/harness-试验.md（前后对照结论）+ 记忆/运行时/慢请求.jsonl（按路径取最慢一条）。
+  - 一次**无工具**模型调用生成两条候选（一条通用缺陷、一条领域做法），必须绑定证据字段；解析不出来就**什么都不写**（宁可没候选也不写垃圾）。
+  - 落盘 工程/经验库/候选/候选-YYYY-MM-DD.md + 索引.jsonl，状态一律 draft；**绝不写 记忆/harness/**、绝不改协议/护栏。
+  - 触发：夜间定时任务的试验结论为 **worse** 时自动提一次；也可手动 POST /api/harness/propose。
+  - 新增接口：GET /api/harness/candidates、POST /api/harness/candidates/mark（draft/verified/rejected/adopted）。
+  - 新增单测 6 条；相关 309 条全绿。
 ## [2.127.96] - 2026-10-21
 
 - **护栏对齐：17 条不一致逐条落地**（接 2.127.95 的组件化）。
@@ -769,6 +879,15 @@ etwork（fetch failed、ECONNRESET、超时）/ ad-model（is a video model、m
 - 测试：model-failover 6 条、harness-probe 6 条，共 12 条新增。
 ## [2.127.84] - 2026-10-20
 
+## [2.127.97] - 2026-10-21
+
+- **harness Propose 步**：补上 Harness² 循环里元枢缺的"提候选"环节（之前只有 Probe）。
+  - 只读既有证据：文档/harness-试验.md（前后对照结论）+ 记忆/运行时/慢请求.jsonl（按路径取最慢一条）。
+  - 一次**无工具**模型调用生成两条候选（一条通用缺陷、一条领域做法），必须绑定证据字段；解析不出来就**什么都不写**（宁可没候选也不写垃圾）。
+  - 落盘 工程/经验库/候选/候选-YYYY-MM-DD.md + 索引.jsonl，状态一律 draft；**绝不写 记忆/harness/**、绝不改协议/护栏。
+  - 触发：夜间定时任务的试验结论为 **worse** 时自动提一次；也可手动 POST /api/harness/propose。
+  - 新增接口：GET /api/harness/candidates、POST /api/harness/candidates/mark（draft/verified/rejected/adopted）。
+  - 新增单测 6 条；相关 309 条全绿。
 ## [2.127.96] - 2026-10-21
 
 - **护栏对齐：17 条不一致逐条落地**（接 2.127.95 的组件化）。
@@ -881,6 +1000,15 @@ etwork（fetch failed、ECONNRESET、超时）/ ad-model（is a video model、m
 - 另记：同批历史里还有 HTTP 429 每周/每月使用上限 与 etch failed，那是通道额度与网络，不是代码问题；探针把这两类如实记成"变差"，没有硬归因。
 ## [2.127.83] - 2026-10-20
 
+## [2.127.97] - 2026-10-21
+
+- **harness Propose 步**：补上 Harness² 循环里元枢缺的"提候选"环节（之前只有 Probe）。
+  - 只读既有证据：文档/harness-试验.md（前后对照结论）+ 记忆/运行时/慢请求.jsonl（按路径取最慢一条）。
+  - 一次**无工具**模型调用生成两条候选（一条通用缺陷、一条领域做法），必须绑定证据字段；解析不出来就**什么都不写**（宁可没候选也不写垃圾）。
+  - 落盘 工程/经验库/候选/候选-YYYY-MM-DD.md + 索引.jsonl，状态一律 draft；**绝不写 记忆/harness/**、绝不改协议/护栏。
+  - 触发：夜间定时任务的试验结论为 **worse** 时自动提一次；也可手动 POST /api/harness/propose。
+  - 新增接口：GET /api/harness/candidates、POST /api/harness/candidates/mark（draft/verified/rejected/adopted）。
+  - 新增单测 6 条；相关 309 条全绿。
 ## [2.127.96] - 2026-10-21
 
 - **护栏对齐：17 条不一致逐条落地**（接 2.127.95 的组件化）。
@@ -1002,6 +1130,15 @@ etwork（fetch failed、ECONNRESET、超时）/ ad-model（is a video model、m
   - 测试 	ests/unit/harness-probe.test.mjs 5 条；self 相关 16/16。
 ## [2.127.82] - 2026-10-20
 
+## [2.127.97] - 2026-10-21
+
+- **harness Propose 步**：补上 Harness² 循环里元枢缺的"提候选"环节（之前只有 Probe）。
+  - 只读既有证据：文档/harness-试验.md（前后对照结论）+ 记忆/运行时/慢请求.jsonl（按路径取最慢一条）。
+  - 一次**无工具**模型调用生成两条候选（一条通用缺陷、一条领域做法），必须绑定证据字段；解析不出来就**什么都不写**（宁可没候选也不写垃圾）。
+  - 落盘 工程/经验库/候选/候选-YYYY-MM-DD.md + 索引.jsonl，状态一律 draft；**绝不写 记忆/harness/**、绝不改协议/护栏。
+  - 触发：夜间定时任务的试验结论为 **worse** 时自动提一次；也可手动 POST /api/harness/propose。
+  - 新增接口：GET /api/harness/candidates、POST /api/harness/candidates/mark（draft/verified/rejected/adopted）。
+  - 新增单测 6 条；相关 309 条全绿。
 ## [2.127.96] - 2026-10-21
 
 - **护栏对齐：17 条不一致逐条落地**（接 2.127.95 的组件化）。
@@ -1141,6 +1278,15 @@ etwork（fetch failed、ECONNRESET、超时）/ ad-model（is a video model、m
 
 ## [2.127.75] - 2026-10-19
 
+## [2.127.97] - 2026-10-21
+
+- **harness Propose 步**：补上 Harness² 循环里元枢缺的"提候选"环节（之前只有 Probe）。
+  - 只读既有证据：文档/harness-试验.md（前后对照结论）+ 记忆/运行时/慢请求.jsonl（按路径取最慢一条）。
+  - 一次**无工具**模型调用生成两条候选（一条通用缺陷、一条领域做法），必须绑定证据字段；解析不出来就**什么都不写**（宁可没候选也不写垃圾）。
+  - 落盘 工程/经验库/候选/候选-YYYY-MM-DD.md + 索引.jsonl，状态一律 draft；**绝不写 记忆/harness/**、绝不改协议/护栏。
+  - 触发：夜间定时任务的试验结论为 **worse** 时自动提一次；也可手动 POST /api/harness/propose。
+  - 新增接口：GET /api/harness/candidates、POST /api/harness/candidates/mark（draft/verified/rejected/adopted）。
+  - 新增单测 6 条；相关 309 条全绿。
 ## [2.127.96] - 2026-10-21
 
 - **护栏对齐：17 条不一致逐条落地**（接 2.127.95 的组件化）。
