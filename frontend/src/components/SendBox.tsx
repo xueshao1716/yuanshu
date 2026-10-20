@@ -256,16 +256,26 @@ export default function SendBox({ streaming, onStop, onSend, onSteer, onCommand,
     if (Date.now() - touchSentAt.current < 800) return  // 触摸已经发过了
     doSend()
   }
+  // 2026-10-20 修：手机上点发送后输入法键盘不收起。
+  // 归因：发送后输入框仍然 focus，软键盘就保持展开。触摸/粗指针路径主动失焦（桌面保留焦点好继续打字）。
+  const dismissKeyboardOnTouch = () => {
+    try {
+      const coarse = typeof window !== 'undefined' && window.matchMedia?.('(pointer: coarse)')?.matches
+      const touched = Date.now() - touchSentAt.current < 800
+      if (coarse || touched) (document.activeElement as HTMLElement | null)?.blur?.()
+    } catch { /* 失焦失败不影响发送 */ }
+  }
   const doSend = () => {
     const v = value.trim()
     if (canSteer) {
       if (!v || files.length || v.startsWith('/')) return
-      void onSteer!(v).then(ok => { if (ok) setValue('') })
+      void onSteer!(v).then(ok => { if (ok) { setValue(''); dismissKeyboardOnTouch() } })
       return
     }
     if (!v || streaming || readingRef.current) return
     onSend(v, files)
     setValue(''); setFiles([]); setSlashQuery(null); setAtQuery(null)
+    dismissKeyboardOnTouch()
   }
 
   const onUploadFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
