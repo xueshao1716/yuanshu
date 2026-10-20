@@ -225,6 +225,17 @@ npm run version:bump minor   # 发版：功能用 minor，纯修复用 patch
   <img src="docs/images/donate-qr.jpg" alt="赞赏码" width="280">
 </p>
 
+## 开发者
+
+**xueshao1716** · 个人项目，不是公司产品。
+
+- 邮箱：**xue-xiaofeng@outlook.com**
+- QQ：**37303467**
+- GitHub：[@xueshao1716](https://github.com/xueshao1716) · Gitee：[@linxinyu520xue](https://gitee.com/linxinyu520xue)
+- 有问题优先开 issue（带版本号与日志）；紧急或商务走邮箱。
+
+> 元枢是个人长期维护的项目。没有客服团队，回复可能慢，但会看。
+
 ## License
 
 [Apache-2.0](LICENSE) © 2026 xueshao1716

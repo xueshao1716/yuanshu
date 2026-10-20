@@ -36,13 +36,22 @@
 - **不是无记忆的工具**：她有自我描述（`记忆/自我.md`），知道自己在哪、活了多久、能做什么、拒绝什么。
 - **不改写历史**：自我描述每次按真实状态重算，她没有能力给自己编一段更好听的过去。
 
-## 五、许可与来源
+## 五、谁做的
+
+元枢是 **xueshao1716** 的个人项目，不是公司产品。
+
+- 邮箱：xue-xiaofeng@outlook.com
+- QQ：37303467
+- 仓库：GitHub [xueshao1716/yuanshu](https://github.com/xueshao1716/yuanshu) · Gitee [linxinyu520xue/yuanshu](https://gitee.com/linxinyu520xue/yuanshu)
+- 反馈：优先开 issue（带版本号与日志）；紧急或商务走邮箱。个人维护，回复可能慢，但会看。
+
+## 六、许可与来源
 
 - 许可证：**Apache-2.0**
 - 主仓库（海外）：https://github.com/xueshao1716/yuanshu
 - 镜像（国内）：https://gitee.com/linxinyu520xue/yuanshu
 - 第三方：模型与工具来自各家 provider，密钥与用量由你自负；具体清单见 `package.json` 与各 provider 文档
 
-## 六、如果你要引用这段
+## 七、如果你要引用这段
 
 可以整段引用，但请保留"边界"与"额度"两节——**只讲能力不讲边界，就是误导**。

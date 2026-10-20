@@ -369,6 +369,17 @@ export default function System() {
               <a className="hover:text-pi-text underline underline-offset-2" href="https://gitee.com/linxinyu520xue/yuanshu" target="_blank" rel="noreferrer">Gitee</a>
               <span>完整声明见 <code className="text-[12px]">docs/STATEMENT.md</code></span>
             </div>
+            {/* 开发者署名：让人知道这是谁做的（个人项目，不是公司产品） */}
+            <div className="rounded-pi-lg border border-pi-border-soft p-3 text-[13px]">
+              <div className="text-[11px] uppercase tracking-[0.12em] text-pi-dim2">开发者</div>
+              <div className="mt-1.5 flex flex-wrap items-baseline gap-x-4 gap-y-1">
+                <strong className="text-pi-text">xueshao1716</strong>
+                <span className="text-pi-dim2">个人项目，不是公司产品</span>
+                <a className="text-pi-accent underline underline-offset-2" href="mailto:xue-xiaofeng@outlook.com">xue-xiaofeng@outlook.com</a>
+                <span className="text-pi-dim">QQ 37303467</span>
+              </div>
+              <p className="mt-1 text-[12px] text-pi-dim2">有问题优先开 issue（带版本号与日志）；紧急或商务走邮箱。个人维护，回复可能慢，但会看。</p>
+            </div>
           </div>
         </section>
 
