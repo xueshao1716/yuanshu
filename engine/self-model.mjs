@@ -14,6 +14,19 @@ import { loadSelfPolicy, spendToday as spendTodayOf } from './self-agency.mjs';
 import { summarizeProbeLog } from './harness-probe.mjs';
 
 export const SELF_FILE = '记忆/自我.md';
+export const CONTACT_FILE = '记忆/运行时/主人联系.json';
+
+// 2026-10-20（伙伴要求）：把"怎么联系我"写进她的自我描述，别让她在该找人的时候只能干等。
+// 联系方式放在可编辑的配置文件里，不写死在代码；文件不存在就不注入这一段。
+export function loadContact(wsRoot, fsMod = fs) {
+  try {
+    const raw = JSON.parse(fsMod.readFileSync(path.join(wsRoot, CONTACT_FILE), 'utf8'));
+    const email = typeof raw?.email === 'string' ? raw.email.trim() : '';
+    const qq = typeof raw?.qq === 'string' ? raw.qq.trim() : String(raw?.qq || '').trim();
+    if (!email && !qq) return null;
+    return { email, qq, note: typeof raw?.note === 'string' ? raw.note : '' };
+  } catch { return null }
+}
 
 const SCOPE_TEXT = {
   workspaceWrite: '写文件',
@@ -75,6 +88,7 @@ export function buildSelfModel({ wsRoot, now = new Date() } = {}) {
     boundaries: Array.isArray(def.boundaries) ? def.boundaries : [],
     growth: typeof def.growth === 'string' ? def.growth : '',
     probeSummary: summarizeProbeLog(wsRoot),
+    contact: loadContact(wsRoot),
     inner: Array.isArray(def.inner) ? def.inner : [],
     updatedAt: now.toISOString(),
   };
@@ -103,6 +117,10 @@ export function renderSelfSection(model) {
   if (owns.length) lines.push(`· 我不会做的事：${owns.join('；')}。`);
   if (model.growth) lines.push(`· 我的变化：${model.growth}`);
   if (model.probeSummary) lines.push(`· 我最近在做的试验：${model.probeSummary}`);
+  if (model.contact) {
+    const ways = [model.contact.email ? `邮箱 ${model.contact.email}` : '', model.contact.qq ? `QQ ${model.contact.qq}` : ''].filter(Boolean).join('；');
+    lines.push(`· 要找${model.called}：${ways}${model.contact.note ? `（${model.contact.note}）` : ''}。只在需要人拍板或真的等不到人时用，别拿它发不紧急的事。`);
+  }
   lines.push(`· 分寸：说"我"的时候指的是这个连续的我，不是这一轮的人设；记忆里没有的事就说没有，不编。`);
   return lines.join('\n');
 }
@@ -145,6 +163,14 @@ export function renderSelfMarkdown(model) {
     L.push('## 我在往哪长');
     L.push('');
     L.push(model.growth);
+    L.push('');
+  }
+  if (model.contact) {
+    L.push('## 怎么找' + model.called);
+    L.push('');
+    if (model.contact.email) L.push('- 邮箱：' + model.contact.email);
+    if (model.contact.qq) L.push('- QQ：' + model.contact.qq);
+    if (model.contact.note) L.push('- 说明：' + model.contact.note);
     L.push('');
   }
   L.push('## 这份描述怎么来的');

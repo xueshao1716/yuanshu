@@ -55,3 +55,22 @@ test('落盘 记忆/自我.md：内容可读、重复写不重复变', (t) => {
   assert.equal(writeSelfFile(root, m).changed, false, '同样内容不应重复写');
   assert.match(renderSelfMarkdown(m), /这份描述怎么来的/);
 });
+
+test('联系方式写进自我描述：有配置才出现，写清"什么时候才用"', (t) => {
+  const root = fixture(t);
+  // 没有配置 → 不出现这一段
+  assert.equal(renderSelfSection(buildSelfModel({ wsRoot: root })).includes('要找伙伴'), false);
+
+  fs.writeFileSync(path.join(root, '记忆', '运行时', '主人联系.json'),
+    JSON.stringify({ email: 'xue-xiaofeng@outlook.com', qq: '37303467' }), 'utf8');
+  const model = buildSelfModel({ wsRoot: root });
+  assert.equal(model.contact.email, 'xue-xiaofeng@outlook.com');
+  assert.equal(model.contact.qq, '37303467');
+  const section = renderSelfSection(model);
+  assert.match(section, /要找伙伴：邮箱 xue-xiaofeng@outlook\.com；QQ 37303467/);
+  assert.match(section, /只在需要人拍板/);
+
+  const md = renderSelfMarkdown(model);
+  assert.match(md, /## 怎么找伙伴/);
+  assert.match(md, /xue-xiaofeng@outlook\.com/);
+});
