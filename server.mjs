@@ -499,6 +499,28 @@ const NATIVE_PROVIDERS = new Set([
 ]);
 
 let defaultModel = undefined; // 在启动模型列表构建后初始化（见下）
+
+// 2026-10-21 Propose：拿已有证据提两条候选（不落地、不改组件）。
+// 放在模块层是因为路由与夜间任务都要用；它只读日志 + 一次无工具模型调用，成本固定。
+async function draftHarnessCandidates(extraEvidence = null, source = "manual") {
+  try {
+    const evidence = collectEvidence(WS_ROOT);
+    if (extraEvidence) evidence.probeRows = [...evidence.probeRows, extraEvidence];
+    if (!evidence.hasEvidence && !extraEvidence) return { ok: false, reason: "no-evidence" };
+    const prompt = buildProposePrompt(evidence);
+    const r = await unifiedChat(defaultModel, [{ role: "user", content: prompt }], { tools: [] });
+    const text = completedTaskText(r);
+    const candidates = parseCandidates(text);
+    if (!candidates.length) return { ok: false, reason: "unparsed" };
+    const date = new Date().toISOString().slice(0, 10);
+    const written = writeCandidates(WS_ROOT, { date, candidates, source });
+    console.log(`[harness-propose] 写入 ${written.count} 条候选（${source}）→ ${written.file}`);
+    return written;
+  } catch (e) {
+    console.log("[harness-propose] 跳过:", String(e?.message || e).slice(0, 120));
+    return { ok: false, reason: "error" };
+  }
+}
 // ④ 会话级的"上一轮出过什么图、提示词是什么"（续画用；不落盘，重启即忘，够用且不污染会话文件）
 const lastMediaBySession = new Map();
 // ── 会话管理 ───────────────────────────────────────────────────────
@@ -4350,28 +4372,6 @@ ${rows.map((r) => `- [${r.status}${r.closed ? "/已结清" : ""}] ${r.text}\n  �
       }); // 技能自主沉淀钩子（09-03，Hermes 闭环）
       timeEngine.start();
     } catch (e) { console.log("[time-engine] 启动失败:", String(e?.message || e).slice(0, 100)); }
-    // 2026-10-21 Propose：拿已有证据提两条候选（不落地、不改组件）。
-    // 刻意用单次无工具调用，成本固定，不会因为候选生成把主服务拖慢。
-    const draftHarnessCandidates = async (extraEvidence = null, source = "manual") => {
-      try {
-        const evidence = collectEvidence(WS_ROOT);
-        if (extraEvidence) evidence.probeRows = [...evidence.probeRows, extraEvidence];
-        if (!evidence.hasEvidence && !extraEvidence) return { ok: false, reason: "no-evidence" };
-        const prompt = buildProposePrompt(evidence);
-        const r = await unifiedChat(defaultModel, [{ role: "user", content: prompt }], { tools: [] });
-        const text = completedTaskText(r);
-        const candidates = parseCandidates(text);
-        if (!candidates.length) return { ok: false, reason: "unparsed" };
-        const date = new Date().toISOString().slice(0, 10);
-        const written = writeCandidates(WS_ROOT, { date, candidates, source });
-        console.log(`[harness-propose] 写入 ${written.count} 条候选（${source}）→ ${written.file}`);
-        return written;
-      } catch (e) {
-        console.log("[harness-propose] 跳过:", String(e?.message || e).slice(0, 120));
-        return { ok: false, reason: "error" };
-      }
-    };
-
     knowledgeRuntime.start();
     // 心跳：不调模型，只巡检确定性事实；同一件事只提醒一次，夜里不打扰。YUANSHU_HEARTBEAT=0 可关。
     if (process.env.YUANSHU_HEARTBEAT !== "0") {
