@@ -222,7 +222,7 @@ const startServer = singleFlight(async function () {
 
 async function main() {
   if (!(await acquireLock())) {
-    log("检测到已有 watchdog 实例（单例端口已占用），本实例退出");
+    log(`检测到已有 watchdog 实例（单例端口 ${SINGLETON_PORT} 已被占用），本实例 pid=${process.pid} 退出（不算启动）`);
     process.exit(0);
   }
   log("═══ 元枢守护 v2.1 启动（分级检查：启动期 5s 快查 ×12 轮 → 稳态 30s）═══");

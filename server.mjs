@@ -4445,7 +4445,9 @@ try {
   try { fs.appendFileSync(lagFile, JSON.stringify({ at: new Date().toISOString(), pid: process.pid, mounted: true, note: "loop-lag 监测已挂上（>500ms 记一条）" }) + "\n"); } catch {}
   setInterval(() => {
     const maxMs = Math.round(lag.max / 1e6);
-    if (maxMs > 500) {
+    // 2026-10-20：阈值 500ms 太敏感——实测一天写 29741 行 / 2.7MB，噪声盖住真问题。
+    // 抬到 2000ms 才落盘；真正要看的 5s/10s 级停顿不会漏。
+    if (maxMs > 2000) {
       const line = JSON.stringify({
         at: new Date().toISOString(), pid: process.pid, maxMs,
         // 2026-10-20：只记"窗口内最大值"定位不到肇事请求，补一个停顿起点，
@@ -4454,7 +4456,11 @@ try {
         meanMs: Math.round(lag.mean / 1e6), p99Ms: Math.round(lag.percentile(99) / 1e6),
         rssMB: Math.round(process.memoryUsage().rss / 1048576),
       });
-      try { fs.appendFileSync(lagFile, line + "\n"); } catch {}
+      try {
+        // 超过 5MB 轮转一份，避免无限增长
+        try { const st = fs.statSync(lagFile); if (st.size > 5 * 1024 * 1024) fs.renameSync(lagFile, lagFile + ".1"); } catch {}
+        fs.appendFileSync(lagFile, line + "\n");
+      } catch {}
       console.log("[loop-lag]", line);
       if (maxMs > 5000) console.log(`[loop-stall] 事件循环停了 ${maxMs}ms（起点 ${new Date(Date.now() - maxMs).toISOString()}，rss ${Math.round(process.memoryUsage().rss / 1048576)}MB）`);
     }
