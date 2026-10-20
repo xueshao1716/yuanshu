@@ -4,6 +4,7 @@ import { runtimeIdentity } from "./runtime-identity.mjs";
 import { rhythmPhrase } from "./activity-rhythm.mjs";
 import { loadPersonaDefinition, renderPersonaSection } from "./persona-def.mjs";
 import { soulContextPrompt } from "./soul-context.mjs";
+import { systemPrompt, guardrailsText } from "./harness-components.mjs";
 import { buildSelfModel, renderSelfSection, writeSelfFile } from "./self-model.mjs";
 import { workspaceFromEnv } from "./workspace-default.mjs";
 
@@ -145,6 +146,15 @@ export function assembleYuanshuSystem(baseOpts = {}, registry = null, ctx = {}) 
     const selfSection = renderSelfSection(selfModel);
     if (selfSection) merged.persona = [merged.persona, selfSection].filter(Boolean).join("\n\n");
     writeSelfFile(selfRoot, selfModel);
+  } catch {}
+  // 2026-10-20：组件化第一步——协议文本与护栏都可外置为文件/单一真源；
+  // 读不到文件时回退内置常量，行为与以前一致（只是多了可编辑与可追溯）。
+  try {
+    const hRoot = ctx.wsRoot || workspaceFromEnv() || process.cwd();
+    const sys = systemPrompt(hRoot);
+    if (sys?.text) merged.protocol = sys.text;
+    const guard = guardrailsText(hRoot);
+    if (guard) merged.guardrails = guard;
   } catch {}
   const identity = runtimeIdentity(ctx);
   if (identity) merged.runtime = [merged.runtime, identity].filter(Boolean).join('\n\n');

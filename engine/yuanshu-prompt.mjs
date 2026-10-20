@@ -8,7 +8,8 @@ import { shouldInjectFullMemory } from "./context-loader.mjs";
 import { sessionContinuityNote } from "./yuanshu-session.mjs";
 
 export const YUANSHU_SECTION_ORDER = [
-  "persona", "protocol", "rules", "tools", "skills", "memory", "time", "runtime", "plan", "task",
+  // 2026-10-20：guardrails 紧跟 protocol —— 硬边界要在工作协议之后、具体工具之前出现
+  "persona", "protocol", "guardrails", "rules", "tools", "skills", "memory", "time", "runtime", "plan", "task",
 ];
 
 function sectionText(raw) {

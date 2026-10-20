@@ -8,8 +8,38 @@
 
 ## [Unreleased]
 
+## [2.127.95] - 2026-10-20
+
+## [2.127.95] - 2026-10-20
+
+- **harness 组件化（一）**：按 Harness²（arXiv:2610.14224）的结构，把外壳拆成可追溯的组件——只做"能看见来源、能改、能回退"，不做 propose/compose。
+  - **拆模块**：yuanshu-protocol.mjs 原来一个文件装着协议文本 + 技能匹配算法 + 索引格式 + 上下文构建 + 工具失败教练，现拆出 skill-matcher.mjs、	ool-coach.mjs（原文件 re-export 保持兼容）。
+  - **协议可外置**：系统提示真源可放 记忆/harness/system.md（已写入）；读不到或为空时回退内置常量，行为不变。
+  - **护栏单一真源**：新增 guardrails 段落，文字由 宪法.json 里**已批准（accepted + human）**的条款渲染，并标注"代码级硬拦"的规则 id；未批准的条款不进提示词。
+  - **协议编号修正**：原来有两个 5.、一个 4.1，重排为 1–13。
+  - **只读接口**：GET /api/harness 返回八组件的来源（file/builtin/constitution+code）、字节数、可写性，以及代码规则与宪法条款的对齐审计。
+  - **实测发现漂移**：代码里有 8 条规则宪法没有（
+o-force-git、
+o-system-mutate、
+o-secrets-write 等），宪法里有 9 条代码没硬拦（
+o-money、share-via-tool 等）——先如实列出来，不擅自合并。
+  - 新增单测 5 条；相关 34 个测试文件共 231 条全绿。
 ## [2.127.94] - 2026-10-20
 
+## [2.127.95] - 2026-10-20
+
+- **harness 组件化（一）**：按 Harness²（arXiv:2610.14224）的结构，把外壳拆成可追溯的组件——只做"能看见来源、能改、能回退"，不做 propose/compose。
+  - **拆模块**：yuanshu-protocol.mjs 原来一个文件装着协议文本 + 技能匹配算法 + 索引格式 + 上下文构建 + 工具失败教练，现拆出 skill-matcher.mjs、	ool-coach.mjs（原文件 re-export 保持兼容）。
+  - **协议可外置**：系统提示真源可放 记忆/harness/system.md（已写入）；读不到或为空时回退内置常量，行为不变。
+  - **护栏单一真源**：新增 guardrails 段落，文字由 宪法.json 里**已批准（accepted + human）**的条款渲染，并标注"代码级硬拦"的规则 id；未批准的条款不进提示词。
+  - **协议编号修正**：原来有两个 5.、一个 4.1，重排为 1–13。
+  - **只读接口**：GET /api/harness 返回八组件的来源（file/builtin/constitution+code）、字节数、可写性，以及代码规则与宪法条款的对齐审计。
+  - **实测发现漂移**：代码里有 8 条规则宪法没有（
+o-force-git、
+o-system-mutate、
+o-secrets-write 等），宪法里有 9 条代码没硬拦（
+o-money、share-via-tool 等）——先如实列出来，不擅自合并。
+  - 新增单测 5 条；相关 34 个测试文件共 231 条全绿。
 ## [2.127.94] - 2026-10-20
 
 - 按实测把「快的做法」写进协议：
@@ -19,6 +49,20 @@
 - 顺带确认：DEEPSEEK_API_KEY 在用户环境里已配置（35 字符），dsh 能正常跑；但在未继承该变量的终端里会报 MISSING_CREDENTIAL。
 ## [2.127.93] - 2026-10-20
 
+## [2.127.95] - 2026-10-20
+
+- **harness 组件化（一）**：按 Harness²（arXiv:2610.14224）的结构，把外壳拆成可追溯的组件——只做"能看见来源、能改、能回退"，不做 propose/compose。
+  - **拆模块**：yuanshu-protocol.mjs 原来一个文件装着协议文本 + 技能匹配算法 + 索引格式 + 上下文构建 + 工具失败教练，现拆出 skill-matcher.mjs、	ool-coach.mjs（原文件 re-export 保持兼容）。
+  - **协议可外置**：系统提示真源可放 记忆/harness/system.md（已写入）；读不到或为空时回退内置常量，行为不变。
+  - **护栏单一真源**：新增 guardrails 段落，文字由 宪法.json 里**已批准（accepted + human）**的条款渲染，并标注"代码级硬拦"的规则 id；未批准的条款不进提示词。
+  - **协议编号修正**：原来有两个 5.、一个 4.1，重排为 1–13。
+  - **只读接口**：GET /api/harness 返回八组件的来源（file/builtin/constitution+code）、字节数、可写性，以及代码规则与宪法条款的对齐审计。
+  - **实测发现漂移**：代码里有 8 条规则宪法没有（
+o-force-git、
+o-system-mutate、
+o-secrets-write 等），宪法里有 9 条代码没硬拦（
+o-money、share-via-tool 等）——先如实列出来，不擅自合并。
+  - 新增单测 5 条；相关 34 个测试文件共 231 条全绿。
 ## [2.127.94] - 2026-10-20
 
 - 按实测把「快的做法」写进协议：
@@ -33,6 +77,20 @@
   - 单轮延迟实测（同一台机器）：glm-5.3-flash 5.4s、gnes-2.5-flash 4.7s、step-5-preview 5.1s —— 模型本身差异不大，慢在**轮数**。
 ## [2.127.92] - 2026-10-20
 
+## [2.127.95] - 2026-10-20
+
+- **harness 组件化（一）**：按 Harness²（arXiv:2610.14224）的结构，把外壳拆成可追溯的组件——只做"能看见来源、能改、能回退"，不做 propose/compose。
+  - **拆模块**：yuanshu-protocol.mjs 原来一个文件装着协议文本 + 技能匹配算法 + 索引格式 + 上下文构建 + 工具失败教练，现拆出 skill-matcher.mjs、	ool-coach.mjs（原文件 re-export 保持兼容）。
+  - **协议可外置**：系统提示真源可放 记忆/harness/system.md（已写入）；读不到或为空时回退内置常量，行为不变。
+  - **护栏单一真源**：新增 guardrails 段落，文字由 宪法.json 里**已批准（accepted + human）**的条款渲染，并标注"代码级硬拦"的规则 id；未批准的条款不进提示词。
+  - **协议编号修正**：原来有两个 5.、一个 4.1，重排为 1–13。
+  - **只读接口**：GET /api/harness 返回八组件的来源（file/builtin/constitution+code）、字节数、可写性，以及代码规则与宪法条款的对齐审计。
+  - **实测发现漂移**：代码里有 8 条规则宪法没有（
+o-force-git、
+o-system-mutate、
+o-secrets-write 等），宪法里有 9 条代码没硬拦（
+o-money、share-via-tool 等）——先如实列出来，不擅自合并。
+  - 新增单测 5 条；相关 34 个测试文件共 231 条全绿。
 ## [2.127.94] - 2026-10-20
 
 - 按实测把「快的做法」写进协议：
@@ -54,6 +112,20 @@
   - 合计每轮少约 3KB（≈2k tokens），在 8 轮的工具任务里约少 16k tokens 的重复输入。
 ## [2.127.91] - 2026-10-20
 
+## [2.127.95] - 2026-10-20
+
+- **harness 组件化（一）**：按 Harness²（arXiv:2610.14224）的结构，把外壳拆成可追溯的组件——只做"能看见来源、能改、能回退"，不做 propose/compose。
+  - **拆模块**：yuanshu-protocol.mjs 原来一个文件装着协议文本 + 技能匹配算法 + 索引格式 + 上下文构建 + 工具失败教练，现拆出 skill-matcher.mjs、	ool-coach.mjs（原文件 re-export 保持兼容）。
+  - **协议可外置**：系统提示真源可放 记忆/harness/system.md（已写入）；读不到或为空时回退内置常量，行为不变。
+  - **护栏单一真源**：新增 guardrails 段落，文字由 宪法.json 里**已批准（accepted + human）**的条款渲染，并标注"代码级硬拦"的规则 id；未批准的条款不进提示词。
+  - **协议编号修正**：原来有两个 5.、一个 4.1，重排为 1–13。
+  - **只读接口**：GET /api/harness 返回八组件的来源（file/builtin/constitution+code）、字节数、可写性，以及代码规则与宪法条款的对齐审计。
+  - **实测发现漂移**：代码里有 8 条规则宪法没有（
+o-force-git、
+o-system-mutate、
+o-secrets-write 等），宪法里有 9 条代码没硬拦（
+o-money、share-via-tool 等）——先如实列出来，不擅自合并。
+  - 新增单测 5 条；相关 34 个测试文件共 231 条全绿。
 ## [2.127.94] - 2026-10-20
 
 - 按实测把「快的做法」写进协议：
@@ -82,6 +154,20 @@
 - 慢请求日志（记忆/运行时/慢请求.jsonl）今日统计：/api/companion/decision 495 次均值 6.5s、/api/companion/facts 96 次均值 5.7s——它们也是被同一个卡顿拖慢的受害者，不是元凶（un/overview 已有 60s 缓存）。
 ## [2.127.90] - 2026-10-20
 
+## [2.127.95] - 2026-10-20
+
+- **harness 组件化（一）**：按 Harness²（arXiv:2610.14224）的结构，把外壳拆成可追溯的组件——只做"能看见来源、能改、能回退"，不做 propose/compose。
+  - **拆模块**：yuanshu-protocol.mjs 原来一个文件装着协议文本 + 技能匹配算法 + 索引格式 + 上下文构建 + 工具失败教练，现拆出 skill-matcher.mjs、	ool-coach.mjs（原文件 re-export 保持兼容）。
+  - **协议可外置**：系统提示真源可放 记忆/harness/system.md（已写入）；读不到或为空时回退内置常量，行为不变。
+  - **护栏单一真源**：新增 guardrails 段落，文字由 宪法.json 里**已批准（accepted + human）**的条款渲染，并标注"代码级硬拦"的规则 id；未批准的条款不进提示词。
+  - **协议编号修正**：原来有两个 5.、一个 4.1，重排为 1–13。
+  - **只读接口**：GET /api/harness 返回八组件的来源（file/builtin/constitution+code）、字节数、可写性，以及代码规则与宪法条款的对齐审计。
+  - **实测发现漂移**：代码里有 8 条规则宪法没有（
+o-force-git、
+o-system-mutate、
+o-secrets-write 等），宪法里有 9 条代码没硬拦（
+o-money、share-via-tool 等）——先如实列出来，不擅自合并。
+  - 新增单测 5 条；相关 34 个测试文件共 231 条全绿。
 ## [2.127.94] - 2026-10-20
 
 - 按实测把「快的做法」写进协议：
@@ -117,6 +203,20 @@
   - 抢锁失败的日志补上 pid 与"不算启动"，不再刷「守护启动」让人误以为在反复拉起。
 ## [2.127.89] - 2026-10-20
 
+## [2.127.95] - 2026-10-20
+
+- **harness 组件化（一）**：按 Harness²（arXiv:2610.14224）的结构，把外壳拆成可追溯的组件——只做"能看见来源、能改、能回退"，不做 propose/compose。
+  - **拆模块**：yuanshu-protocol.mjs 原来一个文件装着协议文本 + 技能匹配算法 + 索引格式 + 上下文构建 + 工具失败教练，现拆出 skill-matcher.mjs、	ool-coach.mjs（原文件 re-export 保持兼容）。
+  - **协议可外置**：系统提示真源可放 记忆/harness/system.md（已写入）；读不到或为空时回退内置常量，行为不变。
+  - **护栏单一真源**：新增 guardrails 段落，文字由 宪法.json 里**已批准（accepted + human）**的条款渲染，并标注"代码级硬拦"的规则 id；未批准的条款不进提示词。
+  - **协议编号修正**：原来有两个 5.、一个 4.1，重排为 1–13。
+  - **只读接口**：GET /api/harness 返回八组件的来源（file/builtin/constitution+code）、字节数、可写性，以及代码规则与宪法条款的对齐审计。
+  - **实测发现漂移**：代码里有 8 条规则宪法没有（
+o-force-git、
+o-system-mutate、
+o-secrets-write 等），宪法里有 9 条代码没硬拦（
+o-money、share-via-tool 等）——先如实列出来，不擅自合并。
+  - 新增单测 5 条；相关 34 个测试文件共 231 条全绿。
 ## [2.127.94] - 2026-10-20
 
 - 按实测把「快的做法」写进协议：
@@ -158,6 +258,20 @@
 - 事件循环监测补一个**停顿起点** stallFrom（= now - maxMs），超过 5s 另打一条 [loop-stall]：以后能拿这个时间点去对服务日志，定位肇事请求，而不是只知道"卡了 25 秒"。
 ## [2.127.88] - 2026-10-20
 
+## [2.127.95] - 2026-10-20
+
+- **harness 组件化（一）**：按 Harness²（arXiv:2610.14224）的结构，把外壳拆成可追溯的组件——只做"能看见来源、能改、能回退"，不做 propose/compose。
+  - **拆模块**：yuanshu-protocol.mjs 原来一个文件装着协议文本 + 技能匹配算法 + 索引格式 + 上下文构建 + 工具失败教练，现拆出 skill-matcher.mjs、	ool-coach.mjs（原文件 re-export 保持兼容）。
+  - **协议可外置**：系统提示真源可放 记忆/harness/system.md（已写入）；读不到或为空时回退内置常量，行为不变。
+  - **护栏单一真源**：新增 guardrails 段落，文字由 宪法.json 里**已批准（accepted + human）**的条款渲染，并标注"代码级硬拦"的规则 id；未批准的条款不进提示词。
+  - **协议编号修正**：原来有两个 5.、一个 4.1，重排为 1–13。
+  - **只读接口**：GET /api/harness 返回八组件的来源（file/builtin/constitution+code）、字节数、可写性，以及代码规则与宪法条款的对齐审计。
+  - **实测发现漂移**：代码里有 8 条规则宪法没有（
+o-force-git、
+o-system-mutate、
+o-secrets-write 等），宪法里有 9 条代码没硬拦（
+o-money、share-via-tool 等）——先如实列出来，不擅自合并。
+  - 新增单测 5 条；相关 34 个测试文件共 231 条全绿。
 ## [2.127.94] - 2026-10-20
 
 - 按实测把「快的做法」写进协议：
@@ -206,6 +320,20 @@
   - package.json 补 uthor 与 license（之前都是空）。
 ## [2.127.87] - 2026-10-20
 
+## [2.127.95] - 2026-10-20
+
+- **harness 组件化（一）**：按 Harness²（arXiv:2610.14224）的结构，把外壳拆成可追溯的组件——只做"能看见来源、能改、能回退"，不做 propose/compose。
+  - **拆模块**：yuanshu-protocol.mjs 原来一个文件装着协议文本 + 技能匹配算法 + 索引格式 + 上下文构建 + 工具失败教练，现拆出 skill-matcher.mjs、	ool-coach.mjs（原文件 re-export 保持兼容）。
+  - **协议可外置**：系统提示真源可放 记忆/harness/system.md（已写入）；读不到或为空时回退内置常量，行为不变。
+  - **护栏单一真源**：新增 guardrails 段落，文字由 宪法.json 里**已批准（accepted + human）**的条款渲染，并标注"代码级硬拦"的规则 id；未批准的条款不进提示词。
+  - **协议编号修正**：原来有两个 5.、一个 4.1，重排为 1–13。
+  - **只读接口**：GET /api/harness 返回八组件的来源（file/builtin/constitution+code）、字节数、可写性，以及代码规则与宪法条款的对齐审计。
+  - **实测发现漂移**：代码里有 8 条规则宪法没有（
+o-force-git、
+o-system-mutate、
+o-secrets-write 等），宪法里有 9 条代码没硬拦（
+o-money、share-via-tool 等）——先如实列出来，不擅自合并。
+  - 新增单测 5 条；相关 34 个测试文件共 231 条全绿。
 ## [2.127.94] - 2026-10-20
 
 - 按实测把「快的做法」写进协议：
@@ -261,6 +389,20 @@
   - 测试：self-model 4/4（含"没配置不出现"与"有配置才注入"）。
 ## [2.127.86] - 2026-10-20
 
+## [2.127.95] - 2026-10-20
+
+- **harness 组件化（一）**：按 Harness²（arXiv:2610.14224）的结构，把外壳拆成可追溯的组件——只做"能看见来源、能改、能回退"，不做 propose/compose。
+  - **拆模块**：yuanshu-protocol.mjs 原来一个文件装着协议文本 + 技能匹配算法 + 索引格式 + 上下文构建 + 工具失败教练，现拆出 skill-matcher.mjs、	ool-coach.mjs（原文件 re-export 保持兼容）。
+  - **协议可外置**：系统提示真源可放 记忆/harness/system.md（已写入）；读不到或为空时回退内置常量，行为不变。
+  - **护栏单一真源**：新增 guardrails 段落，文字由 宪法.json 里**已批准（accepted + human）**的条款渲染，并标注"代码级硬拦"的规则 id；未批准的条款不进提示词。
+  - **协议编号修正**：原来有两个 5.、一个 4.1，重排为 1–13。
+  - **只读接口**：GET /api/harness 返回八组件的来源（file/builtin/constitution+code）、字节数、可写性，以及代码规则与宪法条款的对齐审计。
+  - **实测发现漂移**：代码里有 8 条规则宪法没有（
+o-force-git、
+o-system-mutate、
+o-secrets-write 等），宪法里有 9 条代码没硬拦（
+o-money、share-via-tool 等）——先如实列出来，不擅自合并。
+  - 新增单测 5 条；相关 34 个测试文件共 231 条全绿。
 ## [2.127.94] - 2026-10-20
 
 - 按实测把「快的做法」写进协议：
@@ -323,6 +465,20 @@
   - 之前系统页只有「当前状态 / 访问令牌 / 检测更新 / 外网配置 / 接入模式 / 运行环境」，**没有任何一段说清"这是什么、守什么边界"**——这就是缺的那块。
 ## [2.127.85] - 2026-10-20
 
+## [2.127.95] - 2026-10-20
+
+- **harness 组件化（一）**：按 Harness²（arXiv:2610.14224）的结构，把外壳拆成可追溯的组件——只做"能看见来源、能改、能回退"，不做 propose/compose。
+  - **拆模块**：yuanshu-protocol.mjs 原来一个文件装着协议文本 + 技能匹配算法 + 索引格式 + 上下文构建 + 工具失败教练，现拆出 skill-matcher.mjs、	ool-coach.mjs（原文件 re-export 保持兼容）。
+  - **协议可外置**：系统提示真源可放 记忆/harness/system.md（已写入）；读不到或为空时回退内置常量，行为不变。
+  - **护栏单一真源**：新增 guardrails 段落，文字由 宪法.json 里**已批准（accepted + human）**的条款渲染，并标注"代码级硬拦"的规则 id；未批准的条款不进提示词。
+  - **协议编号修正**：原来有两个 5.、一个 4.1，重排为 1–13。
+  - **只读接口**：GET /api/harness 返回八组件的来源（file/builtin/constitution+code）、字节数、可写性，以及代码规则与宪法条款的对齐审计。
+  - **实测发现漂移**：代码里有 8 条规则宪法没有（
+o-force-git、
+o-system-mutate、
+o-secrets-write 等），宪法里有 9 条代码没硬拦（
+o-money、share-via-tool 等）——先如实列出来，不擅自合并。
+  - 新增单测 5 条；相关 34 个测试文件共 231 条全绿。
 ## [2.127.94] - 2026-10-20
 
 - 按实测把「快的做法」写进协议：
@@ -395,6 +551,20 @@ etwork（fetch failed、ECONNRESET、超时）/ ad-model（is a video model、m
 - 测试：model-failover 6 条、harness-probe 6 条，共 12 条新增。
 ## [2.127.84] - 2026-10-20
 
+## [2.127.95] - 2026-10-20
+
+- **harness 组件化（一）**：按 Harness²（arXiv:2610.14224）的结构，把外壳拆成可追溯的组件——只做"能看见来源、能改、能回退"，不做 propose/compose。
+  - **拆模块**：yuanshu-protocol.mjs 原来一个文件装着协议文本 + 技能匹配算法 + 索引格式 + 上下文构建 + 工具失败教练，现拆出 skill-matcher.mjs、	ool-coach.mjs（原文件 re-export 保持兼容）。
+  - **协议可外置**：系统提示真源可放 记忆/harness/system.md（已写入）；读不到或为空时回退内置常量，行为不变。
+  - **护栏单一真源**：新增 guardrails 段落，文字由 宪法.json 里**已批准（accepted + human）**的条款渲染，并标注"代码级硬拦"的规则 id；未批准的条款不进提示词。
+  - **协议编号修正**：原来有两个 5.、一个 4.1，重排为 1–13。
+  - **只读接口**：GET /api/harness 返回八组件的来源（file/builtin/constitution+code）、字节数、可写性，以及代码规则与宪法条款的对齐审计。
+  - **实测发现漂移**：代码里有 8 条规则宪法没有（
+o-force-git、
+o-system-mutate、
+o-secrets-write 等），宪法里有 9 条代码没硬拦（
+o-money、share-via-tool 等）——先如实列出来，不擅自合并。
+  - 新增单测 5 条；相关 34 个测试文件共 231 条全绿。
 ## [2.127.94] - 2026-10-20
 
 - 按实测把「快的做法」写进协议：
@@ -475,6 +645,20 @@ etwork（fetch failed、ECONNRESET、超时）/ ad-model（is a video model、m
 - 另记：同批历史里还有 HTTP 429 每周/每月使用上限 与 etch failed，那是通道额度与网络，不是代码问题；探针把这两类如实记成"变差"，没有硬归因。
 ## [2.127.83] - 2026-10-20
 
+## [2.127.95] - 2026-10-20
+
+- **harness 组件化（一）**：按 Harness²（arXiv:2610.14224）的结构，把外壳拆成可追溯的组件——只做"能看见来源、能改、能回退"，不做 propose/compose。
+  - **拆模块**：yuanshu-protocol.mjs 原来一个文件装着协议文本 + 技能匹配算法 + 索引格式 + 上下文构建 + 工具失败教练，现拆出 skill-matcher.mjs、	ool-coach.mjs（原文件 re-export 保持兼容）。
+  - **协议可外置**：系统提示真源可放 记忆/harness/system.md（已写入）；读不到或为空时回退内置常量，行为不变。
+  - **护栏单一真源**：新增 guardrails 段落，文字由 宪法.json 里**已批准（accepted + human）**的条款渲染，并标注"代码级硬拦"的规则 id；未批准的条款不进提示词。
+  - **协议编号修正**：原来有两个 5.、一个 4.1，重排为 1–13。
+  - **只读接口**：GET /api/harness 返回八组件的来源（file/builtin/constitution+code）、字节数、可写性，以及代码规则与宪法条款的对齐审计。
+  - **实测发现漂移**：代码里有 8 条规则宪法没有（
+o-force-git、
+o-system-mutate、
+o-secrets-write 等），宪法里有 9 条代码没硬拦（
+o-money、share-via-tool 等）——先如实列出来，不擅自合并。
+  - 新增单测 5 条；相关 34 个测试文件共 231 条全绿。
 ## [2.127.94] - 2026-10-20
 
 - 按实测把「快的做法」写进协议：
@@ -564,6 +748,20 @@ etwork（fetch failed、ECONNRESET、超时）/ ad-model（is a video model、m
   - 测试 	ests/unit/harness-probe.test.mjs 5 条；self 相关 16/16。
 ## [2.127.82] - 2026-10-20
 
+## [2.127.95] - 2026-10-20
+
+- **harness 组件化（一）**：按 Harness²（arXiv:2610.14224）的结构，把外壳拆成可追溯的组件——只做"能看见来源、能改、能回退"，不做 propose/compose。
+  - **拆模块**：yuanshu-protocol.mjs 原来一个文件装着协议文本 + 技能匹配算法 + 索引格式 + 上下文构建 + 工具失败教练，现拆出 skill-matcher.mjs、	ool-coach.mjs（原文件 re-export 保持兼容）。
+  - **协议可外置**：系统提示真源可放 记忆/harness/system.md（已写入）；读不到或为空时回退内置常量，行为不变。
+  - **护栏单一真源**：新增 guardrails 段落，文字由 宪法.json 里**已批准（accepted + human）**的条款渲染，并标注"代码级硬拦"的规则 id；未批准的条款不进提示词。
+  - **协议编号修正**：原来有两个 5.、一个 4.1，重排为 1–13。
+  - **只读接口**：GET /api/harness 返回八组件的来源（file/builtin/constitution+code）、字节数、可写性，以及代码规则与宪法条款的对齐审计。
+  - **实测发现漂移**：代码里有 8 条规则宪法没有（
+o-force-git、
+o-system-mutate、
+o-secrets-write 等），宪法里有 9 条代码没硬拦（
+o-money、share-via-tool 等）——先如实列出来，不擅自合并。
+  - 新增单测 5 条；相关 34 个测试文件共 231 条全绿。
 ## [2.127.94] - 2026-10-20
 
 - 按实测把「快的做法」写进协议：
@@ -671,6 +869,20 @@ etwork（fetch failed、ECONNRESET、超时）/ ad-model（is a video model、m
 
 ## [2.127.75] - 2026-10-19
 
+## [2.127.95] - 2026-10-20
+
+- **harness 组件化（一）**：按 Harness²（arXiv:2610.14224）的结构，把外壳拆成可追溯的组件——只做"能看见来源、能改、能回退"，不做 propose/compose。
+  - **拆模块**：yuanshu-protocol.mjs 原来一个文件装着协议文本 + 技能匹配算法 + 索引格式 + 上下文构建 + 工具失败教练，现拆出 skill-matcher.mjs、	ool-coach.mjs（原文件 re-export 保持兼容）。
+  - **协议可外置**：系统提示真源可放 记忆/harness/system.md（已写入）；读不到或为空时回退内置常量，行为不变。
+  - **护栏单一真源**：新增 guardrails 段落，文字由 宪法.json 里**已批准（accepted + human）**的条款渲染，并标注"代码级硬拦"的规则 id；未批准的条款不进提示词。
+  - **协议编号修正**：原来有两个 5.、一个 4.1，重排为 1–13。
+  - **只读接口**：GET /api/harness 返回八组件的来源（file/builtin/constitution+code）、字节数、可写性，以及代码规则与宪法条款的对齐审计。
+  - **实测发现漂移**：代码里有 8 条规则宪法没有（
+o-force-git、
+o-system-mutate、
+o-secrets-write 等），宪法里有 9 条代码没硬拦（
+o-money、share-via-tool 等）——先如实列出来，不擅自合并。
+  - 新增单测 5 条；相关 34 个测试文件共 231 条全绿。
 ## [2.127.94] - 2026-10-20
 
 - 按实测把「快的做法」写进协议：

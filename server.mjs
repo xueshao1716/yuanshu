@@ -3849,6 +3849,16 @@ const boardApi = createBoardApi({
 });
 
 // Register after dependencies exist, never inside the per-request callback.
+  // 2026-10-20 harness 组件清单（只读）：每个组件来自文件还是内置、多大、谁能改。
+  // 组件化的意义不在"拆得漂亮"，而在"改的时候知道改的是哪一份、能不能回退"。
+  API_ROUTES.push(["GET", "/api/harness", async (res) => {
+    try {
+      const { harnessManifest } = await import("./engine/harness-components.mjs");
+      return json(res, 200, harnessManifest(WS_ROOT));
+    } catch (e) {
+      return json(res, 500, { error: String(e?.message || e).slice(0, 200) });
+    }
+  }]);
 API_ROUTES.push(...createCompanionRoutes({ exists: id => activeSessions.has(id) || !!findSession(id),
   facts: companionFacts, store: companionStore, decisions: companionDecisions, json, readBody,
   // 久不互动把人叫回来：notifier 自带应用内事件，toWechat 时同时推微信
