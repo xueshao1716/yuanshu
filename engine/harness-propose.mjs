@@ -138,8 +138,16 @@ export function writeCandidates(wsRoot, { date, candidates, raw = '', source = '
   const idx = path.join(wsRoot, PROPOSE_INDEX);
   fs.mkdirSync(path.dirname(idx), { recursive: true });
   const at = new Date().toISOString();
+  // 同一天可能提多次（手动 + 夜间变差）：编号接着已有的往下排，避免覆盖/撞号
+  let used = 0;
+  try {
+    for (const l of fs.readFileSync(idx, 'utf8').split('\n')) {
+      if (!l.trim()) continue;
+      try { const r = JSON.parse(l); if (r.date === date) used++; } catch {}
+    }
+  } catch {}
   const rows = candidates.map((c, i) => JSON.stringify({
-    id: `C-${date.replace(/-/g, '')}-${i + 1}`, at, date, source,
+    id: `C-${date.replace(/-/g, '')}-${used + i + 1}`, at, date, source,
     component: c.component, change: String(c.change).slice(0, 200), status: 'draft',
   }));
   fs.appendFileSync(idx, rows.join('\n') + '\n', 'utf8');
