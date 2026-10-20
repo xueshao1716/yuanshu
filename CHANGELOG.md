@@ -8,8 +8,26 @@
 
 ## [Unreleased]
 
+## [2.127.84] - 2026-10-20
+
+## [2.127.84] - 2026-10-20
+
+- 修「文本任务被路由到视频模型」：Harness² 探针上线后第一次跑历史对照，就发现自我反思任务最近 3 次里 2 次失败，其中一次是 gnes-video-2.5-flash 报 HTTP 400: is a video model。
+  - model-router.mjs 新增 isTextCapableModel()：按模型 id 排除 video / image / tts / asr / voice / speech / audio / embed / rerank / dall-e / sora / veo / kling / seedance / flux / sdxl。
+  - pickFallbackDefault() 的默认模型与**每一个**兜底候选都要过这道判定；媒体模型宁可没有，也不拿它跑文本；最后一道兜底是清单里第一个能文本的模型。
+  - 测试 	ests/unit/model-router-guard.test.mjs 3 条（9 个媒体模型被拒、11 个文本模型不误伤、空值不崩）。
+
+- 另记：同批历史里还有 HTTP 429 每周/每月使用上限 与 etch failed，那是通道额度与网络，不是代码问题；探针把这两类如实记成"变差"，没有硬归因。
 ## [2.127.83] - 2026-10-20
 
+## [2.127.84] - 2026-10-20
+
+- 修「文本任务被路由到视频模型」：Harness² 探针上线后第一次跑历史对照，就发现自我反思任务最近 3 次里 2 次失败，其中一次是 gnes-video-2.5-flash 报 HTTP 400: is a video model。
+  - model-router.mjs 新增 isTextCapableModel()：按模型 id 排除 video / image / tts / asr / voice / speech / audio / embed / rerank / dall-e / sora / veo / kling / seedance / flux / sdxl。
+  - pickFallbackDefault() 的默认模型与**每一个**兜底候选都要过这道判定；媒体模型宁可没有，也不拿它跑文本；最后一道兜底是清单里第一个能文本的模型。
+  - 测试 	ests/unit/model-router-guard.test.mjs 3 条（9 个媒体模型被拒、11 个文本模型不误伤、空值不崩）。
+
+- 另记：同批历史里还有 HTTP 429 每周/每月使用上限 与 etch failed，那是通道额度与网络，不是代码问题；探针把这两类如实记成"变差"，没有硬归因。
 ## [2.127.83] - 2026-10-20
 
 - 接入 Harness² 的 **Probe** 一步（arXiv:2610.14224，google-research/harness2，Apache-2.0）：改动之后到底有没有变好，以前只能凭感觉，现在有对照。
@@ -21,6 +39,14 @@
   - 测试 	ests/unit/harness-probe.test.mjs 5 条；self 相关 16/16。
 ## [2.127.82] - 2026-10-20
 
+## [2.127.84] - 2026-10-20
+
+- 修「文本任务被路由到视频模型」：Harness² 探针上线后第一次跑历史对照，就发现自我反思任务最近 3 次里 2 次失败，其中一次是 gnes-video-2.5-flash 报 HTTP 400: is a video model。
+  - model-router.mjs 新增 isTextCapableModel()：按模型 id 排除 video / image / tts / asr / voice / speech / audio / embed / rerank / dall-e / sora / veo / kling / seedance / flux / sdxl。
+  - pickFallbackDefault() 的默认模型与**每一个**兜底候选都要过这道判定；媒体模型宁可没有，也不拿它跑文本；最后一道兜底是清单里第一个能文本的模型。
+  - 测试 	ests/unit/model-router-guard.test.mjs 3 条（9 个媒体模型被拒、11 个文本模型不误伤、空值不崩）。
+
+- 另记：同批历史里还有 HTTP 429 每周/每月使用上限 与 etch failed，那是通道额度与网络，不是代码问题；探针把这两类如实记成"变差"，没有硬归因。
 ## [2.127.83] - 2026-10-20
 
 - 接入 Harness² 的 **Probe** 一步（arXiv:2610.14224，google-research/harness2，Apache-2.0）：改动之后到底有没有变好，以前只能凭感觉，现在有对照。
@@ -50,6 +76,14 @@
 
 ## [2.127.75] - 2026-10-19
 
+## [2.127.84] - 2026-10-20
+
+- 修「文本任务被路由到视频模型」：Harness² 探针上线后第一次跑历史对照，就发现自我反思任务最近 3 次里 2 次失败，其中一次是 gnes-video-2.5-flash 报 HTTP 400: is a video model。
+  - model-router.mjs 新增 isTextCapableModel()：按模型 id 排除 video / image / tts / asr / voice / speech / audio / embed / rerank / dall-e / sora / veo / kling / seedance / flux / sdxl。
+  - pickFallbackDefault() 的默认模型与**每一个**兜底候选都要过这道判定；媒体模型宁可没有，也不拿它跑文本；最后一道兜底是清单里第一个能文本的模型。
+  - 测试 	ests/unit/model-router-guard.test.mjs 3 条（9 个媒体模型被拒、11 个文本模型不误伤、空值不崩）。
+
+- 另记：同批历史里还有 HTTP 429 每周/每月使用上限 与 etch failed，那是通道额度与网络，不是代码问题；探针把这两类如实记成"变差"，没有硬归因。
 ## [2.127.83] - 2026-10-20
 
 - 接入 Harness² 的 **Probe** 一步（arXiv:2610.14224，google-research/harness2，Apache-2.0）：改动之后到底有没有变好，以前只能凭感觉，现在有对照。

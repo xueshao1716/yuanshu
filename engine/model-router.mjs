@@ -77,19 +77,32 @@ function findLive(provider, re) {
 }
 // 候选链最终兜底：默认模型 → 清单里第一个活着的 → null（绝不返回 undefined）
 
+// 2026-10-20：媒体模型不能干文本活。真机事故——自我反思被路由到 agnes-video-2.5-flash，
+// 直接 HTTP 400「is a video model」，整晚的复盘白跑。这里给"能不能做文本"一个明确判定，
+// 所有兜底候选都要过一遍，避免同类错误再靠运气。
+const MEDIA_MODEL_RE = /(?:^|[-_/])(video|image|img|tts|asr|voice|speech|audio|embed(?:ding)?|rerank(?:er)?|vision-ocr|dall-e|sora|veo|kling|seedance|flux|sdxl)(?:[-_/]|$)/i
+export function isTextCapableModel(model) {
+  if (!model) return false;
+  const id = String(model.id || "");
+  if (!id) return false;
+  return !MEDIA_MODEL_RE.test(id);
+}
+
 // defaultModel 兜底（blocked 且 defaultModel 恰为 opencode-go 时换可用通道）
 // ⚠️ 成本策略（2026-08-19 用户定）：deepseek 官方涨价贵不用——降级链全走 token 计划免费通道
 // ⚠️ 2026-08-20 用户指令：阿里千问下架（403 无权限），flash 主力改商汤；nvidia 兜底换 llama-3.1-8b（gemma 系被 NVIDIA 下架 404）
 export function pickFallbackDefault() {
   const defaultModel = _getDefaultModel();
-  if (defaultModel && !isModelBlocked(defaultModel)) return defaultModel;
+  if (defaultModel && isTextCapableModel(defaultModel) && !isModelBlocked(defaultModel)) return defaultModel;
+  const fallback = (provider, re) => { const m = findLive(provider, re); return m && isTextCapableModel(m) ? m : undefined; };
   // 用户定（2026-09-04）：默认模型已指向 Agnes 旗舰；冷却时先落 agnes-flash，再走免费通道
   // 2026-09-09：3.0-flash 发布，作为 2.5 后备位
-  return findLive("agnes", /^(?:agnes-)?2\.5-flash$/i)
-    || findLive("agnes", /^(?:agnes-)?3\.0-flash$/i)
-    || findLive("sensenova", /flash-lite/i)
-    || findLive("nvidia", /llama-3\.1-8b/i)
-    || defaultModel; // 全部冷却时仍返回 defaultModel（宁可重试已知模型，不可无模型可用）
+  return fallback("agnes", /^(?:agnes-)?2\.5-flash$/i)
+    || fallback("agnes", /^(?:agnes-)?3\.0-flash$/i)
+    || fallback("sensenova", /flash-lite/i)
+    || fallback("nvidia", /llama-3\.1-8b/i)
+    || (isTextCapableModel(defaultModel) ? defaultModel : undefined)   // 媒体模型宁可没有，也不拿它跑文本
+    || _getModelList().find(m => isTextCapableModel(m) && !isModelBlocked(m)); // 最后一道：清单里第一个能文本的
 }
 
 // ⚠️ 2026-08-19 修复：复读守卫的兜底必须**排除出问题的模型**（否则复读→兜底还是同款，切换无效）。
