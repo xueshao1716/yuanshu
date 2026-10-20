@@ -8,8 +8,28 @@
 
 ## [Unreleased]
 
+## [2.127.83] - 2026-10-20
+
+## [2.127.83] - 2026-10-20
+
+- 接入 Harness² 的 **Probe** 一步（arXiv:2610.14224，google-research/harness2，Apache-2.0）：改动之后到底有没有变好，以前只能凭感觉，现在有对照。
+  - 新增 engine/harness-probe.mjs：	raceMetrics / splitBeforeAfter / bCompare / ppendProbeLog / shouldProbe / markProbed。
+  - 取样方式刻意省钱：**不重跑任务**，用同一任务的**历史运行**做自然实验（改动前后各 3 次）；时间引擎 history 是新的在前，已按 startedAt 归一。
+  - 判定只看客观计数：失败率、平均耗时、p90。**不让模型自评"我觉得更好了"**（防 reward hacking）。样本不足如实记"不下结论"。
+  - 每任务每天最多对照一次，结果写 文档/harness-试验.md；太差的记录会标「建议回退」。
+  - 她的自我描述里多一句「我最近在做的试验」，知道自己昨天试过什么。
+  - 测试 	ests/unit/harness-probe.test.mjs 5 条；self 相关 16/16。
 ## [2.127.82] - 2026-10-20
 
+## [2.127.83] - 2026-10-20
+
+- 接入 Harness² 的 **Probe** 一步（arXiv:2610.14224，google-research/harness2，Apache-2.0）：改动之后到底有没有变好，以前只能凭感觉，现在有对照。
+  - 新增 engine/harness-probe.mjs：	raceMetrics / splitBeforeAfter / bCompare / ppendProbeLog / shouldProbe / markProbed。
+  - 取样方式刻意省钱：**不重跑任务**，用同一任务的**历史运行**做自然实验（改动前后各 3 次）；时间引擎 history 是新的在前，已按 startedAt 归一。
+  - 判定只看客观计数：失败率、平均耗时、p90。**不让模型自评"我觉得更好了"**（防 reward hacking）。样本不足如实记"不下结论"。
+  - 每任务每天最多对照一次，结果写 文档/harness-试验.md；太差的记录会标「建议回退」。
+  - 她的自我描述里多一句「我最近在做的试验」，知道自己昨天试过什么。
+  - 测试 	ests/unit/harness-probe.test.mjs 5 条；self 相关 16/16。
 ## [2.127.82] - 2026-10-20
 
 - 修「点了发送，手机输入法键盘不收起」：发送成功后输入框仍然保持焦点，软键盘就不会自动收起。
@@ -30,6 +50,15 @@
 
 ## [2.127.75] - 2026-10-19
 
+## [2.127.83] - 2026-10-20
+
+- 接入 Harness² 的 **Probe** 一步（arXiv:2610.14224，google-research/harness2，Apache-2.0）：改动之后到底有没有变好，以前只能凭感觉，现在有对照。
+  - 新增 engine/harness-probe.mjs：	raceMetrics / splitBeforeAfter / bCompare / ppendProbeLog / shouldProbe / markProbed。
+  - 取样方式刻意省钱：**不重跑任务**，用同一任务的**历史运行**做自然实验（改动前后各 3 次）；时间引擎 history 是新的在前，已按 startedAt 归一。
+  - 判定只看客观计数：失败率、平均耗时、p90。**不让模型自评"我觉得更好了"**（防 reward hacking）。样本不足如实记"不下结论"。
+  - 每任务每天最多对照一次，结果写 文档/harness-试验.md；太差的记录会标「建议回退」。
+  - 她的自我描述里多一句「我最近在做的试验」，知道自己昨天试过什么。
+  - 测试 	ests/unit/harness-probe.test.mjs 5 条；self 相关 16/16。
 ## [2.127.82] - 2026-10-20
 
 - 修「点了发送，手机输入法键盘不收起」：发送成功后输入框仍然保持焦点，软键盘就不会自动收起。

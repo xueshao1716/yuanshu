@@ -211,6 +211,7 @@ import { CodeRuntime } from "./code-mode/code-runtime.mjs";
 import { createCodeMode } from "./code-mode/code-mode.mjs";
 import { createTimeEngine } from "./engine/time-engine.mjs";
 import { buildSelfModel, renderSelfSection, renderSelfMarkdown } from "./engine/self-model.mjs";
+import { shouldProbe, markProbed, splitBeforeAfter, abCompare, appendProbeLog } from "./engine/harness-probe.mjs";
 import { loadSelfPolicy, selfTools, recordSelfAction, withinDailyLimit } from "./engine/self-agency.mjs";
 import { composeTimeTaskMessages, timeTaskReadTools, recordReflectionActions, parseReflectionActions, yesterdayYmd } from "./engine/time-task-run.mjs";
 import { promoteReflectionLessons, lessonDraft } from "./engine/lesson-promotion.mjs";
@@ -4267,6 +4268,21 @@ ${rows.map((r) => `- [${r.status}${r.closed ? "/已结清" : ""}] ${r.text}\n  �
         onTaskDone: (info) => nudgeSkill(info),
         // 定时任务失败一定告诉用户；成功只在任务本身标了 notify 时才打扰（内部复盘/做梦天天跑，不该刷屏）
         onTaskFinished: (t) => {
+          // 2026-10-20：Harness² 的 Probe——用同一任务的历史运行做前后对照，判断改动到底有没有变好。
+          // 只比失败率与耗时，不让模型自评；每任务每天最多一次。
+          try {
+            if (shouldProbe(WS_ROOT, t.id)) {
+              const history = timeEngine?.find?.(t.id)?.history || [];
+              const { before, after } = splitBeforeAfter(history);
+              const verdict = abCompare(before, after);
+              if (verdict.verdict !== "insufficient") {
+                appendProbeLog(WS_ROOT, { at: new Date().toISOString(), task: t.label || t.id, verdict: verdict.verdict,
+                  a: verdict.a, b: verdict.b, reason: verdict.reason });
+                markProbed(WS_ROOT, t.id);
+                console.log(`[harness-probe] ${t.id} → ${verdict.verdict}（${verdict.reason}）`);
+              }
+            }
+          } catch (e) { console.log("[harness-probe] 跳过:", String(e?.message || e).slice(0, 100)); }
           if (t.status === "error") return notifier.notify({ kind: "task", title: "元枢 · 定时任务失败", body: `${t.label}：${t.result}`, key: `task:${t.id}` });
           if (t.status === "ok" && t.notify) return notifier.notify({ kind: "task", title: `元枢 · ${t.label} 已完成`, body: t.result || "任务已完成", key: `task:${t.id}`, toWechat: true });
         },

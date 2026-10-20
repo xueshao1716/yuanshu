@@ -11,6 +11,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { loadPersonaDefinition } from './persona-def.mjs';
 import { loadSelfPolicy, spendToday as spendTodayOf } from './self-agency.mjs';
+import { summarizeProbeLog } from './harness-probe.mjs';
 
 export const SELF_FILE = '记忆/自我.md';
 
@@ -73,6 +74,7 @@ export function buildSelfModel({ wsRoot, now = new Date() } = {}) {
     } : null,
     boundaries: Array.isArray(def.boundaries) ? def.boundaries : [],
     growth: typeof def.growth === 'string' ? def.growth : '',
+    probeSummary: summarizeProbeLog(wsRoot),
     inner: Array.isArray(def.inner) ? def.inner : [],
     updatedAt: now.toISOString(),
   };
@@ -100,6 +102,7 @@ export function renderSelfSection(model) {
   const owns = (model.boundaries || []).slice(0, 4);
   if (owns.length) lines.push(`· 我不会做的事：${owns.join('；')}。`);
   if (model.growth) lines.push(`· 我的变化：${model.growth}`);
+  if (model.probeSummary) lines.push(`· 我最近在做的试验：${model.probeSummary}`);
   lines.push(`· 分寸：说"我"的时候指的是这个连续的我，不是这一轮的人设；记忆里没有的事就说没有，不编。`);
   return lines.join('\n');
 }
