@@ -129,6 +129,9 @@ export function loadContextRules() {
     if (ctxProjCache) out.push(`以下为项目约定（GEMINI.md），请严格遵守：\n${ctxProjCache}`);
   } catch {}
   try { // 兼容旧 .pi-rules.md
+    // 2026-10-20：项目里同时存在 GEMINI.md 与 .pi-rules.md 时，两份内容高度重叠，
+    // 每轮都注入等于白烧 ~1.8KB 上下文（工具循环里还要乘以轮数）。有 GEMINI.md 就不再读旧的。
+    if (ctxProjCache) return out;
     const f = path.join(_cwd, ".pi-rules.md");
     const st = fs.statSync(f);
     if (st.mtimeMs !== projectRulesMtime) { projectRulesCache = fs.readFileSync(f, "utf8").trim(); projectRulesMtime = st.mtimeMs; }

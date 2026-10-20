@@ -231,7 +231,7 @@ export async function handleMcp(req, res, ctx) {
           result: {
             protocolVersion: rpc.params?.protocolVersion || "2024-11-05",
             capabilities: { tools: { listChanged: false } },
-            serverInfo: { name: "yuanshu (元枢)", version: "2.127.91" },
+            serverInfo: { name: "yuanshu (元枢)", version: "2.127.92" },
           },
         });
       case "notifications/initialized":
