@@ -212,7 +212,7 @@ import { createCodeMode } from "./code-mode/code-mode.mjs";
 import { createTimeEngine } from "./engine/time-engine.mjs";
 import { buildSelfModel, renderSelfSection, renderSelfMarkdown } from "./engine/self-model.mjs";
 import { shouldProbe, markProbed, splitBeforeAfter, abCompare, appendProbeLog, appendLesson } from "./engine/harness-probe.mjs";
-import { collectEvidence, buildProposePrompt, parseCandidates, writeCandidates, listCandidates, markCandidate } from "./engine/harness-propose.mjs";
+import { collectEvidence, buildProposePrompt, parseCandidates, writeCandidates, listCandidates, markCandidate, localDate } from "./engine/harness-propose.mjs";
 import { withModelFailover } from "./engine/model-failover.mjs";
 import { loadSelfPolicy, selfTools, recordSelfAction, withinDailyLimit } from "./engine/self-agency.mjs";
 import { composeTimeTaskMessages, timeTaskReadTools, recordReflectionActions, parseReflectionActions, yesterdayYmd } from "./engine/time-task-run.mjs";
@@ -512,7 +512,7 @@ async function draftHarnessCandidates(extraEvidence = null, source = "manual") {
     const text = completedTaskText(r);
     const candidates = parseCandidates(text);
     if (!candidates.length) return { ok: false, reason: "unparsed" };
-    const date = new Date().toISOString().slice(0, 10);
+    const date = localDate();
     const written = writeCandidates(WS_ROOT, { date, candidates, source });
     console.log(`[harness-propose] 写入 ${written.count} 条候选（${source}）→ ${written.file}`);
     return written;
@@ -3485,7 +3485,7 @@ const API_ROUTES = [
     try {
       const buf = Buffer.from(data, "base64");
       if (buf.length > 20 * 1024 * 1024) return json(res, 400, { error: "文件过大（限 20MB）" });
-      const date = new Date().toISOString().slice(0, 10);
+      const date = localDate();
       const dir = path.join(WS_ROOT, "收发文件", date);
       fs.mkdirSync(dir, { recursive: true });
       let fp = path.join(dir, name);
