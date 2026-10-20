@@ -30,7 +30,7 @@ export const DEFAULT_SELF_POLICY = Object.freeze({
   notifyOnAction: false,
   // 2026-10-20：主人明确"花钱没事，只要花钱有度，为有利的事可以主动付出"。
   // 放开花钱，但三条约束不能少：单次上限、每日上限、每笔留理由。
-  spend: { enabled: true, perActionCny: 8, dailyCapCny: 50, monthlyCapCny: 300, requireReason: true },
+  spend: { enabled: true, perActionCny: 30, dailyCapCny: 200, monthlyCapCny: 2000, requireReason: true },
   note: '她能自己写、能自己跑、能在额度内自己花钱（为有利的事）；对外发布仍要人点头。',
 });
 
