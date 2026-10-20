@@ -30,13 +30,18 @@ function readLines(file, limit = 400) {
 }
 
 /** 收集证据：只读既有日志，不触发任何执行 */
-export function collectEvidence(wsRoot, { slowLimit = 3, probeLimit = 5 } = {}) {
+export function collectEvidence(wsRoot, { slowLimit = 3, probeLimit = 5, hours = 48, now = Date.now() } = {}) {
   const probeRows = readLines(path.join(wsRoot, PROBE_LOG_FILE), 200)
     .filter(l => l.startsWith('- '))
     .slice(-probeLimit);
   const slow = readLines(path.join(wsRoot, SLOW_LOG_FILE), 500)
     .map(l => { try { return JSON.parse(l) } catch { return null } })
-    .filter(Boolean);
+    .filter(Boolean)
+    // 只留近 N 小时：几天前的卡顿已经不代表现在的行为
+    .filter(s => {
+      const ts = Date.parse(s.at || '');
+      return Number.isFinite(ts) ? now - ts <= hours * 3600_000 : true;
+    });
   // 按路径聚合取最慢的几条，避免同一路径刷屏
   const byPath = new Map();
   for (const s of slow) {
@@ -49,7 +54,12 @@ export function collectEvidence(wsRoot, { slowLimit = 3, probeLimit = 5 } = {}) 
 }
 
 /** 给模型的提议提示：短、限定两条、必须绑定证据 */
-export function buildProposePrompt(evidence, { date = new Date().toISOString().slice(0, 10) } = {}) {
+export function localDate(now = new Date()) {
+  // sv-SE 的本地日期就是 YYYY-MM-DD，避免 UTC 跨天把 21 号写成 20 号
+  try { return now.toLocaleDateString('sv-SE'); } catch { return now.toISOString().slice(0, 10) }
+}
+
+export function buildProposePrompt(evidence, { date = localDate() } = {}) {
   const lines = [
     '你是元枢的 harness 编辑。只做一件事：根据下面的证据，提出**两条**候选改动。',
     '规则：',
@@ -70,7 +80,9 @@ export function buildProposePrompt(evidence, { date = new Date().toISOString().s
     '',
     `日期：${date}`,
     evidence.probeRows.length ? `\n【试验结论】\n${evidence.probeRows.join('\n')}` : '\n【试验结论】暂无',
-    evidence.slowTop.length ? `\n【慢请求】\n${evidence.slowTop.map(s => `- ${s.key} ${s.durationMs}ms status=${s.status}`).join('\n')}` : '',
+    evidence.slowTop.length
+      ? `\n【慢请求·近 48 小时】\n注意：这些是**服务自身的 HTTP 接口**，多数由前端轮询或内部调用触发，\n不一定是 agent 工具。若与 agent 的工具调用无关，就不要硬套到工具描述上；\n可以提"减少调用/改窄端点/加缓存"这类改动，但要先说明它在哪被调用。\n${evidence.slowTop.map(s => `- ${s.key} ${s.durationMs}ms status=${s.status}`).join('\n')}`
+      : '',
   ];
   return lines.join('\n');
 }

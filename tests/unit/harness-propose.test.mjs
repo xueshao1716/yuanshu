@@ -89,3 +89,15 @@ test('没有证据时不写垃圾文件', () => {
   assert.equal(r.ok, false);
   assert.equal(fs.existsSync(path.join(ws, '工程')), false, '不该建出空目录');
 });
+
+test('证据：超过 48 小时的慢请求不算数', () => {
+  const ws = tempWs();
+  const old = new Date(Date.now() - 72 * 3600_000).toISOString();
+  const fresh = new Date(Date.now() - 3600_000).toISOString();
+  fs.writeFileSync(path.join(ws, '记忆', '运行时', '慢请求.jsonl'),
+    [JSON.stringify({ at: old, method: 'GET', path: '/api/old', durationMs: 9000, status: 200 }),
+     JSON.stringify({ at: fresh, method: 'GET', path: '/api/new', durationMs: 5000, status: 200 })].join('\n') + '\n', 'utf8');
+  const ev = collectEvidence(ws);
+  assert.equal(ev.slowTop.length, 1);
+  assert.match(ev.slowTop[0].key, /\/api\/new/);
+});
