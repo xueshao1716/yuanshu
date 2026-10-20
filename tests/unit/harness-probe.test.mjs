@@ -4,7 +4,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import {
-  MIN_SAMPLES, PROBE_LOG_FILE, abCompare, appendProbeLog, markProbed, probeLogPath,
+  MIN_SAMPLES, PROBE_LOG_FILE, abCompare, appendLesson, appendProbeLog, markProbed, probeLogPath,
   renderProbeRow, shouldProbe, splitBeforeAfter, summarizeProbeLog, traceMetrics,
 } from '../../engine/harness-probe.mjs';
 
@@ -61,4 +61,16 @@ test('节流：同一任务每天只做一次对照', (t) => {
   assert.equal(shouldProbe(root, 'task-1', { now }), false);
   assert.equal(shouldProbe(root, 'task-1', { now: new Date('2026-10-21T03:00:00Z') }), true);
   assert.ok(fs.existsSync(path.join(root, '记忆', '运行时', 'harness-试验.json')));
+});
+
+test('结论回写经验：变差写该回退、变好写可保留、中性不推广', (t) => {
+  const root = ws(t);
+  assert.equal(appendLesson(root, { at: '2026-10-20T03:00:00Z', task: '自我反思', verdict: 'worse', reason: '失败率 0→0.67' }), true);
+  assert.equal(appendLesson(root, { at: '2026-10-20T04:00:00Z', task: '每日推进', verdict: 'better', reason: '耗时 -25%' }), true);
+  assert.equal(appendLesson(root, { at: '2026-10-20T05:00:00Z', task: '巡检', verdict: 'no_worse' }), true);
+  const md = fs.readFileSync(path.join(root, '工程', '经验库', 'harness-lessons.md'), 'utf8');
+  assert.match(md, /该回退/);
+  assert.match(md, /可保留/);
+  assert.match(md, /不推广/);
+  assert.match(md, /回退到改动前的版本/);
 });

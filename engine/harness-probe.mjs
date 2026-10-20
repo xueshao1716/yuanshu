@@ -15,6 +15,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 
 export const PROBE_LOG_FILE = '文档/harness-试验.md';
+export const PROBE_LESSON_FILE = '工程/经验库/harness-lessons.md';
 export const MIN_SAMPLES = 3;   // 每侧最少样本
 export const MAX_SAMPLES = 6;   // 每侧最多取几次
 
@@ -82,6 +83,28 @@ export function renderProbeRow(row) {
   const v = VERDICT_TEXT[row.verdict] || row.verdict;
   return `- ${row.at} · ${row.task || '定时任务'} · ${v} · 前 ${row.a?.runs ?? 0} 次 vs 后 ${row.b?.runs ?? 0} 次` +
     `${row.reason ? ` · ${row.reason}` : ''}${row.change ? ` · 改动：${String(row.change).slice(0, 120)}` : ''}`;
+}
+
+// 结论 → 经验：变差就写"该回退"，变好就写"可保留"，中性只记录不推广。只写可执行的一句话。
+export function appendLesson(wsRoot, row, { fsMod = fs } = {}) {
+  try {
+    const target = path.join(wsRoot, PROBE_LESSON_FILE);
+    fsMod.mkdirSync(path.dirname(target), { recursive: true });
+    if (!fsMod.existsSync(target)) {
+      fsMod.writeFileSync(target,
+        '# Harness 试验结论（自动生成）\n\n> 由 harness-probe 写入：每次改动后的前后对照，只留可执行结论。人工经验请写 experience.md。\n\n', 'utf8');
+    }
+    const at = String(row.at || new Date().toISOString()).slice(0, 19).replace('T', ' ');
+    const head = row.verdict === 'worse' ? '⚠️ 该回退' : row.verdict === 'better' ? '✅ 可保留' : '➖ 中性';
+    const detail = row.reason ? `（${row.reason}）` : '';
+    const action = row.verdict === 'worse'
+      ? '回退到改动前的版本，别在这个方向继续叠改动。'
+      : row.verdict === 'better'
+      ? '保留，并在同类任务里作为默认做法。'
+      : '保留但不推广——没有证据说明它更好。';
+    fsMod.appendFileSync(target, `- ${at} · ${row.task || '定时任务'} · ${head}${detail} · ${action}\n`, 'utf8');
+    return true;
+  } catch { return false }
 }
 
 export function appendProbeLog(wsRoot, row, { fsMod = fs } = {}) {

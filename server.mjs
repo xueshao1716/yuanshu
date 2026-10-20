@@ -124,7 +124,7 @@ import { createDshTool } from "./engine/dsh-tool.mjs";
 import { handleDshChat } from "./engine/dsh-chat.mjs";
 
 // ── 模型路由层（拆模块）：429 降级 / 复杂度分类 / Auto 路由 / pro 候选 ──
-import { initModelRouter, isOcGoBlocked, isModelBlocked, markModelBlocked, markOcGoBlocked, ocGoCandidate, pickFallbackDefault, pickFallbackExcluding, resetModelHealth, isAutoModel, routeForAuto, routeProCandidate, flashCandidate, markSticky, ROUTER_AUTO, isAuthErrorStatus } from "./engine/model-router.mjs";
+import { initModelRouter, isOcGoBlocked, isModelBlocked, markModelBlocked, markOcGoBlocked, ocGoCandidate, pickFallbackDefault, pickFallbackExcluding, isTextCapableModel, resetModelHealth, isAutoModel, routeForAuto, routeProCandidate, flashCandidate, markSticky, ROUTER_AUTO, isAuthErrorStatus } from "./engine/model-router.mjs";
 // ── 模型能力探测与发现（拆模块）：能力推断 / 真实API探测(24h缓存) / 自定义 provider 发现 ──
 import { modelCapabilities, probeModelCapabilities, discoverCustomModels } from "./engine/model-probe.mjs";
 import { CONFIG } from "./config.mjs";
@@ -211,7 +211,8 @@ import { CodeRuntime } from "./code-mode/code-runtime.mjs";
 import { createCodeMode } from "./code-mode/code-mode.mjs";
 import { createTimeEngine } from "./engine/time-engine.mjs";
 import { buildSelfModel, renderSelfSection, renderSelfMarkdown } from "./engine/self-model.mjs";
-import { shouldProbe, markProbed, splitBeforeAfter, abCompare, appendProbeLog } from "./engine/harness-probe.mjs";
+import { shouldProbe, markProbed, splitBeforeAfter, abCompare, appendProbeLog, appendLesson } from "./engine/harness-probe.mjs";
+import { withModelFailover } from "./engine/model-failover.mjs";
 import { loadSelfPolicy, selfTools, recordSelfAction, withinDailyLimit } from "./engine/self-agency.mjs";
 import { composeTimeTaskMessages, timeTaskReadTools, recordReflectionActions, parseReflectionActions, yesterdayYmd } from "./engine/time-task-run.mjs";
 import { promoteReflectionLessons, lessonDraft } from "./engine/lesson-promotion.mjs";
@@ -4164,7 +4165,19 @@ function startServer() {
             ? selfToolDefs.filter(t => (t?.function?.name || t?.name) !== 'read')   // 已含 read
             : [];
           console.log(`[time-engine] 自主执行：${selfPolicy.enabled ? '开' : '关'} · 工具 ${selfRun.map(t => t?.function?.name).join(',') || '（只读）'}`);
-          const r = await unifiedChat(defaultModel, messages, { tools: selfToolDefs, signal });
+          // 2026-10-20：按失败类型处理——额度/鉴权换通道，网络同模型退避重试，其它如实抛。
+          const failover = await withModelFailover({
+            initial: isTextCapableModel(defaultModel) ? defaultModel : pickFallbackDefault(),
+            call: (model) => unifiedChat(model, messages, { tools: selfToolDefs, signal }),
+            pickNext: (tried) => {
+              const seen = new Set(tried.map(m => `${m.provider}/${m.id}`));
+              let next = pickFallbackExcluding(tried[tried.length - 1]);
+              if (next && seen.has(`${next.provider}/${next.id}`)) next = pickFallbackExcluding(next);
+              return next;
+            },
+            onSwitch: ({ from, to, kind, why }) => console.log(`[time-engine] 通道切换 ${from.provider}/${from.id} → ${to.provider}/${to.id}（${kind}：${why}）`),
+          });
+          const r = failover.result;
           const completed = signal?.aborted || r?.aborted ? null : completedTaskText(r);
           console.log(`[time-engine] 任务 ${task.id} 复盘轮用时 ${Math.round((Date.now() - tReflect0) / 60000)} 分钟`);
           if (signal?.aborted || r?.aborted) return { aborted: true };
@@ -4276,8 +4289,10 @@ ${rows.map((r) => `- [${r.status}${r.closed ? "/已结清" : ""}] ${r.text}\n  �
               const { before, after } = splitBeforeAfter(history);
               const verdict = abCompare(before, after);
               if (verdict.verdict !== "insufficient") {
-                appendProbeLog(WS_ROOT, { at: new Date().toISOString(), task: t.label || t.id, verdict: verdict.verdict,
-                  a: verdict.a, b: verdict.b, reason: verdict.reason });
+                const probeRow = { at: new Date().toISOString(), task: t.label || t.id, verdict: verdict.verdict,
+                  a: verdict.a, b: verdict.b, reason: verdict.reason };
+                appendProbeLog(WS_ROOT, probeRow);
+                appendLesson(WS_ROOT, probeRow);
                 markProbed(WS_ROOT, t.id);
                 console.log(`[harness-probe] ${t.id} → ${verdict.verdict}（${verdict.reason}）`);
               }

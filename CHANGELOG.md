@@ -8,8 +8,30 @@
 
 ## [Unreleased]
 
+## [2.127.85] - 2026-10-20
+
+## [2.127.85] - 2026-10-20
+
+- 按失败类型做模型故障转移（engine/model-failover.mjs）：
+  - 分类：quota（401/402/403/429/529、额度、限流）/ 
+etwork（fetch failed、ECONNRESET、超时）/ ad-model（is a video model、model_not_found）/ other。
+  - 处理：额度与模型选错 → **换通道**；网络 → **同模型退避重试**（1s/3s）；其它 → **不重试**（避免把内容错误当通道问题反复烧钱）；次数上限 3。
+  - 备胎必须是文本模型（isTextCapableModel），媒体模型不会被选为备胎；无备胎时如实报"没有可切换的通道"。
+  - 时间引擎的夜间反思改走这条链路，切换会打日志 [time-engine] 通道切换 …（quota：额度/鉴权限流 → 换通道）。
+- 试验结论回写经验（论文第二层的最小落地）：ppendLesson() 写 工程/经验库/harness-lessons.md，变差写"该回退 + 回退到改动前的版本"，变好写"可保留 + 作为默认做法"，中性写"不推广"。**单独文件，不污染人工维护的 experience.md**。
+- 测试：model-failover 6 条、harness-probe 6 条，共 12 条新增。
 ## [2.127.84] - 2026-10-20
 
+## [2.127.85] - 2026-10-20
+
+- 按失败类型做模型故障转移（engine/model-failover.mjs）：
+  - 分类：quota（401/402/403/429/529、额度、限流）/ 
+etwork（fetch failed、ECONNRESET、超时）/ ad-model（is a video model、model_not_found）/ other。
+  - 处理：额度与模型选错 → **换通道**；网络 → **同模型退避重试**（1s/3s）；其它 → **不重试**（避免把内容错误当通道问题反复烧钱）；次数上限 3。
+  - 备胎必须是文本模型（isTextCapableModel），媒体模型不会被选为备胎；无备胎时如实报"没有可切换的通道"。
+  - 时间引擎的夜间反思改走这条链路，切换会打日志 [time-engine] 通道切换 …（quota：额度/鉴权限流 → 换通道）。
+- 试验结论回写经验（论文第二层的最小落地）：ppendLesson() 写 工程/经验库/harness-lessons.md，变差写"该回退 + 回退到改动前的版本"，变好写"可保留 + 作为默认做法"，中性写"不推广"。**单独文件，不污染人工维护的 experience.md**。
+- 测试：model-failover 6 条、harness-probe 6 条，共 12 条新增。
 ## [2.127.84] - 2026-10-20
 
 - 修「文本任务被路由到视频模型」：Harness² 探针上线后第一次跑历史对照，就发现自我反思任务最近 3 次里 2 次失败，其中一次是 gnes-video-2.5-flash 报 HTTP 400: is a video model。
@@ -20,6 +42,16 @@
 - 另记：同批历史里还有 HTTP 429 每周/每月使用上限 与 etch failed，那是通道额度与网络，不是代码问题；探针把这两类如实记成"变差"，没有硬归因。
 ## [2.127.83] - 2026-10-20
 
+## [2.127.85] - 2026-10-20
+
+- 按失败类型做模型故障转移（engine/model-failover.mjs）：
+  - 分类：quota（401/402/403/429/529、额度、限流）/ 
+etwork（fetch failed、ECONNRESET、超时）/ ad-model（is a video model、model_not_found）/ other。
+  - 处理：额度与模型选错 → **换通道**；网络 → **同模型退避重试**（1s/3s）；其它 → **不重试**（避免把内容错误当通道问题反复烧钱）；次数上限 3。
+  - 备胎必须是文本模型（isTextCapableModel），媒体模型不会被选为备胎；无备胎时如实报"没有可切换的通道"。
+  - 时间引擎的夜间反思改走这条链路，切换会打日志 [time-engine] 通道切换 …（quota：额度/鉴权限流 → 换通道）。
+- 试验结论回写经验（论文第二层的最小落地）：ppendLesson() 写 工程/经验库/harness-lessons.md，变差写"该回退 + 回退到改动前的版本"，变好写"可保留 + 作为默认做法"，中性写"不推广"。**单独文件，不污染人工维护的 experience.md**。
+- 测试：model-failover 6 条、harness-probe 6 条，共 12 条新增。
 ## [2.127.84] - 2026-10-20
 
 - 修「文本任务被路由到视频模型」：Harness² 探针上线后第一次跑历史对照，就发现自我反思任务最近 3 次里 2 次失败，其中一次是 gnes-video-2.5-flash 报 HTTP 400: is a video model。
@@ -39,6 +71,16 @@
   - 测试 	ests/unit/harness-probe.test.mjs 5 条；self 相关 16/16。
 ## [2.127.82] - 2026-10-20
 
+## [2.127.85] - 2026-10-20
+
+- 按失败类型做模型故障转移（engine/model-failover.mjs）：
+  - 分类：quota（401/402/403/429/529、额度、限流）/ 
+etwork（fetch failed、ECONNRESET、超时）/ ad-model（is a video model、model_not_found）/ other。
+  - 处理：额度与模型选错 → **换通道**；网络 → **同模型退避重试**（1s/3s）；其它 → **不重试**（避免把内容错误当通道问题反复烧钱）；次数上限 3。
+  - 备胎必须是文本模型（isTextCapableModel），媒体模型不会被选为备胎；无备胎时如实报"没有可切换的通道"。
+  - 时间引擎的夜间反思改走这条链路，切换会打日志 [time-engine] 通道切换 …（quota：额度/鉴权限流 → 换通道）。
+- 试验结论回写经验（论文第二层的最小落地）：ppendLesson() 写 工程/经验库/harness-lessons.md，变差写"该回退 + 回退到改动前的版本"，变好写"可保留 + 作为默认做法"，中性写"不推广"。**单独文件，不污染人工维护的 experience.md**。
+- 测试：model-failover 6 条、harness-probe 6 条，共 12 条新增。
 ## [2.127.84] - 2026-10-20
 
 - 修「文本任务被路由到视频模型」：Harness² 探针上线后第一次跑历史对照，就发现自我反思任务最近 3 次里 2 次失败，其中一次是 gnes-video-2.5-flash 报 HTTP 400: is a video model。
@@ -76,6 +118,16 @@
 
 ## [2.127.75] - 2026-10-19
 
+## [2.127.85] - 2026-10-20
+
+- 按失败类型做模型故障转移（engine/model-failover.mjs）：
+  - 分类：quota（401/402/403/429/529、额度、限流）/ 
+etwork（fetch failed、ECONNRESET、超时）/ ad-model（is a video model、model_not_found）/ other。
+  - 处理：额度与模型选错 → **换通道**；网络 → **同模型退避重试**（1s/3s）；其它 → **不重试**（避免把内容错误当通道问题反复烧钱）；次数上限 3。
+  - 备胎必须是文本模型（isTextCapableModel），媒体模型不会被选为备胎；无备胎时如实报"没有可切换的通道"。
+  - 时间引擎的夜间反思改走这条链路，切换会打日志 [time-engine] 通道切换 …（quota：额度/鉴权限流 → 换通道）。
+- 试验结论回写经验（论文第二层的最小落地）：ppendLesson() 写 工程/经验库/harness-lessons.md，变差写"该回退 + 回退到改动前的版本"，变好写"可保留 + 作为默认做法"，中性写"不推广"。**单独文件，不污染人工维护的 experience.md**。
+- 测试：model-failover 6 条、harness-probe 6 条，共 12 条新增。
 ## [2.127.84] - 2026-10-20
 
 - 修「文本任务被路由到视频模型」：Harness² 探针上线后第一次跑历史对照，就发现自我反思任务最近 3 次里 2 次失败，其中一次是 gnes-video-2.5-flash 报 HTTP 400: is a video model。
