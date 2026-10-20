@@ -41,11 +41,15 @@ export function systemPrompt(wsRoot) {
   return readComponent(wsRoot, 'system', YUANSHU_PROTOCOL);
 }
 
-/** 宪法：已生效条款（status=accepted 且 origin=human 才算） */
+/**
+ * 宪法：已生效条款。
+ * 2026-10-21：origin 分两种——human（人批准）与 host（把**既有代码拦截**登记成条款）。
+ * 两种都是 accepted 才进提示词；host 条款不是新政策，只是让"文字"追上"代码"。
+ */
 export function constitutionClauses(wsRoot) {
   try {
     const raw = JSON.parse(fs.readFileSync(path.join(wsRoot, CONSTITUTION_REL), 'utf8'));
-    return (raw?.clauses || []).filter(c => c && c.status === 'accepted' && c.origin === 'human');
+    return (raw?.clauses || []).filter(c => c && c.status === 'accepted');
   } catch { return [] }
 }
 
@@ -57,22 +61,40 @@ export function guardrailsText(wsRoot, { limit = 1600 } = {}) {
   const clauses = constitutionClauses(wsRoot);
   const codeIds = USER_DENY_PATTERNS.map(r => r.id);
   if (!clauses.length && !codeIds.length) return '';
-  const lines = ['【硬边界】以下条款由人批准生效；违反会被代码级拦下，不是建议。'];
-  for (const c of clauses) lines.push(`- [${c.id}] ${c.text}`);
+  const lines = ['【硬边界】以下条款已生效；标"需人批准/建议"的不会被代码拦，但仍是准则。'];
+  for (const c of clauses) {
+    const tag = c.enforcement === 'human-approval' ? '（需人批准）'
+      : c.enforcement === 'advisory' ? '（建议）'
+      : c.enforcement === 'code+approval' ? '（代码拦+需人批准）'
+      : '';
+    lines.push(`- [${c.id}] ${c.text}${tag}`);
+  }
   if (codeIds.length) lines.push(`· 代码级硬拦（命中即拒绝执行）：${codeIds.join('、')}`);
   const text = lines.join('\n');
   return text.length > limit ? text.slice(0, limit) + '…' : text;
 }
 
-/** 代码规则 vs 宪法条款的对齐审计：两处不一致，就是"文字与代码漂移"的证据 */
+/**
+ * 覆盖审计（2026-10-21 重写）：不再比"id 是否同名"，而是查覆盖关系。
+ *  - uncoveredCode：代码在拦、但没有任何条款认领的规则（文字没跟上代码）
+ *  - unenforcedClauses：条款既没 enforced_by、也没标 human-approval/advisory（规定悬空）
+ *  - advisory：只能靠提示词与自觉的条款（如实列出，不假装有硬拦）
+ */
 export function guardrailAudit(wsRoot) {
-  const clauses = constitutionClauses(wsRoot).map(c => c.id);
+  const clauses = constitutionClauses(wsRoot);
   const code = USER_DENY_PATTERNS.map(r => r.id);
-  const both = code.filter(id => clauses.includes(id));
+  const claimed = new Set();
+  for (const c of clauses) for (const ref of (c.enforced_by || [])) claimed.add(String(ref));
+  const unenforcedClauses = clauses
+    .filter(c => !(c.enforced_by || []).length && !['human-approval', 'advisory'].includes(String(c.enforcement || '')))
+    .map(c => c.id);
   return {
-    codeOnly: code.filter(id => !clauses.includes(id)),
-    constitutionOnly: clauses.filter(id => !code.includes(id)),
-    both,
+    uncoveredCode: code.filter(id => !claimed.has(id)),
+    unenforcedClauses,
+    advisory: clauses.filter(c => c.enforcement === 'advisory').map(c => c.id),
+    humanApproval: clauses.filter(c => c.enforcement === 'human-approval').map(c => c.id),
+    codeRules: code,
+    clauses: clauses.map(c => c.id),
   };
 }
 

@@ -8,8 +8,46 @@
 
 ## [Unreleased]
 
+## [2.127.96] - 2026-10-20
+
+## [2.127.96] - 2026-10-21
+
+- **护栏对齐：17 条不一致逐条落地**（接 2.127.95 的组件化）。
+  - 审计口径从"id 是否同名"改成**覆盖检查**：uncoveredCode（代码在拦但没条款认领）+ unenforcedClauses（条款既没落地方式也没标人批准/建议）。
+  - 宪法 schema_version 2：每条条款补 enforcement（code / code+approval / human-approval / advisory）与 enforced_by。
+  - **8 条"代码有、宪法没有"的规则**：登记为 3 条 origin: "host" 条款（
+o-git-rewrite、
+o-system-mutate、
+o-second-server）并认领全部规则 id——这是把既有代码拦截写成文字，不是新增限制。
+  - **9 条"宪法有、代码没硬拦"的条款**：逐条标清落地方式——
+o-persona-edit/
+o-persona-self-evolution 走 memory-stages 草案区；
+o-money 走花费闸门；
+o-minimax-chat 走模型过滤；share-via-tool 走外部权限 + 隧道拦截；
+o-engine-edit 标人批准；skill-full-compliance、url-no-chinese 如实标 **advisory**（实测 share_project 用 path.basename() 复制，**没有**清洗中文，所以它确实没被代码保证）。
+  - 结果：uncoveredCode = 0、unenforcedClauses = 0，advisory 2 条、human-approval 1 条，全部在 /api/harness 可见。
+  - 护栏段文字也带上落地方式（需人批准 / 建议 / 代码拦+需人批准）。
+  - 单测 6 条；相关 289 条全绿。
 ## [2.127.95] - 2026-10-20
 
+## [2.127.96] - 2026-10-21
+
+- **护栏对齐：17 条不一致逐条落地**（接 2.127.95 的组件化）。
+  - 审计口径从"id 是否同名"改成**覆盖检查**：uncoveredCode（代码在拦但没条款认领）+ unenforcedClauses（条款既没落地方式也没标人批准/建议）。
+  - 宪法 schema_version 2：每条条款补 enforcement（code / code+approval / human-approval / advisory）与 enforced_by。
+  - **8 条"代码有、宪法没有"的规则**：登记为 3 条 origin: "host" 条款（
+o-git-rewrite、
+o-system-mutate、
+o-second-server）并认领全部规则 id——这是把既有代码拦截写成文字，不是新增限制。
+  - **9 条"宪法有、代码没硬拦"的条款**：逐条标清落地方式——
+o-persona-edit/
+o-persona-self-evolution 走 memory-stages 草案区；
+o-money 走花费闸门；
+o-minimax-chat 走模型过滤；share-via-tool 走外部权限 + 隧道拦截；
+o-engine-edit 标人批准；skill-full-compliance、url-no-chinese 如实标 **advisory**（实测 share_project 用 path.basename() 复制，**没有**清洗中文，所以它确实没被代码保证）。
+  - 结果：uncoveredCode = 0、unenforcedClauses = 0，advisory 2 条、human-approval 1 条，全部在 /api/harness 可见。
+  - 护栏段文字也带上落地方式（需人批准 / 建议 / 代码拦+需人批准）。
+  - 单测 6 条；相关 289 条全绿。
 ## [2.127.95] - 2026-10-20
 
 - **harness 组件化（一）**：按 Harness²（arXiv:2610.14224）的结构，把外壳拆成可追溯的组件——只做"能看见来源、能改、能回退"，不做 propose/compose。
@@ -26,6 +64,24 @@ o-money、share-via-tool 等）——先如实列出来，不擅自合并。
   - 新增单测 5 条；相关 34 个测试文件共 231 条全绿。
 ## [2.127.94] - 2026-10-20
 
+## [2.127.96] - 2026-10-21
+
+- **护栏对齐：17 条不一致逐条落地**（接 2.127.95 的组件化）。
+  - 审计口径从"id 是否同名"改成**覆盖检查**：uncoveredCode（代码在拦但没条款认领）+ unenforcedClauses（条款既没落地方式也没标人批准/建议）。
+  - 宪法 schema_version 2：每条条款补 enforcement（code / code+approval / human-approval / advisory）与 enforced_by。
+  - **8 条"代码有、宪法没有"的规则**：登记为 3 条 origin: "host" 条款（
+o-git-rewrite、
+o-system-mutate、
+o-second-server）并认领全部规则 id——这是把既有代码拦截写成文字，不是新增限制。
+  - **9 条"宪法有、代码没硬拦"的条款**：逐条标清落地方式——
+o-persona-edit/
+o-persona-self-evolution 走 memory-stages 草案区；
+o-money 走花费闸门；
+o-minimax-chat 走模型过滤；share-via-tool 走外部权限 + 隧道拦截；
+o-engine-edit 标人批准；skill-full-compliance、url-no-chinese 如实标 **advisory**（实测 share_project 用 path.basename() 复制，**没有**清洗中文，所以它确实没被代码保证）。
+  - 结果：uncoveredCode = 0、unenforcedClauses = 0，advisory 2 条、human-approval 1 条，全部在 /api/harness 可见。
+  - 护栏段文字也带上落地方式（需人批准 / 建议 / 代码拦+需人批准）。
+  - 单测 6 条；相关 289 条全绿。
 ## [2.127.95] - 2026-10-20
 
 - **harness 组件化（一）**：按 Harness²（arXiv:2610.14224）的结构，把外壳拆成可追溯的组件——只做"能看见来源、能改、能回退"，不做 propose/compose。
@@ -49,6 +105,24 @@ o-money、share-via-tool 等）——先如实列出来，不擅自合并。
 - 顺带确认：DEEPSEEK_API_KEY 在用户环境里已配置（35 字符），dsh 能正常跑；但在未继承该变量的终端里会报 MISSING_CREDENTIAL。
 ## [2.127.93] - 2026-10-20
 
+## [2.127.96] - 2026-10-21
+
+- **护栏对齐：17 条不一致逐条落地**（接 2.127.95 的组件化）。
+  - 审计口径从"id 是否同名"改成**覆盖检查**：uncoveredCode（代码在拦但没条款认领）+ unenforcedClauses（条款既没落地方式也没标人批准/建议）。
+  - 宪法 schema_version 2：每条条款补 enforcement（code / code+approval / human-approval / advisory）与 enforced_by。
+  - **8 条"代码有、宪法没有"的规则**：登记为 3 条 origin: "host" 条款（
+o-git-rewrite、
+o-system-mutate、
+o-second-server）并认领全部规则 id——这是把既有代码拦截写成文字，不是新增限制。
+  - **9 条"宪法有、代码没硬拦"的条款**：逐条标清落地方式——
+o-persona-edit/
+o-persona-self-evolution 走 memory-stages 草案区；
+o-money 走花费闸门；
+o-minimax-chat 走模型过滤；share-via-tool 走外部权限 + 隧道拦截；
+o-engine-edit 标人批准；skill-full-compliance、url-no-chinese 如实标 **advisory**（实测 share_project 用 path.basename() 复制，**没有**清洗中文，所以它确实没被代码保证）。
+  - 结果：uncoveredCode = 0、unenforcedClauses = 0，advisory 2 条、human-approval 1 条，全部在 /api/harness 可见。
+  - 护栏段文字也带上落地方式（需人批准 / 建议 / 代码拦+需人批准）。
+  - 单测 6 条；相关 289 条全绿。
 ## [2.127.95] - 2026-10-20
 
 - **harness 组件化（一）**：按 Harness²（arXiv:2610.14224）的结构，把外壳拆成可追溯的组件——只做"能看见来源、能改、能回退"，不做 propose/compose。
@@ -77,6 +151,24 @@ o-money、share-via-tool 等）——先如实列出来，不擅自合并。
   - 单轮延迟实测（同一台机器）：glm-5.3-flash 5.4s、gnes-2.5-flash 4.7s、step-5-preview 5.1s —— 模型本身差异不大，慢在**轮数**。
 ## [2.127.92] - 2026-10-20
 
+## [2.127.96] - 2026-10-21
+
+- **护栏对齐：17 条不一致逐条落地**（接 2.127.95 的组件化）。
+  - 审计口径从"id 是否同名"改成**覆盖检查**：uncoveredCode（代码在拦但没条款认领）+ unenforcedClauses（条款既没落地方式也没标人批准/建议）。
+  - 宪法 schema_version 2：每条条款补 enforcement（code / code+approval / human-approval / advisory）与 enforced_by。
+  - **8 条"代码有、宪法没有"的规则**：登记为 3 条 origin: "host" 条款（
+o-git-rewrite、
+o-system-mutate、
+o-second-server）并认领全部规则 id——这是把既有代码拦截写成文字，不是新增限制。
+  - **9 条"宪法有、代码没硬拦"的条款**：逐条标清落地方式——
+o-persona-edit/
+o-persona-self-evolution 走 memory-stages 草案区；
+o-money 走花费闸门；
+o-minimax-chat 走模型过滤；share-via-tool 走外部权限 + 隧道拦截；
+o-engine-edit 标人批准；skill-full-compliance、url-no-chinese 如实标 **advisory**（实测 share_project 用 path.basename() 复制，**没有**清洗中文，所以它确实没被代码保证）。
+  - 结果：uncoveredCode = 0、unenforcedClauses = 0，advisory 2 条、human-approval 1 条，全部在 /api/harness 可见。
+  - 护栏段文字也带上落地方式（需人批准 / 建议 / 代码拦+需人批准）。
+  - 单测 6 条；相关 289 条全绿。
 ## [2.127.95] - 2026-10-20
 
 - **harness 组件化（一）**：按 Harness²（arXiv:2610.14224）的结构，把外壳拆成可追溯的组件——只做"能看见来源、能改、能回退"，不做 propose/compose。
@@ -112,6 +204,24 @@ o-money、share-via-tool 等）——先如实列出来，不擅自合并。
   - 合计每轮少约 3KB（≈2k tokens），在 8 轮的工具任务里约少 16k tokens 的重复输入。
 ## [2.127.91] - 2026-10-20
 
+## [2.127.96] - 2026-10-21
+
+- **护栏对齐：17 条不一致逐条落地**（接 2.127.95 的组件化）。
+  - 审计口径从"id 是否同名"改成**覆盖检查**：uncoveredCode（代码在拦但没条款认领）+ unenforcedClauses（条款既没落地方式也没标人批准/建议）。
+  - 宪法 schema_version 2：每条条款补 enforcement（code / code+approval / human-approval / advisory）与 enforced_by。
+  - **8 条"代码有、宪法没有"的规则**：登记为 3 条 origin: "host" 条款（
+o-git-rewrite、
+o-system-mutate、
+o-second-server）并认领全部规则 id——这是把既有代码拦截写成文字，不是新增限制。
+  - **9 条"宪法有、代码没硬拦"的条款**：逐条标清落地方式——
+o-persona-edit/
+o-persona-self-evolution 走 memory-stages 草案区；
+o-money 走花费闸门；
+o-minimax-chat 走模型过滤；share-via-tool 走外部权限 + 隧道拦截；
+o-engine-edit 标人批准；skill-full-compliance、url-no-chinese 如实标 **advisory**（实测 share_project 用 path.basename() 复制，**没有**清洗中文，所以它确实没被代码保证）。
+  - 结果：uncoveredCode = 0、unenforcedClauses = 0，advisory 2 条、human-approval 1 条，全部在 /api/harness 可见。
+  - 护栏段文字也带上落地方式（需人批准 / 建议 / 代码拦+需人批准）。
+  - 单测 6 条；相关 289 条全绿。
 ## [2.127.95] - 2026-10-20
 
 - **harness 组件化（一）**：按 Harness²（arXiv:2610.14224）的结构，把外壳拆成可追溯的组件——只做"能看见来源、能改、能回退"，不做 propose/compose。
@@ -154,6 +264,24 @@ o-money、share-via-tool 等）——先如实列出来，不擅自合并。
 - 慢请求日志（记忆/运行时/慢请求.jsonl）今日统计：/api/companion/decision 495 次均值 6.5s、/api/companion/facts 96 次均值 5.7s——它们也是被同一个卡顿拖慢的受害者，不是元凶（un/overview 已有 60s 缓存）。
 ## [2.127.90] - 2026-10-20
 
+## [2.127.96] - 2026-10-21
+
+- **护栏对齐：17 条不一致逐条落地**（接 2.127.95 的组件化）。
+  - 审计口径从"id 是否同名"改成**覆盖检查**：uncoveredCode（代码在拦但没条款认领）+ unenforcedClauses（条款既没落地方式也没标人批准/建议）。
+  - 宪法 schema_version 2：每条条款补 enforcement（code / code+approval / human-approval / advisory）与 enforced_by。
+  - **8 条"代码有、宪法没有"的规则**：登记为 3 条 origin: "host" 条款（
+o-git-rewrite、
+o-system-mutate、
+o-second-server）并认领全部规则 id——这是把既有代码拦截写成文字，不是新增限制。
+  - **9 条"宪法有、代码没硬拦"的条款**：逐条标清落地方式——
+o-persona-edit/
+o-persona-self-evolution 走 memory-stages 草案区；
+o-money 走花费闸门；
+o-minimax-chat 走模型过滤；share-via-tool 走外部权限 + 隧道拦截；
+o-engine-edit 标人批准；skill-full-compliance、url-no-chinese 如实标 **advisory**（实测 share_project 用 path.basename() 复制，**没有**清洗中文，所以它确实没被代码保证）。
+  - 结果：uncoveredCode = 0、unenforcedClauses = 0，advisory 2 条、human-approval 1 条，全部在 /api/harness 可见。
+  - 护栏段文字也带上落地方式（需人批准 / 建议 / 代码拦+需人批准）。
+  - 单测 6 条；相关 289 条全绿。
 ## [2.127.95] - 2026-10-20
 
 - **harness 组件化（一）**：按 Harness²（arXiv:2610.14224）的结构，把外壳拆成可追溯的组件——只做"能看见来源、能改、能回退"，不做 propose/compose。
@@ -203,6 +331,24 @@ o-money、share-via-tool 等）——先如实列出来，不擅自合并。
   - 抢锁失败的日志补上 pid 与"不算启动"，不再刷「守护启动」让人误以为在反复拉起。
 ## [2.127.89] - 2026-10-20
 
+## [2.127.96] - 2026-10-21
+
+- **护栏对齐：17 条不一致逐条落地**（接 2.127.95 的组件化）。
+  - 审计口径从"id 是否同名"改成**覆盖检查**：uncoveredCode（代码在拦但没条款认领）+ unenforcedClauses（条款既没落地方式也没标人批准/建议）。
+  - 宪法 schema_version 2：每条条款补 enforcement（code / code+approval / human-approval / advisory）与 enforced_by。
+  - **8 条"代码有、宪法没有"的规则**：登记为 3 条 origin: "host" 条款（
+o-git-rewrite、
+o-system-mutate、
+o-second-server）并认领全部规则 id——这是把既有代码拦截写成文字，不是新增限制。
+  - **9 条"宪法有、代码没硬拦"的条款**：逐条标清落地方式——
+o-persona-edit/
+o-persona-self-evolution 走 memory-stages 草案区；
+o-money 走花费闸门；
+o-minimax-chat 走模型过滤；share-via-tool 走外部权限 + 隧道拦截；
+o-engine-edit 标人批准；skill-full-compliance、url-no-chinese 如实标 **advisory**（实测 share_project 用 path.basename() 复制，**没有**清洗中文，所以它确实没被代码保证）。
+  - 结果：uncoveredCode = 0、unenforcedClauses = 0，advisory 2 条、human-approval 1 条，全部在 /api/harness 可见。
+  - 护栏段文字也带上落地方式（需人批准 / 建议 / 代码拦+需人批准）。
+  - 单测 6 条；相关 289 条全绿。
 ## [2.127.95] - 2026-10-20
 
 - **harness 组件化（一）**：按 Harness²（arXiv:2610.14224）的结构，把外壳拆成可追溯的组件——只做"能看见来源、能改、能回退"，不做 propose/compose。
@@ -258,6 +404,24 @@ o-money、share-via-tool 等）——先如实列出来，不擅自合并。
 - 事件循环监测补一个**停顿起点** stallFrom（= now - maxMs），超过 5s 另打一条 [loop-stall]：以后能拿这个时间点去对服务日志，定位肇事请求，而不是只知道"卡了 25 秒"。
 ## [2.127.88] - 2026-10-20
 
+## [2.127.96] - 2026-10-21
+
+- **护栏对齐：17 条不一致逐条落地**（接 2.127.95 的组件化）。
+  - 审计口径从"id 是否同名"改成**覆盖检查**：uncoveredCode（代码在拦但没条款认领）+ unenforcedClauses（条款既没落地方式也没标人批准/建议）。
+  - 宪法 schema_version 2：每条条款补 enforcement（code / code+approval / human-approval / advisory）与 enforced_by。
+  - **8 条"代码有、宪法没有"的规则**：登记为 3 条 origin: "host" 条款（
+o-git-rewrite、
+o-system-mutate、
+o-second-server）并认领全部规则 id——这是把既有代码拦截写成文字，不是新增限制。
+  - **9 条"宪法有、代码没硬拦"的条款**：逐条标清落地方式——
+o-persona-edit/
+o-persona-self-evolution 走 memory-stages 草案区；
+o-money 走花费闸门；
+o-minimax-chat 走模型过滤；share-via-tool 走外部权限 + 隧道拦截；
+o-engine-edit 标人批准；skill-full-compliance、url-no-chinese 如实标 **advisory**（实测 share_project 用 path.basename() 复制，**没有**清洗中文，所以它确实没被代码保证）。
+  - 结果：uncoveredCode = 0、unenforcedClauses = 0，advisory 2 条、human-approval 1 条，全部在 /api/harness 可见。
+  - 护栏段文字也带上落地方式（需人批准 / 建议 / 代码拦+需人批准）。
+  - 单测 6 条；相关 289 条全绿。
 ## [2.127.95] - 2026-10-20
 
 - **harness 组件化（一）**：按 Harness²（arXiv:2610.14224）的结构，把外壳拆成可追溯的组件——只做"能看见来源、能改、能回退"，不做 propose/compose。
@@ -320,6 +484,24 @@ o-money、share-via-tool 等）——先如实列出来，不擅自合并。
   - package.json 补 uthor 与 license（之前都是空）。
 ## [2.127.87] - 2026-10-20
 
+## [2.127.96] - 2026-10-21
+
+- **护栏对齐：17 条不一致逐条落地**（接 2.127.95 的组件化）。
+  - 审计口径从"id 是否同名"改成**覆盖检查**：uncoveredCode（代码在拦但没条款认领）+ unenforcedClauses（条款既没落地方式也没标人批准/建议）。
+  - 宪法 schema_version 2：每条条款补 enforcement（code / code+approval / human-approval / advisory）与 enforced_by。
+  - **8 条"代码有、宪法没有"的规则**：登记为 3 条 origin: "host" 条款（
+o-git-rewrite、
+o-system-mutate、
+o-second-server）并认领全部规则 id——这是把既有代码拦截写成文字，不是新增限制。
+  - **9 条"宪法有、代码没硬拦"的条款**：逐条标清落地方式——
+o-persona-edit/
+o-persona-self-evolution 走 memory-stages 草案区；
+o-money 走花费闸门；
+o-minimax-chat 走模型过滤；share-via-tool 走外部权限 + 隧道拦截；
+o-engine-edit 标人批准；skill-full-compliance、url-no-chinese 如实标 **advisory**（实测 share_project 用 path.basename() 复制，**没有**清洗中文，所以它确实没被代码保证）。
+  - 结果：uncoveredCode = 0、unenforcedClauses = 0，advisory 2 条、human-approval 1 条，全部在 /api/harness 可见。
+  - 护栏段文字也带上落地方式（需人批准 / 建议 / 代码拦+需人批准）。
+  - 单测 6 条；相关 289 条全绿。
 ## [2.127.95] - 2026-10-20
 
 - **harness 组件化（一）**：按 Harness²（arXiv:2610.14224）的结构，把外壳拆成可追溯的组件——只做"能看见来源、能改、能回退"，不做 propose/compose。
@@ -389,6 +571,24 @@ o-money、share-via-tool 等）——先如实列出来，不擅自合并。
   - 测试：self-model 4/4（含"没配置不出现"与"有配置才注入"）。
 ## [2.127.86] - 2026-10-20
 
+## [2.127.96] - 2026-10-21
+
+- **护栏对齐：17 条不一致逐条落地**（接 2.127.95 的组件化）。
+  - 审计口径从"id 是否同名"改成**覆盖检查**：uncoveredCode（代码在拦但没条款认领）+ unenforcedClauses（条款既没落地方式也没标人批准/建议）。
+  - 宪法 schema_version 2：每条条款补 enforcement（code / code+approval / human-approval / advisory）与 enforced_by。
+  - **8 条"代码有、宪法没有"的规则**：登记为 3 条 origin: "host" 条款（
+o-git-rewrite、
+o-system-mutate、
+o-second-server）并认领全部规则 id——这是把既有代码拦截写成文字，不是新增限制。
+  - **9 条"宪法有、代码没硬拦"的条款**：逐条标清落地方式——
+o-persona-edit/
+o-persona-self-evolution 走 memory-stages 草案区；
+o-money 走花费闸门；
+o-minimax-chat 走模型过滤；share-via-tool 走外部权限 + 隧道拦截；
+o-engine-edit 标人批准；skill-full-compliance、url-no-chinese 如实标 **advisory**（实测 share_project 用 path.basename() 复制，**没有**清洗中文，所以它确实没被代码保证）。
+  - 结果：uncoveredCode = 0、unenforcedClauses = 0，advisory 2 条、human-approval 1 条，全部在 /api/harness 可见。
+  - 护栏段文字也带上落地方式（需人批准 / 建议 / 代码拦+需人批准）。
+  - 单测 6 条；相关 289 条全绿。
 ## [2.127.95] - 2026-10-20
 
 - **harness 组件化（一）**：按 Harness²（arXiv:2610.14224）的结构，把外壳拆成可追溯的组件——只做"能看见来源、能改、能回退"，不做 propose/compose。
@@ -465,6 +665,24 @@ o-money、share-via-tool 等）——先如实列出来，不擅自合并。
   - 之前系统页只有「当前状态 / 访问令牌 / 检测更新 / 外网配置 / 接入模式 / 运行环境」，**没有任何一段说清"这是什么、守什么边界"**——这就是缺的那块。
 ## [2.127.85] - 2026-10-20
 
+## [2.127.96] - 2026-10-21
+
+- **护栏对齐：17 条不一致逐条落地**（接 2.127.95 的组件化）。
+  - 审计口径从"id 是否同名"改成**覆盖检查**：uncoveredCode（代码在拦但没条款认领）+ unenforcedClauses（条款既没落地方式也没标人批准/建议）。
+  - 宪法 schema_version 2：每条条款补 enforcement（code / code+approval / human-approval / advisory）与 enforced_by。
+  - **8 条"代码有、宪法没有"的规则**：登记为 3 条 origin: "host" 条款（
+o-git-rewrite、
+o-system-mutate、
+o-second-server）并认领全部规则 id——这是把既有代码拦截写成文字，不是新增限制。
+  - **9 条"宪法有、代码没硬拦"的条款**：逐条标清落地方式——
+o-persona-edit/
+o-persona-self-evolution 走 memory-stages 草案区；
+o-money 走花费闸门；
+o-minimax-chat 走模型过滤；share-via-tool 走外部权限 + 隧道拦截；
+o-engine-edit 标人批准；skill-full-compliance、url-no-chinese 如实标 **advisory**（实测 share_project 用 path.basename() 复制，**没有**清洗中文，所以它确实没被代码保证）。
+  - 结果：uncoveredCode = 0、unenforcedClauses = 0，advisory 2 条、human-approval 1 条，全部在 /api/harness 可见。
+  - 护栏段文字也带上落地方式（需人批准 / 建议 / 代码拦+需人批准）。
+  - 单测 6 条；相关 289 条全绿。
 ## [2.127.95] - 2026-10-20
 
 - **harness 组件化（一）**：按 Harness²（arXiv:2610.14224）的结构，把外壳拆成可追溯的组件——只做"能看见来源、能改、能回退"，不做 propose/compose。
@@ -551,6 +769,24 @@ etwork（fetch failed、ECONNRESET、超时）/ ad-model（is a video model、m
 - 测试：model-failover 6 条、harness-probe 6 条，共 12 条新增。
 ## [2.127.84] - 2026-10-20
 
+## [2.127.96] - 2026-10-21
+
+- **护栏对齐：17 条不一致逐条落地**（接 2.127.95 的组件化）。
+  - 审计口径从"id 是否同名"改成**覆盖检查**：uncoveredCode（代码在拦但没条款认领）+ unenforcedClauses（条款既没落地方式也没标人批准/建议）。
+  - 宪法 schema_version 2：每条条款补 enforcement（code / code+approval / human-approval / advisory）与 enforced_by。
+  - **8 条"代码有、宪法没有"的规则**：登记为 3 条 origin: "host" 条款（
+o-git-rewrite、
+o-system-mutate、
+o-second-server）并认领全部规则 id——这是把既有代码拦截写成文字，不是新增限制。
+  - **9 条"宪法有、代码没硬拦"的条款**：逐条标清落地方式——
+o-persona-edit/
+o-persona-self-evolution 走 memory-stages 草案区；
+o-money 走花费闸门；
+o-minimax-chat 走模型过滤；share-via-tool 走外部权限 + 隧道拦截；
+o-engine-edit 标人批准；skill-full-compliance、url-no-chinese 如实标 **advisory**（实测 share_project 用 path.basename() 复制，**没有**清洗中文，所以它确实没被代码保证）。
+  - 结果：uncoveredCode = 0、unenforcedClauses = 0，advisory 2 条、human-approval 1 条，全部在 /api/harness 可见。
+  - 护栏段文字也带上落地方式（需人批准 / 建议 / 代码拦+需人批准）。
+  - 单测 6 条；相关 289 条全绿。
 ## [2.127.95] - 2026-10-20
 
 - **harness 组件化（一）**：按 Harness²（arXiv:2610.14224）的结构，把外壳拆成可追溯的组件——只做"能看见来源、能改、能回退"，不做 propose/compose。
@@ -645,6 +881,24 @@ etwork（fetch failed、ECONNRESET、超时）/ ad-model（is a video model、m
 - 另记：同批历史里还有 HTTP 429 每周/每月使用上限 与 etch failed，那是通道额度与网络，不是代码问题；探针把这两类如实记成"变差"，没有硬归因。
 ## [2.127.83] - 2026-10-20
 
+## [2.127.96] - 2026-10-21
+
+- **护栏对齐：17 条不一致逐条落地**（接 2.127.95 的组件化）。
+  - 审计口径从"id 是否同名"改成**覆盖检查**：uncoveredCode（代码在拦但没条款认领）+ unenforcedClauses（条款既没落地方式也没标人批准/建议）。
+  - 宪法 schema_version 2：每条条款补 enforcement（code / code+approval / human-approval / advisory）与 enforced_by。
+  - **8 条"代码有、宪法没有"的规则**：登记为 3 条 origin: "host" 条款（
+o-git-rewrite、
+o-system-mutate、
+o-second-server）并认领全部规则 id——这是把既有代码拦截写成文字，不是新增限制。
+  - **9 条"宪法有、代码没硬拦"的条款**：逐条标清落地方式——
+o-persona-edit/
+o-persona-self-evolution 走 memory-stages 草案区；
+o-money 走花费闸门；
+o-minimax-chat 走模型过滤；share-via-tool 走外部权限 + 隧道拦截；
+o-engine-edit 标人批准；skill-full-compliance、url-no-chinese 如实标 **advisory**（实测 share_project 用 path.basename() 复制，**没有**清洗中文，所以它确实没被代码保证）。
+  - 结果：uncoveredCode = 0、unenforcedClauses = 0，advisory 2 条、human-approval 1 条，全部在 /api/harness 可见。
+  - 护栏段文字也带上落地方式（需人批准 / 建议 / 代码拦+需人批准）。
+  - 单测 6 条；相关 289 条全绿。
 ## [2.127.95] - 2026-10-20
 
 - **harness 组件化（一）**：按 Harness²（arXiv:2610.14224）的结构，把外壳拆成可追溯的组件——只做"能看见来源、能改、能回退"，不做 propose/compose。
@@ -748,6 +1002,24 @@ etwork（fetch failed、ECONNRESET、超时）/ ad-model（is a video model、m
   - 测试 	ests/unit/harness-probe.test.mjs 5 条；self 相关 16/16。
 ## [2.127.82] - 2026-10-20
 
+## [2.127.96] - 2026-10-21
+
+- **护栏对齐：17 条不一致逐条落地**（接 2.127.95 的组件化）。
+  - 审计口径从"id 是否同名"改成**覆盖检查**：uncoveredCode（代码在拦但没条款认领）+ unenforcedClauses（条款既没落地方式也没标人批准/建议）。
+  - 宪法 schema_version 2：每条条款补 enforcement（code / code+approval / human-approval / advisory）与 enforced_by。
+  - **8 条"代码有、宪法没有"的规则**：登记为 3 条 origin: "host" 条款（
+o-git-rewrite、
+o-system-mutate、
+o-second-server）并认领全部规则 id——这是把既有代码拦截写成文字，不是新增限制。
+  - **9 条"宪法有、代码没硬拦"的条款**：逐条标清落地方式——
+o-persona-edit/
+o-persona-self-evolution 走 memory-stages 草案区；
+o-money 走花费闸门；
+o-minimax-chat 走模型过滤；share-via-tool 走外部权限 + 隧道拦截；
+o-engine-edit 标人批准；skill-full-compliance、url-no-chinese 如实标 **advisory**（实测 share_project 用 path.basename() 复制，**没有**清洗中文，所以它确实没被代码保证）。
+  - 结果：uncoveredCode = 0、unenforcedClauses = 0，advisory 2 条、human-approval 1 条，全部在 /api/harness 可见。
+  - 护栏段文字也带上落地方式（需人批准 / 建议 / 代码拦+需人批准）。
+  - 单测 6 条；相关 289 条全绿。
 ## [2.127.95] - 2026-10-20
 
 - **harness 组件化（一）**：按 Harness²（arXiv:2610.14224）的结构，把外壳拆成可追溯的组件——只做"能看见来源、能改、能回退"，不做 propose/compose。
@@ -869,6 +1141,24 @@ etwork（fetch failed、ECONNRESET、超时）/ ad-model（is a video model、m
 
 ## [2.127.75] - 2026-10-19
 
+## [2.127.96] - 2026-10-21
+
+- **护栏对齐：17 条不一致逐条落地**（接 2.127.95 的组件化）。
+  - 审计口径从"id 是否同名"改成**覆盖检查**：uncoveredCode（代码在拦但没条款认领）+ unenforcedClauses（条款既没落地方式也没标人批准/建议）。
+  - 宪法 schema_version 2：每条条款补 enforcement（code / code+approval / human-approval / advisory）与 enforced_by。
+  - **8 条"代码有、宪法没有"的规则**：登记为 3 条 origin: "host" 条款（
+o-git-rewrite、
+o-system-mutate、
+o-second-server）并认领全部规则 id——这是把既有代码拦截写成文字，不是新增限制。
+  - **9 条"宪法有、代码没硬拦"的条款**：逐条标清落地方式——
+o-persona-edit/
+o-persona-self-evolution 走 memory-stages 草案区；
+o-money 走花费闸门；
+o-minimax-chat 走模型过滤；share-via-tool 走外部权限 + 隧道拦截；
+o-engine-edit 标人批准；skill-full-compliance、url-no-chinese 如实标 **advisory**（实测 share_project 用 path.basename() 复制，**没有**清洗中文，所以它确实没被代码保证）。
+  - 结果：uncoveredCode = 0、unenforcedClauses = 0，advisory 2 条、human-approval 1 条，全部在 /api/harness 可见。
+  - 护栏段文字也带上落地方式（需人批准 / 建议 / 代码拦+需人批准）。
+  - 单测 6 条；相关 289 条全绿。
 ## [2.127.95] - 2026-10-20
 
 - **harness 组件化（一）**：按 Harness²（arXiv:2610.14224）的结构，把外壳拆成可追溯的组件——只做"能看见来源、能改、能回退"，不做 propose/compose。

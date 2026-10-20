@@ -8,6 +8,7 @@ import {
   readComponent, systemPrompt, guardrailsText, guardrailAudit, harnessManifest, componentPath,
 } from '../../engine/harness-components.mjs';
 import { YUANSHU_PROTOCOL } from '../../engine/yuanshu-protocol.mjs';
+import { USER_DENY_PATTERNS } from '../../engine/tools/security.mjs';
 
 function tempWs() {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'harness-'));
@@ -48,15 +49,29 @@ test('护栏：文字来自宪法，代码硬拦单独标注', () => {
   assert.match(text, /代码级硬拦/);
 });
 
-test('护栏审计：能看出文字与代码漂移', () => {
+test('护栏审计：能看出「代码没人认领」和「条款悬空」', () => {
   const ws = tempWs();
   fs.writeFileSync(path.join(ws, '宪法.json'), JSON.stringify({
-    schema_version: 1,
+    schema_version: 2,
     clauses: [{ id: 'no-money', text: '不碰钱', status: 'accepted', origin: 'human' }],
   }), 'utf8');
   const audit = guardrailAudit(ws);
-  assert.ok(audit.codeOnly.includes('no-tunnel'), '代码有、宪法没有的规则要列出来');
-  assert.ok(audit.constitutionOnly.includes('no-money'), '宪法有、代码没有的条款要列出来');
+  assert.ok(audit.uncoveredCode.includes('no-tunnel'), '代码在拦但没条款认领 → 要列出来');
+  assert.ok(audit.unenforcedClauses.includes('no-money'), '条款没写落地方式 → 要列出来');
+});
+
+test('护栏审计：全部覆盖时不留缺口（host 条款也能认领）', () => {
+  const ws = tempWs();
+  fs.writeFileSync(path.join(ws, '宪法.json'), JSON.stringify({
+    schema_version: 2,
+    clauses: [{
+      id: 'no-tunnel', text: '不碰隧道', status: 'accepted', origin: 'host',
+      enforcement: 'code', enforced_by: USER_DENY_PATTERNS.map(r => r.id),
+    }],
+  }), 'utf8');
+  const audit = guardrailAudit(ws);
+  assert.deepEqual(audit.uncoveredCode, []);
+  assert.deepEqual(audit.unenforcedClauses, []);
 });
 
 test('manifest：八个组件，来源可追溯', () => {
