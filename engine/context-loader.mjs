@@ -129,8 +129,10 @@ export function loadContextRules() {
     if (ctxProjCache) out.push(`以下为项目约定（GEMINI.md），请严格遵守：\n${ctxProjCache}`);
   } catch {}
   try { // 兼容旧 .pi-rules.md
-    // 2026-10-20：项目里同时存在 GEMINI.md 与 .pi-rules.md 时，两份内容高度重叠，
-    // 每轮都注入等于白烧 ~1.8KB 上下文（工具循环里还要乘以轮数）。有 GEMINI.md 就不再读旧的。
+    // 2026-10-21 更正：这两个文件**内容几乎不重叠**（GEMINI.md 是通用约定/交付纪律，
+    // .pi-rules.md 是工作区/代码约定与自我进化授权）。2026-10-20 那次"有 GEMINI.md 就跳过旧文件"
+    // 实际把 18 行项目约定拆丢了；现已合并进 GEMINI.md 并归档旧文件。
+    // 这里保留旧路径只为兼容别的工作区：只有存在同名文件且项目 GEMINI.md 为空时才读它。
     if (ctxProjCache) return out;
     const f = path.join(_cwd, ".pi-rules.md");
     const st = fs.statSync(f);

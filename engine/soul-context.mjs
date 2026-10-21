@@ -5,8 +5,8 @@
 import fs from "node:fs";
 import path from "node:path";
 
-const MAX_FIXES = 8;   // 2026-10-20：14 条每轮 ~1.7KB，收到 8 条（新的在前，旧的仍在文件里可 read）
-const MAX_RELATION = 4;
+const MAX_FIXES = 14;  // 2026-10-21 恢复：只有 14 条，砍到 8 会丢 6 条旧纠正；省字改从别处省
+const MAX_RELATION = 6;
 const clip = (s, n = 120) => { const t = String(s || "").replace(/\*\*|`/g, "").replace(/\s+/g, " ").trim(); return t.length > n ? t.slice(0, n - 1) + "…" : t; };
 // 「记得 / 以后 / 永远」才说明是长期约定；「不要再调用任何工具」这类一轮内的要求会被自动记成纠正，不能每轮都注入
 const DURABLE = /记得|记住|以后|今后|永远|长期|每次|所有/;

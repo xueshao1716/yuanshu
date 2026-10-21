@@ -17,7 +17,7 @@ export const TEAM_DELIVERY_RULES = `天团必须通过 delegate_team 或真实�
 子角色仅产出分析与文本。需要真实文件、检索、图片、视频、命令时由主角色用对应工具完成并验收。模型复核不代表用户验收。`;
 
 export const DELEGATE_TEAM_TOOL = { type: 'function', function: {
-  name: 'delegate_team', description: '让天团真实子代理完成方案、质疑、成稿、复核，返回正文及已保存的交付文件。适合创意策划、脚本、方案与多角度评估。不会执行命令或生成真实图片视频。',
+  name: 'delegate_team', description: '让天团真实子代理完成方案、质疑、成稿、复核，返回正文及已保存的交付文件。适合创意策划、脚本、方案与多角度评估。不会执行命令或生成真实图片视频。注意：天团必须通过本工具真实执行，不能用 IDEA/CHALLENGE/EXEC 之类的标题冒充独立调用；简单问题直接回答，不必组队。',
   parameters: { type: 'object', properties: { task: { type: 'string', description: '完整目标、约束和需要的最终交付' }, context: { type: 'array', items: { type: 'string' }, description: '必要已知事实' } }, required: ['task'] },
 } };
 
