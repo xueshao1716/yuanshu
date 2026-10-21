@@ -8,14 +8,37 @@
 
 ## [Unreleased]
 
+## [2.127.105] - 2026-10-21
+
+## [2.127.105] - 2026-10-21
+
+- **服务日志落盘**（补长期观测缺口）：正常运行的 stdout/stderr 以前只在 watchdog 环形缓冲里，崩溃才写 60 行。
+  - watchdog 边跑边写 记忆/运行时/服务日志-YYYY-MM-DD.log，单日超 20MB 轮转成 .1；子进程退出时补一条 server 退出 code/signal。
+  - 服务端新增只读接口：GET /api/logs/tail?lines=200（只读尾部、按块读取，不怕几十 MB）、GET /api/logs/list（按日期倒序）。
+  - 路径约定与 engine/service-log.mjs 一致（watchdog 是 CJS，内联同一规则，不引 ESM）。
+  - 新增单测 4 条；相关 283 条全绿。
 ## [2.127.104] - 2026-10-21
 
+## [2.127.105] - 2026-10-21
+
+- **服务日志落盘**（补长期观测缺口）：正常运行的 stdout/stderr 以前只在 watchdog 环形缓冲里，崩溃才写 60 行。
+  - watchdog 边跑边写 记忆/运行时/服务日志-YYYY-MM-DD.log，单日超 20MB 轮转成 .1；子进程退出时补一条 server 退出 code/signal。
+  - 服务端新增只读接口：GET /api/logs/tail?lines=200（只读尾部、按块读取，不怕几十 MB）、GET /api/logs/list（按日期倒序）。
+  - 路径约定与 engine/service-log.mjs 一致（watchdog 是 CJS，内联同一规则，不引 ESM）。
+  - 新增单测 4 条；相关 283 条全绿。
 ## [2.127.104] - 2026-10-21
 
 - harness 来源改为**落盘**（记忆/运行时/harness-来源.log，64KB 轮转）：服务 stdout 平时不进任何日志文件（watchdog 只在崩溃时写环形缓冲），之前的 console.log 等于没打。
 - 顺带确认一个观测缺口：**服务正常运行的 stdout 没有落盘**，只有崩溃时才有 60 行。要做"长期服务日志"是单独一件事，先记在这里。
 ## [2.127.103] - 2026-10-21
 
+## [2.127.105] - 2026-10-21
+
+- **服务日志落盘**（补长期观测缺口）：正常运行的 stdout/stderr 以前只在 watchdog 环形缓冲里，崩溃才写 60 行。
+  - watchdog 边跑边写 记忆/运行时/服务日志-YYYY-MM-DD.log，单日超 20MB 轮转成 .1；子进程退出时补一条 server 退出 code/signal。
+  - 服务端新增只读接口：GET /api/logs/tail?lines=200（只读尾部、按块读取，不怕几十 MB）、GET /api/logs/list（按日期倒序）。
+  - 路径约定与 engine/service-log.mjs 一致（watchdog 是 CJS，内联同一规则，不引 ESM）。
+  - 新增单测 4 条；相关 283 条全绿。
 ## [2.127.104] - 2026-10-21
 
 - harness 来源改为**落盘**（记忆/运行时/harness-来源.log，64KB 轮转）：服务 stdout 平时不进任何日志文件（watchdog 只在崩溃时写环形缓冲），之前的 console.log 等于没打。

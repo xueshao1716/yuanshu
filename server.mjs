@@ -3902,6 +3902,25 @@ const boardApi = createBoardApi({
       return json(res, 500, { error: String(e?.message || e).slice(0, 200) });
     }
   }]);
+  // 2026-10-21 服务日志：这是服务自己的 stdout/stderr（watchdog 落盘），
+  // 排查"为什么慢/为什么报错"不用再靠复现。
+  API_ROUTES.push(["GET", "/api/logs/tail", async (res, _req, url) => {
+    try {
+      const { tailServiceLog } = await import("./engine/service-log.mjs");
+      const lines = Number(url.searchParams.get("lines") || 200);
+      return json(res, 200, tailServiceLog(WS_ROOT, { lines: Number.isFinite(lines) ? lines : 200 }));
+    } catch (e) {
+      return json(res, 500, { error: String(e?.message || e).slice(0, 200) });
+    }
+  }]);
+  API_ROUTES.push(["GET", "/api/logs/list", async (res) => {
+    try {
+      const { listServiceLogs } = await import("./engine/service-log.mjs");
+      return json(res, 200, { items: listServiceLogs(WS_ROOT) });
+    } catch (e) {
+      return json(res, 500, { error: String(e?.message || e).slice(0, 200) });
+    }
+  }]);
   API_ROUTES.push(["GET", "/api/harness", async (res) => {
     try {
       const { harnessManifest } = await import("./engine/harness-components.mjs");

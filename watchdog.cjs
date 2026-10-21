@@ -15,6 +15,30 @@ const LOCK = path.join(WEB_DIR, ".watchdog.lock");
 const _logDir = process.env.YUANSHU_CWD || (() => { const b = process.env.USERPROFILE || require('os').homedir(); const n = path.join(b, 'yuanshu-space'), o = path.join(b, 'pi-workspace'); return fs.existsSync(n) || !fs.existsSync(o) ? n : o; })();
 try { fs.mkdirSync(_logDir, { recursive: true }); } catch {}
 const LOG = (() => { try { const p = path.join(_logDir, 'watchdog.log'); fs.appendFileSync(p, ''); return p; } catch { return path.join(WEB_DIR, 'watchdog.log'); } })();
+// 2026-10-21 服务日志落盘：正常运行的 stdout/stderr 以前只在环形缓冲里，崩溃才写 60 行。
+// 现在边跑边写 <wsRoot>/记忆/运行时/服务日志-YYYY-MM-DD.log（单日 >20MB 轮转成 .1）。
+// 路径规则必须与 engine/service-log.mjs 保持一致（那边读，这边写）。
+const SERVICE_LOG_MAX = 20 * 1024 * 1024;
+function serviceLogFile(now = new Date()) {
+  let day;
+  try { day = now.toLocaleDateString('sv-SE'); } catch { day = now.toISOString().slice(0, 10); }
+  const dir = path.join(_logDir, '记忆', '运行时');
+  try { fs.mkdirSync(dir, { recursive: true }); } catch {}
+  return path.join(dir, `服务日志-${day}.log`);
+}
+let serviceLogStream = null;
+function serviceLogWrite(chunk) {
+  try {
+    if (!serviceLogStream) {
+      const file = serviceLogFile();
+      try { if (fs.statSync(file).size > SERVICE_LOG_MAX) fs.renameSync(file, file + '.1'); } catch {}
+      serviceLogStream = fs.createWriteStream(file, { flags: 'a' });
+      serviceLogStream.on('error', () => { serviceLogStream = null; });
+    }
+    serviceLogStream.write(chunk);
+  } catch {}
+}
+
 let restartCount = 0;
 let lastRestartAt = 0;
 let child = null;
@@ -177,6 +201,7 @@ const startServer = singleFlight(async function () {
     const s = buf.toString("utf8");
     outBuf.push(s);
     if (outBuf.length > 200) outBuf = outBuf.slice(-200);
+    serviceLogWrite(s); // 落盘（环形缓冲只负责崩溃取证）
   };
   // 2026-10-09 透传 LAN=1：让服务监听 0.0.0.0，手机客户端可通过局域网 IP 访问
   // 2026-10-14：工作区必须沿用服务原本所在的那个（灵魂/记忆/培养数据都在里面），绝不写死盘符
@@ -189,6 +214,7 @@ const startServer = singleFlight(async function () {
   lastStartAt = Date.now();
   log(`已启动 server (pid ${child.pid})，累计重启 ${restartCount} 次`);
   child.on("exit", (code, sig) => {
+    try { serviceLogWrite(`\n[watchdog] ${new Date().toISOString()} server 退出 code=${code} signal=${sig}\n`); } catch {}
     const crashText = outBuf.join("").split("\n").slice(-60).join("\n");
     log(`server 退出 code=${code} signal=${sig}`);
     if (code !== 0 && outBuf.length) {
