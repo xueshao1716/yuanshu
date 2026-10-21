@@ -40,10 +40,19 @@ export function readComponent(wsRoot, id, fallback = '') {
 let _loggedSource = false;
 export function systemPrompt(wsRoot) {
   const c = readComponent(wsRoot, 'system', YUANSHU_PROTOCOL);
-  // 只打一次：文件优先意味着"改代码里的常量不生效"，启动时必须说清用的是哪份
+  // 只记一次。注意：服务 stdout 平时不落盘（watchdog 只在崩溃时写环形缓冲），
+  // 所以这里直接落文件，否则这条关键信息等于没打。
   if (!_loggedSource) {
     _loggedSource = true;
+    const line = `${new Date().toISOString()} system=${c.source}${c.path ? ` path=${c.path}` : ''} bytes=${c.bytes}`;
     try { console.log(`[harness] system 提示来源：${c.source}${c.path ? ` → ${c.path}` : ''}（${c.bytes}B）`); } catch {}
+    try {
+      const dir = path.join(wsRoot, '记忆', '运行时');
+      fs.mkdirSync(dir, { recursive: true });
+      const file = path.join(dir, 'harness-来源.log');
+      try { if (fs.statSync(file).size > 64 * 1024) fs.renameSync(file, file + '.1'); } catch {}
+      fs.appendFileSync(file, line + '\n', 'utf8');
+    } catch {}
   }
   return c;
 }
