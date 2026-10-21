@@ -37,8 +37,15 @@ export function readComponent(wsRoot, id, fallback = '') {
   return { id, text: String(fallback || ''), source: 'builtin', path: '', bytes: Buffer.byteLength(String(fallback || '')) };
 }
 
+let _loggedSource = false;
 export function systemPrompt(wsRoot) {
-  return readComponent(wsRoot, 'system', YUANSHU_PROTOCOL);
+  const c = readComponent(wsRoot, 'system', YUANSHU_PROTOCOL);
+  // 只打一次：文件优先意味着"改代码里的常量不生效"，启动时必须说清用的是哪份
+  if (!_loggedSource) {
+    _loggedSource = true;
+    try { console.log(`[harness] system 提示来源：${c.source}${c.path ? ` → ${c.path}` : ''}（${c.bytes}B）`); } catch {}
+  }
+  return c;
 }
 
 /**
