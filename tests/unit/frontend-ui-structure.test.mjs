@@ -66,15 +66,18 @@ test('侧栏分组：置顶 → 对话（按时间分段）→ 微信 → 终端
   assert.ok(!sidebar.includes('小语会话（终端）'), '不得继续使用小语会话（终端）旧文案')
 })
 
-test('侧栏品牌头用波形动画标识 + persona 动态身份名，不得回退静态图标/渐变字标', () => {
+test('侧栏品牌头用 BrandMark + persona 动态身份名，不得回退渐变字标', () => {
   const sidebar = read('components', 'Sidebar.tsx')
-  // 2026-10 重设计：品牌头是「三条错峰脉冲竖线」波形 SVG（暗示对话与活跃），身份名走 /api/persona 动态取
-  assert.ok(sidebar.includes('sb-wave-a') && sidebar.includes('sb-bar-c'), '品牌头必须保留波形脉冲动画图标')
-  assert.ok(sidebar.includes('aria-hidden="true"'), '装饰性波形必须 aria-hidden')
+  // 2026-10-22 换标：品牌标记改为 BrandMark（断口环 + 轴心 + 紫点），
+  // 旧的三条脉冲竖线在静止画面里像"信号强度"，用户反馈不好看。
+  assert.match(sidebar, /import BrandMark from '\.\/BrandMark'/, '品牌头必须用 BrandMark 组件')
+  assert.match(sidebar, /<BrandMark\s/, '品牌头必须渲染 BrandMark')
+  assert.ok(sidebar.includes('aria-hidden="true"'), '装饰性标记必须 aria-hidden')
   assert.match(sidebar, /personaData\?\.definition\?\.name/, '身份名必须从 persona API 动态取，不得写死')
   assert.ok(sidebar.includes('personaName'), '侧栏必须渲染 persona 身份名')
   assert.doesNotMatch(sidebar, />元枢工作台</, '侧栏不得展示与身份名重复的文字副标题')
   assert.doesNotMatch(sidebar, /from-pi-accent to-pi-accent2/, '品牌头不得回退旧的渐变“语”字标')
+  assert.doesNotMatch(sidebar, /sb-wave-a/, '旧的脉冲竖线标记应已移除')
 })
 test('移动底栏固定为对话、会话、资产、任务、更多，且删除可拖动 MobileFab', () => {
   const layout = read('AppLayout.tsx')

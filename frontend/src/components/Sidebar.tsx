@@ -9,6 +9,7 @@ import type { Session } from '../types'
 import { useRestoreFocus } from '../hooks/useRestoreFocus'
 import { ChevronRight, Ellipsis, MessageSquare, PanelLeftClose, PencilLine, Pin, PinOff, Plus, Trash2 } from 'lucide-react'
 import { DEFAULT_COLLAPSED, displayName, planSidebar } from '../lib/session-sidebar.mjs'
+import BrandMark from './BrandMark'
 
 // 分组折叠状态持久化（v2：分组改成 对话按时间分段 / 微信 / 终端 / 真测，旧键作废）
 const COLLAPSE_KEY = 'pi_groups_collapsed_v2'
@@ -111,23 +112,10 @@ export default function Sidebar({ onNavigated, onCollapse }: { onNavigated?: () 
     <aside className="session-sidebar w-full md:w-64 flex-shrink-0 flex flex-col col-sidebar md:border-r border-pi-border/50 min-h-0 h-full relative z-10">
       {/* 品牌头 */}
       <div className="flex items-center gap-2.5 px-4 h-14 border-b border-pi-border-soft/50 flex-shrink-0">
-        {/* 波形图标：三条不等高竖线，带错峰脉冲动画，暗示「对话」与活跃状态 */}
-        <div className="h-8 w-8 shrink-0 flex items-center justify-center" aria-hidden="true">
-          <svg width="22" height="22" viewBox="0 0 22 22" fill="none" xmlns="http://www.w3.org/2000/svg">
-            <style>{`
-              @keyframes sb-wave-a { 0%,100%{height:6px;y:8px} 50%{height:12px;y:5px} }
-              @keyframes sb-wave-b { 0%,100%{height:10px;y:6px} 50%{height:16px;y:3px} }
-              @keyframes sb-wave-c { 0%,100%{height:6px;y:8px} 50%{height:10px;y:6px} }
-              .sb-bar-a{animation:sb-wave-a 1.4s ease-in-out infinite}
-              .sb-bar-b{animation:sb-wave-b 1.4s ease-in-out infinite 0.2s}
-              .sb-bar-c{animation:sb-wave-c 1.4s ease-in-out infinite 0.4s}
-            `}</style>
-            <rect className="sb-bar-a" x="3" y="8" width="3.5" height="6" rx="1.75" fill="currentColor" style={{opacity: 0.55}}/>
-            <rect className="sb-bar-b" x="9.25" y="6" width="3.5" height="10" rx="1.75" fill="currentColor" style={{opacity: 0.9}}/>
-            <rect className="sb-bar-c" x="15.5" y="8" width="3.5" height="6" rx="1.75" fill="currentColor" style={{opacity: 0.55}}/>
-          </svg>
-        </div>
-        <div className="min-w-0">
+        {/* 品牌标记：断口环 + 轴心（2026-10-22 换标，旧的脉冲竖线像信号强度） */}
+        <div className="h-8 w-8 shrink-0 flex items-center justify-center text-pi-accent" aria-hidden="true">
+          <BrandMark size={22} color="currentColor" />
+        </div>        <div className="min-w-0">
           <div className="font-semibold text-[15px] leading-tight truncate">{personaName}</div>
         </div>
         {onCollapse && (

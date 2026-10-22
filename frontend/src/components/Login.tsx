@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react'
+import BrandMark from './BrandMark'
 import { useApp } from '../store'
 import WebglBackdrop from './WebglBackdrop'
 import { mobileApiBaseError, isBundledShellOrigin } from '../lib/shell-origin'
@@ -55,7 +56,7 @@ export default function Login() {
       <div className="relative z-10 mx-auto flex min-h-full w-full max-w-[1320px] flex-col px-5 py-6 sm:px-8 lg:px-12 lg:py-8">
         <header className="flex items-center justify-between">
           <div className="flex items-center gap-3">
-            <div className="flex h-9 w-9 items-center justify-center rounded-xl border border-pi-accent/35 bg-pi-accent/10 text-pi-accent shadow-[0_0_28px_color-mix(in_srgb,var(--pi-accent)_18%,transparent)]"><Sparkles className="h-4 w-4" /></div>
+            <div className="flex h-9 w-9 items-center justify-center rounded-xl border border-pi-accent/35 bg-pi-accent/10 text-pi-accent shadow-[0_0_28px_color-mix(in_srgb,var(--pi-accent)_18%,transparent)]"><BrandMark size={20} color="currentColor" satellite={null} /></div>
             <div><div className="text-[15px] font-semibold tracking-[0.16em] text-pi-text">元枢</div><div className="text-[10px] uppercase tracking-[0.22em] text-pi-dim2">YUANSHU WORKSPACE</div></div>
           </div>
           <div className="hidden items-center gap-2 text-[11px] text-pi-dim2 sm:flex"><span className="h-1.5 w-1.5 rounded-full bg-pi-green shadow-[0_0_10px_var(--pi-green)]" />令牌保存在当前设备</div>

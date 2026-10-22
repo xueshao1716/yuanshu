@@ -8,8 +8,26 @@
 
 ## [Unreleased]
 
+## [2.127.113] - 2026-10-22
+
+## [2.127.113] - 2026-10-22
+
+- **换标**（用户反馈"logo 不太好看"）：三条脉冲竖线 → 「枢轴」标记。
+  - 形状：**断口环 + 轴心点 + 断口处一颗紫点**。环的断口表示"可开合、可转向"，轴心是主体，紫点是轴心之外的「她」；语义直接对应「枢」。
+  - 新增 components/BrandMark.tsx：size < 24px 自动切简化版（去紫点、环加粗），16px 不糊；颜色跟随 currentColor。
+  - 落地：侧栏品牌头、登录页标记；旧波形动画与相关 .sb-bar-* 一并移除。
+  - 图标：按新标重生成 icon-32 / icon-192 / icon-512 / apple-touch-icon / icon-maskable-512；index.html 补 32px 与 mask-icon（真源在 rontend/index.html，直接改 public/ 会被构建覆盖）。
+  - 单测更新：品牌头断言从"必须有波形"改为"必须用 BrandMark"，UI 结构 38 条全绿。
 ## [2.127.112] - 2026-10-22
 
+## [2.127.113] - 2026-10-22
+
+- **换标**（用户反馈"logo 不太好看"）：三条脉冲竖线 → 「枢轴」标记。
+  - 形状：**断口环 + 轴心点 + 断口处一颗紫点**。环的断口表示"可开合、可转向"，轴心是主体，紫点是轴心之外的「她」；语义直接对应「枢」。
+  - 新增 components/BrandMark.tsx：size < 24px 自动切简化版（去紫点、环加粗），16px 不糊；颜色跟随 currentColor。
+  - 落地：侧栏品牌头、登录页标记；旧波形动画与相关 .sb-bar-* 一并移除。
+  - 图标：按新标重生成 icon-32 / icon-192 / icon-512 / apple-touch-icon / icon-maskable-512；index.html 补 32px 与 mask-icon（真源在 rontend/index.html，直接改 public/ 会被构建覆盖）。
+  - 单测更新：品牌头断言从"必须有波形"改为"必须用 BrandMark"，UI 结构 38 条全绿。
 ## [2.127.112] - 2026-10-22
 
 - 修 2.127.111 引入的**递归爆栈**：polyfill 里 uuid() → crypto.randomUUID → 回退 → 又调 uuid()，局域网复测报 RangeError: Maximum call stack size exceeded。
@@ -17,6 +35,14 @@
   - 局域网 IP 复测：页面正常渲染，无异常。
 ## [2.127.111] - 2026-10-22
 
+## [2.127.113] - 2026-10-22
+
+- **换标**（用户反馈"logo 不太好看"）：三条脉冲竖线 → 「枢轴」标记。
+  - 形状：**断口环 + 轴心点 + 断口处一颗紫点**。环的断口表示"可开合、可转向"，轴心是主体，紫点是轴心之外的「她」；语义直接对应「枢」。
+  - 新增 components/BrandMark.tsx：size < 24px 自动切简化版（去紫点、环加粗），16px 不糊；颜色跟随 currentColor。
+  - 落地：侧栏品牌头、登录页标记；旧波形动画与相关 .sb-bar-* 一并移除。
+  - 图标：按新标重生成 icon-32 / icon-192 / icon-512 / apple-touch-icon / icon-maskable-512；index.html 补 32px 与 mask-icon（真源在 rontend/index.html，直接改 public/ 会被构建覆盖）。
+  - 单测更新：品牌头断言从"必须有波形"改为"必须用 BrandMark"，UI 结构 38 条全绿。
 ## [2.127.112] - 2026-10-22
 
 - 修 2.127.111 引入的**递归爆栈**：polyfill 里 uuid() → crypto.randomUUID → 回退 → 又调 uuid()，局域网复测报 RangeError: Maximum call stack size exceeded。
@@ -32,6 +58,14 @@
   - 用局域网 IP 复测：页面正文正常渲染（此前 document.body.innerText 为空）。
 ## [2.127.110] - 2026-10-22
 
+## [2.127.113] - 2026-10-22
+
+- **换标**（用户反馈"logo 不太好看"）：三条脉冲竖线 → 「枢轴」标记。
+  - 形状：**断口环 + 轴心点 + 断口处一颗紫点**。环的断口表示"可开合、可转向"，轴心是主体，紫点是轴心之外的「她」；语义直接对应「枢」。
+  - 新增 components/BrandMark.tsx：size < 24px 自动切简化版（去紫点、环加粗），16px 不糊；颜色跟随 currentColor。
+  - 落地：侧栏品牌头、登录页标记；旧波形动画与相关 .sb-bar-* 一并移除。
+  - 图标：按新标重生成 icon-32 / icon-192 / icon-512 / apple-touch-icon / icon-maskable-512；index.html 补 32px 与 mask-icon（真源在 rontend/index.html，直接改 public/ 会被构建覆盖）。
+  - 单测更新：品牌头断言从"必须有波形"改为"必须用 BrandMark"，UI 结构 38 条全绿。
 ## [2.127.112] - 2026-10-22
 
 - 修 2.127.111 引入的**递归爆栈**：polyfill 里 uuid() → crypto.randomUUID → 回退 → 又调 uuid()，局域网复测报 RangeError: Maximum call stack size exceeded。
@@ -58,6 +92,14 @@
   - 单测 9 条（含"IP 变了但凭据对仍放行"这条正是本次线上问题）；相关 48 条全绿。
 ## [2.127.109] - 2026-10-22
 
+## [2.127.113] - 2026-10-22
+
+- **换标**（用户反馈"logo 不太好看"）：三条脉冲竖线 → 「枢轴」标记。
+  - 形状：**断口环 + 轴心点 + 断口处一颗紫点**。环的断口表示"可开合、可转向"，轴心是主体，紫点是轴心之外的「她」；语义直接对应「枢」。
+  - 新增 components/BrandMark.tsx：size < 24px 自动切简化版（去紫点、环加粗），16px 不糊；颜色跟随 currentColor。
+  - 落地：侧栏品牌头、登录页标记；旧波形动画与相关 .sb-bar-* 一并移除。
+  - 图标：按新标重生成 icon-32 / icon-192 / icon-512 / apple-touch-icon / icon-maskable-512；index.html 补 32px 与 mask-icon（真源在 rontend/index.html，直接改 public/ 会被构建覆盖）。
+  - 单测更新：品牌头断言从"必须有波形"改为"必须用 BrandMark"，UI 结构 38 条全绿。
 ## [2.127.112] - 2026-10-22
 
 - 修 2.127.111 引入的**递归爆栈**：polyfill 里 uuid() → crypto.randomUUID → 回退 → 又调 uuid()，局域网复测报 RangeError: Maximum call stack size exceeded。
@@ -90,6 +132,14 @@
   - 新增 2 条单测（远端更旧不提示 / 远端更新要提示）；更新相关 26 条全绿。
 ## [2.127.108] - 2026-10-22
 
+## [2.127.113] - 2026-10-22
+
+- **换标**（用户反馈"logo 不太好看"）：三条脉冲竖线 → 「枢轴」标记。
+  - 形状：**断口环 + 轴心点 + 断口处一颗紫点**。环的断口表示"可开合、可转向"，轴心是主体，紫点是轴心之外的「她」；语义直接对应「枢」。
+  - 新增 components/BrandMark.tsx：size < 24px 自动切简化版（去紫点、环加粗），16px 不糊；颜色跟随 currentColor。
+  - 落地：侧栏品牌头、登录页标记；旧波形动画与相关 .sb-bar-* 一并移除。
+  - 图标：按新标重生成 icon-32 / icon-192 / icon-512 / apple-touch-icon / icon-maskable-512；index.html 补 32px 与 mask-icon（真源在 rontend/index.html，直接改 public/ 会被构建覆盖）。
+  - 单测更新：品牌头断言从"必须有波形"改为"必须用 BrandMark"，UI 结构 38 条全绿。
 ## [2.127.112] - 2026-10-22
 
 - 修 2.127.111 引入的**递归爆栈**：polyfill 里 uuid() → crypto.randomUUID → 回退 → 又调 uuid()，局域网复测报 RangeError: Maximum call stack size exceeded。
@@ -125,6 +175,14 @@
 - 扫码登录收尾：**撤销立即生效**（校验缓存 5 秒 → 撤销时清空，否则刚撤的令牌还能再用几秒）；设备列表改为**新的在前**。
 ## [2.127.107] - 2026-10-22
 
+## [2.127.113] - 2026-10-22
+
+- **换标**（用户反馈"logo 不太好看"）：三条脉冲竖线 → 「枢轴」标记。
+  - 形状：**断口环 + 轴心点 + 断口处一颗紫点**。环的断口表示"可开合、可转向"，轴心是主体，紫点是轴心之外的「她」；语义直接对应「枢」。
+  - 新增 components/BrandMark.tsx：size < 24px 自动切简化版（去紫点、环加粗），16px 不糊；颜色跟随 currentColor。
+  - 落地：侧栏品牌头、登录页标记；旧波形动画与相关 .sb-bar-* 一并移除。
+  - 图标：按新标重生成 icon-32 / icon-192 / icon-512 / apple-touch-icon / icon-maskable-512；index.html 补 32px 与 mask-icon（真源在 rontend/index.html，直接改 public/ 会被构建覆盖）。
+  - 单测更新：品牌头断言从"必须有波形"改为"必须用 BrandMark"，UI 结构 38 条全绿。
 ## [2.127.112] - 2026-10-22
 
 - 修 2.127.111 引入的**递归爆栈**：polyfill 里 uuid() → crypto.randomUUID → 回退 → 又调 uuid()，局域网复测报 RangeError: Maximum call stack size exceeded。
@@ -164,6 +222,14 @@
   - 回环访问时从网卡挑私网 IPv4（优先 192.168. / 10. / 172.16-31），避开虚拟网卡；端口沿用当前 host。
 ## [2.127.106] - 2026-10-22
 
+## [2.127.113] - 2026-10-22
+
+- **换标**（用户反馈"logo 不太好看"）：三条脉冲竖线 → 「枢轴」标记。
+  - 形状：**断口环 + 轴心点 + 断口处一颗紫点**。环的断口表示"可开合、可转向"，轴心是主体，紫点是轴心之外的「她」；语义直接对应「枢」。
+  - 新增 components/BrandMark.tsx：size < 24px 自动切简化版（去紫点、环加粗），16px 不糊；颜色跟随 currentColor。
+  - 落地：侧栏品牌头、登录页标记；旧波形动画与相关 .sb-bar-* 一并移除。
+  - 图标：按新标重生成 icon-32 / icon-192 / icon-512 / apple-touch-icon / icon-maskable-512；index.html 补 32px 与 mask-icon（真源在 rontend/index.html，直接改 public/ 会被构建覆盖）。
+  - 单测更新：品牌头断言从"必须有波形"改为"必须用 BrandMark"，UI 结构 38 条全绿。
 ## [2.127.112] - 2026-10-22
 
 - 修 2.127.111 引入的**递归爆栈**：polyfill 里 uuid() → crypto.randomUUID → 回退 → 又调 uuid()，局域网复测报 RangeError: Maximum call stack size exceeded。
@@ -212,6 +278,14 @@
   - 新增单测 6 条；相关 198 条全绿。
 ## [2.127.105] - 2026-10-21
 
+## [2.127.113] - 2026-10-22
+
+- **换标**（用户反馈"logo 不太好看"）：三条脉冲竖线 → 「枢轴」标记。
+  - 形状：**断口环 + 轴心点 + 断口处一颗紫点**。环的断口表示"可开合、可转向"，轴心是主体，紫点是轴心之外的「她」；语义直接对应「枢」。
+  - 新增 components/BrandMark.tsx：size < 24px 自动切简化版（去紫点、环加粗），16px 不糊；颜色跟随 currentColor。
+  - 落地：侧栏品牌头、登录页标记；旧波形动画与相关 .sb-bar-* 一并移除。
+  - 图标：按新标重生成 icon-32 / icon-192 / icon-512 / apple-touch-icon / icon-maskable-512；index.html 补 32px 与 mask-icon（真源在 rontend/index.html，直接改 public/ 会被构建覆盖）。
+  - 单测更新：品牌头断言从"必须有波形"改为"必须用 BrandMark"，UI 结构 38 条全绿。
 ## [2.127.112] - 2026-10-22
 
 - 修 2.127.111 引入的**递归爆栈**：polyfill 里 uuid() → crypto.randomUUID → 回退 → 又调 uuid()，局域网复测报 RangeError: Maximum call stack size exceeded。
@@ -267,6 +341,14 @@
   - 新增单测 4 条；相关 283 条全绿。
 ## [2.127.104] - 2026-10-21
 
+## [2.127.113] - 2026-10-22
+
+- **换标**（用户反馈"logo 不太好看"）：三条脉冲竖线 → 「枢轴」标记。
+  - 形状：**断口环 + 轴心点 + 断口处一颗紫点**。环的断口表示"可开合、可转向"，轴心是主体，紫点是轴心之外的「她」；语义直接对应「枢」。
+  - 新增 components/BrandMark.tsx：size < 24px 自动切简化版（去紫点、环加粗），16px 不糊；颜色跟随 currentColor。
+  - 落地：侧栏品牌头、登录页标记；旧波形动画与相关 .sb-bar-* 一并移除。
+  - 图标：按新标重生成 icon-32 / icon-192 / icon-512 / apple-touch-icon / icon-maskable-512；index.html 补 32px 与 mask-icon（真源在 rontend/index.html，直接改 public/ 会被构建覆盖）。
+  - 单测更新：品牌头断言从"必须有波形"改为"必须用 BrandMark"，UI 结构 38 条全绿。
 ## [2.127.112] - 2026-10-22
 
 - 修 2.127.111 引入的**递归爆栈**：polyfill 里 uuid() → crypto.randomUUID → 回退 → 又调 uuid()，局域网复测报 RangeError: Maximum call stack size exceeded。
@@ -326,6 +408,14 @@
 - 顺带确认一个观测缺口：**服务正常运行的 stdout 没有落盘**，只有崩溃时才有 60 行。要做"长期服务日志"是单独一件事，先记在这里。
 ## [2.127.103] - 2026-10-21
 
+## [2.127.113] - 2026-10-22
+
+- **换标**（用户反馈"logo 不太好看"）：三条脉冲竖线 → 「枢轴」标记。
+  - 形状：**断口环 + 轴心点 + 断口处一颗紫点**。环的断口表示"可开合、可转向"，轴心是主体，紫点是轴心之外的「她」；语义直接对应「枢」。
+  - 新增 components/BrandMark.tsx：size < 24px 自动切简化版（去紫点、环加粗），16px 不糊；颜色跟随 currentColor。
+  - 落地：侧栏品牌头、登录页标记；旧波形动画与相关 .sb-bar-* 一并移除。
+  - 图标：按新标重生成 icon-32 / icon-192 / icon-512 / apple-touch-icon / icon-maskable-512；index.html 补 32px 与 mask-icon（真源在 rontend/index.html，直接改 public/ 会被构建覆盖）。
+  - 单测更新：品牌头断言从"必须有波形"改为"必须用 BrandMark"，UI 结构 38 条全绿。
 ## [2.127.112] - 2026-10-22
 
 - 修 2.127.111 引入的**递归爆栈**：polyfill 里 uuid() → crypto.randomUUID → 回退 → 又调 uuid()，局域网复测报 RangeError: Maximum call stack size exceeded。
