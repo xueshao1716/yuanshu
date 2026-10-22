@@ -133,7 +133,8 @@ export function parseSessionFileCached(file) {
     if (hit && hit.mtimeMs === st.mtimeMs && hit.size === st.size) return hit.info;
     const info = parseSessionFile(file);
     fileCache.set(file, { info, mtimeMs: st.mtimeMs, size: st.size });
-    if (fileCache.size > 512) {
+    // 2026-10-22：512 → 4096。会话 1100+、总 485MB，小缓存导致每次全量扫都要重解析大半。
+    if (fileCache.size > 4096) {
       let oldest = null;
       for (const [k, v] of fileCache) if (!oldest || v.mtimeMs < oldest.v.mtimeMs) oldest = { k, ...v };
       if (oldest) fileCache.delete(oldest.k);
@@ -188,6 +189,19 @@ export function findSession(id) {
   if (!id) return null;
   const hit = getSessionList().find(s => s.id === id);
   if (hit) return hit;
+  // 2026-10-22：缓存没命中时，**先按文件名后缀找那一个文件**再解析它。
+  // 以前直接 invalidate + 全量重扫（1100 文件 / 485MB，同步解析），实测能把事件循环卡 60–180 秒，
+  // watchdog 因此连续判死强杀，表现为"进程反复重启"。
+  try {
+    for (const file of scanSessionFiles()) {
+      if (!path.basename(file).includes(id)) continue;
+      const info = parseSessionFileCached(file);
+      if (info?.id === id) {
+        sessionListCache = null; // 列表需要下次重建（此时解析都命中缓存，代价很小）
+        return getSessionList().find(s => s.id === id) || null;
+      }
+    }
+  } catch {}
   invalidateSessionCache();
   return getSessionList().find(s => s.id === id) || null;
 }

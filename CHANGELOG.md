@@ -8,8 +8,30 @@
 
 ## [Unreleased]
 
+## [2.127.119] - 2026-10-22
+
+## [2.127.119] - 2026-10-22
+
+- **修「服务反复重启」的真因**：事件循环被同步解析卡住 60–180 秒 → watchdog 判死强杀（今天 27 次启动、23:01 与 23:15 各一次，最长停顿 **177.8 秒**）。
+  - 根因：indSession() 缓存未命中时 invalidate + 全量重扫；会话目录已有 **1103 个文件 / 485MB**（单个 37MB），而解析缓存上限只有 512 条 → 每次重扫命中不足一半，反复同步解析大文件。
+  - 修法：① indSession 先按**文件名后缀**（<时间>_<id>.jsonl）定位那一个文件，再走缓存解析；② 解析缓存上限 512 → **4096**。
+  - 实测：冷扫描 2.3s（一次性），失效后重扫 **23ms**，indSession 命中/未命中均 **33ms**；/api/sessions 141ms。
+- **微信推送**：
+otifyOwner 遇 et=-2 prepare failed 时先 stop(keepEnabled)+start 重连再重试一次；统计补 
+otifyOk/notifyFailed/lastNotifyAt/lastNotifyError（此前失败在面板上完全看不见，failed 一直是 0）。
+  - 实测：重连+重试后仍失败 → **不是掉线，是 bot 会话失效**；已发起重新登录（login.state=waiting，二维码已就绪），扫码后应恢复。
 ## [2.127.118] - 2026-10-22
 
+## [2.127.119] - 2026-10-22
+
+- **修「服务反复重启」的真因**：事件循环被同步解析卡住 60–180 秒 → watchdog 判死强杀（今天 27 次启动、23:01 与 23:15 各一次，最长停顿 **177.8 秒**）。
+  - 根因：indSession() 缓存未命中时 invalidate + 全量重扫；会话目录已有 **1103 个文件 / 485MB**（单个 37MB），而解析缓存上限只有 512 条 → 每次重扫命中不足一半，反复同步解析大文件。
+  - 修法：① indSession 先按**文件名后缀**（<时间>_<id>.jsonl）定位那一个文件，再走缓存解析；② 解析缓存上限 512 → **4096**。
+  - 实测：冷扫描 2.3s（一次性），失效后重扫 **23ms**，indSession 命中/未命中均 **33ms**；/api/sessions 141ms。
+- **微信推送**：
+otifyOwner 遇 et=-2 prepare failed 时先 stop(keepEnabled)+start 重连再重试一次；统计补 
+otifyOk/notifyFailed/lastNotifyAt/lastNotifyError（此前失败在面板上完全看不见，failed 一直是 0）。
+  - 实测：重连+重试后仍失败 → **不是掉线，是 bot 会话失效**；已发起重新登录（login.state=waiting，二维码已就绪），扫码后应恢复。
 ## [2.127.118] - 2026-10-22
 
 - 夜间任务可以**按任务钉模型**（不动你的聊天默认）：egister({ model }) + POST /api/time/tasks/model；执行时钉了模型就优先用它，仍走失败换通道。
@@ -18,6 +40,16 @@
 - 开第一个**封存窗口**：任务「自我反思」、基准 33%（最近 3 次）、7 天到期（2026-10-29），窗口内运行只评测不调参。
 ## [2.127.117] - 2026-10-22
 
+## [2.127.119] - 2026-10-22
+
+- **修「服务反复重启」的真因**：事件循环被同步解析卡住 60–180 秒 → watchdog 判死强杀（今天 27 次启动、23:01 与 23:15 各一次，最长停顿 **177.8 秒**）。
+  - 根因：indSession() 缓存未命中时 invalidate + 全量重扫；会话目录已有 **1103 个文件 / 485MB**（单个 37MB），而解析缓存上限只有 512 条 → 每次重扫命中不足一半，反复同步解析大文件。
+  - 修法：① indSession 先按**文件名后缀**（<时间>_<id>.jsonl）定位那一个文件，再走缓存解析；② 解析缓存上限 512 → **4096**。
+  - 实测：冷扫描 2.3s（一次性），失效后重扫 **23ms**，indSession 命中/未命中均 **33ms**；/api/sessions 141ms。
+- **微信推送**：
+otifyOwner 遇 et=-2 prepare failed 时先 stop(keepEnabled)+start 重连再重试一次；统计补 
+otifyOk/notifyFailed/lastNotifyAt/lastNotifyError（此前失败在面板上完全看不见，failed 一直是 0）。
+  - 实测：重连+重试后仍失败 → **不是掉线，是 bot 会话失效**；已发起重新登录（login.state=waiting，二维码已就绪），扫码后应恢复。
 ## [2.127.118] - 2026-10-22
 
 - 夜间任务可以**按任务钉模型**（不动你的聊天默认）：egister({ model }) + POST /api/time/tasks/model；执行时钉了模型就优先用它，仍走失败换通道。
@@ -34,6 +66,16 @@
 - 单测：封存窗口 7 条；相关全绿。
 ## [2.127.116] - 2026-10-22
 
+## [2.127.119] - 2026-10-22
+
+- **修「服务反复重启」的真因**：事件循环被同步解析卡住 60–180 秒 → watchdog 判死强杀（今天 27 次启动、23:01 与 23:15 各一次，最长停顿 **177.8 秒**）。
+  - 根因：indSession() 缓存未命中时 invalidate + 全量重扫；会话目录已有 **1103 个文件 / 485MB**（单个 37MB），而解析缓存上限只有 512 条 → 每次重扫命中不足一半，反复同步解析大文件。
+  - 修法：① indSession 先按**文件名后缀**（<时间>_<id>.jsonl）定位那一个文件，再走缓存解析；② 解析缓存上限 512 → **4096**。
+  - 实测：冷扫描 2.3s（一次性），失效后重扫 **23ms**，indSession 命中/未命中均 **33ms**；/api/sessions 141ms。
+- **微信推送**：
+otifyOwner 遇 et=-2 prepare failed 时先 stop(keepEnabled)+start 重连再重试一次；统计补 
+otifyOk/notifyFailed/lastNotifyAt/lastNotifyError（此前失败在面板上完全看不见，failed 一直是 0）。
+  - 实测：重连+重试后仍失败 → **不是掉线，是 bot 会话失效**；已发起重新登录（login.state=waiting，二维码已就绪），扫码后应恢复。
 ## [2.127.118] - 2026-10-22
 
 - 夜间任务可以**按任务钉模型**（不动你的聊天默认）：egister({ model }) + POST /api/time/tasks/model；执行时钉了模型就优先用它，仍走失败换通道。
@@ -60,6 +102,16 @@
   - 实测：服务 Running、health 200、模型调用正常（SYSTEM 身份经目录联读取 auth.json）、桌面端重启命令生效；可见窗口 0。
 ## [2.127.115] - 2026-10-22
 
+## [2.127.119] - 2026-10-22
+
+- **修「服务反复重启」的真因**：事件循环被同步解析卡住 60–180 秒 → watchdog 判死强杀（今天 27 次启动、23:01 与 23:15 各一次，最长停顿 **177.8 秒**）。
+  - 根因：indSession() 缓存未命中时 invalidate + 全量重扫；会话目录已有 **1103 个文件 / 485MB**（单个 37MB），而解析缓存上限只有 512 条 → 每次重扫命中不足一半，反复同步解析大文件。
+  - 修法：① indSession 先按**文件名后缀**（<时间>_<id>.jsonl）定位那一个文件，再走缓存解析；② 解析缓存上限 512 → **4096**。
+  - 实测：冷扫描 2.3s（一次性），失效后重扫 **23ms**，indSession 命中/未命中均 **33ms**；/api/sessions 141ms。
+- **微信推送**：
+otifyOwner 遇 et=-2 prepare failed 时先 stop(keepEnabled)+start 重连再重试一次；统计补 
+otifyOk/notifyFailed/lastNotifyAt/lastNotifyError（此前失败在面板上完全看不见，failed 一直是 0）。
+  - 实测：重连+重试后仍失败 → **不是掉线，是 bot 会话失效**；已发起重新登录（login.state=waiting，二维码已就绪），扫码后应恢复。
 ## [2.127.118] - 2026-10-22
 
 - 夜间任务可以**按任务钉模型**（不动你的聊天默认）：egister({ model }) + POST /api/time/tasks/model；执行时钉了模型就优先用它，仍走失败换通道。
@@ -94,6 +146,16 @@ ode.exe 的窗口。
   - 验证：可见窗口 0；守护与 server 进程都在，health 200。
 ## [2.127.114] - 2026-10-22
 
+## [2.127.119] - 2026-10-22
+
+- **修「服务反复重启」的真因**：事件循环被同步解析卡住 60–180 秒 → watchdog 判死强杀（今天 27 次启动、23:01 与 23:15 各一次，最长停顿 **177.8 秒**）。
+  - 根因：indSession() 缓存未命中时 invalidate + 全量重扫；会话目录已有 **1103 个文件 / 485MB**（单个 37MB），而解析缓存上限只有 512 条 → 每次重扫命中不足一半，反复同步解析大文件。
+  - 修法：① indSession 先按**文件名后缀**（<时间>_<id>.jsonl）定位那一个文件，再走缓存解析；② 解析缓存上限 512 → **4096**。
+  - 实测：冷扫描 2.3s（一次性），失效后重扫 **23ms**，indSession 命中/未命中均 **33ms**；/api/sessions 141ms。
+- **微信推送**：
+otifyOwner 遇 et=-2 prepare failed 时先 stop(keepEnabled)+start 重连再重试一次；统计补 
+otifyOk/notifyFailed/lastNotifyAt/lastNotifyError（此前失败在面板上完全看不见，failed 一直是 0）。
+  - 实测：重连+重试后仍失败 → **不是掉线，是 bot 会话失效**；已发起重新登录（login.state=waiting，二维码已就绪），扫码后应恢复。
 ## [2.127.118] - 2026-10-22
 
 - 夜间任务可以**按任务钉模型**（不动你的聊天默认）：egister({ model }) + POST /api/time/tasks/model；执行时钉了模型就优先用它，仍走失败换通道。
@@ -134,6 +196,16 @@ ode.exe 的窗口。
 pm run deploy:frontend 只同步 public/ 与 pp/dist/。离线部署必须三个目录一起复制，否则改了前端却看不到变化。
 ## [2.127.113] - 2026-10-22
 
+## [2.127.119] - 2026-10-22
+
+- **修「服务反复重启」的真因**：事件循环被同步解析卡住 60–180 秒 → watchdog 判死强杀（今天 27 次启动、23:01 与 23:15 各一次，最长停顿 **177.8 秒**）。
+  - 根因：indSession() 缓存未命中时 invalidate + 全量重扫；会话目录已有 **1103 个文件 / 485MB**（单个 37MB），而解析缓存上限只有 512 条 → 每次重扫命中不足一半，反复同步解析大文件。
+  - 修法：① indSession 先按**文件名后缀**（<时间>_<id>.jsonl）定位那一个文件，再走缓存解析；② 解析缓存上限 512 → **4096**。
+  - 实测：冷扫描 2.3s（一次性），失效后重扫 **23ms**，indSession 命中/未命中均 **33ms**；/api/sessions 141ms。
+- **微信推送**：
+otifyOwner 遇 et=-2 prepare failed 时先 stop(keepEnabled)+start 重连再重试一次；统计补 
+otifyOk/notifyFailed/lastNotifyAt/lastNotifyError（此前失败在面板上完全看不见，failed 一直是 0）。
+  - 实测：重连+重试后仍失败 → **不是掉线，是 bot 会话失效**；已发起重新登录（login.state=waiting，二维码已就绪），扫码后应恢复。
 ## [2.127.118] - 2026-10-22
 
 - 夜间任务可以**按任务钉模型**（不动你的聊天默认）：egister({ model }) + POST /api/time/tasks/model；执行时钉了模型就优先用它，仍走失败换通道。
@@ -182,6 +254,16 @@ pm run deploy:frontend 只同步 public/ 与 pp/dist/。离线部署必须三�
   - 单测更新：品牌头断言从"必须有波形"改为"必须用 BrandMark"，UI 结构 38 条全绿。
 ## [2.127.112] - 2026-10-22
 
+## [2.127.119] - 2026-10-22
+
+- **修「服务反复重启」的真因**：事件循环被同步解析卡住 60–180 秒 → watchdog 判死强杀（今天 27 次启动、23:01 与 23:15 各一次，最长停顿 **177.8 秒**）。
+  - 根因：indSession() 缓存未命中时 invalidate + 全量重扫；会话目录已有 **1103 个文件 / 485MB**（单个 37MB），而解析缓存上限只有 512 条 → 每次重扫命中不足一半，反复同步解析大文件。
+  - 修法：① indSession 先按**文件名后缀**（<时间>_<id>.jsonl）定位那一个文件，再走缓存解析；② 解析缓存上限 512 → **4096**。
+  - 实测：冷扫描 2.3s（一次性），失效后重扫 **23ms**，indSession 命中/未命中均 **33ms**；/api/sessions 141ms。
+- **微信推送**：
+otifyOwner 遇 et=-2 prepare failed 时先 stop(keepEnabled)+start 重连再重试一次；统计补 
+otifyOk/notifyFailed/lastNotifyAt/lastNotifyError（此前失败在面板上完全看不见，failed 一直是 0）。
+  - 实测：重连+重试后仍失败 → **不是掉线，是 bot 会话失效**；已发起重新登录（login.state=waiting，二维码已就绪），扫码后应恢复。
 ## [2.127.118] - 2026-10-22
 
 - 夜间任务可以**按任务钉模型**（不动你的聊天默认）：egister({ model }) + POST /api/time/tasks/model；执行时钉了模型就优先用它，仍走失败换通道。
@@ -235,6 +317,16 @@ pm run deploy:frontend 只同步 public/ 与 pp/dist/。离线部署必须三�
   - 局域网 IP 复测：页面正常渲染，无异常。
 ## [2.127.111] - 2026-10-22
 
+## [2.127.119] - 2026-10-22
+
+- **修「服务反复重启」的真因**：事件循环被同步解析卡住 60–180 秒 → watchdog 判死强杀（今天 27 次启动、23:01 与 23:15 各一次，最长停顿 **177.8 秒**）。
+  - 根因：indSession() 缓存未命中时 invalidate + 全量重扫；会话目录已有 **1103 个文件 / 485MB**（单个 37MB），而解析缓存上限只有 512 条 → 每次重扫命中不足一半，反复同步解析大文件。
+  - 修法：① indSession 先按**文件名后缀**（<时间>_<id>.jsonl）定位那一个文件，再走缓存解析；② 解析缓存上限 512 → **4096**。
+  - 实测：冷扫描 2.3s（一次性），失效后重扫 **23ms**，indSession 命中/未命中均 **33ms**；/api/sessions 141ms。
+- **微信推送**：
+otifyOwner 遇 et=-2 prepare failed 时先 stop(keepEnabled)+start 重连再重试一次；统计补 
+otifyOk/notifyFailed/lastNotifyAt/lastNotifyError（此前失败在面板上完全看不见，failed 一直是 0）。
+  - 实测：重连+重试后仍失败 → **不是掉线，是 bot 会话失效**；已发起重新登录（login.state=waiting，二维码已就绪），扫码后应恢复。
 ## [2.127.118] - 2026-10-22
 
 - 夜间任务可以**按任务钉模型**（不动你的聊天默认）：egister({ model }) + POST /api/time/tasks/model；执行时钉了模型就优先用它，仍走失败换通道。
@@ -296,6 +388,16 @@ pm run deploy:frontend 只同步 public/ 与 pp/dist/。离线部署必须三�
   - 用局域网 IP 复测：页面正文正常渲染（此前 document.body.innerText 为空）。
 ## [2.127.110] - 2026-10-22
 
+## [2.127.119] - 2026-10-22
+
+- **修「服务反复重启」的真因**：事件循环被同步解析卡住 60–180 秒 → watchdog 判死强杀（今天 27 次启动、23:01 与 23:15 各一次，最长停顿 **177.8 秒**）。
+  - 根因：indSession() 缓存未命中时 invalidate + 全量重扫；会话目录已有 **1103 个文件 / 485MB**（单个 37MB），而解析缓存上限只有 512 条 → 每次重扫命中不足一半，反复同步解析大文件。
+  - 修法：① indSession 先按**文件名后缀**（<时间>_<id>.jsonl）定位那一个文件，再走缓存解析；② 解析缓存上限 512 → **4096**。
+  - 实测：冷扫描 2.3s（一次性），失效后重扫 **23ms**，indSession 命中/未命中均 **33ms**；/api/sessions 141ms。
+- **微信推送**：
+otifyOwner 遇 et=-2 prepare failed 时先 stop(keepEnabled)+start 重连再重试一次；统计补 
+otifyOk/notifyFailed/lastNotifyAt/lastNotifyError（此前失败在面板上完全看不见，failed 一直是 0）。
+  - 实测：重连+重试后仍失败 → **不是掉线，是 bot 会话失效**；已发起重新登录（login.state=waiting，二维码已就绪），扫码后应恢复。
 ## [2.127.118] - 2026-10-22
 
 - 夜间任务可以**按任务钉模型**（不动你的聊天默认）：egister({ model }) + POST /api/time/tasks/model；执行时钉了模型就优先用它，仍走失败换通道。
@@ -368,6 +470,16 @@ pm run deploy:frontend 只同步 public/ 与 pp/dist/。离线部署必须三�
   - 单测 9 条（含"IP 变了但凭据对仍放行"这条正是本次线上问题）；相关 48 条全绿。
 ## [2.127.109] - 2026-10-22
 
+## [2.127.119] - 2026-10-22
+
+- **修「服务反复重启」的真因**：事件循环被同步解析卡住 60–180 秒 → watchdog 判死强杀（今天 27 次启动、23:01 与 23:15 各一次，最长停顿 **177.8 秒**）。
+  - 根因：indSession() 缓存未命中时 invalidate + 全量重扫；会话目录已有 **1103 个文件 / 485MB**（单个 37MB），而解析缓存上限只有 512 条 → 每次重扫命中不足一半，反复同步解析大文件。
+  - 修法：① indSession 先按**文件名后缀**（<时间>_<id>.jsonl）定位那一个文件，再走缓存解析；② 解析缓存上限 512 → **4096**。
+  - 实测：冷扫描 2.3s（一次性），失效后重扫 **23ms**，indSession 命中/未命中均 **33ms**；/api/sessions 141ms。
+- **微信推送**：
+otifyOwner 遇 et=-2 prepare failed 时先 stop(keepEnabled)+start 重连再重试一次；统计补 
+otifyOk/notifyFailed/lastNotifyAt/lastNotifyError（此前失败在面板上完全看不见，failed 一直是 0）。
+  - 实测：重连+重试后仍失败 → **不是掉线，是 bot 会话失效**；已发起重新登录（login.state=waiting，二维码已就绪），扫码后应恢复。
 ## [2.127.118] - 2026-10-22
 
 - 夜间任务可以**按任务钉模型**（不动你的聊天默认）：egister({ model }) + POST /api/time/tasks/model；执行时钉了模型就优先用它，仍走失败换通道。
@@ -446,6 +558,16 @@ pm run deploy:frontend 只同步 public/ 与 pp/dist/。离线部署必须三�
   - 新增 2 条单测（远端更旧不提示 / 远端更新要提示）；更新相关 26 条全绿。
 ## [2.127.108] - 2026-10-22
 
+## [2.127.119] - 2026-10-22
+
+- **修「服务反复重启」的真因**：事件循环被同步解析卡住 60–180 秒 → watchdog 判死强杀（今天 27 次启动、23:01 与 23:15 各一次，最长停顿 **177.8 秒**）。
+  - 根因：indSession() 缓存未命中时 invalidate + 全量重扫；会话目录已有 **1103 个文件 / 485MB**（单个 37MB），而解析缓存上限只有 512 条 → 每次重扫命中不足一半，反复同步解析大文件。
+  - 修法：① indSession 先按**文件名后缀**（<时间>_<id>.jsonl）定位那一个文件，再走缓存解析；② 解析缓存上限 512 → **4096**。
+  - 实测：冷扫描 2.3s（一次性），失效后重扫 **23ms**，indSession 命中/未命中均 **33ms**；/api/sessions 141ms。
+- **微信推送**：
+otifyOwner 遇 et=-2 prepare failed 时先 stop(keepEnabled)+start 重连再重试一次；统计补 
+otifyOk/notifyFailed/lastNotifyAt/lastNotifyError（此前失败在面板上完全看不见，failed 一直是 0）。
+  - 实测：重连+重试后仍失败 → **不是掉线，是 bot 会话失效**；已发起重新登录（login.state=waiting，二维码已就绪），扫码后应恢复。
 ## [2.127.118] - 2026-10-22
 
 - 夜间任务可以**按任务钉模型**（不动你的聊天默认）：egister({ model }) + POST /api/time/tasks/model；执行时钉了模型就优先用它，仍走失败换通道。
@@ -527,6 +649,16 @@ pm run deploy:frontend 只同步 public/ 与 pp/dist/。离线部署必须三�
 - 扫码登录收尾：**撤销立即生效**（校验缓存 5 秒 → 撤销时清空，否则刚撤的令牌还能再用几秒）；设备列表改为**新的在前**。
 ## [2.127.107] - 2026-10-22
 
+## [2.127.119] - 2026-10-22
+
+- **修「服务反复重启」的真因**：事件循环被同步解析卡住 60–180 秒 → watchdog 判死强杀（今天 27 次启动、23:01 与 23:15 各一次，最长停顿 **177.8 秒**）。
+  - 根因：indSession() 缓存未命中时 invalidate + 全量重扫；会话目录已有 **1103 个文件 / 485MB**（单个 37MB），而解析缓存上限只有 512 条 → 每次重扫命中不足一半，反复同步解析大文件。
+  - 修法：① indSession 先按**文件名后缀**（<时间>_<id>.jsonl）定位那一个文件，再走缓存解析；② 解析缓存上限 512 → **4096**。
+  - 实测：冷扫描 2.3s（一次性），失效后重扫 **23ms**，indSession 命中/未命中均 **33ms**；/api/sessions 141ms。
+- **微信推送**：
+otifyOwner 遇 et=-2 prepare failed 时先 stop(keepEnabled)+start 重连再重试一次；统计补 
+otifyOk/notifyFailed/lastNotifyAt/lastNotifyError（此前失败在面板上完全看不见，failed 一直是 0）。
+  - 实测：重连+重试后仍失败 → **不是掉线，是 bot 会话失效**；已发起重新登录（login.state=waiting，二维码已就绪），扫码后应恢复。
 ## [2.127.118] - 2026-10-22
 
 - 夜间任务可以**按任务钉模型**（不动你的聊天默认）：egister({ model }) + POST /api/time/tasks/model；执行时钉了模型就优先用它，仍走失败换通道。
@@ -612,6 +744,16 @@ pm run deploy:frontend 只同步 public/ 与 pp/dist/。离线部署必须三�
   - 回环访问时从网卡挑私网 IPv4（优先 192.168. / 10. / 172.16-31），避开虚拟网卡；端口沿用当前 host。
 ## [2.127.106] - 2026-10-22
 
+## [2.127.119] - 2026-10-22
+
+- **修「服务反复重启」的真因**：事件循环被同步解析卡住 60–180 秒 → watchdog 判死强杀（今天 27 次启动、23:01 与 23:15 各一次，最长停顿 **177.8 秒**）。
+  - 根因：indSession() 缓存未命中时 invalidate + 全量重扫；会话目录已有 **1103 个文件 / 485MB**（单个 37MB），而解析缓存上限只有 512 条 → 每次重扫命中不足一半，反复同步解析大文件。
+  - 修法：① indSession 先按**文件名后缀**（<时间>_<id>.jsonl）定位那一个文件，再走缓存解析；② 解析缓存上限 512 → **4096**。
+  - 实测：冷扫描 2.3s（一次性），失效后重扫 **23ms**，indSession 命中/未命中均 **33ms**；/api/sessions 141ms。
+- **微信推送**：
+otifyOwner 遇 et=-2 prepare failed 时先 stop(keepEnabled)+start 重连再重试一次；统计补 
+otifyOk/notifyFailed/lastNotifyAt/lastNotifyError（此前失败在面板上完全看不见，failed 一直是 0）。
+  - 实测：重连+重试后仍失败 → **不是掉线，是 bot 会话失效**；已发起重新登录（login.state=waiting，二维码已就绪），扫码后应恢复。
 ## [2.127.118] - 2026-10-22
 
 - 夜间任务可以**按任务钉模型**（不动你的聊天默认）：egister({ model }) + POST /api/time/tasks/model；执行时钉了模型就优先用它，仍走失败换通道。
@@ -706,6 +848,16 @@ pm run deploy:frontend 只同步 public/ 与 pp/dist/。离线部署必须三�
   - 新增单测 6 条；相关 198 条全绿。
 ## [2.127.105] - 2026-10-21
 
+## [2.127.119] - 2026-10-22
+
+- **修「服务反复重启」的真因**：事件循环被同步解析卡住 60–180 秒 → watchdog 判死强杀（今天 27 次启动、23:01 与 23:15 各一次，最长停顿 **177.8 秒**）。
+  - 根因：indSession() 缓存未命中时 invalidate + 全量重扫；会话目录已有 **1103 个文件 / 485MB**（单个 37MB），而解析缓存上限只有 512 条 → 每次重扫命中不足一半，反复同步解析大文件。
+  - 修法：① indSession 先按**文件名后缀**（<时间>_<id>.jsonl）定位那一个文件，再走缓存解析；② 解析缓存上限 512 → **4096**。
+  - 实测：冷扫描 2.3s（一次性），失效后重扫 **23ms**，indSession 命中/未命中均 **33ms**；/api/sessions 141ms。
+- **微信推送**：
+otifyOwner 遇 et=-2 prepare failed 时先 stop(keepEnabled)+start 重连再重试一次；统计补 
+otifyOk/notifyFailed/lastNotifyAt/lastNotifyError（此前失败在面板上完全看不见，failed 一直是 0）。
+  - 实测：重连+重试后仍失败 → **不是掉线，是 bot 会话失效**；已发起重新登录（login.state=waiting，二维码已就绪），扫码后应恢复。
 ## [2.127.118] - 2026-10-22
 
 - 夜间任务可以**按任务钉模型**（不动你的聊天默认）：egister({ model }) + POST /api/time/tasks/model；执行时钉了模型就优先用它，仍走失败换通道。
@@ -807,6 +959,16 @@ pm run deploy:frontend 只同步 public/ 与 pp/dist/。离线部署必须三�
   - 新增单测 4 条；相关 283 条全绿。
 ## [2.127.104] - 2026-10-21
 
+## [2.127.119] - 2026-10-22
+
+- **修「服务反复重启」的真因**：事件循环被同步解析卡住 60–180 秒 → watchdog 判死强杀（今天 27 次启动、23:01 与 23:15 各一次，最长停顿 **177.8 秒**）。
+  - 根因：indSession() 缓存未命中时 invalidate + 全量重扫；会话目录已有 **1103 个文件 / 485MB**（单个 37MB），而解析缓存上限只有 512 条 → 每次重扫命中不足一半，反复同步解析大文件。
+  - 修法：① indSession 先按**文件名后缀**（<时间>_<id>.jsonl）定位那一个文件，再走缓存解析；② 解析缓存上限 512 → **4096**。
+  - 实测：冷扫描 2.3s（一次性），失效后重扫 **23ms**，indSession 命中/未命中均 **33ms**；/api/sessions 141ms。
+- **微信推送**：
+otifyOwner 遇 et=-2 prepare failed 时先 stop(keepEnabled)+start 重连再重试一次；统计补 
+otifyOk/notifyFailed/lastNotifyAt/lastNotifyError（此前失败在面板上完全看不见，failed 一直是 0）。
+  - 实测：重连+重试后仍失败 → **不是掉线，是 bot 会话失效**；已发起重新登录（login.state=waiting，二维码已就绪），扫码后应恢复。
 ## [2.127.118] - 2026-10-22
 
 - 夜间任务可以**按任务钉模型**（不动你的聊天默认）：egister({ model }) + POST /api/time/tasks/model；执行时钉了模型就优先用它，仍走失败换通道。
@@ -912,6 +1074,16 @@ pm run deploy:frontend 只同步 public/ 与 pp/dist/。离线部署必须三�
 - 顺带确认一个观测缺口：**服务正常运行的 stdout 没有落盘**，只有崩溃时才有 60 行。要做"长期服务日志"是单独一件事，先记在这里。
 ## [2.127.103] - 2026-10-21
 
+## [2.127.119] - 2026-10-22
+
+- **修「服务反复重启」的真因**：事件循环被同步解析卡住 60–180 秒 → watchdog 判死强杀（今天 27 次启动、23:01 与 23:15 各一次，最长停顿 **177.8 秒**）。
+  - 根因：indSession() 缓存未命中时 invalidate + 全量重扫；会话目录已有 **1103 个文件 / 485MB**（单个 37MB），而解析缓存上限只有 512 条 → 每次重扫命中不足一半，反复同步解析大文件。
+  - 修法：① indSession 先按**文件名后缀**（<时间>_<id>.jsonl）定位那一个文件，再走缓存解析；② 解析缓存上限 512 → **4096**。
+  - 实测：冷扫描 2.3s（一次性），失效后重扫 **23ms**，indSession 命中/未命中均 **33ms**；/api/sessions 141ms。
+- **微信推送**：
+otifyOwner 遇 et=-2 prepare failed 时先 stop(keepEnabled)+start 重连再重试一次；统计补 
+otifyOk/notifyFailed/lastNotifyAt/lastNotifyError（此前失败在面板上完全看不见，failed 一直是 0）。
+  - 实测：重连+重试后仍失败 → **不是掉线，是 bot 会话失效**；已发起重新登录（login.state=waiting，二维码已就绪），扫码后应恢复。
 ## [2.127.118] - 2026-10-22
 
 - 夜间任务可以**按任务钉模型**（不动你的聊天默认）：egister({ model }) + POST /api/time/tasks/model；执行时钉了模型就优先用它，仍走失败换通道。

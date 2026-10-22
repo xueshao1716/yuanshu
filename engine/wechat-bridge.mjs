@@ -164,7 +164,8 @@ export function createWechatBridge({
   const saveSessions = () => writeJson(file("sessions.json"), sessions);
 
   const login = { state: "idle", qrUrl: "", message: "", startedAt: 0, token: 0 };
-  const stats = { received: 0, replied: 0, failed: 0, lastAt: 0, lastError: "", startedAt: 0 };
+  // 2026-10-22：补 lastNotify，主动推送失败才有据可查（此前 failed=0 但实测发送失败）
+  const stats = { received: 0, replied: 0, failed: 0, lastAt: 0, lastError: "", startedAt: 0, notifyOk: 0, notifyFailed: 0, lastNotifyAt: 0, lastNotifyError: "" };
   const recent = [];
   // 每个好友最近一条消息的 context_token：主动发消息（通知）时带上，回复能挂到同一个对话上。
   let contexts = readJson(file("contexts.json"), {});
@@ -434,9 +435,30 @@ export function createWechatBridge({
       const acc = loadAccount();
       if (!acc?.token || !acc.userId) throw Object.assign(new Error("微信没登录"), { status: 409 });
       if (!settings().notify) throw Object.assign(new Error("没打开「通知发到微信」"), { status: 409 });
-      const result = await reply(acc, acc.userId, text || "", contexts[acc.userId] || "", imagePath || "");
-      // 2026-10-12 诚实化：文字发送失败不再返回 200 假成功（图片附件失败不算，不抛）
-      if (result && result.failedText > 0) throw Object.assign(new Error(`微信发送失败：${result.error || result.failedText + " 条未送达"}`), { status: 502 });
+      const send = () => reply(acc, acc.userId, text || "", contexts[acc.userId] || "", imagePath || "");
+      let result = await send();
+      let detail = result && result.failedText > 0 ? String(result.error || "未送达") : "";
+      // 2026-10-22：iLink 掉线时发送会回 ret=-2 prepare failed；这时先重连一次再重试，
+      // 比直接把失败抛给调用方有用（以前失败率统计也看不到这类失败）。
+      if (detail && /ret=-2|prepare failed|掉线|not login|session/i.test(detail)) {
+        try {
+          await stop({ keepEnabled: true });
+          await start();
+          await sleep(1200);
+          result = await send();
+          detail = result && result.failedText > 0 ? String(result.error || "未送达") : "";
+        } catch (e) {
+          detail = detail || String(e?.message || e);
+        }
+      }
+      stats.lastNotifyAt = now();
+      if (detail) {
+        stats.notifyFailed++;
+        stats.lastNotifyError = preview(detail, 160);
+        throw Object.assign(new Error(`微信发送失败：${detail}`), { status: 502 });
+      }
+      stats.notifyOk++;
+      stats.lastNotifyError = "";
       return { ok: true };
     },
     _waitIdle: async () => { while (loop || flushing) await sleep(10); },
