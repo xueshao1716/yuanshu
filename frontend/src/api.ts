@@ -1090,3 +1090,16 @@ export const PairApi = {
   devices: () => api<{ items: PairDevice[] }>('/api/pair/devices'),
   revoke: (id: string) => api<{ ok: boolean }>('/api/pair/revoke', { method: 'POST', body: { id } }),
 }
+
+// ── 守护形态（2026-10-22）：Windows 服务优先，计划任务回退 ──
+export type WatchdogStatus = {
+  mode: 'service' | 'task' | 'none'
+  name?: string
+  installed?: boolean
+  state: string
+  pid?: string
+}
+export const ServiceApi = {
+  status: () => api<WatchdogStatus>('/api/service/status'),
+  control: (action: 'start' | 'stop' | 'restart') => api<{ ok: boolean; mode?: string; action?: string; error?: string; message?: string }>('/api/service/control', { method: 'POST', body: { action } }),
+}

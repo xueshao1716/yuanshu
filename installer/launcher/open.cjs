@@ -31,6 +31,14 @@ function startService() {
     child.unref();
     return "direct";
   }
+  // 2026-10-22（方案 B+D）：优先用 Windows 服务；服务不存在或起不来再退回计划任务。
+  // 服务控制权限已在安装时通过 SDDL 授予交互用户，所以这里不需要每次 UAC。
+  const svc = spawnSync("sc.exe", ["query", "YuanShuService"], { windowsHide: true });
+  if (svc.status === 0) {
+    const out = String(svc.stdout || "");
+    if (!/RUNNING/.test(out)) spawnSync("sc.exe", ["start", "YuanShuService"], { windowsHide: true });
+    return "service";
+  }
   const r = spawnSync("schtasks.exe", ["/Run", "/TN", "yuanshu-watchdog"], { windowsHide: true });
   if (r.status === 0) return "task";
   // 计划任务不可用（被策略禁用等）时直接起一个后台守护

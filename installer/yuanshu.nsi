@@ -1,4 +1,4 @@
-; 元枢离线全量安装包（NSIS 3，Unicode，免管理员）
+﻿; 元枢离线全量安装包（NSIS 3，Unicode，免管理员）
 ; 由 installer/build.mjs 调用：makensis -DSTAGE=... -DVERSION=... -DOUTFILE=... yuanshu.nsi
 ; 测试用命令行开关：/NOTASK 不注册自启任务、不启动服务（避免与开发机上的服务冲突）
 Unicode true
@@ -132,6 +132,10 @@ Section "元枢" SecCore
       StrCpy $2 "upgrade"
     ${EndIf}
     nsExec::ExecToLog 'powershell.exe -NoProfile -ExecutionPolicy Bypass -File "$INSTDIR\launcher\register-task.ps1" -Root "$INSTDIR"'
+    ; 2026-10-22（方案 B）：优先装 Windows 服务（无窗口、注销后仍在跑）；失败则保留计划任务回退。
+    nsExec::ExecToLog 'powershell.exe -NoProfile -ExecutionPolicy Bypass -File "$INSTDIR\launcher\install-service.ps1" -Root "$INSTDIR" -Install'
+    ; 服务接管后禁用计划任务，避免两个守护抢单例端口（任务不存在时 schtasks 返回非零，无害）
+    nsExec::Exec 'schtasks /change /tn yuanshu-watchdog /disable'
     nsExec::Exec '"$INSTDIR\launcher\yuanshu.exe" --service-only'
     ; 2026-10-09 不再弹窗展示令牌（旧逻辑 StrCpy -1 会截掉令牌最后一位）。
     ; 新装由首启向导引导：令牌 → 模型 → 灵魂；令牌在向导第一步展示、可复制、可修改。
@@ -175,7 +179,10 @@ SectionEnd
 
 Section "Uninstall"
   !insertmacro StopService
-  nsExec::Exec `powershell.exe -NoProfile -ExecutionPolicy Bypass -Command "${OWN_TASK}; if ($$own) { Unregister-ScheduledTask -TaskName yuanshu-watchdog -Confirm:$$false }"`
+  nsExec::Exec `powershell.exe -NoProfile -ExecutionPolicy Bypass -Command "${OWN_TASK}; if ($own) { Unregister-ScheduledTask -TaskName yuanshu-watchdog -Confirm:$false }"`
+  ; 2026-10-22：卸载服务形态（需管理员；安装包本身已是提权运行）
+  nsExec::Exec 'sc.exe stop YuanShuService'
+  nsExec::Exec 'sc.exe delete YuanShuService'
   Delete "$SMSTARTUP\元枢服务.lnk"
   Delete "$DESKTOP\元枢.lnk"
   RMDir /r "$SMPROGRAMS\元枢"

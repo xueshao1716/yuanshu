@@ -298,6 +298,12 @@ const STEPS = {
     if (!fs.existsSync(csc)) throw new Error('找不到 csc.exe（.NET Framework 4），无法编译启动器');
     run(csc, ['/nologo', '/codepage:65001', '/target:winexe', '/optimize+', `/win32icon:${path.join(dst, 'yuanshu.ico')}`,
       `/out:${path.join(dst, 'yuanshu.exe')}`, '/r:System.Windows.Forms.dll', '/r:System.Drawing.dll', path.join(HERE, 'launcher-src', 'YuanshuLauncher.cs')]);
+
+      // 2026-10-22（方案 B）：编译 Windows 服务宿主，随包分发；安装时由 install-service.ps1 注册。
+      const svcOut = path.join(dst, 'YuanshuServiceHost.exe')
+      run(csc, ['/nologo', '/codepage:65001', '/target:exe', '/optimize+', `/out:${svcOut}`,
+        '/r:System.ServiceProcess.dll', path.join(HERE, 'launcher-src', 'YuanshuServiceHost.cs')]);
+      if (!fs.existsSync(svcOut)) throw new Error('服务宿主编译失败');
     rm(path.join(STAGE, 'template'));
     copyTree(path.join(HERE, 'template'), path.join(STAGE, 'template'));
     fs.copyFileSync(path.join(HERE, 'template', 'workspace', '开始使用.md'), path.join(STAGE, '开始使用.md'));

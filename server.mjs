@@ -3925,6 +3925,42 @@ const boardApi = createBoardApi({
   }]);
   // 2026-10-21 服务日志：这是服务自己的 stdout/stderr（watchdog 落盘），
   // 排查"为什么慢/为什么报错"不用再靠复现。
+  // 2026-10-22 守护形态：Windows 服务优先，计划任务回退；系统页据此显示状态与操作。
+  API_ROUTES.push(["GET", "/api/service/status", async (res) => {
+    try {
+      const { watchdogStatus } = await import("./engine/service-control.mjs");
+      return json(res, 200, await watchdogStatus());
+    } catch (e) {
+      return json(res, 500, { error: String(e?.message || e).slice(0, 200) });
+    }
+  }]);
+  API_ROUTES.push(["POST", "/api/service/control", async (res, req) => {
+    try {
+      const body = await readBody(req, 0.016).catch(() => ({}));
+      const action = String(body?.action || "");
+      const mod = await import("./engine/service-control.mjs");
+      const cmd = mod.controlCommand(action);
+      if (!cmd) return json(res, 400, { error: "invalid-action" });
+      const status = await mod.watchdogStatus();
+      // 只有"服务"形态可以停/重启；任务是当前进程的父级，停了就没人拉起来
+      if (status.mode !== "service" && action !== "start") {
+        return json(res, 409, { error: "task-mode", message: "当前用计划任务守护：请用「重启服务」按钮（会结束并重新拉起任务）" });
+      }
+      if (action === "restart" && status.mode === "task") {
+        // 任务模式：结束当前任务实例再触发一次（不依赖 sc）
+        const { spawn } = await import("node:child_process");
+        const p = spawn("cmd.exe", ["/c", "schtasks /end /tn yuanshu-watchdog & ping -n 3 127.0.0.1 > nul & schtasks /run /tn yuanshu-watchdog"], { detached: true, stdio: "ignore", windowsHide: true });
+        p.unref();
+        return json(res, 200, { ok: true, mode: "task", action });
+      }
+      // 服务模式下 stop/restart 会掐断当前连接：先回响应，再 detached 执行
+      setImmediate(() => { try { mod.runDetached(cmd); } catch {} });
+      return json(res, 200, { ok: true, mode: status.mode, action });
+    } catch (e) {
+      return json(res, 500, { error: String(e?.message || e).slice(0, 200) });
+    }
+  }]);
+
   // 2026-10-22 扫码配对：匿名接口按 IP 限频（60 次/分钟），避免被暴力猜码
   const _pairHits = new Map();
   const pairRateOk = (req) => {

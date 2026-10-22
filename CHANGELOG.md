@@ -8,8 +8,30 @@
 
 ## [Unreleased]
 
+## [2.127.116] - 2026-10-22
+
+## [2.127.116] - 2026-10-22
+
+- **守护改为 Windows 服务（B）+ 桌面端可管理（D）**
+  - 新增 installer/launcher-src/YuanshuServiceHost.cs：自己写的 ServiceBase 宿主（约 200 行，**不引 NSSM/WinSW**），负责把 launcher\service.cjs 当子进程跑、退出即重启、停止时结束子进程树；顺带把子进程的 UTF-8 输出按 UTF-8 解码（否则中文日志乱码）。
+  - 新增 installer/launcher/install-service.ps1（需管理员）：建服务、失败自动重启、**给交互用户授予启动/停止权限**（SDDL，桌面端重启不再每次 UAC）、为 SYSTEM 建立 systemprofile\.pi 目录联接并写机器级 YUANSHU_CWD / YUANSHU_AGENT_DIR（服务账户也能读到 auth.json）。
+  - 安装包：uild.mjs 编译服务宿主；yuanshu.nsi 安装时优先注册服务并禁用旧计划任务，卸载时删除服务。
+  - 桌面壳：open.cjs 优先 sc start YuanShuService，失败才退回计划任务/直启。
+  - 系统页新增「服务守护」卡：形态（Windows 服务 / 计划任务）、状态、PID、启动/重启/停止。
+  - 新增 GET /api/service/status、POST /api/service/control。
+  - 实测：服务 Running、health 200、模型调用正常（SYSTEM 身份经目录联读取 auth.json）、桌面端重启命令生效；可见窗口 0。
 ## [2.127.115] - 2026-10-22
 
+## [2.127.116] - 2026-10-22
+
+- **守护改为 Windows 服务（B）+ 桌面端可管理（D）**
+  - 新增 installer/launcher-src/YuanshuServiceHost.cs：自己写的 ServiceBase 宿主（约 200 行，**不引 NSSM/WinSW**），负责把 launcher\service.cjs 当子进程跑、退出即重启、停止时结束子进程树；顺带把子进程的 UTF-8 输出按 UTF-8 解码（否则中文日志乱码）。
+  - 新增 installer/launcher/install-service.ps1（需管理员）：建服务、失败自动重启、**给交互用户授予启动/停止权限**（SDDL，桌面端重启不再每次 UAC）、为 SYSTEM 建立 systemprofile\.pi 目录联接并写机器级 YUANSHU_CWD / YUANSHU_AGENT_DIR（服务账户也能读到 auth.json）。
+  - 安装包：uild.mjs 编译服务宿主；yuanshu.nsi 安装时优先注册服务并禁用旧计划任务，卸载时删除服务。
+  - 桌面壳：open.cjs 优先 sc start YuanShuService，失败才退回计划任务/直启。
+  - 系统页新增「服务守护」卡：形态（Windows 服务 / 计划任务）、状态、PID、启动/重启/停止。
+  - 新增 GET /api/service/status、POST /api/service/control。
+  - 实测：服务 Running、health 200、模型调用正常（SYSTEM 身份经目录联读取 auth.json）、桌面端重启命令生效；可见窗口 0。
 ## [2.127.115] - 2026-10-22
 
 - **修「任务栏一直挂着一个 node 窗口」**：真实原因不是守护逻辑，而是 installer/launcher/run-hidden.vbs **从来没被放进仓库**——egister-task.ps1 引用了它，安装时文件不存在，任务最终变成直接启动 
@@ -20,6 +42,16 @@ ode.exe 的窗口。
   - 验证：可见窗口 0；守护与 server 进程都在，health 200。
 ## [2.127.114] - 2026-10-22
 
+## [2.127.116] - 2026-10-22
+
+- **守护改为 Windows 服务（B）+ 桌面端可管理（D）**
+  - 新增 installer/launcher-src/YuanshuServiceHost.cs：自己写的 ServiceBase 宿主（约 200 行，**不引 NSSM/WinSW**），负责把 launcher\service.cjs 当子进程跑、退出即重启、停止时结束子进程树；顺带把子进程的 UTF-8 输出按 UTF-8 解码（否则中文日志乱码）。
+  - 新增 installer/launcher/install-service.ps1（需管理员）：建服务、失败自动重启、**给交互用户授予启动/停止权限**（SDDL，桌面端重启不再每次 UAC）、为 SYSTEM 建立 systemprofile\.pi 目录联接并写机器级 YUANSHU_CWD / YUANSHU_AGENT_DIR（服务账户也能读到 auth.json）。
+  - 安装包：uild.mjs 编译服务宿主；yuanshu.nsi 安装时优先注册服务并禁用旧计划任务，卸载时删除服务。
+  - 桌面壳：open.cjs 优先 sc start YuanShuService，失败才退回计划任务/直启。
+  - 系统页新增「服务守护」卡：形态（Windows 服务 / 计划任务）、状态、PID、启动/重启/停止。
+  - 新增 GET /api/service/status、POST /api/service/control。
+  - 实测：服务 Running、health 200、模型调用正常（SYSTEM 身份经目录联读取 auth.json）、桌面端重启命令生效；可见窗口 0。
 ## [2.127.115] - 2026-10-22
 
 - **修「任务栏一直挂着一个 node 窗口」**：真实原因不是守护逻辑，而是 installer/launcher/run-hidden.vbs **从来没被放进仓库**——egister-task.ps1 引用了它，安装时文件不存在，任务最终变成直接启动 
@@ -36,6 +68,16 @@ ode.exe 的窗口。
 pm run deploy:frontend 只同步 public/ 与 pp/dist/。离线部署必须三个目录一起复制，否则改了前端却看不到变化。
 ## [2.127.113] - 2026-10-22
 
+## [2.127.116] - 2026-10-22
+
+- **守护改为 Windows 服务（B）+ 桌面端可管理（D）**
+  - 新增 installer/launcher-src/YuanshuServiceHost.cs：自己写的 ServiceBase 宿主（约 200 行，**不引 NSSM/WinSW**），负责把 launcher\service.cjs 当子进程跑、退出即重启、停止时结束子进程树；顺带把子进程的 UTF-8 输出按 UTF-8 解码（否则中文日志乱码）。
+  - 新增 installer/launcher/install-service.ps1（需管理员）：建服务、失败自动重启、**给交互用户授予启动/停止权限**（SDDL，桌面端重启不再每次 UAC）、为 SYSTEM 建立 systemprofile\.pi 目录联接并写机器级 YUANSHU_CWD / YUANSHU_AGENT_DIR（服务账户也能读到 auth.json）。
+  - 安装包：uild.mjs 编译服务宿主；yuanshu.nsi 安装时优先注册服务并禁用旧计划任务，卸载时删除服务。
+  - 桌面壳：open.cjs 优先 sc start YuanShuService，失败才退回计划任务/直启。
+  - 系统页新增「服务守护」卡：形态（Windows 服务 / 计划任务）、状态、PID、启动/重启/停止。
+  - 新增 GET /api/service/status、POST /api/service/control。
+  - 实测：服务 Running、health 200、模型调用正常（SYSTEM 身份经目录联读取 auth.json）、桌面端重启命令生效；可见窗口 0。
 ## [2.127.115] - 2026-10-22
 
 - **修「任务栏一直挂着一个 node 窗口」**：真实原因不是守护逻辑，而是 installer/launcher/run-hidden.vbs **从来没被放进仓库**——egister-task.ps1 引用了它，安装时文件不存在，任务最终变成直接启动 
@@ -60,6 +102,16 @@ pm run deploy:frontend 只同步 public/ 与 pp/dist/。离线部署必须三�
   - 单测更新：品牌头断言从"必须有波形"改为"必须用 BrandMark"，UI 结构 38 条全绿。
 ## [2.127.112] - 2026-10-22
 
+## [2.127.116] - 2026-10-22
+
+- **守护改为 Windows 服务（B）+ 桌面端可管理（D）**
+  - 新增 installer/launcher-src/YuanshuServiceHost.cs：自己写的 ServiceBase 宿主（约 200 行，**不引 NSSM/WinSW**），负责把 launcher\service.cjs 当子进程跑、退出即重启、停止时结束子进程树；顺带把子进程的 UTF-8 输出按 UTF-8 解码（否则中文日志乱码）。
+  - 新增 installer/launcher/install-service.ps1（需管理员）：建服务、失败自动重启、**给交互用户授予启动/停止权限**（SDDL，桌面端重启不再每次 UAC）、为 SYSTEM 建立 systemprofile\.pi 目录联接并写机器级 YUANSHU_CWD / YUANSHU_AGENT_DIR（服务账户也能读到 auth.json）。
+  - 安装包：uild.mjs 编译服务宿主；yuanshu.nsi 安装时优先注册服务并禁用旧计划任务，卸载时删除服务。
+  - 桌面壳：open.cjs 优先 sc start YuanShuService，失败才退回计划任务/直启。
+  - 系统页新增「服务守护」卡：形态（Windows 服务 / 计划任务）、状态、PID、启动/重启/停止。
+  - 新增 GET /api/service/status、POST /api/service/control。
+  - 实测：服务 Running、health 200、模型调用正常（SYSTEM 身份经目录联读取 auth.json）、桌面端重启命令生效；可见窗口 0。
 ## [2.127.115] - 2026-10-22
 
 - **修「任务栏一直挂着一个 node 窗口」**：真实原因不是守护逻辑，而是 installer/launcher/run-hidden.vbs **从来没被放进仓库**——egister-task.ps1 引用了它，安装时文件不存在，任务最终变成直接启动 
@@ -89,6 +141,16 @@ pm run deploy:frontend 只同步 public/ 与 pp/dist/。离线部署必须三�
   - 局域网 IP 复测：页面正常渲染，无异常。
 ## [2.127.111] - 2026-10-22
 
+## [2.127.116] - 2026-10-22
+
+- **守护改为 Windows 服务（B）+ 桌面端可管理（D）**
+  - 新增 installer/launcher-src/YuanshuServiceHost.cs：自己写的 ServiceBase 宿主（约 200 行，**不引 NSSM/WinSW**），负责把 launcher\service.cjs 当子进程跑、退出即重启、停止时结束子进程树；顺带把子进程的 UTF-8 输出按 UTF-8 解码（否则中文日志乱码）。
+  - 新增 installer/launcher/install-service.ps1（需管理员）：建服务、失败自动重启、**给交互用户授予启动/停止权限**（SDDL，桌面端重启不再每次 UAC）、为 SYSTEM 建立 systemprofile\.pi 目录联接并写机器级 YUANSHU_CWD / YUANSHU_AGENT_DIR（服务账户也能读到 auth.json）。
+  - 安装包：uild.mjs 编译服务宿主；yuanshu.nsi 安装时优先注册服务并禁用旧计划任务，卸载时删除服务。
+  - 桌面壳：open.cjs 优先 sc start YuanShuService，失败才退回计划任务/直启。
+  - 系统页新增「服务守护」卡：形态（Windows 服务 / 计划任务）、状态、PID、启动/重启/停止。
+  - 新增 GET /api/service/status、POST /api/service/control。
+  - 实测：服务 Running、health 200、模型调用正常（SYSTEM 身份经目录联读取 auth.json）、桌面端重启命令生效；可见窗口 0。
 ## [2.127.115] - 2026-10-22
 
 - **修「任务栏一直挂着一个 node 窗口」**：真实原因不是守护逻辑，而是 installer/launcher/run-hidden.vbs **从来没被放进仓库**——egister-task.ps1 引用了它，安装时文件不存在，任务最终变成直接启动 
@@ -126,6 +188,16 @@ pm run deploy:frontend 只同步 public/ 与 pp/dist/。离线部署必须三�
   - 用局域网 IP 复测：页面正文正常渲染（此前 document.body.innerText 为空）。
 ## [2.127.110] - 2026-10-22
 
+## [2.127.116] - 2026-10-22
+
+- **守护改为 Windows 服务（B）+ 桌面端可管理（D）**
+  - 新增 installer/launcher-src/YuanshuServiceHost.cs：自己写的 ServiceBase 宿主（约 200 行，**不引 NSSM/WinSW**），负责把 launcher\service.cjs 当子进程跑、退出即重启、停止时结束子进程树；顺带把子进程的 UTF-8 输出按 UTF-8 解码（否则中文日志乱码）。
+  - 新增 installer/launcher/install-service.ps1（需管理员）：建服务、失败自动重启、**给交互用户授予启动/停止权限**（SDDL，桌面端重启不再每次 UAC）、为 SYSTEM 建立 systemprofile\.pi 目录联接并写机器级 YUANSHU_CWD / YUANSHU_AGENT_DIR（服务账户也能读到 auth.json）。
+  - 安装包：uild.mjs 编译服务宿主；yuanshu.nsi 安装时优先注册服务并禁用旧计划任务，卸载时删除服务。
+  - 桌面壳：open.cjs 优先 sc start YuanShuService，失败才退回计划任务/直启。
+  - 系统页新增「服务守护」卡：形态（Windows 服务 / 计划任务）、状态、PID、启动/重启/停止。
+  - 新增 GET /api/service/status、POST /api/service/control。
+  - 实测：服务 Running、health 200、模型调用正常（SYSTEM 身份经目录联读取 auth.json）、桌面端重启命令生效；可见窗口 0。
 ## [2.127.115] - 2026-10-22
 
 - **修「任务栏一直挂着一个 node 窗口」**：真实原因不是守护逻辑，而是 installer/launcher/run-hidden.vbs **从来没被放进仓库**——egister-task.ps1 引用了它，安装时文件不存在，任务最终变成直接启动 
@@ -174,6 +246,16 @@ pm run deploy:frontend 只同步 public/ 与 pp/dist/。离线部署必须三�
   - 单测 9 条（含"IP 变了但凭据对仍放行"这条正是本次线上问题）；相关 48 条全绿。
 ## [2.127.109] - 2026-10-22
 
+## [2.127.116] - 2026-10-22
+
+- **守护改为 Windows 服务（B）+ 桌面端可管理（D）**
+  - 新增 installer/launcher-src/YuanshuServiceHost.cs：自己写的 ServiceBase 宿主（约 200 行，**不引 NSSM/WinSW**），负责把 launcher\service.cjs 当子进程跑、退出即重启、停止时结束子进程树；顺带把子进程的 UTF-8 输出按 UTF-8 解码（否则中文日志乱码）。
+  - 新增 installer/launcher/install-service.ps1（需管理员）：建服务、失败自动重启、**给交互用户授予启动/停止权限**（SDDL，桌面端重启不再每次 UAC）、为 SYSTEM 建立 systemprofile\.pi 目录联接并写机器级 YUANSHU_CWD / YUANSHU_AGENT_DIR（服务账户也能读到 auth.json）。
+  - 安装包：uild.mjs 编译服务宿主；yuanshu.nsi 安装时优先注册服务并禁用旧计划任务，卸载时删除服务。
+  - 桌面壳：open.cjs 优先 sc start YuanShuService，失败才退回计划任务/直启。
+  - 系统页新增「服务守护」卡：形态（Windows 服务 / 计划任务）、状态、PID、启动/重启/停止。
+  - 新增 GET /api/service/status、POST /api/service/control。
+  - 实测：服务 Running、health 200、模型调用正常（SYSTEM 身份经目录联读取 auth.json）、桌面端重启命令生效；可见窗口 0。
 ## [2.127.115] - 2026-10-22
 
 - **修「任务栏一直挂着一个 node 窗口」**：真实原因不是守护逻辑，而是 installer/launcher/run-hidden.vbs **从来没被放进仓库**——egister-task.ps1 引用了它，安装时文件不存在，任务最终变成直接启动 
@@ -228,6 +310,16 @@ pm run deploy:frontend 只同步 public/ 与 pp/dist/。离线部署必须三�
   - 新增 2 条单测（远端更旧不提示 / 远端更新要提示）；更新相关 26 条全绿。
 ## [2.127.108] - 2026-10-22
 
+## [2.127.116] - 2026-10-22
+
+- **守护改为 Windows 服务（B）+ 桌面端可管理（D）**
+  - 新增 installer/launcher-src/YuanshuServiceHost.cs：自己写的 ServiceBase 宿主（约 200 行，**不引 NSSM/WinSW**），负责把 launcher\service.cjs 当子进程跑、退出即重启、停止时结束子进程树；顺带把子进程的 UTF-8 输出按 UTF-8 解码（否则中文日志乱码）。
+  - 新增 installer/launcher/install-service.ps1（需管理员）：建服务、失败自动重启、**给交互用户授予启动/停止权限**（SDDL，桌面端重启不再每次 UAC）、为 SYSTEM 建立 systemprofile\.pi 目录联接并写机器级 YUANSHU_CWD / YUANSHU_AGENT_DIR（服务账户也能读到 auth.json）。
+  - 安装包：uild.mjs 编译服务宿主；yuanshu.nsi 安装时优先注册服务并禁用旧计划任务，卸载时删除服务。
+  - 桌面壳：open.cjs 优先 sc start YuanShuService，失败才退回计划任务/直启。
+  - 系统页新增「服务守护」卡：形态（Windows 服务 / 计划任务）、状态、PID、启动/重启/停止。
+  - 新增 GET /api/service/status、POST /api/service/control。
+  - 实测：服务 Running、health 200、模型调用正常（SYSTEM 身份经目录联读取 auth.json）、桌面端重启命令生效；可见窗口 0。
 ## [2.127.115] - 2026-10-22
 
 - **修「任务栏一直挂着一个 node 窗口」**：真实原因不是守护逻辑，而是 installer/launcher/run-hidden.vbs **从来没被放进仓库**——egister-task.ps1 引用了它，安装时文件不存在，任务最终变成直接启动 
@@ -285,6 +377,16 @@ pm run deploy:frontend 只同步 public/ 与 pp/dist/。离线部署必须三�
 - 扫码登录收尾：**撤销立即生效**（校验缓存 5 秒 → 撤销时清空，否则刚撤的令牌还能再用几秒）；设备列表改为**新的在前**。
 ## [2.127.107] - 2026-10-22
 
+## [2.127.116] - 2026-10-22
+
+- **守护改为 Windows 服务（B）+ 桌面端可管理（D）**
+  - 新增 installer/launcher-src/YuanshuServiceHost.cs：自己写的 ServiceBase 宿主（约 200 行，**不引 NSSM/WinSW**），负责把 launcher\service.cjs 当子进程跑、退出即重启、停止时结束子进程树；顺带把子进程的 UTF-8 输出按 UTF-8 解码（否则中文日志乱码）。
+  - 新增 installer/launcher/install-service.ps1（需管理员）：建服务、失败自动重启、**给交互用户授予启动/停止权限**（SDDL，桌面端重启不再每次 UAC）、为 SYSTEM 建立 systemprofile\.pi 目录联接并写机器级 YUANSHU_CWD / YUANSHU_AGENT_DIR（服务账户也能读到 auth.json）。
+  - 安装包：uild.mjs 编译服务宿主；yuanshu.nsi 安装时优先注册服务并禁用旧计划任务，卸载时删除服务。
+  - 桌面壳：open.cjs 优先 sc start YuanShuService，失败才退回计划任务/直启。
+  - 系统页新增「服务守护」卡：形态（Windows 服务 / 计划任务）、状态、PID、启动/重启/停止。
+  - 新增 GET /api/service/status、POST /api/service/control。
+  - 实测：服务 Running、health 200、模型调用正常（SYSTEM 身份经目录联读取 auth.json）、桌面端重启命令生效；可见窗口 0。
 ## [2.127.115] - 2026-10-22
 
 - **修「任务栏一直挂着一个 node 窗口」**：真实原因不是守护逻辑，而是 installer/launcher/run-hidden.vbs **从来没被放进仓库**——egister-task.ps1 引用了它，安装时文件不存在，任务最终变成直接启动 
@@ -346,6 +448,16 @@ pm run deploy:frontend 只同步 public/ 与 pp/dist/。离线部署必须三�
   - 回环访问时从网卡挑私网 IPv4（优先 192.168. / 10. / 172.16-31），避开虚拟网卡；端口沿用当前 host。
 ## [2.127.106] - 2026-10-22
 
+## [2.127.116] - 2026-10-22
+
+- **守护改为 Windows 服务（B）+ 桌面端可管理（D）**
+  - 新增 installer/launcher-src/YuanshuServiceHost.cs：自己写的 ServiceBase 宿主（约 200 行，**不引 NSSM/WinSW**），负责把 launcher\service.cjs 当子进程跑、退出即重启、停止时结束子进程树；顺带把子进程的 UTF-8 输出按 UTF-8 解码（否则中文日志乱码）。
+  - 新增 installer/launcher/install-service.ps1（需管理员）：建服务、失败自动重启、**给交互用户授予启动/停止权限**（SDDL，桌面端重启不再每次 UAC）、为 SYSTEM 建立 systemprofile\.pi 目录联接并写机器级 YUANSHU_CWD / YUANSHU_AGENT_DIR（服务账户也能读到 auth.json）。
+  - 安装包：uild.mjs 编译服务宿主；yuanshu.nsi 安装时优先注册服务并禁用旧计划任务，卸载时删除服务。
+  - 桌面壳：open.cjs 优先 sc start YuanShuService，失败才退回计划任务/直启。
+  - 系统页新增「服务守护」卡：形态（Windows 服务 / 计划任务）、状态、PID、启动/重启/停止。
+  - 新增 GET /api/service/status、POST /api/service/control。
+  - 实测：服务 Running、health 200、模型调用正常（SYSTEM 身份经目录联读取 auth.json）、桌面端重启命令生效；可见窗口 0。
 ## [2.127.115] - 2026-10-22
 
 - **修「任务栏一直挂着一个 node 窗口」**：真实原因不是守护逻辑，而是 installer/launcher/run-hidden.vbs **从来没被放进仓库**——egister-task.ps1 引用了它，安装时文件不存在，任务最终变成直接启动 
@@ -416,6 +528,16 @@ pm run deploy:frontend 只同步 public/ 与 pp/dist/。离线部署必须三�
   - 新增单测 6 条；相关 198 条全绿。
 ## [2.127.105] - 2026-10-21
 
+## [2.127.116] - 2026-10-22
+
+- **守护改为 Windows 服务（B）+ 桌面端可管理（D）**
+  - 新增 installer/launcher-src/YuanshuServiceHost.cs：自己写的 ServiceBase 宿主（约 200 行，**不引 NSSM/WinSW**），负责把 launcher\service.cjs 当子进程跑、退出即重启、停止时结束子进程树；顺带把子进程的 UTF-8 输出按 UTF-8 解码（否则中文日志乱码）。
+  - 新增 installer/launcher/install-service.ps1（需管理员）：建服务、失败自动重启、**给交互用户授予启动/停止权限**（SDDL，桌面端重启不再每次 UAC）、为 SYSTEM 建立 systemprofile\.pi 目录联接并写机器级 YUANSHU_CWD / YUANSHU_AGENT_DIR（服务账户也能读到 auth.json）。
+  - 安装包：uild.mjs 编译服务宿主；yuanshu.nsi 安装时优先注册服务并禁用旧计划任务，卸载时删除服务。
+  - 桌面壳：open.cjs 优先 sc start YuanShuService，失败才退回计划任务/直启。
+  - 系统页新增「服务守护」卡：形态（Windows 服务 / 计划任务）、状态、PID、启动/重启/停止。
+  - 新增 GET /api/service/status、POST /api/service/control。
+  - 实测：服务 Running、health 200、模型调用正常（SYSTEM 身份经目录联读取 auth.json）、桌面端重启命令生效；可见窗口 0。
 ## [2.127.115] - 2026-10-22
 
 - **修「任务栏一直挂着一个 node 窗口」**：真实原因不是守护逻辑，而是 installer/launcher/run-hidden.vbs **从来没被放进仓库**——egister-task.ps1 引用了它，安装时文件不存在，任务最终变成直接启动 
@@ -493,6 +615,16 @@ pm run deploy:frontend 只同步 public/ 与 pp/dist/。离线部署必须三�
   - 新增单测 4 条；相关 283 条全绿。
 ## [2.127.104] - 2026-10-21
 
+## [2.127.116] - 2026-10-22
+
+- **守护改为 Windows 服务（B）+ 桌面端可管理（D）**
+  - 新增 installer/launcher-src/YuanshuServiceHost.cs：自己写的 ServiceBase 宿主（约 200 行，**不引 NSSM/WinSW**），负责把 launcher\service.cjs 当子进程跑、退出即重启、停止时结束子进程树；顺带把子进程的 UTF-8 输出按 UTF-8 解码（否则中文日志乱码）。
+  - 新增 installer/launcher/install-service.ps1（需管理员）：建服务、失败自动重启、**给交互用户授予启动/停止权限**（SDDL，桌面端重启不再每次 UAC）、为 SYSTEM 建立 systemprofile\.pi 目录联接并写机器级 YUANSHU_CWD / YUANSHU_AGENT_DIR（服务账户也能读到 auth.json）。
+  - 安装包：uild.mjs 编译服务宿主；yuanshu.nsi 安装时优先注册服务并禁用旧计划任务，卸载时删除服务。
+  - 桌面壳：open.cjs 优先 sc start YuanShuService，失败才退回计划任务/直启。
+  - 系统页新增「服务守护」卡：形态（Windows 服务 / 计划任务）、状态、PID、启动/重启/停止。
+  - 新增 GET /api/service/status、POST /api/service/control。
+  - 实测：服务 Running、health 200、模型调用正常（SYSTEM 身份经目录联读取 auth.json）、桌面端重启命令生效；可见窗口 0。
 ## [2.127.115] - 2026-10-22
 
 - **修「任务栏一直挂着一个 node 窗口」**：真实原因不是守护逻辑，而是 installer/launcher/run-hidden.vbs **从来没被放进仓库**——egister-task.ps1 引用了它，安装时文件不存在，任务最终变成直接启动 
@@ -574,6 +706,16 @@ pm run deploy:frontend 只同步 public/ 与 pp/dist/。离线部署必须三�
 - 顺带确认一个观测缺口：**服务正常运行的 stdout 没有落盘**，只有崩溃时才有 60 行。要做"长期服务日志"是单独一件事，先记在这里。
 ## [2.127.103] - 2026-10-21
 
+## [2.127.116] - 2026-10-22
+
+- **守护改为 Windows 服务（B）+ 桌面端可管理（D）**
+  - 新增 installer/launcher-src/YuanshuServiceHost.cs：自己写的 ServiceBase 宿主（约 200 行，**不引 NSSM/WinSW**），负责把 launcher\service.cjs 当子进程跑、退出即重启、停止时结束子进程树；顺带把子进程的 UTF-8 输出按 UTF-8 解码（否则中文日志乱码）。
+  - 新增 installer/launcher/install-service.ps1（需管理员）：建服务、失败自动重启、**给交互用户授予启动/停止权限**（SDDL，桌面端重启不再每次 UAC）、为 SYSTEM 建立 systemprofile\.pi 目录联接并写机器级 YUANSHU_CWD / YUANSHU_AGENT_DIR（服务账户也能读到 auth.json）。
+  - 安装包：uild.mjs 编译服务宿主；yuanshu.nsi 安装时优先注册服务并禁用旧计划任务，卸载时删除服务。
+  - 桌面壳：open.cjs 优先 sc start YuanShuService，失败才退回计划任务/直启。
+  - 系统页新增「服务守护」卡：形态（Windows 服务 / 计划任务）、状态、PID、启动/重启/停止。
+  - 新增 GET /api/service/status、POST /api/service/control。
+  - 实测：服务 Running、health 200、模型调用正常（SYSTEM 身份经目录联读取 auth.json）、桌面端重启命令生效；可见窗口 0。
 ## [2.127.115] - 2026-10-22
 
 - **修「任务栏一直挂着一个 node 窗口」**：真实原因不是守护逻辑，而是 installer/launcher/run-hidden.vbs **从来没被放进仓库**——egister-task.ps1 引用了它，安装时文件不存在，任务最终变成直接启动 

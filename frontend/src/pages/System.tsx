@@ -10,6 +10,7 @@ import DoctorPanel from '../components/DoctorPanel'
 import WechatPanel from '../components/WechatPanel'
 import EmailPanel from '../components/EmailPanel'
 import PairLoginCard from '../components/PairLoginCard'
+import ServiceStatusCard from '../components/ServiceStatusCard'
 
 type DomainRow = { domain: string; desc: string }
 
@@ -332,6 +333,13 @@ export default function System() {
           </div>
         </section>
 
+        {/* ── 守护（2026-10-22，B+D）：Windows 服务优先，桌面端可看状态/重启 ── */}
+        <section>
+          <SectionHeader title="服务守护" description="后台服务的运行形态与状态；重启会中断正在进行的回答。" />
+          <div className="panel !p-4">
+            <ServiceStatusCard />
+          </div>
+        </section>
         {/* ── 手机扫码登录（2026-10-22）：手机 / 微信扫一扫即可登录，设备可单独撤销 ── */}
         <section>
           <SectionHeader title="手机扫码登录" description="手机或微信「扫一扫」即可登录；每台设备一个令牌，可单独撤销。" />
