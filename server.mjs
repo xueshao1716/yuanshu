@@ -2411,6 +2411,20 @@ initToolResultArchive({ root: path.join(AGENT_DIR, "yuanshu-tool-results") });
 initFileLock({ withFileMutationQueue, dir: path.join(AGENT_DIR, "yuanshu-locks") });
 console.log(`  🔒 文件写队列: ${usingSharedFileQueue() ? "与 Pi 共用" : "自带实现（未拿到 Pi 的队列）"} · 跨进程锁目录 ${path.join(AGENT_DIR, "yuanshu-locks")}`);
 const runStore = createRunStore({ rootDir: RUNS_DIR });
+// 2026-10-22：服务被强杀后，run 记录会停在 queued/running/stopping，
+// 新消息被判 session_busy（前端只看到"执行中/状态待同步"），实际后台什么都没跑。
+// 启动时把"重启前就在跑、且 90 秒没更新"的记录收成 interrupted，避免假占用。
+try {
+  const stale = runStore.list().filter((r) => {
+    if (!['queued', 'running', 'stopping'].includes(String(r.status))) return false;
+    const at = Date.parse(String(r.updatedAt || r.startedAt || 0));
+    return !Number.isFinite(at) || Date.now() - at > 90_000;
+  });
+  for (const r of stale) {
+    runStore.update(r.id, { status: 'interrupted', phase: 'interrupted', error: 'server_restarted', updatedAt: new Date().toISOString() });
+    console.log(`[recover] 残留运行收尾 ${r.id.slice(0, 8)}（${r.status}）→ interrupted`);
+  }
+} catch (e) { console.log('[recover] 残留运行清理跳过:', String(e?.message || e).slice(0, 100)); }
 const learningIntake = createLearningIntake({ wsRoot: WS_ROOT, store: runStore });
 const knowledgeRuntime = createKnowledgeRuntime({ wsRoot: WS_ROOT, runRoot: RUNS_DIR, runStore,
   catalog: () => modelList, directChat,
@@ -4748,6 +4762,22 @@ try {
       } catch {}
       console.log("[loop-lag]", line);
       if (maxMs > 5000) console.log(`[loop-stall] 事件循环停了 ${maxMs}ms（起点 ${new Date(Date.now() - maxMs).toISOString()}，rss ${Math.round(process.memoryUsage().rss / 1048576)}MB）`);
+      // 2026-10-22：卡顿 >30s 可能触发 watchdog 强杀（连续 180s 判死），事后没人知道。
+      // 卡顿当口用系统通知留一条（一小时内只提醒一次，避免刷屏）。
+      if (maxMs > 30_000) {
+        try {
+          const last = globalThis.__lastStallNotify || 0;
+          if (Date.now() - last > 3600_000) {
+            globalThis.__lastStallNotify = Date.now();
+            notifier.notify({
+              kind: "system",
+              title: "元枢服务卡顿",
+              body: `事件循环停了 ${Math.round(maxMs / 1000)} 秒（rss ${Math.round(process.memoryUsage().rss / 1048576)}MB）。持续 180 秒会被守护重启。`,
+              key: "stall",
+            });
+          }
+        } catch {}
+      }
     }
     lag.reset();
   }, 30000).unref?.();

@@ -16,7 +16,9 @@ test('execution identity distinguishes product, engine and text model', () => {
 test('runtime facts are present even with an existing persona and runtime directive', () => {
   const sections = assembleYuanshuSystem({ persona: '原有人格', runtime: '任务策略' }, null,
     { engine: 'yuanshu', model: { provider: 'test', id: 'model' } });
-  assert.equal(sections.persona, '原有人格');
+  // 2026-10-20 起：人格段会在原文之后追加「我是谁」的自述（记忆/自我.md），原文必须保留在最前
+  assert.ok(sections.persona.startsWith('原有人格'), '原有人格必须保留在最前');
+  assert.match(sections.persona, /【我】/, '应追加第一人称自述');
   assert.match(sections.runtime, /任务策略/);
   assert.match(sections.runtime, /执行引擎：元枢自制循环/);
   assert.match(sections.runtime, /文本模型：test\/model/);
