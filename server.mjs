@@ -3965,13 +3965,13 @@ const boardApi = createBoardApi({
   API_ROUTES.push(["POST", "/api/pair/claim", async (res, req) => {
     if (!pairRateOk(req)) return json(res, 429, { error: "too-many-requests" });
     const body = await readBody(req, 0.016).catch(() => ({}));
-    const r = claimPairing(body?.code, { deviceName: body?.deviceName, ip: clientIp(req) });
+    const r = claimPairing(body?.code, { deviceName: body?.deviceName, ip: clientIp(req), wsRoot: WS_ROOT });
     return json(res, r.ok ? 200 : 400, r);
   }]);
   API_ROUTES.push(["POST", "/api/pair/token", async (res, req) => {
     if (!pairRateOk(req)) return json(res, 429, { error: "too-many-requests" });
     const body = await readBody(req, 0.016).catch(() => ({}));
-    const r = takePairingToken(body?.code, { ip: clientIp(req) });
+    const r = takePairingToken(body?.code, { claimToken: body?.claimToken, ip: clientIp(req), wsRoot: WS_ROOT });
     return json(res, r.ok ? 200 : 400, r);
   }]);
   API_ROUTES.push(["POST", "/api/pair/approve", async (res, req) => {

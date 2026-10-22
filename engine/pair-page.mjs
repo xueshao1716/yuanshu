@@ -61,14 +61,14 @@ export const PAIR_JS = String.raw`
     fetch('/api/pair/status?code=' + encodeURIComponent(code)).then(function (r) { return r.json(); }).then(function (s) {
       if (stopped) return;
       if (s.status === 'approved') {
-        return post('/api/pair/token', { code: code }).then(function (t) {
+        return post('/api/pair/token', { code: code, claimToken: claimToken }).then(function (t) {
           if (t && t.ok && t.token) {
             try { localStorage.setItem(tokenKey, t.token); } catch (e) {}
             stopped = true;
             setState('登录成功，正在进入…', 'ok');
             setTimeout(function () { location.replace('/'); }, 400);
           } else {
-            setState('取令牌失败：' + (t && t.reason ? t.reason : '未知'), 'err');
+            setState('取令牌失败：' + (t && t.reason ? t.reason : '未知') + '（在电脑上重新生成二维码再扫一次）', 'err');
             retry.hidden = false;
           }
         });
@@ -85,12 +85,14 @@ export const PAIR_JS = String.raw`
   }
 
   if (!code) { setState('缺少配对码', 'err'); return; }
+  var claimToken = '';
   post('/api/pair/claim', { code: code, deviceName: deviceName() }).then(function (r) {
     if (!r || !r.ok) {
       setState(r && r.reason === 'expired' ? '二维码已过期，请重新生成' : '认领失败：' + (r && r.reason ? r.reason : '未知'), 'err');
       retry.hidden = false;
       return;
     }
+    claimToken = String(r.claimToken || '');
     detailEl.textContent = '本机：' + deviceName();
     setState('已通知电脑，请在电脑上点「允许」', '');
     poll();

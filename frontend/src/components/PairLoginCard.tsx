@@ -109,7 +109,15 @@ export default function PairLoginCard() {
 
       {devices.length > 0 && (
         <div className="rounded-pi-lg border border-pi-border-soft">
-          <div className="border-b border-pi-border-soft px-3 py-2 text-[11px] uppercase tracking-[0.12em] text-pi-dim2">已登录设备</div>
+          <div className="flex items-center justify-between border-b border-pi-border-soft px-3 py-2">
+            <span className="text-[11px] uppercase tracking-[0.12em] text-pi-dim2">已登录设备</span>
+            {devices.some(d => !d.lastSeenAt) && (
+              <button
+                onClick={async () => { for (const d of devices.filter(x => !x.lastSeenAt)) { try { await PairApi.revoke(d.id) } catch {} } loadDevices() }}
+                className="text-[11px] text-pi-dim2 hover:text-red-500"
+              >清理未使用的</button>
+            )}
+          </div>
           <div className="divide-y divide-pi-border-soft">
             {devices.map(d => (
               <div key={d.id} className="flex items-center justify-between gap-3 px-3 py-2 text-[12px]">
