@@ -21,9 +21,9 @@ test('证据：聚合慢请求、读取试验结论', () => {
     '- 2026-10-20T01:00Z · 自我反思 · 变差 · 前 3 次 vs 后 3 次 · 失败率 0→0.67\n', 'utf8');
   fs.writeFileSync(path.join(ws, '记忆', '运行时', '慢请求.jsonl'),
     [
-      JSON.stringify({ at: '2026-10-20T01:00Z', method: 'GET', path: '/api/run/overview', durationMs: 3000, status: 200 }),
-      JSON.stringify({ at: '2026-10-20T01:01Z', method: 'GET', path: '/api/run/overview', durationMs: 9000, status: 200 }),
-      JSON.stringify({ at: '2026-10-20T01:02Z', method: 'POST', path: '/api/chat', durationMs: 2500, status: 200 }),
+      JSON.stringify({ at: new Date(Date.now()-3600_000).toISOString(), method: 'GET', path: '/api/run/overview', durationMs: 3000, status: 200 }),
+      JSON.stringify({ at: new Date(Date.now()-3500_000).toISOString(), method: 'GET', path: '/api/run/overview', durationMs: 9000, status: 200 }),
+      JSON.stringify({ at: new Date(Date.now()-3400_000).toISOString(), method: 'POST', path: '/api/chat', durationMs: 2500, status: 200 }),
     ].join('\n') + '\n', 'utf8');
 
   const ev = collectEvidence(ws);

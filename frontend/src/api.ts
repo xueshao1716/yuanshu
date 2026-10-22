@@ -1080,3 +1080,13 @@ export const KeysApi = {
   remove: (provider: string) => api<any>('/api/models/remove', { method: 'POST', body: { provider } }),
   switchModel: (body: any) => api<any>('/api/model', { method: 'POST', body }),
 }
+
+// ── 手机扫码登录（2026-10-22）──
+export type PairDevice = { id: string; name: string; createdAt: string; lastSeenAt?: string | null; ua?: string }
+export const PairApi = {
+  create: () => api<{ code: string; url: string; expiresAt: number; ttlMs: number }>('/api/pair/create', { method: 'POST', body: {} }),
+  status: (code: string) => api<{ status: 'pending' | 'claimed' | 'approved' | 'expired'; deviceName?: string; expiresAt?: number }>(`/api/pair/status?code=${encodeURIComponent(code)}`),
+  approve: (code: string) => api<{ ok: boolean; deviceId?: string; deviceName?: string; token?: string; reason?: string }>('/api/pair/approve', { method: 'POST', body: { code } }),
+  devices: () => api<{ items: PairDevice[] }>('/api/pair/devices'),
+  revoke: (id: string) => api<{ ok: boolean }>('/api/pair/revoke', { method: 'POST', body: { id } }),
+}

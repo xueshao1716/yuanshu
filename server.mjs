@@ -52,6 +52,8 @@ import { sweepInterruptedRuns } from "./engine/story-store.mjs";
 import { extractPromises, recordPromises, loadPromises, pendingPromises, closePromise, pendingPromiseText, PROMISE_TOOL_SCHEMAS, promiseExtraExecutors, expireStalePromises } from "./engine/promises.mjs";
 import { MUSIC_TOOL_SCHEMA, musicExtraExecutors } from "./engine/music.mjs";
 import { musicLoginView, resetMusicLogin } from "./engine/music-login.mjs";
+import { createPairing, getPairing, claimPairing, approvePairing, takePairingToken, verifyDeviceToken, listDevices, revokeDevice } from "./engine/pairing.mjs";
+import { renderPairPage, PAIR_JS } from "./engine/pair-page.mjs";
 import { renderMusicLoginPage } from "./engine/music-login-page.mjs";
 import { handleMusicStream } from "./engine/music-stream.mjs";
 import { createRequest, settleRequest, findRequest } from "./engine/cultivation/approval-requests.mjs";
@@ -750,9 +752,28 @@ function isLoopbackReq(req) {
   const ip = String(req.socket?.remoteAddress || "").replace(/^::ffff:/, "");
   return ip === "127.0.0.1" || ip === "::1" || ip === "";
 }
+// 2026-10-22 扫码登录：设备令牌与主令牌同等有效（可单独撤销）。
+// 缓存 5 秒，避免每个请求都读一次设备文件。
+const _deviceTokenCache = new Map(); // token -> { device, at }
+function verifyDeviceTokenCached(token) {
+  if (!token || token.length < 16) return null;
+  const now = Date.now();
+  const hit = _deviceTokenCache.get(token);
+  if (hit && now - hit.at < 5000) return hit.device;
+  let device = null;
+  try { device = verifyDeviceToken(WS_ROOT, token); } catch {}
+  _deviceTokenCache.set(token, { device, at: now });
+  if (_deviceTokenCache.size > 200) _deviceTokenCache.clear();
+  return device;
+}
+
 function checkAuth(req) {
   const h = req.headers.authorization || "";
   if (h === `Bearer ${CONFIG.token}`) return true;
+  if (h.startsWith("Bearer ")) {
+    const device = verifyDeviceTokenCached(h.slice(7).trim());
+    if (device) return true;
+  }
   const url = new URL(req.url, `http://${req.headers.host || "localhost"}`);
   return url.searchParams.get("token") === CONFIG.token;
 }
@@ -3904,6 +3925,53 @@ const boardApi = createBoardApi({
   }]);
   // 2026-10-21 服务日志：这是服务自己的 stdout/stderr（watchdog 落盘），
   // 排查"为什么慢/为什么报错"不用再靠复现。
+  // 2026-10-22 扫码配对：匿名接口按 IP 限频（60 次/分钟），避免被暴力猜码
+  const _pairHits = new Map();
+  const pairRateOk = (req) => {
+    const ip = String(req.socket?.remoteAddress || "?").replace(/^::ffff:/, "");
+    const now = Date.now();
+    const rec = _pairHits.get(ip);
+    if (!rec || now > rec.resetAt) { _pairHits.set(ip, { count: 1, resetAt: now + 60_000 }); return true; }
+    rec.count += 1;
+    return rec.count <= 60;
+  };
+  const clientIp = (req) => String(req.socket?.remoteAddress || "").replace(/^::ffff:/, "");
+
+  API_ROUTES.push(["POST", "/api/pair/create", async (res, req) => {
+    // 局域网地址：手机要能访问，不能用 127.0.0.1
+    const host = String(req.headers.host || "");
+    const lanHint = /^(127\.0\.0\.1|localhost)(:\d+)?$/i.test(host) ? "" : host;
+    const p = createPairing({ baseUrl: lanHint ? "http://" + lanHint : "" });
+    return json(res, 200, p);
+  }]);
+  API_ROUTES.push(["GET", "/api/pair/status", async (res, req, url) => {
+    if (!pairRateOk(req)) return json(res, 429, { error: "too-many-requests" });
+    return json(res, 200, getPairing(url.searchParams.get("code")));
+  }]);
+  API_ROUTES.push(["POST", "/api/pair/claim", async (res, req) => {
+    if (!pairRateOk(req)) return json(res, 429, { error: "too-many-requests" });
+    const body = await readBody(req, 0.016).catch(() => ({}));
+    const r = claimPairing(body?.code, { deviceName: body?.deviceName, ip: clientIp(req) });
+    return json(res, r.ok ? 200 : 400, r);
+  }]);
+  API_ROUTES.push(["POST", "/api/pair/token", async (res, req) => {
+    if (!pairRateOk(req)) return json(res, 429, { error: "too-many-requests" });
+    const body = await readBody(req, 0.016).catch(() => ({}));
+    const r = takePairingToken(body?.code, { ip: clientIp(req) });
+    return json(res, r.ok ? 200 : 400, r);
+  }]);
+  API_ROUTES.push(["POST", "/api/pair/approve", async (res, req) => {
+    const body = await readBody(req, 0.016).catch(() => ({}));
+    const r = approvePairing(WS_ROOT, body?.code, { ua: String(req.headers["user-agent"] || "") });
+    return json(res, r.ok ? 200 : 400, r);
+  }]);
+  API_ROUTES.push(["GET", "/api/pair/devices", async (res) => json(res, 200, { items: listDevices(WS_ROOT) })]);
+  API_ROUTES.push(["POST", "/api/pair/revoke", async (res, req) => {
+    const body = await readBody(req, 0.016).catch(() => ({}));
+    const r = revokeDevice(WS_ROOT, String(body?.id || ""));
+    return json(res, r.ok ? 200 : 404, r);
+  }]);
+
   API_ROUTES.push(["GET", "/api/logs/tail", async (res, _req, url) => {
     try {
       const { tailServiceLog } = await import("./engine/service-log.mjs");
@@ -4009,10 +4077,26 @@ const server = http.createServer(async (req, res) => {
     const isPublicFeedback = url.pathname === "/api/public/feedback" && req.method === "POST";
     // 影院分享页免令牌媒体代理：GET only + 响应面收紧（tv.mjs 内非媒体 content-type 一律 403），防开放代理
     const isPublicTvMedia = url.pathname === "/api/tv/media" && req.method === "GET";
+    // 手机扫码配对：页面与"认领/查状态/取令牌"三个匿名接口必须免令牌（手机还没有凭据）。
+    // 安全性靠：一次性 8 位码 + 120 秒过期 + 云端批准 + 取令牌绑定认领 IP + IP 限频。
+    const isPairPage = req.method === "GET" && (url.pathname === "/pair.js" || url.pathname.startsWith("/pair/"));
+    const isPairPublic = (req.method === "POST" && ["/api/pair/claim", "/api/pair/token"].includes(url.pathname))
+      || (req.method === "GET" && url.pathname === "/api/pair/status");
     // 网易云扫码登录页：仅本机直连可开（它只写本机 cookie 文件，不碰账号密码）
     const isMusicLogin = (url.pathname === "/music-login" || url.pathname === "/api/music/login") && req.method === "GET" && isLoopbackReq(req);
-    if (!isStatic && !isSignedFile && !isSetupStatus && !isPublicFeedback && !isPublicTvMedia && !isMusicLogin && !checkAuth(req)) {
+    if (!isStatic && !isSignedFile && !isSetupStatus && !isPublicFeedback && !isPublicTvMedia && !isMusicLogin && !isPairPage && !isPairPublic && !checkAuth(req)) {
       return json(res, 401, { error: "未授权，请提供访问令牌" });
+    }
+
+    // 扫码配对页：手机上打开 /pair/<code>，脚本走同源 /pair.js（全站 CSP 禁内联脚本）
+    if (req.method === "GET" && url.pathname.startsWith("/pair/") && url.pathname.length > 6) {
+      const pairCode = url.pathname.slice(6);
+      res.writeHead(200, { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-store" });
+      return res.end(renderPairPage(pairCode));
+    }
+    if (req.method === "GET" && url.pathname === "/pair.js") {
+      res.writeHead(200, { "Content-Type": "text/javascript; charset=utf-8", "Cache-Control": "no-store" });
+      return res.end(PAIR_JS);
     }
 
     // 静态资源

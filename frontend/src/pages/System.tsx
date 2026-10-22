@@ -9,6 +9,7 @@ import StatusTile from '../components/StatusTile'
 import DoctorPanel from '../components/DoctorPanel'
 import WechatPanel from '../components/WechatPanel'
 import EmailPanel from '../components/EmailPanel'
+import PairLoginCard from '../components/PairLoginCard'
 
 type DomainRow = { domain: string; desc: string }
 
@@ -328,6 +329,14 @@ export default function System() {
             <KV k="运行平台" v={info.platform} />
             <KV k="工作目录" v={info.wsRoot} />
             <KV k="启动时间" v={info.startedAt} />
+          </div>
+        </section>
+
+        {/* ── 手机扫码登录（2026-10-22）：手机 / 微信扫一扫即可登录，设备可单独撤销 ── */}
+        <section>
+          <SectionHeader title="手机扫码登录" description="手机或微信「扫一扫」即可登录；每台设备一个令牌，可单独撤销。" />
+          <div className="panel !p-4">
+            <PairLoginCard />
           </div>
         </section>
 
