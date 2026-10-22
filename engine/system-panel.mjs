@@ -147,8 +147,20 @@ export async function checkUpdate(repoDir, fsMod = fs, { fetchImpl = fetch, git 
       // 远端 API 只保留短 SHA；本地必须有提交号且前缀一致，才可确认“已是最新”。
       // 本地提交号缺失时保持未知，不能把未知当成最新。
       const same = !!localShaFull && localSha === remote.sha;
-      // 安装版本地不会有自己的提交，不同就是落后。也不能跑 cat-file：按需取对象的仓库会因此偷偷联网
-      const rel = same ? { relation: "same" } : build && localShaFull ? { relation: "behind" } : localShaFull ? relateCommits(repoDir, remote.sha, git) : { relation: "unknown" };
+      // 安装版：不能跑 cat-file（按需取对象的仓库会因此偷偷联网），所以用**时间**判先后。
+      // 2026-10-22 修：GitHub 推送失败时远端会停在旧提交，此前一律判 behind →
+      // 界面弹出"发现新版本"，点下去其实是**降级**。现在远端提交时间不比本机构建新就当已最新。
+      let rel;
+      if (same) rel = { relation: "same" };
+      else if (build && localShaFull) {
+        const remoteAt = Date.parse(String(remote.date || ""));
+        const localAt = Date.parse(String(build.builtAt || ""));
+        const remoteOlder = Number.isFinite(remoteAt) && Number.isFinite(localAt) && remoteAt <= localAt;
+        rel = remoteOlder
+          ? { relation: "ahead", reason: "remote-older", ahead: null }
+          : { relation: "behind" };
+      } else if (localShaFull) rel = relateCommits(repoDir, remote.sha, git);
+      else rel = { relation: "unknown" };
       // 领先 = 没有可拉取的东西，对「更新」而言就是最新；分叉/落后/未知仍提示
       const upToDate = same || rel.relation === "ahead";
       return { ok: true, source: s.name, localSha, remote, upToDate, checkable: !!localShaFull, ...rel };

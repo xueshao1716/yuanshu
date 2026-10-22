@@ -60,3 +60,29 @@ test('真仓库：HEAD 相对自己的父提交是领先 1', () => {
   assert.equal(r.relation, 'ahead');
   assert.equal(r.ahead, 1);
 });
+test('安装版：远端提交比本机构建旧 → 不提示更新（防止把降级当新版）', async () => {
+  const fs = await import('node:fs');
+  const os = await import('node:os');
+  const path = await import('node:path');
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'upd-'));
+  fs.writeFileSync(path.join(dir, '.yuanshu-build.json'), JSON.stringify({ commit: LOCAL, builtAt: '2026-10-22T10:00:00Z' }), 'utf8');
+  const fetchOld = async () => ({ ok: true, json: async () => ({ sha: 'bbbbbbb' + '0'.repeat(33), commit: { message: 'old', author: { date: '2026-10-20T10:00:00Z' } } }) });
+  const git = (args) => args[0] === 'rev-parse' ? { ok: true, out: LOCAL } : { ok: true, out: '' };
+  const r = await checkUpdate(dir, undefined, { fetchImpl: fetchOld, git });
+  assert.equal(r.upToDate, true);
+  assert.equal(r.relation, 'ahead');
+  assert.equal(r.reason, 'remote-older');
+});
+
+test('安装版：远端提交比本机构建新 → 提示更新', async () => {
+  const fs = await import('node:fs');
+  const os = await import('node:os');
+  const path = await import('node:path');
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'upd2-'));
+  fs.writeFileSync(path.join(dir, '.yuanshu-build.json'), JSON.stringify({ commit: LOCAL, builtAt: '2026-10-20T10:00:00Z' }), 'utf8');
+  const fetchNew = async () => ({ ok: true, json: async () => ({ sha: 'ccccccc' + '0'.repeat(33), commit: { message: 'new', author: { date: '2026-10-22T10:00:00Z' } } }) });
+  const git = (args) => args[0] === 'rev-parse' ? { ok: true, out: LOCAL } : { ok: true, out: '' };
+  const r = await checkUpdate(dir, undefined, { fetchImpl: fetchNew, git });
+  assert.equal(r.upToDate, false);
+  assert.equal(r.relation, 'behind');
+});
