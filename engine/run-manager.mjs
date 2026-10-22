@@ -322,23 +322,30 @@ export function createRunManager({ store, eventLog, executeChat, instanceId, onS
       if (!body?.sessionId) throw Object.assign(new Error('sessionId_required'), { code: 'invalid_request' })
       if (!body?.clientRequestId) throw Object.assign(new Error('clientRequestId_required'), { code: 'invalid_request' })
       let active = store.findActiveBySession(body.sessionId)
-      // 2026-10-22：服务被强杀后运行记录会停在 running/stopping，前台再发消息就被判 session_busy，
-      // 但后台其实什么都没跑（用户看到"执行中/状态待同步"，新消息进不来）。
-      // 这里对"90 秒没有任何更新"的运行做一次自愈：收成 interrupted，然后放行。
+      // 2026-10-22 修正：只有"本进程没在跑"且"超过 10 分钟没更新"才当陈旧。
+      // 上一版用 90 秒硬阈值，会把正在出片/长工具调用的活运行误判成尸体（别人装机后一直报 session_busy）。
       if (active) {
         const at = Date.parse(String(active.updatedAt || active.startedAt || 0));
-        const stale = !Number.isFinite(at) || Date.now() - at > 90_000;
+        const live = executions.has(active.id);
+        const stale = !live && (!Number.isFinite(at) || Date.now() - at > 10 * 60_000);
         if (stale) {
           try {
             store.update(active.id, { status: 'interrupted', phase: 'interrupted', error: 'stale_run', updatedAt: new Date().toISOString() });
-            console.log(`[run] 陈旧运行自愈 ${active.id.slice(0, 8)} → interrupted（${Math.round((Date.now() - at) / 1000)}s 未更新）`);
+            console.log(`[run] 陈旧运行自愈 ${active.id.slice(0, 8)} → interrupted（${Math.round((Date.now() - at) / 1000)}s 未更新，本进程未持有）`);
           } catch {}
           active = null;
         }
       }
       if (active) {
         if (active.clientRequestId === body.clientRequestId) return active
-        throw Object.assign(new Error('session_busy'), { code: 'session_busy', activeRunId: active.id })
+        throw Object.assign(new Error('session_busy'), {
+          code: 'session_busy',
+          activeRunId: active.id,
+          activeStatus: active.status,
+          activeSince: active.updatedAt || active.startedAt || null,
+          activePreview: String(active.input?.messagePreview || active.messagePreview || '').slice(0, 80),
+          live: executions.has(active.id),
+        })
       }
 
       const existing = store.list().find(run => run.sessionId === body.sessionId && run.clientRequestId === body.clientRequestId)

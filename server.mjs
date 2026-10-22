@@ -2415,10 +2415,12 @@ const runStore = createRunStore({ rootDir: RUNS_DIR });
 // 新消息被判 session_busy（前端只看到"执行中/状态待同步"），实际后台什么都没跑。
 // 启动时把"重启前就在跑、且 90 秒没更新"的记录收成 interrupted，避免假占用。
 try {
+  // 2026-10-22 修正：按"归属实例"判定，而不是按时间。
+  // 进程刚启动，任何"属于别的实例"的活跃运行都是上一次进程的遗留（哪怕几秒前还在写），
+  // 必须立刻收尾——否则用户更新/重启后马上发消息，会被一条刚断气的运行挡住 90 秒甚至更久。
   const stale = runStore.list().filter((r) => {
     if (!['queued', 'running', 'stopping'].includes(String(r.status))) return false;
-    const at = Date.parse(String(r.updatedAt || r.startedAt || 0));
-    return !Number.isFinite(at) || Date.now() - at > 90_000;
+    return String(r.ownerId || '') !== RUN_INSTANCE_ID;
   });
   for (const r of stale) {
     runStore.update(r.id, { status: 'interrupted', phase: 'interrupted', error: 'server_restarted', updatedAt: new Date().toISOString() });
