@@ -122,6 +122,9 @@ static class YuanshuServiceHost
             var agent = Environment.GetEnvironmentVariable("YUANSHU_AGENT_DIR", EnvironmentVariableTarget.Machine)
                         ?? Environment.GetEnvironmentVariable("YUANSHU_AGENT_DIR");
             if (!string.IsNullOrEmpty(agent)) psi.EnvironmentVariables["YUANSHU_AGENT_DIR"] = agent;
+            // 2026-10-23：限制老生代堆，避免内存吃紧时的大 GC 造成 100+ 秒停顿。
+            if (string.IsNullOrEmpty(Environment.GetEnvironmentVariable("NODE_OPTIONS")))
+                psi.EnvironmentVariables["NODE_OPTIONS"] = "--max-old-space-size=1536";
 
             try
             {

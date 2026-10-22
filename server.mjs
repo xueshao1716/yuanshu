@@ -4148,6 +4148,14 @@ const server = http.createServer(async (req, res) => {
   const reqId = Date.now().toString(36) + "-" + Math.random().toString(36).slice(2, 8);
   res.setHeader("X-Request-Id", reqId);
   const lifecycle = observeHttpRequest(req, res, reqId, line => console.log(line), { slowMs: 1500, onSlow: entry => recordSlowRequest(entry) });
+  // 2026-10-23：卡顿排查。记录在途请求，停顿发生时能说清"当时在跑什么"。
+  try {
+    const pathname = (() => { try { return new URL(req.url, 'http://x').pathname } catch { return req.url } })();
+    (globalThis.__inflight ||= new Map()).set(reqId, { path: pathname, at: Date.now() });
+    const done = () => { try { globalThis.__inflight?.delete(reqId) } catch {} };
+    res.once('finish', done);
+    res.once('close', done);
+  } catch {}
   // CORS：只允许已知本地壳 origin 和显式配置的远程前端，不能反射任意 Origin。
   for (const [name, value] of Object.entries(corsPolicy.headers(req.headers.origin))) res.setHeader(name, value);
   if (req.method === "OPTIONS") { res.writeHead(204); res.end(); return; }
@@ -4754,6 +4762,14 @@ try {
         // 2026-10-20：只记"窗口内最大值"定位不到肇事请求，补一个停顿起点，
         // 事后能拿它去对服务日志里那个时间点之前最后几条请求。
         stallFrom: new Date(Date.now() - maxMs).toISOString(),
+        // 停顿期间在途的请求（最老的 3 条）：区分"某个请求卡死"还是"整机被拖住/GC"
+        inflightTop: (() => {
+          try {
+            const now = Date.now();
+            return [...(globalThis.__inflight || new Map())].map(([id, v]) => ({ id, path: v.path, ms: now - v.at }))
+              .sort((a, b) => b.ms - a.ms).slice(0, 3);
+          } catch { return []; }
+        })(),
         meanMs: Math.round(lag.mean / 1e6), p99Ms: Math.round(lag.percentile(99) / 1e6),
         rssMB: Math.round(process.memoryUsage().rss / 1048576),
       });
