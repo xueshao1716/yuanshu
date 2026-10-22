@@ -138,7 +138,8 @@ export function takePairingToken(code, { ip = '' } = {}) {
   return { ok: true, token, deviceId: s.deviceId };
 }
 export function listDevices(wsRoot) {
-  return readDevices(wsRoot).map((d) => ({
+  // 新的在前：界面上最近加入的设备应当排第一
+  return readDevices(wsRoot).slice().reverse().map((d) => ({
     id: d.id, name: d.name, createdAt: d.createdAt, lastSeenAt: d.lastSeenAt, ua: d.ua,
   }));
 }

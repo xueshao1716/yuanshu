@@ -3983,6 +3983,8 @@ const boardApi = createBoardApi({
   API_ROUTES.push(["POST", "/api/pair/revoke", async (res, req) => {
     const body = await readBody(req, 0.016).catch(() => ({}));
     const r = revokeDevice(WS_ROOT, String(body?.id || ""));
+    // 撤销必须立刻生效：清掉 5 秒的校验缓存，否则刚撤销的令牌还能再用几秒
+    if (r.ok) _deviceTokenCache.clear();
     return json(res, r.ok ? 200 : 404, r);
   }]);
 
