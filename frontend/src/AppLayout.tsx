@@ -23,6 +23,7 @@ import * as T from '@radix-ui/react-tooltip'
 import { applyWallpaper, currentWallpaper } from './theme/wallpaper.mjs'
 import { installVisualViewportHeight } from './lib/viewport'
 import { useThemePreferences } from './hooks/useThemePreferences'
+import BrandMark from './components/BrandMark'
 
 // 页面 lazy（路线图：每路由 lazy + ErrorBoundary）
 const ModelHub = lazy(() => import('./pages/ModelHub'))
@@ -412,20 +413,8 @@ export default function AppLayout() {
       {/* 图标导航 rail：实底 Logo，不用渐变 */}
       <nav className="desktop-rail flex-shrink-0 flex flex-col items-center py-4 px-2 gap-1.5 col-sidebar border-r border-pi-border relative z-20" aria-label="主导航">
         <div className="desktop-brand">
-          <svg width="28" height="28" viewBox="0 0 28 28" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
-            {/* 三向放射枢纽：中心点 + 三条线 + 顶端圆点，120° 间隔，顶线略长突出方向感 */}
-            {/* 中心核 */}
-            <circle cx="14" cy="14" r="2.2" fill="currentColor" fillOpacity="0.95" />
-            {/* 上方主轴线 */}
-            <line x1="14" y1="11.8" x2="14" y2="4.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeOpacity="0.9" />
-            <circle cx="14" cy="3.5" r="1.6" fill="currentColor" fillOpacity="0.75" />
-            {/* 右下轴线 */}
-            <line x1="15.9" y1="15.1" x2="21.8" y2="22.7" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeOpacity="0.65" />
-            <circle cx="22.7" cy="23.8" r="1.4" fill="currentColor" fillOpacity="0.5" />
-            {/* 左下轴线 */}
-            <line x1="12.1" y1="15.1" x2="6.2" y2="22.7" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeOpacity="0.65" />
-            <circle cx="5.3" cy="23.8" r="1.4" fill="currentColor" fillOpacity="0.5" />
-          </svg>
+          {/* 品牌标记：断口环 + 轴心 + 紫点（2026-10-22 换标；旧的三向放射线用户反馈不好看） */}
+          <BrandMark size={26} color="var(--brand-mark, #5468ff)" />
           <span>元枢</span>
         </div>
         {(sidebarCollapsed || sidebarAutoHidden) && (

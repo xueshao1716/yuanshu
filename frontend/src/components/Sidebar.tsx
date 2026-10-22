@@ -114,7 +114,7 @@ export default function Sidebar({ onNavigated, onCollapse }: { onNavigated?: () 
       <div className="flex items-center gap-2.5 px-4 h-14 border-b border-pi-border-soft/50 flex-shrink-0">
         {/* 品牌标记：断口环 + 轴心（2026-10-22 换标，旧的脉冲竖线像信号强度） */}
         <div className="h-8 w-8 shrink-0 flex items-center justify-center text-pi-accent" aria-hidden="true">
-          <BrandMark size={22} color="currentColor" />
+          <BrandMark size={26} color="var(--brand-mark, #5468ff)" />
         </div>        <div className="min-w-0">
           <div className="font-semibold text-[15px] leading-tight truncate">{personaName}</div>
         </div>

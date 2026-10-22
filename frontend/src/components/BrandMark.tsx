@@ -20,8 +20,8 @@ type Props = {
 export default function BrandMark({
   size = 26,
   className = '',
-  color = 'currentColor',
-  satellite = 'var(--pi-accent2, #8b7cf6)',
+  color = 'var(--brand-mark, #5468ff)',
+  satellite = 'var(--brand-mark-2, #8b7cf6)',
   title = '元枢',
 }: Props) {
   const simple = size < 24

@@ -479,3 +479,9 @@ textarea.input-pi:focus {
 .tabular-nums, .num, time { font-variant-numeric: tabular-nums; }
 h1, h2, h3 { text-wrap: balance; }
 p { text-wrap: pretty; }
+
+/* ── 品牌标记配色（2026-10-22 换标）───────────────────────────
+   不跟主题 accent 走：mist 等浅色主题的 accent 偏浅，logo 会发灰没分量。
+   深色主题（ink / violet）自动提亮，保证在暗底上可读。 */
+:root { --brand-mark: #5468ff; --brand-mark-2: #8b7cf6; }
+html[data-theme="ink"], html[data-theme="violet"] { --brand-mark: #8b9cff; --brand-mark-2: #c3b8ff; }
