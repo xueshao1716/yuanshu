@@ -8,8 +8,22 @@
 
 ## [Unreleased]
 
+## [2.127.123] - 2026-10-22
+
 ## [2.127.122] - 2026-10-22
 
+## [2.127.123] - 2026-10-23
+
+- **聊天执行脱离 HTTP（关键）**：以前 eq.on('close') 就 abort，刷新页面 = 取消任务。
+  - 新增 engine/chat-stream.mjs：每轮对话一条带游标的事件流，客户端断开只 detach、不 abort；
+  - GET /api/chat/stream?session=&after= 重连补发；
+  - YUANSHU_DETACH_CHAT=0 可回退旧行为。
+  - 实测：创建 run → 连 3 秒断开 → **run 继续跑完（16.6 秒，completed）**，不再 CLIENT_DISCONNECTED。
+- **后台作业池**：engine/job-pool.mjs（排队、限并发 2、可取消、落盘 记忆/运行时/后台任务.json），dsh_task 登记为作业；GET /api/jobs、POST /api/jobs/cancel；系统页「后台任务」卡片；晨报加一行。
+- **默认模型跟随设置**：config.mjs 先读 settings.json 的 defaultProvider/defaultModel，再退回硬编码。起因：GLM 套餐到期后聊天默认仍钉 glm-5.3-flash，每轮 429 却看不出来；已切到 stepfun-plan/step-5-preview（备份 settings.json.bak-20261023）。
+- **修一个自己挖的坑**：新增路由被写成裸数组字面量 → 
+ode --check 通过但整段是死代码（/api/jobs 落回静态页）。已改成 API_ROUTES.push(...)。
+- 单测：job-pool 3 条。
 ## [2.127.122] - 2026-10-23
 
 - **查清「元枢被反复重启」的三个来源**（不是玄学）：
@@ -22,6 +36,18 @@
   - 服务宿主给子进程设 NODE_OPTIONS=--max-old-space-size=1536，限制老生代堆，降低内存吃紧时的大 GC 长停顿。
 ## [2.127.121] - 2026-10-22
 
+## [2.127.123] - 2026-10-23
+
+- **聊天执行脱离 HTTP（关键）**：以前 eq.on('close') 就 abort，刷新页面 = 取消任务。
+  - 新增 engine/chat-stream.mjs：每轮对话一条带游标的事件流，客户端断开只 detach、不 abort；
+  - GET /api/chat/stream?session=&after= 重连补发；
+  - YUANSHU_DETACH_CHAT=0 可回退旧行为。
+  - 实测：创建 run → 连 3 秒断开 → **run 继续跑完（16.6 秒，completed）**，不再 CLIENT_DISCONNECTED。
+- **后台作业池**：engine/job-pool.mjs（排队、限并发 2、可取消、落盘 记忆/运行时/后台任务.json），dsh_task 登记为作业；GET /api/jobs、POST /api/jobs/cancel；系统页「后台任务」卡片；晨报加一行。
+- **默认模型跟随设置**：config.mjs 先读 settings.json 的 defaultProvider/defaultModel，再退回硬编码。起因：GLM 套餐到期后聊天默认仍钉 glm-5.3-flash，每轮 429 却看不出来；已切到 stepfun-plan/step-5-preview（备份 settings.json.bak-20261023）。
+- **修一个自己挖的坑**：新增路由被写成裸数组字面量 → 
+ode --check 通过但整段是死代码（/api/jobs 落回静态页）。已改成 API_ROUTES.push(...)。
+- 单测：job-pool 3 条。
 ## [2.127.122] - 2026-10-23
 
 - **查清「元枢被反复重启」的三个来源**（不是玄学）：
@@ -43,6 +69,18 @@
   - 实测：写入一条 5 秒前更新的"他人运行" → 重启后立刻 interrupted (server_restarted)。
 ## [2.127.120] - 2026-10-22
 
+## [2.127.123] - 2026-10-23
+
+- **聊天执行脱离 HTTP（关键）**：以前 eq.on('close') 就 abort，刷新页面 = 取消任务。
+  - 新增 engine/chat-stream.mjs：每轮对话一条带游标的事件流，客户端断开只 detach、不 abort；
+  - GET /api/chat/stream?session=&after= 重连补发；
+  - YUANSHU_DETACH_CHAT=0 可回退旧行为。
+  - 实测：创建 run → 连 3 秒断开 → **run 继续跑完（16.6 秒，completed）**，不再 CLIENT_DISCONNECTED。
+- **后台作业池**：engine/job-pool.mjs（排队、限并发 2、可取消、落盘 记忆/运行时/后台任务.json），dsh_task 登记为作业；GET /api/jobs、POST /api/jobs/cancel；系统页「后台任务」卡片；晨报加一行。
+- **默认模型跟随设置**：config.mjs 先读 settings.json 的 defaultProvider/defaultModel，再退回硬编码。起因：GLM 套餐到期后聊天默认仍钉 glm-5.3-flash，每轮 429 却看不出来；已切到 stepfun-plan/step-5-preview（备份 settings.json.bak-20261023）。
+- **修一个自己挖的坑**：新增路由被写成裸数组字面量 → 
+ode --check 通过但整段是死代码（/api/jobs 落回静态页）。已改成 API_ROUTES.push(...)。
+- 单测：job-pool 3 条。
 ## [2.127.122] - 2026-10-23
 
 - **查清「元枢被反复重启」的三个来源**（不是玄学）：
@@ -73,6 +111,18 @@
 - 顺手修一个测试：人格段现在会追加「我是谁」自述，断言改为"原文保留 + 含【我】"。
 ## [2.127.119] - 2026-10-22
 
+## [2.127.123] - 2026-10-23
+
+- **聊天执行脱离 HTTP（关键）**：以前 eq.on('close') 就 abort，刷新页面 = 取消任务。
+  - 新增 engine/chat-stream.mjs：每轮对话一条带游标的事件流，客户端断开只 detach、不 abort；
+  - GET /api/chat/stream?session=&after= 重连补发；
+  - YUANSHU_DETACH_CHAT=0 可回退旧行为。
+  - 实测：创建 run → 连 3 秒断开 → **run 继续跑完（16.6 秒，completed）**，不再 CLIENT_DISCONNECTED。
+- **后台作业池**：engine/job-pool.mjs（排队、限并发 2、可取消、落盘 记忆/运行时/后台任务.json），dsh_task 登记为作业；GET /api/jobs、POST /api/jobs/cancel；系统页「后台任务」卡片；晨报加一行。
+- **默认模型跟随设置**：config.mjs 先读 settings.json 的 defaultProvider/defaultModel，再退回硬编码。起因：GLM 套餐到期后聊天默认仍钉 glm-5.3-flash，每轮 429 却看不出来；已切到 stepfun-plan/step-5-preview（备份 settings.json.bak-20261023）。
+- **修一个自己挖的坑**：新增路由被写成裸数组字面量 → 
+ode --check 通过但整段是死代码（/api/jobs 落回静态页）。已改成 API_ROUTES.push(...)。
+- 单测：job-pool 3 条。
 ## [2.127.122] - 2026-10-23
 
 - **查清「元枢被反复重启」的三个来源**（不是玄学）：
@@ -113,6 +163,18 @@ otifyOk/notifyFailed/lastNotifyAt/lastNotifyError（此前失败在面板上完�
   - 实测：重连+重试后仍失败 → **不是掉线，是 bot 会话失效**；已发起重新登录（login.state=waiting，二维码已就绪），扫码后应恢复。
 ## [2.127.118] - 2026-10-22
 
+## [2.127.123] - 2026-10-23
+
+- **聊天执行脱离 HTTP（关键）**：以前 eq.on('close') 就 abort，刷新页面 = 取消任务。
+  - 新增 engine/chat-stream.mjs：每轮对话一条带游标的事件流，客户端断开只 detach、不 abort；
+  - GET /api/chat/stream?session=&after= 重连补发；
+  - YUANSHU_DETACH_CHAT=0 可回退旧行为。
+  - 实测：创建 run → 连 3 秒断开 → **run 继续跑完（16.6 秒，completed）**，不再 CLIENT_DISCONNECTED。
+- **后台作业池**：engine/job-pool.mjs（排队、限并发 2、可取消、落盘 记忆/运行时/后台任务.json），dsh_task 登记为作业；GET /api/jobs、POST /api/jobs/cancel；系统页「后台任务」卡片；晨报加一行。
+- **默认模型跟随设置**：config.mjs 先读 settings.json 的 defaultProvider/defaultModel，再退回硬编码。起因：GLM 套餐到期后聊天默认仍钉 glm-5.3-flash，每轮 429 却看不出来；已切到 stepfun-plan/step-5-preview（备份 settings.json.bak-20261023）。
+- **修一个自己挖的坑**：新增路由被写成裸数组字面量 → 
+ode --check 通过但整段是死代码（/api/jobs 落回静态页）。已改成 API_ROUTES.push(...)。
+- 单测：job-pool 3 条。
 ## [2.127.122] - 2026-10-23
 
 - **查清「元枢被反复重启」的三个来源**（不是玄学）：
@@ -159,6 +221,18 @@ otifyOk/notifyFailed/lastNotifyAt/lastNotifyError（此前失败在面板上完�
 - 开第一个**封存窗口**：任务「自我反思」、基准 33%（最近 3 次）、7 天到期（2026-10-29），窗口内运行只评测不调参。
 ## [2.127.117] - 2026-10-22
 
+## [2.127.123] - 2026-10-23
+
+- **聊天执行脱离 HTTP（关键）**：以前 eq.on('close') 就 abort，刷新页面 = 取消任务。
+  - 新增 engine/chat-stream.mjs：每轮对话一条带游标的事件流，客户端断开只 detach、不 abort；
+  - GET /api/chat/stream?session=&after= 重连补发；
+  - YUANSHU_DETACH_CHAT=0 可回退旧行为。
+  - 实测：创建 run → 连 3 秒断开 → **run 继续跑完（16.6 秒，completed）**，不再 CLIENT_DISCONNECTED。
+- **后台作业池**：engine/job-pool.mjs（排队、限并发 2、可取消、落盘 记忆/运行时/后台任务.json），dsh_task 登记为作业；GET /api/jobs、POST /api/jobs/cancel；系统页「后台任务」卡片；晨报加一行。
+- **默认模型跟随设置**：config.mjs 先读 settings.json 的 defaultProvider/defaultModel，再退回硬编码。起因：GLM 套餐到期后聊天默认仍钉 glm-5.3-flash，每轮 429 却看不出来；已切到 stepfun-plan/step-5-preview（备份 settings.json.bak-20261023）。
+- **修一个自己挖的坑**：新增路由被写成裸数组字面量 → 
+ode --check 通过但整段是死代码（/api/jobs 落回静态页）。已改成 API_ROUTES.push(...)。
+- 单测：job-pool 3 条。
 ## [2.127.122] - 2026-10-23
 
 - **查清「元枢被反复重启」的三个来源**（不是玄学）：
@@ -213,6 +287,18 @@ otifyOk/notifyFailed/lastNotifyAt/lastNotifyError（此前失败在面板上完�
 - 单测：封存窗口 7 条；相关全绿。
 ## [2.127.116] - 2026-10-22
 
+## [2.127.123] - 2026-10-23
+
+- **聊天执行脱离 HTTP（关键）**：以前 eq.on('close') 就 abort，刷新页面 = 取消任务。
+  - 新增 engine/chat-stream.mjs：每轮对话一条带游标的事件流，客户端断开只 detach、不 abort；
+  - GET /api/chat/stream?session=&after= 重连补发；
+  - YUANSHU_DETACH_CHAT=0 可回退旧行为。
+  - 实测：创建 run → 连 3 秒断开 → **run 继续跑完（16.6 秒，completed）**，不再 CLIENT_DISCONNECTED。
+- **后台作业池**：engine/job-pool.mjs（排队、限并发 2、可取消、落盘 记忆/运行时/后台任务.json），dsh_task 登记为作业；GET /api/jobs、POST /api/jobs/cancel；系统页「后台任务」卡片；晨报加一行。
+- **默认模型跟随设置**：config.mjs 先读 settings.json 的 defaultProvider/defaultModel，再退回硬编码。起因：GLM 套餐到期后聊天默认仍钉 glm-5.3-flash，每轮 429 却看不出来；已切到 stepfun-plan/step-5-preview（备份 settings.json.bak-20261023）。
+- **修一个自己挖的坑**：新增路由被写成裸数组字面量 → 
+ode --check 通过但整段是死代码（/api/jobs 落回静态页）。已改成 API_ROUTES.push(...)。
+- 单测：job-pool 3 条。
 ## [2.127.122] - 2026-10-23
 
 - **查清「元枢被反复重启」的三个来源**（不是玄学）：
@@ -277,6 +363,18 @@ otifyOk/notifyFailed/lastNotifyAt/lastNotifyError（此前失败在面板上完�
   - 实测：服务 Running、health 200、模型调用正常（SYSTEM 身份经目录联读取 auth.json）、桌面端重启命令生效；可见窗口 0。
 ## [2.127.115] - 2026-10-22
 
+## [2.127.123] - 2026-10-23
+
+- **聊天执行脱离 HTTP（关键）**：以前 eq.on('close') 就 abort，刷新页面 = 取消任务。
+  - 新增 engine/chat-stream.mjs：每轮对话一条带游标的事件流，客户端断开只 detach、不 abort；
+  - GET /api/chat/stream?session=&after= 重连补发；
+  - YUANSHU_DETACH_CHAT=0 可回退旧行为。
+  - 实测：创建 run → 连 3 秒断开 → **run 继续跑完（16.6 秒，completed）**，不再 CLIENT_DISCONNECTED。
+- **后台作业池**：engine/job-pool.mjs（排队、限并发 2、可取消、落盘 记忆/运行时/后台任务.json），dsh_task 登记为作业；GET /api/jobs、POST /api/jobs/cancel；系统页「后台任务」卡片；晨报加一行。
+- **默认模型跟随设置**：config.mjs 先读 settings.json 的 defaultProvider/defaultModel，再退回硬编码。起因：GLM 套餐到期后聊天默认仍钉 glm-5.3-flash，每轮 429 却看不出来；已切到 stepfun-plan/step-5-preview（备份 settings.json.bak-20261023）。
+- **修一个自己挖的坑**：新增路由被写成裸数组字面量 → 
+ode --check 通过但整段是死代码（/api/jobs 落回静态页）。已改成 API_ROUTES.push(...)。
+- 单测：job-pool 3 条。
 ## [2.127.122] - 2026-10-23
 
 - **查清「元枢被反复重启」的三个来源**（不是玄学）：
@@ -349,6 +447,18 @@ ode.exe 的窗口。
   - 验证：可见窗口 0；守护与 server 进程都在，health 200。
 ## [2.127.114] - 2026-10-22
 
+## [2.127.123] - 2026-10-23
+
+- **聊天执行脱离 HTTP（关键）**：以前 eq.on('close') 就 abort，刷新页面 = 取消任务。
+  - 新增 engine/chat-stream.mjs：每轮对话一条带游标的事件流，客户端断开只 detach、不 abort；
+  - GET /api/chat/stream?session=&after= 重连补发；
+  - YUANSHU_DETACH_CHAT=0 可回退旧行为。
+  - 实测：创建 run → 连 3 秒断开 → **run 继续跑完（16.6 秒，completed）**，不再 CLIENT_DISCONNECTED。
+- **后台作业池**：engine/job-pool.mjs（排队、限并发 2、可取消、落盘 记忆/运行时/后台任务.json），dsh_task 登记为作业；GET /api/jobs、POST /api/jobs/cancel；系统页「后台任务」卡片；晨报加一行。
+- **默认模型跟随设置**：config.mjs 先读 settings.json 的 defaultProvider/defaultModel，再退回硬编码。起因：GLM 套餐到期后聊天默认仍钉 glm-5.3-flash，每轮 429 却看不出来；已切到 stepfun-plan/step-5-preview（备份 settings.json.bak-20261023）。
+- **修一个自己挖的坑**：新增路由被写成裸数组字面量 → 
+ode --check 通过但整段是死代码（/api/jobs 落回静态页）。已改成 API_ROUTES.push(...)。
+- 单测：job-pool 3 条。
 ## [2.127.122] - 2026-10-23
 
 - **查清「元枢被反复重启」的三个来源**（不是玄学）：
@@ -427,6 +537,18 @@ ode.exe 的窗口。
 pm run deploy:frontend 只同步 public/ 与 pp/dist/。离线部署必须三个目录一起复制，否则改了前端却看不到变化。
 ## [2.127.113] - 2026-10-22
 
+## [2.127.123] - 2026-10-23
+
+- **聊天执行脱离 HTTP（关键）**：以前 eq.on('close') 就 abort，刷新页面 = 取消任务。
+  - 新增 engine/chat-stream.mjs：每轮对话一条带游标的事件流，客户端断开只 detach、不 abort；
+  - GET /api/chat/stream?session=&after= 重连补发；
+  - YUANSHU_DETACH_CHAT=0 可回退旧行为。
+  - 实测：创建 run → 连 3 秒断开 → **run 继续跑完（16.6 秒，completed）**，不再 CLIENT_DISCONNECTED。
+- **后台作业池**：engine/job-pool.mjs（排队、限并发 2、可取消、落盘 记忆/运行时/后台任务.json），dsh_task 登记为作业；GET /api/jobs、POST /api/jobs/cancel；系统页「后台任务」卡片；晨报加一行。
+- **默认模型跟随设置**：config.mjs 先读 settings.json 的 defaultProvider/defaultModel，再退回硬编码。起因：GLM 套餐到期后聊天默认仍钉 glm-5.3-flash，每轮 429 却看不出来；已切到 stepfun-plan/step-5-preview（备份 settings.json.bak-20261023）。
+- **修一个自己挖的坑**：新增路由被写成裸数组字面量 → 
+ode --check 通过但整段是死代码（/api/jobs 落回静态页）。已改成 API_ROUTES.push(...)。
+- 单测：job-pool 3 条。
 ## [2.127.122] - 2026-10-23
 
 - **查清「元枢被反复重启」的三个来源**（不是玄学）：
@@ -513,6 +635,18 @@ pm run deploy:frontend 只同步 public/ 与 pp/dist/。离线部署必须三�
   - 单测更新：品牌头断言从"必须有波形"改为"必须用 BrandMark"，UI 结构 38 条全绿。
 ## [2.127.112] - 2026-10-22
 
+## [2.127.123] - 2026-10-23
+
+- **聊天执行脱离 HTTP（关键）**：以前 eq.on('close') 就 abort，刷新页面 = 取消任务。
+  - 新增 engine/chat-stream.mjs：每轮对话一条带游标的事件流，客户端断开只 detach、不 abort；
+  - GET /api/chat/stream?session=&after= 重连补发；
+  - YUANSHU_DETACH_CHAT=0 可回退旧行为。
+  - 实测：创建 run → 连 3 秒断开 → **run 继续跑完（16.6 秒，completed）**，不再 CLIENT_DISCONNECTED。
+- **后台作业池**：engine/job-pool.mjs（排队、限并发 2、可取消、落盘 记忆/运行时/后台任务.json），dsh_task 登记为作业；GET /api/jobs、POST /api/jobs/cancel；系统页「后台任务」卡片；晨报加一行。
+- **默认模型跟随设置**：config.mjs 先读 settings.json 的 defaultProvider/defaultModel，再退回硬编码。起因：GLM 套餐到期后聊天默认仍钉 glm-5.3-flash，每轮 429 却看不出来；已切到 stepfun-plan/step-5-preview（备份 settings.json.bak-20261023）。
+- **修一个自己挖的坑**：新增路由被写成裸数组字面量 → 
+ode --check 通过但整段是死代码（/api/jobs 落回静态页）。已改成 API_ROUTES.push(...)。
+- 单测：job-pool 3 条。
 ## [2.127.122] - 2026-10-23
 
 - **查清「元枢被反复重启」的三个来源**（不是玄学）：
@@ -604,6 +738,18 @@ pm run deploy:frontend 只同步 public/ 与 pp/dist/。离线部署必须三�
   - 局域网 IP 复测：页面正常渲染，无异常。
 ## [2.127.111] - 2026-10-22
 
+## [2.127.123] - 2026-10-23
+
+- **聊天执行脱离 HTTP（关键）**：以前 eq.on('close') 就 abort，刷新页面 = 取消任务。
+  - 新增 engine/chat-stream.mjs：每轮对话一条带游标的事件流，客户端断开只 detach、不 abort；
+  - GET /api/chat/stream?session=&after= 重连补发；
+  - YUANSHU_DETACH_CHAT=0 可回退旧行为。
+  - 实测：创建 run → 连 3 秒断开 → **run 继续跑完（16.6 秒，completed）**，不再 CLIENT_DISCONNECTED。
+- **后台作业池**：engine/job-pool.mjs（排队、限并发 2、可取消、落盘 记忆/运行时/后台任务.json），dsh_task 登记为作业；GET /api/jobs、POST /api/jobs/cancel；系统页「后台任务」卡片；晨报加一行。
+- **默认模型跟随设置**：config.mjs 先读 settings.json 的 defaultProvider/defaultModel，再退回硬编码。起因：GLM 套餐到期后聊天默认仍钉 glm-5.3-flash，每轮 429 却看不出来；已切到 stepfun-plan/step-5-preview（备份 settings.json.bak-20261023）。
+- **修一个自己挖的坑**：新增路由被写成裸数组字面量 → 
+ode --check 通过但整段是死代码（/api/jobs 落回静态页）。已改成 API_ROUTES.push(...)。
+- 单测：job-pool 3 条。
 ## [2.127.122] - 2026-10-23
 
 - **查清「元枢被反复重启」的三个来源**（不是玄学）：
@@ -703,6 +849,18 @@ pm run deploy:frontend 只同步 public/ 与 pp/dist/。离线部署必须三�
   - 用局域网 IP 复测：页面正文正常渲染（此前 document.body.innerText 为空）。
 ## [2.127.110] - 2026-10-22
 
+## [2.127.123] - 2026-10-23
+
+- **聊天执行脱离 HTTP（关键）**：以前 eq.on('close') 就 abort，刷新页面 = 取消任务。
+  - 新增 engine/chat-stream.mjs：每轮对话一条带游标的事件流，客户端断开只 detach、不 abort；
+  - GET /api/chat/stream?session=&after= 重连补发；
+  - YUANSHU_DETACH_CHAT=0 可回退旧行为。
+  - 实测：创建 run → 连 3 秒断开 → **run 继续跑完（16.6 秒，completed）**，不再 CLIENT_DISCONNECTED。
+- **后台作业池**：engine/job-pool.mjs（排队、限并发 2、可取消、落盘 记忆/运行时/后台任务.json），dsh_task 登记为作业；GET /api/jobs、POST /api/jobs/cancel；系统页「后台任务」卡片；晨报加一行。
+- **默认模型跟随设置**：config.mjs 先读 settings.json 的 defaultProvider/defaultModel，再退回硬编码。起因：GLM 套餐到期后聊天默认仍钉 glm-5.3-flash，每轮 429 却看不出来；已切到 stepfun-plan/step-5-preview（备份 settings.json.bak-20261023）。
+- **修一个自己挖的坑**：新增路由被写成裸数组字面量 → 
+ode --check 通过但整段是死代码（/api/jobs 落回静态页）。已改成 API_ROUTES.push(...)。
+- 单测：job-pool 3 条。
 ## [2.127.122] - 2026-10-23
 
 - **查清「元枢被反复重启」的三个来源**（不是玄学）：
@@ -813,6 +971,18 @@ pm run deploy:frontend 只同步 public/ 与 pp/dist/。离线部署必须三�
   - 单测 9 条（含"IP 变了但凭据对仍放行"这条正是本次线上问题）；相关 48 条全绿。
 ## [2.127.109] - 2026-10-22
 
+## [2.127.123] - 2026-10-23
+
+- **聊天执行脱离 HTTP（关键）**：以前 eq.on('close') 就 abort，刷新页面 = 取消任务。
+  - 新增 engine/chat-stream.mjs：每轮对话一条带游标的事件流，客户端断开只 detach、不 abort；
+  - GET /api/chat/stream?session=&after= 重连补发；
+  - YUANSHU_DETACH_CHAT=0 可回退旧行为。
+  - 实测：创建 run → 连 3 秒断开 → **run 继续跑完（16.6 秒，completed）**，不再 CLIENT_DISCONNECTED。
+- **后台作业池**：engine/job-pool.mjs（排队、限并发 2、可取消、落盘 记忆/运行时/后台任务.json），dsh_task 登记为作业；GET /api/jobs、POST /api/jobs/cancel；系统页「后台任务」卡片；晨报加一行。
+- **默认模型跟随设置**：config.mjs 先读 settings.json 的 defaultProvider/defaultModel，再退回硬编码。起因：GLM 套餐到期后聊天默认仍钉 glm-5.3-flash，每轮 429 却看不出来；已切到 stepfun-plan/step-5-preview（备份 settings.json.bak-20261023）。
+- **修一个自己挖的坑**：新增路由被写成裸数组字面量 → 
+ode --check 通过但整段是死代码（/api/jobs 落回静态页）。已改成 API_ROUTES.push(...)。
+- 单测：job-pool 3 条。
 ## [2.127.122] - 2026-10-23
 
 - **查清「元枢被反复重启」的三个来源**（不是玄学）：
@@ -929,6 +1099,18 @@ pm run deploy:frontend 只同步 public/ 与 pp/dist/。离线部署必须三�
   - 新增 2 条单测（远端更旧不提示 / 远端更新要提示）；更新相关 26 条全绿。
 ## [2.127.108] - 2026-10-22
 
+## [2.127.123] - 2026-10-23
+
+- **聊天执行脱离 HTTP（关键）**：以前 eq.on('close') 就 abort，刷新页面 = 取消任务。
+  - 新增 engine/chat-stream.mjs：每轮对话一条带游标的事件流，客户端断开只 detach、不 abort；
+  - GET /api/chat/stream?session=&after= 重连补发；
+  - YUANSHU_DETACH_CHAT=0 可回退旧行为。
+  - 实测：创建 run → 连 3 秒断开 → **run 继续跑完（16.6 秒，completed）**，不再 CLIENT_DISCONNECTED。
+- **后台作业池**：engine/job-pool.mjs（排队、限并发 2、可取消、落盘 记忆/运行时/后台任务.json），dsh_task 登记为作业；GET /api/jobs、POST /api/jobs/cancel；系统页「后台任务」卡片；晨报加一行。
+- **默认模型跟随设置**：config.mjs 先读 settings.json 的 defaultProvider/defaultModel，再退回硬编码。起因：GLM 套餐到期后聊天默认仍钉 glm-5.3-flash，每轮 429 却看不出来；已切到 stepfun-plan/step-5-preview（备份 settings.json.bak-20261023）。
+- **修一个自己挖的坑**：新增路由被写成裸数组字面量 → 
+ode --check 通过但整段是死代码（/api/jobs 落回静态页）。已改成 API_ROUTES.push(...)。
+- 单测：job-pool 3 条。
 ## [2.127.122] - 2026-10-23
 
 - **查清「元枢被反复重启」的三个来源**（不是玄学）：
@@ -1048,6 +1230,18 @@ pm run deploy:frontend 只同步 public/ 与 pp/dist/。离线部署必须三�
 - 扫码登录收尾：**撤销立即生效**（校验缓存 5 秒 → 撤销时清空，否则刚撤的令牌还能再用几秒）；设备列表改为**新的在前**。
 ## [2.127.107] - 2026-10-22
 
+## [2.127.123] - 2026-10-23
+
+- **聊天执行脱离 HTTP（关键）**：以前 eq.on('close') 就 abort，刷新页面 = 取消任务。
+  - 新增 engine/chat-stream.mjs：每轮对话一条带游标的事件流，客户端断开只 detach、不 abort；
+  - GET /api/chat/stream?session=&after= 重连补发；
+  - YUANSHU_DETACH_CHAT=0 可回退旧行为。
+  - 实测：创建 run → 连 3 秒断开 → **run 继续跑完（16.6 秒，completed）**，不再 CLIENT_DISCONNECTED。
+- **后台作业池**：engine/job-pool.mjs（排队、限并发 2、可取消、落盘 记忆/运行时/后台任务.json），dsh_task 登记为作业；GET /api/jobs、POST /api/jobs/cancel；系统页「后台任务」卡片；晨报加一行。
+- **默认模型跟随设置**：config.mjs 先读 settings.json 的 defaultProvider/defaultModel，再退回硬编码。起因：GLM 套餐到期后聊天默认仍钉 glm-5.3-flash，每轮 429 却看不出来；已切到 stepfun-plan/step-5-preview（备份 settings.json.bak-20261023）。
+- **修一个自己挖的坑**：新增路由被写成裸数组字面量 → 
+ode --check 通过但整段是死代码（/api/jobs 落回静态页）。已改成 API_ROUTES.push(...)。
+- 单测：job-pool 3 条。
 ## [2.127.122] - 2026-10-23
 
 - **查清「元枢被反复重启」的三个来源**（不是玄学）：
@@ -1171,6 +1365,18 @@ pm run deploy:frontend 只同步 public/ 与 pp/dist/。离线部署必须三�
   - 回环访问时从网卡挑私网 IPv4（优先 192.168. / 10. / 172.16-31），避开虚拟网卡；端口沿用当前 host。
 ## [2.127.106] - 2026-10-22
 
+## [2.127.123] - 2026-10-23
+
+- **聊天执行脱离 HTTP（关键）**：以前 eq.on('close') 就 abort，刷新页面 = 取消任务。
+  - 新增 engine/chat-stream.mjs：每轮对话一条带游标的事件流，客户端断开只 detach、不 abort；
+  - GET /api/chat/stream?session=&after= 重连补发；
+  - YUANSHU_DETACH_CHAT=0 可回退旧行为。
+  - 实测：创建 run → 连 3 秒断开 → **run 继续跑完（16.6 秒，completed）**，不再 CLIENT_DISCONNECTED。
+- **后台作业池**：engine/job-pool.mjs（排队、限并发 2、可取消、落盘 记忆/运行时/后台任务.json），dsh_task 登记为作业；GET /api/jobs、POST /api/jobs/cancel；系统页「后台任务」卡片；晨报加一行。
+- **默认模型跟随设置**：config.mjs 先读 settings.json 的 defaultProvider/defaultModel，再退回硬编码。起因：GLM 套餐到期后聊天默认仍钉 glm-5.3-flash，每轮 429 却看不出来；已切到 stepfun-plan/step-5-preview（备份 settings.json.bak-20261023）。
+- **修一个自己挖的坑**：新增路由被写成裸数组字面量 → 
+ode --check 通过但整段是死代码（/api/jobs 落回静态页）。已改成 API_ROUTES.push(...)。
+- 单测：job-pool 3 条。
 ## [2.127.122] - 2026-10-23
 
 - **查清「元枢被反复重启」的三个来源**（不是玄学）：
@@ -1303,6 +1509,18 @@ pm run deploy:frontend 只同步 public/ 与 pp/dist/。离线部署必须三�
   - 新增单测 6 条；相关 198 条全绿。
 ## [2.127.105] - 2026-10-21
 
+## [2.127.123] - 2026-10-23
+
+- **聊天执行脱离 HTTP（关键）**：以前 eq.on('close') 就 abort，刷新页面 = 取消任务。
+  - 新增 engine/chat-stream.mjs：每轮对话一条带游标的事件流，客户端断开只 detach、不 abort；
+  - GET /api/chat/stream?session=&after= 重连补发；
+  - YUANSHU_DETACH_CHAT=0 可回退旧行为。
+  - 实测：创建 run → 连 3 秒断开 → **run 继续跑完（16.6 秒，completed）**，不再 CLIENT_DISCONNECTED。
+- **后台作业池**：engine/job-pool.mjs（排队、限并发 2、可取消、落盘 记忆/运行时/后台任务.json），dsh_task 登记为作业；GET /api/jobs、POST /api/jobs/cancel；系统页「后台任务」卡片；晨报加一行。
+- **默认模型跟随设置**：config.mjs 先读 settings.json 的 defaultProvider/defaultModel，再退回硬编码。起因：GLM 套餐到期后聊天默认仍钉 glm-5.3-flash，每轮 429 却看不出来；已切到 stepfun-plan/step-5-preview（备份 settings.json.bak-20261023）。
+- **修一个自己挖的坑**：新增路由被写成裸数组字面量 → 
+ode --check 通过但整段是死代码（/api/jobs 落回静态页）。已改成 API_ROUTES.push(...)。
+- 单测：job-pool 3 条。
 ## [2.127.122] - 2026-10-23
 
 - **查清「元枢被反复重启」的三个来源**（不是玄学）：
@@ -1442,6 +1660,18 @@ pm run deploy:frontend 只同步 public/ 与 pp/dist/。离线部署必须三�
   - 新增单测 4 条；相关 283 条全绿。
 ## [2.127.104] - 2026-10-21
 
+## [2.127.123] - 2026-10-23
+
+- **聊天执行脱离 HTTP（关键）**：以前 eq.on('close') 就 abort，刷新页面 = 取消任务。
+  - 新增 engine/chat-stream.mjs：每轮对话一条带游标的事件流，客户端断开只 detach、不 abort；
+  - GET /api/chat/stream?session=&after= 重连补发；
+  - YUANSHU_DETACH_CHAT=0 可回退旧行为。
+  - 实测：创建 run → 连 3 秒断开 → **run 继续跑完（16.6 秒，completed）**，不再 CLIENT_DISCONNECTED。
+- **后台作业池**：engine/job-pool.mjs（排队、限并发 2、可取消、落盘 记忆/运行时/后台任务.json），dsh_task 登记为作业；GET /api/jobs、POST /api/jobs/cancel；系统页「后台任务」卡片；晨报加一行。
+- **默认模型跟随设置**：config.mjs 先读 settings.json 的 defaultProvider/defaultModel，再退回硬编码。起因：GLM 套餐到期后聊天默认仍钉 glm-5.3-flash，每轮 429 却看不出来；已切到 stepfun-plan/step-5-preview（备份 settings.json.bak-20261023）。
+- **修一个自己挖的坑**：新增路由被写成裸数组字面量 → 
+ode --check 通过但整段是死代码（/api/jobs 落回静态页）。已改成 API_ROUTES.push(...)。
+- 单测：job-pool 3 条。
 ## [2.127.122] - 2026-10-23
 
 - **查清「元枢被反复重启」的三个来源**（不是玄学）：
@@ -1585,6 +1815,18 @@ pm run deploy:frontend 只同步 public/ 与 pp/dist/。离线部署必须三�
 - 顺带确认一个观测缺口：**服务正常运行的 stdout 没有落盘**，只有崩溃时才有 60 行。要做"长期服务日志"是单独一件事，先记在这里。
 ## [2.127.103] - 2026-10-21
 
+## [2.127.123] - 2026-10-23
+
+- **聊天执行脱离 HTTP（关键）**：以前 eq.on('close') 就 abort，刷新页面 = 取消任务。
+  - 新增 engine/chat-stream.mjs：每轮对话一条带游标的事件流，客户端断开只 detach、不 abort；
+  - GET /api/chat/stream?session=&after= 重连补发；
+  - YUANSHU_DETACH_CHAT=0 可回退旧行为。
+  - 实测：创建 run → 连 3 秒断开 → **run 继续跑完（16.6 秒，completed）**，不再 CLIENT_DISCONNECTED。
+- **后台作业池**：engine/job-pool.mjs（排队、限并发 2、可取消、落盘 记忆/运行时/后台任务.json），dsh_task 登记为作业；GET /api/jobs、POST /api/jobs/cancel；系统页「后台任务」卡片；晨报加一行。
+- **默认模型跟随设置**：config.mjs 先读 settings.json 的 defaultProvider/defaultModel，再退回硬编码。起因：GLM 套餐到期后聊天默认仍钉 glm-5.3-flash，每轮 429 却看不出来；已切到 stepfun-plan/step-5-preview（备份 settings.json.bak-20261023）。
+- **修一个自己挖的坑**：新增路由被写成裸数组字面量 → 
+ode --check 通过但整段是死代码（/api/jobs 落回静态页）。已改成 API_ROUTES.push(...)。
+- 单测：job-pool 3 条。
 ## [2.127.122] - 2026-10-23
 
 - **查清「元枢被反复重启」的三个来源**（不是玄学）：

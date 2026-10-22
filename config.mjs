@@ -90,7 +90,17 @@ export const CONFIG = {
   // 允许的工具集，逗号分隔
   tools: (env("TOOLS") || "read,write,edit,bash").split(",").map(s => s.trim()).filter(Boolean),
   // 默认模型，空 = 使用第一个可用模型
-  model: env("MODEL") || "zai-coding-cn/glm-5.3-flash", // 2026-10-10 默认切智谱免费 glm-5.3-flash（zhipu-paid 通道已消失；agnes-2.5-pro 上游 503 无通道，env YUANSHU_MODEL 可覆盖）
+  // 2026-10-23：优先跟随设置里的默认模型（settings.json 的 defaultProvider/defaultModel），
+  // 再退回硬编码兜底。起因：智谱 Coding 套餐到期后，聊天默认还钉在 glm-5.3-flash 上，
+  // 每轮都 429，但配置里看不出来——用户只能看到"发不出去"。
+  model: env("MODEL") || (() => {
+    try {
+      const file = path.join(os.homedir(), ".pi", "agent", "settings.json");
+      const s = JSON.parse(fs.readFileSync(file, "utf8"));
+      if (s?.defaultProvider && s?.defaultModel) return `${s.defaultProvider}/${s.defaultModel}`;
+    } catch {}
+    return "zai-coding-cn/glm-5.3-flash";
+  })(), // 2026-10-10 默认切智谱免费 glm-5.3-flash（zhipu-paid 通道已消失；agnes-2.5-pro 上游 503 无通道，env YUANSHU_MODEL 可覆盖）
   // 外部思考调试开关（externalThinking）：给模型挂 think 工具导出推理草稿（默认关）
   externalThinking: env("EXTERNAL_THINKING") === "1",
   // 兼容适配器包路径（跨平台推导）

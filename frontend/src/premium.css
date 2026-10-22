@@ -526,3 +526,14 @@ html[data-theme="ink"], html[data-theme="violet"] { --brand-mark: #8b9cff; --bra
   grid-row: 2;
   margin-bottom: 0;
 }
+
+/* ── 后台任务（2026-10-23）── */
+.jobs-list { list-style: none; margin: 8px 0 0; padding: 0; display: grid; gap: 6px; }
+.jobs-row { display: grid; grid-template-columns: 78px 1fr auto auto; align-items: center; gap: 8px; padding: 6px 8px; border-radius: 8px; background: var(--pi-bg2, rgba(0,0,0,.02)); font-size: 12.5px; }
+.jobs-status { display: inline-flex; align-items: center; gap: 4px; color: var(--pi-dim2); }
+.jobs-running .jobs-status { color: var(--pi-accent); }
+.jobs-failed .jobs-status { color: #dc2626; }
+.jobs-title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--pi-text); }
+.jobs-meta { color: var(--pi-dim2); font-size: 11.5px; }
+.jobs-row button { display: inline-flex; align-items: center; justify-content: center; width: 22px; height: 22px; border-radius: 6px; color: var(--pi-dim2); }
+.jobs-row button:hover { background: var(--pi-bg3, rgba(0,0,0,.06)); color: var(--pi-text); }

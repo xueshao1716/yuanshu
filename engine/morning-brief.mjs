@@ -113,6 +113,14 @@ export function buildMorningBrief(wsRoot, { agentDir, now = new Date() } = {}) {
     lines.push('过去 24 小时没有慢请求。');
   }
   if (probe) lines.push(`最近一次外壳试验：${probe}`);
+  // 2026-10-23：后台作业池
+  try {
+    const jobs = JSON.parse(fs.readFileSync(path.join(wsRoot, '记忆/运行时/后台任务.json'), 'utf8'))?.jobs || [];
+    const running = jobs.filter((j) => j?.status === 'running');
+    const queued = jobs.filter((j) => j?.status === 'queued');
+    if (running.length) lines.push(`后台有 ${running.length} 个作业在跑${queued.length ? `、${queued.length} 个排队` : ''}：${running.slice(0, 2).map((j) => j.title).join('、')}。`);
+    else if (queued.length) lines.push(`后台有 ${queued.length} 个作业排队中。`);
+  } catch {}
   // 封存窗口：让"用来评测的数据"在晨报里可见，而不是藏在 json 里
   try {
     const sealed = sealedSummary(wsRoot, now.getTime());

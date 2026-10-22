@@ -212,6 +212,8 @@ import { createStaticServer } from "./lib/static.mjs";
 import { CodeRuntime } from "./code-mode/code-runtime.mjs";
 import { createCodeMode } from "./code-mode/code-mode.mjs";
 import { createTimeEngine } from "./engine/time-engine.mjs";
+import { createChatStreamHub } from "./engine/chat-stream.mjs";
+import { createJobPool } from "./engine/job-pool.mjs";
 import { buildSelfModel, renderSelfSection, renderSelfMarkdown } from "./engine/self-model.mjs";
 import { shouldProbe, markProbed, splitBeforeAfter, abCompare, appendProbeLog, appendLesson } from "./engine/harness-probe.mjs";
 import { collectEvidence, buildProposePrompt, parseCandidates, writeCandidates, listCandidates, markCandidate, localDate } from "./engine/harness-propose.mjs";
@@ -527,6 +529,23 @@ async function draftHarnessCandidates(extraEvidence = null, source = "manual") {
 const lastMediaBySession = new Map();
 // ── 会话管理 ───────────────────────────────────────────────────────
 const activeSessions = new Map();   // id -> { agent, sm, busy }
+// 2026-10-23：聊天执行脱离 HTTP —— 刷新/断线不取消，重连按游标补发
+const chatStreams = createChatStreamHub();
+// 2026-10-23：后台作业池。先接 dsh_task（长活），让界面能看见"后台在跑什么"。
+function waitJob(id, timeoutMs = 30 * 60_000) {
+  return new Promise((resolve, reject) => {
+    const t0 = Date.now();
+    const tick = () => {
+      const j = jobPool.get(id);
+      if (!j) return reject(new Error("作业不存在"));
+      if (j.status === "done" || j.status === "failed" || j.status === "cancelled") return resolve(j);
+      if (Date.now() - t0 > timeoutMs) return reject(new Error("作业超时未完成"));
+      setTimeout(tick, 500);
+    };
+    tick();
+  });
+}
+const jobPool = createJobPool({ file: path.join(WS_ROOT, "记忆", "运行时", "后台任务.json"), concurrency: 2 });
 const skillCatalogSent = new Set(); // 已注入过「元枢内置技能库」目录的会话（每会话一次，别每轮灌一遍）
 const pushedArtifacts = new Map();  // sessionId -> Set(已推送文件路径)，防止重复推"本轮产物"
 let lastUnnamedId = null;           // 最近创建/复用的未命名会话（打断时复用同一会话）
@@ -900,9 +919,22 @@ const executeUnifiedTool = createUnifiedToolExecutorGuarded({
     dsh_task: async (args, ctx) => {
       const t = globalThis.__yuanshuDshTool || globalThis.__piWebDshTool;
       if (!t?.execute) return { text: "[dsh] 执行臂未初始化", isError: true };
-      const r = await t.execute("unified-" + Date.now(), args || {}, ctx?.signal);
-      const text = (r?.content || []).map((c) => c.text || "").join("\n").trim();
-      return { text: text || "（dsh 无输出）", isError: !!r?.isError };
+      // 2026-10-23：登记成后台作业，界面/晨报能看见它在跑（对模型仍是同步等待）
+      const job = jobPool.submit(
+        { kind: "dsh_task", title: String(args?.task || args?.prompt || "dsh 任务").slice(0, 90) },
+        async (signal) => {
+          const r = await t.execute("unified-" + Date.now(), args || {}, signal || ctx?.signal);
+          const text = (r?.content || []).map((c) => c.text || "").join("\n").trim();
+          if (r?.isError) throw new Error(text || "dsh 任务失败");
+          return text || "（dsh 无输出）";
+        },
+      );
+      try {
+        const done = await waitJob(job.id);
+        return { text: done.resultPreview || "（dsh 无输出）", isError: done.status !== "done" };
+      } catch (e) {
+        return { text: String(e?.message || e), isError: true };
+      }
     },
     ...mediaExtraExecutors({ getModelList: () => modelList, generateMediaAsync }),
     ...todoExtraExecutors(),
@@ -1359,9 +1391,24 @@ async function handleChat(req, res, body) {
   let sessionBytesBefore = (() => { try { return fs.statSync(entry.sm.sessionFile).size; } catch { return 0; } })();
   if (forceResumeUnified || engineDecision.lead === "dsh" || (defaultModel && !useAgent)) {
     const hb2 = startSseHeartbeat(res);
-    // 打断支持：客户端断开 SSE 时中止 unifiedChat / dsh 子进程
-    const abortCtrl = new AbortController();
-    const onClose = () => { try { abortCtrl.abort({ code: 'CLIENT_DISCONNECTED' }); } catch {} };
+    // 2026-10-23：聊天执行脱钩（YUANSHU_DETACH_CHAT=0 可回退到"断开即取消"）
+    const detachChat = process.env.YUANSHU_DETACH_CHAT !== "0";
+    let abortCtrl;
+    let onClose;
+    if (detachChat) {
+      const streamKey = sessionId || findKeyByEntry(entry) || `anon-${thisGen}`;
+      const prior = chatStreams.get(streamKey);
+      if (prior) prior.abort("superseded");
+      const stream = chatStreams.create(streamKey);
+      const nativeRes = res;
+      stream.attach(nativeRes);
+      res = stream.wrapResponse(nativeRes);   // 后续所有 sseWrite/handle* 都写进流
+      abortCtrl = { signal: stream.signal };
+      onClose = () => stream.detach(nativeRes); // 客户端走了，任务继续
+    } else {
+      abortCtrl = new AbortController();
+      onClose = () => { try { abortCtrl.abort({ code: "CLIENT_DISCONNECTED" }); } catch {} };
+    }
     req.on("close", onClose);
     try {
       try { sseWrite(res, "note", { text: leadNote(engineDecision) }); } catch {}
@@ -3960,6 +4007,25 @@ const boardApi = createBoardApi({
     } catch (e) {
       return json(res, 500, { error: String(e?.message || e).slice(0, 200) });
     }
+  }]);
+
+  // 2026-10-23：后台作业表（看得到、能取消）
+  API_ROUTES.push(["GET", "/api/jobs", (res) => json(res, 200, { ...jobPool.summary(), jobs: jobPool.list().slice(0, 20) })]);
+  API_ROUTES.push(["POST", "/api/jobs/cancel", async (res, req) => {
+    const body = await readBody(req, 1e5);
+    json(res, 200, jobPool.cancel(String(body?.id || "")));
+  }]);
+
+  // 2026-10-23：聊天流重连（刷新/断网后按 after 游标补发，然后继续实时流）
+  API_ROUTES.push(["GET", "/api/chat/stream", (res, req) => {
+    const u = new URL(req.url, "http://x");
+    const key = u.searchParams.get("session") || "";
+    const after = Number(u.searchParams.get("after") || 0);
+    const stream = chatStreams.get(key);
+    if (!stream) return json(res, 200, { running: false, streams: chatStreams.list().length });
+    stream.attach(res, Number.isFinite(after) ? after : 0);
+    const onClose = () => stream.detach(res);
+    req.on("close", onClose);
   }]);
 
   // 2026-10-22 今日晨报：不调模型，全部由已落盘事实拼出来（成本 0、可复现）

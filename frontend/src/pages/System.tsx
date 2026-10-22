@@ -11,6 +11,7 @@ import WechatPanel from '../components/WechatPanel'
 import EmailPanel from '../components/EmailPanel'
 import PairLoginCard from '../components/PairLoginCard'
 import ServiceStatusCard from '../components/ServiceStatusCard'
+import JobsCard from '../components/JobsCard'
 
 type DomainRow = { domain: string; desc: string }
 
@@ -338,6 +339,7 @@ export default function System() {
           <SectionHeader title="服务守护" description="后台服务的运行形态与状态；重启会中断正在进行的回答。" />
           <div className="panel !p-4">
             <ServiceStatusCard />
+        <JobsCard />
           </div>
         </section>
         {/* ── 手机扫码登录（2026-10-22）：手机 / 微信扫一扫即可登录，设备可单独撤销 ── */}

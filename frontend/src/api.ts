@@ -1118,3 +1118,20 @@ export type MorningBrief = {
 export const BriefApi = {
   today: (refresh = false) => api<MorningBrief>(`/api/brief/today${refresh ? '?refresh=1' : ''}`),
 }
+
+// ── 后台作业池（2026-10-23）──
+export type BackgroundJob = {
+  id: string
+  kind: string
+  title: string
+  status: 'queued' | 'running' | 'done' | 'failed' | 'cancelled'
+  startedAt: string | null
+  finishedAt: string | null
+  durationMs: number
+  resultPreview: string
+  error: string
+}
+export const JobsApi = {
+  list: () => api<{ running: number; queued: number; concurrency: number; titles: string[]; jobs: BackgroundJob[] }>('/api/jobs'),
+  cancel: (id: string) => api<{ ok: boolean }>('/api/jobs/cancel', { method: 'POST', body: JSON.stringify({ id }) }),
+}
