@@ -3938,9 +3938,23 @@ const boardApi = createBoardApi({
   const clientIp = (req) => String(req.socket?.remoteAddress || "").replace(/^::ffff:/, "");
 
   API_ROUTES.push(["POST", "/api/pair/create", async (res, req) => {
-    // 局域网地址：手机要能访问，不能用 127.0.0.1
+    // 手机要能访问：host 是回环时自动换成局域网 IPv4，否则二维码里的 127.0.0.1 手机打不开。
     const host = String(req.headers.host || "");
-    const lanHint = /^(127\.0\.0\.1|localhost)(:\d+)?$/i.test(host) ? "" : host;
+    const isLoop = /^(127\.0\.0\.1|localhost|\[::1\])(:\d+)?$/i.test(host);
+    const port = (host.match(/:(\d+)$/) || [])[1] || String(CONFIG.port || 8787);
+    let lanHint = host;
+    if (isLoop) {
+      const nets = os.networkInterfaces();
+      const pick = [];
+      for (const list of Object.values(nets)) {
+        for (const n of list || []) {
+          if (n.family === "IPv4" && !n.internal) pick.push(n.address);
+        }
+      }
+      // 优先常见私网段，避免选到虚拟网卡（VirtualBox/Hyper-V 之类）
+      const priv = pick.find(a => /^192\.168\./.test(a)) || pick.find(a => /^10\./.test(a)) || pick.find(a => /^172\.(1[6-9]|2\d|3[01])\./.test(a)) || pick[0] || "";
+      lanHint = priv ? priv + ":" + port : "";
+    }
     const p = createPairing({ baseUrl: lanHint ? "http://" + lanHint : "" });
     return json(res, 200, p);
   }]);
