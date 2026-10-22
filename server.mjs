@@ -3821,6 +3821,14 @@ const API_ROUTES = [
   ["POST", "/api/refine/rollback", async (res, req) => handleRefineRollback(res, await readBody(req))],
   // ── 时间引擎 API ──
   ["GET", "/api/time/tasks", (res) => json(res, 200, { tasks: timeEngine ? timeEngine.list() : [] })],
+  ["POST", "/api/time/tasks/model", async (res, req) => {
+    try {
+      const body = await readBody(req);
+      if (!timeEngine) return json(res, 500, { error: "时间引擎未初始化" });
+      const r = timeEngine.setModel(String(body?.id || ""), String(body?.model || ""));
+      return json(res, r.error ? 400 : 200, r);
+    } catch (e) { return json(res, 500, { error: String(e?.message || e).slice(0, 120) }); }
+  }],
   ["POST", "/api/time/tasks", async (res, req) => {
     try {
       const body = await readBody(req);
@@ -4416,7 +4424,15 @@ function startServer() {
           console.log(`[time-engine] 自主执行：${selfPolicy.enabled ? '开' : '关'} · 工具 ${selfRun.map(t => t?.function?.name).join(',') || '（只读）'}`);
           // 2026-10-20：按失败类型处理——额度/鉴权换通道，网络同模型退避重试，其它如实抛。
           const failover = await withModelFailover({
-            initial: isTextCapableModel(defaultModel) ? defaultModel : pickFallbackDefault(),
+            // 2026-10-22：任务可以钉模型（例如夜间反思走有额度的通道）
+            initial: (() => {
+              const pinned = String(task?.model || "").trim();
+              if (pinned) {
+                const hit = modelList.find(m => `${m.provider}/${m.id}` === pinned) || modelList.find(m => m.id === pinned);
+                if (hit && isTextCapableModel(hit)) return hit;
+              }
+              return isTextCapableModel(defaultModel) ? defaultModel : pickFallbackDefault();
+            })(),
             call: (model) => unifiedChat(model, messages, { tools: selfToolDefs, signal }),
             pickNext: (tried) => {
               const seen = new Set(tried.map(m => `${m.provider}/${m.id}`));

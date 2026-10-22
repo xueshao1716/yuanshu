@@ -47,15 +47,27 @@ export function createTimeEngine(runner, opts = {}) {
   }
 
   // 注册：type=once(需 date+at) / daily(at) / weekly(day+at, 周一=1)
-  function register({ type = "daily", at = "09:00", day, date, prompt = "", label = "", notify = false }) {
+  function register({ type = "daily", at = "09:00", day, date, prompt = "", label = "", notify = false, model = "" }) {
     if (!prompt) return { error: "缺少任务描述 prompt" };
     if (!/^\d{2}:\d{2}$/.test(at)) return { error: "at 格式应为 HH:MM（如 09:00）" };
     const t = { id: randomUUID().slice(0, 8), type, at, day: day ?? null, date: date ?? null, prompt, label, created: new Date().toISOString(), lastRun: null, runs: 0, state: "active", history: [], notify: notify === true };
+    // 2026-10-22：允许按任务钉模型（夜间反思走有额度的通道），空 = 跟随默认
+    if (model) t.model = String(model).slice(0, 80);
     if (type === "once" && !/^\d{4}-\d{2}-\d{2}$/.test(date || "")) return { error: "once 任务需要 date（YYYY-MM-DD）" };
     if (type === "weekly" && !(day >= 1 && day <= 7)) return { error: "weekly 任务需要 day（1-7，周一=1）" };
     tasks.push(t); save();
     return { id: t.id };
   }
+  // 只改模型，不动调度
+  function setModel(id, model) {
+    const t = find(id);
+    if (!t) return { error: "任务不存在" };
+    const m = String(model || "").trim();
+    if (m) t.model = m.slice(0, 80); else delete t.model;
+    save();
+    return { ok: true, id, model: t.model || "" };
+  }
+
   function remove(id) {
     const before = tasks.length;
     tasks = tasks.filter(t => t.id !== id);
@@ -205,7 +217,7 @@ export function createTimeEngine(runner, opts = {}) {
   }
   function stop() { if (timer) { clearInterval(timer); timer = null; } }
 
-  return { start, stop, stopRun, register, remove, list, check, pause, resume, archive, setState, runNow, find, _isDue: isDue, _file: taskFile };
+  return { start, stop, stopRun, register, setModel, remove, list, check, pause, resume, archive, setState, runNow, find, _isDue: isDue, _file: taskFile };
 }
 
 // 时间感知文本：统一由 yuanshu-seams 的 promptTimeText 产出（含"过了多久"）。

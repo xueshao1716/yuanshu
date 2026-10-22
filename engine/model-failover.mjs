@@ -16,7 +16,7 @@ export const FAILOVER_MAX_ATTEMPTS = 3;
 export function classifyModelFailure(error) {
   const msg = String(error?.message || error || '');
   if (/(?:HTTP\s*)?(?:401|402|403|429|529)\b/.test(msg)
-    || /使用上限|额度|quota|rate.?limit|too many requests|GoUsageLimit|insufficient_quota/i.test(msg)) return 'quota';
+    || /使用上限|额度|quota|rate.?limit|too many requests|GoUsageLimit|insufficient_quota|套餐(?:已)?到期|续订|欠费|余额不足|plan.*expired/i.test(msg)) return 'quota';
   if (/fetch failed|ETIMEDOUT|ECONNRESET|ECONNREFUSED|EAI_AGAIN|socket hang up|network|timed? ?out/i.test(msg)) return 'network';
   if (/is a (?:video|image|audio|tts) model|not a chat model|model_not_found|invalid model/i.test(msg)) return 'bad-model';
   return 'other';
