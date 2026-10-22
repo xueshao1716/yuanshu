@@ -1103,3 +1103,18 @@ export const ServiceApi = {
   status: () => api<WatchdogStatus>('/api/service/status'),
   control: (action: 'start' | 'stop' | 'restart') => api<{ ok: boolean; mode?: string; action?: string; error?: string; message?: string }>('/api/service/control', { method: 'POST', body: { action } }),
 }
+
+// ── 今日晨报（2026-10-22）：服务端由已落盘事实拼出，不调模型 ──
+export type MorningBrief = {
+  date: string
+  generatedAt: string
+  headline: string
+  lines: string[]
+  night: { runs: number; failed: number; items: { label: string; at: string; status: string; durationMs: number; snippet: string }[] }
+  promises: { pending: number; overdue: string[]; recent: string[] }
+  slow: { count: number; top: { key: string; durationMs: number }[] }
+  probe: string
+}
+export const BriefApi = {
+  today: (refresh = false) => api<MorningBrief>(`/api/brief/today${refresh ? '?refresh=1' : ''}`),
+}

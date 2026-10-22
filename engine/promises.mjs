@@ -88,7 +88,10 @@ export function loadPromises(wsRoot, fsMod = fs) {
     const f = promisePaths(wsRoot).file;
     if (!fsMod.existsSync(f)) return [];
     const parsed = JSON.parse(fsMod.readFileSync(f, "utf8"));
-    return Array.isArray(parsed) ? parsed.filter((p) => p && typeof p === "object" && p.text) : [];
+    // 2026-10-22 修：历史账本是「对象（按序号键）」，只认数组会让整个承诺功能静默失效
+    // （实测：文件里 180+ 条，loadPromises 却返回 0 条，提示词里的【待兑现承诺】一直是空的）。
+    const list = Array.isArray(parsed) ? parsed : (parsed && typeof parsed === 'object' ? Object.values(parsed) : []);
+    return list.filter((p) => p && typeof p === "object" && p.text);
   } catch { return []; }
 }
 

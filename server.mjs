@@ -3925,6 +3925,39 @@ const boardApi = createBoardApi({
   }]);
   // 2026-10-21 服务日志：这是服务自己的 stdout/stderr（watchdog 落盘），
   // 排查"为什么慢/为什么报错"不用再靠复现。
+  // 2026-10-22 封存窗口：看状态 + 到期自动评测（窗口内数据不参与调参）
+  API_ROUTES.push(["GET", "/api/sealed/status", async (res) => {
+    try {
+      const sw = await import("./engine/sealed-window.mjs");
+      const runsByTask = {};
+      for (const task of (timeEngine?.list?.() || [])) runsByTask[task.id] = task.history || [];
+      sw.evaluateSealed(WS_ROOT, { runsByTask });
+      return json(res, 200, sw.sealedSummary(WS_ROOT));
+    } catch (e) {
+      return json(res, 500, { error: String(e?.message || e).slice(0, 200) });
+    }
+  }]);
+
+  // 2026-10-22 今日晨报：不调模型，全部由已落盘事实拼出来（成本 0、可复现）
+  API_ROUTES.push(["GET", "/api/brief/today", async (res, _req, url) => {
+    try {
+      const mod = await import("./engine/morning-brief.mjs");
+      const now = new Date();
+      const date = (() => { try { return now.toLocaleDateString("sv-SE") } catch { return now.toISOString().slice(0, 10) } })();
+      const refresh = url.searchParams.get("refresh") === "1";
+      if (!refresh) {
+        const cached = mod.readCachedBrief(WS_ROOT, date);
+        const age = cached ? Date.now() - Date.parse(cached.generatedAt || 0) : Infinity;
+        if (cached && age < 10 * 60_000) return json(res, 200, { ...cached, cached: true });
+      }
+      const brief = mod.buildMorningBrief(WS_ROOT, { agentDir: AGENT_DIR, now });
+      mod.writeCachedBrief(WS_ROOT, brief);
+      return json(res, 200, brief);
+    } catch (e) {
+      return json(res, 500, { error: String(e?.message || e).slice(0, 200) });
+    }
+  }]);
+
   // 2026-10-22 守护形态：Windows 服务优先，计划任务回退；系统页据此显示状态与操作。
   API_ROUTES.push(["GET", "/api/service/status", async (res) => {
     try {
@@ -4513,6 +4546,19 @@ ${rows.map((r) => `- [${r.status}${r.closed ? "/已结清" : ""}] ${r.text}\n  �
                 console.log(`[harness-probe] ${t.id} → ${verdict.verdict}（${verdict.reason}）`);
                 // 变差 = 最值得提候选的时刻；带上是哪条失败，别让模型空想。
                 if (verdict.verdict === "worse") {
+                  // 2026-10-22：变动之后开一个封存窗口 —— 窗口内的运行只用于评测，不再拿来调参
+                  void (async () => {
+                    try {
+                      const sw = await import("./engine/sealed-window.mjs");
+                      sw.openSealed(WS_ROOT, {
+                        taskId: t.id,
+                        label: t.label || t.id,
+                        change: verdict.reason || "",
+                        days: 7,
+                        baseline: { rate: verdict.a?.failRate != null ? 1 - verdict.a.failRate : null, samples: verdict.a?.runs ?? 0 },
+                      });
+                    } catch {}
+                  })();
                   void draftHarnessCandidates(
                     `- ${new Date().toISOString()} · ${t.label || t.id} · 变差 · ${verdict.reason}`,
                     "probe-worse",

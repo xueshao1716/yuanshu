@@ -29,6 +29,7 @@ import { scrapeVideos, dedupeMediaUrls, mediaPathKey } from '../lib/media-embed'
 import { reconcileImageMessages } from '../lib/image-identity'
 import { workRole, workTool } from '../lib/work-explanation'
 import { createSessionViewOwner } from '../realtime/session-owner.mjs'
+import BriefCard from './BriefCard'
 
 // 流式状态：覆盖服务端全部 SSE 事件（delta/think/think_end/tool/tool_output/
 // tool_end/turn_end/file/image/media/note/emotion/done/error）
@@ -1095,6 +1096,7 @@ export default function ChatArea({ compactHeader, rightPanel, onRightPanel, onVo
             </button>
           </div>
         </div>
+        <BriefCard />
         <section className="workstart-actions" aria-labelledby="quick-actions-title">
           <div className="chat-section-head workstart-head">
             <h2 id="quick-actions-title">开始工作</h2>
