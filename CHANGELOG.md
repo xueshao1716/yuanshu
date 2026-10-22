@@ -8,8 +8,26 @@
 
 ## [Unreleased]
 
+## [2.127.111] - 2026-10-22
+
+## [2.127.111] - 2026-10-22
+
+- **修手机白屏**（扫码登录后进入首页一片空白）。用局域网 IP 在桌面浏览器复现，控制台明确报：
+  TypeError: crypto.randomUUID is not a function（useMemo 里调用 → React 直接崩 → 白屏）。
+  - 原因：crypto.randomUUID 只在**安全上下文**（HTTPS 或 localhost）存在，手机用 http://192.168.x.x 访问时它是 undefined。
+  - 修法：新增 rontend/src/lib/uuid.ts——uuid() 回退到 getRandomValues 生成 v4，并在入口**最先执行**给全局补 crypto.randomUUID（第三方库也能用）。
+  - 顺带把 RealtimeCall、TeamRunStart 里的直接调用换成 uuid()。
+  - 用局域网 IP 复测：页面正文正常渲染（此前 document.body.innerText 为空）。
 ## [2.127.110] - 2026-10-22
 
+## [2.127.111] - 2026-10-22
+
+- **修手机白屏**（扫码登录后进入首页一片空白）。用局域网 IP 在桌面浏览器复现，控制台明确报：
+  TypeError: crypto.randomUUID is not a function（useMemo 里调用 → React 直接崩 → 白屏）。
+  - 原因：crypto.randomUUID 只在**安全上下文**（HTTPS 或 localhost）存在，手机用 http://192.168.x.x 访问时它是 undefined。
+  - 修法：新增 rontend/src/lib/uuid.ts——uuid() 回退到 getRandomValues 生成 v4，并在入口**最先执行**给全局补 crypto.randomUUID（第三方库也能用）。
+  - 顺带把 RealtimeCall、TeamRunStart 里的直接调用换成 uuid()。
+  - 用局域网 IP 复测：页面正文正常渲染（此前 document.body.innerText 为空）。
 ## [2.127.110] - 2026-10-22
 
 - **修扫码登录"设备已批准但尚未使用"**（真机反馈：列表出现两条 Android 幽灵条目）。
@@ -23,6 +41,14 @@
   - 单测 9 条（含"IP 变了但凭据对仍放行"这条正是本次线上问题）；相关 48 条全绿。
 ## [2.127.109] - 2026-10-22
 
+## [2.127.111] - 2026-10-22
+
+- **修手机白屏**（扫码登录后进入首页一片空白）。用局域网 IP 在桌面浏览器复现，控制台明确报：
+  TypeError: crypto.randomUUID is not a function（useMemo 里调用 → React 直接崩 → 白屏）。
+  - 原因：crypto.randomUUID 只在**安全上下文**（HTTPS 或 localhost）存在，手机用 http://192.168.x.x 访问时它是 undefined。
+  - 修法：新增 rontend/src/lib/uuid.ts——uuid() 回退到 getRandomValues 生成 v4，并在入口**最先执行**给全局补 crypto.randomUUID（第三方库也能用）。
+  - 顺带把 RealtimeCall、TeamRunStart 里的直接调用换成 uuid()。
+  - 用局域网 IP 复测：页面正文正常渲染（此前 document.body.innerText 为空）。
 ## [2.127.110] - 2026-10-22
 
 - **修扫码登录"设备已批准但尚未使用"**（真机反馈：列表出现两条 Android 幽灵条目）。
@@ -42,6 +68,14 @@
   - 新增 2 条单测（远端更旧不提示 / 远端更新要提示）；更新相关 26 条全绿。
 ## [2.127.108] - 2026-10-22
 
+## [2.127.111] - 2026-10-22
+
+- **修手机白屏**（扫码登录后进入首页一片空白）。用局域网 IP 在桌面浏览器复现，控制台明确报：
+  TypeError: crypto.randomUUID is not a function（useMemo 里调用 → React 直接崩 → 白屏）。
+  - 原因：crypto.randomUUID 只在**安全上下文**（HTTPS 或 localhost）存在，手机用 http://192.168.x.x 访问时它是 undefined。
+  - 修法：新增 rontend/src/lib/uuid.ts——uuid() 回退到 getRandomValues 生成 v4，并在入口**最先执行**给全局补 crypto.randomUUID（第三方库也能用）。
+  - 顺带把 RealtimeCall、TeamRunStart 里的直接调用换成 uuid()。
+  - 用局域网 IP 复测：页面正文正常渲染（此前 document.body.innerText 为空）。
 ## [2.127.110] - 2026-10-22
 
 - **修扫码登录"设备已批准但尚未使用"**（真机反馈：列表出现两条 Android 幽灵条目）。
@@ -64,6 +98,14 @@
 - 扫码登录收尾：**撤销立即生效**（校验缓存 5 秒 → 撤销时清空，否则刚撤的令牌还能再用几秒）；设备列表改为**新的在前**。
 ## [2.127.107] - 2026-10-22
 
+## [2.127.111] - 2026-10-22
+
+- **修手机白屏**（扫码登录后进入首页一片空白）。用局域网 IP 在桌面浏览器复现，控制台明确报：
+  TypeError: crypto.randomUUID is not a function（useMemo 里调用 → React 直接崩 → 白屏）。
+  - 原因：crypto.randomUUID 只在**安全上下文**（HTTPS 或 localhost）存在，手机用 http://192.168.x.x 访问时它是 undefined。
+  - 修法：新增 rontend/src/lib/uuid.ts——uuid() 回退到 getRandomValues 生成 v4，并在入口**最先执行**给全局补 crypto.randomUUID（第三方库也能用）。
+  - 顺带把 RealtimeCall、TeamRunStart 里的直接调用换成 uuid()。
+  - 用局域网 IP 复测：页面正文正常渲染（此前 document.body.innerText 为空）。
 ## [2.127.110] - 2026-10-22
 
 - **修扫码登录"设备已批准但尚未使用"**（真机反馈：列表出现两条 Android 幽灵条目）。
@@ -90,6 +132,14 @@
   - 回环访问时从网卡挑私网 IPv4（优先 192.168. / 10. / 172.16-31），避开虚拟网卡；端口沿用当前 host。
 ## [2.127.106] - 2026-10-22
 
+## [2.127.111] - 2026-10-22
+
+- **修手机白屏**（扫码登录后进入首页一片空白）。用局域网 IP 在桌面浏览器复现，控制台明确报：
+  TypeError: crypto.randomUUID is not a function（useMemo 里调用 → React 直接崩 → 白屏）。
+  - 原因：crypto.randomUUID 只在**安全上下文**（HTTPS 或 localhost）存在，手机用 http://192.168.x.x 访问时它是 undefined。
+  - 修法：新增 rontend/src/lib/uuid.ts——uuid() 回退到 getRandomValues 生成 v4，并在入口**最先执行**给全局补 crypto.randomUUID（第三方库也能用）。
+  - 顺带把 RealtimeCall、TeamRunStart 里的直接调用换成 uuid()。
+  - 用局域网 IP 复测：页面正文正常渲染（此前 document.body.innerText 为空）。
 ## [2.127.110] - 2026-10-22
 
 - **修扫码登录"设备已批准但尚未使用"**（真机反馈：列表出现两条 Android 幽灵条目）。
@@ -125,6 +175,14 @@
   - 新增单测 6 条；相关 198 条全绿。
 ## [2.127.105] - 2026-10-21
 
+## [2.127.111] - 2026-10-22
+
+- **修手机白屏**（扫码登录后进入首页一片空白）。用局域网 IP 在桌面浏览器复现，控制台明确报：
+  TypeError: crypto.randomUUID is not a function（useMemo 里调用 → React 直接崩 → 白屏）。
+  - 原因：crypto.randomUUID 只在**安全上下文**（HTTPS 或 localhost）存在，手机用 http://192.168.x.x 访问时它是 undefined。
+  - 修法：新增 rontend/src/lib/uuid.ts——uuid() 回退到 getRandomValues 生成 v4，并在入口**最先执行**给全局补 crypto.randomUUID（第三方库也能用）。
+  - 顺带把 RealtimeCall、TeamRunStart 里的直接调用换成 uuid()。
+  - 用局域网 IP 复测：页面正文正常渲染（此前 document.body.innerText 为空）。
 ## [2.127.110] - 2026-10-22
 
 - **修扫码登录"设备已批准但尚未使用"**（真机反馈：列表出现两条 Android 幽灵条目）。
@@ -167,6 +225,14 @@
   - 新增单测 4 条；相关 283 条全绿。
 ## [2.127.104] - 2026-10-21
 
+## [2.127.111] - 2026-10-22
+
+- **修手机白屏**（扫码登录后进入首页一片空白）。用局域网 IP 在桌面浏览器复现，控制台明确报：
+  TypeError: crypto.randomUUID is not a function（useMemo 里调用 → React 直接崩 → 白屏）。
+  - 原因：crypto.randomUUID 只在**安全上下文**（HTTPS 或 localhost）存在，手机用 http://192.168.x.x 访问时它是 undefined。
+  - 修法：新增 rontend/src/lib/uuid.ts——uuid() 回退到 getRandomValues 生成 v4，并在入口**最先执行**给全局补 crypto.randomUUID（第三方库也能用）。
+  - 顺带把 RealtimeCall、TeamRunStart 里的直接调用换成 uuid()。
+  - 用局域网 IP 复测：页面正文正常渲染（此前 document.body.innerText 为空）。
 ## [2.127.110] - 2026-10-22
 
 - **修扫码登录"设备已批准但尚未使用"**（真机反馈：列表出现两条 Android 幽灵条目）。
@@ -213,6 +279,14 @@
 - 顺带确认一个观测缺口：**服务正常运行的 stdout 没有落盘**，只有崩溃时才有 60 行。要做"长期服务日志"是单独一件事，先记在这里。
 ## [2.127.103] - 2026-10-21
 
+## [2.127.111] - 2026-10-22
+
+- **修手机白屏**（扫码登录后进入首页一片空白）。用局域网 IP 在桌面浏览器复现，控制台明确报：
+  TypeError: crypto.randomUUID is not a function（useMemo 里调用 → React 直接崩 → 白屏）。
+  - 原因：crypto.randomUUID 只在**安全上下文**（HTTPS 或 localhost）存在，手机用 http://192.168.x.x 访问时它是 undefined。
+  - 修法：新增 rontend/src/lib/uuid.ts——uuid() 回退到 getRandomValues 生成 v4，并在入口**最先执行**给全局补 crypto.randomUUID（第三方库也能用）。
+  - 顺带把 RealtimeCall、TeamRunStart 里的直接调用换成 uuid()。
+  - 用局域网 IP 复测：页面正文正常渲染（此前 document.body.innerText 为空）。
 ## [2.127.110] - 2026-10-22
 
 - **修扫码登录"设备已批准但尚未使用"**（真机反馈：列表出现两条 Android 幽灵条目）。

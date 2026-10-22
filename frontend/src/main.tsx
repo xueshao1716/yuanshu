@@ -1,3 +1,5 @@
+// 必须最先执行：给 http 局域网补 crypto.randomUUID，否则手机端白屏
+import './lib/uuid'
 import React from 'react'
 import ReactDOM from 'react-dom/client'
 import * as Tooltip from '@radix-ui/react-tooltip'

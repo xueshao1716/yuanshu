@@ -1,3 +1,4 @@
+import { uuid } from '../lib/uuid'
 import { useEffect, useRef, useState } from 'react'
 import { createChatCall, bindCallLifecycle } from '../realtime/call.mjs'
 import { appendTranscript } from '../realtime/state.mjs'
@@ -60,7 +61,7 @@ export default function RealtimeCall({ sessionId, ensureSession, disabled, open,
     onClose={() => { call.current?.stop(); onClose() }}
     tasks={<RealtimeTasks key={sessionId || 'new'} sessionId={sessionId} ready={state.phase === 'ready'} {...taskState}
       draft={draft} setDraft={setDraft}
-      propose={() => { if (call.current?.propose(crypto.randomUUID(), draft.trim())) setDraft('') }}
+      propose={() => { if (call.current?.propose(uuid(), draft.trim())) setDraft('') }}
       confirm={(id, approved) => {
         if (call.current?.confirm(id, approved)) setTaskState(s => reduceTaskState(s, { type: 'task.submitting', id }))
       }} />} />
