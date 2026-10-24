@@ -62,7 +62,7 @@ export function duePromises(wsRoot, { now = new Date() } = {}) {
 }
 
 /** 近 24 小时慢请求：条数 + 最慢两条 */
-export function slowSummary(wsRoot, { now = Date.now(), hours = 24, limit = 2, recentHours = 6 } = {}) {
+export function slowSummary(wsRoot, { now = Date.now(), hours = 24, limit = 2, recentHours = 6, since = null } = {}) {
   const rows = readLines(path.join(wsRoot, SLOW_LOG), 3000)
     .map((l) => { try { return JSON.parse(l) } catch { return null } })
     .filter(Boolean)
@@ -70,8 +70,10 @@ export function slowSummary(wsRoot, { now = Date.now(), hours = 24, limit = 2, r
       const t = Date.parse(r.at || '');
       return Number.isFinite(t) && now - t <= hours * 3600_000;
     });
-  // 近期按 6 小时算；更早的只作为历史峰值参考
-  const recent = rows.filter((r) => now - Date.parse(r.at || '') <= recentHours * 3600_000);
+  // 2026-10-24：优先按"本次进程启动以来"，没有就退回最近 N 小时。
+  // 这样修完之后的慢请求才算数，不会把修复前的旧账当成现状。
+  const cutoff = Number.isFinite(since) ? since : now - recentHours * 3600_000;
+  const recent = rows.filter((r) => Date.parse(r.at || '') >= cutoff);
   const recentTop = recent
     .slice()
     .sort((a, b) => (b.durationMs || 0) - (a.durationMs || 0))
@@ -104,7 +106,8 @@ export function buildMorningBrief(wsRoot, { agentDir, now = new Date() } = {}) {
   const night = lastNightTasks(agentDir, { now });
   const failed = night.filter((t) => !/ok|success|done/i.test(t.status));
   const promises = duePromises(wsRoot, { now });
-  const slow = slowSummary(wsRoot, { now: now.getTime() });
+  const bootAt = (() => { try { return Date.now() - process.uptime() * 1000 } catch { return null } })();
+  const slow = slowSummary(wsRoot, { now: now.getTime(), since: bootAt });
   const probe = lastProbe(wsRoot);
 
   const lines = [];
@@ -123,10 +126,11 @@ export function buildMorningBrief(wsRoot, { agentDir, now = new Date() } = {}) {
   // 2026-10-24：区分"近 6 小时"与"24h 历史峰值"——198 秒那次是卡顿期留下的旧账，不该当成现状
   if (slow.recentCount) {
     const t = slow.top[0];
-    lines.push(`近 ${slow.recentHours} 小时有 ${slow.recentCount} 次慢请求${t ? `，最慢是 ${t.key}（${(t.durationMs / 1000).toFixed(1)} 秒）` : ''}。`);
+    const sinceMin = Math.max(1, Math.round((Date.now() - (bootAt || Date.now())) / 60000));
+    lines.push(`本次启动 ${sinceMin} 分钟内 ${slow.recentCount} 次慢请求${t ? `，最慢是 ${t.key}（${(t.durationMs / 1000).toFixed(1)} 秒）` : ''}。`);
   } else if (slow.count) {
     const t = slow.top[0];
-    lines.push(`近 ${slow.recentHours} 小时没有慢请求（24 小时内历史峰值 ${t ? `${t.key} ${(t.durationMs / 1000).toFixed(0)} 秒` : '—'}）。`);
+    lines.push(`本次启动以来没有慢请求（24 小时内历史峰值 ${t ? `${t.key} ${(t.durationMs / 1000).toFixed(0)} 秒` : '—'}）。`);
   } else {
     lines.push('过去 24 小时没有慢请求。');
   }
