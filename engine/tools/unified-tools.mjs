@@ -280,6 +280,9 @@ export function detectBashShell({ refresh = false } = {}) {
 // 给模型看的描述必须和真实 shell 一致——描述说 cmd、实际给 bash（或反过来）都会让它乱试命令。
 // 2026-09-18：把"编码 / 引号"这两条真机上反复咬人的规矩直接写进描述（写在工具里比写在记忆里可靠）。
 const SHELL_HYGIENE = " 规矩：① 写中文内容一律用 write 工具，不要 `echo 中文 > f.txt`（cmd 会按 GBK 落盘，回头读就是乱码；本工具已替你切 chcp 65001，但别赌）；② 内联代码（node -e / python -c）会含引号与换行——本工具会自动改写成临时脚本，你也可以自己先写文件再跑；③ 路径带空格必须加引号（`\"C:\\Program Files\\...\"`），否则 cmd 会拆成两段。";
+// 2026-10-24：按 run 记录"同一条命令的失败次数"，用于打断重试死循环
+const bashFailures = new Map();
+
 export function bashToolDescription() {
   const shell = detectBashShell();
   return shell
@@ -416,8 +419,35 @@ export function createUnifiedToolExecutor(deps = {}) {
         // 异步执行，避免阻塞事件循环（同步 execFileSync 会让整个服务器卡住）
         // 非零退出码也返回输出（如 grep 无匹配、git status 非干净状态），让模型自行判断；仅超时/被 kill 视为异常
         // 注意：改写后的内联代码必须绕过 cmd（cmd 会把带引号的绝对路径与 cwd 拼接，导致 MODULE_NOT_FOUND），直接 execFile 解释器
-        const runOpts = { encoding: "buffer", timeout: 300000, cwd: getCwd(), windowsHide: true, maxBuffer: 16 * 1024 * 1024, signal: ctx.signal };
+        // 2026-10-24：超时 5 分钟太长——一条 grep 递归扫整个 app/ 能卡满 5 分钟，
+        // 模型还会换个写法重试，一轮对话直接耗掉半小时（真机：单 run 跑 11 次工具、16 分钟）。
+        // 降到 120 秒，并允许 YUANSHU_BASH_TIMEOUT_MS 覆盖；stdin 直接关掉，避免命令等输入挂住。
+        const bashTimeoutMs = (() => {
+          const n = Number(process.env.YUANSHU_BASH_TIMEOUT_MS);
+          return Number.isFinite(n) && n >= 10_000 && n <= 600_000 ? n : 120_000;
+        })();
+        const runOpts = { encoding: "buffer", timeout: bashTimeoutMs, cwd: getCwd(), windowsHide: true, maxBuffer: 16 * 1024 * 1024, signal: ctx.signal, stdio: ["ignore", "pipe", "pipe"] };
         if (process.platform === "win32" && !shell) ensureCommandDirectories(cmdWithCodepage);
+        // 2026-10-24：同一命令在本 run 里失败两次后，拒绝第三次——否则模型会一直换写法重试
+        const guardKey = String(ctx?.runId || ctx?.sessionKey || ctx?.sessionId || "anon");
+        const normCmd = cmd.replace(/\s+/g, " ").trim().slice(0, 200);
+        const guard = () => {
+          const m = bashFailures.get(guardKey);
+          return m?.get(normCmd) || 0;
+        };
+        const noteBashFailure = () => {
+          const m = bashFailures.get(guardKey) || new Map();
+          m.set(normCmd, (m.get(normCmd) || 0) + 1);
+          bashFailures.set(guardKey, m);
+          // 简单的 LRU：超过 50 个 run 就清最早的
+          if (bashFailures.size > 50) bashFailures.delete(bashFailures.keys().next().value);
+        };
+        if (guard() >= 2) {
+          return {
+            text: `⛔ 这条命令已经失败/超时 2 次，不要再原样重试。换做法：\n- grep 加 --exclude-dir=node_modules，只扫一个子目录（如 engine/）\n- 用 read 直接读文件\n- 把逻辑写成脚本文件再执行`,
+            isError: true,
+          };
+        }
         const run = fixed
           ? execFileAbortable(fixed.interp, [fixed.file], runOpts)
           : shell
@@ -440,12 +470,22 @@ export function createUnifiedToolExecutor(deps = {}) {
             const risk = riskyForCmdShell(cmd);
             if (risk) hint = `\n（这条命令过 cmd 有风险：${risk}）`;
           }
+          try { bashFailures.get(guardKey)?.delete(normCmd) } catch {}
           return { text: (text.replace(/\r\n/g, "\n") || "(无输出)") + exitMark + hint, isError: exitCode ? true : false };
         } catch (e) {
           cleanup?.();
           const interruption = toolInterruption(e, ctx.signal);
           if (interruption) return { text: interruption.text, code: interruption.code, isError: true };
           const msg = String(e?.message || e);
+          // 超时是最常见的一种：给出"别原样重试"的替代做法
+          if (/TOOL_TIMEOUT|timed? ?out/i.test(msg) || e?.code === "TOOL_TIMEOUT") {
+            noteBashFailure();
+            return {
+              text: `⏱ 命令超过 ${Math.round(bashTimeoutMs / 1000)} 秒被终止（已杀进程树）。不要原样重试：\n- grep 递归要加 --exclude-dir=node_modules，并只指定一个子目录\n- 大范围搜索改用 read 逐个文件，或把逻辑写进脚本文件再跑`,
+              isError: true,
+            };
+          }
+          noteBashFailure();
           return { text: `命令执行失败: ${msg.slice(0, 200)}`, isError: true };
         }
       }

@@ -79,13 +79,33 @@ function loadActiveRun(sessionId: string): ActiveRunRecord | null {
 }
 
 function saveActiveRun(record: ActiveRunRecord) {
-  try {
-    // 大图片/音频不进 localStorage；文本、工具与 seq 必须同一次写入，避免游标领先快照后无法重放。
-    localStorage.setItem(activeRunKey(record.sessionId), JSON.stringify({
-      ...record,
-      stream: { ...record.stream, images: [], audios: [], videos: [] },
-    }))
-  } catch {}
+  // 2026-10-24：本地快照是"刷新后还能看到已生成文字"的最后一道保险。
+  // 之前一次 JSON.stringify 超过配额就整次写失败（catch 静默），用户刷新后什么都看不到。
+  // 现在分三级降级：完整 → 去掉工具输出 → 只留正文尾部；仍失败就放弃（重放仍能恢复）。
+  const base = { ...record, stream: { ...record.stream, images: [], audios: [], videos: [] } }
+  const attempt = (payload: unknown) => {
+    try {
+      const json = JSON.stringify(payload)
+      if (json.length > 4_000_000) return false
+      localStorage.setItem(activeRunKey(record.sessionId), json)
+      return true
+    } catch { return false }
+  }
+  if (attempt(base)) return
+  const slimTools = { ...base, stream: { ...base.stream, tools: (base.stream.tools || []).slice(-8) } }
+  if (attempt(slimTools)) return
+  const tail = (s: string, n: number) => (typeof s === 'string' && s.length > n ? s.slice(-n) : s || '')
+  const slim = {
+    ...base,
+    stream: {
+      ...base.stream,
+      text: tail(base.stream.text, 200_000),
+      think: tail(base.stream.think, 50_000),
+      tools: (base.stream.tools || []).slice(-4),
+      notes: (base.stream.notes || []).slice(-10),
+    },
+  }
+  attempt(slim)
 }
 
 function clearActiveRun(sessionId: string) {
@@ -756,6 +776,10 @@ export default function ChatArea({ compactHeader, rightPanel, onRightPanel, onVo
   }
 
   const connectRun = (record: ActiveRunRecord) => {
+    // 2026-10-24：重连时先给一句可见状态，别让用户对着空白猜
+    if (record.status === 'running' && !(record.stream?.text || '').trim()) {
+      updStream((p) => ({ ...p, notes: p.notes.includes('正在恢复上一轮输出…') ? p.notes : [...p.notes, '正在恢复上一轮输出…'] }))
+    }
     // Keep the background task recoverable in its own session, even after leaving.
     saveActiveRun(record)
     if (!isCurrentView() || record.sessionId !== sessionIdRef.current) return
@@ -791,6 +815,9 @@ export default function ChatArea({ compactHeader, rightPanel, onRightPanel, onVo
       }
       const run = await RunsApi.get(record.runId)
       if (!alive || !isCurrentView() || activeRunRef.current || streamRef.current) return
+      // 2026-10-24：快照可能不完整（localStorage 配额、字段裁剪），恢复时从 0 重放事件日志重建正文。
+      // 之前只用 record.lastSeq，快照一旦缺失就只剩空白，用户以为任务丢了。
+      if (!isTerminalRunStatus(run.status)) record = { ...record, lastSeq: 0, stream: { ...record.stream, text: record.stream?.text || '' } };
       // 恢复/切会话只补正文，不把持久化事件重放变成自动朗读历史。
       speech.skipReply(record.assistantMessageId)
       if (isTerminalRunStatus(run.status) && run.lastSeq <= record.lastSeq) {
