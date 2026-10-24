@@ -7,6 +7,7 @@ import { loadPersonaDefinition, renderPersonaSection } from "./persona-def.mjs";
 import { soulContextPrompt } from "./soul-context.mjs";
 import { systemPrompt, guardrailsText } from "./harness-components.mjs";
 import { buildSelfModel, renderSelfSection, writeSelfFile } from "./self-model.mjs";
+import { goldSection } from "./gold-facts.mjs";
 import { workspaceFromEnv } from "./workspace-default.mjs";
 
 export const SEAM_PROMPT = "prompt-section";
@@ -124,6 +125,14 @@ export function assembleYuanshuSystem(baseOpts = {}, registry = null, ctx = {}) 
       const wsRoot = ctx.wsRoot || workspaceFromEnv() || process.cwd();
       baseOpts = { ...baseOpts, taste: tastePromptText(wsRoot, 5) };
     }
+  } catch {}
+  // 2026-10-24：黄金事实——路由按词面捞，闲聊/短句往往一条都捞不到；但这几条
+  // （工作区、源码仓库、安装目录、主人联系方式）跟问题无关、每轮都得成立。
+  // 放在 memory 段最前面：本轮捞到的记忆与它冲突时，以黄金事实为准。
+  try {
+    const goldRoot = ctx.wsRoot || workspaceFromEnv() || process.cwd();
+    const gold = goldSection(goldRoot);
+    if (gold) baseOpts = { ...baseOpts, goldFacts: gold };
   } catch {}
   const merged = mergeContributedSections(
     buildYuanshuSections(baseOpts),

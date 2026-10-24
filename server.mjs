@@ -4099,6 +4099,27 @@ const boardApi = createBoardApi({
     }
   }]);
 
+  // 2026-10-24：记忆召回台账（ORM）——哪几条被注入、哪几条真被用上、谁在提权/沉底
+  // 注意路径不能叫 /api/memory/recall：会被 /^\/api\/memory\/([^/]+)$/ 那条路由接走返回 not_found
+  API_ROUTES.push(["GET", "/api/memory-recall", async (res, req) => {
+    try {
+      const u = new URL(req.url, "http://x");
+      const { recallSummary } = await import("./engine/recall-journal.mjs");
+      const { goldFacts } = await import("./engine/gold-facts.mjs");
+      const limit = Math.max(1, Math.min(50, Number(u.searchParams.get("limit")) || 12));
+      return json(res, 200, { ...recallSummary(WS_ROOT, limit), gold: goldFacts(WS_ROOT) });
+    } catch (e) { return json(res, 500, { error: String(e?.message || e).slice(0, 200) }); }
+  }]);
+  // 黄金事实：读 / 写（人工维护的那几条）
+  API_ROUTES.push(["POST", "/api/gold-facts", async (res, req) => {
+    try {
+      const body = await readBody(req, 2e4);
+      const { writeGoldFacts } = await import("./engine/gold-facts.mjs");
+      const out = writeGoldFacts(WS_ROOT, body?.facts || []);
+      return json(res, out.ok ? 200 : 500, out);
+    } catch (e) { return json(res, 500, { error: String(e?.message || e).slice(0, 200) }); }
+  }]);
+
   // 2026-10-24：记忆卫生报告（增长惩罚 + 写入自检）
   API_ROUTES.push(["GET", "/api/memory-hygiene", async (res, req) => {
     try {

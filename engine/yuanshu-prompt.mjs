@@ -58,6 +58,7 @@ export function buildYuanshuSections({
   task = "",
   runtime = "",
   taste = "",
+  goldFacts = "",
 } = {}) {
   const sections = {};
   if (persona) sections.persona = persona;
@@ -78,12 +79,16 @@ export function buildYuanshuSections({
   }
   if (skillParts.length) sections.skills = skillParts.join("\n");
   if (taste) sections.taste = taste;
+  // 2026-10-24：黄金事实不受 shouldInjectFullMemory 闸门约束——闲聊也要带上，
+  // 否则"我刚问你装在哪"这种短句会因为不含动作词而丢事实，模型只能反问一遍。
+  const memParts = [];
+  const gold = String(goldFacts || "").trim();
+  if (gold) memParts.push(gold);
   if (shouldInjectFullMemory(message)) {
-    const mem = [];
-    if (Array.isArray(experience)) mem.push(...experience);
-    if (Array.isArray(fullMemory)) mem.push(...fullMemory);
-    if (mem.length) sections.memory = mem.join("\n\n");
+    if (Array.isArray(experience)) memParts.push(...experience.filter(Boolean));
+    if (Array.isArray(fullMemory)) memParts.push(...fullMemory.filter(Boolean));
   }
+  if (memParts.length) sections.memory = memParts.join("\n\n");
   if (time) sections.time = time;
   const run = [sessionContinuityNote(hist), todos, runtime].filter((x) => String(x || "").trim());
   if (run.length) sections.runtime = run.join("\n");

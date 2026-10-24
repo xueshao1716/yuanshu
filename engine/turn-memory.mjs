@@ -12,6 +12,7 @@
 import fs from "node:fs";
 import { extractText } from "./session-utils.mjs";
 import { extractPromises, recordPromises } from "./promises.mjs";
+import { settleRecall } from "./recall-journal.mjs";
 
 /**
  * 只读**本轮新追加**的那段字节里的最后一条助手回复。
@@ -85,6 +86,8 @@ export async function settleTurnMemory({
     const assistLatest = readAppendedAssistantText(file, bytesBefore, { fsMod });
     // 本轮没有产出助手回复（中止/报错）→ 不结算，绝不复用上一轮的文本
     if (!assistLatest) return { settled: false, reason: "本轮无助手回复" };
+    // 召回台账结算：这轮注入的记忆里，哪几条真的出现在回答里（提权/沉底的依据）
+    try { settleRecall(wsRoot, { userMsg: message, assistantText: assistLatest }); } catch {}
     const mem = await import("./memory.mjs");
     mem.autoMemorize(wsRoot, { userMsg: message, assistantMsg: assistLatest });
     // 承诺兑现：只提取入库。**结清必须显式**（台前按钮或明确证据），这里不做任何自动判定。

@@ -12,6 +12,7 @@
 
 import fs from "node:fs";
 import path from "node:path";
+import { settleRecall } from "./recall-journal.mjs";
 
 let _deps = null; // { ingest, recall, getDefaultModel, chat, wsRoot }
 export function initMemoryAutoStore(deps) { _deps = deps; }
@@ -63,9 +64,20 @@ function parseJudge(text) {
   } catch { return null; }
 }
 
+function wsRootOf() {
+  try { return typeof _deps?.wsRoot === "function" ? String(_deps.wsRoot() || "") : String(_deps?.wsRoot || ""); } catch { return ""; }
+}
+
 /** 轮次结束后调用。不 await——后台执行，调用方 fire-and-forget。 */
 export function settleTurnMemory({ sessionId = "new", user = "", assistant = "", executionIdentity = null, model = null, user_id = "owner" } = {}) {
   if (!_deps) return;
+  // 2026-10-24：先给召回台账结算（哪几条记忆真被用上了），再走"要不要沉淀"的判断。
+  // 两件事无关：沉淀是写新记忆，结算是给已有记忆记功/记过；结算还被执行身份门槛
+  // 之外的每一轮覆盖（含测试轮），因为它只改自己的小台账。
+  try {
+    const ws = wsRootOf();
+    if (ws) settleRecall(ws, { userMsg: user, assistantText: assistant });
+  } catch {}
   const run = async () => {
     // 门槛 1：只有主人亲自会话
     if (!executionIdentity) return;
