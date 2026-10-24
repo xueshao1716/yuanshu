@@ -216,6 +216,7 @@ import { createChatStreamHub } from "./engine/chat-stream.mjs";
 import { createJobPool } from "./engine/job-pool.mjs";
 import { createTurnProfiler } from "./engine/turn-profile.mjs";
 import { createMemWatch } from "./engine/mem-watch.mjs";
+import { installTimerWatch } from './engine/timer-watch.mjs';
 import { PerformanceObserver } from "node:perf_hooks";
 import { buildSelfModel, renderSelfSection, renderSelfMarkdown } from "./engine/self-model.mjs";
 import { shouldProbe, markProbed, splitBeforeAfter, abCompare, appendProbeLog, appendLesson } from "./engine/harness-probe.mjs";
@@ -552,6 +553,8 @@ const jobPool = createJobPool({ file: path.join(WS_ROOT, "记忆", "运行时", 
 // 2026-10-24：每轮耗时拆解（request / context / firstDelta / tool / end）
 const turnProfiler = createTurnProfiler({ wsRoot: WS_ROOT, log: (m) => console.log(m) });
 // 2026-10-24：内存采样（每 60s 一条，查 GC 长停顿用）
+// 2026-10-24：定时器探针，点名「卡住事件循环的后台任务」
+installTimerWatch({ thresholdMs: 300, log: (m) => console.log(m) });
 const memWatch = createMemWatch({ wsRoot: WS_ROOT, log: (m) => console.log(m) });
 memWatch.start(() => ({ runs: runStore.list().length, sessions: activeSessions.size, streams: chatStreams.size(), jobs: jobPool.summary().running }));
 // 2026-10-24：GC 观测。长停顿到底是 GC 还是别的，用它把话说死：
