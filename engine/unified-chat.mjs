@@ -975,7 +975,7 @@ export async function handleUnifiedChat(res, entry, message, sessionId, params, 
   writer = writer || createSseWriter(res);
   const requestedModel = entry.modelKey?.id && entry.modelKey.id !== 'auto' ? { provider: entry.modelKey.provider, id: entry.modelKey.id } : (modelOverride ? { provider: modelOverride.provider, id: modelOverride.id } : null);
   let switchedModel = null;
-  const metadataFor = result => ({ model: result?.usedModel, requestedModel, switchedModel, engine: 'yuanshu' });
+  const metadataFor = result => ({ model: result?.usedModel, requestedModel, switchedModel, engine: 'yuanshu', usage: (turnUsage.input || turnUsage.output) ? { ...turnUsage } : null });
   try { writer.push("model_selected", { model: { provider: chatModel?.provider, id: chatModel?.id }, requestedModel }); } catch {}
   if (engineInitError) {
     try { writer.push("note", { code: "engine_init_failed", text: `engine_init_failed：引擎初始化失败，本次降级运行（${engineInitError.message}）。` }); } catch {}
@@ -1198,6 +1198,17 @@ export async function handleUnifiedChat(res, entry, message, sessionId, params, 
     finishEmotion();
     writer.push('interrupted', { reason: result.pauseReason, message: result.message, model: result.usedModel, requestedModel });
   }
+  // 2026-10-24：本轮真实 usage 累加（tok/s 与成本统计都靠它落盘）
+  const turnUsage = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 };
+  const addTurnUsage = (u = {}) => {
+    const n = (v) => Number(v) || 0;
+    turnUsage.input += n(u.input ?? u.prompt_tokens ?? u.input_tokens);
+    turnUsage.output += n(u.output ?? u.completion_tokens ?? u.output_tokens);
+    turnUsage.cacheRead += n(u.cacheRead ?? u.cache_read_input_tokens ?? u.prompt_cache_hit_tokens);
+    turnUsage.cacheWrite += n(u.cacheWrite ?? u.cache_creation_input_tokens);
+    turnUsage.total = turnUsage.input + turnUsage.output + turnUsage.cacheRead + turnUsage.cacheWrite;
+  };
+
   const chatOpts = {
     executionBudgetMs: runContext?.executionBudgetMs,
     executionDeadlineAt: runContext?.executionDeadlineAt,
@@ -1211,6 +1222,7 @@ export async function handleUnifiedChat(res, entry, message, sessionId, params, 
     onDelta: (t) => { writer.push("delta", { text: t }); },
     // 2026-10-24：provider 真实 usage → 前端状态栏（tok/s、缓存命中率、上下文占用）
     onUsage: (u = {}) => {
+      addTurnUsage(u);
       const n = (v) => Number(v) || 0;
       const input = n(u.input ?? u.prompt_tokens ?? u.input_tokens);
       const output = n(u.output ?? u.completion_tokens ?? u.output_tokens);

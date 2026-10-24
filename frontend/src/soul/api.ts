@@ -20,6 +20,7 @@ const post = async (path: string, body: unknown) => {
 export type MoodDiary = { date: string; summary: string; weather: string; chars: number }
 export const SoulApi = {
   moodDiaries: (limit = 7) => api<{ items: MoodDiary[] }>(`/api/mood/diaries?limit=${limit}`),
+  taste: (limit = 20) => api<{ items: { at: string; topic: string; chose: string; rejected: string[]; why: string; tags: string[] }[] }>(`/api/taste?limit=${limit}`),
   moodDiary: (date: string) => api<{ date: string; text: string }>(`/api/mood/diary?date=${encodeURIComponent(date)}`),
   persona: () => api<Persona>('/api/persona'),
   genome: () => api<Genome>('/api/genome'),

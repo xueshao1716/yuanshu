@@ -955,6 +955,13 @@ const executeUnifiedTool = createUnifiedToolExecutorGuarded({
       }
       return cultivationTool(cultivationRuntime, args, host);
     },
+    record_taste: async (args) => {
+      try {
+        const { recordTaste } = await import("./engine/taste.mjs");
+        const r = recordTaste(WS_ROOT, args || {});
+        return r.ok ? { text: `已记入品味库：${args?.topic} → ${args?.chose}` } : { text: `记入失败：${r.error}`, isError: true };
+      } catch (e) { return { text: `记入失败：${String(e?.message || e).slice(0, 120)}`, isError: true } }
+    },
     dsh_task: async (args, ctx) => {
       const t = globalThis.__yuanshuDshTool || globalThis.__piWebDshTool;
       if (!t?.execute) return { text: "[dsh] 执行臂未初始化", isError: true };
@@ -4076,6 +4083,25 @@ const boardApi = createBoardApi({
     } catch (e) {
       return json(res, 500, { error: String(e?.message || e).slice(0, 200) });
     }
+  }]);
+
+  // 2026-10-24：品味库（判断轨迹：选了哪个、否了哪个、为什么）
+  API_ROUTES.push(["GET", "/api/taste", async (res, req) => {
+    try {
+      const u = new URL(req.url, "http://x");
+      const limit = Math.min(200, Math.max(1, Number(u.searchParams.get("limit") || 20)));
+      const q = u.searchParams.get("q") || "";
+      const { listTaste, searchTaste } = await import("./engine/taste.mjs");
+      return json(res, 200, { items: q ? searchTaste(WS_ROOT, q, limit) : listTaste(WS_ROOT, limit) });
+    } catch (e) { return json(res, 500, { error: String(e?.message || e).slice(0, 200) }); }
+  }]);
+  API_ROUTES.push(["POST", "/api/taste", async (res, req) => {
+    try {
+      const body = await readBody(req, 1e5);
+      const { recordTaste } = await import("./engine/taste.mjs");
+      const r = recordTaste(WS_ROOT, body || {});
+      return json(res, r.ok ? 200 : 400, r);
+    } catch (e) { return json(res, 500, { error: String(e?.message || e).slice(0, 200) }); }
   }]);
 
   // 2026-10-24：心情日记（数据来自 情绪感受.jsonl / 情绪潮汐.jsonl，不调模型）

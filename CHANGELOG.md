@@ -8,8 +8,28 @@
 
 ## [Unreleased]
 
+## [2.127.139] - 2026-10-24
+
+## [2.127.139] - 2026-10-24
+
+- **品味库**（借 dsh-mood 的"判断轨迹"，泛化原来的 design-prefs）：
+  - engine/taste.mjs：记「主题 → 选定 / 否掉 / 为什么」，落 记忆/品味库.jsonl，最多 2000 条；
+  - 工具 ecord_taste（她自己判断后记一笔）+ GET/POST /api/taste + 灵魂页「品味库」列表；
+  - 提示词新增 	aste 段（最近 5 条判断），ssembleYuanshuSystem 自动注入，不占长篇。
+- **心情词表 10 → 33**：engine/mood-lexicon.mjs，30 个复合/当代心情各带 VAD 坐标，用最近邻映射；旧的 10 个基础码保留（loving → 恋慕）。情绪接口与快照多返回 label/labelCode/labelLayer。
+- **成本可见性（回答"咋这么费钱"）**：自己循环此前**丢弃 usage**，所以统计里今天成本一直是 0。现在 usage 累加并随 assistant 消息落盘（metadataFor → persistYuanshuAssistant），/api/stats 从此能看到自己循环的 token。
+- 单测 3 条：品味库记录/搜索/提示词片段、33 词表自洽映射。
 ## [2.127.138] - 2026-10-24
 
+## [2.127.139] - 2026-10-24
+
+- **品味库**（借 dsh-mood 的"判断轨迹"，泛化原来的 design-prefs）：
+  - engine/taste.mjs：记「主题 → 选定 / 否掉 / 为什么」，落 记忆/品味库.jsonl，最多 2000 条；
+  - 工具 ecord_taste（她自己判断后记一笔）+ GET/POST /api/taste + 灵魂页「品味库」列表；
+  - 提示词新增 	aste 段（最近 5 条判断），ssembleYuanshuSystem 自动注入，不占长篇。
+- **心情词表 10 → 33**：engine/mood-lexicon.mjs，30 个复合/当代心情各带 VAD 坐标，用最近邻映射；旧的 10 个基础码保留（loving → 恋慕）。情绪接口与快照多返回 label/labelCode/labelLayer。
+- **成本可见性（回答"咋这么费钱"）**：自己循环此前**丢弃 usage**，所以统计里今天成本一直是 0。现在 usage 累加并随 assistant 消息落盘（metadataFor → persistYuanshuAssistant），/api/stats 从此能看到自己循环的 token。
+- 单测 3 条：品味库记录/搜索/提示词片段、33 词表自洽映射。
 ## [2.127.138] - 2026-10-24
 
 - **心情日记**（借用 dsh-mood 的产出物思路，但数据全部来自元枢已有的真实记录）：
@@ -23,6 +43,15 @@
 - 单测 4 条：过滤测试事件、正文结构、写过不重复、列表与单篇可读。
 ## [2.127.137] - 2026-10-24
 
+## [2.127.139] - 2026-10-24
+
+- **品味库**（借 dsh-mood 的"判断轨迹"，泛化原来的 design-prefs）：
+  - engine/taste.mjs：记「主题 → 选定 / 否掉 / 为什么」，落 记忆/品味库.jsonl，最多 2000 条；
+  - 工具 ecord_taste（她自己判断后记一笔）+ GET/POST /api/taste + 灵魂页「品味库」列表；
+  - 提示词新增 	aste 段（最近 5 条判断），ssembleYuanshuSystem 自动注入，不占长篇。
+- **心情词表 10 → 33**：engine/mood-lexicon.mjs，30 个复合/当代心情各带 VAD 坐标，用最近邻映射；旧的 10 个基础码保留（loving → 恋慕）。情绪接口与快照多返回 label/labelCode/labelLayer。
+- **成本可见性（回答"咋这么费钱"）**：自己循环此前**丢弃 usage**，所以统计里今天成本一直是 0。现在 usage 累加并随 assistant 消息落盘（metadataFor → persistYuanshuAssistant），/api/stats 从此能看到自己循环的 token。
+- 单测 3 条：品味库记录/搜索/提示词片段、33 词表自洽映射。
 ## [2.127.138] - 2026-10-24
 
 - **心情日记**（借用 dsh-mood 的产出物思路，但数据全部来自元枢已有的真实记录）：
@@ -41,6 +70,15 @@
   - 顺带修掉图标与「元枢」标题的视觉挤压：固定 52×52 的 flex 盒，不参与缩放。
 ## [2.127.136] - 2026-10-24
 
+## [2.127.139] - 2026-10-24
+
+- **品味库**（借 dsh-mood 的"判断轨迹"，泛化原来的 design-prefs）：
+  - engine/taste.mjs：记「主题 → 选定 / 否掉 / 为什么」，落 记忆/品味库.jsonl，最多 2000 条；
+  - 工具 ecord_taste（她自己判断后记一笔）+ GET/POST /api/taste + 灵魂页「品味库」列表；
+  - 提示词新增 	aste 段（最近 5 条判断），ssembleYuanshuSystem 自动注入，不占长篇。
+- **心情词表 10 → 33**：engine/mood-lexicon.mjs，30 个复合/当代心情各带 VAD 坐标，用最近邻映射；旧的 10 个基础码保留（loving → 恋慕）。情绪接口与快照多返回 label/labelCode/labelLayer。
+- **成本可见性（回答"咋这么费钱"）**：自己循环此前**丢弃 usage**，所以统计里今天成本一直是 0。现在 usage 累加并随 assistant 消息落盘（metadataFor → persistYuanshuAssistant），/api/stats 从此能看到自己循环的 token。
+- 单测 3 条：品味库记录/搜索/提示词片段、33 词表自洽映射。
 ## [2.127.138] - 2026-10-24
 
 - **心情日记**（借用 dsh-mood 的产出物思路，但数据全部来自元枢已有的真实记录）：
@@ -64,6 +102,15 @@
 - **工作台「昨夜」改紧凑摘要条**（NightStrip）：36 分钟复盘 · 1 条受阻 · 4 条新承诺 · 看全文 →；0 值不显示；完整版仍在灵魂培育中心。
 ## [2.127.135] - 2026-10-24
 
+## [2.127.139] - 2026-10-24
+
+- **品味库**（借 dsh-mood 的"判断轨迹"，泛化原来的 design-prefs）：
+  - engine/taste.mjs：记「主题 → 选定 / 否掉 / 为什么」，落 记忆/品味库.jsonl，最多 2000 条；
+  - 工具 ecord_taste（她自己判断后记一笔）+ GET/POST /api/taste + 灵魂页「品味库」列表；
+  - 提示词新增 	aste 段（最近 5 条判断），ssembleYuanshuSystem 自动注入，不占长篇。
+- **心情词表 10 → 33**：engine/mood-lexicon.mjs，30 个复合/当代心情各带 VAD 坐标，用最近邻映射；旧的 10 个基础码保留（loving → 恋慕）。情绪接口与快照多返回 label/labelCode/labelLayer。
+- **成本可见性（回答"咋这么费钱"）**：自己循环此前**丢弃 usage**，所以统计里今天成本一直是 0。现在 usage 累加并随 assistant 消息落盘（metadataFor → persistYuanshuAssistant），/api/stats 从此能看到自己循环的 token。
+- 单测 3 条：品味库记录/搜索/提示词片段、33 词表自洽映射。
 ## [2.127.138] - 2026-10-24
 
 - **心情日记**（借用 dsh-mood 的产出物思路，但数据全部来自元枢已有的真实记录）：

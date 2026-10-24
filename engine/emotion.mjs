@@ -12,6 +12,7 @@
 // 保留：residue→记忆联动钩子、基因联动、情绪潮汐落盘（08-19/09-03/09-04 前版）
 
 import fs from "node:fs";
+import { labelForState, zhForCode } from './mood-lexicon.mjs';
 import path from "node:path";
 import { safeEmotion, observationTime } from './emotion-display.mjs';
 import { cueText, cueMatches, behaviorCues } from './emotion-cues.mjs';
@@ -417,6 +418,8 @@ export function peekLatestObservation() {
 
 // 根据情绪生成行为指令（反向情绪激发：情绪 → 驱动行为风格）
 export function emotionDirective(state, userMsg = "") {
+  // 2026-10-24：有 33 词表标签就优先用它（更具体），否则退回基础情绪码
+  const _zh = state?.label || EMO_ZH[state?.p] || '平静';
   const s = state || { ...DEFAULT_STATE };
   const parts = [];
   if (s.tags && s.tags.includes("alert_risk")) {
@@ -478,6 +481,13 @@ function snapshotOf(key) {
   st.tags = [];
   const gs = geneSnapshot();
   if (gs) snap.genome = gs;
+  // 2026-10-24：33 词表最近邻——"平静"之外还能说出"委屈/得意/吃醋"这种更准的词
+  try {
+    const m = labelForState(st);
+    snap.label = m.zh;
+    snap.labelCode = m.code;
+    snap.labelLayer = m.layer;
+  } catch {}
   return snap;
 }
 

@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto';
+import { labelForState } from './mood-lexicon.mjs';
 const LABELS = new Set(['loving', 'happy', 'curious', 'playful', 'calm', 'anxious', 'sad', 'angry', 'tired', 'neutral']);
 const TAGS = new Set(['user_happy', 'user_frustrated', 'user_urgent', 'user_anxious', 'alert_risk', 'task_accomplish', 'task_deep']);
 const finite = (v, min, max) => typeof v === 'number' && Number.isFinite(v) ? Math.max(min, Math.min(max, v)) : null;
@@ -25,7 +26,15 @@ export function createEmotionDisplay({ peek, now = Date.now, serverEpoch = rando
     const sourceKind = state ? observation?.sourceKind === 'dialogue' ? 'dialogue' : 'historical' : 'none';
     const next = JSON.stringify([observation?.source ?? null, state, observedAt, sourceKind]);
     if (next !== fingerprint) { revision++; fingerprint = next; }
-    return { state, scope: 'global-latest', observedAt, servedAt: now(), sourceKind, revision, serverEpoch,
+    // 2026-10-24：33 词表标签——界面/日志能看到"委屈/得意/吃醋"这种具体心情，而不只是 calm/happy
+    let label = null, labelCode = null;
+    if (state) {
+      try {
+        const m = labelForState({ v: state.valence, a: state.arousal, d: state.dominance, intensity: state.intensity });
+        label = m.zh; labelCode = m.code;
+      } catch {}
+    }
+    return { state: state ? { ...state, label, labelCode } : state, scope: 'global-latest', observedAt, servedAt: now(), sourceKind, revision, serverEpoch,
       status: !state ? 'unavailable' : sourceKind === 'dialogue' ? 'observed' : 'historical' };
   } };
 }

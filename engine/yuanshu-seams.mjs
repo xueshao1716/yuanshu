@@ -1,5 +1,6 @@
 // 元枢循环接缝：插件贡献能力，主聊天仍是 unifiedChat（不是 Gateway 循环）
 import { buildYuanshuSections } from "./yuanshu-prompt.mjs";
+import { tastePromptText } from './taste.mjs';
 import { runtimeIdentity } from "./runtime-identity.mjs";
 import { rhythmPhrase } from "./activity-rhythm.mjs";
 import { loadPersonaDefinition, renderPersonaSection } from "./persona-def.mjs";
@@ -117,6 +118,13 @@ export async function registerPromptSection(registry, {
 }
 
 export function assembleYuanshuSystem(baseOpts = {}, registry = null, ctx = {}) {
+  // 2026-10-24：品味库自动注入（最近 5 条判断）；调用方传了就不覆盖
+  try {
+    if (!baseOpts.taste) {
+      const wsRoot = ctx.wsRoot || workspaceFromEnv() || process.cwd();
+      baseOpts = { ...baseOpts, taste: tastePromptText(wsRoot, 5) };
+    }
+  } catch {}
   const merged = mergeContributedSections(
     buildYuanshuSections(baseOpts),
     collectPromptContributions(registry, ctx),

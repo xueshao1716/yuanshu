@@ -11,7 +11,7 @@ import { sessionContinuityNote } from "./yuanshu-session.mjs";
 export const YUANSHU_SECTION_ORDER = [
   // 2026-10-20：guardrails 紧跟 protocol —— 硬边界要在工作协议之后、具体工具之前出现
   // 2026-10-24：environment 紧跟 persona——先讲清"你在什么系统上、用什么符号"，再讲协议
-  "persona", "environment", "protocol", "guardrails", "rules", "tools", "skills", "memory", "time", "runtime", "plan", "task",
+  "persona", "environment", "protocol", "guardrails", "rules", "tools", "skills", "memory", "taste", "time", "runtime", "plan", "task",
 ];
 
 function sectionText(raw) {
@@ -57,6 +57,7 @@ export function buildYuanshuSections({
   tools = "",
   task = "",
   runtime = "",
+  taste = "",
 } = {}) {
   const sections = {};
   if (persona) sections.persona = persona;
@@ -76,6 +77,7 @@ export function buildYuanshuSections({
     }
   }
   if (skillParts.length) sections.skills = skillParts.join("\n");
+  if (taste) sections.taste = taste;
   if (shouldInjectFullMemory(message)) {
     const mem = [];
     if (Array.isArray(experience)) mem.push(...experience);

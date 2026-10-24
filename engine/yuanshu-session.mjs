@@ -144,10 +144,12 @@ export function persistYuanshuAssistant(sm, text, mediaItems = [], metadata = {}
   if (!sm?.appendMessage) return;
   const body = typeof text === "string" ? [{ type: "text", text }] : text;
   const content = sdkSafeAssistantBlocks(Array.isArray(body) ? body : [{ type: "text", text: String(text || "") }]);
-  const { model, requestedModel, switchedModel, engine } = metadata;
+  // 2026-10-24：usage 一并落盘——统计/成本面板此前看不到自己循环的花费
+  const { model, requestedModel, switchedModel, engine, usage } = metadata;
   sm.appendMessage({ role: "assistant", content,
     ...(model?.id ? { provider: model.provider, model: model.id } : {}),
-    ...(requestedModel ? { requestedModel } : {}), ...(switchedModel ? { switchedModel } : {}), ...(engine ? { engine } : {}) });
+    ...(requestedModel ? { requestedModel } : {}), ...(switchedModel ? { switchedModel } : {}), ...(engine ? { engine } : {}),
+    ...(usage ? { usage } : {}) });
   void mediaItems;
 }
 
