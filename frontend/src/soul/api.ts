@@ -17,7 +17,10 @@ const post = async (path: string, body: unknown) => {
   if (value.error || value.ok === false) throw new Error(value.error || '操作没有完成，请刷新后核对')
   return value
 }
+export type MoodDiary = { date: string; summary: string; weather: string; chars: number }
 export const SoulApi = {
+  moodDiaries: (limit = 7) => api<{ items: MoodDiary[] }>(`/api/mood/diaries?limit=${limit}`),
+  moodDiary: (date: string) => api<{ date: string; text: string }>(`/api/mood/diary?date=${encodeURIComponent(date)}`),
   persona: () => api<Persona>('/api/persona'),
   genome: () => api<Genome>('/api/genome'),
   apply: (body: unknown) => post('/api/persona/apply', body),

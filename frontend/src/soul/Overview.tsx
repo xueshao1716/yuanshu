@@ -1,4 +1,5 @@
 import useSWR from 'swr'
+import MoodDiaryList from './MoodDiary'
 import { ArrowRight } from 'lucide-react'
 import { SoulApi } from './api'
 import { SelfApi } from '../api'
@@ -49,6 +50,9 @@ export default function Overview({open}: {open:(section:Section)=>void}) {
       <SoulGraph />
     </Block>
     <LastNight />
+    <Block title="心情日记" hint="由当天的情绪记录自动写成：感受、起伏、留给明天的一句话。每天 23:30 后生成。">
+      <MoodDiaryList />
+    </Block>
     <Block title="现在的小语" hint="长期人格和基因的变更，都要你确认。">
       <LoadState error={persona.error} loading={persona.isLoading} retry={persona.mutate} />
       <LoadState error={genes.error} loading={genes.isLoading} retry={genes.mutate} />

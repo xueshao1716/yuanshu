@@ -559,6 +559,19 @@ let currentTurnRes = null;
 // 2026-10-24：定时器探针，点名「卡住事件循环的后台任务」
 installTimerWatch({ thresholdMs: 300, log: (m) => console.log(m) });
 const memWatch = createMemWatch({ wsRoot: WS_ROOT, log: (m) => console.log(m) });
+// 2026-10-24：心情日记到点自己写（23:30 之后写当天；启动时补昨天，防漏跑）
+const writeMoodDiaryQuietly = async () => {
+  try {
+    const { maybeWriteDaily } = await import("./engine/mood-diary.mjs");
+    const { readWeather } = await import("./engine/weather.mjs");
+    let weather = null;
+    try { weather = await readWeather(WS_ROOT, {}); } catch {}
+    const done = maybeWriteDaily(WS_ROOT, { weather });
+    for (const d of done) console.log(`[mood] 心情日记已写：${d.file}（感受 ${d.feelings} 条）`);
+  } catch (e) { console.log("[mood] 心情日记写入失败:", String(e?.message || e).slice(0, 120)); }
+};
+setTimeout(() => { void writeMoodDiaryQuietly() }, 3 * 60_000).unref?.();
+setInterval(() => { void writeMoodDiaryQuietly() }, 30 * 60_000).unref?.();
 memWatch.start(() => ({ runs: runStore.list().length, sessions: activeSessions.size, streams: chatStreams.size(), jobs: jobPool.summary().running }));
 // 2026-10-24：GC 观测。长停顿到底是 GC 还是别的，用它把话说死：
 // 超过 50ms 的 GC 会打一行 [gc] <kind> <ms>，和 loop-lag 的时间轴对得上就能确认。
@@ -4063,6 +4076,33 @@ const boardApi = createBoardApi({
     } catch (e) {
       return json(res, 500, { error: String(e?.message || e).slice(0, 200) });
     }
+  }]);
+
+  // 2026-10-24：心情日记（数据来自 情绪感受.jsonl / 情绪潮汐.jsonl，不调模型）
+  API_ROUTES.push(["GET", "/api/mood/diaries", async (res, req) => {
+    try {
+      const u = new URL(req.url, "http://x");
+      const limit = Math.min(60, Math.max(1, Number(u.searchParams.get("limit") || 7)));
+      const { listDiaries } = await import("./engine/mood-diary.mjs");
+      return json(res, 200, { items: listDiaries(WS_ROOT, limit) });
+    } catch (e) { return json(res, 500, { error: String(e?.message || e).slice(0, 200) }); }
+  }]);
+  API_ROUTES.push(["GET", "/api/mood/diary", async (res, req) => {
+    try {
+      const u = new URL(req.url, "http://x");
+      const date = u.searchParams.get("date") || new Date().toLocaleDateString("sv-SE");
+      const { readDiary } = await import("./engine/mood-diary.mjs");
+      const got = readDiary(WS_ROOT, date);
+      return got ? json(res, 200, got) : json(res, 404, { error: "这一天还没有日记" });
+    } catch (e) { return json(res, 500, { error: String(e?.message || e).slice(0, 200) }); }
+  }]);
+  API_ROUTES.push(["POST", "/api/mood/diary/write", async (res, req) => {
+    try {
+      const body = await readBody(req, 1e5);
+      const { writeDiary } = await import("./engine/mood-diary.mjs");
+      const date = String(body?.date || "").trim() || new Date().toLocaleDateString("sv-SE");
+      return json(res, 200, writeDiary(WS_ROOT, { date, force: body?.force === true }));
+    } catch (e) { return json(res, 500, { error: String(e?.message || e).slice(0, 200) }); }
   }]);
 
   // 2026-10-24：首页天气（Open-Meteo，免 key；失败返回 error 不阻塞页面）
