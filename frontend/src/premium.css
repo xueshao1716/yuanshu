@@ -230,6 +230,7 @@ input:focus-visible,
   color: color-mix(in srgb, var(--pi-dim) 92%, var(--pi-text));
 }
 .markdown-body pre {
+  font-size: 13px; line-height: 1.7;
   border-radius: 10px;
   border: 1px solid color-mix(in srgb, var(--pi-border) 70%, transparent);
   background: color-mix(in srgb, var(--pi-bg3) 90%, var(--pi-bg));
@@ -537,3 +538,112 @@ html[data-theme="ink"], html[data-theme="violet"] { --brand-mark: #8b9cff; --bra
 .jobs-meta { color: var(--pi-dim2); font-size: 11.5px; }
 .jobs-row button { display: inline-flex; align-items: center; justify-content: center; width: 22px; height: 22px; border-radius: 6px; color: var(--pi-dim2); }
 .jobs-row button:hover { background: var(--pi-bg3, rgba(0,0,0,.06)); color: var(--pi-text); }
+
+/* 2026-10-24 聊天正文排版（回应"会话输出不好看"）
+   原则：标题有层级但不过分大、列表有节奏、表格能扫读、引用块有底色。
+   用 .markdown-body-wrapper 提高特异性，压过 styles.css / premium.css 里早先那两套重复规则。 */
+.markdown-body-wrapper .markdown-body { font-size: 14.5px; line-height: 1.8; letter-spacing: 0.006em; }
+.markdown-body-wrapper .markdown-body p { margin: 10px 0; }
+.markdown-body-wrapper .markdown-body h1,
+.markdown-body-wrapper .markdown-body h2,
+.markdown-body-wrapper .markdown-body h3,
+.markdown-body-wrapper .markdown-body h4 {
+  letter-spacing: -0.01em; line-height: 1.35; color: var(--pi-text);
+}
+.markdown-body-wrapper .markdown-body h1 { font-size: 19px; margin: 24px 0 12px; padding-bottom: 8px; border-bottom: 1px solid color-mix(in srgb, var(--pi-border) 55%, transparent); }
+.markdown-body-wrapper .markdown-body h2 { font-size: 16.5px; margin: 20px 0 10px; padding-left: 10px; box-shadow: inset 3px 0 0 color-mix(in srgb, var(--pi-accent) 65%, transparent); }
+.markdown-body-wrapper .markdown-body h3 { font-size: 15px; margin: 16px 0 8px; color: color-mix(in srgb, var(--pi-text) 88%, var(--pi-accent)); }
+.markdown-body-wrapper .markdown-body h4 { font-size: 14px; margin: 14px 0 6px; color: var(--pi-dim); }
+.markdown-body-wrapper .markdown-body strong { font-weight: 600; color: var(--pi-text); }
+.markdown-body-wrapper .markdown-body ul,
+.markdown-body-wrapper .markdown-body ol { padding-left: 22px; margin: 10px 0; }
+.markdown-body-wrapper .markdown-body li { margin: 5px 0; }
+.markdown-body-wrapper .markdown-body li::marker { color: color-mix(in srgb, var(--pi-accent) 78%, var(--pi-dim)); }
+.markdown-body-wrapper .markdown-body li > ul,
+.markdown-body-wrapper .markdown-body li > ol { margin: 4px 0; }
+.markdown-body-wrapper .markdown-body blockquote {
+  margin: 14px 0; padding: 10px 14px; border-radius: 10px;
+  background: color-mix(in srgb, var(--pi-accent) 5%, transparent);
+  box-shadow: inset 3px 0 0 color-mix(in srgb, var(--pi-accent) 55%, transparent);
+  color: color-mix(in srgb, var(--pi-dim) 94%, var(--pi-text));
+}
+.markdown-body-wrapper .markdown-body blockquote > :first-child { margin-top: 0; }
+.markdown-body-wrapper .markdown-body blockquote > :last-child { margin-bottom: 0; }
+.markdown-body-wrapper .markdown-body table {
+  /* 2026-10-24 修：display:block 会让各 section 各自算列宽，三列表格会错位 */
+  display: table; width: 100%; table-layout: auto; margin: 14px 0; font-size: 13px;
+  border: 1px solid color-mix(in srgb, var(--pi-border) 62%, transparent);
+  border-radius: 10px; border-collapse: separate; border-spacing: 0;
+  overflow: hidden;
+}
+.markdown-body-wrapper .markdown-body th,
+.markdown-body-wrapper .markdown-body td {
+  padding: 8px 12px; border: 0;
+  border-bottom: 1px solid color-mix(in srgb, var(--pi-border) 42%, transparent);
+  border-right: 1px solid color-mix(in srgb, var(--pi-border) 42%, transparent);
+  vertical-align: top;
+}
+.markdown-body-wrapper .markdown-body tr:last-child td { border-bottom: 0; }
+.markdown-body-wrapper .markdown-body th:last-child,
+.markdown-body-wrapper .markdown-body td:last-child { border-right: 0; }
+.markdown-body-wrapper .markdown-body thead th {
+  background: color-mix(in srgb, var(--pi-text) 5%, transparent);
+  font-weight: 600;
+}
+.markdown-body-wrapper .markdown-body tbody tr:nth-child(even) {
+  background: color-mix(in srgb, var(--pi-text) 2.2%, transparent);
+}
+.markdown-body-wrapper .markdown-body hr { margin: 22px 0; border: 0; height: 1px; background: color-mix(in srgb, var(--pi-border) 55%, transparent); }
+
+/* 代码块可读性：字号与对比度（2026-10-24 第二轮） */
+.markdown-body-wrapper .markdown-body pre {
+  font-size: 13px; line-height: 1.72;
+  background: color-mix(in srgb, var(--pi-text) 4%, var(--pi-bg));
+  border: 1px solid color-mix(in srgb, var(--pi-border) 75%, transparent);
+  color: color-mix(in srgb, var(--pi-text) 92%, var(--pi-dim));
+}
+.markdown-body-wrapper .markdown-body pre code { font-size: 13px; color: inherit; }
+.markdown-body-wrapper .markdown-body :not(pre) > code {
+  font-size: 12.8px; padding: 1.5px 5px; border-radius: 5px;
+  background: color-mix(in srgb, var(--pi-text) 6%, transparent);
+  border: 1px solid color-mix(in srgb, var(--pi-border) 45%, transparent);
+}
+
+/* 代码高亮配色：chat 里的 pre 不在 .code-block 作用域，原先没吃到任何主题色，
+   截图里就是浅底 + 淡紫淡绿（对比度太低）。这里按亮/暗两套补上。 */
+.markdown-body-wrapper .markdown-body pre code .hljs-keyword,
+.markdown-body-wrapper .markdown-body pre code .hljs-selector-tag,
+.markdown-body-wrapper .markdown-body pre code .hljs-literal,
+.markdown-body-wrapper .markdown-body pre code .hljs-doctag,
+.markdown-body-wrapper .markdown-body pre code .hljs-name { color: #cf222e; }
+.markdown-body-wrapper .markdown-body pre code .hljs-string,
+.markdown-body-wrapper .markdown-body pre code .hljs-regexp,
+.markdown-body-wrapper .markdown-body pre code .hljs-addition,
+.markdown-body-wrapper .markdown-body pre code .hljs-attribute,
+.markdown-body-wrapper .markdown-body pre code .hljs-meta .hljs-string { color: #0a3069; }
+.markdown-body-wrapper .markdown-body pre code .hljs-number,
+.markdown-body-wrapper .markdown-body pre code .hljs-symbol,
+.markdown-body-wrapper .markdown-body pre code .hljs-bullet,
+.markdown-body-wrapper .markdown-body pre code .hljs-variable,
+.markdown-body-wrapper .markdown-body pre code .hljs-template-variable,
+.markdown-body-wrapper .markdown-body pre code .hljs-link { color: #0550ae; }
+.markdown-body-wrapper .markdown-body pre code .hljs-title,
+.markdown-body-wrapper .markdown-body pre code .hljs-section,
+.markdown-body-wrapper .markdown-body pre code .hljs-title.function_ { color: #8250df; }
+.markdown-body-wrapper .markdown-body pre code .hljs-comment,
+.markdown-body-wrapper .markdown-body pre code .hljs-quote { color: #6e7781; font-style: italic; }
+.markdown-body-wrapper .markdown-body pre code .hljs-built_in,
+.markdown-body-wrapper .markdown-body pre code .hljs-type,
+.markdown-body-wrapper .markdown-body pre code .hljs-class .hljs-title { color: #953800; }
+.markdown-body-wrapper .markdown-body pre code .hljs-attr,
+.markdown-body-wrapper .markdown-body pre code .hljs-property { color: #0550ae; }
+
+html[data-theme="dark"] .markdown-body-wrapper .markdown-body pre {
+  background: color-mix(in srgb, var(--pi-bg3) 92%, black);
+  border-color: color-mix(in srgb, var(--pi-border) 70%, transparent);
+}
+html[data-theme="dark"] .markdown-body-wrapper .markdown-body pre code .hljs-keyword { color: #c792ea; }
+html[data-theme="dark"] .markdown-body-wrapper .markdown-body pre code .hljs-string { color: #a5e075; }
+html[data-theme="dark"] .markdown-body-wrapper .markdown-body pre code .hljs-number { color: #f78c6c; }
+html[data-theme="dark"] .markdown-body-wrapper .markdown-body pre code .hljs-title { color: #82aaff; }
+html[data-theme="dark"] .markdown-body-wrapper .markdown-body pre code .hljs-comment { color: #7c8698; }

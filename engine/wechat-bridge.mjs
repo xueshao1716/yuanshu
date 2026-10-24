@@ -229,7 +229,12 @@ export function createWechatBridge({
   }
   // image 可选：带上时文字切分发完后，再排一张本地图片（sendImage 通路，2026-10-08）。
   const reply = (acc, to, text, contextToken, image) => {
-    for (const part of splitForWechat(stripMarkdownForWechat(text))) queue.push({ to, text: part, contextToken });
+    // 2026-10-24：长回答被切成多条时标出 (i/n)，否则微信里看起来像刷屏
+    const parts = splitForWechat(stripMarkdownForWechat(text));
+    parts.forEach((part, i) => {
+      const label = parts.length > 1 ? `（${i + 1}/${parts.length}）\n` : "";
+      queue.push({ to, text: label + part, contextToken });
+    });
     if (image) queue.push({ to, image, contextToken });
     return flush(acc);
   };

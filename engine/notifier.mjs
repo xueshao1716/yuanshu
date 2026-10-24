@@ -2,6 +2,7 @@
 // 扇出：全局 SSE（网页、桌面客户端、手机客户端各自订阅后弹系统通知）+ 微信（面板里打开了「通知发到微信」才会真发）+ 落盘（离线补读）。
 // 为什么要有：会话 SSE 只有“正在看这个会话”的页面才收得到，任务在没人看的时候做完，用户永远不知道。
 import fs from "node:fs";
+import { formatWechatPush } from './wechat-push-format.mjs';
 import path from "node:path";
 import { randomUUID } from "node:crypto";
 
@@ -39,7 +40,7 @@ export function createNotifier({ file, wechat = null, now = Date.now, log = cons
     for (const sub of subs) send(sub, ev);
     const result = { ok: true, id: ev.id, seq: ev.seq, clients: subs.size, wechat: "skipped" };
     if (toWechat && wechat?.notifyOwner) {
-      try { await wechat.notifyOwner(`${t}\n${b}`); result.wechat = "sent"; }
+      try { await wechat.notifyOwner(formatWechatPush({ title: t, body: b, kind })); result.wechat = "sent"; }
       catch (e) { result.wechat = `failed: ${String(e?.message || e).slice(0, 80)}`; log.warn?.(`[notifier] 微信通知失败: ${result.wechat}`); }
     }
     return result;
