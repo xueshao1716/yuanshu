@@ -113,6 +113,18 @@ export function buildMorningBrief(wsRoot, { agentDir, now = new Date() } = {}) {
     lines.push('过去 24 小时没有慢请求。');
   }
   if (probe) lines.push(`最近一次外壳试验：${probe}`);
+  // 2026-10-24：每轮耗时（只看最近 30 轮的首字中位数，用来发现"突然变慢"）
+  try {
+    const rows = fs.readFileSync(path.join(wsRoot, '记忆/运行时/每轮耗时.jsonl'), 'utf8')
+      .split('\n').filter(Boolean).slice(-30)
+      .map((l) => { try { return JSON.parse(l) } catch { return null } })
+      .filter((r) => r && typeof r.firstDeltaMs === 'number');
+    if (rows.length >= 5) {
+      const arr = rows.map((r) => r.firstDeltaMs).sort((a, b) => a - b);
+      const p50 = arr[Math.floor(arr.length / 2)];
+      lines.push(`最近 ${rows.length} 轮：首字中位 ${(p50 / 1000).toFixed(1)} 秒（上下文装配 ${(() => { const c = rows.map((r) => r.contextMs).filter((v) => typeof v === 'number').sort((a, b) => a - b); return c.length ? c[Math.floor(c.length / 2)] : 0 })()} 毫秒）。`);
+    }
+  } catch {}
   // 2026-10-23：后台作业池
   try {
     const jobs = JSON.parse(fs.readFileSync(path.join(wsRoot, '记忆/运行时/后台任务.json'), 'utf8'))?.jobs || [];

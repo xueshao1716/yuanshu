@@ -214,6 +214,7 @@ import { createCodeMode } from "./code-mode/code-mode.mjs";
 import { createTimeEngine } from "./engine/time-engine.mjs";
 import { createChatStreamHub } from "./engine/chat-stream.mjs";
 import { createJobPool } from "./engine/job-pool.mjs";
+import { createTurnProfiler } from "./engine/turn-profile.mjs";
 import { buildSelfModel, renderSelfSection, renderSelfMarkdown } from "./engine/self-model.mjs";
 import { shouldProbe, markProbed, splitBeforeAfter, abCompare, appendProbeLog, appendLesson } from "./engine/harness-probe.mjs";
 import { collectEvidence, buildProposePrompt, parseCandidates, writeCandidates, listCandidates, markCandidate, localDate } from "./engine/harness-propose.mjs";
@@ -546,6 +547,8 @@ function waitJob(id, timeoutMs = 30 * 60_000) {
   });
 }
 const jobPool = createJobPool({ file: path.join(WS_ROOT, "记忆", "运行时", "后台任务.json"), concurrency: 2 });
+// 2026-10-24：每轮耗时拆解（request / context / firstDelta / tool / end）
+const turnProfiler = createTurnProfiler({ wsRoot: WS_ROOT, log: (m) => console.log(m) });
 const skillCatalogSent = new Set(); // 已注入过「元枢内置技能库」目录的会话（每会话一次，别每轮灌一遍）
 const pushedArtifacts = new Map();  // sessionId -> Set(已推送文件路径)，防止重复推"本轮产物"
 let lastUnnamedId = null;           // 最近创建/复用的未命名会话（打断时复用同一会话）
@@ -1410,12 +1413,21 @@ async function handleChat(req, res, body) {
       onClose = () => { try { abortCtrl.abort({ code: "CLIENT_DISCONNECTED" }); } catch {} };
     }
     req.on("close", onClose);
+    // 2026-10-24：本轮耗时探针（挂在最终 res 上，能认 SSE 事件名）
+    const turnProfile = turnProfiler.begin({
+      sessionId: sessionId || findKeyByEntry(entry) || "",
+      runId: chatRunContext?.runId || "",
+      model: `${defaultModel?.provider || ""}/${defaultModel?.id || ""}`,
+      messageChars: String(message || "").length,
+    });
+    turnProfile.instrument(res);
     try {
       try { sseWrite(res, "note", { text: leadNote(engineDecision) }); } catch {}
       if (engineDecision.lead === "dsh" && !forceResumeUnified) {
         await handleDshChat(res, entry, message, sessionId || findKeyByEntry(entry), abortCtrl.signal, { cwd: CONFIG.cwd });
       } else {
         await refreshCultivationContext();
+        turnProfile.mark("context");
         if (knowledgeRequestStopped(req, res)) return res.end();
         await handleUnifiedChat(res, entry, message, sessionId || findKeyByEntry(entry), body.params, abortCtrl.signal, undefined, thinkOn, body.taskKey, (entry.modelKey && !isAutoModel(entry.modelKey)) ? entry.modelKey : null, null, chatRunContext);
       }
@@ -1426,6 +1438,7 @@ async function handleChat(req, res, body) {
     } finally {
       clearInterval(hb2);
       req.removeListener("close", onClose);
+      try { turnProfile.end({ engine: observedEngine }) } catch {}
       // 代次匹配才释放（快速重发时新请求已占 busy，旧请求不得干扰）
       if (entry.gen === thisGen) entry.busy = false;
       try { res.end(); } catch {}
@@ -4007,6 +4020,13 @@ const boardApi = createBoardApi({
     } catch (e) {
       return json(res, 500, { error: String(e?.message || e).slice(0, 200) });
     }
+  }]);
+
+  // 2026-10-24：每轮耗时拆解（阶段中位数，回答"慢在哪"）
+  API_ROUTES.push(["GET", "/api/turn/profile", (res, req) => {
+    const u = new URL(req.url, "http://x");
+    const limit = Math.min(500, Math.max(1, Number(u.searchParams.get("limit") || 50)));
+    return json(res, 200, turnProfiler.summarize(limit));
   }]);
 
   // 2026-10-23：后台作业表（看得到、能取消）
