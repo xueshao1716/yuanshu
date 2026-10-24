@@ -1135,3 +1135,25 @@ export const JobsApi = {
   list: () => api<{ running: number; queued: number; concurrency: number; titles: string[]; jobs: BackgroundJob[] }>('/api/jobs'),
   cancel: (id: string) => api<{ ok: boolean }>('/api/jobs/cancel', { method: 'POST', body: JSON.stringify({ id }) }),
 }
+
+// ── 单会话用量（2026-10-24）──
+export type SessionUsage = {
+  turns: number
+  measured: number
+  messages: number
+  input: number
+  output: number
+  cacheRead: number
+  cacheWrite: number
+  total: number
+  cost: number
+  cacheHitRate: number | null
+  tps: number | null
+  contextTokens: number
+  contextPct: number | null
+  model: string
+  contextWindow: number
+}
+export const UsageApi = {
+  session: (sessionId: string) => api<SessionUsage>(`/api/usage/session?sessionId=${encodeURIComponent(sessionId)}`),
+}

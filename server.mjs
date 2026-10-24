@@ -552,6 +552,9 @@ function waitJob(id, timeoutMs = 30 * 60_000) {
 const jobPool = createJobPool({ file: path.join(WS_ROOT, "记忆", "运行时", "后台任务.json"), concurrency: 2 });
 // 2026-10-24：每轮耗时拆解（request / context / firstDelta / tool / end）
 const turnProfiler = createTurnProfiler({ wsRoot: WS_ROOT, log: (m) => console.log(m) });
+// 2026-10-24：当前轮的 profile 与响应，供 unified-chat 上报 usage 时使用
+let currentTurnProfile = null;
+let currentTurnRes = null;
 // 2026-10-24：内存采样（每 60s 一条，查 GC 长停顿用）
 // 2026-10-24：定时器探针，点名「卡住事件循环的后台任务」
 installTimerWatch({ thresholdMs: 300, log: (m) => console.log(m) });
@@ -1441,6 +1444,9 @@ async function handleChat(req, res, body) {
       messageChars: String(message || "").length,
     });
     turnProfile.instrument(res);
+    // 2026-10-24：本轮 usage 归到 profile；同时推给前端（状态栏 tok/s、缓存命中、上下文占用）
+    currentTurnProfile = turnProfile;
+    currentTurnRes = res;
     try {
       try { sseWrite(res, "note", { text: leadNote(engineDecision) }); } catch {}
       if (engineDecision.lead === "dsh" && !forceResumeUnified) {
@@ -1459,6 +1465,7 @@ async function handleChat(req, res, body) {
       clearInterval(hb2);
       req.removeListener("close", onClose);
       try { turnProfile.end({ engine: observedEngine }) } catch {}
+      currentTurnProfile = null; currentTurnRes = null;
       // 代次匹配才释放（快速重发时新请求已占 busy，旧请求不得干扰）
       if (entry.gen === thisGen) entry.busy = false;
       try { res.end(); } catch {}
@@ -4053,6 +4060,52 @@ const boardApi = createBoardApi({
       for (const task of (timeEngine?.list?.() || [])) runsByTask[task.id] = task.history || [];
       sw.evaluateSealed(WS_ROOT, { runsByTask });
       return json(res, 200, sw.sealedSummary(WS_ROOT));
+    } catch (e) {
+      return json(res, 500, { error: String(e?.message || e).slice(0, 200) });
+    }
+  }]);
+
+  // 2026-10-24：单会话用量（tok/s、缓存命中率、上下文占用）——对标 DSH 状态栏那三个数
+  API_ROUTES.push(["GET", "/api/usage/session", async (res, req) => {
+    try {
+      const u = new URL(req.url, "http://x");
+      const id = u.searchParams.get("sessionId") || "";
+      if (!id) return json(res, 400, { error: "缺少 sessionId" });
+      // 2026-10-24：数据源是 每轮耗时.jsonl（profile 里带 provider 真实 usage）。
+      // 会话文件里的 usage 只有 pi 通道才写，自己循环的轮次以前根本没记。
+      const file = path.join(WS_ROOT, "记忆", "运行时", "每轮耗时.jsonl");
+      let rows = [];
+      try {
+        rows = fs.readFileSync(file, "utf8").split("\n").filter(Boolean).slice(-4000)
+          .map((l) => { try { return JSON.parse(l) } catch { return null } })
+          .filter((r) => r && r.sessionId === id);
+      } catch {}
+      const withUsage = rows.filter((r) => r.usage && r.usage.calls > 0);
+      const sum = (k) => withUsage.reduce((a, r) => a + (Number(r.usage[k]) || 0), 0);
+      const input = sum("input"), output = sum("output"), cacheRead = sum("cacheRead"), cacheWrite = sum("cacheWrite");
+      const inputSide = input + cacheRead;
+      const cacheHitRate = inputSide > 0 ? cacheRead / inputSide : null;
+      // tok/s：输出 token /（总耗时 - 首字延迟），逐轮取中位数
+      const tpsList = withUsage
+        .map((r) => {
+          const genMs = (Number(r.totalMs) || 0) - (Number(r.firstDeltaMs) || 0);
+          return genMs > 500 && r.usage.output >= 5 ? (r.usage.output / genMs) * 1000 : null;
+        })
+        .filter((v) => v !== null)
+        .sort((a, b) => a - b);
+      const tps = tpsList.length ? Math.round(tpsList[Math.floor(tpsList.length / 2)]) : null;
+      const last = withUsage[withUsage.length - 1];
+      const contextTokens = last ? (Number(last.usage.lastCtx) || 0) : 0;
+      const found = typeof findSession === "function" ? findSession(id) : null;
+      const model = (found?.modelKey && modelList.find((m) => m.provider === found.modelKey.provider && m.id === found.modelKey.id)) || defaultModel || null;
+      const contextWindow = Number(model?.contextWindow) || 0;
+      const contextPct = contextWindow > 0 && contextTokens > 0 ? Math.min(100, Math.round((contextTokens / contextWindow) * 100)) : null;
+      return json(res, 200, {
+        turns: rows.length, measured: withUsage.length,
+        input, output, cacheRead, cacheWrite, cacheHitRate, tps,
+        contextTokens, contextWindow, contextPct,
+        model: model ? `${model.provider}/${model.id}` : "",
+      });
     } catch (e) {
       return json(res, 500, { error: String(e?.message || e).slice(0, 200) });
     }

@@ -21,6 +21,8 @@ export function createTurnProfiler({ wsRoot, log = null } = {}) {
     const marks = { request: 0 };
     let firstDeltaAt = null;
     let toolMs = 0;
+    // 2026-10-24：provider 真实 usage（token 数与缓存命中），用于 tok/s 与上下文占用
+    const usage = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, calls: 0, lastCtx: 0 };
     const tools = new Map(); // name -> start
 
     const profile = {
@@ -30,6 +32,17 @@ export function createTurnProfiler({ wsRoot, log = null } = {}) {
         if (name === 'firstDelta' && firstDeltaAt == null) firstDeltaAt = Date.now();
       },
       toolStart(name) { if (!tools.has(name)) tools.set(name, Date.now()) },
+      addUsage(u = {}) {
+        const n = (v) => Number(v) || 0;
+        const input = n(u.input ?? u.prompt_tokens ?? u.input_tokens);
+        const output = n(u.output ?? u.completion_tokens ?? u.output_tokens);
+        const cacheRead = n(u.cacheRead ?? u.cache_read_input_tokens ?? u.prompt_cache_hit_tokens);
+        const cacheWrite = n(u.cacheWrite ?? u.cache_creation_input_tokens);
+        usage.input += input; usage.output += output;
+        usage.cacheRead += cacheRead; usage.cacheWrite += cacheWrite;
+        usage.calls += 1;
+        usage.lastCtx = n(u.totalTokens) || (input + cacheRead + output + cacheWrite);
+      },
       toolEnd(name) {
         const at = tools.get(name);
         if (at) { toolMs += Date.now() - at; tools.delete(name) }
@@ -46,6 +59,12 @@ export function createTurnProfiler({ wsRoot, log = null } = {}) {
             if (m) {
               const ev = m[1];
               if (ev === 'delta' || ev === 'text' || ev === 'message_delta') profile.mark('firstDelta');
+              if (ev === 'usage') {
+                try {
+                  const data = JSON.parse((/^data:\s*([\s\S]*)$/m.exec(text) || [])[1] || '{}');
+                  profile.addUsage(data);
+                } catch {}
+              }
               if (ev === 'tool' || ev === 'tool_start' || ev === 'tool_started') {
                 const name = /"name"\s*:\s*"([^"]+)"/.exec(text)?.[1] || 'tool';
                 profile.toolStart(name);
@@ -73,6 +92,7 @@ export function createTurnProfiler({ wsRoot, log = null } = {}) {
           firstDeltaMs: firstDeltaAt ? firstDeltaAt - t0 : null,
           toolMs: Math.round(toolMs),
           toolsLeft: [...tools.keys()],
+          usage,
           ...extra,
         };
         try {

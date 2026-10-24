@@ -1,4 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
+import useSWR from 'swr'
+import { UsageApi, type SessionUsage } from '../api'
 import { Mic, Phone, Paperclip, FileText, SlidersHorizontal } from 'lucide-react'
 import ParamsPanel from './ParamsPanel'
 import { WsApi } from '../api'
@@ -383,6 +385,7 @@ export default function SendBox({ streaming, onStop, onSend, onSteer, onCommand,
         <div className="composer-toolbar">
           {/* 模型选择器（嵌入输入框） */}
           <ModelSelect compact />
+          <UsageChip sessionId={sessionId || ''} />
 
           <div className="composer-actions">
 
@@ -450,5 +453,25 @@ export default function SendBox({ streaming, onStop, onSend, onSteer, onCommand,
         </div>
       </div>
     </div>
+  )
+}
+
+/** 用量状态条（2026-10-24）：tok/s、缓存命中率、上下文占用，数据来自 provider 真实 usage */
+function UsageChip({ sessionId }: { sessionId: string }) {
+  const { data } = useSWR<SessionUsage>(
+    sessionId ? ['usage', sessionId] : null,
+    () => UsageApi.session(sessionId),
+    { refreshInterval: 20000, revalidateOnFocus: false, shouldRetryOnError: false },
+  )
+  if (!sessionId || !data || !data.measured) return null
+  const parts: string[] = []
+  if (typeof data.tps === 'number' && data.tps > 0) parts.push(`${data.tps} tok/s`)
+  if (typeof data.cacheHitRate === 'number') parts.push(`缓存 ${(data.cacheHitRate * 100).toFixed(1)}%`)
+  if (typeof data.contextPct === 'number') parts.push(`上下文 ${data.contextPct}%`)
+  if (!parts.length) return null
+  return (
+    <span className="usage-chip" title="本会话真实用量：tok/s 取逐轮中位数；缓存命中率 = 缓存读 / 输入侧；上下文 = 最近一轮总 token / 模型窗口">
+      {parts.join(' · ')}
+    </span>
   )
 }

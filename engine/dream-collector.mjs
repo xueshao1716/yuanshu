@@ -1,3 +1,4 @@
+import { collectSessionFiles } from './session-files.mjs';
 import fs from 'node:fs'
 import path from 'node:path'
 import { atomicWriteJson } from './atomic-io.mjs'
@@ -21,9 +22,13 @@ export function createDreamCollector({ wsRoot, sessionsDir,
     const state = read()
     const result = { ok: true, at: new Date().toISOString(), scanned: 0, succeeded: 0, failed: 0, skipped: 0, empty: 0, added: 0, failures: [], reason: 'collected' }
     const save = () => { state.last = result; atomicWriteJson(stateFile, state) }
+    // 2026-10-24：会话都在 sessions/<cwd>/ 子目录里，根目录只有 4 个旧文件——
+    // 之前"做梦"采集等于只处理这 4 个，后来的对话一个都没进记忆。
     let names
-    try { names = fs.readdirSync(sessionsDir).filter(n => n.endsWith('.jsonl')).sort() }
-    catch { result.ok = false; result.failed = 1; result.reason = 'sessions_unreadable'; save(); return result }
+    const relKey = (file) => path.relative(sessionsDir, file).split(path.sep).join('/');
+    try {
+      names = collectSessionFiles(sessionsDir).map(relKey).sort();
+    } catch { result.ok = false; result.failed = 1; result.reason = 'sessions_unreadable'; save(); return result }
     // Remove only acknowledgements of files no longer present, never session data.
     const present = new Set(names)
     for (const key of Object.keys(state.files)) if (!present.has(key)) delete state.files[key]

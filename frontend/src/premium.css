@@ -647,3 +647,13 @@ html[data-theme="dark"] .markdown-body-wrapper .markdown-body pre code .hljs-str
 html[data-theme="dark"] .markdown-body-wrapper .markdown-body pre code .hljs-number { color: #f78c6c; }
 html[data-theme="dark"] .markdown-body-wrapper .markdown-body pre code .hljs-title { color: #82aaff; }
 html[data-theme="dark"] .markdown-body-wrapper .markdown-body pre code .hljs-comment { color: #7c8698; }
+
+/* 用量状态条（2026-10-24）：tok/s · 缓存命中 · 上下文占用 */
+.usage-chip {
+  display: inline-flex; align-items: center; gap: 4px;
+  margin-left: 8px; padding: 1px 7px; border-radius: 999px;
+  font-size: 10.5px; letter-spacing: .01em; color: var(--pi-dim2);
+  background: color-mix(in srgb, var(--pi-text) 4%, transparent);
+  border: 1px solid color-mix(in srgb, var(--pi-border) 45%, transparent);
+  white-space: nowrap;
+}

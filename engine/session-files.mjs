@@ -61,6 +61,33 @@ export function initSessionFiles({ sessionsDir = "", workspaceCwd = "" } = {}) {
 
 // ── 会话文件扫描（pi 会话格式 jsonl，跨所有 cwd 目录）──────────────
 // 2026-08-20 恢复全目录扫描 + 前端按 group 分组：工作区会话一组，兼容终端会话（小语）单独一组
+// 2026-10-24：**递归**收集会话文件（含按 cwd 命名的子目录）。
+// 事故背景：会话实际落在 sessions/--D--pi-workspace--/ 这类子目录里，
+// 而 self-model 与 dream-collector 都只 readdir 根目录 → 自我介绍显示"只聊过 4 次"、
+// 做梦采集也只看得到 4 个 8 月的残留文件。这类"路径假设"必须走同一个函数，别再各写一份。
+export function collectSessionFiles(root, { maxDepth = 4 } = {}) {
+  const out = [];
+  if (!root) return out;
+  const walk = (dir, depth) => {
+    if (depth > maxDepth) return;
+    let entries = [];
+    try { entries = fs.readdirSync(dir, { withFileTypes: true }) } catch { return }
+    for (const d of entries) {
+      const full = path.join(dir, d.name);
+      if (d.isDirectory()) {
+        if (d.name === '.trash' || d.name.startsWith('.')) continue;
+        walk(full, depth + 1);
+      } else if (d.isFile() && d.name.endsWith('.jsonl')) {
+        // 归档副本不是一次真实对话
+        if (/\.(archive|bak)\.jsonl$/.test(d.name)) continue;
+        out.push(full);
+      }
+    }
+  };
+  walk(root, 0);
+  return out.sort();
+}
+
 export function scanSessionFiles() {
   const out = [];
   try {

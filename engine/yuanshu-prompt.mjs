@@ -4,12 +4,14 @@ import {
   formatSkillIndexPrompt,
   matchSkillsForTask,
 } from "./yuanshu-protocol.mjs";
+import { environmentSection } from './runtime-env.mjs';
 import { shouldInjectFullMemory } from "./context-loader.mjs";
 import { sessionContinuityNote } from "./yuanshu-session.mjs";
 
 export const YUANSHU_SECTION_ORDER = [
   // 2026-10-20：guardrails 紧跟 protocol —— 硬边界要在工作协议之后、具体工具之前出现
-  "persona", "protocol", "guardrails", "rules", "tools", "skills", "memory", "time", "runtime", "plan", "task",
+  // 2026-10-24：environment 紧跟 persona——先讲清"你在什么系统上、用什么符号"，再讲协议
+  "persona", "environment", "protocol", "guardrails", "rules", "tools", "skills", "memory", "time", "runtime", "plan", "task",
 ];
 
 function sectionText(raw) {
@@ -58,6 +60,8 @@ export function buildYuanshuSections({
 } = {}) {
   const sections = {};
   if (persona) sections.persona = persona;
+  // 2026-10-24：环境事实常驻，避免模型把 /d/x 与 D:\x、bash 与 cmd 混用
+  try { sections.environment = environmentSection(); } catch {}
   sections.protocol = YUANSHU_PROTOCOL;
   if (rules) sections.rules = Array.isArray(rules) ? rules.join("\n") : rules;
   if (tools) sections.tools = tools;

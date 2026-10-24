@@ -7,6 +7,7 @@
 //
 // 这份自我描述是**活的**：每次生成都读当下的真实状态（人格、自主边界、跑了多久、
 // 有多少会话），所以它会随她一起变，而不是一句写死的人设文案。
+import { collectSessionFiles } from './session-files.mjs';
 import fs from 'node:fs';
 import path from 'node:path';
 import { loadPersonaDefinition } from './persona-def.mjs';
@@ -49,35 +50,15 @@ function dirBirth(wsRoot) {
 // 于是自我介绍一直说"攒下 4 段对话"，而实际有 1000+ 段。
 // 现在递归统计，并跳过 .trash / 归档副本。
 function countSessions(wsRoot) {
+  // 2026-10-24：会话在 sessions/<按 cwd 命名>/ 子目录里，必须递归收集（共享 helper，别再各写一份）
   const candidates = [
     path.join(process.env.USERPROFILE || process.env.HOME || '', '.pi', 'agent', 'sessions'),
     path.join(wsRoot, '.pi', 'agent', 'sessions'),
     path.join(wsRoot, 'sessions'),
   ];
-  const countDir = (root) => {
-    let n = 0;
-    const walk = (dir, depth) => {
-      if (depth > 4) return;
-      let entries = [];
-      try { entries = fs.readdirSync(dir, { withFileTypes: true }) } catch { return }
-      for (const d of entries) {
-        const full = path.join(dir, d.name);
-        if (d.isDirectory()) {
-          if (d.name === '.trash' || d.name.startsWith('.')) continue;
-          walk(full, depth + 1);
-        } else if (d.isFile() && d.name.endsWith('.jsonl')) {
-          // 归档副本不算一次对话
-          if (/\.(archive|bak)\.jsonl$/.test(d.name)) continue;
-          n += 1;
-        }
-      }
-    };
-    walk(root, 0);
-    return n;
-  };
   for (const dir of candidates) {
     try {
-      const n = countDir(dir);
+      const n = collectSessionFiles(dir).length;
       if (n > 0) return n;
     } catch { /* 换下一个 */ }
   }

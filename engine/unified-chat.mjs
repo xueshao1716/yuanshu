@@ -618,6 +618,9 @@ export async function unifiedChat(model, messages, opts = {}) {
     if (parsed.error) return { error: parsed.error };
     if (parsed.model) usedModel = { provider: model.provider, id: parsed.model };
     opts.onModel?.(usedModel);
+    // 2026-10-24：把 provider 返回的 usage 交出去（之前直接丢弃，导致
+    // 会话文件里没有 usage，界面也就无法显示 tok/s、缓存命中率、上下文占用）。
+    try { if (parsed.usage) opts.onUsage?.(parsed.usage, { model: usedModel, turn }) } catch {}
     const msg = parsed.message || {};
     const inspected = inspectToolCalls(msg.tool_calls);
     const lengthLimited = ['length', 'max_tokens'].includes(parsed.finishReason);
@@ -1206,6 +1209,15 @@ export async function handleUnifiedChat(res, entry, message, sessionId, params, 
     onThink: (t) => { writer.push("think", { text: t }); },
     onThinkEnd: () => { writer.push("think_end", {}); },
     onDelta: (t) => { writer.push("delta", { text: t }); },
+    // 2026-10-24：provider 真实 usage → 前端状态栏（tok/s、缓存命中率、上下文占用）
+    onUsage: (u = {}) => {
+      const n = (v) => Number(v) || 0;
+      const input = n(u.input ?? u.prompt_tokens ?? u.input_tokens);
+      const output = n(u.output ?? u.completion_tokens ?? u.output_tokens);
+      const cacheRead = n(u.cacheRead ?? u.cache_read_input_tokens ?? u.prompt_cache_hit_tokens);
+      const cacheWrite = n(u.cacheWrite ?? u.cache_creation_input_tokens);
+      writer.push('usage', { input, output, cacheRead, cacheWrite, total: n(u.totalTokens) || input + output + cacheRead + cacheWrite });
+    },
     params,
     signal,
     // 纯生图请求由媒体旁路完成，主模型只做一次文本收口；复合生图仍须保留
