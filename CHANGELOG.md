@@ -8,12 +8,30 @@
 
 ## [Unreleased]
 
+## [2.127.125] - 2026-10-24
+
+## [2.127.125] - 2026-10-24
+
+- **GC/内存排查第一轮**（回答"为什么卡 40–54 秒"）：
+  - unStore.list()/listAsync() 加 **mtime 缓存**：以前每次 overview 都重读重解析 241 个 run 文件，界面 5 秒轮询一次；实测 overview 平均 27ms→**15–18ms**，最大 160ms→34ms。
+  - 新增 engine/mem-watch.mjs：每 60 秒采 rss/heap/external + 各缓存规模，落 记忆/运行时/内存.jsonl；突增 150MB 或 rss>900MB 打警告。GET /api/diag/memory。
+  - 新增 **GC 观测**：PerformanceObserver('gc')，≥50ms 的 GC 打 [gc] <kind> <ms>，与 loop-lag 时间轴对齐就能确认"停顿是不是 GC"。
+- **压测结论**：480 次请求 + 7 轮对话，RSS 在 233–291MB 之间震荡、heap 106–183MB 反复回收，**没有失控泄漏**。之前 600–700MB 更可能是长会话/工具输出/图片等真实负载，而不是单一泄漏点。
+- 待观察：采样器和 GC 日志跑一天后，再判断要不要动堆上限/会话归档。
 ## [2.127.124] - 2026-10-24
 
 ## [2.127.123] - 2026-10-22
 
 ## [2.127.122] - 2026-10-22
 
+## [2.127.125] - 2026-10-24
+
+- **GC/内存排查第一轮**（回答"为什么卡 40–54 秒"）：
+  - unStore.list()/listAsync() 加 **mtime 缓存**：以前每次 overview 都重读重解析 241 个 run 文件，界面 5 秒轮询一次；实测 overview 平均 27ms→**15–18ms**，最大 160ms→34ms。
+  - 新增 engine/mem-watch.mjs：每 60 秒采 rss/heap/external + 各缓存规模，落 记忆/运行时/内存.jsonl；突增 150MB 或 rss>900MB 打警告。GET /api/diag/memory。
+  - 新增 **GC 观测**：PerformanceObserver('gc')，≥50ms 的 GC 打 [gc] <kind> <ms>，与 loop-lag 时间轴对齐就能确认"停顿是不是 GC"。
+- **压测结论**：480 次请求 + 7 轮对话，RSS 在 233–291MB 之间震荡、heap 106–183MB 反复回收，**没有失控泄漏**。之前 600–700MB 更可能是长会话/工具输出/图片等真实负载，而不是单一泄漏点。
+- 待观察：采样器和 GC 日志跑一天后，再判断要不要动堆上限/会话归档。
 ## [2.127.124] - 2026-10-24
 
 - **每轮耗时拆解**（engine/turn-profile.mjs + GET /api/turn/profile + 晨报一行）：按 request / context / firstDelta / tool / end 打点，落 记忆/运行时/每轮耗时.jsonl。
@@ -49,6 +67,14 @@ ode --check 通过但整段是死代码（/api/jobs 落回静态页）。已改�
   - 服务宿主给子进程设 NODE_OPTIONS=--max-old-space-size=1536，限制老生代堆，降低内存吃紧时的大 GC 长停顿。
 ## [2.127.121] - 2026-10-22
 
+## [2.127.125] - 2026-10-24
+
+- **GC/内存排查第一轮**（回答"为什么卡 40–54 秒"）：
+  - unStore.list()/listAsync() 加 **mtime 缓存**：以前每次 overview 都重读重解析 241 个 run 文件，界面 5 秒轮询一次；实测 overview 平均 27ms→**15–18ms**，最大 160ms→34ms。
+  - 新增 engine/mem-watch.mjs：每 60 秒采 rss/heap/external + 各缓存规模，落 记忆/运行时/内存.jsonl；突增 150MB 或 rss>900MB 打警告。GET /api/diag/memory。
+  - 新增 **GC 观测**：PerformanceObserver('gc')，≥50ms 的 GC 打 [gc] <kind> <ms>，与 loop-lag 时间轴对齐就能确认"停顿是不是 GC"。
+- **压测结论**：480 次请求 + 7 轮对话，RSS 在 233–291MB 之间震荡、heap 106–183MB 反复回收，**没有失控泄漏**。之前 600–700MB 更可能是长会话/工具输出/图片等真实负载，而不是单一泄漏点。
+- 待观察：采样器和 GC 日志跑一天后，再判断要不要动堆上限/会话归档。
 ## [2.127.124] - 2026-10-24
 
 - **每轮耗时拆解**（engine/turn-profile.mjs + GET /api/turn/profile + 晨报一行）：按 request / context / firstDelta / tool / end 打点，落 记忆/运行时/每轮耗时.jsonl。
@@ -93,6 +119,14 @@ ode --check 通过但整段是死代码（/api/jobs 落回静态页）。已改�
   - 实测：写入一条 5 秒前更新的"他人运行" → 重启后立刻 interrupted (server_restarted)。
 ## [2.127.120] - 2026-10-22
 
+## [2.127.125] - 2026-10-24
+
+- **GC/内存排查第一轮**（回答"为什么卡 40–54 秒"）：
+  - unStore.list()/listAsync() 加 **mtime 缓存**：以前每次 overview 都重读重解析 241 个 run 文件，界面 5 秒轮询一次；实测 overview 平均 27ms→**15–18ms**，最大 160ms→34ms。
+  - 新增 engine/mem-watch.mjs：每 60 秒采 rss/heap/external + 各缓存规模，落 记忆/运行时/内存.jsonl；突增 150MB 或 rss>900MB 打警告。GET /api/diag/memory。
+  - 新增 **GC 观测**：PerformanceObserver('gc')，≥50ms 的 GC 打 [gc] <kind> <ms>，与 loop-lag 时间轴对齐就能确认"停顿是不是 GC"。
+- **压测结论**：480 次请求 + 7 轮对话，RSS 在 233–291MB 之间震荡、heap 106–183MB 反复回收，**没有失控泄漏**。之前 600–700MB 更可能是长会话/工具输出/图片等真实负载，而不是单一泄漏点。
+- 待观察：采样器和 GC 日志跑一天后，再判断要不要动堆上限/会话归档。
 ## [2.127.124] - 2026-10-24
 
 - **每轮耗时拆解**（engine/turn-profile.mjs + GET /api/turn/profile + 晨报一行）：按 request / context / firstDelta / tool / end 打点，落 记忆/运行时/每轮耗时.jsonl。
@@ -146,6 +180,14 @@ ode --check 通过但整段是死代码（/api/jobs 落回静态页）。已改�
 - 顺手修一个测试：人格段现在会追加「我是谁」自述，断言改为"原文保留 + 含【我】"。
 ## [2.127.119] - 2026-10-22
 
+## [2.127.125] - 2026-10-24
+
+- **GC/内存排查第一轮**（回答"为什么卡 40–54 秒"）：
+  - unStore.list()/listAsync() 加 **mtime 缓存**：以前每次 overview 都重读重解析 241 个 run 文件，界面 5 秒轮询一次；实测 overview 平均 27ms→**15–18ms**，最大 160ms→34ms。
+  - 新增 engine/mem-watch.mjs：每 60 秒采 rss/heap/external + 各缓存规模，落 记忆/运行时/内存.jsonl；突增 150MB 或 rss>900MB 打警告。GET /api/diag/memory。
+  - 新增 **GC 观测**：PerformanceObserver('gc')，≥50ms 的 GC 打 [gc] <kind> <ms>，与 loop-lag 时间轴对齐就能确认"停顿是不是 GC"。
+- **压测结论**：480 次请求 + 7 轮对话，RSS 在 233–291MB 之间震荡、heap 106–183MB 反复回收，**没有失控泄漏**。之前 600–700MB 更可能是长会话/工具输出/图片等真实负载，而不是单一泄漏点。
+- 待观察：采样器和 GC 日志跑一天后，再判断要不要动堆上限/会话归档。
 ## [2.127.124] - 2026-10-24
 
 - **每轮耗时拆解**（engine/turn-profile.mjs + GET /api/turn/profile + 晨报一行）：按 request / context / firstDelta / tool / end 打点，落 记忆/运行时/每轮耗时.jsonl。
@@ -209,6 +251,14 @@ otifyOk/notifyFailed/lastNotifyAt/lastNotifyError（此前失败在面板上完�
   - 实测：重连+重试后仍失败 → **不是掉线，是 bot 会话失效**；已发起重新登录（login.state=waiting，二维码已就绪），扫码后应恢复。
 ## [2.127.118] - 2026-10-22
 
+## [2.127.125] - 2026-10-24
+
+- **GC/内存排查第一轮**（回答"为什么卡 40–54 秒"）：
+  - unStore.list()/listAsync() 加 **mtime 缓存**：以前每次 overview 都重读重解析 241 个 run 文件，界面 5 秒轮询一次；实测 overview 平均 27ms→**15–18ms**，最大 160ms→34ms。
+  - 新增 engine/mem-watch.mjs：每 60 秒采 rss/heap/external + 各缓存规模，落 记忆/运行时/内存.jsonl；突增 150MB 或 rss>900MB 打警告。GET /api/diag/memory。
+  - 新增 **GC 观测**：PerformanceObserver('gc')，≥50ms 的 GC 打 [gc] <kind> <ms>，与 loop-lag 时间轴对齐就能确认"停顿是不是 GC"。
+- **压测结论**：480 次请求 + 7 轮对话，RSS 在 233–291MB 之间震荡、heap 106–183MB 反复回收，**没有失控泄漏**。之前 600–700MB 更可能是长会话/工具输出/图片等真实负载，而不是单一泄漏点。
+- 待观察：采样器和 GC 日志跑一天后，再判断要不要动堆上限/会话归档。
 ## [2.127.124] - 2026-10-24
 
 - **每轮耗时拆解**（engine/turn-profile.mjs + GET /api/turn/profile + 晨报一行）：按 request / context / firstDelta / tool / end 打点，落 记忆/运行时/每轮耗时.jsonl。
@@ -278,6 +328,14 @@ otifyOk/notifyFailed/lastNotifyAt/lastNotifyError（此前失败在面板上完�
 - 开第一个**封存窗口**：任务「自我反思」、基准 33%（最近 3 次）、7 天到期（2026-10-29），窗口内运行只评测不调参。
 ## [2.127.117] - 2026-10-22
 
+## [2.127.125] - 2026-10-24
+
+- **GC/内存排查第一轮**（回答"为什么卡 40–54 秒"）：
+  - unStore.list()/listAsync() 加 **mtime 缓存**：以前每次 overview 都重读重解析 241 个 run 文件，界面 5 秒轮询一次；实测 overview 平均 27ms→**15–18ms**，最大 160ms→34ms。
+  - 新增 engine/mem-watch.mjs：每 60 秒采 rss/heap/external + 各缓存规模，落 记忆/运行时/内存.jsonl；突增 150MB 或 rss>900MB 打警告。GET /api/diag/memory。
+  - 新增 **GC 观测**：PerformanceObserver('gc')，≥50ms 的 GC 打 [gc] <kind> <ms>，与 loop-lag 时间轴对齐就能确认"停顿是不是 GC"。
+- **压测结论**：480 次请求 + 7 轮对话，RSS 在 233–291MB 之间震荡、heap 106–183MB 反复回收，**没有失控泄漏**。之前 600–700MB 更可能是长会话/工具输出/图片等真实负载，而不是单一泄漏点。
+- 待观察：采样器和 GC 日志跑一天后，再判断要不要动堆上限/会话归档。
 ## [2.127.124] - 2026-10-24
 
 - **每轮耗时拆解**（engine/turn-profile.mjs + GET /api/turn/profile + 晨报一行）：按 request / context / firstDelta / tool / end 打点，落 记忆/运行时/每轮耗时.jsonl。
@@ -355,6 +413,14 @@ otifyOk/notifyFailed/lastNotifyAt/lastNotifyError（此前失败在面板上完�
 - 单测：封存窗口 7 条；相关全绿。
 ## [2.127.116] - 2026-10-22
 
+## [2.127.125] - 2026-10-24
+
+- **GC/内存排查第一轮**（回答"为什么卡 40–54 秒"）：
+  - unStore.list()/listAsync() 加 **mtime 缓存**：以前每次 overview 都重读重解析 241 个 run 文件，界面 5 秒轮询一次；实测 overview 平均 27ms→**15–18ms**，最大 160ms→34ms。
+  - 新增 engine/mem-watch.mjs：每 60 秒采 rss/heap/external + 各缓存规模，落 记忆/运行时/内存.jsonl；突增 150MB 或 rss>900MB 打警告。GET /api/diag/memory。
+  - 新增 **GC 观测**：PerformanceObserver('gc')，≥50ms 的 GC 打 [gc] <kind> <ms>，与 loop-lag 时间轴对齐就能确认"停顿是不是 GC"。
+- **压测结论**：480 次请求 + 7 轮对话，RSS 在 233–291MB 之间震荡、heap 106–183MB 反复回收，**没有失控泄漏**。之前 600–700MB 更可能是长会话/工具输出/图片等真实负载，而不是单一泄漏点。
+- 待观察：采样器和 GC 日志跑一天后，再判断要不要动堆上限/会话归档。
 ## [2.127.124] - 2026-10-24
 
 - **每轮耗时拆解**（engine/turn-profile.mjs + GET /api/turn/profile + 晨报一行）：按 request / context / firstDelta / tool / end 打点，落 记忆/运行时/每轮耗时.jsonl。
@@ -442,6 +508,14 @@ otifyOk/notifyFailed/lastNotifyAt/lastNotifyError（此前失败在面板上完�
   - 实测：服务 Running、health 200、模型调用正常（SYSTEM 身份经目录联读取 auth.json）、桌面端重启命令生效；可见窗口 0。
 ## [2.127.115] - 2026-10-22
 
+## [2.127.125] - 2026-10-24
+
+- **GC/内存排查第一轮**（回答"为什么卡 40–54 秒"）：
+  - unStore.list()/listAsync() 加 **mtime 缓存**：以前每次 overview 都重读重解析 241 个 run 文件，界面 5 秒轮询一次；实测 overview 平均 27ms→**15–18ms**，最大 160ms→34ms。
+  - 新增 engine/mem-watch.mjs：每 60 秒采 rss/heap/external + 各缓存规模，落 记忆/运行时/内存.jsonl；突增 150MB 或 rss>900MB 打警告。GET /api/diag/memory。
+  - 新增 **GC 观测**：PerformanceObserver('gc')，≥50ms 的 GC 打 [gc] <kind> <ms>，与 loop-lag 时间轴对齐就能确认"停顿是不是 GC"。
+- **压测结论**：480 次请求 + 7 轮对话，RSS 在 233–291MB 之间震荡、heap 106–183MB 反复回收，**没有失控泄漏**。之前 600–700MB 更可能是长会话/工具输出/图片等真实负载，而不是单一泄漏点。
+- 待观察：采样器和 GC 日志跑一天后，再判断要不要动堆上限/会话归档。
 ## [2.127.124] - 2026-10-24
 
 - **每轮耗时拆解**（engine/turn-profile.mjs + GET /api/turn/profile + 晨报一行）：按 request / context / firstDelta / tool / end 打点，落 记忆/运行时/每轮耗时.jsonl。
@@ -537,6 +611,14 @@ ode.exe 的窗口。
   - 验证：可见窗口 0；守护与 server 进程都在，health 200。
 ## [2.127.114] - 2026-10-22
 
+## [2.127.125] - 2026-10-24
+
+- **GC/内存排查第一轮**（回答"为什么卡 40–54 秒"）：
+  - unStore.list()/listAsync() 加 **mtime 缓存**：以前每次 overview 都重读重解析 241 个 run 文件，界面 5 秒轮询一次；实测 overview 平均 27ms→**15–18ms**，最大 160ms→34ms。
+  - 新增 engine/mem-watch.mjs：每 60 秒采 rss/heap/external + 各缓存规模，落 记忆/运行时/内存.jsonl；突增 150MB 或 rss>900MB 打警告。GET /api/diag/memory。
+  - 新增 **GC 观测**：PerformanceObserver('gc')，≥50ms 的 GC 打 [gc] <kind> <ms>，与 loop-lag 时间轴对齐就能确认"停顿是不是 GC"。
+- **压测结论**：480 次请求 + 7 轮对话，RSS 在 233–291MB 之间震荡、heap 106–183MB 反复回收，**没有失控泄漏**。之前 600–700MB 更可能是长会话/工具输出/图片等真实负载，而不是单一泄漏点。
+- 待观察：采样器和 GC 日志跑一天后，再判断要不要动堆上限/会话归档。
 ## [2.127.124] - 2026-10-24
 
 - **每轮耗时拆解**（engine/turn-profile.mjs + GET /api/turn/profile + 晨报一行）：按 request / context / firstDelta / tool / end 打点，落 记忆/运行时/每轮耗时.jsonl。
@@ -638,6 +720,14 @@ ode.exe 的窗口。
 pm run deploy:frontend 只同步 public/ 与 pp/dist/。离线部署必须三个目录一起复制，否则改了前端却看不到变化。
 ## [2.127.113] - 2026-10-22
 
+## [2.127.125] - 2026-10-24
+
+- **GC/内存排查第一轮**（回答"为什么卡 40–54 秒"）：
+  - unStore.list()/listAsync() 加 **mtime 缓存**：以前每次 overview 都重读重解析 241 个 run 文件，界面 5 秒轮询一次；实测 overview 平均 27ms→**15–18ms**，最大 160ms→34ms。
+  - 新增 engine/mem-watch.mjs：每 60 秒采 rss/heap/external + 各缓存规模，落 记忆/运行时/内存.jsonl；突增 150MB 或 rss>900MB 打警告。GET /api/diag/memory。
+  - 新增 **GC 观测**：PerformanceObserver('gc')，≥50ms 的 GC 打 [gc] <kind> <ms>，与 loop-lag 时间轴对齐就能确认"停顿是不是 GC"。
+- **压测结论**：480 次请求 + 7 轮对话，RSS 在 233–291MB 之间震荡、heap 106–183MB 反复回收，**没有失控泄漏**。之前 600–700MB 更可能是长会话/工具输出/图片等真实负载，而不是单一泄漏点。
+- 待观察：采样器和 GC 日志跑一天后，再判断要不要动堆上限/会话归档。
 ## [2.127.124] - 2026-10-24
 
 - **每轮耗时拆解**（engine/turn-profile.mjs + GET /api/turn/profile + 晨报一行）：按 request / context / firstDelta / tool / end 打点，落 记忆/运行时/每轮耗时.jsonl。
@@ -747,6 +837,14 @@ pm run deploy:frontend 只同步 public/ 与 pp/dist/。离线部署必须三�
   - 单测更新：品牌头断言从"必须有波形"改为"必须用 BrandMark"，UI 结构 38 条全绿。
 ## [2.127.112] - 2026-10-22
 
+## [2.127.125] - 2026-10-24
+
+- **GC/内存排查第一轮**（回答"为什么卡 40–54 秒"）：
+  - unStore.list()/listAsync() 加 **mtime 缓存**：以前每次 overview 都重读重解析 241 个 run 文件，界面 5 秒轮询一次；实测 overview 平均 27ms→**15–18ms**，最大 160ms→34ms。
+  - 新增 engine/mem-watch.mjs：每 60 秒采 rss/heap/external + 各缓存规模，落 记忆/运行时/内存.jsonl；突增 150MB 或 rss>900MB 打警告。GET /api/diag/memory。
+  - 新增 **GC 观测**：PerformanceObserver('gc')，≥50ms 的 GC 打 [gc] <kind> <ms>，与 loop-lag 时间轴对齐就能确认"停顿是不是 GC"。
+- **压测结论**：480 次请求 + 7 轮对话，RSS 在 233–291MB 之间震荡、heap 106–183MB 反复回收，**没有失控泄漏**。之前 600–700MB 更可能是长会话/工具输出/图片等真实负载，而不是单一泄漏点。
+- 待观察：采样器和 GC 日志跑一天后，再判断要不要动堆上限/会话归档。
 ## [2.127.124] - 2026-10-24
 
 - **每轮耗时拆解**（engine/turn-profile.mjs + GET /api/turn/profile + 晨报一行）：按 request / context / firstDelta / tool / end 打点，落 记忆/运行时/每轮耗时.jsonl。
@@ -861,6 +959,14 @@ pm run deploy:frontend 只同步 public/ 与 pp/dist/。离线部署必须三�
   - 局域网 IP 复测：页面正常渲染，无异常。
 ## [2.127.111] - 2026-10-22
 
+## [2.127.125] - 2026-10-24
+
+- **GC/内存排查第一轮**（回答"为什么卡 40–54 秒"）：
+  - unStore.list()/listAsync() 加 **mtime 缓存**：以前每次 overview 都重读重解析 241 个 run 文件，界面 5 秒轮询一次；实测 overview 平均 27ms→**15–18ms**，最大 160ms→34ms。
+  - 新增 engine/mem-watch.mjs：每 60 秒采 rss/heap/external + 各缓存规模，落 记忆/运行时/内存.jsonl；突增 150MB 或 rss>900MB 打警告。GET /api/diag/memory。
+  - 新增 **GC 观测**：PerformanceObserver('gc')，≥50ms 的 GC 打 [gc] <kind> <ms>，与 loop-lag 时间轴对齐就能确认"停顿是不是 GC"。
+- **压测结论**：480 次请求 + 7 轮对话，RSS 在 233–291MB 之间震荡、heap 106–183MB 反复回收，**没有失控泄漏**。之前 600–700MB 更可能是长会话/工具输出/图片等真实负载，而不是单一泄漏点。
+- 待观察：采样器和 GC 日志跑一天后，再判断要不要动堆上限/会话归档。
 ## [2.127.124] - 2026-10-24
 
 - **每轮耗时拆解**（engine/turn-profile.mjs + GET /api/turn/profile + 晨报一行）：按 request / context / firstDelta / tool / end 打点，落 记忆/运行时/每轮耗时.jsonl。
@@ -983,6 +1089,14 @@ pm run deploy:frontend 只同步 public/ 与 pp/dist/。离线部署必须三�
   - 用局域网 IP 复测：页面正文正常渲染（此前 document.body.innerText 为空）。
 ## [2.127.110] - 2026-10-22
 
+## [2.127.125] - 2026-10-24
+
+- **GC/内存排查第一轮**（回答"为什么卡 40–54 秒"）：
+  - unStore.list()/listAsync() 加 **mtime 缓存**：以前每次 overview 都重读重解析 241 个 run 文件，界面 5 秒轮询一次；实测 overview 平均 27ms→**15–18ms**，最大 160ms→34ms。
+  - 新增 engine/mem-watch.mjs：每 60 秒采 rss/heap/external + 各缓存规模，落 记忆/运行时/内存.jsonl；突增 150MB 或 rss>900MB 打警告。GET /api/diag/memory。
+  - 新增 **GC 观测**：PerformanceObserver('gc')，≥50ms 的 GC 打 [gc] <kind> <ms>，与 loop-lag 时间轴对齐就能确认"停顿是不是 GC"。
+- **压测结论**：480 次请求 + 7 轮对话，RSS 在 233–291MB 之间震荡、heap 106–183MB 反复回收，**没有失控泄漏**。之前 600–700MB 更可能是长会话/工具输出/图片等真实负载，而不是单一泄漏点。
+- 待观察：采样器和 GC 日志跑一天后，再判断要不要动堆上限/会话归档。
 ## [2.127.124] - 2026-10-24
 
 - **每轮耗时拆解**（engine/turn-profile.mjs + GET /api/turn/profile + 晨报一行）：按 request / context / firstDelta / tool / end 打点，落 记忆/运行时/每轮耗时.jsonl。
@@ -1116,6 +1230,14 @@ pm run deploy:frontend 只同步 public/ 与 pp/dist/。离线部署必须三�
   - 单测 9 条（含"IP 变了但凭据对仍放行"这条正是本次线上问题）；相关 48 条全绿。
 ## [2.127.109] - 2026-10-22
 
+## [2.127.125] - 2026-10-24
+
+- **GC/内存排查第一轮**（回答"为什么卡 40–54 秒"）：
+  - unStore.list()/listAsync() 加 **mtime 缓存**：以前每次 overview 都重读重解析 241 个 run 文件，界面 5 秒轮询一次；实测 overview 平均 27ms→**15–18ms**，最大 160ms→34ms。
+  - 新增 engine/mem-watch.mjs：每 60 秒采 rss/heap/external + 各缓存规模，落 记忆/运行时/内存.jsonl；突增 150MB 或 rss>900MB 打警告。GET /api/diag/memory。
+  - 新增 **GC 观测**：PerformanceObserver('gc')，≥50ms 的 GC 打 [gc] <kind> <ms>，与 loop-lag 时间轴对齐就能确认"停顿是不是 GC"。
+- **压测结论**：480 次请求 + 7 轮对话，RSS 在 233–291MB 之间震荡、heap 106–183MB 反复回收，**没有失控泄漏**。之前 600–700MB 更可能是长会话/工具输出/图片等真实负载，而不是单一泄漏点。
+- 待观察：采样器和 GC 日志跑一天后，再判断要不要动堆上限/会话归档。
 ## [2.127.124] - 2026-10-24
 
 - **每轮耗时拆解**（engine/turn-profile.mjs + GET /api/turn/profile + 晨报一行）：按 request / context / firstDelta / tool / end 打点，落 记忆/运行时/每轮耗时.jsonl。
@@ -1255,6 +1377,14 @@ pm run deploy:frontend 只同步 public/ 与 pp/dist/。离线部署必须三�
   - 新增 2 条单测（远端更旧不提示 / 远端更新要提示）；更新相关 26 条全绿。
 ## [2.127.108] - 2026-10-22
 
+## [2.127.125] - 2026-10-24
+
+- **GC/内存排查第一轮**（回答"为什么卡 40–54 秒"）：
+  - unStore.list()/listAsync() 加 **mtime 缓存**：以前每次 overview 都重读重解析 241 个 run 文件，界面 5 秒轮询一次；实测 overview 平均 27ms→**15–18ms**，最大 160ms→34ms。
+  - 新增 engine/mem-watch.mjs：每 60 秒采 rss/heap/external + 各缓存规模，落 记忆/运行时/内存.jsonl；突增 150MB 或 rss>900MB 打警告。GET /api/diag/memory。
+  - 新增 **GC 观测**：PerformanceObserver('gc')，≥50ms 的 GC 打 [gc] <kind> <ms>，与 loop-lag 时间轴对齐就能确认"停顿是不是 GC"。
+- **压测结论**：480 次请求 + 7 轮对话，RSS 在 233–291MB 之间震荡、heap 106–183MB 反复回收，**没有失控泄漏**。之前 600–700MB 更可能是长会话/工具输出/图片等真实负载，而不是单一泄漏点。
+- 待观察：采样器和 GC 日志跑一天后，再判断要不要动堆上限/会话归档。
 ## [2.127.124] - 2026-10-24
 
 - **每轮耗时拆解**（engine/turn-profile.mjs + GET /api/turn/profile + 晨报一行）：按 request / context / firstDelta / tool / end 打点，落 记忆/运行时/每轮耗时.jsonl。
@@ -1397,6 +1527,14 @@ pm run deploy:frontend 只同步 public/ 与 pp/dist/。离线部署必须三�
 - 扫码登录收尾：**撤销立即生效**（校验缓存 5 秒 → 撤销时清空，否则刚撤的令牌还能再用几秒）；设备列表改为**新的在前**。
 ## [2.127.107] - 2026-10-22
 
+## [2.127.125] - 2026-10-24
+
+- **GC/内存排查第一轮**（回答"为什么卡 40–54 秒"）：
+  - unStore.list()/listAsync() 加 **mtime 缓存**：以前每次 overview 都重读重解析 241 个 run 文件，界面 5 秒轮询一次；实测 overview 平均 27ms→**15–18ms**，最大 160ms→34ms。
+  - 新增 engine/mem-watch.mjs：每 60 秒采 rss/heap/external + 各缓存规模，落 记忆/运行时/内存.jsonl；突增 150MB 或 rss>900MB 打警告。GET /api/diag/memory。
+  - 新增 **GC 观测**：PerformanceObserver('gc')，≥50ms 的 GC 打 [gc] <kind> <ms>，与 loop-lag 时间轴对齐就能确认"停顿是不是 GC"。
+- **压测结论**：480 次请求 + 7 轮对话，RSS 在 233–291MB 之间震荡、heap 106–183MB 反复回收，**没有失控泄漏**。之前 600–700MB 更可能是长会话/工具输出/图片等真实负载，而不是单一泄漏点。
+- 待观察：采样器和 GC 日志跑一天后，再判断要不要动堆上限/会话归档。
 ## [2.127.124] - 2026-10-24
 
 - **每轮耗时拆解**（engine/turn-profile.mjs + GET /api/turn/profile + 晨报一行）：按 request / context / firstDelta / tool / end 打点，落 记忆/运行时/每轮耗时.jsonl。
@@ -1543,6 +1681,14 @@ pm run deploy:frontend 只同步 public/ 与 pp/dist/。离线部署必须三�
   - 回环访问时从网卡挑私网 IPv4（优先 192.168. / 10. / 172.16-31），避开虚拟网卡；端口沿用当前 host。
 ## [2.127.106] - 2026-10-22
 
+## [2.127.125] - 2026-10-24
+
+- **GC/内存排查第一轮**（回答"为什么卡 40–54 秒"）：
+  - unStore.list()/listAsync() 加 **mtime 缓存**：以前每次 overview 都重读重解析 241 个 run 文件，界面 5 秒轮询一次；实测 overview 平均 27ms→**15–18ms**，最大 160ms→34ms。
+  - 新增 engine/mem-watch.mjs：每 60 秒采 rss/heap/external + 各缓存规模，落 记忆/运行时/内存.jsonl；突增 150MB 或 rss>900MB 打警告。GET /api/diag/memory。
+  - 新增 **GC 观测**：PerformanceObserver('gc')，≥50ms 的 GC 打 [gc] <kind> <ms>，与 loop-lag 时间轴对齐就能确认"停顿是不是 GC"。
+- **压测结论**：480 次请求 + 7 轮对话，RSS 在 233–291MB 之间震荡、heap 106–183MB 反复回收，**没有失控泄漏**。之前 600–700MB 更可能是长会话/工具输出/图片等真实负载，而不是单一泄漏点。
+- 待观察：采样器和 GC 日志跑一天后，再判断要不要动堆上限/会话归档。
 ## [2.127.124] - 2026-10-24
 
 - **每轮耗时拆解**（engine/turn-profile.mjs + GET /api/turn/profile + 晨报一行）：按 request / context / firstDelta / tool / end 打点，落 记忆/运行时/每轮耗时.jsonl。
@@ -1698,6 +1844,14 @@ pm run deploy:frontend 只同步 public/ 与 pp/dist/。离线部署必须三�
   - 新增单测 6 条；相关 198 条全绿。
 ## [2.127.105] - 2026-10-21
 
+## [2.127.125] - 2026-10-24
+
+- **GC/内存排查第一轮**（回答"为什么卡 40–54 秒"）：
+  - unStore.list()/listAsync() 加 **mtime 缓存**：以前每次 overview 都重读重解析 241 个 run 文件，界面 5 秒轮询一次；实测 overview 平均 27ms→**15–18ms**，最大 160ms→34ms。
+  - 新增 engine/mem-watch.mjs：每 60 秒采 rss/heap/external + 各缓存规模，落 记忆/运行时/内存.jsonl；突增 150MB 或 rss>900MB 打警告。GET /api/diag/memory。
+  - 新增 **GC 观测**：PerformanceObserver('gc')，≥50ms 的 GC 打 [gc] <kind> <ms>，与 loop-lag 时间轴对齐就能确认"停顿是不是 GC"。
+- **压测结论**：480 次请求 + 7 轮对话，RSS 在 233–291MB 之间震荡、heap 106–183MB 反复回收，**没有失控泄漏**。之前 600–700MB 更可能是长会话/工具输出/图片等真实负载，而不是单一泄漏点。
+- 待观察：采样器和 GC 日志跑一天后，再判断要不要动堆上限/会话归档。
 ## [2.127.124] - 2026-10-24
 
 - **每轮耗时拆解**（engine/turn-profile.mjs + GET /api/turn/profile + 晨报一行）：按 request / context / firstDelta / tool / end 打点，落 记忆/运行时/每轮耗时.jsonl。
@@ -1860,6 +2014,14 @@ pm run deploy:frontend 只同步 public/ 与 pp/dist/。离线部署必须三�
   - 新增单测 4 条；相关 283 条全绿。
 ## [2.127.104] - 2026-10-21
 
+## [2.127.125] - 2026-10-24
+
+- **GC/内存排查第一轮**（回答"为什么卡 40–54 秒"）：
+  - unStore.list()/listAsync() 加 **mtime 缓存**：以前每次 overview 都重读重解析 241 个 run 文件，界面 5 秒轮询一次；实测 overview 平均 27ms→**15–18ms**，最大 160ms→34ms。
+  - 新增 engine/mem-watch.mjs：每 60 秒采 rss/heap/external + 各缓存规模，落 记忆/运行时/内存.jsonl；突增 150MB 或 rss>900MB 打警告。GET /api/diag/memory。
+  - 新增 **GC 观测**：PerformanceObserver('gc')，≥50ms 的 GC 打 [gc] <kind> <ms>，与 loop-lag 时间轴对齐就能确认"停顿是不是 GC"。
+- **压测结论**：480 次请求 + 7 轮对话，RSS 在 233–291MB 之间震荡、heap 106–183MB 反复回收，**没有失控泄漏**。之前 600–700MB 更可能是长会话/工具输出/图片等真实负载，而不是单一泄漏点。
+- 待观察：采样器和 GC 日志跑一天后，再判断要不要动堆上限/会话归档。
 ## [2.127.124] - 2026-10-24
 
 - **每轮耗时拆解**（engine/turn-profile.mjs + GET /api/turn/profile + 晨报一行）：按 request / context / firstDelta / tool / end 打点，落 记忆/运行时/每轮耗时.jsonl。
@@ -2026,6 +2188,14 @@ pm run deploy:frontend 只同步 public/ 与 pp/dist/。离线部署必须三�
 - 顺带确认一个观测缺口：**服务正常运行的 stdout 没有落盘**，只有崩溃时才有 60 行。要做"长期服务日志"是单独一件事，先记在这里。
 ## [2.127.103] - 2026-10-21
 
+## [2.127.125] - 2026-10-24
+
+- **GC/内存排查第一轮**（回答"为什么卡 40–54 秒"）：
+  - unStore.list()/listAsync() 加 **mtime 缓存**：以前每次 overview 都重读重解析 241 个 run 文件，界面 5 秒轮询一次；实测 overview 平均 27ms→**15–18ms**，最大 160ms→34ms。
+  - 新增 engine/mem-watch.mjs：每 60 秒采 rss/heap/external + 各缓存规模，落 记忆/运行时/内存.jsonl；突增 150MB 或 rss>900MB 打警告。GET /api/diag/memory。
+  - 新增 **GC 观测**：PerformanceObserver('gc')，≥50ms 的 GC 打 [gc] <kind> <ms>，与 loop-lag 时间轴对齐就能确认"停顿是不是 GC"。
+- **压测结论**：480 次请求 + 7 轮对话，RSS 在 233–291MB 之间震荡、heap 106–183MB 反复回收，**没有失控泄漏**。之前 600–700MB 更可能是长会话/工具输出/图片等真实负载，而不是单一泄漏点。
+- 待观察：采样器和 GC 日志跑一天后，再判断要不要动堆上限/会话归档。
 ## [2.127.124] - 2026-10-24
 
 - **每轮耗时拆解**（engine/turn-profile.mjs + GET /api/turn/profile + 晨报一行）：按 request / context / firstDelta / tool / end 打点，落 记忆/运行时/每轮耗时.jsonl。

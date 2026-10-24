@@ -215,6 +215,8 @@ import { createTimeEngine } from "./engine/time-engine.mjs";
 import { createChatStreamHub } from "./engine/chat-stream.mjs";
 import { createJobPool } from "./engine/job-pool.mjs";
 import { createTurnProfiler } from "./engine/turn-profile.mjs";
+import { createMemWatch } from "./engine/mem-watch.mjs";
+import { PerformanceObserver } from "node:perf_hooks";
 import { buildSelfModel, renderSelfSection, renderSelfMarkdown } from "./engine/self-model.mjs";
 import { shouldProbe, markProbed, splitBeforeAfter, abCompare, appendProbeLog, appendLesson } from "./engine/harness-probe.mjs";
 import { collectEvidence, buildProposePrompt, parseCandidates, writeCandidates, listCandidates, markCandidate, localDate } from "./engine/harness-propose.mjs";
@@ -549,6 +551,21 @@ function waitJob(id, timeoutMs = 30 * 60_000) {
 const jobPool = createJobPool({ file: path.join(WS_ROOT, "记忆", "运行时", "后台任务.json"), concurrency: 2 });
 // 2026-10-24：每轮耗时拆解（request / context / firstDelta / tool / end）
 const turnProfiler = createTurnProfiler({ wsRoot: WS_ROOT, log: (m) => console.log(m) });
+// 2026-10-24：内存采样（每 60s 一条，查 GC 长停顿用）
+const memWatch = createMemWatch({ wsRoot: WS_ROOT, log: (m) => console.log(m) });
+memWatch.start(() => ({ runs: runStore.list().length, sessions: activeSessions.size, streams: chatStreams.size(), jobs: jobPool.summary().running }));
+// 2026-10-24：GC 观测。长停顿到底是 GC 还是别的，用它把话说死：
+// 超过 50ms 的 GC 会打一行 [gc] <kind> <ms>，和 loop-lag 的时间轴对得上就能确认。
+try {
+  const gcObserver = new PerformanceObserver((list) => {
+    for (const e of list.getEntries()) {
+      if (e.duration >= 50) {
+        console.log(`[gc] ${e.detail?.kind ?? ""} ${Math.round(e.duration)}ms（heap ${Math.round(process.memoryUsage().heapUsed / 1048576)}MB）`);
+      }
+    }
+  });
+  gcObserver.observe({ entryTypes: ["gc"] });
+} catch {}
 const skillCatalogSent = new Set(); // 已注入过「元枢内置技能库」目录的会话（每会话一次，别每轮灌一遍）
 const pushedArtifacts = new Map();  // sessionId -> Set(已推送文件路径)，防止重复推"本轮产物"
 let lastUnnamedId = null;           // 最近创建/复用的未命名会话（打断时复用同一会话）
@@ -4020,6 +4037,18 @@ const boardApi = createBoardApi({
     } catch (e) {
       return json(res, 500, { error: String(e?.message || e).slice(0, 200) });
     }
+  }]);
+
+  // 2026-10-24：内存诊断（采样序列 + 各缓存的规模）
+  API_ROUTES.push(["GET", "/api/diag/memory", (res, req) => {
+    const u = new URL(req.url, "http://x");
+    const limit = Math.min(2000, Math.max(1, Number(u.searchParams.get("limit") || 60)));
+    const m = process.memoryUsage();
+    return json(res, 200, {
+      now: { rssMB: Math.round(m.rss / 1048576), heapUsedMB: Math.round(m.heapUsed / 1048576), heapTotalMB: Math.round(m.heapTotal / 1048576), externalMB: Math.round(m.external / 1048576) },
+      counts: { runs: runStore.list().length, sessions: activeSessions.size, streams: chatStreams.size(), jobs: jobPool.summary().running },
+      samples: memWatch.recent(limit),
+    });
   }]);
 
   // 2026-10-24：每轮耗时拆解（阶段中位数，回答"慢在哪"）

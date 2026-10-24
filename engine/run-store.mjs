@@ -67,13 +67,29 @@ export function createRunStore({ rootDir, now = () => new Date().toISOString(), 
     try { return withLegacyContinuation(JSON.parse(fs.readFileSync(fileFor(id), 'utf8'))) }
     catch { return null }
   }
-  const list = () => fs.readdirSync(runsDir)
-    .filter(name => name.endsWith('.json'))
-    .map(name => {
-      try { return withLegacyContinuation(JSON.parse(fs.readFileSync(path.join(runsDir, name), 'utf8'))) }
-      catch { return null }
-    })
-    .filter(Boolean)
+  // 2026-10-24：mtime 缓存。之前每次 list() 都把 222 个 run 文件全读一遍并 JSON.parse，
+  // 而界面每 5 秒轮询一次 overview —— 持续产生的垃圾对象正是 GC 长停顿的来源之一。
+  const parseCache = new Map() // name -> { mtimeMs, size, data }
+  const readOne = (name) => {
+    try {
+      const st = fs.statSync(path.join(runsDir, name))
+      const hit = parseCache.get(name)
+      if (hit && hit.mtimeMs === st.mtimeMs && hit.size === st.size) return hit.data
+      const data = withLegacyContinuation(JSON.parse(fs.readFileSync(path.join(runsDir, name), 'utf8')))
+      parseCache.set(name, { mtimeMs: st.mtimeMs, size: st.size, data })
+      return data
+    } catch { return null }
+  }
+  const list = () => {
+    let names = []
+    try { names = fs.readdirSync(runsDir).filter(name => name.endsWith('.json')) } catch { return [] }
+    // 丢掉已删除文件的缓存，避免缓存无限增长
+    if (parseCache.size > names.length + 50) {
+      const alive = new Set(names)
+      for (const key of parseCache.keys()) if (!alive.has(key)) parseCache.delete(key)
+    }
+    return names.map(readOne).filter(Boolean)
+  }
 
   // Display-only reader: bounded asynchronous IO keeps overview polling off
   // the event loop. Admission continues to use the strict synchronous snapshot.
@@ -82,8 +98,14 @@ export function createRunStore({ rootDir, now = () => new Date().toISOString(), 
     const runs = []
     for (let start = 0; start < names.length; start += 16) {
       const batch = await Promise.all(names.slice(start, start + 16).map(async name => {
-        try { return withLegacyContinuation(JSON.parse(await fs.promises.readFile(path.join(runsDir, name), 'utf8'))) }
-        catch { return null }
+        try {
+          const st = await fs.promises.stat(path.join(runsDir, name))
+          const hit = parseCache.get(name)
+          if (hit && hit.mtimeMs === st.mtimeMs && hit.size === st.size) return hit.data
+          const data = withLegacyContinuation(JSON.parse(await fs.promises.readFile(path.join(runsDir, name), 'utf8')))
+          parseCache.set(name, { mtimeMs: st.mtimeMs, size: st.size, data })
+          return data
+        } catch { return null }
       }))
       runs.push(...batch.filter(Boolean))
     }
