@@ -59,6 +59,9 @@ export function createTurnProfiler({ wsRoot, log = null } = {}) {
             if (m) {
               const ev = m[1];
               if (ev === 'delta' || ev === 'text' || ev === 'message_delta') profile.mark('firstDelta');
+              if (ev === 'model_used') {
+                try { const d = JSON.parse((/^data:\s*([\s\S]*)$/m.exec(text) || [])[1] || '{}'); if (d.model) model = d.model } catch {}
+              }
               if (ev === 'usage') {
                 try {
                   const data = JSON.parse((/^data:\s*([\s\S]*)$/m.exec(text) || [])[1] || '{}');
@@ -93,6 +96,7 @@ export function createTurnProfiler({ wsRoot, log = null } = {}) {
           toolMs: Math.round(toolMs),
           toolsLeft: [...tools.keys()],
           usage,
+          model,
           ...extra,
         };
         try {

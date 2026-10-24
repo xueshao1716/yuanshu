@@ -4085,6 +4085,26 @@ const boardApi = createBoardApi({
     }
   }]);
 
+  // 2026-10-24：每日 token 预算（超了就降级/提醒，不等充值才发现）
+  API_ROUTES.push(["GET", "/api/budget/today", async (res) => {
+    try {
+      const { checkBudget } = await import("./engine/token-budget.mjs");
+      return json(res, 200, checkBudget(WS_ROOT));
+    } catch (e) { return json(res, 500, { error: String(e?.message || e).slice(0, 200) }); }
+  }]);
+  // 写预算（默认 300 万 token/天）
+  API_ROUTES.push(["POST", "/api/budget/config", async (res, req) => {
+    try {
+      const body = await readBody(req, 1e4);
+      const file = path.join(WS_ROOT, "记忆", "运行时", "token预算.json");
+      const cur = (() => { try { return JSON.parse(fs.readFileSync(file, "utf8")) } catch { return {} } })();
+      const next = { ...cur, ...(body || {}) };
+      fs.mkdirSync(path.dirname(file), { recursive: true });
+      fs.writeFileSync(file, JSON.stringify(next, null, 2), "utf8");
+      return json(res, 200, { ok: true, budget: next });
+    } catch (e) { return json(res, 500, { error: String(e?.message || e).slice(0, 200) }); }
+  }]);
+
   // 2026-10-24：品味库（判断轨迹：选了哪个、否了哪个、为什么）
   API_ROUTES.push(["GET", "/api/taste", async (res, req) => {
     try {

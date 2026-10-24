@@ -8,8 +8,24 @@
 
 ## [Unreleased]
 
+## [2.127.140] - 2026-10-24
+
+## [2.127.140] - 2026-10-24
+
+- **每日 token 预算**（engine/token-budget.mjs）：从 记忆/运行时/每轮耗时.jsonl 里已落盘的 usage 按天汇总，按 provider 拆分；
+  - GET /api/budget/today、POST /api/budget/config（默认 300 万 token/天，记忆/运行时/token预算.json 可改）；
+  - 硬超（默认 2 倍）时 POST /api/runs 直接 429 并说明「今天用了多少、要跑就加请求头 x-yuanshu-skip-budget: 1」，不再无感烧钱。
+- turn-profile 补记本轮模型（model_used 事件），预算才能按 provider 分组。
+- 实测：今日 142.9 万 token（deepseek 2.9 万 / 其余来自更早未分组的轮次），预算 47.7%。
 ## [2.127.139] - 2026-10-24
 
+## [2.127.140] - 2026-10-24
+
+- **每日 token 预算**（engine/token-budget.mjs）：从 记忆/运行时/每轮耗时.jsonl 里已落盘的 usage 按天汇总，按 provider 拆分；
+  - GET /api/budget/today、POST /api/budget/config（默认 300 万 token/天，记忆/运行时/token预算.json 可改）；
+  - 硬超（默认 2 倍）时 POST /api/runs 直接 429 并说明「今天用了多少、要跑就加请求头 x-yuanshu-skip-budget: 1」，不再无感烧钱。
+- turn-profile 补记本轮模型（model_used 事件），预算才能按 provider 分组。
+- 实测：今日 142.9 万 token（deepseek 2.9 万 / 其余来自更早未分组的轮次），预算 47.7%。
 ## [2.127.139] - 2026-10-24
 
 - **品味库**（借 dsh-mood 的"判断轨迹"，泛化原来的 design-prefs）：
@@ -21,6 +37,13 @@
 - 单测 3 条：品味库记录/搜索/提示词片段、33 词表自洽映射。
 ## [2.127.138] - 2026-10-24
 
+## [2.127.140] - 2026-10-24
+
+- **每日 token 预算**（engine/token-budget.mjs）：从 记忆/运行时/每轮耗时.jsonl 里已落盘的 usage 按天汇总，按 provider 拆分；
+  - GET /api/budget/today、POST /api/budget/config（默认 300 万 token/天，记忆/运行时/token预算.json 可改）；
+  - 硬超（默认 2 倍）时 POST /api/runs 直接 429 并说明「今天用了多少、要跑就加请求头 x-yuanshu-skip-budget: 1」，不再无感烧钱。
+- turn-profile 补记本轮模型（model_used 事件），预算才能按 provider 分组。
+- 实测：今日 142.9 万 token（deepseek 2.9 万 / 其余来自更早未分组的轮次），预算 47.7%。
 ## [2.127.139] - 2026-10-24
 
 - **品味库**（借 dsh-mood 的"判断轨迹"，泛化原来的 design-prefs）：
@@ -43,6 +66,13 @@
 - 单测 4 条：过滤测试事件、正文结构、写过不重复、列表与单篇可读。
 ## [2.127.137] - 2026-10-24
 
+## [2.127.140] - 2026-10-24
+
+- **每日 token 预算**（engine/token-budget.mjs）：从 记忆/运行时/每轮耗时.jsonl 里已落盘的 usage 按天汇总，按 provider 拆分；
+  - GET /api/budget/today、POST /api/budget/config（默认 300 万 token/天，记忆/运行时/token预算.json 可改）；
+  - 硬超（默认 2 倍）时 POST /api/runs 直接 429 并说明「今天用了多少、要跑就加请求头 x-yuanshu-skip-budget: 1」，不再无感烧钱。
+- turn-profile 补记本轮模型（model_used 事件），预算才能按 provider 分组。
+- 实测：今日 142.9 万 token（deepseek 2.9 万 / 其余来自更早未分组的轮次），预算 47.7%。
 ## [2.127.139] - 2026-10-24
 
 - **品味库**（借 dsh-mood 的"判断轨迹"，泛化原来的 design-prefs）：
@@ -70,6 +100,13 @@
   - 顺带修掉图标与「元枢」标题的视觉挤压：固定 52×52 的 flex 盒，不参与缩放。
 ## [2.127.136] - 2026-10-24
 
+## [2.127.140] - 2026-10-24
+
+- **每日 token 预算**（engine/token-budget.mjs）：从 记忆/运行时/每轮耗时.jsonl 里已落盘的 usage 按天汇总，按 provider 拆分；
+  - GET /api/budget/today、POST /api/budget/config（默认 300 万 token/天，记忆/运行时/token预算.json 可改）；
+  - 硬超（默认 2 倍）时 POST /api/runs 直接 429 并说明「今天用了多少、要跑就加请求头 x-yuanshu-skip-budget: 1」，不再无感烧钱。
+- turn-profile 补记本轮模型（model_used 事件），预算才能按 provider 分组。
+- 实测：今日 142.9 万 token（deepseek 2.9 万 / 其余来自更早未分组的轮次），预算 47.7%。
 ## [2.127.139] - 2026-10-24
 
 - **品味库**（借 dsh-mood 的"判断轨迹"，泛化原来的 design-prefs）：
@@ -102,6 +139,13 @@
 - **工作台「昨夜」改紧凑摘要条**（NightStrip）：36 分钟复盘 · 1 条受阻 · 4 条新承诺 · 看全文 →；0 值不显示；完整版仍在灵魂培育中心。
 ## [2.127.135] - 2026-10-24
 
+## [2.127.140] - 2026-10-24
+
+- **每日 token 预算**（engine/token-budget.mjs）：从 记忆/运行时/每轮耗时.jsonl 里已落盘的 usage 按天汇总，按 provider 拆分；
+  - GET /api/budget/today、POST /api/budget/config（默认 300 万 token/天，记忆/运行时/token预算.json 可改）；
+  - 硬超（默认 2 倍）时 POST /api/runs 直接 429 并说明「今天用了多少、要跑就加请求头 x-yuanshu-skip-budget: 1」，不再无感烧钱。
+- turn-profile 补记本轮模型（model_used 事件），预算才能按 provider 分组。
+- 实测：今日 142.9 万 token（deepseek 2.9 万 / 其余来自更早未分组的轮次），预算 47.7%。
 ## [2.127.139] - 2026-10-24
 
 - **品味库**（借 dsh-mood 的"判断轨迹"，泛化原来的 design-prefs）：
