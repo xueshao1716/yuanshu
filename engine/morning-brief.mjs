@@ -62,7 +62,7 @@ export function duePromises(wsRoot, { now = new Date() } = {}) {
 }
 
 /** 近 24 小时慢请求：条数 + 最慢两条 */
-export function slowSummary(wsRoot, { now = Date.now(), hours = 24, limit = 2 } = {}) {
+export function slowSummary(wsRoot, { now = Date.now(), hours = 24, limit = 2, recentHours = 6 } = {}) {
   const rows = readLines(path.join(wsRoot, SLOW_LOG), 3000)
     .map((l) => { try { return JSON.parse(l) } catch { return null } })
     .filter(Boolean)
@@ -70,13 +70,27 @@ export function slowSummary(wsRoot, { now = Date.now(), hours = 24, limit = 2 } 
       const t = Date.parse(r.at || '');
       return Number.isFinite(t) && now - t <= hours * 3600_000;
     });
-  const top = rows
+  // 近期按 6 小时算；更早的只作为历史峰值参考
+  const recent = rows.filter((r) => now - Date.parse(r.at || '') <= recentHours * 3600_000);
+  const recentTop = recent
     .slice()
     .sort((a, b) => (b.durationMs || 0) - (a.durationMs || 0))
     .slice(0, limit)
     .map((r) => ({ key: `${r.method || ''} ${r.path || ''}`.trim(), durationMs: r.durationMs || 0 }));
-  return { count: rows.length, top };
+  const allTop = rows
+    .slice()
+    .sort((a, b) => (b.durationMs || 0) - (a.durationMs || 0))
+    .slice(0, limit)
+    .map((r) => ({ key: `${r.method || ''} ${r.path || ''}`.trim(), durationMs: r.durationMs || 0 }));
+  return {
+    count: rows.length,
+    recentCount: recent.length,
+    recentHours,
+    top: recent.length ? recentTop : allTop,
+    isRecent: recent.length > 0,
+  };
 }
+
 
 /** 最近一次试验结论（Probe 写的那份） */
 export function lastProbe(wsRoot) {
@@ -106,13 +120,22 @@ export function buildMorningBrief(wsRoot, { agentDir, now = new Date() } = {}) {
   if (promises.pending) {
     lines.push(`账上还有 ${promises.pending} 件答应过你的事${promises.overdue.length ? `，其中 ${promises.overdue.length} 件已逾期` : ''}。`);
   }
-  if (slow.count) {
+  // 2026-10-24：区分"近 6 小时"与"24h 历史峰值"——198 秒那次是卡顿期留下的旧账，不该当成现状
+  if (slow.recentCount) {
     const t = slow.top[0];
-    lines.push(`过去 24 小时有 ${slow.count} 次慢请求${t ? `，最慢是 ${t.key}（${t.durationMs}ms）` : ''}。`);
+    lines.push(`近 ${slow.recentHours} 小时有 ${slow.recentCount} 次慢请求${t ? `，最慢是 ${t.key}（${(t.durationMs / 1000).toFixed(1)} 秒）` : ''}。`);
+  } else if (slow.count) {
+    const t = slow.top[0];
+    lines.push(`近 ${slow.recentHours} 小时没有慢请求（24 小时内历史峰值 ${t ? `${t.key} ${(t.durationMs / 1000).toFixed(0)} 秒` : '—'}）。`);
   } else {
     lines.push('过去 24 小时没有慢请求。');
   }
-  if (probe) lines.push(`最近一次外壳试验：${probe}`);
+  if (probe) {
+    // "1025662→1308591ms" 这种成对数字：两个都要换，否则会剩一个裸数字
+    const human = (ms) => (ms >= 60000 ? `${(ms / 60000).toFixed(1)} 分钟` : `${(ms / 1000).toFixed(1)} 秒`);
+    const humanized = String(probe).replace(/(\d{4,})(?=ms|→)/g, (_, n) => human(Number(n))).replace(/(分钟|秒)ms/g, "$1");
+    lines.push(`最近一次外壳试验：${humanized}`);
+  }
   // 2026-10-24：每轮耗时（只看最近 30 轮的首字中位数，用来发现"突然变慢"）
   try {
     const rows = fs.readFileSync(path.join(wsRoot, '记忆/运行时/每轮耗时.jsonl'), 'utf8')
