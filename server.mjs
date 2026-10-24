@@ -636,6 +636,9 @@ const replyTts = createReplyTts({ resolveAuth, readStore: () => readJsonFile(MOD
 initAsrApi({ resolveAuth, readJsonFile, modelsPath: MODELS_PATH, httpJsonFetch }); // 语音转文字（mimo-v2.5-asr 免费通道）
 initDshKeys({ dshWebPort: 3080, readJsonFile, writeJsonFile, authPath: AUTH_PATH, modelsPath: MODELS_PATH, ModelRuntime, refreshModelList, setModelList: (l) => { modelList = l; }, getDefaultModel: () => defaultModel, setDefaultModel: (m) => { defaultModel = m; }, setModelRuntime: (r) => { modelRuntime = r; }, getModelRuntime: () => modelRuntime, keepModels: KEEP_MODELS, resetModelHealth }); // dsh/keys/模型管理注入
 initStatsApi({ getAgentDir, cwd: CONFIG.cwd, DefaultResourceLoader, openSession, compactSessionAgent, getDefaultModel: () => defaultModel, subagentHistoryProvider: (scope) => subagent.getSubagentHistory(scope) }); // 统计/技能/导出注入
+// 2026-10-24：预热技能清单缓存——模型侧 activate_skill 读的就是这份（engine/skill-cache.mjs）。
+// 不预热的话，服务刚起的头一两轮里它只能看到内置技能，线上技能要等有人打开技能页才出现。
+try { await listSkills(); } catch (e) { console.log(`[skills] 预热失败（不影响启动）：${String(e?.message || e).slice(0, 120)}`); }
 initSessionDb({ agentDir: getAgentDir(), cwd: CONFIG.cwd, deleteSession }); // 会话数据库（编号/健康度/标签/空会话清扫）
 initRecallApi({ agentDir: getAgentDir(), chat: unifiedChat, getDefaultModel: () => defaultModel }); // 跨会话回忆（09-04，Hermes FTS5 思想）
 initModelClient({ readJsonFile, writeJsonFile, authPath: AUTH_PATH, modelsPath: MODELS_PATH, resolveAuth, getModelList: () => modelList, getDefaultModel: () => defaultModel, unifiedChat, detectMediaIntents, generateMediaAsync, extractMediaPrompt, readEntriesFromFile, createSseWriter }); // 直调模型客户端注入

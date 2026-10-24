@@ -29,13 +29,16 @@ const make = (over = {}) => {
   return { routes, calls, find }
 }
 
-test('路由表：九条都挂上了', () => {
+test('路由表：十条都挂上了', () => {
   const { routes } = make()
-  assert.equal(routes.length, 9)
+  // 2026-10-24：补 POST /api/design-research（创建调研）时忘了同步这条断言，
+  // 于是这条测试从那次提交起就一直红着——数不对就该改数，不该让它飘着。
+  assert.equal(routes.length, 10)
   const key = routes.map(([m, p]) => `${m} ${p instanceof RegExp ? p.source : p}`)
   assert.ok(key.includes('GET /api/design-commissions'))
   assert.ok(key.includes('POST /api/canvas/audit'))
   assert.ok(key.includes('GET /api/design-research'))
+  assert.ok(key.includes('POST /api/design-research'))
 })
 
 test('画布巡检：带前端文档时优先用它，返回 ok/issues/text', async () => {

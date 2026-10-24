@@ -6,6 +6,7 @@ import os from "node:os";
 import * as memoryApi from "./memory.mjs"; // 命名空间导入（server.mjs 动态 import 同款语义）
 import { extractEntities, routeMemoryRows, MEMORY_TOP_K } from "./yuanshu-memroute.mjs";
 import { memoryId, recallWeights, recordRecall } from "./recall-journal.mjs";
+import { getSkillCache } from "./skill-cache.mjs";
 import { runtimeIdentity } from "./runtime-identity.mjs";
 
 // ESM 兼容：__dirname 在 ESM 里未定义，用 import.meta.dirname（Node 21.2+）代替
@@ -168,51 +169,148 @@ export function loadProjectRules() { return loadContextRules(); } // 兼容旧�
 // ── 渐进式技能披露（Gemini Skills 借鉴）：只注入摘要，匹配时 activate_skill 加载全文 ──
 // 技能库在仓库根 skills/，不是空的 engine/skills
 export const REPO_SKILLS_DIR = path.join(__dirname, "..", "skills");
-let skillIdxCache = null, skillIdxMtime = 0;
+
+/**
+ * 工作区技能根（按优先级）。
+ *
+ * 2026-10-24 修的一个死结：原来只有 `REPO_SKILLS_DIR` 一个根，而它是**相对运行实例**的
+ * （`path.join(__dirname, "..", "skills")`）。于是「加一个技能」这件事在三方之间互相打架：
+ *   · 写仓库 `D:\pi-web\skills` → 运行中的安装版读的是自己目录下的 skills，看不到；
+ *   · 写安装目录 `...\Programs\Yuanshu\app\skills` → 要管理员权限；
+ *   · 于是模型只能去动沙箱等级——把一个"路径问题"误判成"权限问题"（2026-10-24 实况）。
+ * 加两个工作区根之后，装技能就是一次普通的工作区写入：随时可做、可审计、不用提权。
+ */
+export function workspaceSkillRoots(cwd = _cwd) {
+  const out = [];
+  if (!cwd) return out;
+  for (const rel of ["技能", "skills"]) {
+    const dir = path.join(cwd, rel);
+    try { if (fs.statSync(dir).isDirectory()) out.push(dir); } catch { /* 没有这个目录就跳过 */ }
+  }
+  return out;
+}
+
+/** 生效的技能根：工作区在前（同名覆盖内置版），内置兜底；去重按真实路径，junction 不会算两次。 */
+export function skillRoots(cwd = _cwd) {
+  const seen = new Set();
+  const out = [];
+  for (const dir of [...workspaceSkillRoots(cwd), REPO_SKILLS_DIR]) {
+    try {
+      const real = fs.realpathSync(dir);
+      if (seen.has(real)) continue;
+      seen.add(real);
+      out.push(dir);
+    } catch { /* 根不存在就不列 */ }
+  }
+  return out;
+}
+
+/** 技能目录<->名字：只在直属子目录里找带 SKILL.md 的，避免把数据目录（如 skills/@user_xxx）当技能。 */
+function skillDirIn(root, name) {
+  const safeName = String(name || "").replace(/[\\/]/g, "").replace(/\.\./g, "");
+  if (!safeName) return "";
+  const dir = path.resolve(root, safeName);
+  if (dir !== root && !dir.startsWith(root + path.sep)) return "";
+  try { if (!fs.statSync(path.join(dir, "SKILL.md")).isFile()) return ""; } catch { return ""; }
+  return dir;
+}
+
+/** 找到技能所在目录（工作区优先）。找不到返回 ""。 */
+export function findSkillDir(name, cwd = _cwd) {
+  for (const root of skillRoots(cwd)) {
+    const dir = skillDirIn(root, name);
+    if (dir) return dir;
+  }
+  return "";
+}
+
+// 缓存戳：多个根的 mtime 一起算，否则新增/修改工作区技能不会刷新（原来只盯一个目录）
+function skillStamp(roots) {
+  return roots.map((dir) => {
+    try { return `${dir}@${fs.statSync(dir).mtimeMs}`; } catch { return `${dir}@-`; }
+  }).join("|");
+}
+
+let skillIdxCache = null, skillIdxMtime = "";
+
+/** 同步扫描若干根（工作区优先），只收带 SKILL.md 的直属子目录。 */
+function scanSkillDirs(roots) {
+  const list = [];
+  const seen = new Set();
+  for (const dir of roots) {
+    for (const name of fs.readdirSync(dir)) {
+      if (seen.has(name)) continue; // 先到先得：工作区已覆盖的同名技能不再重复列
+      try {
+        const f = path.join(dir, name, "SKILL.md");
+        const raw = fs.readFileSync(f, "utf8");
+        // frontmatter 必须容 CRLF：2026-09-16 实测有两个技能整份是 CRLF，
+        // 而这里原来只认 `\n`——于是它们的 description 一个都没读到，
+        // 目录里显示的是"正文第一行"（一个文件的行尾不该决定它的说明读不读得到）。
+        const fm = raw.match(/^---\r?\n([\s\S]*?)\r?\n---/);
+        let desc = "";
+        if (fm) { const dm = fm[1].match(/description:\s*(.+)/); if (dm) desc = dm[1].trim().replace(/^["']|["']$/g, ""); }
+        if (!desc) desc = (raw.split(/\r?\n/).find(l => l.trim() && !l.startsWith("#")) || "").trim();
+        seen.add(name);
+        list.push({ name, desc: desc.slice(0, 120), root: dir });
+      } catch {}
+    }
+  }
+  return list;
+}
+
 export function loadSkillIndex() {
   try {
-    const dir = REPO_SKILLS_DIR;
-    const st = fs.statSync(dir);
-    if (st.mtimeMs !== skillIdxMtime || !skillIdxCache) {
-      const list = [];
-      for (const name of fs.readdirSync(dir)) {
-        try {
-          const f = path.join(dir, name, "SKILL.md");
-          const raw = fs.readFileSync(f, "utf8");
-          // frontmatter 必须容 CRLF：2026-09-16 实测有两个技能整份是 CRLF，
-          // 而这里原来只认 `\n`——于是它们的 description 一个都没读到，
-          // 目录里显示的是"正文第一行"（一个文件的行尾不该决定它的说明读不读得到）。
-          const fm = raw.match(/^---\r?\n([\s\S]*?)\r?\n---/);
-          let desc = "";
-          if (fm) { const dm = fm[1].match(/description:\s*(.+)/); if (dm) desc = dm[1].trim().replace(/^["']|["']$/g, ""); }
-          if (!desc) desc = (raw.split(/\r?\n/).find(l => l.trim() && !l.startsWith("#")) || "").trim();
-          list.push({ name, desc: desc.slice(0, 120) });
-        } catch {}
+    // 首选面板那份清单（engine/stats-api.mjs listSkills 写入 engine/skill-cache.mjs）：
+    // 它走 pi 的资源加载器，含 ~/.pi、~/.agents、node_modules 里的线上技能。
+    // 引擎这边若只扫内置目录，就会出现"面板里装着、模型说技能不存在"——这条裂缝
+    // 2026-10-24 把模型骗去动了沙箱（它以为是权限问题，其实是路径没接上）。
+    const shared = getSkillCache();
+    if (shared?.list?.length) {
+      const base = shared.list.map(({ name, desc }) => ({ name, desc: String(desc || "").trim().slice(0, 120) }));
+      const names = new Set(base.map((s) => s.name));
+      // 面板加载器只认 <cwd>/skills；再补上工作区 技能/ 与 skills/ 里它没扫到的
+      const extras = scanSkillDirs(workspaceSkillRoots().length ? workspaceSkillRoots() : []);
+      for (const s of extras) {
+        if (names.has(s.name)) continue;
+        names.add(s.name);
+        base.push({ name: s.name, desc: s.desc });
       }
-      skillIdxCache = list;
-      skillIdxMtime = st.mtimeMs;
+      return base;
+    }
+    // 兜底：缓存还没预热（启动早期）时同步扫工作区 + 内置，别让首轮没有技能段
+    const roots = skillRoots();
+    if (!roots.length) return [];
+    const stamp = skillStamp(roots);
+    if (stamp !== skillIdxMtime || !skillIdxCache) {
+      skillIdxCache = scanSkillDirs(roots);
+      skillIdxMtime = stamp;
     }
     return skillIdxCache;
   } catch { return []; }
 }
 // activate_skill 工具执行：返回 SKILL.md 全文 + 资源文件清单（大文件由模型再 read）
-export function execActivateSkill(name) {
-  // P0 安全修复：阻止技能名穿越（../../etc）
-  const safeName = String(name || "").replace(/[\\/]/g, "").replace(/\.\./g, "");
-  const skillsRoot = REPO_SKILLS_DIR;
-  const dir = path.resolve(skillsRoot, safeName);
-  if (!dir.startsWith(skillsRoot + path.sep) && dir !== skillsRoot) {
-    return { text: `技能名非法：${name}`, isError: true };
-  }
-  const f = path.join(dir, "SKILL.md");
-  if (!fs.existsSync(f)) {
-    return { text: `技能 ${name} 不存在。可用技能：${loadSkillIndex().map(s => s.name).join(", ")}`, isError: true };
-  }
-  let out = fs.readFileSync(f, "utf8");
+function renderActivatedSkill(name, skillFile) {
+  const dir = path.dirname(skillFile);
+  let out = fs.readFileSync(skillFile, "utf8");
   const files = [];
   try { for (const x of fs.readdirSync(dir)) if (!x.startsWith(".") && x.toLowerCase() !== "skill.md") files.push(x); } catch {}
   if (files.length) out += `\n\n[技能目录文件] ${files.join(", ")}（如需参考文档/章节，用 read 工具读取）`;
   return { text: `技能 ${name} 已加载（${(out.length / 1024).toFixed(1)}KB）：\n\n${out}` };
+}
+
+export function execActivateSkill(name) {
+  const wanted = String(name || "").trim();
+  // ① 面板清单（可能是 ~/.pi、~/.agents、node_modules 里的线上技能——引擎自己扫不到）
+  const hit = (getSkillCache()?.list || []).find((s) => s && s.name === wanted);
+  if (hit?.path) {
+    try { return renderActivatedSkill(wanted, hit.path); } catch { /* 路径失效则回落到目录扫描 */ }
+  }
+  // ② 目录扫描兜底：工作区优先 + 内置；穿越检查在 findSkillDir 里按每个根各做一次
+  const dir = findSkillDir(wanted);
+  if (!dir) {
+    return { text: `技能 ${name} 不存在。可用技能：${loadSkillIndex().map(s => s.name).join(", ")}`, isError: true };
+  }
+  return renderActivatedSkill(wanted, path.join(dir, "SKILL.md"));
 }
 
 // activate_skill 工具 schema（供 UNIFIED_TOOLS 引用；渐进式披露：摘要→全文）

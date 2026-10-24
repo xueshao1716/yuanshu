@@ -633,9 +633,49 @@ export function listBuiltinSkills() {
     return out;
   } catch { return []; }
 }
+/**
+ * 工作区技能（`<cwd>/技能` 与 `<cwd>/skills`）。
+ * 为什么单独扫：pi 的资源加载器只认 `<cwd>/skills`，不认中文的 `技能/`。
+ * 于是放进去的技能模型能加载（context-loader 会补扫），面板却看不见——
+ * 面板与模型两个条数各说各话，就是 2026-10-24 那次权限误判的土壤。
+ */
+export function listWorkspaceSkills() {
+  const roots = [];
+  try {
+    if (_cwd) roots.push(path.join(_cwd, "技能"), path.join(_cwd, "skills"));
+  } catch {}
+  const out = [];
+  for (const root of roots) {
+    try {
+      for (const d of fs.readdirSync(root, { withFileTypes: true })) {
+        if (!d.isDirectory()) continue;
+        const skillFile = path.join(root, d.name, "SKILL.md");
+        if (!fs.existsSync(skillFile)) continue;
+        let name = d.name, desc = "";
+        try {
+          const content = fs.readFileSync(skillFile, "utf8");
+          const nameM = content.match(/^name:\s*(.+)$/m);
+          const descM = content.match(/^description:\s*(.+)$/m);
+          if (nameM) name = nameM[1].trim();
+          if (descM) desc = descM[1].trim();
+        } catch {}
+        out.push({ name, description: desc, location: "project", path: skillFile });
+      }
+    } catch {}
+  }
+  return out;
+}
+
 export async function handleSkills(res) {
   try {
-    json(res, 200, await listSkills());
+    const data = await listSkills();
+    // 2026-10-24：把"模型侧实际能加载到几条"一并给出。面板条数与模型条数以前是两个数，
+    // 差着 16 条线上技能却没有任何地方看得出来——这就是权限误判的土壤，现在摆在明面上。
+    try {
+      const { loadSkillIndex } = await import("./context-loader.mjs");
+      data.modelIndex = { count: loadSkillIndex().length, via: "activate_skill" };
+    } catch {}
+    json(res, 200, data);
   } catch (e) {
     json(res, 500, { error: String(e?.message || e) });
   }
@@ -647,7 +687,7 @@ export async function listSkills() {
     const loader = new _DefaultResourceLoader({ cwd: _cwd, agentDir });
     await loader.reload();
     const { skills, diagnostics } = loader.getSkills();
-    const merged = [...(skills || []).map(s => ({
+    const merged = [...listWorkspaceSkills(), ...(skills || []).map(s => ({
       name: s.name,
       description: s.description || "",
       location: (() => {
@@ -657,13 +697,21 @@ export async function listSkills() {
         return "project";
       })(),
       path: s.filePath || "",
-    })), ...listBuiltinSkills()].map(enrichSkill);
+    })), ...listBuiltinSkills()].map(enrichSkill)
+      // 同名去重：工作区优先（排在前面），避免面板把同一条技能数两次
+      .filter((s, i, arr) => arr.findIndex((x) => x.name === s.name) === i);
     const sources = { local: 0, online: 0, builtin: 0 };
     const categories = {};
     for (const skill of merged) {
       sources[skill.source] = (sources[skill.source] || 0) + 1;
       categories[skill.category] = (categories[skill.category] || 0) + 1;
     }
+    // 2026-10-24：把这份清单交给模型侧的 activate_skill（引擎里原本只有内置目录，
+    // 面板上装着的线上技能它一条都加载不到）。缓存的写入点就这里，单一真源。
+    try {
+      const { setSkillCache } = await import("./skill-cache.mjs");
+      setSkillCache(merged.map((s) => ({ name: s.name, desc: s.description || "", path: s.path || "", source: s.source || "" })));
+    } catch {}
     return {
       skills: merged,
       sources,
