@@ -44,16 +44,40 @@ function dirBirth(wsRoot) {
   } catch { return null }
 }
 
+// 2026-10-24 修：以前只数 sessions 根目录的 .jsonl —— 而真实会话都落在
+// 按 cwd 命名的**子目录**里（--D--pi-workspace-- 之类）。根目录只剩 4 个历史残留，
+// 于是自我介绍一直说"攒下 4 段对话"，而实际有 1000+ 段。
+// 现在递归统计，并跳过 .trash / 归档副本。
 function countSessions(wsRoot) {
-  // 会话落盘在 ~/.pi/agent/sessions（全局），工作区 sessions 只是旧路径，两处都试
   const candidates = [
     path.join(process.env.USERPROFILE || process.env.HOME || '', '.pi', 'agent', 'sessions'),
     path.join(wsRoot, '.pi', 'agent', 'sessions'),
     path.join(wsRoot, 'sessions'),
   ];
+  const countDir = (root) => {
+    let n = 0;
+    const walk = (dir, depth) => {
+      if (depth > 4) return;
+      let entries = [];
+      try { entries = fs.readdirSync(dir, { withFileTypes: true }) } catch { return }
+      for (const d of entries) {
+        const full = path.join(dir, d.name);
+        if (d.isDirectory()) {
+          if (d.name === '.trash' || d.name.startsWith('.')) continue;
+          walk(full, depth + 1);
+        } else if (d.isFile() && d.name.endsWith('.jsonl')) {
+          // 归档副本不算一次对话
+          if (/\.(archive|bak)\.jsonl$/.test(d.name)) continue;
+          n += 1;
+        }
+      }
+    };
+    walk(root, 0);
+    return n;
+  };
   for (const dir of candidates) {
     try {
-      const n = fs.readdirSync(dir, { withFileTypes: true }).filter(d => d.isFile() && d.name.endsWith('.jsonl')).length;
+      const n = countDir(dir);
       if (n > 0) return n;
     } catch { /* 换下一个 */ }
   }
