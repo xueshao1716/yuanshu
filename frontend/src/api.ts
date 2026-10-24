@@ -1157,3 +1157,24 @@ export type SessionUsage = {
 export const UsageApi = {
   session: (sessionId: string) => api<SessionUsage>(`/api/usage/session?sessionId=${encodeURIComponent(sessionId)}`),
 }
+
+// ── 天气（2026-10-24）──
+export type WeatherNow = {
+  place: string
+  temp: number
+  feels: number
+  text: string
+  icon: 'sun' | 'sun-cloud' | 'cloud' | 'fog' | 'drizzle' | 'rain' | 'snow' | 'storm'
+  high: number | null
+  low: number | null
+  rain: number | null
+  wind: number
+  humidity: number
+  sunrise?: string | null
+  sunset?: string | null
+  hint?: string
+  error?: string
+}
+export const WeatherApi = {
+  now: () => api<WeatherNow>('/api/weather'),
+}

@@ -14,7 +14,7 @@ import { MoodOrb } from '../components/MoodOrb'
 import { useXiaoyuEmotion } from '../lib/useXiaoyuEmotion'
 import HealthBadge from '../components/HealthBadge'
 import WorkExplanationList from '../components/WorkExplanationList'
-import LastNight from '../soul/LastNight'
+import NightStrip from '../components/NightStrip'
 import { ReviewPanel } from './ReviewWorkbench'
 import { PendingChanges } from '../components/PendingChanges'
 import { HistoryPanel } from '../components/HistoryPanel'
@@ -223,7 +223,7 @@ export default function Board({ initialView = 'overview' }: { initialView?: Boar
             onSession={id => { selectSession(id); goChat() }} onTeam={() => setView('team')} />
           <BoardShortcuts onTeam={() => setView('team')} />
           {/* 2026-10-24：昨夜块（复盘/自动执行/做梦）原先挂在没人引用的 pages/Overview 里，工作台看不到 */}
-          <LastNight />
+          <NightStrip />
         </div>
 
         <details className="panel p-4">

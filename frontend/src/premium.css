@@ -657,3 +657,62 @@ html[data-theme="dark"] .markdown-body-wrapper .markdown-body pre code .hljs-com
   border: 1px solid color-mix(in srgb, var(--pi-border) 45%, transparent);
   white-space: nowrap;
 }
+
+/* ── 今晨面板（2026-10-24 重排：天气 + 昨夜事实 + 待你处理）────────────── */
+.morning {
+  margin: 0 0 18px; padding: 16px 18px 12px;
+  border: 1px solid color-mix(in srgb, var(--pi-border) 55%, transparent);
+  border-radius: 14px;
+  background: color-mix(in srgb, var(--pi-bg2) 55%, var(--pi-bg));
+}
+.morning-head { display: flex; align-items: center; gap: 10px; }
+.morning-kicker { font-size: 11px; letter-spacing: .18em; text-transform: uppercase; color: var(--pi-dim2); }
+.morning-date { font-size: 12.5px; color: var(--pi-dim); font-variant-numeric: tabular-nums; }
+.morning-flag { font-size: 11px; padding: 2px 8px; border-radius: 999px; }
+.morning-flag.ok { color: #12805c; background: color-mix(in srgb, #12b76a 12%, transparent); }
+.morning-flag.warn { color: #b45309; background: color-mix(in srgb, #f59e0b 14%, transparent); }
+.morning-actions { margin-left: auto; display: inline-flex; gap: 2px; }
+.morning-actions button { display: inline-flex; align-items: center; justify-content: center; width: 24px; height: 24px; border-radius: 7px; color: var(--pi-dim2); }
+.morning-actions button:hover { background: color-mix(in srgb, var(--pi-text) 6%, transparent); color: var(--pi-text); }
+
+.morning-grid { display: grid; grid-template-columns: 240px minmax(0, 1fr); gap: 22px; margin-top: 14px; align-items: start; }
+@media (max-width: 720px) { .morning-grid { grid-template-columns: 1fr; gap: 14px; } }
+
+.morning-weather { padding-right: 20px; border-right: 1px solid color-mix(in srgb, var(--pi-border) 45%, transparent); }
+@media (max-width: 720px) { .morning-weather { padding-right: 0; border-right: 0; padding-bottom: 12px; border-bottom: 1px solid color-mix(in srgb, var(--pi-border) 45%, transparent); } }
+.mw-main { display: flex; align-items: center; gap: 10px; }
+.mw-icon { width: 26px; height: 26px; color: color-mix(in srgb, var(--pi-accent) 70%, var(--pi-dim)); }
+.mw-temp { font-size: 34px; line-height: 1; font-weight: 300; letter-spacing: -0.02em; color: var(--pi-text); font-variant-numeric: tabular-nums; }
+.mw-temp sup { font-size: 14px; vertical-align: super; margin-left: 1px; color: var(--pi-dim2); }
+.mw-meta { display: grid; gap: 2px; margin-top: 8px; }
+.mw-place { font-size: 12.5px; font-weight: 600; color: var(--pi-text); }
+.mw-text { font-size: 12px; color: var(--pi-dim); }
+.mw-sub { font-size: 11px; color: var(--pi-dim2); font-variant-numeric: tabular-nums; }
+.mw-hint { margin-top: 8px; font-size: 11.5px; color: color-mix(in srgb, var(--pi-accent) 85%, var(--pi-text)); }
+
+.morning-body { min-width: 0; display: grid; gap: 10px; }
+.morning-facts { margin: 0; padding: 0; list-style: none; display: grid; gap: 7px; }
+.morning-facts li { position: relative; padding-left: 13px; font-size: 12.8px; line-height: 1.65; color: var(--pi-dim); }
+.morning-facts li::before { content: ""; position: absolute; left: 2px; top: 8px; width: 4px; height: 4px; border-radius: 50%; background: color-mix(in srgb, var(--pi-accent) 55%, transparent); }
+.morning-empty { font-size: 12.5px; color: var(--pi-dim2); }
+.morning-todo { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.mt-label { font-size: 11px; letter-spacing: .12em; color: var(--pi-dim2); }
+.mt-chip { font-size: 11.5px; padding: 2px 8px; border-radius: 999px; color: #b45309; background: color-mix(in srgb, #f59e0b 12%, transparent); border: 1px solid color-mix(in srgb, #f59e0b 25%, transparent); }
+.morning-foot { display: flex; align-items: center; gap: 14px; margin-top: 12px; padding-top: 10px; border-top: 1px solid color-mix(in srgb, var(--pi-border) 40%, transparent); font-size: 10.5px; color: var(--pi-dim2); font-variant-numeric: tabular-nums; }
+.mf-spacer { flex: 1; }
+
+/* ── 工作台「昨夜」摘要条（2026-10-24）── */
+.night-strip { display: flex; align-items: center; flex-wrap: wrap; gap: 6px 18px; padding: 12px 16px; border: 1px solid color-mix(in srgb, var(--pi-border) 55%, transparent); border-radius: 12px; background: color-mix(in srgb, var(--pi-bg2) 45%, transparent); }
+.ns-kicker { font-size: 11px; letter-spacing: .16em; text-transform: uppercase; color: var(--pi-dim2); }
+.ns-item { display: inline-flex; align-items: baseline; gap: 6px; font-size: 12.5px; color: var(--pi-dim); }
+.ns-item b { font-size: 15px; font-weight: 600; color: var(--pi-text); font-variant-numeric: tabular-nums; }
+.ns-item.is-warn b { color: #b45309; }
+.ns-link { margin-left: auto; font-size: 11.5px; color: var(--pi-accent); }
+.ns-link:hover { text-decoration: underline; }
+
+/* 今晨面板在工作台欢迎区的双栏网格里必须占整行（同 .brief-card 的教训） */
+.chat-workstart > .chat-reading-column > .morning {
+  grid-column: 1 / -1;
+  grid-row: 2;
+  margin-bottom: 0;
+}

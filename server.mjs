@@ -4065,6 +4065,18 @@ const boardApi = createBoardApi({
     }
   }]);
 
+  // 2026-10-24：首页天气（Open-Meteo，免 key；失败返回 error 不阻塞页面）
+  API_ROUTES.push(["GET", "/api/weather", async (res, req) => {
+    try {
+      const u = new URL(req.url, "http://x");
+      const { readWeather } = await import("./engine/weather.mjs");
+      const data = await readWeather(WS_ROOT, { force: u.searchParams.get("force") === "1" });
+      return json(res, 200, data || { error: "暂无天气数据" });
+    } catch (e) {
+      return json(res, 200, { error: String(e?.message || e).slice(0, 120) });
+    }
+  }]);
+
   // 2026-10-24：单会话用量（tok/s、缓存命中率、上下文占用）——对标 DSH 状态栏那三个数
   API_ROUTES.push(["GET", "/api/usage/session", async (res, req) => {
     try {
