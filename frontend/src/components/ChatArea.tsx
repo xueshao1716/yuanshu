@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
+import BrandMark from './BrandMark'
 import useSWR from 'swr'
 import { useApp } from '../store'
 import { MessagesSquare, BrainCircuit, Wrench, FolderClosed, Plus, SquareTerminal, Command, ChevronDown, ChevronRight, PanelRight, ShieldAlert, ImagePlus, Presentation, Clock4, Database, Download, FileText, Code2 } from 'lucide-react'
@@ -1105,7 +1106,7 @@ export default function ChatArea({ compactHeader, rightPanel, onRightPanel, onVo
       <div className="chat-reading-column">
         <div className="workstart-hero">
           <div className="workstart-identity">
-            <img src="/static/branding/yuanshu-app-icon.png?v=desk" width="56" height="56" alt="" />
+            <span className="workstart-mark"><BrandMark size={48} /></span>
             <div><h1>元枢</h1><p>小语的工作空间</p></div>
           </div>
           <div className="workstart-status">
