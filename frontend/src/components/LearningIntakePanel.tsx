@@ -30,7 +30,7 @@ export default function LearningIntakePanel() {
         <h4 className="text-[13px] font-medium text-pi-text">会话观察采集</h4>
         {collection?.running ? <p role="status" className="text-[12px] text-pi-dim">正在采集，完成后刷新查看。</p> : collection?.at ? <p className="text-[12px] text-pi-dim">最近采集：{date(collection.at)}</p> : !intake.isLoading && !intake.error && <p className="text-[12px] text-pi-dim">尚无采集结果；服务启动后约 2 分钟首次检查，之后每 6 小时检查。</p>}
         {collection?.ok === false && <p role="alert" className="text-[12px] text-pi-text">采集未全部完成（{collection.failed ?? '未知'} 项失败）。失败文件不会被标记为完成；下轮会重试。状态文件损坏需先修复。</p>}
-        {collection?.at && <p className="text-[12px] text-pi-dim">成功 {collection.succeeded || 0} · 未变化 {collection.skipped || 0} · 无可提取观察 {collection.empty || 0}{collection.reason === 'no_changes' ? ' · 本轮没有新变化，不是采集故障。' : ''}</p>}
+        {collection?.at && <p className="text-[12px] text-pi-dim">扫描 {collection.scanned ?? '—'} 个会话 · 成功 {collection.succeeded || 0} · 未变化 {collection.skipped || 0} · 无可提取观察 {collection.empty || 0}{typeof collection.added === 'number' ? ` · 新沉淀 ${collection.added} 条` : ''}{collection.reason === 'no_changes' ? ' · 本轮没有新变化，不是采集故障。' : ''}</p>}
       </div>
       <div className="space-y-2 border-t border-pi-border-soft pt-3">
         <h4 className="text-[13px] font-medium text-pi-text">经验库记录{experience && !experience.error ? ` · ${experience.count} 个标题` : ''}</h4>
