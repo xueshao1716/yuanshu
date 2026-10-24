@@ -8,8 +8,26 @@
 
 ## [Unreleased]
 
+## [2.127.141] - 2026-10-24
+
+## [2.127.141] - 2026-10-24
+
+- **记忆写入自检（Probe）**：engine/memory-hygiene.mjs 抽原文里的数字/日期/英文专名/引号内名字，检查写入的记忆有没有丢掉；dream-collector 每次追加后跑一次，结果进 记忆/记忆自检.jsonl（{score, kept, missing}）。
+- **增长惩罚（Growth Penalty）**：经验库/记忆日志超过条目或字节上限时，把**最老**的条目移进 <file>.archive.md，主文件只留近期，**先备份** .bak-<时间戳>；文件开头说明区永远保留（不参与归档）。
+  - 每天最多跑一次（按日期戳），服务启动 5 分钟后与每 6 小时各检查；
+  - GET /api/memory-hygiene 出计划与最近自检。
+  - 当前计划：经验库 113 → 100 条（归档 13）、记忆日志 447 → 250 条（归档 197）。
+- 踩坑记录：路由写成 /api/memory/hygiene 会被既有的 /^\/api\/memory\/([^/]+)$/ 先接住返回 not_found，改名 /api/memory-hygiene 才通。
 ## [2.127.140] - 2026-10-24
 
+## [2.127.141] - 2026-10-24
+
+- **记忆写入自检（Probe）**：engine/memory-hygiene.mjs 抽原文里的数字/日期/英文专名/引号内名字，检查写入的记忆有没有丢掉；dream-collector 每次追加后跑一次，结果进 记忆/记忆自检.jsonl（{score, kept, missing}）。
+- **增长惩罚（Growth Penalty）**：经验库/记忆日志超过条目或字节上限时，把**最老**的条目移进 <file>.archive.md，主文件只留近期，**先备份** .bak-<时间戳>；文件开头说明区永远保留（不参与归档）。
+  - 每天最多跑一次（按日期戳），服务启动 5 分钟后与每 6 小时各检查；
+  - GET /api/memory-hygiene 出计划与最近自检。
+  - 当前计划：经验库 113 → 100 条（归档 13）、记忆日志 447 → 250 条（归档 197）。
+- 踩坑记录：路由写成 /api/memory/hygiene 会被既有的 /^\/api\/memory\/([^/]+)$/ 先接住返回 not_found，改名 /api/memory-hygiene 才通。
 ## [2.127.140] - 2026-10-24
 
 - **每日 token 预算**（engine/token-budget.mjs）：从 记忆/运行时/每轮耗时.jsonl 里已落盘的 usage 按天汇总，按 provider 拆分；
@@ -19,6 +37,14 @@
 - 实测：今日 142.9 万 token（deepseek 2.9 万 / 其余来自更早未分组的轮次），预算 47.7%。
 ## [2.127.139] - 2026-10-24
 
+## [2.127.141] - 2026-10-24
+
+- **记忆写入自检（Probe）**：engine/memory-hygiene.mjs 抽原文里的数字/日期/英文专名/引号内名字，检查写入的记忆有没有丢掉；dream-collector 每次追加后跑一次，结果进 记忆/记忆自检.jsonl（{score, kept, missing}）。
+- **增长惩罚（Growth Penalty）**：经验库/记忆日志超过条目或字节上限时，把**最老**的条目移进 <file>.archive.md，主文件只留近期，**先备份** .bak-<时间戳>；文件开头说明区永远保留（不参与归档）。
+  - 每天最多跑一次（按日期戳），服务启动 5 分钟后与每 6 小时各检查；
+  - GET /api/memory-hygiene 出计划与最近自检。
+  - 当前计划：经验库 113 → 100 条（归档 13）、记忆日志 447 → 250 条（归档 197）。
+- 踩坑记录：路由写成 /api/memory/hygiene 会被既有的 /^\/api\/memory\/([^/]+)$/ 先接住返回 not_found，改名 /api/memory-hygiene 才通。
 ## [2.127.140] - 2026-10-24
 
 - **每日 token 预算**（engine/token-budget.mjs）：从 记忆/运行时/每轮耗时.jsonl 里已落盘的 usage 按天汇总，按 provider 拆分；
@@ -37,6 +63,14 @@
 - 单测 3 条：品味库记录/搜索/提示词片段、33 词表自洽映射。
 ## [2.127.138] - 2026-10-24
 
+## [2.127.141] - 2026-10-24
+
+- **记忆写入自检（Probe）**：engine/memory-hygiene.mjs 抽原文里的数字/日期/英文专名/引号内名字，检查写入的记忆有没有丢掉；dream-collector 每次追加后跑一次，结果进 记忆/记忆自检.jsonl（{score, kept, missing}）。
+- **增长惩罚（Growth Penalty）**：经验库/记忆日志超过条目或字节上限时，把**最老**的条目移进 <file>.archive.md，主文件只留近期，**先备份** .bak-<时间戳>；文件开头说明区永远保留（不参与归档）。
+  - 每天最多跑一次（按日期戳），服务启动 5 分钟后与每 6 小时各检查；
+  - GET /api/memory-hygiene 出计划与最近自检。
+  - 当前计划：经验库 113 → 100 条（归档 13）、记忆日志 447 → 250 条（归档 197）。
+- 踩坑记录：路由写成 /api/memory/hygiene 会被既有的 /^\/api\/memory\/([^/]+)$/ 先接住返回 not_found，改名 /api/memory-hygiene 才通。
 ## [2.127.140] - 2026-10-24
 
 - **每日 token 预算**（engine/token-budget.mjs）：从 记忆/运行时/每轮耗时.jsonl 里已落盘的 usage 按天汇总，按 provider 拆分；
@@ -66,6 +100,14 @@
 - 单测 4 条：过滤测试事件、正文结构、写过不重复、列表与单篇可读。
 ## [2.127.137] - 2026-10-24
 
+## [2.127.141] - 2026-10-24
+
+- **记忆写入自检（Probe）**：engine/memory-hygiene.mjs 抽原文里的数字/日期/英文专名/引号内名字，检查写入的记忆有没有丢掉；dream-collector 每次追加后跑一次，结果进 记忆/记忆自检.jsonl（{score, kept, missing}）。
+- **增长惩罚（Growth Penalty）**：经验库/记忆日志超过条目或字节上限时，把**最老**的条目移进 <file>.archive.md，主文件只留近期，**先备份** .bak-<时间戳>；文件开头说明区永远保留（不参与归档）。
+  - 每天最多跑一次（按日期戳），服务启动 5 分钟后与每 6 小时各检查；
+  - GET /api/memory-hygiene 出计划与最近自检。
+  - 当前计划：经验库 113 → 100 条（归档 13）、记忆日志 447 → 250 条（归档 197）。
+- 踩坑记录：路由写成 /api/memory/hygiene 会被既有的 /^\/api\/memory\/([^/]+)$/ 先接住返回 not_found，改名 /api/memory-hygiene 才通。
 ## [2.127.140] - 2026-10-24
 
 - **每日 token 预算**（engine/token-budget.mjs）：从 记忆/运行时/每轮耗时.jsonl 里已落盘的 usage 按天汇总，按 provider 拆分；
@@ -100,6 +142,14 @@
   - 顺带修掉图标与「元枢」标题的视觉挤压：固定 52×52 的 flex 盒，不参与缩放。
 ## [2.127.136] - 2026-10-24
 
+## [2.127.141] - 2026-10-24
+
+- **记忆写入自检（Probe）**：engine/memory-hygiene.mjs 抽原文里的数字/日期/英文专名/引号内名字，检查写入的记忆有没有丢掉；dream-collector 每次追加后跑一次，结果进 记忆/记忆自检.jsonl（{score, kept, missing}）。
+- **增长惩罚（Growth Penalty）**：经验库/记忆日志超过条目或字节上限时，把**最老**的条目移进 <file>.archive.md，主文件只留近期，**先备份** .bak-<时间戳>；文件开头说明区永远保留（不参与归档）。
+  - 每天最多跑一次（按日期戳），服务启动 5 分钟后与每 6 小时各检查；
+  - GET /api/memory-hygiene 出计划与最近自检。
+  - 当前计划：经验库 113 → 100 条（归档 13）、记忆日志 447 → 250 条（归档 197）。
+- 踩坑记录：路由写成 /api/memory/hygiene 会被既有的 /^\/api\/memory\/([^/]+)$/ 先接住返回 not_found，改名 /api/memory-hygiene 才通。
 ## [2.127.140] - 2026-10-24
 
 - **每日 token 预算**（engine/token-budget.mjs）：从 记忆/运行时/每轮耗时.jsonl 里已落盘的 usage 按天汇总，按 provider 拆分；
@@ -139,6 +189,14 @@
 - **工作台「昨夜」改紧凑摘要条**（NightStrip）：36 分钟复盘 · 1 条受阻 · 4 条新承诺 · 看全文 →；0 值不显示；完整版仍在灵魂培育中心。
 ## [2.127.135] - 2026-10-24
 
+## [2.127.141] - 2026-10-24
+
+- **记忆写入自检（Probe）**：engine/memory-hygiene.mjs 抽原文里的数字/日期/英文专名/引号内名字，检查写入的记忆有没有丢掉；dream-collector 每次追加后跑一次，结果进 记忆/记忆自检.jsonl（{score, kept, missing}）。
+- **增长惩罚（Growth Penalty）**：经验库/记忆日志超过条目或字节上限时，把**最老**的条目移进 <file>.archive.md，主文件只留近期，**先备份** .bak-<时间戳>；文件开头说明区永远保留（不参与归档）。
+  - 每天最多跑一次（按日期戳），服务启动 5 分钟后与每 6 小时各检查；
+  - GET /api/memory-hygiene 出计划与最近自检。
+  - 当前计划：经验库 113 → 100 条（归档 13）、记忆日志 447 → 250 条（归档 197）。
+- 踩坑记录：路由写成 /api/memory/hygiene 会被既有的 /^\/api\/memory\/([^/]+)$/ 先接住返回 not_found，改名 /api/memory-hygiene 才通。
 ## [2.127.140] - 2026-10-24
 
 - **每日 token 预算**（engine/token-budget.mjs）：从 记忆/运行时/每轮耗时.jsonl 里已落盘的 usage 按天汇总，按 provider 拆分；

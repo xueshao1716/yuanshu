@@ -1,4 +1,5 @@
 import { collectSessionFiles } from './session-files.mjs';
+import { probeEntry, recordProbe } from './memory-hygiene.mjs'
 import fs from 'node:fs'
 import path from 'node:path'
 import { atomicWriteJson } from './atomic-io.mjs'
@@ -42,6 +43,13 @@ export function createDreamCollector({ wsRoot, sessionsDir,
         const episodes = await extract([file])
         if (fingerprint(file) !== before) throw Error('session_changed')
         const write = await append(wsRoot, episodes)
+      // 2026-10-24：写入自检（借 Hy-Memory 的 Probe）——原文的数字/日期/名字有没有在记忆里丢掉
+      try {
+        const memText = JSON.stringify(write || {});
+        const sources = episodes.map((e) => String(e?.summary || e?.text || '')).join('\n');
+        const probe = probeEntry({ sourceText: sources, memoryText: memText });
+        recordProbe(wsRoot, { kind: 'dream_episode', added: write?.added || 0, ...probe });
+      } catch {}
         if (write?.ok !== true) throw Error('episode_write_failed')
         if (fingerprint(file) !== before) throw Error('session_changed')
         state.files[name] = { fingerprint: before }

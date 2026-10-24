@@ -572,6 +572,20 @@ const writeMoodDiaryQuietly = async () => {
 };
 setTimeout(() => { void writeMoodDiaryQuietly() }, 3 * 60_000).unref?.();
 setInterval(() => { void writeMoodDiaryQuietly() }, 30 * 60_000).unref?.();
+// 2026-10-24：记忆卫生——每天一次，经验库/记忆日志超限就把最老条目归档（先备份，移动不删除）
+const runMemoryHygieneQuietly = async () => {
+  try {
+    const { runHygieneDaily } = await import("./engine/memory-hygiene.mjs");
+    const r = runHygieneDaily(WS_ROOT);
+    if (r && !r.skipped) {
+      for (const a of r.applied || []) {
+        if (a.action === "archived") console.log(`[memory] 归档 ${a.file}：${a.archived} 条 → .archive.md（备份 ${a.backup}）`);
+      }
+    }
+  } catch (e) { console.log("[memory] 记忆卫生失败:", String(e?.message || e).slice(0, 120)); }
+};
+setTimeout(() => { void runMemoryHygieneQuietly() }, 5 * 60_000).unref?.();
+setInterval(() => { void runMemoryHygieneQuietly() }, 6 * 3600_000).unref?.();
 memWatch.start(() => ({ runs: runStore.list().length, sessions: activeSessions.size, streams: chatStreams.size(), jobs: jobPool.summary().running }));
 // 2026-10-24：GC 观测。长停顿到底是 GC 还是别的，用它把话说死：
 // 超过 50ms 的 GC 会打一行 [gc] <kind> <ms>，和 loop-lag 的时间轴对得上就能确认。
@@ -4083,6 +4097,23 @@ const boardApi = createBoardApi({
     } catch (e) {
       return json(res, 500, { error: String(e?.message || e).slice(0, 200) });
     }
+  }]);
+
+  // 2026-10-24：记忆卫生报告（增长惩罚 + 写入自检）
+  API_ROUTES.push(["GET", "/api/memory-hygiene", async (res, req) => {
+    try {
+      const u = new URL(req.url, "http://x");
+      const { planGrowth } = await import("./engine/memory-hygiene.mjs");
+      const file = path.join(WS_ROOT, "记忆", "运行时", "记忆卫生.json");
+      let last = null;
+      try { last = JSON.parse(fs.readFileSync(file, "utf8")) } catch {}
+      const probes = (() => {
+        try {
+          return fs.readFileSync(path.join(WS_ROOT, "记忆", "记忆自检.jsonl"), "utf8").split("\n").filter(Boolean).slice(-20).map((l) => JSON.parse(l));
+        } catch { return [] }
+      })();
+      return json(res, 200, { plan: planGrowth(WS_ROOT), last, probes, skip: u.searchParams.get("plan") === "1" });
+    } catch (e) { return json(res, 500, { error: String(e?.message || e).slice(0, 200) }); }
   }]);
 
   // 2026-10-24：每日 token 预算（超了就降级/提醒，不等充值才发现）
