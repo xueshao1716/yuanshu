@@ -6,7 +6,7 @@ import os from "node:os";
 import { fileURLToPath } from "node:url";
 import { execFile } from "node:child_process";
 import { json } from "./http-utils.mjs";
-import { scanSessionFiles, parseSessionFile, getSessionList, findSession, readEntriesFromFile, invalidateSessionCache } from "./session-files.mjs";
+import { scanSessionFiles, parseSessionFile, parseSessionFileCached, getSessionList, findSession, readEntriesFromFile, invalidateSessionCache } from "./session-files.mjs";
 import { extractMessages } from "./session-utils.mjs";
 import { sanitizeText } from "./sanitize.mjs";
 
@@ -25,6 +25,40 @@ export function initStatsApi({ getAgentDir = null, cwd = "", DefaultResourceLoad
 // 根因是这里把每个会话文件整读 + 逐行 JSON.parse，而页面每 8–60 秒还会再打一次。
 // 做法：按 mtime+size 判"没变就复用上次的解析结果"，并把结果统一成 entries 供两个接口共用。
 const __usageCache = new Map(); // file -> { mtimeMs, size, entries }
+// 2026-10-24：大文件走流式解析，避免一次读 37MB 把事件循环按住
+const BIG_FILE_BYTES = 4 * 1024 * 1024;
+async function sessionUsageEntriesAsync(file) {
+  let st; try { st = await fs.promises.stat(file); } catch { return null }
+  if (st.size <= BIG_FILE_BYTES) return sessionUsageEntries(file);
+  const hit = __usageCache.get(file);
+  if (hit && hit.mtimeMs === st.mtimeMs && hit.size === st.size) return hit.entries;
+  const entries = [];
+  try {
+    const { createReadStream } = fs;
+    const readline = await import("node:readline");
+    const rl = readline.createInterface({ input: createReadStream(file, { encoding: "utf8" }), crlfDelay: Infinity });
+    let n = 0;
+    for await (const line of rl) {
+      if (++n % 5000 === 0) await new Promise((r) => setImmediate(r));
+      if (!line || !line.includes('"usage"')) continue;
+      let e; try { e = JSON.parse(line) } catch { continue }
+      if (!e || e.type !== "message" || e.message?.role !== "assistant" || !e.message?.usage) continue;
+      const u = e.message.usage;
+      let c = u.cost;
+      if (c && typeof c === "object") c = c.total || c.input || 0;
+      entries.push({
+        provider: e.message.provider || "unknown",
+        model: e.message.model || "unknown",
+        input: u.input || 0, output: u.output || 0,
+        cacheRead: u.cacheRead || 0, cacheWrite: u.cacheWrite || 0,
+        cost: typeof c === "number" ? c : 0,
+      });
+    }
+  } catch { return null }
+  __usageCache.set(file, { mtimeMs: st.mtimeMs, size: st.size, entries });
+  return entries;
+}
+
 function sessionUsageEntries(file) {
   let st; try { st = fs.statSync(file); } catch { return null; }
   const hit = __usageCache.get(file);
@@ -57,14 +91,25 @@ function pruneUsageCache(files) {
   for (const k of [...__usageCache.keys()]) if (!keep.has(k)) __usageCache.delete(k);
 }
 
+// 2026-10-24：60 秒 TTL。UI 轮询这个接口时不该每次都重算 398 个会话。
+let _globalStatsCache = { at: 0, payload: null };
+export function invalidateGlobalStatsCache() { _globalStatsCache = { at: 0, payload: null } }
+
 export async function handleGlobalStats(res) {
+  if (_globalStatsCache.payload && Date.now() - _globalStatsCache.at < 60_000) {
+    return json(res, 200, _globalStatsCache.payload);
+  }
   const files = scanSessionFiles();
   const rows = [];
   const totals = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, cost: 0, messages: 0 };
-  for (const file of files) {
-    const info = parseSessionFile(file);
+  for (let i = 0; i < files.length; i++) {
+    // 2026-10-24：让出事件循环，把 3 秒的长阻塞切成小片
+    if (i % 20 === 0) await new Promise((r) => setImmediate(r));
+    const file = files[i];
+    // 2026-10-24：走 mtime 缓存，避免每次全量重解析（这是 3 秒卡顿的主因）
+    const info = parseSessionFileCached(file);
     const t = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, cost: 0, messages: 0 };
-    const entries = sessionUsageEntries(file) || [];
+    const entries = (await sessionUsageEntriesAsync(file)) || [];
     for (const e of entries) {
       t.input += e.input; t.output += e.output;
       t.cacheRead += e.cacheRead; t.cacheWrite += e.cacheWrite;
@@ -78,15 +123,19 @@ export async function handleGlobalStats(res) {
   }
   pruneUsageCache(files);
   rows.sort((a, b) => b.tokens.cost - a.tokens.cost);
-  json(res, 200, { sessions: rows, totals, count: rows.length });
+  const payload = { sessions: rows, totals, count: rows.length };
+  _globalStatsCache = { at: Date.now(), payload };
+  json(res, 200, payload);
 }
 
 // GET /api/stats/providers —— 按 provider/model 聚合用量（监控各模型商消耗）
 export async function handleProviderStats(res) {
   const files = scanSessionFiles();
   const provMap = new Map(); // provider -> { input, output, cacheRead, cost, messages, models: Map(model -> {input,output,cost,messages}) }
-  for (const file of files) {
-    const entries = sessionUsageEntries(file) || [];
+  for (let i = 0; i < files.length; i++) {
+    if (i % 20 === 0) await new Promise((r) => setImmediate(r));
+    const file = files[i];
+    const entries = (await sessionUsageEntriesAsync(file)) || [];
     for (const e of entries) {
       const prov = e.provider, model = e.model, c = e.cost;
       const p = provMap.get(prov) || { provider: prov, input: 0, output: 0, cacheRead: 0, cost: 0, messages: 0, models: new Map() };
