@@ -292,10 +292,29 @@ export async function compactSession(file, model, force = false, focus = "") {
 
 对话记录：
 ${inputText}`;
-    // 内联 deepseek 官方直连生成摘要（curl 已验证 200；directChat/unifiedChat 均存在中间层 400/回 null 问题，不再依赖）
+    // 2026-10-24：先走我们自己的模型通道（按 provider 鉴权），再退回 deepseek 直连。
+    // 起因：别人报"压缩失败"，根因是摘要**只**走硬编码 api.deepseek.com；这条老路在 402/密钥缺失时
+    // 直接失败，而配置里的摘要模型（sensenova flash-lite 等）根本没被用上。
     let summary = "";
     let dcErr = "";
+    const _extract = (r) => {
+      if (!r) return "";
+      if (typeof r === "string") return r;
+      const c = r.content ?? r.message?.content ?? r.text;
+      if (typeof c === "string") return c;
+      if (Array.isArray(c)) return c.map((x) => (typeof x === "string" ? x : x?.text || "")).join("\n");
+      return "";
+    };
+    if (summaryModel && typeof _unifiedChat === "function") {
+      try {
+        const r = await _unifiedChat(summaryModel, [{ role: "user", content: prompt }], {});
+        summary = _extract(r).trim().slice(0, 3000);
+        if (!summary) dcErr = "配置通道返回空摘要";
+      } catch (e) { dcErr = "配置通道失败: " + String(e?.message || e).slice(0, 160); }
+    }
+    // 兜底：deepseek 官方直连（老路，配置通道不可用时才走）
     try {
+      if (summary) throw { __skip: true };
       const _auth2 = _readJsonFile(path.join(_getAgentDir(), "auth.json"));
       const _dk = _auth2["deepseek"]?.key || _auth2["opencode-go"]?.key || "";
       const _url = "https://api.deepseek.com/v1/chat/completions";
@@ -309,7 +328,9 @@ ${inputText}`;
       } else {
         dcErr = "HTTP " + _rr.status + ": " + String(await _rr.text()).slice(0, 200);
       }
-    } catch (e) { dcErr = String(e?.message || e).slice(0, 200); }
+    } catch (e) {
+      if (!e?.__skip) dcErr = dcErr || String(e?.message || e).slice(0, 200);
+    }
     if (!summary) return { skip: true, reason: "摘要生成失败: " + (dcErr || "响应无 content") };
     if (!lifecycle.current(token)) return { skip: true, reason: 'conversation_gone' };
     if (sessionFileVersion(file) !== originalVersion) return { skip: true, reason: 'session_changed' };

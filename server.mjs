@@ -3384,6 +3384,22 @@ const API_ROUTES = [
   ["POST", /^\/api\/sessions\/([^/]+)\/messages$/, async (res, req, url, m) => handleAppendMessage(res, decodeURIComponent(m[1]), await readBody(req))],
   ["GET", /^\/api\/sessions\/([^/]+)\/stream$/, (res, req, url, m) => handleSessionStream(res, req, url, m[1])],
   ["GET", /^\/api\/sessions\/([^/]+)\/stats$/, (res, req, url, m) => handleStats(res, decodeURIComponent(m[1]))],
+  // 2026-10-24：分层压缩显式入口。与另一棵树（compact-12-keep）的契约对齐：
+  // 200 {compact:"skip", reason} 或 {ok, summary, retained}。以前我们只有 /compact（pi SDK 那条），
+  // 前端/外部调用 compact-layered 直接 404 —— 别人报的"压缩失败"就是这里。
+  ["POST", /^\/api\/sessions\/([^/]+)\/compact-layered$/, async (res, req, url, m) => {
+    const id = decodeURIComponent(m[1]);
+    const found = typeof findSession === "function" ? findSession(id) : null;
+    if (!found?.file) return json(res, 200, { compact: "skip", reason: "conversation_gone" });
+    try {
+      const r = await compactSession(found.file, defaultModel, true, "");
+      if (!r) return json(res, 200, { compact: "skip", reason: "below_threshold" });
+      if (r.skip) return json(res, 200, { compact: "skip", reason: r.reason || "skip" });
+      return json(res, 200, { ok: true, compact: "done", summary: String(r.summary || "").slice(0, 2000), retained: r.retained, before: r.before });
+    } catch (e) {
+      return json(res, 500, { error: String(e?.message || e).slice(0, 200) });
+    }
+  }],
   ["POST", /^\/api\/sessions\/([^/]+)\/compact$/, (res, req, url, m) => handleCompact(res, decodeURIComponent(m[1]))],
   ["POST", /^\/api\/sessions\/([^/]+)\/rename$/, async (res, req, url, m) => handleRename(res, decodeURIComponent(m[1]), await readBody(req))],
   ["DELETE", /^\/api\/sessions\/([^/]+)$/, async (res, req, url, m) => { await deleteSession(decodeURIComponent(m[1])); return json(res, 200, { ok: true }); }],
