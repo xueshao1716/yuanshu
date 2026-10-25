@@ -6,6 +6,11 @@
 > 而 `sync:frontend` 是忠实镜像，会把它们复制进 `public/` 与 `app/dist/`（细节见 `docs/NAMING.md`）。
 > 版本唯一来源是仓库根的 `version.json`；契约见 `docs/NAMING.md`。
 
+## [2.129.5] - 2026-10-26
+- **收件箱自动研判 + 生成回信**（`engine/crash-triage.mjs` + `GET /api/feedback/triage`）：每条报告判一次「能不能对上号」，分四类：`no_build`（缺构建号 / 栈被截断）、`stale`（版本低于支持窗口）、`foreign`（栈里的路径不是我们发出去的构建）、`no_repro`（字段够但复现不了）。
+- **对不上就说清为什么**：生成一段可直接发给对方的话（补 `crash.log` 尾部 / 升级后重报 / 换正式构建），不假装在查、不给空头承诺。
+- 收件箱卡片显示「可定位 / 对不上：no_build」标记，每个分组可一键「生成回信」（复制到剪贴板）。
+- 实测：43 条历史报告**全部** `no_build`（当年上报只带 160 字一行、无构建号）——正是这次要改的东西。
 ## [2.129.4] - 2026-10-26
 
 - **崩溃报告有了验收标准**（engine/crash-report-spec.mjs + docs/CRASH-REPORT-CONTRACT.md）：必填 version/commit/platform/arch/node/uptimeSec/kind/signature/stack/exitCode；本地分三档可定位性（addressable / partial / unusable），低于 MIN_SUPPORTED_VERSION 标「先升级再报」。
