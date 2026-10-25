@@ -898,23 +898,24 @@ export const SystemApi = {
   setupSoul: (body: { name?: string; called?: string }) => api<{ ok: boolean; unchanged: boolean; name?: string; called?: string }>('/api/setup/soul', { method: 'POST', body }),
   setupDone: () => api<{ ok: boolean }>('/api/setup/done', { method: 'POST', body: {} }),
   persona: () => api<{ definition: { name: string; age: number; gender: string; kind: string; called: string }; source: string }>('/api/persona'),
-  // 2026-10-25：人格段解析元数据（与提示词同源）+ 会话语气档。
-  // 状态接口只给每段的 id/名称/字数，正文走 personaPart() 按需取。
-  personaResolution: (sessionId?: string) => api<{
+  // 2026-10-25：人格段解析元数据（与提示词同源）。
+  // 只给每段的 id/名称/字数，正文走 personaPart() 按需取。
+  // 注：这里曾经还有「语气档」的读写（会话级/工作区级）——已拆掉，理由见
+  // engine/persona-resolve.mjs 头注释：语气该由灵魂主导，不该是往提示词里塞一句话。
+  personaResolution: () => api<{
     resolution: PersonaResolution | null
-    stylePresets?: { id: string; label: string; chars: number }[]
-    maxStyleChars?: number
-  }>(`/api/persona${sessionId ? `?sessionId=${encodeURIComponent(sessionId)}` : ''}`),
-  personaPart: (id: string, sessionId?: string) => api<{ id: string; label: string; chars: number; text: string }>(
-    `/api/persona/part?id=${encodeURIComponent(id)}${sessionId ? `&sessionId=${encodeURIComponent(sessionId)}` : ''}`,
+    expressionPresets?: { id: string; label: string }[]
+    maxExpressionChars?: number
+  }>('/api/persona'),
+  // 2026-10-25：表达微调（只改表达方式，不改身份；服务端会拒掉改名/换人格这类内容）
+  setPersonaExpression: (style: string | null) => api<{ ok: boolean; error?: string; resolution: PersonaResolution }>(
+    '/api/persona/expression', { method: 'POST', body: { style } },
   ),
-  setPersonaStyle: (sessionId: string, style: string | null) => api<{ ok: boolean; resolution: PersonaResolution }>(
-    '/api/persona/session', { method: 'POST', body: { sessionId, style } },
+  setPersonaSessionExpression: (sessionId: string, style: string | null) => api<{ ok: boolean; error?: string; resolution: PersonaResolution }>(
+    '/api/persona/expression/session', { method: 'POST', body: { sessionId, style } },
   ),
-  // 2026-10-25：工作区语气档（灵魂培育里的主入口，长期有效）。
-  // 产品是"一个人格在长"，所以主档位在工作区；会话档只是临时覆盖。
-  setPersonaWorkspaceStyle: (style: string | null) => api<{ ok: boolean; resolution: PersonaResolution }>(
-    '/api/persona/workspace', { method: 'POST', body: { style } },
+  personaPart: (id: string) => api<{ id: string; label: string; chars: number; text: string }>(
+    `/api/persona/part?id=${encodeURIComponent(id)}`,
   ),
   changeToken: (token: string) => api<{ ok: boolean }>('/api/system/token', { method: 'POST', body: { token } }),
   saveNetwork: (body: { domains: { domain: string; desc: string }[] }) =>
@@ -1195,12 +1196,11 @@ export type SessionUsage = {
 }
 /** 人格段解析结果元数据（与提示词注入同源；不含正文）。 */
 export interface PersonaResolution {
-  mode: 'session' | 'workspace' | 'none'
-  sessionId: string | null
-  sessionStyle: { id: string; label: string; at: number } | null
-  /** 工作区语气档（长期设定；会话档优先于它） */
-  workspaceStyle?: { id: string; label: string; at: number } | null
   chars: number
+  /** 'session' / 'workspace' / 'none'：只表示有没有表达微调，不代表换了人格 */
+  expressionMode?: 'session' | 'workspace' | 'none'
+  workspaceExpression?: { id: string; label: string; at: number } | null
+  sessionExpression?: { id: string; label: string; at: number } | null
   parts: { id: string; label: string; chars: number }[]
 }
 
