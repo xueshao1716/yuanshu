@@ -6,6 +6,16 @@
 > 而 `sync:frontend` 是忠实镜像，会把它们复制进 `public/` 与 `app/dist/`（细节见 `docs/NAMING.md`）。
 > 版本唯一来源是仓库根的 `version.json`；契约见 `docs/NAMING.md`。
 
+## [2.127.148] - 2026-10-25
+
+- **修「自动执行 3 条全失败」的真因：执行轮裸调主通道**。现象：2026-10-25 09:0x 的自动执行三条全部 `[failed] 执行轮异常：HTTP 402 Insufficient Balance`，看起来像三件事都做不了。
+  - 查下来是两层模型选择不一致：定时任务的外层反思**钉了** `stepfun-plan/step-5-preview`（活得很好），而内层的执行轮/验证轮写的是 `unifiedChat(defaultModel, …)` —— 主通道 deepseek 官方余额只剩 ¥2.43，一个大提示词就 402。所以「外层能跑、内层全挂」，日志上完全看不出是通道问题。
+  - 新增 `chatWithFailover(model, messages, opts)`：内部用 `withModelFailover`（402/401/403/429 换通道、网络退避、媒体模型排除），并**拆出 `result` 再返回**（`withModelFailover` 返回的是 `{result, model, attempts, tried}` 包装，直接透传会让调用方拿到包装对象、误报「没有按契约给出结果」）。
+  - 四个「无人看着跑」的调用点统一改用它：`fix_problem`（当场修）、`setOnTheSpotFixRunner`（Pi 会话里的同名工具）、时间引擎的执行轮/验证轮、`draftHarnessCandidates`（候选生成）。内层也尊重任务钉的模型（外层一直有，内层漏了）。
+- **测试**：新增 `tests/unit/autofix-failover.test.mjs` 3 条——源码守卫（不许再有裸调 `unifiedChat(defaultModel`，两处 fix 入口都要用 `runFixTurn`）+ 402 必须换通道 + 402 归类为额度类。
+
+## [2.127.148] - 2026-10-25
+
 ## [2.127.147] - 2026-10-25
 
 - **用量状态条补上单轮 tok/s，并把「测不准」的那档换成首字延迟**：`/api/usage/session` 的口径抽到 `engine/usage-view.mjs`（原来内联在路由里，测不了）。

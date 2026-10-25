@@ -516,7 +516,8 @@ async function draftHarnessCandidates(extraEvidence = null, source = "manual") {
     if (extraEvidence) evidence.probeRows = [...evidence.probeRows, extraEvidence];
     if (!evidence.hasEvidence && !extraEvidence) return { ok: false, reason: "no-evidence" };
     const prompt = buildProposePrompt(evidence);
-    const r = await unifiedChat(defaultModel, [{ role: "user", content: prompt }], { tools: [] });
+    // 同一类"无人看着跑"的调用：也走通道切换，别因为主通道没额度就整天不产候选
+    const r = await chatWithFailover(defaultModel, [{ role: "user", content: prompt }], { tools: [] });
     const text = completedTaskText(r);
     const candidates = parseCandidates(text);
     if (!candidates.length) return { ok: false, reason: "unparsed" };
@@ -1049,10 +1050,7 @@ const executeUnifiedTool = createUnifiedToolExecutorGuarded({
       const out = await runOnTheSpotFix({
         problem: args?.problem,
         sessionKey: ctx?.sessionKey || ctx?.sessionId || "anon",
-        runTurn: async (prompt) => {
-          const r = await unifiedChat(defaultModel, [{ role: "user", content: prompt }], { tools: UNIFIED_TOOLS });
-          return completedTaskText(r);
-        },
+        runTurn: runFixTurn,
       });
       return { text: out.text, isError: !out.ok };
     },
@@ -1067,11 +1065,50 @@ let maintenanceApi = null;
 setOnTheSpotFixRunner(({ problem, sessionKey }) => runOnTheSpotFix({
   problem,
   sessionKey,
-  runTurn: async (prompt) => {
-    const r = await unifiedChat(defaultModel, [{ role: "user", content: prompt }], { tools: UNIFIED_TOOLS });
-    return completedTaskText(r);
-  },
+  runTurn: runFixTurn,
 }));
+
+/**
+ * 当场修/自动执行的执行轮：**必须走通道切换**。
+ *
+ * 2026-10-25 的真事故：三条自动执行任务全部 `[failed] 执行轮异常：HTTP 402 Insufficient Balance`。
+ * 查下来不是任务做不了，而是这里原来直接 `unifiedChat(defaultModel, …)` —— 主通道（deepseek 官方）
+ * 余额只剩 ¥2.43，一个大提示词就 402；而**外层**反思轮因为用了 withModelFailover 换到了活着的通道，
+ * 所以日志看起来像"修不动"，其实是"只有这一小步在裸奔"。
+ *
+ * 用函数声明是有意的：它在上面两个调用点之后才出现，靠提升生效——
+ * 这样不用把 helper 提到很远的地方，两个调用点都看得见它。
+ */
+async function runFixTurn(prompt) {
+  const r = await chatWithFailover(defaultModel, [{ role: "user", content: prompt }], { tools: UNIFIED_TOOLS });
+  return completedTaskText(r);
+}
+
+/**
+ * 文本轮 + 通道切换。给"无人看着跑"的那些调用用（自动执行/当场修/候选生成）。
+ *
+ * 为什么要有它：这些路径原来全是 `unifiedChat(defaultModel, …)` —— 主通道一没额度，
+ * 整批任务的结论就变成「执行轮异常：HTTP 402 Insufficient Balance」，
+ * 看起来像"事情做不了"，实际只是"这一小步死在一个通道上"。
+ * 外层时间引擎有 withModelFailover，内层这些执行轮却没有，所以从日志上完全看不出来。
+ */
+async function chatWithFailover(model, messages, opts = {}) {
+  // 注意：withModelFailover 返回的是 {result, model, attempts, tried} 包装。
+  // 这里必须拆出 result 再交给调用方——否则 completedTaskText 会拿到包装对象，
+  // 表现成"执行轮没有按契约给出结果"，看起来又像模型不行。
+  const wrapped = await withModelFailover({
+    initial: isTextCapableModel(model) ? model : pickFallbackDefault(),
+    call: (m) => unifiedChat(m, messages, opts),
+    pickNext: (tried) => {
+      const seen = new Set(tried.map((x) => `${x.provider}/${x.id}`));
+      let next = pickFallbackExcluding(tried[tried.length - 1]);
+      if (next && seen.has(`${next.provider}/${next.id}`)) next = pickFallbackExcluding(next);
+      return next;
+    },
+    onSwitch: ({ from, to, kind, why }) => console.log(`[model-failover] ${from.provider}/${from.id} → ${to.provider}/${to.id}（${kind}：${why}）`),
+  });
+  return wrapped?.result;
+}
 initUnifiedChat({
   executeUnifiedTool, findKeyByEntry, readJsonFile,
   getModelList: () => modelList, getDefaultModel: () => defaultModel,
@@ -4838,8 +4875,18 @@ ${String(out).slice(0, 16000)}
               const tAction0 = Date.now();
               // 2026-10-07：执行轮/重试/独立验证/落 fix-attempt 轨迹统一走 executeReflectionAction，
               // 做梦回放「失败后再试几次」从此有夜间样本（以前这里不落轨迹，那条回放一直饿着）。
+              // 任务钉的模型（外层已按它起步；内层执行/验证轮也要照它走）
+              const taskModel = (() => {
+                const pinned = String(task?.model || "").trim();
+                if (!pinned) return null;
+                const hit = modelList.find(m => `${m.provider}/${m.id}` === pinned) || modelList.find(m => m.id === pinned);
+                return hit && isTextCapableModel(hit) ? hit : null;
+              })();
               const turn = (tools) => async (prompt) => {
-                const rr = await unifiedChat(defaultModel, [{ role: "user", content: prompt }], { tools, signal });
+                // 2026-10-25：这一行原来裸调 defaultModel，主通道余额不足时整个"自动执行"
+                // 全部记成失败（HTTP 402），而外层反思轮因为切换过通道其实还活着。
+                // 内层也尊重任务钉的模型（外层 4770 那处一直有，内层漏了）。
+                const rr = await chatWithFailover(taskModel || defaultModel, [{ role: "user", content: prompt }], { tools, signal });
                 return signal?.aborted || rr?.aborted ? null : completedTaskText(rr);
               };
               const ex = await executeReflectionAction(action, { wsRoot: CONFIG.cwd, ymd: yesterdayYmd(),
