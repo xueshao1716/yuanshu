@@ -931,6 +931,10 @@ export const SystemApi = {
     items: { id: string; status: string; matchable: boolean; kind: string; reasons: string[]; reply: string; triage: string }[]
     summary: { matchable: number; unmatched: number; total: number }
   }>('/api/feedback/triage'),
+  feedbackReply: (id: string, body: { kind: 'triage' | 'resolved'; text?: string; change?: string; verify?: string; version?: string }) =>
+    api<{ ok?: boolean; reply?: { id: string; at: number; kind: string; text: string; relayed: boolean }; relay?: { ok: boolean; error?: string } }>(
+      `/api/feedback/${encodeURIComponent(id)}/reply`, { method: 'POST', body },
+    ),
   feedbackMark: (id: string, status: 'done' | 'wontfix') => api<{ ok?: boolean }>(`/api/feedback/${encodeURIComponent(id)}`, { method: 'PATCH', body: { status } }),
   // 2026-10-25：今日建议（自己找活）
   ideas: () => api<{ generatedAt: number; items: { id: string; text: string; reason: string; score: number; kind: string }[] }>('/api/ideas'),

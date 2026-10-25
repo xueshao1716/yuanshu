@@ -119,3 +119,27 @@ function replyUnmatched({ kind, version, commit, frames, reasons, displayKind = 
     "抱歉让你多跑一趟。这类「报回来了但定位不了」是我们上报机制的问题，已经在改（新版本会带构建号和完整栈）。",
   ].join("\n");
 }
+
+/**
+ * 第二封回信：**真的修好了**再回一次（用户要求：「最后修好了再回一次最好」）。
+ * 必须有具体的东西：在哪个版本修的、改了什么、请对方升级后怎么验证。
+ * 如果拿不出这三样，就不要发——"修好了"是最容易说空话的一句话。
+ */
+export function resolutionReply({ item = {}, fix = {} } = {}) {
+  const version = String(fix.version || "");
+  const change = String(fix.change || "").trim();
+  const verify = String(fix.verify || "").trim();
+  const commit = String(fix.commit || "").slice(0, 12);
+  if (!version || !change) {
+    return { ok: false, error: "拿不出「哪个版本 + 改了什么」就别发第二封回信" };
+  }
+  const head = version ? `v${version}${commit ? `（${commit}）` : ""}` : "下一版";
+  const lines = [
+    `你之前报的那个问题（${String(item.title || "崩溃").replace("[自动上报] ", "").slice(0, 60)}），已经修好了。`,
+    `修复版本：${head}`,
+    `改了什么：${change}`,
+  ];
+  if (verify) lines.push(`请你这样验证：${verify}`);
+  lines.push("", "还复现的话直接回这条就行，我会接着查。谢谢你报回来——没有这条报告，这个坑我们不会这么快发现。");
+  return { ok: true, text: lines.join("\n") };
+}

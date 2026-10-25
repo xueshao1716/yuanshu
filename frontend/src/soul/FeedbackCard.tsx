@@ -11,7 +11,8 @@ import { SystemApi } from '../api'
  * 研判的意义（用户原话）：「对方报过来的，对应不上，就告诉她为啥没有发现他说的 bug」——
  * 不假装在查，直接说清缺什么、要对方补什么。
  */
-type Item = { id: string; at: number; title: string; detail?: string; status: string; kind?: string; signature?: string; env?: any }
+type Reply = { id: string; at: number; kind: 'triage' | 'resolved'; text: string; by: string; relayed: boolean }
+type Item = { id: string; at: number; title: string; detail?: string; status: string; kind?: string; signature?: string; env?: any; replies?: Reply[] }
 type Group = { signature: string; kind: string; count: number; lastAt: number; status: string; title: string }
 type Triage = { id: string; matchable: boolean; kind: string; reasons: string[]; reply: string; triage: string }
 
@@ -36,6 +37,19 @@ export default function FeedbackCard() {
     try { await SystemApi.feedbackMark(id, status); await Promise.all([mutate(), mutateSum(), mutateTri()]) }
     catch { /* 失败就保持原样 */ }
     finally { setBusy('') }
+  }
+
+  // 2026-10-26：修好后的第二封回信——必须填"改了什么"，空喊"修好了"发不出去
+  const resolve = async (id: string) => {
+    const change = window.prompt('改了什么？（必填，会原样写进回信）', '')
+    if (!change || !change.trim()) return
+    const verify = window.prompt('请对方怎么验证？（可留空）', '') || ''
+    setBusy(id); setMsg('')
+    try {
+      const out: any = await SystemApi.feedbackReply(id, { kind: 'resolved', change: change.trim(), verify: verify.trim() })
+      setMsg(out?.relay?.ok ? '已回信并送达对端' : '已回信（对端没有回信地址，只有本地记录）')
+      await Promise.all([mutate(), mutateSum(), mutateTri()])
+    } catch (e: any) { setMsg(String(e?.message || e).slice(0, 120)) } finally { setBusy('') }
   }
 
   const copy = async (id: string) => {
@@ -71,6 +85,18 @@ export default function FeedbackCard() {
                 </span>
               )}
             </p>
+            {first?.replies?.length ? (
+              <ul style={{ margin: '6px 0 0', paddingLeft: 16 }}>
+                {first.replies.map((r) => (
+                  <li key={r.id} className="tone-sources-dim" style={{ marginBottom: 4 }}>
+                    <strong>{r.kind === 'resolved' ? '修好回信' : '研判回信'}</strong>
+                    {' · '}{new Date(r.at).toLocaleString('zh-CN', { hour12: false })}
+                    {' · '}{r.relayed ? '已送达' : '仅本地'}
+                    <div style={{ whiteSpace: 'pre-wrap' }}>{r.text.slice(0, 160)}{r.text.length > 160 ? '…' : ''}</div>
+                  </li>
+                ))}
+              </ul>
+            ) : null}
             <div className="persona-style-row">
               <button className="persona-style-opt" onClick={() => setOpen(open === g.signature ? null : g.signature)}>
                 {open === g.signature ? '收起' : '看条目'}
@@ -78,6 +104,11 @@ export default function FeedbackCard() {
               {t && !t.matchable && (
                 <button className="persona-style-opt" onClick={() => { setShown(shown === first.id ? null : first.id); void (navigator.clipboard?.writeText(t.reply).then(() => setMsg('回信已复制')).catch(() => {})) }}>
                   {shown === first.id ? '收起回信' : '生成回信'}
+                </button>
+              )}
+              {first && (
+                <button className="persona-style-opt" disabled={busy === first.id} onClick={() => resolve(first.id)}>
+                  修好后回信
                 </button>
               )}
             </div>

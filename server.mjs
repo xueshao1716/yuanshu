@@ -3330,6 +3330,33 @@ const API_ROUTES = [
     json(res, r.ok ? 200 : 404, r.ok ? { ok: true, vector_id: r.vector_id } : { error: "not_found" });
   }],
   // 2026-10-26：自动研判每条反馈能不能对上号，并给一段可直接发给对方的回信
+  // 2026-10-26：按原路回信（两段式：triage 收到时的研判 / resolved 修好后的交代）
+  ["POST", /^\/api\/feedback\/([^/]+)\/reply$/, async (res, req, url, m) => {
+    try {
+      const id = decodeURIComponent(m[1]);
+      const body = await readBody(req, 2e4);
+      const kind = body?.kind === 'resolved' ? 'resolved' : 'triage';
+      let text = String(body?.text || '');
+      if (kind === 'resolved' && !text.trim()) {
+        const { resolutionReply } = await import('./engine/crash-triage.mjs');
+        const item = (() => { try { return feedbackStore.list().find((x) => x.id === id) } catch { return null } })();
+        const ver = String((JSON.parse(fs.readFileSync(path.join(__dirname, 'version.json'), 'utf8')) || {}).version || '');
+        const built = resolutionReply({ item, fix: { version: body?.version || ver, commit: process.env.YUANSHU_BUILD_COMMIT || '', change: body?.change || '', verify: body?.verify || '' } });
+        if (!built.ok) return json(res, 400, { error: built.error });
+        text = built.text;
+      }
+      if (!text.trim()) return json(res, 400, { error: '回信内容为空' });
+      const target = feedbackStore.replyAddress(id);
+      let relay = { ok: false, error: 'local_only' };
+      if (target && target.replyTo) {
+        const { relayReply } = await import('./engine/feedback-relay.mjs');
+        relay = await relayReply({ replyTo: target.replyTo, threadId: target.threadId, itemId: id }, { kind, text });
+      }
+      const saved = feedbackStore.addReply(id, { text, kind, relayed: relay.ok, relayError: relay.ok ? '' : String(relay.error || '') });
+      if (saved.error) return json(res, 404, { error: saved.error });
+      return json(res, 200, { ok: true, reply: saved.reply, relay });
+    } catch (e) { return json(res, 500, { error: String(e?.message || e).slice(0, 200) }); }
+  }],
   ["GET", "/api/feedback/triage", (res) => {
     try {
       const items = (() => { try { return feedbackStore.list() } catch { return [] } })();

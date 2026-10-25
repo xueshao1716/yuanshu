@@ -57,7 +57,12 @@ export function createFeedbackStore({ wsRoot, version = "", readCrashTail }) {
     return diag;
   }
 
-  function add({ type, title, detail, contact = "", withDiagnostics = false, env = null, source = "workbench", ip = "" }) {
+  /**
+   * @param {object} input
+   * @param {string} [input.replyTo] 回信地址（原路返回用；本机收件箱留空）
+   * @param {string} [input.threadId] 对端给的话题 id（没有就用本机生成的）
+   */
+  function add({ type, title, detail, contact = "", withDiagnostics = false, env = null, source = "workbench", ip = "", replyTo = "", threadId = "" }) {
     const cleanType = TYPES.has(type) ? type : "idea";
     const cleanTitle = String(title || "").trim().slice(0, MAX_TITLE);
     const cleanDetail = String(detail || "").trim().slice(0, MAX_DETAIL);
@@ -74,6 +79,9 @@ export function createFeedbackStore({ wsRoot, version = "", readCrashTail }) {
       signature: signatureOf(cleanTitle, cleanDetail), kind: classifyOf(cleanTitle, cleanDetail),
       status: "open", env: env || null,
       source, ip: source === "public" ? ip : "",
+      replyTo: String(replyTo || "").slice(0, 300),
+      threadId: String(threadId || "").slice(0, 120),
+      replies: [],
       diagnostics: withDiagnostics ? collectDiagnostics() : null,
     };
     box.items.push(item);
@@ -107,5 +115,32 @@ export function createFeedbackStore({ wsRoot, version = "", readCrashTail }) {
     return { item: it };
   }
 
-  return { add, list, mark, summary, collectDiagnostics };
+  /**
+   * 往某条反馈里追加一条回信（原路返回的内容也存一份，保证本地看得到"我说过什么"）。
+   * kind: 'triage'（收到时的研判/要对方补什么）| 'resolved'（修好了，请升级验证）
+   */
+  function addReply(id, { text = "", kind = "triage", by = "元枢", relayed = false, relayError = "" } = {}) {
+    const box = load();
+    const it = box.items.find((x) => x.id === id);
+    if (!it) return { error: "not_found" };
+    const reply = {
+      id: randomUUID(), at: Date.now(), kind: kind === "resolved" ? "resolved" : "triage",
+      text: String(text || "").slice(0, 4000), by: String(by || "元枢").slice(0, 60),
+      relayed: !!relayed, relayError: String(relayError || "").slice(0, 200),
+    };
+    it.replies = Array.isArray(it.replies) ? it.replies : [];
+    it.replies.push(reply);
+    if (kind === "resolved") { it.status = "done"; it.handledAt = Date.now(); }
+    save(box);
+    return { item: it, reply };
+  }
+
+  /** 发给对端时需要的地址（原路返回）；本机收件箱来源返回空串。 */
+  function replyAddress(id) {
+    const it = load().items.find((x) => x.id === id);
+    if (!it) return null;
+    return { id: it.id, threadId: it.threadId || "", replyTo: it.replyTo || "", source: it.source || "" };
+  }
+
+  return { add, list, mark, summary, collectDiagnostics, addReply, replyAddress };
 }

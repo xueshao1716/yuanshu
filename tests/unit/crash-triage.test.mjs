@@ -60,3 +60,19 @@ test("回复里永远不假装已在修（对不上时不给空头承诺）", ()
     assert.doesNotMatch(r.reply, /我已经找到|已经修复/);
   }
 });
+
+test("修好后的第二封回信：没有版本或没写改了什么，就拒发（不空喊修好了）", async () => {
+  const { resolutionReply } = await import("../../engine/crash-triage.mjs");
+  assert.equal(resolutionReply({ item: { title: "crash: x" }, fix: { version: "" , change: "修了" } }).ok, false);
+  assert.equal(resolutionReply({ item: {}, fix: { version: "2.130.0", change: "" } }).ok, false);
+
+  const ok = resolutionReply({
+    item: { title: "[自动上报] crash: [exit] code=1 uptime=3s" },
+    fix: { version: "2.130.0", commit: "abc1234def", change: "定时器异常不再拖垮进程", verify: "升级后连续跑 30 分钟不重启" },
+  });
+  assert.equal(ok.ok, true);
+  assert.match(ok.text, /v2\.130\.0/);
+  assert.match(ok.text, /定时器异常/);
+  assert.match(ok.text, /连续跑 30 分钟/);
+  assert.doesNotMatch(ok.text, /自动上报/);
+});
