@@ -109,9 +109,11 @@ test("share_project：分享服务未运行时不伪造成功链接", async () =
 });
 
 test("engine/tools 工具集（unified-tools.mjs）", (t) => {
-  t.test("schema：5 个基础工具齐全且为 function 格式", () => {
+  t.test("schema：基础工具齐全且为 function 格式", () => {
+    // 2026-10-25：新增 pwsh（Windows 原生 PowerShell 通道）。两个 shell 通道挨在一起，
+    // 模型选工具时先看到"这台机器有什么壳"。
     const names = BASE_TOOL_SCHEMAS.map((s) => s.function.name);
-    assert.deepEqual(names, ["bash", "read", "write", "edit", "web_search"]);
+    assert.deepEqual(names, ["record_taste", "bash", "pwsh", "read", "write", "edit", "web_search"]);
     for (const s of BASE_TOOL_SCHEMAS) assert.equal(s.type, "function");
   });
 

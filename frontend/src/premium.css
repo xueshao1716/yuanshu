@@ -752,40 +752,17 @@ html[data-theme="dark"] .markdown-body-wrapper .markdown-body pre code .hljs-com
 .taste-rejected { color: var(--pi-dim2); text-decoration: line-through; text-decoration-color: color-mix(in srgb, var(--pi-dim2) 60%, transparent); }
 .taste-why { flex: 1 1 100%; color: var(--pi-dim2); font-size: 11.5px; }
 .taste-at { margin-left: auto; font-size: 10.5px; color: var(--pi-dim2); font-variant-numeric: tabular-nums; }
-/* 会话语气档（2026-10-25）：输入框工具栏里的小条 + 弹出层。
-   语气是按会话的，所以放在 composer 工具栏，而不是灵魂页。
-   尺寸必须和旁边的 .usage-chip 完全一致——它是 span，我是 button，
-   浏览器给 button 的默认 padding/border 会让它比邻居高一圈（2026-10-25 用户指出）。 */
-.persona-style { position: relative; display: inline-flex; }
-.persona-style-btn {
-  appearance: none; -webkit-appearance: none;
-  /* 不要用 font: inherit —— 它会把 .usage-chip 的 10.5px 覆盖成父级 16px，
-     按钮就比邻居高 8px（2026-10-25 实测 28px vs 19.8px）。只继承字体族。 */
-  font-family: inherit; line-height: inherit;
-  /* 不写 font-size：让相邻 .usage-chip 的 10.5px 生效。写 inherit 会拿到父级 16px，
-     按钮就比旁边高 8px（实测 28px vs 19.8px，用户一眼看出来的就是这一圈）。 */
-  display: inline-flex; align-items: center;
-  padding: 1px 7px; margin: 0;
-  border: 1px solid color-mix(in srgb, var(--pi-border) 45%, transparent);
-  border-radius: 999px;
-  background: color-mix(in srgb, var(--pi-text) 4%, transparent);
-  cursor: pointer;
-}
-.persona-style-btn:hover { color: var(--pi-text); }
-.persona-style-btn.on { color: var(--pi-text); border-color: color-mix(in srgb, var(--pi-accent) 45%, transparent); }
-.persona-style-btn .ps-short { display: none; }
-.persona-style-pop {
-  position: absolute; bottom: calc(100% + 8px); left: 0; z-index: 40;
-  width: min(300px, calc(100vw - 24px)); padding: 10px; border-radius: 10px;
-  background: var(--pi-surface, #16181d);
-  border: 1px solid color-mix(in srgb, var(--pi-border) 70%, transparent);
-  box-shadow: 0 10px 30px rgba(0,0,0,.28);
-  display: grid; gap: 8px;
-}
-.persona-style-title { font-size: 11px; color: var(--pi-dim2); }
+/* 语气档（2026-10-25）：先放在输入框，当晚搬进灵魂培育——
+   产品是"一个人格在长"，语气是人格的一个刻度，不是"随时换角色"的开关。
+   这里只剩卡片用的行/选项/输入框；chip 与浮层已随搬家删除。 */
+.soul-tone { display: grid; gap: 8px; }
+.soul-tone-head { display: flex; align-items: baseline; gap: 10px; }
+.soul-tone-now { font-size: 12px; color: var(--pi-dim2); }
+.soul-tone-hint { font-size: 12px; color: var(--pi-dim2); line-height: 1.6; margin: 0; }
+.soul-tone-err { font-size: 12px; color: var(--pi-danger, #e5534b); margin: 0; }
 .persona-style-row { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; }
 .persona-style-opt {
-  font-size: 11px; padding: 3px 9px; border-radius: 999px; cursor: pointer;
+  font-size: 12px; padding: 4px 11px; border-radius: 999px; cursor: pointer;
   color: var(--pi-dim2); background: color-mix(in srgb, var(--pi-text) 4%, transparent);
   border: 1px solid color-mix(in srgb, var(--pi-border) 55%, transparent);
 }
@@ -793,15 +770,10 @@ html[data-theme="dark"] .markdown-body-wrapper .markdown-body pre code .hljs-com
 .persona-style-opt.on { color: var(--pi-text); border-color: color-mix(in srgb, var(--pi-accent) 60%, transparent); }
 .persona-style-opt:disabled { opacity: .5; cursor: default; }
 .persona-style-input {
-  flex: 1 1 160px; min-width: 120px; font-size: 11px; padding: 4px 8px; border-radius: 8px;
+  flex: 1 1 220px; min-width: 140px; font-size: 12px; padding: 5px 10px; border-radius: 8px;
   background: color-mix(in srgb, var(--pi-text) 3%, transparent);
   border: 1px solid color-mix(in srgb, var(--pi-border) 55%, transparent);
   color: var(--pi-text); outline: none;
 }
 .persona-style-input:focus { border-color: color-mix(in srgb, var(--pi-accent) 55%, transparent); }
-/* 窄屏：标签收成两个字，浮层贴右边并限宽，绝不出屏 */
-@media (max-width: 640px) {
-  .persona-style-btn .ps-long { display: none; }
-  .persona-style-btn .ps-short { display: inline; }
-  .persona-style-pop { left: auto; right: 0; }
-}
+

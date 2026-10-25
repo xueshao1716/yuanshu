@@ -911,6 +911,11 @@ export const SystemApi = {
   setPersonaStyle: (sessionId: string, style: string | null) => api<{ ok: boolean; resolution: PersonaResolution }>(
     '/api/persona/session', { method: 'POST', body: { sessionId, style } },
   ),
+  // 2026-10-25：工作区语气档（灵魂培育里的主入口，长期有效）。
+  // 产品是"一个人格在长"，所以主档位在工作区；会话档只是临时覆盖。
+  setPersonaWorkspaceStyle: (style: string | null) => api<{ ok: boolean; resolution: PersonaResolution }>(
+    '/api/persona/workspace', { method: 'POST', body: { style } },
+  ),
   changeToken: (token: string) => api<{ ok: boolean }>('/api/system/token', { method: 'POST', body: { token } }),
   saveNetwork: (body: { domains: { domain: string; desc: string }[] }) =>
     api<{ ok: boolean; domains: { domain: string; desc: string }[] }>('/api/system/network', { method: 'POST', body }),
@@ -1190,9 +1195,11 @@ export type SessionUsage = {
 }
 /** 人格段解析结果元数据（与提示词注入同源；不含正文）。 */
 export interface PersonaResolution {
-  mode: 'session' | 'workspace'
+  mode: 'session' | 'workspace' | 'none'
   sessionId: string | null
   sessionStyle: { id: string; label: string; at: number } | null
+  /** 工作区语气档（长期设定；会话档优先于它） */
+  workspaceStyle?: { id: string; label: string; at: number } | null
   chars: number
   parts: { id: string; label: string; chars: number }[]
 }

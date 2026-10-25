@@ -6,6 +6,21 @@
 > 而 `sync:frontend` 是忠实镜像，会把它们复制进 `public/` 与 `app/dist/`（细节见 `docs/NAMING.md`）。
 > 版本唯一来源是仓库根的 `version.json`；契约见 `docs/NAMING.md`。
 
+## [2.127.153] - 2026-10-25
+
+- **语气档搬到灵魂培育，并改成「工作区档」**。产品是「一个人格在长」，语气是人格的一个刻度，不是「随时换角色」的开关——放在输入框旁边本身就是错的产品表达（用户指出）。
+  - 输入框的「语气」chip 整个删除；灵魂培育 → 总览新增「语气档」卡片（预设 简洁/陪伴/深度、自定义 ≤200 字、回到人格定义）。
+  - 新增**工作区档**（`记忆/运行时/会话语气.json` 的保留键 `workspace`，**不过期**）：长期设定，改一次一直生效；会话档仍保留但只作临时覆盖（7 天 TTL），不再给主入口。
+  - 解析优先级：会话档 > 工作区档 > 只有人格定义（`mode` 分别为 `session`/`workspace`/`none`）。人格定义仍是唯一真相，改它仍要人批准。
+  - API：`POST /api/persona/workspace`（新）；`GET /api/persona` 的 `resolution` 同时给出 `workspaceStyle` 与 `sessionStyle`。
+- **新工具 `pwsh`：Windows 原生 PowerShell 通道**。真机上 bash 是 git-bash，路径/引号/编码和 Windows 不是一套，模型为同一种活在两种语法间来回试，工具调用次数会翻倍（历史「一轮 11 次工具、16 分钟」的主因之一）。DSH 有原生 pwsh，这里对齐。
+  - 起哪一个：`YUANSHU_PWSH` → `Program Files\PowerShell\7\pwsh.exe` → PATH → Windows PowerShell 5.1（本机没装 7，落 5.1）。
+  - 护栏与 bash 完全一致（凭据/宪法红线/危险命令/交互命令），只换执行器；`$ErrorActionPreference='Stop'` 让非终止错误也算失败，输出强制 UTF-8，结尾按 `$LASTEXITCODE` 传退出码。
+  - 环境段（`runtime-env.mjs`）同步告诉模型：Windows 上优先 pwsh，只有确实需要 Unix 语义时才用 bash。
+- **测试**：`tests/unit/pwsh-tool.test.mjs` 6 条（schema 同时有 bash/pwsh、探测路径存在、真跑 Get-Date、非零退出码如实报、中文输出不乱码）；`persona-resolve` 重写为 9 条（工作区档长期有效、会话档覆盖与回落、TTL 只作用于会话档、超长拒绝、元数据与正文分离、同源）；`tools-unified` 的 schema 断言更新为含 pwsh。
+
+## [2.127.153] - 2026-10-25
+
 ## [2.127.152] - 2026-10-25
 
 - **长任务脱链：新工具 `run_detached`**。起因是真事故：2026-10-25 13:45 小语启动 45 秒影片渲染，6 分钟后成功产出 12.28MB 视频，但我中途重启服务部署新版本，她的 run 记录留下 `error: "server_restarted"`——**外部作业跟着服务一起死了**；她为了等它还在单轮里 `sleep 90/120`，把执行预算等光、轮次被自动暂停。

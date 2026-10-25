@@ -67,6 +67,13 @@ export function environmentSection() {
   } else {
     lines.push(`命令工具跑的是 POSIX shell：${f.shellPath}`);
   }
+  // 2026-10-25：Windows 上还有一条原生 PowerShell 通道。真机上 bash 的路径/引号/编码
+  // 和 Windows 不是一套，模型为同一种活在两种语法间来回试，工具调用次数会翻倍。
+  if (process.platform === 'win32') {
+    let pw = '';
+    try { pw = fs.existsSync('C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe') ? 'powershell.exe（5.1）' : ''; } catch {}
+    lines.push(`另外有 **pwsh 工具**（原生 PowerShell${pw ? `：${pw}` : ''}）：Windows 上**优先用它**跑 Get-ChildItem / Select-String / Get-Content / 管道对象，比在 bash 里拼 find+sed+grep 稳；输出已强制 UTF-8。只有确实需要 Unix 语义（sed/awk 一行流）时才用 bash。`);
+  }
   lines.push('工具参数（read / write / edit / 各种 path 字段）一律用 **Windows 绝对路径**（`D:\\pi-web\\engine\\x.mjs`）或相对工作目录的路径；只有 bash 命令字符串里才用 bash 路径写法。');
   lines.push('任何"这个系统上有没有某命令/某路径"的判断，先探测（`command -v x`、`ls`、`node -v`）再断言，不要凭印象。');
   return lines.join('\n');

@@ -3685,6 +3685,18 @@ const API_ROUTES = [
       return part ? json(res, 200, part) : json(res, 404, { error: "没有这一段", id });
     } catch (e) { return json(res, 500, { error: String(e?.message || e).slice(0, 200) }); }
   }],
+  // 2026-10-25：**工作区**语气档——灵魂培育里的主入口，长期有效。
+  // 产品是"一个人格在长"，所以主档位放工作区；会话档只作临时覆盖，不再当输入框里的主入口。
+  ["POST", "/api/persona/workspace", async (res, req) => {
+    try {
+      const body = await readBody(req, 1e4);
+      const { setWorkspaceStyle } = await import("./engine/persona-resolve.mjs");
+      const out = setWorkspaceStyle(WS_ROOT, body?.style ?? null);
+      if (!out.ok) return json(res, 400, { error: out.error });
+      const genes = (() => { try { return emotion.getGenome().genes; } catch { return null; } })();
+      return json(res, 200, { ok: true, resolution: personaMeta(resolvePersona({ wsRoot: WS_ROOT, genes })) });
+    } catch (e) { return json(res, 500, { error: String(e?.message || e).slice(0, 200) }); }
+  }],
   // 2026-10-25：会话语气档（越细越优先：会话 > 工作区默认）。只调语气，不改身份——
   // 人格定义仍是唯一真相、改动仍要人批准（/api/persona 的写接口走 persona-approval）。
   ["POST", "/api/persona/session", async (res, req) => {

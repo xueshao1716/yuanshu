@@ -44,6 +44,9 @@ export const BASE_TOOL_SCHEMAS = [
   // 2026-10-24：把一次判断记进品味库（跨会话带着看东西）
   { type: "function", function: { name: "record_taste", description: "记一条判断轨迹：这次选了什么、否了什么、为什么。只在做出有取舍的判断时记，不要每轮都记。", parameters: { type: "object", properties: { topic: { type: "string", description: "判断的主题，如「封面字体」" }, chose: { type: "string", description: "最终选定的方案" }, rejected: { type: "array", items: { type: "string" }, description: "被否掉的方案（最多 5 个）" }, why: { type: "string", description: "为什么这样选（一句）" }, tags: { type: "array", items: { type: "string" }, description: "标签：设计/写作/工程" } }, required: ["topic", "chose"] } } },
   { type: "function", function: { name: "bash", get description() { return bashToolDescription() + "出图/视频/配音用 generate_image / generate_video / generate_tts，不要读 auth.json/.token。不要 curl 本机 /api/image，不要启动 Vite 5173 或第二份 8787。" }, parameters: { type: "object", properties: { command: { type: "string", description: "要运行的命令" } }, required: ["command"] } } },
+  // 2026-10-25：Windows 原生 PowerShell。有这条就尽量别用 bash 拼 Unix 命令——
+  // git-bash 的路径/引号/编码语义和 Windows 不是一套，真机上会把工具调用次数翻倍。
+  { type: "function", function: { name: "pwsh", get description() { return pwshToolDescription(); }, parameters: { type: "object", properties: { command: { type: "string", description: "要运行的 PowerShell 命令（脚本级也行，可多行）" } }, required: ["command"] } } },
   { type: "function", function: { name: "read", description: "读取文件内容（工作空间内相对路径，或磁盘上的绝对路径）", parameters: { type: "object", properties: { path: { type: "string", description: "文件路径" } }, required: ["path"] } } },
   { type: "function", function: { name: "write", description: "写入文件（自动创建目录）。文件很大时**必须分块**：第一块不带 append，后面的块带 append:true 追加（一次写太大的文件会被单次输出上限截断，整轮白费）", parameters: { type: "object", properties: { path: { type: "string", description: "文件路径（相对工作空间）" }, content: { type: "string", description: "文件内容（分块时是这一块的内容）" }, append: { type: "boolean", description: "true = 追加到文件末尾（分块写后续块用）；不传 = 覆盖写" } }, required: ["path", "content"] } } },
   { type: "function", function: { name: "edit", description: "用精确文本替换修改文件（先 read 再 edit）", parameters: { type: "object", properties: { path: { type: "string" }, oldText: { type: "string" }, newText: { type: "string" } }, required: ["path", "oldText", "newText"] } } },
@@ -292,6 +295,47 @@ export function bashToolDescription() {
     : "运行 Windows cmd.exe（不是 bash/PowerShell）。优先使用工作空间相对路径，媒体下载先 mkdir 再 curl/ffmpeg；不要用 grep/ls（用 findstr/dir）。" + SHELL_HYGIENE;
 }
 
+// ── PowerShell（2026-10-25）──────────────────────────────────────────────
+// 为什么加：Windows 上 bash 是 git-bash，路径/引号/编码三套语义混用，模型一轮里
+// 反复猜（`/d/x` vs `D:\x`、findstr vs grep）——真机上这就是"工具调用翻倍、更慢"的主因之一。
+// DSH 那边有原生 pwsh 工具，这里对齐：Windows 上优先用它，Linux 上自然没有这条工具、走 bash。
+//
+// 起哪一个：DSH 的顺序是「PowerShell 7（Program Files\PowerShell\7）→ PATH → Windows PowerShell 5.1」。
+// 本机实测没装 7，所以最终落到 5.1；顺序保持不变，装了 7 会自动优先。
+const PWSH_51 = process.env.SystemRoot
+  ? `${process.env.SystemRoot}\\System32\\WindowsPowerShell\\v1.0\\powershell.exe`
+  : "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe";
+let _pwsh = undefined;
+
+export function detectPwsh({ refresh = false } = {}) {
+  if (!refresh && _pwsh !== undefined) return _pwsh;
+  if (process.platform !== "win32") { _pwsh = null; return _pwsh; }
+  const candidates = [
+    process.env.YUANSHU_PWSH,
+    process.env.ProgramFiles ? `${process.env.ProgramFiles}\\PowerShell\\7\\pwsh.exe` : null,
+    process.env.ProgramW6432 ? `${process.env.ProgramW6432}\\PowerShell\\7\\pwsh.exe` : null,
+    "pwsh.exe",           // PATH 里有就用（existsSync 不认裸命令名，会把 null 留在循环外）
+    PWSH_51,
+  ].filter(Boolean);
+  for (const p of candidates) {
+    try {
+      if (p === "pwsh.exe") { if (process.env.PATH && process.env.PATH.split(";").some((d) => d && fs.existsSync(`${d.trim()}\\pwsh.exe`))) { _pwsh = "pwsh.exe"; return _pwsh; } continue; }
+      if (fs.existsSync(p)) { _pwsh = p; return _pwsh; }
+    } catch {}
+  }
+  _pwsh = null;
+  return _pwsh;
+}
+
+const PWSH_HYGIENE = " 规矩：① 中文内容一律用 write 工具写文件，不要 Out-File 里塞中文（PS 5.1 默认按 UTF-16/ANSI 落盘，回头读就是乱码；本工具已把 [Console]::OutputEncoding 切 UTF-8，但别赌）；② 路径用 Windows 反斜杠并加引号（\"C:\\Program Files\\...\"）；③ 命令默认在工作空间目录下运行，优先相对路径；④ 需要管道对象（Get-ChildItem | Where-Object | Select-Object）时它比 bash 干净，善用。";
+
+export function pwshToolDescription() {
+  const exe = detectPwsh();
+  if (process.platform !== "win32") return "运行 PowerShell（当前不是 Windows，通常用 bash）。";
+  if (!exe) return "运行 PowerShell（本机没找到 powershell.exe）。";
+  return `运行 PowerShell（${exe.includes("PowerShell\\\\7") ? "PowerShell 7" : "Windows PowerShell 5.1"}，原生语义）。Windows 上**优先用它**：Get-ChildItem / Select-String / Get-Content / Measure-Object / 管道对象都比在 git-bash 里拼 find/grep 稳。不要在里面用 ls/cat/grep（那是 Unix 别名或不存在）。` + PWSH_HYGIENE;
+}
+
 export function createUnifiedToolExecutor(deps = {}) {
   const getCwd = deps.cwd || (() => process.cwd());
   const safePath = deps.safePath || ((p) => path.resolve(getCwd(), p || ""));
@@ -489,6 +533,70 @@ export function createUnifiedToolExecutor(deps = {}) {
           }
           noteBashFailure();
           return { text: `命令执行失败: ${msg.slice(0, 200)}`, isError: true };
+        }
+      }
+      if (name === "pwsh") {
+        // 2026-10-25：Windows 原生 PowerShell 通道。护栏与 bash 完全一致（凭据/宪法红线/危险命令/
+        // 交互命令全部先过一遍），只有执行器换成 powershell.exe：
+        //   · 输出编码强制 UTF-8（PS 5.1 默认按本地代码页/UTF-16 吐，直接读会乱码）
+        //   · $ErrorActionPreference='Stop'：非终止错误也变成失败，别装作一切正常
+        //   · 结尾按 $LASTEXITCODE 传退出码，模型才能判断"命令成功没有"
+        const exe = detectPwsh();
+        if (process.platform !== "win32" || !exe) {
+          return { text: `这台机器上没有可用的 PowerShell（platform=${process.platform}）——改用 bash 工具。`, isError: true };
+        }
+        const cmd = String(args?.command || "").trim();
+        if (!cmd) return { text: "空命令", isError: true };
+        if (commandTouchesSensitive(cmd)) return { text: sensitiveHint(), isError: false };
+        const deny = matchDenyRule(cmd);
+        if (deny) {
+          return { text: `⛔ 拒绝执行 [宪法规则 ${deny.id}]：该命令命中硬性红线（${deny.re.source.slice(0, 60)}…）。\n这是代码级拦截，不是建议——如需执行请联系伙伴人工操作。`, isError: true };
+        }
+        if (DANGEROUS_CMD_RE.test(cmd)) return { text: "⚠️ 拒绝执行：该命令可能造成不可逆数据丢失", isError: true };
+        if (INTERACTIVE_CMD_RE.test(cmd)) return { text: `⚠️ 拒绝执行交互式命令（${cmd.slice(0, 40)}），可能挂起等待输入`, isError: true };
+
+        const script = [
+          "$ProgressPreference='SilentlyContinue'",
+          "$ErrorActionPreference='Stop'",
+          "$OutputEncoding=[Console]::OutputEncoding=[Text.Encoding]::UTF8",
+          "try {",
+          cmd,
+          "} catch { Write-Output ('[pwsh] ' + $_.Exception.Message); exit 1 }",
+          "if ($LASTEXITCODE -ne $null) { exit $LASTEXITCODE }",
+        ].join("\n");
+        const psTimeoutMs = (() => {
+          const n = Number(process.env.YUANSHU_PWSH_TIMEOUT_MS);
+          return Number.isFinite(n) && n >= 10_000 && n <= 600_000 ? n : 120_000;
+        })();
+        const psOpts = { encoding: "buffer", timeout: psTimeoutMs, cwd: getCwd(), windowsHide: true, maxBuffer: 16 * 1024 * 1024, signal: ctx.signal, stdio: ["ignore", "pipe", "pipe"] };
+        const psKey = String(ctx?.runId || ctx?.sessionKey || ctx?.sessionId || "anon");
+        const psNorm = ("ps:" + cmd).replace(/\s+/g, " ").trim().slice(0, 200);
+        const psFails = () => bashFailures.get(psKey)?.get(psNorm) || 0;
+        if (psFails() >= 2) {
+          return { text: "⛔ 这条 PowerShell 已经失败/超时 2 次，别再原样重试。换个做法：用 read 直接读文件；或把逻辑写成 .ps1 文件再执行；或改用 bash。", isError: true };
+        }
+        try {
+          const { stdout, stderr, exitCode } = await execFileAbortable(exe, ["-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-Command", script], psOpts);
+          let text = decodeWindowsOutput(stdout);
+          if (stderr && stderr.length) {
+            const es = decodeWindowsOutput(stderr);
+            text += (text ? "\n" : "") + es;
+          }
+          if (looksMojibake(text)) text += "\n（输出里可能有乱码：写文件请用 write 工具，跑脚本请落成文件再执行。）";
+          const exitMark = exitCode ? `\n[退出码 ${exitCode}]` : "";
+          return { text: (text.replace(/\r\n/g, "\n") || "(无输出)") + exitMark, isError: exitCode ? true : false };
+        } catch (e) {
+          const interruption = toolInterruption(e, ctx.signal);
+          if (interruption) return { text: interruption.text, code: interruption.code, isError: true };
+          const m = bashFailures.get(psKey) || new Map();
+          m.set(psNorm, (m.get(psNorm) || 0) + 1);
+          bashFailures.set(psKey, m);
+          if (bashFailures.size > 50) bashFailures.delete(bashFailures.keys().next().value);
+          const msg = String(e?.message || e);
+          if (/TOOL_TIMEOUT|timed? ?out/i.test(msg) || e?.code === "TOOL_TIMEOUT") {
+            return { text: `⏱ PowerShell 超过 ${Math.round(psTimeoutMs / 1000)} 秒被终止（已杀进程树）。不要原样重试：缩小范围、或改成脚本文件跑、或改用 bash。`, isError: true };
+          }
+          return { text: `PowerShell 执行失败: ${msg.slice(0, 200)}`, isError: true };
         }
       }
       if (name === "read") {

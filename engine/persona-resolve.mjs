@@ -30,6 +30,13 @@ export const STYLE_PRESETS = {
   deep: { label: "深度", text: "本会话语气：先给判断和依据，再列取舍；该展开的展开，不为短而省关键推理。" },
 };
 
+/**
+ * 工作区档（2026-10-25）：产品是"一个人格在长"，不是"可切换的一堆人设"，
+ * 所以主档位放在**工作区**、在灵魂培育里调；会话档只作临时覆盖，不再在输入框里出现主入口。
+ * 存在同一个文件里，用保留键 `workspace`，但它**不过期**——它是长期设定，不是临时口吻。
+ */
+export const WORKSPACE_STYLE_KEY = "workspace";
+
 function styleFile(wsRoot) { return path.join(String(wsRoot || "."), SESSION_STYLE_FILE); }
 
 function readJson(file) {
@@ -44,12 +51,44 @@ export function readSessionStyles(wsRoot, { now = Date.now() } = {}) {
   for (const [sid, v] of Object.entries(raw)) {
     if (!v || typeof v !== "object") continue;
     const at = Number(v.at) || 0;
-    if (now - at > SESSION_STYLE_TTL_MS) continue;   // 过期的当作不存在
+    // 工作区档是长期设定，不过期；会话档是临时的，按 TTL 失效
+    if (sid !== WORKSPACE_STYLE_KEY && now - at > SESSION_STYLE_TTL_MS) continue;
     const text = String(v.text || "").trim();
     if (!text) continue;
     out[sid] = { id: String(v.id || "custom"), label: String(v.label || "自定义"), text, at };
   }
   return out;
+}
+
+function writeStyles(wsRoot, all) {
+  const pruned = Object.fromEntries(Object.entries(all).map(([k, v]) => [k, { id: v.id, label: v.label, text: v.text, at: v.at }]));
+  const file = styleFile(wsRoot);
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  fs.writeFileSync(file, JSON.stringify(pruned, null, 2), "utf8");
+  return pruned;
+}
+
+/** 设置/清除**工作区**语气档（灵魂培育里的主入口，长期有效）。 */
+export function setWorkspaceStyle(wsRoot, style, { now = Date.now() } = {}) {
+  const all = readSessionStyles(wsRoot, { now });
+  if (style == null || String(style).trim() === "") {
+    delete all[WORKSPACE_STYLE_KEY];
+    try { writeStyles(wsRoot, all); return { ok: true, cleared: true }; } catch (e) { return { ok: false, error: String(e?.message || e).slice(0, 120) }; }
+  }
+  const raw = String(style).trim();
+  const preset = STYLE_PRESETS[raw];
+  const text = preset ? preset.text : raw;
+  const label = preset ? preset.label : "自定义";
+  const id = preset ? raw : "custom";
+  if (text.length > MAX_STYLE_CHARS) {
+    return { ok: false, error: `语气档太长（${text.length} 字），上限 ${MAX_STYLE_CHARS} 字——它会进系统提示词` };
+  }
+  all[WORKSPACE_STYLE_KEY] = { id, label, text, at: now };
+  try { writeStyles(wsRoot, all); return { ok: true, style: { id, label, text, at: now } }; } catch (e) { return { ok: false, error: String(e?.message || e).slice(0, 120) }; }
+}
+
+export function workspaceStyleFor(wsRoot, { now = Date.now() } = {}) {
+  return readSessionStyles(wsRoot, { now })[WORKSPACE_STYLE_KEY] || null;
 }
 
 /**
@@ -62,13 +101,7 @@ export function setSessionStyle(wsRoot, sessionId, style, { now = Date.now() } =
   const all = readSessionStyles(wsRoot, { now });   // 已按 TTL 过滤
   if (style == null || String(style).trim() === "") {
     delete all[sid];
-    const pruned = Object.fromEntries(Object.entries(all).map(([k, v]) => [k, { id: v.id, label: v.label, text: v.text, at: v.at }]));
-    try {
-      const file = styleFile(wsRoot);
-      fs.mkdirSync(path.dirname(file), { recursive: true });
-      fs.writeFileSync(file, JSON.stringify(pruned, null, 2), "utf8");
-    } catch (e) { return { ok: false, error: String(e?.message || e).slice(0, 120) }; }
-    return { ok: true, cleared: true };
+    try { writeStyles(wsRoot, all); return { ok: true, cleared: true }; } catch (e) { return { ok: false, error: String(e?.message || e).slice(0, 120) }; }
   }
   const raw = String(style).trim();
   const preset = STYLE_PRESETS[raw];
@@ -79,13 +112,7 @@ export function setSessionStyle(wsRoot, sessionId, style, { now = Date.now() } =
     return { ok: false, error: `语气档太长（${text.length} 字），上限 ${MAX_STYLE_CHARS} 字——它会进系统提示词` };
   }
   all[sid] = { id, label, text, at: now };
-  const pruned = Object.fromEntries(Object.entries(all).map(([k, v]) => [k, { id: v.id, label: v.label, text: v.text, at: v.at }]));
-  try {
-    const file = styleFile(wsRoot);
-    fs.mkdirSync(path.dirname(file), { recursive: true });
-    fs.writeFileSync(file, JSON.stringify(pruned, null, 2), "utf8");
-    return { ok: true, style: { id, label, text, at: now } };
-  } catch (e) { return { ok: false, error: String(e?.message || e).slice(0, 120) }; }
+  try { writeStyles(wsRoot, all); return { ok: true, style: { id, label, text, at: now } }; } catch (e) { return { ok: false, error: String(e?.message || e).slice(0, 120) }; }
 }
 
 export function sessionStyleFor(wsRoot, sessionId, { now = Date.now() } = {}) {
@@ -117,9 +144,12 @@ export function personaParts({ wsRoot, sessionId = "", genes = null, model = nul
     const selfSection = renderSelfSection(selfModel);
     if (selfSection) parts.push({ id: "self", label: "我是谁（活体自述）", text: selfSection });
   } catch { selfModel = null; }
-  const style = sessionStyleFor(wsRoot, sessionId, { now });
-  if (style) parts.push({ id: "session", label: `会话语气 · ${style.label}`, text: style.text });
-  return { parts, selfModel };
+  // 顺序：会话档（临时覆盖）优先于工作区档（长期设定）
+  const session = sessionStyleFor(wsRoot, sessionId, { now });
+  const workspace = workspaceStyleFor(wsRoot, { now });
+  const style = session || workspace;
+  if (style) parts.push({ id: "style", label: `${session ? "会话语气" : "语气档"} · ${style.label}`, text: style.text });
+  return { parts, selfModel, sessionStyle: session, workspaceStyle: workspace };
 }
 
 /**
@@ -127,13 +157,14 @@ export function personaParts({ wsRoot, sessionId = "", genes = null, model = nul
  * 显示与注入同源，所以"面板里看到的"和"真正拼进提示词的"不可能对不上。
  */
 export function resolvePersona({ wsRoot, sessionId = "", genes = null, model = null, now = Date.now() } = {}) {
-  const { parts, selfModel } = personaParts({ wsRoot, sessionId, genes, model, now });
+  const { parts, selfModel, sessionStyle, workspaceStyle } = personaParts({ wsRoot, sessionId, genes, model, now });
   const section = parts.map((p) => p.text).filter(Boolean).join("\n\n");
-  const style = sessionStyleFor(wsRoot, sessionId, { now });
   return {
-    mode: style ? "session" : "workspace",
+    // session = 本会话临时覆盖；workspace = 灵魂培育里设的长期档位；none = 只有人格定义
+    mode: sessionStyle ? "session" : workspaceStyle ? "workspace" : "none",
     sessionId: sessionId ? String(sessionId) : null,
-    sessionStyle: style ? { id: style.id, label: style.label, at: style.at } : null,
+    sessionStyle: sessionStyle ? { id: sessionStyle.id, label: sessionStyle.label, at: sessionStyle.at } : null,
+    workspaceStyle: workspaceStyle ? { id: workspaceStyle.id, label: workspaceStyle.label, at: workspaceStyle.at } : null,
     chars: section.length,
     // parts 带正文（注入方要）；给界面的元数据用 personaMeta() 压掉 text
     parts,
@@ -146,9 +177,10 @@ export function resolvePersona({ wsRoot, sessionId = "", genes = null, model = n
 export function personaMeta(resolution) {
   const r = resolution || {};
   return {
-    mode: r.mode || "workspace",
+    mode: r.mode || "none",
     sessionId: r.sessionId || null,
     sessionStyle: r.sessionStyle || null,
+    workspaceStyle: r.workspaceStyle || null,
     chars: Number(r.chars) || 0,
     parts: (r.parts || []).map((p) => ({ id: p.id, label: p.label, chars: p.text.length })),
   };

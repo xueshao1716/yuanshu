@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import useSWR from 'swr'
-import { UsageApi, SystemApi, type SessionUsage } from '../api'
+import { UsageApi, type SessionUsage } from '../api'
 import { Mic, Phone, Paperclip, FileText, SlidersHorizontal } from 'lucide-react'
 import ParamsPanel from './ParamsPanel'
 import { WsApi } from '../api'
@@ -386,7 +386,6 @@ export default function SendBox({ streaming, onStop, onSend, onSteer, onCommand,
           {/* 模型选择器（嵌入输入框） */}
           <ModelSelect compact />
           <UsageChip sessionId={sessionId || ''} />
-          <PersonaStyleChip sessionId={sessionId || ''} />
 
           <div className="composer-actions">
 
@@ -454,85 +453,6 @@ export default function SendBox({ streaming, onStop, onSend, onSteer, onCommand,
         </div>
       </div>
     </div>
-  )
-}
-
-/**
- * 会话语气档（2026-10-25）：越细越优先——会话档 > 工作区的人格定义默认。
- * 只调语气、不改身份：人格定义仍是唯一真相，改它仍要人批准（/api/persona 的写路径走审批）。
- * 放在输入框这条工具栏里，因为语气是**按会话**的，灵魂页拿不到当前会话。
- */
-function PersonaStyleChip({ sessionId }: { sessionId: string }) {
-  const [open, setOpen] = useState(false)
-  const [draft, setDraft] = useState('')
-  const [saving, setSaving] = useState(false)
-  const { data, mutate } = useSWR(
-    sessionId ? ['persona-style', sessionId] : null,
-    () => SystemApi.personaResolution(sessionId),
-    { revalidateOnFocus: true, shouldRetryOnError: false },
-  )
-  if (!sessionId) return null
-  const res = data?.resolution
-  const current = res?.sessionStyle
-  const presets = data?.stylePresets || []
-  const maxChars = data?.maxStyleChars || 200
-  const save = async (style: string | null) => {
-    setSaving(true)
-    try {
-      await SystemApi.setPersonaStyle(sessionId, style)
-      await mutate()
-      setOpen(false)
-      setDraft('')
-    } catch { /* 网络抖动就保持原样，下次打开再来 */ } finally { setSaving(false) }
-  }
-  return (
-    <span className="persona-style">
-      <button
-        type="button"
-        className={`usage-chip persona-style-btn${current ? ' on' : ''}`}
-        onClick={() => setOpen((v) => !v)}
-        title="本会话的语气档：只影响这一个会话，不改人格定义"
-      >
-        {/* 窄屏只留「语气」两个字，别把工具栏挤成两行 */}
-        <span className="ps-long">语气 · {current ? current.label : '默认'}</span>
-        <span className="ps-short">语气</span>
-      </button>
-      {open && (
-        <div className="persona-style-pop" role="dialog" aria-label="本会话语气">
-          <div className="persona-style-title">
-            本会话语气{typeof res?.chars === 'number' ? `（人格段共 ${res.chars} 字）` : ''}
-          </div>
-          <div className="persona-style-row">
-            {presets.map((p) => (
-              <button
-                key={p.id}
-                type="button"
-                className={`persona-style-opt${current?.id === p.id ? ' on' : ''}`}
-                disabled={saving}
-                onClick={() => save(p.id)}
-              >
-                {p.label}
-              </button>
-            ))}
-            <button type="button" className="persona-style-opt" disabled={saving} onClick={() => save(null)}>
-              回到默认
-            </button>
-          </div>
-          <div className="persona-style-row">
-            <input
-              className="persona-style-input"
-              value={draft}
-              maxLength={maxChars}
-              placeholder={`自定义（≤${maxChars} 字），例如：本会话尽量用列表`}
-              onChange={(e) => setDraft(e.target.value)}
-            />
-            <button type="button" className="persona-style-opt" disabled={saving || !draft.trim()} onClick={() => save(draft.trim())}>
-              用这句
-            </button>
-          </div>
-        </div>
-      )}
-    </span>
   )
 }
 
