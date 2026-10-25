@@ -130,6 +130,13 @@ export async function checkUpdate(repoDir, fsMod = fs, { fetchImpl = fetch, git 
   // 安装版第一次更新前没有 .git：用构建时写下的提交号
   const build = readBuildInfo(repoDir);
   if (!localShaFull && /^[0-9a-f]{40}$/.test(String(build?.commit || ""))) localShaFull = build.commit;
+  // 2026-10-25：标记与运行版本对不上 → 说明"手动部署过但没盖章"（script stamp-build.mjs）。
+  // 这时 build.commit 是过期的，拿它判定只会天天弹「发现新版本」，点下去还是原地重启。
+  // 所以这种情况如实报"未知"，并说清怎么修，而不是给一个错结论。
+  const runningVersion = (() => {
+    try { return JSON.parse(fsMod.readFileSync(`${repoDir}/version.json`, "utf8")).version || ""; } catch { return ""; }
+  })();
+  const stampStale = !!(build?.version && runningVersion && build.version !== runningVersion);
   const localSha = localShaFull.slice(0, 7);
   const sources = [
     { name: "github", url: "https://api.github.com/repos/xueshao1716/yuanshu/commits/main",
@@ -161,6 +168,13 @@ export async function checkUpdate(repoDir, fsMod = fs, { fetchImpl = fetch, git 
           : { relation: "behind" };
       } else if (localShaFull) rel = relateCommits(repoDir, remote.sha, git);
       else rel = { relation: "unknown" };
+      // 盖章过期时，任何"落后/最新"的推断都不可信：只报未知 + 怎么修
+      if (stampStale) {
+        rel = {
+          relation: "unknown",
+          hint: `构建标记是 ${build.version}，运行的是 ${runningVersion}——部署后没盖章。跑一次 npm run stamp-build 就能恢复判断。`,
+        };
+      }
       // 领先 = 没有可拉取的东西，对「更新」而言就是最新；分叉/落后/未知仍提示
       const upToDate = same || rel.relation === "ahead";
       return { ok: true, source: s.name, localSha, remote, upToDate, checkable: !!localShaFull, ...rel };

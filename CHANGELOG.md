@@ -6,6 +6,10 @@
 > 而 `sync:frontend` 是忠实镜像，会把它们复制进 `public/` 与 `app/dist/`（细节见 `docs/NAMING.md`）。
 > 版本唯一来源是仓库根的 `version.json`；契约见 `docs/NAMING.md`。
 
+## [Unreleased]
+
+## [2.127.157] - 2026-10-25
+
 ## [2.127.156] - 2026-10-25
 
 - **表达微调可回滚**：每次 set / replace / clear 都记进独立台账 `记忆/运行时/表达微调.history.jsonl`（from/to + id + 时间），灵魂培育的卡片里给「撤销上一步」，回滚本身也会再记一条，所以可追溯、可再回滚。
