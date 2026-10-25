@@ -924,8 +924,13 @@ export const SystemApi = {
     `/api/persona/part?id=${encodeURIComponent(id)}`,
   ),
   // 2026-10-26：反馈收件箱（自动上报也在这里，做成可看的卡片）
-  feedback: () => api<{ items: { id: string; at: number; title: string; detail?: string; status: string; kind?: string; signature?: string }[] }>('/api/feedback'),
+  feedback: () => api<{ items: { id: string; at: number; title: string; detail?: string; status: string; kind?: string; signature?: string; env?: unknown }[] }>('/api/feedback'),
   feedbackSummary: () => api<{ groups: { signature: string; kind: string; count: number; lastAt: number; status: string; title: string }[] }>('/api/feedback/summary'),
+  // 2026-10-26：自动研判——能不能对上号、为什么对不上、一段可复制的回信
+  feedbackTriage: () => api<{
+    items: { id: string; status: string; matchable: boolean; kind: string; reasons: string[]; reply: string; triage: string }[]
+    summary: { matchable: number; unmatched: number; total: number }
+  }>('/api/feedback/triage'),
   feedbackMark: (id: string, status: 'done' | 'wontfix') => api<{ ok?: boolean }>(`/api/feedback/${encodeURIComponent(id)}`, { method: 'PATCH', body: { status } }),
   // 2026-10-25：今日建议（自己找活）
   ideas: () => api<{ generatedAt: number; items: { id: string; text: string; reason: string; score: number; kind: string }[] }>('/api/ideas'),

@@ -238,6 +238,8 @@ import { checkOutput, measureAudio, evidenceNote, probeMedia, avDriftSec } from 
 import { knowledgeJob } from "./engine/knowledge-job.mjs";
 // 2026-10-26：未捕获异常的去留策略（偶发不退出，同签名反复才退出）
 import { decideCrashAction, crashSignature } from "./engine/crash-policy.mjs";
+// 2026-10-26：收件箱自动研判（对不上号要说清为什么）
+import { triageReport } from "./engine/crash-triage.mjs";
 import { readReportLedger } from "./engine/telemetry.mjs";
 import { setEnvWorkspace } from "./engine/runtime-env.mjs";
 import { loadSelfPolicy, selfTools, recordSelfAction, withinDailyLimit } from "./engine/self-agency.mjs";
@@ -3326,6 +3328,19 @@ const API_ROUTES = [
     const r = memoryDb.deleteMemory(m[1]);
     if (r.ok && r.vector_id) { try { memoryVectors.remove(r.vector_id); } catch { } } // 联动清向量，防孤儿
     json(res, r.ok ? 200 : 404, r.ok ? { ok: true, vector_id: r.vector_id } : { error: "not_found" });
+  }],
+  // 2026-10-26：自动研判每条反馈能不能对上号，并给一段可直接发给对方的回信
+  ["GET", "/api/feedback/triage", (res) => {
+    try {
+      const items = (() => { try { return feedbackStore.list() } catch { return [] } })();
+      const self = { platform: process.platform, version: String(APP_VERSION), commit: process.env.YUANSHU_BUILD_COMMIT || "" };
+      const out = items.map((it) => {
+        let v;
+        try { v = triageReport({ item: it, self }); } catch (e) { v = { matchable: false, kind: "triage_error", reasons: [String(e?.message || e).slice(0, 80)], reply: "", triage: "unusable" }; }
+        return { id: it.id, status: it.status, ...v };
+      });
+      return json(res, 200, { items: out, summary: { matchable: out.filter((x) => x.matchable).length, unmatched: out.filter((x) => !x.matchable).length, total: out.length } });
+    } catch (e) { return json(res, 500, { error: String(e?.message || e).slice(0, 200) }); }
   }],
   ["GET", "/api/feedback/summary", (res) => json(res, 200, { groups: feedbackStore.summary() })],
   ["GET", "/api/telemetry", (res) => json(res, 200, isEnabled(WS_ROOT))],
