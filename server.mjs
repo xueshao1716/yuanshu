@@ -1532,6 +1532,31 @@ async function handleChat(req, res, body) {
     }
   }
 
+  // ── 会话事件总线（2026-10-25 提前到"流开始"之前）──────────────────────────
+  // 原来总线建在下面 1700 行附近，可 1610 行就把响应整个交给了 handleUnifiedChat（它自己开 writer），
+  // 那条早退路径**永远走不到总线** → 别的终端整轮收不到任何事件（实测 subscribed.lastSeq 恒为 0）。
+  // 现在：建立在任何流式输出之前，并且所有 writer 都经过 wrapWriter 收口，任何 push 都会进总线。
+  const busTaskId = body.taskKey || sessionId || findKeyByEntry(entry) || "new";
+  const busKeys = [busTaskId, ...(sessionId && sessionId !== busTaskId ? [sessionId] : [])];
+  const busSeenAt = new Map();
+  const busEmit = (type, data) => {
+    const sig = `${type}:${String(JSON.stringify(data || {})).slice(0, 160)}`;
+    const now = Date.now();
+    const prev = busSeenAt.get(sig);
+    if (prev && now - prev < 250) return;   // 显式 busEmit 与自动广播撞同一事件时只发一次
+    busSeenAt.set(sig, now);
+    if (busSeenAt.size > 300) busSeenAt.clear();
+    for (const k of busKeys) busPush(k, type, data);
+  };
+  // 收口：给 writer 打上"每条事件都广播"的包装（幂等，重复包装不会叠加）
+  const wrapWriter = (w) => {
+    if (!w || w.__busWrapped) return w;
+    const raw = w.push.bind(w);
+    w.push = (type, data) => { try { busEmit(type, data); } catch {} return raw(type, data); };
+    w.__busWrapped = true;
+    return w;
+  };
+
   res.writeHead(200, {
     "Content-Type": "text/event-stream",
     "Cache-Control": "no-cache",
@@ -1607,7 +1632,9 @@ async function handleChat(req, res, body) {
         await refreshCultivationContext();
         turnProfile.mark("context");
         if (knowledgeRequestStopped(req, res)) return res.end();
-        await handleUnifiedChat(res, entry, message, sessionId || findKeyByEntry(entry), body.params, abortCtrl.signal, undefined, thinkOn, body.taskKey, (entry.modelKey && !isAutoModel(entry.modelKey)) ? entry.modelKey : null, null, chatRunContext);
+        // 2026-10-25：把 writer 交进去（原来是 undefined → 它自己另开一个不进总线的流，
+        // 这就是"别的终端收不到回复"的根）。wrapWriter 保证每条事件同时进会话总线。
+        await handleUnifiedChat(res, entry, message, sessionId || findKeyByEntry(entry), body.params, abortCtrl.signal, wrapWriter(createSseWriter(res)), thinkOn, body.taskKey, (entry.modelKey && !isAutoModel(entry.modelKey)) ? entry.modelKey : null, null, chatRunContext);
       }
     } catch (e) {
       try { sseWrite(res, "error", { message: String(e?.message || e) }); } catch {}
@@ -1702,7 +1729,7 @@ async function handleChat(req, res, body) {
   let bootstrapTurn = isFirstTurn(entry.sm) && process.env.PI_TWO_PHASE !== "0";
   const hbTimer = startSseHeartbeat(res); // 心跳保活（公网隧道不因 idle 断开）
   const requestedModel = entry.modelKey?.id && entry.modelKey.id !== 'auto' ? { provider: entry.modelKey.provider, id: entry.modelKey.id } : null;
-  const writer = withModelProvenance(createSseWriter(res), requestedModel); // 背压与实际模型归属
+  const writer = wrapWriter(withModelProvenance(createSseWriter(res), requestedModel)); // 背压与实际模型归属（同时进总线）
   try { const selected = entry.agentModel || effModel; writer.push("model_selected", { model: { provider: selected?.provider, id: selected?.id } }); } catch {}
   try { writer.push("note", { text: leadNote(engineDecision) }); } catch {}
   // 上下文余量如实播报：真腾出余量就报"压完还剩多少"；没腾出来就直说，别拿 🧹 糊弄
@@ -1726,29 +1753,7 @@ async function handleChat(req, res, body) {
     writer.push("note", { text: routeNote });
     console.log(`[router] ${routeNote}`);
   }
-  const taskId = body.taskKey || sessionId || findKeyByEntry(entry) || "new";
-  // 事件总线：任务事件同时入总线（多端订阅观看），sessionId 存在时双挂
-  const busKeys = [taskId, ...(sessionId && sessionId !== taskId ? [sessionId] : [])];
-  // 2026-10-25：**所有**事件都要进总线。原来只有一部分 writer.push 配了 busEmit，
-  // 备用通道 / 空回复兜底那条（`writer.push("delta", {text: fallback.text})`）只写本地流
-  // → 别的终端整轮收不到任何东西（真测：订阅端 subscribed.lastSeq 一直是 0，连 turn_end 都没有）。
-  // 去重窗口：显式 busEmit 与下面的自动广播会撞同一事件，250ms 内同签名只发一次。
-  const busSeenAt = new Map();
-  const busEmit = (type, data) => {
-    const sig = `${type}:${String(JSON.stringify(data || {})).slice(0, 160)}`;
-    const now = Date.now();
-    const prev = busSeenAt.get(sig);
-    if (prev && now - prev < 250) return;
-    busSeenAt.set(sig, now);
-    if (busSeenAt.size > 300) busSeenAt.clear();
-    for (const k of busKeys) busPush(k, type, data);
-  };
-  // 收口：此后任何 writer.push 都会自动广播，不用每个调用点记得加 busEmit
-  try {
-    const rawPush = writer.push.bind(writer);
-    writer.push = (type, data) => { try { busEmit(type, data); } catch {} return rawPush(type, data); };
-  } catch {}
-  touchTask(taskId, { stage: "处理中" });
+  touchTask(busTaskId, { stage: "处理中" });
 
   // ── 危险操作确认（dsh user-approval seam）：命中危险 cmd → 弹框等人工 ──
   // 包装底层 agent 的 beforeToolCall：命中危险 → 发 confirm 事件 → 等前端回答 → 放行/阻断

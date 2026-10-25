@@ -198,11 +198,10 @@ export default function ChatArea({ compactHeader, rightPanel, onRightPanel, onVo
       revalidateOnReconnect: true,
       dedupingInterval: 3000,
       // 2026-10-25：**别的终端发消息时，本端收不到任何增量**——回复只存在于"发消息那个连接"
-      // 自己的 HTTP 响应流里（实测：另开连接订阅 /api/sessions/:id/stream，整轮只收到 subscribed，
-      // 连 turn_end 都没有；bus 在 handleUnifiedChat 那条早退路径上压根没被喂过事件）。
-      // 所以在本端补一条与服务端总线无关的兜底：每 5 秒拉一次消息。
-      // 一端崩了、或者在手机上发的，本端最多 5 秒就能看到，不必等刷新。
-      refreshInterval: 5000,
+      // 自己的 HTTP 响应流里。根因已修（server.mjs 把 writer 收口进会话总线，早退给
+      // handleUnifiedChat 的那条路径现在也会广播），这里保留一条与服务端总线无关的兜底：
+      // 每 15 秒拉一次消息。总线断了、或一端崩了，本端最多 15 秒补齐，不必等刷新。
+      refreshInterval: 15000,
       refreshWhenHidden: false,
     })
   const [orbPanelOpen, setOrbPanelOpen] = useState(false)
