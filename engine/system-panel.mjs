@@ -142,7 +142,14 @@ export async function checkUpdate(repoDir, fsMod = fs, { fetchImpl = fetch, git 
     { name: "github", url: "https://api.github.com/repos/xueshao1716/yuanshu/commits/main",
       pick: (d) => ({ sha: String(d.sha || "").slice(0, 7), message: String(d.commit?.message || "").split("\n")[0], date: d.commit?.author?.date }) },
     { name: "gitee", url: "https://gitee.com/api/v5/repos/linxinyu520xue/yuanshu/branches/main",
-      pick: (d) => ({ sha: String(d.commit?.id || "").slice(0, 7), message: String(d.commit?.message || "").split("\n")[0], date: undefined }) },
+      // 2026-10-25 修：Gitee 的分支接口给的是 commit.sha（40 位）**不是 commit.id**，
+      // 原来只读 d.commit?.id → 永远拿不到 sha → 这个"备用源"其实一直是死的（今天就撞见了）。
+      // 同时补上提交时间：没有 date 时，时间判别那一支会直接判 behind，倾向误报"有更新"。
+      pick: (d) => ({
+        sha: String(d.commit?.sha || d.commit?.id || "").slice(0, 7),
+        message: String(d.commit?.commit?.message || d.commit?.message || "").split("\n")[0],
+        date: d.commit?.commit?.committer?.date || d.commit?.commit?.author?.date || undefined,
+      }) },
   ];
   let lastErr = null;
   for (const s of sources) {
