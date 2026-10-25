@@ -230,6 +230,8 @@ const WATCHDOG_LIMITS = watchdogLimits.LIMITS;
 import * as detachedRun from "./engine/detached-run.mjs";
 // 2026-10-25：后台作业状态机（做完没汇报、坏在哪一步）
 import { collectJobs, summarizeJobs, syncReports, pendingReports, ackReports, autoAckByText, urgentReports } from "./engine/job-state.mjs";
+// 2026-10-25：自己找活——从承诺/牵挂/久未推进的任务/随口提过的事里长出候选目标
+import { curateIdeas, readIdeas, acceptIdea, dismissIdea } from "./engine/idea-curator.mjs";
 import { setEnvWorkspace } from "./engine/runtime-env.mjs";
 import { loadSelfPolicy, selfTools, recordSelfAction, withinDailyLimit } from "./engine/self-agency.mjs";
 import { composeTimeTaskMessages, timeTaskReadTools, recordReflectionActions, parseReflectionActions, yesterdayYmd } from "./engine/time-task-run.mjs";
@@ -3648,6 +3650,18 @@ const API_ROUTES = [
   ["POST", /^\/api\/sessions\/([^/]+)\/branch-session$/, async (res, req, url, m) => handleSessionBranchSession(res, decodeURIComponent(m[1]), await readBody(req))],
   ["GET", /^\/api\/sessions\/([^/]+)\/messages$/, (res, req, url, m) => handleMessages(res, decodeURIComponent(m[1]), req, url)],
   ["POST", /^\/api\/sessions\/([^/]+)\/messages$/, async (res, req, url, m) => handleAppendMessage(res, decodeURIComponent(m[1]), await readBody(req))],
+  // 2026-10-25：今日建议（自己找活）
+  ["GET", "/api/ideas", (res) => json(res, 200, readIdeas(WS_ROOT))],
+  ["POST", "/api/ideas/accept", async (res, req) => {
+    const body = await readBody(req, 1e4);
+    const out = acceptIdea({ wsRoot: WS_ROOT, id: String(body?.id || ""), addLingXi });
+    return json(res, out.ok ? 200 : 400, out);
+  }],
+  ["POST", "/api/ideas/dismiss", async (res, req) => {
+    const body = await readBody(req, 1e4);
+    const out = dismissIdea({ wsRoot: WS_ROOT, id: String(body?.id || "") });
+    return json(res, out.ok ? 200 : 400, out);
+  }],
   ["GET", /^\/api\/sessions\/([^/]+)\/stream$/, (res, req, url, m) => handleSessionStream(res, req, url, m[1])],
   ["GET", /^\/api\/sessions\/([^/]+)\/stats$/, (res, req, url, m) => handleStats(res, decodeURIComponent(m[1]))],
   // 2026-10-24：分层压缩显式入口。与另一棵树（compact-12-keep）的契约对齐：
@@ -4959,6 +4973,45 @@ function startServer() {
       heartbeat(WS_ROOT, { pid: process.pid, version: String(APP_VERSION), port: CONFIG.port, ownsPort: true, startedAt });
       const others = liveInstances(WS_ROOT, {}).filter((x) => x.pid !== process.pid);
       console.log(`  [实例自检] pid ${process.pid} · v${APP_VERSION} · 持有端口 ${CONFIG.port} · 其它存活实例 ${others.length}${others.length ? "（" + others.map((o) => `pid ${o.pid} v${o.version}`).join("、") + "）" : ""}`);
+      // 2026-10-25：每天长出一批候选目标（承诺优先，久未推进的任务其次，随口提过的垫底）。
+      // 注意：这是「自己找活」那一块，不是随机建议——种子全部来自真实记录。
+      let lastCurateDay = "";
+      function recentSessionText(n = 3, limit = 120) {
+        const out = [];
+        try {
+          const files = fs.readdirSync(SESSIONS_DIR)
+            .filter((f) => f.endsWith(".jsonl") || f.endsWith(".json"))
+            .map((f) => ({ f, m: fs.statSync(path.join(SESSIONS_DIR, f)).mtimeMs }))
+            .sort((a, b) => b.m - a.m).slice(0, n);
+          for (const { f, m } of files) {
+            const lines = fs.readFileSync(path.join(SESSIONS_DIR, f), "utf8").split(/\r?\n/).filter(Boolean).slice(-200);
+            for (const line of lines) {
+              try {
+                const row = JSON.parse(line);
+                const text = row?.message?.content || row?.content || row?.text;
+                if (typeof text === "string" && text.length > 8) out.push({ text, at: m });
+              } catch {}
+              if (out.length >= limit) return out;
+            }
+          }
+        } catch {}
+        return out;
+      }
+      async function maybeCurateIdeas() {
+        try {
+          const today = new Date().toISOString().slice(0, 10);
+          if (lastCurateDay === today) return;
+          const promises = (() => { try { return pendingPromises(WS_ROOT, {}) } catch { return [] } })();
+          const lingxi = (() => { try { return listLingXi(WS_ROOT, {}) } catch { return [] } })();
+          const tasks = (() => { try { return timeEngine ? timeEngine.list() : [] } catch { return [] } })();
+          const texts = recentSessionText(3, 120);
+          const doc = curateIdeas({ wsRoot: WS_ROOT, promises, lingxi, tasks, texts });
+          lastCurateDay = today;
+          if (!doc?.skipped) console.log(`[ideas] 今日建议已生成 ${doc.items.length} 条`);
+        } catch (e) {
+          console.log(`[ideas] 生成失败: ${String(e?.message || e).slice(0, 120)}`);
+        }
+      }
       // 2026-10-25：每分钟把"做完了但没人汇报"的后台作业记进台账，
       // 下一轮开头会作为环境事实提醒她（没做完的不记，避免刷屏）。
       // ② 事件驱动汇报：high 级未汇报 + 空闲 → 她自己写一两句推给用户，不等用户开口。
@@ -5008,6 +5061,8 @@ function startServer() {
   // 用最便宜的模型写一两句，直接推到用户端——不用等用户先开口。
   // 对标 Muse/dots："活干完了自己回来汇报"，而不是记一笔等下次对话。
   void maybeAutoReport();
+        // 自己找活：每天一次，从真实记录里挑候选目标（内部按日期幂等）
+        try { void maybeCurateIdeas(); } catch (e) { console.log("[ideas] 调用失败:", String(e?.message || e).slice(0, 100)); }
 }, 60000).unref?.();
 setInterval(() => heartbeat(WS_ROOT, { pid: process.pid, version: String(APP_VERSION), port: CONFIG.port, ownsPort: true, startedAt }), 30000).unref?.();
     } catch (e) { console.log("  [实例自检] 登记失败:", String(e?.message || e).slice(0, 100)); }
