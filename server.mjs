@@ -3267,7 +3267,8 @@ const API_ROUTES = [
   // ── 反馈收集（2026-10-13）：bug 报告 / 改进意见，分发出去的主机提交到工作台服务器 ──
   ["POST", "/api/feedback", async (res, req) => {
     const b = await readBody(req, 8);
-    const r = feedbackStore.add({ type: b?.type, title: b?.title, detail: b?.detail, contact: b?.contact, withDiagnostics: !!b?.withDiagnostics, env: b?.env || null });
+    const r = feedbackStore.add({ type: b?.type, title: b?.title, detail: b?.detail, contact: b?.contact, withDiagnostics: !!b?.withDiagnostics, env: b?.env || null,
+        ticketId: b?.ticketId || "", installId: b?.installId || "", replyTo: b?.replyTo || "" });
     if (r.error) return json(res, 400, { error: r.error });
     json(res, 200, { ok: true, id: r.item.id });
   }],

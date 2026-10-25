@@ -141,5 +141,8 @@ export function resolutionReply({ item = {}, fix = {} } = {}) {
   ];
   if (verify) lines.push(`请你这样验证：${verify}`);
   lines.push("", "还复现的话直接回这条就行，我会接着查。谢谢你报回来——没有这条报告，这个坑我们不会这么快发现。");
+  // 带上工单号，双方对得上（有就带，没有不加空行）
+  const t = String(item.ticketId || "");
+  if (t) lines.push("", `（工单 ${t}）`);
   return { ok: true, text: lines.join("\n") };
 }

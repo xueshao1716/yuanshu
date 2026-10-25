@@ -62,7 +62,7 @@ export function createFeedbackStore({ wsRoot, version = "", readCrashTail }) {
    * @param {string} [input.replyTo] 回信地址（原路返回用；本机收件箱留空）
    * @param {string} [input.threadId] 对端给的话题 id（没有就用本机生成的）
    */
-  function add({ type, title, detail, contact = "", withDiagnostics = false, env = null, source = "workbench", ip = "", replyTo = "", threadId = "" }) {
+  function add({ type, title, detail, contact = "", withDiagnostics = false, env = null, source = "workbench", ip = "", replyTo = "", threadId = "", ticketId = "", installId = "" }) {
     const cleanType = TYPES.has(type) ? type : "idea";
     const cleanTitle = String(title || "").trim().slice(0, MAX_TITLE);
     const cleanDetail = String(detail || "").trim().slice(0, MAX_DETAIL);
@@ -81,6 +81,9 @@ export function createFeedbackStore({ wsRoot, version = "", readCrashTail }) {
       source, ip: source === "public" ? ip : "",
       replyTo: String(replyTo || "").slice(0, 300),
       threadId: String(threadId || "").slice(0, 120),
+      // 2026-10-26：工单号——回信时双方靠它对号（公网端点不一定给回信地址，号是我们自己的）
+      ticketId: String(ticketId || "").slice(0, 40),
+      installId: String(installId || "").slice(0, 64),
       replies: [],
       diagnostics: withDiagnostics ? collectDiagnostics() : null,
     };

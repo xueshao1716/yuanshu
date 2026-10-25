@@ -7,6 +7,7 @@ import fs from "node:fs";
 import path from "node:path";
 import os from "node:os";
 import { buildCrashReport, triageLine, diagnosability } from "./crash-report-spec.mjs";
+import { newTicket, withTicket, ticketLine } from "./feedback-ticket.mjs";
 
 const MAX_PER_DAY = 3;
 const DEV_FEEDBACK_URL = process.env.YUANSHU_FEEDBACK_URL || "https://pi.myxinyu.xin/api/public/feedback";
@@ -135,7 +136,10 @@ export async function reportIncidents(agentDir, incidents, { fetch: f = globalTh
     recordReport(agentDir, { decision: "skipped", reason: gate.reason, kinds: (incidents.incidents || []).map(i => i.kind) });
     return { sent: false, reason: gate.reason };
   }
-  const payload = {
+  // 2026-10-26：带工单号——回信时双方能对上号（公网端点不一定给回信地址，但号是我们自己的）
+  let ticket = null;
+  try { ticket = newTicket(agentDir); } catch {}
+  const payload = withTicket({
     type: "bug",
     title: `[自动上报] ${incidents.incidents[0].kind}: ${incidents.incidents[0].summary}`.slice(0, 120),
     // 2026-10-26：把**能定位**的事实都带上——分发的用户报回来一次就该够用。
@@ -165,7 +169,10 @@ export async function reportIncidents(agentDir, incidents, { fetch: f = globalTh
     triage: incidents.incidents[0]?.report ? triageLine(incidents.incidents[0].report) : null,
     withDiagnostics: false, // 不发 crash.log 原文全文（避免夹带工作区路径与内容）
     contact: "auto-telemetry",
-  };
+    ticketId: ticket?.ticketId || "",
+    installId: ticket?.installId || "",
+  }, ticket && { replyTo: "" });
+  if (ticket) payload.detail += "\n" + ticketLine(ticket);
   const res = await f(endpoint, { method: "POST", headers: { "Content-Type": "text/plain;charset=UTF-8" }, body: JSON.stringify(payload) });
   if (!res.ok) {
     recordReport(agentDir, { decision: "failed", reason: `http_${res.status}`, kinds: incidents.incidents.map(i => i.kind) });

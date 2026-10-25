@@ -79,3 +79,16 @@ engine/feedback-relay.mjs 做 best-effort 转发：有地址才发，发不出�
       { kind: 'triage', text: '…' }                  # 第一封：原文照发
       { kind: 'resolved', change: '…', verify: '…' }  # 第二封：服务端拼装（可带 version）
     → { ok, reply: { id, kind, text, relayed }, relay: { ok, error? } }
+
+## 七、工单号：让两边认得出是同一件事
+
+公网端点不一定能回信，但**工单号是我们自己造的**，能带、能引用、能人工对。
+
+| 字段 | 生成方 | 用途 |
+|---|---|---|
+| installId | 本机首次提交时生成，落 记忆/运行时/反馈工单.json | 多份报告归到同一台设备 |
+| ticketId | 每次提交一个（T-YYYYMMDD-NNNN） | 回信里原样引用，双方对号 |
+| replyTo | 可选：提交方有可访问地址才填 | 真正自动回信的通道 |
+
+自动上报（engine/telemetry.mjs）与前端面板（FeedbackPanel）都会带上；
+回信正文末尾若带「（工单 T-… · 设备 xxxxxxxx）」就是从这里来的。

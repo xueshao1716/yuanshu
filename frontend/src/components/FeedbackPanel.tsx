@@ -50,8 +50,24 @@ export default function FeedbackPanel() {
     try { const d = JSON.parse(draft); if (d?.title) setMsg('有一条未送出的反馈，点击下方“重试发送”再试一次') } catch { }
   }, [draft])
 
+  // 2026-10-26：每份反馈带工单号 / 安装号——回信时双方能对上号
+  // （公网端点不一定给回信地址，但这套号是我们自己造的，写进正文里也能人工对）
+  function ticketFor() {
+    let installId = ''
+    try {
+      const k = 'ys-install-id'
+      installId = localStorage.getItem(k) || ''
+      if (!installId) { installId = (crypto.randomUUID ? crypto.randomUUID() : String(Date.now()) + Math.random()); localStorage.setItem(k, installId) }
+    } catch { /* 隐私模式拿不到 localStorage 就不带 */ }
+    const day = new Date().toISOString().slice(0, 10).replace(/-/g, '')
+    const ticketId = 'T-' + day + '-' + Math.random().toString(36).slice(2, 6).toUpperCase()
+    return { installId, ticketId }
+  }
+
   async function submit(retryBody?: string) {
-    const payload = retryBody || JSON.stringify({ type, title, detail, contact, withDiagnostics: withDiag })
+    const base = retryBody ? JSON.parse(retryBody) : { type, title, detail, contact, withDiagnostics: withDiag }
+    const t = ticketFor()
+    const payload = JSON.stringify({ ...base, installId: base.installId || t.installId, ticketId: base.ticketId || t.ticketId })
     if (!retryBody && !title.trim()) { setMsg('标题不能为空'); return }
     setBusy(true); setMsg('')
     try {
