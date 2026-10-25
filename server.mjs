@@ -367,6 +367,14 @@ async function telemetrySweep(manual = false) {
       watchdogRestarts = (tail.match(/检测到 server 掉线/g) || []).length;
     } catch {}
     try { crashTail = fs.readFileSync(path.join(__dirname, "crash.log"), "utf8").slice(-4000); } catch {}
+    // 2026-10-26：崩溃报告必须带**构建号**——行号会随版本漂移，commit 才是唯一可靠锚点
+    // （真机收到的两条外地报告就因为缺这个，只能猜行号）。
+    try {
+      if (!process.env.YUANSHU_BUILD_COMMIT) {
+        const info = JSON.parse(fs.readFileSync(path.join(__dirname, ".yuanshu-build.json"), "utf8"));
+        if (/^[0-9a-f]{7,40}$/i.test(String(info?.commit || ""))) process.env.YUANSHU_BUILD_COMMIT = String(info.commit).slice(0, 12);
+      }
+    } catch {}
     const incidents = collectIncidents({ crashTail, watchdogRestarts, modelFailStreak: 0, version: shellVersion });
     if (!manual && !incidents.incidents.length) return { sent: false, reason: "nothing" };
     return await reportIncidents(WS_ROOT, incidents);

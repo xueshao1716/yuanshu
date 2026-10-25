@@ -6,6 +6,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import os from "node:os";
+import { buildCrashReport, triageLine, diagnosability } from "./crash-report-spec.mjs";
 
 const MAX_PER_DAY = 3;
 const DEV_FEEDBACK_URL = process.env.YUANSHU_FEEDBACK_URL || "https://pi.myxinyu.xin/api/public/feedback";
@@ -56,6 +57,18 @@ export function collectIncidents({ crashTail = "", watchdogRestarts = 0, modelFa
       const around = crashTail.slice(Math.max(0, at - 400), at + exitLine.length + 400).trim();
       incidents.push({ kind: "crash", summary: exitLine.slice(0, 160), context: around.slice(0, 700), code });
     }
+  }
+  // 2026-10-26：按验收标准补一份结构化报告（能定位的字段全在这）
+  const primary = incidents[0];
+  if (primary) {
+    const stack = primary.stack || primary.summary || "";
+    primary.report = buildCrashReport({
+      version, commit: process.env.YUANSHU_BUILD_COMMIT || "",
+      platform: process.platform, arch: process.arch, node: process.version,
+      uptimeSec: Math.round(process.uptime()), kind: primary.kind,
+      signature: String(stack).split("\n").slice(0, 2).join(" | ").slice(0, 200),
+      stack, exitCode: primary.code ?? null,
+    });
   }
   if (watchdogRestarts > 0) incidents.push({ kind: "restart", summary: `watchdog 重启 ${watchdogRestarts} 次` });
   if (modelFailStreak >= 5) incidents.push({ kind: "model-fail", summary: `模型调用连续失败 ${modelFailStreak} 次` });
@@ -136,7 +149,20 @@ export async function reportIncidents(agentDir, incidents, { fetch: f = globalTh
       `系统: ${incidents.os || "?"}`,
       `node: ${process.version} (${process.platform}/${process.arch})`,
       `启动参数: ${process.argv.slice(0, 3).join(" ")}`,
+      `\n[可定位性] ${incidents.incidents[0]?.report ? triageLine(incidents.incidents[0].report) : diagnosability(incidents.incidents[0]?.report || {}).level}`,
     ].filter(Boolean).join("\n").slice(0, 6000),
+    // 2026-10-26：报告要能被"验收"——字段齐不齐、能不能定位、版本还支持吗
+    env: incidents.incidents[0]?.report ? {
+      version: incidents.incidents[0].report.version,
+      commit: incidents.incidents[0].report.commit,
+      platform: incidents.incidents[0].report.platform,
+      arch: incidents.incidents[0].report.arch,
+      node: incidents.incidents[0].report.node,
+      uptimeSec: incidents.incidents[0].report.uptimeSec,
+      signature: incidents.incidents[0].report.signature,
+      exitCode: incidents.incidents[0].report.exitCode,
+    } : null,
+    triage: incidents.incidents[0]?.report ? triageLine(incidents.incidents[0].report) : null,
     withDiagnostics: false, // 不发 crash.log 原文全文（避免夹带工作区路径与内容）
     contact: "auto-telemetry",
   };

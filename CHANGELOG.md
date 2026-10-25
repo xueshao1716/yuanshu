@@ -6,6 +6,10 @@
 > 而 `sync:frontend` 是忠实镜像，会把它们复制进 `public/` 与 `app/dist/`（细节见 `docs/NAMING.md`）。
 > 版本唯一来源是仓库根的 `version.json`；契约见 `docs/NAMING.md`。
 
+## [2.129.4] - 2026-10-26
+
+- **崩溃报告有了验收标准**（engine/crash-report-spec.mjs + docs/CRASH-REPORT-CONTRACT.md）：必填 version/commit/platform/arch/node/uptimeSec/kind/signature/stack/exitCode；本地分三档可定位性（addressable / partial / unusable），低于 MIN_SUPPORTED_VERSION 标「先升级再报」。
+- **上报 payload 按标准填写**：带结构化 env、多行栈、一行 triage 结论；并在启动时从 .yuanshu-build.json 取 commit 补上（之前缺失，导致只能靠猜行号）。
 ## [2.129.3] - 2026-10-26
 
 - **崩溃上报变可定位**：分发的 Linux 用户报回两条 Timeout._onTimeout 崩溃，但 detail 只有 160 字符一行、env 与 diagnostics 全 null——等于报了个「某处炸了」。现在带上多行栈（最多 12 行）+ crash.log 上下文 + 版本/系统/node/启动参数。
@@ -23,6 +27,8 @@
 - **去重 key 稳定化**：原来 summary 里含 pid= / uptime=，每次重启都是新串，同一个根因刷出 20 条。现在先抹掉可变部分再比。
 - 清理了历史积压：41 条关闭（23 条假警报标 wontfix、18 条重复标 done），保留 2 条真崩溃（来自另一台 Linux 安装，本机无从复现）。
 ## [Unreleased]
+
+## [2.129.4] - 2026-10-25
 
 ## [2.129.3] - 2026-10-25
 
