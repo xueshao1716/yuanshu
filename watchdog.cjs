@@ -50,20 +50,32 @@ let lastStartAt = 0; // 最近一次启动时刻（用于分级检查频率：�
 // 而 startServer 只判断 `child` 是否存在 → 永远拒绝重拉，日志刷 26 次"端口已占用或子进程仍在启动"。
 let consecutiveFails = 0;
 let firstFailAt = 0; // 这一串失败从什么时候开始
-const STUCK_KILL_AFTER = 3; // 连续 3 次不健康先记为"疑似僵死"
-// 2026-10-20 事故：事件循环被同步任务卡了 25.7 秒（loop-lag maxMs=25770），
-// 三次探活全超时 → 被判僵死强杀；进程其实活得好好的，重启反而打断用户。
-// 现在要求"失败持续 ≥60 秒"才强杀：忙一会儿不算死。
-// 2026-10-20 二次事故：15:52 服务冻了 62 秒被杀。查下来不是代码死循环——
-// 机器提交内存 30.2/34.9 GB、可用物理内存仅 2.1 GB，页面调度把事件循环拖死了。
-// 这种情况下重启只会丢掉正在跑的活，反而不如等它缓过来。给足 3 分钟。
-// 2026-10-23：实测 163 秒的停顿会自己恢复（GC/内存回收），180 秒判死会把它误杀。
-// 放宽到 300 秒；真死（进程活着但永不响应）仍会被收掉，只是晚 5 分钟。
-const STUCK_MIN_MS = 300_000;
+// 阈值统一从 lib/watchdog-limits.cjs 取（2026-10-25）：
+// 这些数字以前在 watchdog 和 server.mjs 的通知文案里各有一份，2026-10-23 把 180 提到 300 时
+// 只改了这边，用户收到的通知一直说"持续 180 秒会被守护重启"。同一份常量，两边都读它。
+const { LIMITS, decideStuckKill } = require("./lib/watchdog-limits.cjs");
+const STUCK_KILL_AFTER = LIMITS.STUCK_KILL_AFTER;
+// 历史（留在原处，方便查为什么是这些数）：
+// 2026-10-20 事故：事件循环被同步任务卡了 25.7 秒，三次探活全超时 → 判僵死强杀，进程其实好好的。
+// 2026-10-20 二次：15:52 服务冻了 62 秒被杀。根因不是死循环——机器提交内存 30.2/34.9 GB、
+//   可用物理内存仅 2.1 GB，页面调度把事件循环拖死。这种情况重启只会丢掉正在跑的活。
+// 2026-10-23：实测 163 秒的停顿会自己恢复（GC/内存回收），180 秒判死会误杀 → 放宽到 300 秒。
+const STUCK_MIN_MS = LIMITS.STUCK_MIN_MS;
 // 2026-10-20：冷启动实测要 40–60 秒（依赖多、初始化重）。原来 15 秒就判僵死，
 // 会把正在正常启动的进程杀掉 → 无限重启风暴。给一个启动宽限期，宽限期内只观察不杀。
-const STARTUP_GRACE_MS = 120_000;
+const STARTUP_GRACE_MS = LIMITS.STARTUP_GRACE_MS;
 let childStartedAt = 0;
+
+// 2026-10-25：子进程冻住之前的"活动证据"。事件循环卡死时健康检查必然失败，
+// 但**正在跑的对话也一起冻住了**——只看"失败够久"就杀，会把用户跑到一半的轮次杀掉。
+// 服务每 5 秒写一份心跳（有轮次在跑时），这里读它来决定要不要多等一会儿。
+const HEARTBEAT_FILE = path.join(_logDir, "记忆", "运行时", "守护心跳.json");
+function readHeartbeat() {
+  try {
+    const j = JSON.parse(fs.readFileSync(HEARTBEAT_FILE, "utf8"));
+    return { activeRuns: Math.max(0, Number(j?.activeRuns) || 0), at: Number(j?.at) || 0 };
+  } catch { return { activeRuns: 0, at: 0 }; }
+}
 
 // ── 崩溃归因 → 是否回滚 ───────────────────────────────────────────────
 // 回滚会把 server.mjs 换成旧的 .bak，属于「静默降级」，误判代价极高：
@@ -164,12 +176,24 @@ const startServer = singleFlight(async function () {
     child = null;
   }
   // 子进程活着却长期不健康 → 僵死，强杀重拉（否则会像今天那样永久卡住）
+  // 2026-10-25：动刀之前先看"冻住之前"的活动证据——有轮次在跑就再多等一段（lib/watchdog-limits.cjs）
   const failedLongEnough = firstFailAt > 0 && Date.now() - firstFailAt >= STUCK_MIN_MS;
   if (child && consecutiveFails >= STUCK_KILL_AFTER && failedLongEnough && childStartedAt && Date.now() - childStartedAt > STARTUP_GRACE_MS) {
-    log(`⚠️ 子进程存活但连续 ${consecutiveFails} 次健康检查失败，判定僵死，强杀后重拉`);
-    try { child.kill("SIGKILL"); } catch { /* 已经没了也无所谓 */ }
-    child = null;
-    await new Promise(r => setTimeout(r, 1500));
+    const hb = readHeartbeat();
+    const verdict = decideStuckKill({
+      consecutiveFails, firstFailAt, childStartedAt, now: Date.now(),
+      activeRuns: hb.activeRuns, heartbeatAt: hb.at,
+    });
+    if (verdict.kill) {
+      log(`⚠️ 子进程存活但连续 ${consecutiveFails} 次健康检查失败，判定僵死，强杀后重拉（${verdict.reason}）`);
+      try { child.kill("SIGKILL"); } catch { /* 已经没了也无所谓 */ }
+      child = null;
+      // 杀掉后把心跳归零，避免下一轮启动被上一次的活动信息误导
+      try { fs.writeFileSync(HEARTBEAT_FILE, JSON.stringify({ at: Date.now(), activeRuns: 0, pid: null, killedBy: "watchdog" }), "utf8"); } catch {}
+      await new Promise(r => setTimeout(r, 1500));
+    } else if (verdict.deferred) {
+      log(`⏳ ${verdict.reason}`);
+    }
   }
   if (child || await portOpen()) { log("端口已占用或子进程仍在启动；不强杀、不重复拉起，请检查服务日志"); return; }
   // 重启限频：10 秒内最多重启 1 次，防死循环风暴

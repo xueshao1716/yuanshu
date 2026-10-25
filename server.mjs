@@ -222,6 +222,10 @@ import { buildSelfModel, renderSelfSection, renderSelfMarkdown } from "./engine/
 import { shouldProbe, markProbed, splitBeforeAfter, abCompare, appendProbeLog, appendLesson } from "./engine/harness-probe.mjs";
 import { collectEvidence, buildProposePrompt, parseCandidates, writeCandidates, listCandidates, markCandidate, localDate } from "./engine/harness-propose.mjs";
 import { withModelFailover } from "./engine/model-failover.mjs";
+// 守护阈值与 watchdog 共用一个真源（CJS，Node 互操作取 default）。
+// 2026-10-25：之前通知文案硬编码 180 秒、watchdog 实际是 300 秒，用户照着一个错的数字在等。
+import watchdogLimits from "./lib/watchdog-limits.cjs";
+const WATCHDOG_LIMITS = watchdogLimits.LIMITS;
 import { loadSelfPolicy, selfTools, recordSelfAction, withinDailyLimit } from "./engine/self-agency.mjs";
 import { composeTimeTaskMessages, timeTaskReadTools, recordReflectionActions, parseReflectionActions, yesterdayYmd } from "./engine/time-task-run.mjs";
 import { promoteReflectionLessons, lessonDraft } from "./engine/lesson-promotion.mjs";
@@ -5147,17 +5151,27 @@ try {
       } catch {}
       console.log("[loop-lag]", line);
       if (maxMs > 5000) console.log(`[loop-stall] 事件循环停了 ${maxMs}ms（起点 ${new Date(Date.now() - maxMs).toISOString()}，rss ${Math.round(process.memoryUsage().rss / 1048576)}MB）`);
-      // 2026-10-22：卡顿 >30s 可能触发 watchdog 强杀（连续 180s 判死），事后没人知道。
+      // 2026-10-22：卡顿 >30s 可能触发 watchdog 强杀，事后没人知道。
       // 卡顿当口用系统通知留一条（一小时内只提醒一次，避免刷屏）。
+      // 2026-10-25：文案里原来写死"180 秒"——阈值早在 10-23 就调到 300 了，用户照着一个不存在的
+      // 数字在等。改成读 lib/watchdog-limits.cjs 的单一真源；并且说清"有对话在跑时会再等一段"，
+      // 因为这个提示讲的是进程，你那条消息能不能保住取决于心跳里的活动轮次。
       if (maxMs > 30_000) {
         try {
           const last = globalThis.__lastStallNotify || 0;
           if (Date.now() - last > 3600_000) {
             globalThis.__lastStallNotify = Date.now();
+            const stuckSec = Math.round(WATCHDOG_LIMITS.STUCK_MIN_MS / 1000);
+            const graceSec = Math.round(WATCHDOG_LIMITS.ACTIVE_RUN_GRACE_MS / 1000);
+            const active = (() => {
+              try { return (runManager.list() || []).filter(r => r && !["completed", "failed", "stopped", "interrupted"].includes(String(r.status))).length; } catch { return 0; }
+            })();
             notifier.notify({
               kind: "system",
               title: "元枢服务卡顿",
-              body: `事件循环停了 ${Math.round(maxMs / 1000)} 秒（rss ${Math.round(process.memoryUsage().rss / 1048576)}MB）。持续 180 秒会被守护重启。`,
+              body: active > 0
+                ? `事件循环停了 ${Math.round(maxMs / 1000)} 秒（rss ${Math.round(process.memoryUsage().rss / 1048576)}MB）。你有 ${active} 个轮次在跑：守护会先等它们，最迟 ${stuckSec + graceSec} 秒才考虑重启。`
+                : `事件循环停了 ${Math.round(maxMs / 1000)} 秒（rss ${Math.round(process.memoryUsage().rss / 1048576)}MB）。持续 ${stuckSec} 秒会被守护重启。`,
               key: "stall",
             });
           }
@@ -5168,6 +5182,32 @@ try {
   }, 30000).unref?.();
   console.log("  [loop-lag] 事件循环停顿监测已挂上（>500ms 记一条：记忆/运行时/事件循环停顿.jsonl）");
 } catch (e) { console.log("[loop-lag] 挂载失败:", String(e?.message || e).slice(0, 100)); }
+
+// ── 守护心跳（2026-10-25）────────────────────────────────────────────
+// watchdog 判"僵死"前会读它。为什么要这个：事件循环卡死时健康检查一定失败，
+// 但**正在跑的对话也一起卡住了**——只看"失败够久"就杀，会把用户跑到一半的轮次杀掉。
+// 心跳回答的是"冻住之前它有没有在干活"：有，就多等一段（见 lib/watchdog-limits.cjs）。
+// 只在有活动轮次时写（空闲不刷盘），活动归零时补写一条 0。
+try {
+  const HEARTBEAT_FILE = path.join(CONFIG.cwd, "记忆", "运行时", "守护心跳.json");
+  const TERMINAL_STATUS = ["completed", "failed", "stopped", "interrupted"];
+  let lastBeatRuns = -1;
+  const writeHeartbeat = () => {
+    try {
+      const runs = typeof runManager?.list === "function" ? runManager.list() : [];
+      const active = (runs || []).filter(r => r && !TERMINAL_STATUS.includes(String(r.status))).length;
+      // 启动时先写一条 0（lastBeatRuns 初值 -1），让 watchdog 至少有个基准；
+      // 之后空闲就不刷盘了（写盘每 5 秒一次、天天 1.7 万次，没必要）
+      if (active === 0 && lastBeatRuns === 0) return;
+      fs.mkdirSync(path.dirname(HEARTBEAT_FILE), { recursive: true });
+      fs.writeFileSync(HEARTBEAT_FILE, JSON.stringify({ at: Date.now(), activeRuns: active, pid: process.pid }), "utf8");
+      lastBeatRuns = active;
+    } catch {}
+  };
+  writeHeartbeat();
+  setInterval(writeHeartbeat, 5000).unref?.();
+  console.log("  [watchdog] 守护心跳已挂上（有轮次在跑时每 5s 写一次，供守护理性判死）");
+} catch (e) { console.log("[watchdog] 心跳挂载失败:", String(e?.message || e).slice(0, 100)); }
 
 // 预热重接口（2026-09-20）：/api/run/overview 与 /api/stats/providers 第一次算要 5–9 秒
 //（要扫全部会话文件/运行日志），原来这笔开销由"第一屏"承担。启动后延迟几秒在本机自己打一遍，
