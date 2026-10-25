@@ -239,6 +239,8 @@ import { knowledgeJob } from "./engine/knowledge-job.mjs";
 import { feedbackJob } from "./engine/feedback-job.mjs";
 // 2026-10-26：知识长能力——从结构化信号挖代码级提案（带证据/测试/收益）
 import { readProposals, refreshProposals, markProposal, mineSignals } from "./engine/capability-proposal.mjs";
+// 2026-10-26：accepted 之后自动产出改动计划 + 测试骨架（人只审阅和跑测试）
+import { planFor, materializeProposal } from "./engine/capability-plan.mjs";
 // 2026-10-26：未捕获异常的去留策略（偶发不退出，同签名反复才退出）
 import { decideCrashAction, crashSignature } from "./engine/crash-policy.mjs";
 // 2026-10-26：收件箱自动研判（对不上号要说清为什么）
@@ -3371,6 +3373,32 @@ const API_ROUTES = [
   ["POST", "/api/capability/refresh", (res) => {
     try { const out = refreshProposals(WS_ROOT); return json(res, 200, { ok: true, stats: out.stats, items: readProposals(WS_ROOT).items }); }
     catch (e) { return json(res, 500, { error: String(e?.message || e).slice(0, 160) }); }
+  }],
+  // 2026-10-26：计划预览（不写盘）与落地（写 PLAN.md + 测试骨架，绝不覆盖已有测试）
+  ["POST", "/api/capability/plan", async (res, req) => {
+    try {
+      const b = await readBody(req, 4e3);
+      const items = readProposals(WS_ROOT).items || [];
+      const p = items.find((x) => x.id === String(b?.id || ''));
+      if (!p) return json(res, 404, { error: 'not_found' });
+      const plan = planFor(p);
+      return json(res, 200, { ok: true, plan });
+    } catch (e) { return json(res, 500, { error: String(e?.message || e).slice(0, 160) }); }
+  }],
+  ["POST", "/api/capability/materialize", async (res, req) => {
+    try {
+      const b = await readBody(req, 4e3);
+      const data = readProposals(WS_ROOT);
+      const p = (data.items || []).find((x) => x.id === String(b?.id || ''));
+      if (!p) return json(res, 404, { error: 'not_found' });
+      const out = materializeProposal(WS_ROOT, p);
+      if (!out.ok) return json(res, 400, out);
+      p.planPath = out.planPath; p.testPath = out.testPath; p.materializedAt = Date.now();
+      if (p.state === 'proposed') { p.state = 'accepted'; p.acceptedAt = Date.now(); }
+      const { writeProposals } = await import('./engine/capability-proposal.mjs');
+      writeProposals(WS_ROOT, data);
+      return json(res, 200, { ok: true, ...out });
+    } catch (e) { return json(res, 500, { error: String(e?.message || e).slice(0, 160) }); }
   }],
   ["POST", "/api/capability/mark", async (res, req) => {
     try {

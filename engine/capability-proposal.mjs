@@ -25,6 +25,7 @@ const AREAS = [
   { area: "audio", label: "音频/交付验收", re: /ffmpeg|ebur128|LUFS|响度|音轨|audio|earshot/i },
   { area: "knowledge", label: "知识沉淀", re: /知识|claim|journal|entry|沉淀|租约|admission/i },
   { area: "feedback", label: "反馈/上报", re: /上报|反馈|工单|crash|崩溃|telemetry|ticket/i },
+  { area: "render", label: "渲染/视频", re: /渲染|宣传片|视频|ffmpeg.*导出|重渲染|mp4|movie/i },
   { area: "shell", label: "脚本/编码", re: /powershell|pwsh|乱码|utf-?8|bom|encoding/i },
   { area: "deploy", label: "部署/进程", re: /重启|watchdog|端口|EADDRINUSE|release|部署/i },
   { area: "mcp", label: "外部工具", re: /mcp|模型|网关|timeout|超时/i },
