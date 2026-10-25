@@ -154,7 +154,13 @@ export function stopDetached({ wsRoot, id } = {}) {
   if (!info.alive) return { ok: true, alreadyStopped: true, id };
   try {
     execFileSync("taskkill.exe", ["/PID", String(info.pid), "/T", "/F"], { stdio: "ignore", timeout: 20_000, windowsHide: true });
-  } catch (e) { return { ok: false, error: String(e?.message || e).slice(0, 160) }; }
+  } catch (e) {
+    // 进程可能在我们探活之后、taskkill 之前自己结束了（渲染跑完就属于这种情况）。
+    // 这时 taskkill 会报"没有找到进程"——不该把它当成停止失败，再探一次活就够。
+    const again = readDetached({ wsRoot, id });
+    if (again.ok && !again.alive) return { ok: true, alreadyStopped: true, id };
+    return { ok: false, error: String(e?.message || e).slice(0, 160) };
+  }
   return { ok: true, killed: true, id, pid: info.pid };
 }
 

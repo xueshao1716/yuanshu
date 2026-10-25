@@ -66,18 +66,23 @@ test('侧栏分组：置顶 → 对话（按时间分段）→ 微信 → 终端
   assert.ok(!sidebar.includes('小语会话（终端）'), '不得继续使用小语会话（终端）旧文案')
 })
 
-test('侧栏品牌头用 BrandMark + persona 动态身份名，不得回退渐变字标', () => {
+test('侧栏品牌头用 PersonaMark + persona 动态身份名，不得回退渐变字标', () => {
   const sidebar = read('components', 'Sidebar.tsx')
-  // 2026-10-22 换标：品牌标记改为 BrandMark（断口环 + 轴心 + 紫点），
-  // 旧的三条脉冲竖线在静止画面里像"信号强度"，用户反馈不好看。
-  assert.match(sidebar, /import BrandMark from '\.\/BrandMark'/, '品牌头必须用 BrandMark 组件')
-  assert.match(sidebar, /<BrandMark\s/, '品牌头必须渲染 BrandMark')
+  // 2026-10-22 换标：品牌标记改为 BrandMark（断口环 + 轴心 + 紫点）。
+  // 2026-10-25 再改：这里是**小语这个人**，不是元枢这个产品——产品标志只出现在导航栏/登录页/工作台大标题，
+  // 侧栏紧挨身份名的地方用 PersonaMark（对话气泡 + 声线），两者不能是同一个图标。
+  assert.match(sidebar, /import PersonaMark from '\.\/PersonaMark'/, '侧栏品牌头必须用 PersonaMark 组件')
+  assert.match(sidebar, /<PersonaMark\s/, '侧栏品牌头必须渲染 PersonaMark')
+  assert.doesNotMatch(sidebar, /<BrandMark\s/, '侧栏不得再用产品标志 BrandMark（那是元枢，不是小语）')
   assert.ok(sidebar.includes('aria-hidden="true"'), '装饰性标记必须 aria-hidden')
   assert.match(sidebar, /personaData\?\.definition\?\.name/, '身份名必须从 persona API 动态取，不得写死')
   assert.ok(sidebar.includes('personaName'), '侧栏必须渲染 persona 身份名')
   assert.doesNotMatch(sidebar, />元枢工作台</, '侧栏不得展示与身份名重复的文字副标题')
   assert.doesNotMatch(sidebar, /from-pi-accent to-pi-accent2/, '品牌头不得回退旧的渐变“语”字标')
   assert.doesNotMatch(sidebar, /sb-wave-a/, '旧的脉冲竖线标记应已移除')
+  // 产品标志必须仍然存在（否则就是把产品标志删了，而不是分工）
+  const layout = read('AppLayout.tsx')
+  assert.match(layout, /<BrandMark\s/, '导航栏必须仍是产品标志 BrandMark')
 })
 test('移动底栏固定为对话、会话、资产、任务、更多，且删除可拖动 MobileFab', () => {
   const layout = read('AppLayout.tsx')

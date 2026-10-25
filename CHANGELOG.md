@@ -8,6 +8,19 @@
 
 ## [Unreleased]
 
+## [2.128.0] - 2026-10-25
+
+次版本号整理：153–157 这一批（Windows 原生 PowerShell、长任务脱链、人格语气分层、部署盖章、锁文件对齐）收成 2.128.0，并重打四大包。
+- **新工具 `pwsh`**：Windows 原生 PowerShell 通道（取序 YUANSHU_PWSH → PowerShell 7 → PATH → 5.1），护栏与 bash 完全一致，输出强制 UTF-8、按 `$LASTEXITCODE` 传退出码；环境段同步引导「Windows 上优先 pwsh」。
+- **`run_detached`**：渲染/编码/下载这类长活走 WMI 拉起，进程逃出服务 Job Object，重启不连带；`status` 读日志尾巴 + 完成标记；作业目录必须 ASCII（中文目录下 `cmd.exe /c` 找不到脚本，实测）。工作协议第 6 条补「不要用 sleep 等」。
+- **表达微调（灵魂主导下的最低一层）**：只改表达方式，注入自带「与人格定义/边界/禁忌冲突以后者为准」，改名/扮演/忽略规则一律 400；每次变更进独立 jsonl 台账，历史页可逐条回滚。
+- **人物标志与产品标志分开**：侧栏「小语」用新 `PersonaMark`（对话气泡），导航栏/登录页/工作台仍用 `BrandMark`（断口环）。
+- **部署盖章**：`scripts/stamp-build.mjs` + `npm run stamp-build`，写 `.yuanshu-build.json`（commit/builtAt/version）；盖章与运行版本不一致时 `checkUpdate` 如实报 unknown 并给修法，不再天天误报「发现新版本」。
+- **锁文件对齐**：`hls.js` 钉到 1.6.15（npm 与 pnpm 解析一致），`@capacitor/browser` 补进 pnpm lock；`frontend-lockfiles` 测试转绿。
+- 四大包（Windows 离线安装包 / Linux .run / Android APK / Tauri setup）按 2.128.0 重打。
+
+## [2.128.0] - 2026-10-25
+
 ## [2.127.157] - 2026-10-25
 
 ## [2.127.156] - 2026-10-25

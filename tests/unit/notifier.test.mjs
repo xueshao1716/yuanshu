@@ -53,7 +53,10 @@ test('微信：开了就发；没开或失败如实告诉智能体，不假装�
   const sent = []
   const ok = createNotifier({ log: quiet, wechat: { notifyOwner: async (t) => { sent.push(t) } } })
   assert.equal((await ok.notify({ title: 'T', body: 'B', toWechat: true })).wechat, 'sent')
-  assert.deepEqual(sent, ['T\nB'])
+  // 2026-10-24 起推送改成卡片排版（标题 + 分割线 + 要点 + 时间脚注），不再原样发 'T\nB'。
+  assert.equal(sent.length, 1)
+  assert.match(sent[0], /T/, '卡片里要有标题')
+  assert.match(sent[0], /B/, '卡片里要有正文要点')
   assert.equal((await ok.notify({ title: 'T', body: 'B' })).wechat, 'skipped')
   const off = createNotifier({ log: quiet, wechat: { notifyOwner: async () => { throw new Error('没打开「通知发到微信」') } } })
   const r = await off.notify({ title: 'T', body: 'B', toWechat: true })
@@ -65,7 +68,9 @@ test('微信：开了就发；没开或失败如实告诉智能体，不假装�
 
 test('接线：server 注册 notify_user / 通知流 / run 与定时任务终态钩子；Capacitor 安卓壳带下载桥', () => {
   const server = fs.readFileSync(new URL('../../server.mjs', import.meta.url), 'utf8')
-  assert.match(server, /NOTIFY_USER_TOOL,\s*\n?\s*\]/, 'notify_user 必须进 UNIFIED_TOOLS')
+  // 曾经写成 /NOTIFY_USER_TOOL,\s*\n?\s*\]/（等价于「必须是数组最后一个」），
+  // 只要后面再追加任何工具就会误报——这里只断言它在列表里。
+  assert.match(server, /^\s*NOTIFY_USER_TOOL,$/m, 'notify_user 必须进 UNIFIED_TOOLS')
   assert.match(server, /notify_user:\s*\(args, ctx\) => execNotifyUser/)
   assert.match(server, /\/api\/notify\/stream/)
   assert.match(server, /notifier\.runFinished\(run\)/)
