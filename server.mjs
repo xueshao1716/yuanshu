@@ -1729,7 +1729,25 @@ async function handleChat(req, res, body) {
   const taskId = body.taskKey || sessionId || findKeyByEntry(entry) || "new";
   // 事件总线：任务事件同时入总线（多端订阅观看），sessionId 存在时双挂
   const busKeys = [taskId, ...(sessionId && sessionId !== taskId ? [sessionId] : [])];
-  const busEmit = (type, data) => { for (const k of busKeys) busPush(k, type, data); };
+  // 2026-10-25：**所有**事件都要进总线。原来只有一部分 writer.push 配了 busEmit，
+  // 备用通道 / 空回复兜底那条（`writer.push("delta", {text: fallback.text})`）只写本地流
+  // → 别的终端整轮收不到任何东西（真测：订阅端 subscribed.lastSeq 一直是 0，连 turn_end 都没有）。
+  // 去重窗口：显式 busEmit 与下面的自动广播会撞同一事件，250ms 内同签名只发一次。
+  const busSeenAt = new Map();
+  const busEmit = (type, data) => {
+    const sig = `${type}:${String(JSON.stringify(data || {})).slice(0, 160)}`;
+    const now = Date.now();
+    const prev = busSeenAt.get(sig);
+    if (prev && now - prev < 250) return;
+    busSeenAt.set(sig, now);
+    if (busSeenAt.size > 300) busSeenAt.clear();
+    for (const k of busKeys) busPush(k, type, data);
+  };
+  // 收口：此后任何 writer.push 都会自动广播，不用每个调用点记得加 busEmit
+  try {
+    const rawPush = writer.push.bind(writer);
+    writer.push = (type, data) => { try { busEmit(type, data); } catch {} return rawPush(type, data); };
+  } catch {}
   touchTask(taskId, { stage: "处理中" });
 
   // ── 危险操作确认（dsh user-approval seam）：命中危险 cmd → 弹框等人工 ──

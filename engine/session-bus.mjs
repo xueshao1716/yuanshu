@@ -15,6 +15,14 @@ export function createSessionBus(deps) {
     const b = busGet(key);
     if (!b) return null;
     const ev = { type, seq: ++b.seq, data: data || {}, ts: Date.now() };
+    // 诊断（2026-10-25）：别的终端收不到事件时，先看总线到底有没有被喂过。
+    // 默认关闭（每轮会刷十几行）；排查时设 YUANSHU_BUS_DEBUG=1。
+    try {
+      if (process.env.YUANSHU_BUS_DEBUG === "1" && (type !== "delta" || !b.__loggedDelta)) {
+        if (type === "delta") b.__loggedDelta = true;
+        console.log(`[bus] ${type} key=${String(key).slice(0, 10)} seq=${b.seq} subs=${b.subs.size}`);
+      }
+    } catch {}
     b.events.push(ev);
     if (b.events.length > 500) b.events.splice(0, b.events.length - 500);
     // 任务结束：清空缓冲，避免完成后订阅端重放（历史已从 /messages 拿）
@@ -35,7 +43,7 @@ export function createSessionBus(deps) {
     for (const ev of b.events) if (ev.seq > after) {
       try { res.write(`event: ${ev.type}\ndata: ${JSON.stringify(ev)}\n\n`); } catch {}
     }
-    try { res.write(`event: subscribed\ndata: ${JSON.stringify({ key, lastSeq: b.seq })}\n\n`); } catch {}
+    try { res.write(`event: subscribed\ndata: ${JSON.stringify({ key, lastSeq: b.seq, subs: b.subs.size })}\n\n`); } catch {}
     const sub = { write: (s) => { if (!res.writableEnded) { try { res.write(s); } catch {} } } };
     b.subs.add(sub);
     const hb = setInterval(() => { try { sub.write(": ping\n\n"); } catch {} }, 20000);
