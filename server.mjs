@@ -3783,6 +3783,7 @@ const API_ROUTES = [
   ["POST", "/api/runs", async (res, req) => runApi.create(res, await readBody(req, 12), req)],
   ["POST", new RegExp('^/api/runs/([^/]+)/recovery/disable$'), (res, req, url, m) => runApi.disableRecovery(res, decodeURIComponent(m[1]))],
   ["GET", /^\/api\/runs\/([^/]+)$/, (res, req, url, m) => runApi.get(res, decodeURIComponent(m[1]))],
+  ["GET", /^\/api\/runs\/([^/]+)\/state$/, (res, req, url, m) => runApi.state(res, decodeURIComponent(m[1]))],
   ["GET", /^\/api\/runs\/([^/]+)\/events$/, (res, req, url, m) => runApi.events(res, req, url, decodeURIComponent(m[1]))],
   ["POST", /^\/api\/runs\/([^/]+)\/steer$/, async (res, req, url, m) => runApi.steer(res, decodeURIComponent(m[1]), await readBody(req, 1))],
   ["POST", /^\/api\/runs\/([^/]+)\/stop$/, (res, req, url, m) => runApi.stop(res, decodeURIComponent(m[1]))],

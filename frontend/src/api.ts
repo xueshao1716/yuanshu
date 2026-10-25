@@ -302,11 +302,27 @@ export interface RunInfo {
   [key: string]: any
 }
 
+/** 轻量运行态：只回答"完没完、到第几号事件、多久没动"，不读事件流。 */
+export interface RunStateView {
+  runId: string
+  sessionId: string | null
+  status: RunStatus | null
+  phase: string | null
+  done: boolean
+  resumable: boolean
+  lastSeq: number
+  updatedAt: string | null
+  idleMs: number | null
+}
+
 export const RunsApi = {
   create: (body: any) => api<{ runId: string; sessionId: string; status: RunStatus; lastSeq: number }>('/api/runs', {
     method: 'POST', body: { ...body, stream: true }, timeoutMs: 30_000,
   }),
   get: (runId: string) => api<RunInfo>(`/api/runs/${encodeURIComponent(runId)}`),
+  // 2026-10-25：轻量状态。RunsApi.get 会把整条事件流读出来做摘要与解释；刷新页面时
+  // 客户端只需要"完没完、从哪个序号接"。state 是常数代价，可以放心轮询。
+  state: (runId: string) => api<RunStateView>(`/api/runs/${encodeURIComponent(runId)}/state`),
   resume: (runId: string) => api<RunInfo>(`/api/runs/${encodeURIComponent(runId)}/resume`, { method: 'POST' }),
   stop: (runId: string) => api<RunInfo>(`/api/runs/${encodeURIComponent(runId)}/stop`, { method: 'POST' }),
   steer: (runId: string, message: string) => api<RunInfo>(`/api/runs/${encodeURIComponent(runId)}/steer`, {

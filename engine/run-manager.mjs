@@ -364,6 +364,8 @@ export function createRunManager({ store, eventLog, executeChat, instanceId, onS
     listActivity() { return store.listActivity() },
     readAfter(runId, after) { return eventLog.readAfter(runId, after) },
     readAfterAsync(runId, after) { return eventLog.readAfterAsync(runId, after) },
+    /** 末序号：轻量查询，不读整条事件流（客户端刷新后问"这轮完没完、从哪接"用） */
+    lastSeq(runId) { return typeof eventLog.lastSeq === 'function' ? eventLog.lastSeq(runId) : 0 },
     subscribe(runId, listener) { return eventLog.subscribe(runId, listener) },
     steer(runId, message) {
       const run = store.get(runId)

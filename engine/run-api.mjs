@@ -35,6 +35,9 @@ function writeEvent(res, event) {
 }
 
 function lastSeqOf(manager, runId) {
+  // 2026-10-25：原来这里把整条事件流读一遍只为了拿最后一个 seq——一个"完没完"的查询
+  // 要付 O(全部事件) 的代价。事件日志本来就维护了 lastSeqByRun，直接用。
+  if (typeof manager?.lastSeq === 'function') return Number(manager.lastSeq(runId)) || 0
   if (typeof manager?.readAfter !== 'function') return 0
   const events = manager.readAfter(runId, 0)
   return Array.isArray(events) ? (events.at(-1)?.seq || 0) : 0
@@ -107,6 +110,34 @@ export function createRunApi({ manager, json, readContext = null, readDeliveries
       if (!run) return json(res, 404, { error: 'run_not_found' })
       const events = manager.readAfter?.(runId, 0) || []
       return json(res, 200, { ...publicRun(run), ...summarizeRun(run, events), explanation: await explain(run, events), ...await deliveryView(run, events), lastSeq: events.at(-1)?.seq || 0 })
+    },
+    /**
+     * 轻量状态：只问"这轮完没完、到第几号事件、多久没动"。
+     *
+     * 为什么需要它：`GET /api/runs/:id` 会把全部事件读出来做摘要与解释，刷新页面时
+     * 光判断"还在跑还是已经完了"就要付这份代价。客户端真正需要的第一个答案是三选一：
+     * ① done → 直接渲染已落盘的历史；② running → 从 lastSeq 往后接 SSE；
+     * ③ 很久没动（idleMs 大）→ 提示"可能卡住了"。
+     * 这里只读内存索引 + 末序号，常数代价，可以放心轮询。
+     */
+    state(res, runId) {
+      const run = manager.get(runId)
+      if (!run) return json(res, 404, { error: 'run_not_found' })
+      const done = TERMINAL.has(run.status)
+      const updatedAt = run.updatedAt || run.startedAt || run.createdAt || null
+      const at = updatedAt ? Date.parse(updatedAt) : NaN
+      const idleMs = Number.isFinite(at) ? Math.max(0, Date.now() - at) : null
+      return json(res, 200, {
+        runId,
+        sessionId: run.sessionId || null,
+        status: run.status || null,
+        phase: run.phase || null,
+        done,
+        resumable: !!run.resumeAvailable,
+        lastSeq: lastSeqOf(manager, runId),
+        updatedAt,
+        idleMs,
+      })
     },
     events(res, req, url, runId) {
       const run = manager.get(runId)

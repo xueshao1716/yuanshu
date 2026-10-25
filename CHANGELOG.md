@@ -8,6 +8,14 @@
 
 ## [Unreleased]
 
+## [2.127.146] - 2026-10-25
+
+- **运行态轻查询 `GET /api/runs/:id/state`（刷新恢复不再为「完没完」付全量代价）**：原来客户端刷新后为了判断这一轮结束没有，要调 `GET /api/runs/:id`——它会把**整条事件流**读出来做摘要与解释。
+  - 新增 `state`：只读内存索引 + 末序号，常数代价，返回 `{done, status, phase, lastSeq, idleMs, resumable}`，可以放心轮询。三选一就够客户端做计划：`done` → 直接渲染已落盘历史；`running` → 从 `lastSeq` 往后接 SSE；`idleMs` 很大 → 提示可能卡住。
+  - 顺手修 `lastSeqOf()`：它原来为了拿最后一个 seq 把整条事件流读了一遍。事件日志本来就维护了 `lastSeqByRun`，改为直接读（`run-event-log.lastSeq` / `run-manager.lastSeq`）。
+  - `frontend/src/components/ChatArea.tsx`：刷新恢复先问 `state`——**已结束且快照最新**时直接收尾，不再读事件流；还在跑、漏了事件、或 interrupted（中断说明要解释器给）才走原来的全量路径。行为不变，只去掉不必要的重读。
+- **测试**：新增 `tests/unit/run-state.test.mjs` 4 条（含「轻查询不许读事件流」的硬断言）；`chat-session-races` 里那条恢复用例按新时序拆成两条——一条测「网络抖动不清恢复记录」，一条测「已被新任务接管就既不读旧任务也不清理新任务」。
+
 ## [2.127.145] - 2026-10-25
 
 - **每日 token 预算真正落地（超预算自动降级）**：此前只有 `GET /api/budget/today` 在算数，**没有任何一处据此改变行为**——交接记忆里那句「硬超 2 倍 `POST /api/runs` 直接 429、`x-yuanshu-skip-budget` 绕过」在代码里根本不存在（2026-10-25 复查时确认，属于把没做的事写成了做过的）。

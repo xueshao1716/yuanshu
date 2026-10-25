@@ -86,16 +86,41 @@ test('创建会话期间切到B，迟到的创建结果不能抢回页面或发�
   assert.equal(f.selected.length, 0); assert.equal(f.pendingSendRef.current, null);
 });
 
-test('旧任务恢复请求失败不能清掉新任务或短暂断网时的恢复记录', async () => {
+test('恢复时偶尔一次请求失败不清掉恢复记录（同视图、无新任务）', async () => {
   const pending = deferred(), activeRunRef = { current: null }, cleared = [];
+  // 2026-10-25：恢复流程改成先问轻量 state（完没完），再去读全量。
+  // state 是一个 await 点，所以这里要按真实的两步来驱动：state 说"还在跑"，get 才失败。
   const cleanup = chatEffect('const restore = async', {
     currentSessionId: 'A', loadActiveRun: () => ({ runId: 'old-A' }),
-    RunsApi: { get: () => pending.promise }, activeRunRef,
+    RunsApi: {
+      state: () => Promise.resolve({ done: false, status: 'running', lastSeq: 3 }),
+      get: () => pending.promise,
+    },
+    activeRunRef, isCurrentView: () => true, streamRef: { current: null },
     clearActiveRun: id => cleared.push(id), streamCloseRef: { current: null },
   })();
-  activeRunRef.current = { runId: 'new-A' };
   pending.reject(new Error('temporary network failure'));
   await new Promise(resolve => setImmediate(resolve));
-  assert.deepEqual(cleared, []);
+  assert.deepEqual(cleared, [], '一次网络抖动不能把恢复记录清掉');
+  cleanup();
+});
+
+test('恢复途中已被新任务接管：不再去读旧任务，也绝不清理新任务', async () => {
+  const gate = deferred(), activeRunRef = { current: null }, cleared = [];
+  let getCalls = 0;
+  const cleanup = chatEffect('const restore = async', {
+    currentSessionId: 'A', loadActiveRun: () => ({ runId: 'old-A' }),
+    RunsApi: {
+      state: () => gate.promise,                                   // 停在"问完没完"这一步
+      get: () => { getCalls++; return Promise.resolve({ status: 'running', lastSeq: 9 }) },
+    },
+    activeRunRef, isCurrentView: () => true, streamRef: { current: null },
+    clearActiveRun: id => cleared.push(id), streamCloseRef: { current: null },
+  })();
+  activeRunRef.current = { runId: 'new-A' };                       // 新任务接管
+  gate.resolve({ done: false, status: 'running', lastSeq: 3 });
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(getCalls, 0, '已被接管就不该再为旧任务付一次全量读取');
+  assert.deepEqual(cleared, [], '不能清掉新任务的恢复记录');
   cleanup();
 });

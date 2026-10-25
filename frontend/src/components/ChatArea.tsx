@@ -814,6 +814,26 @@ export default function ChatArea({ compactHeader, rightPanel, onRightPanel, onVo
         if (!alive || activeRunRef.current || !active) return
         record = { runId: active.id, sessionId: currentSessionId, status: 'running', lastSeq: 0, assistantMessageId: `run-${active.id}`, stream: emptyStream() }
       }
+      // 2026-10-25：先问轻量 state，再决定要不要读全量。
+      // 真实现状是：刷新时"这轮我离开前就已经跑完了"占绝大多数，而下面 RunsApi.get 会把
+      // 整条事件流读出来做摘要+解释——只为回答"完没完"。state 是常数代价，先问它。
+      // 只有三种情况才走重路径：还在跑（要从 0 重放补正文）、漏了事件（要重放补齐）、
+      // interrupted（要它的恢复/中断说明，那是解释器给的，轻量态里没有）。
+      let state = null
+      try { state = await RunsApi.state(record.runId) } catch {}
+      if (!alive || !isCurrentView() || activeRunRef.current || streamRef.current) return
+      if (state?.done && state.status !== 'interrupted' && state.lastSeq <= record.lastSeq) {
+        activeRunRef.current = record
+        assistantMsgIdRef.current = record.assistantMessageId
+        streamRef.current = record.stream
+        setStream({ ...record.stream })
+        if (state.status !== 'completed') {
+          const error = state.status === 'stopped' ? '已停止' : '任务执行失败'
+          updStream(p => ({ ...p, error: p.error || error }))
+        }
+        finalize()
+        return
+      }
       const run = await RunsApi.get(record.runId)
       if (!alive || !isCurrentView() || activeRunRef.current || streamRef.current) return
       // 2026-10-24：快照可能不完整（localStorage 配额、字段裁剪），恢复时从 0 重放事件日志重建正文。

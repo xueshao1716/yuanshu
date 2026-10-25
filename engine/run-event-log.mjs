@@ -123,6 +123,10 @@ export function createRunEventLog({ rootDir, now = () => new Date().toISOString(
       return withoutLegacyReferenceMedia(await readValidLinesAsync(fileFor(runId))).filter(event => event.seq > after)
     },
     getLastSeq,
+    /** 末序号（内存里有就直接给；否则只读一次文件并缓存）。给"完没完"这种轻查询用，不解析整条流。 */
+    lastSeq(runId) {
+      return getLastSeq(runId)
+    },
     subscribe(runId, listener) {
       if (closed) throw new Error('run_event_log_closed')
       const listeners = subscribers.get(runId) || new Set()
