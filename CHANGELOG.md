@@ -6,7 +6,24 @@
 > 而 `sync:frontend` 是忠实镜像，会把它们复制进 `public/` 与 `app/dist/`（细节见 `docs/NAMING.md`）。
 > 版本唯一来源是仓库根的 `version.json`；契约见 `docs/NAMING.md`。
 
-## [Unreleased]
+## [2.129.0] - 2026-10-25
+
+多端同步 + 后台作业闭环 + 自己找活 + 交付证据检查。这一版回答的都是同一类问题：**她做完事，怎么让对面知道。**
+- **跨端实时同步修好了**：会话事件总线（`session-bus.mjs`）原来建在流式响应之后，`handleUnifiedChat` 那条早退路径根本走不到它，导致别的终端整轮收不到任何事件（实测订阅端 `lastSeq` 恒为 0）。现在总线提前到 `res.writeHead` 之前建立，所有 writer 经 `wrapWriter` 统一收口。实测：另一终端能实时收到 `delta/model_selected/usage/done`。
+- **每轮开始清空上一轮残留事件**：被中断的一轮没有 `turn_end`，残留 delta 会让迟到的订阅者把上一轮半截回答拼进新回答。
+- **后台作业状态机 `job_status`**：脱链作业 / 长 run / 定时任务统一为 `done|failed|running|stalled`；`记忆/运行时/待汇报.json` 记账；做到「做完没汇报」下一轮开头会提醒。
+- **打扰分级 + 事件驱动汇报**：失败/卡住=high 立即提醒；长活完成=normal；短活=low 只汇总。空闲时 high 级会**她自己写一两句推到前端**（20 分钟冷却 + in-flight 锁，`YUANSHU_AUTO_REPORT=0` 可关）。
+- **汇报完自动 ack**：按她回复里是否真的提到作业名判断，提到才标记，没提到继续提醒。
+- **自己找活（今日建议）**：从承诺/牵挂/3 天没推进的定时任务/「改天再说」这类话里生成候选目标，规则打分（可行性/合拍/新鲜），采纳即**自动拆成 3–4 步**并进目标台账；灵魂页有卡片（采纳/不要/勾步）。
+- **交付前证据检查 `output_check`**：ffprobe 流信息 + ffmpeg ebur128 响度/真峰值 + 音画时长差，硬门槛拦截（0 字节/无画面/无音轨/真峰值 > -1 dBTP/音画差 > 0.5s）。协议第 9 条要求导出后先自检。
+- **接入 earshot（MCP，16 个工具）**：给 agent 装上耳朵——`describe/match/find/timeline/realness/critique/measure`。装在 D 盘（2.1GB，C 盘零占用），模型走 hf-mirror。
+- **部署/重启收成一条命令** `npm run release:restart`：门禁 → 停服务 → 等端口真释放（残留实例占着就停掉，只认元枢的 server.mjs）→ 起服务 → 验 `/api/health` → 盖章。
+- **修「一直报有新版本」**：`scripts/stamp-build.mjs` 每次部署盖章；盖章与运行版本对不上时 `checkUpdate` 如实报 unknown 并给修法。
+- **端口冲突不再打转**：抢不到端口时 server 以退出码 78 立即表白，watchdog 退避 5 分钟，不再被当僵死重拉出「假死-拉起」循环。
+- **知识板块恢复摄入**：后台租约（background-admission）在 owner 进程崩溃后永远不会自动释放，而没人调 reconcile → 知识从 10/22 起停摆（748 个 job 不消化）。现在启动时做一次对账：只清「pid 在本机确实已不存在」的租约，并留审计行。
+- **测试**：新增 `job-status`(8) `idea-curator`(8) `output-qa`(9) `port-conflict-loop`(3) `release-restart`(5) `update-sources`(2)；`persona-resolve` 重写为 7 条。
+
+## [2.129.0] - 2026-10-25
 
 ## [2.128.0] - 2026-10-25
 

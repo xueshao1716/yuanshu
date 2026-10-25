@@ -5392,6 +5392,20 @@ ${rows.map((r) => `- [${r.status}${r.closed ? "/已结清" : ""}] ${r.text}\n  �
       timeEngine.start();
     } catch (e) { console.log("[time-engine] 启动失败:", String(e?.message || e).slice(0, 100)); }
     knowledgeRuntime.start();
+    // 2026-10-25 真机：知识板块从 10/22 起再没新增——后台摄入被一个**死进程留下的租约**卡住。
+    // background-admission 的设计是对的（"时间过去不等于进程死了，必须拿宿主的死亡证据才能清"），
+    // 但**没有任何地方会去调 reconcile**，于是一次崩溃 = 知识摄入永久停摆。
+    // 这里在启动时做一次对账：只清"pid 在本机确实已不存在"的租约，并且留下审计行。
+    try {
+      const adm = knowledgeRuntime.admission;
+      const st = await adm.status();
+      if (st?.state === "held" && st.recoveryRequired) {
+        const ok = await adm.reconcile({ expectedId: st.id, reason: "startup: owner pid is gone" });
+        console.log(`[knowledge] 后台租约对账：${st.consumer} 的死进程租约 ${ok ? "已清理" : "未清理（证据不足，保留）"}`);
+      }
+    } catch (e) {
+      console.log("[knowledge] 租约对账失败:", String(e?.message || e).slice(0, 120));
+    }
     // 心跳：不调模型，只巡检确定性事实；同一件事只提醒一次，夜里不打扰。YUANSHU_HEARTBEAT=0 可关。
     if (process.env.YUANSHU_HEARTBEAT !== "0") {
       agentBeat = createHeartbeat({ notifier, file: path.join(AGENT_DIR, "heartbeat.json"),
