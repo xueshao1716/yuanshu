@@ -124,3 +124,23 @@ test("汇报完自动 ack：回复里真提到作业才标记", async () => {
   assert.deepEqual(r2.acked, ["j2"]);
   assert.equal(pendingReports(ws, { now }).length, 0);
 });
+
+test("打扰分级：失败/卡住是 high，长活完成是 normal，短活完成是 low", async () => {
+  const { notifyPriority, urgentReports, enqueueReport, LONG_JOB_MS } = await import("../../engine/job-state.mjs");
+  assert.equal(notifyPriority({ state: "failed" }), "high");
+  assert.equal(notifyPriority({ state: "stalled" }), "high");
+  assert.equal(notifyPriority({ state: "done", elapsedMs: LONG_JOB_MS + 1000 }), "normal");
+  assert.equal(notifyPriority({ state: "done", elapsedMs: 3000 }), "low");
+
+  // 只有 high 才进 urgent（事件驱动汇报盯这一批）
+  const ws = tmpWs();
+  enqueueReport(ws, { id: "bad", label: "渲染失败", state: "failed", priority: "high", at: now - 100 });
+  enqueueReport(ws, { id: "ok", label: "小活完成", state: "done", priority: "low", at: now - 100 });
+  assert.deepEqual(urgentReports(ws, { now }).map((x) => x.id), ["bad"]);
+  // 只有 low 时，提醒句不再逐条念，只给一句汇总
+  const ws2 = tmpWs();
+  enqueueReport(ws2, { id: "ok2", label: "小活完成", state: "done", priority: "low", at: now - 100 });
+  const line = pendingReportsLine(ws2, { now });
+  assert.match(line, /不算紧急|已完成/);
+  assert.doesNotMatch(line, /跑挂/);
+});

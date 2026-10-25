@@ -25,6 +25,22 @@ export const STALL_MS = Number(process.env.YUANSHU_JOB_STALL_MS) || 10 * 60 * 10
  * 2026-10-25 真机教训：不设窗口时把历史上 300 多个作业全算进来，
  * 一开轮就是"有 200 条未汇报"——那不是提醒，是淹人。
  */
+/**
+ * 打扰分级（2026-10-25，对标 Muse：普通检查结果先留着，快截止的才推）。
+ *   high   = 失败 / 卡住 —— 立刻提醒，别让它烂在那儿
+ *   normal = 超过 10 分钟的长活完成 —— 值得说，但不必打断
+ *   low    = 短活完成 —— 攒进每日汇总
+ */
+export const LONG_JOB_MS = Number(process.env.YUANSHU_JOB_LONG_MS) || 10 * 60 * 1000;
+
+export function notifyPriority(job, { now = Date.now() } = {}) {
+  const state = String(job?.state || "");
+  if (state === "failed" || state === "stalled") return "high";
+  const elapsed = Number(job?.elapsedMs) || (job?.startedAt ? now - job.startedAt : 0);
+  if (state === "done" && elapsed >= LONG_JOB_MS) return "normal";
+  return "low";
+}
+
 export const REPORT_WINDOW_MS = Number(process.env.YUANSHU_JOB_WINDOW_MS) || 24 * 60 * 60 * 1000;
 /** 台账最多留这么多条未汇报（再多也不往提示词里塞）。 */
 const MAX_PENDING = 20;
@@ -50,18 +66,19 @@ function writeReports(wsRoot, items) {
  * 记一条"该汇报了"。同一个 id 重复调用只更新末端状态，不刷屏。
  * @returns {boolean} 是否新建
  */
-export function enqueueReport(wsRoot, { id, kind, label, state, step, at = Date.now() }) {
+export function enqueueReport(wsRoot, { id, kind, label, state, step, priority = null, at = Date.now() }) {
   if (!id) return false;
   const items = readReports(wsRoot);
   const hit = items.find((x) => x.id === id && !x.ackedAt);
   if (hit) {
     hit.state = state || hit.state;
     hit.step = step || hit.step;
+    if (priority) hit.priority = priority;
     hit.updatedAt = at;
     writeReports(wsRoot, items);
     return false;
   }
-  items.push({ id, kind: kind || "job", label: label || id, state: state || "done", step: step || "", at, updatedAt: at, ackedAt: null });
+  items.push({ id, kind: kind || "job", label: label || id, state: state || "done", step: step || "", priority: priority || "low", at, updatedAt: at, ackedAt: null });
   writeReports(wsRoot, items);
   return true;
 }
@@ -89,11 +106,22 @@ export function pendingReports(wsRoot, { now = Date.now(), windowMs = REPORT_WIN
     .slice(-MAX_PENDING);
 }
 
+/** 需要立刻汇报的（high 级）：事件驱动汇报就盯这一批。 */
+export function urgentReports(wsRoot, { now = Date.now() } = {}) {
+  return pendingReports(wsRoot, { now }).filter((x) => (x.priority || "low") === "high");
+}
+
 /** 给环境事实用的一句话；没有待汇报就返回空串（不占提示词）。 */export function pendingReportsLine(wsRoot, { limit = 5, now = Date.now() } = {}) {
   const pend = pendingReports(wsRoot, { now });
   if (!pend.length) return "";
-  const head = pend.slice(0, limit).map((x) => `${x.label}（${x.state === "failed" ? "失败" : "完成"}${x.step ? ` · ${x.step}` : ""}）`).join("；");
-  return `【未汇报】有 ${pend.length} 个后台作业已经跑完/跑挂了，你还没告诉${"对方"}：${head}。这一轮开头先用一两句话交代结果；细节用 job_status 查，报完记得 ack。`;
+  // 分级：只有 high（失败/卡住）才在轮次开头逐条提醒；普通完成攒着，避免每轮都念一遍。
+  const high = pend.filter((x) => (x.priority || "low") === "high");
+  if (!high.length) {
+    const rest = pend.filter((x) => (x.priority || "low") !== "high").length;
+    return rest ? `【后台有 ${rest} 个作业已完成】都不算紧急，下一轮顺手一句话交代即可（细节用 job_status 查）。` : "";
+  }
+  const head = high.slice(0, limit).map((x) => `${x.label}（${x.state === "failed" ? "失败" : "完成"}${x.step ? ` · ${x.step}` : ""}）`).join("；");
+  return `【未汇报】有 ${high.length} 个后台作业跑挂了/出了状况，你还没告诉${"对方"}：${head}。这一轮开头先用一两句话交代结果；细节用 job_status 查，报完记得 ack。`;
 }
 
 /**
@@ -206,7 +234,7 @@ export function syncReports(wsRoot, jobs = [], { now = Date.now(), windowMs = RE
     if (j.state !== "done" && j.state !== "failed") continue;
     // 老账不记：昨天以前跑完的作业没有"现在汇报"的价值
     if (j.updatedAt && now - j.updatedAt > windowMs) continue;
-    if (enqueueReport(wsRoot, { id: j.id, kind: j.kind, label: j.label, state: j.state, step: j.step || j.error, at: j.updatedAt || now })) added.push(j.id);
+    if (enqueueReport(wsRoot, { id: j.id, kind: j.kind, label: j.label, state: j.state, step: j.step || j.error, priority: notifyPriority(j, { now }), at: j.updatedAt || now })) added.push(j.id);
   }
   return added;
 }

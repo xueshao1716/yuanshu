@@ -229,7 +229,7 @@ const WATCHDOG_LIMITS = watchdogLimits.LIMITS;
 // 2026-10-25：脱链长任务（渲染/编码/下载）——进程逃出服务 Job，重启不连带杀
 import * as detachedRun from "./engine/detached-run.mjs";
 // 2026-10-25：后台作业状态机（做完没汇报、坏在哪一步）
-import { collectJobs, summarizeJobs, syncReports, pendingReports, ackReports, autoAckByText } from "./engine/job-state.mjs";
+import { collectJobs, summarizeJobs, syncReports, pendingReports, ackReports, autoAckByText, urgentReports } from "./engine/job-state.mjs";
 import { setEnvWorkspace } from "./engine/runtime-env.mjs";
 import { loadSelfPolicy, selfTools, recordSelfAction, withinDailyLimit } from "./engine/self-agency.mjs";
 import { composeTimeTaskMessages, timeTaskReadTools, recordReflectionActions, parseReflectionActions, yesterdayYmd } from "./engine/time-task-run.mjs";
@@ -4960,9 +4960,43 @@ function startServer() {
       const others = liveInstances(WS_ROOT, {}).filter((x) => x.pid !== process.pid);
       console.log(`  [实例自检] pid ${process.pid} · v${APP_VERSION} · 持有端口 ${CONFIG.port} · 其它存活实例 ${others.length}${others.length ? "（" + others.map((o) => `pid ${o.pid} v${o.version}`).join("、") + "）" : ""}`);
       // 2026-10-25：每分钟把"做完了但没人汇报"的后台作业记进台账，
-// 下一轮开头会作为环境事实提醒她（没做完的不记，避免刷屏）。
-setInterval(() => {
-  try {
+      // 下一轮开头会作为环境事实提醒她（没做完的不记，避免刷屏）。
+      // ② 事件驱动汇报：high 级未汇报 + 空闲 → 她自己写一两句推给用户，不等用户开口。
+      let lastAutoReportAt = 0;
+      let autoReportInFlight = false;
+      const AUTO_REPORT_COOLDOWN_MS = 20 * 60 * 1000;
+      async function maybeAutoReport() {
+        if (autoReportInFlight) return;   // 上一轮还没写完就别再起一轮（模型调用可能超过 60s）
+        if (process.env.YUANSHU_AUTO_REPORT === "0") return;
+        if (Date.now() - lastAutoReportAt < AUTO_REPORT_COOLDOWN_MS) return;
+        // 用户在对话中就别打断（有 active run 就跳过，下一轮开头会提醒）
+        try {
+          const busy = (runManager.list() || []).some((r) => !["completed", "failed", "stopped", "interrupted"].includes(String(r.status || "").toLowerCase()));
+          if (busy) return;
+        } catch {}
+        const urgent = urgentReports(WS_ROOT);
+        if (!urgent.length) return;
+        const lines = urgent.slice(0, 5).map((u) => `- ${u.label}：${u.state === "failed" ? "失败" : u.state === "stalled" ? "卡住" : "完成"}${u.step ? `（${u.step}）` : ""}`).join("\n");
+        autoReportInFlight = true;
+        try {
+          const out = await chatWithFailover(defaultModel, [
+            { role: "system", content: "你是元枢的搭档小语。用一两句话向对方汇报后台作业结果：先说结论，需要的话给你的判断或下一步建议。不要客套，不要列举工具名，不要道歉。" },
+            { role: "user", content: `后台作业情况：\n${lines}\n\n请用一两句话汇报。` },
+          ], { maxTokens: 220 });
+          const text = String(out?.text || out?.content || (typeof out === "string" ? out : "")).trim();
+          if (!text) return;
+          lastAutoReportAt = Date.now();
+          await notifier.notify({ kind: "task", title: "元枢 · 后台作业有结果了", body: text, key: `auto-report:${urgent[0].id}` });
+          ackReports(WS_ROOT, urgent.map((u) => u.id), { note: "事件驱动自动汇报" });
+          console.log(`[jobs] 主动汇报已推送（${urgent.length} 条 high）: ${text.slice(0, 60)}`);
+        } catch (e) {
+          console.log(`[jobs] 主动汇报失败: ${String(e?.message || e).slice(0, 120)}`);
+        } finally {
+          autoReportInFlight = false;
+        }
+      }
+      setInterval(() => {
+        try {
     syncReports(WS_ROOT, collectJobs({
       wsRoot: WS_ROOT,
       detached: detachedRun.listDetached({ wsRoot: WS_ROOT, limit: 20 }),
@@ -4970,6 +5004,10 @@ setInterval(() => {
       tasks: (() => { try { return timeEngine ? timeEngine.list() : [] } catch { return [] } })(),
     }));
   } catch {}
+  // ② 事件驱动汇报（2026-10-25）：high 级（失败/卡住）且有 20 分钟冷却、当前没任务在跑时，
+  // 用最便宜的模型写一两句，直接推到用户端——不用等用户先开口。
+  // 对标 Muse/dots："活干完了自己回来汇报"，而不是记一笔等下次对话。
+  void maybeAutoReport();
 }, 60000).unref?.();
 setInterval(() => heartbeat(WS_ROOT, { pid: process.pid, version: String(APP_VERSION), port: CONFIG.port, ownsPort: true, startedAt }), 30000).unref?.();
     } catch (e) { console.log("  [实例自检] 登记失败:", String(e?.message || e).slice(0, 100)); }
