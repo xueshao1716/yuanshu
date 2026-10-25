@@ -237,6 +237,8 @@ import { checkOutput, measureAudio, evidenceNote, probeMedia, avDriftSec } from 
 // 2026-10-26：知识摄入 / 自动上报也进作业状态机（停摆了要能看见）
 import { knowledgeJob } from "./engine/knowledge-job.mjs";
 import { feedbackJob } from "./engine/feedback-job.mjs";
+// 2026-10-26：知识长能力——从结构化信号挖代码级提案（带证据/测试/收益）
+import { readProposals, refreshProposals, markProposal, mineSignals } from "./engine/capability-proposal.mjs";
 // 2026-10-26：未捕获异常的去留策略（偶发不退出，同签名反复才退出）
 import { decideCrashAction, crashSignature } from "./engine/crash-policy.mjs";
 // 2026-10-26：收件箱自动研判（对不上号要说清为什么）
@@ -3360,6 +3362,22 @@ const API_ROUTES = [
       if (saved.error) return json(res, 404, { error: saved.error });
       return json(res, 200, { ok: true, reply: saved.reply, relay });
     } catch (e) { return json(res, 500, { error: String(e?.message || e).slice(0, 200) }); }
+  }],
+  // 2026-10-26：能力提案（第二层：知识作用到代码，而不是只当记忆）
+  ["GET", "/api/capability", (res) => {
+    try { return json(res, 200, readProposals(WS_ROOT)); }
+    catch (e) { return json(res, 500, { error: String(e?.message || e).slice(0, 160) }); }
+  }],
+  ["POST", "/api/capability/refresh", (res) => {
+    try { const out = refreshProposals(WS_ROOT); return json(res, 200, { ok: true, stats: out.stats, items: readProposals(WS_ROOT).items }); }
+    catch (e) { return json(res, 500, { error: String(e?.message || e).slice(0, 160) }); }
+  }],
+  ["POST", "/api/capability/mark", async (res, req) => {
+    try {
+      const b = await readBody(req, 4e3);
+      const r = markProposal(WS_ROOT, String(b?.id || ''), b || {});
+      return json(res, r.error ? (r.error === 'not_found' ? 404 : 400) : 200, r.error ? { error: r.error } : { ok: true, item: r.item });
+    } catch (e) { return json(res, 500, { error: String(e?.message || e).slice(0, 160) }); }
   }],
   ["GET", "/api/feedback/triage", (res) => {
     try {
