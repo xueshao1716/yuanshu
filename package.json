@@ -32,7 +32,9 @@
     "sync:persona": "node scripts/sync-persona.mjs",
     "visual:run": "node scripts/visual-engine.mjs",
     "stamp-build": "node scripts/stamp-build.mjs",
-    "deploy:stamp": "npm run deploy:frontend && node scripts/stamp-build.mjs"
+    "deploy:stamp": "npm run deploy:frontend && node scripts/stamp-build.mjs",
+    "release:restart": "node scripts/release-restart.mjs",
+    "release:plan": "node scripts/release-restart.mjs --plan"
   },
   "bin": {
     "yuanshu": "bin/pi-web.mjs",
