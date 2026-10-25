@@ -229,7 +229,7 @@ const WATCHDOG_LIMITS = watchdogLimits.LIMITS;
 // 2026-10-25：脱链长任务（渲染/编码/下载）——进程逃出服务 Job，重启不连带杀
 import * as detachedRun from "./engine/detached-run.mjs";
 // 2026-10-25：后台作业状态机（做完没汇报、坏在哪一步）
-import { collectJobs, summarizeJobs, syncReports, pendingReports, ackReports } from "./engine/job-state.mjs";
+import { collectJobs, summarizeJobs, syncReports, pendingReports, ackReports, autoAckByText } from "./engine/job-state.mjs";
 import { setEnvWorkspace } from "./engine/runtime-env.mjs";
 import { loadSelfPolicy, selfTools, recordSelfAction, withinDailyLimit } from "./engine/self-agency.mjs";
 import { composeTimeTaskMessages, timeTaskReadTools, recordReflectionActions, parseReflectionActions, yesterdayYmd } from "./engine/time-task-run.mjs";
@@ -1601,6 +1601,8 @@ async function handleChat(req, res, body) {
   // 迟到订阅者（after=0）就会把它拼进这一轮的回答里（用户反馈的"旧消息流被拉进来"）。
   for (const k of busKeys) { try { busReset(k); } catch {} }
   const busSeenAt = new Map();
+  // 本轮她说出来的正文（只用于"汇报完自动 ack"的判断，不落盘）
+  const turnText = { buf: "" };
   const busEmit = (type, data) => {
     const sig = `${type}:${String(JSON.stringify(data || {})).slice(0, 160)}`;
     const now = Date.now();
@@ -1609,12 +1611,32 @@ async function handleChat(req, res, body) {
     busSeenAt.set(sig, now);
     if (busSeenAt.size > 300) busSeenAt.clear();
     for (const k of busKeys) busPush(k, type, data);
+    // 2026-10-25：一轮结束就按"她实际说的话"给未汇报的作业自动 ack。
+    // 只在回复里真的提到了作业名字时才 ack（见 autoAckByText 的保守判定），
+    // 免得把"提醒一次"变成"以后再也不提醒"。
+    if (type === "done" || type === "turn_end") {
+      try {
+        if (turnText.buf.length >= 12) {
+          const r = autoAckByText(WS_ROOT, turnText.buf);
+          if (r.acked.length) console.log(`[jobs] 回复里提到了作业，自动标记已汇报: ${r.acked.join(", ")}`);
+        }
+      } catch {}
+    }
   };
   // 收口：给 writer 打上"每条事件都广播"的包装（幂等，重复包装不会叠加）
   const wrapWriter = (w) => {
     if (!w || w.__busWrapped) return w;
     const raw = w.push.bind(w);
-    w.push = (type, data) => { try { busEmit(type, data); } catch {} return raw(type, data); };
+    w.push = (type, data) => {
+      try {
+        // 攒正文：delta / text 两种都是"她说的内容"
+        if ((type === "delta" || type === "text") && data && typeof data.text === "string" && turnText.buf.length < 20000) {
+          turnText.buf += data.text;
+        }
+        busEmit(type, data);
+      } catch {}
+      return raw(type, data);
+    };
     w.__busWrapped = true;
     return w;
   };

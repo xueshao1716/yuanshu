@@ -104,3 +104,23 @@ test("ack 只认 id，不会误清别的", () => {
   const left = pendingReports(ws, { now }).map((x) => x.id);
   assert.deepEqual(left, ["b"]);
 });
+
+test("汇报完自动 ack：回复里真提到作业才标记", async () => {
+  const { autoAckByText, enqueueReport } = await import("../../engine/job-state.mjs");
+  const ws = tmpWs();
+  enqueueReport(ws, { id: "j1", label: "小语宣传片 45s 重渲染", state: "failed", step: "退出码 1", at: now - 100 });
+  enqueueReport(ws, { id: "j2", label: "部署冒烟", state: "done", at: now - 100 });
+
+  // 太短（"好的"）不算汇报
+  assert.deepEqual(autoAckByText(ws, "好的", { now }).acked, []);
+
+  // 只提到一个 → 只 ack 一个
+  const r1 = autoAckByText(ws, "宣传片那个 45 秒重渲染失败了，退出码 1，我换了路径重新渲染。", { now });
+  assert.deepEqual(r1.acked, ["j1"]);
+  assert.deepEqual(pendingReports(ws, { now }).map((x) => x.id), ["j2"], "没提到的不许清");
+
+  // 再提到第二个 → 清空
+  const r2 = autoAckByText(ws, "另外部署冒烟也跑完了，一切正常。", { now });
+  assert.deepEqual(r2.acked, ["j2"]);
+  assert.equal(pendingReports(ws, { now }).length, 0);
+});

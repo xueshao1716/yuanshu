@@ -89,12 +89,36 @@ export function pendingReports(wsRoot, { now = Date.now(), windowMs = REPORT_WIN
     .slice(-MAX_PENDING);
 }
 
-/** 给环境事实用的一句话；没有待汇报就返回空串（不占提示词）。 */
-export function pendingReportsLine(wsRoot, { limit = 5, now = Date.now() } = {}) {
+/** 给环境事实用的一句话；没有待汇报就返回空串（不占提示词）。 */export function pendingReportsLine(wsRoot, { limit = 5, now = Date.now() } = {}) {
   const pend = pendingReports(wsRoot, { now });
   if (!pend.length) return "";
   const head = pend.slice(0, limit).map((x) => `${x.label}（${x.state === "failed" ? "失败" : "完成"}${x.step ? ` · ${x.step}` : ""}）`).join("；");
   return `【未汇报】有 ${pend.length} 个后台作业已经跑完/跑挂了，你还没告诉${"对方"}：${head}。这一轮开头先用一两句话交代结果；细节用 job_status 查，报完记得 ack。`;
+}
+
+/**
+ * 「汇报完自动 ack」（2026-10-25）：靠**她说出来的话**判断报没报，而不是靠她自己记得调工具。
+ *
+ * 判定刻意保守：只有回复里**出现了这个作业的名字**（标签整体，或标签里 ≥4 字的片段）才 ack。
+ * 因为"提醒了一句就全 ack"会把没报的也当成报过——那比不提醒更糟（以后再也不提醒了）。
+ * @returns {{acked:string[], skipped:string[]}}
+ */
+export function autoAckByText(wsRoot, text, { now = Date.now() } = {}) {
+  const said = String(text || "").replace(/\s+/g, " ").trim();
+  if (said.length < 12) return { acked: [], skipped: [] };   // 太短（"好的"）不算汇报
+  const pend = pendingReports(wsRoot, { now });
+  const acked = [];
+  const skipped = [];
+  for (const it of pend) {
+    const label = String(it.label || "").trim();
+    if (!label) { skipped.push(it.id); continue; }
+    const hit = said.includes(label)
+      || (label.length >= 8 && said.includes(label.slice(0, Math.max(8, Math.floor(label.length * 0.6)))))
+      || (it.step && it.step.length >= 4 && said.includes(it.step) && label.length >= 6);
+    if (hit) acked.push(it.id); else skipped.push(it.id);
+  }
+  if (acked.length) ackReports(wsRoot, acked, { note: "回复里提到了该作业，自动标记已汇报", at: now });
+  return { acked, skipped };
 }
 
 /**
