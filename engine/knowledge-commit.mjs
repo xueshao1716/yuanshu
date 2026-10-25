@@ -1,6 +1,8 @@
 import fs from 'node:fs';
 import {assertClaim,checkId,clone,digest,fail} from './knowledge-state.mjs';
 import {collectLocalSources} from './knowledge-sources.mjs';
+// 2026-10-26：入库前把原文抽成 claim、按价值定寿命（原来一律 7 天、claimKey 只有 7 条）
+import {enrichEntry} from './knowledge-enrich.mjs';
 export function knowledgeCommit(storage,now,fault=()=>{},sourceContext={}) {
   function finish(data,journal) {
     const job=data.jobs[journal.jobId];
@@ -28,7 +30,7 @@ export function knowledgeCommit(storage,now,fault=()=>{},sourceContext={}) {
       if(job.state!=='ready'||entry.sourceVersion!==job.sourceVersion)fail('invalid_commit');
       if(job.approval&&job.relatedJobId&&data.jobs[job.relatedJobId]?.revision!==job.approval.parentRevision)fail('review_parent_changed');
       const entryId=digest([data.workspace,job.id,job.sourceVersion]);
-      const saved={...clone(entry),id:entryId,jobId:id,workspace:data.workspace,createdAt:now()};
+      const saved=enrichEntry({...clone(entry),id:entryId,jobId:id,workspace:data.workspace,createdAt:now()},{now:now()});
       const journal={jobId:id,revision:job.revision,generation:job.generation,policyRevision:data.policy.revision,
         sourceVersion:job.sourceVersion,entry:saved,hash:digest(saved)};
       storage.write(`journal/${id}.json`,journal);fault('afterIntent');

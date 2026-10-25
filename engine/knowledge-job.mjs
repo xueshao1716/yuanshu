@@ -36,10 +36,32 @@ export function knowledgeJob({ wsRoot, now = Date.now(), stallMs = 24 * 3600 * 1
   const jobs = Array.isArray(state.jobs) ? state.jobs : Object.values(state.jobs || {});
   const queued = jobs.length;
   const lastEntryAt = newestEntryAt(root);
+  // 2026-10-26：证明"真有用"——统计有 claim 的条目数与真实被引用次数
+  const effect = (() => {
+    try {
+      const dir = path.join(root, KDIR);
+      const entries = fs.readdirSync(path.join(dir, "entries"));
+      let withClaim = 0, renewed = 0;
+      for (const f of entries) {
+        try {
+          const e = JSON.parse(fs.readFileSync(path.join(dir, "entries", f), "utf8"));
+          if (Array.isArray(e.claims) && e.claims.length) withClaim += 1;
+          if (e.renewCount) renewed += 1;
+        } catch {}
+      }
+      let used = 0, uses = 0;
+      const uDir = path.join(dir, "usage");
+      if (fs.existsSync(uDir)) for (const f of fs.readdirSync(uDir)) {
+        try { const u = JSON.parse(fs.readFileSync(path.join(uDir, f), "utf8")); if (u.count) { used += 1; uses += u.count; } } catch {}
+      }
+      return { entries: entries.length, withClaim, used, uses, renewed };
+    } catch { return null; }
+  })();
   const slot = adm.slot || null;
 
   let stateName = "running";
   let step = `队列 ${queued}，最近产出 ${lastEntryAt ? new Date(lastEntryAt).toISOString().slice(0, 16) : "从未"}`;
+  if (effect) step += ` · 有 claim ${effect.withClaim}/${effect.entries} · 被引用 ${effect.used} 条/${effect.uses} 次`;
   let error = "";
 
   if (slot) {
