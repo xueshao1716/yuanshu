@@ -63,14 +63,17 @@ if (!cli) {
 }
 
 cfg.servers = cfg.servers.filter((s) => s.name !== NAME);
+// 配置形状必须跟 engine/mcp-client.mjs 的读取一致：{name, transport:'stdio', cmd, cwd, enabled}
+// （它只认 cmd 这个**整串命令**，不认 command+args；2026-10-25 第一版写错了，注册了等于没注册）
+const cmd = cli.toLowerCase().endsWith("python.exe") ? `"${cli}" -m earshot mcp` : `"${cli}" mcp`;
+// 工作目录设在仓库根：earshot 默认把模型缓存放在 <repo>/.cache/hf，cwd 不对它就会去重新下载
+const repoRoot = cli.includes(".venv") ? path.resolve(path.dirname(cli), "..", "..") : process.cwd();
 cfg.servers.push({
   name: NAME,
-  command: cli,
-  args: cli.toLowerCase().endsWith("python.exe") ? ["-m", "earshot", "mcp"] : ["mcp"],
-  env: { EARSHOT_THREADS: String(Math.max(2, Math.min(4, Math.floor((process.env.NUMBER_OF_PROCESSORS || 8) / 2)))) },
-  // 模型首次加载慢（20-40s），别让它被 5s 超时判死
-  timeoutMs: 600000,
-  note: "给 agent 的耳朵：听、比对、找片段、音画同步、真实度、交付评分（CPU-only）",
+  transport: "stdio",
+  cmd,
+  cwd: repoRoot,
+  enabled: true,
 });
 
 saveMcpConfig(WS, cfg);
