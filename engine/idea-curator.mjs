@@ -145,17 +145,103 @@ export function ideasLine(wsRoot, { now = Date.now(), limit = 2 } = {}) {
   return `【今日建议】${items.length} 条候选目标：${head}。这些是我从承诺/牵挂/最近对话里挑的，不急着做；她可以问一句要不要推进，采纳了就用 lingxi 记成目标。`;
 }
 
-/** 采纳 → 进牵挂台账，变成可追踪目标。 */
+/** 采纳 → 进牵挂台账，变成可追踪目标；同时**自动拆子任务**（规则拆，不花模型钱）。 */
 export function acceptIdea({ wsRoot, id, addLingXi, now = Date.now() } = {}) {
   const doc = readIdeas(wsRoot);
   const hit = (doc.items || []).find((x) => x.id === id);
   if (!hit) return { ok: false, error: '没有这条建议（可能今天还没生成）' };
   if (typeof addLingXi !== 'function') return { ok: false, error: '牵挂台账未接入' };
-  const r = addLingXi(wsRoot, { text: String(hit.text).slice(0, 200), source: 'user', note: `今日建议采纳（分 ${hit.score}）` });
+  const steps = breakDownIdea(hit.text);
+  const r = addLingXi(wsRoot, {
+    text: String(hit.text).slice(0, 200), source: 'user',
+    note: `今日建议采纳（分 ${hit.score}）${steps.length ? ` · 拆成 ${steps.length} 步` : ''}`,
+  });
+  // 记进「目标执行」台账：采纳不是终点，要有可勾的步骤
+  try {
+    const goals = readGoals(wsRoot);
+    goals.push({
+      id: `goal:${now.toString(36)}`,
+      text: String(hit.text).slice(0, 200),
+      fromIdea: hit.id,
+      score: hit.score,
+      createdAt: now,
+      steps: steps.map((s, i) => ({ id: i + 1, text: s, done: false })),
+    });
+    writeGoals(wsRoot, goals);
+  } catch {}
   doc.items = (doc.items || []).filter((x) => x.id !== id);
   doc.acceptedAt = now;
   writeIdeas(wsRoot, doc);
-  return { ok: true, lingxi: r };
+  return { ok: true, lingxi: r, steps };
+}
+
+/**
+ * 把一句话拆成可执行的几步（规则版，不调模型）。
+ * 拆法：先按标点切，再按"要/并/然后/再"这类连接词切；太碎就合并，最多 4 步。
+ * 目的不是完美拆解，而是让"采纳"之后立刻有可勾的东西——比只记一条待办强。
+ */
+export function breakDownIdea(text) {
+  const raw = String(text || '').replace(/^[「【].*?[」】]/, '').trim();
+  if (!raw) return [];
+  let parts = raw.split(/[；;。\n]+/).map((s) => s.trim()).filter((s) => s.length >= 4);
+  if (parts.length <= 1) {
+    parts = raw.split(/(?:，|,)?(?:然后|接着|之后|并且|同时|再|并)/).map((s) => s.trim()).filter((s) => s.length >= 4);
+  }
+  if (parts.length <= 1) {
+    // 还是一条：按"先…再…最后"或逗号切
+    parts = raw.split(/[，,、]/).map((s) => s.trim()).filter((s) => s.length >= 4);
+  }
+  if (parts.length <= 1) parts = [raw];
+  // 合并过短的尾巴
+  const merged = [];
+  for (const p of parts) {
+    if (merged.length && p.length < 6) merged[merged.length - 1] += `，${p}`;
+    else merged.push(p);
+  }
+  return merged.slice(0, 4).map((s) => s.slice(0, 120));
+}
+
+export const GOALS_FILE = path.join('记忆', '运行时', '目标执行.json');
+
+function goalsPath(wsRoot) { return path.join(String(wsRoot || '.'), GOALS_FILE); }
+
+export function readGoals(wsRoot) {
+  try {
+    const raw = JSON.parse(fs.readFileSync(goalsPath(wsRoot), 'utf8'));
+    return Array.isArray(raw?.items) ? raw.items : [];
+  } catch { return []; }
+}
+
+function writeGoals(wsRoot, items) {
+  const file = goalsPath(wsRoot);
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  fs.writeFileSync(file, JSON.stringify({ items: items.slice(-50) }, null, 2), 'utf8');
+  return items;
+}
+
+/** 勾掉某一步（让她做完一步就记一下，别整条目标模糊地"进行中"）。 */
+export function completeStep({ wsRoot, goalId, stepId, now = Date.now() } = {}) {
+  const goals = readGoals(wsRoot);
+  const g = goals.find((x) => x.id === goalId);
+  if (!g) return { ok: false, error: '没有这个目标' };
+  const s = (g.steps || []).find((x) => x.id === Number(stepId));
+  if (!s) return { ok: false, error: '没有这一步' };
+  s.done = true;
+  s.doneAt = now;
+  writeGoals(wsRoot, goals);
+  const left = (g.steps || []).filter((x) => !x.done).length;
+  return { ok: true, left };
+}
+
+/** 环境事实里的目标进度（有未完成步骤才说）。 */
+export function goalsLine(wsRoot, { limit = 2, now = Date.now() } = {}) {
+  const goals = readGoals(wsRoot).filter((g) => (g.steps || []).some((s) => !s.done));
+  if (!goals.length) return '';
+  const head = goals.slice(0, limit).map((g) => {
+    const left = (g.steps || []).filter((s) => !s.done);
+    return `${String(g.text).slice(0, 20)}（还有 ${left.length} 步，下一步：${String(left[0]?.text || '').slice(0, 16)}）`;
+  }).join('；');
+  return `【已采纳目标】${head}。这些是你自己采纳的，有进展就顺手勾一步（complete_step），不用等我问。`;
 }
 
 /** 不要这条（当天不再出现）。 */

@@ -8,7 +8,7 @@ import os from 'node:os';
 import fs from 'node:fs';
 import path from 'node:path';
 import { pendingReportsLine } from './job-state.mjs';
-import { ideasLine } from './idea-curator.mjs';
+import { ideasLine, goalsLine } from './idea-curator.mjs';
 
 // 工作区根目录由 server 启动时注入（这个模块被更早地 import，拿不到 CONFIG）
 let ENV_WS = '';
@@ -91,6 +91,9 @@ export function environmentSection() {
     // 2026-10-25：今日候选目标（当作她可以主动提议的事，不是命令）
     const ideas = ENV_WS ? ideasLine(ENV_WS) : '';
     if (ideas) lines.push(ideas);
+    // 已采纳目标：带下一步，让她自己往下推
+    const goals = ENV_WS ? goalsLine(ENV_WS) : '';
+    if (goals) lines.push(goals);
   } catch {}
   return lines.join('\n');
 }

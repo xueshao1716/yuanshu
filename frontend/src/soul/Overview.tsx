@@ -9,6 +9,7 @@ import SoulGraph from './SoulGraph'
 import LastNight from './LastNight'
 import PortraitSlot from './PortraitSlot'
 import ToneSources from './ToneSources'
+import IdeasCard from './IdeasCard'
 import ExpressionCard from './ExpressionCard'
 export const sections = [
   ['overview','培养总览','从真实记录开始，找到下一步'], ['identity','身份与表达','身份、价值观、关系与边界'],
@@ -48,6 +49,9 @@ export default function Overview({open}: {open:(section:Section)=>void}) {
         </dl>
         <p className="soul-self-file">完整自述：<code>{self.data.file}</code>（她自己也会读）</p>
       </>}
+    </Block>
+    <Block title="今日建议" hint="不是随机推荐：来自承诺、牵挂、久未推进的定时任务和你说过「改天再说」的事。采纳会变成目标并自动拆成几步。">
+      <IdeasCard />
     </Block>
     <Block title="语气从哪来" hint="灵魂主导：语气由人格定义、基因、情绪一起决定，没有「改一句话就换口吻」的开关。">
       <ToneSources />

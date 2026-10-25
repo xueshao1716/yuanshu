@@ -231,7 +231,7 @@ import * as detachedRun from "./engine/detached-run.mjs";
 // 2026-10-25：后台作业状态机（做完没汇报、坏在哪一步）
 import { collectJobs, summarizeJobs, syncReports, pendingReports, ackReports, autoAckByText, urgentReports } from "./engine/job-state.mjs";
 // 2026-10-25：自己找活——从承诺/牵挂/久未推进的任务/随口提过的事里长出候选目标
-import { curateIdeas, readIdeas, acceptIdea, dismissIdea } from "./engine/idea-curator.mjs";
+import { curateIdeas, readIdeas, acceptIdea, dismissIdea, readGoals, completeStep } from "./engine/idea-curator.mjs";
 import { setEnvWorkspace } from "./engine/runtime-env.mjs";
 import { loadSelfPolicy, selfTools, recordSelfAction, withinDailyLimit } from "./engine/self-agency.mjs";
 import { composeTimeTaskMessages, timeTaskReadTools, recordReflectionActions, parseReflectionActions, yesterdayYmd } from "./engine/time-task-run.mjs";
@@ -3655,6 +3655,13 @@ const API_ROUTES = [
   ["POST", "/api/ideas/accept", async (res, req) => {
     const body = await readBody(req, 1e4);
     const out = acceptIdea({ wsRoot: WS_ROOT, id: String(body?.id || ""), addLingXi });
+    return json(res, out.ok ? 200 : 400, out);
+  }],
+  // 2026-10-25：已采纳目标（带可勾的步骤）
+  ["GET", "/api/ideas/goals", (res) => json(res, 200, { items: readGoals(WS_ROOT) })],
+  ["POST", "/api/ideas/goals/step", async (res, req) => {
+    const body = await readBody(req, 1e4);
+    const out = completeStep({ wsRoot: WS_ROOT, goalId: String(body?.goalId || ""), stepId: body?.stepId });
     return json(res, out.ok ? 200 : 400, out);
   }],
   ["POST", "/api/ideas/dismiss", async (res, req) => {

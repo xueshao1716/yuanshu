@@ -923,6 +923,14 @@ export const SystemApi = {
   personaPart: (id: string) => api<{ id: string; label: string; chars: number; text: string }>(
     `/api/persona/part?id=${encodeURIComponent(id)}`,
   ),
+  // 2026-10-25：今日建议（自己找活）
+  ideas: () => api<{ generatedAt: number; items: { id: string; text: string; reason: string; score: number; kind: string }[] }>('/api/ideas'),
+  acceptIdea: (id: string) => api<{ ok: boolean; error?: string; steps?: string[] }>('/api/ideas/accept', { method: 'POST', body: { id } }),
+  dismissIdea: (id: string) => api<{ ok: boolean }>('/api/ideas/dismiss', { method: 'POST', body: { id } }),
+  ideaGoals: () => api<{ items: { id: string; text: string; steps: { id: number; text: string; done: boolean }[] }[] }>('/api/ideas/goals'),
+  completeIdeaStep: (goalId: string, stepId: number) => api<{ ok: boolean; left?: number; error?: string }>(
+    '/api/ideas/goals/step', { method: 'POST', body: { goalId, stepId } },
+  ),
   changeToken: (token: string) => api<{ ok: boolean }>('/api/system/token', { method: 'POST', body: { token } }),
   saveNetwork: (body: { domains: { domain: string; desc: string }[] }) =>
     api<{ ok: boolean; domains: { domain: string; desc: string }[] }>('/api/system/network', { method: 'POST', body }),
