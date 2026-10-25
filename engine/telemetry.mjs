@@ -59,6 +59,32 @@ export function stableSummary(text) {
     .slice(0, 160);
 }
 
+/**
+ * 上报台账（2026-10-26）：每次**决定**都留一行（sent / skipped + 原因 + 摘要）。
+ * 为什么需要：43 条收件箱里 23 条假警报，事后完全不知道当时为什么判定成崩溃。
+ * 台账只留最近 200 行，放 agentDir 下，不进上报内容。
+ */
+export const REPORT_LEDGER = "上报台账.jsonl";
+
+export function recordReport(agentDir, entry = {}) {
+  try {
+    const file = path.join(agentDir, REPORT_LEDGER);
+    fs.mkdirSync(path.dirname(file), { recursive: true });
+    fs.appendFileSync(file, JSON.stringify({ at: Date.now(), ...entry }) + "\n", "utf8");
+    const lines = fs.readFileSync(file, "utf8").split("\n").filter(Boolean);
+    if (lines.length > 200) fs.writeFileSync(file, lines.slice(-100).join("\n") + "\n", "utf8");
+    return true;
+  } catch { return false; }
+}
+
+export function readReportLedger(agentDir, { limit = 20 } = {}) {
+  try {
+    const file = path.join(agentDir, REPORT_LEDGER);
+    return fs.readFileSync(file, "utf8").split("\n").filter(Boolean).slice(-limit)
+      .map((l) => { try { return JSON.parse(l) } catch { return null } }).filter(Boolean).reverse();
+  } catch { return [] }
+}
+
 /** 有可上报的异常吗（且有当日余量、开关开着） */
 export function shouldReport(agentDir, incidents) {
   const st = loadState(agentDir);
@@ -78,7 +104,10 @@ export function shouldReport(agentDir, incidents) {
 /** 整理并发送。返回 { sent, kind } 或 { sent: false, reason }。 */
 export async function reportIncidents(agentDir, incidents, { fetch: f = globalThis.fetch, endpoint = DEV_FEEDBACK_URL } = {}) {
   const gate = shouldReport(agentDir, incidents);
-  if (!gate.ok) return { sent: false, reason: gate.reason };
+  if (!gate.ok) {
+    recordReport(agentDir, { decision: "skipped", reason: gate.reason, kinds: (incidents.incidents || []).map(i => i.kind) });
+    return { sent: false, reason: gate.reason };
+  }
   const payload = {
     type: "bug",
     title: `[自动上报] ${incidents.incidents[0].kind}: ${incidents.incidents[0].summary}`.slice(0, 120),
@@ -87,11 +116,15 @@ export async function reportIncidents(agentDir, incidents, { fetch: f = globalTh
     contact: "auto-telemetry",
   };
   const res = await f(endpoint, { method: "POST", headers: { "Content-Type": "text/plain;charset=UTF-8" }, body: JSON.stringify(payload) });
-  if (!res.ok) return { sent: false, reason: `http_${res.status}` };
+  if (!res.ok) {
+    recordReport(agentDir, { decision: "failed", reason: `http_${res.status}`, kinds: incidents.incidents.map(i => i.kind) });
+    return { sent: false, reason: `http_${res.status}` };
+  }
   const st = gate.st;
   st.sent = st.sent || [];
   st.sent.push({ at: Date.now(), kind: incidents.incidents[0].kind, key: incidents.incidents.map(i => `${i.kind}:${i.summary}`).join("|") });
   saveState(agentDir, st);
+  recordReport(agentDir, { decision: "sent", kinds: incidents.incidents.map(i => i.kind), title: payload.title.slice(0, 100) });
   return { sent: true };
 }
 

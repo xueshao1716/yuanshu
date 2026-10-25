@@ -234,6 +234,9 @@ import { collectJobs, summarizeJobs, syncReports, pendingReports, ackReports, au
 import { curateIdeas, readIdeas, acceptIdea, dismissIdea, readGoals, completeStep } from "./engine/idea-curator.mjs";
 // 2026-10-25：交付前证据检查（响度/峰值/音画同步/时长），灵感来自 earshot
 import { checkOutput, measureAudio, evidenceNote, probeMedia, avDriftSec } from "./engine/output-qa.mjs";
+// 2026-10-26：知识摄入 / 自动上报也进作业状态机（停摆了要能看见）
+import { knowledgeJob } from "./engine/knowledge-job.mjs";
+import { readReportLedger } from "./engine/telemetry.mjs";
 import { setEnvWorkspace } from "./engine/runtime-env.mjs";
 import { loadSelfPolicy, selfTools, recordSelfAction, withinDailyLimit } from "./engine/self-agency.mjs";
 import { composeTimeTaskMessages, timeTaskReadTools, recordReflectionActions, parseReflectionActions, yesterdayYmd } from "./engine/time-task-run.mjs";
@@ -1179,6 +1182,28 @@ const executeUnifiedTool = createUnifiedToolExecutorGuarded({
           runs: (() => { try { return runManager.list() } catch { return [] } })(),
           tasks: (() => { try { return timeEngine ? timeEngine.list() : [] } catch { return [] } })(),
         });
+        // 知识摄入：周期性 worker，停摆过（10/22 租约卡死），现在也归这里看
+        try { all.push(knowledgeJob({ wsRoot: WS_ROOT })); } catch {}
+        // 自动上报：把最近的决定做成一条"作业"（sent/skipped/failed 都看得到）
+        try {
+          const led = readReportLedger(AGENT_DIR, { limit: 50 });
+          if (led.length) {
+            const sent = led.filter((x) => x.decision === "sent").length;
+            const skipped = led.filter((x) => x.decision === "skipped").length;
+            const failed = led.filter((x) => x.decision === "failed").length;
+            all.push({
+              id: "report:ledger",
+              kind: "report",
+              label: "自动上报台账",
+              state: failed ? "failed" : "done",
+              step: `最近 ${led.length} 次决定：发出 ${sent} / 跳过 ${skipped} / 失败 ${failed}`,
+              startedAt: led[led.length - 1]?.at || null,
+              updatedAt: led[0]?.at || null,
+              elapsedMs: 0,
+              error: failed ? `${failed} 次发送失败` : "",
+            });
+          }
+        } catch {}
         if (action === "ack") {
           const ids = Array.isArray(args?.ids) ? args.ids : [];
           if (!ids.length) return { text: "ack 需要 ids", isError: true };
@@ -1187,16 +1212,24 @@ const executeUnifiedTool = createUnifiedToolExecutorGuarded({
         }
         syncReports(WS_ROOT, all);
         const kind = String(args?.kind || "all");
-        const rows = kind === "all" ? all : all.filter((j) => j.kind === kind);
+        // 2026-10-26：异常优先排序。原来按时间排再 slice(0,12)，刚加的知识/上报条目
+        // 落后就被挤出视野（真机：模型说"清单里没有这两行"）。
+        const order = { failed: 0, stalled: 1, running: 2, done: 3 };
+        const sorted = [...all].sort((a, b) => (order[a.state] ?? 9) - (order[b.state] ?? 9) || (b.updatedAt || 0) - (a.updatedAt || 0));
+        const rows = kind === "all" ? sorted : sorted.filter((j) => j.kind === kind);
         if (!rows.length) return { text: "当前没有后台作业。" };
         const s = summarizeJobs(rows);
         const pend = new Set(pendingReports(WS_ROOT).map((x) => x.id));
         const icon = { done: "✅", failed: "❌", running: "⏳", stalled: "⚠️" };
-        const lines = rows.slice(0, 12).map((j) =>
-          `${icon[j.state] || "·"} [${j.kind}] ${j.label} — ${j.state}${j.step ? `（${j.step}）` : ""}${pend.has(j.id) ? " · 未汇报" : ""}${j.error ? ` · ${j.error}` : ""}`
-        );
+        const fmt = (j) => `${icon[j.state] || "·"} [${j.kind}] ${j.label} — ${j.state}${j.step ? `（${j.step}）` : ""}${pend.has(j.id) ? " · 未汇报" : ""}${j.error ? ` · ${j.error}` : ""}`;
+        // 2026-10-26：知识摄入 / 上报台账这两条**不参与截断**——它们是"系统自己有没有在转"，
+        // 被一堆失败作业挤掉就等于没接（真机：模型连说两轮"没有这两行"）。
+        const extras = rows.filter((j) => j.kind === "knowledge" || j.kind === "report");
+        const normal = rows.filter((j) => j.kind !== "knowledge" && j.kind !== "report");
+        const lines = normal.slice(0, 10).map(fmt).concat(extras.map(fmt));
         return {
           text: `后台作业 ${s.total} 个：完成 ${s.done} / 失败 ${s.failed} / 在跑 ${s.running} / 卡住 ${s.stalled}\n` + lines.join("\n")
+            + (normal.length > 10 ? `\n…另有 ${normal.length - 10} 条未列出（kind 过滤可缩小范围）` : "")
             + (pend.size ? `\n\n有 ${pend.size} 条还没汇报——先用一两句话说清结果，再调 job_status {action:"ack", ids:[...], note:"..."} 标记。` : ""),
         };
       } catch (e) {

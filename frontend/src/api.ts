@@ -923,6 +923,10 @@ export const SystemApi = {
   personaPart: (id: string) => api<{ id: string; label: string; chars: number; text: string }>(
     `/api/persona/part?id=${encodeURIComponent(id)}`,
   ),
+  // 2026-10-26：反馈收件箱（自动上报也在这里，做成可看的卡片）
+  feedback: () => api<{ items: { id: string; at: number; title: string; detail?: string; status: string; kind?: string; signature?: string }[] }>('/api/feedback'),
+  feedbackSummary: () => api<{ groups: { signature: string; kind: string; count: number; lastAt: number; status: string; title: string }[] }>('/api/feedback/summary'),
+  feedbackMark: (id: string, status: 'done' | 'wontfix') => api<{ ok?: boolean }>(`/api/feedback/${encodeURIComponent(id)}`, { method: 'PATCH', body: { status } }),
   // 2026-10-25：今日建议（自己找活）
   ideas: () => api<{ generatedAt: number; items: { id: string; text: string; reason: string; score: number; kind: string }[] }>('/api/ideas'),
   acceptIdea: (id: string) => api<{ ok: boolean; error?: string; steps?: string[] }>('/api/ideas/accept', { method: 'POST', body: { id } }),

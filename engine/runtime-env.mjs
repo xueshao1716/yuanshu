@@ -9,6 +9,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { pendingReportsLine } from './job-state.mjs';
 import { ideasLine, goalsLine } from './idea-curator.mjs';
+import { knowledgeJob } from './knowledge-job.mjs';
 
 // 工作区根目录由 server 启动时注入（这个模块被更早地 import，拿不到 CONFIG）
 let ENV_WS = '';
@@ -94,6 +95,11 @@ export function environmentSection() {
     // 已采纳目标：带下一步，让她自己往下推
     const goals = ENV_WS ? goalsLine(ENV_WS) : '';
     if (goals) lines.push(goals);
+    // 知识摄入停摆过一次（10/22-10/25 被死进程租约卡住），这里让它自己冒出来
+    if (ENV_WS) {
+      const kj = knowledgeJob({ wsRoot: ENV_WS });
+      if (kj.state === 'failed' || kj.state === 'stalled') lines.push(`【知识摄入】${kj.state === 'failed' ? '被租约占用' : '停摆了'}：${kj.error || kj.step}`);
+    }
   } catch {}
   return lines.join('\n');
 }
