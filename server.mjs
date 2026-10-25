@@ -232,6 +232,8 @@ import * as detachedRun from "./engine/detached-run.mjs";
 import { collectJobs, summarizeJobs, syncReports, pendingReports, ackReports, autoAckByText, urgentReports } from "./engine/job-state.mjs";
 // 2026-10-25：自己找活——从承诺/牵挂/久未推进的任务/随口提过的事里长出候选目标
 import { curateIdeas, readIdeas, acceptIdea, dismissIdea, readGoals, completeStep } from "./engine/idea-curator.mjs";
+// 2026-10-25：交付前证据检查（响度/峰值/音画同步/时长），灵感来自 earshot
+import { checkOutput, measureAudio, evidenceNote, probeMedia, avDriftSec } from "./engine/output-qa.mjs";
 import { setEnvWorkspace } from "./engine/runtime-env.mjs";
 import { loadSelfPolicy, selfTools, recordSelfAction, withinDailyLimit } from "./engine/self-agency.mjs";
 import { composeTimeTaskMessages, timeTaskReadTools, recordReflectionActions, parseReflectionActions, yesterdayYmd } from "./engine/time-task-run.mjs";
@@ -964,6 +966,22 @@ const JOB_STATUS_TOOL = {
     },
   },
 };
+// 2026-10-25：交付前预筛。先测量、再判断——别再说「渲染成功」却不知道响度和同步对不对。
+const OUTPUT_CHECK_TOOL = {
+  type: 'function',
+  function: {
+    name: 'output_check',
+    description: '交付前检查产出物（视频/音频/图片/文档）：是否真的存在、时长/分辨率/帧率、整体响度 LUFS、真峰值 dBTP、音画时长差。返回硬门槛是否通过 + 一行可直接写进交付说明的证据。**渲染/导出完成后先跑它，再向用户说「完成了」**。',
+    parameters: {
+      type: 'object',
+      properties: {
+        path: { type: 'string', description: '文件路径（工作区内相对或绝对）' },
+        kind: { type: 'string', enum: ['auto', 'video', 'audio', 'image', 'doc'], description: 'auto 按扩展名判断' },
+      },
+      required: ['path'],
+    },
+  },
+};
 const UNIFIED_TOOLS = [
   ...BASE_TOOL_SCHEMAS,
   COMPUTER_TOOL_SCHEMA,
@@ -987,6 +1005,7 @@ const UNIFIED_TOOLS = [
   NOTIFY_USER_TOOL,
   RUN_DETACHED_TOOL,
   JOB_STATUS_TOOL,
+  OUTPUT_CHECK_TOOL,
 ];
 // ══ 外部思考工具（externalThinking 调试开关，默认关）══
 // 思路：关闭模型原生隐藏思考后，给它一张外部"草稿纸"（think 工具），
@@ -1182,6 +1201,17 @@ const executeUnifiedTool = createUnifiedToolExecutorGuarded({
         };
       } catch (e) {
         return { text: `job_status 出错：${String(e?.message || e).slice(0, 200)}`, isError: true };
+      }
+    },
+    // 交付前预筛（2026-10-25）：客观测量 + 硬门槛，不合格先说原因
+    output_check: (args) => {
+      try {
+        const p = resolveToolPath(args?.path) || String(args?.path || '');
+        const kind = String(args?.kind || 'auto');
+        const r = checkOutput(p, { kind });
+        return { text: evidenceNote(r) + (r.fails.length ? '\n不合格项：' + r.fails.join('；') : '') + (r.warnings.length ? '\n注意：' + r.warnings.join('；') : ''), isError: !r.pass };
+      } catch (e) {
+        return { text: 'output_check 出错：' + String(e?.message || e).slice(0, 200), isError: true };
       }
     },
     // 当场修：把"发现问题"接到"动手做掉"（逻辑在 engine/reflection-exec.mjs，与复盘那条共用规则）。    // 执行轮用完整工具集（这一步才发可写工具），一轮只做这一条，必须交证据。
