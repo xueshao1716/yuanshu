@@ -6,6 +6,12 @@
 > 而 `sync:frontend` 是忠实镜像，会把它们复制进 `public/` 与 `app/dist/`（细节见 `docs/NAMING.md`）。
 > 版本唯一来源是仓库根的 `version.json`；契约见 `docs/NAMING.md`。
 
+## [2.131.0] - 2026-10-26
+- **accepted 提案自动产出「改动计划 + 测试骨架」**（engine/capability-plan.mjs）：PLAN.md 写清证据 / 动哪 / 怎么做 / 什么算完成 / 风险；测试骨架是可运行的 node:test 文件，**全部 test.todo**——不是「通过」。
+- 三条硬规矩：绝不覆盖已存在的测试文件；骨架写完立刻 `node --check`，不合法就删掉并报错；PLAN 里必须能点回证据，没有证据就明写「请先补，再动手」。
+- 领域 playbook（audio / knowledge / feedback / shell / deploy / mcp / render / general）规定该动哪些文件、用什么验收——不让模型每次现编。
+- 修了两个真问题：测试文件名一度是中文（改成 ASCII slug + 短哈希）；渲染类作业原先进了 general 领域（补 render 领域与 playbook）。
+- 接口：`POST /api/capability/plan`（预览）、`POST /api/capability/materialize`（落盘并把 proposed 转为 accepted）。
 ## [2.130.0] - 2026-10-26
 知识的两层：第一层给小语长经验（记忆），第二层要让**元枢长能力**（改代码）。这一版补的是第二层，以及第一层的质量。
 - **提炼成 claim**（`engine/knowledge-enrich.mjs`）：入库时从原文抽决定/偏好/教训/事实，带置信度与原文证据；抽不出的标 `source_excerpt`，不硬编。回填 596 条后，有 claim 的从 7 条涨到 382 条。
