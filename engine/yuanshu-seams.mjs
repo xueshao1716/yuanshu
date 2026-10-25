@@ -3,10 +3,9 @@ import { buildYuanshuSections } from "./yuanshu-prompt.mjs";
 import { tastePromptText } from './taste.mjs';
 import { runtimeIdentity } from "./runtime-identity.mjs";
 import { rhythmPhrase } from "./activity-rhythm.mjs";
-import { loadPersonaDefinition, renderPersonaSection } from "./persona-def.mjs";
-import { soulContextPrompt } from "./soul-context.mjs";
+import { resolvePersona, personaMeta } from "./persona-resolve.mjs";
 import { systemPrompt, guardrailsText } from "./harness-components.mjs";
-import { buildSelfModel, renderSelfSection, writeSelfFile } from "./self-model.mjs";
+import { writeSelfFile } from "./self-model.mjs";
 import { goldSection } from "./gold-facts.mjs";
 import { workspaceFromEnv } from "./workspace-default.mjs";
 
@@ -139,31 +138,41 @@ export function assembleYuanshuSystem(baseOpts = {}, registry = null, ctx = {}) 
     collectPromptContributions(registry, ctx),
   );
   if (!String(merged.time || "").trim()) merged.time = promptTimeText(ctx.now, { since: ctx.since, sessionStart: ctx.sessionStart });
-  if (!String(merged.persona || "").trim()) {
-    // 人格段由**定义**渲染（记忆/人格定义.json），而不是只报"本轮哪个模型在驱动"。
-    // 真机 bug（2026-09-18）：元枢自制循环这条路上，小语的人格几乎没被注入过——
-    // 只有一句模型来源，所以她在这条路上的"是谁"是不确定的。
-    let persona = "";
+  // 2026-10-25：人格段改由 engine/persona-resolve.mjs **一处**解析（定义 → 灵魂 → 自我 → 会话语气）。
+  // 以前这三段在这里各拼一次、/api/persona 又自己渲染一遍，界面与注入迟早对不上。
+  // 行为保持：贡献方已经给了 persona 就不再用定义覆盖，但灵魂/自我/会话语气照旧追加。
+  {
+    const pRoot = ctx.wsRoot || workspaceFromEnv() || process.cwd();
+    let built = null;
     try {
-      const wsRoot = ctx.wsRoot || workspaceFromEnv() || process.cwd();
-      const { def } = loadPersonaDefinition(wsRoot);
-      persona = renderPersonaSection(def, { genes: ctx.genes || null, model: ctx.model });
+      built = resolvePersona({
+        wsRoot: pRoot,
+        sessionId: ctx.sessionId || "",
+        genes: ctx.genes || null,
+        model: ctx.model,
+        now: ctx.now instanceof Date ? ctx.now.getTime() : Date.now(),
+      });
     } catch {}
-    if (!persona) persona = promptPersonaText(ctx.model);
-    if (persona) merged.persona = persona;
+    if (built) {
+      const defPart = built.parts.find((p) => p.id === "definition");
+      if (!String(merged.persona || "").trim()) {
+        // 人格段由**定义**渲染（记忆/人格定义.json），而不是只报"本轮哪个模型在驱动"。
+        // 真机 bug（2026-09-18）：元枢自制循环这条路上，小语的人格几乎没被注入过。
+        const persona = (defPart && defPart.text) || promptPersonaText(ctx.model);
+        if (persona) merged.persona = persona;
+      }
+      for (const part of built.parts) {
+        if (part.id === "definition") continue;   // 定义已按上面的规则处理过
+        merged.persona = [merged.persona, part.text].filter(Boolean).join("\n\n");
+      }
+      // 界面与注入同源：把这次真正拼进去的元数据留给 /api/persona 用
+      merged.personaResolution = personaMeta(built);
+      if (built.selfModel) { try { writeSelfFile(pRoot, built.selfModel); } catch {} }
+    } else if (!String(merged.persona || "").trim()) {
+      const fallback = promptPersonaText(ctx.model);
+      if (fallback) merged.persona = fallback;
+    }
   }
-  try {
-    const soul = soulContextPrompt(ctx.wsRoot || workspaceFromEnv() || process.cwd());
-    if (soul) merged.persona = [merged.persona, soul].filter(Boolean).join("\n\n");
-  } catch {}
-  // 2026-10-20：人格段回答"我是什么样的人"，这里补"我是谁"——活的第一人称自述。
-  try {
-    const selfRoot = ctx.wsRoot || workspaceFromEnv() || process.cwd();
-    const selfModel = buildSelfModel({ wsRoot: selfRoot });
-    const selfSection = renderSelfSection(selfModel);
-    if (selfSection) merged.persona = [merged.persona, selfSection].filter(Boolean).join("\n\n");
-    writeSelfFile(selfRoot, selfModel);
-  } catch {}
   // 2026-10-20：组件化第一步——协议文本与护栏都可外置为文件/单一真源；
   // 读不到文件时回退内置常量，行为与以前一致（只是多了可编辑与可追溯）。
   try {

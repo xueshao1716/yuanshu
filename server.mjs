@@ -270,6 +270,8 @@ import { initSessionDb, sessionPinnedIds, handleDbList, handleDbRebuild, handleD
 import { repairSessionFile, repairSessionDir } from "./engine/session-repair.mjs";
 import { outputRoomTokens, headroomNote } from "./engine/context-headroom.mjs";
 import { loadPersonaDefinition, renderPersonaSection, syncAppendSystemPersona } from "./engine/persona-def.mjs";
+// 2026-10-25：人格段唯一解析点（定义 → 灵魂 → 自我 → 会话语气）。界面与注入同源。
+import { resolvePersona, personaMeta, personaPartText, setSessionStyle, STYLE_PRESETS, MAX_STYLE_CHARS } from "./engine/persona-resolve.mjs";
 import { voiceAllowedOrigins } from "./engine/network-endpoints.mjs";
 import { isListedGroup, normalizeCreateGroup } from "./engine/session-groups.mjs";
 import { createAIBodyRuntime } from "./engine/aibody-runtime.mjs";
@@ -3584,13 +3586,44 @@ const API_ROUTES = [
   }],
 
   // 人格定义（2026-09-18）：一份定义决定人格——把定义与渲染结果如实暴露出来，便于核对。
-  ["GET", "/api/persona", (res) => {
+  ["GET", "/api/persona", (res, req, url) => {
     const pd = personaGovernance.read();
     const genes = (() => { try { return emotion.getGenome().genes; } catch { return null; } })();
+    // 2026-10-25：附上这次**真正注入**的那份元数据（与提示词同源，不是另渲染一份）
+    let resolution = null;
+    try {
+      const sid = url?.searchParams?.get("sessionId") || "";
+      resolution = personaMeta(resolvePersona({ wsRoot: WS_ROOT, sessionId: sid, genes }));
+    } catch {}
     json(res, 200, {
       ...pd,
       rendered: renderPersonaSection(pd.definition, { genes }),
+      resolution,
+      stylePresets: Object.entries(STYLE_PRESETS).map(([id, s]) => ({ id, label: s.label, chars: s.text.length })),
+      maxStyleChars: MAX_STYLE_CHARS,
     });
+  }],
+  // 2026-10-25：人格段正文按需取（界面「查看全文」用；状态接口不再背全文）
+  ["GET", "/api/persona/part", (res, req, url) => {
+    try {
+      const id = url?.searchParams?.get("id") || "";
+      const sid = url?.searchParams?.get("sessionId") || "";
+      const genes = (() => { try { return emotion.getGenome().genes; } catch { return null; } })();
+      const part = personaPartText({ wsRoot: WS_ROOT, sessionId: sid, id, genes });
+      return part ? json(res, 200, part) : json(res, 404, { error: "没有这一段", id });
+    } catch (e) { return json(res, 500, { error: String(e?.message || e).slice(0, 200) }); }
+  }],
+  // 2026-10-25：会话语气档（越细越优先：会话 > 工作区默认）。只调语气，不改身份——
+  // 人格定义仍是唯一真相、改动仍要人批准（/api/persona 的写接口走 persona-approval）。
+  ["POST", "/api/persona/session", async (res, req) => {
+    try {
+      const body = await readBody(req, 1e4);
+      const sid = String(body?.sessionId || "").trim();
+      const out = setSessionStyle(WS_ROOT, sid, body?.style ?? null);
+      if (!out.ok) return json(res, 400, { error: out.error });
+      const genes = (() => { try { return emotion.getGenome().genes; } catch { return null; } })();
+      return json(res, 200, { ok: true, resolution: personaMeta(resolvePersona({ wsRoot: WS_ROOT, sessionId: sid, genes })) });
+    } catch (e) { return json(res, 500, { error: String(e?.message || e).slice(0, 200) }); }
   }],
   ["POST", "/api/sessions", async (res, req) => {
     const body = await readBody(req);
