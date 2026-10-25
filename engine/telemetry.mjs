@@ -26,15 +26,37 @@ function saveState(agentDir, st) {
 }
 
 /** 采集本机异常事实：crash.log 尾部 + watchdog 重启计数 + 模型失败计数（由调用方注入） */
+// 2026-10-25 真机：43 条自动上报里有 23 条是 code=0 的正常退出（运维脚本 stop/update-restart 触发），
+// 被当成 crash 报上去。正常退出不是崩溃——只有非 0 退出码或未捕获异常才算。
+export function exitCodeOf(line) {
+  const m = String(line || "").match(/\[exit\][^\n]*?code=(-?\d+)/i);
+  return m ? Number(m[1]) : null;
+}
+
 export function collectIncidents({ crashTail = "", watchdogRestarts = 0, modelFailStreak = 0, version = "" } = {}) {
   const incidents = [];
-  if (crashTail && /\[exit\]|uncaughtException/i.test(crashTail)) {
-    const lastExit = (crashTail.match(/\[exit\][^\n]*/i) || crashTail.match(/uncaughtException:[^\n]*/i) || [""])[0];
-    incidents.push({ kind: "crash", summary: lastExit.slice(0, 160) });
+  if (crashTail) {
+    const exitLine = (crashTail.match(/\[exit\][^\n]*/i) || [""])[0];
+    const exceptionLine = (crashTail.match(/uncaughtException:[^\n]*/i) || [""])[0];
+    const code = exitCodeOf(exitLine);
+    // code=0 → 正常退出，不上报；有未捕获异常照样算；拿不到 code（被强杀）也算异常
+    if (exceptionLine) incidents.push({ kind: "crash", summary: exceptionLine.slice(0, 160) });
+    else if (exitLine && code !== 0) incidents.push({ kind: "crash", summary: exitLine.slice(0, 160) });
   }
   if (watchdogRestarts > 0) incidents.push({ kind: "restart", summary: `watchdog 重启 ${watchdogRestarts} 次` });
   if (modelFailStreak >= 5) incidents.push({ kind: "model-fail", summary: `模型调用连续失败 ${modelFailStreak} 次` });
   return { version, os: `${os.type()} ${os.release()} ${os.arch()}`, incidents };
+}
+
+/** 去掉 pid/uptime/日期这些每次都变的部分，让"同一个根因"能命中同一条。 */
+export function stableSummary(text) {
+  return String(text || "")
+    .replace(/pid=\d+/gi, "pid=*")
+    .replace(/uptime=\d+s?/gi, "uptime=*")
+    .replace(/\d{4}[-/]\d{1,2}[-/]\d{1,2}[ T]\d{1,2}:\d{2}(:\d{2})?/g, "<time>")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, 160);
 }
 
 /** 有可上报的异常吗（且有当日余量、开关开着） */
@@ -45,8 +67,10 @@ export function shouldReport(agentDir, incidents) {
   const today = new Date().toDateString();
   const sentToday = (st.sent || []).filter(s => new Date(s.at).toDateString() === today && s.kind !== "test").length;
   if (sentToday >= MAX_PER_DAY) return { ok: false, reason: "daily_limit" };
-  // 去重：同 kind+summary 的 7 天内已发过就不重发
-  const key = incidents.incidents.map(i => `${i.kind}:${i.summary}`).join("|");
+  // 去重：同 kind+summary 的 7 天内已发过就不重发。
+  // 2026-10-25：summary 里带 pid 和 uptime，每次重启都是新串 → 去重形同虚设（真机刷了 20 条同根因）。
+  // 这里把可变部分抹掉再比。
+  const key = incidents.incidents.map(i => `${i.kind}:${stableSummary(i.summary)}`).join("|");
   if ((st.sent || []).some(s => s.key === key)) return { ok: false, reason: "duplicate" };
   return { ok: true, st };
 }
