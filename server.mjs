@@ -236,6 +236,7 @@ import { curateIdeas, readIdeas, acceptIdea, dismissIdea, readGoals, completeSte
 import { checkOutput, measureAudio, evidenceNote, probeMedia, avDriftSec } from "./engine/output-qa.mjs";
 // 2026-10-26：知识摄入 / 自动上报也进作业状态机（停摆了要能看见）
 import { knowledgeJob } from "./engine/knowledge-job.mjs";
+import { feedbackJob } from "./engine/feedback-job.mjs";
 // 2026-10-26：未捕获异常的去留策略（偶发不退出，同签名反复才退出）
 import { decideCrashAction, crashSignature } from "./engine/crash-policy.mjs";
 // 2026-10-26：收件箱自动研判（对不上号要说清为什么）
@@ -1196,6 +1197,8 @@ const executeUnifiedTool = createUnifiedToolExecutorGuarded({
         });
         // 知识摄入：周期性 worker，停摆过（10/22 租约卡死），现在也归这里看
         try { all.push(knowledgeJob({ wsRoot: WS_ROOT })); } catch {}
+        // 收到外部报回来的 bug，有没有人理——也归这里看（不然就等用户想起来）
+        try { all.push(feedbackJob({ wsRoot: WS_ROOT })); } catch {}
         // 自动上报：把最近的决定做成一条"作业"（sent/skipped/failed 都看得到）
         try {
           const led = readReportLedger(AGENT_DIR, { limit: 50 });
@@ -1236,8 +1239,8 @@ const executeUnifiedTool = createUnifiedToolExecutorGuarded({
         const fmt = (j) => `${icon[j.state] || "·"} [${j.kind}] ${j.label} — ${j.state}${j.step ? `（${j.step}）` : ""}${pend.has(j.id) ? " · 未汇报" : ""}${j.error ? ` · ${j.error}` : ""}`;
         // 2026-10-26：知识摄入 / 上报台账这两条**不参与截断**——它们是"系统自己有没有在转"，
         // 被一堆失败作业挤掉就等于没接（真机：模型连说两轮"没有这两行"）。
-        const extras = rows.filter((j) => j.kind === "knowledge" || j.kind === "report");
-        const normal = rows.filter((j) => j.kind !== "knowledge" && j.kind !== "report");
+        const extras = rows.filter((j) => j.kind === "knowledge" || j.kind === "report" || j.kind === "feedback");
+        const normal = rows.filter((j) => j.kind !== "knowledge" && j.kind !== "report" && j.kind !== "feedback");
         const lines = normal.slice(0, 10).map(fmt).concat(extras.map(fmt));
         return {
           text: `后台作业 ${s.total} 个：完成 ${s.done} / 失败 ${s.failed} / 在跑 ${s.running} / 卡住 ${s.stalled}\n` + lines.join("\n")

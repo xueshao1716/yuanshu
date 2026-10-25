@@ -6,6 +6,9 @@
 > 而 `sync:frontend` 是忠实镜像，会把它们复制进 `public/` 与 `app/dist/`（细节见 `docs/NAMING.md`）。
 > 版本唯一来源是仓库根的 `version.json`；契约见 `docs/NAMING.md`。
 
+## [2.129.8] - 2026-10-26
+- **反馈收件箱进作业状态机**（engine/feedback-job.mjs）：stalled = 有人报回来但超过 48 小时没回信；running = 已回信待定论；done = 都处理完。job_status 里与知识摄入/上报台账一样**不参与截断**，环境事实里也会冒一句「【反馈收件箱】…先回信，别让人干等」。
+- 真机首跑即抓出：45 条反馈里有 3 条 open、0 条回信，最早一条 9 天前。
 ## [2.129.7] - 2026-10-26
 - **每份反馈都有工单号**（engine/feedback-ticket.mjs）：installId（同机稳定）+ ticketId（每次一个，形如 T-20261026-0001）+ 可选 replyTo。自动上报与环境里都带上，回信里原样引用——双方靠它对号。
 - **反馈存储支持工单字段**：feedback.mjs 的 add() 接收并保存 ticketId / installId / replyTo / threadId；POST /api/feedback 一并透传。
@@ -42,6 +45,8 @@
 - **去重 key 稳定化**：原来 summary 里含 pid= / uptime=，每次重启都是新串，同一个根因刷出 20 条。现在先抹掉可变部分再比。
 - 清理了历史积压：41 条关闭（23 条假警报标 wontfix、18 条重复标 done），保留 2 条真崩溃（来自另一台 Linux 安装，本机无从复现）。
 ## [Unreleased]
+
+## [2.129.8] - 2026-10-25
 
 ## [2.129.7] - 2026-10-25
 

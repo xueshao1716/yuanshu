@@ -10,6 +10,7 @@ import path from 'node:path';
 import { pendingReportsLine } from './job-state.mjs';
 import { ideasLine, goalsLine } from './idea-curator.mjs';
 import { knowledgeJob } from './knowledge-job.mjs';
+import { feedbackJob } from './feedback-job.mjs';
 
 // 工作区根目录由 server 启动时注入（这个模块被更早地 import，拿不到 CONFIG）
 let ENV_WS = '';
@@ -99,6 +100,8 @@ export function environmentSection() {
     if (ENV_WS) {
       const kj = knowledgeJob({ wsRoot: ENV_WS });
       if (kj.state === 'failed' || kj.state === 'stalled') lines.push(`【知识摄入】${kj.state === 'failed' ? '被租约占用' : '停摆了'}：${kj.error || kj.step}`);
+      const fj = feedbackJob({ wsRoot: ENV_WS });
+      if (fj.state === 'stalled') lines.push(`【反馈收件箱】${fj.step}——先回信，别让人干等`);
     }
   } catch {}
   return lines.join('\n');
