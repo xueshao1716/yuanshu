@@ -55,3 +55,27 @@ unusable     只够说"某处炸了"            → 本地就标记出来，不�
 `engine/telemetry.mjs` → `collectIncidents()` 里调 `buildCrashReport()`，
 `reportIncidents()` 的 payload 带 `env`（上表字段）+ `triage` 一行结论 + 多行栈。
 自动上报只发这些结构化事实，不发 `crash.log` 全文（避免夹带工作区路径与内容）。
+
+## 六、回信：两段式，按原路返回
+
+**第一封（收到时，自动）**：engine/crash-triage.mjs 判定能不能对上号，生成「为什么没查到 + 要你补什么」。
+**第二封（修好后，手动确认）**：resolutionReply() —— 必须给出三样东西才允许发：
+
+1. 在哪个版本修的（version + commit）
+2. 改了什么（一句话说清，不许空喊「修好了」）
+3. 请你这样验证（可留空，但建议写）
+
+拿不出「版本 + 改了什么」的时候，接口直接 400 拒绝——「修好了」是最容易说空话的一句话。
+
+**按原路返回**：反馈条目带 replyTo（提交方给的地址）与 threadId。
+engine/feedback-relay.mjs 做 best-effort 转发：有地址才发，发不出去只在本地记 relayError，
+绝不因为回信失败而丢掉「我说过什么」——回信内容永远先落本地（engine/feedback.mjs 的 addReply）。
+
+当 replyTo 为空（目前公网反馈端点没给这个字段），回信只保存在本地收件箱，界面标「仅本地」，可复制后手动发回。
+
+### 接口
+
+    POST /api/feedback/:id/reply
+      { kind: 'triage', text: '…' }                  # 第一封：原文照发
+      { kind: 'resolved', change: '…', verify: '…' }  # 第二封：服务端拼装（可带 version）
+    → { ok, reply: { id, kind, text, relayed }, relay: { ok, error? } }

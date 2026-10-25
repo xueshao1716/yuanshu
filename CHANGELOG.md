@@ -6,6 +6,11 @@
 > 而 `sync:frontend` 是忠实镜像，会把它们复制进 `public/` 与 `app/dist/`（细节见 `docs/NAMING.md`）。
 > 版本唯一来源是仓库根的 `version.json`；契约见 `docs/NAMING.md`。
 
+## [2.129.6] - 2026-10-26
+- **两段式回信**：第一封在收到时自动生成（能不能对上号 + 要你补什么），第二封在**真的修好后**生成——必须带「版本 + 改了什么 + 怎么验证」，缺一样就 400 拒发（不空喊修好了）。
+- **反馈条目支持线程**：engine/feedback.mjs 新增 addReply / replyAddress，每条反馈带 replies[]、replyTo、threadId。
+- **按原路返回**：engine/feedback-relay.mjs best-effort 把回信 POST 回 replyTo；没有地址只在本地记 relayError，回信内容永远先落本地（界面标「仅本地」）。
+- 接口：POST /api/feedback/:id/reply（kind: triage | resolved），收件箱卡片显示回信线程与「修好后回信」按钮。
 ## [2.129.5] - 2026-10-26
 - **收件箱自动研判 + 生成回信**（`engine/crash-triage.mjs` + `GET /api/feedback/triage`）：每条报告判一次「能不能对上号」，分四类：`no_build`（缺构建号 / 栈被截断）、`stale`（版本低于支持窗口）、`foreign`（栈里的路径不是我们发出去的构建）、`no_repro`（字段够但复现不了）。
 - **对不上就说清为什么**：生成一段可直接发给对方的话（补 `crash.log` 尾部 / 升级后重报 / 换正式构建），不假装在查、不给空头承诺。
