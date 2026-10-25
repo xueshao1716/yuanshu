@@ -6,7 +6,15 @@
 > 而 `sync:frontend` 是忠实镜像，会把它们复制进 `public/` 与 `app/dist/`（细节见 `docs/NAMING.md`）。
 > 版本唯一来源是仓库根的 `version.json`；契约见 `docs/NAMING.md`。
 
-## [Unreleased]
+## [2.127.156] - 2026-10-25
+
+- **表达微调可回滚**：每次 set / replace / clear 都记进独立台账 `记忆/运行时/表达微调.history.jsonl`（from/to + id + 时间），灵魂培育的卡片里给「撤销上一步」，回滚本身也会再记一条，所以可追溯、可再回滚。
+  - 为什么不塞进人格修订链：那套是「人格定义 + APPEND_SYSTEM.md 原子事务 + 版本哈希比对」，保护的是人格文件；表达微调是另一份文件、更低一层权限，混进去会把那条事务变复杂，还容易误回滚人格。
+  - 接口：`GET /api/persona/expression/history`、`POST /api/persona/expression/rollback`。台账是 append-only 的 jsonl，超过 200 条自动只留最近一半。
+- **人物标志与产品标志分开**：侧栏头部紧挨着「小语」的那个图标，之前和新版产品标志是同一个（断口环 + 轴心点），等于把产品和这个人画成一个东西。新增 `PersonaMark`：圆角对话气泡 + 一道起伏声线 + 左下气泡尾，暖色（`--persona-mark`），<24px 自动去掉声线防糊。产品标志仍只出现在导航栏（元枢）与登录页、工作台大标题。
+- **测试**：新增 `tests/unit/expression-ledger.test.mjs` 7 条（set/replace/clear 都留痕、撤销回到上一步、可一路回到无微调、无历史如实报错、回滚记录不能再当回滚目标、被拒绝的写入不进台账、每条带 id/at/key）。
+
+## [2.127.156] - 2026-10-25
 
 ## [2.127.155] - 2026-10-25
 

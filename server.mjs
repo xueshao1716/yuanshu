@@ -273,7 +273,7 @@ import { repairSessionFile, repairSessionDir } from "./engine/session-repair.mjs
 import { outputRoomTokens, headroomNote } from "./engine/context-headroom.mjs";
 import { loadPersonaDefinition, renderPersonaSection, syncAppendSystemPersona } from "./engine/persona-def.mjs";
 // 2026-10-25：人格段唯一解析点（定义 → 灵魂 → 自我 → 会话语气）。界面与注入同源。
-import { resolvePersona, personaMeta, personaPartText, setWorkspaceExpression, setSessionExpression, EXPRESSION_PRESETS, MAX_EXPRESSION_CHARS } from "./engine/persona-resolve.mjs";
+import { resolvePersona, personaMeta, personaPartText, setWorkspaceExpression, setSessionExpression, listExpressionHistory, rollbackExpression, EXPRESSION_PRESETS, MAX_EXPRESSION_CHARS } from "./engine/persona-resolve.mjs";
 import { voiceAllowedOrigins } from "./engine/network-endpoints.mjs";
 import { isListedGroup, normalizeCreateGroup } from "./engine/session-groups.mjs";
 import { createAIBodyRuntime } from "./engine/aibody-runtime.mjs";
@@ -3702,6 +3702,22 @@ const API_ROUTES = [
       if (!out.ok) return json(res, 400, { error: out.error });
       const genes = (() => { try { return emotion.getGenome().genes; } catch { return null; } })();
       return json(res, 200, { ok: true, resolution: personaMeta(resolvePersona({ wsRoot: WS_ROOT, sessionId: sid, genes })) });
+    } catch (e) { return json(res, 500, { error: String(e?.message || e).slice(0, 200) }); }
+  }],
+  // 2026-10-25：表达微调的变更历史与回滚（独立台账，不混进人格修订事务）
+  ["GET", "/api/persona/expression/history", (res, req, url) => {
+    try {
+      const limit = Math.min(50, Math.max(1, Number(url?.searchParams?.get("limit")) || 10));
+      return json(res, 200, { items: listExpressionHistory(WS_ROOT, { limit }) });
+    } catch (e) { return json(res, 500, { error: String(e?.message || e).slice(0, 200) }); }
+  }],
+  ["POST", "/api/persona/expression/rollback", async (res, req) => {
+    try {
+      const body = await readBody(req, 1e4);
+      const out = rollbackExpression(WS_ROOT, { id: body?.id || "", key: body?.key || "workspace" });
+      if (!out.ok) return json(res, 400, { error: out.error });
+      const genes = (() => { try { return emotion.getGenome().genes; } catch { return null; } })();
+      return json(res, 200, { ok: true, restored: out.restored, rolledBack: out.rolledBack, resolution: personaMeta(resolvePersona({ wsRoot: WS_ROOT, genes })) });
     } catch (e) { return json(res, 500, { error: String(e?.message || e).slice(0, 200) }); }
   }],
   ["POST", "/api/sessions", async (res, req) => {

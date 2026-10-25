@@ -9,7 +9,7 @@ import type { Session } from '../types'
 import { useRestoreFocus } from '../hooks/useRestoreFocus'
 import { ChevronRight, Ellipsis, MessageSquare, PanelLeftClose, PencilLine, Pin, PinOff, Plus, Trash2 } from 'lucide-react'
 import { DEFAULT_COLLAPSED, displayName, planSidebar } from '../lib/session-sidebar.mjs'
-import BrandMark from './BrandMark'
+import PersonaMark from './PersonaMark'
 
 // 分组折叠状态持久化（v2：分组改成 对话按时间分段 / 微信 / 终端 / 真测，旧键作废）
 const COLLAPSE_KEY = 'pi_groups_collapsed_v2'
@@ -114,7 +114,7 @@ export default function Sidebar({ onNavigated, onCollapse }: { onNavigated?: () 
       <div className="flex items-center gap-2.5 px-4 h-14 border-b border-pi-border-soft/50 flex-shrink-0">
         {/* 品牌标记：断口环 + 轴心（2026-10-22 换标，旧的脉冲竖线像信号强度） */}
         <div className="h-8 w-8 shrink-0 flex items-center justify-center text-pi-accent" aria-hidden="true">
-          <BrandMark size={26} color="var(--brand-mark, #5468ff)" />
+          <PersonaMark size={24} />
         </div>        <div className="min-w-0">
           <div className="font-semibold text-[15px] leading-tight truncate">{personaName}</div>
         </div>

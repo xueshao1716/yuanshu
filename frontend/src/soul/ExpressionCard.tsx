@@ -10,10 +10,12 @@ import { SystemApi } from '../api'
  * 不能改身份、名字、边界、禁忌——服务端 validateExpression 会直接拒掉那类内容，
  * 注入时也会带一行「与人格定义/边界/禁忌冲突时以后者为准」。
  *
- * 界面上把这条边界写出来，是因为它属于产品承诺：灵魂主导，刻度可调。
+ * 变更可回滚：每次 set/replace/clear 都进独立台账（不混进人格修订事务），
+ * 这里给"撤销上一步"，回滚本身也会再记一条，所以可追溯、可再回滚。
  */
 export default function ExpressionCard() {
   const { data, mutate, isLoading } = useSWR('soul-expression', () => SystemApi.personaResolution())
+  const { data: hist, mutate: histMutate } = useSWR('soul-expression-history', () => SystemApi.expressionHistory(8))
   const [draft, setDraft] = useState('')
   const [busy, setBusy] = useState(false)
   const [err, setErr] = useState('')
@@ -21,15 +23,37 @@ export default function ExpressionCard() {
   const current = res?.workspaceExpression || null
   const presets = data?.expressionPresets || []
   const maxChars = data?.maxExpressionChars || 160
+  const history = hist?.items || []
 
   const save = async (style: string | null) => {
-    setBusy(true); setErr('')
+    setBusy(true)
+    setErr('')
     try {
       const out = await SystemApi.setPersonaExpression(style)
       if (out && (out as any).ok === false) setErr((out as any).error || '保存失败')
       await mutate()
+      await histMutate()
       setDraft('')
-    } catch (e: any) { setErr(String(e?.message || e).slice(0, 160)) } finally { setBusy(false) }
+    } catch (e: any) {
+      setErr(String(e?.message || e).slice(0, 160))
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const undo = async () => {
+    setBusy(true)
+    setErr('')
+    try {
+      const out = await SystemApi.rollbackExpression({ key: 'workspace' })
+      if (out && (out as any).ok === false) setErr((out as any).error || '回滚失败')
+      await mutate()
+      await histMutate()
+    } catch (e: any) {
+      setErr(String(e?.message || e).slice(0, 160))
+    } finally {
+      setBusy(false)
+    }
   }
 
   return (
@@ -75,6 +99,29 @@ export default function ExpressionCard() {
 
       {err ? <p className="soul-tone-err">{err}</p> : null}
       {isLoading ? <p className="tone-sources-dim">读取中…</p> : null}
+
+      {history.length > 0 && (
+        <div className="tone-sources">
+          <p className="tone-sources-dim">
+            最近变更：
+            {history.slice(0, 3).map((h) => (
+              <span key={h.id} style={{ marginLeft: 6 }}>
+                {h.action === 'rollback' ? '回滚' : h.action === 'clear' ? '清空' : h.to?.label || '修改'}
+              </span>
+            ))}
+          </p>
+          <div className="persona-style-row">
+            <button
+              type="button"
+              className="persona-style-opt"
+              disabled={busy || history[0]?.action === 'rollback'}
+              onClick={undo}
+            >
+              撤销上一步
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

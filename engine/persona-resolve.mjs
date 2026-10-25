@@ -79,15 +79,73 @@ function writeAll(wsRoot, all) {
 
 function put(wsRoot, key, style, { now = Date.now() } = {}) {
   const all = readAll(wsRoot, { now });
+  const from = all[key] ? { ...all[key] } : null;
   if (style == null || String(style).trim() === "") {
     delete all[key];
-    try { writeAll(wsRoot, all); return { ok: true, cleared: true }; } catch (e) { return { ok: false, error: String(e?.message || e).slice(0, 120) }; }
+    try { writeAll(wsRoot, all); recordExpression(wsRoot, { at: now, key, action: "clear", from, to: null }); return { ok: true, cleared: true }; }
+    catch (e) { return { ok: false, error: String(e?.message || e).slice(0, 120) }; }
   }
   const preset = EXPRESSION_PRESETS[String(style).trim()];
   const checked = validateExpression(preset ? preset.text : style);
   if (!checked.ok) return checked;
   all[key] = { id: preset ? String(style).trim() : "custom", label: preset ? preset.label : "自定义", text: checked.text, at: now };
-  try { writeAll(wsRoot, all); return { ok: true, expression: all[key] }; } catch (e) { return { ok: false, error: String(e?.message || e).slice(0, 120) }; }
+  try {
+    writeAll(wsRoot, all);
+    recordExpression(wsRoot, { at: now, key, action: from ? "replace" : "set", from, to: { ...all[key] } });
+    return { ok: true, expression: all[key] };
+  } catch (e) { return { ok: false, error: String(e?.message || e).slice(0, 120) }; }
+}
+
+// ── 变更台账（2026-10-25）：表达微调也要能回滚 ──
+// 为什么不塞进人格修订链：那套是"定义 + APPEND_SYSTEM.md 原子事务 + 版本哈希比对"，
+// 用来保护人格文件；表达微调是另一份文件、另一层权限，混进去会让那条事务变复杂且易误回滚。
+// 这里单独记一条 append-only 台账：每次 set/replace/clear 记 from/to，回滚就是把 from 写回去。
+export const EXPRESSION_LEDGER = path.join("记忆", "运行时", "表达微调.history.jsonl");
+const LEDGER_MAX = 200;
+
+function ledgerFile(wsRoot) { return path.join(String(wsRoot || "."), EXPRESSION_LEDGER); }
+
+function recordExpression(wsRoot, entry) {
+  try {
+    const file = ledgerFile(wsRoot);
+    fs.mkdirSync(path.dirname(file), { recursive: true });
+    fs.appendFileSync(file, JSON.stringify({ ...entry, id: `${entry.at}-${Math.random().toString(36).slice(2, 6)}` }) + "\n", "utf8");
+    // 简单轮转：超过上限只留最近一半
+    const lines = fs.readFileSync(file, "utf8").split("\n").filter(Boolean);
+    if (lines.length > LEDGER_MAX) fs.writeFileSync(file, lines.slice(-Math.floor(LEDGER_MAX / 2)).join("\n") + "\n", "utf8");
+    return true;
+  } catch { return false; }
+}
+
+/** 变更历史（新的在前）。 */
+export function listExpressionHistory(wsRoot, { limit = 20 } = {}) {
+  let rows = [];
+  try {
+    rows = fs.readFileSync(ledgerFile(wsRoot), "utf8").split("\n").filter(Boolean)
+      .map((l) => { try { return JSON.parse(l) } catch { return null } })
+      .filter(Boolean);
+  } catch { return []; }
+  return rows.slice(-Math.max(1, limit)).reverse();
+}
+
+/**
+ * 回滚：把某一条变更的 `from` 写回去（默认最近一条）。
+ * 会**再记一条 rollback**，所以回滚本身也是可追溯、可再回滚的。
+ */
+export function rollbackExpression(wsRoot, { key = WORKSPACE_KEY, id = "", now = Date.now() } = {}) {
+  const history = listExpressionHistory(wsRoot, { limit: 200 });
+  const target = id ? history.find((h) => h.id === id) : history.find((h) => h.key === key);
+  if (!target) return { ok: false, error: "没有可回滚的变更记录" };
+  if (target.action === "rollback") return { ok: false, error: "这一条已经是回滚记录，请选择具体那次修改" };
+  const all = readAll(wsRoot, { now });
+  const current = all[target.key] ? { ...all[target.key] } : null;
+  if (target.from) all[target.key] = { ...target.from, at: now };
+  else delete all[target.key];
+  try {
+    writeAll(wsRoot, all);
+    recordExpression(wsRoot, { at: now, key: target.key, action: "rollback", from: current, to: all[target.key] || null, rollbackOf: target.id });
+    return { ok: true, restored: all[target.key] || null, rolledBack: target.id };
+  } catch (e) { return { ok: false, error: String(e?.message || e).slice(0, 120) }; }
 }
 
 /** 工作区档：长期设定（灵魂培育里的主入口）。 */

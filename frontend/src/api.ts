@@ -914,6 +914,12 @@ export const SystemApi = {
   setPersonaSessionExpression: (sessionId: string, style: string | null) => api<{ ok: boolean; error?: string; resolution: PersonaResolution }>(
     '/api/persona/expression/session', { method: 'POST', body: { sessionId, style } },
   ),
+  expressionHistory: (limit = 10) => api<{ items: { id: string; at: number; key: string; action: string; from: any; to: any }[] }>(
+    `/api/persona/expression/history?limit=${limit}`,
+  ),
+  rollbackExpression: (body: { id?: string; key?: string }) => api<{ ok: boolean; error?: string; resolution: PersonaResolution }>(
+    '/api/persona/expression/rollback', { method: 'POST', body },
+  ),
   personaPart: (id: string) => api<{ id: string; label: string; chars: number; text: string }>(
     `/api/persona/part?id=${encodeURIComponent(id)}`,
   ),
