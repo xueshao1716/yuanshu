@@ -50,5 +50,17 @@ export function createSessionBus(deps) {
     req.on("close", () => { clearInterval(hb); b.subs.delete(sub); });
   }
 
-  return { busGet, busPush, handleSessionStream };
+  /**
+   * 新一轮开始前清空该 key 的残留事件（2026-10-25）。
+   * 为什么必须清：本来只在 turn_end 清，可「被中断/崩掉的一轮」没有 turn_end，
+   * 它的 delta 会一直躺在环形缓冲里；之后任何按 after=0 订阅的客户端，
+   * 都会把上一轮的半截回答当成新一轮的开头——用户看到的就是"旧消息流被拼进这句话的回答里"。
+   */
+  function busReset(key) {
+    const b = busGet(key);
+    if (b) { b.events.length = 0; b.__loggedDelta = false; }
+    return b;
+  }
+
+  return { busGet, busPush, busReset, handleSessionStream };
 }

@@ -42,10 +42,14 @@ export function turnSpeed(rows = []) {
   }
   const sorted = perTurn.map((x) => x.tps).sort((a, b) => a - b);
   const tps = sorted.length ? Math.round(sorted[Math.floor(sorted.length / 2)]) : null;
+  // 2026-10-25：中位数是「稳定值」，但它几乎不动——用户盯着同一个数字（比如 12）会以为坏了。
+  // 再给一个「最近一轮」的真实速度，界面上优先显示它，中位数留作背景参考。
+  const lastTps = perTurn.length ? Math.round(perTurn[perTurn.length - 1].tps) : null;
   const firstSorted = firsts.slice().sort((a, b) => a - b);
   const firstMs = firstSorted.length ? Math.round(firstSorted[Math.floor(firstSorted.length / 2)]) : null;
   return {
     tps,
+    lastTps,
     // 单轮也能给数，但要标出来：样本只有 1 条时它不是"稳定速度"
     tpsKind: tps == null ? null : (perTurn.length > 1 ? 'median' : 'single'),
     tpsSamples: perTurn.length,
@@ -76,6 +80,7 @@ export function usageView(rows = [], { sessionId = '', contextWindow = 0, model 
     input, output, cacheRead, cacheWrite,
     cacheHitRate,
     tps: speed.tps,
+    lastTps: speed.lastTps,
     tpsKind: speed.tpsKind,
     tpsSamples: speed.tpsSamples,
     // 单轮/短窗口时这才是用户真实感受到的数字：等了多久才开始吐字

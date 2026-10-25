@@ -797,7 +797,7 @@ const handleUpdateRollback = createRollbackHandler({ root: __dirname });
 const miscApi = createMiscApi({ json, readJsonFile, writeJsonFile, getAgentDir, authPath: AUTH_PATH, modelsPath: MODELS_PATH, openSession, ensureAgent, cloneSessionFromEntry, getDefaultModel: () => defaultModel, refreshModelList, scanSessionFiles, extractText, parseSessionFile, cwd: CONFIG.cwd, gitCwd: __dirname, scanExclude: /(^|[\\/])(node_modules|\.git|\.cache|backups?|temp|tmp|\.token)([\\/]|$)/i });
 const { scanRecentArtifacts, handlePrompts, handleSessionTree, handleSessionBranch, handleSessionBranchSession, handleModelsRemove, handleSearch, handleAIBody, runGit, handleGitStatus, handleGitDiff, handleGitReview } = miscApi;
 const sessionBusApi = createSessionBus({ json });
-const { busGet, busPush, handleSessionStream } = sessionBusApi;
+const { busGet, busPush, busReset, handleSessionStream } = sessionBusApi;
 // 主动通知中枢：wechat 在后面才创建，这里用闭包延迟取。
 let agentBeat = null;
 const notifier = createNotifier({ file: path.join(AGENT_DIR, "notifications.json"), wechat: { notifyOwner: (...a) => wechat.notifyOwner(...a) } });
@@ -1538,6 +1538,9 @@ async function handleChat(req, res, body) {
   // 现在：建立在任何流式输出之前，并且所有 writer 都经过 wrapWriter 收口，任何 push 都会进总线。
   const busTaskId = body.taskKey || sessionId || findKeyByEntry(entry) || "new";
   const busKeys = [busTaskId, ...(sessionId && sessionId !== busTaskId ? [sessionId] : [])];
+  // 每轮开始清掉上一轮的残留事件：被中断的那一轮没有 turn_end，缓冲里会留着半截 delta，
+  // 迟到订阅者（after=0）就会把它拼进这一轮的回答里（用户反馈的"旧消息流被拉进来"）。
+  for (const k of busKeys) { try { busReset(k); } catch {} }
   const busSeenAt = new Map();
   const busEmit = (type, data) => {
     const sig = `${type}:${String(JSON.stringify(data || {})).slice(0, 160)}`;

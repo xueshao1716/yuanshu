@@ -465,8 +465,11 @@ function UsageChip({ sessionId }: { sessionId: string }) {
   )
   if (!sessionId || !data || !data.measured) return null
   const parts: string[] = []
-  if (typeof data.tps === 'number' && data.tps > 0) {
-    // 单轮样本也显示，但要标出来——只有一条样本时它是"这一次"而不是"稳定速度"
+  if (typeof data.lastTps === 'number' && data.lastTps > 0) {
+    // 2026-10-25：优先显示**最近一轮**的速度。原来只显示全会话中位数，它几乎不动，
+    // 用户盯着同一个数字（12）会以为卡住/坏了。中位数仍在 data.tps 里（供调试/其它视图）。
+    parts.push(`${data.lastTps} tok/s`)
+  } else if (typeof data.tps === 'number' && data.tps > 0) {
     parts.push(data.tpsKind === 'single' ? `${data.tps} tok/s（单轮）` : `${data.tps} tok/s`)
   } else if (typeof data.firstMs === 'number' && data.firstMs > 0) {
     // 生成窗口太短（几十毫秒）时 tok/s 是假数（事件循环攒批，能算出几百），

@@ -1190,6 +1190,8 @@ export type SessionUsage = {
   cost: number
   cacheHitRate: number | null
   tps: number | null
+  /** 最近一轮的真实速度（界面上优先显示它；tps 是全会话中位数，几乎不动） */
+  lastTps?: number | null
   /** 'median' 多轮中位 / 'single' 只有一条可用样本（单轮也能给数，但不是稳定速度） */
   tpsKind?: 'median' | 'single' | null
   tpsSamples?: number
