@@ -898,6 +898,19 @@ export const SystemApi = {
   setupSoul: (body: { name?: string; called?: string }) => api<{ ok: boolean; unchanged: boolean; name?: string; called?: string }>('/api/setup/soul', { method: 'POST', body }),
   setupDone: () => api<{ ok: boolean }>('/api/setup/done', { method: 'POST', body: {} }),
   persona: () => api<{ definition: { name: string; age: number; gender: string; kind: string; called: string }; source: string }>('/api/persona'),
+  // 2026-10-25：人格段解析元数据（与提示词同源）+ 会话语气档。
+  // 状态接口只给每段的 id/名称/字数，正文走 personaPart() 按需取。
+  personaResolution: (sessionId?: string) => api<{
+    resolution: PersonaResolution | null
+    stylePresets?: { id: string; label: string; chars: number }[]
+    maxStyleChars?: number
+  }>(`/api/persona${sessionId ? `?sessionId=${encodeURIComponent(sessionId)}` : ''}`),
+  personaPart: (id: string, sessionId?: string) => api<{ id: string; label: string; chars: number; text: string }>(
+    `/api/persona/part?id=${encodeURIComponent(id)}${sessionId ? `&sessionId=${encodeURIComponent(sessionId)}` : ''}`,
+  ),
+  setPersonaStyle: (sessionId: string, style: string | null) => api<{ ok: boolean; resolution: PersonaResolution }>(
+    '/api/persona/session', { method: 'POST', body: { sessionId, style } },
+  ),
   changeToken: (token: string) => api<{ ok: boolean }>('/api/system/token', { method: 'POST', body: { token } }),
   saveNetwork: (body: { domains: { domain: string; desc: string }[] }) =>
     api<{ ok: boolean; domains: { domain: string; desc: string }[] }>('/api/system/network', { method: 'POST', body }),
@@ -1175,6 +1188,15 @@ export type SessionUsage = {
   model: string
   contextWindow: number
 }
+/** 人格段解析结果元数据（与提示词注入同源；不含正文）。 */
+export interface PersonaResolution {
+  mode: 'session' | 'workspace'
+  sessionId: string | null
+  sessionStyle: { id: string; label: string; at: number } | null
+  chars: number
+  parts: { id: string; label: string; chars: number }[]
+}
+
 export const UsageApi = {
   session: (sessionId: string) => api<SessionUsage>(`/api/usage/session?sessionId=${encodeURIComponent(sessionId)}`),
 }

@@ -226,6 +226,8 @@ import { withModelFailover } from "./engine/model-failover.mjs";
 // 2026-10-25：之前通知文案硬编码 180 秒、watchdog 实际是 300 秒，用户照着一个错的数字在等。
 import watchdogLimits from "./lib/watchdog-limits.cjs";
 const WATCHDOG_LIMITS = watchdogLimits.LIMITS;
+// 2026-10-25：脱链长任务（渲染/编码/下载）——进程逃出服务 Job，重启不连带杀
+import * as detachedRun from "./engine/detached-run.mjs";
 import { loadSelfPolicy, selfTools, recordSelfAction, withinDailyLimit } from "./engine/self-agency.mjs";
 import { composeTimeTaskMessages, timeTaskReadTools, recordReflectionActions, parseReflectionActions, yesterdayYmd } from "./engine/time-task-run.mjs";
 import { promoteReflectionLessons, lessonDraft } from "./engine/lesson-promotion.mjs";
@@ -914,6 +916,28 @@ const FIX_PROBLEM_TOOL = {
     },
   },
 };
+// 2026-10-25：脱链长任务工具。起因是那次 45 秒影片渲染——外部进程挂在服务的 Job Object 里，
+// 我重启服务就把它连带杀了；而小语为了等它，在单轮里 sleep 90/120 把执行预算等光。
+// 两条都在这一个工具里解决：start 立刻返回，进程由 WMI 创建（逃出 Job），下一轮 status 查。
+const RUN_DETACHED_TOOL = {
+  type: "function",
+  function: {
+    name: "run_detached",
+    description: "启动/查看/停止**脱链**的后台长任务（渲染、编码、下载、批处理）。脱链 = 进程不在本服务的 Windows Job 里，服务重启不会连带杀掉它。start 立刻返回 id 与日志路径；之后每一轮用 status 查一次（读日志尾巴 + 探活）就够，**不要用 sleep 等**——sleep 会吃光单轮执行预算。",
+    parameters: {
+      type: "object",
+      properties: {
+        action: { type: "string", enum: ["start", "status", "stop", "list"], description: "start 启动 / status 查一次 / stop 结束 / list 最近作业" },
+        command: { type: "string", description: "要跑的命令（bash 语法；start 必填）。长命令自己保证退出后不再阻塞" },
+        cwd: { type: "string", description: "工作目录，默认当前工作区" },
+        id: { type: "string", description: "作业 id（status / stop 必填，start 的返回里会给）" },
+        label: { type: "string", description: "作业名，一句话，便于以后辨认" },
+      },
+      required: ["action"],
+    },
+  },
+};
+
 const UNIFIED_TOOLS = [
   ...BASE_TOOL_SCHEMAS,
   COMPUTER_TOOL_SCHEMA,
@@ -935,6 +959,7 @@ const UNIFIED_TOOLS = [
   DELEGATE_TEAM_TOOL,
   FIX_PROBLEM_TOOL,
   NOTIFY_USER_TOOL,
+  RUN_DETACHED_TOOL,
 ];
 // ══ 外部思考工具（externalThinking 调试开关，默认关）══
 // 思路：关闭模型原生隐藏思考后，给它一张外部"草稿纸"（think 工具），
@@ -1050,8 +1075,55 @@ const executeUnifiedTool = createUnifiedToolExecutorGuarded({
       } catch {}
       return r;
     },
-    // 当场修：把"发现问题"接到"动手做掉"（逻辑在 engine/reflection-exec.mjs，与复盘那条共用规则）。
-    // 执行轮用完整工具集（这一步才发可写工具），一轮只做这一条，必须交证据。
+    // 脱链长任务（2026-10-25）：渲染/编码/下载这类"跑几分钟"的活走这里，别用 sleep 等。
+    run_detached: (args) => {
+      const action = String(args?.action || "").trim();
+      try {
+        if (action === "start") {
+          const out = detachedRun.launchDetached({
+            wsRoot: WS_ROOT,
+            command: args?.command,
+            cwd: args?.cwd || CONFIG.cwd,
+            label: args?.label || "job",
+          });
+          if (!out.ok) return { text: `启动失败：${out.error}`, isError: true };
+          return {
+            text: [
+              `已脱链启动：id=${out.id}${out.pid ? ` pid=${out.pid}` : ""}`,
+              `日志：${out.logPath}`,
+              `这个进程不在服务的 Job 里，服务重启也不会带走它。`,
+              `**下一轮**用 run_detached {action:"status", id:"${out.id}"} 查一次就够，不要 sleep 等。`,
+            ].join("\n"),
+          };
+        }
+        if (action === "status") {
+          const r = detachedRun.readDetached({ wsRoot: WS_ROOT, id: args?.id });
+          if (!r.ok) return { text: r.error || "查不到", isError: true };
+          const state = r.done ? `已结束（退出码 ${r.exitCode}）` : r.alive ? "还在跑" : "进程已不在、但没写完成标记（可能被杀）";
+          return {
+            text: [
+              `作业 ${r.id}（${r.label}）：${state}，已过 ${Math.round(r.elapsedMs / 1000)}s`,
+              `日志：${r.logPath}`,
+              r.logTail ? `\n--- 日志尾部 ---\n${r.logTail.slice(-1200)}` : "",
+            ].filter(Boolean).join("\n"),
+          };
+        }
+        if (action === "stop") {
+          const r = detachedRun.stopDetached({ wsRoot: WS_ROOT, id: args?.id });
+          if (!r.ok) return { text: r.error || "停止失败", isError: true };
+          return { text: r.alreadyStopped ? `作业 ${args?.id} 已经不在跑了` : `已停止作业 ${args?.id}（含子进程树）` };
+        }
+        if (action === "list") {
+          const rows = detachedRun.listDetached({ wsRoot: WS_ROOT, limit: 8 });
+          if (!rows.length) return { text: "最近没有脱链作业。" };
+          return { text: rows.map((r) => `- ${r.id} ${r.label}｜${r.done ? `结束(${r.exitCode})` : r.alive ? "跑着" : "失联"}｜${Math.round(r.elapsedMs / 1000)}s`).join("\n") };
+        }
+        return { text: `未知 action：${action}（可用 start/status/stop/list）`, isError: true };
+      } catch (e) {
+        return { text: `run_detached 出错：${String(e?.message || e).slice(0, 200)}`, isError: true };
+      }
+    },
+    // 当场修：把"发现问题"接到"动手做掉"（逻辑在 engine/reflection-exec.mjs，与复盘那条共用规则）。    // 执行轮用完整工具集（这一步才发可写工具），一轮只做这一条，必须交证据。
     fix_problem: async (args, ctx) => {
       const out = await runOnTheSpotFix({
         problem: args?.problem,

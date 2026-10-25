@@ -6,6 +6,27 @@
 > 而 `sync:frontend` 是忠实镜像，会把它们复制进 `public/` 与 `app/dist/`（细节见 `docs/NAMING.md`）。
 > 版本唯一来源是仓库根的 `version.json`；契约见 `docs/NAMING.md`。
 
+## [2.127.152] - 2026-10-25
+
+- **长任务脱链：新工具 `run_detached`**。起因是真事故：2026-10-25 13:45 小语启动 45 秒影片渲染，6 分钟后成功产出 12.28MB 视频，但我中途重启服务部署新版本，她的 run 记录留下 `error: "server_restarted"`——**外部作业跟着服务一起死了**；她为了等它还在单轮里 `sleep 90/120`，把执行预算等光、轮次被自动暂停。
+  - 用 **WMI（`Win32_Process.Create`）** 启动：创建者是 `WmiPrvSE.exe`，不在本服务的 Windows Job Object 里，`sc stop`/重启不会连带杀掉。（她用了 `nohup` 没用——nohup 只管 SIGHUP，管不了 Job Object。）
+  - `start` 立刻返回 id + 日志路径；`status` 读**日志尾巴**（最多 8KB，渲染日志可能几 MB）+ 探活 + 完成标记 `__DONE__ <退出码>`；`stop` 按进程树杀；`list` 看最近作业。
+  - 落盘在 `<工作区>/bg-jobs/<id>.{cmd,log,json}`，**必须是 ASCII 目录**：实测把 `.cmd` 放进 `记忆\运行时\后台进程\` 时 `cmd.exe /c` 根本找不到它（WMI 返回 pid、进程秒退、日志零字节），换 ASCII 目录立刻正常。中文工作区回落到 `%ProgramData%\Yuanshu\bg-jobs`，都不可用就如实拒绝而不是假装启动。
+  - 工作协议第 6 条补了一条：几分钟以上的活（渲染/编码/下载/全量构建）用 `run_detached`，**不要用 sleep 等**。
+- **输入框语气档修尺寸与小屏**：`button` 带浏览器默认 padding/border，比旁边的 `.usage-chip`（span）高一圈——已显式对齐（同样的 padding/border/圆角）；≤640px 时标签收成「语气」两个字，浮层改为右对齐并 `width: min(300px, calc(100vw - 24px))`，不会顶出屏幕。
+- **测试**：新增 `tests/unit/detached-run.test.mjs` 7 条（含真起一个脱链进程、查到、等它写完成标记与退出码、日志收到输出；以及 ASCII 目录守卫）。
+
+## [2.127.152] - 2026-10-25
+
+## [2.127.151] - 2026-10-25
+
+- **会话语气档有了界面**：输入框工具栏新增「语气 · 默认」小条（挨着用量条），点开可选 简洁 / 陪伴 / 深度 / 回到默认，或输入自定义短句（≤200 字）。
+  - 为什么放这里而不是灵魂页：语气档是**按会话**的，灵魂页拿不到当前会话 id。
+  - 数据只读 `/api/persona?sessionId=` 的 `resolution`（与提示词同源），写走 `POST /api/persona/session`；设完立刻刷新，不必重启、不影响别的会话。
+  - 文案直说它只调语气：人格定义仍是唯一真相，改人格仍要人批准。
+
+## [2.127.151] - 2026-10-25
+
 ## [2.127.150] - 2026-10-25
 
 - **人格段收敛成唯一解析点（`engine/persona-resolve.mjs`）**。机制借鉴 `dsh-persona-dafeiyu`（那个 DSH 人设插件的三点设计），但不抄它的数据模型——元枢的人格是「一个人 + 结构化定义 + 人批准」，不是一堆可切换的纯文本。
