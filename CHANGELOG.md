@@ -6,6 +6,11 @@
 > 而 `sync:frontend` 是忠实镜像，会把它们复制进 `public/` 与 `app/dist/`（细节见 `docs/NAMING.md`）。
 > 版本唯一来源是仓库根的 `version.json`；契约见 `docs/NAMING.md`。
 
+## [2.129.3] - 2026-10-26
+
+- **崩溃上报变可定位**：分发的 Linux 用户报回两条 Timeout._onTimeout 崩溃，但 detail 只有 160 字符一行、env 与 diagnostics 全 null——等于报了个「某处炸了」。现在带上多行栈（最多 12 行）+ crash.log 上下文 + 版本/系统/node/启动参数。
+- **偶发异常不再拖垮整台服务**：原来 uncaughtException 一律「记账 → close → 2s 后退出」，一个定时器里的 bug 就会让服务反复重启（那台机器 watchdog 重启 3 次）。现在偶发一次只记账继续跑；同一签名 60 秒内 3 次才退出让 watchdog 干净重启；OOM 仍立刻退。
+- 新增 engine/crash-policy.mjs + 5 条单测（偶发/重复/窗口外/OOM/签名归一）。
 ## [2.129.2] - 2026-10-26
 
 - **知识摄入进作业状态机**：knowledgeJob() 读 记忆/知识/state.json + ackground-admission.json，租约被死进程占着→failed（说清 pid 和时间），队列积压又没产出→stalled。环境事实里也会冒一句「【知识摄入】停摆了」。
@@ -18,6 +23,8 @@
 - **去重 key 稳定化**：原来 summary 里含 pid= / uptime=，每次重启都是新串，同一个根因刷出 20 条。现在先抹掉可变部分再比。
 - 清理了历史积压：41 条关闭（23 条假警报标 wontfix、18 条重复标 done），保留 2 条真崩溃（来自另一台 Linux 安装，本机无从复现）。
 ## [Unreleased]
+
+## [2.129.3] - 2026-10-25
 
 ## [2.129.2] - 2026-10-25
 

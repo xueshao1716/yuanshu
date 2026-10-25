@@ -37,11 +37,25 @@ export function collectIncidents({ crashTail = "", watchdogRestarts = 0, modelFa
   const incidents = [];
   if (crashTail) {
     const exitLine = (crashTail.match(/\[exit\][^\n]*/i) || [""])[0];
-    const exceptionLine = (crashTail.match(/uncaughtException:[^\n]*/i) || [""])[0];
     const code = exitCodeOf(exitLine);
-    // code=0 → 正常退出，不上报；有未捕获异常照样算；拿不到 code（被强杀）也算异常
-    if (exceptionLine) incidents.push({ kind: "crash", summary: exceptionLine.slice(0, 160) });
-    else if (exitLine && code !== 0) incidents.push({ kind: "crash", summary: exitLine.slice(0, 160) });
+    // 2026-10-26：原来只上报「one line, 160 字符」，结果分发的用户报回来的崩溃**没法定位**
+    // （真机：`server.mjs:2314:28 <- at listOnTimeout` 后面全被截掉，看不出是哪段代码）。
+    // 现在把异常附近的多行栈一起带上，并单独给 stack 字段。
+    const exAt = crashTail.search(/uncaughtException:/i);
+    if (exAt >= 0) {
+      const block = crashTail.slice(exAt, exAt + 1400).trim();
+      incidents.push({
+        kind: "crash",
+        summary: block.split("\n").slice(0, 12).join("\n").slice(0, 700),
+        stack: block.slice(0, 1200),
+        code: null,
+      });
+    } else if (exitLine && code !== 0) {
+      // 没有异常栈：把退出行连同前后文一起带上
+      const at = crashTail.lastIndexOf(exitLine);
+      const around = crashTail.slice(Math.max(0, at - 400), at + exitLine.length + 400).trim();
+      incidents.push({ kind: "crash", summary: exitLine.slice(0, 160), context: around.slice(0, 700), code });
+    }
   }
   if (watchdogRestarts > 0) incidents.push({ kind: "restart", summary: `watchdog 重启 ${watchdogRestarts} 次` });
   if (modelFailStreak >= 5) incidents.push({ kind: "model-fail", summary: `模型调用连续失败 ${modelFailStreak} 次` });
@@ -111,8 +125,19 @@ export async function reportIncidents(agentDir, incidents, { fetch: f = globalTh
   const payload = {
     type: "bug",
     title: `[自动上报] ${incidents.incidents[0].kind}: ${incidents.incidents[0].summary}`.slice(0, 120),
-    detail: incidents.incidents.map(i => `· ${i.kind}: ${i.summary}`).join("\n") + (incidents.version ? `\n版本: v${incidents.version}` : ""),
-    withDiagnostics: false, // 自动上报只发上面整理的事实，不带 crash 原文（避免夹带路径/内容）
+    // 2026-10-26：把**能定位**的事实都带上——分发的用户报回来一次就该够用。
+    // （参考真实报告：只给 "server.mjs:2314:28 <- at listOnTimeout" 这种截断行，等于没报。）
+    detail: [
+      ...incidents.incidents.map(i => `· ${i.kind}: ${i.summary}`),
+      incidents.incidents.some(i => i.stack) ? `\n--- stack ---\n${incidents.incidents.find(i => i.stack).stack}` : "",
+      incidents.incidents.some(i => i.context) ? `\n--- context ---\n${incidents.incidents.find(i => i.context).context}` : "",
+      `\n--- env ---`,
+      `版本: v${incidents.version || "?"}`,
+      `系统: ${incidents.os || "?"}`,
+      `node: ${process.version} (${process.platform}/${process.arch})`,
+      `启动参数: ${process.argv.slice(0, 3).join(" ")}`,
+    ].filter(Boolean).join("\n").slice(0, 6000),
+    withDiagnostics: false, // 不发 crash.log 原文全文（避免夹带工作区路径与内容）
     contact: "auto-telemetry",
   };
   const res = await f(endpoint, { method: "POST", headers: { "Content-Type": "text/plain;charset=UTF-8" }, body: JSON.stringify(payload) });

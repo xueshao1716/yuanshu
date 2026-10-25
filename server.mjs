@@ -236,6 +236,8 @@ import { curateIdeas, readIdeas, acceptIdea, dismissIdea, readGoals, completeSte
 import { checkOutput, measureAudio, evidenceNote, probeMedia, avDriftSec } from "./engine/output-qa.mjs";
 // 2026-10-26：知识摄入 / 自动上报也进作业状态机（停摆了要能看见）
 import { knowledgeJob } from "./engine/knowledge-job.mjs";
+// 2026-10-26：未捕获异常的去留策略（偶发不退出，同签名反复才退出）
+import { decideCrashAction, crashSignature } from "./engine/crash-policy.mjs";
 import { readReportLedger } from "./engine/telemetry.mjs";
 import { setEnvWorkspace } from "./engine/runtime-env.mjs";
 import { loadSelfPolicy, selfTools, recordSelfAction, withinDailyLimit } from "./engine/self-agency.mjs";
@@ -2763,10 +2765,32 @@ async function handleAppendMessage(res, id, body) {
 process.on("unhandledRejection", (reason) => {
   console.error("[元枢] unhandledRejection:", String(reason?.stack || reason || "").slice(0, 500));
 });
+// 2026-10-26：分发的 Linux 用户报回两条 `Timeout._onTimeout` 崩溃——
+// 一个定时器里的 bug 让整台服务「记日志 → 退出 → watchdog 拉起 → 再炸 → 再退出」，
+// 他们看到的是"服务反复重启"（报告里写着 watchdog 重启 3 次）。
+// 现在：偶发一次只记账、**继续服务**；同一签名 60 秒内 3 次才退出让 watchdog 干净重启；
+// 内存耗尽这类明显致命的仍然立刻退。
+const crashHistory = new Map(); // signature -> 最近的时间戳
 process.on("uncaughtException", (err) => {
-  try { fs.appendFileSync(path.join(__dirname, "crash.log"), `[${new Date().toLocaleString("zh-CN")}] uncaughtException: ${String(err?.stack || err)}\n`); } catch {}
-  console.error("[元枢] uncaughtException:", String(err?.stack || err || "").slice(0, 500));
-  // P1 graceful shutdown：异常后不再接新请求，2s 后退出（watchdog 会拉起）
+  const stack = String(err?.stack || err || "");
+  const sig = crashSignature(err);
+  const now = Date.now();
+  const hist = (crashHistory.get(sig) || []).filter((t) => now - t <= 90_000);
+  const verdict = decideCrashAction({ history: hist, now, err });
+  hist.push(now);
+  crashHistory.set(sig, hist);
+  if (crashHistory.size > 50) crashHistory.delete(crashHistory.keys().next().value);
+
+  try {
+    fs.appendFileSync(path.join(__dirname, "crash.log"),
+      `[${new Date().toLocaleString("zh-CN")}] uncaughtException(${verdict.action}/${verdict.reason}): ${stack}\n`);
+  } catch {}
+  console.error(`[元枢] uncaughtException(${verdict.action}/${verdict.reason}):`, stack.slice(0, 500));
+  if (verdict.action !== "exit") {
+    console.error("[元枢] 这是偶发异常：坏的只是那一处，服务继续跑（同一错误 60 秒内 3 次才会重启）");
+    return;
+  }
+  // 已经在坏死循环里：不再接新请求，2s 后退出（watchdog 会拉起一个干净的）
   try { server?.close?.(); } catch {}
   setTimeout(() => process.exit(1), 2000).unref();
 });
