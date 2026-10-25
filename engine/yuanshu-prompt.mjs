@@ -4,8 +4,7 @@ import {
   formatSkillIndexPrompt,
   matchSkillsForTask,
 } from "./yuanshu-protocol.mjs";
-import { environmentSection } from './runtime-env.mjs';
-import { shouldInjectFullMemory } from "./context-loader.mjs";
+import { environmentSection } from './runtime-env.mjs';import { shouldInjectFullMemory } from "./context-loader.mjs";
 import { sessionContinuityNote } from "./yuanshu-session.mjs";
 
 export const YUANSHU_SECTION_ORDER = [

@@ -7,6 +7,11 @@
 import os from 'node:os';
 import fs from 'node:fs';
 import path from 'node:path';
+import { pendingReportsLine } from './job-state.mjs';
+
+// 工作区根目录由 server 启动时注入（这个模块被更早地 import，拿不到 CONFIG）
+let ENV_WS = '';
+export function setEnvWorkspace(root) { ENV_WS = String(root || ''); }
 
 const GIT_ROOT_HINTS = [
   path.join(process.env.ProgramFiles || 'C:\\Program Files', 'Git'),
@@ -76,5 +81,12 @@ export function environmentSection() {
   }
   lines.push('工具参数（read / write / edit / 各种 path 字段）一律用 **Windows 绝对路径**（`D:\\pi-web\\engine\\x.mjs`）或相对工作目录的路径；只有 bash 命令字符串里才用 bash 路径写法。');
   lines.push('任何"这个系统上有没有某命令/某路径"的判断，先探测（`command -v x`、`ls`、`node -v`）再断言，不要凭印象。');
+  // 2026-10-25：文件里的时间戳都是 UTC（带 Z）；直接读小时会报错 8 小时。
+  lines.push('时间戳注意：日志/记录里的时间是 **UTC（ISO 带 Z）**，本地是 Asia/Shanghai（+8）。引用"几点"之前先换算，不要直接把 UTC 的小时说成对方的钟点。');
+  // 做完却没汇报的后台作业：每轮提醒一次（没有就完全不加，不占提示词）
+  try {
+    const pending = ENV_WS ? pendingReportsLine(ENV_WS) : '';
+    if (pending) lines.push(pending);
+  } catch {}
   return lines.join('\n');
 }

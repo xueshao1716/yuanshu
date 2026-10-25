@@ -228,6 +228,9 @@ import watchdogLimits from "./lib/watchdog-limits.cjs";
 const WATCHDOG_LIMITS = watchdogLimits.LIMITS;
 // 2026-10-25：脱链长任务（渲染/编码/下载）——进程逃出服务 Job，重启不连带杀
 import * as detachedRun from "./engine/detached-run.mjs";
+// 2026-10-25：后台作业状态机（做完没汇报、坏在哪一步）
+import { collectJobs, summarizeJobs, syncReports, pendingReports, ackReports } from "./engine/job-state.mjs";
+import { setEnvWorkspace } from "./engine/runtime-env.mjs";
 import { loadSelfPolicy, selfTools, recordSelfAction, withinDailyLimit } from "./engine/self-agency.mjs";
 import { composeTimeTaskMessages, timeTaskReadTools, recordReflectionActions, parseReflectionActions, yesterdayYmd } from "./engine/time-task-run.mjs";
 import { promoteReflectionLessons, lessonDraft } from "./engine/lesson-promotion.mjs";
@@ -558,6 +561,8 @@ function waitJob(id, timeoutMs = 30 * 60_000) {
     tick();
   });
 }
+// 环境事实里要用它读"未汇报"台账（2026-10-25）
+try { setEnvWorkspace(WS_ROOT); } catch {}
 const jobPool = createJobPool({ file: path.join(WS_ROOT, "记忆", "运行时", "后台任务.json"), concurrency: 2 });
 // 2026-10-24：每轮耗时拆解（request / context / firstDelta / tool / end）
 const turnProfiler = createTurnProfiler({ wsRoot: WS_ROOT, log: (m) => console.log(m) });
@@ -938,6 +943,25 @@ const RUN_DETACHED_TOOL = {
   },
 };
 
+// 2026-10-25：后台作业状态机。用户原话："我先忙，她做完汇报，结果没有汇报"——
+// 缺的不是提醒，是"有没有做完、坏在哪一步、报没报过"这个状态。
+const JOB_STATUS_TOOL = {
+  type: "function",
+  function: {
+    name: "job_status",
+    description: "查后台作业的状态机：脱链长任务 / 会话 run / 定时任务各自到哪一步、有没有坏、有没有汇报过。actions：list 列出（默认）、ack 标记已汇报。**长任务做完或跑挂后，先调它，再向用户汇报**。",
+    parameters: {
+      type: "object",
+      properties: {
+        action: { type: "string", enum: ["list", "ack"], description: "list 查状态 / ack 标记已汇报" },
+        ids: { type: "array", items: { type: "string" }, description: "ack 用：要标记为已汇报的作业 id" },
+        note: { type: "string", description: "ack 用：一句话汇报内容（备查）" },
+        kind: { type: "string", enum: ["all", "detached", "run", "task"], description: "只看某一类，默认 all" },
+      },
+      required: ["action"],
+    },
+  },
+};
 const UNIFIED_TOOLS = [
   ...BASE_TOOL_SCHEMAS,
   COMPUTER_TOOL_SCHEMA,
@@ -960,6 +984,7 @@ const UNIFIED_TOOLS = [
   FIX_PROBLEM_TOOL,
   NOTIFY_USER_TOOL,
   RUN_DETACHED_TOOL,
+  JOB_STATUS_TOOL,
 ];
 // ══ 外部思考工具（externalThinking 调试开关，默认关）══
 // 思路：关闭模型原生隐藏思考后，给它一张外部"草稿纸"（think 工具），
@@ -1121,6 +1146,40 @@ const executeUnifiedTool = createUnifiedToolExecutorGuarded({
         return { text: `未知 action：${action}（可用 start/status/stop/list）`, isError: true };
       } catch (e) {
         return { text: `run_detached 出错：${String(e?.message || e).slice(0, 200)}`, isError: true };
+      }
+    },
+    // 后台作业状态机（2026-10-25）：列状态 / 标记已汇报
+    job_status: (args) => {
+      const action = String(args?.action || "list");
+      try {
+        const all = collectJobs({
+          wsRoot: WS_ROOT,
+          detached: detachedRun.listDetached({ wsRoot: WS_ROOT, limit: 20 }),
+          runs: (() => { try { return runManager.list() } catch { return [] } })(),
+          tasks: (() => { try { return timeEngine ? timeEngine.list() : [] } catch { return [] } })(),
+        });
+        if (action === "ack") {
+          const ids = Array.isArray(args?.ids) ? args.ids : [];
+          if (!ids.length) return { text: "ack 需要 ids", isError: true };
+          const out = ackReports(WS_ROOT, ids, { note: args?.note || "" });
+          return { text: `已标记 ${out.acked} 条为已汇报：${ids.join(", ")}` };
+        }
+        syncReports(WS_ROOT, all);
+        const kind = String(args?.kind || "all");
+        const rows = kind === "all" ? all : all.filter((j) => j.kind === kind);
+        if (!rows.length) return { text: "当前没有后台作业。" };
+        const s = summarizeJobs(rows);
+        const pend = new Set(pendingReports(WS_ROOT).map((x) => x.id));
+        const icon = { done: "✅", failed: "❌", running: "⏳", stalled: "⚠️" };
+        const lines = rows.slice(0, 12).map((j) =>
+          `${icon[j.state] || "·"} [${j.kind}] ${j.label} — ${j.state}${j.step ? `（${j.step}）` : ""}${pend.has(j.id) ? " · 未汇报" : ""}${j.error ? ` · ${j.error}` : ""}`
+        );
+        return {
+          text: `后台作业 ${s.total} 个：完成 ${s.done} / 失败 ${s.failed} / 在跑 ${s.running} / 卡住 ${s.stalled}\n` + lines.join("\n")
+            + (pend.size ? `\n\n有 ${pend.size} 条还没汇报——先用一两句话说清结果，再调 job_status {action:"ack", ids:[...], note:"..."} 标记。` : ""),
+        };
+      } catch (e) {
+        return { text: `job_status 出错：${String(e?.message || e).slice(0, 200)}`, isError: true };
       }
     },
     // 当场修：把"发现问题"接到"动手做掉"（逻辑在 engine/reflection-exec.mjs，与复盘那条共用规则）。    // 执行轮用完整工具集（这一步才发可写工具），一轮只做这一条，必须交证据。
@@ -4878,7 +4937,19 @@ function startServer() {
       heartbeat(WS_ROOT, { pid: process.pid, version: String(APP_VERSION), port: CONFIG.port, ownsPort: true, startedAt });
       const others = liveInstances(WS_ROOT, {}).filter((x) => x.pid !== process.pid);
       console.log(`  [实例自检] pid ${process.pid} · v${APP_VERSION} · 持有端口 ${CONFIG.port} · 其它存活实例 ${others.length}${others.length ? "（" + others.map((o) => `pid ${o.pid} v${o.version}`).join("、") + "）" : ""}`);
-      setInterval(() => heartbeat(WS_ROOT, { pid: process.pid, version: String(APP_VERSION), port: CONFIG.port, ownsPort: true, startedAt }), 30000).unref?.();
+      // 2026-10-25：每分钟把"做完了但没人汇报"的后台作业记进台账，
+// 下一轮开头会作为环境事实提醒她（没做完的不记，避免刷屏）。
+setInterval(() => {
+  try {
+    syncReports(WS_ROOT, collectJobs({
+      wsRoot: WS_ROOT,
+      detached: detachedRun.listDetached({ wsRoot: WS_ROOT, limit: 20 }),
+      runs: (() => { try { return runManager.list() } catch { return [] } })(),
+      tasks: (() => { try { return timeEngine ? timeEngine.list() : [] } catch { return [] } })(),
+    }));
+  } catch {}
+}, 60000).unref?.();
+setInterval(() => heartbeat(WS_ROOT, { pid: process.pid, version: String(APP_VERSION), port: CONFIG.port, ownsPort: true, startedAt }), 30000).unref?.();
     } catch (e) { console.log("  [实例自检] 登记失败:", String(e?.message || e).slice(0, 100)); }
     attachChatVoice({ server, admission: voiceAdmission, readSession: readVoiceSession, origins: voiceOrigins,
       runtime: voiceTaskRuntime, canAccess: canAccessSessionOrigin,
