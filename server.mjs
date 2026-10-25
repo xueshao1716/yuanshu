@@ -4220,46 +4220,25 @@ const boardApi = createBoardApi({
   }]);
 
   // 2026-10-24：单会话用量（tok/s、缓存命中率、上下文占用）——对标 DSH 状态栏那三个数
+  // 2026-10-24：单会话用量（tok/s、缓存命中率、上下文占用）——对标 DSH 状态栏那三个数
+  // 2026-10-25：口径抽到 engine/usage-view.mjs（可单测）。单轮也算得出 tok/s，之前"单轮不显示"
+  // 的真相是生成窗口只有几十毫秒，算出几百 tok/s 是假数；短窗口改由前端显示"首字 Xs"。
   API_ROUTES.push(["GET", "/api/usage/session", async (res, req) => {
     try {
       const u = new URL(req.url, "http://x");
       const id = u.searchParams.get("sessionId") || "";
-      if (!id) return json(res, 400, { error: "缺少 sessionId" });
-      // 2026-10-24：数据源是 每轮耗时.jsonl（profile 里带 provider 真实 usage）。
-      // 会话文件里的 usage 只有 pi 通道才写，自己循环的轮次以前根本没记。
+      if (!id) return json(res, 400, { error: "缺 sessionId" });
+      const { readTurnProfile, usageView } = await import("./engine/usage-view.mjs");
       const file = path.join(WS_ROOT, "记忆", "运行时", "每轮耗时.jsonl");
-      let rows = [];
-      try {
-        rows = fs.readFileSync(file, "utf8").split("\n").filter(Boolean).slice(-4000)
-          .map((l) => { try { return JSON.parse(l) } catch { return null } })
-          .filter((r) => r && r.sessionId === id);
-      } catch {}
-      const withUsage = rows.filter((r) => r.usage && r.usage.calls > 0);
-      const sum = (k) => withUsage.reduce((a, r) => a + (Number(r.usage[k]) || 0), 0);
-      const input = sum("input"), output = sum("output"), cacheRead = sum("cacheRead"), cacheWrite = sum("cacheWrite");
-      const inputSide = input + cacheRead;
-      const cacheHitRate = inputSide > 0 ? cacheRead / inputSide : null;
-      // tok/s：输出 token /（总耗时 - 首字延迟），逐轮取中位数
-      const tpsList = withUsage
-        .map((r) => {
-          const genMs = (Number(r.totalMs) || 0) - (Number(r.firstDeltaMs) || 0);
-          return genMs > 500 && r.usage.output >= 5 ? (r.usage.output / genMs) * 1000 : null;
-        })
-        .filter((v) => v !== null)
-        .sort((a, b) => a - b);
-      const tps = tpsList.length ? Math.round(tpsList[Math.floor(tpsList.length / 2)]) : null;
-      const last = withUsage[withUsage.length - 1];
-      const contextTokens = last ? (Number(last.usage.lastCtx) || 0) : 0;
+      const rows = readTurnProfile(file);
       const found = typeof findSession === "function" ? findSession(id) : null;
       const model = (found?.modelKey && modelList.find((m) => m.provider === found.modelKey.provider && m.id === found.modelKey.id)) || defaultModel || null;
-      const contextWindow = Number(model?.contextWindow) || 0;
-      const contextPct = contextWindow > 0 && contextTokens > 0 ? Math.min(100, Math.round((contextTokens / contextWindow) * 100)) : null;
-      return json(res, 200, {
-        turns: rows.length, measured: withUsage.length,
-        input, output, cacheRead, cacheWrite, cacheHitRate, tps,
-        contextTokens, contextWindow, contextPct,
+      const view = usageView(rows, {
+        sessionId: id,
+        contextWindow: Number(model?.contextWindow) || 0,
         model: model ? `${model.provider}/${model.id}` : "",
       });
+      return json(res, 200, view);
     } catch (e) {
       return json(res, 500, { error: String(e?.message || e).slice(0, 200) });
     }

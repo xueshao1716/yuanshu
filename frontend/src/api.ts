@@ -1165,6 +1165,11 @@ export type SessionUsage = {
   cost: number
   cacheHitRate: number | null
   tps: number | null
+  /** 'median' 多轮中位 / 'single' 只有一条可用样本（单轮也能给数，但不是稳定速度） */
+  tpsKind?: 'median' | 'single' | null
+  tpsSamples?: number
+  /** 首个 token 的平均延迟（ms）：单轮或短窗口时比 tok/s 更能代表体验 */
+  firstMs?: number | null
   contextTokens: number
   contextPct: number | null
   model: string

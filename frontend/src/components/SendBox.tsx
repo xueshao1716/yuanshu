@@ -465,12 +465,19 @@ function UsageChip({ sessionId }: { sessionId: string }) {
   )
   if (!sessionId || !data || !data.measured) return null
   const parts: string[] = []
-  if (typeof data.tps === 'number' && data.tps > 0) parts.push(`${data.tps} tok/s`)
+  if (typeof data.tps === 'number' && data.tps > 0) {
+    // 单轮样本也显示，但要标出来——只有一条样本时它是"这一次"而不是"稳定速度"
+    parts.push(data.tpsKind === 'single' ? `${data.tps} tok/s（单轮）` : `${data.tps} tok/s`)
+  } else if (typeof data.firstMs === 'number' && data.firstMs > 0) {
+    // 生成窗口太短（几十毫秒）时 tok/s 是假数（事件循环攒批，能算出几百），
+    // 这时用户真正等的是首字延迟，就显示它。
+    parts.push(`首字 ${(data.firstMs / 1000).toFixed(1)}s`)
+  }
   if (typeof data.cacheHitRate === 'number') parts.push(`缓存 ${(data.cacheHitRate * 100).toFixed(1)}%`)
   if (typeof data.contextPct === 'number') parts.push(`上下文 ${data.contextPct}%`)
   if (!parts.length) return null
   return (
-    <span className="usage-chip" title="本会话真实用量：tok/s 取逐轮中位数；缓存命中率 = 缓存读 / 输入侧；上下文 = 最近一轮总 token / 模型窗口">
+    <span className="usage-chip" title="本会话真实用量：tok/s = 输出 token ÷（总耗时 − 首字），多轮取中位、单轮标注；生成窗口不足 0.5s 时不报 tok/s 改报首字延迟；缓存命中率 = 缓存读 / 输入侧；上下文 = 最近一轮总 token / 模型窗口">
       {parts.join(' · ')}
     </span>
   )
