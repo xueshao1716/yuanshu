@@ -4794,6 +4794,17 @@ server.on("error", (err) => {
         process.exit(0);
       }
     } catch {}
+    // 2026-10-25：端口被**另一个版本**的实例占着时，原来会空转 30×2s（60 秒）再失败退出——
+    // 这 60 秒里它是一个"活着但服务不了"的子进程，看门狗的健康检查必然失败，
+    // 于是被当僵死重拉；旧实例还没走，新实例继续撞墙 → 就是 19:32 那个假死-拉起循环。
+    // 现在：立刻用专用退出码 78 说清楚，让看门狗去退避，而不是把它当崩溃。
+    if (err.code === "EADDRINUSE") {
+      const owner = describePortOwner(CONFIG.port);
+      console.error(`[元枢] 端口 ${CONFIG.port} 被另一个实例占用，本实例无法提供服务，退出（code 78）。`);
+      if (owner) console.error(`[元枢] 占用者：${owner}`);
+      console.error("[元枢] 处理：停掉占用者再启动（不是重启本进程能解决的）。看门狗会退避，不会反复拉起。");
+      process.exit(78);
+    }
   }
   if (err.code === "EADDRINUSE" && listenAttempt < 30) {
     listenAttempt++;
@@ -4808,6 +4819,25 @@ server.on("error", (err) => {
 server.on('close', () => voiceTaskRuntime.close());
 server.on('close', () => { void knowledgeRuntime.close(); });
 server.on('close', () => { void cultivationRuntime.close().catch(() => {}); });
+/**
+ * 端口被谁占着（EADDRINUSE 报错时用）。**只读探查，绝不杀进程**。
+ * 2026-10-25：真机上"服务又重启了"其实常常是上一版实例没退干净、占着 8787，
+ * 新实例撞墙被看门狗当僵死重拉。报错时直接把占用者打出来，人一眼就知道该停谁。
+ */
+function describePortOwner(port) {
+  try {
+    const out = execFileSync("netstat", ["-ano"], { timeout: 4000, windowsHide: true, encoding: "utf8" });
+    const line = out.split(/\r?\n/).find((l) => new RegExp(`[:.]${port}\\s+\\S+\\s+\\S+\\s+LISTENING`, "i").test(l));
+    if (!line) return "";
+    const pid = line.trim().split(/\s+/).pop();
+    let name = "";
+    try {
+      name = execFileSync("tasklist", ["/FI", `PID eq ${pid}`, "/FO", "CSV", "/NH"], { timeout: 4000, windowsHide: true, encoding: "utf8" })
+        .split(",")[0].replace(/"/g, "").trim();
+    } catch {}
+    return `pid ${pid}${name ? ` (${name})` : ""}`;
+  } catch { return ""; }
+}
 function startServer() {
   // async：启动收尾里有需要 await 的清理（例如连续创作的孤儿运行）
   server.listen(CONFIG.port, CONFIG.host, async () => {

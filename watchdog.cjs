@@ -41,6 +41,9 @@ function serviceLogWrite(chunk) {
 
 let restartCount = 0;
 let lastRestartAt = 0;
+// 2026-10-25：端口冲突退避截止（server 以退出码 78 报告"端口被别的实例占着"）。
+// 这之前不再拉起子进程——重拉一百次也抢不到端口，只会刷日志、把健康检查搅乱。
+let portConflictUntil = 0;
 let child = null;
 let crashTimes = []; // 最近崩溃时间戳（用于连续崩溃检测→回滚）
 let rollbackDone = false; // 回滚只做一次，避免无限回滚
@@ -198,6 +201,10 @@ const startServer = singleFlight(async function () {
   if (child || await portOpen()) { log("端口已占用或子进程仍在启动；不强杀、不重复拉起，请检查服务日志"); return; }
   // 重启限频：10 秒内最多重启 1 次，防死循环风暴
   const now = Date.now();
+  if (portConflictUntil && now < portConflictUntil) {
+    // 退避窗口内：不拉起、不判僵死，安静等着占用者自己退（旧实例常常只是还没退干净）
+    return;
+  }
   if (now - lastRestartAt < 10000) {
     // 防风暴跳过时，若连续崩溃达阈值且能归因到 server.mjs，则回滚备份
     crashTimes = crashTimes.filter(t => now - t < 5 * 60 * 1000);
@@ -247,6 +254,14 @@ const startServer = singleFlight(async function () {
       log(`── 崩溃前最近输出 ──\n${crashText}\n── 输出结束 ──`);
     }
     child = null;
+    // 2026-10-25：78 = 端口被别的实例占着（server 自己判定的，不是崩溃）。
+    // 退避 5 分钟，不当崩溃、不自动回滚、不反复拉起。
+    if (code === 78) {
+      portConflictUntil = Date.now() + 5 * 60 * 1000;
+      log("⏸ 端口被其它实例占用（exit 78），退避 5 分钟后再试；这期间不重复拉起，也不判僵死");
+      try { serviceLogWrite(`\n[watchdog] ${new Date().toISOString()} 端口冲突，退避至 ${new Date(portConflictUntil).toISOString()}\n`); } catch {}
+      return;
+    }
     if (code !== 0) {
       restartCount++;
       crashTimes.push(Date.now());
