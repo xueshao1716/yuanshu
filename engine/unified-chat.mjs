@@ -7,7 +7,7 @@ import os from "node:os";
 import path from "node:path";
 import { execFile } from "node:child_process";
 import { json, readBody } from "./http-utils.mjs";
-import { markModelBlocked, isAuthErrorStatus, pickFallbackDefault, pickFallbackExcluding, routeProCandidate, routeForAuto } from "./model-router.mjs";
+import { markModelBlocked, isAuthErrorStatus, pickFallbackDefault, pickFallbackExcluding, pickBudgetDowngrade, routeProCandidate, routeForAuto } from "./model-router.mjs";
 import { classifyAnomaly, recordReply, lastAssistantReply } from "./output-guard.mjs";
 import { settleTurnMemory } from "./memory-autostore.mjs";
 import { clampOutputTokens, escalateOutputTokens, maxTokensFieldOf, declaredContextWindow, OUTPUT_TOKEN_FALLBACK } from "./output-budget.mjs";
@@ -975,6 +975,26 @@ export async function handleUnifiedChat(res, entry, message, sessionId, params, 
   writer = writer || createSseWriter(res);
   const requestedModel = entry.modelKey?.id && entry.modelKey.id !== 'auto' ? { provider: entry.modelKey.provider, id: entry.modelKey.id } : (modelOverride ? { provider: modelOverride.provider, id: modelOverride.id } : null);
   let switchedModel = null;
+  // 2026-10-25：每日 token 预算的**执行点**。此前只有 GET /api/budget/today 在算数，
+  // 没有任何一处据此改行为——记忆里那句"硬超 2 倍直接 429、x-yuanshu-skip-budget 绕过"
+  // 在代码里根本不存在。这里按过预算的档位换到更便宜的文本模型，并当场说明换成了谁：
+  // 不静默、不硬停（用户要的是"花钱有度"，不是被拦住干不了活）。
+  try {
+    const { checkBudget } = await import("./engine/token-budget.mjs");
+    const bud = checkBudget(_cwd);
+    const userPicked = !!(entry.modelKey?.id && entry.modelKey.id !== "auto");
+    if (bud.budget?.downgrade !== false && bud.level !== "ok" && !userPicked && !engineInitError && chatModel) {
+      const alt = pickBudgetDowngrade(chatModel);
+      const pct = Math.round((Number(bud.ratio) || 0) * 100);
+      if (alt) {
+        switchedModel = { provider: alt.provider, id: alt.id, sameModel: false, reason: `今日 token 已用 ${pct}%，自动换更便宜的模型` };
+        chatModel = alt;
+        try { writer.push("note", { code: "budget_downgrade", text: `今日 token 已用 ${pct}%（预算 ${bud.budget.dailyTokens.toLocaleString()}），本轮自动换到更便宜的 ${alt.provider}/${alt.id}。` }); } catch {}
+      } else {
+        try { writer.push("note", { code: "budget_no_cheaper", text: `今日 token 已用 ${pct}%，但没有更便宜且可用的文本模型，继续用当前模型。` }); } catch {}
+      }
+    }
+  } catch {}
   const metadataFor = result => ({ model: result?.usedModel, requestedModel, switchedModel, engine: 'yuanshu', usage: (turnUsage.input || turnUsage.output) ? { ...turnUsage } : null });
   try { writer.push("model_selected", { model: { provider: chatModel?.provider, id: chatModel?.id }, requestedModel }); } catch {}
   if (engineInitError) {

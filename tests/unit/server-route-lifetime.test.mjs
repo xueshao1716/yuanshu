@@ -27,7 +27,11 @@ export async function serveProductionCallback(t, routes, overrides = {}) {
     withCache: createWithCache(), boardApi: { bootstrap: res => json(res, 200, { ok: true }) },
     historyApi: { list: res => json(res, 200, { backups: [] }), rollback() {} },
     handleEmotion: res => json(res, 200, { mood: 'calm' }),
-    emotion: { getTide: () => [], getFeelings: () => [] }, ...overrides,
+    emotion: { getTide: () => [], getFeelings: () => [] },
+    // 2026-10-25：checkAuth 会认"已配对设备令牌"（verifyDeviceTokenCached）。
+    // 之前 vm 里没有这个全局 → ReferenceError 被兜成 500，本该是 401 的用例一直红着。
+    // 测试里一律不认设备令牌，等价于"没配对过"，其余断言照旧。
+    verifyDeviceTokenCached: () => null, ...overrides,
   });
   vm.runInContext(auth, context);
   const server = http.createServer(vm.runInContext(`(${callback})`, context));

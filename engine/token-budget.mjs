@@ -21,9 +21,11 @@ export function readBudget(wsRoot) {
       enabled: j.enabled !== false,
       dailyTokens: Math.max(100_000, Number(j.dailyTokens) || DEFAULTS.dailyTokens),
       hardMultiplier: Math.max(1.2, Number(j.hardMultiplier) || DEFAULTS.hardMultiplier),
+      // 2026-10-25：过预算时是否自动换更便宜的模型（默认开）。设 false 就只提示、不换。
+      downgrade: j.downgrade !== false,
     };
   } catch {
-    return { ...DEFAULTS };
+    return { ...DEFAULTS, downgrade: true };
   }
 }
 

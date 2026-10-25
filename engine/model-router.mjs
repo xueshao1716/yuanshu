@@ -88,6 +88,51 @@ export function isTextCapableModel(model) {
   return !MEDIA_MODEL_RE.test(id);
 }
 
+// ── 预算降级候选（2026-10-25）──
+// 每日 token 预算此前只有 /api/budget/today 在"算"，没有任何一处据此换模型（记忆里写的
+// "硬超 2 倍直接 429" 在代码里根本不存在）。这里给一个可解释的选择，**先走既有降级链**：
+// 2026-08-19/09-04 定的成本策略就是"降级走 token 计划轻量通道，不打官方高价档"，
+// 那张链已经写在 pickFallbackDefault 里，这里复用它，别另发明一套口味。
+//
+// 为什么不直接"按单价最低"：真实清单 661 个模型里 613 个能做文本，其中大量预付费计划档
+// 单价都是 0——纯粹按价格排序会并列，最后按字母序挑中 `[aistudio逆]gemini-3.7-flash`
+// 这种代理变体（实测）。所以：① 既有链 → ② 单价升序且排除代理变体 → ③ 兜底。
+// 硬约束：只选能做文本的、没在冷却里的、且不是当前这个模型。
+const BUDGET_CHAIN = [
+  ["agnes", /^(?:agnes-)?2\.5-flash$/i],
+  ["agnes", /^(?:agnes-)?3\.0-flash$/i],
+  ["sensenova", /flash-lite/i],
+  ["zai-coding-cn", /flash|highspeed/i],
+  ["stepfun-plan", /flash/i],
+  ["deepseek", /flash|chat/i],
+  ["nvidia", /llama-3\.1-8b/i],
+];
+
+export function pickBudgetDowngrade(excludeModel) {
+  const excludeKey = modelKey(excludeModel);
+  const list = _getModelList();
+  const ok = (m) => !!m && isTextCapableModel(m) && !isModelBlocked(m) && modelKey(m) !== excludeKey;
+  if (!list.length) return null;
+
+  // ① 既有降级链
+  for (const [provider, re] of BUDGET_CHAIN) {
+    const hit = list.find((m) => m.provider === provider && re.test(String(m.id || "")) && ok(m));
+    if (hit) return hit;
+  }
+  // ② 单价升序（排除 [代理变体] 与带"逆"的变体名），同价优先轻量档
+  const price = (m) => (Number(m?.cost?.input) || 0) + (Number(m?.cost?.output) || 0);
+  const lite = /flash|lite|mini|small|air/i;
+  const clean = list.filter((m) => ok(m) && !/^\[/.test(String(m.id || "")) && !/逆/.test(String(m.id || "")));
+  const pool = (clean.length ? clean : list.filter(ok)).slice();
+  pool.sort((a, b) =>
+    (price(a) - price(b)) ||
+    (Number(lite.test(String(b.id))) - Number(lite.test(String(a.id)))) ||
+    (String(a.id).length - String(b.id).length) ||
+    String(a.id).localeCompare(String(b.id))
+  );
+  return pool[0] || null;
+}
+
 // defaultModel 兜底（blocked 且 defaultModel 恰为 opencode-go 时换可用通道）
 // ⚠️ 成本策略（2026-08-19 用户定）：deepseek 官方涨价贵不用——降级链全走 token 计划免费通道
 // ⚠️ 2026-08-20 用户指令：阿里千问下架（403 无权限），flash 主力改商汤；nvidia 兜底换 llama-3.1-8b（gemma 系被 NVIDIA 下架 404）

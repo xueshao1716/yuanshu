@@ -8,6 +8,15 @@
 
 ## [Unreleased]
 
+## [2.127.145] - 2026-10-25
+
+- **每日 token 预算真正落地（超预算自动降级）**：此前只有 `GET /api/budget/today` 在算数，**没有任何一处据此改变行为**——交接记忆里那句「硬超 2 倍 `POST /api/runs` 直接 429、`x-yuanshu-skip-budget` 绕过」在代码里根本不存在（2026-10-25 复查时确认，属于把没做的事写成了做过的）。
+  - `engine/model-router.mjs` 新增 `pickBudgetDowngrade(excludeModel)`：按 models-store 里的真实单价（`cost.input + cost.output`，每百万 token）升序挑候选；同价（预付费计划/免费通道常为 0）时优先 flash/lite/mini 轻量档，与 2026-08-19 定的「降级走计划轻量通道、不打官方高价档」一致。硬约束：只选能做文本的、不在冷却中的、且不是当前模型。
+  - `engine/unified-chat.mjs`：过预算（`warn`/`hard`）且用户没有显式指定模型时，自动换到该候选，并在对话里推一条 note 说明「已用百分之多少、换成了谁」；没有候选时只提示、不硬停。用户显式选中的模型不被动（那是人的决定）。
+  - `engine/token-budget.mjs`：预算文件新增 `downgrade` 开关（默认开），设 `false` 就只提示不换。
+  - 取舍说明：**不做 429 硬停**。用户要的是「花钱有度」，不是被拦住干不了活；真要限流，把 `downgrade` 关掉并自行收紧 `dailyTokens` 即可。
+- **修一条自配对功能上线以来一直红的测试**：`server-route-lifetime.test.mjs` 的 vm 上下文缺 `verifyDeviceTokenCached`，`checkAuth` 抛 ReferenceError 被兜成 500，本该是 401 的用例一直失败（不是本次引入）。
+
 ## [2.127.144] - 2026-10-24
 
 - **两套技能系统同源**：面板 `/api/skills` 走 pi 的资源加载器（62 条，含 `~/.pi`、`~/.agents`、node_modules 里的线上技能），而模型真正调的 `activate_skill` 只扫运行实例的 `skills/`（46 条）。后果不是少列几条，是**看不见**：面板里装着的技能，模型按名字加载会回「技能不存在」，于是它把「路径没接上」误判成「沙箱权限不够」，转头要求用户放开 danger-full-access（2026-10-24 真实发生，且在对话里编出一句代码里根本不存在的判词）。
