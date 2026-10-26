@@ -3,7 +3,22 @@
 ## [Unreleased]
 
 ## [2.142.0] - 2026-10-26
+那个启动错误终于挖到底了，而且和 C 盘无关。
 
+## 真根因：.cmd 带了 UTF-8 BOM
+
+buildCmdFile 之前无条件在脚本开头加 \ufeff。.ps1 需要 BOM，.cmd 恰恰不能有——cmd.exe 会把 BOM 当成首行命令的一部分，
+首行解析失败后整份脚本都不执行：日志 0 字节、WMI 却照样返回 pid，上层只能看到一个莫名其妙的启动失败。
+
+修法：.cmd 一律不带 BOM；中文路径改用 8.3 短路径转成 ASCII；转不了就如实拒绝（不赌）。
+assertCmdSafe 的判据也跟着改：BOM 直接拒，纯 ASCII 放行，含中文拒。实测：作业 launch ok → done, exitCode 0，日志里 4242 和 __DONE__ 0 都在。
+
+## 作业目录不再写到系统级位置
+
+用户问「元枢怎么部署到 ProgramData 了」——不是部署，是作业草稿（每条作业一份 .cmd/.log/.json）。
+但它确实不该在 C:\ProgramData：那是机器级目录、SYSTEM 属主，普通用户删不掉。
+现在优先级：YUANSHU_BG_JOBS_DIR → 工作区自己的 bg-jobs → 用户级 LOCALAPPDATA → ProgramData → 用户目录（TEMP 永远排最后）。
+启动时还会清掉 7 天前的作业草稿（pruneOldJobs），避免无限堆积。
 ## [2.141.0] - 2026-10-26
 那个报了很久的 0x800700E8（232 ERROR_NO_DATA）找到真根因了：**作业脚本落在 %TEMP% 里**。
 
