@@ -2,6 +2,15 @@
 
 ## [Unreleased]
 
+## [2.133.0] - 2026-10-26
+计划细化：在自动补丁之前，先把「一句模糊的话」补成「能动手的计划」，三样东西全部来自可验证的事实。
+- **失败样本**（gatherFailureSamples）：从作业台账与 bg-jobs/*.log 里按提案关键词捞真实报错，带来源与时间。
+- **调用点**（findCallSites）：只在允许改动的文件里搜，给出 file:line 与三行上下文；一处都没有时，说明**计划可能指错了文件**。
+- **全仓库建议**（suggestSites）：允许列表没命中时，全仓库搜一遍列出「命中但不在范围」的位置，供人判断要不要改计划。
+- **最小复现**（minimalRepro）：按领域给出可运行的复现配方（render/knowledge/feedback/shell/deploy/general）。
+- 细化写进 PLAN.md 的「## 细化」章节（幂等替换）并回存提案；POST /api/capability/refine 可手动触发，materialize 后自动跑一次。
+- **补丁前先看细化**：plan.refinement.complete 不成立就直接返回 needs_refinement，不烧模型调用。
+- 真机结果：那条渲染提案捞出 5 条失败样本（全是退出码 1，含「bat 脚本绕中文路径乱码」「ASCII 入口版」），而允许文件里 0 处调用点——证明计划把目标指错了，自动补丁拒绝执行是对的。
 ## [2.132.1] - 2026-10-26
 第一次真跑 dryRun，暴露的是**提案质量**，不是管道问题。
 - 生成器改走**单次补全** `/api/engine/chat`（`tools:false`）：原来用 `/api/chat` 是完整 agent 回合，会调工具、可能自己写文件，8 分钟都不返回。

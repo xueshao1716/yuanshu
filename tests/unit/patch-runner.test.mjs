@@ -77,7 +77,7 @@ test("生成器给了范围外的文件 → 不落盘，写回原因，次数+1"
   const data = readProposals(w);
   const planPath = path.join(w, "PLAN.md");
   fs.writeFileSync(planPath, "# t\n\n- `engine/a.mjs`\n", "utf8");
-  data.items.push({ id: "p1", state: "accepted", area: "shell", title: "t", symptom: "s", files: ["engine/a.mjs"], planPath, attempts: 0 });
+  data.items.push({ id: "p1", state: "accepted", area: "shell", title: "t", symptom: "s", files: ["engine/a.mjs"], planPath, attempts: 0, plan: { refinement: { complete: true, samples: [{ text: 'x' }], sites: [{ path: 'engine/a.mjs', line: 1 }] } } });
   fs.writeFileSync(path.join(w, "记忆", "运行时", "能力提案.json"), JSON.stringify(data), "utf8");
 
   const root = repo();
@@ -96,7 +96,7 @@ test("门禁拦下 → 自动回滚、工作树干净、原因写回", async () 
   const data = readProposals(w);
   const planPath = path.join(w, "PLAN.md");
   fs.writeFileSync(planPath, "# t\n\n- `engine/a.mjs`\n", "utf8");
-  data.items.push({ id: "p2", state: "accepted", area: "shell", title: "t", symptom: "s", files: ["engine/a.mjs"], planPath, attempts: 0 });
+  data.items.push({ id: "p2", state: "accepted", area: "shell", title: "t", symptom: "s", files: ["engine/a.mjs"], planPath, attempts: 0, plan: { refinement: { complete: true, samples: [{ text: 'x' }], sites: [{ path: 'engine/a.mjs', line: 1 }] } } });
   fs.writeFileSync(path.join(w, "记忆", "运行时", "能力提案.json"), JSON.stringify(data), "utf8");
 
   const root = repo();
@@ -116,7 +116,7 @@ test("成功：只建 auto/ 分支并提交，**留在原分支**，绝不并 ma
   const data = readProposals(w);
   const planPath = path.join(w, "PLAN.md");
   fs.writeFileSync(planPath, "# t\n\n- `engine/a.mjs`\n", "utf8");
-  data.items.push({ id: "p3", state: "accepted", area: "shell", title: "t", symptom: "s", files: ["engine/a.mjs"], planPath, attempts: 0 });
+  data.items.push({ id: "p3", state: "accepted", area: "shell", title: "t", symptom: "s", files: ["engine/a.mjs"], planPath, attempts: 0, plan: { refinement: { complete: true, samples: [{ text: 'x' }], sites: [{ path: 'engine/a.mjs', line: 1 }] } } });
   fs.writeFileSync(path.join(w, "记忆", "运行时", "能力提案.json"), JSON.stringify(data), "utf8");
 
   const root = repo(true);

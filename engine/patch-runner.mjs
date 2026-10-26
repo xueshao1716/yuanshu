@@ -74,6 +74,11 @@ export async function runProposal({ wsRoot, repoRoot, proposal, generate, dryRun
   const listed = [...md.matchAll(/^- `([^`]+)`$/gm)].map((m) => m[1]).filter((p) => !/[（(]/.test(p));
   if (listed.length) plan.files = [...new Set([...(plan.files || []), ...listed])];
 
+  // 2026-10-26：先看细化完整度——样本/调用点都没有就别烧模型调用（真机上它会拒绝）
+  if (!plan.refinement?.complete) {
+    markProposal(wsRoot, proposal.id, { state: "accepted", note: "计划未细化（缺失败样本或调用点），先跑 /api/capability/refine 再自动补丁", attempts: (Number(proposal.attempts) || 0), lastAttemptAt: t0 });
+    return { ok: false, stage: "needs_refinement", error: "计划不完整：缺失败样本或调用点" };
+  }
   log(`生成补丁：${proposal.title}`);
   const patch = await generate(plan, { repoRoot });
   const checked = validatePatch(repoRoot, plan, patch);

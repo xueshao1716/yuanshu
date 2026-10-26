@@ -238,11 +238,13 @@ import { checkOutput, measureAudio, evidenceNote, probeMedia, avDriftSec } from 
 import { knowledgeJob } from "./engine/knowledge-job.mjs";
 import { feedbackJob } from "./engine/feedback-job.mjs";
 // 2026-10-26：知识长能力——从结构化信号挖代码级提案（带证据/测试/收益）
-import { readProposals, refreshProposals, markProposal, mineSignals } from "./engine/capability-proposal.mjs";
+import { readProposals, writeProposals, refreshProposals, markProposal, mineSignals } from "./engine/capability-proposal.mjs";
 // 2026-10-26：accepted 之后自动产出改动计划 + 测试骨架（人只审阅和跑测试）
 import { planFor, materializeProposal } from "./engine/capability-plan.mjs";
 // 2026-10-26：无人值守补丁（生成 → 白名单 → 门禁 → 建分支提交；永不并 main）
 import { runQueue, pickEligible } from "./engine/patch-runner.mjs";
+// 2026-10-26：计划细化（失败样本 / 调用点 / 最小复现）
+import { buildRefinement, applyRefinementToPlanFile } from "./engine/plan-refine.mjs";
 import { pickGenerator } from "./engine/patch-generator.mjs";
 // 2026-10-26：未捕获异常的去留策略（偶发不退出，同签名反复才退出）
 import { decideCrashAction, crashSignature } from "./engine/crash-policy.mjs";
@@ -3410,6 +3412,25 @@ const API_ROUTES = [
     catch (e) { return json(res, 500, { error: String(e?.message || e).slice(0, 160) }); }
   }],
   // 2026-10-26：计划预览（不写盘）与落地（写 PLAN.md + 测试骨架，绝不覆盖已有测试）
+  // 2026-10-26：计划细化——把「失败 5 次」补成「哪一行、什么错、怎么复现」
+  ["POST", "/api/capability/refine", async (res, req) => {
+    try {
+      const b = await readBody(req, 4e3);
+      const data = readProposals(WS_ROOT);
+      const p = (data.items || []).find((x) => x.id === String(b?.id || ''));
+      if (!p) return json(res, 404, { error: 'not_found' });
+      if (!p.planPath || !fs.existsSync(p.planPath)) return json(res, 400, { error: '先 materialize（生成 PLAN.md）再细化' });
+      const ref = buildRefinement({ wsRoot: WS_ROOT, repoRoot: __dirname, proposal: p });
+      applyRefinementToPlanFile(p.planPath, ref);
+      p.plan = p.plan || {}; p.plan.refinement = ref;
+      p.refinedAt = Date.now();
+      p.note = ref.complete
+        ? `计划已细化：失败样本 ${ref.samples.length} 条、调用点 ${ref.sites.length} 处，可以尝试自动补丁`
+        : `计划细化不完整（缺${ref.samples.length ? '' : '失败样本'}${ref.sites.length ? '' : (ref.samples.length ? '调用点' : '、调用点')}）——先补事实，再谈改代码`;
+      writeProposals(WS_ROOT, data);
+      return json(res, 200, { ok: true, complete: ref.complete, samples: ref.samples.length, sites: ref.sites.length, planPath: p.planPath });
+    } catch (e) { return json(res, 500, { error: String(e?.message || e).slice(0, 200) }); }
+  }],
   ["POST", "/api/capability/plan", async (res, req) => {
     try {
       const b = await readBody(req, 4e3);
@@ -3432,6 +3453,14 @@ const API_ROUTES = [
       // 2026-10-26：把结构化 plan（files/accept/evidence）存回提案——
       // 否则自动补丁的提示词里没有验收标准，模型会合理拒绝（真机踩到）。
       p.plan = planFor(p);
+      // 顺手把事实补上（失败不影响 materialize）
+      try {
+        const { buildRefinement: br, applyRefinementToPlanFile: apply2 } = await import('./engine/plan-refine.mjs');
+        const ref = br({ wsRoot: WS_ROOT, repoRoot: __dirname, proposal: p });
+        apply2(out.planPath, ref);
+        p.plan.refinement = ref;
+        p.refinedAt = Date.now();
+      } catch {}
       if (p.state === 'proposed') { p.state = 'accepted'; p.acceptedAt = Date.now(); }
       const { writeProposals } = await import('./engine/capability-proposal.mjs');
       writeProposals(WS_ROOT, data);
