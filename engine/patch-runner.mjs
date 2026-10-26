@@ -17,6 +17,11 @@ import { gitBin } from "./repo-root.mjs";
 export const MAX_ATTEMPTS = 3;
 export const MIN_INTERVAL_MS = 55 * 60 * 1000;
 
+/** 回滚永不抛：失败路径上再抛异常，就等于什么都没还原。 */
+function safeRollback(session) {
+  try { rollback(session); return true } catch { return false }
+}
+
 function git(repoRoot, args) {
   // 2026-10-26 真机：服务进程的 PATH 里没有 git，spawn("git") 直接失败，
   // 于是"补丁改完了却建不了分支"——必须用探测到的可执行文件。
@@ -100,39 +105,65 @@ export async function runProposal({ wsRoot, repoRoot, proposal, generate, dryRun
     return { ok: false, stage: "scope", error: begun.error };
   }
   const session = begun.session;
-  try { writeFiles(repoRoot, checked.files, checked.edits || []); } catch (e) {
-    rollback(session);
-    markProposal(wsRoot, proposal.id, { state: "accepted", note: `应用补丁失败（已回滚）：${String(e?.message || e).slice(0, 120)}`, attempts: (Number(proposal.attempts) || 0) + 1, lastAttemptAt: t0 });
-    return { ok: false, stage: "apply", error: String(e?.message || e).slice(0, 160) };
+
+  // 2026-10-26 事故：有一轮补丁改在了源码仓里却没还原——失败路径漏了 rollback。
+  // 这里改成"只要没成功提交，就一定还原"，用 try/catch/finally 兜住所有出口。
+  const failWithRollback = (stage, err, note, extra = {}) => {
+    safeRollback(session);
+    markProposal(wsRoot, proposal.id, { state: "accepted", note, attempts: (Number(proposal.attempts) || 0) + 1, lastAttemptAt: t0 });
+    return { ok: false, stage, error: err, ...extra };
+  };
+  let committed = false;
+  try {
+    writeFiles(repoRoot, checked.files, checked.edits || []);
+  } catch (e) {
+    return failWithRollback("apply", String(e?.message || e).slice(0, 160), `应用补丁失败（已回滚）：${String(e?.message || e).slice(0, 120)}`);
   }
 
-  const gate = verifyPatch({ session, testFile: proposal.testPath && fs.existsSync(proposal.testPath) ? proposal.testPath : null, full: true });
+  let gate = null;
+  try {
+    gate = verifyPatch({ session, testFile: proposal.testPath && fs.existsSync(proposal.testPath) ? proposal.testPath : null, full: true });
+  } catch (e) {
+    return failWithRollback("gate", String(e?.message || e).slice(0, 160), `门禁异常（已回滚）：${String(e?.message || e).slice(0, 120)}`);
+  }
   if (!gate.ok) {
-    markProposal(wsRoot, proposal.id, { state: "accepted", note: `门禁未过（已回滚）：${gate.error}`, attempts: (Number(proposal.attempts) || 0) + 1, lastAttemptAt: t0 });
-    return { ok: false, stage: "gate", error: gate.error, steps: gate.steps };
+    return failWithRollback("gate", gate.error, `门禁未过（已回滚）：${gate.error}`, { steps: gate.steps, gateLog: gate.gateLog });
   }
 
   // 成功：建分支提交（**不推、不并 main**）
   const branch = `auto/capability-${String(proposal.id).slice(0, 8)}`;
   const cur = git(repoRoot, ["rev-parse", "--abbrev-ref", "HEAD"]);
-  const checkout = git(repoRoot, ["checkout", "-B", branch]);
+  const original = (cur.out || "main").trim() || "main";
+  let checkout = { ok: false, out: "" };
+  try {
+    checkout = git(repoRoot, ["checkout", "-B", branch]);
+  } catch (e) {
+    return failWithRollback("branch", String(e?.message || e).slice(0, 160), `建分支异常（已回滚）：${String(e?.message || e).slice(0, 120)}`);
+  }
   if (!checkout.ok) {
-    rollback(session);
-    markProposal(wsRoot, proposal.id, { state: "accepted", note: `建分支失败：${checkout.out.slice(0, 120)}`, attempts: (Number(proposal.attempts) || 0) + 1, lastAttemptAt: t0 });
-    return { ok: false, stage: "branch", error: checkout.out.slice(0, 200) };
+    return failWithRollback("branch", String(checkout.out).slice(0, 200), `建分支失败（已回滚）：${String(checkout.out).slice(0, 120)}`);
   }
-  git(repoRoot, ["add", ...changedFiles(session).map((c) => c.rel)]);
-  const commit = git(repoRoot, ["-c", "user.name=元枢自动补丁", "-c", "user.email=autopatch@local", "commit", "-m",
-    `autopatch(${proposal.area || "general"}): ${String(proposal.title).slice(0, 60)}\n\n由能力提案自动生成并通过门禁；请人工审阅后再合并。\n提案: ${proposal.id}`]);
-  if (!commit.ok) {
-    rollback(session);
-    git(repoRoot, ["checkout", cur.out || "main"]);
-    markProposal(wsRoot, proposal.id, { state: "accepted", note: `提交失败：${commit.out.slice(0, 120)}`, attempts: (Number(proposal.attempts) || 0) + 1, lastAttemptAt: t0 });
-    return { ok: false, stage: "commit", error: commit.out.slice(0, 200) };
+
+  try {
+    git(repoRoot, ["add", ...changedFiles(session).map((c) => c.rel)]);
+    const commit = git(repoRoot, ["-c", "user.name=元枢自动补丁", "-c", "user.email=autopatch@local", "commit", "-m",
+      `autopatch(${proposal.area || "general"}): ${String(proposal.title).slice(0, 60)}\n\n由能力提案自动生成并通过门禁；请人工审阅后再合并。\n提案: ${proposal.id}`]);
+    if (!commit.ok) {
+      git(repoRoot, ["checkout", original]);
+      return failWithRollback("commit", String(commit.out).slice(0, 200), `提交失败（已回滚）：${String(commit.out).slice(0, 120)}`);
+    }
+    committed = true;
+    var sha = git(repoRoot, ["rev-parse", "--short", "HEAD"]);
+  } catch (e) {
+    git(repoRoot, ["checkout", original]);
+    return failWithRollback("commit", String(e?.message || e).slice(0, 160), `提交异常（已回滚）：${String(e?.message || e).slice(0, 120)}`);
+  } finally {
+    // 兜底：只要没提交成功，一律还原（rollback 幂等，重复调用无害）
+    if (!committed) safeRollback(session);
   }
-  const sha = git(repoRoot, ["rev-parse", "--short", "HEAD"]);
+
   // 回到原分支，工作树干净，改动留在新分支上
-  git(repoRoot, ["checkout", cur.out || "main"]);
+  git(repoRoot, ["checkout", original]);
 
   const data = readProposals(wsRoot);
   const p = (data.items || []).find((x) => x.id === proposal.id);
