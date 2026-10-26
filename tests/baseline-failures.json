@@ -1,9 +1,12 @@
 {
-  "updatedAt": 1792977213516,
-  "note": "2026-10-26 人工确认：与本次改动无关（路由缺配置 / watchdog 依赖 cwd / .ps1 BOM 依赖 PowerShell 版本 / collector 依赖真实目录）",
+  "updatedAt": 1793020954874,
+  "note": "2026-10-26 人工确认：与本次改动无关（路由缺配置 / watchdog 依赖 cwd / .ps1 BOM 依赖 PowerShell 版本 / collector 依赖真实目录）；2026-10-26 追加 3 条环境敏感用例（单独跑 6/6 通过，仅全量并发跑时失败，待查）",
   "known": [
     "collector reports missing directory and corrupt state without overwriting evidence",
+    "health has a deadline even when a socket never sends headers",
+    "health requires 200 and JSON ok true, not just an open port",
     "model-router 导出 flashCandidate（server.mjs 依赖它做主动探测）",
+    "startup gate coalesces overlapping callers and releases after failure",
     "watchdog really runs main() when required from a launcher/service.cjs",
     "含非 ASCII 的 .ps1 必须带 UTF-8 BOM，否则 powershell -File 会静默失败或解析报错"
   ]

@@ -10,10 +10,12 @@
 //   · 快照写进 `记忆/运行时/补丁快照/<id>/`，回滚以它为准（不依赖 git，因为工作区可能本来就脏）
 //   · 回滚是**幂等的**：重复调用不会把新内容再写回去
 import fs from "node:fs";
+import os from "node:os";
 import path from "node:path";
 import { createHash } from "node:crypto";
 import { spawn, spawnSync } from "node:child_process";
 import { loadBaseline, summaryOf } from "./test-baseline.mjs";
+import { gitBin } from "./repo-root.mjs";
 
 export const SNAPSHOT_DIR = path.join("记忆", "运行时", "补丁快照");
 export const PROTECTED = [".token", "auth.json", ".env", ".git/", "node_modules/", "记忆/", "记忆\\"];
@@ -137,6 +139,59 @@ function runAsync(cmd, args, cwd, timeout = 300000) {
   });
 }
 
+/** 在临时 worktree 里跑一组步骤：补丁只影响那里，主工作树的脏改动不参与判定。 */
+async function withWorktree(repoRoot, fn) {
+  const git = gitBin() || "git";
+  const tmp = path.join(os.tmpdir(), `gate-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`);
+  const add = spawnSync(git, ["worktree", "add", "--detach", tmp, "HEAD"], { cwd: repoRoot, encoding: "utf8", timeout: 60000, windowsHide: true });
+  if (add.status !== 0) throw new Error(`建 worktree 失败：${String(add.stderr || add.stdout).slice(0, 160)}`);
+
+  // 2026-10-26 真机：worktree 里没有 node_modules，凡 import 第三方包的测试全崩
+  // （27 个文件直接算失败）。用 junction 把依赖接进去，不复制几个 GB。
+  // 根 node_modules + 各子目录的 node_modules（frontend 的 typescript 等）
+  const linkTargets = [];
+  // 运行时目录（git 不跟踪，但服务与测试要用）：不接过去，负责"启动服务"的测试会全崩
+  const RUNTIME_DIRS = ["记忆", "bg-jobs", "feedback", "public", "app", "data", ".yuanshu"];
+  const RUNTIME_FILES = [".token", "version.json"];
+  for (const d of RUNTIME_DIRS) {
+    const src = path.join(repoRoot, d);
+    if (fs.existsSync(src) && fs.statSync(src).isDirectory()) linkTargets.push({ link: path.join(tmp, d), target: src });
+  }
+  for (const f of RUNTIME_FILES) {
+    const src = path.join(repoRoot, f);
+    if (!fs.existsSync(src)) continue;
+    try { fs.copyFileSync(src, path.join(tmp, f)) } catch {}
+  }
+  const rootModules = path.join(repoRoot, "node_modules");
+  if (fs.existsSync(rootModules)) linkTargets.push({ link: path.join(tmp, "node_modules"), target: rootModules });
+  try {
+    for (const d of fs.readdirSync(repoRoot, { withFileTypes: true })) {
+      if (!d.isDirectory() || d.name.startsWith(".") || d.name === "node_modules") continue;
+      const sub = path.join(repoRoot, d.name, "node_modules");
+      if (fs.existsSync(sub)) linkTargets.push({ link: path.join(tmp, d.name, "node_modules"), target: sub });
+    }
+  } catch {}
+  const linked = [];
+  for (const { link, target } of linkTargets) {
+    try { fs.mkdirSync(path.dirname(link), { recursive: true }) } catch {}
+    if (process.platform === "win32") {
+      const j = spawnSync("cmd", ["/c", "mklink", "/J", link, target], { encoding: "utf8", timeout: 30000, windowsHide: true });
+      if (j.status === 0) linked.push(link);
+    } else {
+      try { fs.symlinkSync(target, link, "dir"); linked.push(link) } catch {}
+    }
+  }
+
+  try {
+    return await fn(tmp);
+  } finally {
+    // 先断 junction（否则删目录可能顺着链接动到真 node_modules）
+    for (const link of linked) { try { spawnSync("cmd", ["/c", "rmdir", link], { timeout: 30000, windowsHide: true }) } catch {} }
+    try { spawnSync(git, ["worktree", "remove", "--force", tmp], { cwd: repoRoot, encoding: "utf8", timeout: 60000, windowsHide: true }) } catch {}
+    try { fs.rmSync(tmp, { recursive: true, force: true }) } catch {}
+  }
+}
+
 function run(cmd, args, cwd, timeout = 300000) {
   // 2026-10-26 真机踩到：在 `node --test` 里再 spawn `node --test`，
   // 子进程会继承 NODE_TEST_CONTEXT=child-v8，结果是**失败的测试也返回 0**——
@@ -153,7 +208,8 @@ function run(cmd, args, cwd, timeout = 300000) {
  * 验证：语法 → 指定测试 → 可选全量测试。任一步失败**自动回滚**。
  * @returns {{ok:boolean, rolledBack:boolean, steps:object[], error?:string}}
  */
-export async function verifyPatch({ session, testFile, full = false, timeoutMs = 600000 }) {
+export async function verifyPatch({ session, testFile, full = false, timeoutMs = 600000, isolate = false }) {
+  if (isolate) return verifyIsolated({ session, testFile, full, timeoutMs });
   const steps = [];
   const changed = changedFiles(session);
   for (const c of changed) {
@@ -176,7 +232,7 @@ export async function verifyPatch({ session, testFile, full = false, timeoutMs =
     // 于是"门禁"其实什么都没跑。改成直接调 node --test + 显式文件列表（不依赖 shell/npm）。
     const testDir = path.join(session.repoRoot, "tests", "unit");
     const testFiles = (() => {
-      try { return fs.readdirSync(testDir).filter((f) => f.endsWith(".test.mjs")).map((f) => path.join(testDir, f)) } catch { return [] }
+      try { return fs.readdirSync(testDir).filter((f) => f.endsWith(".test.mjs")).map((f) => "tests/unit/" + f) } catch { return [] }
     })();
     if (!testFiles.length) {
       rollback(session);
@@ -247,4 +303,72 @@ export function reconcileDanglingSessions({ wsRoot, now = Date.now() } = {}) {
     } catch { /* 单条失败不影响其它 */ }
   }
   return { restored: restored.length, sessions: restored };
+}
+
+/**
+ * 隔离版校验：新建 worktree（从 HEAD）→ 把本次改动的文件复制进去 → 在那边跑语法/测试。
+ *
+ * 为什么必须隔离（2026-10-26 第七个坑）：直接在带**未提交改动**的工作树里跑全量测试，
+ * 会把「本地脏状态」当成「补丁的影响」。真机上 3 条 git/fs 相关测试因此误红，
+ * 而同样 3 条在干净树上连跑 3 遍全绿。
+ */
+async function verifyIsolated({ session, testFile, full = false, timeoutMs = 600000 }) {
+  const steps = [];
+  let gateLog = null;
+  try {
+    return await withWorktree(session.repoRoot, async (wt) => {
+      // 把补丁带来的文件内容搬进去（worktree 是 HEAD 的干净副本）
+      const changed = changedFiles(session);
+      for (const c of changed) {
+        const src = path.join(session.repoRoot, c.rel);
+        const dst = path.join(wt, c.rel);
+        fs.mkdirSync(path.dirname(dst), { recursive: true });
+        if (c.kind === "deleted") { try { fs.rmSync(dst, { force: true }) } catch {} continue }
+        fs.copyFileSync(src, dst);
+      }
+      for (const c of changed) {
+        if (!/\.(mjs|cjs|js)$/.test(c.rel)) continue;
+        const r = await runAsync(process.execPath, ["--check", path.join(wt, c.rel)], wt, 20000);
+        steps.push({ name: `syntax:${c.rel}`, ok: r.ok, detail: r.ok ? "" : r.out.slice(0, 200) });
+        if (!r.ok) { rollback(session); return { ok: false, rolledBack: true, steps, error: `语法错：${c.rel}` }; }
+      }
+      if (testFile) {
+        const tf = path.join(wt, path.relative(session.repoRoot, testFile));
+        const r = await runAsync(process.execPath, ["--test", fs.existsSync(tf) ? tf : testFile], wt, timeoutMs);
+        steps.push({ name: `test:${path.basename(testFile)}`, ok: r.ok, detail: r.ok ? "" : r.out.slice(-300) });
+        if (!r.ok) { rollback(session); return { ok: false, rolledBack: true, steps, error: "指定测试未过，已回滚" }; }
+      }
+      if (full) {
+        const testDir = path.join(wt, "tests", "unit");
+        let files = [];
+        // 2026-10-26 真机：绝对路径 ×200 个把 Windows 命令行撑爆（spawn ENAMETOOLONG），
+        // 改成相对路径 + cwd=worktree。
+        try { files = fs.readdirSync(testDir).filter((f) => f.endsWith(".test.mjs")).map((f) => "tests/unit/" + f) } catch {}
+        if (!files.length) { rollback(session); return { ok: false, rolledBack: true, steps, error: "worktree 里找不到测试文件" }; }
+        const r = await runAsync(process.execPath, ["--test", "--test-concurrency=1", ...files], wt, Math.max(timeoutMs, 900000));
+        try {
+          const dir = path.join(session.wsRoot || session.repoRoot, "记忆", "运行时", "门禁输出");
+          fs.mkdirSync(dir, { recursive: true });
+          gateLog = path.join(dir, `${session.id}-worktree.log`);
+          fs.writeFileSync(gateLog, `# 隔离门禁输出（worktree）\n# session: ${session.id}\n# exit: ${r.code}\n\n` + r.out, "utf8");
+        } catch {}
+        const sum = summaryOf(r.out, loadBaseline(wt));
+        if (!r.ok && sum.total === 0) {
+          rollback(session);
+          return { ok: false, rolledBack: true, steps, gateLog, error: "测试命令本身失败（无可用输出），已回滚" };
+        }
+        steps.push({ name: "test:all(worktree)", ok: sum.fresh.length === 0, gateLog, detail: sum.fresh.length ? sum.fresh.join("; ") : `已知红灯 ${sum.known} 条` });
+        if (sum.fresh.length) {
+          rollback(session);
+          return { ok: false, rolledBack: true, steps, gateLog, error: `出现 ${sum.fresh.length} 条**新增**红灯（隔离环境），已回滚：${sum.fresh.slice(0, 3).join("; ")}` };
+        }
+      }
+      session.closed = true;
+      session.verifiedAt = Date.now();
+      return { ok: true, rolledBack: false, steps, changed, gateLog };
+    });
+  } catch (e) {
+    rollback(session);
+    return { ok: false, rolledBack: true, steps, gateLog, error: `隔离门禁异常：${String(e?.message || e).slice(0, 160)}` };
+  }
 }
