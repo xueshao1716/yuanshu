@@ -35,11 +35,17 @@ export function isAsciiPath(p) {
 }
 
 export function pickBaseDir(wsRoot) {
+  // 2026-10-26：优先**用户级** LOCALAPPDATA，而不是机器级 ProgramData。
+  // 作业目录只是运行期草稿（.cmd/.log/.json），不该写到 C:\ProgramData 这种系统级位置；
+  // LOCALAPPDATA 是每用户、免管理员、通常纯 ASCII，符合 Windows 惯例。
   const candidates = [
+    process.env.YUANSHU_BG_JOBS_DIR || "",
     path.join(String(wsRoot || "."), DETACHED_DIR),
+    path.join(process.env.LOCALAPPDATA || path.join(process.env.USERPROFILE || "C:\\Users\\Public", "AppData", "Local"), "Yuanshu", DETACHED_DIR),
     path.join(process.env.ProgramData || "C:\\ProgramData", "Yuanshu", DETACHED_DIR),
-    path.join(process.env.TEMP || process.env.TMP || "C:\\Windows\\Temp", "Yuanshu", DETACHED_DIR),
     path.join(process.env.USERPROFILE || "C:\\Users\\Public", "Yuanshu", DETACHED_DIR),
+    // 临时目录放最后——安全软件常在 %TEMP% 拦 .cmd，cmd.exe 会起不来。
+    path.join(process.env.TEMP || process.env.TMP || "C:\\Windows\\Temp", "Yuanshu", DETACHED_DIR),
   ];
   // 2026-10-26 真机：工作区本身在 %TEMP% 下时（测试用 mkdtemp 建的临时工作区），
   // 第一个候选就是 TEMP —— 作业脚本落在那儿，WMI 拉起 cmd.exe 会返回
@@ -72,17 +78,31 @@ function newId() { return `${Date.now().toString(36)}-${Math.random().toString(3
  *   ① 文件带 UTF-8 BOM，并在开头 `chcp 65001`，让 cmd.exe 明确按 UTF-8 读脚本；
  *   ② 断言：内容要么带 BOM、要么整份纯 ASCII —— 两个都不满足就拒绝启动（别假装成功）。
  */
+/** 取 8.3 短路径（把中文路径变成 ASCII）。取不到就返回空串。 */
+export function shortPathOf(target) {
+  try {
+    const out = execFileSync("cmd.exe", ["/c", `for %I in ("${String(target).replace(/"/g, "")}") do @echo %~sI`], {
+      encoding: "utf8", timeout: 15000, windowsHide: true,
+    }).trim();
+    return /^[\x20-\x7e]+$/.test(out) ? out : "";
+  } catch { return ""; }
+}
+
 export function buildCmdFile({ command, cwd, logPath }) {
+  // 2026-10-26 真机教训：.cmd **不能**带 UTF-8 BOM。
+  // cmd.exe 会把 BOM 当成首行命令的一部分，首行解析失败 → 后面的都不执行，
+  // 日志 0 字节、WMI 却照样返回 pid，上层只能看到「启动失败」。
+  // （注意：.ps1 的规则相反，**需要** BOM。）
+  const safeCwd = isAsciiPath(cwd) ? String(cwd) : shortPathOf(cwd);
   const lines = [
     "@echo off",
-    // 切到 UTF-8 代码页：不然 cmd.exe 用 GBK 读下面的中文路径，cd 会失败
+    // 切到 UTF-8 代码页：命令输出里的中文用 UTF-8 写日志，读回来不乱码
     "chcp 65001 > nul",
-    `cd /d "${String(cwd).replace(/"/g, "")}"`,
+    `cd /d "${String(safeCwd || cwd).replace(/"/g, "")}"`,
     `${command} >> "${logPath}" 2>&1`,
     `echo ${DONE_MARK} %ERRORLEVEL% >> "${logPath}"`,
   ];
-  // BOM 必须在最前面：cmd.exe 见到 EF BB BF 才按 UTF-8 解析整份脚本
-  return "\ufeff" + lines.join("\r\n") + "\r\n";
+  return lines.join("\r\n") + "\r\n";
 }
 
 /**
@@ -93,9 +113,35 @@ export function buildCmdFile({ command, cwd, logPath }) {
  */
 export function assertCmdSafe(content) {
   const text = String(content || "");
-  if (text.charCodeAt(0) === 0xFEFF) return { ok: true, encoding: "utf8-bom" };
-  if (isAsciiPath(text)) return { ok: true, encoding: "ascii" };
-  return { ok: false, encoding: "", reason: "启动脚本既没有 UTF-8 BOM 也不是纯 ASCII，cmd.exe 会按 ANSI 误读中文路径（工作区含中文时必失败）" };
+  // 2026-10-26：.cmd 里出现 BOM 是**错误**（首行会解析失败、整份脚本不执行）。
+  if (text.charCodeAt(0) === 0xFEFF) {
+    return { ok: false, encoding: "", reason: ".cmd 不能带 UTF-8 BOM：cmd.exe 会把 BOM 当成首行命令的一部分，导致整份脚本不执行" };
+  }
+  // 注意：这里要判的是「整份脚本内容是否纯 ASCII」，不能用 isAsciiPath——
+  // 那个是给路径用的白名单，会把引号、重定向符、百分号误判成非 ASCII。
+  if (!/[^\x20-\x7e\r\n\t]/.test(text)) return { ok: true, encoding: "ascii" };
+  return { ok: false, encoding: "", reason: "启动脚本含非 ASCII 字符（中文路径/命令）——请改用 8.3 短路径，或把工作区放到纯 ASCII 目录" };
+}
+
+/**
+ * 清理旧作业文件（默认 7 天）。作业目录是运行期草稿，不是归档——
+ * 不清理会一直堆积（真机：一次测试就几十个文件）。
+ */
+export function pruneOldJobs({ wsRoot, maxAgeMs = 7 * 86400 * 1000, now = Date.now() } = {}) {
+  const dir = dirOf(wsRoot);
+  if (!dir) return { removed: 0 };
+  let removed = 0;
+  try {
+    for (const name of fs.readdirSync(dir)) {
+      if (!/\.(cmd|log|json|launch|out)$/.test(name)) continue;
+      const file = path.join(dir, name);
+      try {
+        const st = fs.statSync(file);
+        if (now - st.mtimeMs > maxAgeMs) { fs.rmSync(file, { force: true }); removed += 1 }
+      } catch {}
+    }
+  } catch {}
+  return { removed };
 }
 
 /** 读日志尾巴（不整份读）。 */

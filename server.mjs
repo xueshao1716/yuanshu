@@ -228,6 +228,8 @@ import watchdogLimits from "./lib/watchdog-limits.cjs";
 const WATCHDOG_LIMITS = watchdogLimits.LIMITS;
 // 2026-10-25：脱链长任务（渲染/编码/下载）——进程逃出服务 Job，重启不连带杀
 import * as detachedRun from "./engine/detached-run.mjs";
+// 2026-10-26：作业目录是运行期草稿，启动时清理陈旧残留
+import { pruneOldJobs } from "./engine/detached-run.mjs";
 // 2026-10-25：后台作业状态机（做完没汇报、坏在哪一步）
 import { collectJobs, summarizeJobs, syncReports, pendingReports, ackReports, autoAckByText, urgentReports } from "./engine/job-state.mjs";
 // 2026-10-25：自己找活——从承诺/牵挂/久未推进的任务/随口提过的事里长出候选目标
@@ -5667,6 +5669,8 @@ ${rows.map((r) => `- [${r.status}${r.closed ? "/已结清" : ""}] ${r.text}\n  �
       const rb = reconcileDanglingSessions({ wsRoot: WS_ROOT });
       if (rb.restored) console.log("[autopatch] 启动对账：还原了", rb.restored, "个未收尾的补丁会话");
     } catch (e) { console.log("[autopatch] 启动对账失败:", String(e?.message || e).slice(0, 100)); }
+    // 作业目录是运行期草稿：启动时清掉 7 天前的残留，避免无限堆积
+    try { const pruned = pruneOldJobs({ wsRoot: WS_ROOT }); if (pruned.removed) console.log("[jobs] 清理旧作业文件", pruned.removed, "个"); } catch {}
     knowledgeRuntime.start();
     // 2026-10-26：无人值守补丁调度器。默认**关**（要显式 YUANSHU_AUTOPATCH=1）。
     // 即使开着，也只建 auto/ 分支、绝不并 main；每小时最多一个；失败即停、不连撞。
