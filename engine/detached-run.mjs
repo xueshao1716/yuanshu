@@ -144,6 +144,25 @@ export function pruneOldJobs({ wsRoot, maxAgeMs = 7 * 86400 * 1000, now = Date.n
   return { removed };
 }
 
+/**
+ * 清掉旧的机器级作业目录（`C:\ProgramData\Yuanshu`）。
+ *
+ * 为什么由服务做：那是 SYSTEM 属主，普通用户删不掉；服务本身以 SYSTEM 运行，
+ * 启动时顺手清掉最省事。只在"当前作业目录不在它下面"时才删，避免误删正在用的。
+ */
+export function cleanupLegacyJobDir({ currentBase, legacy = "C:\\ProgramData\\Yuanshu", now = Date.now() } = {}) {
+  if (!fs.existsSync(legacy)) return { removed: false, reason: "not_exists" };
+  const cur = String(currentBase || "").replace(/\\/g, "/").toLowerCase();
+  const old = String(legacy).replace(/\\/g, "/").toLowerCase();
+  if (cur && cur.startsWith(old)) return { removed: false, reason: "in_use" };
+  try {
+    fs.rmSync(legacy, { recursive: true, force: true });
+    return { removed: true, at: now };
+  } catch (e) {
+    return { removed: false, reason: String(e?.message || e).slice(0, 120) };
+  }
+}
+
 /** 读日志尾巴（不整份读）。 */
 export function readLogTail(logPath, { bytes = LOG_TAIL_BYTES } = {}) {
   try {
@@ -193,9 +212,12 @@ export function launchDetached({ wsRoot, command, cwd = process.cwd(), label = "
   let pid = 0;
   try {
     // WMI 创建：进程归属 WmiPrvSE，逃出本服务的 Job Object
+    // 2026-10-26：WMI 默认会**弹出可见的 cmd 窗口**（用户反馈"一直弹窗"）。
+    // 用 ProcessStartupInformation 把 ShowWindow 置 0，进程照样跑，但不闪黑窗。
     const ps = [
       "$ErrorActionPreference='Stop'",
-      `$r = Invoke-CimMethod -ClassName Win32_Process -MethodName Create -Arguments @{ CommandLine = 'cmd.exe /c "${cmdFile}"' }`,
+      "$si = New-CimInstance -ClassName Win32_ProcessStartup -Namespace root/cimv2 -ClientOnly -Property @{ ShowWindow = [uint16]0 }",
+      `$r = Invoke-CimMethod -ClassName Win32_Process -MethodName Create -Arguments @{ CommandLine = 'cmd.exe /c "${cmdFile}"'; ProcessStartupInformation = $si }`,
       "if ($r.ReturnValue -ne 0) { Write-Output ('ERR:' + $r.ReturnValue); exit 1 }",
       "Write-Output $r.ProcessId",
     ].join("; ");
