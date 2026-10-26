@@ -3,7 +3,25 @@
 ## [Unreleased]
 
 ## [2.141.0] - 2026-10-26
+那个报了很久的 0x800700E8（232 ERROR_NO_DATA）找到真根因了：**作业脚本落在 %TEMP% 里**。
 
+## 根因
+
+pickBaseDir 的第一个候选是「工作区/bg-jobs」。当工作区本身在 %TEMP% 下（测试用 mkdtemp 建的临时工作区、以及任何临时会话），
+作业的 .cmd 就落进了 C:\Users\...\Temp\detached-XXXX\bg-jobs\。WMI Win32_Process.Create 去拉起这个 .cmd 时返回 232，
+cmd.exe 根本没起来——于是「报了两天」。
+
+## 修法
+
+- **任何落在 %TEMP% 的候选一律跳过**：作业目录优先 工作区 → C:\ProgramData\Yuanshu\bg-jobs → 用户目录。
+  实测：临时工作区起作业 → 落到 C:\ProgramData\Yuanshu\bg-jobs，退出码 0，不再报 232。
+- **WMI 失败自动降级**为 spawn(cmd.exe /c …, detached)，并写 <id>.launch 记录启动方式与原始 WMI 错误。
+- 错误文案翻译成：232 ERROR_NO_DATA：目标在启动瞬间不可用，常见于安全软件拦 .cmd 或临时目录。
+
+## 顺带修的两个真问题
+
+- listDetached 原来按 elapsedMs 排序：作业目录共享（ProgramData）时，刚起的作业会被挤出 limit，列出来的不是「最近」的。现在按开始时间倒序。
+- readDetached 没返回 startedAt，导致排序键恒为 0。已补上（页面也能显示真实开始时间）。
 ## [2.140.2] - 2026-10-26
 
 ## [2.140.1] - 2026-10-26
