@@ -26,7 +26,8 @@ function git(repoRoot, args) {
   // 2026-10-26 真机：服务进程的 PATH 里没有 git，spawn("git") 直接失败，
   // 于是"补丁改完了却建不了分支"——必须用探测到的可执行文件。
   const bin = gitBin() || "git";
-  const r = spawnSync(bin, args, { cwd: repoRoot, encoding: "utf8", timeout: 120000, windowsHide: true });
+  // 同上：属主不一致时加 safe.directory，否则所有 git 操作都会失败
+  const r = spawnSync(bin, ["-c", `safe.directory=${repoRoot}`, ...args], { cwd: repoRoot, encoding: "utf8", timeout: 120000, windowsHide: true });
   return { ok: r.status === 0, out: `${r.stdout || ""}${r.stderr || ""}`.trim(), code: r.status };
 }
 
@@ -122,7 +123,7 @@ export async function runProposal({ wsRoot, repoRoot, proposal, generate, dryRun
 
   let gate = null;
   try {
-    gate = await verifyPatch({ session, testFile: proposal.testPath && fs.existsSync(proposal.testPath) ? proposal.testPath : null, full: true });
+    gate = await verifyPatch({ session, testFile: proposal.testPath && fs.existsSync(proposal.testPath) ? proposal.testPath : null, full: true, isolate: true });
   } catch (e) {
     return failWithRollback("gate", String(e?.message || e).slice(0, 160), `门禁异常（已回滚）：${String(e?.message || e).slice(0, 120)}`);
   }

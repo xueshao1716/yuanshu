@@ -143,7 +143,9 @@ function runAsync(cmd, args, cwd, timeout = 300000) {
 async function withWorktree(repoRoot, fn) {
   const git = gitBin() || "git";
   const tmp = path.join(os.tmpdir(), `gate-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`);
-  const add = spawnSync(git, ["worktree", "add", "--detach", tmp, "HEAD"], { cwd: repoRoot, encoding: "utf8", timeout: 60000, windowsHide: true });
+  // 2026-10-26 真机：服务进程与仓库属主不一致时 git 会报 dubious ownership 并拒绝一切操作。
+  const safe = ["-c", `safe.directory=${repoRoot}`];
+  const add = spawnSync(git, [...safe, "worktree", "add", "--detach", tmp, "HEAD"], { cwd: repoRoot, encoding: "utf8", timeout: 60000, windowsHide: true });
   if (add.status !== 0) throw new Error(`建 worktree 失败：${String(add.stderr || add.stdout).slice(0, 160)}`);
 
   // 2026-10-26 真机：worktree 里没有 node_modules，凡 import 第三方包的测试全崩
@@ -187,7 +189,7 @@ async function withWorktree(repoRoot, fn) {
   } finally {
     // 先断 junction（否则删目录可能顺着链接动到真 node_modules）
     for (const link of linked) { try { spawnSync("cmd", ["/c", "rmdir", link], { timeout: 30000, windowsHide: true }) } catch {} }
-    try { spawnSync(git, ["worktree", "remove", "--force", tmp], { cwd: repoRoot, encoding: "utf8", timeout: 60000, windowsHide: true }) } catch {}
+    try { spawnSync(git, [...safe, "worktree", "remove", "--force", tmp], { cwd: repoRoot, encoding: "utf8", timeout: 60000, windowsHide: true }) } catch {}
     try { fs.rmSync(tmp, { recursive: true, force: true }) } catch {}
   }
 }
