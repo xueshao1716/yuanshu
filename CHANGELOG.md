@@ -3,7 +3,13 @@
 ## [Unreleased]
 
 ## [2.132.0] - 2026-10-26
-
+无人值守补丁：从「提案 accepted」一路走到「分支上有一个通过门禁的提交」，人只做最后审阅。
+- **生成器可插拔**（`engine/patch-generator.mjs`）：默认走本机 `/api/chat`（元枢自己），也可用 `YUANSHU_PATCH_CMD` 换外部 CLI；只接受 `{"files":[{"path","content"}]}`，不许自由发挥；最多 5 个文件、每个 ≤20KB。
+- **三道路径校验**：提示词写明白名单 → 生成后按 PLAN 校验 → 落盘前 patch-guard 再校验。任一条不过整体拒绝，不做部分应用。
+- **红线写死在代码里**（`engine/patch-runner.mjs`）：成功后只建 `auto/capability-<id>` 分支并提交，**永不合并 main**、不推送；失败立刻回滚并把原因写回提案；同一提案最多 3 次；每小时最多 1 个。
+- **异步触发**：`POST /api/capability/autopatch`（默认 dryRun，`live:true` 才真跑）立即返回，后台执行；`GET` 查状态。同步跑会等一次模型调用五分钟，客户端必然超时——真机踩出来的。
+- **调度器**：`YUANSHU_AUTOPATCH=1` 才启用，每小时一轮；默认关闭。
+- 修了一个自己引入的启动事故：路由数组漏了一个逗号（`node --check` 竟放过了），导致所有请求 500。
 ## [2.131.1] - 2026-10-26
 为「自动生成补丁」铺路的两道护栏，以及它们内部暴露的一串「假绿」陷阱。
 - **改动面限制**（`engine/patch-guard.mjs`）：只允许动 PLAN 列出的文件（目录要显式声明）；越界、受保护路径（`.token` / `auth.json` / `.env` / `.git` / `node_modules` / `记忆`）一律拒绝；开改前快照原文件。

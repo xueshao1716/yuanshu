@@ -83,6 +83,8 @@ export function makeHttpGenerator({ baseUrl = "http://127.0.0.1:8787", token, fe
     const sid = (await mk.json())?.id;
     if (!sid) return { files: [], note: "建会话失败" };
     const res = await f(`${baseUrl}/api/chat`, {
+      // 2026-10-26：一次生成最多 8 分钟，挂死会一直占着调度器
+      signal: AbortSignal.timeout(8 * 60 * 1000),
       method: "POST",
       headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json; charset=utf-8" },
       body: JSON.stringify({ sessionId: sid, message: buildPrompt(plan), noTools: true }),
