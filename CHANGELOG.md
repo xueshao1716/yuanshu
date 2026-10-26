@@ -1,18 +1,28 @@
-# 元枢更新日志
+# 更新日志
 
-> 每次发版：`npm run version:bump <major|minor|patch>`（它会同改所有版本声明并收本文件的 `[Unreleased]`）
-> → 补一条日志 → 构建 `frontend/dist` → `npm run prune:dist -- --apply` → `npm run sync:frontend` → 双推。
-> prune 那一步不能省：`emptyOutDir:false` 会让每次构建都新增约 190 个分块，
-> 而 `sync:frontend` 是忠实镜像，会把它们复制进 `public/` 与 `app/dist/`（细节见 `docs/NAMING.md`）。
-> 版本唯一来源是仓库根的 `version.json`；契约见 `docs/NAMING.md`。
+## [Unreleased]
 
+## [2.131.1] - 2026-10-26
+为「自动生成补丁」铺路的两道护栏，以及它们内部暴露的一串「假绿」陷阱。
+- **改动面限制**（`engine/patch-guard.mjs`）：只允许动 PLAN 列出的文件（目录要显式声明）；越界、受保护路径（`.token` / `auth.json` / `.env` / `.git` / `node_modules` / `记忆`）一律拒绝；开改前快照原文件。
+- **自动回滚**：语法 → 指定测试 → 全量门禁，任一步失败立刻还原（新建文件一并删除），重复回滚幂等。正反自测都通过：正常改动保留、语法错当场回滚。
+- **门禁只拦新增红灯**（`engine/test-baseline.mjs` + `tests/baseline-failures.json`）：仓库有 4 条长期红的测试（路由缺配置 / watchdog 依赖 cwd / `.ps1` BOM 依赖 PowerShell 版本 / collector 依赖真实目录）。要求全绿会让门禁永远红、于是没人看——基线人工确认一次，之后只拦新增。
+- **修了三处「假绿」陷阱**（都是门禁自己踩出来的）：
+  - `NODE_TEST_CONTEXT=child-v8` 会让嵌套的 `node --test` 对失败测试也返回 0 → 子进程跑测试前清掉该变量；
+  - `spawnSync("npm.cmd")` 在 Windows 上 status=null、输出 0 字节 → 改成直接 `node --test` + 显式文件列表；
+  - 测试命令挂了却解析不出失败项时**不能当全绿** → 明确判定失败并回滚。
+- 顺手修了两条脆弱测试：协议编号写死 1–13（改成连续性校验，并把重复的两个 8、两个 10 排成 1..15）；`onRunFinished` 取全文第一个命中导致切错段落（改成按 `notifier.runFinished` 定位）。
+- 修复 CHANGELOG：丢掉 48 个只有标题没有正文的空章节，按版本倒序重排。
 ## [2.131.0] - 2026-10-26
+
 - **accepted 提案自动产出「改动计划 + 测试骨架」**（engine/capability-plan.mjs）：PLAN.md 写清证据 / 动哪 / 怎么做 / 什么算完成 / 风险；测试骨架是可运行的 node:test 文件，**全部 test.todo**——不是「通过」。
 - 三条硬规矩：绝不覆盖已存在的测试文件；骨架写完立刻 `node --check`，不合法就删掉并报错；PLAN 里必须能点回证据，没有证据就明写「请先补，再动手」。
 - 领域 playbook（audio / knowledge / feedback / shell / deploy / mcp / render / general）规定该动哪些文件、用什么验收——不让模型每次现编。
 - 修了两个真问题：测试文件名一度是中文（改成 ASCII slug + 短哈希）；渲染类作业原先进了 general 领域（补 render 领域与 playbook）。
 - 接口：`POST /api/capability/plan`（预览）、`POST /api/capability/materialize`（落盘并把 proposed 转为 accepted）。
+
 ## [2.130.0] - 2026-10-26
+
 知识的两层：第一层给小语长经验（记忆），第二层要让**元枢长能力**（改代码）。这一版补的是第二层，以及第一层的质量。
 - **提炼成 claim**（`engine/knowledge-enrich.mjs`）：入库时从原文抽决定/偏好/教训/事实，带置信度与原文证据；抽不出的标 `source_excerpt`，不硬编。回填 596 条后，有 claim 的从 7 条涨到 382 条。
 - **寿命按价值分档**：决定/偏好/教训 90 天、事实 30 天、碎话 7 天；被引用过自动续命。回填后分布：long 90 / medium 292 / short 214。
@@ -21,75 +31,64 @@
 - **生命周期有底线**：`shipped` 必须给 `version + commit + test`，缺一样就 400 拒发——写不出「用哪个测试证明修好了」就不算做完。真机演示：崩溃类提案标记 shipped 成功，空喊「已修复」被拒。
 - **接口**：`GET /api/capability`、`POST /api/capability/refresh`、`POST /api/capability/mark`；环境事实里会冒「【长能力】N 条能力提案待评估」。
 - 砍掉了操作日志这个信号源：试过，抽出来是「第二个坑」「根因还有一层」这类半句话，污染列表。宁可少一个来源，也不要有噪声。
+
 ## [2.129.9] - 2026-10-26
+
 - **沉淀台从「看货」变成「有货」**（engine/knowledge-enrich.mjs）：入库时把原文抽成 claim（决定/偏好/教训/事实），带置信度与原文证据；抽不出的（碎话）标 source_excerpt。真机回填 596 条后，有 claim 的从 7 条涨到 382 条。
 - **寿命按价值分档**：决定/偏好/教训 90 天、事实 30 天、碎话 7 天（原来一律 7 天，等于什么都记不住）；被引用过会自动续命。
 - **积压有出口**（engine/knowledge-backlog.mjs）：blocked 环境性失败重排一次、卡过 7 天的跳过并留原因、待审超窗口标过期。真机一次清掉 43 条（42 skip / 1 keep），最老的卡了 18 天。
 - **状态行开始证明「真被用了」**：job_status 里知识摄入那行现在带 有 claim x/y · 被引用 n 条/m 次。
 - 回填脚本保证 entry 与 journal 互为凭据：596 条复验 digest 全过，0 条不一致。
+
 ## [2.129.8] - 2026-10-26
+
 - **反馈收件箱进作业状态机**（engine/feedback-job.mjs）：stalled = 有人报回来但超过 48 小时没回信；running = 已回信待定论；done = 都处理完。job_status 里与知识摄入/上报台账一样**不参与截断**，环境事实里也会冒一句「【反馈收件箱】…先回信，别让人干等」。
 - 真机首跑即抓出：45 条反馈里有 3 条 open、0 条回信，最早一条 9 天前。
+
 ## [2.129.7] - 2026-10-26
+
 - **每份反馈都有工单号**（engine/feedback-ticket.mjs）：installId（同机稳定）+ ticketId（每次一个，形如 T-20261026-0001）+ 可选 replyTo。自动上报与环境里都带上，回信里原样引用——双方靠它对号。
 - **反馈存储支持工单字段**：feedback.mjs 的 add() 接收并保存 ticketId / installId / replyTo / threadId；POST /api/feedback 一并透传。
 - **前端提交带号**：FeedbackPanel 用 localStorage 记住 installId，每次提交生成 ticketId（隐私模式拿不到 localStorage 就不带）。
 - 修掉一个自己引入的 500：路由里变量名是 b，我写成了 body，ReferenceError 让 POST /api/feedback 全挂。
+
 ## [2.129.6] - 2026-10-26
+
 - **两段式回信**：第一封在收到时自动生成（能不能对上号 + 要你补什么），第二封在**真的修好后**生成——必须带「版本 + 改了什么 + 怎么验证」，缺一样就 400 拒发（不空喊修好了）。
 - **反馈条目支持线程**：engine/feedback.mjs 新增 addReply / replyAddress，每条反馈带 replies[]、replyTo、threadId。
 - **按原路返回**：engine/feedback-relay.mjs best-effort 把回信 POST 回 replyTo；没有地址只在本地记 relayError，回信内容永远先落本地（界面标「仅本地」）。
 - 接口：POST /api/feedback/:id/reply（kind: triage | resolved），收件箱卡片显示回信线程与「修好后回信」按钮。
+
 ## [2.129.5] - 2026-10-26
+
 - **收件箱自动研判 + 生成回信**（`engine/crash-triage.mjs` + `GET /api/feedback/triage`）：每条报告判一次「能不能对上号」，分四类：`no_build`（缺构建号 / 栈被截断）、`stale`（版本低于支持窗口）、`foreign`（栈里的路径不是我们发出去的构建）、`no_repro`（字段够但复现不了）。
 - **对不上就说清为什么**：生成一段可直接发给对方的话（补 `crash.log` 尾部 / 升级后重报 / 换正式构建），不假装在查、不给空头承诺。
 - 收件箱卡片显示「可定位 / 对不上：no_build」标记，每个分组可一键「生成回信」（复制到剪贴板）。
 - 实测：43 条历史报告**全部** `no_build`（当年上报只带 160 字一行、无构建号）——正是这次要改的东西。
+
 ## [2.129.4] - 2026-10-26
 
 - **崩溃报告有了验收标准**（engine/crash-report-spec.mjs + docs/CRASH-REPORT-CONTRACT.md）：必填 version/commit/platform/arch/node/uptimeSec/kind/signature/stack/exitCode；本地分三档可定位性（addressable / partial / unusable），低于 MIN_SUPPORTED_VERSION 标「先升级再报」。
 - **上报 payload 按标准填写**：带结构化 env、多行栈、一行 triage 结论；并在启动时从 .yuanshu-build.json 取 commit 补上（之前缺失，导致只能靠猜行号）。
+
 ## [2.129.3] - 2026-10-26
 
 - **崩溃上报变可定位**：分发的 Linux 用户报回两条 Timeout._onTimeout 崩溃，但 detail 只有 160 字符一行、env 与 diagnostics 全 null——等于报了个「某处炸了」。现在带上多行栈（最多 12 行）+ crash.log 上下文 + 版本/系统/node/启动参数。
 - **偶发异常不再拖垮整台服务**：原来 uncaughtException 一律「记账 → close → 2s 后退出」，一个定时器里的 bug 就会让服务反复重启（那台机器 watchdog 重启 3 次）。现在偶发一次只记账继续跑；同一签名 60 秒内 3 次才退出让 watchdog 干净重启；OOM 仍立刻退。
 - 新增 engine/crash-policy.mjs + 5 条单测（偶发/重复/窗口外/OOM/签名归一）。
+
 ## [2.129.2] - 2026-10-26
 
 - **知识摄入进作业状态机**：knowledgeJob() 读 记忆/知识/state.json + ackground-admission.json，租约被死进程占着→failed（说清 pid 和时间），队列积压又没产出→stalled。环境事实里也会冒一句「【知识摄入】停摆了」。
 - **自动上报留台账**：每次决定（sent/skipped/failed + 原因）写 上报台账.jsonl（最近 200 行），job_status 里以 [report] 条目呈现——假警报能追到当时为什么这么判。
 - **job_status 不再把这两条挤掉**：原来按时间排再截 12 行，知识/上报排在末尾就被吃掉（真机：模型连说两轮「没有这两行」）。现在异常优先排序，且 knowledge/report 不参与截断。
 - **收件箱做成可看的卡片**（灵魂培育 → 总览）：按签名分组显示条数与最近时间，可展开看条目、标完成/忽略。
+
 ## [2.129.1] - 2026-10-26
 
 - **自动上报不再误报正常退出**：43 条收件箱里 23 条是 code=0（运维脚本 stop / update-restart 触发），被当成 crash 上报。现在只把非 0 退出码与未捕获异常当崩溃。
 - **去重 key 稳定化**：原来 summary 里含 pid= / uptime=，每次重启都是新串，同一个根因刷出 20 条。现在先抹掉可变部分再比。
 - 清理了历史积压：41 条关闭（23 条假警报标 wontfix、18 条重复标 done），保留 2 条真崩溃（来自另一台 Linux 安装，本机无从复现）。
-## [Unreleased]
-
-## [2.131.1] - 2026-10-26
-
-## [2.131.0] - 2026-10-25
-
-## [2.130.0] - 2026-10-25
-
-## [2.129.9] - 2026-10-25
-
-## [2.129.8] - 2026-10-25
-
-## [2.129.7] - 2026-10-25
-
-## [2.129.6] - 2026-10-25
-
-## [2.129.5] - 2026-10-25
-
-## [2.129.4] - 2026-10-25
-
-## [2.129.3] - 2026-10-25
-
-## [2.129.2] - 2026-10-25
-
-## [2.129.1] - 2026-10-25
 
 ## [2.129.0] - 2026-10-25
 
@@ -108,8 +107,6 @@
 - **知识板块恢复摄入**：后台租约（background-admission）在 owner 进程崩溃后永远不会自动释放，而没人调 reconcile → 知识从 10/22 起停摆（748 个 job 不消化）。现在启动时做一次对账：只清「pid 在本机确实已不存在」的租约，并留审计行。
 - **测试**：新增 `job-status`(8) `idea-curator`(8) `output-qa`(9) `port-conflict-loop`(3) `release-restart`(5) `update-sources`(2)；`persona-resolve` 重写为 7 条。
 
-## [2.129.0] - 2026-10-25
-
 ## [2.128.0] - 2026-10-25
 
 次版本号整理：153–157 这一批（Windows 原生 PowerShell、长任务脱链、人格语气分层、部署盖章、锁文件对齐）收成 2.128.0，并重打四大包。
@@ -121,10 +118,6 @@
 - **锁文件对齐**：`hls.js` 钉到 1.6.15（npm 与 pnpm 解析一致），`@capacitor/browser` 补进 pnpm lock；`frontend-lockfiles` 测试转绿。
 - 四大包（Windows 离线安装包 / Linux .run / Android APK / Tauri setup）按 2.128.0 重打。
 
-## [2.128.0] - 2026-10-25
-
-## [2.127.157] - 2026-10-25
-
 ## [2.127.156] - 2026-10-25
 
 - **表达微调可回滚**：每次 set / replace / clear 都记进独立台账 `记忆/运行时/表达微调.history.jsonl`（from/to + id + 时间），灵魂培育的卡片里给「撤销上一步」，回滚本身也会再记一条，所以可追溯、可再回滚。
@@ -132,12 +125,6 @@
   - 接口：`GET /api/persona/expression/history`、`POST /api/persona/expression/rollback`。台账是 append-only 的 jsonl，超过 200 条自动只留最近一半。
 - **人物标志与产品标志分开**：侧栏头部紧挨着「小语」的那个图标，之前和新版产品标志是同一个（断口环 + 轴心点），等于把产品和这个人画成一个东西。新增 `PersonaMark`：圆角对话气泡 + 一道起伏声线 + 左下气泡尾，暖色（`--persona-mark`），<24px 自动去掉声线防糊。产品标志仍只出现在导航栏（元枢）与登录页、工作台大标题。
 - **测试**：新增 `tests/unit/expression-ledger.test.mjs` 7 条（set/replace/clear 都留痕、撤销回到上一步、可一路回到无微调、无历史如实报错、回滚记录不能再当回滚目标、被拒绝的写入不进台账、每条带 id/at/key）。
-
-## [2.127.156] - 2026-10-25
-
-## [2.127.155] - 2026-10-25
-
-## [2.127.154] - 2026-10-25
 
 ## [2.127.153] - 2026-10-25
 
@@ -152,8 +139,6 @@
   - 环境段（`runtime-env.mjs`）同步告诉模型：Windows 上优先 pwsh，只有确实需要 Unix 语义时才用 bash。
 - **测试**：`tests/unit/pwsh-tool.test.mjs` 6 条（schema 同时有 bash/pwsh、探测路径存在、真跑 Get-Date、非零退出码如实报、中文输出不乱码）；`persona-resolve` 重写为 9 条（工作区档长期有效、会话档覆盖与回落、TTL 只作用于会话档、超长拒绝、元数据与正文分离、同源）；`tools-unified` 的 schema 断言更新为含 pwsh。
 
-## [2.127.153] - 2026-10-25
-
 ## [2.127.152] - 2026-10-25
 
 - **长任务脱链：新工具 `run_detached`**。起因是真事故：2026-10-25 13:45 小语启动 45 秒影片渲染，6 分钟后成功产出 12.28MB 视频，但我中途重启服务部署新版本，她的 run 记录留下 `error: "server_restarted"`——**外部作业跟着服务一起死了**；她为了等它还在单轮里 `sleep 90/120`，把执行预算等光、轮次被自动暂停。
@@ -164,16 +149,12 @@
 - **输入框语气档修尺寸与小屏**：`button` 带浏览器默认 padding/border，比旁边的 `.usage-chip`（span）高一圈——已显式对齐（同样的 padding/border/圆角）；≤640px 时标签收成「语气」两个字，浮层改为右对齐并 `width: min(300px, calc(100vw - 24px))`，不会顶出屏幕。
 - **测试**：新增 `tests/unit/detached-run.test.mjs` 7 条（含真起一个脱链进程、查到、等它写完成标记与退出码、日志收到输出；以及 ASCII 目录守卫）。
 
-## [2.127.152] - 2026-10-25
-
 ## [2.127.151] - 2026-10-25
 
 - **会话语气档有了界面**：输入框工具栏新增「语气 · 默认」小条（挨着用量条），点开可选 简洁 / 陪伴 / 深度 / 回到默认，或输入自定义短句（≤200 字）。
   - 为什么放这里而不是灵魂页：语气档是**按会话**的，灵魂页拿不到当前会话 id。
   - 数据只读 `/api/persona?sessionId=` 的 `resolution`（与提示词同源），写走 `POST /api/persona/session`；设完立刻刷新，不必重启、不影响别的会话。
   - 文案直说它只调语气：人格定义仍是唯一真相，改人格仍要人批准。
-
-## [2.127.151] - 2026-10-25
 
 ## [2.127.150] - 2026-10-25
 
@@ -183,8 +164,6 @@
   - **正文按需取**：`/api/persona` 只给元数据（每段 id/名称/字数）+ `resolution`；正文走新的 `GET /api/persona/part?id=`。设档走 `POST /api/persona/session`。
   - 顺带：`buildSelfModel` 一轮只算一次（原来 seams 里算一次拼段、再算一次写 `记忆/自我.md`）。
 - **测试**：新增 `tests/unit/persona-resolve.test.mjs` 7 条——顺序（定义在首、会话语气在尾）、会话档生效/清除/互不影响、TTL 过期、超长拒绝、自定义文本、元数据与正文分离、同源校验。
-
-## [2.127.150] - 2026-10-25
 
 ## [2.127.149] - 2026-10-25
 
@@ -202,8 +181,6 @@
   - 新增 `chatWithFailover(model, messages, opts)`：内部用 `withModelFailover`（402/401/403/429 换通道、网络退避、媒体模型排除），并**拆出 `result` 再返回**（`withModelFailover` 返回的是 `{result, model, attempts, tried}` 包装，直接透传会让调用方拿到包装对象、误报「没有按契约给出结果」）。
   - 四个「无人看着跑」的调用点统一改用它：`fix_problem`（当场修）、`setOnTheSpotFixRunner`（Pi 会话里的同名工具）、时间引擎的执行轮/验证轮、`draftHarnessCandidates`（候选生成）。内层也尊重任务钉的模型（外层一直有，内层漏了）。
 - **测试**：新增 `tests/unit/autofix-failover.test.mjs` 3 条——源码守卫（不许再有裸调 `unifiedChat(defaultModel`，两处 fix 入口都要用 `runFixTurn`）+ 402 必须换通道 + 402 归类为额度类。
-
-## [2.127.148] - 2026-10-25
 
 ## [2.127.147] - 2026-10-25
 
@@ -259,6 +236,13 @@
 
 ## [2.127.141] - 2026-10-24
 
+- **记忆写入自检（Probe）**：engine/memory-hygiene.mjs 抽原文里的数字/日期/英文专名/引号内名字，检查写入的记忆有没有丢掉；dream-collector 每次追加后跑一次，结果进 记忆/记忆自检.jsonl（{score, kept, missing}）。
+- **增长惩罚（Growth Penalty）**：经验库/记忆日志超过条目或字节上限时，把**最老**的条目移进 <file>.archive.md，主文件只留近期，**先备份** .bak-<时间戳>；文件开头说明区永远保留（不参与归档）。
+  - 每天最多跑一次（按日期戳），服务启动 5 分钟后与每 6 小时各检查；
+  - GET /api/memory-hygiene 出计划与最近自检。
+  - 当前计划：经验库 113 → 100 条（归档 13）、记忆日志 447 → 250 条（归档 197）。
+- 踩坑记录：路由写成 /api/memory/hygiene 会被既有的 /^\/api\/memory\/([^/]+)$/ 先接住返回 not_found，改名 /api/memory-hygiene 才通。
+
 ## [2.127.141] - 2026-10-24
 
 - **记忆写入自检（Probe）**：engine/memory-hygiene.mjs 抽原文里的数字/日期/英文专名/引号内名字，检查写入的记忆有没有丢掉；dream-collector 每次追加后跑一次，结果进 记忆/记忆自检.jsonl（{score, kept, missing}）。
@@ -267,7 +251,6 @@
   - GET /api/memory-hygiene 出计划与最近自检。
   - 当前计划：经验库 113 → 100 条（归档 13）、记忆日志 447 → 250 条（归档 197）。
 - 踩坑记录：路由写成 /api/memory/hygiene 会被既有的 /^\/api\/memory\/([^/]+)$/ 先接住返回 not_found，改名 /api/memory-hygiene 才通。
-## [2.127.140] - 2026-10-24
 
 ## [2.127.141] - 2026-10-24
 
@@ -277,6 +260,43 @@
   - GET /api/memory-hygiene 出计划与最近自检。
   - 当前计划：经验库 113 → 100 条（归档 13）、记忆日志 447 → 250 条（归档 197）。
 - 踩坑记录：路由写成 /api/memory/hygiene 会被既有的 /^\/api\/memory\/([^/]+)$/ 先接住返回 not_found，改名 /api/memory-hygiene 才通。
+
+## [2.127.141] - 2026-10-24
+
+- **记忆写入自检（Probe）**：engine/memory-hygiene.mjs 抽原文里的数字/日期/英文专名/引号内名字，检查写入的记忆有没有丢掉；dream-collector 每次追加后跑一次，结果进 记忆/记忆自检.jsonl（{score, kept, missing}）。
+- **增长惩罚（Growth Penalty）**：经验库/记忆日志超过条目或字节上限时，把**最老**的条目移进 <file>.archive.md，主文件只留近期，**先备份** .bak-<时间戳>；文件开头说明区永远保留（不参与归档）。
+  - 每天最多跑一次（按日期戳），服务启动 5 分钟后与每 6 小时各检查；
+  - GET /api/memory-hygiene 出计划与最近自检。
+  - 当前计划：经验库 113 → 100 条（归档 13）、记忆日志 447 → 250 条（归档 197）。
+- 踩坑记录：路由写成 /api/memory/hygiene 会被既有的 /^\/api\/memory\/([^/]+)$/ 先接住返回 not_found，改名 /api/memory-hygiene 才通。
+
+## [2.127.141] - 2026-10-24
+
+- **记忆写入自检（Probe）**：engine/memory-hygiene.mjs 抽原文里的数字/日期/英文专名/引号内名字，检查写入的记忆有没有丢掉；dream-collector 每次追加后跑一次，结果进 记忆/记忆自检.jsonl（{score, kept, missing}）。
+- **增长惩罚（Growth Penalty）**：经验库/记忆日志超过条目或字节上限时，把**最老**的条目移进 <file>.archive.md，主文件只留近期，**先备份** .bak-<时间戳>；文件开头说明区永远保留（不参与归档）。
+  - 每天最多跑一次（按日期戳），服务启动 5 分钟后与每 6 小时各检查；
+  - GET /api/memory-hygiene 出计划与最近自检。
+  - 当前计划：经验库 113 → 100 条（归档 13）、记忆日志 447 → 250 条（归档 197）。
+- 踩坑记录：路由写成 /api/memory/hygiene 会被既有的 /^\/api\/memory\/([^/]+)$/ 先接住返回 not_found，改名 /api/memory-hygiene 才通。
+
+## [2.127.141] - 2026-10-24
+
+- **记忆写入自检（Probe）**：engine/memory-hygiene.mjs 抽原文里的数字/日期/英文专名/引号内名字，检查写入的记忆有没有丢掉；dream-collector 每次追加后跑一次，结果进 记忆/记忆自检.jsonl（{score, kept, missing}）。
+- **增长惩罚（Growth Penalty）**：经验库/记忆日志超过条目或字节上限时，把**最老**的条目移进 <file>.archive.md，主文件只留近期，**先备份** .bak-<时间戳>；文件开头说明区永远保留（不参与归档）。
+  - 每天最多跑一次（按日期戳），服务启动 5 分钟后与每 6 小时各检查；
+  - GET /api/memory-hygiene 出计划与最近自检。
+  - 当前计划：经验库 113 → 100 条（归档 13）、记忆日志 447 → 250 条（归档 197）。
+- 踩坑记录：路由写成 /api/memory/hygiene 会被既有的 /^\/api\/memory\/([^/]+)$/ 先接住返回 not_found，改名 /api/memory-hygiene 才通。
+
+## [2.127.141] - 2026-10-24
+
+- **记忆写入自检（Probe）**：engine/memory-hygiene.mjs 抽原文里的数字/日期/英文专名/引号内名字，检查写入的记忆有没有丢掉；dream-collector 每次追加后跑一次，结果进 记忆/记忆自检.jsonl（{score, kept, missing}）。
+- **增长惩罚（Growth Penalty）**：经验库/记忆日志超过条目或字节上限时，把**最老**的条目移进 <file>.archive.md，主文件只留近期，**先备份** .bak-<时间戳>；文件开头说明区永远保留（不参与归档）。
+  - 每天最多跑一次（按日期戳），服务启动 5 分钟后与每 6 小时各检查；
+  - GET /api/memory-hygiene 出计划与最近自检。
+  - 当前计划：经验库 113 → 100 条（归档 13）、记忆日志 447 → 250 条（归档 197）。
+- 踩坑记录：路由写成 /api/memory/hygiene 会被既有的 /^\/api\/memory\/([^/]+)$/ 先接住返回 not_found，改名 /api/memory-hygiene 才通。
+
 ## [2.127.140] - 2026-10-24
 
 - **每日 token 预算**（engine/token-budget.mjs）：从 记忆/运行时/每轮耗时.jsonl 里已落盘的 usage 按天汇总，按 provider 拆分；
@@ -284,16 +304,7 @@
   - 硬超（默认 2 倍）时 POST /api/runs 直接 429 并说明「今天用了多少、要跑就加请求头 x-yuanshu-skip-budget: 1」，不再无感烧钱。
 - turn-profile 补记本轮模型（model_used 事件），预算才能按 provider 分组。
 - 实测：今日 142.9 万 token（deepseek 2.9 万 / 其余来自更早未分组的轮次），预算 47.7%。
-## [2.127.139] - 2026-10-24
 
-## [2.127.141] - 2026-10-24
-
-- **记忆写入自检（Probe）**：engine/memory-hygiene.mjs 抽原文里的数字/日期/英文专名/引号内名字，检查写入的记忆有没有丢掉；dream-collector 每次追加后跑一次，结果进 记忆/记忆自检.jsonl（{score, kept, missing}）。
-- **增长惩罚（Growth Penalty）**：经验库/记忆日志超过条目或字节上限时，把**最老**的条目移进 <file>.archive.md，主文件只留近期，**先备份** .bak-<时间戳>；文件开头说明区永远保留（不参与归档）。
-  - 每天最多跑一次（按日期戳），服务启动 5 分钟后与每 6 小时各检查；
-  - GET /api/memory-hygiene 出计划与最近自检。
-  - 当前计划：经验库 113 → 100 条（归档 13）、记忆日志 447 → 250 条（归档 197）。
-- 踩坑记录：路由写成 /api/memory/hygiene 会被既有的 /^\/api\/memory\/([^/]+)$/ 先接住返回 not_found，改名 /api/memory-hygiene 才通。
 ## [2.127.140] - 2026-10-24
 
 - **每日 token 预算**（engine/token-budget.mjs）：从 记忆/运行时/每轮耗时.jsonl 里已落盘的 usage 按天汇总，按 provider 拆分；
@@ -301,6 +312,39 @@
   - 硬超（默认 2 倍）时 POST /api/runs 直接 429 并说明「今天用了多少、要跑就加请求头 x-yuanshu-skip-budget: 1」，不再无感烧钱。
 - turn-profile 补记本轮模型（model_used 事件），预算才能按 provider 分组。
 - 实测：今日 142.9 万 token（deepseek 2.9 万 / 其余来自更早未分组的轮次），预算 47.7%。
+
+## [2.127.140] - 2026-10-24
+
+- **每日 token 预算**（engine/token-budget.mjs）：从 记忆/运行时/每轮耗时.jsonl 里已落盘的 usage 按天汇总，按 provider 拆分；
+  - GET /api/budget/today、POST /api/budget/config（默认 300 万 token/天，记忆/运行时/token预算.json 可改）；
+  - 硬超（默认 2 倍）时 POST /api/runs 直接 429 并说明「今天用了多少、要跑就加请求头 x-yuanshu-skip-budget: 1」，不再无感烧钱。
+- turn-profile 补记本轮模型（model_used 事件），预算才能按 provider 分组。
+- 实测：今日 142.9 万 token（deepseek 2.9 万 / 其余来自更早未分组的轮次），预算 47.7%。
+
+## [2.127.140] - 2026-10-24
+
+- **每日 token 预算**（engine/token-budget.mjs）：从 记忆/运行时/每轮耗时.jsonl 里已落盘的 usage 按天汇总，按 provider 拆分；
+  - GET /api/budget/today、POST /api/budget/config（默认 300 万 token/天，记忆/运行时/token预算.json 可改）；
+  - 硬超（默认 2 倍）时 POST /api/runs 直接 429 并说明「今天用了多少、要跑就加请求头 x-yuanshu-skip-budget: 1」，不再无感烧钱。
+- turn-profile 补记本轮模型（model_used 事件），预算才能按 provider 分组。
+- 实测：今日 142.9 万 token（deepseek 2.9 万 / 其余来自更早未分组的轮次），预算 47.7%。
+
+## [2.127.140] - 2026-10-24
+
+- **每日 token 预算**（engine/token-budget.mjs）：从 记忆/运行时/每轮耗时.jsonl 里已落盘的 usage 按天汇总，按 provider 拆分；
+  - GET /api/budget/today、POST /api/budget/config（默认 300 万 token/天，记忆/运行时/token预算.json 可改）；
+  - 硬超（默认 2 倍）时 POST /api/runs 直接 429 并说明「今天用了多少、要跑就加请求头 x-yuanshu-skip-budget: 1」，不再无感烧钱。
+- turn-profile 补记本轮模型（model_used 事件），预算才能按 provider 分组。
+- 实测：今日 142.9 万 token（deepseek 2.9 万 / 其余来自更早未分组的轮次），预算 47.7%。
+
+## [2.127.140] - 2026-10-24
+
+- **每日 token 预算**（engine/token-budget.mjs）：从 记忆/运行时/每轮耗时.jsonl 里已落盘的 usage 按天汇总，按 provider 拆分；
+  - GET /api/budget/today、POST /api/budget/config（默认 300 万 token/天，记忆/运行时/token预算.json 可改）；
+  - 硬超（默认 2 倍）时 POST /api/runs 直接 429 并说明「今天用了多少、要跑就加请求头 x-yuanshu-skip-budget: 1」，不再无感烧钱。
+- turn-profile 补记本轮模型（model_used 事件），预算才能按 provider 分组。
+- 实测：今日 142.9 万 token（deepseek 2.9 万 / 其余来自更早未分组的轮次），预算 47.7%。
+
 ## [2.127.139] - 2026-10-24
 
 - **品味库**（借 dsh-mood 的"判断轨迹"，泛化原来的 design-prefs）：
@@ -310,23 +354,7 @@
 - **心情词表 10 → 33**：engine/mood-lexicon.mjs，30 个复合/当代心情各带 VAD 坐标，用最近邻映射；旧的 10 个基础码保留（loving → 恋慕）。情绪接口与快照多返回 label/labelCode/labelLayer。
 - **成本可见性（回答"咋这么费钱"）**：自己循环此前**丢弃 usage**，所以统计里今天成本一直是 0。现在 usage 累加并随 assistant 消息落盘（metadataFor → persistYuanshuAssistant），/api/stats 从此能看到自己循环的 token。
 - 单测 3 条：品味库记录/搜索/提示词片段、33 词表自洽映射。
-## [2.127.138] - 2026-10-24
 
-## [2.127.141] - 2026-10-24
-
-- **记忆写入自检（Probe）**：engine/memory-hygiene.mjs 抽原文里的数字/日期/英文专名/引号内名字，检查写入的记忆有没有丢掉；dream-collector 每次追加后跑一次，结果进 记忆/记忆自检.jsonl（{score, kept, missing}）。
-- **增长惩罚（Growth Penalty）**：经验库/记忆日志超过条目或字节上限时，把**最老**的条目移进 <file>.archive.md，主文件只留近期，**先备份** .bak-<时间戳>；文件开头说明区永远保留（不参与归档）。
-  - 每天最多跑一次（按日期戳），服务启动 5 分钟后与每 6 小时各检查；
-  - GET /api/memory-hygiene 出计划与最近自检。
-  - 当前计划：经验库 113 → 100 条（归档 13）、记忆日志 447 → 250 条（归档 197）。
-- 踩坑记录：路由写成 /api/memory/hygiene 会被既有的 /^\/api\/memory\/([^/]+)$/ 先接住返回 not_found，改名 /api/memory-hygiene 才通。
-## [2.127.140] - 2026-10-24
-
-- **每日 token 预算**（engine/token-budget.mjs）：从 记忆/运行时/每轮耗时.jsonl 里已落盘的 usage 按天汇总，按 provider 拆分；
-  - GET /api/budget/today、POST /api/budget/config（默认 300 万 token/天，记忆/运行时/token预算.json 可改）；
-  - 硬超（默认 2 倍）时 POST /api/runs 直接 429 并说明「今天用了多少、要跑就加请求头 x-yuanshu-skip-budget: 1」，不再无感烧钱。
-- turn-profile 补记本轮模型（model_used 事件），预算才能按 provider 分组。
-- 实测：今日 142.9 万 token（deepseek 2.9 万 / 其余来自更早未分组的轮次），预算 47.7%。
 ## [2.127.139] - 2026-10-24
 
 - **品味库**（借 dsh-mood 的"判断轨迹"，泛化原来的 design-prefs）：
@@ -336,6 +364,37 @@
 - **心情词表 10 → 33**：engine/mood-lexicon.mjs，30 个复合/当代心情各带 VAD 坐标，用最近邻映射；旧的 10 个基础码保留（loving → 恋慕）。情绪接口与快照多返回 label/labelCode/labelLayer。
 - **成本可见性（回答"咋这么费钱"）**：自己循环此前**丢弃 usage**，所以统计里今天成本一直是 0。现在 usage 累加并随 assistant 消息落盘（metadataFor → persistYuanshuAssistant），/api/stats 从此能看到自己循环的 token。
 - 单测 3 条：品味库记录/搜索/提示词片段、33 词表自洽映射。
+
+## [2.127.139] - 2026-10-24
+
+- **品味库**（借 dsh-mood 的"判断轨迹"，泛化原来的 design-prefs）：
+  - engine/taste.mjs：记「主题 → 选定 / 否掉 / 为什么」，落 记忆/品味库.jsonl，最多 2000 条；
+  - 工具 ecord_taste（她自己判断后记一笔）+ GET/POST /api/taste + 灵魂页「品味库」列表；
+  - 提示词新增 	aste 段（最近 5 条判断），ssembleYuanshuSystem 自动注入，不占长篇。
+- **心情词表 10 → 33**：engine/mood-lexicon.mjs，30 个复合/当代心情各带 VAD 坐标，用最近邻映射；旧的 10 个基础码保留（loving → 恋慕）。情绪接口与快照多返回 label/labelCode/labelLayer。
+- **成本可见性（回答"咋这么费钱"）**：自己循环此前**丢弃 usage**，所以统计里今天成本一直是 0。现在 usage 累加并随 assistant 消息落盘（metadataFor → persistYuanshuAssistant），/api/stats 从此能看到自己循环的 token。
+- 单测 3 条：品味库记录/搜索/提示词片段、33 词表自洽映射。
+
+## [2.127.139] - 2026-10-24
+
+- **品味库**（借 dsh-mood 的"判断轨迹"，泛化原来的 design-prefs）：
+  - engine/taste.mjs：记「主题 → 选定 / 否掉 / 为什么」，落 记忆/品味库.jsonl，最多 2000 条；
+  - 工具 ecord_taste（她自己判断后记一笔）+ GET/POST /api/taste + 灵魂页「品味库」列表；
+  - 提示词新增 	aste 段（最近 5 条判断），ssembleYuanshuSystem 自动注入，不占长篇。
+- **心情词表 10 → 33**：engine/mood-lexicon.mjs，30 个复合/当代心情各带 VAD 坐标，用最近邻映射；旧的 10 个基础码保留（loving → 恋慕）。情绪接口与快照多返回 label/labelCode/labelLayer。
+- **成本可见性（回答"咋这么费钱"）**：自己循环此前**丢弃 usage**，所以统计里今天成本一直是 0。现在 usage 累加并随 assistant 消息落盘（metadataFor → persistYuanshuAssistant），/api/stats 从此能看到自己循环的 token。
+- 单测 3 条：品味库记录/搜索/提示词片段、33 词表自洽映射。
+
+## [2.127.139] - 2026-10-24
+
+- **品味库**（借 dsh-mood 的"判断轨迹"，泛化原来的 design-prefs）：
+  - engine/taste.mjs：记「主题 → 选定 / 否掉 / 为什么」，落 记忆/品味库.jsonl，最多 2000 条；
+  - 工具 ecord_taste（她自己判断后记一笔）+ GET/POST /api/taste + 灵魂页「品味库」列表；
+  - 提示词新增 	aste 段（最近 5 条判断），ssembleYuanshuSystem 自动注入，不占长篇。
+- **心情词表 10 → 33**：engine/mood-lexicon.mjs，30 个复合/当代心情各带 VAD 坐标，用最近邻映射；旧的 10 个基础码保留（loving → 恋慕）。情绪接口与快照多返回 label/labelCode/labelLayer。
+- **成本可见性（回答"咋这么费钱"）**：自己循环此前**丢弃 usage**，所以统计里今天成本一直是 0。现在 usage 累加并随 assistant 消息落盘（metadataFor → persistYuanshuAssistant），/api/stats 从此能看到自己循环的 token。
+- 单测 3 条：品味库记录/搜索/提示词片段、33 词表自洽映射。
+
 ## [2.127.138] - 2026-10-24
 
 - **心情日记**（借用 dsh-mood 的产出物思路，但数据全部来自元枢已有的真实记录）：
@@ -347,32 +406,7 @@
 - 接口：GET /api/mood/diaries?limit=、GET /api/mood/diary?date=、POST /api/mood/diary/write。
 - 界面：灵魂培育中心 → 总览新增「心情日记」，展开可看全文。
 - 单测 4 条：过滤测试事件、正文结构、写过不重复、列表与单篇可读。
-## [2.127.137] - 2026-10-24
 
-## [2.127.141] - 2026-10-24
-
-- **记忆写入自检（Probe）**：engine/memory-hygiene.mjs 抽原文里的数字/日期/英文专名/引号内名字，检查写入的记忆有没有丢掉；dream-collector 每次追加后跑一次，结果进 记忆/记忆自检.jsonl（{score, kept, missing}）。
-- **增长惩罚（Growth Penalty）**：经验库/记忆日志超过条目或字节上限时，把**最老**的条目移进 <file>.archive.md，主文件只留近期，**先备份** .bak-<时间戳>；文件开头说明区永远保留（不参与归档）。
-  - 每天最多跑一次（按日期戳），服务启动 5 分钟后与每 6 小时各检查；
-  - GET /api/memory-hygiene 出计划与最近自检。
-  - 当前计划：经验库 113 → 100 条（归档 13）、记忆日志 447 → 250 条（归档 197）。
-- 踩坑记录：路由写成 /api/memory/hygiene 会被既有的 /^\/api\/memory\/([^/]+)$/ 先接住返回 not_found，改名 /api/memory-hygiene 才通。
-## [2.127.140] - 2026-10-24
-
-- **每日 token 预算**（engine/token-budget.mjs）：从 记忆/运行时/每轮耗时.jsonl 里已落盘的 usage 按天汇总，按 provider 拆分；
-  - GET /api/budget/today、POST /api/budget/config（默认 300 万 token/天，记忆/运行时/token预算.json 可改）；
-  - 硬超（默认 2 倍）时 POST /api/runs 直接 429 并说明「今天用了多少、要跑就加请求头 x-yuanshu-skip-budget: 1」，不再无感烧钱。
-- turn-profile 补记本轮模型（model_used 事件），预算才能按 provider 分组。
-- 实测：今日 142.9 万 token（deepseek 2.9 万 / 其余来自更早未分组的轮次），预算 47.7%。
-## [2.127.139] - 2026-10-24
-
-- **品味库**（借 dsh-mood 的"判断轨迹"，泛化原来的 design-prefs）：
-  - engine/taste.mjs：记「主题 → 选定 / 否掉 / 为什么」，落 记忆/品味库.jsonl，最多 2000 条；
-  - 工具 ecord_taste（她自己判断后记一笔）+ GET/POST /api/taste + 灵魂页「品味库」列表；
-  - 提示词新增 	aste 段（最近 5 条判断），ssembleYuanshuSystem 自动注入，不占长篇。
-- **心情词表 10 → 33**：engine/mood-lexicon.mjs，30 个复合/当代心情各带 VAD 坐标，用最近邻映射；旧的 10 个基础码保留（loving → 恋慕）。情绪接口与快照多返回 label/labelCode/labelLayer。
-- **成本可见性（回答"咋这么费钱"）**：自己循环此前**丢弃 usage**，所以统计里今天成本一直是 0。现在 usage 累加并随 assistant 消息落盘（metadataFor → persistYuanshuAssistant），/api/stats 从此能看到自己循环的 token。
-- 单测 3 条：品味库记录/搜索/提示词片段、33 词表自洽映射。
 ## [2.127.138] - 2026-10-24
 
 - **心情日记**（借用 dsh-mood 的产出物思路，但数据全部来自元枢已有的真实记录）：
@@ -384,113 +418,66 @@
 - 接口：GET /api/mood/diaries?limit=、GET /api/mood/diary?date=、POST /api/mood/diary/write。
 - 界面：灵魂培育中心 → 总览新增「心情日记」，展开可看全文。
 - 单测 4 条：过滤测试事件、正文结构、写过不重复、列表与单篇可读。
+
+## [2.127.138] - 2026-10-24
+
+- **心情日记**（借用 dsh-mood 的产出物思路，但数据全部来自元枢已有的真实记录）：
+  - engine/mood-diary.mjs：读 记忆/情绪感受.jsonl + 记忆/情绪潮汐.jsonl，每天收拢成一篇 markdown → 记忆/心情日记/YYYY-MM-DD.md；
+  - 内容只写数据能支撑的：今天记了几次感受 / 主色 / 一天里的关键时刻 / 效价唤醒区间与最强烈一刻 / 留给明天一句；**不调模型、不编造**；
+  - **过滤自己的测试**：「只回复两个字」「echo 自测」「sleep N」「[真测]」「eval-」这类不进日记（第一版就把我的测试写进去了，已修）；
+  - 有天气就写进开头（兰州多云 6–11°）。
+- 自动写：启动 3 分钟后一次、之后每 30 分钟；**23 点后写当天**，任何时候补昨天（漏跑兜底），已存在则跳过。
+- 接口：GET /api/mood/diaries?limit=、GET /api/mood/diary?date=、POST /api/mood/diary/write。
+- 界面：灵魂培育中心 → 总览新增「心情日记」，展开可看全文。
+- 单测 4 条：过滤测试事件、正文结构、写过不重复、列表与单篇可读。
+
+## [2.127.138] - 2026-10-24
+
+- **心情日记**（借用 dsh-mood 的产出物思路，但数据全部来自元枢已有的真实记录）：
+  - engine/mood-diary.mjs：读 记忆/情绪感受.jsonl + 记忆/情绪潮汐.jsonl，每天收拢成一篇 markdown → 记忆/心情日记/YYYY-MM-DD.md；
+  - 内容只写数据能支撑的：今天记了几次感受 / 主色 / 一天里的关键时刻 / 效价唤醒区间与最强烈一刻 / 留给明天一句；**不调模型、不编造**；
+  - **过滤自己的测试**：「只回复两个字」「echo 自测」「sleep N」「[真测]」「eval-」这类不进日记（第一版就把我的测试写进去了，已修）；
+  - 有天气就写进开头（兰州多云 6–11°）。
+- 自动写：启动 3 分钟后一次、之后每 30 分钟；**23 点后写当天**，任何时候补昨天（漏跑兜底），已存在则跳过。
+- 接口：GET /api/mood/diaries?limit=、GET /api/mood/diary?date=、POST /api/mood/diary/write。
+- 界面：灵魂培育中心 → 总览新增「心情日记」，展开可看全文。
+- 单测 4 条：过滤测试事件、正文结构、写过不重复、列表与单篇可读。
+
 ## [2.127.137] - 2026-10-24
 
 - 首页 hero 图标：从 **128×128 PNG 位图**（/static/branding/yuanshu-app-icon.png?v=desk，每次加载都要发起请求 + 解码）换成**内联 SVG 品牌标记** BrandMark。
   - 好处：零网络请求、随首屏 JS 立即渲染、矢量任意缩放不糊；也不再需要圆角遮罩和投影（那是位图时代的补丁）。
   - 顺带修掉图标与「元枢」标题的视觉挤压：固定 52×52 的 flex 盒，不参与缩放。
-## [2.127.136] - 2026-10-24
 
-## [2.127.141] - 2026-10-24
-
-- **记忆写入自检（Probe）**：engine/memory-hygiene.mjs 抽原文里的数字/日期/英文专名/引号内名字，检查写入的记忆有没有丢掉；dream-collector 每次追加后跑一次，结果进 记忆/记忆自检.jsonl（{score, kept, missing}）。
-- **增长惩罚（Growth Penalty）**：经验库/记忆日志超过条目或字节上限时，把**最老**的条目移进 <file>.archive.md，主文件只留近期，**先备份** .bak-<时间戳>；文件开头说明区永远保留（不参与归档）。
-  - 每天最多跑一次（按日期戳），服务启动 5 分钟后与每 6 小时各检查；
-  - GET /api/memory-hygiene 出计划与最近自检。
-  - 当前计划：经验库 113 → 100 条（归档 13）、记忆日志 447 → 250 条（归档 197）。
-- 踩坑记录：路由写成 /api/memory/hygiene 会被既有的 /^\/api\/memory\/([^/]+)$/ 先接住返回 not_found，改名 /api/memory-hygiene 才通。
-## [2.127.140] - 2026-10-24
-
-- **每日 token 预算**（engine/token-budget.mjs）：从 记忆/运行时/每轮耗时.jsonl 里已落盘的 usage 按天汇总，按 provider 拆分；
-  - GET /api/budget/today、POST /api/budget/config（默认 300 万 token/天，记忆/运行时/token预算.json 可改）；
-  - 硬超（默认 2 倍）时 POST /api/runs 直接 429 并说明「今天用了多少、要跑就加请求头 x-yuanshu-skip-budget: 1」，不再无感烧钱。
-- turn-profile 补记本轮模型（model_used 事件），预算才能按 provider 分组。
-- 实测：今日 142.9 万 token（deepseek 2.9 万 / 其余来自更早未分组的轮次），预算 47.7%。
-## [2.127.139] - 2026-10-24
-
-- **品味库**（借 dsh-mood 的"判断轨迹"，泛化原来的 design-prefs）：
-  - engine/taste.mjs：记「主题 → 选定 / 否掉 / 为什么」，落 记忆/品味库.jsonl，最多 2000 条；
-  - 工具 ecord_taste（她自己判断后记一笔）+ GET/POST /api/taste + 灵魂页「品味库」列表；
-  - 提示词新增 	aste 段（最近 5 条判断），ssembleYuanshuSystem 自动注入，不占长篇。
-- **心情词表 10 → 33**：engine/mood-lexicon.mjs，30 个复合/当代心情各带 VAD 坐标，用最近邻映射；旧的 10 个基础码保留（loving → 恋慕）。情绪接口与快照多返回 label/labelCode/labelLayer。
-- **成本可见性（回答"咋这么费钱"）**：自己循环此前**丢弃 usage**，所以统计里今天成本一直是 0。现在 usage 累加并随 assistant 消息落盘（metadataFor → persistYuanshuAssistant），/api/stats 从此能看到自己循环的 token。
-- 单测 3 条：品味库记录/搜索/提示词片段、33 词表自洽映射。
-## [2.127.138] - 2026-10-24
-
-- **心情日记**（借用 dsh-mood 的产出物思路，但数据全部来自元枢已有的真实记录）：
-  - engine/mood-diary.mjs：读 记忆/情绪感受.jsonl + 记忆/情绪潮汐.jsonl，每天收拢成一篇 markdown → 记忆/心情日记/YYYY-MM-DD.md；
-  - 内容只写数据能支撑的：今天记了几次感受 / 主色 / 一天里的关键时刻 / 效价唤醒区间与最强烈一刻 / 留给明天一句；**不调模型、不编造**；
-  - **过滤自己的测试**：「只回复两个字」「echo 自测」「sleep N」「[真测]」「eval-」这类不进日记（第一版就把我的测试写进去了，已修）；
-  - 有天气就写进开头（兰州多云 6–11°）。
-- 自动写：启动 3 分钟后一次、之后每 30 分钟；**23 点后写当天**，任何时候补昨天（漏跑兜底），已存在则跳过。
-- 接口：GET /api/mood/diaries?limit=、GET /api/mood/diary?date=、POST /api/mood/diary/write。
-- 界面：灵魂培育中心 → 总览新增「心情日记」，展开可看全文。
-- 单测 4 条：过滤测试事件、正文结构、写过不重复、列表与单篇可读。
 ## [2.127.137] - 2026-10-24
 
 - 首页 hero 图标：从 **128×128 PNG 位图**（/static/branding/yuanshu-app-icon.png?v=desk，每次加载都要发起请求 + 解码）换成**内联 SVG 品牌标记** BrandMark。
   - 好处：零网络请求、随首屏 JS 立即渲染、矢量任意缩放不糊；也不再需要圆角遮罩和投影（那是位图时代的补丁）。
   - 顺带修掉图标与「元枢」标题的视觉挤压：固定 52×52 的 flex 盒，不参与缩放。
+
+## [2.127.137] - 2026-10-24
+
+- 首页 hero 图标：从 **128×128 PNG 位图**（/static/branding/yuanshu-app-icon.png?v=desk，每次加载都要发起请求 + 解码）换成**内联 SVG 品牌标记** BrandMark。
+  - 好处：零网络请求、随首屏 JS 立即渲染、矢量任意缩放不糊；也不再需要圆角遮罩和投影（那是位图时代的补丁）。
+  - 顺带修掉图标与「元枢」标题的视觉挤压：固定 52×52 的 flex 盒，不参与缩放。
+
 ## [2.127.136] - 2026-10-24
 
 - **首页「今晨」重排**（替代原来的 bullet 列表）：左栏天气、右栏昨夜事实、下方"等你"chips，底部只留正文没提到的维度（试验/封存窗口）；数字换行人类可读（17.1 分钟而不是 1025662ms）。
 - **天气接入**（engine/weather.mjs + GET /api/weather）：Open-Meteo 免 key，当前温度/体感/高低温/降水概率/风/湿度 + 一句提示；缓存 30 分钟，失败只隐藏不挡页面。默认兰州，可用 记忆/运行时/位置.json（{name,latitude,longitude}）改城市。
 - **工作台「昨夜」改紧凑摘要条**（NightStrip）：36 分钟复盘 · 1 条受阻 · 4 条新承诺 · 看全文 →；0 值不显示；完整版仍在灵魂培育中心。
-## [2.127.135] - 2026-10-24
 
-## [2.127.141] - 2026-10-24
-
-- **记忆写入自检（Probe）**：engine/memory-hygiene.mjs 抽原文里的数字/日期/英文专名/引号内名字，检查写入的记忆有没有丢掉；dream-collector 每次追加后跑一次，结果进 记忆/记忆自检.jsonl（{score, kept, missing}）。
-- **增长惩罚（Growth Penalty）**：经验库/记忆日志超过条目或字节上限时，把**最老**的条目移进 <file>.archive.md，主文件只留近期，**先备份** .bak-<时间戳>；文件开头说明区永远保留（不参与归档）。
-  - 每天最多跑一次（按日期戳），服务启动 5 分钟后与每 6 小时各检查；
-  - GET /api/memory-hygiene 出计划与最近自检。
-  - 当前计划：经验库 113 → 100 条（归档 13）、记忆日志 447 → 250 条（归档 197）。
-- 踩坑记录：路由写成 /api/memory/hygiene 会被既有的 /^\/api\/memory\/([^/]+)$/ 先接住返回 not_found，改名 /api/memory-hygiene 才通。
-## [2.127.140] - 2026-10-24
-
-- **每日 token 预算**（engine/token-budget.mjs）：从 记忆/运行时/每轮耗时.jsonl 里已落盘的 usage 按天汇总，按 provider 拆分；
-  - GET /api/budget/today、POST /api/budget/config（默认 300 万 token/天，记忆/运行时/token预算.json 可改）；
-  - 硬超（默认 2 倍）时 POST /api/runs 直接 429 并说明「今天用了多少、要跑就加请求头 x-yuanshu-skip-budget: 1」，不再无感烧钱。
-- turn-profile 补记本轮模型（model_used 事件），预算才能按 provider 分组。
-- 实测：今日 142.9 万 token（deepseek 2.9 万 / 其余来自更早未分组的轮次），预算 47.7%。
-## [2.127.139] - 2026-10-24
-
-- **品味库**（借 dsh-mood 的"判断轨迹"，泛化原来的 design-prefs）：
-  - engine/taste.mjs：记「主题 → 选定 / 否掉 / 为什么」，落 记忆/品味库.jsonl，最多 2000 条；
-  - 工具 ecord_taste（她自己判断后记一笔）+ GET/POST /api/taste + 灵魂页「品味库」列表；
-  - 提示词新增 	aste 段（最近 5 条判断），ssembleYuanshuSystem 自动注入，不占长篇。
-- **心情词表 10 → 33**：engine/mood-lexicon.mjs，30 个复合/当代心情各带 VAD 坐标，用最近邻映射；旧的 10 个基础码保留（loving → 恋慕）。情绪接口与快照多返回 label/labelCode/labelLayer。
-- **成本可见性（回答"咋这么费钱"）**：自己循环此前**丢弃 usage**，所以统计里今天成本一直是 0。现在 usage 累加并随 assistant 消息落盘（metadataFor → persistYuanshuAssistant），/api/stats 从此能看到自己循环的 token。
-- 单测 3 条：品味库记录/搜索/提示词片段、33 词表自洽映射。
-## [2.127.138] - 2026-10-24
-
-- **心情日记**（借用 dsh-mood 的产出物思路，但数据全部来自元枢已有的真实记录）：
-  - engine/mood-diary.mjs：读 记忆/情绪感受.jsonl + 记忆/情绪潮汐.jsonl，每天收拢成一篇 markdown → 记忆/心情日记/YYYY-MM-DD.md；
-  - 内容只写数据能支撑的：今天记了几次感受 / 主色 / 一天里的关键时刻 / 效价唤醒区间与最强烈一刻 / 留给明天一句；**不调模型、不编造**；
-  - **过滤自己的测试**：「只回复两个字」「echo 自测」「sleep N」「[真测]」「eval-」这类不进日记（第一版就把我的测试写进去了，已修）；
-  - 有天气就写进开头（兰州多云 6–11°）。
-- 自动写：启动 3 分钟后一次、之后每 30 分钟；**23 点后写当天**，任何时候补昨天（漏跑兜底），已存在则跳过。
-- 接口：GET /api/mood/diaries?limit=、GET /api/mood/diary?date=、POST /api/mood/diary/write。
-- 界面：灵魂培育中心 → 总览新增「心情日记」，展开可看全文。
-- 单测 4 条：过滤测试事件、正文结构、写过不重复、列表与单篇可读。
-## [2.127.137] - 2026-10-24
-
-- 首页 hero 图标：从 **128×128 PNG 位图**（/static/branding/yuanshu-app-icon.png?v=desk，每次加载都要发起请求 + 解码）换成**内联 SVG 品牌标记** BrandMark。
-  - 好处：零网络请求、随首屏 JS 立即渲染、矢量任意缩放不糊；也不再需要圆角遮罩和投影（那是位图时代的补丁）。
-  - 顺带修掉图标与「元枢」标题的视觉挤压：固定 52×52 的 flex 盒，不参与缩放。
 ## [2.127.136] - 2026-10-24
 
 - **首页「今晨」重排**（替代原来的 bullet 列表）：左栏天气、右栏昨夜事实、下方"等你"chips，底部只留正文没提到的维度（试验/封存窗口）；数字换行人类可读（17.1 分钟而不是 1025662ms）。
 - **天气接入**（engine/weather.mjs + GET /api/weather）：Open-Meteo 免 key，当前温度/体感/高低温/降水概率/风/湿度 + 一句提示；缓存 30 分钟，失败只隐藏不挡页面。默认兰州，可用 记忆/运行时/位置.json（{name,latitude,longitude}）改城市。
 - **工作台「昨夜」改紧凑摘要条**（NightStrip）：36 分钟复盘 · 1 条受阻 · 4 条新承诺 · 看全文 →；0 值不显示；完整版仍在灵魂培育中心。
+
 ## [2.127.135] - 2026-10-24
 
 - 「昨夜」块（复盘 / 自动执行 / 等你点 / 做梦）此前只在 **灵魂培育中心 → 总览** 里，工作台概览没有。
   按用户反馈把它也挂到 **工作台 → 概览**（Board.tsx：<LastNight />），两处同一数据源 soul-last-night。
 - 更正我自己的错误判断：这**不是死代码**——soul/Overview.tsx 被 pages/Soul.tsx 正常引用，昨夜块一直在灵魂页可见。
-## [2.127.134] - 2026-10-24
-
-## [2.127.133] - 2026-10-24
 
 ## [2.127.133] - 2026-10-24
 
@@ -507,6 +494,7 @@
 - **用量状态条**（对标 DSH 状态栏）：unified-chat 不再丢弃 provider 返回的 usage，改为上报 → 	urn-profile 记账 → GET /api/usage/session → 输入框底部显示 	ok/s · 缓存命中% · 上下文%。
   - 实测一轮：input 35380 / cacheRead 28544 / 缓存命中 44.7% / 上下文 4%；
   - tok/s 取逐轮中位数（输出 token ÷ (总耗时 - 首字)），避免被闲置时间稀释。
+
 ## [2.127.132] - 2026-10-24
 
 - **修自我介绍的数字口径**：engine/self-model.mjs 的 countSessions 只数 sessions/ **根目录**的 .jsonl。
@@ -515,6 +503,7 @@
   - 改成递归统计（深度 ≤4），跳过 .trash 与 *.archive.jsonl / *.bak.jsonl；
   - 单测 self-model-sessions.test.mjs 守住：子目录要数进去、归档与回收站不算。
 - 说明：这不是"8 月后会话不落这个路径"，会话一直都在；只是统计看错了层。
+
 ## [2.127.131] - 2026-10-24
 
 - **bash 命令卡死 + 模型重试死循环**（真机：单 run 跑了 16 分钟、11 次工具调用）：
@@ -525,6 +514,7 @@
   - 恢复时改为**从事件日志 0 号游标重放**重建正文——localStorage 快照可能因配额/裁剪不完整，只靠它会出现空白；
   - 重连且暂无正文时显示「正在恢复上一轮输出…」，不再是纯空白；
   - saveActiveRun 分级降级（完整 → 去工具输出 → 只留正文尾部），避免超配额整次写失败。
+
 ## [2.127.130] - 2026-10-24
 
 - **查清两个"可疑数字"，都是真的，但表述误导**：
@@ -533,6 +523,7 @@
 - 晨报口径修正：
   - 慢请求区分「近 6 小时」与「24 小时内历史峰值」，不再拿旧账当现状；
   - 试验耗时从裸毫秒换成「17.1 分钟」这种可读写法（成对数字一起换，并清掉残留 ms）。
+
 ## [2.127.129] - 2026-10-24
 
 - **聊天正文排版**（回应"会话输出不好看"）：
@@ -550,6 +541,7 @@
   正文按要点/句子抽取，单条 ≤420 字；
 otifier 已接。
 - 微信长回答分条时加 （i/n） 前缀，避免看起来像刷屏。
+
 ## [2.127.128] - 2026-10-24
 
 - **找到"卡 3–4 秒"的真凶**：GET /api/stats/global 每次调用**同步解析全部 398 个会话**（其中最大 37.8MB），一次就把事件循环按住 **3095–4196ms**。证据：loop-lag 的 maxMs 与连续调用该接口的时间完全重合。
@@ -559,6 +551,7 @@ otifier 已接。
   3. 大文件（>4MB）改 **流式逐行解析**（readline + 每 5000 行让出事件循环），小文件保持缓存同步；两个统计接口的循环每 20 个文件 setImmediate 一次。
 - 实测：修复前单次阻塞 **3095–4196ms**；修复后冷启动一次调用墙钟 4.5s 但事件循环不阻塞（分片），二次重算 **188ms**、命中缓存 **20ms**，此后 2 分钟无 ≥2s 停顿。
 - 说明：这解释了"发消息前卡一下""刷新后半天不动"的体感；之前归因到 GC 是错的（GC 观测器没记录到 ≥50ms 的 GC）。
+
 ## [2.127.127] - 2026-10-24
 
 - **会话压缩（别人报的问题）**：对照桌面报告逐条核实，我们这棵树确实缺两块：
@@ -567,11 +560,13 @@ otifier 已接。
   - 实测（[真测] 合成会话，30 轮 / 10876 tokens）：{"ok":true,"compact":"done","summary":"1. 用户核心诉求…","retained":2,"before":10876}，6 秒完成，文件里落 1 条 compaction 条目。
 - **测试隔离（我的错，已修）**：昨天清理会话时按内容匹配，把伙伴的真实会话（ 1a14ef1，62 条）挪进了 .trash。已恢复并验证回到列表；同时补了 scripts/test-session.mjs：新建一律 [真测] 前缀 + group=test，清理只删 test 分组且默认 dry-run。
 - 顺带修：根目录散落的会话文件按 cwd 归位（7 条），不再因放错目录而从列表消失。
+
 ## [2.127.126] - 2026-10-24
 
 - **卡顿归因第二轮**：7.6 秒停顿发生时**没有业务请求、也没有 ≥50ms 的 GC**（[gc] 观测器 12:06:56 上线后，12:07:29 的停顿没有产生任何 GC 记录）→ 结论：卡在**后台定时任务里的同步活**，不是 GC、也不是接口。
 - 新增 engine/timer-watch.mjs：包装 setInterval 与 ≥1s 的 setTimeout，回调耗时 ≥300ms 打 [slow-timer] <ms> ← <注册位置>，下一次停顿可直接点名。
 - 静置 3 分钟后：RSS 161–174MB、heap 78–93MB、无停顿；此前的 600–700MB 是负载峰值，不是泄漏。
+
 ## [2.127.125] - 2026-10-24
 
 - **GC/内存排查第一轮**（回答"为什么卡 40–54 秒"）：
@@ -581,6 +576,7 @@ unStore.list()/listAsync() 加 **mtime 缓存**：以前每次 overview 都重�
   - 新增 **GC 观测**：PerformanceObserver('gc')，≥50ms 的 GC 打 [gc] <kind> <ms>，与 loop-lag 时间轴对齐就能确认"停顿是不是 GC"。
 - **压测结论**：480 次请求 + 7 轮对话，RSS 在 233–291MB 之间震荡、heap 106–183MB 反复回收，**没有失控泄漏**。之前 600–700MB 更可能是长会话/工具输出/图片等真实负载，而不是单一泄漏点。
 - 待观察：采样器和 GC 日志跑一天后，再判断要不要动堆上限/会话归档。
+
 ## [2.127.124] - 2026-10-24
 
 - **每轮耗时拆解**（engine/turn-profile.mjs + GET /api/turn/profile + 晨报一行）：按 request / context / firstDelta / tool / end 打点，落 记忆/运行时/每轮耗时.jsonl。
@@ -592,6 +588,7 @@ unStore.list()/listAsync() 加 **mtime 缓存**：以前每次 overview 都重�
   | 模型首字 | **2758ms** | 8597ms | ≈97% |
 - **默认模型换成本机实测最快的 deepseek/deepseek-flash**：同一句话首字从 stepfun 的 3.4s 降到 **0.78–1.52s**；GLM 通道已 429 不可用。
 - 时间线也印证"卡"不是请求卡死：inflightTop 显示停顿期间在途的只有常驻 SSE（会话流/通知流，2 小时连接），说明停顿来自 GC/内存回收。
+
 ## [2.127.123] - 2026-10-23
 
 - **聊天执行脱离 HTTP（关键）**：以前 
@@ -605,6 +602,7 @@ eq.on('close') 就 abort，刷新页面 = 取消任务。
 - **修一个自己挖的坑**：新增路由被写成裸数组字面量 → 
 ode --check 通过但整段是死代码（/api/jobs 落回静态页）。已改成 API_ROUTES.push(...)。
 - 单测：job-pool 3 条。
+
 ## [2.127.122] - 2026-10-23
 
 - **查清「元枢被反复重启」的三个来源**（不是玄学）：
@@ -615,6 +613,7 @@ ode --check 通过但整段是死代码（/api/jobs 落回静态页）。已改�
   - 判死窗口 180s → **300s**（实测 163 秒的停顿会自己缓过来，180 秒会把它误杀）；
   - loop-lag 增加 inflightTop：停顿发生时记录**当时在途的 3 条请求**（区分"某请求卡死"还是"整机/GC 拖住"）；
   - 服务宿主给子进程设 NODE_OPTIONS=--max-old-space-size=1536，限制老生代堆，降低内存吃紧时的大 GC 长停顿。
+
 ## [2.127.121] - 2026-10-22
 
 - **修正 2.127.120 引入的误判**（别人装机后一直报「当前会话已有任务运行中」，看起来像前后端不同步）：
@@ -624,6 +623,7 @@ ode --check 通过但整段是死代码（/api/jobs 落回静态页）。已改�
     - **运行中**：只有「本进程没在跑」**且**「超过 10 分钟没更新」才算陈旧。
   - session_busy 现在带上**在跑什么**：ctiveRunId / activeStatus / activeSince / activePreview / live，前端可以如实显示，而不是一句空话。
   - 实测：写入一条 5 秒前更新的"他人运行" → 重启后立刻 interrupted (server_restarted)。
+
 ## [2.127.120] - 2026-10-22
 
 - **修「当前会话已有任务运行中」的假占用**（用户 23:42 被挡在门外，前台显示"执行中/状态待同步"）：
@@ -634,6 +634,7 @@ ode --check 通过但整段是死代码（/api/jobs 落回静态页）。已改�
 unning 记录 → 重启后自动变 interrupted (server_restarted)。
 - **卡顿推送**：事件循环停顿 >30 秒时用系统通知（不走微信）提醒一次，一小时内不重复——下次再卡不会再"没人知道"。之前 177 秒卡顿就是这么无声发生的。
 - 顺手修一个测试：人格段现在会追加「我是谁」自述，断言改为"原文保留 + 含【我】"。
+
 ## [2.127.119] - 2026-10-22
 
 - **修「服务反复重启」的真因**：事件循环被同步解析卡住 60–180 秒 → watchdog 判死强杀（今天 27 次启动、23:01 与 23:15 各一次，最长停顿 **177.8 秒**）。
@@ -645,6 +646,7 @@ otifyOwner 遇
 et=-2 prepare failed 时先 stop(keepEnabled)+start 重连再重试一次；统计补 
 otifyOk/notifyFailed/lastNotifyAt/lastNotifyError（此前失败在面板上完全看不见，failed 一直是 0）。
   - 实测：重连+重试后仍失败 → **不是掉线，是 bot 会话失效**；已发起重新登录（login.state=waiting，二维码已就绪），扫码后应恢复。
+
 ## [2.127.118] - 2026-10-22
 
 - 夜间任务可以**按任务钉模型**（不动你的聊天默认）：
@@ -652,6 +654,7 @@ egister({ model }) + POST /api/time/tasks/model；执行时钉了模型就优先
 - 「自我反思」已钉 stepfun-plan/step-5-preview（GLM 套餐到期后 429，原默认通道不可用）。实测：新建同类任务 → 15 秒跑完、返回正常。
 - 失败分类补中文额度措辞：套餐已到期/续订/欠费/余额不足/plan expired 都归为 quota → 触发换通道（原来只认 429/额度/quota 等英文措辞）。
 - 开第一个**封存窗口**：任务「自我反思」、基准 33%（最近 3 次）、7 天到期（2026-10-29），窗口内运行只评测不调参。
+
 ## [2.127.117] - 2026-10-22
 
 - **今日晨报（借 Claude Duet 的思路）+ 封存窗口评测（借 Quant-Arena 的方法）**
@@ -660,6 +663,7 @@ egister({ model }) + POST /api/time/tasks/model；执行时钉了模型就优先
 - **顺手修了一个静默失效的旧 bug**：loadPromises 只认数组，而账本文件是对象结构 → 一直返回 0 条，提示词里的【待兑现承诺】从来没生效过。修复后读到 170 条（11 条 pending、3 条逾期）。
 - 晨报解析修两处：startedAt 是 epoch 毫秒（Date.parse(数字) 得 NaN 被静默跳过 → 显示"昨夜没有任务"）；任务窗口从"18:00 起算"改为滚动 24 小时。
 - 单测：封存窗口 7 条；相关全绿。
+
 ## [2.127.116] - 2026-10-22
 
 - **守护改为 Windows 服务（B）+ 桌面端可管理（D）**
@@ -670,6 +674,7 @@ egister({ model }) + POST /api/time/tasks/model；执行时钉了模型就优先
   - 系统页新增「服务守护」卡：形态（Windows 服务 / 计划任务）、状态、PID、启动/重启/停止。
   - 新增 GET /api/service/status、POST /api/service/control。
   - 实测：服务 Running、health 200、模型调用正常（SYSTEM 身份经目录联读取 auth.json）、桌面端重启命令生效；可见窗口 0。
+
 ## [2.127.115] - 2026-10-22
 
 - **修「任务栏一直挂着一个 node 窗口」**：真实原因不是守护逻辑，而是 installer/launcher/run-hidden.vbs **从来没被放进仓库**——
@@ -680,12 +685,14 @@ ode.exe 的窗口。
   - 用 
 egister-task.ps1 同样参数重注册任务：动作 wscript.exe /B run-hidden.vbs，仍保留「登录自启 + 每 5 分钟健康检查 + 失败重启 3 次」。
   - 验证：可见窗口 0；守护与 server 进程都在，health 200。
+
 ## [2.127.114] - 2026-10-22
 
 - 换标收尾：**品牌色与主题色分离**——浅色主题的 accent 偏浅，logo 会发灰；改用 --brand-mark（#5468ff）+ 深色主题（ink/violet）自动提亮到 #8b9cff。
 - 侧栏与左侧导航 rail 都用 BrandMark（26px，断口环 + 轴心 + 紫点）。
 - **部署陷阱**（本次踩到）：服务实际从 pp/frontend/dist 读前端（REACT_DIST），而 
 pm run deploy:frontend 只同步 public/ 与 pp/dist/。离线部署必须三个目录一起复制，否则改了前端却看不到变化。
+
 ## [2.127.113] - 2026-10-22
 
 - **换标**（用户反馈"logo 不太好看"）：三条脉冲竖线 → 「枢轴」标记。
@@ -694,11 +701,13 @@ pm run deploy:frontend 只同步 public/ 与 pp/dist/。离线部署必须三�
   - 落地：侧栏品牌头、登录页标记；旧波形动画与相关 .sb-bar-* 一并移除。
   - 图标：按新标重生成 icon-32 / icon-192 / icon-512 / apple-touch-icon / icon-maskable-512；index.html 补 32px 与 mask-icon（真源在 rontend/index.html，直接改 public/ 会被构建覆盖）。
   - 单测更新：品牌头断言从"必须有波形"改为"必须用 BrandMark"，UI 结构 38 条全绿。
+
 ## [2.127.112] - 2026-10-22
 
 - 修 2.127.111 引入的**递归爆栈**：polyfill 里 uuid() → crypto.randomUUID → 回退 → 又调 uuid()，局域网复测报 RangeError: Maximum call stack size exceeded。
   - 回退实现改为独立的 allbackUuid()，全局补丁直接指向它；uuid() 只在"原生可用"时调用原生。
   - 局域网 IP 复测：页面正常渲染，无异常。
+
 ## [2.127.111] - 2026-10-22
 
 - **修手机白屏**（扫码登录后进入首页一片空白）。用局域网 IP 在桌面浏览器复现，控制台明确报：
@@ -707,6 +716,7 @@ pm run deploy:frontend 只同步 public/ 与 pp/dist/。离线部署必须三�
   - 修法：新增 rontend/src/lib/uuid.ts——uuid() 回退到 getRandomValues 生成 v4，并在入口**最先执行**给全局补 crypto.randomUUID（第三方库也能用）。
   - 顺带把 RealtimeCall、TeamRunStart 里的直接调用换成 uuid()。
   - 用局域网 IP 复测：页面正文正常渲染（此前 document.body.innerText 为空）。
+
 ## [2.127.110] - 2026-10-22
 
 - **修扫码登录"设备已批准但尚未使用"**（真机反馈：列表出现两条 Android 幽灵条目）。
@@ -718,6 +728,7 @@ pm run deploy:frontend 只同步 public/ 与 pp/dist/。离线部署必须三�
   - 新增**配对日志** 记忆/运行时/配对日志.log（256KB 轮转），记录 claim/approve/token 及失败原因。
   - 界面：未使用设备给出提示 + 「清理未使用的」按钮。
   - 单测 9 条（含"IP 变了但凭据对仍放行"这条正是本次线上问题）；相关 48 条全绿。
+
 ## [2.127.109] - 2026-10-22
 
 - **修「更新提示把自己降级」**：截图时发现界面提示 当前 0edceb3 → 远端 37392c0，而远端那个提交比本机旧（GitHub 推送失败停在旧提交）。
@@ -725,13 +736,16 @@ pm run deploy:frontend 只同步 public/ 与 pp/dist/。离线部署必须三�
   - 新逻辑：安装版用**时间**判先后（远端提交时间 ≤ 本机构建时间 → head + 
 eason: remote-older，判为已最新），不跑 cat-file（避免按需取对象偷偷联网）。
   - 新增 2 条单测（远端更旧不提示 / 远端更新要提示）；更新相关 26 条全绿。
+
 ## [2.127.108] - 2026-10-22
 
 - 扫码登录收尾：**撤销立即生效**（校验缓存 5 秒 → 撤销时清空，否则刚撤的令牌还能再用几秒）；设备列表改为**新的在前**。
+
 ## [2.127.107] - 2026-10-22
 
 - 扫码登录：二维码里自动填**局域网地址**。此前在 localhost 打开系统页时生成的是相对路径 /pair/<code>，手机扫了打不开。
   - 回环访问时从网卡挑私网 IPv4（优先 192.168. / 10. / 172.16-31），避开虚拟网卡；端口沿用当前 host。
+
 ## [2.127.106] - 2026-10-22
 
 - **手机扫码登录**（手机客户端与微信都能用）：一次性码 + 电脑批准 + 每设备令牌。
@@ -741,6 +755,7 @@ eason: remote-older，判为已最新），不跑 cat-file（避免按需取对�
   - 兼容微信：微信「扫一扫」打开的就是局域网页面，**不需要微信账号授权**（真正的微信 OAuth 要开放平台网站应用资质：企业主体 + 认证费 + 审核，个人做不了）。
   - 页面 CSP 安全：全站 script-src 'self'，配对脚本走同源 /pair.js，页面只放 data 属性。
   - 新增单测 6 条；相关 198 条全绿。
+
 ## [2.127.105] - 2026-10-21
 
 - **服务日志落盘**（补长期观测缺口）：正常运行的 stdout/stderr 以前只在 watchdog 环形缓冲里，崩溃才写 60 行。
@@ -748,23 +763,16 @@ eason: remote-older，判为已最新），不跑 cat-file（避免按需取对�
   - 服务端新增只读接口：GET /api/logs/tail?lines=200（只读尾部、按块读取，不怕几十 MB）、GET /api/logs/list（按日期倒序）。
   - 路径约定与 engine/service-log.mjs 一致（watchdog 是 CJS，内联同一规则，不引 ESM）。
   - 新增单测 4 条；相关 283 条全绿。
+
 ## [2.127.104] - 2026-10-21
 
 - harness 来源改为**落盘**（记忆/运行时/harness-来源.log，64KB 轮转）：服务 stdout 平时不进任何日志文件（watchdog 只在崩溃时写环形缓冲），之前的 console.log 等于没打。
 - 顺带确认一个观测缺口：**服务正常运行的 stdout 没有落盘**，只有崩溃时才有 60 行。要做"长期服务日志"是单独一件事，先记在这里。
+
 ## [2.127.103] - 2026-10-21
 
 - 启动时打印 harness 提示来源（[harness] system 提示来源：file → 记忆/harness/system.md（4306B））。
   文件优先意味着"改代码常量不生效"，这条日志让下次"我明明改了协议却没变"一眼可查。
-## [2.127.102] - 2026-10-21
-
-## [2.127.101] - 2026-10-20
-
-## [2.127.100] - 2026-10-20
-
-## [2.127.99] - 2026-10-20
-
-## [2.127.98] - 2026-10-20
 
 ## [2.127.97] - 2026-10-21
 
@@ -775,6 +783,7 @@ eason: remote-older，判为已最新），不跑 cat-file（避免按需取对�
   - 触发：夜间定时任务的试验结论为 **worse** 时自动提一次；也可手动 POST /api/harness/propose。
   - 新增接口：GET /api/harness/candidates、POST /api/harness/candidates/mark（draft/verified/rejected/adopted）。
   - 新增单测 6 条；相关 309 条全绿。
+
 ## [2.127.96] - 2026-10-21
 
 - **护栏对齐：17 条不一致逐条落地**（接 2.127.95 的组件化）。
@@ -793,6 +802,7 @@ o-engine-edit 标人批准；skill-full-compliance、url-no-chinese 如实标 **
   - 结果：uncoveredCode = 0、unenforcedClauses = 0，advisory 2 条、human-approval 1 条，全部在 /api/harness 可见。
   - 护栏段文字也带上落地方式（需人批准 / 建议 / 代码拦+需人批准）。
   - 单测 6 条；相关 289 条全绿。
+
 ## [2.127.95] - 2026-10-20
 
 - **harness 组件化（一）**：按 Harness²（arXiv:2610.14224）的结构，把外壳拆成可追溯的组件——只做"能看见来源、能改、能回退"，不做 propose/compose。
@@ -807,6 +817,7 @@ o-system-mutate、
 o-secrets-write 等），宪法里有 9 条代码没硬拦（
 o-money、share-via-tool 等）——先如实列出来，不擅自合并。
   - 新增单测 5 条；相关 34 个测试文件共 231 条全绿。
+
 ## [2.127.94] - 2026-10-20
 
 - 按实测把「快的做法」写进协议：
@@ -814,11 +825,13 @@ o-money、share-via-tool 等）——先如实列出来，不擅自合并。
   - **能并行就并行**：互不依赖的读/查/搜同一轮并列调用，不要一次读一个来回四五轮。
 - 实测对比（同一台机器）：元枢单轮小事 ~5s；dsh headless 一次任务 **10.5s**（含进程启动，一次过、不重发 11KB 上下文）；dsh 冷启动曾达 82s（实测含一次凭据缺失）。
 - 顺带确认：DEEPSEEK_API_KEY 在用户环境里已配置（35 字符），dsh 能正常跑；但在未继承该变量的终端里会报 MISSING_CREDENTIAL。
+
 ## [2.127.93] - 2026-10-20
 
 - 会话变轻（二）：小任务不再走流程。实测「读一个文件并总结」用了 **31 秒 / 4 个 checkpoint（2 轮模型调用）**，其中一轮纯属"先计划再动手"。
   - 主协议新增一条：单文件、单命令、一次查询这类小任务，**一次工具调用做完**，不写 plan、不中间总结、不请示，做完一两句话汇报。
   - 单轮延迟实测（同一台机器）：glm-5.3-flash 5.4s、gnes-2.5-flash 4.7s、step-5-preview 5.1s —— 模型本身差异不大，慢在**轮数**。
+
 ## [2.127.92] - 2026-10-20
 
 - 会话变轻（一）：削减每轮固定开销。实测单轮提示词 12KB（≈7k tokens），工具循环里每一轮都要重发一次，长任务因此越跑越慢。
@@ -826,6 +839,7 @@ o-money、share-via-tool 等）——先如实列出来，不擅自合并。
   - **灵魂快照收紧**：纠正记忆 14 条 → 8 条、关系 6 条 → 4 条（旧的仍在文件里，需要时 read 得到）。
   - **天团规则移出主协议**：TEAM_DELIVERY_RULES（约 0.7KB）本来每轮都进主提示，现在只在 delegate_team 工具描述里出现。协议本身 2179 → 1502 字符。
   - 合计每轮少约 3KB（≈2k tokens），在 8 轮的工具任务里约少 16k tokens 的重复输入。
+
 ## [2.127.91] - 2026-10-20
 
 - 再次发生「干活时突然重启」，这次查清了根因：**不是代码死循环，是机器内存被压死**。
@@ -834,6 +848,7 @@ o-money、share-via-tool 等）——先如实列出来，不擅自合并。
   - STUCK_MIN_MS 60s → **180s**：内存压力下宁可等它缓过来，也不要重启丢掉正在跑的活。
 - 慢请求日志（记忆/运行时/慢请求.jsonl）今日统计：/api/companion/decision 495 次均值 6.5s、/api/companion/facts 96 次均值 5.7s——它们也是被同一个卡顿拖慢的受害者，不是元凶（
 un/overview 已有 60s 缓存）。
+
 ## [2.127.90] - 2026-10-20
 
 - 排查「守护进程像在多开/反复重启」，结论与处理：
@@ -841,12 +856,14 @@ un/overview 已有 60s 缓存）。
   - **真正的重启来自误杀**：今天共 11 次「判定僵死」，集中在 14:10–14:24；根因是服务端事件循环被卡 10–25 秒（事件循环停顿.jsonl 里今天 >5s 的停顿 13 条，最大 25.8s），三次探活（2.5s 上限）全落在卡顿窗口里。14:25 上线 STUCK_MIN_MS=60s 后，**再没有发生一次静止判定**。
   - 停顿日志降噪：阈值 500ms → **2000ms**，5MB 自动轮转。原来一天写 29741 行 / 2.7MB，噪声把真问题盖住了。
   - 抢锁失败的日志补上 pid 与"不算启动"，不再刷「守护启动」让人误以为在反复拉起。
+
 ## [2.127.89] - 2026-10-20
 
 - 修 watchdog「把忙当死」：14:10 服务被强杀重启，根因是事件循环被同步任务卡了 **25.77 秒**（loop-lag maxMs=25770），三次探活（每次 2.5s 超时）全失败 → 判僵死 SIGKILL。进程其实活着，重启反而打断了正在用的人。
   - 新增 STUCK_MIN_MS = 60_000：连续失败**且**失败已持续 ≥60 秒才强杀；忙一会儿不算死。
   - 日志补上"已持续 Xs"，方便区分"偶发一次"和"真的死了"。
 - 事件循环监测补一个**停顿起点** stallFrom（= now - maxMs），超过 5s 另打一条 [loop-stall]：以后能拿这个时间点去对服务日志，定位肇事请求，而不是只知道"卡了 25 秒"。
+
 ## [2.127.88] - 2026-10-20
 
 - 署名开发者（"至少得让人知道开发者"）：
@@ -854,6 +871,7 @@ un/overview 已有 60s 缓存）。
   - docs/STATEMENT.md 新增「五、谁做的」。
   - README 新增 ## 开发者 段（双平台账号、联系方式、反馈方式）。
   - package.json 补 uthor 与 license（之前都是空）。
+
 ## [2.127.87] - 2026-10-20
 
 - 自我描述里加入「怎么找伙伴」：邮箱 xue-xiaofeng@outlook.com、QQ 37303467。
@@ -861,6 +879,7 @@ un/overview 已有 60s 缓存）。
   - 自述里同时写明分寸：**只在需要人拍板、或真的等不到人时用，不拿它发不紧急的事**。
   - 记忆/自我.md 增加「怎么找伙伴」一节。
   - 测试：self-model 4/4（含"没配置不出现"与"有配置才注入"）。
+
 ## [2.127.86] - 2026-10-20
 
 - 补上缺失的「系统介绍与声明」：
@@ -868,6 +887,7 @@ un/overview 已有 60s 缓存）。
   - 新增 docs/STATEMENT.md：完整声明（含默认额度、三条审计文件的路径、引用时"必须保留边界与额度"的要求）。
   - README 的自我段加了声明入口。
   - 之前系统页只有「当前状态 / 访问令牌 / 检测更新 / 外网配置 / 接入模式 / 运行环境」，**没有任何一段说清"这是什么、守什么边界"**——这就是缺的那块。
+
 ## [2.127.85] - 2026-10-20
 
 - 按失败类型做模型故障转移（engine/model-failover.mjs）：
@@ -878,6 +898,7 @@ etwork（fetch failed、ECONNRESET、超时）/ ad-model（is a video model、m
   - 时间引擎的夜间反思改走这条链路，切换会打日志 [time-engine] 通道切换 …（quota：额度/鉴权限流 → 换通道）。
 - 试验结论回写经验（论文第二层的最小落地）：ppendLesson() 写 工程/经验库/harness-lessons.md，变差写"该回退 + 回退到改动前的版本"，变好写"可保留 + 作为默认做法"，中性写"不推广"。**单独文件，不污染人工维护的 experience.md**。
 - 测试：model-failover 6 条、harness-probe 6 条，共 12 条新增。
+
 ## [2.127.84] - 2026-10-20
 
 - 修「文本任务被路由到视频模型」：Harness² 探针上线后第一次跑历史对照，就发现自我反思任务最近 3 次里 2 次失败，其中一次是 gnes-video-2.5-flash 报 HTTP 400: is a video model。
@@ -886,6 +907,7 @@ etwork（fetch failed、ECONNRESET、超时）/ ad-model（is a video model、m
   - 测试 	ests/unit/model-router-guard.test.mjs 3 条（9 个媒体模型被拒、11 个文本模型不误伤、空值不崩）。
 
 - 另记：同批历史里还有 HTTP 429 每周/每月使用上限 与 etch failed，那是通道额度与网络，不是代码问题；探针把这两类如实记成"变差"，没有硬归因。
+
 ## [2.127.83] - 2026-10-20
 
 - 接入 Harness² 的 **Probe** 一步（arXiv:2610.14224，google-research/harness2，Apache-2.0）：改动之后到底有没有变好，以前只能凭感觉，现在有对照。
@@ -895,17 +917,20 @@ etwork（fetch failed、ECONNRESET、超时）/ ad-model（is a video model、m
   - 每任务每天最多对照一次，结果写 文档/harness-试验.md；太差的记录会标「建议回退」。
   - 她的自我描述里多一句「我最近在做的试验」，知道自己昨天试过什么。
   - 测试 	ests/unit/harness-probe.test.mjs 5 条；self 相关 16/16。
+
 ## [2.127.82] - 2026-10-20
 
 - 修「点了发送，手机输入法键盘不收起」：发送成功后输入框仍然保持焦点，软键盘就不会自动收起。
   - SendBox.doSend() 在触摸/粗指针路径主动失焦（pointer: coarse 或 800ms 内发生过触摸），桌面上保留焦点以便继续打字。
   - 插话（steer）发送成功后同样失焦。
   - 键盘收起后又立刻点输入框仍能正常打字，不影响连续对话。
+
 ## [2.127.81] - 2026-10-20
 
 - 额度再调高：单次 ¥8→**¥30**、每日 ¥50→**¥200**、每月 ¥300→**¥2000**（月度闸保留，最坏情况封顶 ¥2000/月）。
   - 三档判定逻辑与「花完记账、超限先问」的约束不变，只是上限放宽。
   - 自述同步显示新额度；测试 11/11。
+
 ## [2.127.80] - 2026-10-20
 
 - 调高自主花钱额度并补**月度闸**：单次 ¥3→**¥8**、每日 ¥10→**¥50**、新增**每月 ¥300**。
@@ -913,6 +938,7 @@ etwork（fetch failed、ECONNRESET、超时）/ ad-model（is a video model、m
   - canSpend() 三重判定（单笔 / 当日 / 本月），拒绝时给人话原因；spendThisMonth() 与 spendToday() 并存。
   - 自我描述同步显示三档额度，她对自己能花多少有明确自述。
   - 测试更新：self 相关 11/11。
+
 ## [2.127.79] - 2026-10-20
 
 - 放开花钱，但"花钱有度"：主人的原话是「花钱没事，只要她人格里花钱有度，为有利的事主动付出无所谓」。
@@ -921,6 +947,7 @@ etwork（fetch failed、ECONNRESET、超时）/ ad-model（is a video model、m
   - 自我描述里增加"花钱"一条：额度、今天已花、先看额度再说理由、花完记账、超限先问——她对自己花钱的边界有自述，不是隐藏规则。
   - 人格草案 记忆/草案区/人格-花钱有度-20261020.md：把"花钱有度"作为**价值观**（不是规则）提请批准，写明"有额度不等于该花"。
   - 测试 	ests/unit/self-spend.test.mjs 4 条；self 相关 11/11。
+
 ## [2.127.78] - 2026-10-20
 
 - 新增「自我描述」（self-model）：人格定义回答"我是什么样的人"，这次补上"我是谁"。
@@ -931,6 +958,7 @@ etwork（fetch failed、ECONNRESET、超时）/ ad-model（is a video model、m
 - 仓库对外门面（证据型分发第一步）：
   - README 增「她自己怎么说」与「5 分钟：看到它替你做出一件事」（可复制提示词 + 预期产出路径 + 目录对照表）。
   - 新增 docs/SELF.md（自我模型说明与写作规则）、docs/CASE.md（可核对案例模板）、README.en.md（英文入口）、.github/ISSUE_TEMPLATE/{bug,feature}.yml。
+
 ## [2.127.77] - 2026-10-20
 
 - 修「她自己发起的轮次只能看、不能做」：定时任务/自省轮过去只给 read/web_search/search_files，所以她"为自己活"时什么也做不了，每件动手的事都要等主人开口。
@@ -942,10 +970,12 @@ otifyOnAction。
   - 每次自主动作写 文档/自主执行审计.md，并按 dailyActions（默认 200/天）限频防跑飞。
 - 时间引擎 runner 接入：每轮按策略给工具、超限自动降回只读，并留痕。
 - 测试：	ests/unit/self-agency.test.mjs 4 条（默认边界、工具过滤、坏文件回落、审计与限频）。
+
 ## [2.127.76] - 2026-10-20
 
 - 修 watchdog 冷启动误杀：服务实测冷启动要 40–60 秒（依赖多、初始化重），而 watchdog 连续 3 次不健康（约 15 秒）就判僵死强杀 → 反复重启风暴（本次部署时真的发生：进程 23:23 起、新代码 00:0x 才部署，watchdog 见端口占用不重启，手动杀进程后又因 15 秒判死循环）。
   - 新增 STARTUP_GRACE_MS = 120_000：子进程启动后 2 分钟内，不健康只观察不强杀；超过宽限期仍不健康才判僵死。
+
 ## [2.127.75] - 2026-10-20
 
 - 修「她声称自己没有后台定时能力」的**能力可见性 bug**：	ime_task 执行器代码一直在（时间引擎真调度：30 分钟心跳、到点跑 unifiedChat、结果写 文档/时间引擎日志.md、可推送），但 **schema 从未暴露给模型**，所以她看不见自己的这项能力。
@@ -955,6 +985,7 @@ egister / list / pause / resume / run / remove（原来只有 register/list/remo
   - 校验：
 egister 必须有 prompt（≤4000 字），任务总量上限 50 条，超额提示先清理。
   - 测试：	ests/unit/time-task-tool.test.mjs 3 条（schema 可见性、六动作走通、错误可纠正）。
+
 ## [2.127.74] - 2026-10-19
 
 - 修「网页里亲自发消息，培养工具却说没有母体执行身份」：这是**仓库的问题**——`handleChat` 从来不签发执行身份，只有经过 `/api/runs` 的任务才有 `body.__runContext.executionIdentity`，所以"主人本人在网页里说"和"后台任务"被同等对待，一律拿不到身份。
@@ -1192,8 +1223,6 @@ egister 必须有 prompt（≤4000 字），任务总量上限 50 条，超额�
 - 公仔**不再是一张死贴图**：给立绘加了极轻的呼吸动效（7 秒周期，位移 1.6px、缩放 0.4%，`transform-origin` 压在下半身），并尊重 `prefers-reduced-motion` 与 `data-reduced-motion`。
 - 测试：新增 5 条（时段边界、刚打开窗口、久别分桶、忙→闲、跨时段触发）。
 
-## [2.127.43] - 2026-10-18
-
 ## [2.127.42] - 2026-10-18
 
 - 修 2.127.41 起不来的问题：`createApprovalFlow({runtime: cultivationRuntime})` 写在模块顶层，而 `cultivationRuntime` 后面才初始化 → TDZ ReferenceError 让整个服务起不来。改成惰性创建。
@@ -1266,8 +1295,6 @@ egister 必须有 prompt（≤4000 字），任务总量上限 50 条，超额�
 - 聊天渲染：正文里的 `/api/music/stream?u=…` 会被识别成音频播放器（与 `.mp3/.m4a` 外链同等对待，前端自动补 token）。
 - 实测结论：汽水音乐无公开接口；酷狗 `play/getdata` 30020、`trackercdn` status=2；酷我搜索返回空；B 站 `search/type` + `player/playurl` 匿名可用（206 有数据），412 为限流，已加重试。
 - 测试：新增 6 条（归一化、音轨解析、白名单、编码往返、源优先级、回落）。
-
-## [2.127.31] - 2026-10-18
 
 ## [2.127.30] - 2026-10-18
 
@@ -1347,7 +1374,6 @@ egister 必须有 prompt（≤4000 字），任务总量上限 50 条，超额�
 - 模型调用最终失败时新增一行 `[model-failure]` 取证日志（请求形状 + 上游原文，自动脱敏、截断 800 字），同类 400 不必再靠复现碰运气。
 - 输出预算为 DeepSeek 家族加了上游硬区间兜底（`max_tokens` 合法上限 393216，越界会直接 400）。
 - 影视：媒体代理响应面收紧（只搬运音视频/字幕/密钥/分片，其余 403），并放行影院分享页的免令牌 GET；播放器把网络错误细分为清单加载失败与格式不支持。
-
 
 ## [2.127.17] - 2026-10-16
 
@@ -1437,6 +1463,7 @@ egister 必须有 prompt（≤4000 字），任务总量上限 50 条，超额�
 - **后台原生下拉统一主题化**：全局 select 主题外观（箭头/圆角/边框/配色），89 处未封装的下拉一次收编
 - **更新可回滚**：每次更新前自动记录"上一个好版本"锚点；系统页更新卡新增「回滚上一版本」（reset+依赖重装+安全重启）
 - **账号管理**：退出入口升级为账号管理（ProfileManager）：多元枢档案保存/切换/删除，桌面 rail 与手机更多菜单同款
+
 ## [2.127.8] - 2026-10-12
 
 ### 修复与改进
@@ -1580,7 +1607,6 @@ egister 必须有 prompt（≤4000 字），任务总量上限 50 条，超额�
 ### 修复
 - **智能体培养报错带字段**：写操作校验失败时，原本只回「本次操作未通过校验」，模型要猜一轮。现在会指出具体字段和期望格式（例如 `expectedRevision`：非负整数修订号，`payload.parentId`：完整 id），且绝不回传输入值。
 - 培养工具说明写明 `designs` 按提交先后排、最后一条最新，读写只走工具，不去磁盘 grep 时间戳。
-
 
 ## [2.121.0] - 2026-10-07
 
@@ -1837,8 +1863,6 @@ egister 必须有 prompt（≤4000 字），任务总量上限 50 条，超额�
 
 - 公仔新增完整的「生活状态组」图库：衣服与动作随工作、阅读、休息、发呆、倾听、回应状态一起切换，不再把单张换装图误当成状态立绘。
 
-## [2.116.21] - 2026-09-27
-
 ## [2.116.20] - 2026-09-27
 
 - 公仔陪伴：按 30 秒空闲阶段重新评估主动互动，不再只在整分钟或会话修订变化时触发；空闲状态在休息、放空、倾听、回应之间更自然轮换。
@@ -1879,8 +1903,6 @@ egister 必须有 prompt（≤4000 字），任务总量上限 50 条，超额�
 - 接入六张真实生成并完成绿幕抠图的真人姿态素材：工作、阅读、休息、放空、倾听、回应；姿态仍由实时任务事实、会话状态和模型决策驱动。
 - 静态服务补齐 WebP MIME 类型，避免严格浏览器环境因 `nosniff` 将透明姿态图当作未知二进制而拒绝渲染。
 
-## [2.116.12] - 2026-09-27
-
 ## [2.116.11] - 2026-09-26
 
 - 真人公仔与右上角情绪潮汐使用同一份真实状态；移除公仔卡通选择，任务证据优先，互动由当前会话模型生成，支持免打扰、限频、取消及带到聊天草稿。其他会话只显示忙碌数量，不读取正文。
@@ -1890,6 +1912,7 @@ egister 必须有 prompt（≤4000 字），任务总量上限 50 条，超额�
 - 右上角心情灵珠（emo-pill / MoodOrb）HUD 化：嫁接 xiaoyu-avatar 原型 v0.2 的仪器层——24 段刻度弧随相位流动、5 秒横扫扫描光带扫过时局部提亮、情绪急动（目标参数突跳）触发一帧错位。灵魂不动：7 个连续视觉参数、积分相位、指数缓动与 VAD 数据流全部原样，30px 小尺寸按比例移植读数层（HUD 文字读数不塞入，会糊）。单测 8/8（含新增 v0.2 契约断言），浏览器隔离验收通过（canvas 24×24、发光像素 96.5%、专注态均色 RGB 157,117,224 ≈ 紫罗兰 262°、0 JS 错）。测试文件：tests/e2e/emo-pill-hud.playwright.mjs。
 
 - 心情灵珠点击改为打开**只读形象面板**（MoodPanel，深色科技风 + gilbert 二态色 = 服务端 VAD 反推）：纪律从"禁止本地点击换脸"收敛为"禁止本地写情绪"，6 个 DO/DO NOT 契约单测锁定（面板只读、不拉数、不写情绪），e2e 复跑三连通过。验收标准修订：canvas 动画断言从"两帧均色差 >2"改为**采样像素逐帧 diff（stride 每 12 字节取一样本，阈值 >1% 样本变动）**——均色法在 24px 小画布上会假阴（两轮均色差 0~1 但动画在跑）。
+
 ## [2.116.10] - 2026-09-26
 
 - 超维维护第一期：默认授权协议 1 小时、最大 2 小时，校验会话/任务/运行及到期撤销；无隔离执行器与可信本机授权时明确不可启用，不开放整机权限。
@@ -2209,8 +2232,6 @@ egister 必须有 prompt（≤4000 字），任务总量上限 50 条，超额�
 - Image intent detection forwards 16:9 / 9:16 and horizontal / vertical layout requirements to the real image generator.
 - Added regression coverage for aspect-ratio propagation and complex-image settling.
 
-## [2.112.0] - 2026-09-21
-
 ## [2.111.0] - 2026-09-21
 
 - 工作台：验收页读取绑定源码指纹的单元测试、类型检查和构建证据；源码变化明确标记过期，文件预览达到上限时显示总数和省略提醒。
@@ -2435,8 +2456,6 @@ agent（含天团）每次开工先读它，同一批设定不再在每条提示
 - 活动流本来就**在标签页不可见时不空转**（代码里已有 `document.visibilityState` 判断），无需再改；
 - 首屏 /api 请求数维持 13（此前 19 → 15 → 13）。
 
-## [2.107.2] - 2026-09-20
-
 ## [2.107.1] - 2026-09-20
 
 ### P0 收尾：情绪三合一 + 轮询再放宽（首屏 /api 19 → 13）
@@ -2641,8 +2660,6 @@ VIDEO：3 镜、标题《飞天·霓裳惊鸿》；ARBIT final：3 镜
 
 > 补记 v2.102.1（上一条提交漏了 CHANGELOG）：`server.mjs` 装上事件循环停顿监测（`monitorEventLoopDelay`），>500ms 写 `记忆/运行时/事件循环停顿.jsonl`。
 
-## [2.102.1] - 2026-09-19
-
 ## [2.102.0] - 2026-09-19
 
 ### 工作台新增「天团」视图：多AI角色扮演系统落地第一步（v26 规范 → 可执行数据）
@@ -2679,8 +2696,6 @@ VIDEO：3 镜、标题《飞天·霓裳惊鸿》；ARBIT final：3 镜
 - 顶栏标签由 名字 · 年龄 改成**只显示名字**（仍从 记忆/人格定义.json 的 name 字段读，改定义这里跟着变）；
 - 年龄保留在**挂件气泡**里（小语 · 20岁）——定义该露的地方是她的对话框，不是标题栏；
 - 真机核对（390×844）：左上角 = 小语（无数字无岁），气泡里仍是 小语 · 20岁 | Q版·可动 | v2.101.2 | 检查更新。
-
-## [2.101.2] - 2026-09-19
 
 ## [2.101.1] - 2026-09-19
 
@@ -2777,8 +2792,6 @@ useEffect(() => {
 
 **过程里自己踩的坑**：挥手第一版把 waveRef 用在了 PuppetCanvas 里，但它是**独立组件**、看不到父组件的 ref，
 TypeScript 直接报 Cannot find name；改成父组件 useState 传 waving prop 才对。
-
-## [2.98.0] - 2026-09-19
 
 ## [2.97.1] - 2026-09-19
 
@@ -4787,8 +4800,6 @@ compat 要 max_completion_tokens → 该字段 = 16000（旧代码发的是没�
 
 测试：+4（亲和头规则与兜底、baseUrl 优先级、两条请求路径都发头），1360 → **1364 全绿**。
 
-## [2.52.0] - 2026-09-16
-
 ## [2.51.0] - 2026-09-16
 
 ### 修复：工具调用参数双重编码把整轮请求打死（"怎么又调用失败" / HTTP 400 code 11133 的真因）
@@ -4834,6 +4845,7 @@ the model provider",…,"extError":{"code"…`，界面还把它截断在 `"extE
 ```
 
 测试：+5（双重编码、脏前缀、数组分片、整段历史就地规范化、错误文案人话化），1355 → **1360 全绿**。
+
 ## [2.50.0] - 2026-09-16
 
 ### 修复：外部机器安装检查的 4 个问题全部收进上游（换盘/换机器不再需要本地补丁）
@@ -4879,6 +4891,7 @@ xlsx/docx/pdf/zip/图片的字节拼进 prompt 就是乱码——费 token、污
 > 另一台机器怎么收：`cd C:\Users\xue-x\pi-web` → `git checkout -- watchdog.cjs autostart.ps1 scripts/restart-pi-web.ps1 server.mjs`
 > （丢掉本地改动）→ `git pull` → `node --check server.mjs` → 重启 8787。
 > 之后 `pi-web本地补丁.patch` 与那份说明可以留着做备份，但**不需要再打**了。
+
 ## [2.49.0] - 2026-09-16
 
 ### 修复（③残留）：出图交付那条记录绕过了安全检查——"出过图之后切 deepseek 就不回话"的第二处来源
@@ -4914,6 +4927,7 @@ v2.45.0 修的是**元枢循环**写会话的那条路（`persistYuanshuAssistan
 测试：在**既有**用例里补了一条断言（带 name 的 file 块必须原样保留），用例数不变：**1351 全绿**。
 （更正：本条最初写成"1351 → 1352"，实际没新增用例。）
 至此 ③ 的两处来源（元枢循环落盘 + 出图交付落盘）都封住，且历史 34 个会话已修复。
+
 ## [2.48.0] - 2026-09-16
 
 ### 修复（④出图兜底）：续画也要出图——"再换个词的出一下"以前什么都不画
@@ -4952,6 +4966,7 @@ v2.45.0 修的是**元枢循环**写会话的那条路（`persistYuanshuAssistan
 **如实记一笔**：本轮全量测试出现过两次**互相不同**的失败——`file-lock` 的跨进程自增与
 `subagent-traces` 的取消用例；单独跑分别 **22/22**、**6/6** 全过，是**满载时的抖**（当时正在跑出图），
 与本次改动无关。这两条属于已知的负载敏感用例，没藏。
+
 ## [2.47.0] - 2026-09-16
 
 ### 新增（②主驾引擎角标）：每轮都标出"谁在干活 + 为什么"，换模型不再神秘
@@ -4974,6 +4989,7 @@ v2.45.0 修的是**元枢循环**写会话的那条路（`persistYuanshuAssistan
 换成 opencode-go/deepseek 时这里会显示 `主驾 兼容适配器(pi)`——正是用户当时看到的现象。）
 
 测试：+2（源码契约：事件必须被消费、id 必须映射成中文名、原因不能丢），1345 → **1347 全绿**。
+
 ## [2.46.0] - 2026-09-16
 
 ### 修复（①失败可见）：上游失败不再被藏起来，也不再拿"无历史的兜底回答"糊过去
@@ -5017,6 +5033,7 @@ v2.45.0 修的是**元枢循环**写会话的那条路（`persistYuanshuAssistan
 并且 `/api/sessions/:id/messages` 现在能带出这条失败记录（以前是查不到的）。
 
 测试：+3（连续失败计数/清零、失败记录必须留在历史里、上游报错不许无历史兜底），1342 → **1345 全绿**。
+
 ## [2.45.0] - 2026-09-16
 
 ### 修复：assistant 消息里的附件块会让整段会话不可重放（"切到 deepseek 后一句话都不回"的真因）
@@ -5062,6 +5079,7 @@ v2.45.0 修的是**元枢循环**写会话的那条路（`persistYuanshuAssistan
 **还没完全了结**：把修好的历史放回元枢自己的链路重放，仍然复现同一个报错文本——
 说明还有**第二处**会产生同样 TypeError 的形状（我没拿到那一次的栈：服务端没记栈）。
 下一步先做①"失败可见"（把错误+栈显示出来/记下来），再借它把第二处钉死。
+
 ## [2.44.0] - 2026-09-16
 
 ### 优化：中间栏按用途折叠——写作核心常开，配置与工具组默认收起
@@ -5110,6 +5128,7 @@ v2.45.0 修的是**元枢循环**写会话的那条路（`persistYuanshuAssistan
 全程写入类请求 0 条。截图在 `tmp\visual-after\{skeleton,settings-looks}.png`。
 
 测试：+2（骨架的加载顺序与动效降级、「形象」分组不得混回操作行），1337 → 1339 全绿。
+
 ## [2.42.0] - 2026-09-16
 
 ### 新增：定妆照提示词补上「身体比例」与「镜头」，人物设定要求写到结构上
@@ -5132,6 +5151,7 @@ v2.45.0 修的是**元枢循环**写会话的那条路（`persistYuanshuAssistan
 规则对，只是没话说。
 
 **还没做**：出图效果的真实对比需要花一次出图额度，等用户点头后再跑（不是代码问题）。
+
 ## [2.41.1] - 2026-09-16
 
 ### 修复：界面上把 `**估计**` 当成字面量显示出来了
@@ -5820,6 +5840,7 @@ recommended_actions, failed_recovery_actions }`。元枢此前是反过来的—
   2 集 / 6 场 / 11 段，台词 16 行、说话人 3 人，继承链 10/11，Fountain 与中文剧本都带上了集标题。
 
 ## [2.23.0] - 2026-09-15
+
 ### 修复
 - **「名字出现在提示词里就挂参考图」这条规则在真实调用里是退化的。** 追查它时发现：
   `compileStoryPrompt` 会把**整个 bible**（角色/场景/道具全列）写进提示词，于是"名字出现"对
@@ -5846,8 +5867,8 @@ recommended_actions, failed_recovery_actions }`。元枢此前是反过来的—
 - 新增 2 条契约（挂载规则含"没提到就不挂"、三件生成与写回各归其位）+ 修 2 条被退化行为污染的旧期望；
   全量 **1206/1206**。
 
-
 ## [2.22.0] - 2026-09-15
+
 ### 新增：照 Laper 补三件（剧本要素与导出 / 全剧上下文 / 试戏）
 Laper（[laper.ai](https://laper.ai/)）是 AI 原生剧本创作平台，它的地基是**剧本要素 + 工业格式导出**，
 外加**200K 全剧本上下文**与**Playground（和 AI 扮演的角色对台词）**。逐项对照后元枢三件都缺：
@@ -5897,6 +5918,7 @@ Laper（[laper.ai](https://laper.ai/)）是 AI 原生剧本创作平台，它的
   试戏拿到在角色里的回复并落盘 2 回合。
 
 ## [2.21.0] - 2026-09-15
+
 ### 修复
 - **连续创作的视频不再「一条请求干等三分钟」。** 用户真实项目里的一次失败暴露了它：
   `视频生成超时（180s）`（seed 48494449）。查下来是两个问题叠在一起：
@@ -5929,6 +5951,7 @@ Laper（[laper.ai](https://laper.ai/)）是 AI 原生剧本创作平台，它的
   探针项目已删除，但那笔消耗已经发生。以后这类验收应当用不存在的模型 id 来避免。
 
 ## [2.20.0] - 2026-09-15
+
 ### 新增（把配方推完整：参考图策略 + 项目默认）
 - **参考图策略进配方**：用几张（0–4）、谁优先（挂载素材 / 定妆照）。
   此前这条策略**硬编码在编排层**——画面固定"素材优先且只 1 张"、视频固定"定妆照优先且 4 张"，
@@ -5966,6 +5989,7 @@ Laper（[laper.ai](https://laper.ai/)）是 AI 原生剧本创作平台，它的
   `defaultRecipeId`；刷新后仍在。
 
 ## [2.19.0] - 2026-09-15
+
 ### 修复
 - **卡在 `running` 的孤儿运行再也不会永远"正在生成"了。** 一次生成由某个进程持有，进程没了
   （重启、崩溃、被打断），那条 run 就永远停在 `running`：既不会成功，也不会失败，界面上一直显示
@@ -6004,6 +6028,7 @@ Laper（[laper.ai](https://laper.ai/)）是 AI 原生剧本创作平台，它的
 - 真实浏览器：尺寸/时长可选；配方面板能保存 → 列表出现 → 套用回制作台 → 导出下载 → 删除。
 
 ## [2.18.0] - 2026-09-15
+
 ### 修复
 - **「固定 seed」是一条假通路——声称支持，实际一次都没生效过。** 对照 ComfyUI 的产线纪律
   （seed 摆在 KSampler 上当必填项）去查，发现元枢这边三处都在假装：
@@ -6050,6 +6075,7 @@ Laper（[laper.ai](https://laper.ai/)）是 AI 原生剧本创作平台，它的
   `pageErrors=0`、失败请求 0。
 
 ## [2.17.0] - 2026-09-15
+
 ### 新增
 - **剧本重视对话创作。** 此前三个提示词（`story-prompts.compileStoryPrompt`、`story-assist` 的
   `buildStoryboardPrompt` / `buildStoryAssistPrompt`）里**一个"对话"字都没有**，分镜提示词还明确
@@ -6091,6 +6117,7 @@ Laper（[laper.ai](https://laper.ai/)）是 AI 原生剧本创作平台，它的
   但"要 4 段只给 1 段"值得单独处理（例如段数明显不足时重试一次）。等你说要不要做。
 
 ## [2.16.1] - 2026-09-15
+
 ### 修复
 - **连续创作里带参考图的任务必失败：`视频任务创建失败 400: {"code":"invalid_request","message":"media must be
   a public http(s) URL or base64 data. Local file paths are not supported; ..."}`**
@@ -6145,6 +6172,7 @@ Laper（[laper.ai](https://laper.ai/)）是 AI 原生剧本创作平台，它的
   `path.resolve` 拼成 `<wsRoot>\api\ws\file?...` 并谎报"文件不存在"。
 
 ## [2.16.0] - 2026-09-15
+
 ### 修复
 - **成片合成完刷新就没了。** `assembleFilm` 只把文件存进产物库就返回（`story-orchestrator.mjs`），
   项目 JSON 里**一个字都没写**；前端也只 `setFilmUrl` 存在内存里，
@@ -6172,6 +6200,7 @@ Laper（[laper.ai](https://laper.ai/)）是 AI 原生剧本创作平台，它的
 - 全量 `npm test` 通过。
 
 ## [2.15.0] - 2026-09-15
+
 ### 修复
 - **连续创作里旧产物看不见了。** 先说清数据是好的：服务端 `story-orchestrator.mjs:50-51`
   是 `scene.outputs.push(run)`——**只追加、从不覆盖**，旧产物一直都在磁盘上。
@@ -6201,6 +6230,7 @@ pageErrors=0
 ```
 
 ## [2.14.0] - 2026-09-15
+
 ### 修复
 - **定时任务的自我反思只谈后端，谈不了聊天。** 查下来不是它"选择"只谈后端，是**手里只有
   后端的材料**：会话材料是 `formatSession` 给的一行「名字 + preview」，而 `preview` 是
@@ -6244,6 +6274,7 @@ pageErrors=0
 测试 1122/1122（新增 `tests/unit/reflection-loop.test.mjs` 18 条）。
 
 ## [2.13.0] - 2026-09-15
+
 ### 更正（重要）
 - **上一版我在给用户的回复里说错了元枢的沙箱默认值。** 我写的是"元枢当前是
   `danger-full-access` 默认，恰好相反"——**这是错的**，那句话来自调研线的一句未核实转述，
@@ -6286,6 +6317,7 @@ workspace-write 本身不宽松（禁工作区外路径，`BASH_DANGER_RE` 仍�
 测试 1104/1104（新增 `tests/unit/sandbox-session.test.mjs` 14 条）。
 
 ## [2.12.0] - 2026-09-15
+
 ### 新增
 - **fork 型子智能体**（`engine/subagent-fork.mjs` + `delegate_fork` 工具）。元枢原先只有
   spawn 型（`delegate_task`）：干净上下文 + 自包含 prompt。dsh 的 fork 变体只差一个
@@ -6323,6 +6355,7 @@ workspace-write 本身不宽松（禁工作区外路径，`BASH_DANGER_RE` 仍�
 且顺序为 系统 → 种子 → 补充 → 子任务"的断言，以及"被闸门挡下时一次请求都不发"）。
 
 ## [2.11.0] - 2026-09-15
+
 ### 新增
 - **跨轮目标 + 三重闸门**（`engine/goals.mjs`，借 `dsh-goal-round-driver`）。
   元枢原先没有"目标跨轮推进"：任务看板是给人看的，时间引擎是按点触发的，都不是
@@ -6356,6 +6389,7 @@ workspace-write 本身不宽松（禁工作区外路径，`BASH_DANGER_RE` 仍�
 人类结清带证据；被碰文件全部还原并校验一致。
 
 ## [2.10.2] - 2026-09-14
+
 ### 修复
 - **dsh 不再标记为可主驾**（`canLead: true` → `false`）。这个标记的依据是
   `engine-pair.test.mjs` 里那句断言——「dsh 对话适配器**写完后**应能主驾」，
@@ -6381,6 +6415,7 @@ workspace-write 本身不宽松（禁工作区外路径，`BASH_DANGER_RE` 仍�
   并新增一条锁：不可主驾的引擎占主驾位时必须让路且**播报可见**（不能静默换引擎）。
 
 ## [2.10.1] - 2026-09-14
+
 ### 修复
 - **记忆结算只跑在 Pi 一条路上，而声明说它属于元枢循环。** 流水账 / 承诺 / 纠正 / 关系 /
   每-20-轮快照计数原先都写在 `server.mjs` 的 Pi 分支 `try` 里，而那个分支位于 `handleChat`
@@ -6403,6 +6438,7 @@ workspace-write 本身不宽松（禁工作区外路径，`BASH_DANGER_RE` 仍�
   适配器内部确实没有，但外壳会替它结算，原话会让人以为 pi 路径下记忆是坏的。
 
 ## [2.10.0] - 2026-09-14
+
 ### 新增
 - **作息与节律**（`engine/activity-rhythm.mjs`）。时间感此前只有"现在几点"和"距上次多久"，
   缺一层"对这个人来说现在算不算正常时间"——凌晨 3 点说早上好和上午 10 点说早上好不是一回事。
@@ -6438,6 +6474,7 @@ workspace-write 本身不宽松（禁工作区外路径，`BASH_DANGER_RE` 仍�
   （03:00–08:00 为 0，峰值 23:00）。测试里留了回归锁，防止再被当回数据源。
 
 ## [2.9.0] - 2026-09-14
+
 ### 新增
 - **AIBody 的「土壤」接回主角色**。原先这份运行协调 directive（模式策略 + 五个状态提供者摘要）
   只经 `executionContext` 传给**子智能体**，主角色根本收不到——而 directive 里写的正是
@@ -6462,6 +6499,7 @@ workspace-write 本身不宽松（禁工作区外路径，`BASH_DANGER_RE` 仍�
   详见 `docs/NAMING.md` 第四节与 `docs/sol-pi-notes.md`。
 
 ## [2.8.0] - 2026-09-14
+
 ### 新增
 - **命名契约**（`docs/NAMING.md`）：产物名统一为 `{提示词摘要}_{类型}_{时间戳}-{id}_{v版本}.{扩展名}`，
   视频/音乐/文本/图片/文档一体适用。此前聊天里的视频下载名回退成 `元枢视频-N.mp4`（所有视频同名、
@@ -6495,6 +6533,7 @@ workspace-write 本身不宽松（禁工作区外路径，`BASH_DANGER_RE` 仍�
 - 引擎控制台拆分配置、运行诊断、工具搜索与 Gateway 旁路，补齐刷新失败提示和移动端可读性。
 
 ## [2.7.1] - 2026-09-12
+
 ### 新增
 - 下载中心支持桌面壳一键打开系统下载目录，下载记录可重试与清理。
 - Android 0.2.4 接入系统保存窗口，资产与会话导出支持选择保存位置；确认保存后记录状态，并可重新打开文件。
@@ -6503,6 +6542,7 @@ workspace-write 本身不宽松（禁工作区外路径，`BASH_DANGER_RE` 仍�
 - 修复 Windows 打包完成后等待进程组不退出、导致交付步骤未执行的问题；安装包按当前版本精确交付并核对校验值。
 
 ## [2.7.0] - 2026-09-12
+
 ### 新增
 - 会话库按真实更新时间排序，历史会话自动补发稳定编号，新建会话立即落盘编号。
 - Pi SDK 会话恢复搜索、分享、媒体、技能和执行臂工具，PPT 任务可真实生成并交付文件。
@@ -6512,6 +6552,7 @@ workspace-write 本身不宽松（禁工作区外路径，`BASH_DANGER_RE` 仍�
 - 作品集路径前缀边界和文件交付路径校验，避免误读兄弟目录或误交付其他任务文件。
 
 ## [2.6.0] - 2026-09-04
+
 ### 新增
 - 工作台看板（桌面侧栏 + 手机「更多」）、进化引擎与跨会话回忆
 - 水墨 / 竹影主题；本机 Aieyra Anthropic 网关给 Claude Code
@@ -6522,6 +6563,7 @@ workspace-write 本身不宽松（禁工作区外路径，`BASH_DANGER_RE` 仍�
 - CHANGELOG 看板实际能读到仓库根的更新日志
 
 ## [2.5.0] - 2026-08-15
+
 ### 新增
 - 正式版本体系：版本常量 + CHANGELOG 更新日志，看板顶部显示 pi-web 版本与最近更新
 ### 修复
@@ -6529,23 +6571,28 @@ workspace-write 本身不宽松（禁工作区外路径，`BASH_DANGER_RE` 仍�
 - 更新：pi 引擎 0.84.1 → 0.84.2
 
 ## [2.4.0] - 2026-08-15
+
 - 安装一条命令化：极简版（纯 zip）+ 全自动版（装 git）双脚本，`irm … | iex` 一条命令部署
 - 全局安装支持：`npm i -g git+https://gitee.com/linxinyu520xue/pi-web.git` 后 `pi-web` 即用（setup.mjs 自初始化）
 - 外网分享服务固化：start-share.cmd 一键启动 8644 + cloudflared 隧道
 
 ## [2.3.0] - 2026-08-14
+
 - 断线自恢复：任务进度快照（/api/tasks/active）+ 前端断流自动恢复轮询
 - OpenIM 评估结论：不需要，SSE 心跳 + 断线重连已够
 
 ## [2.2.0] - 2026-08-12
+
 - 经验沉淀台：提案制（plan/approve/reject/rollback）+ 基因反馈闭环（效率/可靠/适应三滑块）
 - pi-reasonix 扩展：DeepSeek 前缀缓存优化（命中率实测 94%+）
 
 ## [2.1.0] - 2026-08-11
+
 - 多 provider 模型通道策略：默认 opencode-go 套餐 deepseek-v4-flash，图像自动降级切换
 - 技能体系接入：web-search / image-generation / voice-transcribe / session-export-redacted
 
 ## [2.0.0] - 2026-08-10
+
 - 记忆系统：固定记忆 + 记忆日志自动沉淀 + 经验库（跨会话长期有效）
 - 情绪引擎：VAD 三维情绪感知，对话自适应语气
 - 工作空间分类视图（工程/文档/生成物/交付）+ 一键交付 + 文件断点续传
