@@ -47,3 +47,13 @@ test("基线文件读写往返", () => {
   assert.deepEqual(loadBaseline(root), ["a", "b"]);
   assert.deepEqual(loadBaseline(fs.mkdtempSync(path.join(os.tmpdir(), "none-"))), []);
 });
+
+test("断言消息不能被当成测试名（只有带耗时的才算）", () => {
+  const out = [
+    '✖ 真实失败用例 (12.3ms)',
+    '✖ native URL permission is restricted to web URLs and trusted workbench origins',
+    'not ok 3 - TAP 风格失败',
+  ].join('\n');
+  const names = parseFailures(out);
+  assert.deepEqual(names.sort(), ['TAP 风格失败', '真实失败用例'].sort());
+});
