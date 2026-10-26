@@ -13,7 +13,7 @@
 //     不再用 sleep 在单轮里干等。
 //
 // 落盘：<wsRoot>/记忆/运行时/后台进程/<id>.{cmd,log,json}
-import { execFileSync } from "node:child_process";
+import { execFileSync, spawn } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 
@@ -146,7 +146,22 @@ export function launchDetached({ wsRoot, command, cwd = process.cwd(), label = "
     }).trim();
     pid = Number((out.match(/(\d+)\s*$/) || [])[1]) || 0;
   } catch (e) {
-    return { ok: false, error: `WMI 启动失败：${String(e?.message || e).slice(0, 160)}` };
+    // 2026-10-26：WMI 报 0x800700E8（232 ERROR_NO_DATA）时，多半是安全软件拦了 .cmd，
+    // 或临时目录里的文件在启动瞬间不可用。降级用 spawn 直接拉起（在服务进程树内，
+    // 服务重启会被带走），至少不让作业完全起不来，并记录用的是哪种方式。
+    const raw = String(e?.message || e);
+    const hint = /0x800700e8/i.test(raw) || /\b232\b/.test(raw)
+      ? "（232 ERROR_NO_DATA：目标在启动瞬间不可用，常见于安全软件拦 .cmd 或临时目录）"
+      : "";
+    try {
+      const child = spawn("cmd.exe", ["/c", cmdFile], { cwd, detached: true, stdio: "ignore", windowsHide: true });
+      child.unref();
+      pid = child.pid || 0;
+      if (!pid) return { ok: false, error: `WMI 启动失败${hint}，降级 spawn 也没拿到 pid：${raw.slice(0, 140)}` };
+      try { fs.writeFileSync(path.join(dir, `${id}.launch`), JSON.stringify({ via: "spawn-fallback", pid, at: Date.now(), wmiError: raw.slice(0, 200) }), "utf8"); } catch {}
+    } catch (e2) {
+      return { ok: false, error: `WMI 启动失败${hint}，降级也失败：${String(e2?.message || e2).slice(0, 140)}` };
+    }
   }
 
   try {

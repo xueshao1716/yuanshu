@@ -242,6 +242,8 @@ import { readProposals, writeProposals, refreshProposals, markProposal, mineSign
 // 2026-10-26：accepted 之后自动产出改动计划 + 测试骨架（人只审阅和跑测试）
 import { planFor, materializeProposal } from "./engine/capability-plan.mjs";
 import { reconcileDanglingSessions } from "./engine/patch-guard.mjs";
+// 2026-10-26：自动补丁面板（用户在界面上看 diff / 合并 / 丢弃，不碰命令行）
+import { listPatchBranches, diffOfBranch, mergeBranch, discardBranch } from "./engine/autopatch-branch.mjs";
 // 2026-10-26：无人值守补丁（生成 → 白名单 → 门禁 → 建分支提交；永不并 main）
 import { runQueue, pickEligible } from "./engine/patch-runner.mjs";
 // 2026-10-26：自动补丁必须在源码仓跑（服务本身从安装目录启动，__dirname 不是源码）
@@ -3424,6 +3426,40 @@ const API_ROUTES = [
   }],
   // 2026-10-26：计划预览（不写盘）与落地（写 PLAN.md + 测试骨架，绝不覆盖已有测试）
   // 2026-10-26：计划细化——把「失败 5 次」补成「哪一行、什么错、怎么复现」
+  // 2026-10-26：自动补丁面板
+  ["GET", "/api/autopatch/patches", (res) => {
+    try {
+      if (!PATCH_REPO.root) return json(res, 200, { ok: false, error: PATCH_REPO.reason, items: [] });
+      const out = listPatchBranches(PATCH_REPO.root);
+      return json(res, 200, { ok: out.ok, error: out.error, items: out.items || [] });
+    } catch (e) { return json(res, 500, { ok: false, error: String(e?.message || e).slice(0, 160), items: [] }); }
+  }],
+  ["GET", "/api/autopatch/diff", (res, req, url) => {
+    try {
+      const branch = String(url.searchParams.get('branch') || '');
+      if (!/^auto\/capability-[\w-]+$/.test(branch)) return json(res, 400, { ok: false, error: '分支名不合法' });
+      const out = diffOfBranch(PATCH_REPO.root, branch);
+      return json(res, out.ok ? 200 : 500, out);
+    } catch (e) { return json(res, 500, { ok: false, error: String(e?.message || e).slice(0, 160) }); }
+  }],
+  ["POST", "/api/autopatch/merge", async (res, req) => {
+    try {
+      const b = await readBody(req, 2e3);
+      const branch = String(b?.branch || '');
+      if (!/^auto\/capability-[\w-]+$/.test(branch)) return json(res, 400, { ok: false, error: '分支名不合法' });
+      const out = mergeBranch(PATCH_REPO.root, branch, { message: b?.message });
+      return json(res, out.ok ? 200 : 409, out);
+    } catch (e) { return json(res, 500, { ok: false, error: String(e?.message || e).slice(0, 160) }); }
+  }],
+  ["POST", "/api/autopatch/discard", async (res, req) => {
+    try {
+      const b = await readBody(req, 2e3);
+      const branch = String(b?.branch || '');
+      if (!/^auto\/capability-[\w-]+$/.test(branch)) return json(res, 400, { ok: false, error: '分支名不合法' });
+      const out = discardBranch(PATCH_REPO.root, branch);
+      return json(res, out.ok ? 200 : 400, out);
+    } catch (e) { return json(res, 500, { ok: false, error: String(e?.message || e).slice(0, 160) }); }
+  }],
   ["POST", "/api/capability/refine", async (res, req) => {
     try {
       const b = await readBody(req, 4e3);

@@ -11,6 +11,7 @@ import PortraitSlot from './PortraitSlot'
 import ToneSources from './ToneSources'
 import IdeasCard from './IdeasCard'
 import FeedbackCard from './FeedbackCard'
+import AutoPatchCard from './AutoPatchCard'
 import ExpressionCard from './ExpressionCard'
 export const sections = [
   ['overview','培养总览','从真实记录开始，找到下一步'], ['identity','身份与表达','身份、价值观、关系与边界'],
@@ -53,6 +54,9 @@ export default function Overview({open}: {open:(section:Section)=>void}) {
     </Block>
     <Block title="今日建议" hint="不是随机推荐：来自承诺、牵挂、久未推进的定时任务和你说过「改天再说」的事。采纳会变成目标并自动拆成几步。">
       <IdeasCard />
+    </Block>
+    <Block title="自动补丁" hint="系统自己写的改动。只在独立分支上，合并之前不影响任何东西：看改动 → 满意就合并，不满意就丢弃。">
+      <AutoPatchCard />
     </Block>
     <Block title="收件箱" hint="自动上报的崩溃回执 + 你提交的反馈。分组看条数，可以标完成或忽略。">
       <FeedbackCard />
