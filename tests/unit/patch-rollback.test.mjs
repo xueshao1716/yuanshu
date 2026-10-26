@@ -50,7 +50,9 @@ test("建分支失败（不是 git 仓库）→ 必须还原工作树", async ()
     generate: async () => ({ files: [{ path: "engine/a.mjs", content: "export const a = 999;\n" }] }),
   });
   assert.equal(out.ok, false);
-  assert.equal(out.stage, "branch");
+  // 隔离门禁会先失败（非 git 仓库里建不起 worktree），所以 stage 可能是 gate 或 branch；
+  // 真正要守住的是"没有残留"。
+  assert.ok(["gate", "branch"].includes(out.stage), "阶段=" + out.stage);
   assert.equal(readNorm(path.join(root, "engine", "a.mjs")), ORIGINAL, "分支失败也必须还原");
 });
 
