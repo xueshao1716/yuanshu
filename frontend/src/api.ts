@@ -924,6 +924,9 @@ export const SystemApi = {
     `/api/persona/part?id=${encodeURIComponent(id)}`,
   ),
   // 2026-10-26：反馈收件箱（自动上报也在这里，做成可看的卡片）
+  wikiList: () => api<{ ok: boolean; items: { name: string; bytes: number; updatedAt: number }[]; index: string }>('/api/wiki'),
+  wikiPage: (topic: string) => api<{ ok: boolean; content?: string; error?: string }>(`/api/wiki/${encodeURIComponent(topic)}`),
+  wikiRebuild: () => api<{ ok: boolean; written: string[]; kept: string[]; topics: number }>('/api/wiki/rebuild', { method: 'POST' }),
   feedback: () => api<{ items: { id: string; at: number; title: string; detail?: string; status: string; kind?: string; signature?: string; env?: unknown }[] }>('/api/feedback'),
   feedbackSummary: () => api<{ groups: { signature: string; kind: string; count: number; lastAt: number; status: string; title: string }[] }>('/api/feedback/summary'),
   // 2026-10-26：自动研判——能不能对上号、为什么对不上、一段可复制的回信

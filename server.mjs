@@ -232,6 +232,8 @@ import * as detachedRun from "./engine/detached-run.mjs";
 import { pruneOldJobs, cleanupLegacyJobDir } from "./engine/detached-run.mjs";
 // 2026-10-27：记忆 Git 版本化（抄 A5：记忆要能 diff、能回滚）
 import { commitMemory, memoryHistory, rollbackMemory } from "./engine/memory-versioning.mjs";
+// 2026-10-27：记忆 Wiki（把记忆/经验/知识渲染成人能读的主题页）
+import { buildWiki, listWiki, readWiki } from "./engine/memory-wiki.mjs";
 // 2026-10-25：后台作业状态机（做完没汇报、坏在哪一步）
 import { collectJobs, summarizeJobs, syncReports, pendingReports, ackReports, autoAckByText, urgentReports } from "./engine/job-state.mjs";
 // 2026-10-25：自己找活——从承诺/牵挂/久未推进的任务/随口提过的事里长出候选目标
@@ -3432,6 +3434,27 @@ const API_ROUTES = [
   // 2026-10-26：计划细化——把「失败 5 次」补成「哪一行、什么错、怎么复现」
   // 2026-10-26：自动补丁面板
   // 2026-10-27：记忆版本（只读历史 + 受控回滚）
+  // 2026-10-27：记忆 Wiki（人读的主题页）
+  ["GET", "/api/wiki", (res) => {
+    try {
+      const items = listWiki({ wsRoot: WS_ROOT });
+      const index = readWiki({ wsRoot: WS_ROOT, topic: 'index' });
+      return json(res, 200, { ok: true, items, index: index.ok ? index.content : '' });
+    } catch (e) { return json(res, 500, { ok: false, error: String(e?.message || e).slice(0, 160), items: [] }); }
+  }],
+  ["GET", /^\/api\/wiki\/([^/]+)$/, (res, req, url, m) => {
+    try {
+      const out = readWiki({ wsRoot: WS_ROOT, topic: decodeURIComponent(m[1]) });
+      return json(res, out.ok ? 200 : 404, out);
+    } catch (e) { return json(res, 500, { ok: false, error: String(e?.message || e).slice(0, 160) }); }
+  }],
+  ["POST", "/api/wiki/rebuild", (res) => {
+    try {
+      const out = buildWiki({ wsRoot: WS_ROOT });
+      try { commitMemory({ wsRoot: WS_ROOT, message: 'Wiki 重建' }); } catch {}
+      return json(res, 200, out);
+    } catch (e) { return json(res, 500, { ok: false, error: String(e?.message || e).slice(0, 160) }); }
+  }],
   ["GET", "/api/memory/history", (res, req, url) => {
     try {
       const limit = Math.min(50, Math.max(1, Number(url.searchParams.get('limit')) || 10));
@@ -5705,6 +5728,15 @@ ${rows.map((r) => `- [${r.status}${r.closed ? "/已结清" : ""}] ${r.text}\n  �
     };
     setTimeout(memoryVersionSweep, 90 * 1000);
     setInterval(memoryVersionSweep, 30 * 60 * 1000);
+    // 2026-10-27：启动后建一次 Wiki（人读的主题页），之后每 6 小时刷新
+    const wikiSweep = () => {
+      try {
+        const out = buildWiki({ wsRoot: WS_ROOT });
+        if (out.written.length) console.log("[wiki] 更新主题页", out.written.length, "个（手写保留", out.kept.length, "个）");
+      } catch (e) { console.log("[wiki] 生成失败（忽略）：", String(e?.message || e).slice(0, 100)) }
+    };
+    setTimeout(wikiSweep, 2 * 60000);
+    setInterval(wikiSweep, 6 * 60 * 60000);
     knowledgeRuntime.start();
     // 2026-10-26：无人值守补丁调度器。默认**关**（要显式 YUANSHU_AUTOPATCH=1）。
     // 即使开着，也只建 auto/ 分支、绝不并 main；每小时最多一个；失败即停、不连撞。
