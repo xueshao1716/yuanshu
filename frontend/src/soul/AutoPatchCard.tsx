@@ -89,12 +89,31 @@ export default function AutoPatchCard() {
             <p className="tone-sources-dim">改了：{p.files.slice(0, 6).join('、')}{p.files.length > 6 ? ` 等 ${p.files.length} 个文件` : ''}</p>
           ) : null}
 
-          <div className="persona-style-row">
-            <button className="persona-style-opt" disabled={busy === p.branch} onClick={() => showDiff(p.branch)}>
+          <div className="mt-2 flex flex-wrap items-center gap-2">
+            <button
+              type="button"
+              disabled={busy === p.branch}
+              onClick={() => showDiff(p.branch)}
+              style={{ display:'inline-flex',alignItems:'center',justifyContent:'center',minHeight:'30px',padding:'0 12px',borderRadius:'999px',fontSize:'12px',lineHeight:1,cursor:'pointer', border: '1px solid var(--pi-border-soft, #bfc4cb)', background: 'var(--pi-bg3, #eef0f3)', color: 'var(--pi-text, #222)' }}
+            >
               {openDiff === p.branch ? '收起改动' : '看改动'}
             </button>
-            <button className="persona-style-opt" disabled={busy === p.branch} onClick={() => merge(p.branch)}>合并到主线</button>
-            <button className="persona-style-opt" disabled={busy === p.branch} onClick={() => discard(p.branch)}>丢弃</button>
+            <button
+              type="button"
+              disabled={busy === p.branch}
+              onClick={() => merge(p.branch)}
+              style={{ display:'inline-flex',alignItems:'center',justifyContent:'center',minHeight:'30px',padding:'0 12px',borderRadius:'999px',fontSize:'12px',lineHeight:1,cursor:'pointer', border: '1px solid var(--pi-accent, #2f6bff)', background: 'var(--pi-accent-soft, rgba(47,107,255,0.12))', color: 'var(--pi-accent, #2f6bff)', fontWeight: 600 }}
+            >
+              合并到主线
+            </button>
+            <button
+              type="button"
+              disabled={busy === p.branch}
+              onClick={() => discard(p.branch)}
+              style={{ display:'inline-flex',alignItems:'center',justifyContent:'center',minHeight:'30px',padding:'0 12px',borderRadius:'999px',fontSize:'12px',lineHeight:1,cursor:'pointer', border: '1px solid var(--pi-border-soft, #bfc4cb)', background: 'var(--pi-bg3, #eef0f3)', color: 'var(--pi-dim, #666)' }}
+            >
+              丢弃
+            </button>
           </div>
 
           {openDiff === p.branch && (
