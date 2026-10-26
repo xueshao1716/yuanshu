@@ -11,9 +11,27 @@ import { spawnSync } from "node:child_process";
 import { allowedFromPlan, assertAllowed } from "./patch-guard.mjs";
 
 export const MAX_FILES = 5;
+
+/**
+ * 兼容 CRLF/LF 的 find 匹配：先按原样找，找不到就试另一种行尾。
+ * 2026-10-26 真机：模型按 `\n` 写 find，文件是 `\r\n`，校验直接判"找不到"。
+ */
+export function compatFind(content, find) {
+  const text = String(content || "");
+  const needle = String(find || "");
+  const direct = text.indexOf(needle);
+  if (direct >= 0) return { index: direct, find: needle };
+  const toCrlf = needle.replace(/\r?\n/g, "\r\n");
+  const i2 = text.indexOf(toCrlf);
+  if (i2 >= 0) return { index: i2, find: toCrlf };
+  const toLf = needle.replace(/\r\n/g, "\n");
+  const i3 = text.indexOf(toLf);
+  if (i3 >= 0) return { index: i3, find: toLf };
+  return { index: -1, find: needle };
+}
 export const MAX_BYTES = 20_000;
 export const MAX_EDITS = 8;
-export const MAX_EDIT_BYTES = 4_000;
+export const MAX_EDIT_BYTES = 12_000;
 
 export const FULL_FILE_LIMIT = 24_000;
 export const WINDOW_LINES = 40;
@@ -69,7 +87,10 @@ export function collectContext(repoRoot, plan = {}) {
       const to = Math.min(lines.length, from + WINDOW_LINES);
       return `--- 第 ${from + 1}~${to} 行 ---\n${lines.slice(from, to).join("\n")}`;
     });
-    const joined = windows.join("\n\n// …（中间省略）…\n\n");
+    // 2026-10-26 真机：原来用 "\n" 拼，把文件的 CRLF 换成 LF；模型照着 LF 写 find，
+    // 而文件是 CRLF → indexOf 永远失败（"找不到 find"）。这里保留原 EOL。
+    const eol = text.includes("\r\n") ? "\r\n" : "\n";
+    const joined = windows.join(`${eol}${eol}// …（中间省略）…${eol}${eol}`);
     if (budget - joined.length < 0) break;
     budget -= joined.length;
     out.push({ path: rel, mode: "excerpt", text: joined, totalLines: lines.length });
@@ -152,10 +173,13 @@ export function validatePatch(repoRoot, plan, patch) {
       const abs = path.join(repoRoot, v.rel);
       if (!fs.existsSync(abs)) return { ok: false, error: `${v.rel} 不存在（定点补丁只能改已有文件）` };
       const cur = fs.readFileSync(abs, "utf8");
-      const first = cur.indexOf(find);
-      if (first < 0) return { ok: false, error: `${v.rel} 里找不到 find（可能被改过或缩进不符）` };
-      if (cur.indexOf(find, first + 1) >= 0) return { ok: false, error: `${v.rel} 的 find 出现多次，不唯一，拒绝（避免改错地方）` };
-      checked.push({ path: v.rel, find, replace });
+      const hit = compatFind(cur, find);
+      if (hit.index < 0) return { ok: false, error: `${v.rel} 里找不到 find（可能被改过或缩进不符）` };
+      if (cur.indexOf(hit.find, hit.index + 1) >= 0) return { ok: false, error: `${v.rel} 的 find 出现多次，不唯一，拒绝（避免改错地方）` };
+      // replace 也统一成文件实际用的行尾
+      const eol = cur.includes("\r\n") ? "\r\n" : "\n";
+      const fixedReplace = String(replace).replace(/\r?\n/g, eol);
+      checked.push({ path: v.rel, find: hit.find, replace: fixedReplace });
     }
     return { ok: true, files: [], edits: checked, note: String(patch?.note || "") };
   }

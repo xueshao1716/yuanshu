@@ -23,36 +23,67 @@ export const DONE_MARK = "__DONE__";
 export const LOG_TAIL_BYTES = 8192;
 
 /**
- * 作业目录必须是**纯 ASCII 路径**。
+ * 作业目录（.cmd / .log / .json 落盘处）必须是**纯 ASCII 路径**。
  * 实测（2026-10-25）：把 .cmd 放在 `记忆\运行时\后台进程\` 下，`cmd.exe /c` 根本找不到它——
  * WMI 返回 pid、进程瞬间退出、日志一个字节都没有；换成 ASCII 目录后同一条命令立刻成功。
- * 所以这里先选 ASCII 目录，选不到就换 ProgramData，都不行就如实报错（别假装启动成功）。
+ * 所以这里按顺序挑第一个 ASCII 目录：工作区 bg-jobs → ProgramData → TEMP → USERPROFILE；
+ * 全都不行才如实报错（别假装启动成功）。
+ * 注意：这只解决「脚本文件放哪」；脚本**内容**里的中文路径由 buildCmdFile 的 UTF-8 BOM 解决。
  */
 export function isAsciiPath(p) {
   return /^[\x20-\x7E]*$/.test(String(p || ""));
 }
 
 export function pickBaseDir(wsRoot) {
-  const primary = path.join(String(wsRoot || "."), DETACHED_DIR);
-  if (isAsciiPath(primary)) return primary;
-  const programData = process.env.ProgramData || "C:\\ProgramData";
-  const fallback = path.join(programData, "Yuanshu", DETACHED_DIR);
-  if (isAsciiPath(fallback)) return fallback;
+  const candidates = [
+    path.join(String(wsRoot || "."), DETACHED_DIR),
+    path.join(process.env.ProgramData || "C:\\ProgramData", "Yuanshu", DETACHED_DIR),
+    path.join(process.env.TEMP || process.env.TMP || "C:\\Windows\\Temp", "Yuanshu", DETACHED_DIR),
+    path.join(process.env.USERPROFILE || "C:\\Users\\Public", "Yuanshu", DETACHED_DIR),
+  ];
+  for (const c of candidates) {
+    if (c && isAsciiPath(c)) return c;
+  }
   return "";
 }
 
 function dirOf(wsRoot) { return pickBaseDir(wsRoot); }
 function newId() { return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`; }
 
-/** 生成启动脚本。单独成文件是为了避开多层引号地狱（cmd → powershell → WMI）。 */
+/**
+ * 生成启动脚本。单独成文件是为了避开多层引号地狱（cmd → powershell → WMI）。
+ *
+ * 2026-10-25 真事故补丁：.cmd 里写着中文（cwd / command 指向含中文的工作区）时，
+ * cmd.exe 按**系统 ANSI 代码页**（中文机是 GBK）解析整份脚本。我们写的是 UTF-8，
+ * 于是 `cd /d "D:\我的工作区"` 被读成乱码目录 → cd 失败 → 命令在错目录里跑 → 退出码 1。
+ * 两条修法同时上：
+ *   ① 文件带 UTF-8 BOM，并在开头 `chcp 65001`，让 cmd.exe 明确按 UTF-8 读脚本；
+ *   ② 断言：内容要么带 BOM、要么整份纯 ASCII —— 两个都不满足就拒绝启动（别假装成功）。
+ */
 export function buildCmdFile({ command, cwd, logPath }) {
   const lines = [
     "@echo off",
+    // 切到 UTF-8 代码页：不然 cmd.exe 用 GBK 读下面的中文路径，cd 会失败
+    "chcp 65001 > nul",
     `cd /d "${String(cwd).replace(/"/g, "")}"`,
     `${command} >> "${logPath}" 2>&1`,
     `echo ${DONE_MARK} %ERRORLEVEL% >> "${logPath}"`,
   ];
-  return lines.join("\r\n") + "\r\n";
+  // BOM 必须在最前面：cmd.exe 见到 EF BB BF 才按 UTF-8 解析整份脚本
+  return "\ufeff" + lines.join("\r\n") + "\r\n";
+}
+
+/**
+ * 断言启动脚本是「UTF-8 BOM」或「纯 ASCII」二者之一。
+ * 两者都不满足时 cmd.exe 会按 ANSI 代码页误读中文路径，作业会静默失败（退出码 1）——
+ * 所以宁可在这里如实拒绝，也不要写出去赌一把。
+ * @returns {{ok:boolean, encoding:"utf8-bom"|"ascii"|"", reason?:string}}
+ */
+export function assertCmdSafe(content) {
+  const text = String(content || "");
+  if (text.charCodeAt(0) === 0xFEFF) return { ok: true, encoding: "utf8-bom" };
+  if (isAsciiPath(text)) return { ok: true, encoding: "ascii" };
+  return { ok: false, encoding: "", reason: "启动脚本既没有 UTF-8 BOM 也不是纯 ASCII，cmd.exe 会按 ANSI 误读中文路径（工作区含中文时必失败）" };
 }
 
 /** 读日志尾巴（不整份读）。 */
@@ -93,7 +124,11 @@ export function launchDetached({ wsRoot, command, cwd = process.cwd(), label = "
   const logPath = path.join(dir, `${id}.log`);
   const cmdFile = path.join(dir, `${id}.cmd`);
   try {
-    fs.writeFileSync(cmdFile, buildCmdFile({ command: cmd, cwd, logPath }), "utf8");
+    const cmdText = buildCmdFile({ command: cmd, cwd, logPath });
+    // 断言：.cmd 必须是 UTF-8 BOM 或纯 ASCII，否则 cmd.exe 会把中文路径读成乱码
+    const safe = assertCmdSafe(cmdText);
+    if (!safe.ok) return { ok: false, error: safe.reason };
+    fs.writeFileSync(cmdFile, cmdText, "utf8");
     fs.writeFileSync(logPath, "", "utf8");
   } catch (e) { return { ok: false, error: `写启动脚本失败：${String(e?.message || e).slice(0, 120)}` }; }
 

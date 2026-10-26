@@ -77,7 +77,7 @@ export function beginPatch({ repoRoot, plan, files = [], wsRoot, now = Date.now(
     if (exists) fs.copyFileSync(abs, path.join(snapDir, hashOf(rel) + ".bak"));
     return { rel, existed: exists, bak: exists ? path.join(snapDir, hashOf(rel) + ".bak") : null };
   });
-  const session = { id, repoRoot: root, createdAt: now, allowed, entries, snapDir, closed: false };
+  const session = { id, repoRoot: root, wsRoot: String(wsRoot || path.resolve(root, "..", "pi-workspace")), createdAt: now, allowed, entries, snapDir, closed: false };
   fs.writeFileSync(path.join(snapDir, "session.json"), JSON.stringify(session, null, 2), "utf8");
   return { ok: true, session };
 }
@@ -162,6 +162,20 @@ export function verifyPatch({ session, testFile, full = false, timeoutMs = 60000
       return { ok: false, rolledBack: true, steps, error: "找不到任何测试文件——门禁无法执行，已回滚" };
     }
     const r = run(process.execPath, ["--test", "--test-concurrency=1", ...testFiles], session.repoRoot, Math.max(timeoutMs, 900000));
+    // 2026-10-26：原始输出必须落盘。上一次只存了解析出的 4 个名字，
+    // 结果连"是解析错还是真失败"都判断不了，只能猜。
+    let gateLog = null;
+    try {
+      const dir = path.join(session.wsRoot || session.repoRoot, "记忆", "运行时", "门禁输出");
+      fs.mkdirSync(dir, { recursive: true });
+      gateLog = path.join(dir, `${session.id}-full.log`);
+      fs.writeFileSync(gateLog, `# 门禁原始输出
+# session: ${session.id}
+# exit: ${r.code}
+# at: ${new Date().toISOString()}
+
+` + r.out, "utf8");
+    } catch { gateLog = null }
     const base = loadBaseline(session.repoRoot);
     const sum = summaryOf(r.out, base);
     // 测试命令挂了、又解析不出任何失败项（比如 npm 起不来）——**不能当成全绿**。
@@ -169,16 +183,16 @@ export function verifyPatch({ session, testFile, full = false, timeoutMs = 60000
     if (!r.ok && sum.total === 0) {
       steps.push({ name: "test:all", ok: false, detail: r.out.slice(-200) });
       rollback(session);
-      return { ok: false, rolledBack: true, steps, error: "测试命令本身失败（无可用输出），已回滚" };
+      return { ok: false, rolledBack: true, steps, gateLog, error: "测试命令本身失败（无可用输出），已回滚" };
     }
-    steps.push({ name: "test:all", ok: sum.fresh.length === 0, detail: sum.fresh.length ? sum.fresh.join("; ") : `已知红灯 ${sum.known} 条（基线内）` });
+    steps.push({ name: "test:all", ok: sum.fresh.length === 0, gateLog, detail: sum.fresh.length ? sum.fresh.join("; ") : `已知红灯 ${sum.known} 条（基线内）` });
     if (sum.fresh.length) {
       rollback(session);
-      return { ok: false, rolledBack: true, steps, error: `出现 ${sum.fresh.length} 条**新增**红灯，已回滚：${sum.fresh.slice(0, 3).join("; ")}` };
+      return { ok: false, rolledBack: true, steps, gateLog, error: `出现 ${sum.fresh.length} 条**新增**红灯，已回滚：${sum.fresh.slice(0, 3).join("; ")}` };
     }
   }
   session.closed = true;
   session.verifiedAt = Date.now();
   try { fs.writeFileSync(path.join(session.snapDir, "session.json"), JSON.stringify(session, null, 2), "utf8"); } catch {}
-  return { ok: true, rolledBack: false, steps, changed };
+  return { ok: true, rolledBack: false, steps, changed, gateLog: steps.find((x) => x.gateLog)?.gateLog || null };
 }

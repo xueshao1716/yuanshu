@@ -12,12 +12,16 @@ import { spawnSync } from "node:child_process";
 import { beginPatch, verifyPatch, changedFiles, rollback } from "./patch-guard.mjs";
 import { validatePatch } from "./patch-generator.mjs";
 import { readProposals, writeProposals, markProposal } from "./capability-proposal.mjs";
+import { gitBin } from "./repo-root.mjs";
 
 export const MAX_ATTEMPTS = 3;
 export const MIN_INTERVAL_MS = 55 * 60 * 1000;
 
 function git(repoRoot, args) {
-  const r = spawnSync("git", args, { cwd: repoRoot, encoding: "utf8", timeout: 120000, windowsHide: true });
+  // 2026-10-26 真机：服务进程的 PATH 里没有 git，spawn("git") 直接失败，
+  // 于是"补丁改完了却建不了分支"——必须用探测到的可执行文件。
+  const bin = gitBin() || "git";
+  const r = spawnSync(bin, args, { cwd: repoRoot, encoding: "utf8", timeout: 120000, windowsHide: true });
   return { ok: r.status === 0, out: `${r.stdout || ""}${r.stderr || ""}`.trim(), code: r.status };
 }
 

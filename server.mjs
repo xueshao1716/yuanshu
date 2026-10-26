@@ -243,6 +243,8 @@ import { readProposals, writeProposals, refreshProposals, markProposal, mineSign
 import { planFor, materializeProposal } from "./engine/capability-plan.mjs";
 // 2026-10-26：无人值守补丁（生成 → 白名单 → 门禁 → 建分支提交；永不并 main）
 import { runQueue, pickEligible } from "./engine/patch-runner.mjs";
+// 2026-10-26：自动补丁必须在源码仓跑（服务本身从安装目录启动，__dirname 不是源码）
+import { resolveRepoRoot } from "./engine/repo-root.mjs";
 // 2026-10-26：计划细化（失败样本 / 调用点 / 最小复现）
 import { buildRefinement, applyRefinementToPlanFile } from "./engine/plan-refine.mjs";
 import { pickGenerator } from "./engine/patch-generator.mjs";
@@ -2889,6 +2891,10 @@ const knowledgeRuntime = createKnowledgeRuntime({ wsRoot: WS_ROOT, runRoot: RUNS
   catalog: () => modelList, directChat,
   foregroundBusy: () => [...activeSessions.values()].some(entry => entry.busy) || voiceAdmission.isActive(),
 });
+// 2026-10-26：源码仓根（自动补丁与门禁都在这里跑；不是 git 仓就明确拒绝，而不是在安装包里瞎跑）
+const PATCH_REPO = resolveRepoRoot({ dirname: __dirname });
+console.log("[autopatch] 源码仓:", PATCH_REPO.root || `未找到（试过 ${PATCH_REPO.tried.join(", ")}）`);
+
 // 2026-10-26：无人值守补丁的运行状态（异步，避免 HTTP 超时）
 let autopatchRunning = false;
 let autopatchState = {};
@@ -3394,7 +3400,11 @@ const API_ROUTES = [
       // 后台跑，不阻塞响应
       void (async () => {
         try {
-          const out = await runQueue({ wsRoot: WS_ROOT, repoRoot: __dirname, generate: gen.generate, limit: 1, dryRun, ignoreRateLimit: true, log: (m) => console.log('[autopatch]', m) });
+          if (!PATCH_REPO.root) {
+            autopatchState = { ...autopatchState, running: false, finishedAt: Date.now(), ok: false, error: PATCH_REPO.reason };
+            return;
+          }
+          const out = await runQueue({ wsRoot: WS_ROOT, repoRoot: PATCH_REPO.root, generate: gen.generate, limit: 1, dryRun, ignoreRateLimit: true, log: (m) => console.log('[autopatch]', m) });
           autopatchState = { ...autopatchState, running: false, finishedAt: Date.now(), ok: true, ...out };
         } catch (e) {
           autopatchState = { ...autopatchState, running: false, finishedAt: Date.now(), ok: false, error: String(e?.message || e).slice(0, 200) };
@@ -5625,7 +5635,8 @@ ${rows.map((r) => `- [${r.status}${r.closed ? "/已结清" : ""}] ${r.text}\n  �
         if (!pick.proposal) return;
         const token = (() => { try { return fs.readFileSync(path.join(__dirname, ".token"), "utf8").trim() } catch { return "" } })();
         const gen = pickGenerator({ token });
-        const out = await runQueue({ wsRoot: WS_ROOT, repoRoot: __dirname, generate: gen.generate, limit: 1, dryRun: false, log: (m) => console.log("[autopatch]", m) });
+        if (!PATCH_REPO.root) { console.log("[autopatch] 跳过：", PATCH_REPO.reason); return; }
+        const out = await runQueue({ wsRoot: WS_ROOT, repoRoot: PATCH_REPO.root, generate: gen.generate, limit: 1, dryRun: false, log: (m) => console.log("[autopatch]", m) });
         console.log("[autopatch] 一轮结束:", JSON.stringify(out.results?.[0] ? { ok: out.results[0].ok, stage: out.results[0].stage, branch: out.results[0].branch } : out.skip));
       } catch (e) { console.log("[autopatch] 出错:", String(e?.message || e).slice(0, 120)); }
     };
