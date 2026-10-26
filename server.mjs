@@ -230,6 +230,8 @@ const WATCHDOG_LIMITS = watchdogLimits.LIMITS;
 import * as detachedRun from "./engine/detached-run.mjs";
 // 2026-10-26：作业目录是运行期草稿，启动时清理陈旧残留
 import { pruneOldJobs, cleanupLegacyJobDir } from "./engine/detached-run.mjs";
+// 2026-10-27：记忆 Git 版本化（抄 A5：记忆要能 diff、能回滚）
+import { commitMemory, memoryHistory, rollbackMemory } from "./engine/memory-versioning.mjs";
 // 2026-10-25：后台作业状态机（做完没汇报、坏在哪一步）
 import { collectJobs, summarizeJobs, syncReports, pendingReports, ackReports, autoAckByText, urgentReports } from "./engine/job-state.mjs";
 // 2026-10-25：自己找活——从承诺/牵挂/久未推进的任务/随口提过的事里长出候选目标
@@ -3429,6 +3431,21 @@ const API_ROUTES = [
   // 2026-10-26：计划预览（不写盘）与落地（写 PLAN.md + 测试骨架，绝不覆盖已有测试）
   // 2026-10-26：计划细化——把「失败 5 次」补成「哪一行、什么错、怎么复现」
   // 2026-10-26：自动补丁面板
+  // 2026-10-27：记忆版本（只读历史 + 受控回滚）
+  ["GET", "/api/memory/history", (res, req, url) => {
+    try {
+      const limit = Math.min(50, Math.max(1, Number(url.searchParams.get('limit')) || 10));
+      const out = memoryHistory({ wsRoot: WS_ROOT, limit });
+      return json(res, out.ok ? 200 : 500, out);
+    } catch (e) { return json(res, 500, { ok: false, reason: String(e?.message || e).slice(0, 160) }); }
+  }],
+  ["POST", "/api/memory/rollback", async (res, req) => {
+    try {
+      const b = await readBody(req, 2e3);
+      const out = rollbackMemory({ wsRoot: WS_ROOT, commit: String(b?.commit || '') });
+      return json(res, out.ok ? 200 : 400, out);
+    } catch (e) { return json(res, 500, { ok: false, error: String(e?.message || e).slice(0, 160) }); }
+  }],
   ["GET", "/api/autopatch/patches", (res) => {
     try {
       if (!PATCH_REPO.root) return json(res, 200, { ok: false, error: PATCH_REPO.reason, items: [] });
@@ -5679,6 +5696,15 @@ ${rows.map((r) => `- [${r.status}${r.closed ? "/已结清" : ""}] ${r.text}\n  �
       if (legacy.removed) console.log("[jobs] 已清理旧的系统级作业目录 C:\\ProgramData\\Yuanshu");
       else if (legacy.reason && legacy.reason !== "not_exists") console.log("[jobs] 清理旧目录未完成:", legacy.reason);
     } catch {}
+    // 2026-10-27：记忆版本化——启动后与每 30 分钟，若有变化就提交一次（fail-open）
+    const memoryVersionSweep = () => {
+      try {
+        const r = commitMemory({ wsRoot: WS_ROOT, message: "定时快照" });
+        if (r.committed) console.log("[memory] 版本提交", r.commit, "（", r.files, "个文件）");
+      } catch (e) { console.log("[memory] 版本提交失败（忽略）：", String(e?.message || e).slice(0, 100)) }
+    };
+    setTimeout(memoryVersionSweep, 90 * 1000);
+    setInterval(memoryVersionSweep, 30 * 60 * 1000);
     knowledgeRuntime.start();
     // 2026-10-26：无人值守补丁调度器。默认**关**（要显式 YUANSHU_AUTOPATCH=1）。
     // 即使开着，也只建 auto/ 分支、绝不并 main；每小时最多一个；失败即停、不连撞。
