@@ -41,8 +41,20 @@ export function pickBaseDir(wsRoot) {
     path.join(process.env.TEMP || process.env.TMP || "C:\\Windows\\Temp", "Yuanshu", DETACHED_DIR),
     path.join(process.env.USERPROFILE || "C:\\Users\\Public", "Yuanshu", DETACHED_DIR),
   ];
+  // 2026-10-26 真机：工作区本身在 %TEMP% 下时（测试用 mkdtemp 建的临时工作区），
+  // 第一个候选就是 TEMP —— 作业脚本落在那儿，WMI 拉起 cmd.exe 会返回
+  // 0x800700E8（232 ERROR_NO_DATA）。所以**任何落在 TEMP 里的候选都跳过**。
+  const tmpRoots = [process.env.TEMP, process.env.TMP, "C:\\Windows\\Temp"]
+    .filter(Boolean)
+    .map((t) => String(t).replace(/\\/g, "/").toLowerCase());
+  const inTemp = (c) => {
+    const n = String(c).replace(/\\/g, "/").toLowerCase();
+    return tmpRoots.some((t) => n === t || n.startsWith(t + "/")) || /\/appdata\/local\/temp(\/|$)/i.test(n);
+  };
   for (const c of candidates) {
-    if (c && isAsciiPath(c)) return c;
+    if (!c || !isAsciiPath(c)) continue;
+    if (inTemp(c)) continue;
+    return c;
   }
   return "";
 }
@@ -188,6 +200,8 @@ export function readDetached({ wsRoot, id } = {}) {
     label: meta.label,
     pid: meta.pid,
     command: meta.command,
+    // 2026-10-26：把真实开始时间带出去——list 要按它排序，页面也要显示
+    startedAt: Number(meta.startedAt) || null,
     elapsedMs: Date.now() - (Number(meta.startedAt) || Date.now()),
     alive,
     done,
@@ -224,6 +238,8 @@ export function listDetached({ wsRoot, limit = 10 } = {}) {
     const info = readDetached({ wsRoot, id: n.replace(/\.json$/, "") });
     if (info.ok) rows.push(info);
   }
-  rows.sort((a, b) => (b.elapsedMs || 0) < (a.elapsedMs || 0) ? -1 : 1);
+  // 2026-10-26：按开始时间倒序。原来按 elapsedMs 排，作业目录共享时（ProgramData）
+  // 刚起的作业可能被挤出 limit 之外——列出来的不是「最近」的。
+  rows.sort((a, b) => (Number(b.startedAt) || 0) - (Number(a.startedAt) || 0));
   return rows.slice(0, Math.max(1, limit));
 }

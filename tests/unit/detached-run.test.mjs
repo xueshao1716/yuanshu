@@ -55,7 +55,10 @@ test("真起一个脱链进程：能启动、能查到、跑完有退出码、�
   const out = launchDetached({ wsRoot: ws, command: `node -e "console.log('hello-detached'); setTimeout(()=>{},1200)"`, label: "smoke" });
   assert.equal(out.ok, true, out.error || "");
   assert.ok(out.pid > 0, "应该拿到 pid");
-  assert.ok(fs.existsSync(path.join(ws, DETACHED_DIR)), "作业目录要落盘");
+  // 2026-10-26：临时工作区在 %TEMP% 下时，作业目录会被改到 ProgramData（TEMP 里 WMI 拉 .cmd 会 0x800700E8）
+  // 所以断言要用 pickBaseDir 的结果，而不是 wsRoot 拼接。
+  const base = pickBaseDir(ws);
+  assert.ok(base && fs.existsSync(base), "作业目录要落盘");
 
   const first = readDetached({ wsRoot: ws, id: out.id });
   assert.equal(first.ok, true);
