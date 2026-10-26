@@ -3,7 +3,24 @@
 ## [Unreleased]
 
 ## [2.137.0] - 2026-10-26
+**自动补丁第一次端到端走通**：生成 → 隔离门禁 → 建分支 → 提交，全程无人值守。
 
+真机结果（「宣传片重渲染失败 5 次」那条提案）：
+
+- stage: committed
+- branch: auto/capability-0364b520
+- commit: 0ad063ff6
+- engine/detached-run.mjs | 126 ++++++++++-----
+- engine/job-state.mjs | 2 +-
+
+补丁内容正是那 5 次失败的真因：`.cmd` 落盘带 **UTF-8 BOM**、开头 `chcp 65001`、新增 `assertCmdSafe` 硬门槛（路径非 ASCII，或内容非 ASCII 却没有 BOM，就拒绝启动而不是赌一把）。
+
+为此补上的：
+- **隔离门禁**：门禁在 `git worktree` 里跑，本地脏改动不参与判定；worktree 里 junction 了根/子目录的 node_modules 与 `记忆/`、`.token` 等运行时目录。
+- **safe.directory**：服务进程与仓库属主不一致时 git 拒绝一切操作（dubious ownership），所有调用统一加 `-c safe.directory=<repo>`。
+- **测试路径改相对**：200 个绝对路径会把 Windows 命令行撑爆（spawn ENAMETOOLONG）。
+- **基线补 4 条环境敏感用例**（测试内部再 spawn / 依赖端口），注明「单独跑通过、全量并发下不稳定」。
+- 失败路径仍然全部回滚——这一轮验证了「门禁不过 → 自动还原 → 工作树干净」。
 ## [2.136.0] - 2026-10-26
 两个只在真机上才会暴露的坑，都指向同一件事：**门禁不能把服务拖死，也不能把改动留在工作树里**。
 - **门禁改异步**（spawnSync → spawn）：全量测试要跑几分钟，spawnSync 会堵死事件循环 → 健康检查超时 → watchdog 判定假死并重启 → 回滚没机会执行，补丁留在工作树（真机连续两次）。
