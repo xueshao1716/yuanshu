@@ -22,11 +22,12 @@ function git(repoRoot, args) {
 }
 
 /** 挑一个够格的提案：accepted + 有 plan + 没超次数 + 没在跑。 */
-export function pickEligible(wsRoot, { now = Date.now(), minInterval = MIN_INTERVAL_MS } = {}) {
+export function pickEligible(wsRoot, { now = Date.now(), minInterval = MIN_INTERVAL_MS, ignoreRateLimit = false } = {}) {
   const data = readProposals(wsRoot);
   const items = data.items || [];
   const last = items.reduce((max, p) => Math.max(max, Number(p.lastAttemptAt) || 0), 0);
-  if (last && now - last < minInterval) return { skip: "rate_limited", waitMs: minInterval - (now - last) };
+  // 手动触发（dryRun）不该被每小时限流挡住——限流是防无人值守连撞的
+  if (!ignoreRateLimit && last && now - last < minInterval) return { skip: "rate_limited", waitMs: minInterval - (now - last) };
   const candidate = items.find((p) => {
     if (p.state !== "accepted") return false;
     if (!p.planPath || !fs.existsSync(p.planPath)) return false;
@@ -36,14 +37,24 @@ export function pickEligible(wsRoot, { now = Date.now(), minInterval = MIN_INTER
   return candidate ? { proposal: candidate } : { skip: "nothing_eligible" };
 }
 
-/** 把生成的文件写进仓库（只写白名单内的）。 */
-function writeFiles(repoRoot, files) {
+/** 把生成的内容写进仓库（整文件 + 定点补丁都只写白名单内的）。 */
+function writeFiles(repoRoot, files, edits = []) {
   const written = [];
   for (const f of files) {
     const abs = path.join(repoRoot, f.path);
     fs.mkdirSync(path.dirname(abs), { recursive: true });
     fs.writeFileSync(abs, f.content, "utf8");
     written.push(f.path);
+  }
+  for (const e of edits) {
+    const abs = path.join(repoRoot, e.path);
+    const cur = fs.readFileSync(abs, "utf8");
+    const at = cur.indexOf(e.find);
+    if (at < 0) throw new Error(`定点补丁失效：${e.path} 里找不到 find`);
+    // validate 已确认唯一；这里再确认一次，防止两处改动互相影响
+    if (cur.indexOf(e.find, at + 1) >= 0) throw new Error(`定点补丁不唯一：${e.path}`);
+    fs.writeFileSync(abs, cur.slice(0, at) + e.replace + cur.slice(at + e.find.length), "utf8");
+    if (!written.includes(e.path)) written.push(e.path);
   }
   return written;
 }
@@ -56,29 +67,35 @@ export async function runProposal({ wsRoot, repoRoot, proposal, generate, dryRun
   const t0 = Date.now();
   const planPath = proposal.planPath;
   if (!planPath || !fs.existsSync(planPath)) return { ok: false, stage: "plan", error: "没有 PLAN.md" };
-  const plan = { ...proposal, files: proposal.files || [] };
+  // 2026-10-26：优先用落盘时存下的结构化 plan（含 accept/evidence/focusHook）
+  const plan = { ...proposal, ...(proposal.plan || {}), id: proposal.id, title: proposal.title || proposal.plan?.title };
   const md = fs.readFileSync(planPath, "utf8");
   // PLAN.md 里列的文件才是权威（人可能手改过）
   const listed = [...md.matchAll(/^- `([^`]+)`$/gm)].map((m) => m[1]).filter((p) => !/[（(]/.test(p));
-  if (listed.length) plan.files = [...new Set([...plan.files, ...listed])];
+  if (listed.length) plan.files = [...new Set([...(plan.files || []), ...listed])];
 
   log(`生成补丁：${proposal.title}`);
-  const patch = await generate(plan);
+  const patch = await generate(plan, { repoRoot });
   const checked = validatePatch(repoRoot, plan, patch);
   if (!checked.ok) {
     markProposal(wsRoot, proposal.id, { state: "accepted", note: `自动补丁未通过校验：${checked.error}`, attempts: (Number(proposal.attempts) || 0) + 1, lastAttemptAt: t0 });
     return { ok: false, stage: "validate", error: checked.error };
   }
-  log(`校验通过：${checked.files.map((f) => f.path).join(", ")}`);
-  if (dryRun) return { ok: true, stage: "dry_run", files: checked.files.map((f) => f.path) };
+  log(`校验通过：整文件 ${checked.files.length} 个、定点补丁 ${(checked.edits || []).length} 处`);
+  if (dryRun) return { ok: true, stage: "dry_run", files: checked.files.map((f) => f.path), edits: (checked.edits || []).map((e) => e.path) };
 
-  const begun = beginPatch({ repoRoot, plan, files: checked.files.map((f) => f.path), wsRoot });
+  const targetPaths = [...checked.files.map((f) => f.path), ...(checked.edits || []).map((e) => e.path)];
+  const begun = beginPatch({ repoRoot, plan, files: [...new Set(targetPaths)], wsRoot });
   if (!begun.ok) {
     markProposal(wsRoot, proposal.id, { state: "accepted", note: `开改被拒：${begun.error}`, attempts: (Number(proposal.attempts) || 0) + 1, lastAttemptAt: t0 });
     return { ok: false, stage: "scope", error: begun.error };
   }
   const session = begun.session;
-  writeFiles(repoRoot, checked.files);
+  try { writeFiles(repoRoot, checked.files, checked.edits || []); } catch (e) {
+    rollback(session);
+    markProposal(wsRoot, proposal.id, { state: "accepted", note: `应用补丁失败（已回滚）：${String(e?.message || e).slice(0, 120)}`, attempts: (Number(proposal.attempts) || 0) + 1, lastAttemptAt: t0 });
+    return { ok: false, stage: "apply", error: String(e?.message || e).slice(0, 160) };
+  }
 
   const gate = verifyPatch({ session, testFile: proposal.testPath && fs.existsSync(proposal.testPath) ? proposal.testPath : null, full: true });
   if (!gate.ok) {
@@ -122,10 +139,10 @@ export async function runProposal({ wsRoot, repoRoot, proposal, generate, dryRun
 }
 
 /** 队列跑一轮（默认 1 个）。 */
-export async function runQueue({ wsRoot, repoRoot, generate, limit = 1, dryRun = false, log = () => {}, now = Date.now() }) {
+export async function runQueue({ wsRoot, repoRoot, generate, limit = 1, dryRun = false, log = () => {}, now = Date.now(), ignoreRateLimit = false }) {
   const results = [];
   for (let i = 0; i < limit; i += 1) {
-    const pick = pickEligible(wsRoot, { now });
+    const pick = pickEligible(wsRoot, { now, ignoreRateLimit });
     if (!pick.proposal) return { ok: true, results, skip: pick.skip };
     results.push({ id: pick.proposal.id, ...(await runProposal({ wsRoot, repoRoot, proposal: pick.proposal, generate, dryRun, log })) });
     if (!results[results.length - 1].ok && !dryRun) break; // 失败就不连着撞

@@ -3392,7 +3392,7 @@ const API_ROUTES = [
       // 后台跑，不阻塞响应
       void (async () => {
         try {
-          const out = await runQueue({ wsRoot: WS_ROOT, repoRoot: __dirname, generate: gen.generate, limit: 1, dryRun, log: (m) => console.log('[autopatch]', m) });
+          const out = await runQueue({ wsRoot: WS_ROOT, repoRoot: __dirname, generate: gen.generate, limit: 1, dryRun, ignoreRateLimit: dryRun || b?.force === true, log: (m) => console.log('[autopatch]', m) });
           autopatchState = { ...autopatchState, running: false, finishedAt: Date.now(), ok: true, ...out };
         } catch (e) {
           autopatchState = { ...autopatchState, running: false, finishedAt: Date.now(), ok: false, error: String(e?.message || e).slice(0, 200) };
@@ -3429,6 +3429,9 @@ const API_ROUTES = [
       const out = materializeProposal(WS_ROOT, p);
       if (!out.ok) return json(res, 400, out);
       p.planPath = out.planPath; p.testPath = out.testPath; p.materializedAt = Date.now();
+      // 2026-10-26：把结构化 plan（files/accept/evidence）存回提案——
+      // 否则自动补丁的提示词里没有验收标准，模型会合理拒绝（真机踩到）。
+      p.plan = planFor(p);
       if (p.state === 'proposed') { p.state = 'accepted'; p.acceptedAt = Date.now(); }
       const { writeProposals } = await import('./engine/capability-proposal.mjs');
       writeProposals(WS_ROOT, data);

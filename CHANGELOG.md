@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [2.132.1] - 2026-10-26
+
 ## [2.132.0] - 2026-10-26
 无人值守补丁：从「提案 accepted」一路走到「分支上有一个通过门禁的提交」，人只做最后审阅。
 - **生成器可插拔**（`engine/patch-generator.mjs`）：默认走本机 `/api/chat`（元枢自己），也可用 `YUANSHU_PATCH_CMD` 换外部 CLI；只接受 `{"files":[{"path","content"}]}`，不许自由发挥；最多 5 个文件、每个 ≤20KB。

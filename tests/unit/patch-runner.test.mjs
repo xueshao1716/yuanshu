@@ -60,7 +60,8 @@ test("提示词只许产出 JSON，不许自由发挥", () => {
   const p = buildPrompt({ title: "t", files: ["engine/a.mjs"], accept: "断言 X" });
   assert.match(p, /\{"files":\[/);
   assert.match(p, /完整文件内容/);
-  assert.match(p, /最多 5 个文件/);
+  assert.match(p, /定点补丁|edits/);
+  assert.match(p, /find 必须在文件里/);
 });
 
 test("没牌可打时 pickEligible 返回 nothing_eligible", () => {
