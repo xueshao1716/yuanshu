@@ -12,7 +12,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { createHash } from "node:crypto";
-import { spawnSync } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import { loadBaseline, summaryOf } from "./test-baseline.mjs";
 
 export const SNAPSHOT_DIR = path.join("记忆", "运行时", "补丁快照");
@@ -116,6 +116,27 @@ export function rollback(session) {
   return { ok: true, restored };
 }
 
+/**
+ * 跑子进程并等结果。**必须异步**：门禁要跑全量测试（几分钟），
+ * 用 spawnSync 会把服务的事件循环堵死——健康检查失败 → watchdog 判定假死 →
+ * 重启服务 → 回滚没机会执行，补丁留在工作树里（2026-10-26 真机连续两次）。
+ */
+function runAsync(cmd, args, cwd, timeout = 300000) {
+  const env = { ...process.env };
+  delete env.NODE_TEST_CONTEXT;
+  delete env.NODE_TEST_ISOLATION;
+  return new Promise((resolve) => {
+    let out = "";
+    let done = false;
+    const child = spawn(cmd, args, { cwd, env, windowsHide: true });
+    const timer = setTimeout(() => { if (!done) { done = true; try { child.kill("SIGKILL") } catch {} resolve({ ok: false, code: null, out: out + "\n[超时]" }) } }, timeout);
+    child.stdout?.on("data", (d) => { out += d });
+    child.stderr?.on("data", (d) => { out += d });
+    child.on("error", (e) => { if (!done) { done = true; clearTimeout(timer); resolve({ ok: false, code: null, out: out + String(e?.message || e) }) } });
+    child.on("close", (code) => { if (!done) { done = true; clearTimeout(timer); resolve({ ok: code === 0, code, out }) } });
+  });
+}
+
 function run(cmd, args, cwd, timeout = 300000) {
   // 2026-10-26 真机踩到：在 `node --test` 里再 spawn `node --test`，
   // 子进程会继承 NODE_TEST_CONTEXT=child-v8，结果是**失败的测试也返回 0**——
@@ -132,17 +153,17 @@ function run(cmd, args, cwd, timeout = 300000) {
  * 验证：语法 → 指定测试 → 可选全量测试。任一步失败**自动回滚**。
  * @returns {{ok:boolean, rolledBack:boolean, steps:object[], error?:string}}
  */
-export function verifyPatch({ session, testFile, full = false, timeoutMs = 600000 }) {
+export async function verifyPatch({ session, testFile, full = false, timeoutMs = 600000 }) {
   const steps = [];
   const changed = changedFiles(session);
   for (const c of changed) {
     if (!/\.(mjs|cjs|js)$/.test(c.rel)) continue;
-    const r = run(process.execPath, ["--check", path.join(session.repoRoot, c.rel)], session.repoRoot, 20000);
+    const r = await runAsync(process.execPath, ["--check", path.join(session.repoRoot, c.rel)], session.repoRoot, 20000);
     steps.push({ name: `syntax:${c.rel}`, ok: r.ok, detail: r.ok ? "" : r.out.slice(0, 200) });
     if (!r.ok) { const rb = rollback(session); return { ok: false, rolledBack: true, steps, error: `语法错：${c.rel}` }; }
   }
   if (testFile) {
-    const r = run(process.execPath, ["--test", testFile], session.repoRoot, timeoutMs);
+    const r = await runAsync(process.execPath, ["--test", testFile], session.repoRoot, timeoutMs);
     steps.push({ name: `test:${testFile}`, ok: r.ok, detail: r.ok ? "" : r.out.slice(-300) });
     if (!r.ok) { const rb = rollback(session); return { ok: false, rolledBack: true, steps, error: `测试未过，已回滚` }; }
   }
@@ -161,7 +182,7 @@ export function verifyPatch({ session, testFile, full = false, timeoutMs = 60000
       rollback(session);
       return { ok: false, rolledBack: true, steps, error: "找不到任何测试文件——门禁无法执行，已回滚" };
     }
-    const r = run(process.execPath, ["--test", "--test-concurrency=1", ...testFiles], session.repoRoot, Math.max(timeoutMs, 900000));
+    const r = await runAsync(process.execPath, ["--test", "--test-concurrency=1", ...testFiles], session.repoRoot, Math.max(timeoutMs, 900000));
     // 2026-10-26：原始输出必须落盘。上一次只存了解析出的 4 个名字，
     // 结果连"是解析错还是真失败"都判断不了，只能猜。
     let gateLog = null;
@@ -195,4 +216,35 @@ export function verifyPatch({ session, testFile, full = false, timeoutMs = 60000
   session.verifiedAt = Date.now();
   try { fs.writeFileSync(path.join(session.snapDir, "session.json"), JSON.stringify(session, null, 2), "utf8"); } catch {}
   return { ok: true, rolledBack: false, steps, changed, gateLog: steps.find((x) => x.gateLog)?.gateLog || null };
+}
+
+/**
+ * 崩溃/重启后的对账：找出"开了但没收尾"的补丁会话，把文件还原。
+ *
+ * 为什么需要：门禁跑几分钟，期间服务可能被 watchdog 重启（spawnSync 阻塞健康检查）。
+ * 进程一死，rollback 就不会执行，补丁留在工作树里——2026-10-26 连续两次。
+ * 迁就崩溃现实：**启动时无条件还原所有未收尾会话**。
+ *
+ * @returns {{restored:number, sessions:string[]}}
+ */
+export function reconcileDanglingSessions({ wsRoot, now = Date.now() } = {}) {
+  const base = path.join(String(wsRoot || "."), SNAPSHOT_DIR);
+  let dirs = [];
+  try { dirs = fs.readdirSync(base) } catch { return { restored: 0, sessions: [] } }
+  const restored = [];
+  for (const d of dirs) {
+    const file = path.join(base, d, "session.json");
+    let session;
+    try { session = JSON.parse(fs.readFileSync(file, "utf8")) } catch { continue }
+    if (!session || session.closed) continue;
+    try {
+      rollback({ ...session, entries: session.entries || [] });
+      session.closed = true;
+      session.reconciledAt = now;
+      session.reconcileReason = "startup: unfinished patch session";
+      fs.writeFileSync(file, JSON.stringify(session, null, 2), "utf8");
+      restored.push(d);
+    } catch { /* 单条失败不影响其它 */ }
+  }
+  return { restored: restored.length, sessions: restored };
 }

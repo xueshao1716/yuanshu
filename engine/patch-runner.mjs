@@ -122,7 +122,7 @@ export async function runProposal({ wsRoot, repoRoot, proposal, generate, dryRun
 
   let gate = null;
   try {
-    gate = verifyPatch({ session, testFile: proposal.testPath && fs.existsSync(proposal.testPath) ? proposal.testPath : null, full: true });
+    gate = await verifyPatch({ session, testFile: proposal.testPath && fs.existsSync(proposal.testPath) ? proposal.testPath : null, full: true });
   } catch (e) {
     return failWithRollback("gate", String(e?.message || e).slice(0, 160), `门禁异常（已回滚）：${String(e?.message || e).slice(0, 120)}`);
   }

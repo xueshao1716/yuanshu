@@ -241,6 +241,7 @@ import { feedbackJob } from "./engine/feedback-job.mjs";
 import { readProposals, writeProposals, refreshProposals, markProposal, mineSignals } from "./engine/capability-proposal.mjs";
 // 2026-10-26：accepted 之后自动产出改动计划 + 测试骨架（人只审阅和跑测试）
 import { planFor, materializeProposal } from "./engine/capability-plan.mjs";
+import { reconcileDanglingSessions } from "./engine/patch-guard.mjs";
 // 2026-10-26：无人值守补丁（生成 → 白名单 → 门禁 → 建分支提交；永不并 main）
 import { runQueue, pickEligible } from "./engine/patch-runner.mjs";
 // 2026-10-26：自动补丁必须在源码仓跑（服务本身从安装目录启动，__dirname 不是源码）
@@ -5625,6 +5626,11 @@ ${rows.map((r) => `- [${r.status}${r.closed ? "/已结清" : ""}] ${r.text}\n  �
       }); // 技能自主沉淀钩子（09-03，Hermes 闭环）
       timeEngine.start();
     } catch (e) { console.log("[time-engine] 启动失败:", String(e?.message || e).slice(0, 100)); }
+    // 2026-10-26：崩在半路的自动补丁要还原——进程一死 rollback 就不会跑，补丁会留在工作树里
+    try {
+      const rb = reconcileDanglingSessions({ wsRoot: WS_ROOT });
+      if (rb.restored) console.log("[autopatch] 启动对账：还原了", rb.restored, "个未收尾的补丁会话");
+    } catch (e) { console.log("[autopatch] 启动对账失败:", String(e?.message || e).slice(0, 100)); }
     knowledgeRuntime.start();
     // 2026-10-26：无人值守补丁调度器。默认**关**（要显式 YUANSHU_AUTOPATCH=1）。
     // 即使开着，也只建 auto/ 分支、绝不并 main；每小时最多一个；失败即停、不连撞。
