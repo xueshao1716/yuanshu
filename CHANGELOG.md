@@ -3,7 +3,11 @@
 ## [Unreleased]
 
 ## [2.135.0] - 2026-10-26
-
+事故复盘：有一轮自动补丁把 engine/detached-run.mjs 改在源码仓里却**没有还原**——失败路径漏了 rollback。这一版把「只要没成功提交，就一定还原」写进所有出口。
+- runProposal 重构成 try/catch/finally：应用失败、门禁异常、门禁不过、建分支失败、提交失败、任何未预期异常，全部走 safeRollback。
+- safeRollback 永不抛：回滚路上再抛异常，就等于什么都没还原。
+- finally 兜底：if (!committed) safeRollback(session)——将来新增分支也不会漏。
+- 新增 4 条回归测试（tests/unit/patch-rollback.test.mjs）：非 git 仓库建分支失败要还原、门禁拦下要还原、生成器抛异常不留半截、成功后改动只在 auto 分支且 main 保持原样。
 ## [2.134.0] - 2026-10-26
 把「自动补丁能不能信」往前推：门禁开始说人话，并找到一串只在真机才暴露的错位。
 - **门禁原始输出落盘**（记忆/运行时/门禁输出/<session>-full.log）：之前只存解析结果，判定出错时只能猜。
