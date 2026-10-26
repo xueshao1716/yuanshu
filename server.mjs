@@ -241,6 +241,9 @@ import { feedbackJob } from "./engine/feedback-job.mjs";
 import { readProposals, refreshProposals, markProposal, mineSignals } from "./engine/capability-proposal.mjs";
 // 2026-10-26：accepted 之后自动产出改动计划 + 测试骨架（人只审阅和跑测试）
 import { planFor, materializeProposal } from "./engine/capability-plan.mjs";
+// 2026-10-26：无人值守补丁（生成 → 白名单 → 门禁 → 建分支提交；永不并 main）
+import { runQueue, pickEligible } from "./engine/patch-runner.mjs";
+import { pickGenerator } from "./engine/patch-generator.mjs";
 // 2026-10-26：未捕获异常的去留策略（偶发不退出，同签名反复才退出）
 import { decideCrashAction, crashSignature } from "./engine/crash-policy.mjs";
 // 2026-10-26：收件箱自动研判（对不上号要说清为什么）
@@ -2884,6 +2887,9 @@ const knowledgeRuntime = createKnowledgeRuntime({ wsRoot: WS_ROOT, runRoot: RUNS
   catalog: () => modelList, directChat,
   foregroundBusy: () => [...activeSessions.values()].some(entry => entry.busy) || voiceAdmission.isActive(),
 });
+// 2026-10-26：无人值守补丁的运行状态（异步，避免 HTTP 超时）
+let autopatchRunning = false;
+let autopatchState = {};
 const knowledgeApi = createKnowledgeApi({ runtime: knowledgeRuntime, readBody, json,
   requireAuth: req => !!CONFIG.token && req.headers.authorization === `Bearer ${CONFIG.token}`,
 });
@@ -3370,6 +3376,35 @@ const API_ROUTES = [
     try { return json(res, 200, readProposals(WS_ROOT)); }
     catch (e) { return json(res, 500, { error: String(e?.message || e).slice(0, 160) }); }
   }],
+  // 2026-10-26：无人值守补丁（默认 dryRun，真跑要显式 live:true）
+  // 2026-10-26：异步触发——同步跑会一次模型调用等 5 分钟，客户端必然超时（真机踩到）。
+  // 触发后立刻返回；结果写 记忆/运行时/自动补丁状态.json，用 GET 查。
+  ["POST", "/api/capability/autopatch", async (res, req) => {
+    try {
+      if (autopatchRunning) return json(res, 200, { ok: true, already: true, state: autopatchState });
+      const b = await readBody(req, 2e3);
+      const dryRun = b?.live !== true;
+      autopatchRunning = true;
+      autopatchState = { at: Date.now(), dryRun, running: true, stage: 'started' };
+      const token = (() => { try { return fs.readFileSync(path.join(__dirname, '.token'), 'utf8').trim() } catch { return '' } })();
+      const gen = pickGenerator({ token });
+      autopatchState.generator = gen.kind;
+      // 后台跑，不阻塞响应
+      void (async () => {
+        try {
+          const out = await runQueue({ wsRoot: WS_ROOT, repoRoot: __dirname, generate: gen.generate, limit: 1, dryRun, log: (m) => console.log('[autopatch]', m) });
+          autopatchState = { ...autopatchState, running: false, finishedAt: Date.now(), ok: true, ...out };
+        } catch (e) {
+          autopatchState = { ...autopatchState, running: false, finishedAt: Date.now(), ok: false, error: String(e?.message || e).slice(0, 200) };
+        } finally {
+          autopatchRunning = false;
+          try { fs.writeFileSync(path.join(WS_ROOT, '记忆', '运行时', '自动补丁状态.json'), JSON.stringify(autopatchState, null, 2), 'utf8'); } catch {}
+        }
+      })();
+      return json(res, 200, { ok: true, started: true, dryRun, generator: gen.kind });
+    } catch (e) { return json(res, 500, { error: String(e?.message || e).slice(0, 200) }); }
+  }],
+  ["GET", "/api/capability/autopatch", (res) => json(res, 200, { ok: true, running: autopatchRunning, state: autopatchState })],
   ["POST", "/api/capability/refresh", (res) => {
     try { const out = refreshProposals(WS_ROOT); return json(res, 200, { ok: true, stats: out.stats, items: readProposals(WS_ROOT).items }); }
     catch (e) { return json(res, 500, { error: String(e?.message || e).slice(0, 160) }); }
@@ -5549,6 +5584,24 @@ ${rows.map((r) => `- [${r.status}${r.closed ? "/已结清" : ""}] ${r.text}\n  �
       timeEngine.start();
     } catch (e) { console.log("[time-engine] 启动失败:", String(e?.message || e).slice(0, 100)); }
     knowledgeRuntime.start();
+    // 2026-10-26：无人值守补丁调度器。默认**关**（要显式 YUANSHU_AUTOPATCH=1）。
+    // 即使开着，也只建 auto/ 分支、绝不并 main；每小时最多一个；失败即停、不连撞。
+    const autopatchSweep = async () => {
+      try {
+        if (process.env.YUANSHU_AUTOPATCH !== "1") return;
+        const pick = pickEligible(WS_ROOT);
+        if (!pick.proposal) return;
+        const token = (() => { try { return fs.readFileSync(path.join(__dirname, ".token"), "utf8").trim() } catch { return "" } })();
+        const gen = pickGenerator({ token });
+        const out = await runQueue({ wsRoot: WS_ROOT, repoRoot: __dirname, generate: gen.generate, limit: 1, dryRun: false, log: (m) => console.log("[autopatch]", m) });
+        console.log("[autopatch] 一轮结束:", JSON.stringify(out.results?.[0] ? { ok: out.results[0].ok, stage: out.results[0].stage, branch: out.results[0].branch } : out.skip));
+      } catch (e) { console.log("[autopatch] 出错:", String(e?.message || e).slice(0, 120)); }
+    };
+    if (process.env.YUANSHU_AUTOPATCH === "1") {
+      setTimeout(() => { void autopatchSweep(); }, 3 * 60000);
+      setInterval(() => { void autopatchSweep(); }, 60 * 60000);
+      console.log("[autopatch] 已启用（每小时最多一个；只建 auto/ 分支，不并 main）");
+    }
     // 2026-10-25 真机：知识板块从 10/22 起再没新增——后台摄入被一个**死进程留下的租约**卡住。
     // background-admission 的设计是对的（"时间过去不等于进程死了，必须拿宿主的死亡证据才能清"），
     // 但**没有任何地方会去调 reconcile**，于是一次崩溃 = 知识摄入永久停摆。

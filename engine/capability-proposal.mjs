@@ -232,6 +232,9 @@ export function markProposal(wsRoot, id, patch = {}) {
   p.state = state;
   p.updatedAt = Date.now();
   if (patch.note) p.note = String(patch.note).slice(0, 400);
+  // 2026-10-26：自动补丁要记次数与时间，否则重试上限形同虚设
+  if (patch.attempts != null) p.attempts = Number(patch.attempts) || 0;
+  if (patch.lastAttemptAt) p.lastAttemptAt = Number(patch.lastAttemptAt);
   writeProposals(wsRoot, data);
   return { ok: true, item: p };
 }
@@ -240,7 +243,9 @@ export function markProposal(wsRoot, id, patch = {}) {
 export function proposalsLine(wsRoot, { now = Date.now() } = {}) {
   const { items = [] } = readProposals(wsRoot);
   const proposed = items.filter((p) => p.state === "proposed");
-  if (!proposed.length) return "";
+  const ready = items.filter((p) => p.state === "patch_ready");
+  if (!proposed.length && !ready.length) return "";
+  if (ready.length) return `【长能力】${ready.length} 个自动补丁已就绪（分支 ${ready[0].patchBranch}）等人审；另有 ${proposed.length} 条待评估`;
   const top = proposed.slice(0, 2).map((p) => p.title).join("；");
   return `【长能力】${proposed.length} 条能力提案待评估（${top}）——accept 或 drop，别挂着`;
 }
