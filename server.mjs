@@ -3394,7 +3394,7 @@ const API_ROUTES = [
       // 后台跑，不阻塞响应
       void (async () => {
         try {
-          const out = await runQueue({ wsRoot: WS_ROOT, repoRoot: __dirname, generate: gen.generate, limit: 1, dryRun, ignoreRateLimit: dryRun || b?.force === true, log: (m) => console.log('[autopatch]', m) });
+          const out = await runQueue({ wsRoot: WS_ROOT, repoRoot: __dirname, generate: gen.generate, limit: 1, dryRun, ignoreRateLimit: true, log: (m) => console.log('[autopatch]', m) });
           autopatchState = { ...autopatchState, running: false, finishedAt: Date.now(), ok: true, ...out };
         } catch (e) {
           autopatchState = { ...autopatchState, running: false, finishedAt: Date.now(), ok: false, error: String(e?.message || e).slice(0, 200) };

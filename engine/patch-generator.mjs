@@ -199,7 +199,9 @@ export function makeHttpGenerator({ baseUrl = "http://127.0.0.1:8787", token, fe
     const text = String(j.text || j.content || "");
     if (!text) return { files: [], note: `模型没有返回文本（HTTP ${res.status}）` };
     const parsed = parsePatch(text);
-    return parsed.ok ? { files: parsed.files, note: parsed.note } : { files: [], note: parsed.error };
+    // 2026-10-26 真机：这里原来只返回 files，定点补丁（edits）被丢光，
+    // 于是服务端一直报「生成器没有产出文件」，而模型其实给了 3 处精确编辑。
+    return parsed.ok ? { files: parsed.files, edits: parsed.edits || [], note: parsed.note } : { files: [], edits: [], note: parsed.error };
   };
 }
 
@@ -211,7 +213,7 @@ export function makeCmdGenerator(template) {
     const r = spawnSync(process.platform === "win32" ? "cmd" : "sh", [process.platform === "win32" ? "/c" : "-c", cmd],
       { encoding: "utf8", timeout: 600000, windowsHide: true });
     const parsed = parsePatch(`${r.stdout || ""}${r.stderr || ""}`);
-    return parsed.ok ? { files: parsed.files, note: parsed.note } : { files: [], note: parsed.error || "CLI 没有输出" };
+    return parsed.ok ? { files: parsed.files, edits: parsed.edits || [], note: parsed.note } : { files: [], edits: [], note: parsed.error || "CLI 没有输出" };
   };
 }
 
