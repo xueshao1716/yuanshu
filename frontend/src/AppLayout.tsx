@@ -34,6 +34,7 @@ const EnginePage = lazy(() => import('./pages/Engine'))
 const BoardPage = lazy(() => import('./pages/Board'))
 const SystemPage = lazy(() => import('./pages/System'))
 const SoulPage = lazy(() => import('./pages/Soul'))
+const AutoPatchesPage = lazy(() => import('./pages/AutoPatches'))
 const GrantsPage = lazy(() => import('./pages/Grants'))
 const TvPage = lazy(() => import('./pages/Tv'))
 const ThemesPage = lazy(() => import('./pages/Themes'))
@@ -88,6 +89,8 @@ const PAGE_ROUTES: PageRoute[] = [
   { route: 'grants', icon: ShieldCheck, label: ROUTE_LABELS.grants, Page: GrantsPage },
   { route: 'tv', icon: Film, label: ROUTE_LABELS.tv, Page: TvPage },
   { route: 'board', icon: LayoutDashboard, label: ROUTE_LABELS.board, Page: BoardPage },
+  // 2026-10-26：自动补丁升为一级入口（用户不敲命令，只能在界面上审）
+  { route: 'autopatch', icon: GitCompare, label: ROUTE_LABELS.autopatch, Page: AutoPatchesPage },
   // 改动验收已并入工作台（页内视图）。保留 review 路由作为深链别名，
   // 让 #/review、手机「更多」和聊天右栏的「打开验收」继续可用。
   { route: 'review', icon: GitCompare, label: ROUTE_LABELS.review, Page: BoardReviewPage },

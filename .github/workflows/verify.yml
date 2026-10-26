@@ -17,10 +17,10 @@ jobs:
     runs-on: windows-latest
     timeout-minutes: 50
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           persist-credentials: false
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v5
         with:
           node-version: '25.8.2'
           node-version-file: ''  # explicit version takes precedence
@@ -33,7 +33,7 @@ jobs:
       - run: npm run verify
       - name: Upload check results
         if: always()
-        uses: actions/upload-artifact@v4  # Node 20 deprecation warning only; v4 still works on Node 24+
+        uses: actions/upload-artifact@v5
         with:
           name: verification-results
           retention-days: 7

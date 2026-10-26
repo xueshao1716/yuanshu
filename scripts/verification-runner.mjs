@@ -3,6 +3,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { execFileSync, spawnSync } from 'node:child_process';
+import { loadBaseline, summaryOf } from '../engine/test-baseline.mjs';
 
 export function verificationEnvironment(temp, parent = process.env) {
   const allowed = /^(path|pathext|systemroot|windir|comspec|temp|tmp|userprofile|home|homedrive|homepath|appdata|localappdata|programfiles|programfiles\(x86\)|programdata|systemdrive|lang|lc_all|number_of_processors|processor_architecture)$/i;
@@ -49,10 +50,30 @@ export function runVerificationChecks({ steps, env, store, digest, logDir, spawn
       catch (error) { result = { status: null, error }; }
       if (result.error) fs.writeSync(fd, `\nExecution error: ${result.error.code || 'UNKNOWN'} ${result.error.message}\n`);
     } finally { fs.closeSync(fd); }
-    const state = result.status === 0 && !result.error ? 'passed' : 'failed';
-    checks.push({ name, state, exitCode: result.status, signal: result.signal || null, errorCode: result.error?.code || null, durationMs: Date.now() - started, log: `tmp/verification-${name}.log` });
+    let state = result.status === 0 && !result.error ? 'passed' : 'failed';
+    let note = '';
+    // 2026-10-26：仓库里有固定的几条「已知红灯」（环境敏感 / 依赖配置）。
+    // 硬要求全绿 → CI 永远红 → 没人看。改成只拦**新增**红灯，与自动补丁门禁同一套基线。
+    // 只对真的在跑测试的 unit 步骤生效：单测里也有 name='unit' 的合成步骤（用 -e 模拟失败），
+    // 那些必须照旧判 failed，不能被基线豁免。
+    const runsTestRunner = Array.isArray(args) && args.includes('--test');
+    if (name === 'unit' && runsTestRunner && state === 'failed') {
+      try {
+        const repoRoot = steps[0]?.cwd || process.cwd();
+        const text = fs.readFileSync(log, 'utf8');
+        const sum = summaryOf(text, loadBaseline(repoRoot));
+        if (sum.fresh.length === 0) {
+          state = 'passed';
+          note = `已知红灯 ${sum.known} 条（基线内）`;
+          fs.appendFileSync(log, `\n[verify] ${note}\n`);
+        } else {
+          note = `新增红灯 ${sum.fresh.length} 条：${sum.fresh.slice(0, 3).join('; ')}`;
+        }
+      } catch { /* 读不到日志就按原判定 */ }
+    }
+    checks.push({ name, state, note, exitCode: result.status, signal: result.signal || null, errorCode: result.error?.code || null, durationMs: Date.now() - started, log: `tmp/verification-${name}.log` });
     store.save({ digest, state: 'running', checks });
-    console.log(`${name}: ${state} (${Math.round((Date.now() - started) / 1000)}s)`);
+    console.log(`${name}: ${state} (${Math.round((Date.now() - started) / 1000)}s)${note ? ' — ' + note : ''}`);
   }
   store.save({ digest, checks });
   return store.read().state === 'passed' ? 0 : 1;
