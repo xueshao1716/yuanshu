@@ -16,7 +16,11 @@ test('activity uses explicit active count, dates and persistent source instead o
 })
 test('server wires ordinary completion, local reconciliation and a single retry-safe collector', () => {
   const server = read('server.mjs')
-  const callback = server.slice(server.indexOf('onRunFinished: run => {'), server.indexOf('onRunFinished: run => {') + 230)
+  // 2026-10-26：全文有多个 onRunFinished（培养那条在前），取第一个 slice 会切到别处。
+  // 改成"含 notifier.runFinished 的那一段"，稳。
+  const anchor = server.indexOf('notifier.runFinished(run)')
+  assert.ok(anchor > 0, '找不到 runManager 的 onRunFinished 回调')
+  const callback = server.slice(Math.max(0, anchor - 200), anchor + 400)
   for (const token of ['knowledgeRuntime.enqueueFinished(run)', 'learningIntake.enqueue(run)']) assert.ok(callback.includes(token), token)
   for (const token of ['await learningIntake.reconcile()', 'await dreamCollector.collect()', '/api/learning-intake/status', 'buildPersistentActivity(await runStore.listAsync()']) assert.ok(server.includes(token), token)
   assert.ok(!server.includes('__dreamCursor'))

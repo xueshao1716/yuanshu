@@ -94,7 +94,10 @@ test('manifest：八个组件，来源可追溯', () => {
   assert.ok(fromFile.path.endsWith('system.md'));
 });
 
-test('协议文本：编号 1–13 连续（重构后不应再出现两个 5）', () => {
+test('协议文本：编号从 1 开始连续、无重复（重构后不应再出现两个 5）', () => {
+  // 2026-10-26：原来写死 1–13，加一条就红；改成"连续且无重复"，
+  // 既守住"不许两个 5"，也不拦住正常扩充。
   const nums = [...YUANSHU_PROTOCOL.matchAll(/^(\d+)\./gm)].map(m => Number(m[1]));
-  assert.deepEqual(nums, Array.from({ length: 13 }, (_, i) => i + 1));
+  assert.ok(nums.length >= 10, '协议条目太少，可能被截断');
+  assert.deepEqual(nums, Array.from({ length: nums.length }, (_, i) => i + 1));
 });
