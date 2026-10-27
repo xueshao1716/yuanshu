@@ -18,6 +18,7 @@ type Watch = { id: string; title: string; status: string }
 type Loop = { key: string; title: string; status: string; attempts: number }
 type Claim = { id: string; task: string; agent: string; scope: string[]; branch: string; state: string; createdAt: number; expiresAt: number }
 type Msg = { id: string; at: number; from: string; to: string; kind: string; text: string; replyTo?: string }
+type Failure = { id: string; at: number; agent: string; area: string; attempt: string; why: string; source: string; files: string[] }
 
 const time = (ms: number) => (ms ? new Date(ms).toLocaleString('zh-CN', { hour12: false, month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' }) : '—')
 
@@ -36,6 +37,7 @@ export default function Gateway() {
   const out = useSWR('gateway-out', () => api<{ ok: boolean; items: Delivery[] }>('/api/outbound/deliveries?limit=20'), { refreshInterval: 15000 })
   const pro = useSWR('gateway-pro', () => api<{ ok: boolean; watches: Watch[]; loops: Loop[] }>('/api/proactive'), { refreshInterval: 30000 })
   const clm = useSWR('gateway-claim', () => api<{ ok: boolean; items: Claim[] }>('/api/claim'), { refreshInterval: 15000 })
+  const fail = useSWR('gateway-fail', () => api<{ ok: boolean; items: Failure[] }>('/api/failure'), { refreshInterval: 30000 })
   const mbox = useSWR('gateway-msg', () => api<{ ok: boolean; inbox: Msg[]; recent: Msg[] }>('/api/agent/msg?for=小语&unread=0&limit=12'), { refreshInterval: 15000 })
 
   const [src, setSrc] = useState('manual')
@@ -96,6 +98,7 @@ export default function Gateway() {
   const deliveries = out.data?.items || []
   const claims = clm.data?.items || []
   const messages = mbox.data?.recent || []
+  const failures = fail.data?.items || []
   const watches = (pro.data?.watches || []).filter((w) => w.status === 'watching')
   const loops = (pro.data?.loops || []).filter((l) => l.status !== 'done')
 
@@ -216,6 +219,26 @@ export default function Gateway() {
             ))}
           </ul>
         ) : <p className="text-xs text-pi-dim2">还没有留言。</p>}
+      </section>
+
+      {/* ②.8 踩过的坑 */}
+      <section className="panel space-y-3">
+        <div className="flex items-baseline justify-between">
+          <h3 className="text-sm font-semibold text-pi-text">踩过的坑 <span className="text-pi-dim2 font-normal">（失败台账 · {failures.length} 条）</span></h3>
+          <span className="text-xs text-pi-dim2">补丁失败会自动记，agent 用 failure_recall 查</span>
+        </div>
+        {failures.length ? (
+          <ul className="space-y-2">
+            {failures.slice(0, 8).map((f) => (
+              <li key={f.id} className="text-xs leading-relaxed">
+                <span className="text-pi-dim2">{time(f.at)} · {f.agent} · {f.source}{f.area ? ` · ${f.area}` : ''}</span>
+                <div className="text-pi-text">{f.attempt}</div>
+                <div className="text-pi-danger">{f.why}</div>
+                {f.files?.length ? <div className="text-pi-dim2">文件：{f.files.slice(0, 3).join('、')}</div> : null}
+              </li>
+            ))}
+          </ul>
+        ) : <p className="text-xs text-pi-dim2">还没有失败记录。</p>}
       </section>
 
       {/* ③ 在盯/在追 */}

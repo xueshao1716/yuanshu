@@ -252,6 +252,8 @@ import { recvEvent, listEvents, inboundLine } from "./engine/inbound.mjs";
 import { claimTask, releaseClaim, renewClaim, listClaims, reapExpired } from "./engine/claim-board.mjs";
 // 2026-10-27：agent 之间的留言（Agensh 第二件套）
 import { postMessage, inboxFor, markRead, recentMessages } from "./engine/agent-mailbox.mjs";
+// 2026-10-27：失败台账（共享"这条路走不通"）
+import { recordFailure, recallFailures, recentFailures, failureLine } from "./engine/failure-ledger.mjs";
 import { docChangesLine } from "./engine/doc-diff.mjs";
 // 2026-10-25：后台作业状态机（做完没汇报、坏在哪一步）
 import { collectJobs, summarizeJobs, syncReports, pendingReports, ackReports, autoAckByText, urgentReports } from "./engine/job-state.mjs";
@@ -1183,6 +1185,15 @@ const executeUnifiedTool = createUnifiedToolExecutorGuarded({
       return r;
     }),
     // 2026-10-27：agent ↔ agent 留言（Agensh 的消息接口）
+    // 2026-10-27：开工前先查「这块之前踩过吗」
+    failure_recall: (args) => {
+      try {
+        const files = Array.isArray(args?.files) ? args.files : (args?.file ? [args.file] : []);
+        const hits = recallFailures({ wsRoot: WS_ROOT, text: String(args?.text || ''), files, limit: 5 });
+        if (!hits.length) return { text: '没有相关失败记录。' };
+        return { text: hits.map((h) => `[${h.entry.source}] ${h.entry.area}：${h.entry.attempt} → ${h.entry.why}`).join('\n') };
+      } catch (e) { return { text: String(e?.message || e).slice(0, 120), isError: true } }
+    },
     agent_send: (args) => {
       try {
         const out = postMessage({ wsRoot: WS_ROOT, from: String(args?.from || '小语'), to: String(args?.to || ''), text: String(args?.text || ''), kind: String(args?.kind || 'note'), replyTo: String(args?.replyTo || '') });
@@ -3362,6 +3373,22 @@ const API_ROUTES = [
   // 2026-10-27：向内管——外部事件（群消息/邮件/告警/价格）统一入口
   // 2026-10-27：认领板——多 agent 协作的第一块砖（谁在做什么、范围冲突、TTL 回收）
   // 2026-10-27：agent ↔ agent 留言（广播/定向/未读/已读）
+  // 2026-10-27：失败台账——谁试过什么、为什么不行
+  ["GET", "/api/failure", (res, req, url) => {
+    try {
+      const q = String(url.searchParams.get('q') || '');
+      const file = String(url.searchParams.get('file') || '');
+      if (q || file) return json(res, 200, { ok: true, hits: recallFailures({ wsRoot: WS_ROOT, text: q, files: file ? [file] : [], limit: 10 }) });
+      return json(res, 200, { ok: true, items: recentFailures(WS_ROOT, { limit: 20 }) });
+    } catch (e) { return json(res, 500, { ok: false, error: String(e?.message || e).slice(0, 160) }); }
+  }],
+  ["POST", "/api/failure", async (res, req) => {
+    try {
+      const b = await readBody(req, 8e3);
+      const out = recordFailure({ wsRoot: WS_ROOT, agent: b?.agent, area: b?.area, attempt: b?.attempt, why: b?.why, files: b?.files, source: b?.source });
+      return json(res, out.ok ? 200 : 400, out);
+    } catch (e) { return json(res, 500, { ok: false, error: String(e?.message || e).slice(0, 160) }); }
+  }],
   ["GET", "/api/agent/msg", (res, req, url) => {
     try {
       const who = String(url.searchParams.get('for') || '小语');

@@ -14,6 +14,8 @@ import { validatePatch } from "./patch-generator.mjs";
 import { readProposals, writeProposals, markProposal } from "./capability-proposal.mjs";
 // 2026-10-27：补丁按文件认领，避免两个 agent 改同一份文件
 import { claimTask, releaseClaim } from "./claim-board.mjs";
+// 2026-10-27：失败也要共享，别让后来的人重复踩
+import { recordPatchFailure } from "./failure-ledger.mjs";
 import { gitBin } from "./repo-root.mjs";
 
 export const MAX_ATTEMPTS = 3;
@@ -121,6 +123,7 @@ export async function runProposal({ wsRoot, repoRoot, proposal, generate, dryRun
   // 这里改成"只要没成功提交，就一定还原"，用 try/catch/finally 兜住所有出口。
   const failWithRollback = (stage, err, note, extra = {}) => {
     safeRollback(session);
+    try { recordPatchFailure({ wsRoot, proposal, stage, error: err, files: [...new Set(targetPaths)] }); } catch {}
     try { releaseClaim({ wsRoot, id: claimId, done: false, note: `补丁失败：${stage}` }); } catch {}
     markProposal(wsRoot, proposal.id, { state: "accepted", note, attempts: (Number(proposal.attempts) || 0) + 1, lastAttemptAt: t0 });
     return { ok: false, stage, error: err, ...extra };
