@@ -18,7 +18,7 @@ type Patch = {
 }
 
 const PatchApi = {
-  list: () => api<{ ok: boolean; error?: string; items: Patch[] }>('/api/autopatch/patches'),
+  list: () => api<{ ok: boolean; error?: string; items: Patch[]; state?: Record<string, { state: string; files: number; ageDays: number | null; reasons: string[] }> }>('/api/autopatch/patches'),
   diff: (branch: string) => api<{ ok: boolean; diff?: string; error?: string; truncated?: boolean }>(
     `/api/autopatch/diff?branch=${encodeURIComponent(branch)}`),
   merge: (branch: string) => api<{ ok: boolean; error?: string }>('/api/autopatch/merge', { method: 'POST', body: { branch } }),
@@ -27,6 +27,7 @@ const PatchApi = {
 
 export default function AutoPatchCard() {
   const { data, mutate, isLoading } = useSWR('autopatch-patches', () => PatchApi.list(), { refreshInterval: 60000 })
+  const state = data?.state || {}
   const [openDiff, setOpenDiff] = useState<string | null>(null)
   const [diff, setDiff] = useState('')
   const [busy, setBusy] = useState('')
@@ -80,7 +81,23 @@ export default function AutoPatchCard() {
 
       {items.map((p) => (
         <article key={p.branch} className="soul-record">
-          <h4>{p.subject || p.branch}</h4>
+          <h4>
+            {p.subject || p.branch}
+            {state[p.branch] ? (
+              <span
+                style={{
+                  marginLeft: 8, fontSize: 11, padding: '1px 6px', borderRadius: 999,
+                  border: '1px solid var(--pi-border-soft, #bfc4cb)',
+                  color: state[p.branch].state === 'stale' ? 'var(--pi-warn, #d97706)' : 'var(--pi-dim2)',
+                }}
+              >
+                {state[p.branch].state === 'stale' ? '过期' : '待合并'}
+                {typeof state[p.branch].ageDays === 'number' && state[p.branch].ageDays >= 1
+                  ? ` · ${Math.floor(state[p.branch].ageDays)} 天`
+                  : ''}
+              </span>
+            ) : null}
+          </h4>
           <p className="tone-sources-dim">
             {p.branch} · {p.commit} {p.at ? `· ${new Date(p.at).toLocaleString('zh-CN', { hour12: false })}` : ''}
           </p>

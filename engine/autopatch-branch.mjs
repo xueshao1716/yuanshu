@@ -7,7 +7,7 @@ import { gitBin } from "./repo-root.mjs";
 
 function git(repoRoot, args) {
   const bin = gitBin() || "git";
-  const r = spawnSync(bin, ["-c", `safe.directory=${repoRoot}`, ...args], {
+  const r = spawnSync(bin, ["-c", "core.quotePath=false", "-c", `safe.directory=${repoRoot}`, ...args], {
     cwd: repoRoot, encoding: "utf8", timeout: 120000, windowsHide: true,
   });
   return { ok: r.status === 0, out: `${r.stdout || ""}${r.stderr || ""}`.trim(), code: r.status };

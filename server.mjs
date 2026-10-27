@@ -238,6 +238,8 @@ import { buildWiki, listWiki, readWiki } from "./engine/memory-wiki.mjs";
 import { diffDocs, readManifest as readDocManifest, resetManifest as resetDocManifest } from "./engine/doc-diff.mjs";
 // 2026-10-27：源文档变了 → 标出要人复核的 Wiki 页
 import { markStaleForPaths, clearStaleForGenerated, staleSummary } from "./engine/wiki-stale.mjs";
+// 2026-10-27：自动补丁收尾（状态机 + 提醒 + 可选自动合并）
+import { syncPatches, patchLine, readPatchState, readConfig as readMergeConfig } from "./engine/autopatch-track.mjs";
 // 2026-10-25：后台作业状态机（做完没汇报、坏在哪一步）
 import { collectJobs, summarizeJobs, syncReports, pendingReports, ackReports, autoAckByText, urgentReports } from "./engine/job-state.mjs";
 // 2026-10-25：自己找活——从承诺/牵挂/久未推进的任务/随口提过的事里长出候选目标
@@ -3493,7 +3495,8 @@ const API_ROUTES = [
     try {
       if (!PATCH_REPO.root) return json(res, 200, { ok: false, error: PATCH_REPO.reason, items: [] });
       const out = listPatchBranches(PATCH_REPO.root);
-      return json(res, 200, { ok: out.ok, error: out.error, items: out.items || [] });
+      const state = readPatchState(WS_ROOT);
+      return json(res, 200, { ok: out.ok, error: out.error, items: out.items || [], state: state.branches || {}, config: readMergeConfig(WS_ROOT) });
     } catch (e) { return json(res, 500, { ok: false, error: String(e?.message || e).slice(0, 160), items: [] }); }
   }],
   ["GET", "/api/autopatch/diff", (res, req, url) => {
@@ -5780,6 +5783,17 @@ ${rows.map((r) => `- [${r.status}${r.closed ? "/已结清" : ""}] ${r.text}\n  �
     };
     setTimeout(docSweep, 60 * 1000);
     setInterval(docSweep, 10 * 60 * 1000);
+    // 2026-10-27：补丁状态同步——启动后 2 分钟与每 30 分钟。
+    // 默认**不自动合并**（红线）；只有 记忆/运行时/自动合并.json 里 autoMerge=true 才动手。
+    const patchTrackSweep = () => {
+      try {
+        const out = syncPatches({ wsRoot: WS_ROOT, repoRoot: PATCH_REPO });
+        if (out.awaiting || out.stale) console.log("[patch] 待处理补丁", out.awaiting, "个，过期", out.stale, "个");
+        if (out.autoMerged?.length) console.log("[patch] 已自动合并：", out.autoMerged.join("、"));
+      } catch (e) { console.log("[patch] 同步失败（忽略）：", String(e?.message || e).slice(0, 100)) }
+    };
+    setTimeout(patchTrackSweep, 2 * 60000);
+    setInterval(patchTrackSweep, 30 * 60000);
     knowledgeRuntime.start();
     // 2026-10-26：无人值守补丁调度器。默认**关**（要显式 YUANSHU_AUTOPATCH=1）。
     // 即使开着，也只建 auto/ 分支、绝不并 main；每小时最多一个；失败即停、不连撞。
