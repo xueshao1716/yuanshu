@@ -100,9 +100,17 @@ export async function runProposal({ wsRoot, repoRoot, proposal, generate, dryRun
   if (dryRun) return { ok: true, stage: "dry_run", files: checked.files.map((f) => f.path), edits: (checked.edits || []).map((e) => e.path) };
 
   const targetPaths = [...checked.files.map((f) => f.path), ...(checked.edits || []).map((e) => e.path)];
+  // 2026-10-27：先占住要改的文件；别人正在改同一份就别动手
+  const claim = claimTask({ wsRoot, task: `补丁：${plan.title || proposal.title || proposal.id}`, agent: "autopatch", scope: [...new Set(targetPaths)] });
+  if (!claim.ok) {
+    markProposal(wsRoot, proposal.id, { state: "accepted", note: `文件被占：${claim.error}`, attempts: (Number(proposal.attempts) || 0), lastAttemptAt: t0 });
+    return { ok: false, stage: "scope_conflict", error: claim.error, conflicts: (claim.conflicts || []).map((c) => c.agent) };
+  }
+  const claimId = claim.claim.id;
   const begun = beginPatch({ repoRoot, plan, files: [...new Set(targetPaths)], wsRoot });
   if (!begun.ok) {
     markProposal(wsRoot, proposal.id, { state: "accepted", note: `开改被拒：${begun.error}`, attempts: (Number(proposal.attempts) || 0) + 1, lastAttemptAt: t0 });
+    try { releaseClaim({ wsRoot, id: claimId, done: false, note: "开改被拒" }); } catch {}
     return { ok: false, stage: "scope", error: begun.error };
   }
   const session = begun.session;
@@ -111,6 +119,7 @@ export async function runProposal({ wsRoot, repoRoot, proposal, generate, dryRun
   // 这里改成"只要没成功提交，就一定还原"，用 try/catch/finally 兜住所有出口。
   const failWithRollback = (stage, err, note, extra = {}) => {
     safeRollback(session);
+    try { releaseClaim({ wsRoot, id: claimId, done: false, note: `补丁失败：${stage}` }); } catch {}
     markProposal(wsRoot, proposal.id, { state: "accepted", note, attempts: (Number(proposal.attempts) || 0) + 1, lastAttemptAt: t0 });
     return { ok: false, stage, error: err, ...extra };
   };
@@ -176,6 +185,7 @@ export async function runProposal({ wsRoot, repoRoot, proposal, generate, dryRun
     });
     writeProposals(wsRoot, data);
   }
+  try { releaseClaim({ wsRoot, id: claimId, done: true }); } catch {}
   return { ok: true, stage: "committed", branch, commit: sha.out.slice(0, 12), files: checked.files.map((f) => f.path) };
 }
 

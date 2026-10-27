@@ -250,6 +250,8 @@ import { sendOut, recentDeliveries, outboundLine } from "./engine/outbound.mjs";
 import { recvEvent, listEvents, inboundLine } from "./engine/inbound.mjs";
 // 2026-10-27：认领板（谁在做什么；抄 Agensh 的第一块砖）
 import { claimTask, releaseClaim, renewClaim, listClaims, reapExpired } from "./engine/claim-board.mjs";
+// 2026-10-27：agent 之间的留言（Agensh 第二件套）
+import { postMessage, inboxFor, markRead, recentMessages } from "./engine/agent-mailbox.mjs";
 import { docChangesLine } from "./engine/doc-diff.mjs";
 // 2026-10-25：后台作业状态机（做完没汇报、坏在哪一步）
 import { collectJobs, summarizeJobs, syncReports, pendingReports, ackReports, autoAckByText, urgentReports } from "./engine/job-state.mjs";
@@ -1180,6 +1182,25 @@ const executeUnifiedTool = createUnifiedToolExecutorGuarded({
       } catch {}
       return r;
     }),
+    // 2026-10-27：agent ↔ agent 留言（Agensh 的消息接口）
+    agent_send: (args) => {
+      try {
+        const out = postMessage({ wsRoot: WS_ROOT, from: String(args?.from || '小语'), to: String(args?.to || ''), text: String(args?.text || ''), kind: String(args?.kind || 'note'), replyTo: String(args?.replyTo || '') });
+        return out.ok ? { text: out.message.to ? `已发给 ${out.message.to}` : '已广播' } : { text: out.error || '发送失败', isError: true };
+      } catch (e) { return { text: String(e?.message || e).slice(0, 120), isError: true } }
+    },
+    agent_inbox: (args) => {
+      try {
+        const who = String(args?.agent || '小语');
+        const rows = inboxFor(WS_ROOT, who, { limit: 10, unreadOnly: args?.unread !== false });
+        if (!rows.length) return { text: '没有未读留言。' };
+        return { text: rows.map((m) => `[${m.kind}] ${m.from}${m.to ? ` → ${m.to}` : '（广播）'}：${m.text}`).join('\n') };
+      } catch (e) { return { text: String(e?.message || e).slice(0, 120), isError: true } }
+    },
+    agent_read: (args) => {
+      try { return { text: `已标记 ${markRead({ wsRoot: WS_ROOT, agent: String(args?.agent || '小语'), ids: Array.isArray(args?.ids) ? args.ids : [] }).marked} 条已读` } }
+      catch (e) { return { text: String(e?.message || e).slice(0, 120), isError: true } }
+    },
     notify_user: (args, ctx) => execNotifyUser(notifier, args, ctx),
     delegate_team: (args, ctx) => executeTeam(args, { ...ctx, wsRoot: WS_ROOT, model: ctx?.model || defaultModel }),
     // 2026-10-08 MCP 外部工具转发：mcp_ 前缀的工具调用路由到对应 MCP server
@@ -3340,6 +3361,29 @@ const API_ROUTES = [
   // 2026-10-27：向外发——一个口子管所有出站（微信/邮件/Webhook/PushPlus），失败自动降级并落账
   // 2026-10-27：向内管——外部事件（群消息/邮件/告警/价格）统一入口
   // 2026-10-27：认领板——多 agent 协作的第一块砖（谁在做什么、范围冲突、TTL 回收）
+  // 2026-10-27：agent ↔ agent 留言（广播/定向/未读/已读）
+  ["GET", "/api/agent/msg", (res, req, url) => {
+    try {
+      const who = String(url.searchParams.get('for') || '小语');
+      const unreadOnly = url.searchParams.get('unread') === '1';
+      const limit = Math.min(100, Math.max(1, Number(url.searchParams.get('limit')) || 20));
+      const inbox = inboxFor(WS_ROOT, who, { limit, unreadOnly });
+      return json(res, 200, { ok: true, inbox, recent: recentMessages(WS_ROOT, { limit }) });
+    } catch (e) { return json(res, 500, { ok: false, error: String(e?.message || e).slice(0, 160) }); }
+  }],
+  ["POST", "/api/agent/msg", async (res, req) => {
+    try {
+      const b = await readBody(req, 8e3);
+      const out = postMessage({ wsRoot: WS_ROOT, from: b?.from, to: b?.to, text: b?.text, kind: b?.kind, replyTo: b?.replyTo });
+      return json(res, out.ok ? 200 : 400, out);
+    } catch (e) { return json(res, 500, { ok: false, error: String(e?.message || e).slice(0, 160) }); }
+  }],
+  ["POST", "/api/agent/msg/read", async (res, req) => {
+    try {
+      const b = await readBody(req, 8e3);
+      return json(res, 200, markRead({ wsRoot: WS_ROOT, agent: b?.agent, ids: Array.isArray(b?.ids) ? b.ids : [] }));
+    } catch (e) { return json(res, 500, { ok: false, error: String(e?.message || e).slice(0, 160) }); }
+  }],
   ["GET", "/api/claim", (res, req, url) => {
     try {
       reapExpired({ wsRoot: WS_ROOT });

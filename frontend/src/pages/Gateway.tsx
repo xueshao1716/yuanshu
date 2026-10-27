@@ -17,6 +17,7 @@ type Delivery = { at: number; channel: string; kind: string; ok: boolean; detail
 type Watch = { id: string; title: string; status: string }
 type Loop = { key: string; title: string; status: string; attempts: number }
 type Claim = { id: string; task: string; agent: string; scope: string[]; branch: string; state: string; createdAt: number; expiresAt: number }
+type Msg = { id: string; at: number; from: string; to: string; kind: string; text: string; replyTo?: string }
 
 const time = (ms: number) => (ms ? new Date(ms).toLocaleString('zh-CN', { hour12: false, month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' }) : '—')
 
@@ -35,6 +36,7 @@ export default function Gateway() {
   const out = useSWR('gateway-out', () => api<{ ok: boolean; items: Delivery[] }>('/api/outbound/deliveries?limit=20'), { refreshInterval: 15000 })
   const pro = useSWR('gateway-pro', () => api<{ ok: boolean; watches: Watch[]; loops: Loop[] }>('/api/proactive'), { refreshInterval: 30000 })
   const clm = useSWR('gateway-claim', () => api<{ ok: boolean; items: Claim[] }>('/api/claim'), { refreshInterval: 15000 })
+  const mbox = useSWR('gateway-msg', () => api<{ ok: boolean; inbox: Msg[]; recent: Msg[] }>('/api/agent/msg?for=小语&unread=0&limit=12'), { refreshInterval: 15000 })
 
   const [src, setSrc] = useState('manual')
   const [text, setText] = useState('')
@@ -43,6 +45,9 @@ export default function Gateway() {
   const [claimTaskText, setClaimTaskText] = useState('')
   const [claimScope, setClaimScope] = useState('')
   const [claimMsg, setClaimMsg] = useState('')
+  const [msgText, setMsgText] = useState('')
+  const [msgTo, setMsgTo] = useState('')
+  const [msgHint, setMsgHint] = useState('')
 
   const post = async () => {
     const t = text.trim()
@@ -75,9 +80,22 @@ export default function Gateway() {
     void clm.mutate()
   }
 
+  const sendMsg = async () => {
+    const t = msgText.trim()
+    if (!t) return
+    try {
+      const r = await api<{ ok: boolean; error?: string }>('/api/agent/msg', { method: 'POST', body: { from: '小语', to: msgTo.trim(), text: t, kind: msgTo.trim() ? 'note' : 'note' } })
+      if (!r.ok) { setMsgHint(r.error || '发送失败'); return }
+      setMsgHint(msgTo.trim() ? `已发给 ${msgTo.trim()}` : '已广播')
+      setMsgText('')
+      void mbox.mutate()
+    } catch (e: any) { setMsgHint(String(e?.message || e).slice(0, 120)) }
+  }
+
   const events = inb.data?.items || []
   const deliveries = out.data?.items || []
   const claims = clm.data?.items || []
+  const messages = mbox.data?.recent || []
   const watches = (pro.data?.watches || []).filter((w) => w.status === 'watching')
   const loops = (pro.data?.loops || []).filter((l) => l.status !== 'done')
 
@@ -169,6 +187,35 @@ export default function Gateway() {
             ))}
           </ul>
         ) : <p className="text-xs text-pi-dim2">黑板是空的。</p>}
+      </section>
+
+      {/* ②.7 agent 之间 */}
+      <section className="panel space-y-3">
+        <div className="flex items-baseline justify-between">
+          <h3 className="text-sm font-semibold text-pi-text">agent 之间 <span className="text-pi-dim2 font-normal">（留言板 · 最近 {messages.length} 条）</span></h3>
+          <span className="text-xs text-pi-dim2">不填收件人 = 广播</span>
+        </div>
+        <div className="flex flex-wrap gap-2">
+          <input style={{ ...input, width: 140 }} value={msgTo} onChange={(e) => setMsgTo(e.target.value)} placeholder="收件人（可空）" />
+          <input
+            style={{ ...input, flex: 1, minWidth: 220 }}
+            value={msgText} onChange={(e) => setMsgText(e.target.value)}
+            onKeyDown={(e) => { if (e.key === 'Enter') void sendMsg() }}
+            placeholder="留一句给同僚：谁在改什么、哪条路走不通"
+          />
+          <button type="button" style={pill} onClick={sendMsg}>留言</button>
+        </div>
+        {msgHint ? <p className="text-xs text-pi-dim2">{msgHint}</p> : null}
+        {messages.length ? (
+          <ul className="space-y-2">
+            {messages.map((m) => (
+              <li key={m.id} className="text-xs leading-relaxed">
+                <span className="text-pi-dim2">{time(m.at)} · {m.from}{m.to ? ` → ${m.to}` : '（广播）'} · {m.kind}</span>
+                <div className="text-pi-text">{m.text}</div>
+              </li>
+            ))}
+          </ul>
+        ) : <p className="text-xs text-pi-dim2">还没有留言。</p>}
       </section>
 
       {/* ③ 在盯/在追 */}

@@ -24,6 +24,8 @@ import { proactiveLine } from './proactive-manager.mjs';
 import { inboundLine } from './inbound.mjs';
 // 2026-10-27：正在被认领的事
 import { claimsLine } from './claim-board.mjs';
+// 2026-10-27：同僚留言
+import { mailboxLine } from './agent-mailbox.mjs';
 
 // 工作区根目录由 server 启动时注入（这个模块被更早地 import，拿不到 CONFIG）
 let ENV_WS = '';
