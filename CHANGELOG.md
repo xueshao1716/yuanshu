@@ -3,7 +3,27 @@
 ## [Unreleased]
 
 ## [2.157.0] - 2026-10-27
+用户说「没有收到那条语音」——查下来是 **iLink 不支持原生语音条**，不是发错人。
 
+## 证据（同一个 context 下分项测试）
+
+```
+图片 PNG   → message_id ✅
+文本 TXT   → message_id ✅
+silk 当文件 → message_id ✅
+voice_item（语音条）→ ret=-2 prepare failed ❌
+```
+
+而且 Hermes 自己的注释就写着：Native outbound voice bubbles are not proven-working upstream;
+a file attachment at least plays (even .silk).
+
+试过三种 silk 变体（带 0x02 前缀 / 去掉前缀 / playtime=0）全部 ret=-2，确认是服务端不支持，不是我们打包问题。
+
+## 改法
+
+语音改成**发一条能直接播放的 mp3**（SAPI 合成 → ffmpeg libmp3lame 24k 单声道 → file_item）。
+
+真机：POST /api/wechat/voice → 200 {messageId, playtimeMs:13269, bytes:106797}。
 ## [2.156.0] - 2026-10-27
 微信那条通道现在**文字、图片、文件、语音**都能发了。
 
