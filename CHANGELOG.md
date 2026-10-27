@@ -3,7 +3,43 @@
 ## [Unreleased]
 
 ## [2.166.0] - 2026-10-27
+Agensh 三件套里剩下的两件，一次做完：**补丁按文件认领** + **agent 之间的留言**。
 
+## 一、认领升级成「占住真实文件」
+
+`runProposal` 生成补丁后已经知道要改哪些文件，于是：
+
+- `beginPatch` 之前先 `claimTask({ agent: "autopatch", scope: [文件列表] })`；
+- 冲突 → 返回 `stage: scope_conflict`，**不开工**，并把原因写回提案；
+- 所有出口都释放：开改被拒、门禁失败、应用失败、成功提交。
+
+这样「某个文件正在被改」对别的 agent 是可见且互斥的，不再只是占个任务名。
+
+## 二、agent 之间的留言板
+
+`engine/agent-mailbox.mjs` + `记忆/运行时/agent消息.json`：
+
+| 能力 | 说明 |
+|---|---|
+| 广播 / 定向 | `to` 为空即广播；填了只有收件人看得到 |
+| 未读 / 已读 | 每人一份 `readBy`，`unreadCount` 可查 |
+| 问答 | `kind: question/answer` + `replyTo` 串起来 |
+| 工具 | `agent_send` / `agent_inbox` / `agent_read` |
+| 环境事实 | 有未读时一行：【同僚留言】N 条未读 |
+| 面板 | 接口台新增「agent 之间」区块，可直接留言 |
+
+## 验证
+
+- 单测 36 条全过（mailbox 6 / claim 7+4 / patch-runner 7 / 命名 12）
+- 真机：定向 + 广播 → 未读 2 → 标记已读 → 未读 0
+- 截图：接口台四块齐（入站 / 出站 / 认领板 / agent 留言）
+
+## 两个坑（都是同一类）
+
+1. `server.mjs` 里加 mailbox import 时锚点写错，**静默没加**，接口 500 `postMessage is not defined`；
+2. `patch-runner.mjs` 同理漏了 `claim-task` import，被单测抓出来（`claimTask is not defined`）。
+
+教训：**改完必须跑起来验一次**，不能只看 `node --check`——语法通过不代表引用存在。
 ## [2.165.0] - 2026-10-27
 认领板不能靠人手动填。这版让**派活入口自动认领**：开工前占坑，收工（或失败）释放。
 
