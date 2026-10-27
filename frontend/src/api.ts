@@ -924,6 +924,9 @@ export const SystemApi = {
     `/api/persona/part?id=${encodeURIComponent(id)}`,
   ),
   // 2026-10-26：反馈收件箱（自动上报也在这里，做成可看的卡片）
+  proactiveList: () => api<{ ok: boolean; watches: { id: string; title: string; keywords: string[]; status: string; createdAt: number }[]; loops: { key: string; kind: string; title: string; status: string; attempts: number; lastActionAt: number; lastAction: string }[]; actions: { at: number; action: string; title: string }[] }>('/api/proactive'),
+  proactiveWatch: (title: string) => api<{ ok: boolean; error?: string }>('/api/proactive/watch', { method: 'POST', body: JSON.stringify({ title }) }),
+  proactiveStop: (id: string) => api<{ ok: boolean }>('/api/proactive/stop', { method: 'POST', body: JSON.stringify({ id }) }),
   wikiList: () => api<{ ok: boolean; items: { name: string; bytes: number; updatedAt: number }[]; index: string }>('/api/wiki'),
   wikiPage: (topic: string) => api<{ ok: boolean; content?: string; error?: string }>(`/api/wiki/${encodeURIComponent(topic)}`),
   wikiRebuild: () => api<{ ok: boolean; written: string[]; kept: string[]; topics: number }>('/api/wiki/rebuild', { method: 'POST' }),

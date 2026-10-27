@@ -18,6 +18,8 @@ import { docChangesLine } from './doc-diff.mjs';
 import { staleWikiLine } from './wiki-stale.mjs';
 // 2026-10-27：待合并的自动补丁
 import { patchLine } from './autopatch-track.mjs';
+// 2026-10-27：主动管理
+import { proactiveLine } from './proactive-manager.mjs';
 
 // 工作区根目录由 server 启动时注入（这个模块被更早地 import，拿不到 CONFIG）
 let ENV_WS = '';

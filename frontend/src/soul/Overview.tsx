@@ -13,6 +13,7 @@ import IdeasCard from './IdeasCard'
 import FeedbackCard from './FeedbackCard'
 import AutoPatchCard from './AutoPatchCard'
 import WikiCard from './WikiCard'
+import ProactiveCard from './ProactiveCard'
 import ExpressionCard from './ExpressionCard'
 export const sections = [
   ['overview','培养总览','从真实记录开始，找到下一步'], ['identity','身份与表达','身份、价值观、关系与边界'],
@@ -55,6 +56,9 @@ export default function Overview({open}: {open:(section:Section)=>void}) {
     </Block>
     <Block title="今日建议" hint="不是随机推荐：来自承诺、牵挂、久未推进的定时任务和你说过「改天再说」的事。采纳会变成目标并自动拆成几步。">
       <IdeasCard />
+    </Block>
+    <Block title="主动管理" hint="不用你开口就在盯：说一句「盯住 X」，它登记下来定期检查，有变化主动说。追的节奏有节制，不会刷屏。">
+      <ProactiveCard />
     </Block>
     <Block title="记忆 Wiki" hint="把记忆、经验库、知识库按主题摊开成你能读的页面。手写过的页不会被覆盖。">
       <WikiCard />

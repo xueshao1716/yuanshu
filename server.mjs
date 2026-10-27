@@ -240,6 +240,9 @@ import { diffDocs, readManifest as readDocManifest, resetManifest as resetDocMan
 import { markStaleForPaths, clearStaleForGenerated, staleSummary } from "./engine/wiki-stale.mjs";
 // 2026-10-27：自动补丁收尾（状态机 + 提醒 + 可选自动合并）
 import { syncPatches, patchLine, readPatchState, readConfig as readMergeConfig } from "./engine/autopatch-track.mjs";
+// 2026-10-27：主动管理（在盯什么、追什么、催几次就闭嘴）
+import { sweepProactive, addWatch, stopWatch, listProactive, proactiveLine } from "./engine/proactive-manager.mjs";
+import { docChangesLine } from "./engine/doc-diff.mjs";
 // 2026-10-25：后台作业状态机（做完没汇报、坏在哪一步）
 import { collectJobs, summarizeJobs, syncReports, pendingReports, ackReports, autoAckByText, urgentReports } from "./engine/job-state.mjs";
 // 2026-10-25：自己找活——从承诺/牵挂/久未推进的任务/随口提过的事里长出候选目标
@@ -1276,6 +1279,14 @@ const executeUnifiedTool = createUnifiedToolExecutorGuarded({
       } catch (e) {
         return { text: `job_status 出错：${String(e?.message || e).slice(0, 200)}`, isError: true };
       }
+    },
+    // 主动管理：登记「盯着这件事」
+    proactive_watch: (args) => {
+      try {
+        const out = addWatch({ wsRoot: WS_ROOT, title: String(args?.title || ''), keywords: Array.isArray(args?.keywords) ? args.keywords.map(String) : [] });
+        if (!out.ok) return { text: out.error || '登记失败', isError: true };
+        return { text: out.existed ? `已经在盯「${args.title}」了。` : `好，我盯着「${args.title}」。有变化我会主动说。` };
+      } catch (e) { return { text: '登记失败：' + String(e?.message || e).slice(0, 120), isError: true } }
     },
     // 交付前预筛（2026-10-25）：客观测量 + 硬门槛，不合格先说原因
     output_check: (args) => {
@@ -3442,6 +3453,24 @@ const API_ROUTES = [
   // 2026-10-27：记忆版本（只读历史 + 受控回滚）
   // 2026-10-27：记忆 Wiki（人读的主题页）
   // 2026-10-27：文档变化（近 50 条，含与目标的相关性）
+  // 2026-10-27：主动管理
+  ["GET", "/api/proactive", (res) => {
+    try { return json(res, 200, { ok: true, ...listProactive(WS_ROOT) }); }
+    catch (e) { return json(res, 500, { ok: false, error: String(e?.message || e).slice(0, 160) }); }
+  }],
+  ["POST", "/api/proactive/watch", async (res, req) => {
+    try {
+      const b = await readBody(req, 2e3);
+      const out = addWatch({ wsRoot: WS_ROOT, title: String(b?.title || ''), keywords: Array.isArray(b?.keywords) ? b.keywords : [] });
+      return json(res, out.ok ? 200 : 400, out);
+    } catch (e) { return json(res, 500, { ok: false, error: String(e?.message || e).slice(0, 160) }); }
+  }],
+  ["POST", "/api/proactive/stop", async (res, req) => {
+    try {
+      const b = await readBody(req, 2e3);
+      return json(res, 200, stopWatch({ wsRoot: WS_ROOT, id: String(b?.id || '') }));
+    } catch (e) { return json(res, 500, { ok: false, error: String(e?.message || e).slice(0, 160) }); }
+  }],
   ["GET", "/api/docs/changes", (res) => {
     try {
       const data = readDocManifest(WS_ROOT);
@@ -5794,6 +5823,24 @@ ${rows.map((r) => `- [${r.status}${r.closed ? "/已结清" : ""}] ${r.text}\n  �
     };
     setTimeout(patchTrackSweep, 2 * 60000);
     setInterval(patchTrackSweep, 30 * 60000);
+    // 2026-10-27：主动管理——每 10 分钟看一遍"有没有事在等我"。
+    // 节奏由 proactive-manager 控制：同一件事 6h 内只催一次，最多两次，然后升级一次，再之后闭嘴。
+    const proactiveSweep = () => {
+      try {
+        let detached = [];
+        try { detached = detachedRun.listDetached({ wsRoot: WS_ROOT, limit: 20 }) || [] } catch {}
+        let docChanges = [];
+        try { docChanges = (readDocManifest(WS_ROOT).changes || []).slice(0, 20) } catch {}
+        let patches = {};
+        try { patches = readPatchState(WS_ROOT).branches || {} } catch {}
+        const out = sweepProactive({ wsRoot: WS_ROOT, detached, docChanges, patches });
+        if (out.nudged.length || out.escalated.length) {
+          console.log("[proactive] 催", out.nudged.length, "升级", out.escalated.length, "跳过", out.skipped);
+        }
+      } catch (e) { console.log("[proactive] 扫描失败（忽略）：", String(e?.message || e).slice(0, 100)) }
+    };
+    setTimeout(proactiveSweep, 3 * 60000);
+    setInterval(proactiveSweep, 10 * 60000);
     knowledgeRuntime.start();
     // 2026-10-26：无人值守补丁调度器。默认**关**（要显式 YUANSHU_AUTOPATCH=1）。
     // 即使开着，也只建 auto/ 分支、绝不并 main；每小时最多一个；失败即停、不连撞。
