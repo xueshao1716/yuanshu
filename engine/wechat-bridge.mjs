@@ -12,6 +12,18 @@ import { textToMp3 } from "./wechat-voice.mjs";
 // 2026-10-27：微信图片收发
 import { downloadImage, extractImagePaths } from "./wechat-media.mjs";
 
+// 2026-10-28：用户反馈「让发图一直没发过来、不够主动」。
+// 根因不是能力缺失（sendImage/extractImagePaths 都在），而是模型不知道微信这条路的约定。
+// 每轮把环境规矩随消息一起喂进去，比写进人设更可靠（人设可能被压缩掉）。
+const WECHAT_ENV_HINT = [
+  "【微信环境·必读】你在跟伙伴的微信私聊里，对方在手机上看。",
+  "1) 回复短、口语，不要用 Markdown（微信不渲染），不要长篇分点。",
+  "2) 要发图片：必须先在本地真的生成/找到图片文件，然后在回复里**单独一行**写 ![图](D:\\绝对路径.png)。文件不存在就等于没发，别凭空写路径。",
+  "3) 要发文件同样：单独一行写绝对路径。",
+  "4) **能做就直接做**：不要只回“我去看看/稍等/马上”，微信这头没有“稍后”。要么现在动手把结果给它，要么直说做不了。",
+  "5) 对方让你画画/生成图/截图时，先调用工具把图生成出来，再按第 2 条发出去。",
+].join("\n");
+
 const QR_POLL_MS = 1500;
 const QR_DEADLINE_MS = 4 * 60_000;
 const QR_REFRESH_LIMIT = 3;
@@ -269,6 +281,12 @@ export function createWechatBridge({
   }
   // image 可选：带上时文字切分发完后，再排一张本地图片（sendImage 通路，2026-10-08）。
   const reply = (acc, to, text, contextToken, image, file) => {
+    // 2026-10-28：对方要图、模型却没给路径 → 日志留痕（否则只能靠猜）
+    try {
+      const wantsImage = /发.{0,4}图|画.{0,2}张|生成.{0,2}图|截图/.test(String(text || ""));
+      const hasPath = /![[^\]]*\]\([^)]+\)/.test(String(text || ""));
+      if (!wantsImage && !hasPath) { /* 普通回复，不用管 */ }
+    } catch {}
     // 2026-10-27：回复里出现本地图片路径 → 自动当图片发（agent 不用学新工具）
     let autoImages = [];
     try {
@@ -324,11 +342,17 @@ export function createWechatBridge({
       // 只有扫码绑定的本人算「伙伴亲自发起」；陌生发信人拿不到母体执行身份
       const owner = !!acc?.userId && m.sender === acc.userId;
       try {
-        answer = await chat.ask(m.text, await sessionFor(m.sender), { owner });
+        answer = await chat.ask(`${WECHAT_ENV_HINT}\n\n【对方消息】\n${m.text}`, await sessionFor(m.sender), { owner });
       } catch (e) {
         if (e.status !== 404 && e.status !== 400) throw e;
-        answer = await chat.ask(m.text, await sessionFor(m.sender, true), { owner }); // 会话被删：换新会话重来一次
+        answer = await chat.ask(`${WECHAT_ENV_HINT}\n\n【对方消息】\n${m.text}`, await sessionFor(m.sender, true), { owner }); // 会话被删：换新会话重来一次
       }
+      // 2026-10-28：对方要图、模型却没给路径 → 留痕，省得下次只能靠猜
+      try {
+        const wantsImage = /发.{0,4}图|画.{0,2}张|生成.{0,2}图|截图/.test(String(m.text || ""));
+        const hasPath = /!\[[^\]]*\]\([^)]+\)/.test(String(answer || ""));
+        if (wantsImage && !hasPath) log("[微信] 对方要图，但回复里没有图片路径（模型没给 / 没生成）");
+      } catch {}
       done = true;
       await reply(acc, m.sender, answer || "这次没组织出回复，稍后再问我一次。", m.contextToken);
     } catch (e) {
