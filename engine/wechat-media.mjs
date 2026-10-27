@@ -76,6 +76,13 @@ export function extractImagePaths(text, { exists = fs.existsSync } = {}) {
     if (exists(String(p))) { images.push(String(p)); return "" }
     return _m;
   });
+  // 2026-10-28：兼容「!图（路径）」「图(路径)」这类写法——
+  // 全角括号、用"图"当说明、甚至不带感叹号；模型和人都真的这么写。
+  t = t.replace(/[!！]?\s*[图圖片]\s*[（(]\s*([^）)\n]+?)\s*[）)]/g, (_m, p) => {
+    const clean = String(p).replace(/^["'\u201c\u201d]+|[\s"'\u201c\u201d]+$/g, "");
+    if (clean && exists(clean)) { images.push(clean); return "" }
+    return _m;
+  });
   // 单独一行的路径
   const lines = t.split(/\r?\n/);
   const kept = [];
