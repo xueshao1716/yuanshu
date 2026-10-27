@@ -70,7 +70,34 @@ export async function runDoctor({ wsRoot, agentDir, piPackage, bashPath, port, r
   let pwshVer = '';
   let ps5Ver = '';
   if (platform === 'win32') {
-    const p7 = await run('pwsh', ['-NoProfile', '-NonInteractive', '-Command', '$PSVersionTable.PSVersion.ToString()'], { timeout: 8000 });
+    // 2026-10-27：PowerShell 7 不随 Windows 附带，可以是「用户目录免管理员安装」。
+    // 服务以 SYSTEM 运行，看不到用户 PATH，所以要显式探这几个位置。
+    const userPwsh = [];
+    // 扫所有用户目录（服务是 SYSTEM，自己的 homedir 是 systemprofile，看不见别人的安装）
+    try {
+      const root = path.join(process.env.SystemDrive || 'C:', 'Users');
+      for (const name of fs.readdirSync(root)) {
+        for (const rel of [
+          ['AppData', 'Local', 'Programs', 'PowerShell', '7', 'pwsh.exe'],
+          ['AppData', 'Local', 'Microsoft', 'WindowsApps', 'pwsh.exe'],
+        ]) {
+          const exe = path.join(root, name, ...rel);
+          try { if (fs.existsSync(exe)) userPwsh.push(exe) } catch {}
+        }
+      }
+    } catch {}
+
+    const candidates = [
+      'pwsh',
+      ...userPwsh,
+      path.join(os.homedir(), 'AppData', 'Local', 'Programs', 'PowerShell', '7', 'pwsh.exe'),
+      'C:\\Program Files\\PowerShell\\7\\pwsh.exe',
+    ].filter(Boolean);
+    let p7 = { ok: false, out: '' };
+    for (const exe of candidates) {
+      p7 = await run(exe, ['-NoProfile', '-NonInteractive', '-Command', '$PSVersionTable.PSVersion.ToString()'], { timeout: 8000 });
+      if (p7.ok) break;
+    }
     if (p7.ok) pwshVer = shortVer(p7.out) || '7';
     if (!pwshVer) {
       const p5 = await run('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', '$PSVersionTable.PSVersion.ToString()'], { timeout: 8000 });
