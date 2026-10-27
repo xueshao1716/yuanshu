@@ -3,7 +3,35 @@
 ## [Unreleased]
 
 ## [2.156.0] - 2026-10-27
+微信那条通道现在**文字、图片、文件、语音**都能发了。
 
+## SILK 是什么
+
+微信语音条的编码格式（Skype 开发、微软维护），参数固定：24kHz / 单声道 / 16bit / encode_type=6。
+要发原生语音气泡就必须先编码成 .silk——普通 mp3/wav 发过去只是文件，不是语音条。
+
+## 链路（全离线）
+
+```
+文字 → 系统语音 SAPI（Microsoft Huihui 中文音色）
+     → wav → ffmpeg 重采样 24k 单声道
+     → pilk 编码 .silk → voice_item 发送
+```
+
+为什么不用 edge-tts：2026-10-27 实测它直连微软接口返回 403（服务端开始拦），而 Windows 自带 SAPI 有中文音色、离线可用。
+
+## 踩的两个坑
+
+- **服务以 SYSTEM 运行，PATH 里没有用户的 python** → python -c "import pilk" 直接失败。加了 resolvePython()：扫 C:\Users\*\...\Python3*、Program Files、常见根目录。
+- **pilk 没有 -m 入口**（No module named pilk.__main__）→ 只能 python -c "import pilk; pilk.encode(a,b,tencent=True)"。
+
+## 验证（真机）
+
+```
+文字 → silk：22KB / 8.2s ✅
+sendVoice → message_id ✅（playtime 11690ms）
+POST /api/wechat/voice {text} → 200 {ok:true, messageId, playtimeMs:8841} ✅
+```
 ## [2.155.0] - 2026-10-27
 用户一句「之前 hermes 可以发图片，语音啊」把我问住了——**一查，是我错了**。
 
