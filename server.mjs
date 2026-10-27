@@ -1068,6 +1068,27 @@ const THINK_TOOL = { type: "function", function: { name: "think", description: "
 const THINK_PROMPT = "你可以调用 think 工具，在动手之前写下你的分析过程（理解、步骤、计划、可能的坑）。写完后再执行任务。think 的内容仅供调试，不展示给用户，可以放心写。";
 const isExternalThinking = () => !!(CONFIG.externalThinking || globalThis.__yuanshuExternalThinking || globalThis.__piWebExternalThinking);
 
+// 2026-10-27：派活工具的统一「认领 → 干活 → 释放」。
+// 板子不靠人填：谁在派活，就自动占一个坑；干完/失败都释放（失败记 abandoned，可追溯）。
+async function withClaim({ task, agent = "小语", scope = [] }, fn) {
+  const name = String(task || "未命名任务").slice(0, 100);
+  const c = claimTask({ wsRoot: WS_ROOT, task: name, agent, scope });
+  if (!c.ok) {
+    return {
+      text: `这件事现在不能接：${c.error}。换一件不重叠的，或等对方释放（接口台"谁在做什么"能看到）。`,
+      isError: true,
+    };
+  }
+  let r;
+  try {
+    r = await fn();
+  } catch (e) {
+    try { releaseClaim({ wsRoot: WS_ROOT, id: c.claim.id, done: false, note: String(e?.message || "").slice(0, 120) }); } catch {}
+    throw e;
+  }
+  try { releaseClaim({ wsRoot: WS_ROOT, id: c.claim.id, done: !r?.isError }); } catch {}
+  return r;
+}
 // 统一工具执行器：实现已抽到 engine/tools/unified-tools.mjs（大脑可移植第一步）。
 // server 侧注入：工作目录 / 工作空间路径安全 / 技能激活 / 时间引擎。
 const executeUnifiedTool = createUnifiedToolExecutorGuarded({
@@ -1110,7 +1131,7 @@ const executeUnifiedTool = createUnifiedToolExecutorGuarded({
         return r.ok ? { text: `已记入品味库：${args?.topic} → ${args?.chose}` } : { text: `记入失败：${r.error}`, isError: true };
       } catch (e) { return { text: `记入失败：${String(e?.message || e).slice(0, 120)}`, isError: true } }
     },
-    dsh_task: async (args, ctx) => {
+    dsh_task: async (args, ctx) => withClaim({ task: String(args?.task || args?.prompt || "dsh 任务"), agent: "dsh" }, async () => {
       const t = globalThis.__yuanshuDshTool || globalThis.__piWebDshTool;
       if (!t?.execute) return { text: "[dsh] 执行臂未初始化", isError: true };
       // 2026-10-23：登记成后台作业，界面/晨报能看见它在跑（对模型仍是同步等待）
@@ -1129,7 +1150,7 @@ const executeUnifiedTool = createUnifiedToolExecutorGuarded({
       } catch (e) {
         return { text: String(e?.message || e), isError: true };
       }
-    },
+    }),
     ...mediaExtraExecutors({ getModelList: () => modelList, generateMediaAsync }),
     ...todoExtraExecutors(),
     ...planFilesExtraExecutors(),
@@ -1150,7 +1171,7 @@ const executeUnifiedTool = createUnifiedToolExecutorGuarded({
     ...designPrefsExecutors(WS_ROOT),
     // 派活 = 元枢里真正的"多路探索"：一次派几个子任务、哪个失败、花了多久。
     // 记成轨迹节点后，"该怎么探索"才有可回放的对象（当场修那条是单线的）。
-    delegate_task: async (args, ctx) => {
+    delegate_task: async (args, ctx) => withClaim({ task: String(args?.task || args?.prompt || "派活"), agent: "delegate" }, async () => {
       const t0 = Date.now();
       const r = args?.agent_id ? await delegateToCultivatedAgent(cultivationRuntime, args, ctx) : await execDelegateTask(args, ctx);
       try {
@@ -1158,14 +1179,14 @@ const executeUnifiedTool = createUnifiedToolExecutorGuarded({
         recordDelegation(WS_ROOT, { kind: "delegate_task", task: args?.task || args?.prompt || "", durationMs: Date.now() - t0, ok: !r?.isError, digest: text });
       } catch {}
       return r;
-    },
+    }),
     notify_user: (args, ctx) => execNotifyUser(notifier, args, ctx),
     delegate_team: (args, ctx) => executeTeam(args, { ...ctx, wsRoot: WS_ROOT, model: ctx?.model || defaultModel }),
     // 2026-10-08 MCP 外部工具转发：mcp_ 前缀的工具调用路由到对应 MCP server
     ...Object.fromEntries(
       mcpManager.allTools().map(t => [`mcp_${t.exposedName}`, (args) => mcpManager.callTool(t.exposedName, args)])
     ),
-    delegate_fork: async (args, ctx) => {
+    delegate_fork: async (args, ctx) => withClaim({ task: String(args?.task || args?.prompt || "分叉"), agent: "fork" }, async () => {
       const t0 = Date.now();
       const r = await execDelegateFork(args, ctx);
       try {
@@ -1173,7 +1194,7 @@ const executeUnifiedTool = createUnifiedToolExecutorGuarded({
         recordDelegation(WS_ROOT, { kind: "delegate_fork", task: args?.task || args?.prompt || "", durationMs: Date.now() - t0, ok: !r?.isError, digest: text });
       } catch {}
       return r;
-    },
+    }),
     // 脱链长任务（2026-10-25）：渲染/编码/下载这类"跑几分钟"的活走这里，别用 sleep 等。
     run_detached: (args) => {
       const action = String(args?.action || "").trim();
