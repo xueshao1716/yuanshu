@@ -234,6 +234,8 @@ import { pruneOldJobs, cleanupLegacyJobDir } from "./engine/detached-run.mjs";
 import { commitMemory, memoryHistory, rollbackMemory } from "./engine/memory-versioning.mjs";
 // 2026-10-27：记忆 Wiki（把记忆/经验/知识渲染成人能读的主题页）
 import { buildWiki, listWiki, readWiki } from "./engine/memory-wiki.mjs";
+// 2026-10-27：工作区文档变化感知（Diff Engine）
+import { diffDocs, readManifest as readDocManifest, resetManifest as resetDocManifest } from "./engine/doc-diff.mjs";
 // 2026-10-25：后台作业状态机（做完没汇报、坏在哪一步）
 import { collectJobs, summarizeJobs, syncReports, pendingReports, ackReports, autoAckByText, urgentReports } from "./engine/job-state.mjs";
 // 2026-10-25：自己找活——从承诺/牵挂/久未推进的任务/随口提过的事里长出候选目标
@@ -3435,6 +3437,17 @@ const API_ROUTES = [
   // 2026-10-26：自动补丁面板
   // 2026-10-27：记忆版本（只读历史 + 受控回滚）
   // 2026-10-27：记忆 Wiki（人读的主题页）
+  // 2026-10-27：文档变化（近 50 条，含与目标的相关性）
+  ["GET", "/api/docs/changes", (res) => {
+    try {
+      const data = readDocManifest(WS_ROOT);
+      return json(res, 200, { ok: true, baselineAt: data.baselineAt || 0, files: Object.keys(data.files || {}).length, changes: data.changes || [] });
+    } catch (e) { return json(res, 500, { ok: false, error: String(e?.message || e).slice(0, 160) }); }
+  }],
+  ["POST", "/api/docs/reset", (res) => {
+    try { return json(res, 200, { ok: true, ...resetDocManifest(WS_ROOT) }); }
+    catch (e) { return json(res, 500, { ok: false, error: String(e?.message || e).slice(0, 160) }); }
+  }],
   ["GET", "/api/wiki", (res) => {
     try {
       const items = listWiki({ wsRoot: WS_ROOT });
@@ -5737,6 +5750,24 @@ ${rows.map((r) => `- [${r.status}${r.closed ? "/已结清" : ""}] ${r.text}\n  �
     };
     setTimeout(wikiSweep, 2 * 60000);
     setInterval(wikiSweep, 6 * 60 * 60000);
+    // 2026-10-27：文档变化扫描——第一次只建基线，之后每 10 分钟对比一次。
+    // 和"正在做的事"对上号（memory 的目标 + 建议）后再进环境事实，避免噪音。
+    const docSweep = () => {
+      try {
+        const targets = (() => {
+          try {
+            const goals = JSON.parse(fs.readFileSync(path.join(WS_ROOT, "记忆", "运行时", "目标执行.json"), "utf8"));
+            const items = Array.isArray(goals?.items) ? goals.items : [];
+            return items.map((g) => ({ id: g.id, text: `${g.title || ""} ${g.text || ""}` }));
+          } catch { return [] }
+        })();
+        const r = diffDocs({ wsRoot: WS_ROOT, targets });
+        if (r.baseline) console.log("[docs] 已建基线，跟踪", r.total, "个文件");
+        else if (r.changes?.length) console.log("[docs] 检测到变化：", r.changes.slice(0, 3).map((c) => c.path).join("、"));
+      } catch (e) { console.log("[docs] 扫描失败（忽略）：", String(e?.message || e).slice(0, 100)) }
+    };
+    setTimeout(docSweep, 60 * 1000);
+    setInterval(docSweep, 10 * 60 * 1000);
     knowledgeRuntime.start();
     // 2026-10-26：无人值守补丁调度器。默认**关**（要显式 YUANSHU_AUTOPATCH=1）。
     // 即使开着，也只建 auto/ 分支、绝不并 main；每小时最多一个；失败即停、不连撞。
