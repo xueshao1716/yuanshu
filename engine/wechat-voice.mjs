@@ -12,6 +12,17 @@ import { execFileSync } from "node:child_process";
 
 const psQuote = (s) => String(s).replace(/'/g, "''");
 
+/** 默认音色：晓晓最自然；可在 记忆/运行时/语音音色.json 里改。 */
+export const DEFAULT_VOICE = "zh-CN-XiaoxiaoNeural";
+
+/** 读音色配置（{"voice":"zh-CN-YunxiNeural","rate":"+0%"}）。 */
+export function voiceConfig(wsRoot) {
+  try {
+    const raw = JSON.parse(fs.readFileSync(path.join(String(wsRoot || "."), "记忆", "运行时", "语音音色.json"), "utf8"));
+    return { voice: String(raw.voice || DEFAULT_VOICE), rate: String(raw.rate || "+0%") };
+  } catch { return { voice: DEFAULT_VOICE, rate: "+0%" } }
+}
+
 /**
  * 找 python 解释器。
  * 2026-10-27 真机：服务以 SYSTEM 运行，PATH 里没有用户装的 python，
@@ -100,18 +111,48 @@ export function wavDurationMs(wav) {
 }
 
 /**
+ * 用 edge-tts 合成 mp3（音色自然，需要能连上微软的语音服务）。
+ * 2026-10-27：7.2.8 返回 403，升到 7.3.1 正常——所以这里失败会回退 SAPI。
+ */
+export function edgeTtsMp3({ text, outMp3, voice = DEFAULT_VOICE, rate = "+0%", run = execFileSync, python = resolvePython() } = {}) {
+  const txt = outMp3.replace(/\.mp3$/i, ".txt");
+  fs.writeFileSync(txt, String(text || ""), "utf8");
+  try {
+    run(python, ["-m", "edge_tts", "--voice", voice, "--rate", rate, "--file", txt, "--write-media", outMp3], {
+      encoding: "utf8", timeout: 90000, windowsHide: true, stdio: "pipe",
+    });
+  } finally {
+    try { fs.rmSync(txt, { force: true }) } catch {}
+  }
+  if (!fs.existsSync(outMp3) || fs.statSync(outMp3).size < 1024) throw new Error("edge-tts 没生成有效音频");
+  return { ok: true, mp3: outMp3, bytes: fs.statSync(outMp3).size, engine: "edge-tts", voice };
+}
+
+/**
  * 文字 → mp3（可直接在微信里点开播放）。
  *
  * 为什么不是语音条：2026-10-27 实测 voice_item 恒返回 ret=-2 prepare failed，
  * 而 Hermes 自己的注释也写明「Native outbound voice bubbles are not proven-working upstream;
  * a file attachment at least plays」。所以正路是发一个能播的音频文件。
  */
-export function textToMp3({ text, outDir = os.tmpdir(), voice, rate = 0 } = {}) {
+export function textToMp3({ text, outDir = os.tmpdir(), voice, rate = 0, wsRoot = "", preferEdge = true } = {}) {
   const clean = String(text || "").trim();
   if (!clean) throw new Error("文本不能为空");
   const base = path.join(outDir, `yuanshu-voice-${Date.now()}`);
   const wav = `${base}.wav`;
   const mp3 = `${base}.mp3`;
+
+  // 2026-10-27：优先 edge-tts（晓晓等自然音色）；不可用时退回 SAPI
+  if (preferEdge) {
+    const cfg = voiceConfig(wsRoot);
+    try {
+      return edgeTtsMp3({ text: clean, outMp3: mp3, voice: voice || cfg.voice, rate: cfg.rate });
+    } catch (e) {
+      // 记一笔，继续走 SAPI
+      console.warn("[voice] edge-tts 失败，回退 SAPI：", String(e?.message || e).slice(0, 120));
+    }
+  }
+
   synthesizeWav({ text: clean, outWav: wav, voice, rate });
   execFileSync("ffmpeg", ["-y", "-i", wav, "-codec:a", "libmp3lame", "-b:a", "64k", "-ar", "24000", "-ac", "1", mp3], {
     encoding: "utf8", timeout: 60000, windowsHide: true, stdio: "pipe",
