@@ -3309,6 +3309,20 @@ const API_ROUTES = [
   }],
   ["POST", "/api/notify/open", (res) => json(res, 200, openConsole())],
   // 2026-10-27：发一句试试——把 iLink 的真实错误原样带回面板（不再只写日志）
+  // 2026-10-27：发一条语音条（文字 → SILK）
+  ["POST", "/api/wechat/voice", async (res, req) => {
+    try {
+      const b = await readBody(req, 4e3);
+      const text = String(b?.text || '').trim();
+      if (!text) return json(res, 400, { ok: false, error: 'text 不能为空' });
+      const out = await wechat.sendVoice(text);
+      return json(res, 200, out);
+    } catch (e) {
+      const msg = String(e?.message || e).slice(0, 200);
+      try { enqueueReport(WS_ROOT, { id: `wechat-voice-${Math.floor(Date.now() / 60000)}`, kind: 'wechat', label: '微信语音发送失败', state: 'needs_attention', step: msg.slice(0, 160), priority: 'normal' }); } catch {}
+      return json(res, 500, { ok: false, error: msg });
+    }
+  }],
   ["POST", "/api/wechat/test", async (res) => {
     try {
       await wechat.notifyOwner('元枢通道自检：收到这条说明微信推送可用。');

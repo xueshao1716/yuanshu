@@ -7,6 +7,8 @@
 import fs from "node:fs";
 import path from "node:path";
 import { createIlinkClient, normalizeMessage, splitForWechat, stripMarkdownForWechat, updatesOk, RATE_LIMITED, ILINK_BASE } from "./wechat-ilink.mjs";
+// 2026-10-27：文字 → SILK 语音条（系统语音 + pilk 编码）
+import { textToSilk } from "./wechat-voice.mjs";
 
 const QR_POLL_MS = 1500;
 const QR_DEADLINE_MS = 4 * 60_000;
@@ -488,6 +490,16 @@ export function createWechatBridge({
     },
     setNotify(on) { writeJson(file("settings.json"), { ...settings(), notify: !!on }); return { notify: !!on }; },
     // 主动发给机器人的主人（扫码的那个人），给交付通知用；要先在面板里打开「通知发到微信」。
+    // 2026-10-27：发一条语音条给主人（文字先合成 SILK）
+    async sendVoice(text) {
+      const acc = loadAccount();
+      if (!acc?.token || !acc.userId) throw Object.assign(new Error("微信没登录"), { status: 409 });
+      const v = textToSilk({ text: String(text || "").slice(0, 500) });
+      const r = await client.sendVoice(acc.token, v.silk, acc.userId, contexts[acc.userId] || "", acc.base_url || ILINK_BASE, { playtimeMs: v.durationMs });
+      stats.notifyOk += 1; stats.lastNotifyAt = now();
+      try { fs.rmSync(v.silk, { force: true }) } catch {}
+      return { ok: true, messageId: r?.message_id || null, playtimeMs: v.durationMs, bytes: v.bytes };
+    },
     async notifyOwner(text, imagePath, filePath) {
       const acc = loadAccount();
       if (!acc?.token || !acc.userId) throw Object.assign(new Error("微信没登录"), { status: 409 });

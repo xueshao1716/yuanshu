@@ -146,6 +146,25 @@ export function createIlinkClient({ fetch: f = globalThis.fetch, base = ILINK_BA
       return { ...r, fileSize: up.plaintextSize, fileSizeCiphertext: up.ciphertextSize, fileName: up.filename };
     },
 
+    // 2026-10-27：语音条（SILK）。微信要求 encode_type=6 / 24kHz / 16bit，playtime 是毫秒。
+    async sendVoice(token, silkPath, to, contextToken, at = base, { playtimeMs = 0, sampleRate = 24000 } = {}) {
+      const up = await uploadMedia({ getUploadUrl, uploadToCdn }, token, silkPath, to, UPLOAD_TYPE_VOICE, at);
+      const item = {
+        type: ITEM_VOICE,
+        voice_item: {
+          media: { encrypt_query_param: up.encryptedQueryParam, aes_key: up.aesKeyB64, encrypt_type: 1 },
+          encode_type: 6, bits_per_sample: 16, sample_rate: sampleRate, playtime: Math.max(0, Math.round(playtimeMs)),
+        },
+      };
+      const msg = {
+        from_user_id: "", to_user_id: to, client_id: crypto.randomUUID(),
+        message_type: MSG_TYPE_BOT, message_state: MSG_STATE_FINISH, item_list: [item],
+      };
+      if (contextToken) msg.context_token = contextToken;
+      const r = await post(EP.send, { msg }, token, API_TIMEOUT_MS, at);
+      return { ...r, playtimeMs, fileSize: up.plaintextSize };
+    },
+
     // 发送一张本地图片：读文件 → md5 → getUploadUrl → AES-128-ECB 加密 → 上 CDN → 拿 x-encrypted-param → 发 image_item。
     // aes_key 用 base64(hex 密钥文本)、mid_size 用密文字节数——这两处是逆向确认的官方编码，别改成原始密钥/原图尺寸。
     
