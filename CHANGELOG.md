@@ -3,7 +3,12 @@
 ## [Unreleased]
 
 ## [2.150.0] - 2026-10-27
+用户问「我这么新的系统，不应该没有吧」——**PowerShell 7 从来不随 Windows 附带**，Windows 只自带 5.1。
 
+- 装了 PowerShell 7.6.9 到用户目录（免管理员、不动机器 PATH）：`%LOCALAPPDATA%\Programs\PowerShell\7`，并把该目录写入**用户 PATH**。
+- 体检改成能认出这种安装：服务以 SYSTEM 运行，看不到用户 PATH，所以会**扫所有 `C:\Users\*`** 下的 `pwsh.exe`，再试 `C:\Program Files\PowerShell\7`。
+
+真机：`命令工具  PowerShell 7.6.9 + Bash（git-bash）  正常`。
 ## [2.149.0] - 2026-10-27
 环境体检里那条「Bash（命令工具）」用户看不懂，也不该让人以为必须装 git-bash。
 
