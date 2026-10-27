@@ -42,18 +42,26 @@ export function resolvePython({ exists = fs.existsSync } = {}) {
 /** 用系统语音合成 wav（默认 Huihui 中文音色）。 */
 export function synthesizeWav({ text, outWav, voice = "Microsoft Huihui Desktop", rate = 0, run = execFileSync } = {}) {
   const file = outWav || path.join(os.tmpdir(), `yuanshu-voice-${Date.now()}.wav`);
+  // 2026-10-27 真机：中文经 stdin 传给 PowerShell 会变成乱码（读出来叽里咕噜），
+  // 必须先落成 UTF-8 文件，再 Get-Content -Encoding UTF8 读。
+  const textFile = `${file}.txt`;
+  fs.writeFileSync(textFile, String(text || ""), "utf8");
   const ps = [
     "Add-Type -AssemblyName System.Speech;",
     "$s = New-Object System.Speech.Synthesis.SpeechSynthesizer;",
     `try { $s.SelectVoice('${psQuote(voice)}') } catch {};`,
     `$s.Rate = ${Number(rate) || 0};`,
     `$s.SetOutputToWaveFile('${psQuote(file)}');`,
-    `$s.Speak([Console]::In.ReadToEnd());`,
+    `$s.Speak((Get-Content -Raw -Encoding UTF8 '${psQuote(textFile)}'));`,
     "$s.Dispose();",
   ].join(" ");
-  run("powershell.exe", ["-NoProfile", "-NonInteractive", "-Command", ps], {
-    input: String(text || ""), encoding: "utf8", timeout: 60000, windowsHide: true,
-  });
+  try {
+    run("powershell.exe", ["-NoProfile", "-NonInteractive", "-Command", ps], {
+      encoding: "utf8", timeout: 60000, windowsHide: true,
+    });
+  } finally {
+    try { fs.rmSync(textFile, { force: true }) } catch {}
+  }
   if (!fs.existsSync(file)) throw new Error("语音合成没生成 wav");
   return { ok: true, wav: file };
 }
