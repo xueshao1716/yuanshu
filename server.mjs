@@ -3341,7 +3341,7 @@ const API_ROUTES = [
   ["GET", "/api/agent-heartbeat", (res) => json(res, 200, agentBeat ? agentBeat.status() : { running: false })],
   ["POST", "/api/agent-heartbeat/beat", async (res) => json(res, 200, agentBeat ? await agentBeat.beat() : { error: "心跳未启用" })],
   ["GET", "/api/notify/recent", (res, req, url) => json(res, 200, { events: notifier.list(parseInt(url.searchParams.get("after") || "0", 10) || 0), lastSeq: notifier.lastSeq })],
-  ["POST", "/api/wechat/notify", wechatAction(async (req) => { const b = await readBody(req, 1); return wechat.notifyOwner(String(b.text || '').slice(0, 2000), String(b.image || '').slice(0, 500)); })],
+  ["POST", "/api/wechat/notify", wechatAction(async (req) => { const b = await readBody(req, 1); return wechat.notifyOwner(String(b.text || '').slice(0, 2000), String(b.image || '').slice(0, 500), String(b.file || '').slice(0, 500)); })],
   // 邮件接入：Gmail + Outlook，2026-10-08
   ["GET", "/api/email/status", (res) => json(res, 200, emailBridge.status())],
   ["GET", "/api/email/config", (res) => {

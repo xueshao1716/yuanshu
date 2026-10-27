@@ -247,6 +247,9 @@ export function createWechatBridge({
         // 图片任务（2026-10-08 补）：走 sendImage 加密上 CDN；文字任务照旧 sendText。
         const send = () => (job.image
           ? client.sendImage(acc.token, job.image, job.to, job.contextToken, acc.base_url || ILINK_BASE)
+          : job.file ? (client.sendFile
+            ? client.sendFile(acc.token, job.file, job.to, job.contextToken, acc.base_url || ILINK_BASE)
+            : Promise.reject(new Error("当前客户端不支持 sendFile")))
           : client.sendText(acc.token, job.to, job.text, job.contextToken, acc.base_url || ILINK_BASE));
         let r = null, err = null;
         try { r = await send(); } catch (e) { err = e; }
@@ -261,7 +264,7 @@ export function createWechatBridge({
     return { sent, failed, failedText, error };
   }
   // image 可选：带上时文字切分发完后，再排一张本地图片（sendImage 通路，2026-10-08）。
-  const reply = (acc, to, text, contextToken, image) => {
+  const reply = (acc, to, text, contextToken, image, file) => {
     // 2026-10-24：长回答被切成多条时标出 (i/n)，否则微信里看起来像刷屏
     const parts = splitForWechat(stripMarkdownForWechat(text));
     parts.forEach((part, i) => {
@@ -269,6 +272,8 @@ export function createWechatBridge({
       queue.push({ to, text: label + part, contextToken });
     });
     if (image) queue.push({ to, image, contextToken });
+    // 2026-10-27：文件走 sendFile（Hermes 证实 iLink 支持 file_item）
+    if (file) queue.push({ to, file, contextToken });
     return flush(acc);
   };
 
@@ -483,12 +488,12 @@ export function createWechatBridge({
     },
     setNotify(on) { writeJson(file("settings.json"), { ...settings(), notify: !!on }); return { notify: !!on }; },
     // 主动发给机器人的主人（扫码的那个人），给交付通知用；要先在面板里打开「通知发到微信」。
-    async notifyOwner(text, imagePath) {
+    async notifyOwner(text, imagePath, filePath) {
       const acc = loadAccount();
       if (!acc?.token || !acc.userId) throw Object.assign(new Error("微信没登录"), { status: 409 });
       if (!settings().notify) throw Object.assign(new Error("没打开「通知发到微信」"), { status: 409 });
-      const send = () => reply(acc, acc.userId, text || "", contexts[acc.userId] || "", imagePath || "");
-      let result = await send();
+      const send = (file) => reply(acc, acc.userId, text || "", contexts[acc.userId] || "", imagePath || "", file || "");
+      let result = await send(filePath);
       let detail = result && result.failedText > 0 ? String(result.error || "未送达") : "";
       // 2026-10-22：iLink 掉线时发送会回 ret=-2 prepare failed；这时先重连一次再重试，
       // 比直接把失败抛给调用方有用（以前失败率统计也看不到这类失败）。
@@ -497,7 +502,7 @@ export function createWechatBridge({
           await stop({ keepEnabled: true });
           await start();
           await sleep(1200);
-          result = await send();
+          result = await send(filePath);
           detail = result && result.failedText > 0 ? String(result.error || "未送达") : "";
         } catch (e) {
           detail = detail || String(e?.message || e);

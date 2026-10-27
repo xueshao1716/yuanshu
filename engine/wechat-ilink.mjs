@@ -25,6 +25,13 @@ const MSG_STATE_FINISH = 2;
 const ITEM_TEXT = 1;
 const ITEM_IMAGE = 2;
 const UPLOAD_TYPE_IMAGE = 1;
+// 2026-10-27：媒体类型（getuploadurl 的 media_type）
+const UPLOAD_TYPE_VIDEO = 2;
+const UPLOAD_TYPE_FILE = 3;
+const UPLOAD_TYPE_VOICE = 4;
+const ITEM_VOICE = 3;
+const ITEM_FILE = 4;
+const ITEM_VIDEO = 5;
 export const MAX_TEXT = 2000;
 const UPLOAD_TIMEOUT_MS = 60_000; // 素材可能几 MB，比普通接口放宽
 // 发图前把原图用随机 aeskey 做 AES-128-ECB 加密再上 CDN；密文按 16 字节块 PKCS#7 补齐，
@@ -48,6 +55,37 @@ export function ilinkHeaders(token) {
 async function parse(res) {
   const text = await res.text();
   try { return JSON.parse(text); } catch { return { ret: -999, raw: text.slice(0, 200) }; }
+}
+
+/**
+ * 上传一份媒体，返回可直接塞进 item 的字段。
+ * @returns {{encryptedQueryParam:string, aesKeyB64:string, ciphertextSize:number, plaintextSize:number, filename:string}}
+ */
+async function uploadMedia({ getUploadUrl, uploadToCdn }, token, filePath, to, mediaType, at = base) {
+  const plaintext = await fs.readFile(filePath);
+  const rawsize = plaintext.length;
+  const rawfilemd5 = crypto.createHash("md5").update(plaintext).digest("hex");
+  const filesize = Math.ceil((rawsize + 1) / 16) * 16;
+  const filekey = crypto.randomBytes(16).toString("hex");
+  const aeskey = crypto.randomBytes(16);
+  const up = await getUploadUrl(
+    { filekey, media_type: mediaType, to_user_id: to, rawsize, rawfilemd5, filesize, no_need_thumb: true, aeskey: aeskey.toString("hex") },
+    token, at,
+  );
+  const uploadFullUrl = String(up.upload_full_url || "").trim();
+  const uploadParam = up.upload_param;
+  if (!uploadFullUrl && !uploadParam) throw new Error(`getUploadUrl 没返回上传地址: ${JSON.stringify(up).slice(0, 140)}`);
+  const cdnUrl = uploadFullUrl || `${CDN_BASE}/upload?encrypted_query_param=${encodeURIComponent(uploadParam)}&filekey=${encodeURIComponent(filekey)}`;
+  const ciphertext = aesEncryptEcb(plaintext, aeskey);
+  const downloadParam = await uploadToCdn(cdnUrl, ciphertext);
+  return {
+    encryptedQueryParam: downloadParam,
+    // iLink 要 base64(hex 文本)，不是 base64(原始密钥)——写错图片会显示成灰块
+    aesKeyB64: Buffer.from(aeskey.toString("hex")).toString("base64"),
+    ciphertextSize: ciphertext.length,
+    plaintextSize: rawsize,
+    filename: String(filePath).split(/[\\/]/).pop() || "file",
+  };
 }
 
 export function createIlinkClient({ fetch: f = globalThis.fetch, base = ILINK_BASE } = {}) {
@@ -92,9 +130,26 @@ export function createIlinkClient({ fetch: f = globalThis.fetch, base = ILINK_BA
       if (contextToken) msg.context_token = contextToken;
       return post(EP.send, { msg }, token, API_TIMEOUT_MS, at);
     },
+    // 2026-10-27：发任意文件（发不到微信？先看这里）
+    async sendFile(token, filePath, to, contextToken, at = base, { asVideo = false } = {}) {
+      const up = await uploadMedia({ getUploadUrl, uploadToCdn }, token, filePath, to, asVideo ? UPLOAD_TYPE_VIDEO : UPLOAD_TYPE_FILE, at);
+      const media = { encrypt_query_param: up.encryptedQueryParam, aes_key: up.aesKeyB64, encrypt_type: 1 };
+      const item = asVideo
+        ? { type: ITEM_VIDEO, video_item: { media, video_size: up.ciphertextSize, play_length: 0, video_md5: "" } }
+        : { type: ITEM_FILE, file_item: { media, file_name: up.filename, len: String(up.plaintextSize) } };
+      const msg = {
+        from_user_id: "", to_user_id: to, client_id: crypto.randomUUID(),
+        message_type: MSG_TYPE_BOT, message_state: MSG_STATE_FINISH, item_list: [item],
+      };
+      if (contextToken) msg.context_token = contextToken;
+      const r = await post(EP.send, { msg }, token, API_TIMEOUT_MS, at);
+      return { ...r, fileSize: up.plaintextSize, fileSizeCiphertext: up.ciphertextSize, fileName: up.filename };
+    },
+
     // 发送一张本地图片：读文件 → md5 → getUploadUrl → AES-128-ECB 加密 → 上 CDN → 拿 x-encrypted-param → 发 image_item。
     // aes_key 用 base64(hex 密钥文本)、mid_size 用密文字节数——这两处是逆向确认的官方编码，别改成原始密钥/原图尺寸。
-    async sendImage(token, filePath, to, contextToken, at = base) {
+    
+async sendImage(token, filePath, to, contextToken, at = base) {
       const plaintext = await fs.readFile(filePath);
       const rawsize = plaintext.length;
       const rawfilemd5 = crypto.createHash("md5").update(plaintext).digest("hex");
