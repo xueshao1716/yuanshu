@@ -108,6 +108,29 @@ export async function readRunStream(res) {
   return answer.trim();
 }
 
+/**
+ * 把「运行状态 + 统计」折算成一句人话。
+ * 2026-10-27：原来只有 running:true，掉线时用户看到的是"已登录但没反应"。
+ */
+export function healthOf({ running, login, stats, now = Date.now(), staleMs = 3 * 60_000 } = {}) {
+  const st = stats || {};
+  if (login?.state === "expired") return { state: "expired", text: "登录已过期，需要重新扫码" };
+  if (!running) return { state: "off", text: st.lastError ? `已停止（最后一次错误：${st.lastError}）` : "未运行" };
+  const lastOk = Number(st.lastOkAt) || 0;
+  const failures = Number(st.consecutiveFailures) || 0;
+  if (lastOk && now - lastOk <= staleMs) return { state: "ok", text: "正常（刚刚收到过轮询回复）" };
+  if (failures >= 3) {
+    const limited = Number(st.rateLimited) || 0;
+    if (limited >= 3 && /限流/.test(String(st.lastError || ""))) {
+      return { state: "degraded", text: `被 iLink 限流 ${limited} 次，收不到消息（可能有另一个客户端在轮询同一个机器人，或频率过高）` };
+    }
+    return { state: "degraded", text: `连续失败 ${failures} 次：${st.lastError || "未知错误"}` };
+  }
+  if (failures > 0) return { state: "degraded", text: `刚刚失败 ${failures} 次，正在重试：${st.lastError || ""}`.trim() };
+  if (!lastOk) return { state: "idle", text: "已启动，还没收到过轮询回复" };
+  return { state: "stale", text: `已经 ${Math.round((now - lastOk) / 60000)} 分钟没收到轮询回复` };
+}
+
 export function createLoopbackChat({ base, token, fetch: f = globalThis.fetch, now = () => Date.now() }) {
   const headers = () => ({ "Content-Type": "application/json", ...(token() ? { Authorization: `Bearer ${token()}` } : {}) });
   return {
@@ -151,6 +174,8 @@ export function createWechatBridge({
   dir, chat, client = createIlinkClient(), legacyDir = "",
   sleep = (ms) => new Promise((r) => setTimeout(r, ms)),
   now = () => Date.now(), log = () => {},
+  // 2026-10-27：掉线/过期时回调，由 server 接到主动汇报里
+  onAlert = null,
   // 2026-10-07 真机：长任务一跑十几分钟，微信那头只看到沉默，以为不回。过了这个时长先回一句「在处理」。
   ackAfterMs = 90_000,
 }) {
@@ -165,7 +190,15 @@ export function createWechatBridge({
 
   const login = { state: "idle", qrUrl: "", message: "", startedAt: 0, token: 0 };
   // 2026-10-22：补 lastNotify，主动推送失败才有据可查（此前 failed=0 但实测发送失败）
-  const stats = { received: 0, replied: 0, failed: 0, lastAt: 0, lastError: "", startedAt: 0, notifyOk: 0, notifyFailed: 0, lastNotifyAt: 0, lastNotifyError: "" };
+  // 只报一次的告警（同一状态不重复刷）
+  let lastAlertKey = "";
+  const alertOnce = (text) => {
+    if (lastAlertKey === text) return;
+    lastAlertKey = text;
+    try { log(`[微信] ${text}`); onAlert?.(text); } catch {}
+  };
+  const stats = {
+    lastOkAt: 0, consecutiveFailures: 0, drops: 0, lastErrorAt: 0, rateLimited: 0, received: 0, replied: 0, failed: 0, lastAt: 0, lastError: "", startedAt: 0, notifyOk: 0, notifyFailed: 0, lastNotifyAt: 0, lastNotifyError: "" };
   const recent = [];
   // 每个好友最近一条消息的 context_token：主动发消息（通知）时带上，回复能挂到同一个对话上。
   let contexts = readJson(file("contexts.json"), {});
@@ -326,12 +359,24 @@ export function createWechatBridge({
       try {
         const r = await client.getUpdates(acc.token, cursor, at);
         if (!updatesOk(r)) {
-          if (r?.ret === RATE_LIMITED) { await sleep(3000); continue; }
+          if (r?.ret === RATE_LIMITED) {
+            // 2026-10-27：这里原来是纯 sleep(3000) 静默循环——桥上看着 running:true，
+            // 实际一条消息都收不到。现在记次数、写错误，连续限流会被健康度识别成 degraded。
+            stats.rateLimited = (stats.rateLimited || 0) + 1;
+            stats.consecutiveFailures += 1;
+            stats.lastErrorAt = now();
+            stats.lastError = `被限流（ret=${RATE_LIMITED}）第 ${stats.rateLimited} 次`;
+            await sleep(3000);
+            continue;
+          }
           stats.lastError = `收消息失败 ret=${r?.ret} ${r?.errmsg || ""}`.trim();
           await sleep(backoff); backoff = Math.min(backoff * 2, 30_000);
           continue;
         }
         backoff = 2000;
+        // 2026-10-27：健康度靠这两个计数判断「最近有没有真的收到回复」
+        stats.lastOkAt = now();
+        stats.consecutiveFailures = 0;
         if (r.get_updates_buf) cursor = { buf: r.get_updates_buf, ack: r.ack_token || cursor.ack };
         writeJson(file("cursor.json"), cursor);
         for (const raw of r.msgs || []) {
@@ -418,6 +463,8 @@ export function createWechatBridge({
         friends: Object.keys(sessions).length,
         login: { state: login.state, qrUrl: login.qrUrl, message: login.message },
         stats: { ...stats },
+        // 2026-10-27：把「已登录但没反应」这种状态说清楚
+        health: healthOf({ running: !!loop && !stopping, login, stats, now: now() }),
         recent: [...recent],
       };
     },

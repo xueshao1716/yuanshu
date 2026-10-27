@@ -11,6 +11,9 @@ type WechatStatus = {
   login: { state: 'idle' | 'starting' | 'waiting' | 'scanned' | 'confirmed' | 'failed'; qrUrl: string; message: string }
   stats: { received: number; replied: number; failed: number; lastAt: number; lastError: string; startedAt: number }
   recent: { at: number; dir: 'in' | 'out'; who: string; text: string }[]
+  // 2026-10-27：掉线不再只有 running:true 一种说法
+  health?: { state: 'ok' | 'idle' | 'stale' | 'degraded' | 'expired' | 'off'; text: string }
+  push?: { configured: boolean; ok: boolean | null; at: number; detail: string; okCount?: number; failCount?: number }
 }
 
 const time = (ms: number) => ms ? new Date(ms).toLocaleTimeString('zh-CN', { hour12: false }) : '—'
@@ -41,7 +44,14 @@ export default function WechatPanel() {
   }
 
   const logging = !!s && ['starting', 'waiting', 'scanned'].includes(s.login.state)
-  const headline = loadError ? '读取失败' : !s ? '读取中…' : !s.loggedIn ? '未登录' : s.running ? '收发中' : '已登录 · 未开启'
+  const health = s?.health
+  const headline = loadError ? '读取失败'
+    : !s ? '读取中…'
+    : !s.loggedIn ? '未登录'
+    : health?.state === 'expired' ? '登录过期 · 需重扫'
+    : health?.state === 'degraded' ? '连接异常'
+    : health?.state === 'stale' ? '可能掉线'
+    : s.running ? '收发中' : '已登录 · 未开启'
 
   return (
     <section data-slot="wechat" className="mb-8">
@@ -59,6 +69,26 @@ export default function WechatPanel() {
             <button type="button" className="btn-ghost min-h-11 px-3 inline-flex items-center gap-2 hover:!text-pi-danger" disabled={busy} onClick={() => act('/api/wechat/logout', {}, '退出后要重新扫码才能用。确定退出微信登录吗？')}><LogOut size={14} aria-hidden="true" />退出登录</button>
           </div>}
         </div>
+
+        {/* 2026-10-27：健康度 + 推送通道，坏了要看得见 */}
+        {s?.loggedIn && (
+          <div className="space-y-1 text-xs leading-relaxed">
+            <p className={health && health.state !== 'ok' && health.state !== 'idle' ? 'text-pi-danger' : 'text-pi-dim2'}>
+              连接：{health ? health.text : '—'}
+              {s.stats?.lastAt ? ` · 上次收到消息 ${time(s.stats.lastAt)}` : ' · 还没收到过消息'}
+            </p>
+            <p className={s.push?.configured && s.push?.ok === false ? 'text-pi-danger' : 'text-pi-dim2'}>
+              推送：
+              {!s.push?.configured
+                ? '未配置（去 pushplus.plus 扫码取 token，存到 工程/pushplus-token.txt）'
+                : s.push.ok === null
+                  ? '已配置，还没发过'
+                  : s.push.ok
+                    ? `正常 · 上次 ${time(s.push.at)}`
+                    : `失败：${s.push.detail || '未知原因'}`}
+            </p>
+          </div>
+        )}
 
         {s && !s.loggedIn && !logging && <div className="space-y-3">
           <p className="text-sm leading-relaxed text-pi-dim">用你的微信扫码，会生成一个属于你的微信机器人。好友给它发私信，小语用你在元枢里的模型和记忆来回复，聊天记录存在本机。</p>

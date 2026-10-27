@@ -3007,6 +3007,16 @@ const companionFacts = createCompanionFacts({ manager: runManager, serverEpoch: 
 const companionStore = createCompanionStore({ root: CONFIG.cwd });
 // 微信接入（2026-10-06，小语自己接通后收编进来）：凭证与游标在工作区 .yuanshu/wechat，对话走本机 /api/chat。
 const wechat = createWechatBridge({
+  // 2026-10-27：掉线/过期不再只在日志里，进收件箱（用户能在面板看到）
+  onAlert: (text) => {
+    try {
+      enqueueReport(WS_ROOT, {
+        id: `wechat-${Math.floor(Date.now() / 60000)}`,
+        kind: "wechat", label: "微信接入", state: "needs_attention",
+        step: String(text).slice(0, 160), priority: "high",
+      });
+    } catch {}
+  },
   dir: path.join(CONFIG.cwd, '.yuanshu', 'wechat'),
   legacyDir: path.join(CONFIG.cwd, '工程'),
   chat: createLoopbackChat({ base: () => `http://127.0.0.1:${CONFIG.port}`, token: () => CONFIG.token }),
@@ -3277,7 +3287,21 @@ const API_ROUTES = [
       learning: await safe(() => learningIntake.status().entries || [], []),
     }));
   }],
-  ["GET", "/api/wechat/status", (res) => json(res, 200, wechat.status())],
+  // 2026-10-27：微信状态 + PushPlus 推送通道状态（读 notify.py 落的状态文件）
+  ["GET", "/api/wechat/status", (res) => {
+    let push = { configured: false, ok: null, at: 0, detail: "还没发过" };
+    try {
+      const p = path.join(WS_ROOT, "工程", "pushplus-state.json");
+      const raw = JSON.parse(fs.readFileSync(p, "utf8"));
+      push = {
+        configured: !!raw.configured, ok: raw.ok === true, at: raw.at || 0,
+        detail: raw.detail || "", okCount: raw.okCount || 0, failCount: raw.failCount || 0,
+      };
+    } catch {}
+    // token 文件存在但还没发过，也算已配置
+    try { if (!push.configured && fs.existsSync(path.join(WS_ROOT, "工程", "pushplus-token.txt"))) push.configured = true } catch {}
+    return json(res, 200, { ...wechat.status(), push });
+  }],
   ["POST", "/api/wechat/login", wechatAction(() => wechat.startLogin())],
   ["POST", "/api/wechat/login/cancel", wechatAction(() => wechat.cancelLogin())],
   ["POST", "/api/wechat/start", wechatAction(() => wechat.start())],
