@@ -3,7 +3,25 @@
 ## [Unreleased]
 
 ## [2.153.0] - 2026-10-27
+用户原话：「你不能直接做扫码接口，保存接口吗，我存起来很麻烦的」——**要求合理，做不了的地方要说清楚**。
 
+## 能做到的：保存接口 + 面板交互
+
+- POST /api/notify/token 保存 token（校验长度/字符，只写本机 `工程/pushplus-token.txt`）。
+- POST /api/notify/test 一键发测试推送，结果直接回面板。
+- DELETE /api/notify/token 清除；POST /api/notify/open 帮你打开 pushplus 控制台。
+- GET /api/notify/status 只回**脱敏尾巴**（`0123…cdef`），永远不回明文。
+- 面板：输入框 + 保存 + 发测试 + 打开 pushplus + 清除，一条龙。
+
+## 做不到的：扫码直接拿 token
+
+PushPlus 没有给第三方用的 OAuth / 扫码换取 token 的接口——它的二维码只是**登录他们自己的网站**，token 必须登录后手动复制。
+所以最省事的路径就是：面板里点「打开 pushplus」→ 微信扫码 → 复制 token → 粘回面板 → 点「发测试」。
+
+## 顺带
+
+- token 校验：空 / 太短 / 含空格等非法字符都会被拒（不会把垃圾写进文件）。
+- 测试推送成功或失败都写进 `工程/pushplus-state.json`，面板与 `notify.py --selfcheck` 共用这份状态。
 ## [2.152.0] - 2026-10-27
 用户问「微信接口咋一直掉」——查下来**不是掉，是坏了不吭声**。三处都是同一个毛病：失败路径没有可见性。
 
