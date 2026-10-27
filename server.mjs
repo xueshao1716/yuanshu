@@ -3515,6 +3515,20 @@ const API_ROUTES = [
       return json(res, 502, { ok: false, error: msg, hint });
     }
   }],
+  // 2026-10-28：一眼看出「我打开的是不是新版本」——前端 bundle 名 + 版本 + 构建时间
+  ["GET", "/api/build", (res) => {
+    try {
+      const ver = (() => { try { return JSON.parse(fs.readFileSync(path.join(__dirname, 'version.json'), 'utf8')).version || '' } catch { return '' } })();
+      let stamp = null;
+      try { stamp = JSON.parse(fs.readFileSync(path.join(__dirname, '.yuanshu-build.json'), 'utf8')) } catch {}
+      let indexBundle = '';
+      try {
+        const html = fs.readFileSync(path.join(__dirname, 'public', 'index.html'), 'utf8');
+        indexBundle = (html.match(/assets\/(index-[A-Za-z0-9_-]+\.js)/) || [])[1] || '';
+      } catch {}
+      return json(res, 200, { ok: true, version: ver, indexBundle, build: stamp, node: process.version });
+    } catch (e) { return json(res, 500, { ok: false, error: String(e?.message || e).slice(0, 160) }); }
+  }],
   ["GET", "/api/wechat/status", (res) => {
     const push = channelStatus(WS_ROOT);
     return json(res, 200, { ...wechat.status(), push });
