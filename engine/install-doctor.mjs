@@ -15,6 +15,8 @@ function runDefault(cmd, args, { timeout = 15000, env } = {}) {
 }
 
 const firstLine = (s) => String(s || '').split(/\r?\n/)[0].slice(0, 120);
+// 版本号只留 a.b.c：5.1.22621.4249 这种对用户没意义
+const shortVer = (s) => String(firstLine(s) || '').split('.').slice(0, 3).join('.');
 // 基本盘只查安装包自带的库；pandas/PDF/抠图/ffmpeg 属于可选组件，由 addons.mjs 列出与安装
 const PY_CHECK = 'import importlib,json;m=["pptx","docx","openpyxl","PIL","edge_tts"];r={};\nfor n in m:\n  try: importlib.import_module(n); r[n]=True\n  except Exception: r[n]=False\nprint(json.dumps(r))';
 
@@ -63,7 +65,32 @@ export async function runDoctor({ wsRoot, agentDir, piPackage, bashPath, port, r
   const git = await run('git', ['--version'], { timeout: 10000 });
   add('git', 'Git', git.ok ? 'ok' : 'warn', git.ok ? firstLine(git.out) : '未找到：版本管理与检测更新不可用');
 
-  add('bash', 'Bash（命令工具）', bashPath ? 'ok' : 'warn', bashPath || '未找到 git-bash，命令工具退回 cmd');
+  // 2026-10-27：用户看不懂"bash / git-bash"这套说法，而且这台机器上模型用的是 PowerShell。
+  // 所以这里改成查「命令工具」实际有哪些，并按可用性给结论——不装 git-bash 也不算问题。
+  let pwshVer = '';
+  let ps5Ver = '';
+  if (platform === 'win32') {
+    const p7 = await run('pwsh', ['-NoProfile', '-NonInteractive', '-Command', '$PSVersionTable.PSVersion.ToString()'], { timeout: 8000 });
+    if (p7.ok) pwshVer = shortVer(p7.out) || '7';
+    if (!pwshVer) {
+      const p5 = await run('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', '$PSVersionTable.PSVersion.ToString()'], { timeout: 8000 });
+      if (p5.ok) ps5Ver = shortVer(p5.out) || '5.1';
+    }
+  }
+  const shellParts = [];
+  if (pwshVer) shellParts.push(`PowerShell ${pwshVer}`);
+  if (ps5Ver) shellParts.push(`Windows PowerShell ${ps5Ver}`);
+  if (bashPath) shellParts.push('Bash（git-bash）');
+
+  const shellStatus = shellParts.length === 0
+    ? 'warn'
+    : (pwshVer || bashPath ? 'ok' : 'warn');
+  const shellDetail = shellParts.length === 0
+    ? '没有找到 PowerShell 或 Bash，命令只能走老式 cmd；建议装 PowerShell 7（winget install Microsoft.PowerShell）'
+    : shellParts.join(' + ')
+      + (bashPath ? '' : '（没有 git-bash 不影响：命令走 PowerShell）')
+      + (!pwshVer && ps5Ver ? '（建议换成 PowerShell 7：winget install Microsoft.PowerShell）' : '');
+  add('bash', '命令工具', shellStatus, shellDetail);
 
   if (platform === 'win32') {
     const task = await run('schtasks.exe', ['/Query', '/TN', 'yuanshu-watchdog'], { timeout: 10000 });
