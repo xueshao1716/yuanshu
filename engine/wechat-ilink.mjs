@@ -204,15 +204,22 @@ async sendImage(token, filePath, to, contextToken, at = base) {
 export const updatesOk = (r) => Array.isArray(r?.msgs) || r?.ret === 0;
 
 // 只认真人私聊文本；群（@chatroom）和自己发的都不进对话。
+// 2026-10-27：入站图片（item type 2）也要带出来，否则"她"根本不知道用户发了图
 export function normalizeMessage(message, selfId) {
   const sender = String(message?.from_user_id || "").trim();
   if (!sender || (selfId && sender === selfId)) return null;
   const items = Array.isArray(message.item_list) ? message.item_list : [];
   const text = items.filter((i) => i?.type === ITEM_TEXT).map((i) => i.text_item?.text || "").join("").trim();
+  const images = items.filter((i) => Number(i?.type) === 2).map((i) => ({
+    encryptedQueryParam: String(i.image_item?.media?.encrypt_query_param || ""),
+    aesKey: String(i.image_item?.media?.aes_key || ""),
+    midSize: Number(i.image_item?.mid_size) || 0,
+  })).filter((x) => x.encryptedQueryParam);
   return {
     sender, text,
     isGroup: sender.endsWith("@chatroom"),
     itemTypes: items.map((i) => i?.type).join(","),
+    images,
     contextToken: message.context_token || "",
   };
 }

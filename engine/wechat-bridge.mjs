@@ -9,6 +9,8 @@ import path from "node:path";
 import { createIlinkClient, normalizeMessage, splitForWechat, stripMarkdownForWechat, updatesOk, RATE_LIMITED, ILINK_BASE } from "./wechat-ilink.mjs";
 // 2026-10-27：文字 → SILK 语音条（系统语音 + pilk 编码）
 import { textToMp3 } from "./wechat-voice.mjs";
+// 2026-10-27：微信图片收发
+import { downloadImage, extractImagePaths } from "./wechat-media.mjs";
 
 const QR_POLL_MS = 1500;
 const QR_DEADLINE_MS = 4 * 60_000;
@@ -267,12 +269,19 @@ export function createWechatBridge({
   }
   // image 可选：带上时文字切分发完后，再排一张本地图片（sendImage 通路，2026-10-08）。
   const reply = (acc, to, text, contextToken, image, file) => {
+    // 2026-10-27：回复里出现本地图片路径 → 自动当图片发（agent 不用学新工具）
+    let autoImages = [];
+    try {
+      const ex = extractImagePaths(text);
+      if (ex.images.length) { autoImages = ex.images; text = ex.text; }
+    } catch {}
     // 2026-10-24：长回答被切成多条时标出 (i/n)，否则微信里看起来像刷屏
     const parts = splitForWechat(stripMarkdownForWechat(text));
     parts.forEach((part, i) => {
       const label = parts.length > 1 ? `（${i + 1}/${parts.length}）\n` : "";
       queue.push({ to, text: label + part, contextToken });
     });
+    for (const p of autoImages) queue.push({ to, image: p, contextToken });
     if (image) queue.push({ to, image, contextToken });
     // 2026-10-27：文件走 sendFile（Hermes 证实 iLink 支持 file_item）
     if (file) queue.push({ to, file, contextToken });
@@ -388,7 +397,22 @@ export function createWechatBridge({
         writeJson(file("cursor.json"), cursor);
         for (const raw of r.msgs || []) {
           const m = normalizeMessage(raw, acc.botId);
-          if (!m || m.isGroup || !m.text) continue;
+          if (!m || m.isGroup) continue;
+          // 2026-10-27：用户发来的图片先落盘，再把路径告诉 agent（否则直接丢弃）
+          if (m.images?.length) {
+            const saved = [];
+            for (const img of m.images) {
+              try {
+                const day = new Date(now()).toISOString().slice(0, 10);
+                const out = await downloadImage({ item: img, outDir: `${dir}/../../收发文件/${day}` });
+                saved.push(out.file);
+              } catch (e) { log(`[微信] 图片保存失败：${String(e?.message || e).slice(0, 100)}`); }
+            }
+            if (saved.length) {
+              m.text = [m.text, `[用户发来 ${saved.length} 张图片，已保存：\n${saved.join("\n")}]`].filter(Boolean).join("\n");
+            }
+          }
+          if (!m.text) continue;
           stats.received++; stats.lastAt = now();
           remember(m.sender, m.contextToken);
           note("in", m.sender, m.text);
