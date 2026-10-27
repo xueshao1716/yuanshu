@@ -3,7 +3,44 @@
 ## [Unreleased]
 
 ## [2.161.0] - 2026-10-27
+用户看了灵光 2.0（蚂蚁，10/27 发布）后说：**「我们其实缺一个向内管，向外发的接口，我们的元枢已经很强大了」**。
 
+判断是对的。元枢内部能力不缺，但出站是散装的：微信一个接口、邮件一个、PushPlus 靠 python 脚本，
+调用方自己选通道、自己判断成败，**而且投递没有账**——今天刚踩过「接口返回 message_id，用户根本没收到」。
+
+## 这版补的是「向外发」那个口子
+
+`engine/outbound.mjs` + `POST /api/outbound/send`：
+
+```
+sendOut({ text, image, file, voice, channel })
+  → 按顺序试通道（默认 wechat → email → webhook → pushplus）
+  → 成功即返回，失败自动降级，tried 链一并返回
+  → 每一次投递都落账：记忆/运行时/投递.json（通道/结果/原因/降级次数）
+```
+
+配套：`GET /api/outbound/deliveries?limit=N` 看最近投递；`outboundLine()` 供环境事实用（只报失败）。
+
+## notify.py 收编
+
+以前 python 里自己拼「活动流 + 元枢微信 + PushPlus」三条通道；现在只剩一次 HTTP：
+
+```
+python notify.py "内容" [--file 路径]
+  → POST /api/outbound/send
+  → 输出：通报[...] 已送达（wechat）
+```
+
+## 验证
+
+- outbound 单测 6 条：首选成功不降级 / 首选失败降级并留痕 / 全失败返回 tried 链 / 空内容拒绝 / 类型判定 / 语音通道
+- 真机：`POST /api/outbound/send` → 200 `{ok:true, channel:"wechat"}`；账本有记录
+- 真机：`python notify.py "..."` → `已送达（wechat）`
+
+## 还差的（下一步）
+
+「向内管」那半边：灵光的持续管理（盯价、揪自动续费、盯群）本质是**订阅式任务**。
+元枢已有主动管理（watch + open loop）的骨架，但还缺「把外部事件喂进来」的入站口子——那是下一步。
 ## [2.160.0] - 2026-10-27
 用户说「你前面做的收发图片，她似乎不会用」——**说得对，代码里根本没接**。
 
