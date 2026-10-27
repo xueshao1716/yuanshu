@@ -246,6 +246,8 @@ import { sweepProactive, addWatch, stopWatch, listProactive, proactiveLine } fro
 import { channelStatus, saveToken, clearToken, sendTest, openConsole } from "./engine/notify-channel.mjs";
 // 2026-10-27：向外发的统一口子（降级链 + 投递账本）
 import { sendOut, recentDeliveries, outboundLine } from "./engine/outbound.mjs";
+// 2026-10-27：向内管——外部事件入口
+import { recvEvent, listEvents, inboundLine } from "./engine/inbound.mjs";
 import { docChangesLine } from "./engine/doc-diff.mjs";
 // 2026-10-25：后台作业状态机（做完没汇报、坏在哪一步）
 import { collectJobs, summarizeJobs, syncReports, pendingReports, ackReports, autoAckByText, urgentReports } from "./engine/job-state.mjs";
@@ -3313,6 +3315,25 @@ const API_ROUTES = [
   // 2026-10-27：发一句试试——把 iLink 的真实错误原样带回面板（不再只写日志）
   // 2026-10-27：发一条语音条（文字 → SILK）
   // 2026-10-27：向外发——一个口子管所有出站（微信/邮件/Webhook/PushPlus），失败自动降级并落账
+  // 2026-10-27：向内管——外部事件（群消息/邮件/告警/价格）统一入口
+  ["POST", "/api/inbound/event", async (res, req) => {
+    try {
+      const b = await readBody(req, 8e3);
+      const out = recvEvent({
+        wsRoot: WS_ROOT,
+        source: b?.source, kind: b?.kind, text: b?.text,
+        severity: b?.severity, at: Number(b?.at) || Date.now(), meta: b?.meta,
+      });
+      return json(res, out.ok ? 200 : 400, out);
+    } catch (e) { return json(res, 500, { ok: false, error: String(e?.message || e).slice(0, 160) }); }
+  }],
+  ["GET", "/api/inbound/events", (res, req, url) => {
+    try {
+      const limit = Math.min(100, Math.max(1, Number(url.searchParams.get('limit')) || 20));
+      const source = String(url.searchParams.get('source') || '');
+      return json(res, 200, { ok: true, items: listEvents(WS_ROOT, { limit, source }), line: inboundLine(WS_ROOT) });
+    } catch (e) { return json(res, 500, { ok: false, error: String(e?.message || e).slice(0, 160) }); }
+  }],
   ["POST", "/api/outbound/send", async (res, req) => {
     try {
       const b = await readBody(req, 8e3);

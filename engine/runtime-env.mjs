@@ -20,6 +20,8 @@ import { staleWikiLine } from './wiki-stale.mjs';
 import { patchLine } from './autopatch-track.mjs';
 // 2026-10-27：主动管理
 import { proactiveLine } from './proactive-manager.mjs';
+// 2026-10-27：外部事件提示
+import { inboundLine } from './inbound.mjs';
 
 // 工作区根目录由 server 启动时注入（这个模块被更早地 import，拿不到 CONFIG）
 let ENV_WS = '';
