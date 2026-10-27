@@ -248,6 +248,8 @@ import { channelStatus, saveToken, clearToken, sendTest, openConsole } from "./e
 import { sendOut, recentDeliveries, outboundLine } from "./engine/outbound.mjs";
 // 2026-10-27：向内管——外部事件入口
 import { recvEvent, listEvents, inboundLine } from "./engine/inbound.mjs";
+// 2026-10-27：认领板（谁在做什么；抄 Agensh 的第一块砖）
+import { claimTask, releaseClaim, renewClaim, listClaims, reapExpired } from "./engine/claim-board.mjs";
 import { docChangesLine } from "./engine/doc-diff.mjs";
 // 2026-10-25：后台作业状态机（做完没汇报、坏在哪一步）
 import { collectJobs, summarizeJobs, syncReports, pendingReports, ackReports, autoAckByText, urgentReports } from "./engine/job-state.mjs";
@@ -3316,6 +3318,37 @@ const API_ROUTES = [
   // 2026-10-27：发一条语音条（文字 → SILK）
   // 2026-10-27：向外发——一个口子管所有出站（微信/邮件/Webhook/PushPlus），失败自动降级并落账
   // 2026-10-27：向内管——外部事件（群消息/邮件/告警/价格）统一入口
+  // 2026-10-27：认领板——多 agent 协作的第一块砖（谁在做什么、范围冲突、TTL 回收）
+  ["GET", "/api/claim", (res, req, url) => {
+    try {
+      reapExpired({ wsRoot: WS_ROOT });
+      const limit = Math.min(100, Math.max(1, Number(url.searchParams.get('limit')) || 30));
+      const includeClosed = url.searchParams.get('all') === '1';
+      return json(res, 200, { ok: true, items: listClaims(WS_ROOT, { limit, includeClosed }) });
+    } catch (e) { return json(res, 500, { ok: false, error: String(e?.message || e).slice(0, 160) }); }
+  }],
+  ["POST", "/api/claim", async (res, req) => {
+    try {
+      const b = await readBody(req, 8e3);
+      const out = claimTask({
+        wsRoot: WS_ROOT, task: b?.task, agent: b?.agent, scope: b?.scope, branch: b?.branch,
+        ttlMs: Number(b?.ttlMs) || undefined,
+      });
+      return json(res, out.ok ? 200 : 409, out);
+    } catch (e) { return json(res, 500, { ok: false, error: String(e?.message || e).slice(0, 160) }); }
+  }],
+  ["POST", "/api/claim/release", async (res, req) => {
+    try {
+      const b = await readBody(req, 4e3);
+      return json(res, 200, releaseClaim({ wsRoot: WS_ROOT, id: String(b?.id || ''), done: b?.done === true, note: b?.note }));
+    } catch (e) { return json(res, 500, { ok: false, error: String(e?.message || e).slice(0, 160) }); }
+  }],
+  ["POST", "/api/claim/renew", async (res, req) => {
+    try {
+      const b = await readBody(req, 4e3);
+      return json(res, 200, renewClaim({ wsRoot: WS_ROOT, id: String(b?.id || ''), ttlMs: Number(b?.ttlMs) || undefined }));
+    } catch (e) { return json(res, 500, { ok: false, error: String(e?.message || e).slice(0, 160) }); }
+  }],
   ["POST", "/api/inbound/event", async (res, req) => {
     try {
       const b = await readBody(req, 8e3);
