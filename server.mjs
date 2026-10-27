@@ -248,6 +248,8 @@ import { channelStatus, saveToken, clearToken, sendTest, openConsole } from "./e
 import { sendOut, recentDeliveries, outboundLine } from "./engine/outbound.mjs";
 // 2026-10-27：向内管——外部事件入口
 import { recvEvent, listEvents, inboundLine } from "./engine/inbound.mjs";
+// 2026-10-28：承诺到点自动干活
+import { runDuePromises, duePromises, reapPromises } from "./engine/promise-runner.mjs";
 // 2026-10-27：认领板（谁在做什么；抄 Agensh 的第一块砖）
 import { claimTask, releaseClaim, renewClaim, listClaims, reapExpired } from "./engine/claim-board.mjs";
 // 2026-10-27：agent 之间的留言（Agensh 第二件套）
@@ -6098,6 +6100,27 @@ ${rows.map((r) => `- [${r.status}${r.closed ? "/已结清" : ""}] ${r.text}\n  �
     };
     setTimeout(proactiveSweep, 3 * 60000);
     setInterval(proactiveSweep, 10 * 60000);
+    // 2026-10-28：承诺到点自动干活。
+    // 之前只记「欠了什么事」，到点也没人去干；现在到点自己开跑，结果从出站层推给伙伴。
+    const promiseChat = createLoopbackChat({ base: () => `http://127.0.0.1:${CONFIG.port}`, token: () => CONFIG.token });
+    const promiseSweep = async () => {
+      try {
+        try { reapPromises({ wsRoot: WS_ROOT }); } catch {}
+        const due = duePromises({ wsRoot: WS_ROOT, limit: 1 });
+        if (!due.length) return;
+        const sid = await promiseChat.createSession("承诺执行").catch(() => null);
+        const out = await runDuePromises({
+          wsRoot: WS_ROOT,
+          limit: 1,
+          log: (m) => console.log(m),
+          run: async (text) => promiseChat.ask(`这是你之前答应过的事，现在到点了，请直接把它做完，然后把结果给我：${text}`, sid, { owner: true }),
+          send: async (payload) => sendOut({ wsRoot: WS_ROOT, text: payload.text, deps: { wechat: { notifyOwner: (...a) => wechat.notifyOwner(...a), sendVoice: (t) => wechat.sendVoice(t) } } }),
+        });
+        if (out.fired || out.failed) console.log("[承诺] 本轮执行：完成", out.fired, "失败", out.failed);
+      } catch (e) { console.log("[承诺] 扫描失败（忽略）：", String(e?.message || e).slice(0, 100)) }
+    };
+    setTimeout(promiseSweep, 30 * 1000);
+    setInterval(promiseSweep, 60 * 1000);
     knowledgeRuntime.start();
     // 2026-10-26：无人值守补丁调度器。默认**关**（要显式 YUANSHU_AUTOPATCH=1）。
     // 即使开着，也只建 auto/ 分支、绝不并 main；每小时最多一个；失败即停、不连撞。

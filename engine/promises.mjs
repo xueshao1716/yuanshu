@@ -128,7 +128,7 @@ export function recordPromises(wsRoot, list, fsMod = fs) {
 /** 结清/作废。**必须显式调用**——本模块没有任何自动结清路径。 */
 export function closePromise(wsRoot, id, { status = "kept", evidence = null, now = new Date() } = {}, fsMod = fs) {
   try {
-    if (!["kept", "dropped"].includes(status)) return { ok: false, reason: "状态只能是 kept 或 dropped" };
+    if (!["kept", "dropped", "missed"].includes(status)) return { ok: false, reason: "状态只能是 kept / dropped / missed" };
     const list = loadPromises(wsRoot, fsMod);
     const hit = list.find((p) => p.id === id);
     if (!hit) return { ok: false, reason: "承诺不存在" };
