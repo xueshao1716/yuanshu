@@ -244,6 +244,8 @@ import { syncPatches, patchLine, readPatchState, readConfig as readMergeConfig }
 import { sweepProactive, addWatch, stopWatch, listProactive, proactiveLine } from "./engine/proactive-manager.mjs";
 // 2026-10-27：推送通道界面化（保存 token / 测试 / 清除），不用再手写文件
 import { channelStatus, saveToken, clearToken, sendTest, openConsole } from "./engine/notify-channel.mjs";
+// 2026-10-27：向外发的统一口子（降级链 + 投递账本）
+import { sendOut, recentDeliveries, outboundLine } from "./engine/outbound.mjs";
 import { docChangesLine } from "./engine/doc-diff.mjs";
 // 2026-10-25：后台作业状态机（做完没汇报、坏在哪一步）
 import { collectJobs, summarizeJobs, syncReports, pendingReports, ackReports, autoAckByText, urgentReports } from "./engine/job-state.mjs";
@@ -3310,6 +3312,32 @@ const API_ROUTES = [
   ["POST", "/api/notify/open", (res) => json(res, 200, openConsole())],
   // 2026-10-27：发一句试试——把 iLink 的真实错误原样带回面板（不再只写日志）
   // 2026-10-27：发一条语音条（文字 → SILK）
+  // 2026-10-27：向外发——一个口子管所有出站（微信/邮件/Webhook/PushPlus），失败自动降级并落账
+  ["POST", "/api/outbound/send", async (res, req) => {
+    try {
+      const b = await readBody(req, 8e3);
+      const out = await sendOut({
+        wsRoot: WS_ROOT,
+        text: b?.text, image: b?.image, file: b?.file, voice: b?.voice,
+        channel: b?.channel, fallback: Array.isArray(b?.fallback) ? b.fallback : undefined,
+        deps: {
+          wechat: { notifyOwner: (...a) => wechat.notifyOwner(...a), sendVoice: (t) => wechat.sendVoice(t) },
+          pushplus: async (body) => {
+            const { sendTest: st } = await import('./engine/notify-channel.mjs');
+            const r = await st(WS_ROOT, { text: body.text || '元枢通报' });
+            return r.ok ? { ok: true, detail: r.detail } : { ok: false, error: r.error };
+          },
+        },
+      });
+      return json(res, out.ok ? 200 : 502, out);
+    } catch (e) { return json(res, 500, { ok: false, error: String(e?.message || e).slice(0, 160) }); }
+  }],
+  ["GET", "/api/outbound/deliveries", (res, req, url) => {
+    try {
+      const limit = Math.min(100, Math.max(1, Number(url.searchParams.get('limit')) || 20));
+      return json(res, 200, { ok: true, items: recentDeliveries(WS_ROOT, { limit }), line: outboundLine(WS_ROOT) });
+    } catch (e) { return json(res, 500, { ok: false, error: String(e?.message || e).slice(0, 160) }); }
+  }],
   ["POST", "/api/wechat/voice", async (res, req) => {
     try {
       const b = await readBody(req, 4e3);
