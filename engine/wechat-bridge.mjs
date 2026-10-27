@@ -11,6 +11,8 @@ import { createIlinkClient, normalizeMessage, splitForWechat, stripMarkdownForWe
 import { textToMp3 } from "./wechat-voice.mjs";
 // 2026-10-27：微信图片收发
 import { downloadImage, extractImagePaths } from "./wechat-media.mjs";
+// 2026-10-28：模型写了不存在的图片路径 → 找真图替代；找不到就把裸路径剥掉
+import { rescueImagePaths } from "./wechat-image-rescue.mjs";
 
 // 2026-10-28：用户反馈「让发图一直没发过来、不够主动」。
 // 根因不是能力缺失（sendImage/extractImagePaths 都在），而是模型不知道微信这条路的约定。
@@ -290,9 +292,16 @@ export function createWechatBridge({
     // 2026-10-27：回复里出现本地图片路径 → 自动当图片发（agent 不用学新工具）
     let autoImages = [];
     try {
-      const ex = extractImagePaths(text);
-      if (ex.images.length) { autoImages = ex.images; text = ex.text; }
-    } catch {}
+      // 2026-10-28 真机事故：模型回「!图（...albedo-real-16x9\albedo-real-01.png）」——
+      // 目录是它编的（真实文件在 albedo-gpt-16x9），用户只看到一串路径、没有图。
+      // 现在：能按"同前缀+同序号"找回真图就用真图；找不回也把裸路径剥掉，绝不让它发出去。
+      const wsRootHint = path.dirname(path.dirname(dir));   // dir = <ws>/.yuanshu/wechat
+      const ex = rescueImagePaths(text, { roots: [path.join(wsRootHint, "生成物", "图片"), path.join(wsRootHint, "生成物")] });
+      if (ex.images.length) autoImages = ex.images;
+      if (ex.rescued.length) log(`[微信] 图片路径纠正 ${ex.rescued.length} 处：${ex.rescued[0].missing} → ${ex.rescued[0].used}`);
+      if (ex.dropped.length) log(`[微信] 图片路径不存在，已剥掉：${ex.dropped.join(" | ")}`);
+      text = ex.text;
+    } catch (e) { log("[微信] 图片路径处理失败（忽略）：" + String(e?.message || e).slice(0, 80)) }
     // 2026-10-24：长回答被切成多条时标出 (i/n)，否则微信里看起来像刷屏
     const parts = splitForWechat(stripMarkdownForWechat(text));
     parts.forEach((part, i) => {
