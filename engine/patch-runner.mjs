@@ -12,6 +12,8 @@ import { spawnSync } from "node:child_process";
 import { beginPatch, verifyPatch, changedFiles, rollback } from "./patch-guard.mjs";
 import { validatePatch } from "./patch-generator.mjs";
 import { readProposals, writeProposals, markProposal } from "./capability-proposal.mjs";
+// 2026-10-27：补丁按文件认领，避免两个 agent 改同一份文件
+import { claimTask, releaseClaim } from "./claim-board.mjs";
 import { gitBin } from "./repo-root.mjs";
 
 export const MAX_ATTEMPTS = 3;
