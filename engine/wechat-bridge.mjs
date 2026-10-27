@@ -8,7 +8,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { createIlinkClient, normalizeMessage, splitForWechat, stripMarkdownForWechat, updatesOk, RATE_LIMITED, ILINK_BASE } from "./wechat-ilink.mjs";
 // 2026-10-27：文字 → SILK 语音条（系统语音 + pilk 编码）
-import { textToSilk } from "./wechat-voice.mjs";
+import { textToMp3 } from "./wechat-voice.mjs";
 
 const QR_POLL_MS = 1500;
 const QR_DEADLINE_MS = 4 * 60_000;
@@ -494,10 +494,12 @@ export function createWechatBridge({
     async sendVoice(text) {
       const acc = loadAccount();
       if (!acc?.token || !acc.userId) throw Object.assign(new Error("微信没登录"), { status: 409 });
-      const v = textToSilk({ text: String(text || "").slice(0, 500) });
-      const r = await client.sendVoice(acc.token, v.silk, acc.userId, contexts[acc.userId] || "", acc.base_url || ILINK_BASE, { playtimeMs: v.durationMs });
+      // 2026-10-27：iLink 原生语音条不可用（voice_item 恒 ret=-2 prepare failed，
+      // Hermes 注释也承认「native voice bubbles not proven-working」），改发能直接播放的 mp3。
+      const v = textToMp3({ text: String(text || "").slice(0, 500) });
+      const r = await client.sendFile(acc.token, v.mp3, acc.userId, contexts[acc.userId] || "", acc.base_url || ILINK_BASE);
       stats.notifyOk += 1; stats.lastNotifyAt = now();
-      try { fs.rmSync(v.silk, { force: true }) } catch {}
+      try { fs.rmSync(v.mp3, { force: true }) } catch {}
       return { ok: true, messageId: r?.message_id || null, playtimeMs: v.durationMs, bytes: v.bytes };
     },
     async notifyOwner(text, imagePath, filePath) {

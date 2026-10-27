@@ -92,6 +92,29 @@ export function wavDurationMs(wav) {
 }
 
 /**
+ * 文字 → mp3（可直接在微信里点开播放）。
+ *
+ * 为什么不是语音条：2026-10-27 实测 voice_item 恒返回 ret=-2 prepare failed，
+ * 而 Hermes 自己的注释也写明「Native outbound voice bubbles are not proven-working upstream;
+ * a file attachment at least plays」。所以正路是发一个能播的音频文件。
+ */
+export function textToMp3({ text, outDir = os.tmpdir(), voice, rate = 0 } = {}) {
+  const clean = String(text || "").trim();
+  if (!clean) throw new Error("文本不能为空");
+  const base = path.join(outDir, `yuanshu-voice-${Date.now()}`);
+  const wav = `${base}.wav`;
+  const mp3 = `${base}.mp3`;
+  synthesizeWav({ text: clean, outWav: wav, voice, rate });
+  execFileSync("ffmpeg", ["-y", "-i", wav, "-codec:a", "libmp3lame", "-b:a", "64k", "-ar", "24000", "-ac", "1", mp3], {
+    encoding: "utf8", timeout: 60000, windowsHide: true, stdio: "pipe",
+  });
+  const durationMs = wavDurationMs(wav);
+  try { fs.rmSync(wav, { force: true }) } catch {}
+  if (!fs.existsSync(mp3)) throw new Error("mp3 转码失败");
+  return { ok: true, mp3, bytes: fs.statSync(mp3).size, durationMs };
+}
+
+/**
  * 文字 → silk 文件（一步到位）。
  * @returns {{ok:true, silk:string, durationMs:number, bytes:number}}
  */
