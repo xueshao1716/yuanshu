@@ -5593,6 +5593,8 @@ setInterval(() => heartbeat(WS_ROOT, { pid: process.pid, version: String(APP_VER
     // 邮件桥：把微信通知函数传进去，按配置决定是否自动启动轮询
     try {
       emailBridge.setNotifyFn((msg) => wechat.notifyOwner(msg));
+  // 2026-10-27：新邮件也进「外部事件」流，这样「我在盯的事」能匹配到邮件
+  emailBridge.setEventFn((e) => { try { recvEvent({ wsRoot: WS_ROOT, ...e }); } catch {} });
       const emailCfg = emailBridge.getConfig();
       if ((emailCfg.accounts || []).some(a => a.enabled)) {
         emailBridge.startPolling(60_000);

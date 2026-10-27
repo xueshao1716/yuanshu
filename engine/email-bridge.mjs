@@ -256,6 +256,27 @@ let _running = false;
 
 export function setNotifyFn(fn) { _notifyFn = fn; }
 
+// 2026-10-27：新邮件也要进"外部事件"流，否则「我盯的事」匹配不到邮件
+let _eventFn = null;
+export function setEventFn(fn) { _eventFn = fn; }
+
+/** 把一封新邮件同时喂给「通知」和「入站事件」。可单测。 */
+export async function dispatchNewMail(m, { notifyFn = _notifyFn, eventFn = _eventFn } = {}) {
+  const label = m?.provider === "gmail" ? "Gmail" : m?.provider === "imap" ? `邮箱（${m?.account || ""}）` : "Outlook";
+  if (notifyFn) {
+    const msg = `📧 ${label} 新邮件\n发件人：${m?.from || ""}\n主题：${m?.subject || ""}\n摘要：${m?.snippet || "(空)"}`;
+    await notifyFn(msg).catch(() => {});
+  }
+  if (eventFn) {
+    eventFn({
+      source: "email", kind: "mail",
+      text: `${m?.from || ""} · ${m?.subject || "(无主题)"} · ${String(m?.snippet || "").slice(0, 160)}`,
+      meta: { account: m?.account, provider: m?.provider, uid: m?.uid },
+    });
+  }
+  return { ok: true };
+}
+
 async function pollOnce() {
   const config = readJson(CONFIG_FILE);
   const accounts = config.accounts || [];
@@ -279,12 +300,8 @@ async function pollOnce() {
 
   if (newMails.length) {
     saveSeen(seen);
-    if (_notifyFn) {
-      for (const m of newMails) {
-        const msg = `📧 ${m.provider === "gmail" ? "Gmail" : m.provider === "imap" ? `邮箱（${m.account}）` : "Outlook"} 新邮件\n发件人：${m.from}\n主题：${m.subject}\n摘要：${m.snippet || "(空)"}`;
-        await _notifyFn(msg).catch(() => {});
-      }
-    }
+    // 2026-10-27：同时喂「通知」和「入站事件」
+    for (const m of newMails) await dispatchNewMail(m);
   }
   return newMails;
 }
