@@ -385,14 +385,32 @@ export function createWechatBridge({
   }
 
   // 启动时还在 inbox 里的，就是上次处理到一半被重启打断的。
+  // 2026-10-28：改成**自动接着跑**，不再让用户重发（用户已经吃过一次"说在做图、一直没发过来"的亏）。
   async function reportInterrupted(acc) {
     const left = Object.entries(inbox);
     if (!left.length) return;
     for (const [sender, it] of left) {
       delete inbox[sender];
-      saveInbox(); // 先清再发：发送失败也不在下次启动重复提醒
+      saveInbox(); // 先清再发：续跑失败也不在下次启动重复重试
       const when = new Date(it.at || now()).toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit", hour12: false });
-      await reply(acc, sender, `刚才服务重启，你 ${when} 发的「${it.text}」我没来得及回完。还要的话再发我一次。`, contexts[sender] || it.contextToken || "");
+      // 只续跑"看起来没回完"的：有文本就重跑；跑不出来再请对方重发
+      try {
+        if (it.text && String(it.text).trim()) {
+          log(`[微信] 重启打断：自动续跑「${String(it.text).slice(0, 30)}」`);
+          await reply(acc, sender, "刚才重启了一下，我接着把上一条做完。", contexts[sender] || it.contextToken || "");
+          await handle(acc, {
+            sender,
+            text: it.text,
+            contextToken: contexts[sender] || it.contextToken || "",
+            at: now(),
+            msgId: `resume-${now()}`,
+          });
+          continue;
+        }
+      } catch (e) {
+        log("[微信] 续跑失败：" + String(e?.message || e).slice(0, 100));
+      }
+      await reply(acc, sender, `刚才服务重启，你 ${when} 发的「${it.text}」我没接上。再发我一次？`, contexts[sender] || it.contextToken || "");
     }
     log(`[微信] ${left.length} 条消息被重启打断，已告知对方重发`);
   }

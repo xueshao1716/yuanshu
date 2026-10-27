@@ -11,6 +11,7 @@
 //   node scripts/release-restart.mjs                 # 真执行
 //   node scripts/release-restart.mjs --keep-stray    # 端口被残留占着时只报告、不强杀
 //   node scripts/release-restart.mjs --skip-gate     # 仅排障：服务已停时门禁必然"未知"
+import fs from "node:fs";
 import { execFileSync } from "node:child_process";
 
 const args = process.argv.slice(2);
@@ -35,6 +36,29 @@ const sh = (cmd, cmdArgs, opts = {}) => {
   }
 };
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+/**
+ * 2026-10-28 事故：微信里正在出图，deploy 直接重启把回合杀了
+ * → 用户「说在做新图却一直没发过来」。重启前先看 inflight，最多等 waitMs。
+ */
+async function waitWechatIdle(waitMs) {
+  const token = (() => { try { return fs.readFileSync(INSTALL_DIR + "\\.token", "utf8").trim() } catch { return "" } })();
+  if (!token) return 0;
+  const t0 = Date.now();
+  let inflight = 0;
+  while (Date.now() - t0 < waitMs) {
+    try {
+      const r = await fetch(`http://127.0.0.1:${PORT}/api/wechat/status`, { headers: { Authorization: `Bearer ${token}` } });
+      const j = await r.json();
+      inflight = Number(j?.status?.stats?.inflight ?? j?.status?.inflight ?? j?.inflight ?? 0) || 0;
+    } catch { inflight = 0 }
+    if (!inflight) return 0;
+    if (PLAN) return inflight;
+    log(`微信还在回 ${inflight} 条消息，等它跑完再重启（最多 ${Math.round(waitMs / 1000)} 秒）…`);
+    await sleep(3000);
+  }
+  return inflight;
+}
 const log = (msg) => console.log(`[release] ${msg}`);
 
 function portOwners(port) {
@@ -104,6 +128,10 @@ if (PLAN) {
   log("计划：停服务 → 等端口释放（最多 25s）→ 残留实例（只认元枢的 server.mjs）停掉 → 起服务 → 等 health 90s → 盖章");
   process.exit(0);
 }
+
+// 2026-10-28：先把微信手上正在跑的消息等完，别把回合杀掉
+const stillBusy = await waitWechatIdle(Number(argOf("wait", "90000")));
+if (stillBusy) log("微信仍在忙，继续重启（被打断的消息会在启动后自动续跑）");
 
 // ── 2. 停服务 ──
 log(`停止 ${SERVICE}`);
