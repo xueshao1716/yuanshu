@@ -9,9 +9,10 @@ import { api } from '../api'
  * 按主题摊开成**人能读**的页面。点开能看正文，可以重建；手写过的页（删掉自动标记）不会被覆盖。
  */
 type Item = { name: string; bytes: number; updatedAt: number }
+type Stale = Record<string, { at: number; because: string[]; generated?: boolean }>
 
 const WikiApi = {
-  list: () => api<{ ok: boolean; items: Item[]; index: string }>('/api/wiki'),
+  list: () => api<{ ok: boolean; items: Item[]; index: string; stale?: Stale }>('/api/wiki'),
   page: (topic: string) => api<{ ok: boolean; content?: string; error?: string }>(`/api/wiki/${encodeURIComponent(topic)}`),
   rebuild: () => api<{ ok: boolean; written: string[]; kept: string[]; topics: number }>('/api/wiki/rebuild', { method: 'POST' }),
 }
@@ -33,6 +34,9 @@ export default function WikiCard() {
   const [msg, setMsg] = useState('')
 
   const items = (data?.items || []).filter((x) => x.name !== 'index')
+  const stale = data?.stale || {}
+  // 只有手写页需要人处理；自动页下次重建会自己刷新
+  const staleHand = Object.values(stale).filter((x) => !x.generated).length
 
   const show = async (name: string) => {
     if (open === name) { setOpen(null); return }
@@ -72,11 +76,16 @@ export default function WikiCard() {
       <p className="tone-sources-line">
         <strong>{items.length}</strong> 个主题页（给人看的，不是给模型塞的）。
         删掉页面顶部的自动标记，那一页就归你，我不再覆盖。
+        {staleHand > 0 ? (
+          <span style={{ color: 'var(--pi-warn, #d97706)', marginLeft: 6 }}>
+            ⚠ {staleHand} 个手写页待复核：来源文档改过，手写页不会自动更新。
+          </span>
+        ) : null}
       </p>
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginBottom: 8 }}>
         {items.map((it) => (
           <button key={it.name} type="button" style={btn(open === it.name)} disabled={busy === it.name} onClick={() => show(it.name)}>
-            {it.name}
+            {stale[it.name] && !stale[it.name].generated ? '⚠ ' : ''}{it.name}
           </button>
         ))}
       </div>

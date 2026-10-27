@@ -14,6 +14,8 @@ import { feedbackJob } from './feedback-job.mjs';
 import { proposalsLine } from './capability-proposal.mjs';
 // 2026-10-27：工作区文档变化（A5/EverOS 的 Diff Engine）
 import { docChangesLine } from './doc-diff.mjs';
+// 2026-10-27：Wiki 待复核（源文档改过、手写页不会自动更新）
+import { staleWikiLine } from './wiki-stale.mjs';
 
 // 工作区根目录由 server 启动时注入（这个模块被更早地 import，拿不到 CONFIG）
 let ENV_WS = '';

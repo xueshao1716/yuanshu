@@ -236,6 +236,8 @@ import { commitMemory, memoryHistory, rollbackMemory } from "./engine/memory-ver
 import { buildWiki, listWiki, readWiki } from "./engine/memory-wiki.mjs";
 // 2026-10-27：工作区文档变化感知（Diff Engine）
 import { diffDocs, readManifest as readDocManifest, resetManifest as resetDocManifest } from "./engine/doc-diff.mjs";
+// 2026-10-27：源文档变了 → 标出要人复核的 Wiki 页
+import { markStaleForPaths, clearStaleForGenerated, staleSummary } from "./engine/wiki-stale.mjs";
 // 2026-10-25：后台作业状态机（做完没汇报、坏在哪一步）
 import { collectJobs, summarizeJobs, syncReports, pendingReports, ackReports, autoAckByText, urgentReports } from "./engine/job-state.mjs";
 // 2026-10-25：自己找活——从承诺/牵挂/久未推进的任务/随口提过的事里长出候选目标
@@ -3452,7 +3454,10 @@ const API_ROUTES = [
     try {
       const items = listWiki({ wsRoot: WS_ROOT });
       const index = readWiki({ wsRoot: WS_ROOT, topic: 'index' });
-      return json(res, 200, { ok: true, items, index: index.ok ? index.content : '' });
+      const stale = staleSummary(WS_ROOT);
+      // 前端要按主题名取值，这里转成 map（否则 Object.keys 变成 0,1,2...）
+      const staleMap = Object.fromEntries(stale.pages.map((x) => [x.topic, x]));
+      return json(res, 200, { ok: true, items, index: index.ok ? index.content : '', stale: staleMap });
     } catch (e) { return json(res, 500, { ok: false, error: String(e?.message || e).slice(0, 160), items: [] }); }
   }],
   ["GET", /^\/api\/wiki\/([^/]+)$/, (res, req, url, m) => {
@@ -3464,7 +3469,9 @@ const API_ROUTES = [
   ["POST", "/api/wiki/rebuild", (res) => {
     try {
       const out = buildWiki({ wsRoot: WS_ROOT });
+      const cleared = clearStaleForGenerated({ wsRoot: WS_ROOT, topics: out.written });
       try { commitMemory({ wsRoot: WS_ROOT, message: 'Wiki 重建' }); } catch {}
+      return json(res, 200, { ...out, clearedStale: cleared.cleared, staleLeft: cleared.left });
       return json(res, 200, out);
     } catch (e) { return json(res, 500, { ok: false, error: String(e?.message || e).slice(0, 160) }); }
   }],
@@ -5763,7 +5770,12 @@ ${rows.map((r) => `- [${r.status}${r.closed ? "/已结清" : ""}] ${r.text}\n  �
         })();
         const r = diffDocs({ wsRoot: WS_ROOT, targets });
         if (r.baseline) console.log("[docs] 已建基线，跟踪", r.total, "个文件");
-        else if (r.changes?.length) console.log("[docs] 检测到变化：", r.changes.slice(0, 3).map((c) => c.path).join("、"));
+        else if (r.changes?.length) {
+          console.log("[docs] 检测到变化：", r.changes.slice(0, 3).map((c) => c.path).join("、"));
+          // 源文档变了 → 相关 Wiki 页标"待复核"（手写页没人会自动更新它）
+          const st = markStaleForPaths({ wsRoot: WS_ROOT, paths: r.changes.map((c) => c.path) });
+          if (st.marked.length) console.log("[wiki] 待复核：", st.marked.join("、"));
+        }
       } catch (e) { console.log("[docs] 扫描失败（忽略）：", String(e?.message || e).slice(0, 100)) }
     };
     setTimeout(docSweep, 60 * 1000);
