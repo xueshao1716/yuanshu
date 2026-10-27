@@ -3,7 +3,38 @@
 ## [Unreleased]
 
 ## [2.155.0] - 2026-10-27
+用户一句「之前 hermes 可以发图片，语音啊」把我问住了——**一查，是我错了**。
 
+## 我错在哪
+
+昨天那条 CDN HTTP 500 的结论，是拿一张**我自己用 base64 手搓的 100 字节坏图**测出来的。
+平台校验不过自然 500，我却归因成「账号没有媒体权限」。换一张真图（166KB）立刻 200，x-encrypted-param 正常返回。
+
+## 对照 Hermes 的参考实现，补上发文件
+
+工具/参考项目/hermes-agent/gateway/platforms/weixin.py 里写得很清楚：
+
+```
+media_type: IMAGE=1 VIDEO=2 FILE=3 VOICE=4
+item type : TEXT=1 IMAGE=2 VOICE=3 FILE=4 VIDEO=5
+file_item = { media: {encrypt_query_param, aes_key, encrypt_type:1}, file_name, len: str(明文大小) }
+```
+
+我们之前**只有 sendImage**，所以「能聊、能发图、发不了文件」。
+现在加了 sendFile（含视频分支），并把 reply / notifyOwner 的 file 参数一路打通。
+
+## 验证
+
+```
+真图 166KB → CDN 200，image_item 发出（message_id 有值）
+真文件 .txt → file_item 发出（message_id 有值）
+POST /api/wechat/notify {text,file} → 200，notifyOk 1
+python notify.py "带文件的通报" --file <路径> → 活动流✓ | 元枢微信✓
+```
+
+## 教训
+
+**别用自己造的坏数据去验证平台能力。** 一张坏图让我得出「平台不给权限」的结论，还差点让你换通道。
 ## [2.154.0] - 2026-10-27
 用户说「那你接上」——想把交付通报直接走已扫码的微信机器人。查的过程中挖到一个**从上线起就没通过的能力**。
 
