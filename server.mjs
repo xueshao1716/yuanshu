@@ -3308,6 +3308,25 @@ const API_ROUTES = [
     catch (e) { return json(res, 500, { ok: false, error: String(e?.message || e).slice(0, 160) }); }
   }],
   ["POST", "/api/notify/open", (res) => json(res, 200, openConsole())],
+  // 2026-10-27：发一句试试——把 iLink 的真实错误原样带回面板（不再只写日志）
+  ["POST", "/api/wechat/test", async (res) => {
+    try {
+      await wechat.notifyOwner('元枢通道自检：收到这条说明微信推送可用。');
+      return json(res, 200, { ok: true });
+    } catch (e) {
+      const msg = String(e?.message || e).slice(0, 200);
+      const hint = /prepare failed|ret=-2/i.test(msg)
+        ? 'iLink 会话能收不能发（prepare failed）。先在微信里给机器人随便发一句话；还不行就重新扫码登录。'
+        : /没打开/.test(msg) ? '面板里把「交付通知也发到我的微信」勾上。' : '';
+      try {
+        enqueueReport(WS_ROOT, {
+          id: `wechat-send-${Math.floor(Date.now() / 60000)}`, kind: 'wechat', label: '微信发送失败',
+          state: 'needs_attention', step: msg.slice(0, 160), priority: 'high',
+        });
+      } catch {}
+      return json(res, 502, { ok: false, error: msg, hint });
+    }
+  }],
   ["GET", "/api/wechat/status", (res) => {
     const push = channelStatus(WS_ROOT);
     return json(res, 200, { ...wechat.status(), push });

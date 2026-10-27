@@ -71,6 +71,20 @@ export default function WechatPanel() {
     setPpMsg('已清除'); void mutate()
   }
   const openPushConsole = async () => { await callNotify('/api/notify/open', 'POST') }
+  // 2026-10-27：iLink 发一句试试——失败时把真实原因和建议显示出来
+  const [wechatMsg, setWechatMsg] = useState('')
+  const testWechat = async () => {
+    setBusy(true); setWechatMsg('')
+    try {
+      const r = await api<{ ok: boolean; error?: string; hint?: string }>('/api/wechat/test', { method: 'POST' })
+      setWechatMsg('✓ 已发送，去微信看看')
+      void mutate()
+      return r
+    } catch (e: any) {
+      const body = e?.body || {}
+      setWechatMsg([body.error || e?.message || '发送失败', body.hint].filter(Boolean).join(' · '))
+    } finally { if (mounted.current) setBusy(false) }
+  }
 
   const logging = !!s && ['starting', 'waiting', 'scanned'].includes(s.login.state)
   const health = s?.health
@@ -95,6 +109,7 @@ export default function WechatPanel() {
             {s.running
               ? <button type="button" className="btn-ghost min-h-11 px-3 inline-flex items-center gap-2" disabled={busy} onClick={() => act('/api/wechat/stop')}><PowerOff size={14} aria-hidden="true" />暂停收发</button>
               : <button type="button" className="btn-primary min-h-11 px-3 inline-flex items-center gap-2" disabled={busy} onClick={() => act('/api/wechat/start')}><Power size={14} aria-hidden="true" />开始收发</button>}
+            <button type="button" className="btn-ghost min-h-11 px-3 inline-flex items-center gap-2" disabled={busy} onClick={() => void testWechat()}>发一句试试</button>
             <button type="button" className="btn-ghost min-h-11 px-3 inline-flex items-center gap-2 hover:!text-pi-danger" disabled={busy} onClick={() => act('/api/wechat/logout', {}, '退出后要重新扫码才能用。确定退出微信登录吗？')}><LogOut size={14} aria-hidden="true" />退出登录</button>
           </div>}
         </div>
@@ -106,6 +121,9 @@ export default function WechatPanel() {
               连接：{health ? health.text : '—'}
               {s.stats?.lastAt ? ` · 上次收到消息 ${time(s.stats.lastAt)}` : ' · 还没收到过消息'}
             </p>
+            {wechatMsg ? (
+              <p className={wechatMsg.startsWith('✓') ? 'text-xs text-pi-dim2' : 'text-xs text-pi-danger'}>{wechatMsg}</p>
+            ) : null}
             <div className="space-y-2 pt-1">
               <p className={s.push?.configured && s.push?.ok === false ? 'text-pi-danger' : 'text-pi-dim2'}>
                 推送：
