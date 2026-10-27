@@ -3080,6 +3080,8 @@ const wechat = createWechatBridge({
       });
     } catch {}
   },
+  // 2026-10-28：微信消息也算"人在这儿"，否则深夜推送会把在线的人当成"走了很久"
+  onUserActivity: () => { try { companionStore.touchSeen({ throttleMs: 0 }); } catch {} },
   dir: path.join(CONFIG.cwd, '.yuanshu', 'wechat'),
   legacyDir: path.join(CONFIG.cwd, '工程'),
   chat: createLoopbackChat({ base: () => `http://127.0.0.1:${CONFIG.port}`, token: () => CONFIG.token }),

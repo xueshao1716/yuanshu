@@ -189,6 +189,8 @@ export function createLoopbackChat({ base, token, fetch: f = globalThis.fetch, n
 }
 
 export function createWechatBridge({
+  // 2026-10-28：用户在微信里说话也算「人在这儿」——否则深夜会推「你走了 N 分钟」
+  onUserActivity = null,
   dir, chat, client = createIlinkClient(), legacyDir = "",
   sleep = (ms) => new Promise((r) => setTimeout(r, ms)),
   now = () => Date.now(), log = () => {},
@@ -324,6 +326,8 @@ export function createWechatBridge({
   }
 
   async function handle(acc, m) {
+    // 2026-10-28：微信来消息 = 用户在线，先记一笔（用轻量钩子，失败不影响主流程）
+    try { if (typeof onUserActivity === "function") onUserActivity({ source: "wechat", sender: m.sender, at: now() }); } catch {}
     inflight.add(m.sender);
     inbox[m.sender] = { text: preview(m.text, 60), contextToken: m.contextToken || "", at: now() };
     saveInbox();
