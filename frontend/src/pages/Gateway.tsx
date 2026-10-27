@@ -1,35 +1,46 @@
 import useSWR from 'swr'
 import { useState } from 'react'
 import { api } from '../api'
-import SectionHeader from '../components/SectionHeader'
 
 /**
- * 接口台（2026-10-27）
+ * 事务台（2026-10-28 改版）
  *
- * 用户原话：「是不是可以做一个专门的界面，来管理这些事了」
- * 这里管三件事：
- *   ① 外面进来的（入站事件：群消息/邮件/告警/价格）
- *   ② 里面发出去的（出站投递：微信/邮件/webhook，含失败与降级）
- *   ③ 我在盯/在追的（主动管理）
+ * 用户反馈：「接口台这个界面有点工程化，不够工作化，不好上手」
+ * 改法：
+ *   · 第一屏先给结论（进来几件 / 发出几条 / 在办几件 / 几条弯路）
+ *   · 五个区块全换工作语言：外面进来的事 / 我发出去的 / 正在办的事 / 同事留言 / 走过的弯路
+ *   · 技术细节（接口路径、分支、scope）收进「怎么让它自动进来？」这种折叠里
  */
 type InEvent = { id: string; at: number; source: string; kind: string; text: string; severity: string; matched: string[] }
 type Delivery = { at: number; channel: string; kind: string; ok: boolean; detail: string; text: string; fallbacks: number }
 type Watch = { id: string; title: string; status: string }
 type Loop = { key: string; title: string; status: string; attempts: number }
-type Claim = { id: string; task: string; agent: string; scope: string[]; branch: string; state: string; createdAt: number; expiresAt: number }
-type Msg = { id: string; at: number; from: string; to: string; kind: string; text: string; replyTo?: string }
+type Claim = { id: string; task: string; agent: string; scope: string[]; state: string; createdAt: number; expiresAt: number }
+type Msg = { id: string; at: number; from: string; to: string; kind: string; text: string }
 type Failure = { id: string; at: number; agent: string; area: string; attempt: string; why: string; source: string; files: string[] }
 
 const time = (ms: number) => (ms ? new Date(ms).toLocaleString('zh-CN', { hour12: false, month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' }) : '—')
 
-const pill: React.CSSProperties = {
-  display: 'inline-flex', alignItems: 'center', minHeight: 26, padding: '0 10px',
-  borderRadius: 999, fontSize: 12, border: '1px solid var(--pi-border-soft, #bfc4cb)',
-  background: 'var(--pi-bg3, #eef0f3)', color: 'var(--pi-text, #222)', cursor: 'pointer',
+const SOURCE_LABEL: Record<string, string> = {
+  email: '邮件', imap: '邮箱', gmail: 'Gmail', outlook: 'Outlook',
+  dingtalk: '钉钉', manual: '手动', wechat: '微信', monitor: '监控', news: '资讯',
 }
+const CHANNEL_LABEL: Record<string, string> = { wechat: '微信', email: '邮件', webhook: 'Webhook', pushplus: '服务号推送' }
+
+const pill = (primary = false): React.CSSProperties => ({
+  display: 'inline-flex', alignItems: 'center', justifyContent: 'center', minHeight: 32, padding: '0 13px',
+  borderRadius: 999, fontSize: 12.5, cursor: 'pointer',
+  border: `1px solid ${primary ? 'var(--pi-accent, #2f6bff)' : 'var(--pi-border-soft, #bfc4cb)'}`,
+  background: primary ? 'var(--pi-accent-soft, rgba(47,107,255,0.12))' : 'var(--pi-bg3, #eef0f3)',
+  color: primary ? 'var(--pi-accent, #2f6bff)' : 'var(--pi-text, #222)', fontWeight: primary ? 600 : 400,
+})
 const input: React.CSSProperties = {
   minHeight: 32, padding: '0 10px', fontSize: 12.5, borderRadius: 8,
   border: '1px solid var(--pi-border-soft, #bfc4cb)', background: 'var(--pi-panel, #fff)', color: 'var(--pi-text, #222)',
+}
+const chip: React.CSSProperties = {
+  display: 'inline-flex', alignItems: 'baseline', gap: 6, padding: '6px 12px', borderRadius: 10,
+  border: '1px solid var(--pi-border-soft, #bfc4cb)', background: 'var(--pi-panel, #fff)', fontSize: 12.5,
 }
 
 export default function Gateway() {
@@ -40,7 +51,6 @@ export default function Gateway() {
   const fail = useSWR('gateway-fail', () => api<{ ok: boolean; items: Failure[] }>('/api/failure'), { refreshInterval: 30000 })
   const mbox = useSWR('gateway-msg', () => api<{ ok: boolean; inbox: Msg[]; recent: Msg[] }>('/api/agent/msg?for=小语&unread=0&limit=12'), { refreshInterval: 15000 })
 
-  const [src, setSrc] = useState('manual')
   const [text, setText] = useState('')
   const [sev, setSev] = useState('normal')
   const [msg, setMsg] = useState('')
@@ -51,15 +61,24 @@ export default function Gateway() {
   const [msgTo, setMsgTo] = useState('')
   const [msgHint, setMsgHint] = useState('')
 
+  const events = inb.data?.items || []
+  const deliveries = out.data?.items || []
+  const claims = clm.data?.items || []
+  const messages = mbox.data?.recent || []
+  const failures = fail.data?.items || []
+  const watches = (pro.data?.watches || []).filter((w) => w.status === 'watching')
+  const loops = (pro.data?.loops || []).filter((l) => l.status !== 'done')
+  const failedDeliveries = deliveries.filter((d) => !d.ok).length
+
   const post = async () => {
     const t = text.trim()
     if (!t) return
     try {
       const r = await api<{ ok: boolean; matched?: { title: string }[]; reported?: boolean; error?: string }>('/api/inbound/event', {
-        method: 'POST', body: { source: src || 'manual', text: t, severity: sev, kind: sev === 'high' ? 'alert' : 'info' },
+        method: 'POST', body: { source: 'manual', text: t, severity: sev, kind: sev === 'high' ? 'alert' : 'info' },
       })
-      if (!r.ok) { setMsg(r.error || '投递失败'); return }
-      setMsg(`已收下${r.matched?.length ? `，命中：${r.matched.map((m) => m.title).join('、')}` : ''}${r.reported ? '，已进汇报' : ''}`)
+      if (!r.ok) { setMsg(r.error || '没投进去'); return }
+      setMsg(`已收下${r.matched?.length ? `，命中你在盯的「${r.matched.map((m) => m.title).join('、')}」` : ''}${r.reported ? '，已进汇报' : ''}`)
       setText('')
       void inb.mutate()
     } catch (e: any) { setMsg(String(e?.message || e).slice(0, 120)) }
@@ -70,13 +89,14 @@ export default function Gateway() {
     if (!t) return
     try {
       const scope = claimScope.split(/[,，\s]+/).filter(Boolean)
-      const r = await api<{ ok: boolean; error?: string; claim?: Claim }>('/api/claim', { method: 'POST', body: { task: t, agent: '小语', scope } })
+      const r = await api<{ ok: boolean; error?: string }>('/api/claim', { method: 'POST', body: { task: t, agent: '小语', scope } })
       if (!r.ok) { setClaimMsg(r.error || '认领失败'); return }
       setClaimMsg('已认领')
       setClaimTaskText(''); setClaimScope('')
       void clm.mutate()
     } catch (e: any) { setClaimMsg(String(e?.message || e).slice(0, 120)) }
   }
+
   const doRelease = async (id: string, done: boolean) => {
     await api('/api/claim/release', { method: 'POST', body: { id, done } }).catch(() => null)
     void clm.mutate()
@@ -86,134 +106,157 @@ export default function Gateway() {
     const t = msgText.trim()
     if (!t) return
     try {
-      const r = await api<{ ok: boolean; error?: string }>('/api/agent/msg', { method: 'POST', body: { from: '小语', to: msgTo.trim(), text: t, kind: msgTo.trim() ? 'note' : 'note' } })
-      if (!r.ok) { setMsgHint(r.error || '发送失败'); return }
+      const r = await api<{ ok: boolean; error?: string }>('/api/agent/msg', { method: 'POST', body: { from: '小语', to: msgTo.trim(), text: t } })
+      if (!r.ok) { setMsgHint(r.error || '没发出去'); return }
       setMsgHint(msgTo.trim() ? `已发给 ${msgTo.trim()}` : '已广播')
       setMsgText('')
       void mbox.mutate()
     } catch (e: any) { setMsgHint(String(e?.message || e).slice(0, 120)) }
   }
 
-  const events = inb.data?.items || []
-  const deliveries = out.data?.items || []
-  const claims = clm.data?.items || []
-  const messages = mbox.data?.recent || []
-  const failures = fail.data?.items || []
-  const watches = (pro.data?.watches || []).filter((w) => w.status === 'watching')
-  const loops = (pro.data?.loops || []).filter((l) => l.status !== 'done')
-
   return (
-    <div className="mx-auto w-full max-w-[1100px] px-4 py-6 space-y-6">
-      <SectionHeader title="接口台" description="外面进来的、里面发出去的、以及我一直在盯的——在这里统一管。" />
+    <div className="mx-auto w-full max-w-[1040px] px-4 py-8 space-y-6">
+      <header>
+        <h1 className="text-[20px] font-semibold text-pi-text">事务台</h1>
+        <p className="mt-1.5 text-[13px] leading-relaxed text-pi-dim2">
+          外面进来的事、我发出去的话、正在办和办砸过的——都在这一页。
+          <strong className="text-pi-text">平时只需要看最上面那排数字。</strong>
+        </p>
+      </header>
 
-      {/* ① 入站 */}
+      <div className="flex flex-wrap gap-2">
+        <span style={chip}><strong>{events.length}</strong> 件进来</span>
+        <span style={chip}>
+          <strong>{deliveries.length}</strong> 条发出
+          {failedDeliveries ? <span style={{ color: 'var(--pi-danger, #dc2626)' }}>（{failedDeliveries} 条没送到）</span> : null}
+        </span>
+        <span style={chip}><strong>{claims.length}</strong> 件在办</span>
+        <span style={chip}><strong>{watches.length}</strong> 件在盯</span>
+        <span style={chip}><strong>{failures.length}</strong> 条弯路</span>
+      </div>
+
       <section className="panel space-y-3">
-        <div className="flex items-baseline justify-between">
-          <h3 className="text-sm font-semibold text-pi-text">外面进来的 <span className="text-pi-dim2 font-normal">（最近 {events.length} 条）</span></h3>
-          <span className="text-xs text-pi-dim2">任何系统都能往 <code>/api/inbound/event</code> 推</span>
+        <div className="flex flex-wrap items-baseline justify-between gap-2">
+          <h2 className="text-[15px] font-semibold text-pi-text">外面进来的事</h2>
+          <details className="text-xs text-pi-dim2">
+            <summary style={{ cursor: 'pointer' }}>怎么让它自动进来？</summary>
+            <p className="mt-1.5 leading-relaxed">
+              邮件已经在自动进来了。别的系统（钉钉、监控、价格变动）只要往
+              <code className="mx-1 px-1 rounded bg-pi-bg3">/api/inbound/event</code>
+              推一条 JSON：<code className="mx-1 px-1 rounded bg-pi-bg3">{'{ source, text, severity }'}</code>。
+            </p>
+          </details>
         </div>
 
         <div className="flex flex-wrap gap-2">
-          <input style={{ ...input, width: 130 }} value={src} onChange={(e) => setSrc(e.target.value)} placeholder="来源，如 dingtalk" />
           <input
             style={{ ...input, flex: 1, minWidth: 240 }}
             value={text} onChange={(e) => setText(e.target.value)}
             onKeyDown={(e) => { if (e.key === 'Enter') void post() }}
-            placeholder="模拟一条外部事件：比如「老师通知：明天交回执」"
+            placeholder="试着投一条进来，比如「老师通知：明天交回执」"
           />
           <select style={input} value={sev} onChange={(e) => setSev(e.target.value)}>
             <option value="normal">普通</option>
             <option value="high">重要</option>
-            <option value="low">低</option>
+            <option value="low">不重要</option>
           </select>
-          <button type="button" style={pill} onClick={post}>投一条</button>
+          <button type="button" style={pill(true)} onClick={post}>收下</button>
         </div>
         {msg ? <p className="text-xs text-pi-dim2">{msg}</p> : null}
 
         {events.length ? (
-          <ul className="space-y-2">
+          <ul className="space-y-2.5">
             {events.map((e) => (
-              <li key={e.id} className="text-xs leading-relaxed">
-                <span className="text-pi-dim2">{time(e.at)} · {e.source} · {e.kind}</span>
-                {e.severity === 'high' ? <span className="ml-2 text-pi-danger">重要</span> : null}
+              <li key={e.id} className="text-[12.5px] leading-relaxed">
+                <span className="text-pi-dim2">
+                  {time(e.at)} · {SOURCE_LABEL[e.source] || e.source}
+                  {e.severity === 'high' ? <span className="ml-2 text-pi-danger">重要</span> : null}
+                </span>
                 <div className="text-pi-text">{e.text}</div>
-                {e.matched?.length ? <div className="text-pi-dim2">命中：{e.matched.join('、')}</div> : null}
+                {e.matched?.length ? <div className="text-pi-dim2">和你盯的「{e.matched.join('、')}」有关</div> : null}
               </li>
             ))}
           </ul>
-        ) : <p className="text-xs text-pi-dim2">还没有外部事件。</p>}
+        ) : <p className="text-xs text-pi-dim2">还没有事情进来。上面可以手动投一条试试。</p>}
       </section>
 
-      {/* ② 出站 */}
       <section className="panel space-y-3">
-        <h3 className="text-sm font-semibold text-pi-text">里面发出去的 <span className="text-pi-dim2 font-normal">（最近 {deliveries.length} 次）</span></h3>
+        <h2 className="text-[15px] font-semibold text-pi-text">我发出去的</h2>
         {deliveries.length ? (
           <ul className="space-y-2">
             {deliveries.map((d, i) => (
-              <li key={`${d.at}-${i}`} className="text-xs leading-relaxed">
+              <li key={`${d.at}-${i}`} className="text-[12.5px] leading-relaxed">
                 <span className={d.ok ? 'text-pi-dim2' : 'text-pi-danger'}>
-                  {time(d.at)} · {d.channel} · {d.kind} · {d.ok ? '已送达' : '失败'}
-                  {d.fallbacks ? `（降级 ${d.fallbacks} 次）` : ''}
+                  {time(d.at)} · {CHANNEL_LABEL[d.channel] || d.channel} · {d.ok ? '送到了' : '没送到'}
+                  {d.fallbacks ? `（换了 ${d.fallbacks} 个渠道才成功）` : ''}
                 </span>
                 <div className="text-pi-text">{d.text || d.detail}</div>
                 {!d.ok ? <div className="text-pi-dim2">{d.detail}</div> : null}
               </li>
             ))}
           </ul>
-        ) : <p className="text-xs text-pi-dim2">还没有出站记录。</p>}
+        ) : <p className="text-xs text-pi-dim2">还没发过东西。小语的通报会走这里。</p>}
       </section>
 
-      {/* ②.5 认领板 */}
       <section className="panel space-y-3">
-        <div className="flex items-baseline justify-between">
-          <h3 className="text-sm font-semibold text-pi-text">谁在做什么 <span className="text-pi-dim2 font-normal">（认领板 · {claims.length} 件在做）</span></h3>
-          <span className="text-xs text-pi-dim2">范围重叠会被拒绝，过期自动回收</span>
+        <div className="flex flex-wrap items-baseline justify-between gap-2">
+          <h2 className="text-[15px] font-semibold text-pi-text">正在办的事</h2>
+          <span className="text-xs text-pi-dim2">同一件事不会被两个人同时办</span>
         </div>
         <div className="flex flex-wrap gap-2">
-          <input style={{ ...input, flex: 1, minWidth: 200 }} value={claimTaskText} onChange={(e) => setClaimTaskText(e.target.value)} placeholder="要做的事，如「修微信发图」" />
-          <input style={{ ...input, flex: 1, minWidth: 200 }} value={claimScope} onChange={(e) => setClaimScope(e.target.value)} placeholder="范围（逗号分隔），如 engine/wechat-media.mjs" />
-          <button type="button" style={pill} onClick={doClaim}>认领</button>
+          <input style={{ ...input, flex: 1, minWidth: 200 }} value={claimTaskText} onChange={(e) => setClaimTaskText(e.target.value)} placeholder="要办的事，比如「修微信发图」" />
+          <input style={{ ...input, flex: 1, minWidth: 200 }} value={claimScope} onChange={(e) => setClaimScope(e.target.value)} placeholder="会动到哪些文件（可选）" />
+          <button type="button" style={pill()} onClick={doClaim}>接下来办</button>
         </div>
         {claimMsg ? <p className="text-xs text-pi-dim2">{claimMsg}</p> : null}
+
         {claims.length ? (
-          <ul className="space-y-2">
+          <ul className="space-y-2.5">
             {claims.map((c) => (
-              <li key={c.id} className="text-xs leading-relaxed">
-                <span className="text-pi-dim2">{c.agent} · {time(c.createdAt)} 认领</span>
+              <li key={c.id} className="text-[12.5px] leading-relaxed">
+                <span className="text-pi-dim2">{c.agent} · {time(c.createdAt)} 开始</span>
                 <div className="text-pi-text">{c.task}</div>
-                {c.scope?.length ? <div className="text-pi-dim2">范围：{c.scope.join('、')}</div> : null}
-                <div className="flex gap-2 mt-1">
-                  <button type="button" style={{ ...pill, minHeight: 22, fontSize: 11 }} onClick={() => void doRelease(c.id, true)}>完成</button>
-                  <button type="button" style={{ ...pill, minHeight: 22, fontSize: 11 }} onClick={() => void doRelease(c.id, false)}>放弃</button>
+                {c.scope?.length ? <div className="text-pi-dim2">会动：{c.scope.join('、')}</div> : null}
+                <div className="flex gap-2 mt-1.5">
+                  <button type="button" style={{ ...pill(), minHeight: 26, fontSize: 12 }} onClick={() => void doRelease(c.id, true)}>办完了</button>
+                  <button type="button" style={{ ...pill(), minHeight: 26, fontSize: 12 }} onClick={() => void doRelease(c.id, false)}>不办了</button>
                 </div>
               </li>
             ))}
           </ul>
-        ) : <p className="text-xs text-pi-dim2">黑板是空的。</p>}
+        ) : <p className="text-xs text-pi-dim2">现在手上没有在办的事。</p>}
+
+        {watches.length || loops.length ? (
+          <div className="pt-2 border-t border-pi-border-soft">
+            <p className="text-xs text-pi-dim2">
+              在盯 {watches.length} 件{watches.length ? `：${watches.map((w) => w.title).join('、')}` : ''}
+              {loops.length ? `；在追 ${loops.length} 件：${loops.slice(0, 3).map((l) => l.title).join('、')}` : ''}
+            </p>
+          </div>
+        ) : null}
       </section>
 
-      {/* ②.7 agent 之间 */}
       <section className="panel space-y-3">
-        <div className="flex items-baseline justify-between">
-          <h3 className="text-sm font-semibold text-pi-text">agent 之间 <span className="text-pi-dim2 font-normal">（留言板 · 最近 {messages.length} 条）</span></h3>
-          <span className="text-xs text-pi-dim2">不填收件人 = 广播</span>
+        <div className="flex flex-wrap items-baseline justify-between gap-2">
+          <h2 className="text-[15px] font-semibold text-pi-text">同事留言</h2>
+          <span className="text-xs text-pi-dim2">多个小语同时干活时，用这个对口径</span>
         </div>
         <div className="flex flex-wrap gap-2">
-          <input style={{ ...input, width: 140 }} value={msgTo} onChange={(e) => setMsgTo(e.target.value)} placeholder="收件人（可空）" />
+          <input style={{ ...input, width: 140 }} value={msgTo} onChange={(e) => setMsgTo(e.target.value)} placeholder="发给谁（可空）" />
           <input
             style={{ ...input, flex: 1, minWidth: 220 }}
             value={msgText} onChange={(e) => setMsgText(e.target.value)}
             onKeyDown={(e) => { if (e.key === 'Enter') void sendMsg() }}
-            placeholder="留一句给同僚：谁在改什么、哪条路走不通"
+            placeholder="留一句：我在改什么、哪条路走不通"
           />
-          <button type="button" style={pill} onClick={sendMsg}>留言</button>
+          <button type="button" style={pill()} onClick={sendMsg}>留言</button>
         </div>
         {msgHint ? <p className="text-xs text-pi-dim2">{msgHint}</p> : null}
         {messages.length ? (
           <ul className="space-y-2">
             {messages.map((m) => (
-              <li key={m.id} className="text-xs leading-relaxed">
-                <span className="text-pi-dim2">{time(m.at)} · {m.from}{m.to ? ` → ${m.to}` : '（广播）'} · {m.kind}</span>
+              <li key={m.id} className="text-[12.5px] leading-relaxed">
+                <span className="text-pi-dim2">{time(m.at)} · {m.from}{m.to ? ` → ${m.to}` : '（对所有人）'}</span>
                 <div className="text-pi-text">{m.text}</div>
               </li>
             ))}
@@ -221,43 +264,23 @@ export default function Gateway() {
         ) : <p className="text-xs text-pi-dim2">还没有留言。</p>}
       </section>
 
-      {/* ②.8 踩过的坑 */}
       <section className="panel space-y-3">
-        <div className="flex items-baseline justify-between">
-          <h3 className="text-sm font-semibold text-pi-text">踩过的坑 <span className="text-pi-dim2 font-normal">（失败台账 · {failures.length} 条）</span></h3>
-          <span className="text-xs text-pi-dim2">补丁失败会自动记，agent 用 failure_recall 查</span>
+        <div className="flex flex-wrap items-baseline justify-between gap-2">
+          <h2 className="text-[15px] font-semibold text-pi-text">走过的弯路</h2>
+          <span className="text-xs text-pi-dim2">记下来，下次不再踩</span>
         </div>
         {failures.length ? (
-          <ul className="space-y-2">
+          <ul className="space-y-2.5">
             {failures.slice(0, 8).map((f) => (
-              <li key={f.id} className="text-xs leading-relaxed">
-                <span className="text-pi-dim2">{time(f.at)} · {f.agent} · {f.source}{f.area ? ` · ${f.area}` : ''}</span>
-                <div className="text-pi-text">{f.attempt}</div>
-                <div className="text-pi-danger">{f.why}</div>
-                {f.files?.length ? <div className="text-pi-dim2">文件：{f.files.slice(0, 3).join('、')}</div> : null}
+              <li key={f.id} className="text-[12.5px] leading-relaxed">
+                <span className="text-pi-dim2">{time(f.at)}{f.area ? ` · ${f.area}` : ''}</span>
+                <div className="text-pi-text">试过：{f.attempt}</div>
+                <div className="text-pi-danger">不行：{f.why}</div>
+                {f.files?.length ? <div className="text-pi-dim2">涉及：{f.files.slice(0, 3).join('、')}</div> : null}
               </li>
             ))}
           </ul>
-        ) : <p className="text-xs text-pi-dim2">还没有失败记录。</p>}
-      </section>
-
-      {/* ③ 在盯/在追 */}
-      <section className="panel space-y-3">
-        <h3 className="text-sm font-semibold text-pi-text">我一直在管的 <span className="text-pi-dim2 font-normal">（{watches.length} 件在盯，{loops.length} 件在追）</span></h3>
-        {watches.length ? (
-          <div className="flex flex-wrap gap-2">
-            {watches.map((w) => <span key={w.id} style={{ ...pill, cursor: 'default' }}>{w.title}</span>)}
-          </div>
-        ) : <p className="text-xs text-pi-dim2">还没在盯任何东西。去「灵魂培育 → 主动管理」说一句「盯住 X」。</p>}
-        {loops.length ? (
-          <ul className="space-y-1">
-            {loops.slice(0, 6).map((l) => (
-              <li key={l.key} className="text-xs text-pi-dim2">
-                {l.title}（{l.status === 'escalated' ? '需要你拍板' : '已提醒'} · 第 {l.attempts} 次）
-              </li>
-            ))}
-          </ul>
-        ) : null}
+        ) : <p className="text-xs text-pi-dim2">还没有失败记录。补丁被门禁拦下时会自动记一条。</p>}
       </section>
     </div>
   )

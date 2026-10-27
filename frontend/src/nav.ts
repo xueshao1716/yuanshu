@@ -21,7 +21,7 @@ export const ROUTE_LABELS = {
   grants: '授权中心',
   tv: '影视',
   autopatch: '自动补丁',
-  gateway: '接口台',
+  gateway: '事务台',
 } as const
 
 // 桌面主栏只放用户每天会找的工作入口；引擎从“更多”提升为一等入口。
