@@ -3,7 +3,14 @@
 ## [Unreleased]
 
 ## [2.149.0] - 2026-10-27
+环境体检里那条「Bash（命令工具）」用户看不懂，也不该让人以为必须装 git-bash。
 
+- 改成**命令工具**：先查 PowerShell 7（pwsh），再退 Windows PowerShell 5.1，同时列出 git-bash。
+- 判据变了：**有 PowerShell 就算正常**，没有 git-bash 不再算问题（说明写清「没有 git-bash 不影响：命令走 PowerShell」）。
+- 版本号只留三段（5.1.22621.4249 → 5.1.22621）。
+- 只有 5.1 时给一句升级建议（winget install Microsoft.PowerShell），但**不打红灯**——它现在就能用。
+
+真机：Windows PowerShell 5.1.22621 + Bash（git-bash）（建议换成 PowerShell 7），状态正常。
 ## [2.148.0] - 2026-10-27
 自动补丁的**收尾**：补丁提交到 `auto/capability-*` 之后，不再无声无息地躺着。
 
