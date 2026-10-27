@@ -242,6 +242,8 @@ import { markStaleForPaths, clearStaleForGenerated, staleSummary } from "./engin
 import { syncPatches, patchLine, readPatchState, readConfig as readMergeConfig } from "./engine/autopatch-track.mjs";
 // 2026-10-27：主动管理（在盯什么、追什么、催几次就闭嘴）
 import { sweepProactive, addWatch, stopWatch, listProactive, proactiveLine } from "./engine/proactive-manager.mjs";
+// 2026-10-27：推送通道界面化（保存 token / 测试 / 清除），不用再手写文件
+import { channelStatus, saveToken, clearToken, sendTest, openConsole } from "./engine/notify-channel.mjs";
 import { docChangesLine } from "./engine/doc-diff.mjs";
 // 2026-10-25：后台作业状态机（做完没汇报、坏在哪一步）
 import { collectJobs, summarizeJobs, syncReports, pendingReports, ackReports, autoAckByText, urgentReports } from "./engine/job-state.mjs";
@@ -3288,18 +3290,26 @@ const API_ROUTES = [
     }));
   }],
   // 2026-10-27：微信状态 + PushPlus 推送通道状态（读 notify.py 落的状态文件）
-  ["GET", "/api/wechat/status", (res) => {
-    let push = { configured: false, ok: null, at: 0, detail: "还没发过" };
+  // 2026-10-27：推送通道（PushPlus）——面板里粘贴 token、一键测试，不再手写文件
+  ["GET", "/api/notify/status", (res) => {
+    try { return json(res, 200, { ok: true, ...channelStatus(WS_ROOT) }); }
+    catch (e) { return json(res, 500, { ok: false, error: String(e?.message || e).slice(0, 160) }); }
+  }],
+  ["POST", "/api/notify/token", async (res, req) => {
     try {
-      const p = path.join(WS_ROOT, "工程", "pushplus-state.json");
-      const raw = JSON.parse(fs.readFileSync(p, "utf8"));
-      push = {
-        configured: !!raw.configured, ok: raw.ok === true, at: raw.at || 0,
-        detail: raw.detail || "", okCount: raw.okCount || 0, failCount: raw.failCount || 0,
-      };
-    } catch {}
-    // token 文件存在但还没发过，也算已配置
-    try { if (!push.configured && fs.existsSync(path.join(WS_ROOT, "工程", "pushplus-token.txt"))) push.configured = true } catch {}
+      const b = await readBody(req, 4e3);
+      const out = saveToken(WS_ROOT, b?.token);
+      return json(res, out.ok ? 200 : 400, out);
+    } catch (e) { return json(res, 500, { ok: false, error: String(e?.message || e).slice(0, 160) }); }
+  }],
+  ["DELETE", "/api/notify/token", (res) => json(res, 200, clearToken(WS_ROOT))],
+  ["POST", "/api/notify/test", async (res) => {
+    try { return json(res, 200, await sendTest(WS_ROOT)); }
+    catch (e) { return json(res, 500, { ok: false, error: String(e?.message || e).slice(0, 160) }); }
+  }],
+  ["POST", "/api/notify/open", (res) => json(res, 200, openConsole())],
+  ["GET", "/api/wechat/status", (res) => {
+    const push = channelStatus(WS_ROOT);
     return json(res, 200, { ...wechat.status(), push });
   }],
   ["POST", "/api/wechat/login", wechatAction(() => wechat.startLogin())],

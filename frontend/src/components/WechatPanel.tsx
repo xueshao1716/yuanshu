@@ -13,7 +13,7 @@ type WechatStatus = {
   recent: { at: number; dir: 'in' | 'out'; who: string; text: string }[]
   // 2026-10-27：掉线不再只有 running:true 一种说法
   health?: { state: 'ok' | 'idle' | 'stale' | 'degraded' | 'expired' | 'off'; text: string }
-  push?: { configured: boolean; ok: boolean | null; at: number; detail: string; okCount?: number; failCount?: number }
+  push?: { configured: boolean; masked?: string; ok: boolean | null; at: number; detail: string; okCount?: number; failCount?: number }
 }
 
 const time = (ms: number) => ms ? new Date(ms).toLocaleTimeString('zh-CN', { hour12: false }) : '—'
@@ -26,6 +26,9 @@ export default function WechatPanel() {
   const [qr, setQr] = useState('')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
+  // 2026-10-27：推送 token 直接在面板里存，不用手写文件
+  const [ppToken, setPpToken] = useState('')
+  const [ppMsg, setPpMsg] = useState('')
   const mounted = useRef(true)
   useEffect(() => { mounted.current = true; return () => { mounted.current = false } }, [])
 
@@ -42,6 +45,32 @@ export default function WechatPanel() {
     catch (e) { if (mounted.current) setError(e instanceof Error ? e.message : '请求失败，请重试') }
     finally { if (mounted.current) setBusy(false) }
   }
+
+  const callNotify = async (path: string, method: string, body?: unknown) => {
+    setBusy(true); setPpMsg('')
+    try {
+      const r = await api<{ ok: boolean; error?: string; detail?: string; masked?: string }>(path, { method, body })
+      return r
+    } catch (e) {
+      return { ok: false, error: e instanceof Error ? e.message : '请求失败' }
+    } finally { if (mounted.current) setBusy(false) }
+  }
+  const savePushToken = async () => {
+    const r = await callNotify('/api/notify/token', 'POST', { token: ppToken.trim() })
+    if (r.ok) { setPpToken(''); setPpMsg('✓ 已保存，点「发测试」验证一下'); void mutate() }
+    else setPpMsg(r.error || '保存失败')
+  }
+  const testPush = async () => {
+    const r = await callNotify('/api/notify/test', 'POST')
+    setPpMsg(r.ok ? '✓ 已发送，去微信看看' : (r.error || '发送失败'))
+    void mutate()
+  }
+  const clearPushToken = async () => {
+    if (!window.confirm('清除后推送就停了，确定？')) return
+    await callNotify('/api/notify/token', 'DELETE')
+    setPpMsg('已清除'); void mutate()
+  }
+  const openPushConsole = async () => { await callNotify('/api/notify/open', 'POST') }
 
   const logging = !!s && ['starting', 'waiting', 'scanned'].includes(s.login.state)
   const health = s?.health
@@ -77,16 +106,32 @@ export default function WechatPanel() {
               连接：{health ? health.text : '—'}
               {s.stats?.lastAt ? ` · 上次收到消息 ${time(s.stats.lastAt)}` : ' · 还没收到过消息'}
             </p>
-            <p className={s.push?.configured && s.push?.ok === false ? 'text-pi-danger' : 'text-pi-dim2'}>
-              推送：
-              {!s.push?.configured
-                ? '未配置（去 pushplus.plus 扫码取 token，存到 工程/pushplus-token.txt）'
-                : s.push.ok === null
-                  ? '已配置，还没发过'
-                  : s.push.ok
-                    ? `正常 · 上次 ${time(s.push.at)}`
-                    : `失败：${s.push.detail || '未知原因'}`}
-            </p>
+            <div className="space-y-2 pt-1">
+              <p className={s.push?.configured && s.push?.ok === false ? 'text-pi-danger' : 'text-pi-dim2'}>
+                推送：
+                {!s.push?.configured
+                  ? '未配置'
+                  : s.push.ok === null
+                    ? `已保存 ${s.push.masked || ''}，还没测过`
+                    : s.push.ok
+                      ? `正常 ${s.push.masked ? s.push.masked + ' ' : ''}· 上次 ${time(s.push.at)}`
+                      : `失败：${s.push.detail || '未知原因'}`}
+              </p>
+              <div className="flex flex-wrap items-center gap-2">
+                <input
+                  type="password"
+                  value={ppToken}
+                  onChange={(e) => setPpToken(e.target.value)}
+                  placeholder="粘贴 pushplus token（只存在本机）"
+                  className="min-h-9 flex-1 min-w-[220px] rounded-pi-md border border-pi-border-soft bg-pi-panel px-2.5 text-xs text-pi-text"
+                />
+                <button type="button" className="btn-primary min-h-9 px-3 text-xs" disabled={busy || !ppToken.trim()} onClick={() => void savePushToken()}>保存</button>
+                <button type="button" className="btn-ghost min-h-9 px-3 text-xs" disabled={busy || !s.push?.configured} onClick={() => void testPush()}>发测试</button>
+                <button type="button" className="btn-ghost min-h-9 px-3 text-xs" onClick={() => void openPushConsole()}>打开 pushplus</button>
+                {s.push?.configured && <button type="button" className="btn-ghost min-h-9 px-3 text-xs hover:!text-pi-danger" disabled={busy} onClick={() => void clearPushToken()}>清除</button>}
+              </div>
+              {ppMsg ? <p className={ppMsg.startsWith('✓') ? 'text-xs text-pi-dim2' : 'text-xs text-pi-danger'}>{ppMsg}</p> : null}
+            </div>
           </div>
         )}
 
