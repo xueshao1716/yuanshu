@@ -61,9 +61,17 @@ test("环境事实一行：命中时才出现，2 小时外不算", () => {
   recvEvent({ wsRoot: root, source: "mail", text: "机票又降了 200", at: Date.now() });
   assert.match(inboundLine(root), /【外部事件】/);
 
+  // 双时态：3 小时前"发生"、也 3 小时前"就知道" → 不在 2 小时窗口里
   const old = Date.now() - 3 * 3600 * 1000;
   const root2 = ws();
   addWatch({ wsRoot: root2, title: "机票", keywords: ["机票"] });
-  recvEvent({ wsRoot: root2, source: "mail", text: "机票又降了", at: old });
+  recvEvent({ wsRoot: root2, source: "mail", text: "机票又降了", at: old, receivedAt: old });
   assert.equal(inboundLine(root2), "");
+
+  // 双时态：3 小时前发生、刚刚才收到 → 要报，并且标明延迟（补跑/延迟投递不能装成"刚发生"）
+  const root3 = ws();
+  addWatch({ wsRoot: root3, title: "机票", keywords: ["机票"] });
+  recvEvent({ wsRoot: root3, source: "mail", text: "机票又降了", at: old, receivedAt: Date.now() });
+  const line3 = inboundLine(root3);
+  assert.match(line3, /延迟 180 分钟收到/);
 });

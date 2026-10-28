@@ -269,6 +269,9 @@ export async function dispatchNewMail(m, { notifyFn = _notifyFn, eventFn = _even
   }
   if (eventFn) {
     eventFn({
+      // 2026-10-28：双时态——邮件的 date 是"发生"，现在是"获知"
+      at: m?.date ? Date.parse(m.date) || undefined : undefined,
+      receivedAt: Date.now(),
       source: "email", kind: "mail",
       text: `${m?.from || ""} · ${m?.subject || "(无主题)"} · ${String(m?.snippet || "").slice(0, 160)}`,
       meta: { account: m?.account, provider: m?.provider, uid: m?.uid },

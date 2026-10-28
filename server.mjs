@@ -250,6 +250,9 @@ import { sendOut, recentDeliveries, outboundLine } from "./engine/outbound.mjs";
 import { recvEvent, listEvents, inboundLine } from "./engine/inbound.mjs";
 // 2026-10-28：承诺到点自动干活
 import { runDuePromises, duePromises, reapPromises } from "./engine/promise-runner.mjs";
+// 2026-10-28：高危动作走一次性凭据（设计借鉴 Inalpha 的 order approval）
+import { issueToken, consumeToken, listTokens } from "./engine/approval-token.mjs";
+
 // 2026-10-27：认领板（谁在做什么；抄 Agensh 的第一块砖）
 import { claimTask, releaseClaim, renewClaim, listClaims, reapExpired } from "./engine/claim-board.mjs";
 // 2026-10-27：agent 之间的留言（Agensh 第二件套）
@@ -2982,6 +2985,19 @@ const knowledgeRuntime = createKnowledgeRuntime({ wsRoot: WS_ROOT, runRoot: RUNS
 });
 // 2026-10-26：源码仓根（自动补丁与门禁都在这里跑；不是 git 仓就明确拒绝，而不是在安装包里瞎跑）
 const PATCH_REPO = resolveRepoRoot({ dirname: __dirname });
+// 2026-10-28：服务是 SYSTEM，git 会因"仓库属主不是自己"拒绝工作（dubious ownership）。
+// 只在**本进程**的子 git 上放行这两个目录，不动系统全局 git 配置。
+try {
+  const safeDirs = [PATCH_REPO.root, (() => { try { return CONFIG.cwd } catch { return "" } })()].filter(Boolean);
+  if (safeDirs.length) {
+    process.env.GIT_CONFIG_COUNT = String(safeDirs.length);
+    safeDirs.forEach((dir, i) => {
+      process.env[`GIT_CONFIG_KEY_${i}`] = "safe.directory";
+      process.env[`GIT_CONFIG_VALUE_${i}`] = dir;
+    });
+    console.log("[git] 已放行 safe.directory:", safeDirs.join(", "));
+  }
+} catch {}
 console.log("[autopatch] 源码仓:", PATCH_REPO.root || `未找到（试过 ${PATCH_REPO.tried.join(", ")}）`);
 
 // 2026-10-26：无人值守补丁的运行状态（异步，避免 HTTP 超时）
@@ -3187,6 +3203,24 @@ import { createBoardApi } from "./engine/board-api.mjs";
 import { createHistoryApi } from "./engine/history-api.mjs";
 import { createWorkbenchRoutes } from "./engine/workbench-routes.mjs";
 import { createWithCache } from "./engine/resp-cache.mjs";
+
+// 2026-10-28：读分支 HEAD 的 commit sha —— 审批凭据绑它，防止"批准 A、合并 B"
+function reviewSha(repoRoot, branch) {
+  try {
+    const out = execFileSync(
+      "git", ["-C", repoRoot, "-c", "core.quotePath=false", "rev-parse", `${branch}^{commit}`],
+      { encoding: "utf8", windowsHide: true, timeout: 15000 },
+    ).trim();
+    const ok = /^[0-9a-f]{7,40}$/i.test(out);
+    if (!ok) console.log("[review-sha] 输出不像 sha:", JSON.stringify(String(out).slice(0, 120)), "| repo:", repoRoot, "| branch:", branch);
+    return ok ? out : "";
+  } catch (e) {
+    const err = String(e?.stderr || "").trim().slice(0, 240) || String(e?.message || e).slice(0, 240);
+    console.log("[review-sha] git 调用失败:", err, "| repo:", repoRoot, "| branch:", branch);
+    return "";
+  }
+}
+
 
 // 聚合接口的响应级 TTL 缓存。**必须在 API_ROUTES 之前创建**：下面那个数组字面量在模块求值期
 // 就会调用 withCache(...)，放到数组之后就成"先用后声明"了（tests/unit/module-scope-order 守着这条）。
@@ -3795,11 +3829,33 @@ const API_ROUTES = [
       return json(res, out.ok ? 200 : 500, out);
     } catch (e) { return json(res, 500, { ok: false, error: String(e?.message || e).slice(0, 160) }); }
   }],
+  // 2026-10-28：先领一张一次性凭据（绑分支 HEAD 的 commit sha），再凭它合并
+  ["POST", "/api/autopatch/approve", async (res, req) => {
+    try {
+      const b = await readBody(req, 2e3);
+      const branch = String(b?.branch || '');
+      if (!/^auto\/capability-[\w-]+$/.test(branch)) return json(res, 400, { ok: false, error: '分支名不合法' });
+      const sha = reviewSha(PATCH_REPO.root, branch);
+      if (!sha) return json(res, 400, { ok: false, error: '读不到分支 HEAD（分支不存在？）' });
+      const out = issueToken({ wsRoot: WS_ROOT, action: 'merge_patch', payload: { branch, sha }, issuedBy: '伙伴' });
+      if (!out.ok) return json(res, 500, { ok: false, error: out.error });
+      return json(res, 200, { ok: true, token: out.token, branch, sha, expiresInSec: 600 });
+    } catch (e) { return json(res, 500, { ok: false, error: String(e?.message || e).slice(0, 160) }); }
+  }],
+  ["GET", "/api/autopatch/tokens", (res) => {
+    try { return json(res, 200, { ok: true, items: listTokens(WS_ROOT, { limit: 10 }) }); }
+    catch (e) { return json(res, 500, { ok: false, error: String(e?.message || e).slice(0, 160) }); }
+  }],
   ["POST", "/api/autopatch/merge", async (res, req) => {
     try {
       const b = await readBody(req, 2e3);
       const branch = String(b?.branch || '');
       if (!/^auto\/capability-[\w-]+$/.test(branch)) return json(res, 400, { ok: false, error: '分支名不合法' });
+      // 2026-10-28：必须凭"绑定 commit sha"的一次性凭据才能合。
+      // 防的是「批准的是 A，合并时分支上已经是 B」——有人又提交了新东西。
+      const sha = reviewSha(PATCH_REPO.root, branch);
+      const gate = consumeToken({ wsRoot: WS_ROOT, token: b?.token, action: 'merge_patch', payload: { branch, sha } });
+      if (!gate.ok) return json(res, 409, { ok: false, error: gate.error, reason: gate.reason, need: 'approve' });
       const out = mergeBranch(PATCH_REPO.root, branch, { message: b?.message });
       return json(res, out.ok ? 200 : 409, out);
     } catch (e) { return json(res, 500, { ok: false, error: String(e?.message || e).slice(0, 160) }); }

@@ -22,7 +22,9 @@ const PatchApi = {
   list: () => api<{ ok: boolean; error?: string; items: Patch[]; state?: Record<string, { state: string; files: number; ageDays: number | null; reasons: string[] }> }>('/api/autopatch/patches'),
   diff: (branch: string) => api<{ ok: boolean; diff?: string; error?: string; truncated?: boolean }>(
     `/api/autopatch/diff?branch=${encodeURIComponent(branch)}`),
-  merge: (branch: string) => api<{ ok: boolean; error?: string }>('/api/autopatch/merge', { method: 'POST', body: { branch } }),
+  // 2026-10-28：先领一次性凭据（绑 commit sha），再凭它合并——防"批准 A、合并 B"
+  approve: (branch: string) => api<{ ok: boolean; token?: string; sha?: string; error?: string }>('/api/autopatch/approve', { method: 'POST', body: { branch } }),
+  merge: (branch: string, token: string) => api<{ ok: boolean; error?: string; reason?: string }>('/api/autopatch/merge', { method: 'POST', body: { branch, token } }),
   discard: (branch: string) => api<{ ok: boolean; error?: string }>('/api/autopatch/discard', { method: 'POST', body: { branch } }),
 }
 
@@ -77,7 +79,11 @@ export default function AutoPatchCard() {
     if (!window.confirm('用上这个改动？\n确认后它就会生效。')) return
     setBusy(branch); setMsg('')
     try {
-      const r = await PatchApi.merge(branch)
+      // ① 先领凭据：它绑定了"你现在看到的这一份"（commit sha）
+      const ok = await PatchApi.approve(branch)
+      if (!ok.ok || !ok.token) { setMsg(ok.error || '拿不到审批凭据，请重试'); return }
+      // ② 凭据执行：如果这中间分支又被改过，sha 对不上会被拒
+      const r = await PatchApi.merge(branch, ok.token)
       setMsg(r.ok ? '✓ 已用上' : (r.error || '没成功'))
       await mutate()
     } catch (e: any) { setMsg(String(e?.message || e).slice(0, 120)) }

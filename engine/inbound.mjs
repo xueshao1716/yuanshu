@@ -48,7 +48,7 @@ export function matchWatches(text, watches = []) {
  * 收一条外部事件。
  * @param {{wsRoot:string, source:string, kind?:string, text:string, severity?:string, at?:number, meta?:object}} p
  */
-export function recvEvent({ wsRoot, source, kind = "info", text = "", severity = "normal", at = Date.now(), meta = {} } = {}) {
+export function recvEvent({ wsRoot, source, kind = "info", text = "", severity = "normal", at = null, receivedAt = Date.now(), meta = {} } = {}) {
   const src = String(source || "").trim().slice(0, 40);
   const body = String(text || "").trim().slice(0, 2000);
   if (!src) return { ok: false, error: "source 不能为空" };
@@ -57,10 +57,17 @@ export function recvEvent({ wsRoot, source, kind = "info", text = "", severity =
   const watches = (readProactive(wsRoot).watches || []);
   const matched = matchWatches(body, watches);
   const sev = SEVERITIES.includes(severity) ? severity : "normal";
-  const id = `in-${at.toString(36)}-${Math.random().toString(36).slice(2, 6)}`;
+  // 2026-10-28：at 现在可能是 null（双时态），id 用获知时间生成
+  const atMs = Number(at) || Number(receivedAt) || Date.now();
+  const recMs = Number(receivedAt) || Date.now();
+  const id = `in-${recMs.toString(36)}-${Math.random().toString(36).slice(2, 6)}`;
 
   const event = {
-    id, at, source: src, kind: String(kind || "info").slice(0, 24),
+    id,
+    // 2026-10-28：双时态——at 是"事情发生"，receivedAt 是"我们知道"。at 缺省时按 receivedAt 记。
+    at: atMs,
+    receivedAt: recMs,
+    source: src, kind: String(kind || "info").slice(0, 24),
     text: body, severity: sev, matched: matched.map((m) => m.title), meta: Object.keys(meta || {}).length ? meta : undefined,
   };
 
@@ -95,9 +102,14 @@ export function listEvents(wsRoot, { limit = 20, source = "" } = {}) {
 
 /** 环境事实一行：只在有新事件命中时提示。 */
 export function inboundLine(wsRoot, { windowMs = 2 * 3600 * 1000, now = Date.now() } = {}) {
-  const recent = (readEvents(wsRoot).items || []).filter((i) => now - (i.at || 0) <= windowMs);
+  const knownAt = (i) => Number(i.receivedAt) || Number(i.at) || 0;   // 兼容旧记录
+  const recent = (readEvents(wsRoot).items || []).filter((i) => now - knownAt(i) <= windowMs);
   const hit = recent.filter((i) => (i.matched || []).length || i.severity === "high");
   if (!hit.length) return "";
-  const head = hit.slice(0, 2).map((i) => `${i.source}：${String(i.text).slice(0, 24)}`).join("；");
+  const head = hit.slice(0, 2).map((i) => {
+    const lag = (Number(i.receivedAt) || 0) - (Number(i.at) || 0);
+    const lagTxt = lag > 5 * 60_000 ? `（延迟 ${Math.round(lag / 60000)} 分钟收到）` : "";
+    return `${i.source}：${String(i.text).slice(0, 24)}${lagTxt}`;
+  }).join("；");
   return `【外部事件】近 2 小时有 ${hit.length} 条跟你有关：${head}——在「接口台」里能看到。`;
 }
