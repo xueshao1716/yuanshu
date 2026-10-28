@@ -70,6 +70,7 @@ export default function Gateway() {
   const clm = useSWR('gateway-claim', () => api<{ ok: boolean; items: Claim[] }>('/api/claim'), { refreshInterval: 15000 })
   const fail = useSWR('gateway-fail', () => api<{ ok: boolean; items: Failure[] }>('/api/failure'), { refreshInterval: 30000 })
   const jobs = useSWR('gateway-jobs', () => api<{ running?: number; queued?: number; concurrency?: number; jobs?: Job[] }>('/api/jobs'), { refreshInterval: 5000 })
+  const fps = useSWR('gateway-fingerprints', () => api<{ models?: { provider: string; requested: string; served: string; changes?: number }[]; history?: { requested: string; from: string; to: string; at: number }[]; line?: string }>('/api/model/fingerprints'), { refreshInterval: 60000 })
   const evo = useSWR('gateway-evo', () => api<{ proposals: Evo[] }>('/api/evolution/proposals'), { refreshInterval: 30000 })
   const fb = useSWR('gateway-feedback', () => api<{ items: Feedback[] }>('/api/feedback'), { refreshInterval: 30000 })
   const ro = useSWR('guard-readonly', () => api<{ ok: boolean; on: boolean; source?: string }>('/api/guard/readonly'), { refreshInterval: 30000 })
@@ -103,6 +104,9 @@ export default function Gateway() {
     await api('/api/jobs/cancel', { method: 'POST', body: { id } }).catch(() => null)
     void jobs.mutate()
   }
+  const fpModels = fps.data?.models || []
+  const fpLine = String(fps.data?.line || "")
+  const fpChanged = (fps.data?.history || []).length > 0
   const evoList = evo.data?.proposals || []
   const evoAct = async (action: 'apply' | 'dismiss', id: string) => {
     await api(`/api/evolution/${action}`, { method: 'POST', body: { id } }).catch(() => null)
@@ -283,6 +287,13 @@ export default function Gateway() {
               ))}
             </ul>
           </details>
+        ) : null}
+        {fpModels.length ? (
+          <p className={"text-[11.5px] leading-relaxed " + (fpChanged ? "text-pi-text" : "text-pi-dim2")}>
+            {fpChanged ? "⚠ " : ""}模型快照：
+            {fpModels.slice(0, 2).map((m) => `${m.requested} → ${String(m.served).slice(0, 12)}`).join("；")}
+            {fpChanged ? "（近期变过：行为漂移先看这里）" : "（没变过）"}
+          </p>
         ) : null}
       </section>
       {/* 进化提案：她自己攒的改进建议 */}

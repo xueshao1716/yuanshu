@@ -150,6 +150,8 @@ import { decorateEngineStatus, pluginFromBody, isCorePlugin } from "./engine/eng
 import { initWorkspaceApi, WS_ROOT, findWorkspaceFiles, wsSafePath, saveArtifact, saveArtifactFromFile, handleWsTree, handleWsFile, handleWsRead, handleWsPreview, handleWsWrite, handleWsArtifacts, wsNextVersion, handleWsDeliver, handleWsPackage, handleWsDeliveries, handleWsRename, handleWsDelete, handleWsSearch, handleWsProjectCreate, handleWsConvert } from "./engine/workspace-api.mjs";
 import { initContextLoader, makeLoader, loadExperience, readRulesWithImports, loadContextRules, jitRulesForPath, loadProjectRules, loadSkillIndex, execActivateSkill, ACTIVATE_SKILL_TOOL, WORK_PROTOCOL, loadMemory, loadMemoryIndex, loadExperienceIndex, shouldInjectFullMemory, setLastUserQuery } from "./engine/context-loader.mjs";
 import { directMediaMode, seedMediaMode } from "./engine/media-mode.mjs";
+// 2026-10-28：模型指纹（服务端快照变化要能被归因）
+import { noteFingerprint, listFingerprints, fingerprintLine } from "./engine/model-fingerprint.mjs";
 import { initMediaApi, findMediaModel, detectMediaIntents, extractMediaPrompt, mediaAwarePrompt, mediaReadyNotice, explainMediaError, generateMediaAsync, generateTTS, generateImage, handleImage, handleImageWithSave, generateVideo, startVideoJob, checkVideoJob, handleMedia, assistantContentWithMedia } from "./engine/media-api.mjs";
 import { extractPlayableMedia } from "./engine/media-embed.mjs";
 import { formatSkillIndexPrompt, matchSkillsForTask } from "./engine/yuanshu-protocol.mjs";
@@ -750,7 +752,7 @@ initStatsApi({ getAgentDir, cwd: CONFIG.cwd, DefaultResourceLoader, openSession,
 try { await listSkills(); } catch (e) { console.log(`[skills] 预热失败（不影响启动）：${String(e?.message || e).slice(0, 120)}`); }
 initSessionDb({ agentDir: getAgentDir(), cwd: CONFIG.cwd, deleteSession }); // 会话数据库（编号/健康度/标签/空会话清扫）
 initRecallApi({ agentDir: getAgentDir(), chat: unifiedChat, getDefaultModel: () => defaultModel }); // 跨会话回忆（09-04，Hermes FTS5 思想）
-initModelClient({ readJsonFile, writeJsonFile, authPath: AUTH_PATH, modelsPath: MODELS_PATH, resolveAuth, getModelList: () => modelList, getDefaultModel: () => defaultModel, unifiedChat, detectMediaIntents, generateMediaAsync, extractMediaPrompt, readEntriesFromFile, createSseWriter }); // 直调模型客户端注入
+initModelClient({ readJsonFile, writeJsonFile, authPath: AUTH_PATH, modelsPath: MODELS_PATH, noteFingerprint: (fp) => { try { const r = noteFingerprint({ wsRoot: WS_ROOT, ...fp }); if (r.changed) console.log(`[模型指纹] ${fp.provider}/${fp.requested} 变化：${r.from} → ${r.to}`); } catch {} }, resolveAuth, getModelList: () => modelList, getDefaultModel: () => defaultModel, unifiedChat, detectMediaIntents, generateMediaAsync, extractMediaPrompt, readEntriesFromFile, createSseWriter }); // 直调模型客户端注入
 initSelfHeal({ directChat, runGit: (...args) => runGit(...args), cwd: CONFIG.cwd, getModelList: () => modelList, getDefaultModel: () => defaultModel, piPackage: CONFIG.piPackage, SessionManager, sessionsDir: SESSIONS_DIR }); // 自愈/更新/设计器注入（REPAIR_BACKUP_FILES 已随块迁入模块）
 initImproveApi({ root: CONFIG.cwd, statsProvider: null, healProvider: null }); // 自我改进提案（2026-08-21）
 initEvolutionApi({ root: CONFIG.cwd, prompts: path.join(getAgentDir(), "prompts"), skills: path.join(__dirname, "skills"), chat: unifiedChat, getDefaultModel: () => defaultModel }); // 进化引擎（09-03，Hermes GEPA 思想：反思式进化+人工审批红线）
@@ -3588,6 +3590,11 @@ const API_ROUTES = [
     }
   }],
   // 2026-10-28：一眼看出「我打开的是不是新版本」——前端 bundle 名 + 版本 + 构建时间
+  // 2026-10-28：模型指纹（服务端实际回的版本串 + 变化历史）
+  ["GET", "/api/model/fingerprints", (res) => {
+    try { return json(res, 200, { ok: true, ...listFingerprints(WS_ROOT, { limit: 50 }), line: fingerprintLine(WS_ROOT) }); }
+    catch (e) { return json(res, 500, { ok: false, error: String(e?.message || e).slice(0, 160) }); }
+  }],
   ["GET", "/api/build", (res) => {
     try {
       const ver = (() => { try { return JSON.parse(fs.readFileSync(path.join(__dirname, 'version.json'), 'utf8')).version || '' } catch { return '' } })();

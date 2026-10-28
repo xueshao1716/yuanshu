@@ -147,6 +147,14 @@ export async function readRunStream(res) {
  * 把「运行状态 + 统计」折算成一句人话。
  * 2026-10-27：原来只有 running:true，掉线时用户看到的是"已登录但没反应"。
  */
+/** 清洗入站文本：去零宽/控制字符，压空白。返回空串表示这条消息没有实际内容。 */
+export function cleanInboundText(text) {
+  return String(text || "")
+    .replace(/[\u200b-\u200f\u202a-\u202e\ufeff]/g, "")  // 零宽与方向控制符
+    .replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f]/g, "") // 控制字符（保留 \n\t\r）
+    .replace(/[ \t]+\n/g, "\n")
+    .trim();
+}
 export function healthOf({ running, login, stats, now = Date.now(), staleMs = 3 * 60_000 } = {}) {
   const st = stats || {};
   if (login?.state === "expired") return { state: "expired", text: "登录已过期，需要重新扫码" };
@@ -558,7 +566,13 @@ export function createWechatBridge({
               if (texts.length) m.text = [m.text, `[语音转写] ${texts.join("\n")}`].filter(Boolean).join("\n");
             }
           } catch {}
-          if (!m.text) continue;
+          // 2026-10-28：空白/零宽消息不进 agent（真机出现过「你发的是空的」）
+          m.text = cleanInboundText(m.text);
+          if (!m.text) {
+            stats.drops = (stats.drops || 0) + 1;
+            log("[微信] 收到一条空白消息，已跳过");
+            continue;
+          }
           stats.received++; stats.lastAt = now();
           remember(m.sender, m.contextToken);
           note("in", m.sender, m.text);

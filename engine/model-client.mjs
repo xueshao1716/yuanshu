@@ -13,12 +13,14 @@ import { clampOutputTokens, OUTPUT_TOKEN_HARD_CAP } from './output-budget.mjs';
 import { directChatStream } from './direct-chat-stream.mjs';
 import { partitionCompaction, validCompactionSummary } from './compaction-context.mjs';
 
+let _noteFingerprint = null; // 2026-10-28：记录服务端实际回的模型标识（指纹）
 let _readJsonFile = null, _writeJsonFile = null, _authPath = "", _modelsPath = "", _resolveAuth = null, _getModelList = () => [], _getDefaultModel = () => null,
     _unifiedChat = null, _detectMediaIntents = () => [], _generateMediaAsync = async () => null, _extractMediaPrompt = () => "", _readEntriesFromFile = () => [], _createSseWriter = null;
-export function initModelClient({ readJsonFile = null, writeJsonFile = null, authPath = "", modelsPath = "", resolveAuth = null, getModelList = null, getDefaultModel = null, unifiedChat = null, detectMediaIntents = null, generateMediaAsync = null, extractMediaPrompt = null, readEntriesFromFile = null, createSseWriter = null } = {}) {
+export function initModelClient({ readJsonFile = null, writeJsonFile = null, authPath = "", modelsPath = "", resolveAuth = null, getModelList = null, getDefaultModel = null, noteFingerprint = null, unifiedChat = null, detectMediaIntents = null, generateMediaAsync = null, extractMediaPrompt = null, readEntriesFromFile = null, createSseWriter = null } = {}) {
   _readJsonFile = readJsonFile; _writeJsonFile = writeJsonFile; _authPath = authPath; _modelsPath = modelsPath; _resolveAuth = resolveAuth;
   if (getModelList) _getModelList = getModelList; if (getDefaultModel) _getDefaultModel = getDefaultModel; if (unifiedChat) _unifiedChat = unifiedChat;
   if (detectMediaIntents) _detectMediaIntents = detectMediaIntents; if (generateMediaAsync) _generateMediaAsync = generateMediaAsync; if (extractMediaPrompt) _extractMediaPrompt = extractMediaPrompt;
+  if (noteFingerprint) _noteFingerprint = noteFingerprint;
   if (readEntriesFromFile) _readEntriesFromFile = readEntriesFromFile; if (createSseWriter) _createSseWriter = createSseWriter;
 }
 
@@ -147,6 +149,7 @@ export async function directChat(model, message, history = [], opts = {}) {
       text = raw.replace(/<think>[\s\S]*?<\/think>/g, "");
       if (!opts.allowPartial) text = text.trim();
     }
+    try { if (typeof _noteFingerprint === 'function') _noteFingerprint({ provider: model.provider, requested: model.id, served: data.system_fingerprint || data.model || '', model: data.model || '' }); } catch {}
     return { think, text: text || null, ...completion(data.choices?.[0]?.finish_reason, data.usage), usedModel: { provider: model.provider, id: data.model || model.id } };
   } catch (e) {
     if(opts.throwOnError && (opts.signal?.aborted || e?.code?.startsWith('MODEL_')))throw e;
