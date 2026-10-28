@@ -252,6 +252,8 @@ import { recvEvent, listEvents, inboundLine } from "./engine/inbound.mjs";
 import { runDuePromises, duePromises, reapPromises } from "./engine/promise-runner.mjs";
 // 2026-10-28：高危动作走一次性凭据（设计借鉴 Inalpha 的 order approval）
 import { issueToken, consumeToken, listTokens } from "./engine/approval-token.mjs";
+// 2026-10-28：只读模式（面板开关）
+import { readOnlyOn as readOnlyState, setReadOnly } from "./engine/tools/readonly-mode.mjs";
 
 // 2026-10-27：认领板（谁在做什么；抄 Agensh 的第一块砖）
 import { claimTask, releaseClaim, renewClaim, listClaims, reapExpired } from "./engine/claim-board.mjs";
@@ -3576,6 +3578,21 @@ const API_ROUTES = [
       const { transcribe } = await import('./engine/wechat-stt.mjs');
       const out = await transcribe({ file, wsRoot: WS_ROOT, model: b?.model || undefined });
       return json(res, out.ok ? 200 : 500, out);
+    } catch (e) { return json(res, 500, { ok: false, error: String(e?.message || e).slice(0, 160) }); }
+  }],
+  // 2026-10-28：只读模式开关（普通人不用改 json）
+  ["GET", "/api/guard/readonly", (res) => {
+    try {
+      const m = readOnlyState(WS_ROOT);
+      return json(res, 200, { ok: true, ...m });
+    } catch (e) { return json(res, 500, { ok: false, error: String(e?.message || e).slice(0, 160) }); }
+  }],
+  ["POST", "/api/guard/readonly", async (res, req) => {
+    try {
+      const b = await readBody(req, 2e3);
+      const on = b?.on === true;
+      const out = setReadOnly(WS_ROOT, on);
+      return json(res, 200, { ok: true, on: out.on, note: on ? '已开启：她只能看，不能改/删/写' : '已关闭：恢复可写' });
     } catch (e) { return json(res, 500, { ok: false, error: String(e?.message || e).slice(0, 160) }); }
   }],
   ["GET", "/api/wechat/status", (res) => {

@@ -49,6 +49,7 @@ export default function Gateway() {
   const pro = useSWR('gateway-pro', () => api<{ ok: boolean; watches: Watch[]; loops: Loop[] }>('/api/proactive'), { refreshInterval: 30000 })
   const clm = useSWR('gateway-claim', () => api<{ ok: boolean; items: Claim[] }>('/api/claim'), { refreshInterval: 15000 })
   const fail = useSWR('gateway-fail', () => api<{ ok: boolean; items: Failure[] }>('/api/failure'), { refreshInterval: 30000 })
+  const ro = useSWR('guard-readonly', () => api<{ ok: boolean; on: boolean; source?: string }>('/api/guard/readonly'), { refreshInterval: 30000 })
   const mbox = useSWR('gateway-msg', () => api<{ ok: boolean; inbox: Msg[]; recent: Msg[] }>('/api/agent/msg?for=小语&unread=0&limit=12'), { refreshInterval: 15000 })
 
   const [text, setText] = useState('')
@@ -60,7 +61,9 @@ export default function Gateway() {
   const [msgText, setMsgText] = useState('')
   const [msgTo, setMsgTo] = useState('')
   const [msgHint, setMsgHint] = useState('')
+  const [roHint, setRoHint] = useState('')
 
+  const readonlyOn = ro.data?.on === true
   const events = inb.data?.items || []
   const deliveries = out.data?.items || []
   const claims = clm.data?.items || []
@@ -69,6 +72,16 @@ export default function Gateway() {
   const watches = (pro.data?.watches || []).filter((w) => w.status === 'watching')
   const loops = (pro.data?.loops || []).filter((l) => l.status !== 'done')
   const failedDeliveries = deliveries.filter((d) => !d.ok).length
+
+  const toggleReadOnly = async () => {
+    const next = !(ro.data?.on === true)
+    try {
+      const r = await api<{ ok: boolean; on?: boolean; note?: string; error?: string }>('/api/guard/readonly', { method: 'POST', body: { on: next } })
+      if (!r.ok) { setRoHint(r.error || '切换失败'); return }
+      setRoHint(r.note || '已切换')
+      void ro.mutate()
+    } catch (e: any) { setRoHint(String(e?.message || e).slice(0, 120)) }
+  }
 
   const post = async () => {
     const t = text.trim()
@@ -134,6 +147,37 @@ export default function Gateway() {
         <span style={chip}><strong>{watches.length}</strong> 件在盯</span>
         <span style={chip}><strong>{failures.length}</strong> 条弯路</span>
       </div>
+
+      {/* 只读模式：最常用的一个开关，放第一屏 */}
+      <section className="panel">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <div className="flex items-center gap-2">
+              <h2 className="text-[15px] font-semibold text-pi-text">只读模式</h2>
+              <span
+                style={{
+                  fontSize: 11.5, padding: '2px 8px', borderRadius: 999,
+                  border: '1px solid var(--pi-border-soft, #bfc4cb)',
+                  background: readonlyOn ? 'var(--pi-warn-soft, rgba(217,119,6,0.12))' : 'var(--pi-bg3, #eef0f3)',
+                  color: readonlyOn ? 'var(--pi-warn, #d97706)' : 'var(--pi-dim2)',
+                  fontWeight: readonlyOn ? 600 : 400,
+                }}
+              >
+                {readonlyOn ? '已开启 · 只能看' : '已关闭 · 可以改'}
+              </span>
+            </div>
+            <p className="mt-1 text-[12px] leading-relaxed text-pi-dim2">
+              {readonlyOn
+                ? '她现在只能读文件、跑只读命令。改文件、删东西、装包都会被拦下。'
+                : '她可以改文件、跑命令。担心她乱动的时候就打开这个开关。'}
+            </p>
+          </div>
+          <button type="button" style={pill(readonlyOn)} onClick={toggleReadOnly}>
+            {readonlyOn ? '恢复可写' : '开启只读'}
+          </button>
+        </div>
+        {roHint ? <p className="mt-2 text-xs text-pi-dim2">{roHint}</p> : null}
+      </section>
 
       <section className="panel space-y-3">
         <div className="flex flex-wrap items-baseline justify-between gap-2">
