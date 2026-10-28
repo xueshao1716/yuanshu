@@ -18,6 +18,9 @@ type Loop = { key: string; title: string; status: string; attempts: number }
 type Claim = { id: string; task: string; agent: string; scope: string[]; state: string; createdAt: number; expiresAt: number }
 type Msg = { id: string; at: number; from: string; to: string; kind: string; text: string }
 type Failure = { id: string; at: number; agent: string; area: string; attempt: string; why: string; source: string; files: string[] }
+type Job = { id: string; kind: string; title: string; status: string; startedAt?: number; finishedAt?: number; error?: string }
+type Feedback = { id: string; at: number; type: string; title: string; detail: string; status: string; contact?: string }
+type Evo = { id: string; kind?: string; analysis?: string; traces?: number; target?: { type?: string; name?: string }; createdAt?: number }
 
 const time = (ms: number) => (ms ? new Date(ms).toLocaleString('zh-CN', { hour12: false, month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' }) : '—')
 
@@ -49,6 +52,9 @@ export default function Gateway() {
   const pro = useSWR('gateway-pro', () => api<{ ok: boolean; watches: Watch[]; loops: Loop[] }>('/api/proactive'), { refreshInterval: 30000 })
   const clm = useSWR('gateway-claim', () => api<{ ok: boolean; items: Claim[] }>('/api/claim'), { refreshInterval: 15000 })
   const fail = useSWR('gateway-fail', () => api<{ ok: boolean; items: Failure[] }>('/api/failure'), { refreshInterval: 30000 })
+  const jobs = useSWR('gateway-jobs', () => api<{ running?: number; queued?: number; jobs?: Job[] }>('/api/jobs'), { refreshInterval: 5000 })
+  const evo = useSWR('gateway-evo', () => api<{ proposals: Evo[] }>('/api/evolution/proposals'), { refreshInterval: 30000 })
+  const fb = useSWR('gateway-feedback', () => api<{ items: Feedback[] }>('/api/feedback'), { refreshInterval: 30000 })
   const ro = useSWR('guard-readonly', () => api<{ ok: boolean; on: boolean; source?: string }>('/api/guard/readonly'), { refreshInterval: 30000 })
   const mbox = useSWR('gateway-msg', () => api<{ ok: boolean; inbox: Msg[]; recent: Msg[] }>('/api/agent/msg?for=小语&unread=0&limit=12'), { refreshInterval: 15000 })
 
@@ -64,6 +70,24 @@ export default function Gateway() {
   const [roHint, setRoHint] = useState('')
 
   const readonlyOn = ro.data?.on === true
+  const jobList = (jobs.data?.jobs || [])
+  const runningJobs = jobList.filter((j) => j.status === "running" || j.status === "queued")
+  const recentJobs = jobList.filter((j) => j.status !== "running" && j.status !== "queued").slice(0, 3)
+  const feedback = fb.data?.items || []
+  const openFeedback = feedback.filter((f) => f.status === "open")
+  const cancelJob = async (id: string) => {
+    await api('/api/jobs/cancel', { method: 'POST', body: { id } }).catch(() => null)
+    void jobs.mutate()
+  }
+  const evoList = evo.data?.proposals || []
+  const evoAct = async (action: 'apply' | 'dismiss', id: string) => {
+    await api(`/api/evolution/${action}`, { method: 'POST', body: { id } }).catch(() => null)
+    void evo.mutate()
+  }
+  const markFeedback = async (id: string, status: 'done' | 'wontfix') => {
+    await api(`/api/feedback/${encodeURIComponent(id)}`, { method: 'PATCH', body: { status } }).catch(() => null)
+    void fb.mutate()
+  }
   const events = inb.data?.items || []
   const deliveries = out.data?.items || []
   const claims = clm.data?.items || []
@@ -190,6 +214,80 @@ export default function Gateway() {
         </details>
       </section>
 
+      {/* 后台任务（像 DSH 顶上那几个） */}
+      <section className="panel space-y-3">
+        <div className="flex flex-wrap items-baseline justify-between gap-2">
+          <h2 className="text-[15px] font-semibold text-pi-text">后台任务</h2>
+          <span className="text-xs text-pi-dim2">
+            {runningJobs.length ? `正在跑 ${runningJobs.length} 个` : '现在没有任务在跑'}
+            {jobs.data?.queued ? ` · 排队 ${jobs.data.queued}` : ""}
+          </span>
+        </div>
+        {runningJobs.length || recentJobs.length ? (
+          <ul className="space-y-2">
+            {[...runningJobs, ...recentJobs].map((j) => (
+              <li key={j.id} className="text-[12.5px] leading-relaxed">
+                <span className={j.status === "failed" ? "text-pi-danger" : "text-pi-dim2"}>
+                  {j.status === "running" ? "跑着" : j.status === "queued" ? "排队" : j.status === "failed" ? "失败" : "完成"}
+                  {j.kind ? ` · ${j.kind}` : ""}
+                  {j.startedAt ? ` · ${time(j.startedAt)}` : ""}
+                </span>
+                <div className="text-pi-text">{j.title || "(无标题)"}</div>
+                {j.error ? <div className="text-pi-danger">{String(j.error).slice(0, 120)}</div> : null}
+                {(j.status === "running" || j.status === "queued") ? (
+                  <button type="button" style={{ ...pill(), minHeight: 24, fontSize: 11 }} onClick={() => void cancelJob(j.id)}>取消</button>
+                ) : null}
+              </li>
+            ))}
+          </ul>
+        ) : <p className="text-xs text-pi-dim2">后台没有任务。长活（渲染/调研/爬取）会自动登记在这里。</p>}
+      </section>
+
+      {/* 进化提案：她自己攒的改进建议 */}
+      <section className="panel space-y-3">
+        <div className="flex flex-wrap items-baseline justify-between gap-2">
+          <h2 className="text-[15px] font-semibold text-pi-text">进化提案 <span className="font-normal text-pi-dim2">（她自己攒的改进）</span></h2>
+          <span className="text-xs text-pi-dim2">{evoList.length} 条待决定</span>
+        </div>
+        {evoList.length ? (
+          <ul className="space-y-2">
+            {evoList.slice(0, 6).map((e) => (
+              <li key={e.id} className="text-[12.5px] leading-relaxed">
+                <span className="text-pi-dim2">
+                  {e.target?.type || "进化"} · {e.target?.name || ""}{typeof e.traces === "number" ? ` · 依据 ${e.traces} 条轨迹` : ""}
+                </span>
+                <div className="text-pi-text">{String(e.analysis || "").slice(0, 160)}</div>
+                <div className="flex gap-2 mt-1.5">
+                  <button type="button" style={{ ...pill(true), minHeight: 24, fontSize: 11 }} onClick={() => void evoAct("apply", e.id)}>用上</button>
+                  <button type="button" style={{ ...pill(), minHeight: 24, fontSize: 11 }} onClick={() => void evoAct("dismiss", e.id)}>忽略</button>
+                </div>
+              </li>
+            ))}
+          </ul>
+        ) : <p className="text-xs text-pi-dim2">还没有提案。她攒够同类失败后会自己提。</p>}
+      </section>
+      {/* 收件箱：反馈与建议 */}
+      <section className="panel space-y-3">
+        <div className="flex flex-wrap items-baseline justify-between gap-2">
+          <h2 className="text-[15px] font-semibold text-pi-text">收件箱 <span className="font-normal text-pi-dim2">（反馈与建议）</span></h2>
+          <span className="text-xs text-pi-dim2">待处理 {openFeedback.length} · 全部 {feedback.length}</span>
+        </div>
+        {openFeedback.length ? (
+          <ul className="space-y-2">
+            {openFeedback.slice(0, 8).map((f) => (
+              <li key={f.id} className="text-[12.5px] leading-relaxed">
+                <span className="text-pi-dim2">{time(f.at)} · {f.type === "bug" ? "问题" : "建议"}</span>
+                <div className="text-pi-text">{f.title}</div>
+                {f.detail ? <div className="text-pi-dim2">{String(f.detail).slice(0, 120)}</div> : null}
+                <div className="flex gap-2 mt-1.5">
+                  <button type="button" style={{ ...pill(), minHeight: 24, fontSize: 11 }} onClick={() => void markFeedback(f.id, "done")}>已处理</button>
+                  <button type="button" style={{ ...pill(), minHeight: 24, fontSize: 11 }} onClick={() => void markFeedback(f.id, "wontfix")}>不修</button>
+                </div>
+              </li>
+            ))}
+          </ul>
+        ) : <p className="text-xs text-pi-dim2">{feedback.length ? "待处理的都清了。" : "还没有反馈进来。"}</p>}
+      </section>
       <section className="panel space-y-3">
         <div className="flex flex-wrap items-baseline justify-between gap-2">
           <h2 className="text-[15px] font-semibold text-pi-text">外面进来的事</h2>
