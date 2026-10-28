@@ -46,6 +46,15 @@ const chip: React.CSSProperties = {
   border: '1px solid var(--pi-border-soft, #bfc4cb)', background: 'var(--pi-panel, #fff)', fontSize: 12.5,
 }
 
+/** 收件箱归类：真实反馈 / 系统告警 / 自动上捞。 */
+function feedbackGroup(f: { title?: string; type?: string }): 'human' | 'alert' | 'harvest' {
+  const t = String(f?.title || "");
+  if (/自动上报|自动上捞/.test(t)) return "harvest";   // 真实前缀是「[自动上报]」；两种写法都认
+  if (/watchdog|crash|restart|重启|崩溃|内存|磁盘|泄漏|leak|OOM|error rate|失败率/i.test(t)) return "alert";
+  return "human";
+}
+
+const GROUP_LABEL: Record<string, string> = { human: '人工反馈', alert: '系统告警', harvest: '自动上报' };
 export default function Gateway() {
   const inb = useSWR('gateway-in', () => api<{ ok: boolean; items: InEvent[] }>('/api/inbound/events?limit=20'), { refreshInterval: 15000 })
   const out = useSWR('gateway-out', () => api<{ ok: boolean; items: Delivery[] }>('/api/outbound/deliveries?limit=20'), { refreshInterval: 15000 })
@@ -68,6 +77,8 @@ export default function Gateway() {
   const [msgTo, setMsgTo] = useState('')
   const [msgHint, setMsgHint] = useState('')
   const [roHint, setRoHint] = useState('')
+  // 收件箱分组：默认只展开人工反馈（自动上捞会把真东西淹了）
+  const [expandedGroups, setExpandedGroups] = useState<Record<string, boolean>>({ human: true })
 
   const readonlyOn = ro.data?.on === true
   const jobList = (jobs.data?.jobs || [])
@@ -75,6 +86,11 @@ export default function Gateway() {
   const recentJobs = jobList.filter((j) => j.status !== "running" && j.status !== "queued").slice(0, 3)
   const feedback = fb.data?.items || []
   const openFeedback = feedback.filter((f) => f.status === "open")
+  const groupedFeedback = (() => {
+    const g: Record<string, Feedback[]> = { human: [], alert: [], harvest: [] }
+    for (const f of openFeedback) g[feedbackGroup(f)].push(f)
+    return g
+  })()
   const cancelJob = async (id: string) => {
     await api('/api/jobs/cancel', { method: 'POST', body: { id } }).catch(() => null)
     void jobs.mutate()
@@ -273,19 +289,45 @@ export default function Gateway() {
           <span className="text-xs text-pi-dim2">待处理 {openFeedback.length} · 全部 {feedback.length}</span>
         </div>
         {openFeedback.length ? (
-          <ul className="space-y-2">
-            {openFeedback.slice(0, 8).map((f) => (
-              <li key={f.id} className="text-[12.5px] leading-relaxed">
-                <span className="text-pi-dim2">{time(f.at)} · {f.type === "bug" ? "问题" : "建议"}</span>
-                <div className="text-pi-text">{f.title}</div>
-                {f.detail ? <div className="text-pi-dim2">{String(f.detail).slice(0, 120)}</div> : null}
-                <div className="flex gap-2 mt-1.5">
-                  <button type="button" style={{ ...pill(), minHeight: 24, fontSize: 11 }} onClick={() => void markFeedback(f.id, "done")}>已处理</button>
-                  <button type="button" style={{ ...pill(), minHeight: 24, fontSize: 11 }} onClick={() => void markFeedback(f.id, "wontfix")}>不修</button>
+          <div className="space-y-3">
+            {groupedFeedback.human.length === 0 ? (
+              <p className="text-[12px] text-pi-dim2">人工反馈：没有待处理的（下面都是系统自己上报的）。</p>
+            ) : null}
+            {(["human", "alert", "harvest"] as const).map((g) => {
+              const rows = groupedFeedback[g]
+              if (!rows.length) return null
+              const open = !!expandedGroups[g]
+              return (
+                <div key={g}>
+                  <button
+                    type="button"
+                    className="flex w-full items-center justify-between rounded-lg px-1 py-1 text-left"
+                    onClick={() => setExpandedGroups((prev) => ({ ...prev, [g]: !prev[g] }))}
+                  >
+                    <span className="text-[12.5px] font-medium text-pi-text">
+                      {GROUP_LABEL[g]} <span className="font-normal text-pi-dim2">{rows.length}</span>
+                    </span>
+                    <span className="text-xs text-pi-dim2">{open ? "收起" : "展开"}</span>
+                  </button>
+                  {open ? (
+                    <ul className="mt-1 space-y-2">
+                      {rows.slice(0, 8).map((f) => (
+                        <li key={f.id} className="text-[12.5px] leading-relaxed">
+                          <span className="text-pi-dim2">{time(f.at)} · {f.type === "bug" ? "问题" : "建议"}</span>
+                          <div className="text-pi-text">{f.title}</div>
+                          {f.detail ? <div className="text-pi-dim2">{String(f.detail).slice(0, 120)}</div> : null}
+                          <div className="flex gap-2 mt-1.5">
+                            <button type="button" style={{ ...pill(), minHeight: 24, fontSize: 11 }} onClick={() => void markFeedback(f.id, "done")}>已处理</button>
+                            <button type="button" style={{ ...pill(), minHeight: 24, fontSize: 11 }} onClick={() => void markFeedback(f.id, "wontfix")}>不修</button>
+                          </div>
+                        </li>
+                      ))}
+                    </ul>
+                  ) : null}
                 </div>
-              </li>
-            ))}
-          </ul>
+              )
+            })}
+          </div>
         ) : <p className="text-xs text-pi-dim2">{feedback.length ? "待处理的都清了。" : "还没有反馈进来。"}</p>}
       </section>
       <section className="panel space-y-3">
