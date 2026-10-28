@@ -15,7 +15,7 @@ import { readProposals, writeProposals, markProposal } from "./capability-propos
 // 2026-10-27：补丁按文件认领，避免两个 agent 改同一份文件
 import { claimTask, releaseClaim } from "./claim-board.mjs";
 // 2026-10-27：失败也要共享，别让后来的人重复踩
-import { recordPatchFailure, isImpossible, evaluateImpossible } from "./failure-ledger.mjs";
+import { recordPatchFailure, isImpossible, evaluateImpossible, recallFailures } from "./failure-ledger.mjs";
 import { gitBin } from "./repo-root.mjs";
 
 export const MAX_ATTEMPTS = 3;
@@ -103,6 +103,15 @@ export async function runProposal({ wsRoot, repoRoot, proposal, generate, dryRun
     markProposal(wsRoot, proposal.id, { state: "accepted", note: "计划未细化（缺失败样本或调用点），先跑 /api/capability/refine 再自动补丁", attempts: (Number(proposal.attempts) || 0), lastAttemptAt: t0 });
     return { ok: false, stage: "needs_refinement", error: "计划不完整：缺失败样本或调用点" };
   }
+  // 2026-10-28：把同类失败喂给生成器——不知道历史就会写出反方向补丁（真实案例：给 .cmd 加 BOM）
+  try {
+    const hist = recallFailures({ wsRoot, text: `${plan.title || ""} ${plan.symptom || ""}`, files: plan.files || [], limit: 5 });
+    if (hist.length) {
+      plan.knownFailures = hist.map((h) => ({ attempt: h.entry.attempt, why: h.entry.why }));
+      log(`[autopatch] 已附 ${hist.length} 条历史失败给生成器（避免重复走错路）`);
+    }
+  } catch {}
+
   log(`生成补丁：${proposal.title}`);
   const patch = await generate(plan, { repoRoot });
   const checked = validatePatch(repoRoot, plan, patch);

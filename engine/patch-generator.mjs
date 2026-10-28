@@ -109,6 +109,8 @@ function renderContext(ctx) {
 
 /** 提示词：只让它产出 JSON，不给自由发挥空间。 */
 export function buildPrompt(plan = {}, ctx = []) {
+  // 2026-10-28：把同类失败记录塞进提示词——不知道历史就会写出反方向补丁
+  const fails = Array.isArray(plan.knownFailures) ? plan.knownFailures.slice(0, 5) : [];
   return [
     "你在为一个自动化补丁管道写代码。严格按下面的计划改，只改计划里列出的文件。",
     "",
@@ -119,6 +121,9 @@ export function buildPrompt(plan = {}, ctx = []) {
       : "",
     `允许改动的文件：${(plan.files || []).join(", ")}`,
     `验收标准：${plan.accept || ""}`,
+    fails.length
+      ? `\n这类问题以前试过、并且失败的方案（**不要重复**；它们已经被证伪）：\n${fails.map((f) => `- 试过：${f.attempt}\n  为什么不行：${f.why}`).join("\n")}`
+      : "",
     "",
     "要求：",
     "1. 只输出一个 JSON 对象，不要任何解释文字、不要 Markdown 代码围栏。",
