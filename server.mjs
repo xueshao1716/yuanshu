@@ -661,7 +661,22 @@ const trackedMedia = (intent, prompt, observations) => {
       return r;
     })
     .catch((e) => { t.fail(e); throw e });
-};// 2026-10-24：每轮耗时拆解（request / context / firstDelta / tool / end）
+};
+// 2026-10-28：脱链任务的「后台任务」登记（只在本次服务生命期内可见）
+const detachedJobs = new Map();
+
+// 2026-10-28：脱链任务靠 status 才收尾会留假 running——每 20 秒自己对一次账。
+const reapDetachedJobs = () => {
+  for (const [id, t] of detachedJobs) {
+    try {
+      const r = detachedRun.readDetached({ wsRoot: WS_ROOT, id });
+      if (r?.done === true) { t.done(`退出码 ${r.exitCode}`); detachedJobs.delete(id) }
+      else if (r?.alive === false) { t.fail("进程已不在（可能被杀）"); detachedJobs.delete(id) }
+    } catch { detachedJobs.delete(id) }
+  }
+};
+const detachedReaper = setInterval(reapDetachedJobs, 20000);
+if (typeof detachedReaper.unref === "function") detachedReaper.unref();// 2026-10-24：每轮耗时拆解（request / context / firstDelta / tool / end）
 const turnProfiler = createTurnProfiler({ wsRoot: WS_ROOT, log: (m) => console.log(m) });
 // 2026-10-24：当前轮的 profile 与响应，供 unified-chat 上报 usage 时使用
 let currentTurnProfile = null;
@@ -1275,6 +1290,11 @@ const executeUnifiedTool = createUnifiedToolExecutorGuarded({
             label: args?.label || "job",
           });
           if (!out.ok) return { text: `启动失败：${out.error}`, isError: true };
+          // 登记到后台任务，方便面板上看得见
+          try {
+            const t = jobPool.track({ kind: "detached", title: `脱链：${String(args?.label || "job").slice(0, 40)}` });
+            detachedJobs.set(String(out.id), t);
+          } catch {}
           return {
             text: [
               `已脱链启动：id=${out.id}${out.pid ? ` pid=${out.pid}` : ""}`,
@@ -1288,6 +1308,12 @@ const executeUnifiedTool = createUnifiedToolExecutorGuarded({
           const r = detachedRun.readDetached({ wsRoot: WS_ROOT, id: args?.id });
           if (!r.ok) return { text: r.error || "查不到", isError: true };
           const state = r.done ? `已结束（退出码 ${r.exitCode}）` : r.alive ? "还在跑" : "进程已不在、但没写完成标记（可能被杀）";
+          // 2026-10-28：顺手把后台任务那条收尾，别一直挂着 running
+          try {
+            const t = detachedJobs.get(String(args?.id));
+            if (t && r.done) { r.exitCode === 0 ? t.done(`退出码 0`) : t.fail(`退出码 ${r.exitCode}`); detachedJobs.delete(String(args?.id)); }
+            else if (t && !r.alive) { t.fail("进程已不在（可能被杀）"); detachedJobs.delete(String(args?.id)); }
+          } catch {}
           return {
             text: [
               `作业 ${r.id}（${r.label}）：${state}，已过 ${Math.round(r.elapsedMs / 1000)}s`,
