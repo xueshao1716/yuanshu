@@ -65,25 +65,43 @@ function RefineView() {
         <span className="text-[12px] text-pi-dim">旧版提案记录 · 新资料统一进入上方知识队列</span>
       </div>
       {msg && <div role="alert" className="text-[12px] text-pi-text px-1">{msg}</div>}
-      {[['待审提案', pending] as const, ['已采纳', applied] as const, ['已拒绝', rejected] as const].map(([label, arr]) => arr.length > 0 && (
-        <div key={label}>
-          <h3 className="text-[13px] font-semibold text-pi-text mb-2">{label}（{arr.length}）</h3>
-          <div className="space-y-2">
-            {arr.map((p: any, i: number) => (
-              <div key={p.id || i} className="panel !p-3">
-                <div className="text-[13px] text-pi-text font-medium">{p.title || p.name || p.id}</div>
-                {p.rationale && <div className="text-[12px] text-pi-dim2 mt-1 line-clamp-3">{p.rationale}</div>}
-                {(p as any).status && <div className="text-[11px] text-pi-dim2 mt-1">状态：{(p as any).status}</div>}
-                {label === '待审提案' && p.id && (
-                  <div className="flex gap-2 mt-2">
-                    <button className="btn-primary text-[13px] px-3 py-1 disabled:opacity-60" disabled={busy === p.id} onClick={() => act('approve', p.id)}>{busy === p.id ? '处理中…' : '采纳执行'}</button>
-                    <button className="btn-tool text-[13px]" disabled={!!busy} onClick={() => act('reject', p.id)}>拒绝</button>
-                  </div>
-                )}
-              </div>
-            ))}
+      {/* 2026-10-28：待审的摊开；处理完的（已采纳/已拒绝）默认折叠 */}
+      {([['待审提案', pending, false], ['已采纳', applied, true], ['已拒绝', rejected, true]] as const).map(([label, arr, collapsed]) => arr.length > 0 && (
+        collapsed ? (
+          <details key={label} className="panel !p-3">
+            <summary className="cursor-pointer text-[13px] font-semibold text-pi-text">
+              {label}（{arr.length}）<span className="ml-2 text-[11px] font-normal text-pi-dim2">已处理，点开查看</span>
+            </summary>
+            <div className="space-y-2 mt-2">
+              {arr.map((p: any, i: number) => (
+                <div key={p.id || i} className="panel !p-3">
+                  <div className="text-[13px] text-pi-text font-medium">{p.title || p.name || p.id}</div>
+                  {p.rationale && <div className="text-[12px] text-pi-dim2 mt-1 line-clamp-3">{p.rationale}</div>}
+                  {(p as any).status && <div className="text-[11px] text-pi-dim2 mt-1">状态：{(p as any).status}</div>}
+                </div>
+              ))}
+            </div>
+          </details>
+        ) : (
+          <div key={label}>
+            <h3 className="text-[13px] font-semibold text-pi-text mb-2">{label}（{arr.length}）</h3>
+            <div className="space-y-2">
+              {arr.map((p: any, i: number) => (
+                <div key={p.id || i} className="panel !p-3">
+                  <div className="text-[13px] text-pi-text font-medium">{p.title || p.name || p.id}</div>
+                  {p.rationale && <div className="text-[12px] text-pi-dim2 mt-1 line-clamp-3">{p.rationale}</div>}
+                  {(p as any).status && <div className="text-[11px] text-pi-dim2 mt-1">状态：{(p as any).status}</div>}
+                  {p.id && (
+                    <div className="flex gap-2 mt-2">
+                      <button className="btn-primary text-[13px] px-3 py-1 disabled:opacity-60" disabled={busy === p.id} onClick={() => act('approve', p.id)}>采纳</button>
+                      <button className="btn-tool text-[13px]" disabled={!!busy} onClick={() => act('reject', p.id)}>拒绝</button>
+                    </div>
+                  )}
+                </div>
+              ))}
+            </div>
           </div>
-        </div>
+        )
       ))}
       {!pending.length && !applied.length && !rejected.length && (
         <EmptyState icon={FlaskConical} title="暂无旧版提案" hint="新的资料采集、证据核对与入库进度统一在上方知识队列查看" />

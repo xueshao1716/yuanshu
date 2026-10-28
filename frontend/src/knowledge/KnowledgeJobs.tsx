@@ -7,6 +7,10 @@ import KnowledgeReview from './KnowledgeReview'
 import KnowledgeMethod from './KnowledgeMethod'
 
 const labels: Record<string, string> = { queued: '排队中', collecting: '采集来源', extracting: '提炼中', validating: '核对证据', ready: '等待写入', blocked: '等待条件', review_required: '待核查', retry_wait: '等待重试', committed: '已入库', cancelled: '已取消', skipped: '无可用资料', failed: '失败', paused: '已暂停', resolved: '已由补证解决' }
+// 2026-10-28：用户说「处理完的是不是可以折叠下了，全看的那个」——926 条已入库一次铺满屏。
+// 这些状态算"处理完"，默认折叠；失败/待核查/等待重试仍要摊开。
+const FINISHED_STATES = new Set(['committed', 'cancelled', 'skipped', 'resolved'])
+const isFinished = (job: { state?: string; displayState?: string }) => FINISHED_STATES.has(String(job.displayState || job.state || ''))
 const date = (n?: number) => n ? new Date(n).toLocaleString('zh-CN', { hour12: false }) : '暂无'
 const knowledgeSelection = () => { const value=new URLSearchParams(location.hash.split('?')[1]||'').get('knowledge'); return value&&/^[a-f0-9]{64}$/.test(value)?value:null }
 export default function KnowledgeJobs({ refreshed, policyRevision }: { refreshed: () => Promise<unknown>; policyRevision?: number }) {
@@ -35,13 +39,26 @@ export default function KnowledgeJobs({ refreshed, policyRevision }: { refreshed
     {(error || list.error || detail.error) && <p role="alert">{error || knowledgeError(list.error || detail.error)}</p>}
     {list.isLoading && <p role="status">正在读取队列…</p>}
     {list.data?.total === 0 && <p className="text-pi-dim leading-6">暂无知识任务。完成一项工作，或补充一份获准的资料后，后台会在空闲时处理。</p>}
-    <ul className="divide-y divide-pi-border-soft">{list.data?.items.map(job => <li key={job.id} className="py-2">
-      <button className="w-full min-h-11 text-left flex flex-wrap items-center justify-between gap-2" aria-expanded={selected === job.id} onClick={() => setSelected(selected === job.id ? null : job.id)}>
-        <span className="min-w-0 flex-1 [overflow-wrap:anywhere]">{job.title}</span><span className="text-pi-dim shrink-0">{labels[job.displayState || job.state] || job.state}</span>
-      </button>
-      {job.reason && <p className="text-pi-dim text-[12px] leading-5">{job.resolution ? '原记录：' : ''}{knowledgeReason(job.reason)}</p>}
-      {job.state === 'retry_wait' && <p className="text-pi-dim text-[12px]">下次尝试：{date(job.nextAttemptAt)}</p>}
-    </li>)}</ul>
+    {(() => {
+      const items = list.data?.items || []
+      const active = items.filter((j) => !isFinished(j))
+      const finished = items.filter((j) => isFinished(j))
+      const row = (job: any) => <li key={job.id} className="py-2">
+        <button className="w-full min-h-11 text-left flex flex-wrap items-center justify-between gap-2" aria-expanded={selected === job.id} onClick={() => setSelected(selected === job.id ? null : job.id)}>
+          <span className="min-w-0 flex-1 [overflow-wrap:anywhere]">{job.title}</span><span className="text-pi-dim shrink-0">{labels[job.displayState || job.state] || job.state}</span>
+        </button>
+        {job.reason && <p className="text-pi-dim text-[12px] leading-5">{job.resolution ? '原记录：' : ''}{knowledgeReason(job.reason)}</p>}
+        {job.state === 'retry_wait' && <p className="text-pi-dim text-[12px]">下次尝试：{date(job.nextAttemptAt)}</p>}
+      </li>
+      return <>
+        {active.length > 0 && <ul className="divide-y divide-pi-border-soft">{active.map(row)}</ul>}
+        {active.length === 0 && finished.length > 0 && <p className="text-pi-dim text-[12px]">当前没有需要你处理的知识任务。</p>}
+        {finished.length > 0 && <details className="border-t border-pi-border-soft pt-2">
+          <summary className="cursor-pointer text-[13px] text-pi-text">处理完的 {finished.length} 条<span className="ml-2 text-[11px] text-pi-dim">（已入库/已取消/无可用资料/已补证 · 点开回顾）</span></summary>
+          <ul className="divide-y divide-pi-border-soft mt-1">{finished.map(row)}</ul>
+        </details>}
+      </>
+    })()}
       {selected && <div className="py-3 space-y-3 [overflow-wrap:anywhere]" aria-label="所选知识记录">
         {detail.isLoading && <p role="status">正在读取来源…</p>}
         {selectedJob && detail.data && <>
