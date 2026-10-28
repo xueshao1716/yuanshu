@@ -52,9 +52,26 @@ export function mergeBranch(repoRoot, branch, { message } = {}) {
   if (current.startsWith("auto/")) return { ok: false, error: `当前在 ${current} 上，先切回 main 再合并` };
   const m = git(repoRoot, ["merge", "--no-ff", "-m", message || `merge ${branch}（自动补丁，人工审阅后合并）`, branch]);
   if (!m.ok) {
+    const raw = String(m.out || "");
+    const conflicted = git(repoRoot, ["diff", "--name-only", "--diff-filter=U"]);
+    const files = String(conflicted.out || "").split(/\r?\n/)
+      .map((x) => x.trim())
+      .filter((x) => x && !/^warning:/i.test(x) && !/^hint:/i.test(x));   // git 的换行符提示不是冲突文件
     // 冲突：中止合并，保持工作树干净
     git(repoRoot, ["merge", "--abort"]);
-    return { ok: false, error: `合并失败（已中止）：${m.out.slice(0, 300)}` };
+    const isConflict = /CONFLICT|Automatic merge failed/i.test(raw);
+    if (isConflict) {
+      return {
+        ok: false,
+        conflict: true,
+        files,
+        error: files.length
+          ? `这个提案和现在的代码冲突了：${files.join("、")}。分支是基于旧代码生成的，硬合会把新修复盖回去。`
+          : "这个提案和现在的代码冲突了（分支基于旧代码生成）。",
+        raw: raw.slice(0, 300),
+      };
+    }
+    return { ok: false, error: `合并失败（已中止）：${raw.slice(0, 300)}` };
   }
   return { ok: true, mergedInto: current, branch };
 }
