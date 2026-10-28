@@ -805,7 +805,8 @@ export async function createSessionAgent(sm, model) {
   // 两阶段引导：首轮给文件核心 + 出片/查找/分享，避免只会 bash 考古。
   // 首个文本/工具事件后 promote 恢复完整集。PI_TWO_PHASE=0 关闭。
   const MIN_BOOTSTRAP = ["read", "write", "edit", "bash"].filter(t => _tools.includes(t));
-  const FIRST_TURN_EXTRA = ["search_files", "list_channels", "generate_video", "generate_image", "generate_tts", "share_project", "activate_skill", "delegate_team", "computer_use", "cultivation"];
+  // 2026-10-28：首轮就把联网能力给她——不然微信第一条消息里她会说"我不会联网"
+  const FIRST_TURN_EXTRA = ["web_search", "search_files", "list_channels", "generate_video", "generate_image", "generate_tts", "share_project", "activate_skill", "delegate_team", "computer_use", "cultivation"];
   const bootstrap = isFirstTurn(sm) && MIN_BOOTSTRAP.length >= 2 && process.env.PI_TWO_PHASE !== "0";
   const allowedTools = bootstrap
     ? [...new Set([...MIN_BOOTSTRAP, ...customTools.map(t => t.name).filter(n => MIN_BOOTSTRAP.includes(n) || FIRST_TURN_EXTRA.includes(n))])]

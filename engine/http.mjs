@@ -82,6 +82,9 @@ function probeProxyAlive(urlStr) {
 }
 let deadProxyLogged = false;
 
+// 2026-10-28：bing.com 走系统代理（Clash）时，中文查询会返回**和查询无关**的结果
+// （实测直连「杭州 亚运会」→ 百度百科；走代理 → 知乎的 DeepSeek 帖子）。搜索永远直连。
+const DIRECT_ALWAYS = ["bing.com", "duckduckgo.com"];
 const DOMESTIC_SUFFIXES = [".cn", "stepfun.com", "bigmodel.cn", "zhipuai.cn", "deepseek.com", "aliyuncs.com", "dashscope.com", "volces.com", "volcengine.com", "baidubce.com", "tencent.com", "qq.com", "moonshot.cn", "siliconflow.cn"];
 export function isDomesticHost(host) {
   const h = String(host || "").toLowerCase();

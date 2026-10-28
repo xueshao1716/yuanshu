@@ -203,46 +203,83 @@ export function ensureCommandDirectories(cmd) {
   return found;
 }
 
-// ── Web 搜索：Bing 网页搜索（免费无 key）。返回结构化结果列表 ──
-export async function webSearchTool(query, httpFetch = httpJsonFetch) {
+// ── Web 搜索：Bing（免费无 key）。返回结构化结果列表 ──
+// 2026-10-28 真机：中文查询走 HTML 抓取时，Bing 会返回**和查询无关**的结果
+// （搜「杭州 亚运会」返回知乎的 Claude 帖子，搜「上海 天气」返回"无结果"）。
+// 换成 RSS 通道后中文正常——Bing 的 HTML 结果页对爬虫做了降级，RSS 没有。
+// 2026-10-28：搜索永远走直连（系统代理会让中文查询返回不相关结果）
+const directFetch = (url, opts) => globalThis.fetch(url, { ...opts, signal: AbortSignal.timeout(opts?.timeout || 20000) });
+
+export async function webSearchTool(query, httpFetch = directFetch) {
+  const q = String(query || "").slice(0, 200);
+  if (!q.trim()) return "（搜索关键词为空）";
+  const enc = encodeURIComponent(q);
+  const headers = {
+    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36",
+    "Accept-Language": "zh-CN,zh;q=0.9,en;q=0.8",
+  };
+
+  // ① 主通道：RSS（中文可靠）
   try {
-    const q = encodeURIComponent(String(query || "").slice(0, 200));
-    const r = await httpFetch(`https://www.bing.com/search?q=${q}&count=5`, {
-      method: "GET", timeout: 20000,
-      headers: { "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36", "Accept-Language": "zh-CN,zh;q=0.9,en;q=0.8" },
-    });
+    const r = await httpFetch(`https://www.bing.com/search?q=${enc}&format=rss&count=8`, { method: "GET", timeout: 20000, headers });
+    if (r?.ok) {
+      const xml = await r.text();
+      const items = parseBingRss(xml);
+      if (items.length) return formatResults(items.slice(0, 5));
+    }
+  } catch { /* 落到 ② */ }
+
+  // ② 兜底：HTML 抓取（英文查询通常还好）
+  try {
+    const r = await httpFetch(`https://www.bing.com/search?q=${enc}&count=5`, { method: "GET", timeout: 20000, headers });
     if (!r || !r.ok) return `（搜索请求失败: HTTP ${r?.status || "?"}）`;
     const html = await r.text();
     const results = [];
-    // Bing 结果块：<li class="b_algo">…<h2><a href="...">标题</a></h2>…<p class="b_lineclamp…">摘要</p>
     const re = /<li class="b_algo"[^>]*>([\s\S]*?)(?=<li class="b_algo"|<\/ol>|$)/g;
     let m;
     while ((m = re.exec(html))) {
       const block = m[1];
       const a = block.match(/<h2[^>]*>.*?href="([^"]+)"[^>]*>([\s\S]*?)<\/a>/);
-      const p = block.match(/<p[^>]*>([\s\S]*?)<\/p>/);
+      const p2 = block.match(/<p[^>]*>([\s\S]*?)<\/p>/);
       if (!a) continue;
       const title = stripHtml(a[2]).slice(0, 120);
       let url = a[1].trim().replace(/&amp;/g, "&");
-      // Bing 跳转链接：/ck/a 里的 u=a1…参数是 base64 编码的真实地址（如 aHR0cHM6…），解码还原
       const um = url.match(/[?&]u=a1([^&]+)/);
       if (um) {
-        const enc = um[1].replace(/\+/g, " ");
-        try {
-          // 先试 base64（Bing 的 u 参数格式）
-          const b64 = atobSafe(enc);
-          if (/^https?:\/\//.test(b64)) url = b64;
-          else url = decodeURIComponent(enc);
-        } catch { try { url = decodeURIComponent(enc); } catch {} }
+        const e = um[1].replace(/\+/g, " ");
+        try { const b64 = atobSafe(e); url = /^https?:\/\//.test(b64) ? b64 : decodeURIComponent(e); }
+        catch { try { url = decodeURIComponent(e) } catch {} }
       }
-      const snippet = p ? stripHtml(p[1]).slice(0, 200) : "";
+      const snippet = p2 ? stripHtml(p2[1]).slice(0, 200) : "";
       if (title) results.push({ title, url, snippet });
     }
     if (!results.length) return "（搜索无结果，可尝试换关键词）";
-    return results.slice(0, 5).map((x, i) => `${i + 1}. ${x.title}\n   ${x.url}\n   ${x.snippet}`).join("\n");
+    return formatResults(results.slice(0, 5));
   } catch (e) {
     return `（搜索失败: ${String(e?.message || e).slice(0, 100)}）`;
   }
+}
+
+/** 解析 Bing RSS（`format=rss`）。返回 [{title,url,snippet}]。 */
+export function parseBingRss(xml) {
+  const text = String(xml || "");
+  const out = [];
+  for (const m of text.matchAll(/<item>([\s\S]*?)<\/item>/g)) {
+    const block = m[1];
+    const pick = (tag) => {
+      const mm = block.match(new RegExp(`<${tag}>([\\s\\S]*?)<\\/${tag}>`));
+      return mm ? stripHtml(mm[1].replace(/<!\[CDATA\[|\]\]>/g, "")).trim() : "";
+    };
+    const title = pick("title").slice(0, 120);
+    const url = pick("link").slice(0, 300);
+    const snippet = pick("description").replace(/<[^>]+>/g, "").slice(0, 200);
+    if (title) out.push({ title, url, snippet });
+  }
+  return out;
+}
+
+function formatResults(list) {
+  return list.map((x, i) => `${i + 1}. ${x.title}\n   ${x.url}\n   ${x.snippet}`).join("\n");
 }
 
 // ── 统一工具执行器工厂 ──
