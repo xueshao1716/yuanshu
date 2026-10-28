@@ -35,7 +35,7 @@ export function exitCodeOf(line) {
   return m ? Number(m[1]) : null;
 }
 
-export function collectIncidents({ crashTail = "", watchdogRestarts = 0, modelFailStreak = 0, version = "" } = {}) {
+export function collectIncidents({ crashTail = "", watchdogRestarts = 0, restartRecent = 0, modelFailStreak = 0, version = "" } = {}) {
   const incidents = [];
   if (crashTail) {
     const exitLine = (crashTail.match(/\[exit\][^\n]*/i) || [""])[0];
@@ -52,6 +52,8 @@ export function collectIncidents({ crashTail = "", watchdogRestarts = 0, modelFa
         stack: block.slice(0, 1200),
         code: null,
       });
+    } else if (exitLine && code === 0 && /update-restart|YUANSHU_STOP|sc\.exe stop|运维|计划重启/i.test(crashTail)) {
+      // 2026-10-28：计划内退出（在线更新/运维停服）不是崩溃，别当事故报
     } else if (exitLine && code !== 0) {
       // 没有异常栈：把退出行连同前后文一起带上
       const at = crashTail.lastIndexOf(exitLine);
@@ -71,7 +73,14 @@ export function collectIncidents({ crashTail = "", watchdogRestarts = 0, modelFa
       stack, exitCode: primary.code ?? null,
     });
   }
-  if (watchdogRestarts > 0) incidents.push({ kind: "restart", summary: `watchdog 重启 ${watchdogRestarts} 次` });
+  // 2026-10-28：原来 `watchdogRestarts > 0` 就上报——那是**累计值**，重启一次涨一点，
+  // 结果每小时一个新工单（真机：15 条「重启 71/72/74/85 次」）。
+  // 现在只报「近期真的在反复重启」，且数字分档让同一件事能命中同一条。
+  const recent = Number(restartRecent) || 0;
+  if (recent >= 3) {
+    const bucket = recent >= 50 ? "50+" : recent >= 10 ? "10-49" : "3-9";
+    incidents.push({ kind: "restart", summary: `watchdog 反复重启（近期 ${bucket} 次）` });
+  }
   if (modelFailStreak >= 5) incidents.push({ kind: "model-fail", summary: `模型调用连续失败 ${modelFailStreak} 次` });
   return { version, os: `${os.type()} ${os.release()} ${os.arch()}`, incidents };
 }

@@ -308,11 +308,19 @@ async function main() {
   // - 稳态：30s 慢查
   const monitorLoop = async () => {
     const ok = await serviceHealthy();
+    // 2026-10-28：启动后 60 秒内没起来 = 还在启动，不是「掉线」。
+    // 以前这里无条件记一行「检测到 server 掉线」，紧接着又自己说「子进程仍在启动/已有健康实例」——
+    // 每次重启都往 watchdog.log 写假掉线，遥测按行数统计 → 收件箱全是「重启 N 次」。
+    const booting = Date.now() - lastStartAt < STARTUP_GRACE_MS;
     if (!ok) {
-      consecutiveFails++;
-      if (!firstFailAt) firstFailAt = Date.now();
-      log(`⚠️ 检测到 server 掉线（连续第 ${consecutiveFails} 次，已持续 ${Math.round((Date.now() - firstFailAt) / 1000)}s），拉起`);
-      await startServer();
+      if (booting && consecutiveFails === 0) {
+        log("启动中（宽限期内），先观察、不记掉线");
+      } else {
+        consecutiveFails++;
+        if (!firstFailAt) firstFailAt = Date.now();
+        log(`⚠️ 检测到 server 掉线（连续第 ${consecutiveFails} 次，已持续 ${Math.round((Date.now() - firstFailAt) / 1000)}s），拉起`);
+        await startServer();
+      }
     } else {
       consecutiveFails = 0;
       firstFailAt = 0;

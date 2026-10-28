@@ -414,9 +414,20 @@ async function telemetrySweep(manual = false) {
     if (!isEnabled(WS_ROOT)) return { sent: false, reason: "disabled" };
         if (/^d:\/(pi-workspace|yuanshu-space)$/.test(String(WS_ROOT).split(path.sep).join("/").toLowerCase())) return { sent: false, reason: "dev_machine" };
     let watchdogRestarts = 0, crashTail = "";
+    let restartRecent = 0;
     try {
       const tail = fs.readFileSync(WATCHDOG_LOG, "utf8").slice(-20000);
       watchdogRestarts = (tail.match(/检测到 server 掉线/g) || []).length;
+      // 2026-10-28：累计值不能当事故——按行首时间只数最近 30 分钟
+      const nowMs = Date.now();
+      for (const line of tail.split(/\r?\n/)) {
+        if (!/检测到 server 掉线/.test(line)) continue;
+        // watchdog.log 的行首是 [2026/10/28 21:11:38]（斜杠），两种分隔都认
+        const m = line.match(/(\d{4})[-/](\d{2})[-/](\d{2})[ T](\d{2}:\d{2}:\d{2})/);
+        if (!m) continue;   // 没时间戳的旧行：宁可漏计，不要把历史一律算成近期
+        const t = Date.parse(`${m[1]}-${m[2]}-${m[3]}T${m[4]}`);
+        if (Number.isFinite(t) && nowMs - t <= 30 * 60000) restartRecent += 1;
+      }
     } catch {}
     try { crashTail = fs.readFileSync(path.join(__dirname, "crash.log"), "utf8").slice(-4000); } catch {}
     // 2026-10-26：崩溃报告必须带**构建号**——行号会随版本漂移，commit 才是唯一可靠锚点
@@ -427,7 +438,7 @@ async function telemetrySweep(manual = false) {
         if (/^[0-9a-f]{7,40}$/i.test(String(info?.commit || ""))) process.env.YUANSHU_BUILD_COMMIT = String(info.commit).slice(0, 12);
       }
     } catch {}
-    const incidents = collectIncidents({ crashTail, watchdogRestarts, modelFailStreak: 0, version: shellVersion });
+    const incidents = collectIncidents({ crashTail, watchdogRestarts, restartRecent, modelFailStreak: 0, version: shellVersion });
     if (!manual && !incidents.incidents.length) return { sent: false, reason: "nothing" };
     return await reportIncidents(WS_ROOT, incidents);
   } catch (e) { return { sent: false, reason: String(e.message || e).slice(0, 80) }; }
