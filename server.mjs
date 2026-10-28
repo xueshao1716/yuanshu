@@ -149,6 +149,7 @@ import { initEnginePair, loadEnginePair, saveEnginePair, swapEnginePair, resolve
 import { decorateEngineStatus, pluginFromBody, isCorePlugin } from "./engine/engine-panel.mjs";
 import { initWorkspaceApi, WS_ROOT, findWorkspaceFiles, wsSafePath, saveArtifact, saveArtifactFromFile, handleWsTree, handleWsFile, handleWsRead, handleWsPreview, handleWsWrite, handleWsArtifacts, wsNextVersion, handleWsDeliver, handleWsPackage, handleWsDeliveries, handleWsRename, handleWsDelete, handleWsSearch, handleWsProjectCreate, handleWsConvert } from "./engine/workspace-api.mjs";
 import { initContextLoader, makeLoader, loadExperience, readRulesWithImports, loadContextRules, jitRulesForPath, loadProjectRules, loadSkillIndex, execActivateSkill, ACTIVATE_SKILL_TOOL, WORK_PROTOCOL, loadMemory, loadMemoryIndex, loadExperienceIndex, shouldInjectFullMemory, setLastUserQuery } from "./engine/context-loader.mjs";
+import { directMediaMode, seedMediaMode } from "./engine/media-mode.mjs";
 import { initMediaApi, findMediaModel, detectMediaIntents, extractMediaPrompt, mediaAwarePrompt, mediaReadyNotice, explainMediaError, generateMediaAsync, generateTTS, generateImage, handleImage, handleImageWithSave, generateVideo, startVideoJob, checkVideoJob, handleMedia, assistantContentWithMedia } from "./engine/media-api.mjs";
 import { extractPlayableMedia } from "./engine/media-embed.mjs";
 import { formatSkillIndexPrompt, matchSkillsForTask } from "./engine/yuanshu-protocol.mjs";
@@ -1162,7 +1163,7 @@ const executeUnifiedTool = createUnifiedToolExecutorGuarded({
         return { text: String(e?.message || e), isError: true };
       }
     }),
-    ...mediaExtraExecutors({ getModelList: () => modelList, generateMediaAsync }),
+    ...mediaExtraExecutors({ getModelList: () => modelList, generateMediaAsync, wsRoot: WS_ROOT }),
     ...todoExtraExecutors(),
     ...planFilesExtraExecutors(),
     // 承诺销账：用户说"不用了"时模型要能立刻销账，否则账只能一直挂着当待办（2026-10-18）
@@ -2058,7 +2059,11 @@ async function handleChat(req, res, body) {
   // 关键词检测必然漏，宿主旁路不出图、模型又不主动调工具 → 表现就是"经常不画"。
   const mediaKey = sessionId || findKeyByEntry(entry) || "new";
   const lastMedia = lastMediaBySession.get(mediaKey) || null;
-  const mediaIntents = detectMediaIntents(message, { lastMediaType: lastMedia?.type, lastPrompt: lastMedia?.prompt });
+  // 2026-10-28：默认**不抢跑**——让模型自己调 generate_image（她驱动）。
+  // 只有 记忆/运行时/出图.json {"direct":true} 才回到"关键词直接出图"的旧行为。
+  const mediaIntents = directMediaMode(WS_ROOT)
+    ? detectMediaIntents(message, { lastMediaType: lastMedia?.type, lastPrompt: lastMedia?.prompt })
+    : [];
   const mediaPromptOf = (it) => extractMediaPrompt(message, { wsRoot: WS_ROOT, followUp: it.followUp, lastPrompt: lastMedia?.prompt });
   // 并行启动全部媒体生成（不阻塞主模型文字流式）
   let mediaPromise = mediaIntents.length

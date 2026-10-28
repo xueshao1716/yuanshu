@@ -37,7 +37,8 @@ export const MEDIA_TOOL_SCHEMAS = [
       parameters: {
         type: "object",
         properties: {
-          prompt: { type: "string", description: "出图提示词" },
+          prompt: { type: "string", description: "出图提示词。画**你自己**时不要自己拼外观，改用 subject:\"self\"" },
+          subject: { type: "string", enum: ["self"], description: "画小语自己时传 self：外观与画风由人设文件（记忆/外观.md + 形象规则）决定，保证同一张脸" },
           provider: { type: "string", description: "list_channels 中的通道名；指定后不自动换通道" },
           modelId: { type: "string", description: "list_channels 中的模型 id；与 provider 一起传，不可杜撰" },
           size: { type: "string", description: "请求像素宽x高，如 1024x1536；上游是否支持以实际返回为准" },
@@ -100,7 +101,16 @@ export function createMediaToolExecutor(deps = {}) {
     if (name === "list_channels") {
       return { text: JSON.stringify(listHostChannels({ getModelList }), null, 2) };
     }
-    const prompt = String(args.prompt || args.text || "").trim();
+    // 2026-10-28：subject="self" → 用 persona-look 从人设文件拼提示词（她只决定"画自己"，不用记外观细节）
+    let prompt = String(args.prompt || args.text || "").trim();
+    if (name === "generate_image" && String(args.subject || "").toLowerCase() === "self") {
+      try {
+        const { buildSelfPortraitPrompt, seedLookFile } = await import("./persona-look.mjs");
+        const root = deps.wsRoot || ".";
+        seedLookFile(root);
+        prompt = buildSelfPortraitPrompt({ wsRoot: root, extra: prompt });
+      } catch {}
+    }
     if (!prompt) return { text: "缺少 prompt/text", isError: true };
     if (typeof generate !== "function") return { text: "媒体通道未初始化", isError: true };
     const type = name === "generate_video" ? "video" : name === "generate_image" ? "image" : name === "generate_tts" ? "tts" : "";
