@@ -164,7 +164,8 @@ export function isPureImageRequest(message) {
 }
 
 // 旁路出图只推前端的话，主模型看不见，会以为没画过。告知即可，不要禁 SVG：有时任务就是要矢量成品。
-export function mediaAwarePrompt(userMessage, mediaResults) {
+export function mediaAwarePrompt(userMessage, mediaResults, opts = {}) {
+  const herDriven = opts.herDriven === true;   // 2026-10-28：宿主不抢跑时，出图是她的活
   const msg = String(userMessage || "");
   const wantsImage = detectMediaIntents(msg).some(i => i.type === "image");
   const wantsVideo = detectMediaIntents(msg).some(i => i.type === "video");
@@ -177,7 +178,9 @@ export function mediaAwarePrompt(userMessage, mediaResults) {
       notes.push(...drawn.map(m => imageVerificationNotice(m.verification)).filter(Boolean));
       notes.push(`【系统】图像模型已出图并已展示给用户：${drawn.map(m => m.url).join("、")}。你开口说明这张图即可。${stayOff}若任务更适合 SVG/矢量或其他成品，也可以再画了交出来。不要假装没出过图。`);
     } else {
-      notes.push(`【系统】系统图像模型正在并行走出图，完成后会直接显示在对话里。你开口说明即可，不必干等。${stayOff}若任务还需要 SVG/矢量或其他成品，再动手交出来。`);
+      notes.push(herDriven
+        ? `【系统】这次**没有**后台代画：要图就由你自己调用 generate_image 出图。画你自己时传 subject="self"（外观由人设文件决定，保证同一张脸），prompt 只写这次的场景/服装/光线等附加要求。${stayOff}`
+        : `【系统】系统图像模型正在并行走出图，完成后会直接显示在对话里。你开口说明即可，不必干等。${stayOff}若任务还需要 SVG/矢量或其他成品，再动手交出来。`);
     }
   }
   if (wantsVideo) {
@@ -185,7 +188,9 @@ export function mediaAwarePrompt(userMessage, mediaResults) {
     if (done.length) {
       notes.push(`【系统】视频模型已出片并已展示给用户：${done.map(m => m.url).join("、")}。对话里有播放器。你判断还要不要本机打开、加长、配音或复制到交付目录，做完汇报。${stayOff}`);
     } else {
-      notes.push(`【系统】系统视频模型正在并行走出片，完成后会显示在对话播放器里。你继续把工作做完并汇报。${stayOff}`);
+      notes.push(herDriven
+        ? `【系统】这次**没有**后台代出片：要视频就由你自己调用 generate_video。${stayOff}`
+        : `【系统】系统视频模型正在并行走出片，完成后会显示在对话播放器里。你继续把工作做完并汇报。${stayOff}`);
     }
   }
   return `${msg}\n\n${notes.join("\n")}`;

@@ -24,6 +24,7 @@ import { PRODUCT_VERSION } from "./version.mjs";
 import { createGateway } from "./gateway.mjs";
 import { CodeRuntime } from "../code-mode/code-runtime.mjs";
 import { createCodeMode } from "../code-mode/code-mode.mjs";
+import { directMediaMode } from "./media-mode.mjs";
 import { detectMediaIntents, extractMediaPrompt, generateMediaAsync, mediaAwarePrompt, explainMediaError, assistantContentWithMedia, isPureImageRequest } from "./media-api.mjs";
 import { explicitToolMedia, mediaDeliveryKey } from "./media-embed.mjs";
 import { readOpenAIChatStream } from "./openai-stream.mjs";
@@ -1036,11 +1037,15 @@ export async function handleUnifiedChat(res, entry, message, sessionId, params, 
   try { persistUser(); } catch {}
   const steeringTake = typeof runContext?.steering?.take === "function" ? () => runContext.steering.take() : null;
   const steeringNote = text => writer.push("note", { text: `收到插话，下一步按它调整：${String(text).slice(0, 120)}` });
-  const mediaIntents = detectMediaIntents(message);
+  // 2026-10-28：默认不抢跑——让模型自己调工具；只有 出图.json {"direct":true} 才自动出图
+  const wsRootForMedia = String(_cwd || ".");   // handleUnifiedChat 没有 opts 参数；工作区用模块级 _cwd
+  const mediaIntents = directMediaMode(wsRootForMedia) ? detectMediaIntents(message) : [];
   const imageIntent = mediaIntents.some(i => i.type === "image");
   const videoIntent = mediaIntents.some(i => i.type === "video");
-  const skipTools = isPureImageRequest(message);
-  const mediaPrompt = extractMediaPrompt(message);
+  // 2026-10-28：只有"宿主抢跑"模式才跳过工具（那时不需要她调）；
+  // 她驱动时必须给她工具——否则她只能把工具调用写成 ｜｜DSML｜｜ 文本吐出来（真机见过）。
+  const skipTools = directMediaMode(wsRootForMedia) ? isPureImageRequest(message) : false;
+  const mediaPrompt = extractMediaPrompt(message, { wsRoot: wsRootForMedia });
   const runMediaEffect = async (intent, index) => {
     const effectStore = runContext?.effects;
     const runId = runContext?.runId;

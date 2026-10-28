@@ -2453,7 +2453,8 @@ async function handleChat(req, res, body) {
         : "图像模型正在出图，完成后会显示在对话里。";
       try { writer.push("note", { text: drawingNote }); busEmit("note", { text: drawingNote }); } catch {}
     }
-    promptMsg = mediaAwarePrompt(promptMsg, settledMedia);
+    // 2026-10-28：宿主不抢跑时明确告诉她「图要自己调工具出」
+  promptMsg = mediaAwarePrompt(promptMsg, settledMedia, { herDriven: !directMediaMode(WS_ROOT) });
     // 图像兜底：当前模型不支持图片且消息带图 → 临时切套餐内图像模型识别，处理完恢复原模型
     let visionSwitched = false, origAgentModel = null, visionModel = null;
     if (images.length) {
