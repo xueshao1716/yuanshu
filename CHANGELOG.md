@@ -4,6 +4,59 @@
 
 ## [2.179.0] - 2026-10-28
 
+「那你做」——上一版说做不了的两条，这一版都做了。
+
+## ① 打字指示（「正在输入…」）
+
+上一版说「缺端点，不猜」。这版翻了 Hermes 的源码，拿到两个端点的**协议事实**：
+
+```
+POST ilink/bot/getconfig   {ilink_user_id, context_token?} → {typing_ticket}
+POST ilink/bot/sendtyping  {ilink_user_id, typing_ticket, status}   status: 1=start 2=stop
+```
+
+实现：`typing_ticket` 按人缓存 10 分钟；收到消息就 start，回复完 stop。
+
+**真机验证**：`getconfig` → 200 拿到 ticket；`sendtyping` start/stop 都 `{"ret":0}`。
+
+顺手修了一个错：之前把 `-2`（频率限制）也当成「会话过期」去重试。现在只有 `-14`/会话类才去 token 重试。
+
+## ② 入站语音自己转写（不再信腾讯）
+
+Hermes 的注释写得很清楚：非中文语音时腾讯的 `voice_item.text` 是垃圾（俄语会回成英语音素）。
+所以我们走完整链路：
+
+```
+voice_item → CDN 下载 + AES 解密 → .silk
+          → pilk 解码 → 24k 单声道 wav
+          → faster-whisper（CPU，base 模型）→ 文本
+          → 以 [语音转写] 前缀并入消息
+```
+
+**真机验证**（服务里，SYSTEM 身份）：
+
+```json
+{"ok":true,"text":"…你好我是小雨這次用的是真人女生做參考客龍出來的聲音你聽聽是不是自然多了","lang":"zh","prob":0.998}
+```
+
+### 装环境时踩的三个坑
+
+1. **模型下载连不上 Hub** → 用 `HF_ENDPOINT=https://hf-mirror.com` 走镜像；
+2. **`av` 版本不兼容**（`TypeError: open() got an unexpected keyword argument 'metadata_errors'`）→ 钉 `av==12.3.0`；
+3. **服务是 SYSTEM，读不到用户装的包** → 依赖装进项目内 `engine/py/vendor`，`PYTHONPATH` 指过去；
+   模型也不连 Hub，直接定位本地快照目录（`resolveModelDir`）。
+
+## 验证
+
+- 全量 50 条微信相关测试通过（新增语音解析 4 条）
+- 真机：打字 start/stop `ret:0`；STT API `200 {ok:true, lang:"zh", prob:0.998}`
+- 真机：服务健康 `ok`
+
+## 现在这条线的完整度
+
+传输 ✅ 去重 ✅ 合并 ✅ 排版 ✅ 图/文件/语音 ✅ tokenless ✅ 熔断 ✅ **打字指示 ✅** **语音自己转写 ✅**
+
+
 ## [2.178.0] - 2026-10-28
 
 「有问题你就做」——这一轮把微信剩下的硬伤里，**能做的**做了；不能做的两条说清原因。
