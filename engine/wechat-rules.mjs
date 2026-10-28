@@ -12,13 +12,11 @@ import path from "node:path";
 export const RULES_REL = path.join("记忆", "运行时", "微信规矩.md");
 
 export const DEFAULT_RULES = [
-  "【微信环境·必读】你在跟伙伴的微信私聊里，对方在手机上看。",
-  "1) 回复短、口语。可以少量 Markdown（微信能渲染表格/代码块），但别长篇分点。",
-  "2) 要发图片：先在本地真的生成/找到文件，然后单独一行写 ![图](绝对路径)。文件不存在就等于没发。",
-  "3) 要发文件同样：单独一行写绝对路径。",
-  "4) 能做就直接做：不要只回“我去看看/稍等/马上”。要么现在动手，要么直说做不了。",
-  "5) 对方让你画画/生成图/截图时，先调用工具把图生成出来，再按第 2 条发出去。",
-  "6) 你能联网：查实时信息用 web_search（或 bash curl）。不要说“我不会联网”——先真查一次。",
+  "【微信环境】你在跟伙伴的微信私聊里（手机看）。规矩：",
+  "1) 短、口语，别长篇分点；Markdown 少量可用。",
+  "2) 发图：本地先生成/找到文件，然后单独一行写 ![图](绝对路径)。发文件同理单独一行写绝对路径。",
+  "3) 能做就直接做，别只说“我去看看/稍等”；做不到就直说。",
+  "4) 能联网：web_search 或 bash curl，先查再说查不到。",
 ].join("\n");
 
 const cache = new Map(); // file -> { mtimeMs, text }
@@ -34,7 +32,8 @@ export function loadWechatRules(wsRoot) {
     const st = fs.statSync(file);
     const hit = cache.get(file);
     if (hit && hit.mtimeMs === st.mtimeMs) return { text: hit.text, source: "file" };
-    const raw = fs.readFileSync(file, "utf8").trim();
+    // 2026-10-28：注释是给人看的，别每轮塞进模型上下文
+    const raw = fs.readFileSync(file, "utf8").replace(/<!--[\s\S]*?-->/g, "").trim();
     if (raw) {
       const text = raw.slice(0, 2000);
       cache.set(file, { mtimeMs: st.mtimeMs, text });

@@ -644,7 +644,22 @@ function waitJob(id, timeoutMs = 30 * 60_000) {
 // 环境事实里要用它读"未汇报"台账（2026-10-25）
 try { setEnvWorkspace(WS_ROOT); } catch {}
 const jobPool = createJobPool({ file: path.join(WS_ROOT, "记忆", "运行时", "后台任务.json"), concurrency: 2 });
-// 2026-10-24：每轮耗时拆解（request / context / firstDelta / tool / end）
+
+// 2026-10-28：出图/出片这类长活以前不登记，后台任务面板永远是空的。
+// 这里包一层：跑的时候在池子里挂一条 running，结束登记结果或失败（不占并发槽）。
+const trackedMedia = (intent, prompt, observations) => {
+  const kind = intent?.type === "image" ? "image" : intent?.type === "video" ? "video" : intent?.type || "media";
+  const label = `${kind === "image" ? "出图" : kind === "video" ? "出片" : kind}：${String(prompt || "").slice(0, 40)}`;
+  const t = jobPool.track({ kind, title: label });
+  return Promise.resolve()
+    .then(() => generateMediaAsync(intent, prompt, observations))
+    .then((r) => {
+      if (r?.error && !r?.url) t.fail(r.error);
+      else t.done(r?.url ? `产物：${String(r.url).slice(0, 160)}` : "完成");
+      return r;
+    })
+    .catch((e) => { t.fail(e); throw e });
+};// 2026-10-24：每轮耗时拆解（request / context / firstDelta / tool / end）
 const turnProfiler = createTurnProfiler({ wsRoot: WS_ROOT, log: (m) => console.log(m) });
 // 2026-10-24：当前轮的 profile 与响应，供 unified-chat 上报 usage 时使用
 let currentTurnProfile = null;
@@ -1174,7 +1189,7 @@ const executeUnifiedTool = createUnifiedToolExecutorGuarded({
         return { text: String(e?.message || e), isError: true };
       }
     }),
-    ...mediaExtraExecutors({ getModelList: () => modelList, generateMediaAsync, wsRoot: WS_ROOT }),
+    ...mediaExtraExecutors({ getModelList: () => modelList, generateMediaAsync: trackedMedia, wsRoot: WS_ROOT }),
     ...todoExtraExecutors(),
     ...planFilesExtraExecutors(),
     // 承诺销账：用户说"不用了"时模型要能立刻销账，否则账只能一直挂着当待办（2026-10-18）
@@ -2078,7 +2093,7 @@ async function handleChat(req, res, body) {
   const mediaPromptOf = (it) => extractMediaPrompt(message, { wsRoot: WS_ROOT, followUp: it.followUp, lastPrompt: lastMedia?.prompt });
   // 并行启动全部媒体生成（不阻塞主模型文字流式）
   let mediaPromise = mediaIntents.length
-    ? Promise.all(mediaIntents.map(it => generateMediaAsync(it, mediaPromptOf(it), { requestText: message })))
+    ? Promise.all(mediaIntents.map(it => trackedMedia(it, mediaPromptOf(it), { requestText: message })))
     : Promise.resolve([]);
   let settledMedia = [];
   const mediaDelivered = mediaIntents.length

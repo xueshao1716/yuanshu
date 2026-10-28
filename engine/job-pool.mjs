@@ -90,6 +90,43 @@ export function createJobPool({ file = null, concurrency = 2, now = () => new Da
       pump();
       return publicJob(job);
     },
+    /**
+     * 只登记不排队：用于"已经在跑的长活"（出图/出片/调研/脱链）。
+     * 返回句柄：done(result) / fail(err) / cancel()，以及 job。
+     */
+    track({ kind = 'task', title = '' } = {}) {
+      seq += 1;
+      const job = {
+        id: `j_${Date.now().toString(36)}_${seq}`,
+        kind: String(kind).slice(0, 40),
+        title: String(title || kind).slice(0, 120),
+        status: 'running',
+        queuedAt: now(),
+        startedAt: new Date(now()).toISOString(),
+        run: null,
+      };
+      jobs.push(job);
+      if (jobs.length > KEEP * 2) jobs = jobs.slice(-KEEP * 2);
+      // 用一个独立控制器支持取消（不塞进 running 队列，避免影响并发计数）
+      const ctrl = new AbortController();
+      running.set(job.id, ctrl);
+      persist();
+      const finish = (status, extra = {}) => {
+        job.status = status;
+        job.finishedAt = now();
+        if (extra.result) job.result = String(extra.result).slice(0, 400);
+        if (extra.error) job.error = String(extra.error).slice(0, 400);
+        running.delete(job.id);
+        persist();
+      };
+      return {
+        job: publicJob(job),
+        signal: ctrl.signal,
+        done: (result = '') => finish('done', { result }),
+        fail: (err) => finish('failed', { error: String(err?.message || err || '失败') }),
+        cancel: () => { try { ctrl.abort('user_cancel') } catch {}; finish('cancelled') },
+      };
+    },
     list() {
       return jobs.slice().reverse().map(publicJob);
     },
