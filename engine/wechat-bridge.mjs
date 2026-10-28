@@ -21,6 +21,8 @@ import { loadWechatRules, seedWechatRules } from "./wechat-rules.mjs";
 import { createBatcher } from "./wechat-batch.mjs";
 // 2026-10-28：发出去之前怎么排版（keep/auto/strip，可配置）
 import { formatForWechat, readFormatMode, seedFormatConfig } from "./wechat-format.mjs";
+// 2026-10-28：发送熔断——认出"自己在挨打"就先停手，别越撞越久
+import { createCircuit } from "./wechat-circuit.mjs";
 
 // 2026-10-28：用户反馈「让发图一直没发过来、不够主动」。
 // 根因不是能力缺失（sendImage/extractImagePaths 都在），而是模型不知道微信这条路的约定。
@@ -149,7 +151,7 @@ export function healthOf({ running, login, stats, now = Date.now(), staleMs = 3 
   if (failures >= 3) {
     const limited = Number(st.rateLimited) || 0;
     if (limited >= 3 && /限流/.test(String(st.lastError || ""))) {
-      return { state: "degraded", text: `被 iLink 限流 ${limited} 次，收不到消息（可能有另一个客户端在轮询同一个机器人，或频率过高）` };
+  return { state: "degraded", text: `被 iLink 限流 ${limited} 次，收不到消息（可能有另一个客户端在轮询同一个机器人，或频率过高）` };
     }
     return { state: "degraded", text: `连续失败 ${failures} 次：${st.lastError || "未知错误"}` };
   }
@@ -229,6 +231,8 @@ export function createWechatBridge({
   const stats = {
     lastOkAt: 0, consecutiveFailures: 0, drops: 0, lastErrorAt: 0, rateLimited: 0, received: 0, replied: 0, failed: 0, lastAt: 0, lastError: "", startedAt: 0, notifyOk: 0, notifyFailed: 0, lastNotifyAt: 0, lastNotifyError: "" };
   const recent = [];
+  // 2026-10-28：60 秒内失败 3 次 → 停 60 秒起（按次数递增，最多 4 倍）
+  const sendCircuit = createCircuit({ threshold: 3, windowMs: 60_000, openMs: 60_000, maxOpenMs: 240_000 });
   // 每个好友最近一条消息的 context_token：主动发消息（通知）时带上，回复能挂到同一个对话上。
   let contexts = readJson(file("contexts.json"), {});
   const remember = (sender, tokenValue) => {
@@ -272,6 +276,13 @@ export function createWechatBridge({
     let sent = 0, failed = 0, failedText = 0, error = null;
     try {
       while (queue.length) {
+        // 2026-10-28：熔断期间不发（任务留在队列里，等闸门关了继续）
+        if (sendCircuit.isOpen()) {
+          const wait = Math.ceil(sendCircuit.remainingMs() / 1000);
+          log(`[微信] 熔断中，${wait} 秒后再发（队列还有 ${queue.length} 条）`);
+          stats.lastError = `熔断中（还剩 ${wait}s）`;
+          break;
+        }
         const job = queue.shift();
         // 图片任务（2026-10-08 补）：走 sendImage 加密上 CDN；文字任务照旧 sendText。
         const send = () => (job.image
@@ -283,9 +294,9 @@ export function createWechatBridge({
         let r = null, err = null;
         try { r = await send(); } catch (e) { err = e; }
         if (r?.ret === RATE_LIMITED) { await sleep(3000); try { r = await send(); err = null; } catch (e) { err = e; } }
-        if (err) { stats.failed++; failed++; if (!job.image) failedText++; error = `发送异常 ${String(err?.message || err).slice(0, 120)}`; stats.lastError = error; }
-        else if (r?.ret && r.ret !== 0) { stats.failed++; failed++; if (!job.image) failedText++; error = `发送失败 ret=${r.ret} ${r.errmsg || ""}`.trim(); stats.lastError = error; }
-        else { stats.replied++; sent++; note("out", job.to, job.image ? `[图片 ${job.image.split(/[\\/]/).pop()}]` : job.text); }
+        if (err) { stats.failed++; failed++; if (!job.image) failedText++; error = `发送异常 ${String(err?.message || err).slice(0, 120)}`; stats.lastError = error; if (sendCircuit.recordFailure()) log(`[微信] 连续失败，熔断 ${Math.round(sendCircuit.remainingMs() / 1000)} 秒`); }
+        else if (r?.ret && r.ret !== 0) { stats.failed++; failed++; if (!job.image) failedText++; if (sendCircuit.recordFailure()) log(`[微信] 连续失败，熔断 ${Math.round(sendCircuit.remainingMs() / 1000)} 秒`); error = `发送失败 ret=${r.ret} ${r.errmsg || ""}`.trim(); stats.lastError = error; }
+        else { stats.replied++; sent++; sendCircuit.recordSuccess(); note("out", job.to, job.image ? `[图片 ${job.image.split(/[\\/]/).pop()}]` : job.text); }
         if (queue.length) await sleep(REPLY_GAP_MS);
       }
     } finally { flushing = false; }
@@ -587,6 +598,8 @@ export function createWechatBridge({
         friends: Object.keys(sessions).length,
         login: { state: login.state, qrUrl: login.qrUrl, message: login.message },
         stats: { ...stats },
+    // 2026-10-28：熔断状态（面板/排查用）
+    circuit: (() => { try { return sendCircuit.snapshot() } catch { return null } })(),
         // 2026-10-27：把「已登录但没反应」这种状态说清楚
         health: healthOf({ running: !!loop && !stopping, login, stats, now: now() }),
         recent: [...recent],
