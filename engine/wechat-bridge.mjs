@@ -17,6 +17,10 @@ import { rescueImagePaths } from "./wechat-image-rescue.mjs";
 import { checkAndMark } from "./wechat-dedupe.mjs";
 // 2026-10-28：规矩搬到可编辑文件（每轮读，改了立刻生效）
 import { loadWechatRules, seedWechatRules } from "./wechat-rules.mjs";
+// 2026-10-28：连续消息合并（连发三条 → 一次思考）
+import { createBatcher } from "./wechat-batch.mjs";
+// 2026-10-28：发出去之前怎么排版（keep/auto/strip，可配置）
+import { formatForWechat, readFormatMode, seedFormatConfig } from "./wechat-format.mjs";
 
 // 2026-10-28：用户反馈「让发图一直没发过来、不够主动」。
 // 根因不是能力缺失（sendImage/extractImagePaths 都在），而是模型不知道微信这条路的约定。
@@ -291,7 +295,20 @@ export function createWechatBridge({
   // image 可选：带上时文字切分发完后，再排一张本地图片（sendImage 通路，2026-10-08）。
   // 2026-10-28：规矩文件（<ws>/记忆/运行时/微信规矩.md）——首次自动写一份，之后以文件为准
   const wsRootOfDir = () => path.dirname(path.dirname(dir));
+  // 2026-10-28：连发合并——1200ms 静默/最长 6s；停机时 flushNow 兜底
+  const batcher = createBatcher({
+    delayMs: 1200, maxWaitMs: 6000,
+    onFlush: (_k, merged) => {
+      try {
+        if (!accRef.value) return;
+        if (merged?.mergedCount > 1) log(`[微信] 合并 ${merged.mergedCount} 条连续消息 → 一次处理`);
+        void handle(accRef.value, merged);
+      } catch {}
+    },
+  });
+  const accRef = { value: null };
   try { seedWechatRules(wsRootOfDir()); } catch {}
+  try { seedFormatConfig(wsRootOfDir()); } catch {}
   const reply = (acc, to, text, contextToken, image, file) => {
     // 2026-10-28：对方要图、模型却没给路径 → 日志留痕（否则只能靠猜）
     try {
@@ -313,7 +330,9 @@ export function createWechatBridge({
       text = ex.text;
     } catch (e) { log("[微信] 图片路径处理失败（忽略）：" + String(e?.message || e).slice(0, 80)) }
     // 2026-10-24：长回答被切成多条时标出 (i/n)，否则微信里看起来像刷屏
-    const parts = splitForWechat(stripMarkdownForWechat(text));
+    // 2026-10-28：排版可配置（默认 keep，跟 Hermes 一致：保留 Markdown）
+    const fmtMode = readFormatMode(wsRootOfDir());
+    const parts = splitForWechat(formatForWechat(text, fmtMode));
     parts.forEach((part, i) => {
       const label = parts.length > 1 ? `（${i + 1}/${parts.length}）\n` : "";
       queue.push({ to, text: label + part, contextToken });
@@ -490,7 +509,13 @@ export function createWechatBridge({
             list.push(m); pending.set(m.sender, list);
             continue;
           }
-          void handle(acc, m);
+          accRef.value = acc;
+          // 2026-10-28：去重放在入队前——重发的消息不该占用合并窗口
+          try {
+            const d = checkAndMark({ wsRoot: wsRootOfDir(), sender: m.sender, text: m.text, messageId: m.msgId || m.messageId || "" });
+            if (d.dupe) { log(`[微信] 重复消息已跳过（${d.reason}）`); continue }
+          } catch {}
+          batcher.push(m.sender, m);
         }
       } catch (e) {
         if (stopping) break;
