@@ -38,6 +38,48 @@ export function imageItemsOf(message) {
   return out;
 }
 
+/** 从消息里取出语音项（item type 3）。 */
+export function voiceItemsOf(message) {
+  const items = Array.isArray(message?.item_list) ? message.item_list : [];
+  const out = [];
+  for (const it of items) {
+    if (Number(it?.type) !== 3) continue;
+    const media = it.voice_item?.media || {};
+    if (!media.encrypt_query_param) continue;
+    out.push({
+      encryptedQueryParam: String(media.encrypt_query_param),
+      aesKey: String(media.aes_key || (it.voice_item?.aeskey ? Buffer.from(String(it.voice_item.aeskey), "hex").toString("base64") : "")),
+      playtime: Number(it.voice_item?.playtime) || 0,
+    });
+  }
+  return out;
+}
+
+/**
+ * 下载并解密一条语音（返回 silk 原始字节落盘）。
+ * 不复用 downloadImage 是因为扩展名和目录不同；解密逻辑一致。
+ */
+export async function downloadVoice({ item, outDir, fetch: f = globalThis.fetch, cdnBase = "https://novac2c.cdn.weixin.qq.com/c2c" } = {}) {
+  const url = `${cdnBase}/download?encrypted_query_param=${encodeURIComponent(item.encryptedQueryParam)}`;
+  const res = await f(url, { signal: AbortSignal.timeout(60000) });
+  if (!res.ok) throw new Error(`语音下载失败 HTTP ${res.status}`);
+  const raw = Buffer.from(await res.arrayBuffer());
+  const plain = item.aesKey
+    ? (() => {
+      const key = parseAesKey(item.aesKey);
+      const d = crypto.createDecipheriv("aes-128-ecb", key, null);
+      d.setAutoPadding(false);
+      const out = Buffer.concat([d.update(raw), d.final()]);
+      const pad = out[out.length - 1];
+      return pad >= 1 && pad <= 16 ? out.subarray(0, out.length - pad) : out;
+    })()
+    : raw;
+  fs.mkdirSync(outDir, { recursive: true });
+  const file = path.join(outDir, `wx-voice-${Date.now()}.silk`);
+  fs.writeFileSync(file, plain);
+  return { ok: true, file, bytes: plain.length };
+}
+
 /**
  * 下载并解密一张图片。
  * @returns {Promise<{ok:true, file:string, bytes:number}>}

@@ -10,7 +10,13 @@ import { createIlinkClient, normalizeMessage, splitForWechat, stripMarkdownForWe
 // 2026-10-27：文字 → SILK 语音条（系统语音 + pilk 编码）
 import { textToMp3 } from "./wechat-voice.mjs";
 // 2026-10-27：微信图片收发
-import { downloadImage, extractImagePaths } from "./wechat-media.mjs";
+import { downloadImage, downloadVoice, extractImagePaths, voiceItemsOf } from "./wechat-media.mjs";
+// 2026-10-28：语音转文字（不信腾讯的 voice_item.text，自己转）
+import { transcribe, seedSttConfig } from "./wechat-stt.mjs";
+import { execFileSync } from "node:child_process";
+import { fileURLToPath } from "node:url";
+// ESM 里没有 __dirname；语音解码要定位 engine/py/silk2wav.py
+const HERE = path.dirname(fileURLToPath(import.meta.url));
 // 2026-10-28：模型写了不存在的图片路径 → 找真图替代；找不到就把裸路径剥掉
 import { rescueImagePaths } from "./wechat-image-rescue.mjs";
 // 2026-10-28：入站去重（message_id + 内容指纹）——没有它，重发的同一条会重复干活、重复花钱
@@ -233,6 +239,26 @@ export function createWechatBridge({
   const recent = [];
   // 2026-10-28：60 秒内失败 3 次 → 停 60 秒起（按次数递增，最多 4 倍）
   const sendCircuit = createCircuit({ threshold: 3, windowMs: 60_000, openMs: 60_000, maxOpenMs: 240_000 });
+  // 2026-10-28：打字指示——typing_ticket 按人缓存 10 分钟（微信要求「正在输入」必须带这个票）
+  const typingTickets = new Map();
+  const TYPING_TTL_MS = 10 * 60 * 1000;
+  async function ensureTypingTicket(acc, to, contextToken) {
+    const hit = typingTickets.get(to);
+    if (hit && now() - hit.at < TYPING_TTL_MS) return hit.ticket;
+    try {
+      const r = await client.getConfig(acc.token, to, contextToken, acc.base_url || ILINK_BASE);
+      const ticket = String(r?.typing_ticket || "");
+      if (ticket) { typingTickets.set(to, { ticket, at: now() }); return ticket }
+    } catch (e) { log("[微信] 拿 typing_ticket 失败（忽略）：" + String(e?.message || e).slice(0, 80)) }
+    return "";
+  }
+  async function setTyping(acc, to, contextToken, on) {
+    try {
+      const ticket = await ensureTypingTicket(acc, to, contextToken);
+      if (!ticket) return;
+      await client.sendTyping(acc.token, to, ticket, on ? 1 : 2, acc.base_url || ILINK_BASE);
+    } catch {}
+  }
   // 每个好友最近一条消息的 context_token：主动发消息（通知）时带上，回复能挂到同一个对话上。
   let contexts = readJson(file("contexts.json"), {});
   const remember = (sender, tokenValue) => {
@@ -320,6 +346,7 @@ export function createWechatBridge({
   const accRef = { value: null };
   try { seedWechatRules(wsRootOfDir()); } catch {}
   try { seedFormatConfig(wsRootOfDir()); } catch {}
+  try { seedSttConfig(wsRootOfDir()); } catch {}
   const reply = (acc, to, text, contextToken, image, file) => {
     // 2026-10-28：对方要图、模型却没给路径 → 日志留痕（否则只能靠猜）
     try {
@@ -364,6 +391,8 @@ export function createWechatBridge({
   }
 
   async function handle(acc, m) {
+    // 2026-10-28：让对方看到「正在输入…」（长任务时尤其重要）
+    void setTyping(acc, m.sender, m.contextToken, true);
     // 2026-10-28：微信来消息 = 用户在线，先记一笔（用轻量钩子，失败不影响主流程）
     try { if (typeof onUserActivity === "function") onUserActivity({ source: "wechat", sender: m.sender, at: now() }); } catch {}
     // 2026-10-28：去重挡在前面——网络抖动/轮询重叠/上游换 id 重发，都不该跑第二遍
@@ -422,6 +451,8 @@ export function createWechatBridge({
       delete inbox[m.sender];
       saveInbox();
       inflight.delete(m.sender);
+      // 2026-10-28：回复完停掉「正在输入」
+      void setTyping(acc, m.sender, m.contextToken, false);
       const next = pending.get(m.sender);
       if (next?.length && !stopping) {
         pending.delete(m.sender);
@@ -510,6 +541,27 @@ export function createWechatBridge({
               m.text = [m.text, `[用户发来 ${saved.length} 张图片，已保存：\n${saved.join("\n")}]`].filter(Boolean).join("\n");
             }
           }
+          // 2026-10-28：语音——下载原始音频自己转写（腾讯的 voice_item.text 对非中文是垃圾）
+          try {
+            const voices = voiceItemsOf(raw);
+            if (voices.length) {
+              const day = new Date(now()).toISOString().slice(0, 10);
+              const outDir = `${dir}/../../收发文件/语音/${day}`;
+              const texts = [];
+              for (const v of voices) {
+                try {
+                  const saved = await downloadVoice({ item: v, outDir });
+                  // silk → wav
+                  const wav = saved.file.replace(/\.silk$/i, ".wav");
+                  execFileSync("python", [path.join(HERE, "py", "silk2wav.py"), saved.file, wav], { encoding: "utf8", timeout: 60000, windowsHide: true });
+                  const t = await transcribe({ file: wav, wsRoot: wsRootOfDir() });
+                  if (t.ok) { texts.push(t.text); log(`[微信] 语音转写 ${t.text.length} 字（${t.lang}）`) }
+                  else log(`[微信] 语音转写失败：${String(t.error || "").slice(0, 80)}`)
+                } catch (e) { log(`[微信] 语音处理失败：${String(e?.message || e).slice(0, 100)}`) }
+              }
+              if (texts.length) m.text = [m.text, `[语音转写] ${texts.join("\n")}`].filter(Boolean).join("\n");
+            }
+          } catch {}
           if (!m.text) continue;
           stats.received++; stats.lastAt = now();
           remember(m.sender, m.contextToken);

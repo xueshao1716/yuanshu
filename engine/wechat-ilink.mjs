@@ -14,6 +14,9 @@ export const EP = {
   updates: "ilink/bot/getupdates",
   send: "ilink/bot/sendmessage",
   getUploadUrl: "ilink/bot/getuploadurl",
+  // 2026-10-28：打字指示（"正在输入…"）
+  getConfig: "ilink/bot/getconfig",
+  sendTyping: "ilink/bot/sendtyping",
 };
 // 素材 CDN：图片先加密传到这个域，再拿 x-encrypted-param 拼进消息引用（2026-10-08 逆向官方 2.4.9）。
 export const CDN_BASE = "https://novac2c.cdn.weixin.qq.com/c2c";
@@ -137,11 +140,22 @@ export function createIlinkClient({ fetch: f = globalThis.fetch, base = ILINK_BA
         // 2026-10-28 真机：不带 context_token 也能发（iLink 当降级兜底）。
         // Hermes 文档同样做法：会话过期时去掉 token 重试一次。救的是「主动推送因 token 过期静默失败」。
         const msg = String(e?.message || e);
-        const looksExpired = /-14|-2|session|context_token|prepare failed|expired/i.test(msg);
+        // 2026-10-28：-2 是频率限制，不该去 token 重试（会把限流当过期处理）；只认 -14/会话类
+        const looksExpired = /-14|session|context_token|prepare failed|expired/i.test(msg) && !/-2\b/.test(msg);
         if (!contextToken || !looksExpired) throw e;
         console.log("[微信] 带 token 发送失败，改用无 token 重试一次：", msg.slice(0, 80));
         return await post(EP.send, { msg: build(false) }, token, API_TIMEOUT_MS, at);
       }
+    },
+    /** 拿 typing_ticket（微信"正在输入"需要它；10 分钟内复用）。 */
+    async getConfig(token, to, contextToken, at = base) {
+      const payload = { ilink_user_id: to };
+      if (contextToken) payload.context_token = contextToken;
+      return post(EP.getConfig, payload, token, 10000, at);
+    },
+    /** 发"正在输入"状态。status: 1=开始 2=停止。 */
+    async sendTyping(token, to, typingTicket, status, at = base) {
+      return post(EP.sendTyping, { ilink_user_id: to, typing_ticket: typingTicket, status }, token, 10000, at);
     },
     // 2026-10-27：发任意文件（发不到微信？先看这里）
     async sendFile(token, filePath, to, contextToken, at = base, { asVideo = false } = {}) {

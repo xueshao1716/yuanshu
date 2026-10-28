@@ -1,0 +1,546 @@
+"""
+Trainers Module
+"""
+
+from collections.abc import Sequence
+from typing import Any, final
+
+from tokenizers import AddedToken, Tokenizer
+
+@final
+class BpeTrainer(Trainer):
+    """
+    Trainer capable of training a BPE model
+
+    Args:
+        vocab_size (:obj:`int`, `optional`):
+            The size of the final vocabulary, including all tokens and alphabet.
+
+        min_frequency (:obj:`int`, `optional`):
+            The minimum frequency a pair should have in order to be merged.
+
+        show_progress (:obj:`bool`, `optional`):
+            Whether to show progress bars while training.
+
+        special_tokens (:obj:`List[Union[str, AddedToken]]`, `optional`):
+            A list of special tokens the model should know of.
+
+        limit_alphabet (:obj:`int`, `optional`):
+            The maximum different characters to keep in the alphabet.
+
+        initial_alphabet (:obj:`List[str]`, `optional`):
+            A list of characters to include in the initial alphabet, even
+            if not seen in the training dataset.
+            If the strings contain more than one character, only the first one
+            is kept.
+
+        continuing_subword_prefix (:obj:`str`, `optional`):
+            A prefix to be used for every subword that is not a beginning-of-word.
+
+        end_of_word_suffix (:obj:`str`, `optional`):
+            A suffix to be used for every subword that is a end-of-word.
+
+        max_token_length (:obj:`int`, `optional`):
+            Prevents creating tokens longer than the specified size.
+            This can help with reducing polluting your vocabulary with
+            highly repetitive tokens like `======` for wikipedia
+
+    Example::
+
+        >>> from tokenizers.models import BPE
+        >>> from tokenizers.trainers import BpeTrainer
+        >>> trainer = BpeTrainer(
+        ...     vocab_size=30000,
+        ...     special_tokens=["<unk>", "<s>", "</s>"],
+        ...     min_frequency=2,
+        ... )
+        >>> tokenizer = Tokenizer(BPE())
+        >>> tokenizer.train(["path/to/corpus.txt"], trainer)
+    """
+    def __new__(
+        cls,
+        /,
+        *,
+        vocab_size: int = 30000,
+        min_frequency: int = 0,
+        show_progress: bool = True,
+        progress_format: str = "indicatif",
+        special_tokens: list = [],
+        limit_alphabet: int | None = None,
+        initial_alphabet: Sequence[str] = [],
+        continuing_subword_prefix: str | None = None,
+        end_of_word_suffix: str | None = None,
+        max_token_length: int | None = None,
+    ) -> BpeTrainer: ...
+    @property
+    def continuing_subword_prefix(self, /) -> str | None: ...
+    @continuing_subword_prefix.setter
+    def continuing_subword_prefix(self, /, prefix: str | None) -> None: ...
+    @property
+    def end_of_word_suffix(self, /) -> str | None: ...
+    @end_of_word_suffix.setter
+    def end_of_word_suffix(self, /, suffix: str | None) -> None: ...
+    def get_word_count(self, /) -> int:
+        """
+        Get the number of unique words after feeding the corpus
+        """
+    @property
+    def initial_alphabet(self, /) -> list[str]: ...
+    @initial_alphabet.setter
+    def initial_alphabet(self, /, alphabet: Sequence[str]) -> None: ...
+    @property
+    def limit_alphabet(self, /) -> int | None: ...
+    @limit_alphabet.setter
+    def limit_alphabet(self, /, limit: int | None) -> None: ...
+    @property
+    def max_token_length(self, /) -> int | None: ...
+    @max_token_length.setter
+    def max_token_length(self, /, limit: int | None) -> None: ...
+    @property
+    def min_frequency(self, /) -> int: ...
+    @min_frequency.setter
+    def min_frequency(self, /, freq: int) -> None: ...
+    @property
+    def progress_format(self, /) -> str:
+        """
+        Get the progress output format ("indicatif", "json", or "silent")
+        """
+    @progress_format.setter
+    def progress_format(self, /, format: str) -> None:
+        """
+        Set the progress output format ("indicatif", "json", or "silent")
+        """
+    @property
+    def show_progress(self, /) -> bool: ...
+    @show_progress.setter
+    def show_progress(self, /, show_progress: bool) -> None: ...
+    @property
+    def special_tokens(self, /) -> list[AddedToken]: ...
+    @special_tokens.setter
+    def special_tokens(self, /, special_tokens: list) -> None: ...
+    @property
+    def vocab_size(self, /) -> int: ...
+    @vocab_size.setter
+    def vocab_size(self, /, vocab_size: int) -> None: ...
+
+@final
+class ParityBpeTrainer:
+    """
+    Trainer for parity-aware BPE that ensures cross-lingual fairness in tokenization.
+
+    Unlike standard BPE, this trainer takes one Python iterator per language and
+    balances merge operations across languages using a development set or target
+    compression ratios. The single training entry point is
+    :meth:`train_from_iterator`, the multi-corpus analogue of
+    :meth:`tokenizers.Tokenizer.train_from_iterator`. Balancing requires either
+    ``dev_iterators`` (ideally parallel across languages) or ``ratio``; given
+    neither, selection follows the per-language training totals, which the
+    highest-data language dominates, so the result stays close to plain BPE. When
+    both are given the dev set takes precedence. A runnable version that obtains
+    per-language corpora and a parallel dev set is in
+    ``examples/train_parity_bpe.py``.
+
+    Args:
+        num_merges (:obj:`int`, `optional`):
+            Number of BPE merge operations to perform. Defaults to ``32000``.
+
+        variant (:obj:`str`, `optional`):
+            Algorithm variant: ``"base"`` (default) or ``"window"`` (moving-window balancing).
+
+        min_frequency (:obj:`int`, `optional`):
+            Minimum pair frequency to merge. Defaults to ``0``.
+
+        ratio (:obj:`List[float]`, `optional`):
+            Target compression rate per language, one entry per training iterator. The
+            trainer selects the language with the lowest ``compression_rate / ratio``,
+            so raising one language's ratio gives it more merges; only the values
+            relative to each other matter. Rates are counted in the units the
+            pre-tokenizer emits, bytes under
+            :class:`~tokenizers.pre_tokenizers.ByteLevel`, so equal ratios do not give
+            equal tokenization across scripts: Devanagari takes about 2.5x the bytes of
+            Latin script for the same content. Set each ratio proportional to the
+            language's average length on parallel text instead. Defaults to ``None``.
+
+        global_merges (:obj:`int`, `optional`):
+            Number of initial standard BPE merges before switching to parity mode. Defaults to ``0``.
+
+        window_size (:obj:`int`, `optional`):
+            Window size for the ``"window"`` variant. Defaults to ``100``.
+
+        alpha (:obj:`float`, `optional`):
+            Alpha parameter for the ``"window"`` variant. Defaults to ``2.0``.
+
+        total_symbols (:obj:`bool`, `optional`):
+            If True, subtract unique character count from ``num_merges``. Defaults to ``False``.
+
+    Example::
+
+        >>> from tokenizers import Tokenizer, pre_tokenizers
+        >>> from tokenizers.models import BPE
+        >>> from tokenizers.trainers import ParityBpeTrainer
+        >>> tokenizer = Tokenizer(BPE())
+        >>> tokenizer.pre_tokenizer = pre_tokenizers.ByteLevel()
+        >>> trainer = ParityBpeTrainer(num_merges=32000, variant="base")
+        >>> # balance against a parallel dev set, the same sentences in every language
+        >>> trainer.train_from_iterator(
+        ...     tokenizer,
+        ...     train_iterators=[english_lines, hindi_lines],
+        ...     dev_iterators=[english_dev, hindi_dev],
+        ... )
+        >>> # or against target rates, which need no dev data
+        >>> trainer.train_from_iterator(
+        ...     tokenizer,
+        ...     train_iterators=[english_lines, hindi_lines],
+        ...     ratio=[1.0, 2.57],
+        ... )
+    """
+    def __getstate__(self, /) -> Any: ...
+    def __new__(
+        cls,
+        /,
+        num_merges: int = 32000,
+        variant: str = "base",
+        min_frequency: int = 0,
+        ratio: Sequence[float] | None = None,
+        global_merges: int = 0,
+        window_size: int = 100,
+        alpha: float = 2.0,
+        total_symbols: bool = False,
+        special_tokens: list | None = None,
+        show_progress: bool = True,
+        limit_alphabet: int | None = None,
+        initial_alphabet: Sequence[str] | None = None,
+        continuing_subword_prefix: str | None = None,
+        end_of_word_suffix: str | None = None,
+        max_token_length: int | None = None,
+    ) -> ParityBpeTrainer: ...
+    def __repr__(self, /) -> str: ...
+    def __setstate__(self, /, state: Any) -> None: ...
+    def __str__(self, /) -> str: ...
+    @property
+    def alpha(self, /) -> float: ...
+    @alpha.setter
+    def alpha(self, /, v: float) -> None: ...
+    @property
+    def continuing_subword_prefix(self, /) -> str | None: ...
+    @continuing_subword_prefix.setter
+    def continuing_subword_prefix(self, /, v: str | None) -> None: ...
+    @property
+    def end_of_word_suffix(self, /) -> str | None: ...
+    @end_of_word_suffix.setter
+    def end_of_word_suffix(self, /, v: str | None) -> None: ...
+    @property
+    def global_merges(self, /) -> int: ...
+    @global_merges.setter
+    def global_merges(self, /, v: int) -> None: ...
+    @property
+    def initial_alphabet(self, /) -> list[str]: ...
+    @initial_alphabet.setter
+    def initial_alphabet(self, /, alphabet: Sequence[str]) -> None: ...
+    @property
+    def limit_alphabet(self, /) -> int | None: ...
+    @limit_alphabet.setter
+    def limit_alphabet(self, /, v: int | None) -> None: ...
+    @property
+    def max_token_length(self, /) -> int | None: ...
+    @max_token_length.setter
+    def max_token_length(self, /, v: int | None) -> None: ...
+    @property
+    def min_frequency(self, /) -> int: ...
+    @min_frequency.setter
+    def min_frequency(self, /, v: int) -> None: ...
+    @property
+    def num_merges(self, /) -> int: ...
+    @num_merges.setter
+    def num_merges(self, /, v: int) -> None: ...
+    @property
+    def show_progress(self, /) -> bool: ...
+    @show_progress.setter
+    def show_progress(self, /, v: bool) -> None: ...
+    @property
+    def special_tokens(self, /) -> list[AddedToken]: ...
+    @special_tokens.setter
+    def special_tokens(self, /, special_tokens: list) -> None: ...
+    @property
+    def total_symbols(self, /) -> bool: ...
+    @total_symbols.setter
+    def total_symbols(self, /, v: bool) -> None: ...
+    def train_from_iterator(
+        self,
+        /,
+        tokenizer: Tokenizer,
+        train_iterators: Sequence[Any],
+        dev_iterators: Sequence[Any] | None = None,
+        ratio: Sequence[float] | None = None,
+    ) -> None:
+        """
+        Train a user-configured tokenizer with parity-aware BPE from per-language
+        Python iterators.
+
+        Each entry of ``train_iterators`` (and optionally ``dev_iterators``) is a
+        Python iterator yielding strings (or batches / lists of strings) for one
+        language. This is the multi-corpus analogue of
+        :meth:`~tokenizers.Tokenizer.train_from_iterator`: file I/O happens in
+        Python, so users can pull data from plain text, parquet (via ``pyarrow``),
+        ``datasets``, etc.
+
+        Args:
+            tokenizer (:class:`~tokenizers.Tokenizer`):
+                A tokenizer instance to train. Its pre-tokenizer (and optionally
+                normalizer) should already be configured.
+
+            train_iterators (:obj:`List[Iterator]`):
+                One Python iterator per language, each yielding ``str`` or
+                ``List[str]``.
+
+            dev_iterators (:obj:`List[Iterator]`, `optional`):
+                One Python iterator per language, used to drive parity-aware
+                language selection. Must have the same length as
+                ``train_iterators``.
+
+            ratio (:obj:`List[float]`, `optional`):
+                Target compression rates per language, an alternative to
+                ``dev_iterators`` and ignored when one is supplied. See the class
+                docstring for how to choose the values.
+        """
+    @property
+    def variant(self, /) -> str: ...
+    @property
+    def window_size(self, /) -> int: ...
+    @window_size.setter
+    def window_size(self, /, v: int) -> None: ...
+
+class Trainer:
+    """
+    Base class for all trainers
+
+    This class is not supposed to be instantiated directly. Instead, any implementation of a
+    Trainer will return an instance of this class when instantiated.
+    """
+    def __getstate__(self, /) -> Any: ...
+    def __repr__(self, /) -> str: ...
+    def __setstate__(self, /, state: Any) -> None: ...
+    def __str__(self, /) -> str: ...
+
+@final
+class UnigramTrainer(Trainer):
+    """
+    Trainer capable of training a Unigram model
+
+    Args:
+        vocab_size (:obj:`int`):
+            The size of the final vocabulary, including all tokens and alphabet.
+
+        show_progress (:obj:`bool`):
+            Whether to show progress bars while training.
+
+        special_tokens (:obj:`List[Union[str, AddedToken]]`):
+            A list of special tokens the model should know of.
+
+        initial_alphabet (:obj:`List[str]`):
+            A list of characters to include in the initial alphabet, even
+            if not seen in the training dataset.
+            If the strings contain more than one character, only the first one
+            is kept.
+
+        shrinking_factor (:obj:`float`):
+            The shrinking factor used at each step of the training to prune the
+            vocabulary.
+
+        unk_token (:obj:`str`):
+            The token used for out-of-vocabulary tokens.
+
+        max_piece_length (:obj:`int`):
+            The maximum length of a given token.
+
+        n_sub_iterations (:obj:`int`):
+            The number of iterations of the EM algorithm to perform before
+            pruning the vocabulary.
+
+    Example::
+
+        >>> from tokenizers.models import Unigram
+        >>> from tokenizers.trainers import UnigramTrainer
+        >>> trainer = UnigramTrainer(
+        ...     vocab_size=8000,
+        ...     special_tokens=["<unk>", "<s>", "</s>"],
+        ...     unk_token="<unk>",
+        ... )
+        >>> tokenizer = Tokenizer(Unigram())
+        >>> tokenizer.train(["path/to/corpus.txt"], trainer)
+    """
+    def __new__(
+        cls,
+        /,
+        *,
+        vocab_size: int = 8000,
+        show_progress: bool = True,
+        special_tokens: list = [],
+        initial_alphabet: Sequence[str] = [],
+        shrinking_factor=0.75,
+        unk_token=None,
+        max_piece_length=16,
+        n_sub_iterations=2,
+    ) -> UnigramTrainer: ...
+    @property
+    def initial_alphabet(self, /) -> list[str]: ...
+    @initial_alphabet.setter
+    def initial_alphabet(self, /, alphabet: Sequence[str]) -> None: ...
+    @property
+    def show_progress(self, /) -> bool: ...
+    @show_progress.setter
+    def show_progress(self, /, show_progress: bool) -> None: ...
+    @property
+    def special_tokens(self, /) -> list[AddedToken]: ...
+    @special_tokens.setter
+    def special_tokens(self, /, special_tokens: list) -> None: ...
+    @property
+    def vocab_size(self, /) -> int: ...
+    @vocab_size.setter
+    def vocab_size(self, /, vocab_size: int) -> None: ...
+
+@final
+class WordLevelTrainer(Trainer):
+    """
+    Trainer capable of training a WordLevel model
+
+    Args:
+        vocab_size (:obj:`int`, `optional`):
+            The size of the final vocabulary, including all tokens and alphabet.
+
+        min_frequency (:obj:`int`, `optional`):
+            The minimum frequency a pair should have in order to be merged.
+
+        show_progress (:obj:`bool`, `optional`):
+            Whether to show progress bars while training.
+
+        special_tokens (:obj:`List[Union[str, AddedToken]]`):
+            A list of special tokens the model should know of.
+
+    Example::
+
+        >>> from tokenizers.models import WordLevel
+        >>> from tokenizers.trainers import WordLevelTrainer
+        >>> trainer = WordLevelTrainer(
+        ...     vocab_size=10000,
+        ...     special_tokens=["<unk>"],
+        ...     min_frequency=1,
+        ... )
+        >>> tokenizer = Tokenizer(WordLevel(unk_token="<unk>"))
+        >>> tokenizer.train(["path/to/corpus.txt"], trainer)
+    """
+    def __new__(
+        cls,
+        /,
+        *,
+        vocab_size: int = 30000,
+        min_frequency: int = 0,
+        show_progress: bool = True,
+        special_tokens: list = [],
+    ) -> WordLevelTrainer: ...
+    @property
+    def min_frequency(self, /) -> int: ...
+    @min_frequency.setter
+    def min_frequency(self, /, freq: int) -> None: ...
+    @property
+    def show_progress(self, /) -> bool: ...
+    @show_progress.setter
+    def show_progress(self, /, show_progress: bool) -> None: ...
+    @property
+    def special_tokens(self, /) -> list[AddedToken]: ...
+    @special_tokens.setter
+    def special_tokens(self, /, special_tokens: list) -> None: ...
+    @property
+    def vocab_size(self, /) -> int: ...
+    @vocab_size.setter
+    def vocab_size(self, /, vocab_size: int) -> None: ...
+
+@final
+class WordPieceTrainer(Trainer):
+    """
+    Trainer capable of training a WordPiece model
+
+    Args:
+        vocab_size (:obj:`int`, `optional`):
+            The size of the final vocabulary, including all tokens and alphabet.
+
+        min_frequency (:obj:`int`, `optional`):
+            The minimum frequency a pair should have in order to be merged.
+
+        show_progress (:obj:`bool`, `optional`):
+            Whether to show progress bars while training.
+
+        special_tokens (:obj:`List[Union[str, AddedToken]]`, `optional`):
+            A list of special tokens the model should know of.
+
+        limit_alphabet (:obj:`int`, `optional`):
+            The maximum different characters to keep in the alphabet.
+
+        initial_alphabet (:obj:`List[str]`, `optional`):
+            A list of characters to include in the initial alphabet, even
+            if not seen in the training dataset.
+            If the strings contain more than one character, only the first one
+            is kept.
+
+        continuing_subword_prefix (:obj:`str`, `optional`):
+            A prefix to be used for every subword that is not a beginning-of-word.
+
+        end_of_word_suffix (:obj:`str`, `optional`):
+            A suffix to be used for every subword that is a end-of-word.
+
+    Example::
+
+        >>> from tokenizers.models import WordPiece
+        >>> from tokenizers.trainers import WordPieceTrainer
+        >>> trainer = WordPieceTrainer(
+        ...     vocab_size=30000,
+        ...     special_tokens=["[UNK]", "[CLS]", "[SEP]", "[PAD]", "[MASK]"],
+        ... )
+        >>> tokenizer = Tokenizer(WordPiece(unk_token="[UNK]"))
+        >>> tokenizer.train(["path/to/corpus.txt"], trainer)
+    """
+    def __new__(
+        cls,
+        /,
+        *,
+        vocab_size: int = 30000,
+        min_frequency: int = 0,
+        show_progress: bool = True,
+        special_tokens: list = [],
+        limit_alphabet: int | None = None,
+        initial_alphabet: Sequence[str] = [],
+        continuing_subword_prefix: str | None = "##",
+        end_of_word_suffix: str | None = None,
+    ) -> WordPieceTrainer: ...
+    @property
+    def continuing_subword_prefix(self, /) -> str | None: ...
+    @continuing_subword_prefix.setter
+    def continuing_subword_prefix(self, /, prefix: str | None) -> None: ...
+    @property
+    def end_of_word_suffix(self, /) -> str | None: ...
+    @end_of_word_suffix.setter
+    def end_of_word_suffix(self, /, suffix: str | None) -> None: ...
+    @property
+    def initial_alphabet(self, /) -> list[str]: ...
+    @initial_alphabet.setter
+    def initial_alphabet(self, /, alphabet: Sequence[str]) -> None: ...
+    @property
+    def limit_alphabet(self, /) -> int | None: ...
+    @limit_alphabet.setter
+    def limit_alphabet(self, /, limit: int | None) -> None: ...
+    @property
+    def min_frequency(self, /) -> int: ...
+    @min_frequency.setter
+    def min_frequency(self, /, freq: int) -> None: ...
+    @property
+    def show_progress(self, /) -> bool: ...
+    @show_progress.setter
+    def show_progress(self, /, show_progress: bool) -> None: ...
+    @property
+    def special_tokens(self, /) -> list[AddedToken]: ...
+    @special_tokens.setter
+    def special_tokens(self, /, special_tokens: list) -> None: ...
+    @property
+    def vocab_size(self, /) -> int: ...
+    @vocab_size.setter
+    def vocab_size(self, /, vocab_size: int) -> None: ...
