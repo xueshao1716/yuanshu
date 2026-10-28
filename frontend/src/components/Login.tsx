@@ -34,6 +34,19 @@ export default function Login() {
       .finally(() => setLoading(false))
   }, [])
 
+  // 2026-10-28：本机一键登录（令牌含 #，手抄/复制链接都容易坏）
+  const localLogin = async () => {
+    setLoading(true); setErr('')
+    try {
+      const r = await fetch('/api/auth/local-token')
+      const j = await r.json().catch(() => ({}))
+      if (!r.ok || !j?.token) throw new Error(j?.error || '拿不到本机令牌（服务可能不在本机）')
+      await login(String(j.token), String(j.apiBase || origin))
+    } catch (e: any) {
+      setErr('本机登录失败：' + (e?.message || e))
+    } finally { setLoading(false) }
+  }
+
   const submit = async () => {
     const tk = token.trim(); if (!tk) return
     const filledBase = apiBase.trim()
@@ -82,7 +95,12 @@ export default function Login() {
                   <label className="block"><span className="mb-2 flex items-center gap-2 text-[11px] font-medium text-pi-dim"><KeyRound className="h-3.5 w-3.5 text-pi-accent" />访问令牌</span><div className="relative"><input className="input-pi !min-h-12 !rounded-xl !pr-12" type={showToken ? 'text' : 'password'} placeholder="粘贴服务器 .token 内容" value={token} onChange={e => setToken(e.target.value)} onKeyDown={e => e.key === 'Enter' && submit()} /><button type="button" aria-label={showToken ? '隐藏访问令牌' : '显示访问令牌'} className="absolute right-1 top-1/2 flex h-10 w-10 -translate-y-1/2 items-center justify-center rounded-lg text-pi-dim2 hover:bg-pi-bg3 hover:text-pi-text" onClick={() => setShowToken(v => !v)}>{showToken ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}</button></div></label>
                 </div>
                 {err && <div role="alert" className="mt-4 rounded-xl border border-pi-red/30 bg-pi-red/10 px-3 py-2.5 text-xs leading-5 text-pi-red">{err}</div>}
-                <button className="btn-primary mt-5 flex min-h-12 w-full items-center justify-center gap-2 rounded-xl text-sm font-semibold" disabled={loading || !token.trim()} onClick={submit}>{loading ? '正在连接工作台…' : <><span>进入元枢</span><ArrowUpRight className="h-4 w-4" /></>}</button>
+                <button type="button" onClick={localLogin} disabled={loading} className="mt-3 flex min-h-11 w-full items-center justify-center gap-2 rounded-xl border border-pi-border bg-pi-bg3/60 text-[12.5px] font-medium text-pi-text hover:bg-pi-bg3 disabled:opacity-60">
+  <Sparkles className="h-3.5 w-3.5 text-pi-accent" />
+  用本机令牌直接进入（推荐）
+</button>
+<p className="mt-2 text-[11px] leading-5 text-pi-dim2">无需手抄令牌：页面会向本机 8787 服务要一次令牌并记住。手机/远程访问请手动填地址与令牌。</p>
+<button className="btn-primary mt-5 flex min-h-12 w-full items-center justify-center gap-2 rounded-xl text-sm font-semibold" disabled={loading || !token.trim()} onClick={submit}>{loading ? '正在连接工作台…' : <><span>进入元枢</span><ArrowUpRight className="h-4 w-4" /></>}</button>
                 <div className="mt-5 flex items-start gap-2 border-t border-pi-border pt-4 text-[11px] leading-5 text-pi-dim2"><Check className="mt-0.5 h-3.5 w-3.5 flex-shrink-0 text-pi-green" /><span>令牌只保存在当前设备的本地存储中。手机端请填写电脑公网或局域网地址，不要填 127.0.0.1。</span></div>
               </div>
               <div className="mt-4 text-center text-[11px] text-pi-dim2">还没有配置？登录后可在「系统」页管理模型与密钥。</div>

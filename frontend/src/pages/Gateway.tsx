@@ -177,6 +177,17 @@ export default function Gateway() {
           </button>
         </div>
         {roHint ? <p className="mt-2 text-xs text-pi-dim2">{roHint}</p> : null}
+        <details className="mt-2 text-xs text-pi-dim2">
+          <summary style={{ cursor: 'pointer' }}>开启后具体会拦下什么？</summary>
+          <ul className="mt-1.5 space-y-1 leading-relaxed">
+            <li>· 写文件：echo 重定向、rm、mv、mkdir、chmod</li>
+            <li>· 改代码：git commit / push / reset / clean、sed -i</li>
+            <li>· 装东西：npm install、pip install、node -e</li>
+            <li>· 受保护文件：SOUL、IDENTITY、宪法.json、.token、记忆/ 下的文件</li>
+            <li>· 危险命令：rm -rf、find -delete、truncate -s 0、Remove-Item -Recurse</li>
+          </ul>
+          <p className="mt-1.5">放行的：ls、cat、grep、git status、git diff、wc、node 跑一个脚本文件 这类只读命令。</p>
+        </details>
       </section>
 
       <section className="panel space-y-3">

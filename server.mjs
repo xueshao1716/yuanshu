@@ -4268,6 +4268,15 @@ const API_ROUTES = [
   ["POST", "/api/color-prefs", async (res, req) => { const b = await readBody(req, 12); return json(res, 200, saveColorPrefs(b || {})) }],
   ["GET", "/api/system/info", (res) => json(res, 200, buildSystemInfo(WS_ROOT, AGENT_DIR))],
   // 2026-10-07 真机：安装包首页没有令牌管理入口，安装好了改不了令牌。
+  // 2026-10-28：本机一键登录——只允许回环地址调用，把令牌交给同机浏览器（免手抄）
+  ["GET", "/api/auth/local-token", (res, req) => {
+    try {
+      const addr = String(req?.socket?.remoteAddress || "");
+      const local = addr === "127.0.0.1" || addr === "::1" || addr === "::ffff:127.0.0.1";
+      if (!local) return json(res, 403, { ok: false, error: "只允许本机访问" });
+      return json(res, 200, { ok: true, token: CONFIG.token, apiBase: `http://127.0.0.1:${CONFIG.port}` });
+    } catch (e) { return json(res, 500, { ok: false, error: String(e?.message || e).slice(0, 160) }); }
+  }],
   ["GET", "/api/system/token", (res) => json(res, 200, { token: CONFIG.token, tokenFile: CONFIG.tokenFile })],
   // ── 首启向导（令牌 → 模型 → 灵魂）──
   // status 免鉴权（登录页要用来提示「用桌面快捷方式打开」），只回布尔值，不含令牌
@@ -5556,7 +5565,9 @@ const server = http.createServer(async (req, res) => {
       || (req.method === "GET" && url.pathname === "/api/pair/status");
     // 网易云扫码登录页：仅本机直连可开（它只写本机 cookie 文件，不碰账号密码）
     const isMusicLogin = (url.pathname === "/music-login" || url.pathname === "/api/music/login") && req.method === "GET" && isLoopbackReq(req);
-    if (!isStatic && !isSignedFile && !isSetupStatus && !isPublicFeedback && !isPublicTvMedia && !isMusicLogin && !isPairPage && !isPairPublic && !checkAuth(req)) {
+    // 2026-10-28：本机一键登录（只回环，令牌含 # 手抄易错）
+    const isLocalLogin = url.pathname === "/api/auth/local-token" && req.method === "GET" && isLoopbackReq(req);
+    if (!isStatic && !isSignedFile && !isSetupStatus && !isPublicFeedback && !isPublicTvMedia && !isMusicLogin && !isPairPage && !isPairPublic && !isLocalLogin && !checkAuth(req)) {
       return json(res, 401, { error: "未授权，请提供访问令牌" });
     }
 
