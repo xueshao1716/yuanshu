@@ -18,7 +18,7 @@ type Loop = { key: string; title: string; status: string; attempts: number }
 type Claim = { id: string; task: string; agent: string; scope: string[]; state: string; createdAt: number; expiresAt: number }
 type Msg = { id: string; at: number; from: string; to: string; kind: string; text: string }
 type Failure = { id: string; at: number; agent: string; area: string; attempt: string; why: string; source: string; files: string[] }
-type Job = { id: string; kind: string; title: string; status: string; startedAt?: number; finishedAt?: number; error?: string }
+type Job = { id: string; kind: string; title: string; status: string; queuedAt?: number; startedAt?: number; finishedAt?: number; durationMs?: number; resultPreview?: string; error?: string }
 type Feedback = { id: string; at: number; type: string; title: string; detail: string; status: string; contact?: string }
 type Evo = { id: string; kind?: string; analysis?: string; traces?: number; target?: { type?: string; name?: string }; createdAt?: number }
 
@@ -30,6 +30,14 @@ const SOURCE_LABEL: Record<string, string> = {
 }
 const CHANNEL_LABEL: Record<string, string> = { wechat: '微信', email: '邮件', webhook: 'Webhook', pushplus: '服务号推送' }
 
+const fmtDuration = (ms?: number) => {
+  const n = Number(ms) || 0
+  if (n <= 0) return ""
+  const s2 = Math.round(n / 1000)
+  if (s2 < 60) return s2 + " 秒"
+  const m = Math.floor(s2 / 60)
+  return m + " 分" + (s2 % 60 ? " " + (s2 % 60) + " 秒" : "")
+}
 const pill = (primary = false): React.CSSProperties => ({
   display: 'inline-flex', alignItems: 'center', justifyContent: 'center', minHeight: 32, padding: '0 13px',
   borderRadius: 999, fontSize: 12.5, cursor: 'pointer',
@@ -61,7 +69,7 @@ export default function Gateway() {
   const pro = useSWR('gateway-pro', () => api<{ ok: boolean; watches: Watch[]; loops: Loop[] }>('/api/proactive'), { refreshInterval: 30000 })
   const clm = useSWR('gateway-claim', () => api<{ ok: boolean; items: Claim[] }>('/api/claim'), { refreshInterval: 15000 })
   const fail = useSWR('gateway-fail', () => api<{ ok: boolean; items: Failure[] }>('/api/failure'), { refreshInterval: 30000 })
-  const jobs = useSWR('gateway-jobs', () => api<{ running?: number; queued?: number; jobs?: Job[] }>('/api/jobs'), { refreshInterval: 5000 })
+  const jobs = useSWR('gateway-jobs', () => api<{ running?: number; queued?: number; concurrency?: number; jobs?: Job[] }>('/api/jobs'), { refreshInterval: 5000 })
   const evo = useSWR('gateway-evo', () => api<{ proposals: Evo[] }>('/api/evolution/proposals'), { refreshInterval: 30000 })
   const fb = useSWR('gateway-feedback', () => api<{ items: Feedback[] }>('/api/feedback'), { refreshInterval: 30000 })
   const ro = useSWR('guard-readonly', () => api<{ ok: boolean; on: boolean; source?: string }>('/api/guard/readonly'), { refreshInterval: 30000 })
@@ -235,30 +243,48 @@ export default function Gateway() {
         <div className="flex flex-wrap items-baseline justify-between gap-2">
           <h2 className="text-[15px] font-semibold text-pi-text">后台任务</h2>
           <span className="text-xs text-pi-dim2">
-            {runningJobs.length ? `正在跑 ${runningJobs.length} 个` : '现在没有任务在跑'}
+            {runningJobs.length ? `正在跑 ${runningJobs.length} 个` : "现在没有任务在跑"}
             {jobs.data?.queued ? ` · 排队 ${jobs.data.queued}` : ""}
+            {jobs.data?.concurrency ? ` · 并发上限 ${jobs.data.concurrency}` : ""}
           </span>
         </div>
-        {runningJobs.length || recentJobs.length ? (
+        {runningJobs.length ? (
           <ul className="space-y-2">
-            {[...runningJobs, ...recentJobs].map((j) => (
+            {runningJobs.map((j) => (
               <li key={j.id} className="text-[12.5px] leading-relaxed">
-                <span className={j.status === "failed" ? "text-pi-danger" : "text-pi-dim2"}>
-                  {j.status === "running" ? "跑着" : j.status === "queued" ? "排队" : j.status === "failed" ? "失败" : "完成"}
+                <span className="text-pi-dim2">
+                  {j.status === "running" ? "跑着" : "排队"}
                   {j.kind ? ` · ${j.kind}` : ""}
-                  {j.startedAt ? ` · ${time(j.startedAt)}` : ""}
+                  {j.startedAt ? ` · 已跑 ${fmtDuration(Date.now() - j.startedAt) || "刚刚开始"}` : ""}
                 </span>
                 <div className="text-pi-text">{j.title || "(无标题)"}</div>
-                {j.error ? <div className="text-pi-danger">{String(j.error).slice(0, 120)}</div> : null}
-                {(j.status === "running" || j.status === "queued") ? (
-                  <button type="button" style={{ ...pill(), minHeight: 24, fontSize: 11 }} onClick={() => void cancelJob(j.id)}>取消</button>
-                ) : null}
+                <button type="button" style={{ ...pill(), minHeight: 24, fontSize: 11 }} onClick={() => void cancelJob(j.id)}>取消</button>
               </li>
             ))}
           </ul>
-        ) : <p className="text-xs text-pi-dim2">后台没有任务。长活（渲染/调研/爬取）会自动登记在这里。</p>}
-      </section>
+        ) : <p className="text-xs text-pi-dim2">后台没有任务在跑。长活（渲染/调研/爬取）会自动登记在这里，可以随时取消。</p>}
 
+        {recentJobs.length ? (
+          <details className="pt-2 border-t border-pi-border-soft">
+            <summary className="cursor-pointer text-xs text-pi-dim2">最近完成 {recentJobs.length} 条（点开看结果与耗时）</summary>
+            <ul className="mt-2 space-y-2">
+              {recentJobs.map((j) => (
+                <li key={j.id} className="text-[12px] leading-relaxed">
+                  <span className={j.status === "failed" ? "text-pi-danger" : "text-pi-dim2"}>
+                    {j.status === "failed" ? "失败" : j.status === "cancelled" ? "已取消" : "完成"}
+                    {j.kind ? ` · ${j.kind}` : ""}
+                    {j.durationMs ? ` · 耗时 ${fmtDuration(j.durationMs)}` : ""}
+                    {j.finishedAt ? ` · ${time(j.finishedAt)}` : ""}
+                  </span>
+                  <div className="text-pi-text">{j.title || "(无标题)"}</div>
+                  {j.error ? <div className="text-pi-danger">{String(j.error).slice(0, 140)}</div> : null}
+                  {!j.error && j.resultPreview ? <div className="text-pi-dim2">{String(j.resultPreview).slice(0, 140)}</div> : null}
+                </li>
+              ))}
+            </ul>
+          </details>
+        ) : null}
+      </section>
       {/* 进化提案：她自己攒的改进建议 */}
       <section className="panel space-y-3">
         <div className="flex flex-wrap items-baseline justify-between gap-2">

@@ -76,6 +76,7 @@ function JobDetail({ id, policyRevision, refreshed, busy, act }: {
 export default function KnowledgeJobs({ refreshed, policyRevision }: { refreshed: () => Promise<unknown>; policyRevision?: number }) {
   const [offset, setOffset] = useState(0), [selected, setSelected] = useState<string | null>(knowledgeSelection)
   const [filter, setFilter] = useState<FilterKey>('all')
+  const [query, setQuery] = useState('')
   useEffect(()=>{const sync=()=>setSelected(knowledgeSelection());window.addEventListener('hashchange',sync);return()=>window.removeEventListener('hashchange',sync)},[])
   const [busy, setBusy] = useState(false), [error, setError] = useState('')
   const list = useSWR(['knowledge-jobs', offset], () => KnowledgeApi.jobs(offset), knowledgePolling)
@@ -94,7 +95,8 @@ export default function KnowledgeJobs({ refreshed, policyRevision }: { refreshed
     }
   }
   const items = list.data?.items || []
-  const shownRows = items.filter((j) => matchesFilter(j, filter))
+  const keyword = query.trim().toLowerCase()
+  const shownRows = items.filter((j) => matchesFilter(j, filter) && (!keyword || String(j.title || '').toLowerCase().includes(keyword)))
   const finished = shownRows.filter((j) => isFinished(j))
   const active = shownRows.filter((j) => !isFinished(j))
   const row = (job: any) => <li key={job.id} className="py-2">
@@ -121,10 +123,13 @@ export default function KnowledgeJobs({ refreshed, policyRevision }: { refreshed
         onClick={() => { setFilter(f.key); setSelected(null) }}
       >{f.label}{f.key === 'all' ? '' : ` ${items.filter((j) => matchesFilter(j, f.key)).length}`}</button>)}
     </div>
+    <label className="block text-[12px] text-pi-text">按标题搜索
+      <input type="search" value={query} onChange={(e) => { setQuery(e.target.value); setSelected(null) }} placeholder="输入关键词，如「失败任务」" className="mt-1.5 min-h-10 w-full rounded-pi-md border border-pi-border-soft bg-pi-bg2 px-3 text-[13px] text-pi-text" />
+    </label>
     {(error || list.error) && <p role="alert">{error || knowledgeError(list.error)}</p>}
     {list.isLoading && <p role="status">正在读取队列…</p>}
     {list.data?.total === 0 && <p className="leading-6 text-pi-dim">暂无知识任务。完成一项工作，或补充一份获准的资料后，后台会在空闲时处理。</p>}
-    {shownRows.length === 0 && items.length > 0 && <p className="text-[12px] text-pi-dim">这一页没有符合「{FILTERS.find((f) => f.key === filter)?.label}」的记录。翻页或在上面换一档看看。</p>}
+    {shownRows.length === 0 && items.length > 0 && <p className="text-[12px] text-pi-dim">这一页没有符合「{FILTERS.find((f) => f.key === filter)?.label}{keyword ? ` + 「${query.trim()}」` : ''}」的记录。翻页、换一档，或清空搜索词。</p>}
     {active.length > 0 && <ul className="divide-y divide-pi-border-soft">{active.map(row)}</ul>}
     {active.length === 0 && finished.length > 0 && <p className="text-[12px] text-pi-dim">当前没有需要你处理的知识任务。</p>}
     {finished.length > 0 && <details className="border-t border-pi-border-soft pt-2">
