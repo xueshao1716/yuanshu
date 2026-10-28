@@ -11,8 +11,22 @@ import { httpJsonFetch } from "../http.mjs";
 import {
   matchDenyRule, isProtectedPath, DANGEROUS_CMD_RE, PI_CMDS, INTERACTIVE_CMD_RE, safeJoin, normalizeToolPath,
 } from "./security.mjs";
+import { readOnlyOn, allowInReadOnly } from "./readonly-mode.mjs";
 import { isSensitivePath, commandTouchesSensitive, redactSecrets } from "./secrets-guard.mjs";
 import { withFileLock, FileLockTimeoutError } from "../file-lock.mjs";
+
+/** 命令里是否出现受保护文件。返回命中片段，没命中返回空串。 */
+export function protectedHit(cmd) {
+  const text = String(cmd || "");
+  const names = [/APPEND_SYSTEM\.md/i, /(^|[\\/\s"'])SOUL([\\/\s"']|$)/i, /IDENTITY/i, /宪法\.json/i, /人格定义\.json/i, /\.token/i];
+  for (const re of names) {
+    const m = text.match(re);
+    if (m) return m[0];
+  }
+  const writeTo = text.match(/>\s*([^\s&|;]*记忆[^\s&|;]*)/);
+  if (writeTo) return writeTo[1];
+  return "";
+}
 
 /**
  * 写操作进锁；等锁超时（另一进程正持有）如实失败，而不是无锁硬写或抛异常带崩这一轮。
@@ -468,6 +482,22 @@ export function createUnifiedToolExecutor(deps = {}) {
         }
         // 危险命令拦截（防 prompt injection / 幻觉触发不可逆操作）
         if (DANGEROUS_CMD_RE.test(cmd)) return { text: "⚠️ 拒绝执行：该命令可能造成不可逆数据丢失", isError: true };
+        // 2026-10-28：bash 也要守「受保护路径」——write/edit 会拦，bash 以前不拦，
+        // 结果一条 echo 重定向就能把记忆文件覆盖掉。
+        {
+          const touched = protectedHit(cmd);
+          if (touched) {
+            return { text: `⛔ 拒绝执行 [仓库法律]：命令碰到受保护文件 ${touched}（人格/宪法/凭据只读，写入请走提案）。`, isError: true };
+          }
+        }
+        // 2026-10-28：只读模式（YUANSHU_READONLY=1 或 记忆/运行时/只读模式.json {"on":true}）
+        {
+          const ro = readOnlyOn(cwd());
+          if (ro.on) {
+            const g = allowInReadOnly(cmd);
+            if (!g.ok) return { text: `⛔ 只读模式已开启（${ro.source}）：这条命令被拒——${g.reason}。需要写操作请先关掉只读模式。`, isError: true };
+          }
+        }
         // 交互命令防护：pi / node / python 等命令若被模型幻觉出无效子命令，会进入交互模式挂起直到超时
         const piM = cmd.match(/^\s*pi(?:\s+([a-zA-Z-]+))?/);
         if (piM) {

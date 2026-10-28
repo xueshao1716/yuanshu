@@ -39,7 +39,28 @@ export function isProtectedPath(p) {
 
 // 危险命令拦截（防 prompt injection / 幻觉触发不可逆操作）
 // 2026-10-07 真机：git-bash 写法 taskkill //F //PID、或 /F 放在 /PID 之后都绕过了旧的 taskkill\s+\/f。
-export const DANGEROUS_CMD_RE = /^\s*(rm\s+(-rf|-r|-f)?|format\s+[a-zA-Z]:|del\s+\/[sf]|rd\s+\/s|shutdown|taskkill\b[^|&;\n]*\s\/{1,2}f\b|reg\s+delete|diskpart|mkfs|dd\s+if=)/i;
+// 2026-10-28：实测绕过清单后扩表——引号拆分/变量拼接仍拦不住（那是语法树的事），
+// 但「换个命令干同一件事」这类必须拦住：find -delete / truncate / Remove-Item / cmd·powershell 包装。
+export const DANGEROUS_CMD_RE = new RegExp(
+  [
+    // 原表
+    "^\\s*(rm\\s+(-rf|-r|-f)?|format\\s+[a-zA-Z]:|del\\s+\\/[sf]|rd\\s+\\/s|shutdown|taskkill\\b[^|&;\\n]*\\s\\/{1,2}f\\b|reg\\s+delete|diskpart|mkfs|dd\\s+if=)",
+    // 换命令干同类事
+    "\\bfind\\b[^|&;\\n]*-delete",
+    "\\btruncate\\s+-s\\s*0",
+    "\\bshred\\b",
+    "\\bwipefs\\b",
+    "\\bmv\\s+[^|&;\\n]+\\s+/dev/null",
+    ">\\s*/dev/sd[a-z]",
+    // Windows 侧
+    "\\bRemove-Item\\b[^|&;\\n]*-(Recurse|Force)",
+    "\\bFormat-Volume\\b",
+    "\\bClear-Disk\\b",
+    // 包装执行（命令藏在子 shell 里）
+    "\\b(cmd|powershell|pwsh)(\\.exe)?\\s+\\/(c|k)\\b[^|&;\\n]*(del|rd|rm|format|Remove-Item)",
+  ].join("|"),
+  "i",
+);
 
 // pi CLI 有效子命令（无效子命令会被 pi 当消息参数启动交互会话 → 挂 5 分钟）
 export const PI_CMDS = new Set(["install", "remove", "uninstall", "update", "list", "config", "auth", "--help", "-h", "--version", "-v", "--provider", "--model", "--print", "-p", "--continue", "-c", "--resume", "-r"]);

@@ -15,7 +15,7 @@ import { readProposals, writeProposals, markProposal } from "./capability-propos
 // 2026-10-27：补丁按文件认领，避免两个 agent 改同一份文件
 import { claimTask, releaseClaim } from "./claim-board.mjs";
 // 2026-10-27：失败也要共享，别让后来的人重复踩
-import { recordPatchFailure } from "./failure-ledger.mjs";
+import { recordPatchFailure, isImpossible, evaluateImpossible } from "./failure-ledger.mjs";
 import { gitBin } from "./repo-root.mjs";
 
 export const MAX_ATTEMPTS = 3;
@@ -81,6 +81,16 @@ export async function runProposal({ wsRoot, repoRoot, proposal, generate, dryRun
   const t0 = Date.now();
   const planPath = proposal.planPath;
   if (!planPath || !fs.existsSync(planPath)) return { ok: false, stage: "plan", error: "没有 PLAN.md" };
+  // 2026-10-28：同一件事失败 3 次就判定「做不到」，别再烧钱重试（借 AgentScope 的 impossible 语义）
+  {
+    const area = `补丁：${proposal.title || proposal.id || "未命名"}`;
+    const imp = isImpossible({ wsRoot, area });
+    if (imp.impossible) {
+      markProposal(wsRoot, proposal.id, { state: "accepted", note: `已判定做不到：${String(imp.why || "").slice(0, 80)}`, attempts: (Number(proposal.attempts) || 0), lastAttemptAt: Date.now() });
+      return { ok: false, stage: "impossible", error: `这件事之前已判定做不到（${new Date(imp.at).toLocaleString("zh-CN", { hour12: false })}）：${String(imp.why || "").slice(0, 100)}` };
+    }
+  }
+
   // 2026-10-26：优先用落盘时存下的结构化 plan（含 accept/evidence/focusHook）
   const plan = { ...proposal, ...(proposal.plan || {}), id: proposal.id, title: proposal.title || proposal.plan?.title };
   const md = fs.readFileSync(planPath, "utf8");
@@ -124,6 +134,11 @@ export async function runProposal({ wsRoot, repoRoot, proposal, generate, dryRun
   const failWithRollback = (stage, err, note, extra = {}) => {
     safeRollback(session);
     try { recordPatchFailure({ wsRoot, proposal, stage, error: err, files: [...new Set(targetPaths)] }); } catch {}
+    try {
+      const area = `补丁：${proposal.title || proposal.id || "未命名"}`;
+      const ev = evaluateImpossible({ wsRoot, area, files: [...new Set(targetPaths)] });
+      if (ev.impossible) log(`[autopatch] 累计失败 ${ev.times} 次，判定做不到，后续不再重试`);
+    } catch {}
     try { releaseClaim({ wsRoot, id: claimId, done: false, note: `补丁失败：${stage}` }); } catch {}
     markProposal(wsRoot, proposal.id, { state: "accepted", note, attempts: (Number(proposal.attempts) || 0) + 1, lastAttemptAt: t0 });
     return { ok: false, stage, error: err, ...extra };
