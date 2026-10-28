@@ -122,13 +122,26 @@ export function createIlinkClient({ fetch: f = globalThis.fetch, base = ILINK_BA
     qrStatus: (value, at = base) => get(`${EP.qrStatus}?qrcode=${encodeURIComponent(value)}`, LONG_POLL_MS, at),
     getUpdates: (token, cursor, at = base) => post(EP.updates, { get_updates_buf: cursor.buf || "", ack_token: cursor.ack || "" }, token, LONG_POLL_MS + 5000, at),
     async sendText(token, to, text, contextToken, at = base) {
-      const msg = {
-        from_user_id: "", to_user_id: to, client_id: crypto.randomUUID(),
-        message_type: MSG_TYPE_BOT, message_state: MSG_STATE_FINISH,
-        item_list: [{ type: ITEM_TEXT, text_item: { text: String(text).slice(0, MAX_TEXT) } }],
+      const build = (withToken) => {
+        const msg = {
+          from_user_id: "", to_user_id: to, client_id: crypto.randomUUID(),
+          message_type: MSG_TYPE_BOT, message_state: MSG_STATE_FINISH,
+          item_list: [{ type: ITEM_TEXT, text_item: { text: String(text).slice(0, MAX_TEXT) } }],
+        };
+        if (withToken && contextToken) msg.context_token = contextToken;
+        return msg;
       };
-      if (contextToken) msg.context_token = contextToken;
-      return post(EP.send, { msg }, token, API_TIMEOUT_MS, at);
+      try {
+        return await post(EP.send, { msg: build(true) }, token, API_TIMEOUT_MS, at);
+      } catch (e) {
+        // 2026-10-28 真机：不带 context_token 也能发（iLink 当降级兜底）。
+        // Hermes 文档同样做法：会话过期时去掉 token 重试一次。救的是「主动推送因 token 过期静默失败」。
+        const msg = String(e?.message || e);
+        const looksExpired = /-14|-2|session|context_token|prepare failed|expired/i.test(msg);
+        if (!contextToken || !looksExpired) throw e;
+        console.log("[微信] 带 token 发送失败，改用无 token 重试一次：", msg.slice(0, 80));
+        return await post(EP.send, { msg: build(false) }, token, API_TIMEOUT_MS, at);
+      }
     },
     // 2026-10-27：发任意文件（发不到微信？先看这里）
     async sendFile(token, filePath, to, contextToken, at = base, { asVideo = false } = {}) {

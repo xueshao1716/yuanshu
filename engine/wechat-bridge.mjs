@@ -13,6 +13,10 @@ import { textToMp3 } from "./wechat-voice.mjs";
 import { downloadImage, extractImagePaths } from "./wechat-media.mjs";
 // 2026-10-28：模型写了不存在的图片路径 → 找真图替代；找不到就把裸路径剥掉
 import { rescueImagePaths } from "./wechat-image-rescue.mjs";
+// 2026-10-28：入站去重（message_id + 内容指纹）——没有它，重发的同一条会重复干活、重复花钱
+import { checkAndMark } from "./wechat-dedupe.mjs";
+// 2026-10-28：规矩搬到可编辑文件（每轮读，改了立刻生效）
+import { loadWechatRules, seedWechatRules } from "./wechat-rules.mjs";
 
 // 2026-10-28：用户反馈「让发图一直没发过来、不够主动」。
 // 根因不是能力缺失（sendImage/extractImagePaths 都在），而是模型不知道微信这条路的约定。
@@ -285,6 +289,9 @@ export function createWechatBridge({
     return { sent, failed, failedText, error };
   }
   // image 可选：带上时文字切分发完后，再排一张本地图片（sendImage 通路，2026-10-08）。
+  // 2026-10-28：规矩文件（<ws>/记忆/运行时/微信规矩.md）——首次自动写一份，之后以文件为准
+  const wsRootOfDir = () => path.dirname(path.dirname(dir));
+  try { seedWechatRules(wsRootOfDir()); } catch {}
   const reply = (acc, to, text, contextToken, image, file) => {
     // 2026-10-28：对方要图、模型却没给路径 → 日志留痕（否则只能靠猜）
     try {
@@ -329,6 +336,11 @@ export function createWechatBridge({
   async function handle(acc, m) {
     // 2026-10-28：微信来消息 = 用户在线，先记一笔（用轻量钩子，失败不影响主流程）
     try { if (typeof onUserActivity === "function") onUserActivity({ source: "wechat", sender: m.sender, at: now() }); } catch {}
+    // 2026-10-28：去重挡在前面——网络抖动/轮询重叠/上游换 id 重发，都不该跑第二遍
+    try {
+      const d = checkAndMark({ wsRoot: wsRootOfDir(), sender: m.sender, text: m.text, messageId: m.msgId || m.messageId || "" });
+      if (d.dupe) { log(`[微信] 重复消息已跳过（${d.reason}：${String(m.text || "").slice(0, 20)}）`); return }
+    } catch {}
     inflight.add(m.sender);
     inbox[m.sender] = { text: preview(m.text, 60), contextToken: m.contextToken || "", at: now() };
     saveInbox();
@@ -356,10 +368,10 @@ export function createWechatBridge({
       // 只有扫码绑定的本人算「伙伴亲自发起」；陌生发信人拿不到母体执行身份
       const owner = !!acc?.userId && m.sender === acc.userId;
       try {
-        answer = await chat.ask(`${WECHAT_ENV_HINT}\n\n【对方消息】\n${m.text}`, await sessionFor(m.sender), { owner });
+        answer = await chat.ask(`${loadWechatRules(wsRootOfDir()).text}\n\n【对方消息】\n${m.text}`, await sessionFor(m.sender), { owner });
       } catch (e) {
         if (e.status !== 404 && e.status !== 400) throw e;
-        answer = await chat.ask(`${WECHAT_ENV_HINT}\n\n【对方消息】\n${m.text}`, await sessionFor(m.sender, true), { owner }); // 会话被删：换新会话重来一次
+        answer = await chat.ask(`${loadWechatRules(wsRootOfDir()).text}\n\n【对方消息】\n${m.text}`, await sessionFor(m.sender, true), { owner }); // 会话被删：换新会话重来一次
       }
       // 2026-10-28：对方要图、模型却没给路径 → 留痕，省得下次只能靠猜
       try {
