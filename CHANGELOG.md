@@ -4,6 +4,53 @@
 
 ## [2.186.1] - 2026-10-28
 
+用户：**「画是对的，但是得她驱动着去画，而不是直接出图模型开干了」**。
+
+## 问题在哪
+
+出图有两条宿主抢跑的路，都绕过了她：
+
+| 路径 | 行为 |
+|---|---|
+| `server.mjs` 主对话 | 关键词命中就 `extractMediaPrompt` + 直接调出图 API |
+| `unified-chat.mjs` | 同样检测后直接 `generateMediaAsync`，还 `skipTools = isPureImageRequest()` 把工具都关了 |
+
+第二条尤其致命：**工具被跳过**，她就算想画也没手——真机上因此看到她吐出 `｜｜DSML｜｜` 这种工具调用残片。
+
+## 改法
+
+1. **默认不抢跑**：`记忆/运行时/出图.json {"direct":false}`（不存在即默认）。两条路径都受这一个开关管。
+2. **工具不再被跳过**：她驱动时必须给工具。
+3. **明确告诉她怎么画**：
+
+```
+【系统】这次没有后台代画：要图就由你自己调用 generate_image 出图。
+画你自己时传 subject="self"（外观由人设文件决定，保证同一张脸），
+prompt 只写这次的场景/服装/光线等附加要求。
+```
+
+4. `generate_image` 新增 `subject: "self"`：提示词走 `persona-look`（`记忆/外观.md` + 人格定义 + 形象规则），
+   她只需决定"画自己"和"这次穿什么"。
+
+## 中途出了个 regression（已修）
+
+改 `unified-chat` 时写了 `opts?.wsRoot`，但 `handleUnifiedChat` **没有 `opts` 参数** →
+所有走这条路的对话直接报 `opts is not defined` 失败（探针亲眼看到 error 事件）。
+改成用模块级 `_cwd` 后恢复。
+
+## 真机验证
+
+改完发「画个你，穿黑色风衣站在雨里」，事件流里能看到她自己按顺序调：
+
+```
+list_channels → generate_image → bash → pwsh → output_check → record_taste
+```
+
+`function: 210 / tool: 8 / tool_end: 8`，随后才有 `media` 与 `image` 事件——**图是她的工具调用产出的，不是宿主抢跑**。
+
+同一轮里另一条纯工具请求也恢复：`bash`/`pwsh` 调用正常、无 error。
+
+
 ## [2.186.0] - 2026-10-28
 
 ## [2.185.0] - 2026-10-28
