@@ -2059,7 +2059,7 @@ async function handleChat(req, res, body) {
   const mediaKey = sessionId || findKeyByEntry(entry) || "new";
   const lastMedia = lastMediaBySession.get(mediaKey) || null;
   const mediaIntents = detectMediaIntents(message, { lastMediaType: lastMedia?.type, lastPrompt: lastMedia?.prompt });
-  const mediaPromptOf = (it) => extractMediaPrompt(message, { followUp: it.followUp, lastPrompt: lastMedia?.prompt });
+  const mediaPromptOf = (it) => extractMediaPrompt(message, { wsRoot: WS_ROOT, followUp: it.followUp, lastPrompt: lastMedia?.prompt });
   // 并行启动全部媒体生成（不阻塞主模型文字流式）
   let mediaPromise = mediaIntents.length
     ? Promise.all(mediaIntents.map(it => generateMediaAsync(it, mediaPromptOf(it), { requestText: message })))
@@ -2088,7 +2088,7 @@ async function handleChat(req, res, body) {
         settledMedia = items;
         // ④ 记住"这个会话上一轮出过图、用的是什么提示词"，供续画（"再换个词"）使用
         if (items.some(i => i.type === "image")) {
-          const used = mediaIntents[0]?.followUp ? (lastMedia?.prompt || extractMediaPrompt(message)) : extractMediaPrompt(message);
+          const used = mediaIntents[0]?.followUp ? (lastMedia?.prompt || extractMediaPrompt(message, { wsRoot: WS_ROOT })) : extractMediaPrompt(message);
           lastMediaBySession.set(mediaKey, { type: "image", prompt: used, at: Date.now() });
         }
         if (items.length && mediaIntents.some(i => i.followUp)) {

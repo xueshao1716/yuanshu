@@ -91,7 +91,10 @@ export function detectMediaIntents(message, ctx = {}) {
   }
   return intents;
 }
-const XIAOYU_PORTRAIT_PROMPT = "一位温柔的AI少女半身像，名叫小语。深色科技感背景，漂浮着柔和的蓝紫色光点和数据流光线。少女有着及肩的深色短发，发梢泛着淡淡的星空蓝光，眼睛温暖明亮带着微笑。穿着简约的深色连帽衫，领口有一枚发光的圆形徽章。整体氛围安静温暖，赛博朋克与治愈系结合，高质量插画，柔和光晕，细节丰富";
+import { buildSelfPortraitPrompt, isSelfPortraitAsk as _isSelfPortraitAsk, seedLookFile, FALLBACK_LOOK } from "./persona-look.mjs";
+
+// 2026-10-28：不再写死——只作最后兜底；真正的提示词由 persona-look 从 记忆/外观.md + 人格定义.json 拼出来
+const XIAOYU_PORTRAIT_PROMPT = FALLBACK_LOOK;
 
 const MEDIA_INTENT_STRIP = /(配图|配.{0,2}图|插画|画图|画个|画一|画.{0,2}图|插图|生成图片|绘图|配一幅|生成.{0,8}图片|画.{0,10}图片|一张.{0,10}图片|做个.{0,6}图|做个视频|做视频|生成视频|拍个视频|出个视频|视频生成|做个片子|做个短片|配音|朗读|读出来|语音|生成语音|读一下|说出来)/g;
 
@@ -101,7 +104,19 @@ const MEDIA_INTENT_STRIP = /(配图|配.{0,2}图|插画|画图|画个|画一|画
 export function extractMediaPrompt(message, ctx = {}) {
   const raw = String(message || "").trim();
   if (ctx.followUp && ctx.lastPrompt) return String(ctx.lastPrompt).trim();
-  if (/画个你|画一下你|画你的|你的样子|自画像|画个小语|画一下小语/.test(raw)) return XIAOYU_PORTRAIT_PROMPT;
+  if (_isSelfPortraitAsk(raw)) {
+    // 2026-10-28：提示词来自人设文件（记忆/外观.md + 人格定义.json + 形象 wiki），
+    // 并把「画个你，穿汉服」里的附加要求带上；场景/构图轮换，不再永远同一句。
+    const extra = raw
+      .replace(/画个你|画一下你|画你的|你的样子|自画像|画个小语|画一下小语|你长什么样|你长啥样/g, " ")
+      .replace(/[，。！？,.]/g, " ")
+      .replace(/给我|帮我|请|一张|图片|画|一下/g, " ")
+      .replace(/\s+/g, " ")
+      .trim();
+    const root = ctx.wsRoot || ".";
+    try { seedLookFile(root) } catch {}   // 第一次就把可编辑的外观文件写出来
+    return buildSelfPortraitPrompt({ wsRoot: root, extra: extra.length >= 2 ? extra : "" });
+  }
   const stripped = raw.replace(MEDIA_INTENT_STRIP, "").replace(/[，。！？,.]/g, " ").replace(/\s+/g, " ").trim();
   if (!stripped || stripped.length < 8) return raw || message;
   return stripped;
