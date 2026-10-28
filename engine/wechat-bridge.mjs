@@ -395,11 +395,7 @@ export function createWechatBridge({
     void setTyping(acc, m.sender, m.contextToken, true);
     // 2026-10-28：微信来消息 = 用户在线，先记一笔（用轻量钩子，失败不影响主流程）
     try { if (typeof onUserActivity === "function") onUserActivity({ source: "wechat", sender: m.sender, at: now() }); } catch {}
-    // 2026-10-28：去重挡在前面——网络抖动/轮询重叠/上游换 id 重发，都不该跑第二遍
-    try {
-      const d = checkAndMark({ wsRoot: wsRootOfDir(), sender: m.sender, text: m.text, messageId: m.msgId || m.messageId || "" });
-      if (d.dupe) { log(`[微信] 重复消息已跳过（${d.reason}：${String(m.text || "").slice(0, 20)}）`); return }
-    } catch {}
+    // 2026-10-28：去重只在「入队前」做一次（这里以前又判一次，导致每条消息都被自己判重、彻底不回话）
     inflight.add(m.sender);
     inbox[m.sender] = { text: preview(m.text, 60), contextToken: m.contextToken || "", at: now() };
     saveInbox();
