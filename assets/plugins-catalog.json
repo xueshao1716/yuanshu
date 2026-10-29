@@ -9,7 +9,9 @@
       "type": "skill",
       "author": "元枢内置",
       "description": "把任意网页正文转成干净的 Markdown：先去广告/导航，再保留标题层级、列表、代码块与图片链接。",
-      "permissions": ["net"],
+      "permissions": [
+        "net"
+      ],
       "payload": {
         "SKILL.md": "# 网页转 Markdown\n\n## 何时用\n用户要给网址、让你「读一下这个页面 / 存成 markdown / 摘录正文」。\n\n## 步骤\n1. 取 HTML：优先 `bash` 里 `curl -sL -A \"Mozilla/5.0\" <url> -o /tmp/page.html`（Windows 用 `%TEMP%`）。\n2. 抽正文：找 `<article>`、`#js_content`、`.rich_media_content` 这几个常见容器；没有就取 `<body>` 里文字密度最高的块。\n3. 去噪：脚本/样式/导航/页脚/「点击关注」这类模板话。\n4. 转格式：标题 → `#`，列表 → `-`，代码 → 三反引号，图片 → `![alt](url)`（相对地址补成绝对）。\n5. 落盘：`write` 到 `生成物/网页正文/<标题>.md`，再把前 30 行贴给用户确认。\n\n## 坑\n- 公众号文章正文在 `#js_content`；抓不到就先看是不是被风控拦了（页面里有「环境异常」）。\n- 不要把整段 HTML 丢回给用户。\n"
       }
@@ -21,7 +23,9 @@
       "type": "skill",
       "author": "元枢内置",
       "description": "给视频按时间/场景抽帧、生成联系表（contact sheet），用于反推提示词、做封面或对比。",
-      "permissions": ["fs"],
+      "permissions": [
+        "fs"
+      ],
       "payload": {
         "SKILL.md": "# 视频抽帧\n\n## 何时用\n「这个视频抽几帧」「看看这段画面」「反推提示词」。\n\n## 步骤\n1. 先 `ffprobe` 看时长与分辨率（元枢自带 runtime 里有 ffmpeg，优先用绝对路径）。\n2. 均匀抽帧：`ffmpeg -i in.mp4 -vf fps=1/5 out_%03d.png`（每 5 秒一张）。\n3. 场景切变抽帧：`-vf \"select='gt(scene,0.3)'\" -vsync vfr`。\n4. 联系表：`ffmpeg -i in.mp4 -vf \"fps=1/10,scale=320:-1,tile=4x4\" sheet.png`。\n5. 落盘到 `生成物/抽帧/<视频名>/`，把联系表发出来让用户挑。\n\n## 坑\n- 中文路径要加引号；Windows 下 bash 里用 `/d/...` 或 `\"D:\\\\...\"`。\n- 抽完先看张数和时长对不对，别静默交空目录。\n"
       }
@@ -33,13 +37,50 @@
       "type": "mcp",
       "author": "modelcontextprotocol",
       "description": "官方 fetch MCP：给 URL 返回正文。装完到「能力 → MCP」点连接（不会自动连）。",
-      "permissions": ["net"],
+      "permissions": [
+        "net"
+      ],
       "payload": {
         "mcp": {
           "command": "npx",
-          "args": ["-y", "@modelcontextprotocol/server-fetch"],
+          "args": [
+            "-y",
+            "@modelcontextprotocol/server-fetch"
+          ],
           "env": {}
         }
+      }
+    },
+    {
+      "id": "url-inspector",
+      "name": "网页体检（工具包）",
+      "version": "1.0.0",
+      "type": "toolpack",
+      "author": "元枢内置",
+      "description": "给一个网址，返回状态码、标题、字符数和前 200 字。演示工具包的权限声明与隔离执行。",
+      "permissions": [
+        "net"
+      ],
+      "payload": {
+        "tools": [
+          {
+            "name": "inspect_url",
+            "description": "抓取网页并返回 {status,title,chars,head}",
+            "parameters": {
+              "type": "object",
+              "properties": {
+                "url": {
+                  "type": "string",
+                  "description": "http(s) 网址"
+                }
+              },
+              "required": [
+                "url"
+              ]
+            },
+            "body": "const url = String(args.url || '');\nif (!/^https?:\\/\\//i.test(url)) return { ok: false, error: '只支持 http(s) 网址' };\nconst r = await $tools.http_get({ url, maxChars: 300000 });\nconst title = (r.text.match(/<title[^>]*>([\\s\\S]*?)<\\/title>/i) || [])[1] || '';\nconst text = r.text.replace(/<script[\\s\\S]*?<\\/script>/gi, ' ').replace(/<style[\\s\\S]*?<\\/style>/gi, ' ').replace(/<[^>]+>/g, ' ').replace(/\\s+/g, ' ').trim();\nreturn { ok: true, status: r.status, title: title.trim().slice(0, 120), chars: text.length, head: text.slice(0, 200) };"
+          }
+        ]
       }
     }
   ]

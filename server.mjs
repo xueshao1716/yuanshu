@@ -153,7 +153,13 @@ import { directMediaMode, seedMediaMode } from "./engine/media-mode.mjs";
 // 2026-10-28：模型指纹（服务端快照变化要能被归因）
 import { noteFingerprint, listFingerprints, fingerprintLine } from "./engine/model-fingerprint.mjs";
 // 2026-10-29：插件商店（技能包 / MCP 包）
-import { listInstalled as listPlugins, readCatalog, installFromCatalog, installPlugin, uninstallPlugin, setEnabled as setPluginEnabled, validateManifest } from "./engine/plugin-store.mjs";
+import {
+  listInstalled as listPlugins, readCatalog, installFromCatalog, installPlugin,
+  uninstallPlugin, setEnabled as setPluginEnabled, validateManifest,
+  readRegistryConfig, writeRegistryConfig, fetchRemoteCatalog, remoteCatalogItems,
+  installFromRemote, versionHistory, rollbackPlugin, listToolpacks, readToolpack,
+} from "./engine/plugin-store.mjs";
+import { runToolpackTool } from "./engine/toolpack-runtime.mjs";
 import { initMediaApi, findMediaModel, detectMediaIntents, extractMediaPrompt, mediaAwarePrompt, mediaReadyNotice, explainMediaError, generateMediaAsync, generateTTS, generateImage, handleImage, handleImageWithSave, generateVideo, startVideoJob, checkVideoJob, handleMedia, assistantContentWithMedia } from "./engine/media-api.mjs";
 import { extractPlayableMedia } from "./engine/media-embed.mjs";
 import { formatSkillIndexPrompt, matchSkillsForTask } from "./engine/yuanshu-protocol.mjs";
@@ -678,6 +684,15 @@ const seedPluginCatalog = () => {
     if (fs.existsSync(seed)) fs.copyFileSync(seed, target);
   } catch {}
 };
+function toolPermissions(wsRoot, id) {
+  try {
+    const raw = JSON.parse(fs.readFileSync(path.join(wsRoot, "插件", id, "plugin.json"), "utf8"));
+    return Array.isArray(raw?.permissions) ? raw.permissions.map(String) : [];
+  } catch { return [] }
+}
+function readStateForPlugins(wsRoot) {
+  try { return JSON.parse(fs.readFileSync(path.join(wsRoot, "记忆", "运行时", "插件.json"), "utf8")) } catch { return { installed: {} } }
+}
 seedPluginCatalog();
 // 2026-10-28：脱链任务靠 status 才收尾会留假 running——每 20 秒自己对一次账。
 const reapDetachedJobs = () => {
@@ -3630,6 +3645,47 @@ const API_ROUTES = [
     }
   }],
   // 2026-10-28：一眼看出「我打开的是不是新版本」——前端 bundle 名 + 版本 + 构建时间
+  // 2026-10-29：插件商店 v2（远程源 / 回滚 / 工具包）
+  ["GET", "/api/plugins/registry", (res) => {
+    const cfg = readRegistryConfig(WS_ROOT);
+    return json(res, 200, { ok: true, ...cfg, cached: undefined, remoteItems: remoteCatalogItems(WS_ROOT) });
+  }],
+  ["POST", "/api/plugins/registry", async (res, req) => {
+    const body = await readBody(req);
+    const cfg = writeRegistryConfig(WS_ROOT, body || {});
+    return json(res, 200, { ok: true, ...cfg, cached: undefined });
+  }],
+  ["POST", "/api/plugins/remote-refresh", async (res) => {
+    const out = await fetchRemoteCatalog(WS_ROOT);
+    return json(res, out.ok ? 200 : 502, out);
+  }],
+  ["POST", "/api/plugins/install-remote", async (res, req) => {
+    const body = await readBody(req);
+    const out = installFromRemote(WS_ROOT, String(body?.id || ""));
+    return json(res, out.ok ? 200 : 400, out);
+  }],
+  ["GET", "/api/plugins/history", (res, req, url) => {
+    const id = String(url.searchParams.get("id") || "");
+    return json(res, 200, { ok: true, history: versionHistory(WS_ROOT, id) });
+  }],
+  ["POST", "/api/plugins/rollback", async (res, req) => {
+    const body = await readBody(req);
+    const out = rollbackPlugin(WS_ROOT, String(body?.id || ""));
+    return json(res, out.ok ? 200 : 400, out);
+  }],
+  ["GET", "/api/plugins/toolpacks", (res) => json(res, 200, { ok: true, packs: listToolpacks(WS_ROOT).map((x) => ({ id: x.id, name: x.name, version: x.version, tools: x.tools.map((t) => ({ name: t.name, description: t.description })) })) })],
+  ["POST", "/api/plugins/run-tool", async (res, req) => {
+    const body = await readBody(req);
+    const id = String(body?.id || "");
+    const pack = readToolpack(WS_ROOT, id);
+    if (!pack) return json(res, 404, { ok: false, error: "没有这个工具包（或已停用）" });
+    const tool = pack.tools.find((t) => String(t.name) === String(body?.tool || ""));
+    if (!tool) return json(res, 404, { ok: false, error: "这个工具包里没有该工具" });
+    const st = readStateForPlugins(WS_ROOT);
+    const perms = st.installed?.[id]?.permissions || toolPermissions(WS_ROOT, id);
+    const out = await runToolpackTool({ tool, args: body?.args || {}, permissions: perms, wsRoot: WS_ROOT, timeoutMs: 20000 });
+    return json(res, out.ok ? 200 : 400, out);
+  }],
   // 2026-10-29：插件商店
   ["GET", "/api/plugins", (res) => json(res, 200, { ok: true, installed: listPlugins(WS_ROOT), catalog: readCatalog(WS_ROOT) })],
   ["POST", "/api/plugins/install", async (res, req) => {
