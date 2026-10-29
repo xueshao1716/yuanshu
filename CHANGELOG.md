@@ -4,6 +4,64 @@
 
 ## [2.192.1] - 2026-10-29
 
+用户：「看下微信聊天。混了一个问题，在反复读啥资料」。
+
+## 她反复读的是什么
+
+同一批公众号文章被反复抓：
+
+| 文章 | 次数 |
+|---|---|
+| `mp.weixin.qq.com/s/4ISPn2zARPU0LEaFITyApw` | **9** |
+| `…/y_G6Q8vQ2iKu6MPw7tlU2w` | 8 |
+| `…/knhBLwO-vovFpyCI3e-xbg` | 5 |
+| `…/rbpo2t15T6NI8ICUjnrtfQ` | 4 |
+
+## 根因：工具坏了，不是她笨
+
+那篇读了 9 次的文章，每次尝试都撞在同一堵墙上：
+
+```
+bash         → 工具执行失败: cwd is not defined
+run_code     → 失败 [binding]: 工具执行失败: cwd is not defined
+run_code     → 失败 [runtime]: require is not defined
+delegate_task→ 子任务失败：输出不是预期 JSON 结构…
+web_search   → 返回 Google / translate.google.cn（跟文章无关）
+```
+
+于是她换工具、换写法、再搜一次——看起来像「反复读」，其实是**每次都失败**。
+
+## 这个 bug 是我昨天写的
+
+2026-10-28 加只读模式时写成：
+
+```js
+const ro = readOnlyOn(cwd());   // 这个作用域里根本没有 cwd，只有 getCwd
+```
+
+`createUnifiedToolExecutor` 里注入的是 `const getCwd = deps.cwd || process.cwd()`。
+`cwd` 未定义 → 每次 bash/run_code 都抛 ReferenceError → 被 catch 成「工具执行失败: cwd is not defined」。
+
+**一个变量名，废掉了整条命令通道。**
+
+## 修复与验证
+
+改 `readOnlyOn(getCwd())`，并加回归测试（`tests/unit/readonly-cwd.test.mjs`），
+断言源码里不能出现裸 `cwd()`。
+
+验证两层：
+
+- 直接调执行器：`{"text":"hello-from-bash\n","isError":false}`
+- 真机问她：`用 bash 跑 echo hello-from-bash` → 「成功了，退出码 0。输出原文：hello-from-bash」
+
+## 记录里还看到的其它坑（未修）
+
+1. `python3: command not found`（Windows 上应走 `python` 或元枢自带的 python）
+2. 模型写了 `D:\tmp\wx_article.html` —— 这个目录不存在，白读一次
+3. `run_code` 里 `require is not defined`（沙箱是 ESM，模型习惯了 CJS）
+4. `delegate_task` 对非 JSON 输出直接判失败，模型给列表就被拒
+
+
 ## [2.192.0] - 2026-10-28
 
 继续上一轮挂着的三件事，做完两件：
