@@ -72,7 +72,12 @@ function safeSerialize(value) {
     const fn = new Function(`"use strict"; return (async () => {\n${program}\n})();`);
     value = await fn();
   } catch (e) {
-    error = { kind: e?.kind || "runtime", message: String(e?.message || e).slice(0, 2000) };
+    let message = String(e?.message || e).slice(0, 2000);
+    // 2026-10-29：这两类错误信息本身没给下一步，补一句能用什么
+    if (/require is not defined|Cannot use import statement|import\s+.*from/i.test(message)) {
+      message += `\n\n（沙箱里没有 require/import：文件请用 $tools.read_file / $tools.write_file，命令请用 $tools.run_command；可用绑定：${(bindingNames || []).join(", ") || "无"}）`;
+    }
+    error = { kind: e?.kind || "runtime", message };
   }
   try {
     parentPort.postMessage({ type: "done", value: safeSerialize(value), logs, error });

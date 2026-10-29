@@ -387,6 +387,12 @@ export function pwshToolDescription() {
   return `运行 PowerShell（${exe.includes("PowerShell\\\\7") ? "PowerShell 7" : "Windows PowerShell 5.1"}，原生语义）。Windows 上**优先用它**：Get-ChildItem / Select-String / Get-Content / Measure-Object / 管道对象都比在 git-bash 里拼 find/grep 稳。不要在里面用 ls/cat/grep（那是 Unix 别名或不存在）。` + PWSH_HYGIENE;
 }
 
+// 2026-10-29：Windows 上没有 python3 这个名字，模型一写就 127（真机：微信里读文章时撞上）。
+export function normalizeInterpreter(cmd) {
+  const text = String(cmd || '');
+  if (process.platform !== 'win32') return text;
+  return text.replace(/(^|[;&|]\s*)python3(?=\s|$)/g, '$1python');
+}
 export function createUnifiedToolExecutor(deps = {}) {
   const getCwd = deps.cwd || (() => process.cwd());
   const safePath = deps.safePath || ((p) => path.resolve(getCwd(), p || ""));
@@ -471,7 +477,9 @@ export function createUnifiedToolExecutor(deps = {}) {
         return activateSkill(args?.name || args?.skill);
       }
       if (name === "bash") {
-        const cmd = String(args?.command || "").trim();
+        let cmd = String(args?.command || "").trim();
+        // 2026-10-29：Windows 上没有 python3，先换名（现场：模型写 python3 直接 127）
+        cmd = normalizeInterpreter(cmd);
         if (!cmd) return { text: "空命令", isError: true };
         // ② 凭据防护：命令引用敏感文件 → 拒绝（混淆绕过由③输出脱敏兑底）
         if (commandTouchesSensitive(cmd)) return { text: sensitiveHint(), isError: false };
@@ -582,6 +590,15 @@ export function createUnifiedToolExecutor(deps = {}) {
           if (exitCode && !shell) {
             const risk = riskyForCmdShell(cmd);
             if (risk) hint = `\n（这条命令过 cmd 有风险：${risk}）`;
+          }
+          // 2026-10-29：两类最容易让模型白折的失败，直接在输出里给下一步
+          if (exitCode) {
+            if (/No such file or directory|ENOENT/i.test(text)) {
+              hint += "\n（提示：目标目录可能不存在——先建目录（Windows: New-Item -ItemType Directory -Force -Path <dir>），再写文件。）";
+            }
+            if (/python3?: (command not found|not recognized)|'python' 不是内部或外部命令/i.test(text)) {
+              hint += "\n（提示：这台机器没有可用的 python——用 node 或 write 工具代替，别重试同一条命令。）";
+            }
           }
           try { bashFailures.get(guardKey)?.delete(normCmd) } catch {}
           return { text: (text.replace(/\r\n/g, "\n") || "(无输出)") + exitMark + hint, isError: exitCode ? true : false };

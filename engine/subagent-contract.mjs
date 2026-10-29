@@ -46,6 +46,27 @@ export function subagentResponseDiagnostics(response, base) {
     usedModel: response?.usedModel ? `${response.usedModel.provider}/${response.usedModel.id}` : '' };
 }
 
+// 2026-10-29：模型交付形状不合规时先折算，别把干完的活判成没干。
+export function coerceResult(parsed, rawText = '') {
+  const asText = (v) => (typeof v === 'string' ? v : v && typeof v === 'object' ? JSON.stringify(v) : String(v ?? ''));
+  if (Array.isArray(parsed)) {
+    const items = parsed.map((x) => asText(x)).filter((x) => String(x).trim());
+    return items.length ? { result: items.join('\n'), evidence: [], confidence: 0 } : null;
+  }
+  if (parsed && typeof parsed === 'object') {
+    const pick = parsed.result ?? parsed.text ?? parsed.content ?? parsed.answer ?? parsed.summary ?? parsed.output;
+    const text = pick != null ? asText(pick) : '';
+    if (text.trim()) {
+      const evidence = Array.isArray(parsed.evidence) ? parsed.evidence.map(asText).filter(Boolean) : [];
+      const confidence = Number.isFinite(Number(parsed.confidence)) ? Number(parsed.confidence) : 0;
+      return { result: text, evidence, confidence };
+    }
+    const whole = asText(parsed);
+    if (whole.trim() && whole !== '{}') return { result: whole, evidence: [], confidence: 0 };
+  }
+  const text = String(rawText || '').trim();
+  return text ? { result: text, evidence: [], confidence: 0 } : null;
+}
 export function parseSubagentResult(response, { outputFormat, maxChars, outputBudget }) {
   if (['length', 'max_tokens'].includes(response?.finishReason) || response?.errorCode === 'output_limit') {
     throw subagentError('output_limit', `子任务输出预算耗尽（本次请求上限 ${outputBudget} token，可能包含推理），未把截断正文当作完整交付。请减少单次交付范围或拆分任务；不等于输入上下文超限。`);
@@ -59,6 +80,10 @@ export function parseSubagentResult(response, { outputFormat, maxChars, outputBu
     const fence = text.match(/^```(?:json)?\s*\n([\s\S]*?)\n```$/i);
     if (fence) text = fence[1].trim();
     try { parsed = JSON.parse(text); } catch { /* explicit invalid_output below */ }
+  }
+  if (outputFormat !== 'text') {
+    const coerced = coerceResult(parsed, response.text);
+    if (coerced) parsed = coerced;
   }
   if (!parsed || Array.isArray(parsed) || typeof parsed.result !== 'string' || !parsed.result.trim()) {
     throw subagentError('invalid_output', `输出不是预期 JSON 结构：期望 ${RESULT_SCHEMA}；列表或业务对象请放进 result 字符串。未收到明确截断标记，不能判定为上下文溢出。`);
