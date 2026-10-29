@@ -492,7 +492,7 @@ export function createUnifiedToolExecutor(deps = {}) {
         }
         // 2026-10-28：只读模式（YUANSHU_READONLY=1 或 记忆/运行时/只读模式.json {"on":true}）
         {
-          const ro = readOnlyOn(cwd());
+          const ro = readOnlyOn(getCwd());
           if (ro.on) {
             const g = allowInReadOnly(cmd);
             if (!g.ok) return { text: `⛔ 只读模式已开启（${ro.source}）：这条命令被拒——${g.reason}。需要写操作请先关掉只读模式。`, isError: true };
