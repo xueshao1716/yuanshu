@@ -642,7 +642,8 @@ export function listBuiltinSkills() {
 export function listWorkspaceSkills() {
   const roots = [];
   try {
-    if (_cwd) roots.push(path.join(_cwd, "技能"), path.join(_cwd, "skills"));
+    // 2026-10-29：插件商店装的技能包也在这里（只认带 SKILL.md 的目录）
+    if (_cwd) roots.push(path.join(_cwd, "技能"), path.join(_cwd, "skills"), path.join(_cwd, "插件"));
   } catch {}
   const out = [];
   for (const root of roots) {

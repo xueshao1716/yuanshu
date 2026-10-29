@@ -22,6 +22,7 @@ export const ROUTE_LABELS = {
   tv: '影视',
   autopatch: '自动补丁',
   gateway: '事务台',
+  plugins: '插件商店',
 } as const
 
 // 桌面主栏只放用户每天会找的工作入口；引擎从“更多”提升为一等入口。
@@ -34,7 +35,7 @@ export const RAIL_PRIMARY = ['chat', 'board', 'workshop', 'assets', 'tasks', 'en
 // 2026-10 功能板块整理：相近页面并入同一板块，旧深链保留为别名（见 RAIL_OWNER）。
 //   资产 ⊃ 下载记录；工作台 ⊃ 改动验收 / 天团 / 会话库；知识 ⊃ 灵感；能力 ⊃ MCP；创作 ⊃ 连续创作 / 画布。
 //   沙箱 / 超维模式只在授权中心（本会话执行权限）；系统页不再重复放一份。
-export const RAIL_MORE = ['soul', 'grants', 'tv', 'apps', 'system'] as const
+export const RAIL_MORE = ['soul', 'grants', 'tv', 'apps', 'plugins', 'system'] as const
 
 // 别名路由 → 它所属的导航板块；导航高亮、手机「更多」激活态都按板块算。
 export const RAIL_OWNER: Record<string, string> = {

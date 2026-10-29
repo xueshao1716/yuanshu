@@ -152,6 +152,8 @@ import { initContextLoader, makeLoader, loadExperience, readRulesWithImports, lo
 import { directMediaMode, seedMediaMode } from "./engine/media-mode.mjs";
 // 2026-10-28：模型指纹（服务端快照变化要能被归因）
 import { noteFingerprint, listFingerprints, fingerprintLine } from "./engine/model-fingerprint.mjs";
+// 2026-10-29：插件商店（技能包 / MCP 包）
+import { listInstalled as listPlugins, readCatalog, installFromCatalog, installPlugin, uninstallPlugin, setEnabled as setPluginEnabled, validateManifest } from "./engine/plugin-store.mjs";
 import { initMediaApi, findMediaModel, detectMediaIntents, extractMediaPrompt, mediaAwarePrompt, mediaReadyNotice, explainMediaError, generateMediaAsync, generateTTS, generateImage, handleImage, handleImageWithSave, generateVideo, startVideoJob, checkVideoJob, handleMedia, assistantContentWithMedia } from "./engine/media-api.mjs";
 import { extractPlayableMedia } from "./engine/media-embed.mjs";
 import { formatSkillIndexPrompt, matchSkillsForTask } from "./engine/yuanshu-protocol.mjs";
@@ -665,6 +667,18 @@ const trackedMedia = (intent, prompt, observations) => {
 // 2026-10-28：脱链任务的「后台任务」登记（只在本次服务生命期内可见）
 const detachedJobs = new Map();
 
+// 2026-10-29：插件目录首启播种——没网也能先看到两三个能装的
+const seedPluginCatalog = () => {
+  try {
+    const dir = path.join(WS_ROOT, "插件");
+    fs.mkdirSync(dir, { recursive: true });
+    const target = path.join(dir, "catalog.json");
+    if (fs.existsSync(target)) return;
+    const seed = path.join(__dirname, "assets", "plugins-catalog.json");
+    if (fs.existsSync(seed)) fs.copyFileSync(seed, target);
+  } catch {}
+};
+seedPluginCatalog();
 // 2026-10-28：脱链任务靠 status 才收尾会留假 running——每 20 秒自己对一次账。
 const reapDetachedJobs = () => {
   for (const [id, t] of detachedJobs) {
@@ -3616,6 +3630,31 @@ const API_ROUTES = [
     }
   }],
   // 2026-10-28：一眼看出「我打开的是不是新版本」——前端 bundle 名 + 版本 + 构建时间
+  // 2026-10-29：插件商店
+  ["GET", "/api/plugins", (res) => json(res, 200, { ok: true, installed: listPlugins(WS_ROOT), catalog: readCatalog(WS_ROOT) })],
+  ["POST", "/api/plugins/install", async (res, req) => {
+    const body = await readBody(req);
+    const id = String(body?.id || "");
+    const out = body?.manifest ? installPlugin(WS_ROOT, body.manifest) : installFromCatalog(WS_ROOT, id);
+    if (!out.ok) return json(res, 400, { ok: false, error: out.error });
+    try { const eng = await import("./engine/unified-chat.mjs"); eng.reloadSkills?.() } catch {}
+    return json(res, 200, { ok: true, plugin: out.plugin });
+  }],
+  ["POST", "/api/plugins/uninstall", async (res, req) => {
+    const body = await readBody(req);
+    const out = uninstallPlugin(WS_ROOT, String(body?.id || ""));
+    return json(res, out.ok ? 200 : 400, out);
+  }],
+  ["POST", "/api/plugins/toggle", async (res, req) => {
+    const body = await readBody(req);
+    const out = setPluginEnabled(WS_ROOT, String(body?.id || ""), body?.on !== false);
+    return json(res, out.ok ? 200 : 400, out);
+  }],
+  ["POST", "/api/plugins/validate", async (res, req) => {
+    const body = await readBody(req);
+    const out = validateManifest(body?.manifest || {});
+    return json(res, out.ok ? 200 : 400, out);
+  }],
   // 2026-10-28：模型指纹（服务端实际回的版本串 + 变化历史）
   ["GET", "/api/model/fingerprints", (res) => {
     try { return json(res, 200, { ok: true, ...listFingerprints(WS_ROOT, { limit: 50 }), line: fingerprintLine(WS_ROOT) }); }

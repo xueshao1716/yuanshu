@@ -183,7 +183,8 @@ export const REPO_SKILLS_DIR = path.join(__dirname, "..", "skills");
 export function workspaceSkillRoots(cwd = _cwd) {
   const out = [];
   if (!cwd) return out;
-  for (const rel of ["技能", "skills"]) {
+  // 2026-10-29：插件商店装到 工作区/插件/<id>/，也当一个技能根（只认带 SKILL.md 的直属子目录）
+  for (const rel of ["技能", "skills", "插件"]) {
     const dir = path.join(cwd, rel);
     try { if (fs.statSync(dir).isDirectory()) out.push(dir); } catch { /* 没有这个目录就跳过 */ }
   }
