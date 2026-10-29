@@ -4,6 +4,80 @@
 
 ## [2.194.0] - 2026-10-29
 
+用户：「你先帮计划的都做完，我在说」——v1 之后列的三件：远程目录、toolpack、升级回滚。
+
+## ① 远程目录 + ed25519 签名
+
+- 配置存在 `记忆/运行时/插件源.json`：`url` / `requireSigned` / `publicKey`
+- 「刷新远程目录」拉 JSON，逐个包校验：结构合规 + 签名
+- 打开了「只接受已签名」就**只认签名通过**的包；未签名的直接标红不可装
+- 签名载荷只含 `id/version/type/payload` 的 sha256 —— **改描述不会绕过签名**
+- 拉取失败保留上次缓存并记 `lastError`（不会把商店刷成空的）
+
+密钥自己生成（没有内置私钥）：
+
+```js
+const { publicKey, privateKey } = generateKeypair();   // ed25519
+const signed = signManifest(manifest, { privateKey }); // 发布时签
+```
+
+## ② toolpack：工具包在隔离环境里跑
+
+工具包**不是** `require` 一个插件 js（那等于把服务进程交出去）。做法：
+
+- 工具是**函数体字符串**，在 `worker_threads` 里 `new Function` 执行 → 拿不到 `require`/`import`
+- 需要能力只能调 `$tools.xxx`，宿主逐项查权限声明：
+
+| 权限 | 能用的能力 |
+|---|---|
+| `net` | `$tools.http_get` |
+| `fs` | `$tools.read_text` / `write_text`（**限工作区**，越界直接拒） |
+| `exec` | `$tools.run_command`（宿主注入才可用） |
+
+- 20 秒超时、128MB 内存上限、worker 崩溃不影响服务
+
+实测一个内置示例「网页体检」：
+
+```
+inspect_url {url:"https://example.com"}
+→ {"ok":true,"status":200,"title":"Example Domain","chars":171,"head":"Example Domain …"}
+```
+
+## ③ 版本升级与回滚
+
+- 装同名新版本前，旧目录备份到 `插件/.backup/<id>-v<旧版本>-<时间>`
+- 历史记在 `记忆/运行时/插件.json` 的 `history`
+- 「回滚」把备份拷回，版本号改回旧版
+
+验证：装 1.0.0 → 装 2.0.0（内容变成 v2）→ 回滚 → 内容回到 v1、版本 1.0.0。
+
+## 踩到一个 Node 的坑
+
+回滚测试把整个测试进程**硬崩**（exit code `0xC0000409`，栈溢出）。
+
+原因不是我的逻辑，是 **`fs.cpSync` 在 Node 25.8.2 + Windows 上会直接崩**：
+
+```js
+fs.cpSync("a", "b", { recursive: true })   // 进程没了
+```
+
+改成手写递归（`readdirSync` + `copyFileSync`）之后正常。
+
+**教训**：进程"硬崩"不像异常能 try/catch，得靠最小复现来定位；`node --test` 只报一句 `test failed`，看不出是崩了。
+
+## 验证
+
+- 单测：插件 11 + 远程/签名/回滚 9 + 工具包运行时 9 = **29 条全过**
+- 真机：目录 4 个包（2 技能 + 1 MCP + 1 工具包），装工具包 → 试跑返回真实网页信息
+- 权限拒绝、路径越界、超时、`require` 四种失败路径都有测试
+
+## 还没做（下一层）
+
+- 工具包对模型可见（`tp_<id>_<tool>` 已能生成工具定义，但还没接进对话工具列表，要配开关）
+- 远程包的多版本索引（现在一个 id 只列一条）
+- 卸载时的备份清理策略（现在备份会留着，方便回滚）
+
+
 ## [2.193.0] - 2026-10-29
 
 用户：「我觉得我们该做插件商店了」。
