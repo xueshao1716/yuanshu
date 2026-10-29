@@ -49,21 +49,21 @@ export function subagentResponseDiagnostics(response, base) {
 // 2026-10-29：模型交付形状不合规时先折算，别把干完的活判成没干。
 export function coerceResult(parsed, rawText = '') {
   const asText = (v) => (typeof v === 'string' ? v : v && typeof v === 'object' ? JSON.stringify(v) : String(v ?? ''));
+  const scalars = (v) => ['string', 'number', 'boolean'].includes(typeof v);
   if (Array.isArray(parsed)) {
-    const items = parsed.map((x) => asText(x)).filter((x) => String(x).trim());
-    return items.length ? { result: items.join('\n'), evidence: [], confidence: 0 } : null;
+    // 只救纯列表；[{"result":...}] 这种数组套信封仍按不合规处理
+    if (!parsed.length || !parsed.every(scalars)) return null;
+    return { result: parsed.map(asText).join('\n'), evidence: [], confidence: 0 };
   }
   if (parsed && typeof parsed === 'object') {
-    const pick = parsed.result ?? parsed.text ?? parsed.content ?? parsed.answer ?? parsed.summary ?? parsed.output;
-    const text = pick != null ? asText(pick) : '';
-    if (text.trim()) {
-      const evidence = Array.isArray(parsed.evidence) ? parsed.evidence.map(asText).filter(Boolean) : [];
-      const confidence = Number.isFinite(Number(parsed.confidence)) ? Number(parsed.confidence) : 0;
-      return { result: text, evidence, confidence };
-    }
-    const whole = asText(parsed);
-    if (whole.trim() && whole !== '{}') return { result: whole, evidence: [], confidence: 0 };
+    const keys = ['result', 'text', 'content', 'answer', 'summary', 'output'];
+    const key = keys.find((k) => parsed[k] != null && String(asText(parsed[k])).trim());
+    if (!key) return null;   // 没有任何已知字段：不猜，交给上层报错说明期望结构
+    const evidence = Array.isArray(parsed.evidence) ? parsed.evidence.map(asText).filter(Boolean) : [];
+    const confidence = Number.isFinite(Number(parsed.confidence)) ? Number(parsed.confidence) : 0;
+    return { result: asText(parsed[key]), evidence, confidence };
   }
+  // 压根不是 JSON：原文就是交付
   const text = String(rawText || '').trim();
   return text ? { result: text, evidence: [], confidence: 0 } : null;
 }
