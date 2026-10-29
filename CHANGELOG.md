@@ -6,6 +6,55 @@
 
 ## [2.192.2] - 2026-10-29
 
+用户：「补上吧」——上一轮从微信记录里翻出来的 4 个坑。
+
+## ① `delegate_task` 不再因为形状不合规就判失败
+
+原来只要不是严格的 `{result, evidence, confidence}` 就 `invalid_output`，子任务干完了也白干。
+
+现在先折算：
+
+| 交付形状 | 处理 |
+|---|---|
+| `["a","b"]` 纯列表 | 拼成 result |
+| `{"text":…}` / `content` / `answer` / `summary` / `output` | 取正文 |
+| 非 JSON（直接写了一段话） | 原文当交付 |
+| `{"year":"1978"}` 没有已知字段 | **仍报错**（并说明期望结构） |
+| `[{"result":…}]` 数组套信封 | **仍报错** |
+
+最后两条是既有契约测试（18 条）逼出来的——宽容不能宽容到认不出错。
+
+## ② Windows 上 `python3` 自动换成 `python`
+
+真机：`python3: command not found`（这台机器只有 `python`）。现在 bash 执行前做一次归一化：
+
+- `python3 -V` → `python -V`
+- `echo ok && python3 x.py` → `echo ok && python x.py`
+- `python35 x` → 不动
+
+验证：`python3 --version` → `Python 3.12.10`。
+
+## ③ 失败输出里补下一步
+
+- `No such file or directory` → 「目标目录可能不存在——先建目录再写文件」
+- `command not found`（python）→ 「这台机器没有可用的 python，用 node 或 write 代替」
+
+验证：`echo hi > /d/tmp/nope_xyz/x.txt` → 输出里带上了这句提示。
+
+## ④ `run_code` 的报错说清能用什么
+
+原来只有 `require is not defined`，模型不知道该换什么。现在补：
+
+> （沙箱里没有 require/import：文件请用 `$tools.read_file` / `$tools.write_file`，命令请用 `$tools.run_command`；可用绑定：…）
+
+## 中途自己踩的两个
+
+1. `cmd = normalizeInterpreter(cmd)` 写在 `const cmd` 上 → `Assignment to constant variable`；改成 `let` 并把归一化挪到声明之后。
+2. 宽容解析第一版太宽：把 `{"year":"1978"}` 和 `[{"result":…}]` 也放过了，撞挂两条既有契约测试。收窄后 46 条相关测试全过。
+
+**教训**：既有测试是"契约"，不是障碍。想让行为变宽容，先看清它原本在防什么。
+
+
 ## [2.192.1] - 2026-10-29
 
 用户：「看下微信聊天。混了一个问题，在反复读啥资料」。
