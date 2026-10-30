@@ -76,7 +76,9 @@ export function withAuditGate(execute, { gate, rules = [], sessionOf = (ctx) => 
   if (typeof execute !== "function" || !gate) return execute;
   return async function audited(name, args, ctx) {
     const started = Date.now();
-    const begin = gate.before({ tool: name, args, session: sessionOf(ctx), runId: ctx?.runId || "", rules });
+    // rules 可以是数组或函数：函数形式用于"策略改完立刻生效"
+    const ruleList = typeof rules === "function" ? rules() : rules;
+    const begin = gate.before({ tool: name, args, session: sessionOf(ctx), runId: ctx?.runId || "", rules: ruleList });
     if (!begin.ok) return { text: `⛔ ${begin.error}`, isError: true, denied: !!begin.denied, ruleId: begin.ruleId || "" };
     try {
       const r = await execute(name, args, ctx);

@@ -100,6 +100,15 @@ export default function Gateway() {
     for (const f of openFeedback) g[feedbackGroup(f)].push(f)
     return g
   })()
+  const savePolicy = async () => {
+    setPolicyMsg('')
+    try {
+      const rules = JSON.parse(policyDraft || '[]')
+      const out: any = await api('/api/policy', { method: 'POST', body: { rules } })
+      setPolicyMsg(out?.ok ? '策略已保存，立即生效' : `保存失败：${out?.error || '未知'}`)
+      if (out?.ok) { setEditingPolicy(false); void policy.mutate() }
+    } catch (e: any) { setPolicyMsg(`JSON 解析失败：${e?.message || ''}`) }
+  }
   const runBenchNow = async () => {
     await api('/api/bench/run', { method: 'POST', body: { tag: 'panel' } }).catch(() => null)
     void jobs.mutate()
@@ -108,6 +117,10 @@ export default function Gateway() {
     await api('/api/jobs/cancel', { method: 'POST', body: { id } }).catch(() => null)
     void jobs.mutate()
   }
+  const policy = useSWR('policy', () => api<{ rules: any[]; source: string; path: string; error?: string }>('/api/policy'), { refreshInterval: 60000 })
+  const [policyDraft, setPolicyDraft] = useState('')
+  const [editingPolicy, setEditingPolicy] = useState(false)
+  const [policyMsg, setPolicyMsg] = useState('')
   const audit = useSWR('audit-tail', () => api<{ rows: any[] }>('/api/audit/tail?limit=30'), { refreshInterval: 15000 })
   const bench = useSWR('bench-latest', () => api<{ cases: { id: string; title: string }[]; latest: any; previous: any }>('/api/bench/latest'), { refreshInterval: 60000 })
   // 只显示"before/denied"的行：after 行是结果，成对看太吵
@@ -363,6 +376,41 @@ export default function Gateway() {
             ))}
           </ul>
         ) : <p className="text-xs text-pi-dim2">每次工具调用都会先写一行审计再执行；拒绝的会标出来。</p>}
+      </section>
+      {/* 动作策略：谁能干什么，写在这里 */}
+      <section className="panel space-y-2">
+        <div className="flex flex-wrap items-baseline justify-between gap-2">
+          <h2 className="text-[15px] font-semibold text-pi-text">动作策略</h2>
+          <span className="text-xs text-pi-dim2">
+            {policy.data ? `${policy.data.rules?.length || 0} 条 · 来源 ${policy.data.source}` : "读取中"}
+          </span>
+        </div>
+        {(policy.data?.rules || []).map((r: any) => (
+          <div key={r.id} className="text-[12px] leading-relaxed">
+            <span className="text-pi-text">{r.reason || r.id}</span>
+            <span className="ml-2 text-[11px] text-pi-dim2">{r.id}</span>
+            <div className="text-[11px] text-pi-dim2">
+              {r.initiator ? `发起者：${r.initiator.join("/")}` : "所有发起者"} · 拦：{(r.deny || []).join("、")}
+            </div>
+          </div>
+        ))}
+        {policy.data?.error && <p className="text-[11px] text-pi-red">{policy.data.error}</p>}
+        {editingPolicy ? (
+          <div className="space-y-2">
+            <textarea
+              value={policyDraft} onChange={(e) => setPolicyDraft(e.target.value)} rows={8}
+              className="w-full rounded-pi-md border border-pi-border-soft bg-pi-bg2 px-3 py-2 font-mono text-[11px] text-pi-text"
+            />
+            <div className="flex gap-2">
+              <button type="button" style={{ ...pill(true), minHeight: 26, fontSize: 12 }} onClick={() => void savePolicy()}>保存</button>
+              <button type="button" style={{ ...pill(), minHeight: 26, fontSize: 12 }} onClick={() => setEditingPolicy(false)}>取消</button>
+            </div>
+          </div>
+        ) : (
+          <button type="button" style={{ ...pill(), minHeight: 26, fontSize: 12 }} onClick={() => { setPolicyDraft(JSON.stringify(policy.data?.rules || [], null, 2)); setEditingPolicy(true) }}>编辑规则</button>
+        )}
+        {policyMsg && <p className="text-[11px] text-pi-text">{policyMsg}</p>}
+        <p className="text-[11px] text-pi-dim2">改完立刻生效，不用重启。文件：{policy.data?.path || "记忆/运行时/动作策略.json"}</p>
       </section>
       {/* 进化提案：她自己攒的改进建议 */}
       <section className="panel space-y-3">

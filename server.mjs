@@ -121,6 +121,7 @@ import { createReplyTts } from './engine/reply-tts.mjs';
 import { BASE_TOOL_SCHEMAS, TIME_TASK_SCHEMA, SHARE_PROJECT_SCHEMA, createUnifiedToolExecutorGuarded, webSearchTool, detectBashShell } from "./engine/tools/unified-tools.mjs";
 import { createAuditGate, withAuditGate } from "./engine/tools/audit-gate.mjs";
 import { runWithInitiator, DEFAULT_RULES } from "./engine/tools/initiator.mjs";
+import { createPolicyProvider, readPolicy, writePolicy } from "./engine/tools/policy-store.mjs";
 import { runDoctor } from "./engine/install-doctor.mjs";
 import { listAddons, startAddonJob, addonJobs, ensureAddonPaths } from "./engine/addons.mjs";
 ensureAddonPaths();
@@ -1269,7 +1270,7 @@ const extraToolExecutors = {
     ...designPrefsExecutors(WS_ROOT),
     // 派活 = 元枢里真正的"多路探索"：一次派几个子任务、哪个失败、花了多久。
     // 记成轨迹节点后，"该怎么探索"才有可回放的对象（当场修那条是单线的）。
-    delegate_task: async (args, ctx) => withClaim({ task: String(args?.task || args?.prompt || "派活"), agent: "delegate" }, async () => {
+    delegate_task: async (args, ctx) => runWithInitiator("subagent", () => withClaim({ task: String(args?.task || args?.prompt || "派活"), agent: "delegate" }, async () => {
       const t0 = Date.now();
       const r = args?.agent_id ? await delegateToCultivatedAgent(lateRefs.cultivation, args, ctx) : await execDelegateTask(args, ctx);
       try {
@@ -1277,7 +1278,7 @@ const extraToolExecutors = {
         recordDelegation(WS_ROOT, { kind: "delegate_task", task: args?.task || args?.prompt || "", durationMs: Date.now() - t0, ok: !r?.isError, digest: text });
       } catch {}
       return r;
-    }),
+    })),
     // 2026-10-27：agent ↔ agent 留言（Agensh 的消息接口）
     // 2026-10-27：开工前先查「这块之前踩过吗」
     failure_recall: (args) => {
@@ -1486,7 +1487,9 @@ const _rawExecuteUnifiedTool = createUnifiedToolExecutorGuarded({
 // 每次工具调用先落一行，写不进去就拒绝执行——除非显式 YUANSHU_AUDIT_SOFT=1。
 const auditGate = createAuditGate({ wsRoot: WS_ROOT });
 // 2026-10-30：带上默认策略——定时任务不许删东西/对外发消息，人让做的照常
-const executeUnifiedTool = withAuditGate(_rawExecuteUnifiedTool, { gate: auditGate, rules: DEFAULT_RULES });
+// 2026-10-30：策略从文件读（记忆/运行时/动作策略.json），改完立刻生效，不用重启。
+const policyProvider = createPolicyProvider({ wsRoot: WS_ROOT });
+const executeUnifiedTool = withAuditGate(_rawExecuteUnifiedTool, { gate: auditGate, rules: () => policyProvider.rules() });
 
 // 2026-10-30：开机按设置把工具包工具挂进对话工具表（默认关）
 const syncToolpackTools = () => {
@@ -3630,6 +3633,17 @@ const API_ROUTES = [
   }],
   // 2026-10-27：微信状态 + PushPlus 推送通道状态（读 notify.py 落的状态文件）
   // 2026-10-27：推送通道（PushPlus）——面板里粘贴 token、一键测试，不再手写文件
+  // 2026-10-30：动作策略（可改，改完即时生效）
+  ["GET", "/api/policy", (res) => json(res, 200, { ok: true, ...policyProvider.status() })],
+  ["POST", "/api/policy", async (res, req) => {
+    const body = await readBody(req);
+    const out = writePolicy(WS_ROOT, body?.rules);
+    return json(res, out.ok ? 200 : 400, out.ok ? { ok: true, ...policyProvider.status() } : out);
+  }],
+  ["POST", "/api/policy/reset", async (res) => {
+    const out = writePolicy(WS_ROOT, DEFAULT_RULES);
+    return json(res, out.ok ? 200 : 400, out.ok ? { ok: true, ...policyProvider.status() } : out);
+  }],
   // 2026-10-30：最近的动作审计（先记账再执行的证据）
   ["GET", "/api/audit/tail", (res, req, url) => json(res, 200, { ok: true, rows: auditGate.tail(Number(url.searchParams.get("limit")) || 40) })],
   // 2026-10-30：晨报 / 夜间反思手动触发（平时由定时器在 23:00 / 08:00 后发一次）
