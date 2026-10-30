@@ -4,6 +4,60 @@
 
 ## [2.201.0] - 2026-10-30
 
+# 2.201.0 —— 从 OpenBot 抄来的一条：记录是行动的前置条件
+
+文章：《OpenBot 这个 AI 助手，你值得拥有》（布鲁斯AI）。它讲的是一个自托管的 AI 助手，但真正值得抄的是治理设计：
+
+> 没有任何一条路径可以在记录不存在的情况下行动。
+
+三层：**每个 bot 一台隔离的电脑**（缩小爆炸半径）、**唯一网关先记后做**（行动必有记录）、**可读的 CEL 策略 + fail-closed**（规则写错就拒绝）。
+
+## 元枢现状对照
+
+| 能力 | OpenBot | 元枢（改之前） |
+|---|---|---|
+| 权限规则 | CEL 表达式，含 `initiator.*` 维度 | 有：regex deny 规则、只读白名单、审批 seam |
+| fail-closed | 无策略 = 不许；规则写错 = 拒绝 | 有：deny 先于 allow；审批无应答即拒绝 |
+| **先记后做** | 网关写审计行成功才动 | **没有**——工具调用发生就发生了，事后查不到"当时想做什么、参数是什么" |
+| 隔离 | 每 bot 独立容器/浏览器 | 进程内隔离（toolpack 用 worker），没有 per-bot 机器 |
+
+差距就在第三行。
+
+## 这版做的：动作审计闸门
+
+新模块 `engine/tools/audit-gate.mjs`：
+
+- 每次工具调用**先落一行** `{at, phase:"before", tool, session, runId, argsHash, argsPreview, argsBytes}`
+- 执行后补一行 `{phase:"after", ok, ms, error}`
+- **写不进去就拒绝执行**（fail-closed）；确需放行时 `YUANSHU_AUDIT_SOFT=1`
+- 参数只留 sha256 前 16 位 + 80 字脱敏预览（令牌、长串一律打码）
+
+所有统一工具调用都过这个闸门（`withAuditGate` 包住 `_rawExecuteUnifiedTool`），写盘的落在 `记忆/运行时/动作审计.jsonl`，查询接口 `GET /api/audit/tail?limit=40`。
+
+真机验证（问了句"用 bash 执行 echo audit-check"）：
+
+```
+before bash | hash: 90e7b03e | 预览: {"command":"echo audit-check"}
+after  bash | ok: true      | hash: 90e7b03e
+```
+
+## 验证
+
+- 单测 7 条：先写后执行、失败留痕、抛异常留痕、**写不进去拒绝执行**、软模式、令牌脱敏、默认落盘路径
+- 真机：两个阶段各一行，hash 对得上
+
+## 为什么不抄另外两层
+
+- **CEL 规则引擎**：我们已有 regex deny + 只读白名单，换表达式的收益主要在"可读可审计"，等规则复杂到几十条再换。
+- **每 bot 一台机器**：那是 Docker/gVisor 级改造，跟"装在自己电脑上"的定位冲突，暂不做。
+
+## 下一层可以做的
+
+1. 策略从 regex 升到**结构化规则**（`tool.name`、`initiator.kind`、`path.glob`），并且规则来源可版本化
+2. 审计行接进**事务台**（最近 20 条动作 + 拒绝记录），让"她刚才干了什么"一眼可见
+3. `initiator.*` 维度：同一条规则放行"人让做的"，拦住"定时任务自己发起的"
+
+
 ## [2.200.6] - 2026-10-30
 
 ## [2.200.5] - 2026-10-30
