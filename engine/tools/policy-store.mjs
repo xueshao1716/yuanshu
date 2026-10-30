@@ -27,13 +27,14 @@ export function validateRules(rules) {
     if (seen.has(id)) return { ok: false, error: `id 重复：${id}` };
     seen.add(id);
     if (!Array.isArray(r.deny) || !r.deny.length) return { ok: false, error: `${id}：deny 不能为空` };
+    if (r.paths !== undefined && (!Array.isArray(r.paths) || !r.paths.length)) return { ok: false, error: `${id}：paths 必须是非空数组` };
     if (r.initiator !== undefined) {
       if (!Array.isArray(r.initiator)) return { ok: false, error: `${id}：initiator 必须是数组` };
       const bad = r.initiator.find((k) => !KINDS.includes(String(k)));
       if (bad) return { ok: false, error: `${id}：initiator 里 ${bad} 不是合法身份（${KINDS.join("/")}）` };
     }
   }
-  return { ok: true, rules: rules.map((r) => ({ id: String(r.id), initiator: r.initiator ? r.initiator.map(String) : undefined, deny: r.deny.map(String), reason: String(r.reason || "") })) };
+  return { ok: true, rules: rules.map((r) => ({ id: String(r.id), initiator: r.initiator ? r.initiator.map(String) : undefined, deny: r.deny.map(String), paths: Array.isArray(r.paths) ? r.paths.map(String) : undefined, reason: String(r.reason || "") })) };
 }
 
 /** 读策略；文件不存在就播种默认规则。返回 {v, rules, source, updatedAt, error?} */
@@ -60,7 +61,10 @@ export function writePolicy(wsRoot, rules, { now = Date.now(), seed = false } = 
   const file = policyPath(wsRoot);
   let prev = null;
   try { prev = JSON.parse(fs.readFileSync(file, "utf8")) } catch {}
-  const history = [...(prev?.history || []), ...(seed || !prev ? [] : [{ at: Number(prev?.updatedAt) || 0, rules: (prev?.rules || []).slice(0, 40) }])].slice(-5);
+  const snap = prev && !seed
+    ? [{ id: `snap-${Number(prev?.updatedAt) || 0}`, at: Number(prev?.updatedAt) || 0, rules: (prev?.rules || []).slice(0, 40) }]
+    : [];
+  const history = [...(prev?.history || []), ...snap].slice(-5);
   try {
     fs.mkdirSync(path.dirname(file), { recursive: true });
     fs.writeFileSync(file, JSON.stringify({ v: 1, updatedAt: now, rules: v.rules, history }, null, 2), "utf8");
@@ -68,6 +72,19 @@ export function writePolicy(wsRoot, rules, { now = Date.now(), seed = false } = 
   } catch (e) {
     return { ok: false, error: String(e?.message || e).slice(0, 160) };
   }
+}
+
+/** 回滚到某个历史快照（快照 id 或 at 时间戳）。回滚本身也会被记进历史。 */
+export function rollbackPolicy(wsRoot, key, { now = Date.now() } = {}) {
+  const file = policyPath(wsRoot);
+  let raw = null;
+  try { raw = JSON.parse(fs.readFileSync(file, "utf8")) } catch { return { ok: false, error: "读不到策略文件" } }
+  const history = Array.isArray(raw?.history) ? raw.history : [];
+  if (!history.length) return { ok: false, error: "没有可回滚的历史" };
+  const hit = history.find((h) => String(h?.id) === String(key)) || history.find((h) => Number(h?.at) === Number(key));
+  if (!hit) return { ok: false, error: "找不到这个快照" };
+  const out = writePolicy(wsRoot, hit.rules || [], { now });
+  return out.ok ? { ok: true, rolledBackTo: hit.id || hit.at, ...out } : out;
 }
 
 /** 带缓存的读取器：每次工具调用都读文件太浪费，按 mtime 判缓存。 */

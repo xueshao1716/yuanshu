@@ -26,6 +26,26 @@ export function asInitiator(kind, fn) {
 }
 
 /**
+ * 极简 glob：双星跨目录，单星不跨目录，问号单字符。够表达 任意目录下的 .env、记忆/人格定义.json 这类。
+ */
+export function globMatch(pattern, target) {
+  const p = String(pattern || "").replace(/\\/g, "/");
+  const t = String(target || "").replace(/\\/g, "/");
+  let re = "";
+  for (let i = 0; i < p.length; i += 1) {
+    const c = p[i];
+    if (c === "*" && p[i + 1] === "*") { re += ".*"; i += 1; continue }
+    if (c === "*") { re += "[^/]*"; continue }
+    if (c === "?") { re += "."; continue }
+    re += c.replace(/[.+^${}()|[\]\\]/g, "\\$&");
+  }
+  const hit = (() => { try { return new RegExp("^" + re + "$").test(t) } catch { return false } })();
+  if (hit) return true;
+  // 2026-10-30：双星开头时也允许没有前缀 —— 裸的 .env 也该被 **/.env 命中
+  return p.startsWith("**/") ? globMatch(p.slice(3), t) : false;
+}
+
+/**
  * 策略判定（纯函数，好测）：
  *   rules: [{ id, initiator: ["scheduler"], deny: ["bash:(rm|del)", "notify_user"], reason }]
  * 规则按顺序判，命中即拒（deny 永远赢）；没有规则命中就放行。
@@ -42,6 +62,12 @@ export function judgeAction({ tool = "", args = "", initiator = "user", rules = 
       const argPat = m ? m[2] : "";
       if (!new RegExp(`^${toolPat}$`, "i").test(t)) continue;
       if (argPat && !new RegExp(argPat, "i").test(a)) continue;
+      // 2026-10-30：可选路径条件（比正则好写）。只对带 path 的工具生效。
+      if (Array.isArray(rule.paths) && rule.paths.length) {
+        let path = "";
+        try { const o = typeof args === "string" ? JSON.parse(args) : (args || {}); path = String(o.path || o.file || o.target || "") } catch {}
+        if (!path || !rule.paths.some((g) => globMatch(g, path))) continue;
+      }
       return { allow: false, ruleId: String(rule.id || "rule"), reason: String(rule.reason || "被策略拒绝") };
     }
   }

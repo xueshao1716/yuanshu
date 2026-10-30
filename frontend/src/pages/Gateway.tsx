@@ -100,6 +100,12 @@ export default function Gateway() {
     for (const f of openFeedback) g[feedbackGroup(f)].push(f)
     return g
   })()
+  const rollbackPolicyTo = async (id: string) => {
+    setPolicyMsg('')
+    const out: any = await api('/api/policy/rollback', { method: 'POST', body: { id } }).catch((e: any) => ({ ok: false, error: e?.message }))
+    setPolicyMsg(out?.ok ? '已回滚到上一版，立即生效' : `回滚失败：${out?.error || '未知'}`)
+    if (out?.ok) { void policy.mutate(); void policyHistory.mutate() }
+  }
   const savePolicy = async () => {
     setPolicyMsg('')
     try {
@@ -118,6 +124,7 @@ export default function Gateway() {
     void jobs.mutate()
   }
   const policy = useSWR('policy', () => api<{ rules: any[]; source: string; path: string; error?: string }>('/api/policy'), { refreshInterval: 60000 })
+  const policyHistory = useSWR('policy-history', () => api<{ history: any[] }>('/api/policy/history'), { refreshInterval: 60000 })
   const [policyDraft, setPolicyDraft] = useState('')
   const [editingPolicy, setEditingPolicy] = useState(false)
   const [policyMsg, setPolicyMsg] = useState('')
@@ -408,6 +415,17 @@ export default function Gateway() {
           </div>
         ) : (
           <button type="button" style={{ ...pill(), minHeight: 26, fontSize: 12 }} onClick={() => { setPolicyDraft(JSON.stringify(policy.data?.rules || [], null, 2)); setEditingPolicy(true) }}>编辑规则</button>
+        )}
+        {(policyHistory.data?.history || []).length > 0 && (
+          <div className="space-y-1 border-t border-pi-border-soft pt-2">
+            <p className="text-[11px] text-pi-dim2">策略历史（点一下回滚）</p>
+            {(policyHistory.data?.history || []).slice(-3).reverse().map((h: any) => (
+              <button key={h.id} type="button" className="block text-left text-[11px] text-pi-dim2 hover:text-pi-text"
+                onClick={() => void rollbackPolicyTo(h.id)}>
+                {h.at ? new Date(h.at).toLocaleString('zh-CN', { hour12: false }) : h.id} · {(h.rules || []).length} 条规则
+              </button>
+            ))}
+          </div>
         )}
         {policyMsg && <p className="text-[11px] text-pi-text">{policyMsg}</p>}
         <p className="text-[11px] text-pi-dim2">改完立刻生效，不用重启。文件：{policy.data?.path || "记忆/运行时/动作策略.json"}</p>

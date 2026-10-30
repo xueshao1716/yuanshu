@@ -121,7 +121,7 @@ import { createReplyTts } from './engine/reply-tts.mjs';
 import { BASE_TOOL_SCHEMAS, TIME_TASK_SCHEMA, SHARE_PROJECT_SCHEMA, createUnifiedToolExecutorGuarded, webSearchTool, detectBashShell } from "./engine/tools/unified-tools.mjs";
 import { createAuditGate, withAuditGate } from "./engine/tools/audit-gate.mjs";
 import { runWithInitiator, DEFAULT_RULES } from "./engine/tools/initiator.mjs";
-import { createPolicyProvider, readPolicy, writePolicy } from "./engine/tools/policy-store.mjs";
+import { createPolicyProvider, readPolicy, writePolicy, rollbackPolicy } from "./engine/tools/policy-store.mjs";
 import { runDoctor } from "./engine/install-doctor.mjs";
 import { listAddons, startAddonJob, addonJobs, ensureAddonPaths } from "./engine/addons.mjs";
 ensureAddonPaths();
@@ -3638,6 +3638,15 @@ const API_ROUTES = [
   ["POST", "/api/policy", async (res, req) => {
     const body = await readBody(req);
     const out = writePolicy(WS_ROOT, body?.rules);
+    return json(res, out.ok ? 200 : 400, out.ok ? { ok: true, ...policyProvider.status() } : out);
+  }],
+  ["GET", "/api/policy/history", (res) => {
+    const p = readPolicy(WS_ROOT);
+    return json(res, 200, { ok: true, history: (p.history || []).map((h) => ({ id: h.id, at: h.at, rules: h.rules })) });
+  }],
+  ["POST", "/api/policy/rollback", async (res, req) => {
+    const body = await readBody(req);
+    const out = rollbackPolicy(WS_ROOT, body?.id || body?.at);
     return json(res, out.ok ? 200 : 400, out.ok ? { ok: true, ...policyProvider.status() } : out);
   }],
   ["POST", "/api/policy/reset", async (res) => {
