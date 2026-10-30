@@ -86,7 +86,13 @@ const FRAMING = [
  * 拼"画个你"的提示词。
  * @param {{wsRoot:string, extra?:string, seed?:number}} p
  */
-export function buildSelfPortraitPrompt({ wsRoot = ".", extra = "", seed = Date.now() } = {}) {
+// 2026-10-30：默认种子必须每调用一次都不同——同一毫秒里连调两次会生成同一句 prompt，
+// 平台按 prompt 缓存，就会反复吐同一张构图（真机用户原话：怎么又是这张）。
+let _seedSeq = 0;
+const nextSeed = () => Date.now() * 1000 + (++_seedSeq % 1000);
+
+export function buildSelfPortraitPrompt({ wsRoot = ".", extra = "", seed } = {}) {
+  if (seed == null) seed = nextSeed();
   const facts = personaFacts(wsRoot);
   const notes = lookNotes(wsRoot);
   const rules = lookRules(wsRoot);

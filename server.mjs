@@ -1200,6 +1200,9 @@ const toolExecutorDeps = {
 };
 
 // 2026-10-30：工具包执行器（运行时挂载/摘除）
+// 2026-10-30：执行器表在顶层求值，不能直接引用后面才初始化的运行时（TDZ）。
+// 用晚绑定容器：这里先建壳，初始化完成后把实例挂进来。
+const lateRefs = {};
 const extraToolExecutors = {
     computer_use: (args, ctx) => computerTool(computerUse, args, ctx),
     cultivation: (args, ctx) => {
@@ -1213,7 +1216,7 @@ const extraToolExecutors = {
         host = Object.create(ctx);
         Object.defineProperty(host, 'requestApproval', { value: ask, enumerable: false });
       }
-      return cultivationTool(cultivationRuntime, args, host);
+      return cultivationTool(lateRefs.cultivation, args, host);
     },
     record_taste: async (args) => {
       try {
@@ -1264,7 +1267,7 @@ const extraToolExecutors = {
     // 记成轨迹节点后，"该怎么探索"才有可回放的对象（当场修那条是单线的）。
     delegate_task: async (args, ctx) => withClaim({ task: String(args?.task || args?.prompt || "派活"), agent: "delegate" }, async () => {
       const t0 = Date.now();
-      const r = args?.agent_id ? await delegateToCultivatedAgent(cultivationRuntime, args, ctx) : await execDelegateTask(args, ctx);
+      const r = args?.agent_id ? await delegateToCultivatedAgent(lateRefs.cultivation, args, ctx) : await execDelegateTask(args, ctx);
       try {
         const text = typeof r === "string" ? r : (r?.text || "");
         recordDelegation(WS_ROOT, { kind: "delegate_task", task: args?.task || args?.prompt || "", durationMs: Date.now() - t0, ok: !r?.isError, digest: text });
@@ -3143,6 +3146,7 @@ const cultivationRuntime = createCultivationRuntime({ wsRoot: WS_ROOT,
       notifier.notify({ kind: "cultivation", toWechat: true, key: `cultivation:${run.id}`,
         title: ok ? "元枢 · 培养任务完成" : "元枢 · 培养任务未完成",
         body: ok ? String(c.output || "").replace(/\s+/g, " ").slice(0, 120) || "已完成" : `${run.status}${c.reason ? `：${c.reason}` : ""}` })?.catch?.(() => {});
+try { lateRefs.cultivation = cultivationRuntime } catch {}
     },
   },
 });

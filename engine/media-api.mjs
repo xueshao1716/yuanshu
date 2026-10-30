@@ -149,10 +149,17 @@ const IMAGE_PROMPT_FRAMINGS = [
 // 仅默认自画像做构图变体。不能给用户的海报/产品/其他主体偷偷加上小语人像语义。
 export function varyImagePrompt(prompt) {
   const text = String(prompt || '').trim();
-  if (text !== XIAOYU_PORTRAIT_PROMPT) return text;
+  // 2026-10-30：自画像提示词现在由 persona-look 生成，跟常量不再逐字相同。
+  // 只比较常量会永远原样返回，两次调用一模一样 → 平台按 prompt 缓存吐同一张图。
+  const selfPortrait = text === XIAOYU_PORTRAIT_PROMPT || text.startsWith("【小语自画像】");
+  if (!selfPortrait) return text;
   _imagePromptSeq += 1;
   const frame = IMAGE_PROMPT_FRAMINGS[(_imagePromptSeq - 1) % IMAGE_PROMPT_FRAMINGS.length];
-  return `${text}。${frame}。seed=${Date.now()}-${_imagePromptSeq}`;
+  // 2026-10-30：自画像提示词本身就带 seed=…（persona-look 生成），不能原样返回——
+  // 那样两次调用完全一样，平台按 prompt 缓存会反复吐同一张图。
+  const seedNum = Date.now() * 1000 + _imagePromptSeq;
+  if (/seed=\d+/.test(text)) return text.replace(/seed=\d+/, `seed=${seedNum}`);
+  return `${text}。${frame}。seed=${seedNum}`;
 }
 
 export function isPureImageRequest(message) {
