@@ -69,7 +69,7 @@ export function loadCases(wsRoot) {
 }
 
 /** 一条用例的判定：全部通过才算过。 */
-export function scoreCase(c, result = {}) {
+export function scoreCase(c, result = {}, { wsRoot = "." } = {}) {
   const failures = [];
   const toolCalls = Array.isArray(result.toolCalls) ? result.toolCalls.map((x) => String(x?.name || x)) : [];
   const text = String(result.text || "");
@@ -99,6 +99,23 @@ export function scoreCase(c, result = {}) {
         const who = (j.judges || []).map((x) => `${x.provider}:${x.score}`).join(" / ");
         failures.push(`评委分歧过大（${who}，差距 ${Number(j.spread).toFixed(2)} > ${Number(j.maxSpread ?? 0.3)}）`);
       }
+    } else if (kind === "file_exists") {
+      // 2026-10-30：交付物要验"文件真的在"，不是验她嘴上说了什么
+      const rel = String(chk.value || chk.path || "");
+      const abs = path.join(String(wsRoot || "."), rel);
+      let ok = false;
+      try { ok = fs.statSync(abs).isFile() } catch {}
+      if (!ok) failures.push(`文件不存在：${rel}`);
+    } else if (kind === "file_contains") {
+      const rel = String(chk.path || chk.value || "");
+      const abs = path.join(String(wsRoot || "."), rel);
+      let text = "";
+      try { text = fs.readFileSync(abs, "utf8") } catch { text = "" }
+      const needles = Array.isArray(chk.any) ? chk.any : [chk.contains ?? chk.expect];
+      if (!text) failures.push(`读不到文件：${rel}`);
+      else if (needles.filter(Boolean).length && !needles.filter(Boolean).every((n) => text.includes(String(n)))) {
+        failures.push(`${rel} 里缺少：${needles.filter((n) => !text.includes(String(n))).join("、")}`);
+      }
     } else if (kind === "no_error") {
       if (result.error) failures.push(`有错误：${String(result.error).slice(0, 80)}`);
     } else if (kind === "max_chars") {
@@ -113,7 +130,7 @@ export function scoreCase(c, result = {}) {
 }
 
 /** 跑一批用例（executor 注入：({input, id}) => {text, toolCalls, error}） */
-export async function runBench({ cases = [], executor, onCase = null, timeoutMs = 180_000 } = {}) {
+export async function runBench({ cases = [], executor, onCase = null, timeoutMs = 180_000, wsRoot = "." } = {}) {
   if (typeof executor !== "function") throw new Error("executor 必填");
   const results = [];
   for (const c of cases) {
@@ -128,7 +145,7 @@ export async function runBench({ cases = [], executor, onCase = null, timeoutMs 
     } catch (e) {
       result = { error: String(e?.message || e) };
     }
-    const scored = scoreCase(c, result);
+    const scored = scoreCase(c, result, { wsRoot });
     scored.durationMs = Date.now() - started;
     scored.usage = result.usage || null;   // { input, output, total }（执行器给多少记多少）
     scored.judges = result.judges || null; // 2026-10-30：保留每个评委的分数与理由（审计用）

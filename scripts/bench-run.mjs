@@ -175,7 +175,7 @@ const judgedExecutor = async (args) => {
   return out;
 };
 
-const run = await runBench({ cases, executor: judgedExecutor, timeoutMs: perCaseTimeoutMs + 20000, onCase: (r) => console.log(`  ${r.pass ? "✔" : "✘"} ${r.title}${r.pass ? "" : " — " + r.failures.join("；")}`) });
+const run = await runBench({ cases, wsRoot, executor: judgedExecutor, timeoutMs: perCaseTimeoutMs + 20000, onCase: (r) => console.log(`  ${r.pass ? "✔" : "✘"} ${r.title}${r.pass ? "" : " — " + r.failures.join("；")}`) });
 run.tag = tag;
 const saved = saveRun(wsRoot, run, { tag });
 console.log(`\n通过 ${run.passed}/${run.total}（${run.score}%）→ ${saved}`);
