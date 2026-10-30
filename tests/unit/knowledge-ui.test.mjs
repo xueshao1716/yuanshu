@@ -11,7 +11,7 @@ test('editing knowledge settings preserves separately authorized cultivation mod
 
 test('committed knowledge offers a reviewed correction without promising immediate deletion',()=>{
  const jobs=read('knowledge/KnowledgeJobs.tsx'),source=read('knowledge/KnowledgeSource.tsx');
- assert.ok(jobs.includes("['review_required','blocked','committed'].includes(detail.data.state)"));
+ assert.ok(jobs.includes("['review_required','blocked','committed'].includes(data.state)"));
  assert.ok(source.includes('更正这条已入库知识'));assert.ok(source.includes('通过核查前，原条目不被替换'));
 });
 test('knowledge mutations let the shared API serialize JSON and set its content type',()=>{
@@ -38,7 +38,7 @@ test('policy makes authorization, unknown usage and cost explicit; new intake re
 test('supplement UI links evidence to its original job with both revisions',()=>{
  const api=read('knowledge/api.ts'),jobs=read('knowledge/KnowledgeJobs.tsx'),source=read('knowledge/KnowledgeSource.tsx'),panel=read('knowledge/KnowledgePanel.tsx');
  for(const text of ['/supplement','policyRevision','relatedJobId'])assert.ok(api.includes(text),text);
- assert.ok(jobs.includes('parent={detail.data}'));assert.ok(panel.includes('policyRevision={policy.data?.revision}'));
+ assert.ok(jobs.includes('parent={data}'));assert.ok(panel.includes('policyRevision={policy.data?.revision}'));
  assert.ok(source.includes('KnowledgeApi.supplement(parent.id, source, parent.revision, revision)'));
  assert.ok(source.includes('<fieldset disabled={busy}'));assert.ok(source.includes('if (busy) return'));
 });
@@ -57,7 +57,7 @@ test('related evidence does not promise pagination-blind navigation and failed r
 
 test('knowledge detail distinguishes execution, objective checks, human acceptance and team model review',()=>{
  const jobs=read('knowledge/KnowledgeJobs.tsx'),view=read('knowledge/KnowledgeProvenance.tsx'),api=read('knowledge/api.ts');
- assert.ok(jobs.includes('<KnowledgeProvenance value={detail.data.provenance}'));
+ assert.ok(jobs.includes('<KnowledgeProvenance value={data.provenance}'));
  for(const text of ['任务执行','客观检查','人工验收','模型评审','不等于方法已验证','unavailable','unknown'])assert.ok(view.includes(text),text);
  assert.ok(api.includes('provenance?:'));assert.ok(api.includes('replacementJobId?:'));
  assert.ok(api.includes("source_replaced:"));
@@ -80,7 +80,7 @@ test('method enrollment exposes an explicit fixed checker manifest without promi
 });
 test('method detail exposes the exact contract, artifact version and environment rather than a generic PASS',()=>{
  const jobs=read('knowledge/KnowledgeJobs.tsx'),view=read('knowledge/KnowledgeMethod.tsx'),api=read('knowledge/api.ts');
- assert.ok(jobs.includes('<KnowledgeMethod value={detail.data.validation?.entry}'));
+ assert.ok(jobs.includes('<KnowledgeMethod value={data.validation?.entry}'));
  for(const text of ['artifactHash','manifestHash','artifactPath','assertions','environment','当前产物','不替代','scope'])assert.ok(view.includes(text),text);
  assert.ok(api.includes('method?: KnowledgeMethodData'));
 });
@@ -88,6 +88,6 @@ test('resolved supplementary history is visible without offering duplicate adjud
  const jobs=read('knowledge/KnowledgeJobs.tsx'),review=read('knowledge/KnowledgeReview.tsx'),panel=read('knowledge/KnowledgePanel.tsx'),api=read('knowledge/api.ts');
  for(const text of ['displayState','已由补证解决','resolution.jobId','resolution.entryId','不代表来源当前仍可引用'])assert.ok(jobs.includes(text),text);
  assert.ok(review.split('\n').some(l=>l.includes("job.state === 'review_required'")&&l.includes('!job.resolution')));
- assert.ok(jobs.split('\n').filter(l=>l.includes('<KnowledgeSource parent=')||l.includes("onClick={() => act(")).every(l=>l.includes('!detail.data.resolution')));
+ assert.ok(jobs.split('\n').filter(l=>l.includes('<KnowledgeSource parent=')||l.includes("onClick={() => act(")).every(l=>l.includes('!data.resolution')));
  assert.ok(panel.includes('counts?.resolved'));assert.ok(api.includes('resolution?:'));assert.ok(api.includes('job_resolved:'));
 });

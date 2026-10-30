@@ -31,8 +31,8 @@ test('knowledge deep links preserve the apps route and select records outside th
   assert.ok(source('frontend/src/hooks/useHashRoute.tsx').includes(".split('?')[0]"));
   const jobs=source('frontend/src/knowledge/KnowledgeJobs.tsx');
   assert.ok(jobs.includes('knowledgeSelection'));
-  assert.ok(jobs.includes('selectedJob'));
-  assert.ok(jobs.includes("detail.data.event !== 'cultivation'"));
+  assert.ok(jobs.includes('JobDetail'), '详情组件要在（深链选中的记录靠它渲染）');
+  assert.ok(jobs.includes("data.event === 'cultivation'"));
 });
 
 test('panel pagination and policy drafts retain their own revision boundaries',()=>{
