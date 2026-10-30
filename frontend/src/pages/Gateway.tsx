@@ -242,6 +242,11 @@ export default function Gateway() {
         </details>
       </section>
 
+      {/* 2026-10-30：插件商店入口（左侧栏也有，这里再给一个显眼的） */}
+      <section className="panel flex flex-wrap items-center justify-between gap-2 !p-3">
+        <div className="text-[12.5px] text-pi-text">插件商店 <span className="text-pi-dim2">装技能包 / MCP / 工具包；工具包权限逐项核对</span></div>
+        <a className="btn-tool min-h-9 px-3 text-[12px]" href="#/plugins">打开插件商店</a>
+      </section>
       {/* 后台任务（像 DSH 顶上那几个） */}
       <section className="panel space-y-3">
         <div className="flex flex-wrap items-baseline justify-between gap-2">
