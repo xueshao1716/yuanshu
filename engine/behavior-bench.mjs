@@ -16,6 +16,50 @@ export function casesPath(wsRoot) {
   return path.join(String(wsRoot || "."), CASES_REL);
 }
 
+export const JUDGES_REL = path.join("评测", "评分器.json");
+
+// 2026-10-30：默认两个**不同 provider** 的评委。同一家模型自评容易互相包庇。
+export const DEFAULT_JUDGES = [
+  { provider: "deepseek", modelId: "deepseek-flash" },
+  { provider: "agnes", modelId: "agnes-3.0-flash" },
+];
+export const DEFAULT_MAX_SPREAD = 0.3;
+
+export function judgesPath(wsRoot) {
+  return path.join(String(wsRoot || "."), JUDGES_REL);
+}
+
+export function loadJudges(wsRoot) {
+  try {
+    const raw = JSON.parse(fs.readFileSync(judgesPath(wsRoot), "utf8"));
+    const list = Array.isArray(raw?.judges) ? raw.judges : [];
+    const ok = list.filter((j) => j && j.provider && j.modelId)
+      .map((j) => ({ provider: String(j.provider), modelId: String(j.modelId) }));
+    return { judges: ok.length ? ok : DEFAULT_JUDGES, maxSpread: Number(raw?.maxSpread) || DEFAULT_MAX_SPREAD };
+  } catch {
+    return { judges: DEFAULT_JUDGES, maxSpread: DEFAULT_MAX_SPREAD };
+  }
+}
+
+/**
+ * 聚合多个评委：得分取**最低**（保守），分歧过大标记 disagree。
+ * 为什么取最低而不是平均：两个评委一个 0.9 一个 0.2，平均 0.55 看着还行，其实是有人觉得不行。
+ */
+export function aggregateJudges(scores = [], { maxSpread = DEFAULT_MAX_SPREAD } = {}) {
+  const valid = (scores || []).filter((x) => Number.isFinite(Number(x?.score)));
+  if (!valid.length) return { score: 0, reason: "没有评委给出有效分数", judges: [], spread: null, disagree: true };
+  const nums = valid.map((x) => Number(x.score));
+  const spread = Math.round((Math.max(...nums) - Math.min(...nums)) * 1000) / 1000;   // 去浮点毛刺（0.7000000001）
+  const low = valid.reduce((a, b) => (Number(a.score) <= Number(b.score) ? a : b));
+  return {
+    score: Number(low.score),
+    reason: String(low.reason || "").slice(0, 200),
+    judges: valid.map((x) => ({ provider: x.provider || "", modelId: x.modelId || "", score: Number(x.score), reason: String(x.reason || "").slice(0, 160) })),
+    spread,
+    disagree: spread > maxSpread,
+  };
+}
+
 export function loadCases(wsRoot) {
   try {
     const raw = JSON.parse(fs.readFileSync(casesPath(wsRoot), "utf8"));
@@ -50,6 +94,11 @@ export function scoreCase(c, result = {}) {
       const min = Number(chk.min ?? 0.6);
       if (!j) failures.push(`主观判定「${chk.name || "default"}」没有结果`);
       else if (!(Number(j.score) >= min)) failures.push(`主观判定不达标（${Number(j.score).toFixed(2)} < ${min}）：${String(j.reason || "").slice(0, 60)}`);
+      // 2026-10-30：评委分歧要显式暴露——不一致的判定不能悄悄算分
+      else if (j.disagree && chk.failOnDisagree === true) {
+        const who = (j.judges || []).map((x) => `${x.provider}:${x.score}`).join(" / ");
+        failures.push(`评委分歧过大（${who}，差距 ${Number(j.spread).toFixed(2)} > ${Number(j.maxSpread ?? 0.3)}）`);
+      }
     } else if (kind === "no_error") {
       if (result.error) failures.push(`有错误：${String(result.error).slice(0, 80)}`);
     } else if (kind === "max_chars") {
@@ -82,6 +131,7 @@ export async function runBench({ cases = [], executor, onCase = null, timeoutMs 
     const scored = scoreCase(c, result);
     scored.durationMs = Date.now() - started;
     scored.usage = result.usage || null;   // { input, output, total }（执行器给多少记多少）
+    scored.judges = result.judges || null; // 2026-10-30：保留每个评委的分数与理由（审计用）
     results.push(scored);
     try { onCase?.(scored) } catch {}
   }

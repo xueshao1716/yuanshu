@@ -4,7 +4,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { scoreCase, runBench, compareRuns, saveRun, listRuns, loadCases, casesPath } from "../../engine/behavior-bench.mjs";
+import { scoreCase, runBench, compareRuns, saveRun, listRuns, loadCases, casesPath, aggregateJudges, loadJudges, DEFAULT_JUDGES } from "../../engine/behavior-bench.mjs";
 
 const c = (checks) => ({ id: "x", title: "用例", input: "hi", checks });
 
@@ -99,4 +99,64 @@ test("题库缺失时返回空数组而不是抛错", () => {
   const ws = fs.mkdtempSync(path.join(os.tmpdir(), "bench2-"));
   assert.deepEqual(loadCases(ws), []);
   assert.ok(casesPath(ws).includes("行为题库"));
+});
+
+
+// ── 异构评委（2026-10-30）──
+
+test("聚合取最低分而不是平均：一个 0.2 一个 0.9，不能折中成 0.55", () => {
+  const a = aggregateJudges([{ provider: "x", score: 0.9 }, { provider: "y", score: 0.2 }]);
+  assert.equal(a.score, 0.2);
+  assert.equal(a.disagree, true);
+});
+
+test("分歧阈值比较不受浮点毛刺影响（0.7 vs 1.0 差距按 0.3 算）", () => {
+  const a = aggregateJudges([{ provider: "x", score: 0.7 }, { provider: "y", score: 1 }], { maxSpread: 0.3 });
+  assert.equal(a.spread, 0.3);
+  assert.equal(a.disagree, false, "恰好等于阈值不算超出");
+});
+
+test("没有有效分数时判 0 并标分歧", () => {
+  const a = aggregateJudges([{ provider: "x", score: NaN }]);
+  assert.equal(a.score, 0);
+  assert.equal(a.disagree, true);
+});
+
+test("分歧默认只记录不判失败；显式 failOnDisagree 才失败", () => {
+  const split = aggregateJudges([{ provider: "x", score: 0.65 }, { provider: "y", score: 1 }], { maxSpread: 0.2 });
+  const c = (checks) => ({ id: "x", title: "t", input: "i", checks });
+  const soft = scoreCase(c([{ kind: "judge", min: 0.6 }]), { judges: { default: split } });
+  assert.equal(soft.pass, true, "两个评委都过线，只是意见不一，不该判失败");
+  const hard = scoreCase(c([{ kind: "judge", min: 0.6, failOnDisagree: true }]), { judges: { default: split } });
+  assert.equal(hard.pass, false);
+  assert.match(hard.failures.join(" "), /评委分歧/);
+});
+
+test("评委配置：缺文件用默认两家不同 provider", () => {
+  const ws = fs.mkdtempSync(path.join(os.tmpdir(), "judges-"));
+  const cfg = loadJudges(ws);
+  assert.ok(cfg.judges.length >= 2);
+  const providers = new Set(cfg.judges.map((j) => j.provider));
+  assert.ok(providers.size >= 2, "默认评委要来自不同 provider");
+  assert.deepEqual(cfg.judges, DEFAULT_JUDGES);
+});
+
+test("评委配置：读工作区文件并可调阈值", () => {
+  const ws = fs.mkdtempSync(path.join(os.tmpdir(), "judges2-"));
+  fs.mkdirSync(path.join(ws, "评测"), { recursive: true });
+  fs.writeFileSync(path.join(ws, "评测", "评分器.json"), JSON.stringify({
+    judges: [{ provider: "a", modelId: "a1" }, { provider: "b", modelId: "b1" }], maxSpread: 0.5,
+  }), "utf8");
+  const cfg = loadJudges(ws);
+  assert.equal(cfg.judges.length, 2);
+  assert.equal(cfg.maxSpread, 0.5);
+});
+
+test("跑分结果保留评委明细（审计要能看出谁给了几分）", async () => {
+  const out = await runBench({
+    cases: [{ id: "a", title: "A", input: "x", checks: [{ kind: "judge", min: 0.5 }] }],
+    executor: async () => ({ text: "答案", judges: { default: aggregateJudges([{ provider: "x", score: 0.9 }]) } }),
+  });
+  assert.ok(out.results[0].judges, "要保留 judges");
+  assert.equal(out.results[0].judges.default.judges[0].provider, "x");
 });

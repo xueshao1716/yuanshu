@@ -9,7 +9,7 @@
 // 执行器走本机 API（和人工使用同一条通道），所以跑的是**真实行为**。
 import fs from "node:fs";
 import path from "node:path";
-import { loadCases, runBench, compareRuns, saveRun, casesPath } from "../engine/behavior-bench.mjs";
+import { loadCases, runBench, compareRuns, saveRun, casesPath, loadJudges, aggregateJudges } from "../engine/behavior-bench.mjs";
 
 const argv = process.argv.slice(2);
 const arg = (name, def = "") => { const i = argv.indexOf(name); return i >= 0 ? String(argv[i + 1] || def) : def };
@@ -21,6 +21,7 @@ const base = process.env.YUANSHU_BASE || "http://127.0.0.1:8787";
 const H = { Authorization: `Bearer ${token}`, "Content-Type": "application/json" };
 
 const only = arg("--only");
+const panel = loadJudges(wsRoot);
 const tag = arg("--tag", "run");
 const compareFile = arg("--compare");
 const perCaseTimeoutMs = Number(arg("--timeout", "300")) * 1000;
@@ -91,42 +92,51 @@ function pickScoreJson(text) {
   return null;
 }
 
-/** 主观判定：直调模型按 rubric 打分，输出 {score 0~1, reason}。 */
-async function judgeAnswer({ rubric, answer, caseId }) {
+/** 单个评委：直调模型按 rubric 打分，返回 {score, reason}。 */
+async function judgeOnce({ judge, rubric, answer }) {
+  // 2026-10-30：格式要求必须**前置**。真机：放在最后时模型先长篇推理，SCORE 行被截断 → 恒 0 分。
   const prompt = [
-    "你是评分员。只做一件事：按下面的标准给「答案」打分。",
+    "第一行必须是 SCORE 行，第二行是 REASON 行，不要写任何解释或推理。",
+    "格式：",
+    "SCORE: 0.8",
+    "REASON: 一句话理由",
+    "",
     "评分标准：", String(rubric || "答案是否切题、具体、可用。"),
     "答案：", String(answer || "").slice(0, 4000),
-    "严格只输出一行，格式：SCORE: <0到1的小数> | REASON: <一句话理由>",
-    "不要解释、不要思考过程、不要别的任何文字。",
   ].join("\n");
   try {
     const r = await fetch(`${base}/api/judge`, {
       method: "POST",
       headers: H,
-      body: JSON.stringify({ provider: "deepseek", modelId: "deepseek-flash", message: prompt, maxTokens: 2000 }),
+      body: JSON.stringify({ provider: judge.provider, modelId: judge.modelId, message: prompt, maxTokens: 6000 }),
     });
     const j = await r.json();
-    const text = String(j.text || "");
-    // 2026-10-30：模型常先"想一遍"再给 JSON；取第一个花括号会抓到提示词里的模板（含 "0~1" 那种），
-    // 所以从后往前找，只认 score 是数字的那个对象。
-    // 优先认 "SCORE: 0.8 | REASON: ..."；没有再退回 JSON（模型有时还是给 JSON）
-    const line = text.match(/SCORE\s*[:：]\s*([0-9]+(?:\.[0-9]+)?)/i);
+    const text = String(j.text || j.error || "");
+    // 有些模型把换行吃掉，写成 "SCORE: 0.9 REASON: ..."，两种都认
+  const line = text.match(/SCORE\s*[:：]\s*([0-9]+(?:\.[0-9]+)?)/i);
     let score = line ? Number(line[1]) : NaN;
     let reason = (text.match(/REASON\s*[:：]\s*([^\n|]+)/i) || [])[1] || "";
     if (!Number.isFinite(score)) {
-      const parsed = pickScoreJson(text);
-      if (parsed) { score = Number(parsed.score); reason = String(parsed.reason || reason || ""); }
+      const blocks = [...text.matchAll(/\{[^{}]*\}/g)].map((m) => m[0]).reverse();
+      for (const b of blocks) {
+        try { const o = JSON.parse(b); if (o && Number.isFinite(Number(o.score))) { score = Number(o.score); reason = String(o.reason || reason); break } } catch {}
+      }
     }
-    if (!Number.isFinite(score)) {
-      return { score: 0, reason: `评分输出无法解析：${text.replace(/\s+/g, " ").slice(0, 120)}` };
-    }
+    if (!Number.isFinite(score)) return { ...judge, score: 0, reason: `无法解析：${text.replace(/\s+/g, " ").slice(0, 100)}` };
     if (score > 1) score = score / 100;
-    score = Math.max(0, Math.min(1, score));
-    return { score, reason: String(reason || "").trim().slice(0, 200) };
+    return { ...judge, score: Math.max(0, Math.min(1, score)), reason: String(reason || "").trim().slice(0, 200) };
   } catch (e) {
-    return { score: 0, reason: `评分失败：${String(e?.message || e).slice(0, 80)}` };
+    return { ...judge, score: 0, reason: `评分失败：${String(e?.message || e).slice(0, 80)}` };
   }
+}
+
+/** 多评委：每个评委独立打分，再聚合（取最低 + 分歧标记）。 */
+async function judgeWithPanel({ rubric, answer, panel }) {
+  const judges = panel?.judges?.length ? panel.judges : [{ provider: "deepseek", modelId: "deepseek-flash" }];
+  const results = [];
+  for (const j of judges) results.push(await judgeOnce({ judge: j, rubric, answer }));
+  const agg = aggregateJudges(results, { maxSpread: panel?.maxSpread });
+  return agg;
 }
 
 async function executor({ input }) {
@@ -159,7 +169,7 @@ const judgedExecutor = async (args) => {
   if (judgeChecks.length && out.text) {
     out.judges = {};
     for (const chk of judgeChecks) {
-      out.judges[chk.name || "default"] = await judgeAnswer({ rubric: chk.rubric, answer: out.text, caseId: args.id });
+      out.judges[chk.name || "default"] = await judgeWithPanel({ rubric: chk.rubric, answer: out.text, panel });
     }
   }
   return out;
