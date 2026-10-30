@@ -24,7 +24,10 @@ test('watchdog really runs main() when required from a launcher/service.cjs', ()
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'wd-launch-'));
   try {
     fs.mkdirSync(path.join(dir, 'app', 'lib'), { recursive: true }); fs.mkdirSync(path.join(dir, 'launcher'));
-    fs.copyFileSync(new URL('../../lib/service-readiness.cjs', import.meta.url), path.join(dir, 'app', 'lib', 'service-readiness.cjs'));
+    // 2026-10-30：watchdog 依赖 lib/ 下多个 .cjs（含 watchdog-limits），逐个拷，别只拷一个。
+    for (const f of fs.readdirSync(new URL('../../lib/', import.meta.url)).filter((x) => x.endsWith('.cjs'))) {
+      fs.copyFileSync(new URL(`../../lib/${f}`, import.meta.url), path.join(dir, 'app', 'lib', f));
+    }
     const src = fs.readFileSync(new URL('../../watchdog.cjs', import.meta.url), 'utf8')
       // 只验证 main 被调用：把 main 换成写标记后退出，不碰真实端口和服务
       .replace(/async function main\(\) \{/, 'async function main() { require("fs").writeFileSync(require("path").join(__dirname, "ran"), "1"); process.exit(0);');

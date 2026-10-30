@@ -27,6 +27,10 @@ export function createDreamCollector({ wsRoot, sessionsDir,
     // 之前"做梦"采集等于只处理这 4 个，后来的对话一个都没进记忆。
     let names
     const relKey = (file) => path.relative(sessionsDir, file).split(path.sep).join('/');
+    // 2026-10-30：目录不存在不是「没有变化」——静默成功会让「没采到」看起来像「采到了」。
+    if (!fs.existsSync(sessionsDir)) {
+      result.ok = false; result.failed = 1; result.reason = 'sessions_missing'; save(); return result
+    }
     try {
       names = collectSessionFiles(sessionsDir).map(relKey).sort();
     } catch { result.ok = false; result.failed = 1; result.reason = 'sessions_unreadable'; save(); return result }

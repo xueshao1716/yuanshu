@@ -28,10 +28,11 @@ test('both chat engines preserve opaque cultivation identity without adding it t
   const server=read('server.mjs'),session=read('engine/session-manager.mjs'),unified=read('engine/unified-chat.mjs');
   assert.ok(server.includes('CULTIVATION_TOOL_SCHEMA,'));
   // 2026-10-18：包装层要挂 requestApproval，但仍须把 ctx 原样交下去（执行身份是非枚举属性）
-  assert.ok(server.includes('cultivationTool(cultivationRuntime, args, host)'));
+  // 2026-10-30：顶层执行器表用晚绑定容器，避免引用后声明的 runtime（TDZ）
+  assert.ok(server.includes('cultivationTool(lateRefs.cultivation, args, host)'));
   {
     const at = server.indexOf('cultivation: (args, ctx) => {')
-    const wrap = server.slice(at, server.indexOf('cultivationTool(cultivationRuntime, args, host)', at) + 60)
+    const wrap = server.slice(at, server.indexOf('cultivationTool(lateRefs.cultivation, args, host)', at) + 60)
     assert.ok(wrap.includes("Object.defineProperty(host, 'requestApproval'"), '包装层必须用 defineProperty 挂 requestApproval')
     assert.ok(wrap.includes('enumerable: false'), '挂上去的字段不能变成可枚举')
     assert.ok(!/\{\s*\.\.\.ctx/.test(wrap), '不能展开 ctx——展开会丢掉非枚举的执行身份')

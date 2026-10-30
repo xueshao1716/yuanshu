@@ -66,6 +66,7 @@ test('wiring: schema exposes agent_id and server routes it to the cultivation pa
   const del=fs.readFileSync(new URL('../../engine/yuanshu-delegate.mjs',import.meta.url),'utf8');
   assert.match(del,/agent_id:/);assert.match(del,/criterion:/);
   const server=fs.readFileSync(new URL('../../server.mjs',import.meta.url),'utf8');
-  assert.match(server,/args\?\.agent_id \? await delegateToCultivatedAgent\(cultivationRuntime/);
+  // 2026-10-30：执行器表在顶层求值，直接引用后声明的 cultivationRuntime 会 TDZ；改晚绑定容器。
+  assert.match(server,/args\?\.agent_id \? await delegateToCultivatedAgent\(lateRefs\.cultivation/);
   assert.ok(!fs.readFileSync(new URL('../../engine/cultivation/delegate.mjs',import.meta.url),'utf8').includes('dispatchAllowed'));
 });

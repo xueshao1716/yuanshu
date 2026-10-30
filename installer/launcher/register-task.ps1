@@ -1,4 +1,4 @@
-# 元枢安装版：注册登录自启任务 yuanshu-watchdog（免管理员，当前用户、普通权限）。
+﻿# 元枢安装版：注册登录自启任务 yuanshu-watchdog（免管理员，当前用户、普通权限）。
 # 失败时退回「启动」文件夹快捷方式，保证重启后服务还能起来。
 # 本文件需保存为 UTF-8 with BOM（PS5.1 读无 BOM 中文脚本会乱码）。
 param([string]$Root = (Split-Path -Parent $PSScriptRoot))
