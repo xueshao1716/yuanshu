@@ -43,6 +43,13 @@ export function scoreCase(c, result = {}) {
       if (!text.includes(String(chk.value || ""))) failures.push(`回复里没有「${chk.value}」`);
     } else if (kind === "text_not_contains") {
       if (text.includes(String(chk.value || ""))) failures.push(`回复里不该出现「${chk.value}」`);
+    } else if (kind === "judge") {
+      // 2026-10-30：主观项。judge 由调用方注入（judge({rubric,answer,caseId}) → {score 0~1, reason}）。
+      // 没注入就明确失败，不假装通过——"没法判"和"判过了"必须分开。
+      const j = result.judges?.[chk.name || "default"];
+      const min = Number(chk.min ?? 0.6);
+      if (!j) failures.push(`主观判定「${chk.name || "default"}」没有结果`);
+      else if (!(Number(j.score) >= min)) failures.push(`主观判定不达标（${Number(j.score).toFixed(2)} < ${min}）：${String(j.reason || "").slice(0, 60)}`);
     } else if (kind === "no_error") {
       if (result.error) failures.push(`有错误：${String(result.error).slice(0, 80)}`);
     } else if (kind === "max_chars") {
@@ -74,13 +81,18 @@ export async function runBench({ cases = [], executor, onCase = null, timeoutMs 
     }
     const scored = scoreCase(c, result);
     scored.durationMs = Date.now() - started;
+    scored.usage = result.usage || null;   // { input, output, total }（执行器给多少记多少）
     results.push(scored);
     try { onCase?.(scored) } catch {}
   }
   const passed = results.filter((r) => r.pass).length;
+  const durationMs = results.reduce((a, r) => a + (Number(r.durationMs) || 0), 0);
+  const tokens = results.reduce((a, r) => a + (Number(r.usage?.total) || 0), 0);
   return {
     total: results.length,
     passed,
+    durationMs,
+    tokens,
     score: results.length ? Math.round((passed / results.length) * 100) : 0,
     results,
     at: Date.now(),
@@ -100,6 +112,8 @@ export function compareRuns(before, after) {
     if (!old.pass && r.pass) improvements.push({ id: r.id, title: r.title });
   }
   const delta = (after.score || 0) - (before.score || 0);
+  const beforeMs = Number(before.durationMs) || 0, afterMs = Number(after.durationMs) || 0;
+  const beforeTok = Number(before.tokens) || 0, afterTok = Number(after.tokens) || 0;
   const verdict = regressions.length ? "worse" : delta > 0 ? "better" : delta < 0 ? "worse" : "same";
   return {
     ok: true,
@@ -107,6 +121,8 @@ export function compareRuns(before, after) {
     delta,
     beforeScore: before.score,
     afterScore: after.score,
+    durationMs: { before: beforeMs, after: afterMs, delta: afterMs - beforeMs },
+    tokens: { before: beforeTok, after: afterTok, delta: afterTok - beforeTok },
     regressions,
     improvements,
     // 给人看的一句话

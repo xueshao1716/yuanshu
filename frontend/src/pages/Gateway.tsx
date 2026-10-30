@@ -100,10 +100,18 @@ export default function Gateway() {
     for (const f of openFeedback) g[feedbackGroup(f)].push(f)
     return g
   })()
+  const runBenchNow = async () => {
+    await api('/api/bench/run', { method: 'POST', body: { tag: 'panel' } }).catch(() => null)
+    void jobs.mutate()
+  }
   const cancelJob = async (id: string) => {
     await api('/api/jobs/cancel', { method: 'POST', body: { id } }).catch(() => null)
     void jobs.mutate()
   }
+  const bench = useSWR('bench-latest', () => api<{ cases: { id: string; title: string }[]; latest: any; previous: any }>('/api/bench/latest'), { refreshInterval: 60000 })
+  const benchCases = bench.data?.cases || []
+  const benchLatest = bench.data?.latest || null
+  const benchPrev = bench.data?.previous || null
   const fpModels = fps.data?.models || []
   const fpLine = String(fps.data?.line || "")
   const fpChanged = (fps.data?.history || []).length > 0
@@ -300,6 +308,33 @@ export default function Gateway() {
             {fpChanged ? "（近期变过：行为漂移先看这里）" : "（没变过）"}
           </p>
         ) : null}
+      </section>
+      {/* 行为题库：像不像样，用跑分说 */}
+      <section className="panel space-y-3">
+        <div className="flex flex-wrap items-baseline justify-between gap-2">
+          <h2 className="text-[15px] font-semibold text-pi-text">行为题库</h2>
+          <span className="text-xs text-pi-dim2">
+            {benchLatest ? `最近 ${benchLatest.passed}/${benchLatest.total}（${benchLatest.score}%）` : `${benchCases.length} 条用例 · 还没跑过`}
+          </span>
+        </div>
+        {benchLatest ? (
+          <ul className="space-y-1.5">
+            {(benchLatest.results || []).map((r: any) => (
+              <li key={r.id} className="text-[12.5px] leading-relaxed">
+                <span className={r.pass ? "text-pi-accent" : "text-pi-red"}>{r.pass ? "✔" : "✘"}</span>{" "}
+                <span className="text-pi-text">{r.title}</span>
+                {typeof r.durationMs === "number" && <span className="ml-2 text-[11px] text-pi-dim2">{fmtDuration(r.durationMs)}</span>}
+                {!r.pass && <div className="text-[11px] text-pi-red">{(r.failures || []).join("；")}</div>}
+              </li>
+            ))}
+          </ul>
+        ) : (
+          <p className="text-xs text-pi-dim2">点「跑一遍」用真实对话跑题库：画图/跑命令/读网页/讲清楚一件事。几分钟起步。</p>
+        )}
+        {benchLatest && benchPrev && benchPrev.score !== undefined && (
+          <p className="text-[11px] text-pi-dim2">上一次：{benchPrev.passed}/{benchPrev.total}（{benchPrev.score}%）</p>
+        )}
+        <button type="button" style={{ ...pill(), minHeight: 26, fontSize: 12 }} onClick={() => void runBenchNow()}>跑一遍</button>
       </section>
       {/* 进化提案：她自己攒的改进建议 */}
       <section className="panel space-y-3">

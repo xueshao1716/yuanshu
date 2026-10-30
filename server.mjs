@@ -161,6 +161,7 @@ import {
 } from "./engine/plugin-store.mjs";
 import { runToolpackTool } from "./engine/toolpack-runtime.mjs";
 import { syncToolpacks, toolpacksInChat, setToolpacksInChat } from "./engine/toolpack-chat.mjs";
+import { listRuns as listBenchRuns, loadCases as loadBenchCases } from "./engine/behavior-bench.mjs";
 import { pruneBackups, listBackups, listVersions } from "./engine/plugin-store.mjs";
 import { initMediaApi, findMediaModel, detectMediaIntents, extractMediaPrompt, mediaAwarePrompt, mediaReadyNotice, explainMediaError, generateMediaAsync, generateTTS, generateImage, handleImage, handleImageWithSave, generateVideo, startVideoJob, checkVideoJob, handleMedia, assistantContentWithMedia } from "./engine/media-api.mjs";
 import { extractPlayableMedia } from "./engine/media-embed.mjs";
@@ -5005,6 +5006,48 @@ const API_ROUTES = [
   ["POST", "/api/models/remove", async (res, req) => handleModelsRemove(res, await readBody(req))],
   ["POST", "/api/model", async (res, req) => handleSwitchModel(req, res, await readBody(req))],
   // ── 媒体/对话 ──
+  // 2026-10-30：行为题库面板
+  ["GET", "/api/bench/latest", (res) => {
+    const files = listBenchRuns(WS_ROOT, { limit: 5 });
+    const read = (f) => { try { return JSON.parse(fs.readFileSync(f.path, "utf8")) } catch { return null } };
+    const latest = files[0] ? read(files[0]) : null;
+    const previous = files[1] ? read(files[1]) : null;
+    return json(res, 200, { ok: true, cases: loadBenchCases(WS_ROOT).map((c) => ({ id: c.id, title: c.title })), latest, previous, runs: files.map((f) => f.name) });
+  }],
+  ["POST", "/api/bench/run", async (res, req) => {
+    const body = await readBody(req);
+    const tag = String(body?.tag || "panel").replace(/[^a-z0-9_-]/gi, "").slice(0, 24) || "panel";
+    const only = String(body?.only || "").replace(/[^a-z0-9_-]/gi, "").slice(0, 64);
+    const script = path.join(__dirname, "scripts", "bench-run.mjs");
+    if (!fs.existsSync(script)) return json(res, 404, { ok: false, error: "找不到 scripts/bench-run.mjs（部署时未同步）" });
+    const t = jobPool.track({ kind: "bench", title: `行为题库跑分（${tag}${only ? " · " + only : ""}）` });
+    const { spawn } = await import("node:child_process");
+    const args = [script, "--tag", tag];
+    if (only) args.push("--only", only);
+    const child = spawn(process.execPath, args, { cwd: __dirname, env: { ...process.env, YUANSHU_WS: WS_ROOT }, windowsHide: true });
+    let out = "";
+    child.stdout?.on("data", (b) => { out += String(b).slice(0, 4000) });
+    child.stderr?.on("data", (b) => { out += String(b).slice(0, 4000) });
+    child.on("close", (code) => { code === 0 ? t.done(out.slice(-400)) : t.fail(`退出码 ${code}：${out.slice(-200)}`) });
+    return json(res, 202, { ok: true, jobId: t.job?.id || null });
+  }],
+  // 2026-10-30：评分/判定专用——只回正文，不要把思考内容混进来（judge 需要干净的输出）
+  ["POST", "/api/judge", async (res, req) => {
+    const { provider, modelId, message, maxTokens } = await readBody(req);
+    if (!provider || !modelId || !message) return json(res, 400, { error: "缺少 provider / modelId / message" });
+    try {
+      const store = readJsonFile(MODELS_PATH);
+      const resolved = resolveAuth(provider);
+      if (!resolved) return json(res, 400, { error: `${provider} 未配置 API Key` });
+      const mdef = (store[provider]?.models || []).find((m) => m.id === modelId);
+      if (!mdef) return json(res, 404, { error: `模型 ${provider}/${modelId} 未找到` });
+      const r = await directChat({ ...mdef, provider, id: modelId }, message, [], { maxTokens: Number(maxTokens) || 2000, timeout: 120000, allowPartial: true, throwOnError: true });
+      const text = String(r?.text || "").trim();
+      return json(res, 200, { text: text || String(r?.think || "").trim() });
+    } catch (e) {
+      return json(res, e?.statusCode || 500, { error: String(e?.message || e).slice(0, 200) });
+    }
+  }],
   ["POST", "/api/think", async (res, req) => handleThink(res, await readBody(req))],
   ["POST", "/api/asr", async (res, req) => handleAsr(res, await readBody(req, 16))], // 语音转文字
   ['GET', '/api/tts/capabilities', res => json(res, 200, replyTts.capabilities())],
