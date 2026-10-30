@@ -41,6 +41,7 @@ export function briefFor(kind, facts = {}) {
   const base = [
     "写一条手机上发的短消息，第一人称，像跟熟人说话。",
     "40 字以内，最多一个 emoji，一眼能看出发生了什么。",
+    "语气克制、可靠、像靠谱的搭档；可以轻松，但不抱怨、不自嘲、不玩梗。",
     "直接给消息本身，不要解释、不要列要求、不要加引号。",
   ];
   if (kind === "away") {
@@ -72,6 +73,8 @@ export function checkNotice(text, { kind = "away", maxChars = 80 } = {}) {
   if (t.length > maxChars) reasons.push(`太长（${t.length} > ${maxChars}）`);
   for (const w of FORBIDDEN) if (t.includes(w)) reasons.push(`出现禁用词「${w}」`);
   if ((t.match(/\n/g) || []).length > 2) reasons.push("换行太多");
+  // 2026-10-30：真机写过「复盘了 101 件破事…明天躺平摆烂 🤡」——这不是产品该有的语气
+  if (/(摆烂|躺平|破事|宕机|烂透|崩了|废了|自闭)/.test(t)) reasons.push("语气太丧");
   // 2026-10-30：推理模型会把「我们需要回答…」这种思考过程当正文吐回来，这不是消息
   if (/^(我们需要|We need|让我|先看|首先|题目|好的，我)/.test(t)) reasons.push("这是推理过程，不是消息");
   // 2026-10-30：真机她写「报告已经交上去了」——离开提醒没有事实依据，不许编造成果

@@ -3268,10 +3268,17 @@ async function maybeNightBrief(now = new Date(), { force = false } = {}) {
   if (!force && st.night === day) return { ok: false, reason: "already" };
   let facts = { events: 0, learned: 0 };
   try {
-    const runs = runStore.list ? runStore.list() : [];
-    const today = runs.filter((r) => String(r.createdAt || "").startsWith(day) || String(r.updatedAt || "").startsWith(day));
+    // 2026-10-30：口径改成"今天真正动过的会话数"。
+    // 数 run 会把探针/重试/并行全算进去（真机报出「102 件事」，没人信）；一个会话 = 一件事。
+    const NOISE = /(探针|题库|验证|测试|probe|bench|smoke|baseline|judges?)/i;
+    const sessions = (typeof getSessionList === "function" ? getSessionList() : []) || [];
+    const today = sessions.filter((x) => {
+      const name = String(x?.name || "").trim();
+      if (!name || NOISE.test(name)) return false;
+      const t = String(x.updatedAt || x.createdAt || "");
+      return t.startsWith(day) || (Number.isFinite(Date.parse(t)) && new Date(t).toDateString() === new Date().toDateString());
+    });
     facts.events = today.length;
-    facts.failed = today.filter((r) => String(r.status) === "failed").length;
     // 2026-10-30：经验沉淀就在 工程/经验库/experience.md 里（按日期开头数今天那几条）
     try {
       const md = fs.readFileSync(path.join(WS_ROOT, "工程", "经验库", "experience.md"), "utf8");
@@ -3280,7 +3287,8 @@ async function maybeNightBrief(now = new Date(), { force = false } = {}) {
   } catch {}
   const made = await composeNoticeFor("night", facts);
   const env = noticeEnvelope({ kind: "night", facts, text: made.text });
-  await notifier.notify({ kind: "night", title: env.head, body: made.text, sender: personaName(WS_ROOT), summary: env.summary, toWechat: true, key: `night:${day}` });
+  const nightFacts = [`今天 ${facts.events} 件事`, `沉淀 ${facts.learned} 条`, facts.failed ? `失败 ${facts.failed} 次` : ""].filter(Boolean);
+  await notifier.notify({ kind: "night", title: env.head, body: made.text, sender: personaName(WS_ROOT), summary: env.summary, facts: nightFacts, toWechat: true, key: `night:${day}` });
   writeBriefState({ ...st, night: day });
   return { ok: true, text: made.text, source: made.source };
 }
@@ -3301,7 +3309,8 @@ async function maybeMorningBrief(now = new Date(), { force = false } = {}) {
   } catch {}
   const made = await composeNoticeFor("morning", facts);
   const env = noticeEnvelope({ kind: "morning", facts, text: made.text });
-  await notifier.notify({ kind: "morning", title: env.head, body: made.text, sender: personaName(WS_ROOT), summary: env.summary, toWechat: true, key: `morning:${day}` });
+  const morningFacts = [`待办 ${facts.pending} 件`, facts.learned ? `昨天沉淀 ${facts.learned} 条` : ""].filter(Boolean);
+  await notifier.notify({ kind: "morning", title: env.head, body: made.text, sender: personaName(WS_ROOT), summary: env.summary, facts: morningFacts, toWechat: true, key: `morning:${day}` });
   writeBriefState({ ...st, morning: day });
   return { ok: true, text: made.text, source: made.source };
 }

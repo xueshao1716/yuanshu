@@ -23,7 +23,7 @@ export function extractPoints(body, limit = MAX_ITEMS) {
   const source = bullets.length ? bullets : lines;
   const out = [];
   for (const line of source) {
-    const cleaned = line.replace(/^[•☐☑▸▪┃]\s*/, '').replace(/^[①②③④⑤⑥⑦⑧⑨⑩]\s*/, '').trim();
+    const cleaned = line.replace(/^[•☐☑▸▪┃\-*+]\s*/, '').replace(/^[①②③④⑤⑥⑦⑧⑨⑩]\s*/, '').trim();
     if (!cleaned || cleaned.length < 2) continue;
     if (out.length >= limit) break;
     out.push(clip(cleaned, MAX_ITEM_CHARS));
@@ -37,22 +37,27 @@ export function extractPoints(body, limit = MAX_ITEMS) {
 const KIND_ICON = { task: '🗓', agent: '💬', cultivation: '🌱', system: '⚙️', delivery: '📦' };
 
 /** 把一条通知整理成手机上能读的卡片 */
-export function formatWechatPush({ title = '', body = '', kind = 'agent', now = new Date(), sender = '', summary = '' } = {}) {
+export function formatWechatPush({ title = '', body = '', kind = 'agent', now = new Date(), sender = '', summary = '', facts = [] } = {}) {
   // 2026-10-30 伙伴原话：抬头别写「元枢」，结尾别写「详情在元枢」，要说清什么事。
   // sender = 人设名（小语）；summary = 一句话说明这条是什么事。
   const head = clip(stripMarkdownForWechat(String(title || '').trim()) || String(sender || '').trim() || '元枢', 40);
-  const points = extractPoints(body);
+  const rawBody = stripMarkdownForWechat(String(body || '').trim());
+  const bodyLines = rawBody.split(/\n/).map((x) => x.trim()).filter(Boolean).slice(0, 3);
+  const points = bodyLines.length > 1 ? bodyLines : extractPoints(body);
   const time = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
   const icon = KIND_ICON[kind] || '💬';
   const label = sender && !head.includes(sender) ? `${head}｜${sender}` : head;
   const lines = [`${icon} ${label}`, '━━━━━━━━'];
   if (points.length) {
     // 2026-10-30：只有一句话时不加项目符号——主动推送是「她说话」，不是清单
-    const single = points.length === 1 && ['companion', 'night', 'morning'].includes(kind);
+    // 主动推送是「她说话」：正文原样排，不加 •；任务/交付类才用要点符号
+    const single = ['companion', 'night', 'morning'].includes(kind);
     for (const p of points) lines.push(single ? p : `• ${p}`);
   } else {
     lines.push(clip(String(body || ''), 120) || '（无正文）');
   }
+  const factLine = (Array.isArray(facts) ? facts : []).map((x) => String(x || '').trim()).filter(Boolean).slice(0, 3).join(' · ');
+  if (factLine) { lines.push(''); lines.push(clip(factLine, 46)); }
   lines.push(summary ? `—— ${time} · ${clip(String(summary), 30)}` : `—— ${time}`);
   let text = lines.join('\n');
   if (text.length > MAX_TOTAL) text = text.slice(0, MAX_TOTAL - 1) + '…';
