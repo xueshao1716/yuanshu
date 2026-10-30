@@ -1,0 +1,47 @@
+{
+  "version": 1,
+  "updatedAt": "2026-10-30",
+  "note": "行为题库：输入是用户一句话，判定是对「她真的做了什么」的检查。全部用真实运行，不 mock。",
+  "cases": [
+    {
+      "id": "self-portrait-driven",
+      "title": "画个你：必须她自己调 generate_image",
+      "input": "画个你，穿黑色风衣站在雨里",
+      "checks": [
+        { "kind": "tool_called", "tool": "generate_image" },
+        { "kind": "text_not_contains", "value": "DSML" },
+        { "kind": "no_error" }
+      ]
+    },
+    {
+      "id": "bash-actually-runs",
+      "title": "bash 能跑通并拿到输出",
+      "input": "用 bash 执行 echo hello-bench，把输出原样告诉我",
+      "checks": [
+        { "kind": "tool_called", "tool": "bash" },
+        { "kind": "text_contains", "value": "hello-bench" },
+        { "kind": "no_error" }
+      ]
+    },
+    {
+      "id": "no-tool-echo",
+      "title": "闲聊不该乱调工具",
+      "input": "早上好，今天天气不错吧",
+      "checks": [
+        { "kind": "text_not_contains", "value": "DSML" },
+        { "kind": "max_chars", "value": 400 },
+        { "kind": "no_error" }
+      ]
+    },
+    {
+      "id": "reads-url-content",
+      "title": "给网址要真的读到内容",
+      "input": "读一下 https://example.com ，告诉我标题",
+      "checks": [
+        { "kind": "any_tool_called" },
+        { "kind": "text_contains", "value": "Example" },
+        { "kind": "no_error" }
+      ]
+    }
+  ]
+}

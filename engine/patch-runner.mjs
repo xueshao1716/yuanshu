@@ -19,6 +19,14 @@ import { recordPatchFailure, isImpossible, evaluateImpossible, recallFailures } 
 import { gitBin } from "./repo-root.mjs";
 
 export const MAX_ATTEMPTS = 3;
+
+/** 行为对照开关（默认关）。文件：工作区/评测/自动对照.json {"on":true} */
+export function benchGateOn(wsRoot) {
+  try {
+    const raw = JSON.parse(fs.readFileSync(path.join(String(wsRoot || "."), "评测", "自动对照.json"), "utf8"));
+    return raw?.on === true;
+  } catch { return false }
+}
 export const MIN_INTERVAL_MS = 55 * 60 * 1000;
 
 /** 回滚永不抛：失败路径上再抛异常，就等于什么都没还原。 */
@@ -77,7 +85,7 @@ function writeFiles(repoRoot, files, edits = []) {
  * 跑一个提案。dryRun=true 只生成+校验，不落盘不提交。
  * @returns {{ok:boolean, stage:string, error?:string, branch?:string, commit?:string, files?:string[]}}
  */
-export async function runProposal({ wsRoot, repoRoot, proposal, generate, dryRun = false, log = () => {} }) {
+export async function runProposal({ wsRoot, repoRoot, proposal, generate, dryRun = false, log = () => {}, deps = null }) {
   const t0 = Date.now();
   const planPath = proposal.planPath;
   if (!planPath || !fs.existsSync(planPath)) return { ok: false, stage: "plan", error: "没有 PLAN.md" };
@@ -169,6 +177,21 @@ export async function runProposal({ wsRoot, repoRoot, proposal, generate, dryRun
     return failWithRollback("gate", gate.error, `门禁未过（已回滚）：${gate.error}`, { steps: gate.steps, gateLog: gate.gateLog });
   }
 
+  // 2026-10-30：行为对照（可选）。跑题库对比新旧，退化就回滚、不留分支。
+  let benchNote = "";
+  if (benchGateOn(wsRoot) && typeof deps?.runBehaviorBench === "function") {
+    try {
+      const cmp = await deps.runBehaviorBench({ wsRoot, repoRoot, proposal });
+      if (cmp?.verdict === "worse") {
+        return failWithRollback("bench", cmp.summary, `行为对照退化（已回滚）：${cmp.summary}`, { bench: cmp });
+      }
+      if (cmp?.summary) benchNote = `；行为对照：${cmp.summary}`;
+      log(`[autopatch] 行为对照：${cmp?.summary || "没有变化"}`);
+    } catch (e) {
+      log(`[autopatch] 行为对照跑失败（不阻断）：${String(e?.message || e).slice(0, 120)}`);
+    }
+  }
+
   // 成功：建分支提交（**不推、不并 main**）
   const branch = `auto/capability-${String(proposal.id).slice(0, 8)}`;
   const cur = git(repoRoot, ["rev-parse", "--abbrev-ref", "HEAD"]);
@@ -219,7 +242,7 @@ export async function runProposal({ wsRoot, repoRoot, proposal, generate, dryRun
 }
 
 /** 队列跑一轮（默认 1 个）。 */
-export async function runQueue({ wsRoot, repoRoot, generate, limit = 1, dryRun = false, log = () => {}, now = Date.now(), ignoreRateLimit = false }) {
+export async function runQueue({ wsRoot, repoRoot, generate, limit = 1, dryRun = false, log = () => {}, deps = null, now = Date.now(), ignoreRateLimit = false }) {
   const results = [];
   for (let i = 0; i < limit; i += 1) {
     const pick = pickEligible(wsRoot, { now, ignoreRateLimit });
