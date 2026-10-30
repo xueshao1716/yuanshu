@@ -26,14 +26,23 @@ const files = fs.readdirSync(dir).filter((f) => f.endsWith(".test.mjs"))
 
 if (!files.length) { console.log("没有匹配的测试文件"); process.exit(1) }
 
-const runOne = (file) => new Promise((resolve) => {
+const runOne = (file, { timeoutMs = 180_000 } = {}) => new Promise((resolve) => {
   const child = spawn(process.execPath, ["--test", path.join("tests", "unit", file)], {
     cwd: root, windowsHide: true, stdio: ["ignore", "pipe", "pipe"],
   });
   let out = "";
+  let killed = false;
+  const timer = setTimeout(() => {
+    killed = true;
+    try { child.kill("SIGKILL") } catch {}
+  }, timeoutMs);
   child.stdout.on("data", (b) => { out += String(b) });
   child.stderr.on("data", (b) => { out += String(b) });
   child.on("close", (code) => {
+    clearTimeout(timer);
+    if (killed) {
+      return resolve({ file, code: "timeout", pass: 0, fail: 0, output: out + `\n[runner] 超过 ${Math.round(timeoutMs / 1000)}s 未结束，已终止` });
+    }
     const num = (re) => { const m = out.match(re); return m ? Number(m[1]) : null };
     resolve({
       file,
@@ -46,7 +55,7 @@ const runOne = (file) => new Promise((resolve) => {
 });
 
 // 2026-10-30：这几个会开原生库/子进程，别的测试同时在跑时容易假红 → 独占跑
-const HEAVY = new Set(["artifact-localize.test.mjs", "image-dimensions.test.mjs", "image-routing.test.mjs"]);
+const HEAVY = new Set(["artifact-localize.test.mjs", "image-dimensions.test.mjs", "image-routing.test.mjs", "wechat-bridge.test.mjs"]);
 const started = Date.now();
 const results = [];
 const log = (r) => {
@@ -73,7 +82,7 @@ await Promise.all(Array.from({ length: Math.min(CONCURRENCY, light.length || 1) 
 
 // 重的独占
 for (const f of heavy) {
-  const r = await runOne(f);
+  const r = await runOne(f, { timeoutMs: 120_000 });
   results.push(r);
   log(r);
 }
@@ -92,6 +101,7 @@ try {
 const totalPass = results.reduce((a, r) => a + r.pass, 0);
 const totalFail = results.reduce((a, r) => a + r.fail, 0);
 const bad = results.filter((r) => r.code !== 0);
+const timeouts = results.filter((r) => r.code === "timeout");
 const seconds = Math.round((Date.now() - started) / 1000);
 
 console.log("");
@@ -100,7 +110,7 @@ console.log(`文件 ${results.length} 个 · 断言 ${totalPass + totalFail} 条
 if (bad.length) {
   console.log(`\n不过的文件（${bad.length}）：`);
   for (const r of bad) {
-    console.log(`  ${r.file}（exit ${r.code}，断言失败 ${r.fail}）`);
+    console.log(`  ${r.file}（${r.code === "timeout" ? "超时被杀" : `exit ${r.code}`}，断言失败 ${r.fail}）`);
     const lines = String(r.output).split(/\r?\n/);
     const failed = lines.filter((l) => /^✖ /.test(l) || /AssertionError/.test(l)).slice(0, 4);
     for (const l of failed) console.log(`    ${l.trim().slice(0, 160)}`);
