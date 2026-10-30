@@ -3287,7 +3287,7 @@ async function maybeNightBrief(now = new Date(), { force = false } = {}) {
   } catch {}
   const made = await composeNoticeFor("night", facts);
   const env = noticeEnvelope({ kind: "night", facts, text: made.text });
-  const nightFacts = [`今天 ${facts.events} 件事`, `沉淀 ${facts.learned} 条`, facts.failed ? `失败 ${facts.failed} 次` : ""].filter(Boolean);
+  const nightFacts = [`今天 ${facts.events} 件事`, `沉淀 ${facts.learned} 条`];
   await notifier.notify({ kind: "night", title: env.head, body: made.text, sender: personaName(WS_ROOT), summary: env.summary, facts: nightFacts, toWechat: true, key: `night:${day}` });
   writeBriefState({ ...st, night: day });
   return { ok: true, text: made.text, source: made.source };

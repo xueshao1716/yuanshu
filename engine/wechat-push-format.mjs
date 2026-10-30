@@ -43,7 +43,10 @@ export function formatWechatPush({ title = '', body = '', kind = 'agent', now = 
   const head = clip(stripMarkdownForWechat(String(title || '').trim()) || String(sender || '').trim() || '元枢', 40);
   const rawBody = stripMarkdownForWechat(String(body || '').trim());
   const bodyLines = rawBody.split(/\n/).map((x) => x.trim()).filter(Boolean).slice(0, 3);
-  const points = bodyLines.length > 1 ? bodyLines : extractPoints(body);
+  // 2026-10-30：通知类原样排她的正文；任务/交付类必须用清理过的要点，
+  // 否则 stripMarkdown 已经把 "- " 变成 "• "，再加前缀就成了「• •」。
+  const isNotice = ['companion', 'night', 'morning'].includes(kind);
+  const points = isNotice ? (bodyLines.length ? bodyLines : extractPoints(body)) : extractPoints(body);
   const time = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
   const icon = KIND_ICON[kind] || '💬';
   const label = sender && !head.includes(sender) ? `${head}｜${sender}` : head;
@@ -51,13 +54,21 @@ export function formatWechatPush({ title = '', body = '', kind = 'agent', now = 
   if (points.length) {
     // 2026-10-30：只有一句话时不加项目符号——主动推送是「她说话」，不是清单
     // 主动推送是「她说话」：正文原样排，不加 •；任务/交付类才用要点符号
-    const single = ['companion', 'night', 'morning'].includes(kind);
-    for (const p of points) lines.push(single ? p : `• ${p}`);
+    const single = isNotice;
+    for (let i = 0; i < points.length; i += 1) {
+      if (i > 0 && single) lines.push('');
+      lines.push(single ? points[i] : `• ${points[i]}`);
+    }
   } else {
     lines.push(clip(String(body || ''), 120) || '（无正文）');
   }
-  const factLine = (Array.isArray(facts) ? facts : []).map((x) => String(x || '').trim()).filter(Boolean).slice(0, 3).join(' · ');
-  if (factLine) { lines.push(''); lines.push(clip(factLine, 46)); }
+  // 2026-10-30：数据从"一行挤三个"改成"一条一行"——手机上更好扫读
+  const factLines = (Array.isArray(facts) ? facts : []).map((x) => String(x || '').trim()).filter(Boolean).slice(0, 4);
+  if (factLines.length) {
+    lines.push('');
+    for (const f of factLines) lines.push(`· ${clip(f, 40)}`);
+  }
+  if (factLines.length) lines.push('');
   lines.push(summary ? `—— ${time} · ${clip(String(summary), 30)}` : `—— ${time}`);
   let text = lines.join('\n');
   if (text.length > MAX_TOTAL) text = text.slice(0, MAX_TOTAL - 1) + '…';
