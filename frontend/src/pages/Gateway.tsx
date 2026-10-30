@@ -428,7 +428,13 @@ export default function Gateway() {
           </div>
         )}
         {policyMsg && <p className="text-[11px] text-pi-text">{policyMsg}</p>}
-        <p className="text-[11px] text-pi-dim2">改完立刻生效，不用重启。文件：{policy.data?.path || "记忆/运行时/动作策略.json"}</p>
+        <p className="text-[11px] text-pi-dim2">
+          改完立刻生效，不用重启。文件：{policy.data?.path || "记忆/运行时/动作策略.json"}
+        </p>
+        <p className="text-[11px]">
+          <a className="text-pi-accent underline" href="https://gitee.com/linxinyu520xue/yuanshu/blob/main/docs/HOW-SHE-TALKS.md" target="_blank" rel="noreferrer">她怎么跟你说话 →</a>
+          <span className="ml-2 text-pi-dim2">四种简报的触发条件、话术规则、编造守卫</span>
+        </p>
       </section>
       {/* 进化提案：她自己攒的改进建议 */}
       <section className="panel space-y-3">
