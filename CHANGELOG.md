@@ -4,6 +4,78 @@
 
 ## [2.201.3] - 2026-10-30
 
+# 2.201.3 —— 策略可改：从写死在代码里到落到文件
+
+上一版把「谁能干什么」做成了规则，但规则写死在 `DEFAULT_RULES` 里。**边界能被看见才能被信任**，写死在代码里意味着用户只能找我改。
+
+## ① 策略落文件
+
+`记忆/运行时/动作策略.json`：
+
+```json
+{
+  "v": 1,
+  "updatedAt": 1793…,
+  "rules": [
+    { "id": "no-scheduler-destructive", "initiator": ["scheduler"],
+      "deny": ["bash:(rm\\s|del\\s|format|rmdir|Remove-Item|shred)"], "reason": "定时任务不许自己删东西" },
+    { "id": "no-scheduler-external", "initiator": ["scheduler"],
+      "deny": ["notify_user", "run_detached"], "reason": "定时任务不许自己对外发消息/拉长活" }
+  ],
+  "history": []
+}
+```
+
+- 首次读取自动播种（用户可以直接编辑）
+- 写入前校验：id 合法且唯一、`deny` 非空、`initiator` 必须是 `user/scheduler/agent/subagent`
+- **上一条策略进 `history`**（留 5 条），改错了能查
+- 文件坏了/不合法 → 退回默认规则并在面板上说明原因（不会因为策略文件坏了就全放开——那样最危险）
+
+## ② 改完立刻生效
+
+`withAuditGate` 的 `rules` 支持传函数，每次调用现取；配合 `createPolicyProvider`（2 秒缓存 + 按需读文件），改完不用重启。
+
+实测：造一条 `no-scheduler-write`（拦 `write:*`）保存后，再读接口就能看到 3 条。
+
+## ③ 接口
+
+- `GET /api/policy`：规则 + 来源（`file` / `seeded` / `default`）+ 文件路径
+- `POST /api/policy {rules}`：校验后落盘
+- `POST /api/policy/reset`：恢复默认
+
+## ④ 事务台「动作策略」块
+
+```
+动作策略                              3 条 · 来源 file
+定时任务不许自己删东西  no-scheduler-destructive
+  发起者：scheduler · 拦：bash:(rm\s|del\s|format|rmdir|Remove-Item|shred)
+定时任务不许自己对外发消息/拉长活  no-scheduler-external
+  发起者：scheduler · 拦：notify_user、run_detached
+定时任务不许直接写文件  no-scheduler-write
+  发起者：scheduler · 拦：write:*
+
+[编辑规则]
+改完立刻生效，不用重启。文件：D:\pi-workspace\记忆\运行时\动作策略.json
+```
+
+「编辑规则」是 JSON 编辑器，保存前会解析校验；报错会显示原因。
+
+## ⑤ 子代理也标上身份
+
+`delegate_task` 的调用现在跑在 `subagent` 上下文里——以后可以写「子代理不许碰 X」这类规则。
+
+## 验证
+
+- 单测 18 条（audit-gate 10 + initiator 8）
+- 策略接口真机走通：`source=seeded` → 加一条 → `source=file`，3 条
+- 截图：事务台「动作策略」+「最近动作」两块
+
+## 遗留
+
+- `history` 只存不读（还没有「回滚到上一版策略」按钮）
+- 策略只支持 `tool:regex` 一种写法，还没有 `path.glob` / `initiator` 之外的条件
+
+
 ## [2.201.2] - 2026-10-30
 
 ## [2.201.1] - 2026-10-30
