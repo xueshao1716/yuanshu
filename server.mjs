@@ -3293,6 +3293,34 @@ async function maybeNightBrief(now = new Date(), { force = false } = {}) {
   return { ok: true, text: made.text, source: made.source };
 }
 
+// 2026-10-30：0 点后的反思（进化/做梦）跑完，把结果推一条。
+// 平时的周期是每 6 小时一次，这里专门在 0~1 点补一次"今天回头看了什么"。
+async function maybeReflectionBrief(now = new Date(), { force = false } = {}) {
+  const h = now.getHours();
+  if (!force && (h < 0 || h >= 2)) return { ok: false, reason: "not_midnight" };
+  const day = now.toISOString().slice(0, 10);
+  const st = readBriefState();
+  if (!force && st.reflection === day) return { ok: false, reason: "already" };
+  let facts = { events: 0, learned: 0, winner: "" };
+  try {
+    const r = await runDreamCycle(true);
+    facts.events = Number(r?.episodes || r?.traces || 0);
+    facts.winner = String(r?.winner || r?.gate?.chosen?.id || "").slice(0, 24);
+    facts.learned = Number(r?.gate?.total ?? r?.gate?.count ?? 0) || (r?.gate ? 1 : 0);
+    if (!r?.ok) console.log(`[brief] 反思没结果：${r?.reason || "无数据"}`);
+  } catch (e) { console.log(`[brief] 反思异常：${String(e?.message || e).slice(0, 120)}`); }
+  if (!facts.events && !facts.winner && !force) {
+    // 没有新数据就别发空话——但记一笔，免得同一天反复跑
+    writeBriefState({ ...st, reflection: day });
+    return { ok: false, reason: "nothing" };
+  }
+  const made = await composeNoticeFor("reflection", facts);
+  const env = noticeEnvelope({ kind: "reflection", facts, text: made.text });
+  const lines = [`回放 ${facts.events} 条`, facts.winner ? `新策略 ${facts.winner}` : ""].filter(Boolean);
+  await notifier.notify({ kind: "reflection", title: env.head, body: made.text, sender: personaName(WS_ROOT), summary: env.summary, facts: lines, toWechat: true, key: `reflection:${day}` });
+  writeBriefState({ ...st, reflection: day });
+  return { ok: true, text: made.text, source: made.source };
+}
 // 晨报：今天待办几件、先做哪件、昨天复盘几条。08:00 后、当天没发过时发。
 async function maybeMorningBrief(now = new Date(), { force = false } = {}) {
   const h = now.getHours();
@@ -3315,7 +3343,7 @@ async function maybeMorningBrief(now = new Date(), { force = false } = {}) {
   return { ok: true, text: made.text, source: made.source };
 }
 try {
-setInterval(() => { void maybeNightBrief().catch(() => {}); void maybeMorningBrief().catch(() => {}) }, 10 * 60 * 1000).unref?.();
+setInterval(() => { void maybeNightBrief().catch(() => {}); void maybeMorningBrief().catch(() => {}); void maybeReflectionBrief().catch(() => {}) }, 10 * 60 * 1000).unref?.();
 setInterval(() => { void runCompanionNudge({ store: companionStore, notifier, compose: composeNoticeFor, persona: personaName(WS_ROOT) }).catch(() => {}) }, 5 * 60 * 1000).unref?.();
 } catch {}
 
@@ -3594,6 +3622,11 @@ const API_ROUTES = [
   ["POST", "/api/brief/night", async (res, req) => {
     const body = await readBody(req).catch(() => ({}));
     const out = await maybeNightBrief(new Date(), { force: body?.force === true });
+    return json(res, out.ok ? 200 : 409, out);
+  }],
+  ["POST", "/api/brief/reflection", async (res, req) => {
+    const body = await readBody(req).catch(() => ({}));
+    const out = await maybeReflectionBrief(new Date(), { force: body?.force === true });
     return json(res, out.ok ? 200 : 409, out);
   }],
   ["POST", "/api/brief/morning", async (res, req) => {

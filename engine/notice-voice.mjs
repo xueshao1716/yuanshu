@@ -30,6 +30,9 @@ export function personaName(wsRoot) {
 /** 兜底话术：模型不可用/不合格时才用。刻意口语、短、说清事。 */
 export const FALLBACK = {
   away: ({ away }) => `你走了 ${away}，我这边的活还留着，回来接着做？`,
+  reflection: ({ events, winner }) => (Number(events) > 0
+    ? `夜里回放 ${events} 条轨迹${winner ? `，${winner} 更稳` : ""}，明天按这个来。`
+    : "今天轨迹不够，没做结论，明天接着看。"),
   night: ({ learned }) => `今天的活我过了一遍${learned ? `，记下 ${learned} 条` : ""}，明天能省点事。`,
   morning: ({ pending }) => `早，今天要做的事我列好了${pending ? `，${pending} 件在等你` : ""}。`,
   done: ({ what }) => `${what}，弄完了，你看一眼？`,
@@ -56,6 +59,12 @@ export function briefFor(kind, facts = {}) {
       "要说清：你复盘了什么、学到什么、明天有什么用。别报流水账。",
     ].join("\n");
   }
+  if (kind === "reflection") {
+    return [...base,
+      `背景：夜里回放 ${facts.events ?? 0} 条轨迹${facts.winner ? `，选出新策略「${facts.winner}」` : ""}，沉淀 ${facts.learned ?? 0} 条。`,
+      "要说清：你回看了什么、得出了什么结论、明天因此会有什么不同。不要写流水账。",
+    ].join("\n");
+  }
   if (kind === "morning") {
     return [...base,
       `背景：今天有 ${facts.pending ?? 0} 件待办${facts.first ? `，第一件是「${facts.first}」` : ""}；昨天复盘 ${facts.learned ?? 0} 条。`,
@@ -66,7 +75,7 @@ export function briefFor(kind, facts = {}) {
 }
 
 /** 校验：返回 {ok, reasons[]} */
-export function checkNotice(text, { kind = "away", maxChars = 80 } = {}) {
+export function checkNotice(text, { kind = "away", maxChars = 80, facts = {} } = {}) {
   const t = String(text || "").trim();
   const reasons = [];
   if (!t) reasons.push("空内容");
@@ -77,6 +86,17 @@ export function checkNotice(text, { kind = "away", maxChars = 80 } = {}) {
   if (/(摆烂|躺平|破事|宕机|烂透|崩了|废了|自闭)/.test(t)) reasons.push("语气太丧");
   // 2026-10-30：推理模型会把「我们需要回答…」这种思考过程当正文吐回来，这不是消息
   if (/^(我们需要|We need|让我|先看|首先|题目|好的，我)/.test(t)) reasons.push("这是推理过程，不是消息");
+  // 2026-10-30：真机反思写成「发现有一处关键遗漏，已沉淀修正方案」，但那次回放 0 条。
+  // 没有数据就只能说"今天没攒够"，不许虚构发现。
+  const noTrace = !Number(facts.events);
+  if (kind === "reflection" && noTrace) {
+    // 允许「没做结论 / 没有发现」这种诚实表述；只拦"声称有发现"的说法
+    const claims = /(?<!没|没有|无|未|不够|缺少)(发现|遗漏|梳理出|沉淀出|修正|关键)/;
+    if (claims.test(t)) reasons.push("没有轨迹却说有发现");
+    if (/沉淀\s*[0-9一二三四五六七八九十]+\s*条/.test(t)) reasons.push("没有轨迹却说沉淀了几条");
+  }
+  // 回放 0 条时连"沉淀 N 条"也不许说——那是编出来的成绩
+  if (kind === "reflection" && !Number(facts.events) && /沉淀\s*[0-9一二三四五六七八九十]+\s*条/.test(t)) reasons.push("没有轨迹却说沉淀了几条");
   // 2026-10-30：真机她写「报告已经交上去了」——离开提醒没有事实依据，不许编造成果
   if (kind === "away" && /(报告|交上去|提交|已完成|搞定|做完|发出去|睡)/.test(t)) reasons.push("编造了不存在的进度");
   // 至少有点具体信息：数字、时间、动作词，三选一
@@ -110,7 +130,7 @@ export async function composeNotice({ kind = "away", facts = {}, wsRoot = ".", w
         const pick = sentences.find((x) => x.length <= maxChars && !/^(要求|背景|注意|不要|规则|格式)[：:]/.test(x));
         if (pick) text = pick;
       }
-      const checked = checkNotice(text, { kind, maxChars });
+      const checked = checkNotice(text, { kind, maxChars, facts });
       if (checked.ok) return { text, source: attempt === 0 ? "model" : "model-retry", reasons: [] };
       lastReasons = checked.reasons;
     } catch (e) {
@@ -129,7 +149,7 @@ export function noticeEnvelope({ kind = "away", facts = {}, now = Date.now(), te
   const clockSlot = d.getHours() < 6 ? "夜里" : d.getHours() < 12 ? "早上" : d.getHours() < 14 ? "中午" : d.getHours() < 19 ? "下午" : "晚上";
   // 2026-10-30：时段要说的是"这条是什么简报"，不是此刻几点——夜里补跑的晨报不该写"下午"
   const slot = kind === "night" ? (d.getHours() < 5 ? clockSlot : "晚上") : kind === "morning" ? "早上" : clockSlot;
-  const summary = kind === "night"
+  const summary = kind === "reflection" ? `回放 ${facts.events ?? 0} 条${facts.winner ? ` · 新策略 ${facts.winner}` : ""}` : kind === "night"
     ? `复盘 ${facts.events ?? 0} 件事${facts.learned ? `，沉淀 ${facts.learned} 条` : ""}`
     : kind === "morning"
       ? `今天 ${facts.pending ?? 0} 件待办${facts.first ? `，先做「${String(facts.first).slice(0, 14)}」` : ""}`

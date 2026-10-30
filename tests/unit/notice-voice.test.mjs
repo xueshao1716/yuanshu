@@ -84,3 +84,17 @@ test("微信排版：抬头带人设名，结尾是「什么事」不是「详�
   assert.ok(!text.includes("详情在元枢"));
   assert.ok(!text.includes("元枢 ·"));
 });
+
+test('反思类：没有数据时不许说「发现了什么问题」（编造守卫）', () => {
+  const bad = checkNotice('刚复盘发现一处关键遗漏，已沉淀修正方案', { kind: 'reflection', facts: {} });
+  assert.equal(bad.ok, false);
+  assert.match(bad.reasons.join(' '), /没有轨迹却说有发现/);
+  const ok = checkNotice('回放了 42 条轨迹，沉淀 2 条', { kind: 'reflection', facts: { events: 42, learned: 2 } });
+  assert.equal(ok.ok, true);
+});
+
+test('反思类的兜底话术说清回放了多少条', async () => {
+  const out = await composeNotice({ kind: 'reflection', facts: { events: 42, winner: 'v3' }, wsRoot: ws() });
+  assert.equal(out.source, 'fallback');
+  assert.match(out.text, /42/);
+});
