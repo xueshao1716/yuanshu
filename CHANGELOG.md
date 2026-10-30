@@ -6,6 +6,69 @@
 
 ## [2.201.1] - 2026-10-30
 
+# 2.201.1 / 2.201.2 —— 发起者维度 + 审计进事务台
+
+接着 OpenBot 那篇：`initiator.*` 是它策略里最实用的一个维度——**同一条规则可以放行「人让做的」，拦住「定时任务自己发起的」**。
+
+元枢现在定时任务不少（简报 / 做梦 / 自动补丁 / 离开提醒），正好需要这个。
+
+## ① 谁能发起
+
+`engine/tools/initiator.mjs`，用 `AsyncLocalStorage`：
+
+```js
+runWithInitiator("scheduler", () => maybeNightBrief())
+currentInitiator()   // 'scheduler'
+```
+
+四种：`user`（默认）/ `scheduler` / `agent` / `subagent`。并发场景各看各的（有测试）。
+
+## ② 策略是规则，不是开关
+
+```js
+{ id: "no-scheduler-destructive", initiator: ["scheduler"],
+  deny: ["bash:(rm\\s|del\\s|format|rmdir|Remove-Item|shred)"], reason: "定时任务不许自己删东西" }
+{ id: "no-scheduler-external", initiator: ["scheduler"],
+  deny: ["notify_user", "run_detached"], reason: "定时任务不许自己对外发消息/拉长活" }
+```
+
+`judgeAction()` 是纯函数：规则按顺序判，命中即拒（deny 永远赢），拒绝时点名规则 id。
+
+**关键对照**（有测试守着）：
+
+| 动作 | 人让做的 | 定时任务发起的 |
+|---|---|---|
+| `rm -rf build` | 放行 | **拒绝**（no-scheduler-destructive） |
+| `notify_user` | 放行 | **拒绝**（no-scheduler-external） |
+
+## ③ 拒绝也留痕
+
+被策略拒的调用会写一行 `phase:"denied"`，带 `ruleId` 和理由；然后返回错误、**不执行**。
+所以审计文件里三种行：`before`（要执行）/ `after`（执行完）/ `denied`（被拒）。
+
+## ④ 事务台「最近动作」
+
+```
+最近动作                          最近 2 次
+20:21:17 · 执行  bash {"command":"echo audit-check"}
+19:33:04 · 执行  bash {"command":"echo audit-check"}
+```
+
+- 只显示 `before` / `denied`（`after` 是结果，成对看太吵）
+- 非 `user` 发起会标出来（`· scheduler`）
+- 被拒的标红并写出规则 id
+
+## 验证
+
+- 单测：initiator 8 条 + audit-gate 10 条（含「定时任务被拒就不执行」「人让做的照常」）
+- 真机：审计行带 `initiator: user`；截图是事务台新块
+
+## 遗留
+
+- 策略目前写死在 `DEFAULT_RULES`，还没有配置文件（下一步：`记忆/运行时/动作策略.json`，可改可版本化）
+- `agent`/`subagent` 上下文还没在子代理调用处标注（现在都算 `user`）
+
+
 ## [2.201.0] - 2026-10-30
 
 # 2.201.0 —— 从 OpenBot 抄来的一条：记录是行动的前置条件
