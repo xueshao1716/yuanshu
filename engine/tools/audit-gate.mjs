@@ -12,6 +12,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import crypto from "node:crypto";
+import { currentInitiator, judgeAction } from "./initiator.mjs";
 
 export const AUDIT_REL = path.join("记忆", "运行时", "动作审计.jsonl");
 
@@ -43,11 +44,18 @@ export function createAuditGate({ wsRoot = ".", file = "", now = Date.now, soft 
 
   return {
     /** 动作开始：写成功才允许执行。 */
-    before({ tool = "", args = {}, session = "", runId = "" } = {}) {
+    before({ tool = "", args = {}, session = "", runId = "", initiator = "", rules = [] } = {}) {
       const s = summarizeArgs(args);
-      const row = { at: now(), phase: "before", tool: String(tool).slice(0, 64), session: String(session).slice(0, 64), runId: String(runId).slice(0, 64), argsHash: s.hash, argsPreview: s.preview, argsBytes: s.bytes };
-      const r = append(row);
-      if (r.ok || soft) return { ok: true, id: s.hash, softSkipped: !r.ok };
+      const who = initiator || currentInitiator();
+      // 2026-10-30：先判"谁让它干的"。定时任务不许干的（删东西/对外发），人让做就放行。
+      const verdict = judgeAction({ tool, args, initiator: who, rules });
+      const base = { at: now(), tool: String(tool).slice(0, 64), session: String(session).slice(0, 64), runId: String(runId).slice(0, 64), initiator: who, argsHash: s.hash, argsPreview: s.preview, argsBytes: s.bytes };
+      if (!verdict.allow) {
+        append({ ...base, phase: "denied", ruleId: verdict.ruleId, reason: verdict.reason });
+        return { ok: false, denied: true, ruleId: verdict.ruleId, error: `被策略拒绝（${verdict.ruleId}）：${verdict.reason}` };
+      }
+      const r = append({ ...base, phase: "before" });
+      if (r.ok || soft) return { ok: true, id: s.hash, initiator: who, softSkipped: !r.ok };
       return { ok: false, error: `审计写不进去，拒绝执行：${r.error}` };
     },
     /** 动作结束：补一行结果。失败不阻断（已经执行了）。 */
@@ -64,12 +72,12 @@ export function createAuditGate({ wsRoot = ".", file = "", now = Date.now, soft 
 }
 
 /** 用闸门包一层工具执行器：每次调用都先记账。 */
-export function withAuditGate(execute, { gate, sessionOf = (ctx) => ctx?.sessionId || ctx?.sessionKey || "" } = {}) {
+export function withAuditGate(execute, { gate, rules = [], sessionOf = (ctx) => ctx?.sessionId || ctx?.sessionKey || "" } = {}) {
   if (typeof execute !== "function" || !gate) return execute;
   return async function audited(name, args, ctx) {
     const started = Date.now();
-    const begin = gate.before({ tool: name, args, session: sessionOf(ctx), runId: ctx?.runId || "" });
-    if (!begin.ok) return { text: `⛔ ${begin.error}`, isError: true };
+    const begin = gate.before({ tool: name, args, session: sessionOf(ctx), runId: ctx?.runId || "", rules });
+    if (!begin.ok) return { text: `⛔ ${begin.error}`, isError: true, denied: !!begin.denied, ruleId: begin.ruleId || "" };
     try {
       const r = await execute(name, args, ctx);
       gate.after({ tool: name, argsHash: begin.id, ok: !r?.isError, ms: Date.now() - started, error: r?.isError ? String(r?.text || "").slice(0, 160) : "" });

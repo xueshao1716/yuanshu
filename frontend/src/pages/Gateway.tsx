@@ -108,7 +108,10 @@ export default function Gateway() {
     await api('/api/jobs/cancel', { method: 'POST', body: { id } }).catch(() => null)
     void jobs.mutate()
   }
+  const audit = useSWR('audit-tail', () => api<{ rows: any[] }>('/api/audit/tail?limit=30'), { refreshInterval: 15000 })
   const bench = useSWR('bench-latest', () => api<{ cases: { id: string; title: string }[]; latest: any; previous: any }>('/api/bench/latest'), { refreshInterval: 60000 })
+  // 只显示"before/denied"的行：after 行是结果，成对看太吵
+  const auditRows = (audit.data?.rows || []).filter((r) => r.phase === "before" || r.phase === "denied").slice(-8).reverse()
   const benchCases = bench.data?.cases || []
   const benchLatest = bench.data?.latest || null
   const benchPrev = bench.data?.previous || null
@@ -335,6 +338,31 @@ export default function Gateway() {
           <p className="text-[11px] text-pi-dim2">上一次：{benchPrev.passed}/{benchPrev.total}（{benchPrev.score}%）</p>
         )}
         <button type="button" style={{ ...pill(), minHeight: 26, fontSize: 12 }} onClick={() => void runBenchNow()}>跑一遍</button>
+      </section>
+      {/* 最近动作：先记账再执行的证据（OpenBot 那条） */}
+      <section className="panel space-y-2">
+        <div className="flex flex-wrap items-baseline justify-between gap-2">
+          <h2 className="text-[15px] font-semibold text-pi-text">最近动作</h2>
+          <span className="text-xs text-pi-dim2">
+            {auditRows.length ? `最近 ${auditRows.length} 次` : "还没有记录"}
+          </span>
+        </div>
+        {auditRows.length ? (
+          <ul className="space-y-1.5">
+            {auditRows.map((r, i) => (
+              <li key={`${r.at}-${i}`} className="text-[12px] leading-relaxed">
+                <span className={r.phase === "denied" ? "text-pi-red" : "text-pi-dim2"}>
+                  {new Date(r.at).toLocaleTimeString("zh-CN", { hour12: false })}
+                  {r.phase === "denied" ? " · 被拒" : " · 执行"}
+                  {r.initiator && r.initiator !== "user" ? ` · ${r.initiator}` : ""}
+                </span>
+                <span className="ml-2 text-pi-text">{r.tool}</span>
+                {r.argsPreview ? <span className="ml-2 text-pi-dim2">{String(r.argsPreview).slice(0, 60)}</span> : null}
+                {r.phase === "denied" && r.reason ? <div className="text-[11px] text-pi-red">{r.ruleId}：{r.reason}</div> : null}
+              </li>
+            ))}
+          </ul>
+        ) : <p className="text-xs text-pi-dim2">每次工具调用都会先写一行审计再执行；拒绝的会标出来。</p>}
       </section>
       {/* 进化提案：她自己攒的改进建议 */}
       <section className="panel space-y-3">

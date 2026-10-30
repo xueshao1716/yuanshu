@@ -120,6 +120,7 @@ import { createReplyTts } from './engine/reply-tts.mjs';
 // ── 统一工具集（拆模块）：schema + 执行器；安全线（deny/危险命令/受保护路径/路径越权）在 engine/tools/security.mjs ──
 import { BASE_TOOL_SCHEMAS, TIME_TASK_SCHEMA, SHARE_PROJECT_SCHEMA, createUnifiedToolExecutorGuarded, webSearchTool, detectBashShell } from "./engine/tools/unified-tools.mjs";
 import { createAuditGate, withAuditGate } from "./engine/tools/audit-gate.mjs";
+import { runWithInitiator, DEFAULT_RULES } from "./engine/tools/initiator.mjs";
 import { runDoctor } from "./engine/install-doctor.mjs";
 import { listAddons, startAddonJob, addonJobs, ensureAddonPaths } from "./engine/addons.mjs";
 ensureAddonPaths();
@@ -1484,7 +1485,8 @@ const _rawExecuteUnifiedTool = createUnifiedToolExecutorGuarded({
 // 2026-10-30：动作审计闸门（对应 OpenBot「没有记录就不许行动」）。
 // 每次工具调用先落一行，写不进去就拒绝执行——除非显式 YUANSHU_AUDIT_SOFT=1。
 const auditGate = createAuditGate({ wsRoot: WS_ROOT });
-const executeUnifiedTool = withAuditGate(_rawExecuteUnifiedTool, { gate: auditGate });
+// 2026-10-30：带上默认策略——定时任务不许删东西/对外发消息，人让做的照常
+const executeUnifiedTool = withAuditGate(_rawExecuteUnifiedTool, { gate: auditGate, rules: DEFAULT_RULES });
 
 // 2026-10-30：开机按设置把工具包工具挂进对话工具表（默认关）
 const syncToolpackTools = () => {
@@ -3349,8 +3351,12 @@ async function maybeMorningBrief(now = new Date(), { force = false } = {}) {
   return { ok: true, text: made.text, source: made.source };
 }
 try {
-setInterval(() => { void maybeNightBrief().catch(() => {}); void maybeMorningBrief().catch(() => {}); void maybeReflectionBrief().catch(() => {}) }, 10 * 60 * 1000).unref?.();
-setInterval(() => { void runCompanionNudge({ store: companionStore, notifier, compose: composeNoticeFor, persona: personaName(WS_ROOT) }).catch(() => {}) }, 5 * 60 * 1000).unref?.();
+setInterval(() => {
+  runWithInitiator("scheduler", () => maybeNightBrief().catch(() => {}));
+  runWithInitiator("scheduler", () => maybeMorningBrief().catch(() => {}));
+  runWithInitiator("scheduler", () => maybeReflectionBrief().catch(() => {}));
+}, 10 * 60 * 1000).unref?.();
+setInterval(() => { runWithInitiator("scheduler", () => runCompanionNudge({ store: companionStore, notifier, compose: composeNoticeFor, persona: personaName(WS_ROOT) }).catch(() => {})) }, 5 * 60 * 1000).unref?.();
 } catch {}
 
 // 设计委托：每 60 秒看一眼到期的周期委托（一次只跑一单，出错不影响后面的）
@@ -6648,7 +6654,7 @@ ${rows.map((r) => `- [${r.status}${r.closed ? "/已结清" : ""}] ${r.text}\n  �
     // 做梦周期：自己跑，不等用户点接口（自决的意义就在这）。失败不影响服务。
     try {
       const DREAM_EVERY_MS = 6 * 60 * 60 * 1000;
-      const kickDream = () => runDreamCycle().then((r) => {
+      const kickDream = () => runWithInitiator("scheduler", () => runDreamCycle()).then((r) => {
         if (r?.ok) console.log(`[dream] 周期完成：回放 ${r.episodes} 条，赢家 ${r.winner || "无"}`);
         else console.log(`[dream] 周期跳过：${r?.reason || "无可用数据"}`);
       }).catch((e) => console.log(`[dream] 周期异常: ${String(e?.message || e).slice(0, 120)}`));

@@ -5,6 +5,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { createAuditGate, withAuditGate, summarizeArgs, auditPath } from "../../engine/tools/audit-gate.mjs";
+import { runWithInitiator, DEFAULT_RULES } from "../../engine/tools/initiator.mjs";
 
 const ws = () => fs.mkdtempSync(path.join(os.tmpdir(), "audit-"));
 
@@ -81,4 +82,36 @@ test("默认写到 记忆/运行时/动作审计.jsonl", () => {
   const gate = createAuditGate({ wsRoot: root });
   gate.before({ tool: "read", args: { path: "a.md" } });
   assert.ok(fs.existsSync(auditPath(root)));
+});
+
+test('定时任务上下文里，审计行带 initiator=scheduler', async () => {
+  const root = ws();
+  const gate = createAuditGate({ wsRoot: root });
+  const exec = withAuditGate(async () => ({ text: 'ok' }), { gate, rules: DEFAULT_RULES });
+  await runWithInitiator('scheduler', () => exec('read', { path: 'a.md' }, {}));
+  const rows = gate.tail(5);
+  assert.equal(rows[0].initiator, 'scheduler');
+});
+
+test('定时任务调 notify_user 被拒：返回错误 + 留 denied 行', async () => {
+  const root = ws();
+  const gate = createAuditGate({ wsRoot: root });
+  let ran = false;
+  const exec = withAuditGate(async () => { ran = true; return { text: 'ok' } }, { gate, rules: DEFAULT_RULES });
+  const r = await runWithInitiator('scheduler', () => exec('notify_user', { text: 'hi' }, {}));
+  assert.equal(r.isError, true);
+  assert.equal(r.denied, true);
+  assert.equal(ran, false, '被拒就不该执行');
+  const rows = gate.tail(5);
+  assert.equal(rows.at(-1).phase, 'denied');
+  assert.equal(rows.at(-1).ruleId, 'no-scheduler-external');
+});
+
+test('同一个动作，人让做的就放行（对照）', async () => {
+  const root = ws();
+  const gate = createAuditGate({ wsRoot: root });
+  const exec = withAuditGate(async () => ({ text: 'ok' }), { gate, rules: DEFAULT_RULES });
+  const r = await exec('notify_user', { text: 'hi' }, {});
+  assert.equal(r.text, 'ok');
+  assert.equal(gate.tail(5)[0].initiator, 'user');
 });
