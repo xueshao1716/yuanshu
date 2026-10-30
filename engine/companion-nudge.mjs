@@ -23,20 +23,19 @@ const hourOf = (ms) => new Date(ms).getHours();
 
 /** 按时间段挑一句人话；深夜不吵，只报"我在"。 */
 export function nudgeText({ now = Date.now(), idleMinutes = 0 } = {}) {
-  const h = hourOf(now);
+  // 2026-10-30：这一段原来查表拼「元枢 · 下午 / 离开 49 分钟」，伙伴说生硬。
+  // 现在只给"事实"，话交给 notice-voice（她自己写 + 校验）。
   const away = idleMinutes >= 120 ? `${Math.floor(idleMinutes / 60)} 小时` : `${Math.max(1, Math.round(idleMinutes))} 分钟`;
-  if (h < 6) return { title: '元枢 · 夜深了', body: `你走了 ${away}，我这边没什么事。早点睡。` };
-  if (h < 12) return { title: '元枢 · 早', body: `离开 ${away} 了，回来看看？我一直在。` };
-  if (h < 14) return { title: '元枢 · 中午', body: `离开 ${away} 了，记得吃饭。有事我在这儿。` };
-  if (h < 19) return { title: '元枢 · 下午', body: `离开 ${away} 了，要不要回来接着做？` };
-  return { title: '元枢 · 晚上好', body: `离开 ${away} 了，今天的事还留着，回来我陪你收个尾。` };
+  const h = hourOf(now);
+  const slot = h < 6 ? '夜里' : h < 12 ? '早上' : h < 14 ? '中午' : h < 19 ? '下午' : '晚上';
+  return { slot, away, title: slot, body: '', facts: { away } };
 }
 
 /**
  * 跑一次判断；到期就推。
  * @returns {{ok:boolean, reason?:string, event?:object}}
  */
-export async function runCompanionNudge({ store, notifier, now = Date.now, force = false } = {}) {
+export async function runCompanionNudge({ store, notifier, now = Date.now, force = false, compose = null, persona = "小语" } = {}) {
   if (!store?.seen || !store?.preferences || !notifier?.notify) return { ok: false, reason: 'unavailable' };
   const t = now();
   const seen = store.seen();
@@ -44,9 +43,19 @@ export async function runCompanionNudge({ store, notifier, now = Date.now, force
   const gate = shouldNudge({ now: t, seenAt: seen.seenAt, nudgeAt: seen.nudgeAt, dnd: prefs.dnd });
   if (!gate.ok && !(force && gate.reason === 'cooldown')) return gate;
   const idleMinutes = Math.max(0, Math.round((t - seen.seenAt) / 60000));
-  const text = nudgeText({ now: t, idleMinutes });
+  const fact = nudgeText({ now: t, idleMinutes });
+  // 2026-10-30：话由她自己写（校验长度/禁用词/有没有说清事），写不好才用兜底句
+  let body = fact.body;
+  let source = "template";
+  if (typeof compose === "function") {
+    try {
+      const made = await compose({ kind: "away", facts: { away: fact.away } });
+      if (made?.text) { body = made.text; source = made.source || "model" }
+    } catch { /* 写作失败用兜底 */ }
+  }
   const event = await notifier.notify({
-    kind: 'companion', title: text.title, body: text.body,
+    kind: 'companion', title: fact.title, body, sender: persona,
+    summary: `你离开 ${fact.away}，活还留着`,
     key: `companion:nudge:${new Date(t).toISOString().slice(0, 10)}`, toWechat: true,
   });
   store.markNudge(t);

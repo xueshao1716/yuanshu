@@ -59,6 +59,8 @@ import { handleMusicStream } from "./engine/music-stream.mjs";
 import { createRequest, settleRequest, findRequest } from "./engine/cultivation/approval-requests.mjs";
 import { createApprovalFlow } from "./engine/cultivation/approval-flow.mjs";
 import { runCompanionNudge } from "./engine/companion-nudge.mjs";
+// 2026-10-30：主动推送的话由她自己写（人设名 + 说清什么事）
+import { composeNotice, personaName, noticeEnvelope } from "./engine/notice-voice.mjs";
 import { COMMISSION_TOOL_SCHEMA, commissionExtraExecutors, createCommission, dueCommissions, listCommissions, removeCommission, runCommission as runDesignCommission, setStatus as setCommissionStatus, pickDirection } from "./engine/design-commission.mjs";
 import { RESEARCH_TOOL_SCHEMA, listResearch, readResearch, researchExtraExecutors, runResearch } from "./engine/design-research.mjs";
 import { modelSearchRows } from "./engine/model-research.mjs";
@@ -3230,8 +3232,82 @@ const companionDecisions = createCompanionDecision({ store: companionStore, fact
   emotion: companionEmotion, readSession: companionReadSession, callModel: directChat });
 
 // 久不互动推送：每 5 分钟看一眼（45 分钟没来才推、3 小时冷却；unref 不阻止进程退出）
+  // 2026-10-30：她写短消息的通道（模型直调，失败就退回兜底话术）
+const writeShortNotice = async (prompt) => {
+  // 2026-10-30：默认模型偶尔只回思考/空正文，短消息再试一个干净的 flash，别动不动就掉兜底
+  // 2026-10-30：不能只按 /flash/ 挑——agnes 的视频/图片模型也叫 flash，选了它们写不出话。
+  const isTextModel = (m) => !/image|video|tts|asr|speech|embed|rerank/i.test(String(m.id || ""));
+  const agnesText = (modelList || []).find((m) => m.provider === "agnes" && isTextModel(m) && /^agnes-?3\.0-flash$/i.test(String(m.id)))
+    || (modelList || []).find((m) => m.provider === "agnes" && isTextModel(m) && /flash/i.test(String(m.id)));
+  const tries = [agnesText, defaultModel].filter(Boolean);
+  for (const m of tries) {
+    try {
+      const r = await directChat(m, prompt, [], { maxTokens: 300, timeout: 45000 });
+      const t = String(r?.text || "").trim();
+      if (t) return t;
+    } catch {}
+  }
+  return "";
+};
+// 2026-10-30：两种调用形状都接（(kind, facts) 与 ({kind, facts})）——真机上后者传成了前者，
+// 结果 kind 变成对象、facts 变 undefined，兜底句渲染出「undefined，弄完了」。
+const composeNoticeFor = (a, b) => {
+  const opts = a && typeof a === "object" ? a : { kind: a, facts: b };
+  return composeNotice({ ...opts, wsRoot: WS_ROOT, write: writeShortNotice });
+};
+const BRIEF_STATE = path.join(WS_ROOT, "记忆", "运行时", "简报.json");
+const readBriefState = () => { try { return JSON.parse(fs.readFileSync(BRIEF_STATE, "utf8")) } catch { return {} } };
+const writeBriefState = (v) => { try { fs.mkdirSync(path.dirname(BRIEF_STATE), { recursive: true }); fs.writeFileSync(BRIEF_STATE, JSON.stringify(v, null, 2), "utf8") } catch {} };
+
+// 夜间反思：复盘今天 + 沉淀多少条，推一条。只在 23:00 后、当天没发过时发。
+async function maybeNightBrief(now = new Date(), { force = false } = {}) {
+  const h = now.getHours();
+  if (!force && h < 23 && h > 4) return { ok: false, reason: "not_night" };
+  const day = now.toISOString().slice(0, 10);
+  const st = readBriefState();
+  if (!force && st.night === day) return { ok: false, reason: "already" };
+  let facts = { events: 0, learned: 0 };
+  try {
+    const runs = runStore.list ? runStore.list() : [];
+    const today = runs.filter((r) => String(r.createdAt || "").startsWith(day) || String(r.updatedAt || "").startsWith(day));
+    facts.events = today.length;
+    facts.failed = today.filter((r) => String(r.status) === "failed").length;
+    // 2026-10-30：经验沉淀就在 工程/经验库/experience.md 里（按日期开头数今天那几条）
+    try {
+      const md = fs.readFileSync(path.join(WS_ROOT, "工程", "经验库", "experience.md"), "utf8");
+      facts.learned = md.split(/\r?\n/).filter((line) => line.startsWith(day) || line.startsWith(day.replace(/-/g, "-"))).length;
+    } catch { facts.learned = 0; }
+  } catch {}
+  const made = await composeNoticeFor("night", facts);
+  const env = noticeEnvelope({ kind: "night", facts, text: made.text });
+  await notifier.notify({ kind: "night", title: env.head, body: made.text, sender: personaName(WS_ROOT), summary: env.summary, toWechat: true, key: `night:${day}` });
+  writeBriefState({ ...st, night: day });
+  return { ok: true, text: made.text, source: made.source };
+}
+
+// 晨报：今天待办几件、先做哪件、昨天复盘几条。08:00 后、当天没发过时发。
+async function maybeMorningBrief(now = new Date(), { force = false } = {}) {
+  const h = now.getHours();
+  if (!force && (h < 8 || h > 11)) return { ok: false, reason: "not_morning" };
+  const day = now.toISOString().slice(0, 10);
+  const st = readBriefState();
+  if (!force && st.morning === day) return { ok: false, reason: "already" };
+  let facts = { pending: 0, first: "", learned: 0 };
+  try {
+    const items = readJsonFile(path.join(WS_ROOT, "记忆", "运行时", "待办.json"))?.items || [];
+    const open = items.filter((x) => !x.done);
+    facts.pending = open.length;
+    facts.first = String(open[0]?.text || open[0]?.title || "").slice(0, 30);
+  } catch {}
+  const made = await composeNoticeFor("morning", facts);
+  const env = noticeEnvelope({ kind: "morning", facts, text: made.text });
+  await notifier.notify({ kind: "morning", title: env.head, body: made.text, sender: personaName(WS_ROOT), summary: env.summary, toWechat: true, key: `morning:${day}` });
+  writeBriefState({ ...st, morning: day });
+  return { ok: true, text: made.text, source: made.source };
+}
 try {
-  setInterval(() => { void runCompanionNudge({ store: companionStore, notifier }).catch(() => {}) }, 5 * 60 * 1000).unref?.();
+setInterval(() => { void maybeNightBrief().catch(() => {}); void maybeMorningBrief().catch(() => {}) }, 10 * 60 * 1000).unref?.();
+setInterval(() => { void runCompanionNudge({ store: companionStore, notifier, compose: composeNoticeFor, persona: personaName(WS_ROOT) }).catch(() => {}) }, 5 * 60 * 1000).unref?.();
 } catch {}
 
 // 设计委托：每 60 秒看一眼到期的周期委托（一次只跑一单，出错不影响后面的）
@@ -3505,6 +3581,17 @@ const API_ROUTES = [
   }],
   // 2026-10-27：微信状态 + PushPlus 推送通道状态（读 notify.py 落的状态文件）
   // 2026-10-27：推送通道（PushPlus）——面板里粘贴 token、一键测试，不再手写文件
+  // 2026-10-30：晨报 / 夜间反思手动触发（平时由定时器在 23:00 / 08:00 后发一次）
+  ["POST", "/api/brief/night", async (res, req) => {
+    const body = await readBody(req).catch(() => ({}));
+    const out = await maybeNightBrief(new Date(), { force: body?.force === true });
+    return json(res, out.ok ? 200 : 409, out);
+  }],
+  ["POST", "/api/brief/morning", async (res, req) => {
+    const body = await readBody(req).catch(() => ({}));
+    const out = await maybeMorningBrief(new Date(), { force: body?.force === true });
+    return json(res, out.ok ? 200 : 409, out);
+  }],
   ["GET", "/api/notify/status", (res) => {
     try { return json(res, 200, { ok: true, ...channelStatus(WS_ROOT) }); }
     catch (e) { return json(res, 500, { ok: false, error: String(e?.message || e).slice(0, 160) }); }
@@ -5717,7 +5804,7 @@ const boardApi = createBoardApi({
 API_ROUTES.push(...createCompanionRoutes({ exists: id => activeSessions.has(id) || !!findSession(id),
   facts: companionFacts, store: companionStore, decisions: companionDecisions, json, readBody,
   // 久不互动把人叫回来：notifier 自带应用内事件，toWechat 时同时推微信
-  nudge: { run: (opts = {}) => runCompanionNudge({ store: companionStore, notifier, force: opts?.force === true }) } }));
+  nudge: { run: (opts = {}) => runCompanionNudge({ store: companionStore, notifier, force: opts?.force === true, compose: composeNoticeFor, persona: personaName(WS_ROOT) }) } }));
 
 // 设计三组路由（巡检 / 委托 / 调研）在 engine/design-api.mjs；这里只负责注入依赖
 API_ROUTES.push(...createDesignRoutes({

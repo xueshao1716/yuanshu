@@ -37,18 +37,23 @@ export function extractPoints(body, limit = MAX_ITEMS) {
 const KIND_ICON = { task: '🗓', agent: '💬', cultivation: '🌱', system: '⚙️', delivery: '📦' };
 
 /** 把一条通知整理成手机上能读的卡片 */
-export function formatWechatPush({ title = '', body = '', kind = 'agent', now = new Date() } = {}) {
-  const head = clip(stripMarkdownForWechat(String(title || '').trim()) || '元枢', 40);
+export function formatWechatPush({ title = '', body = '', kind = 'agent', now = new Date(), sender = '', summary = '' } = {}) {
+  // 2026-10-30 伙伴原话：抬头别写「元枢」，结尾别写「详情在元枢」，要说清什么事。
+  // sender = 人设名（小语）；summary = 一句话说明这条是什么事。
+  const head = clip(stripMarkdownForWechat(String(title || '').trim()) || String(sender || '').trim() || '元枢', 40);
   const points = extractPoints(body);
   const time = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
   const icon = KIND_ICON[kind] || '💬';
-  const lines = [`${icon} ${head}`, '━━━━━━━━'];
+  const label = sender && !head.includes(sender) ? `${head}｜${sender}` : head;
+  const lines = [`${icon} ${label}`, '━━━━━━━━'];
   if (points.length) {
-    for (const p of points) lines.push(`• ${p}`);
+    // 2026-10-30：只有一句话时不加项目符号——主动推送是「她说话」，不是清单
+    const single = points.length === 1 && ['companion', 'night', 'morning'].includes(kind);
+    for (const p of points) lines.push(single ? p : `• ${p}`);
   } else {
     lines.push(clip(String(body || ''), 120) || '（无正文）');
   }
-  lines.push(`—— ${time} · 详情在元枢`);
+  lines.push(summary ? `—— ${time} · ${clip(String(summary), 30)}` : `—— ${time}`);
   let text = lines.join('\n');
   if (text.length > MAX_TOTAL) text = text.slice(0, MAX_TOTAL - 1) + '…';
   return text;

@@ -29,7 +29,7 @@ export function createNotifier({ file, wechat = null, now = Date.now, log = cons
 
   const send = (sub, ev) => { try { sub.write(`event: notify\ndata: ${JSON.stringify(ev)}\n\n`); } catch { /* 订阅端已断开 */ } };
 
-  async function notify({ kind = "agent", title = "", body = "", sessionId = "", key = "", toWechat = false } = {}) {
+  async function notify({ kind = "agent", title = "", body = "", sessionId = "", key = "", toWechat = false, sender = "", summary = "" } = {}) {
     const t = String(title || "").trim().slice(0, 80) || "元枢";
     const b = String(body || "").trim().slice(0, 600);
     if (!b && !title) return { ok: false, error: "通知内容为空" };
@@ -40,7 +40,7 @@ export function createNotifier({ file, wechat = null, now = Date.now, log = cons
     for (const sub of subs) send(sub, ev);
     const result = { ok: true, id: ev.id, seq: ev.seq, clients: subs.size, wechat: "skipped" };
     if (toWechat && wechat?.notifyOwner) {
-      try { await wechat.notifyOwner(formatWechatPush({ title: t, body: b, kind })); result.wechat = "sent"; }
+      try { await wechat.notifyOwner(formatWechatPush({ title: t, body: b, kind, sender, summary })); result.wechat = "sent"; }
       catch (e) { result.wechat = `failed: ${String(e?.message || e).slice(0, 80)}`; log.warn?.(`[notifier] 微信通知失败: ${result.wechat}`); }
     }
     return result;
