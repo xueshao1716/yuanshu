@@ -211,7 +211,11 @@ export function flashCandidate() {
     || findLive("xiaomi-token-plan-cn", /mimo-v2\.5$/i)
     || ocGoCandidate(/deepseek-v4-flash/i)
     || findLive("nvidia", /llama-3\.1-8b/i)
-    || pickFallbackDefault();
+    || pickFallbackDefault()
+    // 2026-10-30：模型清单没注入时不要返回 undefined——routeForAuto 的 model 会变 undefined，
+    // 上层（主动探测/路由）拿到 undefined 只能当故障。退回服务显式配置的默认模型。
+    || _getDefaultModel()
+    || null;
 }
 // pro 候选（复杂任务 / NEEDS_PRO 升级共用）：
 // ⚠️ 2026-08-19 修正：千问不再作为 pro（它已是 flash 主力）——否则"升级"是假升级。
