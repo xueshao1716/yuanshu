@@ -23,8 +23,8 @@ const registryFile = (wsRoot) => path.join(String(wsRoot || "."), REGISTRY_REL);
 export function readState(wsRoot) {
   try {
     const raw = JSON.parse(fs.readFileSync(stateFile(wsRoot), "utf8"));
-    return { v: 1, installed: raw.installed || {}, enabled: raw.enabled || {}, history: raw.history || {} };
-  } catch { return { v: 1, installed: {}, enabled: {}, history: {} } }
+    return { v: 1, installed: raw.installed || {}, enabled: raw.enabled || {}, history: raw.history || {}, settings: raw.settings || {} };
+  } catch { return { v: 1, installed: {}, enabled: {}, history: {}, settings: {} } }
 }
 
 function writeState(wsRoot, st) {
@@ -176,6 +176,8 @@ export function installPlugin(wsRoot, manifest, { at = Date.now(), keepBackup = 
   st.installed[m.id] = {
     id: m.id, name: m.name, version: m.version, type: m.type,
     description: m.description, installedAt: at, dir: target,
+    // 2026-10-30：权限必须记下来——工具包运行时按它放行，不记就等于永远没权限
+    permissions: m.permissions,
   };
   if (st.enabled[m.id] === undefined) st.enabled[m.id] = true;
   st.history = st.history || {};
@@ -183,6 +185,7 @@ export function installPlugin(wsRoot, manifest, { at = Date.now(), keepBackup = 
     version: m.version, at, fromVersion: prev?.version || "", backupDir: keepBackup ? backupDir : "",
   }].slice(-20);
   writeState(wsRoot, st);
+  try { pruneBackups(wsRoot, m.id, { keep: 3 }) } catch {}
   return { ok: true, plugin: st.installed[m.id], backupDir };
 }
 
@@ -196,6 +199,41 @@ export function uninstallPlugin(wsRoot, id) {
   delete st.enabled[id];
   writeState(wsRoot, st);
   return { ok: true };
+}
+
+/** 全局设置（面板开关等）。 */
+export function setSetting(wsRoot, key, value) {
+  const st = readState(wsRoot);
+  st.settings = { ...(st.settings || {}), [String(key)]: value };
+  writeState(wsRoot, st);
+  return { ok: true, key: String(key), value };
+}
+
+/** 只留最近 keep 份备份，返回删掉几个。 */
+export function pruneBackups(wsRoot, id, { keep = 3 } = {}) {
+  const root = path.resolve(dirOf(wsRoot));
+  const dir = safeChild(root, path.join(BACKUP_DIR));
+  if (!dir) return { ok: false, error: "路径不安全" };
+  let removed = 0;
+  try {
+    const names = fs.readdirSync(dir).filter((n) => n.startsWith(`${id}-v`)).sort();
+    for (const n of names.slice(0, Math.max(0, names.length - Math.max(1, keep)))) {
+      fs.rmSync(path.join(dir, n), { recursive: true, force: true });
+      removed += 1;
+    }
+  } catch { /* 没有备份目录 */ }
+  return { ok: true, removed };
+}
+
+/** 某插件的备份列表（新在前） */
+export function listBackups(wsRoot, id) {
+  const root = path.resolve(dirOf(wsRoot));
+  const dir = safeChild(root, path.join(BACKUP_DIR));
+  if (!dir) return [];
+  try {
+    return fs.readdirSync(dir).filter((n) => n.startsWith(`${id}-v`)).sort().reverse()
+      .map((n) => ({ name: n, path: path.join(dir, n) }));
+  } catch { return [] }
 }
 
 export function setEnabled(wsRoot, id, on) {
@@ -261,13 +299,34 @@ export function readCatalog(wsRoot) {
   return { ok: true, items: validated, source: file };
 }
 
-export function installFromCatalog(wsRoot, id) {
+/** 某个包的可用版本（catalog 条目可以带 versions: [{version,payload,sig}]） */
+export function listVersions(wsRoot, id) {
+  const file = path.join(String(wsRoot || '.'), '插件', 'catalog.json');
+  let raw = null;
+  try { raw = JSON.parse(fs.readFileSync(file, 'utf8')) } catch { return [] }
+  const items = Array.isArray(raw?.plugins) ? raw.plugins : Array.isArray(raw) ? raw : [];
+  const item = items.find((x) => String(x?.id) === String(id));
+  if (!item) return [];
+  const versions = Array.isArray(item.versions) ? item.versions : [];
+  const list = versions
+    .map((v) => ({ version: String(v?.version || ''), payload: v?.payload, sig: v?.sig }))
+    .filter((v) => v.version);
+  if (!list.length && item.version) list.push({ version: String(item.version), payload: item.payload, sig: item.sig });
+  return list;
+}
+
+export function installFromCatalog(wsRoot, id, version = '') {
   const file = path.join(String(wsRoot || "."), "插件", "catalog.json");
   let raw = null;
   try { raw = JSON.parse(fs.readFileSync(file, "utf8")) } catch { return { ok: false, error: "读不到 catalog.json" } }
   const items = Array.isArray(raw?.plugins) ? raw.plugins : Array.isArray(raw) ? raw : [];
   const item = items.find((x) => String(x?.id) === String(id));
   if (!item) return { ok: false, error: "目录里没有这个插件" };
+  if (version) {
+    const v = (Array.isArray(item.versions) ? item.versions : []).find((x) => String(x?.version) === String(version));
+    if (!v) return { ok: false, error: `目录里没有 ${version} 这个版本` };
+    return installPlugin(wsRoot, { ...item, version: String(version), payload: v.payload, sig: v.sig });
+  }
   return installPlugin(wsRoot, item);
 }
 

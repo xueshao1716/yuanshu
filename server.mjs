@@ -160,6 +160,8 @@ import {
   installFromRemote, versionHistory, rollbackPlugin, listToolpacks, readToolpack,
 } from "./engine/plugin-store.mjs";
 import { runToolpackTool } from "./engine/toolpack-runtime.mjs";
+import { syncToolpacks, toolpacksInChat, setToolpacksInChat } from "./engine/toolpack-chat.mjs";
+import { pruneBackups, listBackups, listVersions } from "./engine/plugin-store.mjs";
 import { initMediaApi, findMediaModel, detectMediaIntents, extractMediaPrompt, mediaAwarePrompt, mediaReadyNotice, explainMediaError, generateMediaAsync, generateTTS, generateImage, handleImage, handleImageWithSave, generateVideo, startVideoJob, checkVideoJob, handleMedia, assistantContentWithMedia } from "./engine/media-api.mjs";
 import { extractPlayableMedia } from "./engine/media-embed.mjs";
 import { formatSkillIndexPrompt, matchSkillsForTask } from "./engine/yuanshu-protocol.mjs";
@@ -1175,7 +1177,8 @@ async function withClaim({ task, agent = "小语", scope = [] }, fn) {
 }
 // 统一工具执行器：实现已抽到 engine/tools/unified-tools.mjs（大脑可移植第一步）。
 // server 侧注入：工作目录 / 工作空间路径安全 / 技能激活 / 时间引擎。
-const executeUnifiedTool = createUnifiedToolExecutorGuarded({
+// 2026-10-30：提取成变量，便于工具包在运行时挂载/摘除执行器。
+const toolExecutorDeps = {
   cwd: () => CONFIG.cwd,
   agentDir: AGENT_DIR,
   systemDir: __dirname, // 双根白名单：系统本体目录（自进化可写）
@@ -1193,7 +1196,10 @@ const executeUnifiedTool = createUnifiedToolExecutorGuarded({
   timeEngine: () => timeEngine,
   sensitiveHint: () => formatSensitiveHint(listHostChannels({ getModelList: () => modelList })),
   // 外部自定义工具执行器：dsh_task（pi 格式 execute → unified 结果格式）+ 宿主媒体密文通道
-  extraExecutors: {
+};
+
+// 2026-10-30：工具包执行器（运行时挂载/摘除）
+const extraToolExecutors = {
     computer_use: (args, ctx) => computerTool(computerUse, args, ctx),
     cultivation: (args, ctx) => {
       // 不能展开 ctx：培养身份是**非枚举属性**，展开复制会把它丢掉，工具就变成"没有母体身份"。
@@ -1318,6 +1324,7 @@ const executeUnifiedTool = createUnifiedToolExecutorGuarded({
             cwd: args?.cwd || CONFIG.cwd,
             label: args?.label || "job",
           });
+          if (!out.ok) return { text: `启动失败：${out.error}`, isError: true };
           if (!out.ok) return { text: `启动失败：${out.error}`, isError: true };
           // 登记到后台任务，方便面板上看得见
           try {
@@ -1460,8 +1467,22 @@ const executeUnifiedTool = createUnifiedToolExecutorGuarded({
       });
       return { text: out.text, isError: !out.ok };
     },
-  },
+};
+
+const executeUnifiedTool = createUnifiedToolExecutorGuarded({
+  ...toolExecutorDeps,
+  extraExecutors: extraToolExecutors,
 });
+
+// 2026-10-30：开机按设置把工具包工具挂进对话工具表（默认关）
+const syncToolpackTools = () => {
+  try {
+    const out = syncToolpacks({ wsRoot: WS_ROOT, tools: UNIFIED_TOOLS, executors: extraToolExecutors });
+    if (out?.enabled) console.log(`[plugins] 工具包已挂进对话工具表：${out.tools} 个工具`);
+    return out;
+  } catch (e) { return { ok: false, error: String(e?.message || e).slice(0, 160) } }
+};
+syncToolpackTools();
 
 initSessionManager({ cwd: CONFIG.cwd, sessionsDir: SESSIONS_DIR, tools: CONFIG.tools, piPackage: CONFIG.piPackage, isModelBlocked, createAgentSessionServices, createAgentSessionFromServices, getModelRuntime: () => modelRuntime, loadSessionModelKey, getModelList: () => modelList, getDefaultModel: () => defaultModel, activeSessions, SessionManager, SettingsManager, DefaultResourceLoader, getAgentDir, readJsonFile, writeJsonFile, isExternalThinking, THINK_TOOL, modelCapabilities, bindOutputGuardDeps, extractMessages, createSseWriter, unifiedChat, generateMediaAsync, onSessionCreated: ensureSessionSequence, repairSessionFile }); // 会话管理注入
 // 维护 API 在下方完成初始化；沙箱确认闭包延迟读取它，避免启动顺序改变。
@@ -3673,6 +3694,20 @@ const API_ROUTES = [
     const out = rollbackPlugin(WS_ROOT, String(body?.id || ""));
     return json(res, out.ok ? 200 : 400, out);
   }],
+  ["GET", "/api/plugins/versions", (res, req, url) => json(res, 200, { ok: true, versions: listVersions(WS_ROOT, String(url.searchParams.get("id") || "")) })],
+  ["GET", "/api/plugins/chat-toolpacks", (res) => json(res, 200, { ok: true, on: toolpacksInChat(WS_ROOT) })],
+  ["POST", "/api/plugins/chat-toolpacks", async (res, req) => {
+    const body = await readBody(req);
+    const out = setToolpacksInChat(WS_ROOT, body?.on === true);
+    const synced = syncToolpackTools();
+    return json(res, 200, { ok: true, on: out.on, tools: synced?.tools || 0 });
+  }],
+  ["GET", "/api/plugins/backups", (res, req, url) => json(res, 200, { ok: true, backups: listBackups(WS_ROOT, String(url.searchParams.get("id") || "")) })],
+  ["POST", "/api/plugins/prune", async (res, req) => {
+    const body = await readBody(req);
+    const out = pruneBackups(WS_ROOT, String(body?.id || ""), { keep: Number(body?.keep) || 3 });
+    return json(res, out.ok ? 200 : 400, out);
+  }],
   ["GET", "/api/plugins/toolpacks", (res) => json(res, 200, { ok: true, packs: listToolpacks(WS_ROOT).map((x) => ({ id: x.id, name: x.name, version: x.version, tools: x.tools.map((t) => ({ name: t.name, description: t.description })) })) })],
   ["POST", "/api/plugins/run-tool", async (res, req) => {
     const body = await readBody(req);
@@ -3691,19 +3726,21 @@ const API_ROUTES = [
   ["POST", "/api/plugins/install", async (res, req) => {
     const body = await readBody(req);
     const id = String(body?.id || "");
-    const out = body?.manifest ? installPlugin(WS_ROOT, body.manifest) : installFromCatalog(WS_ROOT, id);
+    const out = body?.manifest ? installPlugin(WS_ROOT, body.manifest) : installFromCatalog(WS_ROOT, id, String(body?.version || ""));
     if (!out.ok) return json(res, 400, { ok: false, error: out.error });
-    try { const eng = await import("./engine/unified-chat.mjs"); eng.reloadSkills?.() } catch {}
+    try { syncToolpackTools() } catch {}
     return json(res, 200, { ok: true, plugin: out.plugin });
   }],
   ["POST", "/api/plugins/uninstall", async (res, req) => {
     const body = await readBody(req);
     const out = uninstallPlugin(WS_ROOT, String(body?.id || ""));
+    try { syncToolpackTools() } catch {}
     return json(res, out.ok ? 200 : 400, out);
   }],
   ["POST", "/api/plugins/toggle", async (res, req) => {
     const body = await readBody(req);
     const out = setPluginEnabled(WS_ROOT, String(body?.id || ""), body?.on !== false);
+    try { syncToolpackTools() } catch {}
     return json(res, out.ok ? 200 : 400, out);
   }],
   ["POST", "/api/plugins/validate", async (res, req) => {
