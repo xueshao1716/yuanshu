@@ -34,6 +34,13 @@ export function summarizeArgs(args) {
   return { hash, preview, bytes: raw.length };
 }
 
+function redactPreview(raw) {
+  return String(raw || "")
+    .replace(/\b(Bearer|token|key|secret|password)=([^\s"&]+)/gi, "$1=***")
+    .replace(/Bearer\s+[A-Za-z0-9._-]+/gi, "Bearer ***")
+    .replace(/\b[A-Za-z0-9_-]{32,}\b/g, "***");
+}
+
 export function createAuditGate({ wsRoot = ".", file = "", now = Date.now, soft = process.env.YUANSHU_AUDIT_SOFT === "1" } = {}) {
   const target = file || auditPath(wsRoot);
   const append = (row) => {
@@ -63,8 +70,8 @@ export function createAuditGate({ wsRoot = ".", file = "", now = Date.now, soft 
       return { ok: false, error: `审计写不进去，拒绝执行：${r.error}` };
     },
     /** 动作结束：补一行结果。失败不阻断（已经执行了）。 */
-    after({ tool = "", argsHash = "", ok = true, ms = 0, error = "", session = "", runId = "", initiator = "" } = {}) {
-      append({ at: now(), phase: "after", tool: String(tool).slice(0, 64), argsHash: String(argsHash).slice(0, 32), ok: !!ok, ms: Number(ms) || 0, error: String(error).slice(0, 200), session: String(session).slice(0, 64), runId: String(runId).slice(0, 64), initiator: String(initiator || "").slice(0, 24) });
+    after({ tool = "", argsHash = "", ok = true, ms = 0, error = "", session = "", runId = "", initiator = "", resultPreview = "" } = {}) {
+      append({ at: now(), phase: "after", tool: String(tool).slice(0, 64), argsHash: String(argsHash).slice(0, 32), ok: !!ok, ms: Number(ms) || 0, error: String(error).slice(0, 200), resultPreview: redactPreview(resultPreview).slice(0, 200), session: String(session).slice(0, 64), runId: String(runId).slice(0, 64), initiator: String(initiator || "").slice(0, 24) });
     },
     tail(limit = 20) {
       try {
@@ -86,7 +93,7 @@ export function withAuditGate(execute, { gate, rules = [], sessionOf = (ctx) => 
     if (!begin.ok) return { text: `⛔ ${begin.error}`, isError: true, denied: !!begin.denied, ruleId: begin.ruleId || "" };
     try {
       const r = await execute(name, args, ctx);
-      gate.after({ tool: name, argsHash: begin.id, ok: !r?.isError, ms: Date.now() - started, error: r?.isError ? String(r?.text || "").slice(0, 160) : "", session: sessionOf(ctx), runId: ctx?.runId || "", initiator: begin.initiator || "" });
+      gate.after({ tool: name, argsHash: begin.id, ok: !r?.isError, ms: Date.now() - started, error: r?.isError ? String(r?.text || "").slice(0, 160) : "", resultPreview: r?.text ? String(r.text).slice(0, 200) : "", session: sessionOf(ctx), runId: ctx?.runId || "", initiator: begin.initiator || "" });
       return r;
     } catch (e) {
       gate.after({ tool: name, argsHash: begin.id, ok: false, ms: Date.now() - started, error: String(e?.message || e).slice(0, 160), session: sessionOf(ctx), runId: ctx?.runId || "", initiator: begin.initiator || "" });

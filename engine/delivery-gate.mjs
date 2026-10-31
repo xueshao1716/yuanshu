@@ -14,6 +14,8 @@
 import path from "node:path";
 
 export const CHANGE_TOOLS = new Set(["write", "edit", "apply_patch", "patch", "multiedit", "notebook_edit", "str_replace_editor"]);
+// 脚本里跑测试时命令本身看不到关键字（如 node scripts/run-tests.mjs），但输出里会有结果行
+export const VERIFY_OUTPUT = /(\d+\s*(passed|passing|个?测试通过)|\bPASS\b|\bok\s*\d+|0\s*fail|tests?\s+\d+.*\bpass|全部通过|用例通过|通过\s*\d+)/i;
 const VERIFY_CMD = /(npm\s+(run\s+)?(test|build|lint|check)|node\s+--test|node\s+--check|pytest|vitest|jest|tsc\b|go\s+test|cargo\s+(test|check)|评测|跑分|bench)/i;
 
 /** 从审计行的 argsPreview 里抠路径（预览被截断到 80 字，所以用正则而不是 JSON.parse）。 */
@@ -67,7 +69,9 @@ export function extractEvidence(rows = []) {
     const preview = String(before?.preview || row?.argsPreview || "");
     const command = preview.match(/"command"\s*:\s*"([^"]*)"/)?.[1] || "";
     if (row.ok === false) failures.push({ at, tool: String(before?.tool || tool || ""), error: String(row.error || "").slice(0, 160) });
-    if (VERIFY_CMD.test(command)) verifications.push({ at, command: command.slice(0, 120), ok: row.ok !== false });
+    const output = String(row?.resultPreview || "");
+    const looksLikeVerify = VERIFY_CMD.test(command) || VERIFY_OUTPUT.test(output);
+    if (looksLikeVerify) verifications.push({ at, command: (command || output).slice(0, 120), ok: row.ok !== false, viaOutput: !VERIFY_CMD.test(command) });
   }
   return { changes, verifications, failures };
 }

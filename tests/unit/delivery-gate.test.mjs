@@ -85,3 +85,23 @@ test("describeVerdict 说人话", () => {
 test("CHANGE_TOOLS 覆盖写文件的常见工具名", () => {
   for (const t of ["write", "edit", "apply_patch"]) assert.ok(CHANGE_TOOLS.has(t), t);
 });
+
+test('脚本里跑测试：命令看不出关键字，但输出有 passed 也算验证', () => {
+  const r = judgeDelivery({ rows: [
+    { at: 10, phase: 'before', tool: 'write', argsPreview: JSON.stringify({ path: 'src/x.mjs' }) },
+    { at: 20, phase: 'before', tool: 'bash', argsPreview: JSON.stringify({ command: 'node scripts/run-all.mjs' }) },
+    { at: 30, phase: 'after', tool: 'bash', ok: true, resultPreview: '48 passed, 0 failed' },
+  ] });
+  assert.equal(r.verdict, 'GREEN');
+  assert.deepEqual(r.covered, ['src/x.mjs']);
+});
+
+test('脚本输出没有测试结果 → 仍算未覆盖', () => {
+  const r = judgeDelivery({ rows: [
+    { at: 10, phase: 'before', tool: 'write', argsPreview: JSON.stringify({ path: 'src/x.mjs' }) },
+    { at: 20, phase: 'before', tool: 'bash', argsPreview: JSON.stringify({ command: 'node scripts/run-all.mjs' }) },
+    { at: 30, phase: 'after', tool: 'bash', ok: true, resultPreview: 'done.' },
+  ] });
+  assert.equal(r.verdict, 'RED');
+  assert.deepEqual(r.uncovered, ['src/x.mjs']);
+});

@@ -37,7 +37,9 @@ export const FALLBACK = {
   morning: ({ pending }) => `早，今天要做的事我列好了${pending ? `，${pending} 件在等你` : ""}。`,
   done: ({ what, minutes, gate }) => (gate?.verdict === "RED"
     ? `${what || "手头的活"}干完了，但交付门没过：${String(gate.summary || "有改动没被验证").slice(0, 60)}`
-    : `${what || "手头的活"}做完了${minutes ? `，用了 ${minutes} 分钟` : ""}，看一眼？`),
+    : gate?.verdict === "YELLOW"
+      ? `${what || "手头的活"}做完了，${String(gate.summary || "需要你确认").replace(/^可以交付[，,]?/, "").slice(0, 70)}`
+      : `${what || "手头的活"}做完了${minutes ? `，用了 ${minutes} 分钟` : ""}，看一眼？`),
 };
 
 /** 各类型的写作要求（给模型的要求，不是最终文案） */
@@ -132,10 +134,10 @@ export async function composeNotice({ kind = "away", facts = {}, wsRoot = ".", w
   const brief = briefFor(kind, facts);
   let lastReasons = [];
   // 2026-10-31：交付门 RED 时，直接给"没过门"的兜底——不把决定权交给模型
-  if (kind === "done" && facts.gate?.verdict === "RED") {
+  if (kind === "done" && facts.gate && ["RED", "YELLOW"].includes(facts.gate.verdict)) {
     const text = FALLBACK.done(facts);
     try { if (typeof write === "function" && !writeBlocked) console.log("[notice] 交付门 RED，使用兜底话术") } catch {}
-    return { text, source: "fallback", reasons: ["交付门 RED"] };
+    return { text, source: "fallback", reasons: [`交付门 ${facts.gate.verdict}`] };
   }
   for (let attempt = 0; attempt < 2; attempt += 1) {
     try {

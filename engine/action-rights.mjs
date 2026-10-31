@@ -36,6 +36,12 @@ export function buildBlock(text) {
     "# 行动权清单（我直接做什么 / 必须等伙伴点头什么，以此为准）",
     "",
     body,
+    "",
+    "## 交付门（运行时保证，不是建议）",
+    "- 声称「完成 / 已修复 / 已验证」之前，先调用 delivery_check 自检。",
+    "- RED：不许说完成，先补验证（跑 node --test / npm run build / node --check 等）。",
+    "- YELLOW：可以报完成，但必须把附带条件写清楚。",
+    "- 工具回执成功 ≠ 文件内容被验证；这两件事不要混。",
     MARK_END,
   ].join("\n");
 }
