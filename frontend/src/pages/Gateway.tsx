@@ -128,6 +128,7 @@ export default function Gateway() {
   const [policyDraft, setPolicyDraft] = useState('')
   const [editingPolicy, setEditingPolicy] = useState(false)
   const [policyMsg, setPolicyMsg] = useState('')
+  const delivery = useSWR('delivery-ledger', () => api<{ items: any[] }>('/api/delivery/ledger'), { refreshInterval: 30000 })
   const audit = useSWR('audit-tail', () => api<{ rows: any[] }>('/api/audit/tail?limit=30'), { refreshInterval: 15000 })
   const bench = useSWR('bench-latest', () => api<{ cases: { id: string; title: string }[]; latest: any; previous: any }>('/api/bench/latest'), { refreshInterval: 60000 })
   // 只显示"before/denied"的行：after 行是结果，成对看太吵
@@ -383,6 +384,29 @@ export default function Gateway() {
             ))}
           </ul>
         ) : <p className="text-xs text-pi-dim2">每次工具调用都会先写一行审计再执行；拒绝的会标出来。</p>}
+      </section>
+      {/* 交付门：没有证据不算完成（GREEN / YELLOW / RED） */}
+      <section className="panel space-y-2">
+        <div className="flex flex-wrap items-baseline justify-between gap-2">
+          <h2 className="text-[15px] font-semibold text-pi-text">交付门</h2>
+          <span className="text-xs text-pi-dim2">
+            {(delivery.data?.items || []).length ? `最近 ${(delivery.data?.items || []).length} 次判定` : "还没有判定"}
+          </span>
+        </div>
+        {(delivery.data?.items || []).slice(0, 4).map((d: any, i: number) => (
+          <div key={`${d.runId}-${i}`} className="text-[12px] leading-relaxed">
+            <span style={{ color: d.verdict === "RED" ? "var(--pi-red)" : d.verdict === "YELLOW" ? "var(--pi-yellow)" : "var(--pi-green)" }}>
+              {d.verdict}
+            </span>
+            <span className="ml-2 text-pi-text">{String(d.summary || "").slice(0, 90)}</span>
+            {Array.isArray(d.uncovered) && d.uncovered.length ? (
+              <div className="text-[11px] text-pi-dim2">未覆盖：{d.uncovered.slice(0, 4).join("、")}</div>
+            ) : null}
+          </div>
+        ))}
+        <p className="text-[11px] text-pi-dim2">
+          判定逻辑：改过的文件之后必须有一次验证（test / build / lint）才算覆盖；有失败或未覆盖 → RED，禁止说「完成」。
+        </p>
       </section>
       {/* 动作策略：谁能干什么，写在这里 */}
       <section className="panel space-y-2">

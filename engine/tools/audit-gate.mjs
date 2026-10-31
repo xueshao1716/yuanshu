@@ -24,9 +24,13 @@ export function auditPath(wsRoot) {
 export function summarizeArgs(args) {
   const raw = typeof args === "string" ? args : JSON.stringify(args || {});
   const hash = crypto.createHash("sha256").update(raw).digest("hex").slice(0, 16);
+  // 2026-10-31：命令常常很长，80 字截断会让"后面跑了验证"这件事看不见；
+  // 放到 240 字，同时把常见的凭据写法一并抹掉。
   const preview = raw.replace(/("(?:token|key|secret|password|authorization)"\s*:\s*)"[^"]*"/gi, "$1\"***\"")
+    .replace(/\b(Bearer|token|key|secret|password)=([^\s"&]+)/gi, "$1=***")
+    .replace(/Bearer\s+[A-Za-z0-9._-]+/gi, "Bearer ***")
     .replace(/\b[A-Za-z0-9_-]{24,}\b/g, "***")
-    .slice(0, 80);
+    .slice(0, 240);
   return { hash, preview, bytes: raw.length };
 }
 
@@ -59,8 +63,8 @@ export function createAuditGate({ wsRoot = ".", file = "", now = Date.now, soft 
       return { ok: false, error: `审计写不进去，拒绝执行：${r.error}` };
     },
     /** 动作结束：补一行结果。失败不阻断（已经执行了）。 */
-    after({ tool = "", argsHash = "", ok = true, ms = 0, error = "" } = {}) {
-      append({ at: now(), phase: "after", tool: String(tool).slice(0, 64), argsHash: String(argsHash).slice(0, 32), ok: !!ok, ms: Number(ms) || 0, error: String(error).slice(0, 200) });
+    after({ tool = "", argsHash = "", ok = true, ms = 0, error = "", session = "", runId = "", initiator = "" } = {}) {
+      append({ at: now(), phase: "after", tool: String(tool).slice(0, 64), argsHash: String(argsHash).slice(0, 32), ok: !!ok, ms: Number(ms) || 0, error: String(error).slice(0, 200), session: String(session).slice(0, 64), runId: String(runId).slice(0, 64), initiator: String(initiator || "").slice(0, 24) });
     },
     tail(limit = 20) {
       try {
@@ -82,10 +86,10 @@ export function withAuditGate(execute, { gate, rules = [], sessionOf = (ctx) => 
     if (!begin.ok) return { text: `⛔ ${begin.error}`, isError: true, denied: !!begin.denied, ruleId: begin.ruleId || "" };
     try {
       const r = await execute(name, args, ctx);
-      gate.after({ tool: name, argsHash: begin.id, ok: !r?.isError, ms: Date.now() - started, error: r?.isError ? String(r?.text || "").slice(0, 160) : "" });
+      gate.after({ tool: name, argsHash: begin.id, ok: !r?.isError, ms: Date.now() - started, error: r?.isError ? String(r?.text || "").slice(0, 160) : "", session: sessionOf(ctx), runId: ctx?.runId || "", initiator: begin.initiator || "" });
       return r;
     } catch (e) {
-      gate.after({ tool: name, argsHash: begin.id, ok: false, ms: Date.now() - started, error: String(e?.message || e).slice(0, 160) });
+      gate.after({ tool: name, argsHash: begin.id, ok: false, ms: Date.now() - started, error: String(e?.message || e).slice(0, 160), session: sessionOf(ctx), runId: ctx?.runId || "", initiator: begin.initiator || "" });
       throw e;
     }
   };

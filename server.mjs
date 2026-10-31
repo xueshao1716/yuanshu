@@ -120,6 +120,7 @@ import { createReplyTts } from './engine/reply-tts.mjs';
 // ── 统一工具集（拆模块）：schema + 执行器；安全线（deny/危险命令/受保护路径/路径越权）在 engine/tools/security.mjs ──
 import { BASE_TOOL_SCHEMAS, TIME_TASK_SCHEMA, SHARE_PROJECT_SCHEMA, createUnifiedToolExecutorGuarded, webSearchTool, detectBashShell } from "./engine/tools/unified-tools.mjs";
 import { createAuditGate, withAuditGate } from "./engine/tools/audit-gate.mjs";
+import { judgeRun, describeVerdict } from "./engine/delivery-gate.mjs";
 import { runWithInitiator, DEFAULT_RULES } from "./engine/tools/initiator.mjs";
 import { getTeamToolContext } from "./engine/team-tool-context.mjs";
 import { createPolicyProvider, readPolicy, writePolicy, rollbackPolicy } from "./engine/tools/policy-store.mjs";
@@ -1520,6 +1521,19 @@ const _rawExecuteUnifiedTool = createUnifiedToolExecutorGuarded({
 const auditGate = createAuditGate({ wsRoot: WS_ROOT });
 // 2026-10-30：带上默认策略——定时任务不许删东西/对外发消息，人让做的照常
 // 2026-10-30：策略从文件读（记忆/运行时/动作策略.json），改完立刻生效，不用重启。
+
+// 2026-10-31：交付门台账（天枢的 deliver_task 思路：没有证据不算完成）
+const DELIVERY_LEDGER = path.join(WS_ROOT, "记忆", "运行时", "交付门.json");
+const readDeliveryLedger = () => { try { const j = JSON.parse(fs.readFileSync(DELIVERY_LEDGER, "utf8")); return Array.isArray(j?.items) ? j.items : [] } catch { return [] } };
+const writeDeliveryLedger = (items) => { try { fs.mkdirSync(path.dirname(DELIVERY_LEDGER), { recursive: true }); fs.writeFileSync(DELIVERY_LEDGER, JSON.stringify({ items: items.slice(-100) }, null, 2), "utf8") } catch {} };
+const checkDelivery = ({ runId = "", rows = null, changedFiles = [], verified = [], blockers = [] } = {}) => {
+  const auditRows = rows || auditGate.tail(400);
+  const result = judgeRun({ rows: auditRows, runId, changedFiles, verified });
+  const item = { at: Date.now(), runId, verdict: result.verdict, uncovered: result.uncovered.slice(0, 20), reasons: result.reasons, conditions: [...result.conditions, ...blockers], summary: describeVerdict(result) };
+  if (runId) { const items = readDeliveryLedger().filter((x) => x.runId !== runId); items.push(item); writeDeliveryLedger(items) }
+  if (result.verdict === "RED") console.log(`[deliver] RED：${item.summary}`.slice(0, 220));
+  return { ...result, summary: item.summary };
+};
 const policyProvider = createPolicyProvider({ wsRoot: WS_ROOT });
 const executeUnifiedTool = withAuditGate(_rawExecuteUnifiedTool, { gate: auditGate, rules: () => policyProvider.rules() });
 
@@ -3257,6 +3271,7 @@ const runManager = createRunManager({
   effects: runEffects,
   workspaceScope: () => CONFIG.cwd,
   onRunFinished: run => {
+    try { const d = checkDelivery({ runId: run?.id || "" }); if (d.verdict !== "GREEN") console.log(`[deliver] ${run?.id?.slice(0, 8)} ${d.verdict}：${d.summary}`.slice(0, 220)) } catch {}
     // 2026-10-31：她说要"做完自动推到手机/微信"——之前只发应用内，微信收不到，这次补上。
     const composeDone = async ({ run: r, secs, failed }) => {
       const name = String(findSession(String(r.sessionId || ""))?.name || "").trim();
@@ -3708,6 +3723,15 @@ const API_ROUTES = [
   }],
   // 2026-10-27：微信状态 + PushPlus 推送通道状态（读 notify.py 落的状态文件）
   // 2026-10-27：推送通道（PushPlus）——面板里粘贴 token、一键测试，不再手写文件
+  // 2026-10-31：交付门（GREEN/YELLOW/RED + 未覆盖文件）
+  ["GET", "/api/delivery/check", (res, req, url) => {
+    // 不传 runId 时只看最近一次带 runId 的动作，别把历史清理算进这次交付
+    let runId = String(url.searchParams.get("runId") || "");
+    if (!runId) { const rows = auditGate.tail(400); const last = [...rows].reverse().find((r) => r.runId); runId = last ? String(last.runId) : ""; }
+    const out = checkDelivery({ runId });
+    return json(res, 200, { ok: true, ...out, ledger: readDeliveryLedger().slice(-10).reverse() });
+  }],
+  ["GET", "/api/delivery/ledger", (res) => json(res, 200, { ok: true, items: readDeliveryLedger().slice(-30).reverse() })],
   // 2026-10-31：行动权清单（同步进系统提示）
   ["GET", "/api/action-rights", (res) => {
     const r = readRights(WS_ROOT);
