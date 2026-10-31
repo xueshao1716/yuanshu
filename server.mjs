@@ -122,6 +122,7 @@ import { BASE_TOOL_SCHEMAS, TIME_TASK_SCHEMA, SHARE_PROJECT_SCHEMA, createUnifie
 import { createAuditGate, withAuditGate } from "./engine/tools/audit-gate.mjs";
 import { runWithInitiator, DEFAULT_RULES } from "./engine/tools/initiator.mjs";
 import { createPolicyProvider, readPolicy, writePolicy, rollbackPolicy } from "./engine/tools/policy-store.mjs";
+import { syncActionRights, readRights } from "./engine/action-rights.mjs";
 import { runDoctor } from "./engine/install-doctor.mjs";
 import { listAddons, startAddonJob, addonJobs, ensureAddonPaths } from "./engine/addons.mjs";
 ensureAddonPaths();
@@ -701,6 +702,10 @@ function toolPermissions(wsRoot, id) {
 function readStateForPlugins(wsRoot) {
   try { return JSON.parse(fs.readFileSync(path.join(wsRoot, "记忆", "运行时", "插件.json"), "utf8")) } catch { return { installed: {} } }
 }
+
+// 2026-10-31：行动权清单写进 APPEND_SYSTEM（她写好了文件，但之前没人读它）
+const rightsSync = () => { try { return syncActionRights({ wsRoot: WS_ROOT, agentDir: getAgentDir() }) } catch (e) { return { ok: false, error: String(e?.message || e).slice(0, 120) } } };
+try { const r = rightsSync(); if (r?.changed) console.log("  [rights] 行动权清单已同步进 APPEND_SYSTEM"); } catch {}
 seedPluginCatalog();
 // 2026-10-28：脱链任务靠 status 才收尾会留假 running——每 20 秒自己对一次账。
 const reapDetachedJobs = () => {
@@ -3191,7 +3196,16 @@ const runManager = createRunManager({
   effects: runEffects,
   workspaceScope: () => CONFIG.cwd,
   onRunFinished: run => {
-    notifier.runFinished(run)?.catch?.(() => {});
+    // 2026-10-31：她说要"做完自动推到手机/微信"——之前只发应用内，微信收不到，这次补上。
+    const composeDone = async ({ run: r, secs, failed }) => {
+      const name = String(findSession(String(r.sessionId || ""))?.name || "").trim();
+      const what = name || "手头的活";
+      const minutes = Math.max(1, Math.round(secs / 60));
+      const made = await composeNoticeFor("done", { what, minutes, failed });
+      const env = noticeEnvelope({ kind: "done", facts: { what }, text: made.text });
+      return { title: env.head, body: made.text, sender: personaName(WS_ROOT), summary: failed ? "任务失败" : "长任务完成", facts: [`用时 ${Math.round(secs / 60) || 1} 分钟`] };
+    };
+    notifier.runFinished(run, { toWechat: true, compose: composeDone })?.catch?.(() => {});
     knowledgeRuntime.enqueueFinished(run);
     return learningIntake.enqueue(run);
   },
@@ -3633,6 +3647,15 @@ const API_ROUTES = [
   }],
   // 2026-10-27：微信状态 + PushPlus 推送通道状态（读 notify.py 落的状态文件）
   // 2026-10-27：推送通道（PushPlus）——面板里粘贴 token、一键测试，不再手写文件
+  // 2026-10-31：行动权清单（同步进系统提示）
+  ["GET", "/api/action-rights", (res) => {
+    const r = readRights(WS_ROOT);
+    return json(res, 200, { ok: r.ok, text: r.text, error: r.error || "", bytes: r.bytes || 0 });
+  }],
+  ["POST", "/api/action-rights/sync", (res) => {
+    const r = rightsSync();
+    return json(res, r.ok ? 200 : 400, r);
+  }],
   // 2026-10-30：动作策略（可改，改完即时生效）
   ["GET", "/api/policy", (res) => json(res, 200, { ok: true, ...policyProvider.status() })],
   ["POST", "/api/policy", async (res, req) => {

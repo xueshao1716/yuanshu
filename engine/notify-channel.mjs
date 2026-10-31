@@ -85,6 +85,24 @@ export function channelStatus(wsRoot) {
 }
 
 /** 发一条测试推送。 */
+/**
+ * 发一条普通推送（notifier 的 PushPlus 支路用）。
+ * 成功返回 { ok:true }，失败抛错——由调用方决定吞不吞。
+ */
+export async function send(token, title = "元枢", content = "", { fetch: f = globalThis.fetch, timeoutMs = 15000 } = {}) {
+  if (!token) throw new Error("没有推送 token");
+  const res = await f(PUSHPLUS_SEND, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ token, title: String(title).slice(0, 100), content: String(content), template: "txt" }),
+    signal: AbortSignal.timeout(timeoutMs),
+  });
+  const body = await res.text().catch(() => "");
+  let code = res.status;
+  try { const j = JSON.parse(body); if (typeof j?.code === "number") code = j.code } catch {}
+  if (code !== 200) throw new Error(`HTTP ${code} ${body.slice(0, 120)}`);
+  return { ok: true };
+}
 export async function sendTest(wsRoot, { text = "元枢推送测试：收到这条说明通道通了。", fetch: f = globalThis.fetch } = {}) {
   const token = readToken(wsRoot);
   if (!token) return { ok: false, error: "还没保存 token" };

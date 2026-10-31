@@ -35,7 +35,7 @@ export const FALLBACK = {
     : "今天轨迹不够，没做结论，明天接着看。"),
   night: ({ learned }) => `今天的活我过了一遍${learned ? `，记下 ${learned} 条` : ""}，明天能省点事。`,
   morning: ({ pending }) => `早，今天要做的事我列好了${pending ? `，${pending} 件在等你` : ""}。`,
-  done: ({ what }) => `${what}，弄完了，你看一眼？`,
+  done: ({ what, minutes }) => `${what || "手头的活"}做完了${minutes ? `，用了 ${minutes} 分钟` : ""}，看一眼？`,
 };
 
 /** 各类型的写作要求（给模型的要求，不是最终文案） */
@@ -57,6 +57,12 @@ export function briefFor(kind, facts = {}) {
     return [...base,
       `背景：今天共 ${facts.events ?? "一些"} 件事，反思后沉淀 ${facts.learned ?? 0} 条经验${facts.verdict ? `，结论：${facts.verdict}` : ""}。`,
       "要说清：你复盘了什么、学到什么、明天有什么用。别报流水账。",
+    ].join("\n");
+  }
+  if (kind === "done") {
+    return [...base,
+      `背景：${facts.what || "手头的活"} 已经做完了${facts.minutes ? `，用了 ${facts.minutes} 分钟` : ""}。`,
+      "要说清：哪件事做完了、用了多久、结果在哪看。别邀功，别重复对方的话。",
     ].join("\n");
   }
   if (kind === "reflection") {
@@ -100,7 +106,7 @@ export function checkNotice(text, { kind = "away", maxChars = 80, facts = {} } =
   // 2026-10-30：真机她写「报告已经交上去了」——离开提醒没有事实依据，不许编造成果
   if (kind === "away" && /(报告|交上去|提交|已完成|搞定|做完|发出去|睡)/.test(t)) reasons.push("编造了不存在的进度");
   // 至少有点具体信息：数字、时间、动作词，三选一
-  if (!/\d/.test(t) && !/(分钟|小时|今天|昨天|明天|早|晚)/.test(t) && !/(做完|弄好|记下|列好|过了一遍|留着|复盘|整理|收尾|排好|归了|看了)/.test(t)) {
+  if (!/\d/.test(t) && !/(分钟|小时|今天|昨天|明天|早|晚)/.test(t) && !/(做完|弄好|弄完|记下|列好|过了一遍|留着|复盘|整理|收尾|排好|归了|看了|完成|跑完|交付|好了)/.test(t)) {
     reasons.push("没看出发生了什么");
   }
   return { ok: reasons.length === 0, reasons };

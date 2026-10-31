@@ -5,11 +5,12 @@ import fs from "node:fs";
 import { formatWechatPush } from './wechat-push-format.mjs';
 import path from "node:path";
 import { randomUUID } from "node:crypto";
+import { readToken as ppReadToken, send as ppSend } from "./notify-channel.mjs";
 
 const RING = 100;
 const LONG_RUN_MS = Number(process.env.YUANSHU_NOTIFY_LONG_RUN_MS) || 45_000;
 
-export function createNotifier({ file, wechat = null, now = Date.now, log = console } = {}) {
+export function createNotifier({ file, wechat = null, now = Date.now, log = console, wsRoot = "D:/pi-workspace" } = {}) {
   let seq = 0;
   let events = [];
   const subs = new Set();
@@ -40,24 +41,47 @@ export function createNotifier({ file, wechat = null, now = Date.now, log = cons
     for (const sub of subs) send(sub, ev);
     const result = { ok: true, id: ev.id, seq: ev.seq, clients: subs.size, wechat: "skipped" };
     if (toWechat && wechat?.notifyOwner) {
-      try { await wechat.notifyOwner(formatWechatPush({ title: t, body: b, kind, sender, summary, facts })); result.wechat = "sent"; }
+      try { await wechat.notifyOwner(formatWechatPush({ title: t, body: b, kind, sender, summary, facts })); result.wechat = "sent"; log.info?.(`[notifier] 微信已发：${kind}`); }
       catch (e) { result.wechat = `failed: ${String(e?.message || e).slice(0, 80)}`; log.warn?.(`[notifier] 微信通知失败: ${result.wechat}`); }
+    }
+    // PushPlus 支路（独立并行，不影响微信通道）
+    {
+      const ppToken = ppReadToken(wsRoot);
+      if (ppToken) {
+        try {
+          await ppSend(ppToken, t, b.length > 1000 ? b.slice(0, 1000) : b);
+          result.pushplus = "sent";
+        } catch {
+          result.pushplus = "failed";
+        }
+      } else {
+        result.pushplus = "skipped";
+      }
     }
     return result;
   }
 
   // 长对话 run 终态：只对“跑了一阵子、用户大概率已经走开”的跑完/失败发，短问答不打扰。
-  function runFinished(run, { minMs = LONG_RUN_MS } = {}) {
+  async function runFinished(run, { minMs = LONG_RUN_MS, toWechat = false, compose = null } = {}) {
     if (!run || !["completed", "failed"].includes(run.status)) return null;
     const start = Date.parse(run.startedAt || run.createdAt || "");
     const end = Date.parse(run.completedAt || run.failedAt || "") || now();
     if (!Number.isFinite(start) || end - start < minMs) return null;
     const secs = Math.round((end - start) / 1000);
     const failed = run.status === "failed";
+    let title = failed ? "元枢 · 任务失败" : "元枢 · 任务完成";
+    let body = failed ? `${String(run.error || "未知原因").slice(0, 160)}（已运行 ${secs} 秒）` : `已运行 ${secs} 秒，回到元枢查看结果`;
+    let sender = "", summary = "", facts = [];
+    // 2026-10-31：她说要把结果推到手机/微信（之前只发应用内，微信收不到）
+    if (typeof compose === "function") {
+      try {
+        const c = await compose({ run, secs, failed });
+        if (c) { title = c.title || title; body = c.body || body; sender = c.sender || ""; summary = c.summary || ""; facts = Array.isArray(c.facts) ? c.facts : [] }
+      } catch { /* 写作失败用默认文案 */ }
+    }
     return notify({
-      kind: "run", sessionId: run.sessionId, key: `run:${run.sessionId}`,
-      title: failed ? "元枢 · 任务失败" : "元枢 · 任务完成",
-      body: failed ? `${String(run.error || "未知原因").slice(0, 160)}（已运行 ${secs} 秒）` : `已运行 ${secs} 秒，回到元枢查看结果`,
+      kind: "run", sessionId: run.sessionId, key: `run:${run.id || run.sessionId}`,
+      title, body, sender, summary, facts, toWechat,
     });
   }
 
