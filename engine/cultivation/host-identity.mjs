@@ -8,6 +8,7 @@ function canonicalDirectory(value) {
   if (!fs.statSync(root).isDirectory()) return null;
   return process.platform === 'win32' ? root.toLowerCase() : root;
 }
+const safeCanon = (v) => { try { return canonicalDirectory(v) } catch { return null } };
 function synchronous(value) {
   if (value && typeof value.then === 'function') {
     Promise.resolve(value).catch(() => {});
@@ -41,10 +42,38 @@ export function createCultivationHostIdentity({wsRoot, resolveExecution, getEntr
     } catch { return null; }
   };
   const bind = (source, {sessionId, entry, generation} = {}) => {
+    if (!globalThis.__bindEnterDiag) {
+      globalThis.__bindEnterDiag = true;
+      try {
+        const run = source ? synchronous(resolveExecution(source)) : null;
+        console.log(`[identity] bind 进入：source=${source ? "有" : "无"} run=${run ? "有" : "无"} runEligible=${run?.motherEligible} runSession=${String(run?.sessionId || "").slice(0, 8)} bindSession=${String(sessionId || "").slice(0, 8)} entryMatch=${getEntry(sessionId) === entry} busy=${entry?.busy} gen=${generation} entryGen=${entry?.gen}`);
+      } catch (e) { console.log("[identity] bind 进入诊断异常:", String(e?.message || e)) }
+    }
     if (!object(source) || consumed.has(source)) return false;
     consumed.add(source);
     const binding = {sessionId, entry, generation, sm: entry?.sm};
     const run = valid(source, binding);
+    if (!run) {
+      try {
+        const r = synchronous(resolveExecution(source));
+        const bad = [];
+        if (!r) bad.push('resolve');
+        if (r && r.motherEligible !== true) bad.push('eligible');
+        if (!root) bad.push('root');
+        if (safeCanon(wsRoot) !== root) bad.push('wsRoot');
+        if (r && safeCanon(r.workspace) !== root) bad.push('runWs');
+        if (r && r.sessionId !== binding.sessionId) bad.push('session');
+        if (r && !Number.isSafeInteger(r.attempt)) bad.push('attempt');
+        if (getEntry(binding.sessionId) !== binding.entry) bad.push('entry');
+        if (binding.entry?.sm !== binding.sm) bad.push('sm');
+        if (binding.entry?.gen !== binding.generation) bad.push('gen');
+        if (binding.entry?.busy !== true) bad.push('busy');
+        if (binding.sm?.getSessionId?.() !== binding.sessionId) bad.push('smId');
+        if (safeCanon(binding.sm?.getCwd?.()) !== root) bad.push('cwd');
+        try { if (canAccess(binding.sessionId) !== true) bad.push('canAccess') } catch { bad.push('canAccess-throw') }
+        console.log('[identity] bind 失败于: ' + (bad.join(',') || '未知'));
+      } catch (e) { console.log('[identity] bind 诊断异常: ' + String(e && e.message || e)) }
+    }
     if (!run) return false;
     bindings.set(source, {...binding, runId: run.runId, attempt: run.attempt});
     return true;
@@ -52,7 +81,10 @@ export function createCultivationHostIdentity({wsRoot, resolveExecution, getEntr
   const resolveMother = (source, context = {}) => {
     if (context.kind !== 'mother' || context.workspace !== workspace) return null;
     const binding = bindings.get(source);
-    if (!binding) return null;
+    if (!binding) {
+      if (!globalThis.__resolveDiag) { globalThis.__resolveDiag = true; try { console.log(`[identity] resolveMother 无绑定：kind=${context.kind} wsMatch=${context.workspace === workspace} source=${source ? "有" : "无"}`) } catch {} }
+      return null;
+    }
     if (!valid(source, binding)) { bindings.delete(source); return null; }
     return {actorId: `mother:${workspace}`, originId: `run:${binding.runId}:attempt:${binding.attempt}`};
   };

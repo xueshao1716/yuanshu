@@ -48,6 +48,16 @@ import { goalPrompt } from "./goals.mjs";
 import { effectiveSandboxMode } from "./sandbox-session.mjs";
 import { resolveAuth } from "./dsh-keys.mjs";
 import { runYuanshuToolRound, attachYuanshuCodeTool, toolCallLoopKey } from "./yuanshu-loop.mjs";
+import { withTeamToolContext } from "./team-tool-context.mjs";
+
+// 2026-10-31：工具执行器（尤其 cultivation）从 team-tool-context 取母体身份；
+// 统一引擎原先没设置这个上下文，培养工具因此永远"没身份"，她只能理解成不可用。
+const withToolIdentity = (executionContext, work) => withTeamToolContext({
+  executionIdentity: executionContext?.executionIdentity,
+  sessionId: executionContext?.sessionId,
+  runId: executionContext?.runId,
+}, work);
+
 import { restorePendingToolPlan } from "./resume-tool-plan.mjs";
 import { canonicalStepKey, hashArgs } from "./run-effects.mjs";
 import {
@@ -357,6 +367,12 @@ function emitRoundStream(opts, msg) {
 }
 
 export async function unifiedChat(model, messages, opts = {}) {
+  // 2026-10-31：母体执行身份必须在这整段里都可见——工具可能走 gateway、也可能走 tool round，
+  if (!globalThis.__ucDiag) { globalThis.__ucDiag = true; try { console.log(`[identity] unifiedChat 收到 executionIdentity=${opts?.executionContext?.executionIdentity ? "有" : "无"}`) } catch {} }
+  // 只在某一条支路上设置会漏（真机就是这样：培养工具永远说"没身份"）。
+  return withToolIdentity(opts?.executionContext, () => _unifiedChatCore(model, messages, opts));
+}
+async function _unifiedChatCore(model, messages, opts = {}) {
   if (!Array.isArray(messages) || messages.some(m => !m || typeof m !== 'object' || !['system', 'developer', 'user', 'assistant', 'tool', 'function'].includes(m.role))) {
     throw new TypeError('unifiedChat messages must be an array of role-bearing message objects');
   }
@@ -504,7 +520,7 @@ export async function unifiedChat(model, messages, opts = {}) {
   const resumeCalls = toolDefs ? restorePendingToolPlan(history, opts.resumeToolPlan) : [];
   if (resumeCalls.length && toolDefs) {
     const resumeTurn = Number.isInteger(opts.resumeSnapshot?.turn) ? opts.resumeSnapshot.turn : turn;
-    const resumed = await runYuanshuToolRound({
+    const resumed = await withToolIdentity(opts.executionContext, () => runYuanshuToolRound({
       toolCalls: resumeCalls,
       history,
       execute: _executeUnifiedTool,
@@ -521,7 +537,7 @@ export async function unifiedChat(model, messages, opts = {}) {
       effects: opts.effects,
       toolDefs,
       executionContext: { ...(opts.executionContext || {}), turn: resumeTurn },
-    });
+    }));
     try { opts.onCheckpoint?.({ phase: "tool_results", turn: resumeTurn, toolPlan: toolPlanFor(resumeCalls, resumed.toolPlan), ...createRunHistorySnapshot(history, { turn: resumeTurn }) }); } catch {}
     if (resumed.stop) return resumed.stop;
     turn = resumeTurn;
@@ -651,13 +667,13 @@ export async function unifiedChat(model, messages, opts = {}) {
           ...(msg.anthropic_content ? { anthropic_content: msg.anthropic_content, anthropic_model: `${model.provider}/${model.id}` } : {}),
           ...(typeof msg.reasoning_content === "string" ? { reasoning_content: msg.reasoning_content } : {}) });
         try { opts.onCheckpoint?.({ phase: "tool_plan", turn, toolPlan: toolPlanFor(validCalls), ...createRunHistorySnapshot(history, { turn }) }); } catch {}
-        const recovered = await runYuanshuToolRound({
+        const recovered = await withToolIdentity(opts.executionContext, () => runYuanshuToolRound({
           toolCalls: validCalls, history, execute: _executeUnifiedTool, signal: opts.signal,
           onTool: opts.onTool, onToolEnd: opts.onToolEnd, seenCalls, jitInjected, spill: spillIfHuge,
           stuckEvents, sandboxMode: opts.sandboxMode, sandboxWsRoot: opts.sandboxWsRoot || _cwd,
           sandboxAsk: resumeSandboxAsk, effects: opts.effects, toolDefs,
           executionContext: { ...(opts.executionContext || {}), turn },
-        });
+        }));
         try { opts.onCheckpoint?.({ phase: "tool_results", turn, toolPlan: toolPlanFor(validCalls, recovered.toolPlan), ...createRunHistorySnapshot(history, { turn }) }); } catch {}
         if (recovered.stop) return recovered.stop;
       } else {
@@ -694,7 +710,7 @@ export async function unifiedChat(model, messages, opts = {}) {
         ...(msg.anthropic_content ? { anthropic_content: msg.anthropic_content, anthropic_model: `${model.provider}/${model.id}` } : {}),
         ...(typeof msg.reasoning_content === "string" ? { reasoning_content: msg.reasoning_content } : {}) });
       try { opts.onCheckpoint?.({ phase: "tool_plan", turn, toolPlan: toolPlanFor(tcs), ...createRunHistorySnapshot(history, { turn }) }); } catch {}
-      const official = await runYuanshuToolRound({
+      const official = await withToolIdentity(opts.executionContext, () => runYuanshuToolRound({
         toolCalls: tcs, history, execute: _executeUnifiedTool, signal: opts.signal,
         onTool: opts.onTool, onToolEnd: opts.onToolEnd, seenCalls, jitInjected, spill: spillIfHuge,
         stuckEvents, sandboxMode: opts.sandboxMode, sandboxWsRoot: opts.sandboxWsRoot || _cwd,
@@ -702,7 +718,7 @@ export async function unifiedChat(model, messages, opts = {}) {
         effects: opts.effects,
         toolDefs,
         executionContext: { ...(opts.executionContext || {}), turn },
-      });
+      }));
       try { opts.onCheckpoint?.({ phase: "tool_results", turn, toolPlan: toolPlanFor(tcs, official.toolPlan), ...createRunHistorySnapshot(history, { turn }) }); } catch {}
       if (official.stop) return official.stop;
       continuedText = "";
@@ -721,7 +737,7 @@ export async function unifiedChat(model, messages, opts = {}) {
       history.push({ role: "assistant", content: msg.content || null, tool_calls: scavCalls,
         ...(typeof msg.reasoning_content === "string" ? { reasoning_content: msg.reasoning_content } : {}) });
       try { opts.onCheckpoint?.({ phase: "tool_plan", turn, toolPlan: toolPlanFor(scavCalls), ...createRunHistorySnapshot(history, { turn }) }); } catch {}
-      const scavengedRound = await runYuanshuToolRound({
+      const scavengedRound = await withToolIdentity(opts.executionContext, () => runYuanshuToolRound({
         toolCalls: scavCalls, history, execute: _executeUnifiedTool, signal: opts.signal,
         onTool: opts.onTool, onToolEnd: opts.onToolEnd, seenCalls, jitInjected, spill: spillIfHuge,
         stuckEvents, sandboxMode: opts.sandboxMode, sandboxWsRoot: opts.sandboxWsRoot || _cwd,
@@ -729,7 +745,7 @@ export async function unifiedChat(model, messages, opts = {}) {
         effects: opts.effects,
         toolDefs,
         executionContext: { ...(opts.executionContext || {}), turn },
-      });
+      }));
       try { opts.onCheckpoint?.({ phase: "tool_results", turn, toolPlan: toolPlanFor(scavCalls, scavengedRound.toolPlan), ...createRunHistorySnapshot(history, { turn }) }); } catch {}
       if (scavengedRound.stop) return scavengedRound.stop;
       continuedText = "";

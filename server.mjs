@@ -121,6 +121,7 @@ import { createReplyTts } from './engine/reply-tts.mjs';
 import { BASE_TOOL_SCHEMAS, TIME_TASK_SCHEMA, SHARE_PROJECT_SCHEMA, createUnifiedToolExecutorGuarded, webSearchTool, detectBashShell } from "./engine/tools/unified-tools.mjs";
 import { createAuditGate, withAuditGate } from "./engine/tools/audit-gate.mjs";
 import { runWithInitiator, DEFAULT_RULES } from "./engine/tools/initiator.mjs";
+import { getTeamToolContext } from "./engine/team-tool-context.mjs";
 import { createPolicyProvider, readPolicy, writePolicy, rollbackPolicy } from "./engine/tools/policy-store.mjs";
 import { syncActionRights, readRights } from "./engine/action-rights.mjs";
 import { runDoctor } from "./engine/install-doctor.mjs";
@@ -1218,6 +1219,11 @@ const extraToolExecutors = {
     cultivation: (args, ctx) => {
       // 不能展开 ctx：培养身份是**非枚举属性**，展开复制会把它丢掉，工具就变成"没有母体身份"。
       // 用 defineProperty 挂一个隐藏的 requestApproval；ctx 被冻结时退化成原型继承（属性读取仍可见）。
+      // 2026-10-31：排查"工具说没身份"——只记一次，带 ctx 的键与身份来源
+      if (!ctx?.executionIdentity && !globalThis.__cultivationNoIdentityLogged) {
+        globalThis.__cultivationNoIdentityLogged = true;
+        try { console.log(`[cultivation] 工具 ctx 无 executionIdentity，键=${Object.keys(ctx || {}).slice(0, 12).join(",")}`) } catch {}
+      }
       const ask = ({ command, reason }) => requestCultivationApproval(ctx, { command, reason });
       let host = ctx;
       try {
@@ -1225,6 +1231,27 @@ const extraToolExecutors = {
       } catch {
         host = Object.create(ctx);
         Object.defineProperty(host, 'requestApproval', { value: ask, enumerable: false });
+      }
+      // 2026-10-31：pi 通道传给工具的 ctx 只有 signal/model/turn，
+      // 母体执行身份挂在 team-tool-context（非枚举）上，这里兜底取一次。
+      if (ctx && !ctx.executionIdentity) {
+        try {
+          const teamCtx = getTeamToolContext();
+          if (teamCtx?.executionIdentity) {
+            Object.defineProperty(ctx, "executionIdentity", { value: teamCtx.executionIdentity, enumerable: false, configurable: true });
+          }
+        } catch {}
+      }
+      if (!lateRefs.cultivation) {
+        return { text: JSON.stringify({ error: "cultivation_not_ready", retryable: true,
+          nextAction: "培养运行时还没就绪（服务刚启动或初始化失败），过一会儿再用同一个 requestId 重试。" }), isError: true };
+      }
+      if (!globalThis.__callDiag) {
+        globalThis.__callDiag = true;
+        try {
+          const t = getTeamToolContext();
+          console.log(`[cultivation] 调用时 hostIdentity=${host?.executionIdentity ? "有" : "无"} teamIdentity=${t?.executionIdentity ? "有" : "无"} hostKeys=${Object.keys(host || {}).join(",")}`);
+        } catch (e) { console.log(`[cultivation] 诊断异常: ${String(e?.message || e).slice(0, 80)}`) }
       }
       return cultivationTool(lateRefs.cultivation, args, host);
     },
@@ -1798,6 +1825,11 @@ async function handleChat(req, res, body) {
     configurable: false,
     writable: false,
   });
+  // 诊断（临时）：身份到底有没有到这一层的上下文里
+  if (!globalThis.__identityDiag) {
+    globalThis.__identityDiag = true;
+    try { console.log(`[identity] chatRunContext.executionIdentity=${chatRunContext.executionIdentity ? "有" : "无"} body.__runContext=${body.__runContext ? "有" : "无"} keys=${Object.keys(body.__runContext || {}).join(",")}`) } catch {}
+  }
   const refreshCultivationContext = async () => {
     const learned = await withKnowledgeRequest(req, res, signal => cultivationChatContext(cultivationRuntime, knowledgeRuntime, { signal,
       executionIdentity: body.__runContext?.executionIdentity,
@@ -3164,10 +3196,14 @@ const cultivationRuntime = createCultivationRuntime({ wsRoot: WS_ROOT,
       notifier.notify({ kind: "cultivation", toWechat: true, key: `cultivation:${run.id}`,
         title: ok ? "元枢 · 培养任务完成" : "元枢 · 培养任务未完成",
         body: ok ? String(c.output || "").replace(/\s+/g, " ").slice(0, 120) || "已完成" : `${run.status}${c.reason ? `：${c.reason}` : ""}` })?.catch?.(() => {});
-try { lateRefs.cultivation = cultivationRuntime } catch {}
     },
   },
 });
+
+// 2026-10-31：cultivation 工具通过 lateRefs 取运行时（声明顺序早于本节），
+// 这一行原来错放在 onRunFinished 回调里 —— 只有培养任务跑完才赋值，
+// 结果平时调用工具时拿到 undefined，一律返回 cultivation_unavailable。
+try { lateRefs.cultivation = cultivationRuntime } catch {}
 const cultivationApi = createCultivationApi({ runtime: cultivationRuntime, readBody, json,
   requireAuth: req => !!CONFIG.token && req.headers.authorization === `Bearer ${CONFIG.token}`,
 });
