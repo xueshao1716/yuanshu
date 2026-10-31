@@ -6,6 +6,67 @@
 
 ## [2.202.2] - 2026-10-31
 
+# 2.202.2 / 2.202.3 —— cultivation 为什么不可用，以及修好没有
+
+伙伴问：「cultivation 工具为啥不可用」。查下去发现是两层问题，第一层是纯 bug，第二层是权限边界。
+
+## 第一层：工具拿到的是 undefined（真 bug）
+
+`server.mjs` 里这一行被放进了 `createCultivationRuntime` 的 **`onRunFinished` 回调**里：
+
+```js
+try { lateRefs.cultivation = cultivationRuntime } catch {}
+```
+
+也就是说，只有「培养任务跑完」那一刻才会赋值。平时调用工具时 `lateRefs.cultivation` 还是 `undefined`，
+工具内部抛异常 → 兜底映射成 `cultivation_unavailable` → 她只能说「不可用」。
+
+修法：挪到 `createCultivationRuntime(...)` 收尾之后，模块初始化期就赋值；工具入口再加 `cultivation_not_ready`
+（没就绪就说没就绪，不再混成 unavailable）。
+
+回归测试 `tests/unit/cultivation-wiring.test.mjs` 守着：我把赋值挪回回调里跑了一遍，测试立刻失败。
+
+## 第二层：身份到不了工具（已修链路）
+
+修完运行时后又暴露三层断链：
+
+1. 统一引擎没设 `team-tool-context` → 把整个 `unifiedChat` 包进 `withToolIdentity`
+2. `tool-scheduler` 组装 toolContext 用白名单复制，漏了 `executionIdentity` → 改为非枚举转发
+3. pi 通道的 ctx 只有 `signal/model/turn` → 工具入口从 team context 兜底取
+
+修完日志能证明身份到了：`[cultivation] 调用时 hostIdentity=有 teamIdentity=有`
+
+## 第三层：canAccess（本次按你的决定放开）
+
+`cultivationHostIdentity.bind()` 每轮把身份绑到活会话，要过一串校验。日志指出唯一不过的一条：
+
+```
+[identity] bind 失败于: canAccess
+```
+
+`canAccess` = `canAccessSessionOrigin()`：会话来源校验。刚建/未落盘的会话过不了 → 绑定失败 →
+`resolveMother` 返回 null → 工具报 `cultivation_identity_denied`。
+
+**按你拍板的方案改**：本人发起的会话放行，其余仍拒。
+
+- 判定：`canAccessForCultivation = 原生来源校验 || 本人会话标记（12 小时有效）`
+- 标记只在 **本机回环请求 + 母亲候选**（无 origin/workflow、非 /team）时打
+- 放行会留一行日志：`[cultivation] 放行本人会话 xxxxxxxx`
+
+## 真机验证
+
+| 场景 | 结果 |
+|---|---|
+| 桌面会话（本人） | `state = designs_available，revision = 17` ✅ |
+| `origin: knowledge` 的任务 | `cultivation_identity_denied`（仍然拒）✅ |
+
+## 附带
+
+排查用的诊断日志改成 `YUANSHU_IDENTITY_DIAG=1` 才输出，正式日志不再刷屏。
+
+单测：cultivation-wiring 3 条 + tool-scheduler 8 条 + unified-chat-tools 18 条，全过。
+
+
 ## [2.202.1] - 2026-10-31
 
 ## [2.202.0] - 2026-10-31
