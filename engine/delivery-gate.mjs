@@ -23,6 +23,23 @@ export function pathOfRow(row) {
   return m ? m[1] : "";
 }
 
+/** 同一个文件的相对/绝对写法合并成一个（保留更长的那条，通常是绝对路径）。 */
+export function dedupePaths(files = []) {
+  const norm = (x) => String(x || "").replace(/\\/g, "/").replace(/^\.\//, "");
+  const out = [];
+  for (const f of files) {
+    const n = norm(f);
+    if (!n) continue;
+    const dup = out.findIndex((k) => {
+      const a = norm(k).toLowerCase(), b = n.toLowerCase();
+      return a === b || a.endsWith("/" + b) || b.endsWith("/" + a);
+    });
+    if (dup < 0) out.push(String(f));
+    else if (n.length > norm(out[dup]).length) out[dup] = String(f);
+  }
+  return out;
+}
+
 /** 审计行 → {changes, verifications, failures}。 */
 export function extractEvidence(rows = []) {
   const changes = new Map();   // file -> lastAt
@@ -90,7 +107,7 @@ export function judgeDelivery({ rows = [], changedFiles = [], blockers = [], ver
   else if (blockers.length || conditions.length) verdict = "YELLOW";
   for (const b of blockers) conditions.push(String(b));
 
-  return { verdict, covered, uncovered, failedChecks, failingVerify, reasons, conditions };
+  return { verdict, covered: dedupePaths(covered), uncovered: dedupePaths(uncovered), failedChecks, failingVerify, reasons, conditions };
 }
 
 /** 结果落一行可读结论，给通知/事务台用。 */

@@ -1256,6 +1256,19 @@ const extraToolExecutors = {
       }
       return cultivationTool(lateRefs.cultivation, args, host);
     },
+    delivery_check: (args, ctx) => {
+      const r = checkDelivery({ runId: ctx?.runId || "",
+        changedFiles: Array.isArray(args?.files) ? args.files.map(String) : [],
+        verified: Array.isArray(args?.verified) ? args.verified.map(String) : [],
+        blockers: args?.note ? [String(args.note)] : [] });
+      return { text: JSON.stringify({
+        verdict: r.verdict, summary: r.summary,
+        uncovered: r.uncovered.slice(0, 10), reasons: r.reasons, conditions: r.conditions,
+        nextAction: r.verdict === "RED"
+          ? "先补验证（node --test / npm run build / node --check 等），再调一次；不要报完成。"
+          : r.verdict === "YELLOW" ? "可以报完成，但要把附带条件说清楚。" : "可以报完成。",
+      }, null, 1), isError: false };
+    },
     record_taste: async (args) => {
       try {
         const { recordTaste } = await import("./engine/taste.mjs");
@@ -3277,7 +3290,9 @@ const runManager = createRunManager({
       const name = String(findSession(String(r.sessionId || ""))?.name || "").trim();
       const what = name || "手头的活";
       const minutes = Math.max(1, Math.round(secs / 60));
-      const made = await composeNoticeFor("done", { what, minutes, failed });
+      // 2026-10-31：交付门回灌——RED 时这条推送不许说做完了
+      const gate = checkDelivery({ runId: r.id });
+      const made = await composeNoticeFor("done", { what, minutes, failed, gate: { verdict: gate.verdict, summary: gate.summary } });
       const env = noticeEnvelope({ kind: "done", facts: { what }, text: made.text });
       return { title: env.head, body: made.text, sender: personaName(WS_ROOT), summary: failed ? "任务失败" : "长任务完成", facts: [`用时 ${Math.round(secs / 60) || 1} 分钟`] };
     };

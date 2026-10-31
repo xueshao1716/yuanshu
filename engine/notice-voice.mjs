@@ -35,7 +35,9 @@ export const FALLBACK = {
     : "今天轨迹不够，没做结论，明天接着看。"),
   night: ({ learned }) => `今天的活我过了一遍${learned ? `，记下 ${learned} 条` : ""}，明天能省点事。`,
   morning: ({ pending }) => `早，今天要做的事我列好了${pending ? `，${pending} 件在等你` : ""}。`,
-  done: ({ what, minutes }) => `${what || "手头的活"}做完了${minutes ? `，用了 ${minutes} 分钟` : ""}，看一眼？`,
+  done: ({ what, minutes, gate }) => (gate?.verdict === "RED"
+    ? `${what || "手头的活"}干完了，但交付门没过：${String(gate.summary || "有改动没被验证").slice(0, 60)}`
+    : `${what || "手头的活"}做完了${minutes ? `，用了 ${minutes} 分钟` : ""}，看一眼？`),
 };
 
 /** 各类型的写作要求（给模型的要求，不是最终文案） */
@@ -57,6 +59,12 @@ export function briefFor(kind, facts = {}) {
     return [...base,
       `背景：今天共 ${facts.events ?? "一些"} 件事，反思后沉淀 ${facts.learned ?? 0} 条经验${facts.verdict ? `，结论：${facts.verdict}` : ""}。`,
       "要说清：你复盘了什么、学到什么、明天有什么用。别报流水账。",
+    ].join("\n");
+  }
+  if (kind === "done" && facts.gate?.verdict === "RED") {
+    return [...base,
+      `背景：${facts.what || "手头的活"} 的改动没有被验证覆盖：${String(facts.gate.summary || "").slice(0, 80)}`,
+      "必须如实说：活干到哪、交付门为什么没过、还差什么验证。不许说完成。",
     ].join("\n");
   }
   if (kind === "done") {
@@ -123,6 +131,12 @@ export async function composeNotice({ kind = "away", facts = {}, wsRoot = ".", w
 
   const brief = briefFor(kind, facts);
   let lastReasons = [];
+  // 2026-10-31：交付门 RED 时，直接给"没过门"的兜底——不把决定权交给模型
+  if (kind === "done" && facts.gate?.verdict === "RED") {
+    const text = FALLBACK.done(facts);
+    try { if (typeof write === "function" && !writeBlocked) console.log("[notice] 交付门 RED，使用兜底话术") } catch {}
+    return { text, source: "fallback", reasons: ["交付门 RED"] };
+  }
   for (let attempt = 0; attempt < 2; attempt += 1) {
     try {
       const prompt = attempt === 0

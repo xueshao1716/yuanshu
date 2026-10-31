@@ -56,6 +56,12 @@ export const BASE_TOOL_SCHEMAS = [
   // 描述由 bashToolDescription() 动态给：实际用哪个 shell 就写哪个，别再让模型自己猜
   // （真机：描述写 cmd 而 pi 用 bash，同一个模型在两边各试一套命令，循环里白白多花 4~6 次调用）。
   // 2026-10-24：把一次判断记进品味库（跨会话带着看东西）
+  // 2026-10-31：交付门自检——说完成之前先过一遍，RED 就先补验证
+  { type: "function", function: { name: "delivery_check", description: "交付前自检：检查本轮的改动是否都有验证覆盖，返回 GREEN/YELLOW/RED。声称完成前必须先跑一次；RED 时不要报完成，先补验证（跑测试/构建/check），或用 files/verified 说明哪个文件是怎么验证的。", parameters: { type: "object", properties: {
+    files: { type: "array", items: { type: "string" }, description: "额外要检查的文件（可选，默认用本轮动作审计里的改动）" },
+    verified: { type: "array", items: { type: "string" }, description: "已用别的方式验证过的文件（算覆盖，但会被标成声明已验证）" },
+    note: { type: "string", description: "外部阻塞的一句话说明（会作为 YELLOW 条件）" },
+  } } } },
   { type: "function", function: { name: "record_taste", description: "记一条判断轨迹：这次选了什么、否了什么、为什么。只在做出有取舍的判断时记，不要每轮都记。", parameters: { type: "object", properties: { topic: { type: "string", description: "判断的主题，如「封面字体」" }, chose: { type: "string", description: "最终选定的方案" }, rejected: { type: "array", items: { type: "string" }, description: "被否掉的方案（最多 5 个）" }, why: { type: "string", description: "为什么这样选（一句）" }, tags: { type: "array", items: { type: "string" }, description: "标签：设计/写作/工程" } }, required: ["topic", "chose"] } } },
   { type: "function", function: { name: "bash", get description() { return bashToolDescription() + "出图/视频/配音用 generate_image / generate_video / generate_tts，不要读 auth.json/.token。不要 curl 本机 /api/image，不要启动 Vite 5173 或第二份 8787。" }, parameters: { type: "object", properties: { command: { type: "string", description: "要运行的命令" } }, required: ["command"] } } },
   // 2026-10-25：Windows 原生 PowerShell。有这条就尽量别用 bash 拼 Unix 命令——

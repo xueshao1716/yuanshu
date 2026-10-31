@@ -98,3 +98,18 @@ test('反思类的兜底话术说清回放了多少条', async () => {
   assert.equal(out.source, 'fallback');
   assert.match(out.text, /42/);
 });
+
+test('交付门 RED：done 类不许说完成，直接给没过门的兜底', async () => {
+  const gate = { verdict: 'RED', summary: '1 个改动文件没被验证覆盖' };
+  const out = await composeNotice({ kind: 'done', facts: { what: '海报', minutes: 3, gate }, wsRoot: ws() });
+  assert.equal(out.source, 'fallback');
+  assert.match(out.text, /交付门没过/);
+  assert.match(out.text, /没被验证覆盖/);
+  assert.ok(!/做完了.*看一眼/.test(out.text), 'RED 时不能是那句轻松的完成话术');
+});
+
+test('交付门 GREEN：正常说完成', async () => {
+  const out = await composeNotice({ kind: 'done', facts: { what: '海报', minutes: 3, gate: { verdict: 'GREEN' } }, wsRoot: ws() });
+  assert.match(out.text, /做完了/);
+  assert.ok(!/交付门/.test(out.text));
+});
