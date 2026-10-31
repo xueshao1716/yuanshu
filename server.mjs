@@ -125,6 +125,7 @@ import { runWithInitiator, DEFAULT_RULES } from "./engine/tools/initiator.mjs";
 import { getTeamToolContext } from "./engine/team-tool-context.mjs";
 import { createPolicyProvider, readPolicy, writePolicy, rollbackPolicy } from "./engine/tools/policy-store.mjs";
 import { syncActionRights, readRights } from "./engine/action-rights.mjs";
+import { countExperience, distillExperience, gatherEvidence } from "./engine/reflection-experience.mjs";
 import { runDoctor } from "./engine/install-doctor.mjs";
 import { listAddons, startAddonJob, addonJobs, ensureAddonPaths } from "./engine/addons.mjs";
 ensureAddonPaths();
@@ -3349,6 +3350,31 @@ const companionDecisions = createCompanionDecision({ store: companionStore, fact
 
 // 久不互动推送：每 5 分钟看一眼（45 分钟没来才推、3 小时冷却；unref 不阻止进程退出）
   // 2026-10-30：她写短消息的通道（模型直调，失败就退回兜底话术）
+// 2026-10-31：反思要写长一点（经验条目），比短消息宽松但同样优先用不啰嗦的文本模型
+const writeReflectionExperience = async (prompt) => {
+  const isText = (m) => !/image|video|tts|asr|speech|embed|rerank/i.test(String(m.id || ""));
+  const agnes = (modelList || []).find((m) => m.provider === "agnes" && isText(m) && /^agnes-?3\.0-flash$/i.test(String(m.id)))
+    || (modelList || []).find((m) => m.provider === "agnes" && isText(m) && /flash/i.test(String(m.id)));
+  for (const m of [agnes, defaultModel].filter(Boolean)) {
+    try {
+      const r = await directChat(m, prompt, [], { maxTokens: 1200, timeout: 90000 });
+      const t = String(r?.text || "").trim();
+      if (t) return t;
+    } catch {}
+  }
+  return "";
+};
+
+// 今天的证据：动过的会话 + 交付门判定 + 失败账本
+const reflectionEvidence = (day) => {
+  try {
+    const sessions = (getSessionList() || []).filter((x) => String(x.updatedAt || x.createdAt || "").startsWith(day));
+    const delivery = readDeliveryLedger().filter((d) => new Date(Number(d.at) || 0).toISOString().slice(0, 10) === day);
+    let failures = [];
+    try { failures = (recentFailures?.(WS_ROOT, 10) || []).map((f) => ({ text: failureLine?.(f) || f?.reason || f?.text || "" })) } catch {}
+    return gatherEvidence({ sessions, delivery, failures, day });
+  } catch { return gatherEvidence({ day }) }
+};
 const writeShortNotice = async (prompt) => {
   // 2026-10-30：默认模型偶尔只回思考/空正文，短消息再试一个干净的 flash，别动不动就掉兜底
   // 2026-10-30：不能只按 /flash/ 挑——agnes 的视频/图片模型也叫 flash，选了它们写不出话。
@@ -3395,12 +3421,18 @@ async function maybeNightBrief(now = new Date(), { force = false } = {}) {
       return t.startsWith(day) || (Number.isFinite(Date.parse(t)) && new Date(t).toDateString() === new Date().toDateString());
     });
     facts.events = today.length;
-    // 2026-10-30：经验沉淀就在 工程/经验库/experience.md 里（按日期开头数今天那几条）
-    try {
-      const md = fs.readFileSync(path.join(WS_ROOT, "工程", "经验库", "experience.md"), "utf8");
-      facts.learned = md.split(/\r?\n/).filter((line) => line.startsWith(day) || line.startsWith(day.replace(/-/g, "-"))).length;
-    } catch { facts.learned = 0; }
+    // 2026-10-31：条目是 "### 2026-10-30 标题"，原来用 startsWith(day) 数，永远 0。
+    facts.learned = countExperience(WS_ROOT, day);
   } catch {}
+  // 2026-10-31：反思要产出经验——今天一条都没有就先蒸馏，再报数字
+  if (!facts.learned) {
+    try {
+      const d = await distillExperience({ wsRoot: WS_ROOT, day, evidence: reflectionEvidence(day), write: writeReflectionExperience });
+      if (d.written) console.log(`[learn] 晚间蒸馏写入 ${d.written} 条：${(d.titles || []).join("、").slice(0, 120)}`);
+      else if (d.error) console.log(`[learn] 晚间蒸馏未写入：${d.error}`);
+      facts.learned = countExperience(WS_ROOT, day);
+    } catch (e) { console.log(`[learn] 晚间蒸馏异常：${String(e?.message || e).slice(0, 120)}`) }
+  }
   const made = await composeNoticeFor("night", facts);
   const env = noticeEnvelope({ kind: "night", facts, text: made.text });
   const nightFacts = [`今天 ${facts.events} 件事`, `沉淀 ${facts.learned} 条`];
@@ -3430,6 +3462,16 @@ async function maybeReflectionBrief(now = new Date(), { force = false } = {}) {
     writeBriefState({ ...st, reflection: day });
     return { ok: false, reason: "nothing" };
   }
+  // 2026-10-31：反思不止回放，还要落经验
+  try {
+    facts.learned = countExperience(WS_ROOT, day);
+    if (!facts.learned) {
+      const d = await distillExperience({ wsRoot: WS_ROOT, day, evidence: reflectionEvidence(day), write: writeReflectionExperience });
+      if (d.written) console.log(`[learn] 反思蒸馏写入 ${d.written} 条：${(d.titles || []).join("、").slice(0, 120)}`);
+      else if (d.error) console.log(`[learn] 反思蒸馏未写入：${d.error}`);
+      facts.learned = countExperience(WS_ROOT, day);
+    }
+  } catch (e) { console.log(`[learn] 反思蒸馏异常：${String(e?.message || e).slice(0, 120)}`) }
   const made = await composeNoticeFor("reflection", facts);
   const env = noticeEnvelope({ kind: "reflection", facts, text: made.text });
   const lines = [`回放 ${facts.events} 条`, facts.winner ? `新策略 ${facts.winner}` : ""].filter(Boolean);
