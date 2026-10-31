@@ -368,7 +368,7 @@ function emitRoundStream(opts, msg) {
 
 export async function unifiedChat(model, messages, opts = {}) {
   // 2026-10-31：母体执行身份必须在这整段里都可见——工具可能走 gateway、也可能走 tool round，
-  if (!globalThis.__ucDiag) { globalThis.__ucDiag = true; try { console.log(`[identity] unifiedChat 收到 executionIdentity=${opts?.executionContext?.executionIdentity ? "有" : "无"}`) } catch {} }
+  if (process.env.YUANSHU_IDENTITY_DIAG === "1" && !globalThis.__ucDiag) { globalThis.__ucDiag = true; try { console.log(`[identity] unifiedChat 收到 executionIdentity=${opts?.executionContext?.executionIdentity ? "有" : "无"}`) } catch {} }
   // 只在某一条支路上设置会漏（真机就是这样：培养工具永远说"没身份"）。
   return withToolIdentity(opts?.executionContext, () => _unifiedChatCore(model, messages, opts));
 }

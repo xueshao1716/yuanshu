@@ -1222,7 +1222,7 @@ const extraToolExecutors = {
       // 2026-10-31：排查"工具说没身份"——只记一次，带 ctx 的键与身份来源
       if (!ctx?.executionIdentity && !globalThis.__cultivationNoIdentityLogged) {
         globalThis.__cultivationNoIdentityLogged = true;
-        try { console.log(`[cultivation] 工具 ctx 无 executionIdentity，键=${Object.keys(ctx || {}).slice(0, 12).join(",")}`) } catch {}
+        if (process.env.YUANSHU_IDENTITY_DIAG === "1") { console.log(`[cultivation] 工具 ctx 无 executionIdentity，键=${Object.keys(ctx || {}).slice(0, 12).join(",")}`) }
       }
       const ask = ({ command, reason }) => requestCultivationApproval(ctx, { command, reason });
       let host = ctx;
@@ -1250,8 +1250,8 @@ const extraToolExecutors = {
         globalThis.__callDiag = true;
         try {
           const t = getTeamToolContext();
-          console.log(`[cultivation] 调用时 hostIdentity=${host?.executionIdentity ? "有" : "无"} teamIdentity=${t?.executionIdentity ? "有" : "无"} hostKeys=${Object.keys(host || {}).join(",")}`);
-        } catch (e) { console.log(`[cultivation] 诊断异常: ${String(e?.message || e).slice(0, 80)}`) }
+          if (process.env.YUANSHU_IDENTITY_DIAG === "1") console.log(`[cultivation] 调用时 hostIdentity=${host?.executionIdentity ? "有" : "无"} teamIdentity=${t?.executionIdentity ? "有" : "无"} hostKeys=${Object.keys(host || {}).join(",")}`);
+        } catch {}
       }
       return cultivationTool(lateRefs.cultivation, args, host);
     },
@@ -1801,6 +1801,8 @@ async function handleChat(req, res, body) {
   // 2026-10-19 修：网页直连对话没有 run 上下文 → 培养工具拿不到「母体执行身份」。
   // 本机直连 + 母亲候选（无 origin/workflow、非 /team）时，为这一轮签发短时身份；
   // chatRunContext 紧接着构造，会带上它，下面的 cultivationHostIdentity.bind 再把它绑到活会话。
+  // 本人发起的会话：记下来，培养身份绑定放行用
+  if (isLoopbackReq(req) && isMotherExecutionCandidate(body)) markOwnerInitiated(sessionId || findKeyByEntry(entry));
   if (!body.__runContext && isLoopbackReq(req) && isMotherExecutionCandidate(body)) {
     try {
       const identity = runManager.mintChatIdentity({ sessionId: sessionId || findKeyByEntry(entry), ttlMs: 30 * 60 * 1000 });
@@ -1828,7 +1830,7 @@ async function handleChat(req, res, body) {
   // 诊断（临时）：身份到底有没有到这一层的上下文里
   if (!globalThis.__identityDiag) {
     globalThis.__identityDiag = true;
-    try { console.log(`[identity] chatRunContext.executionIdentity=${chatRunContext.executionIdentity ? "有" : "无"} body.__runContext=${body.__runContext ? "有" : "无"} keys=${Object.keys(body.__runContext || {}).join(",")}`) } catch {}
+    if (process.env.YUANSHU_IDENTITY_DIAG === "1") { console.log(`[identity] chatRunContext.executionIdentity=${chatRunContext.executionIdentity ? "有" : "无"} body.__runContext=${body.__runContext ? "有" : "无"} keys=${Object.keys(body.__runContext || {}).join(",")}`) }
   }
   const refreshCultivationContext = async () => {
     const learned = await withKnowledgeRequest(req, res, signal => cultivationChatContext(cultivationRuntime, knowledgeRuntime, { signal,
@@ -3173,14 +3175,37 @@ const knowledgeApi = createKnowledgeApi({ runtime: knowledgeRuntime, readBody, j
   requireAuth: req => !!CONFIG.token && req.headers.authorization === `Bearer ${CONFIG.token}`,
 });
 const knowledgeOverview = createKnowledgeOverview({ aibodyRuntime, knowledgeRuntime });
+
+// 2026-10-31：培养工具的身份绑定要过 canAccessSessionOrigin（会话来源校验），
+// 刚建/未落盘的会话过不了 → bind 失败 → 工具一律报 identity_denied。
+// 伙伴拍板：本人发起的会话（本机回环请求、本人微信转发）放行，其余仍然拒。
+const OWNER_SESSION_TTL_MS = 12 * 60 * 60 * 1000;
+const ownerInitiatedSessions = new Map();
+const markOwnerInitiated = (id) => {
+  const key = String(id || "");
+  if (key) ownerInitiatedSessions.set(key, Date.now());
+};
+const canAccessForCultivation = (id) => {
+  const key = String(id || "");
+  try { if (canAccessSessionOrigin(key)) return true } catch {}
+  const at = ownerInitiatedSessions.get(key);
+  if (!at || Date.now() - at > OWNER_SESSION_TTL_MS) return false;
+  // 只放行一次日志，避免刷屏
+  if (!globalThis.__ownerRelaxLogged?.has?.(key)) {
+    globalThis.__ownerRelaxLogged ||= new Set();
+    globalThis.__ownerRelaxLogged.add(key);
+    if (process.env.YUANSHU_IDENTITY_DIAG === "1") { console.log(`[cultivation] 放行本人会话 ${key.slice(0, 8)}（来源校验未通过，但本轮是本人发起的）`) }
+  }
+  return true;
+};
 const cultivationHostIdentity = createCultivationHostIdentity({ wsRoot: WS_ROOT,
   resolveExecution: source => runManager.resolveExecutionIdentity(source),
-  getEntry: id => activeSessions.get(id), canAccess: canAccessSessionOrigin,
+  getEntry: id => activeSessions.get(id), canAccess: canAccessForCultivation,
 });
 const cultivationRuntime = createCultivationRuntime({ wsRoot: WS_ROOT,
   learning:knowledgeRuntime.cultivationLearning,learningJob:id=>knowledgeRuntime.store.get(id),
   identityAdapters: { resolveMother: cultivationHostIdentity.resolveMother },
-  sessionApproval: {registry:confirmRegistry, canAccess:canAccessSessionOrigin, push:busPush},
+  sessionApproval: {registry:confirmRegistry, canAccess:canAccessForCultivation, push:busPush},
   humanConfig: optionalCultivationHumanConfig(),
   // 2026-10-11：ownerConfigProvider 已支持 Linux/macOS（XDG 配置目录），不再按平台关死；
   // 显式 env（公钥文件/actor）仍优先于文件凭据

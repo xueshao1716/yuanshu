@@ -46,8 +46,8 @@ export function createCultivationHostIdentity({wsRoot, resolveExecution, getEntr
       globalThis.__bindEnterDiag = true;
       try {
         const run = source ? synchronous(resolveExecution(source)) : null;
-        console.log(`[identity] bind 进入：source=${source ? "有" : "无"} run=${run ? "有" : "无"} runEligible=${run?.motherEligible} runSession=${String(run?.sessionId || "").slice(0, 8)} bindSession=${String(sessionId || "").slice(0, 8)} entryMatch=${getEntry(sessionId) === entry} busy=${entry?.busy} gen=${generation} entryGen=${entry?.gen}`);
-      } catch (e) { console.log("[identity] bind 进入诊断异常:", String(e?.message || e)) }
+        if (process.env.YUANSHU_IDENTITY_DIAG === "1") console.log(`[identity] bind 进入：source=${source ? "有" : "无"} run=${run ? "有" : "无"} runEligible=${run?.motherEligible} runSession=${String(run?.sessionId || "").slice(0, 8)} bindSession=${String(sessionId || "").slice(0, 8)} entryMatch=${getEntry(sessionId) === entry} busy=${entry?.busy} gen=${generation} entryGen=${entry?.gen}`);
+      } catch {}
     }
     if (!object(source) || consumed.has(source)) return false;
     consumed.add(source);
@@ -71,8 +71,8 @@ export function createCultivationHostIdentity({wsRoot, resolveExecution, getEntr
         if (binding.sm?.getSessionId?.() !== binding.sessionId) bad.push('smId');
         if (safeCanon(binding.sm?.getCwd?.()) !== root) bad.push('cwd');
         try { if (canAccess(binding.sessionId) !== true) bad.push('canAccess') } catch { bad.push('canAccess-throw') }
-        console.log('[identity] bind 失败于: ' + (bad.join(',') || '未知'));
-      } catch (e) { console.log('[identity] bind 诊断异常: ' + String(e && e.message || e)) }
+        if (process.env.YUANSHU_IDENTITY_DIAG === "1") console.log('[identity] bind 失败于: ' + (bad.join(',') || '未知'));
+      } catch {}
     }
     if (!run) return false;
     bindings.set(source, {...binding, runId: run.runId, attempt: run.attempt});
@@ -82,7 +82,7 @@ export function createCultivationHostIdentity({wsRoot, resolveExecution, getEntr
     if (context.kind !== 'mother' || context.workspace !== workspace) return null;
     const binding = bindings.get(source);
     if (!binding) {
-      if (!globalThis.__resolveDiag) { globalThis.__resolveDiag = true; try { console.log(`[identity] resolveMother 无绑定：kind=${context.kind} wsMatch=${context.workspace === workspace} source=${source ? "有" : "无"}`) } catch {} }
+      if (process.env.YUANSHU_IDENTITY_DIAG === "1" && !globalThis.__resolveDiag) { globalThis.__resolveDiag = true; try { console.log(`[identity] resolveMother 无绑定：kind=${context.kind} wsMatch=${context.workspace === workspace} source=${source ? "有" : "无"}`) } catch {} }
       return null;
     }
     if (!valid(source, binding)) { bindings.delete(source); return null; }

@@ -28,3 +28,13 @@ test("cultivation 工具入口对未就绪有明确错误码（不是笼统 unav
   assert.match(src, /cultivation_not_ready/);
   assert.ok(src.includes("if (!lateRefs.cultivation)"), "工具入口应先检查运行时是否就绪");
 });
+
+test('本人发起的会话放行：canAccess 用放宽版，且有 TTL；标记只在回环 + 母亲候选时打', () => {
+  assert.match(src, /canAccess:\s*canAccessForCultivation/, 'host identity 与审批都要用放宽后的判定');
+  assert.match(src, /OWNER_SESSION_TTL_MS/, '放行必须有有效期');
+  const mark = src.split('\n').filter((l) => l.includes('markOwnerInitiated(sessionId'));
+  assert.ok(mark.length >= 1, '要有人标记本人会话');
+  const guarded = src.split('\n').some((l) => l.includes('isLoopbackReq(req) && isMotherExecutionCandidate(body)') && l.includes('markOwnerInitiated'));
+  assert.ok(guarded, '标记必须同时满足回环请求 + 母亲候选，不能无条件放行');
+  assert.ok(src.includes('canAccessSessionOrigin(key)'), '原生来源校验仍优先');
+});
