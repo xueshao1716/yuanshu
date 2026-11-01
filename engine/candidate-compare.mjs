@@ -194,7 +194,7 @@ export function recordCompare(wsRoot, row) {
     fs.mkdirSync(file.slice(0, file.lastIndexOf("/")), { recursive: true });
     fs.appendFileSync(file, JSON.stringify({ at: Date.now(), ...row }) + "\n", "utf8");
     // 2026-11-02：同时进统一事件流，供能力画像统计回退率
-    try { appendEvent(wsRoot, { kind: "compare", target: row.kind === "image" ? "image" : row.kind, targetId: String(row.candidate || "").split(/[\\/]/).pop() || "", verdict: String(row.verdict || ""), by: String(row.by || "compare"), meta: { degraded: row.degraded || [] } }) } catch {}
+    try { appendEvent(wsRoot, { kind: "compare", target: row.kind === "image" ? "image" : row.kind, targetId: String(row.candidate || "").split(/[\\/]/).pop() || "", taskType: row.kind === "image" ? "design" : row.kind === "html" ? "writing" : "coding", verdict: String(row.verdict || ""), by: String(row.by || "compare"), meta: { degraded: row.degraded || [] } }) } catch {}
     return { ok: true };
   } catch (e) { return { ok: false, error: String(e?.message || e).slice(0, 120) } }
 }

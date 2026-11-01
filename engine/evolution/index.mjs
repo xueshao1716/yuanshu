@@ -185,3 +185,34 @@ export function readProposals(wsRoot) {
   }
   return [...latest.values()].sort((a, b) => String(b.updatedAt || b.at).localeCompare(String(a.updatedAt || a.at)));
 }
+
+
+/** 任务类型归类：从文字与改动文件推断（coding / writing / research / ops / design）。 */
+export function classifyTaskType({ text = "", files = [] } = {}) {
+  const t = String(text || "");
+  const list = Array.isArray(files) ? files.join(" ") : String(files || "");
+  const all = `${t} ${list}`;
+  if (/\.(tsx?|jsx?|mjs|cjs|py|rs|go|java|vue|svelte|sh|ps1|sql)\b/i.test(list) || /代码|编程|重构|测试|bug|接口|函数/i.test(t)) return "coding";
+  if (/\.(png|jpe?g|webp|svg|fig)$/i.test(list) || /海报|出图|封面|设计稿|配色/i.test(t)) return "design";
+  if (/\.(md|docx?|txt)$/i.test(list) || /小说|文案|脚本|文章|写作|章节|排版/i.test(t)) return "writing";
+  if (/调研|研究|查一下|检索|资料|竞品|对比分析/i.test(t)) return "research";
+  if (/部署|重启|服务|备份|清理|迁移|线上/i.test(t)) return "ops";
+  return "未分类";
+}
+
+/** 交付门判决入账：绿/黄/红都记，带任务类型与改动文件数。 */
+export function recordGateVerdict(wsRoot, { verdict = "", changedFiles = [], blockers = [], runId = "", text = "" } = {}) {
+  const taskType = classifyTaskType({ text, files: changedFiles });
+  const v = String(verdict).toLowerCase();
+  const mapped = v === "green" ? "green" : v === "yellow" ? "yellow" : v === "red" ? "red" : "unknown";
+  return appendEvent(wsRoot, {
+    kind: "gate",
+    target: "delivery",
+    targetId: runId || "run",
+    taskType,
+    verdict: mapped,
+    n: Array.isArray(changedFiles) ? changedFiles.length : 0,
+    by: "delivery-gate",
+    meta: { changed: Array.isArray(changedFiles) ? changedFiles.slice(0, 8) : [], blockers: (blockers || []).slice(0, 4) },
+  });
+}

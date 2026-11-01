@@ -134,7 +134,7 @@ import { getTeamToolContext } from "./engine/team-tool-context.mjs";
 import { createPolicyProvider, readPolicy, writePolicy, rollbackPolicy } from "./engine/tools/policy-store.mjs";
 import { syncActionRights, readRights } from "./engine/action-rights.mjs";
 import { syncPluginReceipt } from "./engine/plugin-receipt.mjs";
-import { appendEvent as appendEvoEvent, readEvents as readEvoEvents, summarizeCapability as summarizeEvoCapability, createProposal as createEvoProposal, readProposals as readEvoProposals } from "./engine/evolution/index.mjs";
+import { appendEvent as appendEvoEvent, readEvents as readEvoEvents, summarizeCapability as summarizeEvoCapability, createProposal as createEvoProposal, readProposals as readEvoProposals, recordGateVerdict } from "./engine/evolution/index.mjs";
 import { countExperience, distillExperience, gatherEvidence, latestReflectionReport } from "./engine/reflection-experience.mjs";
 import { readRegions, writeRegions, REGIONS, deliveryStrictness, distillLimit, nudgeCooldownMs, ideaCap, maxToolTurns, planBatchFactor, toolTier } from "./engine/brain-regions.mjs";
 import { runDoctor } from "./engine/install-doctor.mjs";
@@ -4153,6 +4153,8 @@ const API_ROUTES = [
     let runId = String(url.searchParams.get("runId") || "");
     if (!runId) { const rows = auditGate.tail(400); const last = [...rows].reverse().find((r) => r.runId); runId = last ? String(last.runId) : ""; }
     const out = checkDelivery({ runId });
+    // 2026-11-02：判决进统一事件流（绿/黄/红都记）
+    try { recordGateVerdict(WS_ROOT, { verdict: out?.verdict, changedFiles: out?.changedFiles || [], blockers: out?.blockers || [], runId, text: "" }) } catch {}
     return json(res, 200, { ok: true, ...out, ledger: readDeliveryLedger().slice(-10).reverse() });
   }],
   ["GET", "/api/delivery/ledger", (res) => json(res, 200, { ok: true, items: readDeliveryLedger().slice(-30).reverse() })],
