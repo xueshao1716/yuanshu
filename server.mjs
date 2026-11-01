@@ -139,6 +139,7 @@ import { makeProposal, recordProposal, listProposals, POLICY } from "./engine/se
 import { validateReal } from "./engine/self-change-validate.mjs";
 import { shouldPropose, makeShadowProposal } from "./engine/self-change-trigger.mjs";
 import { applyChange, rollbackChange, listBackups as listSelfChangeBackups } from "./engine/self-change-apply.mjs";
+import { startSession, finishSession, abortSession, wtPath } from "./engine/self-change-session.mjs";
 import { appendEvent as appendEvoEvent, readEvents as readEvoEvents, summarizeCapability as summarizeEvoCapability, createProposal as createEvoProposal, readProposals as readEvoProposals, recordGateVerdict } from "./engine/evolution/index.mjs";
 import { countExperience, distillExperience, gatherEvidence, latestReflectionReport } from "./engine/reflection-experience.mjs";
 import { readRegions, writeRegions, REGIONS, deliveryStrictness, distillLimit, nudgeCooldownMs, ideaCap, maxToolTurns, planBatchFactor, toolTier } from "./engine/brain-regions.mjs";
@@ -4179,6 +4180,29 @@ const API_ROUTES = [
   // 2026-11-02：脑区自调开关（默认开；关了就只按手调值跑）
   // 2026-11-02：L2 自改提案（只记录与校验；分支由她的 agent 循环创建）
   ["GET", "/api/selfchange/proposals", (res) => json(res, 200, { ok: true, items: listProposals(WS_ROOT), policy: POLICY })],
+  // 2026-11-02：隔离会话——她在这里改，主树不碰
+  ["POST", "/api/selfchange/session/start", async (res, req) => {
+    const b = await readBody(req);
+    const id = String(b?.id || "");
+    const out = await startSession({ wsRoot: WS_ROOT, id });
+    return json(res, out.ok ? 200 : 409, out);
+  }],
+  ["POST", "/api/selfchange/session/finish", async (res, req) => {
+    const b = await readBody(req);
+    const id = String(b?.id || "");
+    const out = await finishSession({
+      wsRoot: WS_ROOT, id,
+      validate: ({ files }) => validateReal({ wsRoot: WS_ROOT, files, runGate: async () => { try { return checkDelivery({ runId: String(b?.runId || "") }) } catch { return { verdict: "RED" } } } }),
+      apply: ({ id: cid, edits }) => applyChange({ wsRoot: WS_ROOT, id: cid, edits }),
+    });
+    try { appendEvoEvent(WS_ROOT, { kind: "observation", target: "selfchange", targetId: id, verdict: out.ok ? "session_applied" : `session_${out.stage || "failed"}`, by: "self-change" }) } catch {}
+    return json(res, out.ok ? 200 : 409, out);
+  }],
+  ["POST", "/api/selfchange/session/abort", async (res, req) => {
+    const b = await readBody(req);
+    const out = await abortSession({ wsRoot: WS_ROOT, id: String(b?.id || "") });
+    return json(res, 200, out);
+  }],
   // 2026-11-02：自改落地与回滚（改前备份、原子写、可一键还原）
   ["GET", "/api/selfchange/backups", (res) => json(res, 200, { ok: true, items: listSelfChangeBackups(WS_ROOT) })],
   ["POST", "/api/selfchange/apply", async (res, req) => {
