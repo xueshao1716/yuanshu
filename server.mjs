@@ -138,6 +138,7 @@ import { applyNudges, readAutoState, writeAutoState } from "./engine/brain-auto.
 import { makeProposal, recordProposal, listProposals, POLICY } from "./engine/self-change.mjs";
 import { validateReal } from "./engine/self-change-validate.mjs";
 import { shouldPropose, makeShadowProposal } from "./engine/self-change-trigger.mjs";
+import { applyChange, rollbackChange, listBackups as listSelfChangeBackups } from "./engine/self-change-apply.mjs";
 import { appendEvent as appendEvoEvent, readEvents as readEvoEvents, summarizeCapability as summarizeEvoCapability, createProposal as createEvoProposal, readProposals as readEvoProposals, recordGateVerdict } from "./engine/evolution/index.mjs";
 import { countExperience, distillExperience, gatherEvidence, latestReflectionReport } from "./engine/reflection-experience.mjs";
 import { readRegions, writeRegions, REGIONS, deliveryStrictness, distillLimit, nudgeCooldownMs, ideaCap, maxToolTurns, planBatchFactor, toolTier } from "./engine/brain-regions.mjs";
@@ -4178,6 +4179,21 @@ const API_ROUTES = [
   // 2026-11-02：脑区自调开关（默认开；关了就只按手调值跑）
   // 2026-11-02：L2 自改提案（只记录与校验；分支由她的 agent 循环创建）
   ["GET", "/api/selfchange/proposals", (res) => json(res, 200, { ok: true, items: listProposals(WS_ROOT), policy: POLICY })],
+  // 2026-11-02：自改落地与回滚（改前备份、原子写、可一键还原）
+  ["GET", "/api/selfchange/backups", (res) => json(res, 200, { ok: true, items: listSelfChangeBackups(WS_ROOT) })],
+  ["POST", "/api/selfchange/apply", async (res, req) => {
+    const b = await readBody(req);
+    const out = applyChange({ wsRoot: WS_ROOT, id: String(b?.id || ""), edits: Array.isArray(b?.edits) ? b.edits : [] });
+    if (!out.ok) return json(res, 400, out);
+    try { appendEvoEvent(WS_ROOT, { kind: "observation", target: "selfchange", targetId: out.id, verdict: "applied", by: "self-change", meta: { files: out.manifest.files.length } }) } catch {}
+    return json(res, 200, { ok: true, id: out.id, backupDir: out.backupDir, files: out.manifest.files.length });
+  }],
+  ["POST", "/api/selfchange/rollback", async (res, req) => {
+    const b = await readBody(req);
+    const out = rollbackChange({ wsRoot: WS_ROOT, id: String(b?.id || "") });
+    try { appendEvoEvent(WS_ROOT, { kind: "observation", target: "selfchange", targetId: String(b?.id || ""), verdict: out.ok ? "rolled_back" : "rollback_failed", by: "self-change", meta: { conflicts: out.conflicts || [] } }) } catch {}
+    return json(res, out.ok ? 200 : 409, out);
+  }],
   // 2026-11-02（方案 B）：改完先自证——边界 → 测试 → 交付门，全过才进面板
   ["POST", "/api/selfchange/validate", async (res, req) => {
     const b = await readBody(req);
