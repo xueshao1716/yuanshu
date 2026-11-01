@@ -24,6 +24,17 @@ export const FURNITURE_PRESETS = {
   window: { label: "窗", w: 1.4, d: 0.1, h: 1.2, color: "#9fc6d8", parts: [{ x: 0, y: 0.9, z: 0, w: 1.4, h: 1.2, d: 0.1, c: "soft" }] },
 };
 
+/**
+ * 地面材质：纯程序化（木地板/瓷砖/水磨石/地毯），前端与导出共用一个 id。
+ * base 是底色，line 是纹理线色。
+ */
+export const MATERIALS = {
+  wood:   { label: "木地板", base: "#c9a978", line: "#8a6a44", mode: "plank" },
+  tile:   { label: "瓷砖",   base: "#d8d6d0", line: "#a9a69f", mode: "grid" },
+  stone:  { label: "水磨石", base: "#cfcbc2", line: "#9a948a", mode: "speckle" },
+  carpet: { label: "地毯",   base: "#b9a99b", line: "#a1907f", mode: "weave" },
+};
+
 export const SCENE_REL = path.join("生成物", "3D");
 
 export function sceneDir(wsRoot) {
@@ -41,6 +52,7 @@ export function normalizePlan(plan = {}) {
     w: Math.max(0.5, round(r?.w ?? 4)), d: Math.max(0.5, round(r?.d ?? 3)),
     h: Math.max(2.2, round(r?.h ?? 2.8)),
     color: String(r?.color || "#e8e2d8"),
+    floor: MATERIALS[String(r?.floor || "wood")] ? String(r?.floor || "wood") : "wood",
   }));
   const items = (Array.isArray(plan.items) ? plan.items : []).map((it, i) => ({
     id: String(it?.id || `item-${i + 1}`),
@@ -248,6 +260,7 @@ export function exportHtml(plan = {}, { pricePerSqm = 0 } = {}) {
 <canvas id="c"></canvas>
 <script>
 const PLAN = ${data};
+const MATERIALS = ${JSON.stringify(MATERIALS)};
 const cv = document.getElementById('c'), ctx = cv.getContext('2d');
 let yaw = -Math.PI / 5, scale = 1, dpr = Math.min(2, devicePixelRatio || 1);
 let drag = null;
@@ -276,7 +289,9 @@ function draw() {
   for (const r of rooms) {
     const c = [project(r.x, 0, r.z), project(r.x + r.w, 0, r.z), project(r.x + r.w, 0, r.z + r.d), project(r.x, 0, r.z + r.d)];
     ctx.beginPath(); ctx.moveTo(c[0].X, c[0].Y); for (let i = 1; i < 4; i++) ctx.lineTo(c[i].X, c[i].Y); ctx.closePath();
-    ctx.fillStyle = r.color; ctx.globalAlpha = 0.9; ctx.fill(); ctx.globalAlpha = 1;
+    const mat = ${"MATERIALS[${"}r.floor || 'wood'] || MATERIALS.wood};
+    ctx.globalAlpha = 0.95; ctx.fillStyle = mat.base; ctx.fill(); ctx.globalAlpha = 1;
+    drawFloorPattern(ctx, c, mat, k);
     ctx.strokeStyle = '#2b303a'; ctx.lineWidth = dpr; ctx.stroke();
   }
   // 墙（每间房四个面，画成竖直四边形）
@@ -307,6 +322,46 @@ function draw() {
 fit();
 </script>
 </body></html>`;
+}
+
+/** 在等距画布上给地面铺纹理（导出用；前端 3D 里用 canvas 贴图）。 */
+function drawFloorPattern(ctx, points, mat, scale) {
+  ctx.save();
+  ctx.beginPath();
+  ctx.moveTo(points[0].X, points[0].Y);
+  for (let i = 1; i < points.length; i += 1) ctx.lineTo(points[i].X, points[i].Y);
+  ctx.closePath();
+  ctx.clip();
+  ctx.fillStyle = mat.base;
+  ctx.fill();
+  ctx.strokeStyle = mat.line;
+  ctx.globalAlpha = 0.5;
+  ctx.lineWidth = 1;
+  if (mat.mode === "plank") {
+    for (let i = -20; i < 40; i += 1) {
+      const t = i * scale * 0.22;
+      ctx.beginPath();
+      ctx.moveTo(points[0].X + t, points[0].Y);
+      ctx.lineTo(points[0].X + t + scale * 6, points[0].Y + scale * 3.2);
+      ctx.stroke();
+    }
+  } else if (mat.mode === "grid") {
+    for (let i = -20; i < 40; i += 1) {
+      const t = i * scale * 0.5;
+      ctx.beginPath(); ctx.moveTo(points[0].X + t, points[0].Y); ctx.lineTo(points[0].X + t + scale * 6, points[0].Y + scale * 3.2); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(points[0].X + t, points[0].Y + scale * 3.2); ctx.lineTo(points[0].X + t + scale * 6, points[0].Y); ctx.stroke();
+    }
+  } else if (mat.mode === "speckle" || mat.mode === "weave") {
+    for (let i = 0; i < 260; i += 1) {
+      const px = points[0].X + ((i * 37) % (scale * 6));
+      const py = points[0].Y + ((i * 53) % (scale * 3.2));
+      ctx.globalAlpha = 0.18 + ((i % 5) * 0.05);
+      ctx.fillStyle = mat.line;
+      ctx.fillRect(px, py, 1.5, 1.5);
+    }
+  }
+  ctx.globalAlpha = 1;
+  ctx.restore();
 }
 
 function escapeHtml(s) {

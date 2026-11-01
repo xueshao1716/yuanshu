@@ -12,6 +12,46 @@ import { api } from '../api'
 type Room = { id: string; name: string; x: number; z: number; w: number; d: number; h: number; color: string }
 type Item = { id: string; kind: string; x: number; z: number; w: number; d: number; h: number; rot: number; color: string }
 type Plan = { name: string; rooms: Room[]; items: Item[] }
+const MATERIALS_FE: Record<string, { label: string; base: string; line: string; mode: 'plank' | 'grid' | 'speckle' | 'weave' }> = {
+  wood: { label: '木地板', base: '#c9a978', line: '#8a6a44', mode: 'plank' },
+  tile: { label: '瓷砖', base: '#d8d6d0', line: '#a9a69f', mode: 'grid' },
+  stone: { label: '水磨石', base: '#cfcbc2', line: '#9a948a', mode: 'speckle' },
+  carpet: { label: '地毯', base: '#b9a99b', line: '#a1907f', mode: 'weave' },
+}
+
+/** 纯 canvas 生成地面贴图：零依赖、导出 HTML 也画同样的纹理。 */
+function floorTexture(kind: string): THREE.Texture | null {
+  const m = MATERIALS_FE[kind]
+  if (!m) return null
+  const size = 256
+  const cv = document.createElement('canvas')
+  cv.width = size; cv.height = size
+  const ctx = cv.getContext('2d')!
+  ctx.fillStyle = m.base; ctx.fillRect(0, 0, size, size)
+  ctx.strokeStyle = m.line
+  if (m.mode === 'plank') {
+    for (let y = 0; y < size; y += 32) {
+      ctx.globalAlpha = 0.45; ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(size, y); ctx.stroke()
+      for (let x = (y / 32) % 2 ? 32 : 0; x < size; x += 64) { ctx.globalAlpha = 0.25; ctx.beginPath(); ctx.moveTo(x, y); ctx.lineTo(x, y + 32); ctx.stroke() }
+    }
+  } else if (m.mode === 'grid') {
+    ctx.globalAlpha = 0.5
+    for (let i = 0; i <= size; i += 64) { ctx.beginPath(); ctx.moveTo(i, 0); ctx.lineTo(i, size); ctx.stroke(); ctx.beginPath(); ctx.moveTo(0, i); ctx.lineTo(size, i); ctx.stroke() }
+  } else {
+    for (let i = 0; i < 900; i += 1) {
+      ctx.globalAlpha = 0.12 + ((i % 7) * 0.02)
+      ctx.fillStyle = m.line
+      ctx.fillRect((i * 37) % size, (i * 71) % size, 2, 2)
+    }
+  }
+  ctx.globalAlpha = 1
+  const tex = new THREE.CanvasTexture(cv)
+  tex.wrapS = tex.wrapT = THREE.RepeatWrapping
+  tex.repeat.set(3, 3)
+  tex.anisotropy = 4
+  return tex
+}
+
 type Sel = { type: 'room' | 'item'; id: string } | null
 
 const PX = 44
@@ -319,6 +359,7 @@ export default function Scene3DTab() {
                 <label className="flex items-center gap-1">层高<input type="number" step="0.1" value={plan.rooms.find((r) => r.id === sel.id)?.h ?? 2.8} onChange={(e) => updateSel({ h: Number(e.target.value) })} className="w-full rounded border border-pi-border-soft bg-pi-bg2 px-1 py-0.5" /></label>
                 <label className="flex items-center gap-1">宽<input type="number" step="0.1" value={plan.rooms.find((r) => r.id === sel.id)?.w ?? 4} onChange={(e) => updateSel({ w: Math.max(0.5, Number(e.target.value)) })} className="w-full rounded border border-pi-border-soft bg-pi-bg2 px-1 py-0.5" /></label>
                 <label className="flex items-center gap-1">深<input type="number" step="0.1" value={plan.rooms.find((r) => r.id === sel.id)?.d ?? 3} onChange={(e) => updateSel({ d: Math.max(0.5, Number(e.target.value)) })} className="w-full rounded border border-pi-border-soft bg-pi-bg2 px-1 py-0.5" /></label>
+                <label className="flex items-center gap-1">地面材质<select value={(plan.rooms.find((r) => r.id === sel.id) as any)?.floor || 'wood'} onChange={(e) => updateSel({ floor: e.target.value } as any)} className="w-full rounded border border-pi-border-soft bg-pi-bg2 px-1 py-0.5">{Object.entries(MATERIALS_FE).map(([k, v]) => <option key={k} value={k}>{v.label}</option>)}</select></label>
               </div>
             ) : (
               <div className="grid grid-cols-2 gap-1.5 text-[11px]">
@@ -373,7 +414,12 @@ function Scene3DView({ plan, selected, firstPerson, onExitFirstPerson }: { plan:
       const active = selected?.type === 'room' && selected.id === r.id
       const floor = new THREE.Mesh(
         new THREE.BoxGeometry(r.w, 0.06, r.d),
-        new THREE.MeshStandardMaterial({ color: new THREE.Color(r.color), roughness: 0.95, emissive: active ? new THREE.Color('#1b3a5c') : new THREE.Color('#000000') }),
+        new THREE.MeshStandardMaterial({
+          color: new THREE.Color('#ffffff'),
+          map: floorTexture((r as any).floor || 'wood') || undefined,
+          roughness: 0.95,
+          emissive: active ? new THREE.Color('#1b3a5c') : new THREE.Color('#000000'),
+        }),
       )
       floor.position.set(r.x + r.w / 2 - cx, -0.03, r.z + r.d / 2 - cz)
       floor.receiveShadow = true
