@@ -136,6 +136,7 @@ import { syncActionRights, readRights } from "./engine/action-rights.mjs";
 import { syncPluginReceipt } from "./engine/plugin-receipt.mjs";
 import { applyNudges, readAutoState, writeAutoState } from "./engine/brain-auto.mjs";
 import { makeProposal, recordProposal, listProposals, POLICY } from "./engine/self-change.mjs";
+import { validateReal } from "./engine/self-change-validate.mjs";
 import { appendEvent as appendEvoEvent, readEvents as readEvoEvents, summarizeCapability as summarizeEvoCapability, createProposal as createEvoProposal, readProposals as readEvoProposals, recordGateVerdict } from "./engine/evolution/index.mjs";
 import { countExperience, distillExperience, gatherEvidence, latestReflectionReport } from "./engine/reflection-experience.mjs";
 import { readRegions, writeRegions, REGIONS, deliveryStrictness, distillLimit, nudgeCooldownMs, ideaCap, maxToolTurns, planBatchFactor, toolTier } from "./engine/brain-regions.mjs";
@@ -4165,6 +4166,21 @@ const API_ROUTES = [
   // 2026-11-02：脑区自调开关（默认开；关了就只按手调值跑）
   // 2026-11-02：L2 自改提案（只记录与校验；分支由她的 agent 循环创建）
   ["GET", "/api/selfchange/proposals", (res) => json(res, 200, { ok: true, items: listProposals(WS_ROOT), policy: POLICY })],
+  // 2026-11-02（方案 B）：改完先自证——边界 → 测试 → 交付门，全过才进面板
+  ["POST", "/api/selfchange/validate", async (res, req) => {
+    const b = await readBody(req);
+    const files = Array.isArray(b?.files) ? b.files : [];
+    const out = await validateReal({
+      wsRoot: WS_ROOT,
+      files,
+      runGate: async () => { try { return checkDelivery({ runId: String(b?.runId || "") }) } catch (e) { return { verdict: "RED", error: String(e?.message || e).slice(0, 120) } } },
+    });
+    if (!out.ok) return json(res, 409, { ok: false, ...out });
+    const made = makeProposal({ files, verdict: out.gate?.verdict, reason: String(b?.reason || "自证通过"), hypothesis: String(b?.hypothesis || "") });
+    if (!made.ok) return json(res, 400, made);
+    recordProposal(WS_ROOT, made.proposal);
+    return json(res, 200, { ok: true, stage: out.stage, proposal: made.proposal });
+  }],
   ["POST", "/api/selfchange/proposal", async (res, req) => {
     const b = await readBody(req);
     const out = makeProposal({ files: b?.files, verdict: b?.verdict, reason: b?.reason, hypothesis: b?.hypothesis });
