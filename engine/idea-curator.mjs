@@ -15,8 +15,13 @@ import path from "node:path";
 export const IDEAS_FILE = path.join("记忆", "运行时", "今日建议.json");
 /** 建议只在当天有意义；隔天不提示。 */
 export const IDEAS_TTL_MS = 20 * 60 * 60 * 1000;
-/** 每天最多推这么多条——多了就是噪音。 */
+/** 每天最多推这么多条——多了就是噪音。默认 3，可由脑区「创造」权重调整（1–5）。 */
 export const MAX_IDEAS = 3;
+export function maxIdeas(weights) {
+  const w = Number(weights?.genesis);
+  if (!Number.isFinite(w)) return MAX_IDEAS;
+  return Math.max(1, Math.min(5, Math.round(1 + Math.min(1, Math.max(0, w)) * 4)));
+}
 
 function ideasPath(wsRoot) { return path.join(String(wsRoot || "."), IDEAS_FILE); }
 
@@ -92,7 +97,8 @@ function reasonOf(idea, parts) {
  * 生成当天建议。幂等：同一天重复调用不会重复生成（除非 force）。
  * @returns {{generatedAt:number, items:object[], skipped?:string}}
  */
-export function curateIdeas({ wsRoot, promises = [], lingxi = [], tasks = [], texts = [], tags = [], now = Date.now(), force = false } = {}) {
+export function curateIdeas({ wsRoot, promises = [], lingxi = [], tasks = [], texts = [], tags = [], now = Date.now(), force = false, limit = MAX_IDEAS } = {}) {
+  // limit 由脑区「创造」权重决定（默认 MAX_IDEAS）
   const today = new Date(now).toISOString().slice(0, 10);
   const cur = readIdeas(wsRoot);
   if (!force && cur.generatedAt && new Date(cur.generatedAt).toISOString().slice(0, 10) === today) {
@@ -130,7 +136,7 @@ export function curateIdeas({ wsRoot, promises = [], lingxi = [], tasks = [], te
   const scored = [...byText.values()].map((s) => {
     const { score, parts } = scoreIdea(s, { now, tags });
     return { ...s, score, parts, reason: reasonOf(s, parts) };
-  }).sort((a, b) => b.score - a.score).slice(0, MAX_IDEAS);
+  }).sort((a, b) => b.score - a.score).slice(0, limit);
 
   return writeIdeas(wsRoot, { generatedAt: now, items: scored });
 }

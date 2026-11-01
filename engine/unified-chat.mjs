@@ -49,9 +49,20 @@ import { effectiveSandboxMode } from "./sandbox-session.mjs";
 import { resolveAuth } from "./dsh-keys.mjs";
 import { runYuanshuToolRound, attachYuanshuCodeTool, toolCallLoopKey } from "./yuanshu-loop.mjs";
 import { withTeamToolContext } from "./team-tool-context.mjs";
+import { readRegions, maxToolTurns, planBatchFactor, filterToolsByTier } from "./brain-regions.mjs";
 
 // 2026-10-31：工具执行器（尤其 cultivation）从 team-tool-context 取母体身份；
 // 统一引擎原先没设置这个上下文，培养工具因此永远"没身份"，她只能理解成不可用。
+// 2026-11-01：脑区旋钮——分析=回合上限，规划=批次大小，工具=工具档
+let _brainCache = { at: 0, weights: null };
+const brainNow = () => {
+  const t = Date.now();
+  if (_brainCache.weights && t - _brainCache.at < 2000) return _brainCache.weights;
+  const r = readRegions(_cwd || ".");
+  _brainCache = { at: t, weights: r.weights };
+  return r.weights;
+};
+
 const withToolIdentity = (executionContext, work) => withTeamToolContext({
   executionIdentity: executionContext?.executionIdentity,
   sessionId: executionContext?.sessionId,
@@ -418,11 +429,12 @@ async function _unifiedChatCore(model, messages, opts = {}) {
   if (noTools && !history.some(message => message?.role === "system" && String(message.content || "").includes("【无工具模式】"))) {
     history.unshift({ role: "system", content: "【无工具模式】本次对话你没有工具可用（不能读写文件、执行命令、搜索网页）。不要输出 <tool_call>、<function_call> 等任何形式的工具调用——那只是文本，没有系统会执行它们。若任务需要文件内容或命令输出，请直接请用户粘贴相关内容，再基于内容回答。" });
   }
-  const toolDefs = opts.tools === false || noTools ? undefined : slimToolDefs(opts.tools || _unifiedTools);
+  const toolDefs = opts.tools === false || noTools ? undefined : slimToolDefs(filterToolsByTier(opts.tools || _unifiedTools, brainNow()));
   // Refresh our own capability note on continuation; never infer permission from history.
   history = history.filter(message => !(message.role === 'system' && typeof message.content === 'string' && message.content.startsWith('【本轮工具事实】')));
   history.unshift({ role: 'system', content: toolAvailabilityPrompt(toolDefs?.map(tool => tool.function?.name || tool.name) || []) });
-  const maxTurns = toolLoopMaxTurns(opts);
+  // 脑区「分析」决定单轮工具回合上限（0.5 → 20 轮，与旧默认持平）
+  const maxTurns = Math.min(toolLoopMaxTurns(opts), maxToolTurns(brainNow()));
   let streamed = false;
   // 官方理念：按模型声明的 reasoning/compat/thinkingLevelMap 统一适配（不按厂商特判）
   const isReasoning = mdef?.reasoning === true || model.reasoning === true;
@@ -489,7 +501,8 @@ async function _unifiedChatCore(model, messages, opts = {}) {
   // Continue numbering from it so effect keys remain stable across recovery.
   let turn = Number.isInteger(opts.resumeSnapshot?.turn) ? opts.resumeSnapshot.turn : 0;
   if (opts.resumeCheckpointKind === "model_request") turn = Math.max(0, turn - 1);
-  const continuation = continuationLimits(opts, maxTurns, turn);
+  // 脑区「规划」决定一次连续推进的批次大小（0.5 → ×1.0）
+  const continuation = continuationLimits(opts, Math.max(1, Math.round(maxTurns * planBatchFactor(brainNow()))), turn);
   let batchLimit = continuation.limit;
   let pauseReason = 'tool_turn_limit';
   let continuedText = "";

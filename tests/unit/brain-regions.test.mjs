@@ -4,7 +4,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { REGIONS, REGION_IDS, readRegions, writeRegions, deliveryStrictness, distillLimit, nudgeCooldownMs, maxToolTurns, regionsPath } from "../../engine/brain-regions.mjs";
+import { REGIONS, REGION_IDS, readRegions, writeRegions, deliveryStrictness, distillLimit, nudgeCooldownMs, maxToolTurns, regionsPath, planBatchFactor, toolTier, filterToolsByTier, ADVANCED_TOOLS, ideaCap } from "../../engine/brain-regions.mjs";
 import { judgeDelivery } from "../../engine/delivery-gate.mjs";
 
 const ws = () => fs.mkdtempSync(path.join(os.tmpdir(), "brain-"));
@@ -74,4 +74,39 @@ test("默认档：声明算覆盖但要标条件 → YELLOW", () => {
   const rows = [{ at: 10, phase: "before", tool: "write", argsPreview: JSON.stringify({ path: "a.mjs" }) }];
   const normal = judgeDelivery({ rows, verified: ["a.mjs"], strictness: "normal" });
   assert.equal(normal.verdict, "YELLOW");
+});
+
+test('规划权重 → 批次系数 0.5..1.5', () => {
+  assert.equal(planBatchFactor({ planning: 0 }), 0.5);
+  assert.equal(planBatchFactor({ planning: 0.5 }), 1);
+  assert.equal(planBatchFactor({ planning: 1 }), 1.5);
+});
+
+test('工具档：低权重只留基础工具，高权重全给', () => {
+  const tools = [
+    { function: { name: 'read' } },
+    { function: { name: 'write' } },
+    { function: { name: 'cultivation' } },
+    { function: { name: 'generate_image' } },
+  ];
+  assert.equal(toolTier({ tooling: 0.1 }), 'basic');
+  assert.equal(toolTier({ tooling: 0.8 }), 'full');
+  assert.deepEqual(filterToolsByTier(tools, { tooling: 0.1 }).map((t) => t.function.name), ['read', 'write']);
+  assert.equal(filterToolsByTier(tools, { tooling: 0.8 }).length, 4);
+});
+
+test('工具档：如果过滤后一个都不剩，就不过滤（保命）', () => {
+  const onlyAdvanced = [{ function: { name: 'cultivation' } }];
+  assert.equal(filterToolsByTier(onlyAdvanced, { tooling: 0 }).length, 1);
+});
+
+test('高级工具集合包含 cultivation / computer_use', () => {
+  assert.ok(ADVANCED_TOOLS.has('cultivation'));
+  assert.ok(ADVANCED_TOOLS.has('computer_use'));
+});
+
+test('创造权重 → 建议条数 1..5', () => {
+  assert.equal(ideaCap({ genesis: 0 }), 1);
+  assert.equal(ideaCap({ genesis: 0.5 }), 3);
+  assert.equal(ideaCap({ genesis: 1 }), 5);
 });

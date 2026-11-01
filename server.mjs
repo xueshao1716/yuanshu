@@ -126,7 +126,7 @@ import { getTeamToolContext } from "./engine/team-tool-context.mjs";
 import { createPolicyProvider, readPolicy, writePolicy, rollbackPolicy } from "./engine/tools/policy-store.mjs";
 import { syncActionRights, readRights } from "./engine/action-rights.mjs";
 import { countExperience, distillExperience, gatherEvidence } from "./engine/reflection-experience.mjs";
-import { readRegions, writeRegions, REGIONS, deliveryStrictness, distillLimit, nudgeCooldownMs } from "./engine/brain-regions.mjs";
+import { readRegions, writeRegions, REGIONS, deliveryStrictness, distillLimit, nudgeCooldownMs, ideaCap, maxToolTurns, planBatchFactor, toolTier } from "./engine/brain-regions.mjs";
 import { runDoctor } from "./engine/install-doctor.mjs";
 import { listAddons, startAddonJob, addonJobs, ensureAddonPaths } from "./engine/addons.mjs";
 ensureAddonPaths();
@@ -3796,7 +3796,10 @@ const API_ROUTES = [
   ["GET", "/api/brain/regions", (res) => {
     const r = readRegions(WS_ROOT);
     return json(res, 200, { ok: true, regions: REGIONS, weights: r.weights, source: r.source, updatedAt: r.updatedAt, effects: {
-      strictness: deliveryStrictness(r.weights), distillLimit: distillLimit(r.weights), nudgeCooldownHours: Math.round(nudgeCooldownMs(r.weights) / 3600000),
+      strictness: deliveryStrictness(r.weights), distillLimit: distillLimit(r.weights),
+      nudgeCooldownHours: Math.round(nudgeCooldownMs(r.weights) / 3600000),
+      maxToolTurns: maxToolTurns(r.weights), planBatchFactor: planBatchFactor(r.weights),
+      toolTier: toolTier(r.weights), ideaCap: ideaCap(r.weights),
     } });
   }],
   ["POST", "/api/brain/regions", async (res, req) => {
@@ -6361,7 +6364,7 @@ function startServer() {
           const lingxi = (() => { try { return listLingXi(WS_ROOT, {}) } catch { return [] } })();
           const tasks = (() => { try { return timeEngine ? timeEngine.list() : [] } catch { return [] } })();
           const texts = recentSessionText(3, 120);
-          const doc = curateIdeas({ wsRoot: WS_ROOT, promises, lingxi, tasks, texts });
+          const doc = curateIdeas({ wsRoot: WS_ROOT, promises, lingxi, tasks, texts, limit: ideaCap(brainWeights()) });
           lastCurateDay = today;
           if (!doc?.skipped) console.log(`[ideas] 今日建议已生成 ${doc.items.length} 条`);
         } catch (e) {

@@ -18,14 +18,14 @@ import path from "node:path";
 export const REGIONS_REL = path.join("记忆", "运行时", "脑区.json");
 
 export const REGIONS = [
-  { id: "analysis", name: "分析", desc: "拆问题、找根因的深度", knob: "单轮工具回合上限（已换算，未接线）", wired: false },
-  { id: "planning", name: "规划", desc: "想几步、列步骤的倾向", knob: "长任务自动落 plan（建议值，未接线）", wired: false },
+  { id: "analysis", name: "分析", desc: "拆问题、找根因的深度", knob: "单轮工具回合上限 12–28 轮", wired: true },
+  { id: "planning", name: "规划", desc: "想几步、列步骤的倾向", knob: "一次连续推进的批次大小 ×0.5–1.5", wired: true },
   { id: "verification", name: "验证", desc: "交付前检查的严格度", knob: "交付门严格度：高=声明已验证不算数", wired: true },
   { id: "memory", name: "记忆", desc: "回看历史、联想强度", knob: "反思蒸馏条数上限 1–3", wired: true },
-  { id: "tooling", name: "工具", desc: "动手查/跑 vs 凭经验的偏好", knob: "高级工具暴露（建议值，未接线）", wired: false },
+  { id: "tooling", name: "工具", desc: "动手查/跑 vs 凭经验的偏好", knob: "工具档：<0.35 只留基础工具", wired: true },
   { id: "social", name: "社交", desc: "主动找你的意愿与热度", knob: "离开提醒冷却 2–8 小时", wired: true },
-  { id: "coordination", name: "协作", desc: "多任务/多代理的统筹", knob: "多代理并发（建议值，未接线）", wired: false },
-  { id: "genesis", name: "创造", desc: "生成新路径、非标准解", knob: "进化提案频率（建议值，未接线）", wired: false },
+  { id: "coordination", name: "协作", desc: "多任务/多代理的统筹", knob: "多代理并发（子进程模型，暂不接线）", wired: false },
+  { id: "genesis", name: "创造", desc: "生成新路径、非标准解", knob: "每日「今日建议」条数 1–5", wired: true },
 ];
 
 export const REGION_IDS = REGIONS.map((r) => r.id);
@@ -101,4 +101,39 @@ export function nudgeCooldownMs(weights) {
 export function maxToolTurns(weights) {
   const w = clamp01(weights?.analysis, DEFAULT);
   return Math.max(6, Math.min(40, Math.round(12 + w * 16)));
+}
+
+/** 规划权重 → 一次连续推进的批次放大系数：0 → 0.5，1 → 1.5。 */
+export function planBatchFactor(weights) {
+  const w = clamp01(weights?.planning, DEFAULT);
+  return Number((0.5 + w).toFixed(2));
+}
+
+/** 工具权重 → 工具档。低档只留基础工具（读/写/改/搜/跑/通知）。 */
+export function toolTier(weights) {
+  const w = clamp01(weights?.tooling, DEFAULT);
+  return w < 0.35 ? "basic" : "full";
+}
+
+/** 高级工具：基础档里不出现。 */
+export const ADVANCED_TOOLS = new Set([
+  "computer_use", "cultivation", "generate_image", "generate_video", "generate_music",
+  "share_project", "run_detached", "dsh_task", "delegate_team", "delegate_task",
+  "design_commission", "website_build", "ui_design",
+]);
+
+/** 按工具档过滤 schema 列表（保留函数名与结构，不认识的工具默认保留）。 */
+export function filterToolsByTier(tools = [], weights) {
+  if (toolTier(weights) !== "basic") return tools;
+  const out = tools.filter((t) => {
+    const name = t?.function?.name || t?.name || "";
+    return !ADVANCED_TOOLS.has(name);
+  });
+  return out.length ? out : tools;
+}
+
+/** 创造权重 → 每日建议条数：0 → 1，1 → 5。 */
+export function ideaCap(weights) {
+  const w = clamp01(weights?.genesis, DEFAULT);
+  return Math.max(1, Math.min(5, Math.round(1 + w * 4)));
 }

@@ -414,7 +414,7 @@ export default function Gateway() {
           </div>
         ))}
         {brainMsg && <p className="text-[11px] text-pi-text">{brainMsg}</p>}
-        <p className="text-[11px] text-pi-dim2">验证=交付门严格度；记忆=反思蒸馏条数；社交=离开提醒冷却。改完即时生效。</p>
+        <p className="text-[11px] text-pi-dim2">验证=交付门严格度；记忆=蒸馏条数；社交=冷却；分析=回合上限；规划=批次大小；工具=工具档；创造=建议条数。改完即时生效。</p>
       </section>
       {/* 交付门：没有证据不算完成（GREEN / YELLOW / RED） */}
       <section className="panel space-y-2">
