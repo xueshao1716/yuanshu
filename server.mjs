@@ -124,6 +124,7 @@ import { routeEvent, recentDecisions } from "./engine/router.mjs";
 import { parseOpenIntent, navPayload } from "./engine/intent-router.mjs";
 import { filterTasks } from "./engine/task-filter.mjs";
 import { compareCandidates, recordCompare } from "./engine/candidate-compare.mjs";
+import { pickColdSession, readBudget, spendBudget, isQuietHours, withJitter } from "./engine/proactive.mjs";
 import { savePlan, listPlans, readPlan, exportPlanFile, planStats } from "./engine/scene3d.mjs";
 import { createAsk, listAsks, handleReply, quietHours, pickAsk, resolveAsk } from "./engine/router-pending.mjs";
 import { judgeRun, describeVerdict } from "./engine/delivery-gate.mjs";
@@ -1578,6 +1579,35 @@ const auditGate = createAuditGate({ wsRoot: WS_ROOT });
 
 // 2026-10-31：交付门台账（天枢的 deliver_task 思路：没有证据不算完成）
 
+// 2026-11-02：冷会话唤醒（借 dsh-proactive）——会话挂了几小时没人说话，主动问一句。
+// 三道闸：免打扰时段、每日主动预算、只挑够久没动且不是探针的真实会话。
+const maybeColdWake = async (now = new Date()) => {
+  try {
+    if (isQuietHours(now.getTime())) return { ok: false, reason: "quiet" };
+    const day = now.toISOString().slice(0, 10);
+    const budget = readBudget(WS_ROOT, day, { cap: 3 });
+    if (budget.remaining <= 0) return { ok: false, reason: "budget" };
+    const sessions = (typeof getSessionList === "function" ? getSessionList() : []) || [];
+    const hit = pickColdSession(sessions, { now: now.getTime(), idleMs: 3 * 60 * 60 * 1000 });
+    if (!hit) return { ok: false, reason: "nothing_cold" };
+    const hours = Math.max(1, Math.round(hit.idleMs / 3600000));
+    const what = `「${String(hit.session.name || "那个会话").slice(0, 18)}」停了 ${hours} 小时`;
+    const made = await composeNoticeFor("away", { away: `${hours} 小时`, what });
+    const env = noticeEnvelope({ kind: "away", facts: { what }, text: made.text });
+    const spent = spendBudget(WS_ROOT, day, { cap: budget.cap, kind: "cold_wake" });
+    if (!spent.ok) return { ok: false, reason: spent.reason || "budget" };
+    const r = await notifier.notify({
+      kind: "companion", title: env.head, body: made.text, sender: personaName(WS_ROOT),
+      summary: env.summary, facts: [`今天已主动 ${spent.used}/${spent.cap} 次`],
+      toWechat: true, key: `coldwake:${hit.session.id}:${day}`,
+    });
+    console.log(`[proactive] 冷会话唤醒：${what}（wechat=${r?.wechat || "?"}）`);
+    return { ok: true, sessionId: hit.session.id, used: spent.used };
+  } catch (e) {
+    console.log(`[proactive] 冷会话唤醒异常：${String(e?.message || e).slice(0, 120)}`);
+    return { ok: false, error: "exception" };
+  }
+};
 // 2026-11-01：最小路由器——事件要不要处理，由轻量模型判；派活走定时引擎（+1 分钟）
 let routerSeen = new Set();
 const routeThink = async (prompt) => {
@@ -1630,6 +1660,7 @@ const askPush = async (event, reason) => {
     return null;
   }
 };
+
 const routerOnEvent = (event) => {
   void (async () => {
     try {
@@ -3674,7 +3705,8 @@ setInterval(() => {
   runWithInitiator("scheduler", () => maybeNightBrief().catch(() => {}));
   runWithInitiator("scheduler", () => maybeMorningBrief().catch(() => {}));
   runWithInitiator("scheduler", () => maybeReflectionBrief().catch(() => {}));
-}, 10 * 60 * 1000).unref?.();
+  runWithInitiator("scheduler", () => maybeColdWake().catch(() => {}));
+}, withJitter(10 * 60 * 1000, { ratio: 0.08 })).unref?.();
 setInterval(() => { runWithInitiator("scheduler", () => runCompanionNudge({ store: companionStore, notifier, compose: composeNoticeFor, persona: personaName(WS_ROOT), cooldownMs: nudgeCooldownMs(brainWeights()) }).catch(() => {})) }, 5 * 60 * 1000).unref?.();
 } catch {}
 
