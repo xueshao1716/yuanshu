@@ -4086,7 +4086,22 @@ const API_ROUTES = [
     return json(res, out.ok ? 200 : 400, out);
   }],
   // 2026-11-02：血缘——某个提案或某个目标的全过程
-  ["GET", "/api/evolution/lineage", (res, req, url) => json(res, 200, lineageOf(WS_ROOT, { ProposalId: undefined, proposalId: String(url.searchParams.get("proposal") || ""), targetId: String(url.searchParams.get("targetId") || ""), target: String(url.searchParams.get("target") || "") }))],
+  ["GET", "/api/evolution/lineage", (res, req, url) => {
+    try {
+      const pid = String(url.searchParams.get("proposal") || "");
+      const tid = String(url.searchParams.get("targetId") || "");
+      const all = readEvoEvents(WS_ROOT, { limit: 2000 });
+      if (pid) {
+        const prop = readEvoProposals(WS_ROOT).find((x) => x.id === pid);
+        if (!prop) return json(res, 404, { ok: false, error: "没有这个提案" });
+        const ids = new Set(prop.parentEventIds || []);
+        const events = all.filter((e) => ids.has(e.id) || e.proposalId === pid || (e.meta && e.meta.proposalId === pid));
+        return json(res, 200, { ok: true, proposal: prop, events });
+      }
+      const events = tid ? all.filter((e) => e.targetId === tid) : all;
+      return json(res, 200, { ok: true, targetId: tid, events });
+    } catch (e) { return json(res, 500, { ok: false, error: "lineage_failed", detail: String(e?.message || e).slice(0, 200) }) }
+  }],
   // 2026-11-02：进化中心——能力画像与事件流（只读；提案走已有 evolution-api 审批链）
   ["GET", "/api/evolution/summary", (res) => {
     const events = readEvoEvents(WS_ROOT, { limit: 2000 });
