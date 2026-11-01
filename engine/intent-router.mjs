@@ -38,6 +38,18 @@ const OPEN_VERB = /(打开|开一下|进到|进入|跳到|切到|切去|回到|�
  * 从同一句话里抽筛选条件（可选）。
  * 只认明确的时间词与"关于/含 X"这类关键词，不猜。
  */
+/** 裁掉关键词前后的助词/方位词，避免"交付门的"这种进查询。 */
+export function trimParticles(raw) {
+  let q = String(raw || "").trim();
+  // 反复裁，直到稳定（「那件事里的」→「那件事」）
+  for (let i = 0; i < 3; i += 1) {
+    const next = q.replace(/(的|里|中|内|上|下|那|这|都|全部|相关|方面|事项|内容)+$/u, "").trim();
+    if (next === q) break;
+    q = next;
+  }
+  return q;
+}
+
 export function parseParams(text) {
   const t = String(text || "");
   const out = {};
@@ -50,7 +62,7 @@ export function parseParams(text) {
     if (m) out.day = `recent${m[1]}`;
   }
   const q = t.match(/(?:关于|包含|含有|带)\s*[「"'']?([\u4e00-\u9fa5A-Za-z0-9_\-]{1,20})/);
-  if (q) out.q = q[1];
+  if (q) { const cleaned = trimParticles(q[1]); if (cleaned) out.q = cleaned; }
   return out;
 }
 

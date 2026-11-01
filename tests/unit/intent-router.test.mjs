@@ -3,7 +3,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import path from "node:path";
-import { parseOpenIntent, navPayload, TARGETS, parseParams, navHref } from "../../engine/intent-router.mjs";
+import { parseOpenIntent, navPayload, TARGETS, parseParams, navHref, trimParticles } from "../../engine/intent-router.mjs";
 import { ROUTE_LABELS } from "../../engine/route-labels.mjs";
 
 const root = path.resolve(import.meta.dirname, "../..");
@@ -70,7 +70,7 @@ test('时间词解析：今天/昨天/本周/本月/最近N天', () => {
 });
 
 test('关键词解析：关于/包含 X', () => {
-  assert.equal(parseParams('打开任务清单关于交付门的').q, '交付门的');
+  assert.equal(parseParams('打开任务清单关于交付门的').q, '交付门', '句尾「的」要被裁掉');
   assert.equal(parseParams('找包含 auth 的记录').q, 'auth');
   assert.equal(parseParams('打开资产').q, undefined);
 });
@@ -89,4 +89,11 @@ test('意图里带 params 与 href', () => {
   const payload = navPayload(intent);
   assert.equal(payload.href, '#/tasks?day=today');
   assert.match(payload.text, /day=today/);
+});
+
+test('关键词裁掉句尾助词', () => {
+  assert.equal(trimParticles('交付门的'), '交付门');
+  assert.equal(trimParticles('海报那件事里的'), '海报那件事');
+  assert.equal(trimParticles('发布'), '发布');
+  assert.equal(parseParams('关于的').q, undefined, '裁空了就不该带 q');
 });
