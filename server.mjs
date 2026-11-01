@@ -1561,6 +1561,24 @@ const dispatchByRouter = (task, reason = "") => {
   else console.log(`[router] 已派活（${when}）：${String(task).slice(0, 60)}`);
   return r;
 };
+const askPush = async (event, reason) => {
+  try {
+    const what = String(event?.text || "").replace(/\s+/g, " ").trim().slice(0, 120);
+    const made = await composeNoticeFor("ask", { what, source: String(event?.source || "未知") });
+    const env = noticeEnvelope({ kind: "ask", facts: { what }, text: made.text });
+    const r = await notifier.notify({
+      kind: "ask", title: env.head, body: made.text,
+      sender: personaName(WS_ROOT), summary: env.summary,
+      facts: [`来源 ${String(event?.source || "未知")}`],
+      toWechat: true, key: `router-ask:${event?.id || Date.now()}`,
+    });
+    console.log(`[router] ask 已推送（wechat=${r?.wechat || "?"}）：${env.summary}`.slice(0, 200));
+    return r;
+  } catch (e) {
+    console.log(`[router] ask 推送失败：${String(e?.message || e).slice(0, 120)}`);
+    return null;
+  }
+};
 const routerOnEvent = (event) => {
   void (async () => {
     try {
@@ -1568,7 +1586,7 @@ const routerOnEvent = (event) => {
       if (out.key) routerSeen.add(out.key);
       if (!out.ok) { console.log(`[router] 判断失败：${out.error}`); return }
       if (out.action === "dispatch") dispatchByRouter(out.task, out.reason);
-      else if (out.action === "ask") console.log(`[router] 需要人拍板：${String(out.reason || "").slice(0, 80)}`);
+      else if (out.action === "ask") { console.log(`[router] 需要人拍板：${String(out.reason || "").slice(0, 80)}`); void askPush(event, out.reason); }
     } catch (e) { console.log(`[router] 异常：${String(e?.message || e).slice(0, 120)}`) }
   })();
   return { ok: true, queued: true };
@@ -3851,6 +3869,7 @@ const API_ROUTES = [
     const b = await readBody(req);
     const event = { source: String(b?.source || "manual"), kind: String(b?.kind || "text"), text: String(b?.text || ""), at: Date.now() };
     const out = await routeEvent({ event, wsRoot: WS_ROOT, think: routeThink, seen: new Set() });
+    if (out.action === "ask") void askPush(event, out.reason);
     return json(res, 200, { ok: true, ...out });
   }],
   // 2026-11-01：脑区旋钮（8 个区，改完即时生效）

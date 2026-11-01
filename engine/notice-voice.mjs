@@ -35,6 +35,7 @@ export const FALLBACK = {
     : "今天轨迹不够，没做结论，明天接着看。"),
   night: ({ learned }) => `今天的活我过了一遍${learned ? `，记下 ${learned} 条` : ""}，明天能省点事。`,
   morning: ({ pending }) => `早，今天要做的事我列好了${pending ? `，${pending} 件在等你` : ""}。`,
+  ask: ({ what }) => `有个事得你拍板：${String(what || "外面进来的一件事").slice(0, 50)}`,
   done: ({ what, minutes, gate }) => (gate?.verdict === "RED"
     ? `${what || "手头的活"}干完了，但交付门没过：${String(gate.summary || "有改动没被验证").slice(0, 60)}`
     : gate?.verdict === "YELLOW"
@@ -61,6 +62,13 @@ export function briefFor(kind, facts = {}) {
     return [...base,
       `背景：今天共 ${facts.events ?? "一些"} 件事，反思后沉淀 ${facts.learned ?? 0} 条经验${facts.verdict ? `，结论：${facts.verdict}` : ""}。`,
       "要说清：你复盘了什么、学到什么、明天有什么用。别报流水账。",
+    ].join("\n");
+  }
+  if (kind === "ask") {
+    return [...base,
+      `背景：外面进来一件事，需要伙伴拍板才能做：${String(facts.what || "").slice(0, 200)}`,
+      `来源：${facts.source || "未知"}`,
+      "要说清：什么事、为什么必须他点头、他点头之后你会怎么做。不要催，不要说套话。",
     ].join("\n");
   }
   if (kind === "done" && facts.gate?.verdict === "RED") {
@@ -173,7 +181,7 @@ export function noticeEnvelope({ kind = "away", facts = {}, now = Date.now(), te
   const clockSlot = d.getHours() < 6 ? "夜里" : d.getHours() < 12 ? "早上" : d.getHours() < 14 ? "中午" : d.getHours() < 19 ? "下午" : "晚上";
   // 2026-10-30：时段要说的是"这条是什么简报"，不是此刻几点——夜里补跑的晨报不该写"下午"
   const slot = kind === "night" ? (d.getHours() < 5 ? clockSlot : "晚上") : kind === "morning" ? "早上" : clockSlot;
-  const summary = kind === "reflection" ? `回放 ${facts.events ?? 0} 条${facts.winner ? ` · 新策略 ${facts.winner}` : ""}` : kind === "night"
+  const summary = kind === "ask" ? `要你拍板：${String(facts.what || "").slice(0, 30)}` : kind === "reflection" ? `回放 ${facts.events ?? 0} 条${facts.winner ? ` · 新策略 ${facts.winner}` : ""}` : kind === "night"
     ? `复盘 ${facts.events ?? 0} 件事${facts.learned ? `，沉淀 ${facts.learned} 条` : ""}`
     : kind === "morning"
       ? `今天 ${facts.pending ?? 0} 件待办${facts.first ? `，先做「${String(facts.first).slice(0, 14)}」` : ""}`
