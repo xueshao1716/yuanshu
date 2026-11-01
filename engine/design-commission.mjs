@@ -8,6 +8,7 @@
 // 出图与巡检都由调用方注入（server 用现有 /api/image 通道 + canvas-audit），模块本身可单测。
 
 import fs from 'node:fs';
+import { compareCandidates, recordCompare } from "./candidate-compare.mjs";
 import path from 'node:path';
 import { atomicWriteJson } from './atomic-io.mjs';
 import { localPathFromUrl } from './canvas-audit.mjs';
@@ -192,6 +193,31 @@ export function canRun(row) {
  * @param deps.generate ({prompt,size,provider,modelId}) => {url}
  * @param deps.audit    (doc, {brief, wsRoot}) => {ok, issues}
  */
+/**
+ * 把这一版和上一版同名产物对比，退化了就在产物上标记并返回 issues。
+ * @param {{files:any[], prevFiles:any[], resolve:(u:string)=>string, wsRoot?:string}} opts
+ */
+export function annotateRegressions({ files = [], prevFiles = [], resolve = (u) => u, wsRoot = "" } = {}) {
+  const prev = new Map((prevFiles || []).map((f) => [f.name, f.url]));
+  const issues = [];
+  for (const f of files) {
+    const baseUrl = prev.get(f.name);
+    if (!baseUrl || !f.url || baseUrl === f.url) continue;
+    const kind = /\.html?$/i.test(String(f.url)) ? "html" : "image";
+    try {
+      const r = compareCandidates({ kind, baseline: resolve(baseUrl), candidate: resolve(f.url) });
+      f.compare = { verdict: r.verdict, degraded: r.degraded, improved: r.improved };
+      if (wsRoot) recordCompare(wsRoot, { kind, baseline: baseUrl, candidate: f.url, verdict: r.verdict, degraded: r.degraded, by: "commission" });
+      if (r.verdict === "rollback") {
+        issues.push({ level: "warn", code: "regression", message: `${f.name} 比上一版退化：${r.degraded.join("；")}` });
+      }
+    } catch (e) {
+      f.compare = { verdict: "unknown", error: String(e?.message || e).slice(0, 120) };
+    }
+  }
+  return issues;
+}
+
 export async function runCommission(wsRoot, id, { generate, audit, verify = verifyArtifact, now = Date.now, fresh = false } = {}) {
   const t = nowMs(now);
   const row = readCommission(wsRoot, id);
@@ -277,13 +303,24 @@ export async function runCommission(wsRoot, id, { generate, audit, verify = veri
     }
   }
 
+  // 2026-11-01：自动对比上一版——同一交付件退化了就标出来（不靠她自觉）
   let issues = [];
+  try {
+    const resolveUrl = (u) => {
+      const x = String(u || "");
+      if (/^https?:/i.test(x)) return x;
+      if (x.startsWith("/")) return `${wsRoot}/${x.replace(/^\/+/, "")}`;
+      return x;
+    };
+    const regressed = annotateRegressions({ files, prevFiles: row.lastReport?.files || [], resolve: resolveUrl, wsRoot });
+    issues = issues.concat(regressed);
+  } catch { /* 对比失败不影响出图 */ }
   if (typeof audit === 'function' && files.length) {
     // 合成文档要带上真实用过的提示词，否则巡检会误报"没有提示词"
     const nodes = files.map((f, i) => ({ id: `d${i}`, kind: 'image', title: f.name, text: f.prompt || '', url: f.url, provider: row.provider, modelId: row.modelId, size: row.size }));
     try {
       const a = await audit({ nodes, edges: [], view: { x: 0, y: 0, z: 1 }, brief: row.brief }, { brief: row.brief, wsRoot });
-      issues = a?.issues || [];
+      issues = issues.concat(a?.issues || []);
     } catch { /* 巡检失败不影响交付 */ }
   }
 
