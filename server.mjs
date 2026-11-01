@@ -137,6 +137,7 @@ import { syncPluginReceipt } from "./engine/plugin-receipt.mjs";
 import { applyNudges, readAutoState, writeAutoState } from "./engine/brain-auto.mjs";
 import { makeProposal, recordProposal, listProposals, POLICY } from "./engine/self-change.mjs";
 import { validateReal } from "./engine/self-change-validate.mjs";
+import { shouldPropose, makeShadowProposal } from "./engine/self-change-trigger.mjs";
 import { appendEvent as appendEvoEvent, readEvents as readEvoEvents, summarizeCapability as summarizeEvoCapability, createProposal as createEvoProposal, readProposals as readEvoProposals, recordGateVerdict } from "./engine/evolution/index.mjs";
 import { countExperience, distillExperience, gatherEvidence, latestReflectionReport } from "./engine/reflection-experience.mjs";
 import { readRegions, writeRegions, REGIONS, deliveryStrictness, distillLimit, nudgeCooldownMs, ideaCap, maxToolTurns, planBatchFactor, toolTier } from "./engine/brain-regions.mjs";
@@ -3795,6 +3796,17 @@ setInterval(() => {
   runWithInitiator("scheduler", () => maybeMorningBrief().catch(() => {}));
   runWithInitiator("scheduler", () => maybeReflectionBrief().catch(() => {}));
   runWithInitiator("scheduler", () => maybeColdWake().catch(() => {}));
+  // 2026-11-02：自改触发（影子）——只记拟议，不改代码
+  try {
+    const evs = readEvoEvents(WS_ROOT, { limit: 800 });
+    const lastBy = (listProposals(WS_ROOT) || []).reduce((acc, x) => { if (x?.target && x?.targetId) acc[`${x.target}:${x.targetId}`] = Date.parse(x.at) || 0; return acc }, {});
+    const verdict = shouldPropose({ events: evs, lastByTarget: lastBy });
+    if (verdict.should) {
+      const prop = makeShadowProposal(verdict.spot, { reason: verdict.reason });
+      recordProposal(WS_ROOT, prop);
+      console.log(`[selfchange] 影子提案：${verdict.reason}`);
+    }
+  } catch {}
   // 2026-11-02：脑区自调（内部 12h 冷却 + 边界 + 审计）
   try { const r = applyNudges(WS_ROOT); if (r?.applied?.length) console.log(`[brain] 自调：${r.applied.map((x) => `${x.id}${x.delta > 0 ? "+" : ""}${x.delta}`).join(" ")}`) } catch {}
 }, withJitter(10 * 60 * 1000, { ratio: 0.08 })).unref?.();
