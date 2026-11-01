@@ -8,7 +8,7 @@
 // 出图与巡检都由调用方注入（server 用现有 /api/image 通道 + canvas-audit），模块本身可单测。
 
 import fs from 'node:fs';
-import { compareCandidates, recordCompare } from "./candidate-compare.mjs";
+import { compareCandidates, recordCompare, normalizeArtifactName } from "./candidate-compare.mjs";
 import path from 'node:path';
 import { atomicWriteJson } from './atomic-io.mjs';
 import { localPathFromUrl } from './canvas-audit.mjs';
@@ -198,10 +198,11 @@ export function canRun(row) {
  * @param {{files:any[], prevFiles:any[], resolve:(u:string)=>string, wsRoot?:string}} opts
  */
 export function annotateRegressions({ files = [], prevFiles = [], resolve = (u) => u, wsRoot = "" } = {}) {
-  const prev = new Map((prevFiles || []).map((f) => [f.name, f.url]));
+  // 按归一名字配对：主图 / 主图-终版 / 主图 v2 视为同一件
+  const prev = new Map((prevFiles || []).map((f) => [normalizeArtifactName(f.name), f.url]));
   const issues = [];
   for (const f of files) {
-    const baseUrl = prev.get(f.name);
+    const baseUrl = prev.get(normalizeArtifactName(f.name));
     if (!baseUrl || !f.url || baseUrl === f.url) continue;
     const kind = /\.html?$/i.test(String(f.url)) ? "html" : "image";
     try {

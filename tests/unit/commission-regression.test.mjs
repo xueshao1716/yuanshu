@@ -6,6 +6,7 @@ import os from "node:os";
 import path from "node:path";
 import zlib from "node:zlib";
 import { annotateRegressions } from "../../engine/design-commission.mjs";
+import { normalizeArtifactName } from "../../engine/candidate-compare.mjs";
 
 function makePng(w, h, fn) {
   const raw = Buffer.alloc((w * 3 + 1) * h);
@@ -79,4 +80,25 @@ test("路径解析失败也不炸：compare 标 unknown", () => {
   const issues = annotateRegressions({ files, prevFiles: [{ name: "主图", url: "/missing.png" }], wsRoot: root, resolve: (u) => path.join(root, String(u).replace(/^\//, "")) });
   assert.equal(issues.length, 0);
   assert.equal(files[0].compare.verdict, "unknown");
+});
+
+test('名字归一：版本/终稿/副本/日期后缀都去掉', () => {
+  for (const n of ['主图', '主图-终版', '主图 v2', '主图(2)', '主图-final', '主图_20261101', '主图-最终版', '海报 副本']) {
+    assert.equal(normalizeArtifactName(n), n.startsWith('海报') ? '海报' : '主图', n);
+  }
+  assert.equal(normalizeArtifactName(''), '');
+});
+
+test('改名后仍能配对：主图 v2 与上一版主图比', () => {
+  const root = ws();
+  fs.mkdirSync(path.join(root, 'a'), { recursive: true });
+  fs.writeFileSync(path.join(root, 'a/base.png'), makePng(32, 32, chess));
+  fs.writeFileSync(path.join(root, 'a/cand.png'), makePng(32, 32, flat));
+  const files = [{ name: '主图 v2', url: '/a/cand.png' }];
+  const issues = annotateRegressions({
+    files, prevFiles: [{ name: '主图', url: '/a/base.png' }], wsRoot: root,
+    resolve: (u) => path.join(root, String(u).replace(/^\//, '')),
+  });
+  assert.equal(files[0].compare.verdict, 'rollback');
+  assert.equal(issues.length, 1);
 });

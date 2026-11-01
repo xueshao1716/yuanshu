@@ -170,6 +170,22 @@ export function compareCandidates({ kind = "image", baseline, candidate, thresho
   return { verdict: degraded.length ? "rollback" : "keep", degraded, improved, baseline: base, candidate: cand };
 }
 
+/**
+ * 交付件名字归一：去掉版本/终稿/副本/日期这类后缀，让「主图」「主图-终版」「主图 v2」能配上。
+ * 只去尾部标记，不动主体词。
+ */
+export function normalizeArtifactName(name) {
+  let n = String(name || "").trim();
+  if (!n) return "";
+  const SUFFIX = /(?:[-_·\s]*(?:v\d+|ver\d*|version\d*|final\d*|终版|定稿|最终版?|最终|副本|copy\d*|草稿|draft\d*|\(\d+\)|（\d+）|\d{6,8}|\d{4}-\d{2}-\d{2}))+$/i;
+  for (let i = 0; i < 3; i += 1) {
+    const next = n.replace(SUFFIX, "").trim();
+    if (next === n || !next) break;
+    n = next;
+  }
+  return n.toLowerCase();
+}
+
 /** 落台账（给事务台/复盘用）。 */
 export function recordCompare(wsRoot, row) {
   try {
