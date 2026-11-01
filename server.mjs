@@ -716,6 +716,20 @@ function readStateForPlugins(wsRoot) {
 // 2026-10-31：行动权清单写进 APPEND_SYSTEM（她写好了文件，但之前没人读它）
 const rightsSync = () => { try { return syncActionRights({ wsRoot: WS_ROOT, agentDir: getAgentDir() }) } catch (e) { return { ok: false, error: String(e?.message || e).slice(0, 120) } } };
 try { const r = rightsSync(); if (r?.changed) console.log("  [rights] 行动权清单已同步进 APPEND_SYSTEM"); } catch {}
+// 2026-11-02：内置插件目录播种——工作区没有 catalog.json 就拷一份，商店才有东西可装
+const seedPluginCatalogDir = () => {
+  try {
+    const dst = path.join(WS_ROOT, "插件", "catalog.json");
+    if (fs.existsSync(dst)) return { ok: true, seeded: false };
+    const src = path.join(__dirname, "assets", "plugins-catalog.json");
+    if (!fs.existsSync(src)) return { ok: false, error: "没有内置目录" };
+    fs.mkdirSync(path.dirname(dst), { recursive: true });
+    fs.copyFileSync(src, dst);
+    console.log("  [plugins] 已播种内置插件目录");
+    return { ok: true, seeded: true };
+  } catch (e) { return { ok: false, error: String(e?.message || e).slice(0, 120) } }
+};
+try { seedPluginCatalogDir() } catch {}
 seedPluginCatalog();
 // 2026-10-28：脱链任务靠 status 才收尾会留假 running——每 20 秒自己对一次账。
 const reapDetachedJobs = () => {
