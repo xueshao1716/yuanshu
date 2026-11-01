@@ -125,7 +125,7 @@ import { runWithInitiator, DEFAULT_RULES } from "./engine/tools/initiator.mjs";
 import { getTeamToolContext } from "./engine/team-tool-context.mjs";
 import { createPolicyProvider, readPolicy, writePolicy, rollbackPolicy } from "./engine/tools/policy-store.mjs";
 import { syncActionRights, readRights } from "./engine/action-rights.mjs";
-import { countExperience, distillExperience, gatherEvidence } from "./engine/reflection-experience.mjs";
+import { countExperience, distillExperience, gatherEvidence, latestReflectionReport } from "./engine/reflection-experience.mjs";
 import { readRegions, writeRegions, REGIONS, deliveryStrictness, distillLimit, nudgeCooldownMs, ideaCap, maxToolTurns, planBatchFactor, toolTier } from "./engine/brain-regions.mjs";
 import { runDoctor } from "./engine/install-doctor.mjs";
 import { listAddons, startAddonJob, addonJobs, ensureAddonPaths } from "./engine/addons.mjs";
@@ -3461,32 +3461,50 @@ async function maybeReflectionBrief(now = new Date(), { force = false } = {}) {
   const day = now.toISOString().slice(0, 10);
   const st = readBriefState();
   if (!force && st.reflection === day) return { ok: false, reason: "already" };
+
   let facts = { events: 0, learned: 0, winner: "" };
-  try {
-    const r = await runDreamCycle(true);
-    facts.events = Number(r?.episodes || r?.traces || 0);
-    facts.winner = String(r?.winner || r?.gate?.chosen?.id || "").slice(0, 24);
-    facts.learned = Number(r?.gate?.total ?? r?.gate?.count ?? 0) || (r?.gate ? 1 : 0);
-    if (!r?.ok) console.log(`[brief] 反思没结果：${r?.reason || "无数据"}`);
-  } catch (e) { console.log(`[brief] 反思异常：${String(e?.message || e).slice(0, 120)}`); }
-  if (!facts.events && !facts.winner && !force) {
-    // 没有新数据就别发空话——但记一笔，免得同一天反复跑
-    writeBriefState({ ...st, reflection: day });
-    return { ok: false, reason: "nothing" };
+  let report = "";
+  // 2026-11-01：合并——她 0 点已经有一份「自我反思」任务在跑，这里不再自己跑一遍回放，
+  // 直接读那份报告（读不到才回退跑一次）。
+  const tasksFile = path.join(AGENT_DIR, "time-tasks.json");
+  const got = latestReflectionReport({ tasksFile, now: now.getTime() });
+  if (got.ok) {
+    report = got.text || "";
+    console.log(`[brief] 反思简报读的是她 0 点任务 ${got.taskId} 的报告（${Math.round((now.getTime() - got.at) / 60000)} 分钟前）`);
+  } else {
+    console.log(`[brief] 没有可用的复盘报告（${got.reason || "未知"}），回退自己跑一次回放`);
+    try {
+      const r = await runDreamCycle(true);
+      facts.events = Number(r?.episodes || r?.traces || 0);
+      facts.winner = String(r?.winner || r?.gate?.chosen?.id || "").slice(0, 24);
+      if (!r?.ok) console.log(`[brief] 反思回放没有结果：${r?.reason || "无数据"}`);
+    } catch (e) { console.log(`[brief] 反思回放异常：${String(e?.message || e).slice(0, 120)}`) }
   }
-  // 2026-10-31：反思不止回放，还要落经验
+
+  // 报告里能数出昨天动过几个会话；数不出就退回 0，不编
+  try {
+    const sessions = (getSessionList() || []).filter((x) => String(x.updatedAt || x.createdAt || "").startsWith(day));
+    facts.events = Math.max(facts.events, sessions.length);
+  } catch {}
+
+  // 蒸馏经验：优先从她自己的复盘报告里提炼
   try {
     facts.learned = countExperience(WS_ROOT, day);
     if (!facts.learned) {
-      const d = await distillExperience({ wsRoot: WS_ROOT, day, evidence: reflectionEvidence(day), write: writeReflectionExperience });
+      const d = await distillExperience({ wsRoot: WS_ROOT, day, evidence: reflectionEvidence(day), write: writeReflectionExperience, maxEntries: distillLimit(brainWeights()), report });
       if (d.written) console.log(`[learn] 反思蒸馏写入 ${d.written} 条：${(d.titles || []).join("、").slice(0, 120)}`);
       else if (d.error) console.log(`[learn] 反思蒸馏未写入：${d.error}`);
       facts.learned = countExperience(WS_ROOT, day);
     }
   } catch (e) { console.log(`[learn] 反思蒸馏异常：${String(e?.message || e).slice(0, 120)}`) }
-  const made = await composeNoticeFor("reflection", facts);
+
+  if (!facts.events && !facts.learned && !report && !force) {
+    writeBriefState({ ...st, reflection: day });
+    return { ok: false, reason: "nothing" };
+  }
+  const made = await composeNoticeFor("reflection", { ...facts, report: report ? 1 : 0 });
   const env = noticeEnvelope({ kind: "reflection", facts, text: made.text });
-  const lines = [`回放 ${facts.events} 条`, facts.winner ? `新策略 ${facts.winner}` : ""].filter(Boolean);
+  const lines = [report ? "读了你 0 点的复盘" : `回放 ${facts.events} 条`, facts.learned ? `沉淀 ${facts.learned} 条` : ""].filter(Boolean);
   await notifier.notify({ kind: "reflection", title: env.head, body: made.text, sender: personaName(WS_ROOT), summary: env.summary, facts: lines, toWechat: true, key: `reflection:${day}` });
   writeBriefState({ ...st, reflection: day });
   return { ok: true, text: made.text, source: made.source };

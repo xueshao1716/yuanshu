@@ -25,6 +25,29 @@ export function countExperience(wsRoot, day) {
   } catch { return 0 }
 }
 
+/**
+ * 读时间引擎里那份「自我反思」任务的最新结果，替代自己再跑一遍回放。
+ * @returns {{ok:boolean, text?:string, at?:number, taskId?:string, reason?:string}}
+ */
+export function latestReflectionReport({ tasksFile, now = Date.now(), maxAgeMs = 20 * 60 * 60 * 1000, labels = ["自我反思", "反思"] } = {}) {
+  try {
+    const doc = JSON.parse(fs.readFileSync(String(tasksFile), "utf8"));
+    const tasks = Array.isArray(doc?.tasks) ? doc.tasks : [];
+    // 优先认 label，其次认任何带历史的 daily 任务
+    const hit = tasks.find((t) => labels.some((l) => String(t?.label || "").includes(l)))
+      || tasks.find((t) => t?.type === "daily" && Array.isArray(t?.history) && t.history.length);
+    if (!hit) return { ok: false, reason: "没有反思任务" };
+    const runs = (hit.history || []).filter((h) => h?.status === "ok" && String(h?.result || "").trim());
+    if (!runs.length) return { ok: false, reason: "任务还没有成功结果" };
+    const latest = runs.reduce((a, b) => (Number(b.startedAt) > Number(a.startedAt) ? b : a));
+    const at = Number(latest.startedAt) || 0;
+    if (now - at > maxAgeMs) return { ok: false, reason: "报告太旧", at, taskId: hit.id };
+    return { ok: true, text: String(latest.result).slice(0, 12000), at, taskId: hit.id };
+  } catch (e) {
+    return { ok: false, reason: String(e?.message || e).slice(0, 120) };
+  }
+}
+
 /** 今天的证据：会话名、交付门判定、失败账本摘要。 */
 export function gatherEvidence({ sessions = [], delivery = [], failures = [], day = "" } = {}) {
   const names = sessions.map((s) => String(s?.name || "").trim()).filter((n) => n && !NOISE_SESSION.test(n)).slice(0, 40);
@@ -34,13 +57,14 @@ export function gatherEvidence({ sessions = [], delivery = [], failures = [], da
 }
 
 /** 组装给模型的提示：要求写成经验库格式，最多 3 条。 */
-export function buildDistillPrompt({ day, sessionNames = [], verdicts = [], failures = [], maxEntries = 3 } = {}) {
+export function buildDistillPrompt({ day, sessionNames = [], verdicts = [], failures = [], maxEntries = 3, report = "" } = {}) {
   return [
     "你是元枢里的小语。下面是今天的实际活动证据，请蒸馏成经验库条目。",
     "",
     `## 日期：${day}`,
     `## 今天动过的会话（${sessionNames.length} 个）：`,
     ...sessionNames.slice(0, 30).map((n) => `- ${n}`),
+    report ? `## 她自己的复盘报告（节选，优先从这里提炼教训）：\n${String(report).slice(0, 4000)}` : "",
     verdicts.length ? `## 交付门判定：${verdicts.join("、")}` : "",
     failures.length ? `## 今天踩的坑：\n${failures.map((f) => `- ${f}`).join("\n")}` : "",
     "",
@@ -99,13 +123,13 @@ export function appendEntries(wsRoot, entries, { now = new Date() } = {}) {
  * 反思产出经验：今天没有经验时蒸馏一次并写入。
  * @param {{wsRoot:string, day:string, evidence:object, write:(prompt:string)=>Promise<string>, force?:boolean}} opts
  */
-export async function distillExperience({ wsRoot, day, evidence, write, force = false, maxEntries = 3 } = {}) {
+export async function distillExperience({ wsRoot, day, evidence, write, force = false, maxEntries = 3, report = "" } = {}) {
   const before = countExperience(wsRoot, day);
   if (before > 0 && !force) return { ok: true, written: 0, count: before, reason: "今天已有经验" };
   if (!evidence?.sessionNames?.length && !evidence?.failures?.length) return { ok: true, written: 0, count: before, reason: "今天没有可蒸馏的证据" };
   if (typeof write !== "function") return { ok: false, written: 0, count: before, error: "没有写作通道" };
   let text = "";
-  try { text = String((await write(buildDistillPrompt({ day, maxEntries, ...evidence }))) || "") } catch (e) {
+  try { text = String((await write(buildDistillPrompt({ day, maxEntries, report, ...evidence }))) || "") } catch (e) {
     return { ok: false, written: 0, count: before, error: String(e?.message || e).slice(0, 160) };
   }
   const v = validateEntries(text, day, { maxEntries });

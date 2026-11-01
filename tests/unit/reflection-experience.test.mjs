@@ -4,7 +4,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { countExperience, validateEntries, appendEntries, distillExperience, buildDistillPrompt, gatherEvidence, EXP_REL } from "../../engine/reflection-experience.mjs";
+import { countExperience, validateEntries, appendEntries, distillExperience, buildDistillPrompt, gatherEvidence, EXP_REL, latestReflectionReport } from "../../engine/reflection-experience.mjs";
 
 const ws = (seed = "") => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "exp-"));
@@ -110,4 +110,50 @@ test('校验：只描述今天做了什么（没有下次）会被拒', () => {
   const v = validateEntries(flat, '2026-10-31');
   assert.equal(v.ok, false);
   assert.match(v.error, /下次/);
+});
+
+const tasksFile = (root, tasks) => {
+  const f = path.join(root, 'time-tasks.json');
+  fs.writeFileSync(f, JSON.stringify({ tasks }), 'utf8');
+  return f;
+};
+
+test('读她 0 点任务的复盘报告：取最新一条成功结果', () => {
+  const root = ws();
+  const f = tasksFile(root, [{ id: 't1', type: 'daily', at: '00:00', label: '自我反思', history: [
+    { startedAt: 1000, status: 'ok', result: '旧报告' },
+    { startedAt: 5000, status: 'ok', result: '新报告' },
+    { startedAt: 9000, status: 'error', result: '' },
+  ] }]);
+  const r = latestReflectionReport({ tasksFile: f, now: 6000, maxAgeMs: 10_000 });
+  assert.equal(r.ok, true);
+  assert.equal(r.text, '新报告');
+});
+
+test('报告太旧就不算（避免拿昨天的报告充今天）', () => {
+  const root = ws();
+  const f = tasksFile(root, [{ id: 't1', type: 'daily', label: '自我反思', history: [{ startedAt: 1000, status: 'ok', result: '旧' }] }]);
+  const r = latestReflectionReport({ tasksFile: f, now: 1000 + 25 * 3600 * 1000, maxAgeMs: 20 * 3600 * 1000 });
+  assert.equal(r.ok, false);
+  assert.match(r.reason, /太旧/);
+});
+
+test('没有反思任务时明确说没有', () => {
+  const root = ws();
+  const f = tasksFile(root, [{ id: 'x', type: 'once', label: '别的' }]);
+  const r = latestReflectionReport({ tasksFile: f, now: 99999 });
+  assert.equal(r.ok, false);
+  assert.match(r.reason, /没有反思任务/);
+});
+
+test('任务文件不存在也不炸', () => {
+  const r = latestReflectionReport({ tasksFile: 'D:/definitely/not/here.json', now: 1 });
+  assert.equal(r.ok, false);
+  assert.ok(r.reason);
+});
+
+test('提示词里带她的复盘报告', () => {
+  const p = buildDistillPrompt({ day: '2026-10-31', report: '昨天我把测试当成了业务验证', maxEntries: 2 });
+  assert.match(p, /她自己的复盘报告/);
+  assert.match(p, /把测试当成了业务验证/);
 });

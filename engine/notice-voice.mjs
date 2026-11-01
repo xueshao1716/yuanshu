@@ -77,7 +77,9 @@ export function briefFor(kind, facts = {}) {
   }
   if (kind === "reflection") {
     return [...base,
-      `背景：夜里回放 ${facts.events ?? 0} 条轨迹${facts.winner ? `，选出新策略「${facts.winner}」` : ""}，沉淀 ${facts.learned ?? 0} 条。`,
+      facts.report
+        ? `背景：她 0 点自己写了一份复盘报告，从里面沉淀了 ${facts.learned ?? 0} 条经验。`
+        : `背景：夜里回放 ${facts.events ?? 0} 条轨迹${facts.winner ? `，选出新策略「${facts.winner}」` : ""}，沉淀 ${facts.learned ?? 0} 条。`,
       "要说清：你回看了什么、得出了什么结论、明天因此会有什么不同。不要写流水账。",
     ].join("\n");
   }
