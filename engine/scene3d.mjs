@@ -63,7 +63,14 @@ export function normalizePlan(plan = {}) {
     rot: ((Math.round(Number(it?.rot) || 0) % 360) + 360) % 360,
     color: String(it?.color || "#b98b5e"),
   }));
-  return { version: 1, name: String(plan.name || "未命名空间").slice(0, 40), units: "m", rooms, items };
+  const walls = (Array.isArray(plan.walls) ? plan.walls : []).map((w, i) => ({
+    id: String(w?.id || `wall-${i + 1}`),
+    x1: round(w?.x1), z1: round(w?.z1), x2: round(w?.x2), z2: round(w?.z2),
+    thick: Math.max(0.06, round(w?.thick ?? 0.12)),
+    h: Math.max(1.8, round(w?.h ?? 2.8)),
+    loadBearing: w?.loadBearing === true,
+  })).filter((w) => Math.hypot(w.x2 - w.x1, w.z2 - w.z1) > 0.2);
+  return { version: 1, name: String(plan.name || "未命名空间").slice(0, 40), units: "m", rooms, items, walls };
 }
 
 /** 房间面积（㎡）与总价（按每平米单价）。 */
@@ -307,6 +314,15 @@ function draw() {
     ctx.beginPath(); ctx.moveTo(a0.X, a0.Y); ctx.lineTo(b0.X, b0.Y); ctx.lineTo(b1.X, b1.Y); ctx.lineTo(a1.X, a1.Y); ctx.closePath();
     ctx.fillStyle = '#cfc7b8'; ctx.globalAlpha = 0.55; ctx.fill(); ctx.globalAlpha = 1;
     ctx.strokeStyle = '#3a4150'; ctx.stroke();
+  }
+  // 独立墙（画成竖直四边形）
+  for (const wl of (PLAN.walls || [])) {
+    const p0 = project(wl.x1, 0, wl.z1), p1 = project(wl.x2, 0, wl.z2);
+    const q0 = project(wl.x1, wl.h || 2.8, wl.z1), q1 = project(wl.x2, wl.h || 2.8, wl.z2);
+    ctx.beginPath(); ctx.moveTo(p0.X, p0.Y); ctx.lineTo(p1.X, p1.Y); ctx.lineTo(q1.X, q1.Y); ctx.lineTo(q0.X, q0.Y); ctx.closePath();
+    ctx.fillStyle = wl.loadBearing ? '#b9b2a4' : '#cfc7b8';
+    ctx.globalAlpha = 0.75; ctx.fill(); ctx.globalAlpha = 1;
+    ctx.strokeStyle = wl.loadBearing ? '#6a6155' : '#3a4150'; ctx.stroke();
   }
   // 家具（画成小盒子）
   for (const it of PLAN.items) {

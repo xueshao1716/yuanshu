@@ -11,7 +11,8 @@ import { api } from '../api'
 
 type Room = { id: string; name: string; x: number; z: number; w: number; d: number; h: number; color: string }
 type Item = { id: string; kind: string; x: number; z: number; w: number; d: number; h: number; rot: number; color: string }
-type Plan = { name: string; rooms: Room[]; items: Item[] }
+type Wall = { id: string; x1: number; z1: number; x2: number; z2: number; thick: number; h: number; loadBearing: boolean }
+type Plan = { name: string; rooms: Room[]; items: Item[]; walls?: Wall[] }
 const MATERIALS_FE: Record<string, { label: string; base: string; line: string; mode: 'plank' | 'grid' | 'speckle' | 'weave' }> = {
   wood: { label: '木地板', base: '#c9a978', line: '#8a6a44', mode: 'plank' },
   tile: { label: '瓷砖', base: '#d8d6d0', line: '#a9a69f', mode: 'grid' },
@@ -76,7 +77,7 @@ const round2 = (v: number) => Math.round(v * 100) / 100
 export default function Scene3DTab() {
   const [plan, setPlan] = useState<Plan>({ name: '我的空间', rooms: [], items: [] })
   const [sel, setSel] = useState<Sel>(null)
-  const [mode, setMode] = useState<'room' | 'place'>('room')
+  const [mode, setMode] = useState<'room' | 'place' | 'wall'>('room')
   const [placing, setPlacing] = useState<string>('sofa')
   const [price, setPrice] = useState('3000')
   const [msg, setMsg] = useState('')
@@ -150,6 +151,13 @@ export default function Scene3DTab() {
     ctx.strokeStyle = 'rgba(140,150,165,0.12)'
     for (let i = 0; i * PX < w; i += 1) { ctx.beginPath(); ctx.moveTo(i * PX, 0); ctx.lineTo(i * PX, h); ctx.stroke() }
     for (let j = 0; j * PX < h; j += 1) { ctx.beginPath(); ctx.moveTo(0, j * PX); ctx.lineTo(w, j * PX); ctx.stroke() }
+    for (const wl of (plan.walls || [])) {
+      const a = toS(wl.x1, wl.z1), b = toS(wl.x2, wl.z2)
+      const active = sel?.type === 'room' && sel.id === wl.id
+      ctx.strokeStyle = active ? '#2f81f7' : wl.loadBearing ? '#6a6155' : '#8a94a6'
+      ctx.lineWidth = active ? 4 : Math.max(2, wl.thick * PX)
+      ctx.beginPath(); ctx.moveTo(a.X, a.Y); ctx.lineTo(b.X, b.Y); ctx.stroke()
+    }
     for (const r of plan.rooms) {
       const p = toS(r.x, r.z)
       const active = sel?.type === 'room' && sel.id === r.id
@@ -202,7 +210,7 @@ export default function Scene3DTab() {
     }
     const target = hit(p.x, p.z)
     setSel(target)
-    if (!target) { dragRef.current = { kind: 'new', x0: p.x, z0: p.z }; return }
+    if (!target) { dragRef.current = { kind: mode === 'wall' ? 'newwall' : 'new', x0: p.x, z0: p.z }; return }
     if (target.type === 'room') {
       const r = plan.rooms.find((x) => x.id === target.id)!
       const onHandle = p.x > r.x + r.w - 0.35 && p.z > r.z + r.d - 0.35
@@ -216,7 +224,7 @@ export default function Scene3DTab() {
     const d = dragRef.current
     if (!d) return
     const p = pointAt(e)
-    if (d.kind === 'new') return
+    if (d.kind === 'new' || d.kind === 'newwall') return
     const dx = snap(p.x - d.x0), dz = snap(p.z - d.z0)
     if (d.type === 'room') {
       setPlan((prev) => ({
@@ -239,6 +247,13 @@ export default function Scene3DTab() {
     const d = dragRef.current
     dragRef.current = null
     if (!d) return
+    if (d.kind === 'newwall') {
+      const p = pointAt(e)
+      const len = Math.hypot(snap(p.x) - d.x0, snap(p.z) - d.z0)
+      if (len < 0.3) return
+      commit({ ...plan, walls: [...(plan.walls || []), { id: uid(), x1: round2(d.x0), z1: round2(d.z0), x2: round2(snap(p.x)), z2: round2(snap(p.z)), thick: 0.12, h: 2.8, loadBearing: false }] })
+      return
+    }
     if (d.kind === 'new') {
       const p = pointAt(e)
       const x = Math.min(snap(d.x0), snap(p.x)), z = Math.min(snap(d.z0), snap(p.z))
@@ -319,6 +334,7 @@ export default function Scene3DTab() {
             className="min-w-0 flex-1 rounded-pi-md border border-pi-border-soft bg-pi-bg2 px-2 py-1.5 text-[13px]" placeholder="空间名" />
           <button type="button" onClick={() => setMode('room')} className={`min-h-8 px-2 rounded-pi-md text-[12px] ${mode === 'room' ? 'bg-pi-accent text-pi-on-accent' : 'text-pi-dim'}`}>画房间</button>
           <button type="button" onClick={() => setMode('place')} className={`min-h-8 px-2 rounded-pi-md text-[12px] ${mode === 'place' ? 'bg-pi-accent text-pi-on-accent' : 'text-pi-dim'}`}>摆家具</button>
+          <button type="button" onClick={() => setMode('wall')} className={`min-h-8 px-2 rounded-pi-md text-[12px] ${mode === 'wall' ? 'bg-pi-accent text-pi-on-accent' : 'text-pi-dim'}`}>画墙</button>
         </div>
         {mode === 'place' && (
           <div className="flex flex-wrap gap-1">
@@ -446,6 +462,19 @@ function Scene3DView({ plan, selected, firstPerson, onExitFirstPerson }: { plan:
       }
     }
 
+    // 独立墙（承重的深一点，非承重的浅一点）
+    for (const wl of (plan.walls || [])) {
+      const len = Math.hypot(wl.x2 - wl.x1, wl.z2 - wl.z1)
+      if (len < 0.05) continue
+      const m = new THREE.Mesh(
+        new THREE.BoxGeometry(len, wl.h, Math.max(0.06, wl.thick)),
+        new THREE.MeshStandardMaterial({ color: new THREE.Color(wl.loadBearing ? '#b9b2a4' : '#cfc7b8'), roughness: 0.85 }),
+      )
+      m.position.set((wl.x1 + wl.x2) / 2 - cx, wl.h / 2, (wl.z1 + wl.z2) / 2 - cz)
+      m.rotation.y = -Math.atan2(wl.z2 - wl.z1, wl.x2 - wl.x1)
+      m.castShadow = true; m.receiveShadow = true
+      root.add(m)
+    }
     for (const it of plan.items) {
       const preset = PRESET_PARTS[it.kind] || null
       const active = selected?.type === 'item' && selected.id === it.id
@@ -456,10 +485,19 @@ function Scene3DView({ plan, selected, firstPerson, onExitFirstPerson }: { plan:
       if (preset) {
         for (const part of preset) {
           const color = part.c === 'seat' ? base : part.c === 'back' ? base.clone().multiplyScalar(0.85) : part.c === 'leg' ? base.clone().multiplyScalar(0.6) : part.c === 'top' ? base.clone().multiplyScalar(1.1) : part.c === 'soft' ? base.clone().offsetHSL(0, -0.1, 0.12) : base
-          const m = new THREE.Mesh(new THREE.BoxGeometry(part.w, part.h, part.d), new THREE.MeshStandardMaterial({ color, roughness: 0.75 }))
+          const rough = part.c === 'top' ? 0.25 : it.kind === 'cabinet' ? 0.35 : 0.75
+          const m = new THREE.Mesh(new THREE.BoxGeometry(part.w, part.h, part.d), new THREE.MeshStandardMaterial({ color, roughness: rough, metalness: part.c === 'top' ? 0.15 : 0.05 }))
           m.position.set(part.x + part.w / 2, part.y + part.h / 2, part.z + part.d / 2)
           m.castShadow = true
           g.add(m)
+          // 柜门分缝：每 0.6m 画一条细缝
+          if (it.kind === 'cabinet' && part.c === 'seat') {
+            for (let x = 0.6; x < part.w - 0.1; x += 0.6) {
+              const seam = new THREE.Mesh(new THREE.BoxGeometry(0.012, part.h * 0.92, 0.01), new THREE.MeshBasicMaterial({ color: '#3a3229' }))
+              seam.position.set(part.x + x, part.y + part.h / 2, part.z + part.d + 0.006)
+              g.add(seam)
+            }
+          }
         }
       } else {
         const m = new THREE.Mesh(new THREE.BoxGeometry(it.w, it.h, it.d), new THREE.MeshStandardMaterial({ color: base, roughness: 0.7 }))
@@ -475,6 +513,19 @@ function Scene3DView({ plan, selected, firstPerson, onExitFirstPerson }: { plan:
       root.add(g)
     }
 
+    // 环境反射：用一个小房间场景烘一张环境贴图，柜门/桌面才有反光
+    try {
+      const pmrem = new THREE.PMREMGenerator(renderer)
+      const envScene = new THREE.Scene()
+      envScene.background = new THREE.Color('#3a4152')
+      const lightBox = new THREE.Mesh(new THREE.BoxGeometry(12, 6, 12), new THREE.MeshBasicMaterial({ color: '#dfe6f2', side: THREE.BackSide }))
+      envScene.add(lightBox)
+      const lamp = new THREE.Mesh(new THREE.PlaneGeometry(6, 2), new THREE.MeshBasicMaterial({ color: '#ffffff' }))
+      lamp.position.set(0, 2.9, -5.9)
+      envScene.add(lamp)
+      scene.environment = pmrem.fromScene(envScene, 0.04).texture
+      pmrem.dispose()
+    } catch {}
     scene.add(new THREE.HemisphereLight(0xffffff, 0x222633, 0.9))
     const dir = new THREE.DirectionalLight(0xffffff, 1.1)
     dir.position.set(8, 14, 6)
