@@ -128,6 +128,13 @@ export default function Gateway() {
   const [policyDraft, setPolicyDraft] = useState('')
   const [editingPolicy, setEditingPolicy] = useState(false)
   const [policyMsg, setPolicyMsg] = useState('')
+  const brain = useSWR('brain-regions', () => api<{ regions: any[]; weights: any; effects: any }>('/api/brain/regions'), { refreshInterval: 30000 })
+  const [brainMsg, setBrainMsg] = useState('')
+  const setBrain = async (id: string, value: number) => {
+    setBrainMsg('')
+    const out: any = await api('/api/brain/regions', { method: 'POST', body: { patch: { [id]: value } } }).catch((e: any) => ({ ok: false, error: e?.message }))
+    if (out?.ok) { void brain.mutate(); setBrainMsg('已生效') } else setBrainMsg(out?.error || '保存失败')
+  }
   const delivery = useSWR('delivery-ledger', () => api<{ items: any[] }>('/api/delivery/ledger'), { refreshInterval: 30000 })
   const audit = useSWR('audit-tail', () => api<{ rows: any[] }>('/api/audit/tail?limit=30'), { refreshInterval: 15000 })
   const bench = useSWR('bench-latest', () => api<{ cases: { id: string; title: string }[]; latest: any; previous: any }>('/api/bench/latest'), { refreshInterval: 60000 })
@@ -384,6 +391,30 @@ export default function Gateway() {
             ))}
           </ul>
         ) : <p className="text-xs text-pi-dim2">每次工具调用都会先写一行审计再执行；拒绝的会标出来。</p>}
+      </section>
+      {/* 脑区：8 个旋钮，每个都绑着真机制 */}
+      <section className="panel space-y-2">
+        <div className="flex flex-wrap items-baseline justify-between gap-2">
+          <h2 className="text-[15px] font-semibold text-pi-text">脑区</h2>
+          <span className="text-xs text-pi-dim2">
+            {brain.data?.effects ? `验证 ${brain.data.effects.strictness} · 蒸馏 ${brain.data.effects.distillLimit} 条 · 冷却 ${brain.data.effects.nudgeCooldownHours} 小时` : '读取中'}
+          </span>
+        </div>
+        {(brain.data?.regions || []).map((r: any) => (
+          <div key={r.id} className="text-[12px]">
+            <div className="flex items-baseline justify-between gap-2">
+              <span className="text-pi-text">{r.name}<span className="ml-1 text-[11px] text-pi-dim2">{r.desc}</span></span>
+              <span className="text-[11px] text-pi-dim2">{(brain.data?.weights?.[r.id] ?? 0.5).toFixed(2)}{r.wired ? "" : " · 未接线"}</span>
+            </div>
+            <input type="range" min={0} max={1} step={0.05}
+              value={brain.data?.weights?.[r.id] ?? 0.5}
+              onChange={(e) => void setBrain(r.id, Number(e.target.value))}
+              className="w-full accent-pi-accent" />
+            <div className="text-[11px] text-pi-dim2">{r.knob}</div>
+          </div>
+        ))}
+        {brainMsg && <p className="text-[11px] text-pi-text">{brainMsg}</p>}
+        <p className="text-[11px] text-pi-dim2">验证=交付门严格度；记忆=反思蒸馏条数；社交=离开提醒冷却。改完即时生效。</p>
       </section>
       {/* 交付门：没有证据不算完成（GREEN / YELLOW / RED） */}
       <section className="panel space-y-2">

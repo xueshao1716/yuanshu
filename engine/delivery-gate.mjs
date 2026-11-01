@@ -81,7 +81,10 @@ export function extractEvidence(rows = []) {
  * @param {{rows?: any[], changedFiles?: string[], blockers?: string[], verified?: string[]}} input
  * @returns {{verdict:'GREEN'|'YELLOW'|'RED', covered:string[], uncovered:string[], failedChecks:any[], reasons:string[], conditions:string[]}}
  */
-export function judgeDelivery({ rows = [], changedFiles = [], blockers = [], verified = [] } = {}) {
+export function judgeDelivery({ rows = [], changedFiles = [], blockers = [], verified = [], strictness = "normal" } = {}) {
+  // 2026-11-01：strictness 由脑区 verification 权重决定；
+  // strict = 声明已验证不算覆盖，loose = 声明即视为覆盖。
+  const declareCounts = strictness !== "strict";
   const { changes, verifications, failures } = extractEvidence(rows);
   // 显式给出的改动（比如调用方自己有清单）也要算
   for (const f of changedFiles) if (f && !changes.has(f)) changes.set(f, 0);
@@ -92,7 +95,7 @@ export function judgeDelivery({ rows = [], changedFiles = [], blockers = [], ver
   const uncovered = [];
   for (const [file, changedAt] of changes) {
     const ok = verifications.some((v) => v.ok && v.at > changedAt);
-    if (ok || declared.has(file)) covered.push(file);
+    if (ok || (declareCounts && declared.has(file))) covered.push(file);
     else uncovered.push(file);
   }
 
@@ -104,11 +107,11 @@ export function judgeDelivery({ rows = [], changedFiles = [], blockers = [], ver
   if (failedChecks.length) reasons.push(`${failedChecks.length} 次命令执行失败`);
   if (failingVerify.length) reasons.push(`${failingVerify.length} 次验证没通过`);
   if (uncovered.length) reasons.push(`${uncovered.length} 个改动文件没被验证覆盖`);
-  if (declared.size) conditions.push("部分文件是「声明已验证」，没有验证记录");
+  if (declared.size && declareCounts) conditions.push("部分文件是「声明已验证」，没有验证记录");
 
   let verdict = "GREEN";
   if (reasons.length) verdict = "RED";
-  else if (blockers.length || conditions.length) verdict = "YELLOW";
+  else if (blockers.length || conditions.length) verdict = strictness === "loose" ? "GREEN" : "YELLOW";
   for (const b of blockers) conditions.push(String(b));
 
   return { verdict, covered: dedupePaths(covered), uncovered: dedupePaths(uncovered), failedChecks, failingVerify, reasons, conditions };

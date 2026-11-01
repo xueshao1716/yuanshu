@@ -126,6 +126,7 @@ import { getTeamToolContext } from "./engine/team-tool-context.mjs";
 import { createPolicyProvider, readPolicy, writePolicy, rollbackPolicy } from "./engine/tools/policy-store.mjs";
 import { syncActionRights, readRights } from "./engine/action-rights.mjs";
 import { countExperience, distillExperience, gatherEvidence } from "./engine/reflection-experience.mjs";
+import { readRegions, writeRegions, REGIONS, deliveryStrictness, distillLimit, nudgeCooldownMs } from "./engine/brain-regions.mjs";
 import { runDoctor } from "./engine/install-doctor.mjs";
 import { listAddons, startAddonJob, addonJobs, ensureAddonPaths } from "./engine/addons.mjs";
 ensureAddonPaths();
@@ -1537,12 +1538,23 @@ const auditGate = createAuditGate({ wsRoot: WS_ROOT });
 // 2026-10-30：策略从文件读（记忆/运行时/动作策略.json），改完立刻生效，不用重启。
 
 // 2026-10-31：交付门台账（天枢的 deliver_task 思路：没有证据不算完成）
+// 2026-11-01：脑区旋钮（2 秒缓存，改完即时生效）
+let brainCache = { at: 0, weights: null };
+const brainWeights = () => {
+  const t = Date.now();
+  if (brainCache.weights && t - brainCache.at < 2000) return brainCache.weights;
+  const r = readRegions(WS_ROOT);
+  brainCache = { at: t, weights: r.weights };
+  return r.weights;
+};
+
 const DELIVERY_LEDGER = path.join(WS_ROOT, "记忆", "运行时", "交付门.json");
 const readDeliveryLedger = () => { try { const j = JSON.parse(fs.readFileSync(DELIVERY_LEDGER, "utf8")); return Array.isArray(j?.items) ? j.items : [] } catch { return [] } };
 const writeDeliveryLedger = (items) => { try { fs.mkdirSync(path.dirname(DELIVERY_LEDGER), { recursive: true }); fs.writeFileSync(DELIVERY_LEDGER, JSON.stringify({ items: items.slice(-100) }, null, 2), "utf8") } catch {} };
 const checkDelivery = ({ runId = "", rows = null, changedFiles = [], verified = [], blockers = [] } = {}) => {
   const auditRows = rows || auditGate.tail(400);
-  const result = judgeRun({ rows: auditRows, runId, changedFiles, verified });
+  // 脑区 verification 权重决定严格度：高=声明已验证不算数，低=声明即算数
+  const result = judgeRun({ rows: auditRows, runId, changedFiles, verified, strictness: deliveryStrictness(brainWeights()) });
   const item = { at: Date.now(), runId, verdict: result.verdict, uncovered: result.uncovered.slice(0, 20), reasons: result.reasons, conditions: [...result.conditions, ...blockers], summary: describeVerdict(result) };
   if (runId) { const items = readDeliveryLedger().filter((x) => x.runId !== runId); items.push(item); writeDeliveryLedger(items) }
   if (result.verdict === "RED") console.log(`[deliver] RED：${item.summary}`.slice(0, 220));
@@ -3427,7 +3439,7 @@ async function maybeNightBrief(now = new Date(), { force = false } = {}) {
   // 2026-10-31：反思要产出经验——今天一条都没有就先蒸馏，再报数字
   if (!facts.learned) {
     try {
-      const d = await distillExperience({ wsRoot: WS_ROOT, day, evidence: reflectionEvidence(day), write: writeReflectionExperience });
+      const d = await distillExperience({ wsRoot: WS_ROOT, day, evidence: reflectionEvidence(day), write: writeReflectionExperience, maxEntries: distillLimit(brainWeights()) });
       if (d.written) console.log(`[learn] 晚间蒸馏写入 ${d.written} 条：${(d.titles || []).join("、").slice(0, 120)}`);
       else if (d.error) console.log(`[learn] 晚间蒸馏未写入：${d.error}`);
       facts.learned = countExperience(WS_ROOT, day);
@@ -3506,7 +3518,7 @@ setInterval(() => {
   runWithInitiator("scheduler", () => maybeMorningBrief().catch(() => {}));
   runWithInitiator("scheduler", () => maybeReflectionBrief().catch(() => {}));
 }, 10 * 60 * 1000).unref?.();
-setInterval(() => { runWithInitiator("scheduler", () => runCompanionNudge({ store: companionStore, notifier, compose: composeNoticeFor, persona: personaName(WS_ROOT) }).catch(() => {})) }, 5 * 60 * 1000).unref?.();
+setInterval(() => { runWithInitiator("scheduler", () => runCompanionNudge({ store: companionStore, notifier, compose: composeNoticeFor, persona: personaName(WS_ROOT), cooldownMs: nudgeCooldownMs(brainWeights()) }).catch(() => {})) }, 5 * 60 * 1000).unref?.();
 } catch {}
 
 // 设计委托：每 60 秒看一眼到期的周期委托（一次只跑一单，出错不影响后面的）
@@ -3780,6 +3792,19 @@ const API_ROUTES = [
   }],
   // 2026-10-27：微信状态 + PushPlus 推送通道状态（读 notify.py 落的状态文件）
   // 2026-10-27：推送通道（PushPlus）——面板里粘贴 token、一键测试，不再手写文件
+  // 2026-11-01：脑区旋钮（8 个区，改完即时生效）
+  ["GET", "/api/brain/regions", (res) => {
+    const r = readRegions(WS_ROOT);
+    return json(res, 200, { ok: true, regions: REGIONS, weights: r.weights, source: r.source, updatedAt: r.updatedAt, effects: {
+      strictness: deliveryStrictness(r.weights), distillLimit: distillLimit(r.weights), nudgeCooldownHours: Math.round(nudgeCooldownMs(r.weights) / 3600000),
+    } });
+  }],
+  ["POST", "/api/brain/regions", async (res, req) => {
+    const body = await readBody(req);
+    const out = writeRegions(WS_ROOT, body?.patch || body || {});
+    brainCache = { at: 0, weights: null };
+    return json(res, out.ok ? 200 : 400, out.ok ? { ok: true, weights: out.weights } : out);
+  }],
   // 2026-10-31：交付门（GREEN/YELLOW/RED + 未覆盖文件）
   ["GET", "/api/delivery/check", (res, req, url) => {
     // 不传 runId 时只看最近一次带 runId 的动作，别把历史清理算进这次交付

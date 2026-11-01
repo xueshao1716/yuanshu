@@ -34,7 +34,7 @@ export function gatherEvidence({ sessions = [], delivery = [], failures = [], da
 }
 
 /** 组装给模型的提示：要求写成经验库格式，最多 3 条。 */
-export function buildDistillPrompt({ day, sessionNames = [], verdicts = [], failures = [] } = {}) {
+export function buildDistillPrompt({ day, sessionNames = [], verdicts = [], failures = [], maxEntries = 3 } = {}) {
   return [
     "你是元枢里的小语。下面是今天的实际活动证据，请蒸馏成经验库条目。",
     "",
@@ -47,7 +47,7 @@ export function buildDistillPrompt({ day, sessionNames = [], verdicts = [], fail
     "要求：",
     "1. 只写从证据里能看出来的东西；看不出来就不写，宁可只给 1 条。",
     "1.5 写的是教训，不是流水账：每条必须回答「下次遇到同类情况该怎么做」。只描述今天做了什么的，不要写。",
-    "2. 最多 3 条，每条格式：",
+    `2. 最多 ${Math.max(1, Math.min(3, Number(maxEntries) || 3))} 条，每条格式：`,
     "   ### " + day + " <一句话标题>",
     "   - 🔑 下次：<可执行的做法——动词开头，说清先做什么、避免什么>",
     "   - ⚠️ <坑或注意>（没有就不写这行）",
@@ -57,13 +57,14 @@ export function buildDistillPrompt({ day, sessionNames = [], verdicts = [], fail
 }
 
 /** 校验模型产出：必须有日期标题、条目数 1–3、每条不太长。 */
-export function validateEntries(text, day) {
+export function validateEntries(text, day, { maxEntries = 3 } = {}) {
   const raw = String(text || "").trim();
   if (!raw) return { ok: false, error: "空内容" };
   const blocks = raw.split(/\n(?=#{2,4}\s)/).map((x) => x.trim()).filter(Boolean);
   const dated = blocks.filter((b) => new RegExp(`^#{2,4}\\s*${day}\\b`).test(b));
   if (!dated.length) return { ok: false, error: "没有带日期的标题" };
-  if (dated.length > 3) return { ok: false, error: "超过 3 条" };
+  const cap = Math.max(1, Math.min(3, Number(maxEntries) || 3));
+  if (dated.length > cap) return { ok: false, error: `超过 ${cap} 条` };
   const bad = dated.find((b) => b.length > 1200);
   if (bad) return { ok: false, error: "单条太长" };
   const noEvidence = dated.find((b) => !/[-*]\s/.test(b));
@@ -98,16 +99,16 @@ export function appendEntries(wsRoot, entries, { now = new Date() } = {}) {
  * 反思产出经验：今天没有经验时蒸馏一次并写入。
  * @param {{wsRoot:string, day:string, evidence:object, write:(prompt:string)=>Promise<string>, force?:boolean}} opts
  */
-export async function distillExperience({ wsRoot, day, evidence, write, force = false } = {}) {
+export async function distillExperience({ wsRoot, day, evidence, write, force = false, maxEntries = 3 } = {}) {
   const before = countExperience(wsRoot, day);
   if (before > 0 && !force) return { ok: true, written: 0, count: before, reason: "今天已有经验" };
   if (!evidence?.sessionNames?.length && !evidence?.failures?.length) return { ok: true, written: 0, count: before, reason: "今天没有可蒸馏的证据" };
   if (typeof write !== "function") return { ok: false, written: 0, count: before, error: "没有写作通道" };
   let text = "";
-  try { text = String((await write(buildDistillPrompt({ day, ...evidence }))) || "") } catch (e) {
+  try { text = String((await write(buildDistillPrompt({ day, maxEntries, ...evidence }))) || "") } catch (e) {
     return { ok: false, written: 0, count: before, error: String(e?.message || e).slice(0, 160) };
   }
-  const v = validateEntries(text, day);
+  const v = validateEntries(text, day, { maxEntries });
   if (!v.ok) return { ok: false, written: 0, count: before, error: `产物不合格：${v.error}` };
   const out = appendEntries(wsRoot, v.entries);
   const count = countExperience(wsRoot, day);
