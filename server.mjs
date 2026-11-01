@@ -124,6 +124,7 @@ import { routeEvent, recentDecisions } from "./engine/router.mjs";
 import { parseOpenIntent, navPayload } from "./engine/intent-router.mjs";
 import { filterTasks } from "./engine/task-filter.mjs";
 import { compareCandidates, recordCompare } from "./engine/candidate-compare.mjs";
+import { savePlan, listPlans, readPlan, exportPlanFile, planStats } from "./engine/scene3d.mjs";
 import { createAsk, listAsks, handleReply, quietHours, pickAsk, resolveAsk } from "./engine/router-pending.mjs";
 import { judgeRun, describeVerdict } from "./engine/delivery-gate.mjs";
 import { runWithInitiator, DEFAULT_RULES } from "./engine/tools/initiator.mjs";
@@ -3934,6 +3935,24 @@ const API_ROUTES = [
   }],
   // 2026-10-27：微信状态 + PushPlus 推送通道状态（读 notify.py 落的状态文件）
   // 2026-10-27：推送通道（PushPlus）——面板里粘贴 token、一键测试，不再手写文件
+  // 2026-11-01：创作台 3D 空间（户型保存 / 读取 / 导出单文件）
+  ["GET", "/api/scene3d/list", (res) => json(res, 200, { ok: true, items: listPlans(WS_ROOT) })],
+  ["GET", "/api/scene3d/plan", (res, req, url) => {
+    const name = String(url.searchParams.get("name") || "");
+    const plan = readPlan(WS_ROOT, name);
+    return plan ? json(res, 200, { ok: true, plan, stats: planStats(plan) }) : json(res, 404, { ok: false, error: "没有这个空间" });
+  }],
+  ["POST", "/api/scene3d/save", async (res, req) => {
+    const b = await readBody(req);
+    const out = savePlan(WS_ROOT, b?.plan || {});
+    return json(res, out.ok ? 200 : 400, out);
+  }],
+  ["POST", "/api/scene3d/export", async (res, req) => {
+    const b = await readBody(req);
+    const price = Number(b?.pricePerSqm) || 0;
+    const out = exportPlanFile(WS_ROOT, b?.plan || {}, { pricePerSqm: price });
+    return json(res, out.ok ? 200 : 400, out);
+  }],
   // 2026-11-01：候选对比（基线与候选，判 keep/rollback）
   ["POST", "/api/compare/candidates", async (res, req) => {
     const b = await readBody(req);
