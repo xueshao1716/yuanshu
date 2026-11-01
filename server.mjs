@@ -4,6 +4,7 @@ import https from "node:https";
 import net from "node:net";
 import tls from "node:tls";
 import fs from "node:fs";
+import crypto from "node:crypto";
 import os from "node:os";
 import path from "node:path";
 import { createTeamLauncher } from "./engine/team-launch.mjs";
@@ -757,10 +758,26 @@ const localSkills = () => {
         const line = md.split(/\r?\n/).find((l) => l.trim() && !l.startsWith("#"));
         desc = String(line || "").replace(/\s+/g, " ").slice(0, 80);
       } catch { continue }
-      out.push({ id: name, name, version: "local", type: "skill", description: desc, enabled: true, exists: true, source: "local", dir: path.join(dir, name) });
+      let hash = "";
+      let mtime = 0;
+      try { hash = crypto.createHash("sha1").update(fs.readFileSync(skillFile)).digest("hex").slice(0, 12); mtime = fs.statSync(skillFile).mtimeMs } catch {}
+      out.push({ id: name, name, version: "local", type: "skill", description: desc, enabled: true, exists: true, source: "local", dir: path.join(dir, name), hash, mtime });
     }
   }
-  return out;
+  // 去重：同一份内容（hash）或同名只留一条；每多一个来源优先级更低
+  const rank = (d) => (String(d).includes("工作区") || String(d).startsWith(WS_ROOT + path.sep + "技能") ? 0 : String(d).includes(".pi") ? 1 : String(d).includes("skill-study") ? 2 : String(d).includes("anthropic") ? 3 : String(d).includes("headlong") ? 4 : 5);
+  out.sort((a, b) => rank(a.dir) - rank(b.dir) || (b.mtime || 0) - (a.mtime || 0));
+  const seenHash = new Set();
+  const seenName = new Set();
+  const kept = [];
+  for (const it of out) {
+    const h = it.hash || it.id;
+    if (seenHash.has(h) || seenName.has(it.id)) continue;
+    seenHash.add(h);
+    seenName.add(it.id);
+    kept.push(it);
+  }
+  return kept;
 };
 
 const syncReceipt = () => {
