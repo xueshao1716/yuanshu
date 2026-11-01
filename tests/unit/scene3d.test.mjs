@@ -4,7 +4,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { normalizePlan, planStats, planBounds, exteriorWalls, savePlan, listPlans, readPlan, exportHtml, exportPlanFile, safeName } from "../../engine/scene3d.mjs";
+import { normalizePlan, planStats, planBounds, exteriorWalls, savePlan, listPlans, readPlan, exportHtml, exportPlanFile, safeName, FURNITURE_PRESETS, planCostBreakdown } from "../../engine/scene3d.mjs";
 
 const plan = {
   name: "两室样板",
@@ -83,4 +83,29 @@ test("空户型也能出图（不崩）", () => {
   const html = exportHtml({ name: "空" }, {});
   assert.match(html, /<!doctype html>/i);
   assert.match(html, /const PLAN = \{/);
+});
+
+test('旋转归一：只接受 0/90/180/270', () => {
+  assert.equal(normalizePlan({ items: [{ rot: 450, w: 1, d: 1, h: 1 }] }).items[0].rot, 90);
+  assert.equal(normalizePlan({ items: [{ rot: -90, w: 1, d: 1, h: 1 }] }).items[0].rot, 270);
+  assert.equal(normalizePlan({ items: [{ rot: 'x', w: 1, d: 1, h: 1 }] }).items[0].rot, 0);
+});
+
+test('家具预设：9 种，每种都有尺寸与部件', () => {
+  const kinds = Object.keys(FURNITURE_PRESETS);
+  assert.equal(kinds.length, 9);
+  for (const k of ['sofa', 'bed', 'table', 'chair', 'cabinet', 'rug', 'plant', 'door', 'window']) assert.ok(kinds.includes(k), k);
+  for (const k of kinds) {
+    const p = FURNITURE_PRESETS[k];
+    assert.ok(p.w > 0 && p.d > 0 && p.h >= 0, k);
+    assert.ok(Array.isArray(p.parts) && p.parts.length >= 1, k);
+  }
+});
+
+test('分房间造价明细', () => {
+  const r = planCostBreakdown({ rooms: [{ name: '客厅', w: 5, d: 4 }, { name: '卧室', w: 3, d: 4 }] }, { pricePerSqm: 3000 });
+  assert.equal(r.area, 32);
+  assert.equal(r.cost, 96000);
+  assert.deepEqual(r.rows.map((x) => x.name), ['客厅', '卧室']);
+  assert.equal(r.rows[0].cost, 60000);
 });

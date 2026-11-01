@@ -8,6 +8,22 @@
 import fs from "node:fs";
 import path from "node:path";
 
+/**
+ * 家具预设：尺寸（米）、主色、以及 3D 里的部件组合（相对坐标，原点在左下前角）。
+ * 部件用盒体拼，够看出是沙发/床/桌，不追求精细建模。
+ */
+export const FURNITURE_PRESETS = {
+  sofa:  { label: "沙发", w: 2.2, d: 0.9, h: 0.8, color: "#8a6b52", parts: [{ x: 0, y: 0, z: 0, w: 2.2, h: 0.45, d: 0.9, c: "seat" }, { x: 0, y: 0.45, z: 0.72, w: 2.2, h: 0.35, d: 0.18, c: "back" }, { x: 0, y: 0, z: 0, w: 0.18, h: 0.6, d: 0.9, c: "back" }, { x: 2.02, y: 0, z: 0, w: 0.18, h: 0.6, d: 0.9, c: "back" }] },
+  bed:   { label: "床", w: 1.8, d: 2.0, h: 0.6, color: "#b9b2a6", parts: [{ x: 0, y: 0, z: 0, w: 1.8, h: 0.35, d: 2.0, c: "seat" }, { x: 0, y: 0.35, z: 0, w: 1.8, h: 0.22, d: 1.5, c: "soft" }, { x: 0, y: 0, z: 1.9, w: 1.8, h: 0.9, d: 0.1, c: "back" }] },
+  table: { label: "桌子", w: 1.4, d: 0.8, h: 0.75, color: "#9a7b4f", parts: [{ x: 0, y: 0.68, z: 0, w: 1.4, h: 0.07, d: 0.8, c: "top" }, { x: 0.05, y: 0, z: 0.05, w: 0.08, h: 0.68, d: 0.08, c: "leg" }, { x: 1.27, y: 0, z: 0.05, w: 0.08, h: 0.68, d: 0.08, c: "leg" }, { x: 0.05, y: 0, z: 0.67, w: 0.08, h: 0.68, d: 0.08, c: "leg" }, { x: 1.27, y: 0, z: 0.67, w: 0.08, h: 0.68, d: 0.08, c: "leg" }] },
+  chair: { label: "椅子", w: 0.5, d: 0.5, h: 0.9, color: "#7d6a55", parts: [{ x: 0, y: 0.42, z: 0, w: 0.5, h: 0.06, d: 0.5, c: "top" }, { x: 0, y: 0.48, z: 0.44, w: 0.5, h: 0.42, d: 0.06, c: "back" }] },
+  cabinet: { label: "柜子", w: 1.2, d: 0.45, h: 2.0, color: "#8e8577", parts: [{ x: 0, y: 0, z: 0, w: 1.2, h: 2.0, d: 0.45, c: "body" }] },
+  rug:   { label: "地毯", w: 2.4, d: 1.6, h: 0.02, color: "#a89484", parts: [{ x: 0, y: 0, z: 0, w: 2.4, h: 0.02, d: 1.6, c: "soft" }] },
+  plant: { label: "绿植", w: 0.5, d: 0.5, h: 1.1, color: "#4c6b4a", parts: [{ x: 0.18, y: 0, z: 0.18, w: 0.14, h: 0.35, d: 0.14, c: "leg" }, { x: 0, y: 0.35, z: 0, w: 0.5, h: 0.75, d: 0.5, c: "soft" }] },
+  door:  { label: "门", w: 0.9, d: 0.1, h: 2.0, color: "#6f5a45", parts: [{ x: 0, y: 0, z: 0, w: 0.9, h: 2.0, d: 0.1, c: "body" }] },
+  window: { label: "窗", w: 1.4, d: 0.1, h: 1.2, color: "#9fc6d8", parts: [{ x: 0, y: 0.9, z: 0, w: 1.4, h: 1.2, d: 0.1, c: "soft" }] },
+};
+
 export const SCENE_REL = path.join("生成物", "3D");
 
 export function sceneDir(wsRoot) {
@@ -31,7 +47,8 @@ export function normalizePlan(plan = {}) {
     kind: String(it?.kind || "box").slice(0, 20),
     x: round(it?.x), z: round(it?.z),
     w: Math.max(0.2, round(it?.w ?? 0.8)), d: Math.max(0.2, round(it?.d ?? 0.6)),
-    h: Math.max(0.2, round(it?.h ?? 0.75)),
+    h: Math.max(0.05, round(it?.h ?? 0.75)),
+    rot: ((Math.round(Number(it?.rot) || 0) % 360) + 360) % 360,
     color: String(it?.color || "#b98b5e"),
   }));
   return { version: 1, name: String(plan.name || "未命名空间").slice(0, 40), units: "m", rooms, items };
@@ -43,6 +60,17 @@ export function planStats(plan = {}, { pricePerSqm = 0 } = {}) {
   const rooms = p.rooms.map((r) => ({ id: r.id, name: r.name, area: Number((r.w * r.d).toFixed(2)) }));
   const area = Number(rooms.reduce((a, r) => a + r.area, 0).toFixed(2));
   return { area, rooms, cost: pricePerSqm > 0 ? Number((area * pricePerSqm).toFixed(2)) : 0, pricePerSqm };
+}
+
+/** 分房间的造价明细（给报价单用）。 */
+export function planCostBreakdown(plan = {}, { pricePerSqm = 0 } = {}) {
+  const p = normalizePlan(plan);
+  const rows = p.rooms.map((r) => {
+    const area = Number((r.w * r.d).toFixed(2));
+    return { name: r.name, area, cost: pricePerSqm > 0 ? Number((area * pricePerSqm).toFixed(2)) : 0 };
+  });
+  const area = Number(rows.reduce((a, r) => a + r.area, 0).toFixed(2));
+  return { rows, area, cost: pricePerSqm > 0 ? Number((area * pricePerSqm).toFixed(2)) : 0 };
 }
 
 /** 场景包围盒（用于自动取景）。 */
