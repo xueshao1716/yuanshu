@@ -5458,10 +5458,16 @@ const API_ROUTES = [
   ["GET", "/api/subagent/runs", (res) => handleSubagentRuns(res)],
   ["GET", "/api/subagent/history", (res) => handleSubagentHistory(res)],
   // ── 进化引擎（09-03）：反思式进化提案 + 人工审批写回 ──
-  ["GET", "/api/evolution/proposals", (res) => json(res, 200, { proposals: listEvolution() })],
+  ["GET", "/api/evolution/proposals", (res, req, url) => {
+    const all = listEvolution() || [];
+    // 只看待决定的就别把已忽略/已应用的混进来（否则按钮点了像没反应）
+    const onlyPending = String(url.searchParams.get("all") || "") !== "1";
+    const items = onlyPending ? all.filter((x) => !x?.status || x.status === "pending" || x.status === "evaluated") : all;
+    return json(res, 200, { proposals: items, total: all.length });
+  }],
   ["POST", "/api/evolution/propose", async (res, req) => { const b = await readBody(req); return json(res, 200, await proposeEvolution({ name: b.name, model: defaultModel })); }],
-  ["POST", "/api/evolution/apply", async (res, req) => { const b = await readBody(req); return json(res, 200, applyEvolution(b.id, b.variantIndex ?? 0, b.review)); }],
-  ["POST", "/api/evolution/dismiss", async (res, req) => { const b = await readBody(req); return json(res, 200, dismissEvolution(b.id)); }],
+  ["POST", "/api/evolution/apply", async (res, req) => { const b = await readBody(req); const r = applyEvolution(b.id, b.variantIndex ?? 0, b.review); return json(res, r?.ok ? 200 : 409, r); }],
+  ["POST", "/api/evolution/dismiss", async (res, req) => { const b = await readBody(req); const r = dismissEvolution(b.id); return json(res, r?.ok ? 200 : 409, r); }],
   ["POST", "/api/evolution/evaluate", async (res, req) => { const b = await readBody(req); const { completion, ...result } = startEvolutionEvaluation(b.id, defaultModel); return json(res, 200, result); }],
   // ── 技能自主沉淀（Hermes 闭环）──
   ["GET", "/api/skillnudge/list", (res) => json(res, 200, { nudges: listSkillNudges() })],
