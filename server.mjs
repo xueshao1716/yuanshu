@@ -5459,10 +5459,10 @@ const API_ROUTES = [
   ["GET", "/api/subagent/history", (res) => handleSubagentHistory(res)],
   // ── 进化引擎（09-03）：反思式进化提案 + 人工审批写回 ──
   ["GET", "/api/evolution/proposals", (res, req, url) => {
-    const all = listEvolution() || [];
-    // 只看待决定的就别把已忽略/已应用的混进来（否则按钮点了像没反应）
+    const all = (listEvolution() || []).map((x) => ({ ...x, status: String(x?.state || "pending") }));
+    // 默认只给「还能点的」：pending / evaluated；已应用或已忽略的不再出现
     const onlyPending = String(url.searchParams.get("all") || "") !== "1";
-    const items = onlyPending ? all.filter((x) => !x?.status || x.status === "pending" || x.status === "evaluated") : all;
+    const items = onlyPending ? all.filter((x) => x.status === "pending" || x.status === "evaluated") : all;
     return json(res, 200, { proposals: items, total: all.length });
   }],
   ["POST", "/api/evolution/propose", async (res, req) => { const b = await readBody(req); return json(res, 200, await proposeEvolution({ name: b.name, model: defaultModel })); }],
