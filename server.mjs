@@ -134,6 +134,7 @@ import { getTeamToolContext } from "./engine/team-tool-context.mjs";
 import { createPolicyProvider, readPolicy, writePolicy, rollbackPolicy } from "./engine/tools/policy-store.mjs";
 import { syncActionRights, readRights } from "./engine/action-rights.mjs";
 import { syncPluginReceipt } from "./engine/plugin-receipt.mjs";
+import { appendEvent as appendEvoEvent, readEvents as readEvoEvents, summarizeCapability as summarizeEvoCapability, createProposal as createEvoProposal, readProposals as readEvoProposals } from "./engine/evolution/index.mjs";
 import { countExperience, distillExperience, gatherEvidence, latestReflectionReport } from "./engine/reflection-experience.mjs";
 import { readRegions, writeRegions, REGIONS, deliveryStrictness, distillLimit, nudgeCooldownMs, ideaCap, maxToolTurns, planBatchFactor, toolTier } from "./engine/brain-regions.mjs";
 import { runDoctor } from "./engine/install-doctor.mjs";
@@ -4082,6 +4083,18 @@ const API_ROUTES = [
     const b = await readBody(req);
     const price = Number(b?.pricePerSqm) || 0;
     const out = exportPlanFile(WS_ROOT, b?.plan || {}, { pricePerSqm: price });
+    return json(res, out.ok ? 200 : 400, out);
+  }],
+  // 2026-11-02：进化中心——能力画像与事件流（只读；提案走已有 evolution-api 审批链）
+  ["GET", "/api/evolution/summary", (res) => {
+    const events = readEvoEvents(WS_ROOT, { limit: 2000 });
+    const cap = summarizeEvoCapability(events, { minN: 3 });
+    return json(res, 200, { ok: true, events: events.length, capability: cap.rows.slice(0, 20), minN: cap.minN, proposals: readEvoProposals(WS_ROOT).slice(0, 20) });
+  }],
+  ["GET", "/api/evolution/events", (res, req, url) => json(res, 200, { ok: true, events: readEvoEvents(WS_ROOT, { kind: String(url.searchParams.get("kind") || ""), limit: Math.min(500, Number(url.searchParams.get("limit")) || 100) }) })],
+  ["POST", "/api/evolution/proposal", async (res, req) => {
+    const b = await readBody(req);
+    const out = createEvoProposal(WS_ROOT, b || {});
     return json(res, out.ok ? 200 : 400, out);
   }],
   // 2026-11-01：候选对比（基线与候选，判 keep/rollback）

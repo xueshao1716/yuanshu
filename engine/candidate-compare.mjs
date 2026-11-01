@@ -12,6 +12,7 @@
 //   code : 行数、导出符号、被删掉的导出
 import fs from "node:fs";
 import zlib from "node:zlib";
+import { appendEvent } from "./evolution/index.mjs";
 
 // ── PNG 解码（够用就好：8bit、颜色类型 2/6、非隔行）──
 export function pngInfo(buf) {
@@ -192,6 +193,8 @@ export function recordCompare(wsRoot, row) {
     const file = `${String(wsRoot || ".").replace(/[\\/]+$/, "")}/记忆/运行时/候选对比.jsonl`;
     fs.mkdirSync(file.slice(0, file.lastIndexOf("/")), { recursive: true });
     fs.appendFileSync(file, JSON.stringify({ at: Date.now(), ...row }) + "\n", "utf8");
+    // 2026-11-02：同时进统一事件流，供能力画像统计回退率
+    try { appendEvent(wsRoot, { kind: "compare", target: row.kind === "image" ? "image" : row.kind, targetId: String(row.candidate || "").split(/[\\/]/).pop() || "", verdict: String(row.verdict || ""), by: String(row.by || "compare"), meta: { degraded: row.degraded || [] } }) } catch {}
     return { ok: true };
   } catch (e) { return { ok: false, error: String(e?.message || e).slice(0, 120) } }
 }
