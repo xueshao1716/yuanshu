@@ -62,6 +62,13 @@ export const BASE_TOOL_SCHEMAS = [
     verified: { type: "array", items: { type: "string" }, description: "已用别的方式验证过的文件（算覆盖，但会被标成声明已验证）" },
     note: { type: "string", description: "外部阻塞的一句话说明（会作为 YELLOW 条件）" },
   } } } },
+  // 2026-11-01：候选对比——「这版比上版好还是差」用客观指标判，退化了就回退
+  { type: "function", function: { name: "candidate_compare", description: "对比基线与候选，判 keep 还是 rollback。出图/改网页/改代码后，交付前用它确认这版没有退化（对比度/细节/尺寸/图片引用/导出符号）。rollback 时不要交付候选，用基线并如实说明退化项。", parameters: { type: "object", properties: {
+    kind: { type: "string", enum: ["image", "html", "code"], description: "产物类型" },
+    baseline: { type: "string", description: "基线文件路径（上一版/原始版）" },
+    candidate: { type: "string", description: "候选文件路径（这一版）" },
+    note: { type: "string", description: "一句话说明这次改了什么（可选）" },
+  }, required: ["kind", "baseline", "candidate"] } } },
   { type: "function", function: { name: "record_taste", description: "记一条判断轨迹：这次选了什么、否了什么、为什么。只在做出有取舍的判断时记，不要每轮都记。", parameters: { type: "object", properties: { topic: { type: "string", description: "判断的主题，如「封面字体」" }, chose: { type: "string", description: "最终选定的方案" }, rejected: { type: "array", items: { type: "string" }, description: "被否掉的方案（最多 5 个）" }, why: { type: "string", description: "为什么这样选（一句）" }, tags: { type: "array", items: { type: "string" }, description: "标签：设计/写作/工程" } }, required: ["topic", "chose"] } } },
   { type: "function", function: { name: "bash", get description() { return bashToolDescription() + "出图/视频/配音用 generate_image / generate_video / generate_tts，不要读 auth.json/.token。不要 curl 本机 /api/image，不要启动 Vite 5173 或第二份 8787。" }, parameters: { type: "object", properties: { command: { type: "string", description: "要运行的命令" } }, required: ["command"] } } },
   // 2026-10-25：Windows 原生 PowerShell。有这条就尽量别用 bash 拼 Unix 命令——

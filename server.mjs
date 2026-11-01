@@ -123,6 +123,7 @@ import { createAuditGate, withAuditGate } from "./engine/tools/audit-gate.mjs";
 import { routeEvent, recentDecisions } from "./engine/router.mjs";
 import { parseOpenIntent, navPayload } from "./engine/intent-router.mjs";
 import { filterTasks } from "./engine/task-filter.mjs";
+import { compareCandidates, recordCompare } from "./engine/candidate-compare.mjs";
 import { createAsk, listAsks, handleReply, quietHours, pickAsk, resolveAsk } from "./engine/router-pending.mjs";
 import { judgeRun, describeVerdict } from "./engine/delivery-gate.mjs";
 import { runWithInitiator, DEFAULT_RULES } from "./engine/tools/initiator.mjs";
@@ -1261,6 +1262,25 @@ const extraToolExecutors = {
         } catch {}
       }
       return cultivationTool(lateRefs.cultivation, args, host);
+    },
+    candidate_compare: (args) => {
+      // 2026-11-01：候选 vs 基线；退化了就让她别交付
+      const kind = String(args?.kind || "image");
+      const base = String(args?.baseline || "").trim();
+      const cand = String(args?.candidate || "").trim();
+      if (!base || !cand) return { text: "需要 baseline 和 candidate 两个路径", isError: true };
+      try {
+        const abs = (x) => (path.isAbsolute(x) ? x : path.resolve(WS_ROOT, x));
+        const r = compareCandidates({ kind, baseline: abs(base), candidate: abs(cand) });
+        recordCompare(WS_ROOT, { kind, baseline: base, candidate: cand, verdict: r.verdict, degraded: r.degraded, note: String(args?.note || "").slice(0, 120) });
+        return { text: JSON.stringify({
+          verdict: r.verdict, degraded: r.degraded, improved: r.improved,
+          baseline: r.baseline, candidate: r.candidate,
+          nextAction: r.verdict === "rollback"
+            ? "候选退化了：不要交付这一版，回到基线；把退化项如实告诉伙伴，并说明打算怎么修。"
+            : "这版没有退化，可以交付。",
+        }, null, 1), isError: false };
+      } catch (e) { return { text: `对比失败：${String(e?.message || e).slice(0, 160)}`, isError: true } }
     },
     delivery_check: (args, ctx) => {
       const r = checkDelivery({ runId: ctx?.runId || "",
@@ -3914,6 +3934,20 @@ const API_ROUTES = [
   }],
   // 2026-10-27：微信状态 + PushPlus 推送通道状态（读 notify.py 落的状态文件）
   // 2026-10-27：推送通道（PushPlus）——面板里粘贴 token、一键测试，不再手写文件
+  // 2026-11-01：候选对比（基线与候选，判 keep/rollback）
+  ["POST", "/api/compare/candidates", async (res, req) => {
+    const b = await readBody(req);
+    const kind = String(b?.kind || "image");
+    const base = String(b?.baseline || "").trim();
+    const cand = String(b?.candidate || "").trim();
+    if (!base || !cand) return json(res, 400, { ok: false, error: "需要 baseline 和 candidate" });
+    try {
+      const abs = (x) => (path.isAbsolute(x) ? x : path.resolve(WS_ROOT, x));
+      const r = compareCandidates({ kind, baseline: abs(base), candidate: abs(cand) });
+      recordCompare(WS_ROOT, { kind, baseline: base, candidate: cand, verdict: r.verdict, degraded: r.degraded });
+      return json(res, 200, { ok: true, ...r });
+    } catch (e) { return json(res, 500, { ok: false, error: String(e?.message || e).slice(0, 160) }) }
+  }],
   // 2026-11-01：路由器（事件 → 判断 → 派活）
   ["GET", "/api/router/decisions", (res, req, url) => json(res, 200, { ok: true, items: recentDecisions(WS_ROOT, Number(url.searchParams.get("limit")) || 20) })],
   ["GET", "/api/router/pending", (res, req, url) => json(res, 200, { ok: true, items: listAsks(WS_ROOT, { state: String(url.searchParams.get("state") || "pending") }) })],
