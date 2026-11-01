@@ -102,6 +102,91 @@ export function exteriorWalls(plan = {}) {
   return [...seen.values()].filter((w) => w.count === 1).map((w) => ({ a: w.a, b: w.b }));
 }
 
+/**
+ * 两个房间能否合并：同一轴向上贴边（间距 < 0.15m）或重叠。
+ * 合并取包围盒。
+ */
+export function mergeRooms(a, b) {
+  const gap = 0.15;
+  const touchX = Math.abs(a.x + a.w - b.x) <= gap || Math.abs(b.x + b.w - a.x) <= gap;
+  const touchZ = Math.abs(a.z + a.d - b.z) <= gap || Math.abs(b.z + b.d - a.z) <= gap;
+  const overlapX = Math.min(a.x + a.w, b.x + b.w) - Math.max(a.x, b.x) > 0;
+  const overlapZ = Math.min(a.z + a.d, b.z + b.d) - Math.max(a.z, b.z) > 0;
+  const adjacent = touchX || touchZ;
+  if (!adjacent && !(overlapX && overlapZ)) return { ok: false, reason: "两间不相邻" };
+  const x = Math.min(a.x, b.x), z = Math.min(a.z, b.z);
+  const w = Math.max(a.x + a.w, b.x + b.w) - x;
+  const d = Math.max(a.z + a.d, b.z + b.d) - z;
+  return { ok: true, room: { ...a, x, z, w: Number(w.toFixed(2)), d: Number(d.toFixed(2)), name: a.name } };
+}
+
+/** 把一间房沿较长的一条边拆成两间。 */
+export function splitRoom(room) {
+  if (!room) return { ok: false, reason: "没有房间" };
+  const alongX = room.w >= room.d;
+  if (alongX) {
+    const half = Number((room.w / 2).toFixed(2));
+    if (half < 0.5) return { ok: false, reason: "太窄了，拆不开" };
+    return {
+      ok: true,
+      rooms: [
+        { ...room, w: half, name: `${room.name}A` },
+        { ...room, x: Number((room.x + half).toFixed(2)), w: Number((room.w - half).toFixed(2)), name: `${room.name}B` },
+      ],
+    };
+  }
+  const half = Number((room.d / 2).toFixed(2));
+  if (half < 0.5) return { ok: false, reason: "太浅了，拆不开" };
+  return {
+    ok: true,
+    rooms: [
+      { ...room, d: half, name: `${room.name}A` },
+      { ...room, z: Number((room.z + half).toFixed(2)), d: Number((room.d - half).toFixed(2)), name: `${room.name}B` },
+    ],
+  };
+}
+
+/**
+ * 找出落在这间房四面墙上的门/窗（按轴向和贴边距离判断）。
+ * @returns {{side:'N'|'S'|'W'|'E', at:number, len:number, kind:string, sill:number, height:number}[]}
+ */
+export function openingsForRoom(room, items = []) {
+  const eps = 0.3;
+  const out = [];
+  for (const it of items) {
+    if (!["door", "window"].includes(it.kind)) continue;
+    const w = it.rot % 180 === 0 ? it.w : it.d;
+    const alongX = it.rot % 180 === 0 ? it.x + w / 2 : it.x + it.d / 2;
+    const sill = it.kind === "window" ? 0.9 : 0;
+    const height = it.kind === "window" ? 1.2 : 2.0;
+    // 贴 N/S 墙：z 对齐房间上下边
+    if (Math.abs(it.z - room.z) <= eps) out.push({ side: "N", at: alongX - room.x, len: Math.min(w, room.w), kind: it.kind, sill, height });
+    else if (Math.abs(it.z + (it.rot % 180 === 0 ? it.d : it.w) - (room.z + room.d)) <= eps) out.push({ side: "S", at: alongX - room.x, len: Math.min(w, room.w), kind: it.kind, sill, height });
+    else if (Math.abs(it.x - room.x) <= eps) out.push({ side: "W", at: it.z + w / 2 - room.z, len: Math.min(w, room.d), kind: it.kind, sill, height });
+    else if (Math.abs(it.x + (it.rot % 180 === 0 ? it.w : it.d) - (room.x + room.w)) <= eps) out.push({ side: "E", at: it.z + w / 2 - room.z, len: Math.min(w, room.d), kind: it.kind, sill, height });
+  }
+  return out;
+}
+
+/** 一面墙按开口切段：返回若干盒体（含门楣/窗下墙）。 */
+export function wallPieces(length, height, openings = []) {
+  const segs = openings
+    .map((o) => ({ from: Math.max(0, o.at - o.len / 2), to: Math.min(length, o.at + o.len / 2), ...o }))
+    .sort((a, b) => a.from - b.from);
+  const pieces = [];
+  let cursor = 0;
+  for (const o of segs) {
+    if (o.from > cursor) pieces.push({ from: cursor, to: o.from, y: 0, h: height });
+    // 洞下（窗台）与洞上（门楣）
+    if (o.sill > 0) pieces.push({ from: o.from, to: o.to, y: 0, h: Math.min(o.sill, height) });
+    const top = o.sill + o.height;
+    if (top < height) pieces.push({ from: o.from, to: o.to, y: top, h: height - top });
+    cursor = Math.max(cursor, o.to);
+  }
+  if (cursor < length) pieces.push({ from: cursor, to: length, y: 0, h: height });
+  return pieces.filter((x) => x.to - x.from > 0.01 && x.h > 0.01);
+}
+
 /** 保存/读取/列表。 */
 export function savePlan(wsRoot, plan) {
   const p = normalizePlan(plan);

@@ -4,7 +4,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { normalizePlan, planStats, planBounds, exteriorWalls, savePlan, listPlans, readPlan, exportHtml, exportPlanFile, safeName, FURNITURE_PRESETS, planCostBreakdown } from "../../engine/scene3d.mjs";
+import { normalizePlan, planStats, planBounds, exteriorWalls, savePlan, listPlans, readPlan, exportHtml, exportPlanFile, safeName, FURNITURE_PRESETS, planCostBreakdown, mergeRooms, splitRoom, openingsForRoom, wallPieces } from "../../engine/scene3d.mjs";
 
 const plan = {
   name: "两室样板",
@@ -108,4 +108,46 @@ test('分房间造价明细', () => {
   assert.equal(r.cost, 96000);
   assert.deepEqual(r.rows.map((x) => x.name), ['客厅', '卧室']);
   assert.equal(r.rows[0].cost, 60000);
+});
+
+test('合并：相邻两间取包围盒', () => {
+  const a = { x: 0, z: 0, w: 4, d: 3, h: 2.8, name: '客厅' };
+  const b = { x: 4, z: 0, w: 3, d: 3, h: 2.8, name: '卧室' };
+  const r = mergeRooms(a, b);
+  assert.equal(r.ok, true);
+  assert.deepEqual([r.room.x, r.room.z, r.room.w, r.room.d], [0, 0, 7, 3]);
+});
+
+test('合并：不相邻的被拒', () => {
+  const a = { x: 0, z: 0, w: 2, d: 2, h: 2.8 };
+  const b = { x: 10, z: 10, w: 2, d: 2, h: 2.8 };
+  assert.equal(mergeRooms(a, b).ok, false);
+});
+
+test('拆分：沿长边对半，两间面积相加等于原来', () => {
+  const a = { x: 0, z: 0, w: 5, d: 3, h: 2.8, name: '客厅' };
+  const r = splitRoom(a);
+  assert.equal(r.ok, true);
+  assert.equal(r.rooms.length, 2);
+  assert.equal(r.rooms[0].w + r.rooms[1].w, 5);
+  assert.equal(r.rooms[1].x, 2.5);
+});
+
+test('开口：贴墙的门能被认出来，不贴墙的不会', () => {
+  const room = { x: 0, z: 0, w: 4, d: 3, h: 2.8 };
+  const onWall = openingsForRoom(room, [{ kind: 'door', x: 1, z: 0, w: 0.9, d: 0.1, rot: 0 }]);
+  assert.equal(onWall.length, 1);
+  assert.equal(onWall[0].side, 'N');
+  const floating = openingsForRoom(room, [{ kind: 'door', x: 1, z: 1.5, w: 0.9, d: 0.1, rot: 0 }]);
+  assert.equal(floating.length, 0);
+});
+
+test('切段：门洞上方留门楣，下方不留；窗洞上下都留', () => {
+  const door = wallPieces(4, 2.8, [{ at: 2, len: 1, sill: 0, height: 2 }]);
+  assert.equal(door.length, 3);
+  const lintel = door.find((p) => p.y > 0);
+  assert.ok(lintel && Math.abs(lintel.h - 0.8) < 0.001, '门楣高 0.8');
+  const win = wallPieces(4, 2.8, [{ at: 2, len: 1, sill: 0.9, height: 1.2 }]);
+  assert.equal(win.length, 4);
+  assert.ok(win.some((p) => p.y === 0 && Math.abs(p.h - 0.9) < 1e-6), '窗下墙');
 });

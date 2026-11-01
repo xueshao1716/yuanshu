@@ -220,6 +220,35 @@ export default function Scene3DTab() {
     })
   }
 
+  // 合并：把选中房间和与它相邻的第一间合成包围盒；拆分：沿长边对半
+  const mergeSelected = () => {
+    if (sel?.type !== 'room') { setMsg('先选中一个房间'); return }
+    const a = plan.rooms.find((r) => r.id === sel.id)
+    if (!a) return
+    const eps = 0.15
+    const b = plan.rooms.find((r) => r.id !== a.id && (
+      Math.abs(a.x + a.w - r.x) <= eps || Math.abs(r.x + r.w - a.x) <= eps ||
+      Math.abs(a.z + a.d - r.z) <= eps || Math.abs(r.z + r.d - a.z) <= eps))
+    if (!b) { setMsg('没有相邻的房间可合并'); return }
+    const x = Math.min(a.x, b.x), z = Math.min(a.z, b.z)
+    const w = Math.max(a.x + a.w, b.x + b.w) - x, d = Math.max(a.z + a.d, b.z + b.d) - z
+    commit({ ...plan, rooms: [...plan.rooms.filter((r) => r.id !== b.id).map((r) => (r.id === a.id ? { ...r, x, z, w: round2(w), d: round2(d) } : r))] })
+    setMsg(`已合并：${a.name} + ${b.name}`)
+  }
+  const splitSelected = () => {
+    if (sel?.type !== 'room') { setMsg('先选中一个房间'); return }
+    const r = plan.rooms.find((x) => x.id === sel.id)
+    if (!r) return
+    const alongX = r.w >= r.d
+    if ((alongX ? r.w : r.d) / 2 < 0.5) { setMsg('太窄了，拆不开'); return }
+    const half = round2((alongX ? r.w : r.d) / 2)
+    const second = alongX
+      ? { ...r, id: uid(), name: `${r.name}B`, x: round2(r.x + half), w: round2(r.w - half) }
+      : { ...r, id: uid(), name: `${r.name}B`, z: round2(r.z + half), d: round2(r.d - half) }
+    const first = alongX ? { ...r, w: half, name: `${r.name}A` } : { ...r, d: half, name: `${r.name}A` }
+    commit({ ...plan, rooms: plan.rooms.map((x) => (x.id === r.id ? first : x)).concat([second]) })
+    setMsg('已拆分')
+  }
   const save = async () => {
     const out: any = await api('/api/scene3d/save', { method: 'POST', body: { plan } }).catch((e: any) => ({ ok: false, error: e?.message }))
     setMsg(out?.ok ? `已保存：${out.name}` : `保存失败：${out?.error || '未知'}`)
@@ -273,6 +302,8 @@ export default function Scene3DTab() {
           <button type="button" onClick={() => void save()} className="inline-flex items-center gap-1 min-h-8 px-2 rounded-pi-md bg-pi-bg3 text-[12px]"><Save className="w-3.5 h-3.5" />保存</button>
           <button type="button" onClick={() => void exportIt()} className="inline-flex items-center gap-1 min-h-8 px-2 rounded-pi-md bg-pi-bg3 text-[12px]"><Download className="w-3.5 h-3.5" />导出 HTML</button>
           <button type="button" onClick={exportPng} className="inline-flex items-center gap-1 min-h-8 px-2 rounded-pi-md bg-pi-bg3 text-[12px]"><ImageIcon className="w-3.5 h-3.5" />平面图 PNG</button>
+          <button type="button" onClick={mergeSelected} className="inline-flex items-center gap-1 min-h-8 px-2 rounded-pi-md bg-pi-bg3 text-[12px]">合并选中</button>
+          <button type="button" onClick={splitSelected} className="inline-flex items-center gap-1 min-h-8 px-2 rounded-pi-md bg-pi-bg3 text-[12px]">拆分选中</button>
           <button type="button" onClick={() => setFp((v) => !v)} className={`inline-flex items-center gap-1 min-h-8 px-2 rounded-pi-md text-[12px] ${fp ? 'bg-pi-accent text-pi-on-accent' : 'bg-pi-bg3'}`}><Wand2 className="w-3.5 h-3.5" />{fp ? '退出漫游' : '第一人称'}</button>
         </div>
         {sel && (
@@ -349,16 +380,23 @@ function Scene3DView({ plan, selected, firstPerson, onExitFirstPerson }: { plan:
       root.add(floor)
       const h = r.h
       const mat = new THREE.MeshStandardMaterial({ color: new THREE.Color('#cfc7b8'), roughness: 0.9, transparent: true, opacity: active ? 0.35 : 0.5 })
-      const walls = [
-        { w: r.w, d: 0.06, x: r.x + r.w / 2, z: r.z },
-        { w: 0.06, d: r.d, x: r.x, z: r.z + r.d / 2 },
-        { w: 0.06, d: r.d, x: r.x + r.w, z: r.z + r.d / 2 },
+      // 四面墙，按门窗开口切段（门上方留门楣、窗上下留墙）
+      const ops = openingsForRoom(r, plan.items)
+      const sides: { side: 'N' | 'S' | 'W' | 'E'; len: number; place: (from: number, to: number, y: number, ph: number) => void }[] = [
+        { side: 'N', len: r.w, place: (f, t, y, ph) => addWallBox((f + t) / 2 + r.x - cx, y + ph / 2, r.z - cz, t - f, ph, 0.06) },
+        { side: 'S', len: r.w, place: (f, t, y, ph) => addWallBox((f + t) / 2 + r.x - cx, y + ph / 2, r.z + r.d - cz, t - f, ph, 0.06) },
+        { side: 'W', len: r.d, place: (f, t, y, ph) => addWallBox(r.x - cx, y + ph / 2, (f + t) / 2 + r.z - cz, 0.06, ph, t - f) },
+        { side: 'E', len: r.d, place: (f, t, y, ph) => addWallBox(r.x + r.w - cx, y + ph / 2, (f + t) / 2 + r.z - cz, 0.06, ph, t - f) },
       ]
-      for (const wl of walls) {
-        const m = new THREE.Mesh(new THREE.BoxGeometry(wl.w, h, wl.d), mat)
-        m.position.set(wl.x - cx, h / 2, wl.z - cz)
+      function addWallBox(x: number, y: number, z: number, w: number, ph: number, d: number) {
+        const m = new THREE.Mesh(new THREE.BoxGeometry(w, ph, d), mat)
+        m.position.set(x, y, z)
         m.castShadow = true; m.receiveShadow = true
         root.add(m)
+      }
+      for (const side of sides) {
+        const list = ops.filter((o) => o.side === side.side)
+        for (const piece of wallPieces(side.len, h, list)) side.place(piece.from, piece.to, piece.y, piece.h)
       }
     }
 
@@ -486,6 +524,39 @@ function Scene3DView({ plan, selected, firstPerson, onExitFirstPerson }: { plan:
       )}
     </div>
   )
+}
+
+// 与 engine/scene3d.mjs 同规则：门窗落在墙上 → 切墙段
+function openingsForRoom(room: Room, items: Item[]) {
+  const eps = 0.3
+  const out: { side: 'N' | 'S' | 'W' | 'E'; at: number; len: number; kind: string; sill: number; height: number }[] = []
+  for (const it of items) {
+    if (it.kind !== 'door' && it.kind !== 'window') continue
+    const w = it.rot % 180 === 0 ? it.w : it.d
+    const d = it.rot % 180 === 0 ? it.d : it.w
+    const alongX = it.x + w / 2
+    const sill = it.kind === 'window' ? 0.9 : 0
+    const height = it.kind === 'window' ? 1.2 : 2.0
+    if (Math.abs(it.z - room.z) <= eps) out.push({ side: 'N', at: alongX - room.x, len: Math.min(w, room.w), kind: it.kind, sill, height })
+    else if (Math.abs(it.z + d - (room.z + room.d)) <= eps) out.push({ side: 'S', at: alongX - room.x, len: Math.min(w, room.w), kind: it.kind, sill, height })
+    else if (Math.abs(it.x - room.x) <= eps) out.push({ side: 'W', at: it.z + d / 2 - room.z, len: Math.min(d, room.d), kind: it.kind, sill, height })
+    else if (Math.abs(it.x + w - (room.x + room.w)) <= eps) out.push({ side: 'E', at: it.z + d / 2 - room.z, len: Math.min(d, room.d), kind: it.kind, sill, height })
+  }
+  return out
+}
+function wallPieces(length: number, height: number, openings: { at: number; len: number; sill: number; height: number }[]) {
+  const segs = openings.map((o) => ({ from: Math.max(0, o.at - o.len / 2), to: Math.min(length, o.at + o.len / 2), ...o })).sort((a, b) => a.from - b.from)
+  const pieces: { from: number; to: number; y: number; h: number }[] = []
+  let cursor = 0
+  for (const o of segs) {
+    if (o.from > cursor) pieces.push({ from: cursor, to: o.from, y: 0, h: height })
+    if (o.sill > 0) pieces.push({ from: o.from, to: o.to, y: 0, h: Math.min(o.sill, height) })
+    const top = o.sill + o.height
+    if (top < height) pieces.push({ from: o.from, to: o.to, y: top, h: height - top })
+    cursor = Math.max(cursor, o.to)
+  }
+  if (cursor < length) pieces.push({ from: cursor, to: length, y: 0, h: height })
+  return pieces.filter((x) => x.to - x.from > 0.01 && x.h > 0.01)
 }
 
 // 与 engine/scene3d.mjs 的 FURNITURE_PRESETS.parts 对齐（只取几何，颜色在渲染时按部位微调）
