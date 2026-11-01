@@ -134,6 +134,7 @@ import { getTeamToolContext } from "./engine/team-tool-context.mjs";
 import { createPolicyProvider, readPolicy, writePolicy, rollbackPolicy } from "./engine/tools/policy-store.mjs";
 import { syncActionRights, readRights } from "./engine/action-rights.mjs";
 import { syncPluginReceipt } from "./engine/plugin-receipt.mjs";
+import { applyNudges, readAutoState, writeAutoState } from "./engine/brain-auto.mjs";
 import { appendEvent as appendEvoEvent, readEvents as readEvoEvents, summarizeCapability as summarizeEvoCapability, createProposal as createEvoProposal, readProposals as readEvoProposals, recordGateVerdict } from "./engine/evolution/index.mjs";
 import { countExperience, distillExperience, gatherEvidence, latestReflectionReport } from "./engine/reflection-experience.mjs";
 import { readRegions, writeRegions, REGIONS, deliveryStrictness, distillLimit, nudgeCooldownMs, ideaCap, maxToolTurns, planBatchFactor, toolTier } from "./engine/brain-regions.mjs";
@@ -3792,6 +3793,8 @@ setInterval(() => {
   runWithInitiator("scheduler", () => maybeMorningBrief().catch(() => {}));
   runWithInitiator("scheduler", () => maybeReflectionBrief().catch(() => {}));
   runWithInitiator("scheduler", () => maybeColdWake().catch(() => {}));
+  // 2026-11-02：脑区自调（内部 12h 冷却 + 边界 + 审计）
+  try { const r = applyNudges(WS_ROOT); if (r?.applied?.length) console.log(`[brain] 自调：${r.applied.map((x) => `${x.id}${x.delta > 0 ? "+" : ""}${x.delta}`).join(" ")}`) } catch {}
 }, withJitter(10 * 60 * 1000, { ratio: 0.08 })).unref?.();
 setInterval(() => { runWithInitiator("scheduler", () => runCompanionNudge({ store: companionStore, notifier, compose: composeNoticeFor, persona: personaName(WS_ROOT), cooldownMs: nudgeCooldownMs(brainWeights()) }).catch(() => {})) }, 5 * 60 * 1000).unref?.();
 } catch {}
@@ -4157,6 +4160,13 @@ const API_ROUTES = [
       maxToolTurns: maxToolTurns(r.weights), planBatchFactor: planBatchFactor(r.weights),
       toolTier: toolTier(r.weights), ideaCap: ideaCap(r.weights),
     } });
+  }],
+  // 2026-11-02：脑区自调开关（默认开；关了就只按手调值跑）
+  ["GET", "/api/brain/auto", (res) => json(res, 200, { ok: true, ...readAutoState(WS_ROOT) })],
+  ["POST", "/api/brain/auto", async (res, req) => {
+    const b = await readBody(req);
+    const st = writeAutoState(WS_ROOT, { on: b?.on !== false });
+    return json(res, 200, { ok: true, ...st });
   }],
   ["POST", "/api/brain/regions", async (res, req) => {
     const body = await readBody(req);
