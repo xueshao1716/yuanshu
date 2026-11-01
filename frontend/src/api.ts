@@ -1101,7 +1101,10 @@ export const SubagentApi = {
 // ── 定时任务（时间引擎）──
 export interface TimeTask { id: string; type: 'daily' | 'weekly' | 'once'; at: string; day?: number | null; date?: string | null; prompt: string; label: string; created: string; lastRun?: string | null; runs?: number; state?: string; running?: boolean; history?: { queueId: string; startedAt: string; durationMs: number; status: string; result: string }[] }
 export const TasksApi = {
-  list: () => api<{ tasks: TimeTask[] }>('/api/time/tasks'),
+  list: (filter?: { day?: string; q?: string }) => {
+    const qs = new URLSearchParams(Object.entries(filter || {}).filter(([, v]) => v)).toString()
+    return api<{ tasks: TimeTask[] }>(`/api/time/tasks${qs ? `?${qs}` : ''}`)
+  },
   create: (body: { type: string; at: string; day?: number; date?: string; prompt: string; label?: string }) =>
     api<{ id?: string; error?: string }>('/api/time/tasks', { method: 'POST', body }),
   remove: (id: string) => api<{ removed: boolean }>(`/api/time/tasks?id=${encodeURIComponent(id)}`, { method: 'DELETE' }),

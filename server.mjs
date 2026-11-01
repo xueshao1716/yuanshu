@@ -122,6 +122,7 @@ import { BASE_TOOL_SCHEMAS, TIME_TASK_SCHEMA, SHARE_PROJECT_SCHEMA, createUnifie
 import { createAuditGate, withAuditGate } from "./engine/tools/audit-gate.mjs";
 import { routeEvent, recentDecisions } from "./engine/router.mjs";
 import { parseOpenIntent, navPayload } from "./engine/intent-router.mjs";
+import { filterTasks } from "./engine/task-filter.mjs";
 import { createAsk, listAsks, handleReply, quietHours, pickAsk, resolveAsk } from "./engine/router-pending.mjs";
 import { judgeRun, describeVerdict } from "./engine/delivery-gate.mjs";
 import { runWithInitiator, DEFAULT_RULES } from "./engine/tools/initiator.mjs";
@@ -1954,12 +1955,24 @@ async function handleChat(req, res, body) {
     }
   } catch (e) { console.log(`[router] 回执处理异常：${String(e?.message || e).slice(0, 100)}`) }
   // 2026-11-01：一句话打开页面（"打开任务清单" → 前端直接切到任务页）
+  // 微信那边没有页面可跳：改成给她一条"直接把内容说清楚"的提示。
+  let navHint = "";
   try {
     const intent = parseOpenIntent(message);
     const payload = navPayload(intent);
     if (payload) {
-      sseWrite(res, "nav", payload);
-      console.log(`[nav] ${String(message).slice(0, 30)} → ${payload.route}`);
+      const sid = sessionId || (typeof findKeyByEntry === "function" ? findKeyByEntry(entry) : "") || "";
+      let meta = {};
+      try { meta = (typeof getSessionList === "function" ? (getSessionList() || []).find((x) => x.id === sid) : null) || (findSession(sid) || {}) } catch {}
+      const sessLabel = String(meta.name || "");
+      const isWechat = String(body?.surface || "") === "wechat" || String(meta.group || "") === "wechat" || /微信/.test(sessLabel);
+      if (isWechat) {
+        navHint = `对方说的是"打开${payload.label}"，但微信里没有页面可跳。直接用一两句话把「${payload.label}」现在的内容说清楚（需要明细就调用工具查），不要回答"正在打开"。`;
+        console.log(`[nav] 微信场景 → 改为给内容：${payload.label}`);
+      } else {
+        sseWrite(res, "nav", payload);
+        console.log(`[nav] ${String(message).slice(0, 30)} → ${payload.route}`);
+      }
     }
   } catch {}
   const refreshCultivationContext = async () => {
@@ -2561,6 +2574,7 @@ async function handleChat(req, res, body) {
     }
     // 自我认知：仅当用户问"你是谁/介绍自己"等身份问题时注入固定答案（不主动开场白）
     let promptMsg = message;
+    if (navHint) promptMsg = `${message}\n\n【导航提示】${navHint}`;
     const isIdentityAsk = /^(你是谁|你叫什么|你叫啥|你是谁啊|介绍一下你|介绍下你自己|自我介绍|你是做什么|你是干什么|干嘛的|干什么的|什么身份|你.{0,3}(?:多大|几岁)|(?:多大|几岁)了|年龄|生日|出生|你有哪.{0,4}能力|你能.{0,6}做.{0,4}什么)/.test(message) && message.length < 80;
     if (isIdentityAsk) {
       const m = effModel || defaultModel;
@@ -5754,7 +5768,14 @@ const API_ROUTES = [
   ["POST", "/api/refine/reject", async (res, req) => handleRefineReject(res, await readBody(req))],
   ["POST", "/api/refine/rollback", async (res, req) => handleRefineRollback(res, await readBody(req))],
   // ── 时间引擎 API ──
-  ["GET", "/api/time/tasks", (res) => json(res, 200, { tasks: timeEngine ? timeEngine.list() : [] })],
+  // 2026-11-01：任务列表可按 day/q 过滤（跳页带条件时由前端透传）
+  ["GET", "/api/time/tasks", (res, req, url) => {
+    const tasks = timeEngine ? timeEngine.list() : [];
+    const day = String(url.searchParams.get("day") || "");
+    const q = String(url.searchParams.get("q") || "");
+    const out = filterTasks(tasks, { day, q });
+    return json(res, 200, { tasks: out, total: tasks.length, filtered: { day, q } });
+  }],
   ["POST", "/api/time/tasks/model", async (res, req) => {
     try {
       const body = await readBody(req);

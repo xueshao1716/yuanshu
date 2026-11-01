@@ -182,27 +182,12 @@ function RunHistory({ id }: { id: string }) {
 }
 
 export default function Tasks() {
-  const { data, mutate, isLoading } = useSWR('time-tasks', () => TasksApi.list(), { refreshInterval: 15000 })
   const hashFilter = (() => {
     const qs = new URLSearchParams((location.hash.split('?')[1] || ''))
     return { day: qs.get('day') || '', q: (qs.get('q') || '').trim() }
   })()
-  const inRange = (iso?: string | null) => {
-    if (!hashFilter.day) return true
-    const t = Date.parse(String(iso || ''))
-    if (!Number.isFinite(t)) return false
-    const now = Date.now()
-    if (hashFilter.day === 'today') return new Date(t).toDateString() === new Date().toDateString()
-    if (hashFilter.day === 'yesterday') { const d = new Date(); d.setDate(d.getDate() - 1); return new Date(t).toDateString() === d.toDateString() }
-    const days = hashFilter.day === 'week' ? 7 : hashFilter.day === 'month' ? 30 : Number(hashFilter.day.replace('recent', '')) || 1
-    return now - t <= days * 86400000
-  }
-  const filteredTasks = (data?.tasks || []).filter((t: any) => {
-    if (!inRange(t.lastRun || t.lastStart)) return false
-    if (hashFilter.q && !`${t.label || ''}${t.prompt || ''}`.includes(hashFilter.q)) return false
-    return true
-  })
-  const tasks = filteredTasks
+  const { data, mutate, isLoading } = useSWR(['time-tasks', hashFilter.day, hashFilter.q], () => TasksApi.list(hashFilter), { refreshInterval: 15000 })
+  const tasks = data?.tasks || []
   const [form, setForm] = useState({ type: 'daily', at: '09:00', day: 1, date: '', prompt: '', label: '' })
   const [err, setErr] = useState('')
   const [busy, setBusy] = useState(false)

@@ -187,7 +187,7 @@ export function createLoopbackChat({ base, token, fetch: f = globalThis.fetch, n
     async ask(message, sessionId, { owner = false } = {}) {
       if (owner) {
         const created = await f(`${base()}/api/runs`, { method: "POST", headers: headers(), body: JSON.stringify({
-          sessionId, message, clientRequestId: `wechat-${sessionId}-${now()}`,
+          sessionId, message, clientRequestId: `wechat-${sessionId}-${now()}`, surface: "wechat",
           backgroundRecovery: false, // 服务重启后续跑出来的回复没人往微信送，宁可明着失败
         }) });
         if (!created.ok) {
