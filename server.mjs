@@ -735,6 +735,16 @@ const seedPluginCatalogDir = () => {
 try { seedPluginCatalogDir() } catch {}
 // 2026-11-02：装了什么让她自己知道——把已装插件渲染进系统提示
 // 2026-11-02：本机已沉淀的技能/工具包也要算进来——否则商店里「一个都没装」是假象
+// 2026-11-02：和元枢内置能力重叠的技能——装了也要知道该用哪个
+const BUILTIN_OVERLAP = [
+  { label: "公众号排版", re: /gzh|公众号|wechat.*post|公众号排版/i },
+  { label: "出图/海报", re: /poster|海报|image-gen|出图|绘图|illustrat/i },
+  { label: "视频抽帧/剪辑", re: /video-frame|抽帧|ffmpeg|剪辑|render.?video/i },
+  { label: "语音合成", re: /tts|语音合成|voice.?synth/i },
+  { label: "PPT 生成", re: /ppt|slide|presentation/i },
+  { label: "网页抓取", re: /fetch|scrap|crawl|url-to-markdown|网页转/i },
+  { label: "小说/长文写作", re: /novel|小说|长文|content-research/i },
+];
 const localSkills = () => {
   const out = [];
   const dirs = [
@@ -780,7 +790,9 @@ const localSkills = () => {
       let mtime = 0;
       try { hash = crypto.createHash("sha1").update(fs.readFileSync(skillFile)).digest("hex").slice(0, 12); mtime = fs.statSync(skillFile).mtimeMs } catch {}
       // 装于：用 SKILL.md 的修改时间，卡片就不会显示"—"
-      out.push({ id: name, name, version: version || "1.0.0", type: "skill", description: desc || "（这个技能没写描述）", enabled: true, exists: true, source: "local", dir: path.join(dir, name), hash, mtime, installedAt: mtime || Date.now() });
+      const overlap = BUILTIN_OVERLAP.find((r) => r.re.test(`${name} ${desc}`));
+      const descOut = (desc || "（这个技能没写描述）") + (overlap ? ` ｜ 与元枢内置「${overlap.label}」重叠，优先用内置` : "");
+      out.push({ id: name, name, version: version || "1.0.0", type: "skill", description: descOut, overlap: overlap?.label || "", enabled: true, exists: true, source: "local", dir: path.join(dir, name), hash, mtime, installedAt: mtime || Date.now() });
     }
   }
   // 去重：同一份内容（hash）或同名只留一条；每多一个来源优先级更低
