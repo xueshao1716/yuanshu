@@ -35,6 +35,32 @@ export const TARGETS = [
 const OPEN_VERB = /(打开|开一下|进到|进入|跳到|切到|切去|回到|去看看|看一下|看看|瞅瞅|列一下|列出来|列出|显示|展示|调出|调一下)/;
 
 /**
+ * 从同一句话里抽筛选条件（可选）。
+ * 只认明确的时间词与"关于/含 X"这类关键词，不猜。
+ */
+export function parseParams(text) {
+  const t = String(text || "");
+  const out = {};
+  if (/(今天|今日)/.test(t)) out.day = "today";
+  else if (/(昨天|昨日)/.test(t)) out.day = "yesterday";
+  else if (/(本周|这周|周内)/.test(t)) out.day = "week";
+  else if (/(本月|这个月)/.test(t)) out.day = "month";
+  else {
+    const m = t.match(/(?:最近|近)\s*(\d{1,2})\s*天/);
+    if (m) out.day = `recent${m[1]}`;
+  }
+  const q = t.match(/(?:关于|包含|含有|带)\s*[「"'']?([\u4e00-\u9fa5A-Za-z0-9_\-]{1,20})/);
+  if (q) out.q = q[1];
+  return out;
+}
+
+/** 把条件拼成 hash，前端直接跳。 */
+export function navHref(route, params = {}) {
+  const qs = new URLSearchParams(Object.entries(params).filter(([, v]) => v !== undefined && v !== "")).toString();
+  return qs ? `#/${route}?${qs}` : `#/${route}`;
+}
+
+/**
  * 解析一句话里的"打开某页"意图。
  * @returns {{route:string, label:string, matched:string} | null}
  */
@@ -49,7 +75,8 @@ export function parseOpenIntent(text) {
   flat.sort((a, b) => b.word.length - a.word.length);
   for (const item of flat) {
     if (!t.includes(item.word)) continue;
-    return { route: item.route, label: ROUTE_LABELS[item.route] || item.route, matched: item.word };
+    const params = parseParams(t);
+    return { route: item.route, label: ROUTE_LABELS[item.route] || item.route, matched: item.word, params, href: navHref(item.route, params) };
   }
   return null;
 }
@@ -57,5 +84,6 @@ export function parseOpenIntent(text) {
 /** 给前端的导航事件体。 */
 export function navPayload(intent) {
   if (!intent) return null;
-  return { route: intent.route, label: intent.label, text: `正在打开${intent.label}` };
+  const extra = intent.params && Object.keys(intent.params).length ? `（${Object.entries(intent.params).map(([k, v]) => `${k}=${v}`).join(" ")}）` : "";
+  return { route: intent.route, label: intent.label, params: intent.params || {}, href: intent.href || `#/${intent.route}`, text: `正在打开${intent.label}${extra}` };
 }

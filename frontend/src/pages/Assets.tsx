@@ -16,12 +16,15 @@ export default function Assets({ initialView = 'library' }: { initialView?: 'lib
   const [view, setView] = useState<'library' | 'downloads'>(initialView)
   const { data: artData, error: artifactsError, isLoading: artifactsLoading, mutate: mutateArtifacts } = useSWR('artifacts', () => WsApi.artifacts(), { revalidateOnFocus: false, dedupingInterval: 10000 })
   const { data: delData, error: deliveriesError, isLoading: deliveriesLoading, mutate: mutateDeliveries } = useSWR('deliveries', () => WsApi.deliveries(), { revalidateOnFocus: false, dedupingInterval: 60000 })
+  const hashParams = (() => { try { return new URLSearchParams(location.hash.split('?')[1] || '') } catch { return new URLSearchParams() } })()
+  const hashQ = hashParams.get('q') || ''
+  const hashDay = hashParams.get('day') || ''
   const [selectedAsset, setSelectedAsset] = useState<AssetItem | null>(null)
   const [previewAsset, setPreviewAsset] = useState<AssetItem | null>(null)
   const [kind, setKind] = useState<AssetKind | 'all'>('all')
-  const [timeRange, setTimeRange] = useState<AssetTimeRange>('all')
+  const [timeRange, setTimeRange] = useState<AssetTimeRange>(() => (hashDay === 'today' || hashDay === 'yesterday' ? 'today' : hashDay === 'week' ? '7d' : hashDay === 'month' ? '30d' : 'all'))
   const [project, setProject] = useState('all')
-  const [search, setSearch] = useState('')
+  const [search, setSearch] = useState(hashQ)
   const [order, setOrder] = useState<'newest' | 'oldest'>('newest')
   const [feedback, setFeedback] = useState<{ tone: 'ok' | 'error'; text: string } | null>(null)
 
@@ -31,6 +34,7 @@ export default function Assets({ initialView = 'library' }: { initialView?: 'lib
   const filteredAssets = useMemo(() => sortAssets(filterAssets(allAssets, query), order), [allAssets, query, order])
   const isLoading = artifactsLoading || deliveriesLoading
   const hasError = Boolean(artifactsError || deliveriesError)
+  const fromChat = Boolean(hashQ || hashDay)
   const hasFilters = kind !== 'all' || timeRange !== 'all' || project !== 'all' || Boolean(search)
 
   const selectAsset = (item: AssetItem) => {

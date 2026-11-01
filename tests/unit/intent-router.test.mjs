@@ -3,7 +3,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import path from "node:path";
-import { parseOpenIntent, navPayload, TARGETS } from "../../engine/intent-router.mjs";
+import { parseOpenIntent, navPayload, TARGETS, parseParams, navHref } from "../../engine/intent-router.mjs";
 import { ROUTE_LABELS } from "../../engine/route-labels.mjs";
 
 const root = path.resolve(import.meta.dirname, "../..");
@@ -58,4 +58,35 @@ test("服务端标签与 frontend/src/nav.ts 一致（防漂移）", () => {
 
 test("每个 TARGETS 的 route 都有标签", () => {
   for (const t of TARGETS) assert.ok(ROUTE_LABELS[t.route], `缺标签：${t.route}`);
+});
+
+test('时间词解析：今天/昨天/本周/本月/最近N天', () => {
+  assert.equal(parseParams('打开任务清单里今天的').day, 'today');
+  assert.equal(parseParams('看看昨天的').day, 'yesterday');
+  assert.equal(parseParams('本周的活').day, 'week');
+  assert.equal(parseParams('这个月的').day, 'month');
+  assert.equal(parseParams('最近3天的').day, 'recent3');
+  assert.equal(parseParams('打开任务清单').day, undefined);
+});
+
+test('关键词解析：关于/包含 X', () => {
+  assert.equal(parseParams('打开任务清单关于交付门的').q, '交付门的');
+  assert.equal(parseParams('找包含 auth 的记录').q, 'auth');
+  assert.equal(parseParams('打开资产').q, undefined);
+});
+
+test('navHref 把条件拼进 hash', () => {
+  assert.equal(navHref('tasks', { day: 'today' }), '#/tasks?day=today');
+  assert.equal(navHref('tasks', {}), '#/tasks');
+  assert.match(navHref('assets', { day: 'recent7', q: '海报' }), /q=%E6%B5%B7%E6%8A%A5/);
+});
+
+test('意图里带 params 与 href', () => {
+  const intent = parseOpenIntent('打开任务清单里今天的');
+  assert.equal(intent.route, 'tasks');
+  assert.equal(intent.params.day, 'today');
+  assert.equal(intent.href, '#/tasks?day=today');
+  const payload = navPayload(intent);
+  assert.equal(payload.href, '#/tasks?day=today');
+  assert.match(payload.text, /day=today/);
 });

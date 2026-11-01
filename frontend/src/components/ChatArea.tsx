@@ -672,7 +672,7 @@ export default function ChatArea({ compactHeader, rightPanel, onRightPanel, onVo
         // 2026-11-01：她说"打开任务清单"，前端直接切页
         const route = String(d.route || '')
         if (route) {
-          location.hash = `#/${route}`
+          location.hash = String(d.href || `#/${route}`)
           updStream(p => ({ ...p, notes: [...p.notes, String(d.text || `正在打开${route}`)] }))
         }
         break
