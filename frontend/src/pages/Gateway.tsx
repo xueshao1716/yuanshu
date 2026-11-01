@@ -163,8 +163,15 @@ export default function Gateway() {
   const fpLine = String(fps.data?.line || "")
   const fpChanged = (fps.data?.history || []).length > 0
   const evoList = evo.data?.proposals || []
+  const [evoMsg, setEvoMsg] = useState('')
   const evoAct = async (action: 'apply' | 'dismiss', id: string) => {
-    await api(`/api/evolution/${action}`, { method: 'POST', body: { id } }).catch(() => null)
+    setEvoMsg('处理中…')
+    try {
+      const r: any = await api(`/api/evolution/${action}`, { method: 'POST', body: { id } })
+      setEvoMsg(r?.error ? `没成功：${r.error}` : (action === 'apply' ? '已用上这个改动' : '已忽略这条建议'))
+    } catch (e: any) {
+      setEvoMsg(`没成功：${e?.message || '接口报错'}`)
+    }
     void evo.mutate()
   }
   const markFeedback = async (id: string, status: 'done' | 'wontfix') => {
@@ -571,6 +578,7 @@ export default function Gateway() {
             ))}
           </ul>
         ) : <p className="text-xs text-pi-dim2">还没有提案。她攒够同类失败后会自己提。</p>}
+              {evoMsg && <p className="text-[11px] text-pi-dim2">{evoMsg}</p>}
       </section>
       {/* 收件箱：反馈与建议 */}
       <section className="panel space-y-3">
