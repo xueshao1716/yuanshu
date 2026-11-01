@@ -733,6 +733,30 @@ const seedPluginCatalogDir = () => {
 };
 try { seedPluginCatalogDir() } catch {}
 // 2026-11-02：装了什么让她自己知道——把已装插件渲染进系统提示
+// 2026-11-02：本机已沉淀的技能/工具包也要算进来——否则商店里「一个都没装」是假象
+const localSkills = () => {
+  const out = [];
+  const dirs = [
+    path.join(WS_ROOT, "技能"),
+    path.join(AGENT_DIR, "skills"),
+  ];
+  for (const dir of dirs) {
+    let names = [];
+    try { names = fs.readdirSync(dir, { withFileTypes: true }).filter((d) => d.isDirectory()).map((d) => d.name) } catch { continue }
+    for (const name of names) {
+      const skillFile = path.join(dir, name, "SKILL.md");
+      let desc = "";
+      try {
+        const md = fs.readFileSync(skillFile, "utf8");
+        const line = md.split(/\r?\n/).find((l) => l.trim() && !l.startsWith("#"));
+        desc = String(line || "").replace(/\s+/g, " ").slice(0, 80);
+      } catch { continue }
+      out.push({ id: name, name, version: "local", type: "skill", description: desc, enabled: true, exists: true, source: "local", dir: path.join(dir, name) });
+    }
+  }
+  return out;
+};
+
 const syncReceipt = () => {
   try { return syncPluginReceipt({ agentDir: getAgentDir(), installed: listPlugins(WS_ROOT) }) }
   catch (e) { return { ok: false, error: String(e?.message || e).slice(0, 120) } }
@@ -4336,7 +4360,7 @@ const API_ROUTES = [
     return json(res, out.ok ? 200 : 400, out);
   }],
   // 2026-10-29：插件商店
-  ["GET", "/api/plugins", (res) => json(res, 200, { ok: true, installed: listPlugins(WS_ROOT), catalog: readCatalog(WS_ROOT) })],
+  ["GET", "/api/plugins", (res) => json(res, 200, { ok: true, installed: [...listPlugins(WS_ROOT), ...localSkills()], catalog: readCatalog(WS_ROOT) })],
   ["POST", "/api/plugins/install", async (res, req) => {
     const body = await readBody(req);
     const id = String(body?.id || "");
