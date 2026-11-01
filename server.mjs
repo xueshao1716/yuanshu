@@ -120,6 +120,7 @@ import { createReplyTts } from './engine/reply-tts.mjs';
 // ── 统一工具集（拆模块）：schema + 执行器；安全线（deny/危险命令/受保护路径/路径越权）在 engine/tools/security.mjs ──
 import { BASE_TOOL_SCHEMAS, TIME_TASK_SCHEMA, SHARE_PROJECT_SCHEMA, createUnifiedToolExecutorGuarded, webSearchTool, detectBashShell } from "./engine/tools/unified-tools.mjs";
 import { createAuditGate, withAuditGate } from "./engine/tools/audit-gate.mjs";
+import { routeEvent, recentDecisions } from "./engine/router.mjs";
 import { judgeRun, describeVerdict } from "./engine/delivery-gate.mjs";
 import { runWithInitiator, DEFAULT_RULES } from "./engine/tools/initiator.mjs";
 import { getTeamToolContext } from "./engine/team-tool-context.mjs";
@@ -1538,6 +1539,40 @@ const auditGate = createAuditGate({ wsRoot: WS_ROOT });
 // 2026-10-30：策略从文件读（记忆/运行时/动作策略.json），改完立刻生效，不用重启。
 
 // 2026-10-31：交付门台账（天枢的 deliver_task 思路：没有证据不算完成）
+
+// 2026-11-01：最小路由器——事件要不要处理，由轻量模型判；派活走定时引擎（+1 分钟）
+let routerSeen = new Set();
+const routeThink = async (prompt) => {
+  const isText = (m) => !/image|video|tts|asr|speech|embed|rerank/i.test(String(m.id || ""));
+  const light = (modelList || []).find((m) => m.provider === "agnes" && isText(m) && /^agnes-?3\.0-flash$/i.test(String(m.id)))
+    || (modelList || []).find((m) => m.provider === "agnes" && isText(m) && /flash/i.test(String(m.id)))
+    || defaultModel;
+  const r = await directChat(light, prompt, [], { maxTokens: 300, timeout: 45000 });
+  return String(r?.text || "").trim();
+};
+const dispatchByRouter = (task, reason = "") => {
+  const at = new Date(Date.now() + 60 * 1000);
+  const pad = (n) => String(n).padStart(2, "0");
+  const when = `${at.getFullYear()}-${pad(at.getMonth() + 1)}-${pad(at.getDate())}T${pad(at.getHours())}:${pad(at.getMinutes())}`;
+  const dateStr = when.slice(0, 10);
+  const timeStr = when.slice(11, 16);
+  const r = timeEngine.register({ type: "once", date: dateStr, at: timeStr, prompt: task, label: "路由派活", notify: true });
+  if (r?.error) console.log(`[router] 派活失败：${r.error}`);
+  else console.log(`[router] 已派活（${when}）：${String(task).slice(0, 60)}`);
+  return r;
+};
+const routerOnEvent = (event) => {
+  void (async () => {
+    try {
+      const out = await routeEvent({ event, wsRoot: WS_ROOT, think: routeThink, seen: routerSeen });
+      if (out.key) routerSeen.add(out.key);
+      if (!out.ok) { console.log(`[router] 判断失败：${out.error}`); return }
+      if (out.action === "dispatch") dispatchByRouter(out.task, out.reason);
+      else if (out.action === "ask") console.log(`[router] 需要人拍板：${String(out.reason || "").slice(0, 80)}`);
+    } catch (e) { console.log(`[router] 异常：${String(e?.message || e).slice(0, 120)}`) }
+  })();
+  return { ok: true, queued: true };
+};
 // 2026-11-01：脑区旋钮（2 秒缓存，改完即时生效）
 let brainCache = { at: 0, weights: null };
 const brainWeights = () => {
@@ -3810,6 +3845,14 @@ const API_ROUTES = [
   }],
   // 2026-10-27：微信状态 + PushPlus 推送通道状态（读 notify.py 落的状态文件）
   // 2026-10-27：推送通道（PushPlus）——面板里粘贴 token、一键测试，不再手写文件
+  // 2026-11-01：路由器（事件 → 判断 → 派活）
+  ["GET", "/api/router/decisions", (res, req, url) => json(res, 200, { ok: true, items: recentDecisions(WS_ROOT, Number(url.searchParams.get("limit")) || 20) })],
+  ["POST", "/api/router/judge", async (res, req) => {
+    const b = await readBody(req);
+    const event = { source: String(b?.source || "manual"), kind: String(b?.kind || "text"), text: String(b?.text || ""), at: Date.now() };
+    const out = await routeEvent({ event, wsRoot: WS_ROOT, think: routeThink, seen: new Set() });
+    return json(res, 200, { ok: true, ...out });
+  }],
   // 2026-11-01：脑区旋钮（8 个区，改完即时生效）
   ["GET", "/api/brain/regions", (res) => {
     const r = readRegions(WS_ROOT);
@@ -3981,6 +4024,8 @@ const API_ROUTES = [
         source: b?.source, kind: b?.kind, text: b?.text,
         severity: b?.severity, at: Number(b?.at) || Date.now(), meta: b?.meta,
       });
+      // 2026-11-01：进收件箱的事件自动过一遍路由器（异步，不拖慢接收）
+      if (out.ok && out.event) routerOnEvent(out.event);
       return json(res, out.ok ? 200 : 400, out);
     } catch (e) { return json(res, 500, { ok: false, error: String(e?.message || e).slice(0, 160) }); }
   }],

@@ -128,6 +128,15 @@ export default function Gateway() {
   const [policyDraft, setPolicyDraft] = useState('')
   const [editingPolicy, setEditingPolicy] = useState(false)
   const [policyMsg, setPolicyMsg] = useState('')
+  const router = useSWR('router-decisions', () => api<{ items: any[] }>('/api/router/decisions?limit=8'), { refreshInterval: 20000 })
+  const [routeText, setRouteText] = useState('')
+  const [routeMsg, setRouteMsg] = useState('')
+  const judgeNow = async () => {
+    setRouteMsg('判断中…')
+    const out: any = await api('/api/router/judge', { method: 'POST', body: { source: 'manual', text: routeText } }).catch((e: any) => ({ ok: false, error: e?.message }))
+    setRouteMsg(out?.ok ? `判定：${out.action}（${out.reason || ''}）` : `失败：${out?.error || '未知'}`)
+    if (out?.ok) { setRouteText(''); void router.mutate() }
+  }
   const brain = useSWR('brain-regions', () => api<{ regions: any[]; weights: any; effects: any }>('/api/brain/regions'), { refreshInterval: 30000 })
   const [brainMsg, setBrainMsg] = useState('')
   const setBrain = async (id: string, value: number) => {
@@ -391,6 +400,29 @@ export default function Gateway() {
             ))}
           </ul>
         ) : <p className="text-xs text-pi-dim2">每次工具调用都会先写一行审计再执行；拒绝的会标出来。</p>}
+      </section>
+      {/* 路由器：外面进来的事，先判断要不要做 */}
+      <section className="panel space-y-2">
+        <div className="flex flex-wrap items-baseline justify-between gap-2">
+          <h2 className="text-[15px] font-semibold text-pi-text">路由判断</h2>
+          <span className="text-xs text-pi-dim2">快筛不花钱 · 慢判用轻量模型</span>
+        </div>
+        {(router.data?.items || []).slice(0, 5).map((d: any, i: number) => (
+          <div key={`${d.at}-${i}`} className="text-[12px] leading-relaxed">
+            <span style={{ color: d.action === "dispatch" ? "var(--pi-green)" : d.action === "ask" ? "var(--pi-yellow)" : "var(--pi-dim2)" }}>{d.action}</span>
+            <span className="ml-2 text-[11px] text-pi-dim2">{d.by === "fast" ? "快筛" : "慢判"} · {String(d.source || "")}</span>
+            <span className="ml-2 text-pi-text">{String(d.reason || "").slice(0, 60)}</span>
+            {d.task ? <div className="text-[11px] text-pi-dim2">派活：{String(d.task).slice(0, 70)}</div> : null}
+          </div>
+        ))}
+        <div className="flex gap-2">
+          <input value={routeText} onChange={(e) => setRouteText(e.target.value)}
+            placeholder="投一条事件试试，比如「CI 挂了，auth 测试失败」"
+            className="flex-1 rounded-pi-md border border-pi-border-soft bg-pi-bg2 px-3 py-1.5 text-[12px] text-pi-text" />
+          <button type="button" style={{ ...pill(), minHeight: 26, fontSize: 12 }} onClick={() => void judgeNow()} disabled={!routeText.trim()}>判断</button>
+        </div>
+        {routeMsg && <p className="text-[11px] text-pi-text">{routeMsg}</p>}
+        <p className="text-[11px] text-pi-dim2">dispatch 会派给定时引擎（+1 分钟）真跑；ask 需要你拍板；ignore 不打扰。</p>
       </section>
       {/* 脑区：8 个旋钮，每个都绑着真机制 */}
       <section className="panel space-y-2">
