@@ -739,6 +739,12 @@ const localSkills = () => {
   const dirs = [
     path.join(WS_ROOT, "技能"),
     path.join(AGENT_DIR, "skills"),
+    // 2026-11-02：技能库真实位置（工程下多套 + Cursor 技能），原来只扫前两个所以"一个都没装"
+    path.join(WS_ROOT, "工程", "skill-study", "skills"),
+    path.join(WS_ROOT, "工程", "anthropic-skills", "skills"),
+    path.join(WS_ROOT, "工程", "headlong", "skills"),
+    path.join("C:\\Users\\xuexiaofeng\\.cursor", "skills-cursor"),
+    path.join("C:\\Users\\xuexiaofeng\\.pi", "agent", "skills"),
   ];
   for (const dir of dirs) {
     let names = [];
