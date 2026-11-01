@@ -132,6 +132,7 @@ import { runWithInitiator, DEFAULT_RULES } from "./engine/tools/initiator.mjs";
 import { getTeamToolContext } from "./engine/team-tool-context.mjs";
 import { createPolicyProvider, readPolicy, writePolicy, rollbackPolicy } from "./engine/tools/policy-store.mjs";
 import { syncActionRights, readRights } from "./engine/action-rights.mjs";
+import { syncPluginReceipt } from "./engine/plugin-receipt.mjs";
 import { countExperience, distillExperience, gatherEvidence, latestReflectionReport } from "./engine/reflection-experience.mjs";
 import { readRegions, writeRegions, REGIONS, deliveryStrictness, distillLimit, nudgeCooldownMs, ideaCap, maxToolTurns, planBatchFactor, toolTier } from "./engine/brain-regions.mjs";
 import { runDoctor } from "./engine/install-doctor.mjs";
@@ -731,6 +732,12 @@ const seedPluginCatalogDir = () => {
   } catch (e) { return { ok: false, error: String(e?.message || e).slice(0, 120) } }
 };
 try { seedPluginCatalogDir() } catch {}
+// 2026-11-02：装了什么让她自己知道——把已装插件渲染进系统提示
+const syncReceipt = () => {
+  try { return syncPluginReceipt({ agentDir: getAgentDir(), installed: listPlugins(WS_ROOT) }) }
+  catch (e) { return { ok: false, error: String(e?.message || e).slice(0, 120) } }
+};
+try { const r = syncReceipt(); if (r?.changed) console.log("  [plugins] 已把已装能力写进系统提示") } catch {}
 seedPluginCatalog();
 // 2026-10-28：脱链任务靠 status 才收尾会留假 running——每 20 秒自己对一次账。
 const reapDetachedJobs = () => {
@@ -4336,12 +4343,14 @@ const API_ROUTES = [
     const out = body?.manifest ? installPlugin(WS_ROOT, body.manifest) : installFromCatalog(WS_ROOT, id, String(body?.version || ""));
     if (!out.ok) return json(res, 400, { ok: false, error: out.error });
     try { syncToolpackTools() } catch {}
+    try { syncReceipt() } catch {}
     return json(res, 200, { ok: true, plugin: out.plugin });
   }],
   ["POST", "/api/plugins/uninstall", async (res, req) => {
     const body = await readBody(req);
     const out = uninstallPlugin(WS_ROOT, String(body?.id || ""));
     try { syncToolpackTools() } catch {}
+    try { syncReceipt() } catch {}
     return json(res, out.ok ? 200 : 400, out);
   }],
   ["POST", "/api/plugins/toggle", async (res, req) => {
