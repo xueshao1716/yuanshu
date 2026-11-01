@@ -121,6 +121,7 @@ import { createReplyTts } from './engine/reply-tts.mjs';
 import { BASE_TOOL_SCHEMAS, TIME_TASK_SCHEMA, SHARE_PROJECT_SCHEMA, createUnifiedToolExecutorGuarded, webSearchTool, detectBashShell } from "./engine/tools/unified-tools.mjs";
 import { createAuditGate, withAuditGate } from "./engine/tools/audit-gate.mjs";
 import { routeEvent, recentDecisions } from "./engine/router.mjs";
+import { parseOpenIntent, navPayload } from "./engine/intent-router.mjs";
 import { createAsk, listAsks, handleReply, quietHours, pickAsk, resolveAsk } from "./engine/router-pending.mjs";
 import { judgeRun, describeVerdict } from "./engine/delivery-gate.mjs";
 import { runWithInitiator, DEFAULT_RULES } from "./engine/tools/initiator.mjs";
@@ -1952,6 +1953,15 @@ async function handleChat(req, res, body) {
       }
     }
   } catch (e) { console.log(`[router] 回执处理异常：${String(e?.message || e).slice(0, 100)}`) }
+  // 2026-11-01：一句话打开页面（"打开任务清单" → 前端直接切到任务页）
+  try {
+    const intent = parseOpenIntent(message);
+    const payload = navPayload(intent);
+    if (payload) {
+      sseWrite(res, "nav", payload);
+      console.log(`[nav] ${String(message).slice(0, 30)} → ${payload.route}`);
+    }
+  } catch {}
   const refreshCultivationContext = async () => {
     const learned = await withKnowledgeRequest(req, res, signal => cultivationChatContext(cultivationRuntime, knowledgeRuntime, { signal,
       executionIdentity: body.__runContext?.executionIdentity,

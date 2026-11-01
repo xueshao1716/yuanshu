@@ -668,6 +668,15 @@ export default function ChatArea({ compactHeader, rightPanel, onRightPanel, onVo
         // 只读研究员每次查证都留一行：在读哪个文件、搜什么（2026-10-05，让"派出去的人在干什么"看得见）
         updStream(p => ({ ...p, notes: [...p.notes, `研究员·${workRole(String(d.agent || 'analyst'))} · ${workTool(String(d.tool || ''))}${d.target ? ' ' + String(d.target).slice(0, 80) : ''}${d.isError ? '（未成功）' : ''}`].slice(-40) }))
         break
+      case 'nav': {
+        // 2026-11-01：她说"打开任务清单"，前端直接切页
+        const route = String(d.route || '')
+        if (route) {
+          location.hash = `#/${route}`
+          updStream(p => ({ ...p, notes: [...p.notes, String(d.text || `正在打开${route}`)] }))
+        }
+        break
+      }
       case 'engine_selected': {
         // ② 每轮标出"主驾引擎 + 原因"（2026-09-16）：服务端一直有这个事件，
         // 但前端以前把它丢了——于是"切个模型怎么连引擎和脾气都变了"全靠猜。

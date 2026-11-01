@@ -1,0 +1,28 @@
+// 路由标签（服务端一份，供"打开某页"这类意图使用）
+// 与 frontend/src/nav.ts 的 ROUTE_LABELS 保持一致；tests/unit/intent-router.test.mjs 会核对。
+export const ROUTE_LABELS = {
+  chat: "对话",
+  board: "工作台",
+  review: "改动验收",
+  team: "天团协作",
+  lingxi: "灵感",
+  workshop: "创作",
+  canvas: "对比台",
+  story: "连续创作",
+  models: "模型",
+  assets: "资产",
+  tasks: "任务",
+  downloads: "下载中心",
+  apps: "知识",
+  engine: "能力",
+  themes: "主题",
+  sessiondb: "会话库",
+  mcp: "MCP",
+  system: "系统",
+  soul: "灵魂培养",
+  grants: "授权中心",
+  tv: "影视",
+  autopatch: "自动补丁",
+  gateway: "事务台",
+  plugins: "插件商店",
+};
