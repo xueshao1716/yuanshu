@@ -1,6 +1,7 @@
 import useSWR from 'swr'
 import { useState } from 'react'
 import { api } from '../api'
+import AutoPatchCard from '../soul/AutoPatchCard'
 
 /**
  * 事务台（2026-10-28 改版）
@@ -468,6 +469,10 @@ export default function Gateway() {
         ))}
         {brainMsg && <p className="text-[11px] text-pi-text">{brainMsg}</p>}
         <p className="text-[11px] text-pi-dim2">验证=交付门严格度；记忆=蒸馏条数；社交=冷却；分析=回合上限；规划=批次大小；工具=工具档；创造=建议条数。改完即时生效。</p>
+      </section>
+      {/* 小语改了自己：改动先放这儿，点头才生效 */}
+      <section className="panel space-y-2">
+        <AutoPatchCard />
       </section>
       {/* 交付门：没有证据不算完成（GREEN / YELLOW / RED） */}
       <section className="panel space-y-2">

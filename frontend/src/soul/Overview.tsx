@@ -1,3 +1,4 @@
+import AutoPatchCard from './AutoPatchCard'
 import useSWR from 'swr'
 import TasteList from './TasteList'
 import MoodDiaryList from './MoodDiary'
@@ -11,7 +12,6 @@ import PortraitSlot from './PortraitSlot'
 import ToneSources from './ToneSources'
 import IdeasCard from './IdeasCard'
 import FeedbackCard from './FeedbackCard'
-import AutoPatchCard from './AutoPatchCard'
 import WikiCard from './WikiCard'
 import ProactiveCard from './ProactiveCard'
 import ExpressionCard from './ExpressionCard'
@@ -65,7 +65,7 @@ export default function Overview({open}: {open:(section:Section)=>void}) {
     </Block>
     <Block title="自动补丁" hint="系统自己写的改动。只在独立分支上，合并之前不影响任何东西：看改动 → 满意就合并，不满意就丢弃。">
       <AutoPatchCard />
-    </Block>
+</Block>
     <Block title="收件箱" hint="自动上报的崩溃回执 + 你提交的反馈。分组看条数，可以标完成或忽略。">
       <FeedbackCard />
     </Block>
