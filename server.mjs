@@ -135,6 +135,7 @@ import { createPolicyProvider, readPolicy, writePolicy, rollbackPolicy } from ".
 import { syncActionRights, readRights } from "./engine/action-rights.mjs";
 import { syncPluginReceipt } from "./engine/plugin-receipt.mjs";
 import { applyNudges, readAutoState, writeAutoState } from "./engine/brain-auto.mjs";
+import { makeProposal, recordProposal, listProposals, POLICY } from "./engine/self-change.mjs";
 import { appendEvent as appendEvoEvent, readEvents as readEvoEvents, summarizeCapability as summarizeEvoCapability, createProposal as createEvoProposal, readProposals as readEvoProposals, recordGateVerdict } from "./engine/evolution/index.mjs";
 import { countExperience, distillExperience, gatherEvidence, latestReflectionReport } from "./engine/reflection-experience.mjs";
 import { readRegions, writeRegions, REGIONS, deliveryStrictness, distillLimit, nudgeCooldownMs, ideaCap, maxToolTurns, planBatchFactor, toolTier } from "./engine/brain-regions.mjs";
@@ -4162,6 +4163,15 @@ const API_ROUTES = [
     } });
   }],
   // 2026-11-02：脑区自调开关（默认开；关了就只按手调值跑）
+  // 2026-11-02：L2 自改提案（只记录与校验；分支由她的 agent 循环创建）
+  ["GET", "/api/selfchange/proposals", (res) => json(res, 200, { ok: true, items: listProposals(WS_ROOT), policy: POLICY })],
+  ["POST", "/api/selfchange/proposal", async (res, req) => {
+    const b = await readBody(req);
+    const out = makeProposal({ files: b?.files, verdict: b?.verdict, reason: b?.reason, hypothesis: b?.hypothesis });
+    if (!out.ok) return json(res, 400, out);
+    recordProposal(WS_ROOT, out.proposal);
+    return json(res, 200, out);
+  }],
   ["GET", "/api/brain/auto", (res) => json(res, 200, { ok: true, ...readAutoState(WS_ROOT) })],
   ["POST", "/api/brain/auto", async (res, req) => {
     const b = await readBody(req);
