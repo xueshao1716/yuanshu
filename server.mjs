@@ -4085,6 +4085,8 @@ const API_ROUTES = [
     const out = exportPlanFile(WS_ROOT, b?.plan || {}, { pricePerSqm: price });
     return json(res, out.ok ? 200 : 400, out);
   }],
+  // 2026-11-02：血缘——某个提案或某个目标的全过程
+  ["GET", "/api/evolution/lineage", (res, req, url) => json(res, 200, lineageOf(WS_ROOT, { ProposalId: undefined, proposalId: String(url.searchParams.get("proposal") || ""), targetId: String(url.searchParams.get("targetId") || ""), target: String(url.searchParams.get("target") || "") }))],
   // 2026-11-02：进化中心——能力画像与事件流（只读；提案走已有 evolution-api 审批链）
   ["GET", "/api/evolution/summary", (res) => {
     const events = readEvoEvents(WS_ROOT, { limit: 2000 });

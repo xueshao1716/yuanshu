@@ -4,7 +4,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { appendEvent, readEvents, summarizeCapability, validateProposal, createProposal, transitionProposal, readProposals } from "../../engine/evolution/index.mjs";
+import { appendEvent, readEvents, summarizeCapability, validateProposal, createProposal, transitionProposal, readProposals, lineageOf } from "../../engine/evolution/index.mjs";
 
 const ws = () => fs.mkdtempSync(path.join(os.tmpdir(), "evocore-"));
 const good = { agentId: "xiaoyu", target: "skill", targetId: "py", reason: "r", hypothesis: "h", parentVersion: "1.0.0", candidateVersion: "1.1.0", datasetVersion: "ds-1", evaluatorVersion: "ev-1", n: 20 };
@@ -63,4 +63,33 @@ test("读提案：取最后状态", () => {
   const list = readProposals(root);
   assert.equal(list.length, 1);
   assert.equal(list[0].status, "EXPERIMENTING");
+});
+
+test('血缘：建提案时自动挂上同目标的最近事件', () => {
+  const root = ws();
+  const e1 = appendEvent(root, { kind: "compare", target: "skill", targetId: "py", verdict: "rollback" }).event;
+  const e2 = appendEvent(root, { kind: "compare", target: "skill", targetId: "py", verdict: "rollback" }).event;
+  const p = createProposal(root, good).proposal;
+  assert.deepEqual(p.parentEventIds, [e1.id, e2.id]);
+});
+
+test('血缘：没有历史事件就是空数组（不编造）', () => {
+  const root = ws();
+  const p = createProposal(root, good).proposal;
+  assert.deepEqual(p.parentEventIds, []);
+});
+
+test('血缘：lineageOf 按提案拉出父事件与提案事件', () => {
+  const root = ws();
+  const e = appendEvent(root, { kind: "compare", target: "skill", targetId: "py", verdict: "rollback" }).event;
+  const p = createProposal(root, good).proposal;
+  const chain = lineageOf(root, { proposalId: p.id });
+  assert.equal(chain.ok, true);
+  const ids = chain.events.map((x) => x.id);
+  assert.ok(ids.includes(e.id), '父事件应在链上');
+  assert.ok(chain.events.some((x) => x.kind === 'proposal'));
+});
+
+test('血缘：未知提案返回失败', () => {
+  assert.equal(lineageOf(ws(), { proposalId: 'nope' }).ok, false);
 });

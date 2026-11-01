@@ -41,6 +41,8 @@ export function appendEvent(wsRoot, input = {}) {
     datasetVersion: String(input.datasetVersion || ""),
     evaluatorVersion: String(input.evaluatorVersion || ""),
     by: String(input.by || ""),                  // 谁触发的：commission / delivery / user / scheduler
+    parentEventId: String(input.parentEventId || ""),
+    proposalId: String(input.proposalId || ""),
     meta: input.meta && typeof input.meta === "object" ? input.meta : undefined,
   };
   try {
@@ -147,13 +149,21 @@ export function validateProposal(input = {}) {
 export function createProposal(wsRoot, input = {}) {
   const v = validateProposal(input);
   if (!v.ok) return v;
+  // 血缘：把同目标的最近事件记成父事件（没有就是空数组，不编）
+  try {
+    const parents = readEvents(wsRoot, { target: v.proposal.target, limit: 200 })
+      .filter((e) => e.targetId === v.proposal.targetId && e.kind !== "proposal")
+      .slice(-3)
+      .map((e) => e.id);
+    v.proposal.parentEventIds = parents;
+  } catch { v.proposal.parentEventIds = [] }
   try {
     fs.mkdirSync(dirOf(wsRoot), { recursive: true });
     fs.appendFileSync(fileOf(wsRoot, PROPOSALS_FILE), JSON.stringify(v.proposal) + "\n", "utf8");
   } catch (e) {
     return { ok: false, errors: [String(e?.message || e).slice(0, 160)] };
   }
-  appendEvent(wsRoot, { kind: "proposal", target: v.proposal.target, targetId: v.proposal.targetId, verdict: "proposed", n: v.proposal.n, by: v.proposal.agentId, meta: { proposalId: v.proposal.id } });
+  appendEvent(wsRoot, { kind: "proposal", target: v.proposal.target, targetId: v.proposal.targetId, verdict: "proposed", n: v.proposal.n, by: v.proposal.agentId, proposalId: v.proposal.id, parentEventId: (v.proposal.parentEventIds || []).at(-1) || "", meta: { proposalId: v.proposal.id, parentEventIds: v.proposal.parentEventIds || [] } });
   return v;
 }
 
@@ -215,4 +225,31 @@ export function recordGateVerdict(wsRoot, { verdict = "", changedFiles = [], blo
     by: "delivery-gate",
     meta: { changed: Array.isArray(changedFiles) ? changedFiles.slice(0, 8) : [], blockers: (blockers || []).slice(0, 4) },
   });
+}
+
+
+/**
+ * 血缘链：某个提案 / 某个目标的全过程（事件按时间正序，父事件标出）。
+ * 只返回真实存在的事件，不推测。
+ */
+export function lineageOf(wsRoot, { proposalId = "", targetId = "", target = "", limit = 200 } = {}) {
+  const all = readEvents(wsRoot, { target, limit: 2000 });
+  const byId = new Map(all.map((e) => [e.id, e]));
+  let chain;
+  if (proposalId) {
+    const prop = readProposals(wsRoot).find((x) => x.id === proposalId);
+    if (!prop) return { ok: false, error: "没有这个提案" };
+    const parentIds = new Set(prop.parentEventIds || []);
+    chain = all.filter((e) => parentIds.has(e.id) || e.proposalId === proposalId || (e.meta && e.meta.proposalId === proposalId));
+    return { ok: true, proposal: prop, events: chain.slice(-limit) };
+  }
+  chain = targetId ? all.filter((e) => e.targetId === targetId) : all;
+  return {
+    ok: true,
+    targetId,
+    events: chain.slice(-limit).map((e) => ({
+      ...e,
+      parent: e.parentEventId ? (byId.get(e.parentEventId)?.verdict || "") : "",
+    })),
+  };
 }
