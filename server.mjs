@@ -121,6 +121,7 @@ import { createReplyTts } from './engine/reply-tts.mjs';
 import { BASE_TOOL_SCHEMAS, TIME_TASK_SCHEMA, SHARE_PROJECT_SCHEMA, createUnifiedToolExecutorGuarded, webSearchTool, detectBashShell } from "./engine/tools/unified-tools.mjs";
 import { createAuditGate, withAuditGate } from "./engine/tools/audit-gate.mjs";
 import { routeEvent, recentDecisions } from "./engine/router.mjs";
+import { createAsk, listAsks, handleReply, quietHours, pickAsk, resolveAsk } from "./engine/router-pending.mjs";
 import { judgeRun, describeVerdict } from "./engine/delivery-gate.mjs";
 import { runWithInitiator, DEFAULT_RULES } from "./engine/tools/initiator.mjs";
 import { getTeamToolContext } from "./engine/team-tool-context.mjs";
@@ -1550,27 +1551,40 @@ const routeThink = async (prompt) => {
   const r = await directChat(light, prompt, [], { maxTokens: 300, timeout: 45000 });
   return String(r?.text || "").trim();
 };
+// 2026-11-01：破坏性动作即使被批准，也只派"核对 + 方案"，不派"直接删/发/付"
+const DESTRUCTIVE_TASK = /(删|清空|移除|格式化|覆盖|发布|上线|支付|打款|转账|rm |del )/i;
 const dispatchByRouter = (task, reason = "") => {
+  const raw = String(task || "").trim();
+  const guarded = DESTRUCTIVE_TASK.test(raw)
+    ? `【只核对不执行】列出这项操作会动到的具体文件/对象清单和风险，等我二次确认后再执行：${raw}`
+    : raw;
   const at = new Date(Date.now() + 60 * 1000);
   const pad = (n) => String(n).padStart(2, "0");
   const when = `${at.getFullYear()}-${pad(at.getMonth() + 1)}-${pad(at.getDate())}T${pad(at.getHours())}:${pad(at.getMinutes())}`;
   const dateStr = when.slice(0, 10);
   const timeStr = when.slice(11, 16);
-  const r = timeEngine.register({ type: "once", date: dateStr, at: timeStr, prompt: task, label: "路由派活", notify: true });
+  const r = timeEngine.register({ type: "once", date: dateStr, at: timeStr, prompt: guarded, label: "路由派活", notify: true });
   if (r?.error) console.log(`[router] 派活失败：${r.error}`);
-  else console.log(`[router] 已派活（${when}）：${String(task).slice(0, 60)}`);
+  else console.log(`[router] 已派活（${when}）：${String(guarded).slice(0, 60)}`);
   return r;
 };
 const askPush = async (event, reason) => {
   try {
+    // 2026-11-01：先建待办（回执闭环），再决定推不推
+    const fallbackTask = `按伙伴的意思处理这件事：${String(event?.text || "").slice(0, 200)}`;
+    const ask = createAsk(WS_ROOT, { source: event?.source || "", text: event?.text || "", reason, task: event?.task || fallbackTask });
+    if (quietHours(Date.now(), brainWeights().social)) {
+      console.log(`[router] ask 待办 ${ask.id} 已记，但现在是免打扰时段，不推`);
+      return { ok: true, quiet: true, id: ask.id };
+    }
     const what = String(event?.text || "").replace(/\s+/g, " ").trim().slice(0, 120);
     const made = await composeNoticeFor("ask", { what, source: String(event?.source || "未知") });
     const env = noticeEnvelope({ kind: "ask", facts: { what }, text: made.text });
     const r = await notifier.notify({
       kind: "ask", title: env.head, body: made.text,
       sender: personaName(WS_ROOT), summary: env.summary,
-      facts: [`来源 ${String(event?.source || "未知")}`],
-      toWechat: true, key: `router-ask:${event?.id || Date.now()}`,
+      facts: [`来源 ${String(event?.source || "未知")}`, `回「可以」或「不用」就行`],
+      toWechat: true, key: `router-ask:${ask.id}`,
     });
     console.log(`[router] ask 已推送（wechat=${r?.wechat || "?"}）：${env.summary}`.slice(0, 200));
     return r;
@@ -1925,6 +1939,19 @@ async function handleChat(req, res, body) {
     globalThis.__identityDiag = true;
     if (process.env.YUANSHU_IDENTITY_DIAG === "1") { console.log(`[identity] chatRunContext.executionIdentity=${chatRunContext.executionIdentity ? "有" : "无"} body.__runContext=${body.__runContext ? "有" : "无"} keys=${Object.keys(body.__runContext || {}).join(",")}`) }
   }
+  // 2026-11-01：如果这句是在回某个待拍板的事（「可以」/「不用」），先结单；
+  // 批准就把当初记下的 task 派出去，别让她再问一遍。
+  try {
+    const reply = handleReply(WS_ROOT, String(message || ""));
+    if (reply.handled) {
+      if (reply.kind === "approve" && reply.ask?.task) {
+        dispatchByRouter(reply.ask.task, `伙伴点头：${String(message || "").slice(0, 40)}`);
+        console.log(`[router] 伙伴批准 ${reply.ask.id}，已按原任务派活`);
+      } else {
+        console.log(`[router] 伙伴${reply.kind === "deny" ? "拒绝" : "处理"} ${reply.ask?.id || ""}`);
+      }
+    }
+  } catch (e) { console.log(`[router] 回执处理异常：${String(e?.message || e).slice(0, 100)}`) }
   const refreshCultivationContext = async () => {
     const learned = await withKnowledgeRequest(req, res, signal => cultivationChatContext(cultivationRuntime, knowledgeRuntime, { signal,
       executionIdentity: body.__runContext?.executionIdentity,
@@ -3865,6 +3892,17 @@ const API_ROUTES = [
   // 2026-10-27：推送通道（PushPlus）——面板里粘贴 token、一键测试，不再手写文件
   // 2026-11-01：路由器（事件 → 判断 → 派活）
   ["GET", "/api/router/decisions", (res, req, url) => json(res, 200, { ok: true, items: recentDecisions(WS_ROOT, Number(url.searchParams.get("limit")) || 20) })],
+  ["GET", "/api/router/pending", (res, req, url) => json(res, 200, { ok: true, items: listAsks(WS_ROOT, { state: String(url.searchParams.get("state") || "pending") }) })],
+  ["POST", "/api/router/confirm", async (res, req) => {
+    const b = await readBody(req);
+    const id = String(b?.id || "").trim();
+    const approve = b?.approve !== false;
+    const hit = pickAsk(WS_ROOT, "") || null;
+    const target = id || hit?.id || "";
+    const out = resolveAsk(WS_ROOT, target, { state: approve ? "approved" : "denied", note: String(b?.note || "手动确认").slice(0, 120) });
+    if (out.ok && approve && out.ask?.task) dispatchByRouter(out.ask.task, "伙伴在事务台点头");
+    return json(res, out.ok ? 200 : 400, out);
+  }],
   ["POST", "/api/router/judge", async (res, req) => {
     const b = await readBody(req);
     const event = { source: String(b?.source || "manual"), kind: String(b?.kind || "text"), text: String(b?.text || ""), at: Date.now() };

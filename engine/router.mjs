@@ -46,10 +46,10 @@ export function buildRoutePrompt(event, { maxAgeHours = 24 } = {}) {
     "",
     "可选动作：",
     '- "ignore"：不用管（广告、通知、闲聊、重复、过期）',
-    '- "ask"：要人拍板才能做（涉及花钱、对外发布、删数据、改人格、权限）',
+    '- "ask"：要人拍板才能做（涉及花钱、对外发布、删数据、改人格、权限）；ask 也要给 task，写清他点头后你要做什么',
     '- "dispatch"：可以自己派人去做（查证、整理、修复、写文件、跑测试这类）',
     "",
-    '只输出一个 JSON，不要解释：{"action":"ignore|ask|dispatch","reason":"一句话","task":"dispatch 时要做什么（可独立执行的一句指令）"}',
+    '只输出一个 JSON，不要解释：{"action":"ignore|ask|dispatch","reason":"一句话","task":"dispatch 或 ask 时要做什么（可独立执行的一句指令）"}',
   ].join("\n");
 }
 
@@ -64,7 +64,7 @@ export function parseDecision(text) {
     if (!["ignore", "ask", "dispatch"].includes(action)) continue;
     const reason = String(obj?.reason || "").slice(0, 200);
     const task = String(obj?.task || "").slice(0, 1500);
-    if (action === "dispatch" && !task) continue;
+    if (action === "dispatch" && !task) continue;  // dispatch 必须能独立执行；ask 允许 task 为空（服务端兜底）
     return { ok: true, action, reason, task };
   }
   return { ok: false, reason: "模型没给出合法判断" };

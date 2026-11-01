@@ -128,6 +128,12 @@ export default function Gateway() {
   const [policyDraft, setPolicyDraft] = useState('')
   const [editingPolicy, setEditingPolicy] = useState(false)
   const [policyMsg, setPolicyMsg] = useState('')
+  const pending = useSWR('router-pending', () => api<{ items: any[] }>('/api/router/pending?state=pending'), { refreshInterval: 20000 })
+  const confirmAsk = async (id: string, approve: boolean) => {
+    const out: any = await api('/api/router/confirm', { method: 'POST', body: { id, approve } }).catch((e: any) => ({ ok: false, error: e?.message }))
+    setRouteMsg(out?.ok ? (approve ? '已批准，正在派活' : '已拒绝') : `失败：${out?.error || '未知'}`)
+    if (out?.ok) { void pending.mutate(); void router.mutate() }
+  }
   const router = useSWR('router-decisions', () => api<{ items: any[] }>('/api/router/decisions?limit=8'), { refreshInterval: 20000 })
   const [routeText, setRouteText] = useState('')
   const [routeMsg, setRouteMsg] = useState('')
@@ -407,6 +413,21 @@ export default function Gateway() {
           <h2 className="text-[15px] font-semibold text-pi-text">路由判断</h2>
           <span className="text-xs text-pi-dim2">快筛不花钱 · 慢判用轻量模型</span>
         </div>
+        {(pending.data?.items || []).length ? (
+          <div className="space-y-1 border-t border-pi-border-soft pt-2">
+            <p className="text-[11px] text-pi-dim2">待你拍板</p>
+            {(pending.data?.items || []).map((a: any) => (
+              <div key={a.id} className="text-[12px]">
+                <span className="text-pi-text">{String(a.text || "").slice(0, 60)}</span>
+                <span className="ml-2 text-[11px] text-pi-dim2">{String(a.reason || "").slice(0, 30)}</span>
+                <div className="flex gap-2 pt-1">
+                  <button type="button" style={{ ...pill(true), minHeight: 24, fontSize: 11 }} onClick={() => void confirmAsk(a.id, true)}>同意</button>
+                  <button type="button" style={{ ...pill(), minHeight: 24, fontSize: 11 }} onClick={() => void confirmAsk(a.id, false)}>不用</button>
+                </div>
+              </div>
+            ))}
+          </div>
+        ) : null}
         {(router.data?.items || []).slice(0, 5).map((d: any, i: number) => (
           <div key={`${d.at}-${i}`} className="text-[12px] leading-relaxed">
             <span style={{ color: d.action === "dispatch" ? "var(--pi-green)" : d.action === "ask" ? "var(--pi-yellow)" : "var(--pi-dim2)" }}>{d.action}</span>
