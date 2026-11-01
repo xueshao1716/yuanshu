@@ -753,15 +753,34 @@ const localSkills = () => {
     for (const name of names) {
       const skillFile = path.join(dir, name, "SKILL.md");
       let desc = "";
+      let version = "";
       try {
         const md = fs.readFileSync(skillFile, "utf8");
-        const line = md.split(/\r?\n/).find((l) => l.trim() && !l.startsWith("#"));
-        desc = String(line || "").replace(/\s+/g, " ").slice(0, 80);
+        const lines = md.split(/\r?\n/);
+        // ① frontmatter：description / version / name
+        if (lines[0]?.trim() === "---") {
+          const end = lines.findIndex((l, i) => i > 0 && l.trim() === "---");
+          const fm = end > 0 ? lines.slice(1, end) : [];
+          for (const l of fm) {
+            const m = l.match(/^\s*(description|version|name)\s*:\s*(.+)$/i);
+            if (!m) continue;
+            const val = m[2].replace(/^["']|["']$/g, "").trim();
+            if (m[1].toLowerCase() === "description" && !desc) desc = val;
+            if (m[1].toLowerCase() === "version" && !version) version = val;
+          }
+        }
+        // ② 没有就取正文第一句（跳过标题、分隔线、空行）
+        if (!desc) {
+          const body = lines[0]?.trim() === "---" ? lines.slice(lines.findIndex((l, i) => i > 0 && l.trim() === "---") + 1) : lines;
+          const line = body.find((l) => l.trim() && !l.startsWith("#") && l.trim() !== "---");
+          desc = String(line || "").replace(/\s+/g, " ").slice(0, 80);
+        }
       } catch { continue }
       let hash = "";
       let mtime = 0;
       try { hash = crypto.createHash("sha1").update(fs.readFileSync(skillFile)).digest("hex").slice(0, 12); mtime = fs.statSync(skillFile).mtimeMs } catch {}
-      out.push({ id: name, name, version: "local", type: "skill", description: desc, enabled: true, exists: true, source: "local", dir: path.join(dir, name), hash, mtime });
+      // 装于：用 SKILL.md 的修改时间，卡片就不会显示"—"
+      out.push({ id: name, name, version: version || "1.0.0", type: "skill", description: desc || "（这个技能没写描述）", enabled: true, exists: true, source: "local", dir: path.join(dir, name), hash, mtime, installedAt: mtime || Date.now() });
     }
   }
   // 去重：同一份内容（hash）或同名只留一条；每多一个来源优先级更低
