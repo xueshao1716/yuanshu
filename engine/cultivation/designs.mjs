@@ -53,8 +53,10 @@ export function validateDesign(input) {
   checkObject(p, ['model', 'tools', 'dataScopes', 'remote', 'costUpperBoundCents'], 'design.permissions');
   checkText(p.model, 'design.permissions.model', 200);
   for (const key of ['tools', 'dataScopes']) checkList(p[key], `design.permissions.${key}`);
-  if (p.tools.some(tool => /computer|terminal|shell|password|credential|secret|\bfile(?:s)?\b|电脑|终端|密码|凭据|文件/i.test(tool)))
-    bad('design.permissions.tools', '培养设计不得包含电脑、文件、终端、密码或凭据权限；文本培养请使用空工具列表');
+  // 2026-11-02 Owner 决定：放开执行类工具（含 bash/文件读写），但凭据类永久禁。
+  // 放开的是「能把活干完」，不是「能偷钥匙」。
+  if (p.tools.some(tool => /password|credential|secret|token|apikey|api_key|密码|凭据|密钥/i.test(tool)))
+    bad('design.permissions.tools', '培养设计不得申请凭据类权限（password/credential/secret/token/密钥）；执行类工具可正常申请');
   if (typeof p.remote !== 'boolean') bad('design.permissions.remote', '布尔值true或false');
   if (!Number.isSafeInteger(p.costUpperBoundCents) || p.costUpperBoundCents < 0)
     bad('design.permissions.costUpperBoundCents', '大于等于0的安全整数，单位为分');
