@@ -140,6 +140,7 @@ import { validateReal } from "./engine/self-change-validate.mjs";
 import { shouldPropose, makeShadowProposal } from "./engine/self-change-trigger.mjs";
 import { applyChange, rollbackChange, listBackups as listSelfChangeBackups } from "./engine/self-change-apply.mjs";
 import { startSession, finishSession, abortSession, wtPath } from "./engine/self-change-session.mjs";
+import { detectDrift, recordDriftCheck, recentDrift } from "./engine/watchdog-drift.mjs";
 import { appendEvent as appendEvoEvent, readEvents as readEvoEvents, summarizeCapability as summarizeEvoCapability, createProposal as createEvoProposal, readProposals as readEvoProposals, recordGateVerdict } from "./engine/evolution/index.mjs";
 import { countExperience, distillExperience, gatherEvidence, latestReflectionReport } from "./engine/reflection-experience.mjs";
 import { readRegions, writeRegions, REGIONS, deliveryStrictness, distillLimit, nudgeCooldownMs, ideaCap, maxToolTurns, planBatchFactor, toolTier } from "./engine/brain-regions.mjs";
@@ -3826,6 +3827,13 @@ setInterval(() => {
       console.log(`[selfchange] 影子提案：${verdict.reason}`);
     }
   } catch {}
+  // 2026-11-02：看门狗判偏——空转/连续失败/只改不验
+  try {
+    const rows = (auditGate?.tail ? auditGate.tail(300) : []) || [];
+    const res = detectDrift(rows, { now: Date.now() });
+    recordDriftCheck(WS_ROOT, res);
+    if (res.drift) console.log(`[watchdog] 偏离：${res.issues.map((i) => i.detail).join('；')}`);
+  } catch {}
   // 2026-11-02：脑区自调（内部 12h 冷却 + 边界 + 审计）
   try { const r = applyNudges(WS_ROOT); if (r?.applied?.length) console.log(`[brain] 自调：${r.applied.map((x) => `${x.id}${x.delta > 0 ? "+" : ""}${x.delta}`).join(" ")}`) } catch {}
 }, withJitter(10 * 60 * 1000, { ratio: 0.08 })).unref?.();
@@ -4197,6 +4205,8 @@ const API_ROUTES = [
   // 2026-11-02：脑区自调开关（默认开；关了就只按手调值跑）
   // 2026-11-02：L2 自改提案（只记录与校验；分支由她的 agent 循环创建）
   ["GET", "/api/selfchange/proposals", (res) => json(res, 200, { ok: true, items: listProposals(WS_ROOT), policy: POLICY })],
+  // 2026-11-02：看门狗判偏结果（只读）
+  ["GET", "/api/watchdog/drift", (res, req, url) => json(res, 200, { ok: true, items: recentDrift(WS_ROOT, Math.min(100, Number(url.searchParams.get("limit")) || 20)) })],
   // 2026-11-02：隔离会话——她在这里改，主树不碰
   ["POST", "/api/selfchange/session/start", async (res, req) => {
     const b = await readBody(req);
