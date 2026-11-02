@@ -73,11 +73,18 @@ export async function abortSession({ wsRoot, id, exec = run } = {}) {
   const dir = wtPath(wsRoot, id);
   const out = [];
   if (fs.existsSync(dir)) out.push(await exec(GIT, ["worktree", "remove", "--force", dir], wsRoot));
-  // 兜底：git 有时因文件被占用不删目录（Windows 上常见），这里补一刀
+  // 兜底：git 有时因文件被占用不删目录（Windows 上常见），这里补两刀
   if (fs.existsSync(dir)) {
     try { fs.rmSync(dir, { recursive: true, force: true }) } catch {}
   }
+  if (fs.existsSync(dir)) {
+    await exec("cmd.exe", ["/c", "rmdir", "/s", "/q", dir], wsRoot);
+  }
   out.push(await exec(GIT, ["worktree", "prune"], wsRoot));
   out.push(await exec(GIT, ["branch", "-D", branchOf(id)], wsRoot));
-  return { ok: true, removed: fs.existsSync(dir) === false, results: out.map((r) => r.ok) };
+  return {
+    ok: true,
+    removed: fs.existsSync(dir) === false,
+    results: out.map((r) => ({ ok: r.ok, code: r.code, err: String(r.err || "").slice(0, 200) })),
+  };
 }
