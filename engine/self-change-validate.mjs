@@ -4,6 +4,7 @@
 // 依赖注入（runTests / runGate），便于单测；默认实现走真实命令。
 import { execFile } from "node:child_process";
 import path from "node:path";
+import fs from "node:fs";
 import { checkChange, POLICY } from "./self-change.mjs";
 
 const exec = (cmd, args, opts = {}) => new Promise((resolve) => {
@@ -12,10 +13,25 @@ const exec = (cmd, args, opts = {}) => new Promise((resolve) => {
   });
 });
 
-/** 默认测试跑法：跑指定测试文件（或 tests/unit 下全部）。 */
+/** 把改动文件映射到对应测试文件：engine/foo.mjs → tests/unit/foo.test.mjs */
+export function relatedTests(files = []) {
+  const out = [];
+  for (const f of files) {
+    if (!f || f.startsWith("tests/")) { if (f) out.push(f); continue }
+    const base = String(f).split("/").pop().replace(/\.(mjs|js|ts|tsx)$/, "");
+    const cand = `tests/unit/${base}.test.mjs`;
+    if (fs.existsSync(path.join(process.cwd(), cand))) out.push(cand);
+  }
+  return [...new Set(out)];
+}
+
+/** 默认测试跑法：只跑相关测试（找不到就明确失败，不跑全量）。 */
 export function defaultRunTests({ wsRoot, files = [] } = {}) {
-  const targets = files.filter((f) => f.startsWith("tests/"));
-  const args = targets.length ? targets : ["tests/unit"];
+  const targets = relatedTests(files);
+  if (!targets.length) {
+    return Promise.resolve({ ok: false, code: 1, detail: "没有找到与改动对应的测试文件（请新增或指定 tests/ 下的测试）" });
+  }
+  const args = targets;
   return exec(process.execPath, ["--test", ...args], { cwd: wsRoot }).then((r) => ({
     ok: r.ok,
     code: r.code,

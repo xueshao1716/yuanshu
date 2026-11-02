@@ -10,7 +10,9 @@ import fs from "node:fs";
 import path from "node:path";
 
 const run = (cmd, args, cwd) => new Promise((resolve) => {
-  execFile(cmd, args, { cwd, timeout: 120000, windowsHide: true, maxBuffer: 8 * 1024 * 1024 }, (err, stdout, stderr) => {
+  // 服务以 LocalSystem 跑，仓库属主是当前用户，git 会拒绝操作（dubious ownership）
+  const a = cmd === GIT ? ["-c", "safe.directory=*", ...args] : args;
+  execFile(cmd, a, { cwd, timeout: 120000, windowsHide: true, maxBuffer: 8 * 1024 * 1024 }, (err, stdout, stderr) => {
     resolve({ ok: !err, code: err?.code ?? 0, out: String(stdout || ""), err: String(stderr || "") });
   });
 });
@@ -71,6 +73,11 @@ export async function abortSession({ wsRoot, id, exec = run } = {}) {
   const dir = wtPath(wsRoot, id);
   const out = [];
   if (fs.existsSync(dir)) out.push(await exec(GIT, ["worktree", "remove", "--force", dir], wsRoot));
+  // 兜底：git 有时因文件被占用不删目录（Windows 上常见），这里补一刀
+  if (fs.existsSync(dir)) {
+    try { fs.rmSync(dir, { recursive: true, force: true }) } catch {}
+  }
+  out.push(await exec(GIT, ["worktree", "prune"], wsRoot));
   out.push(await exec(GIT, ["branch", "-D", branchOf(id)], wsRoot));
   return { ok: true, removed: fs.existsSync(dir) === false, results: out.map((r) => r.ok) };
 }
