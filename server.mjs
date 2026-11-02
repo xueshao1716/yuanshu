@@ -175,6 +175,9 @@ import { initColorPrefs, loadColorPrefs, saveColorPrefs } from "./engine/color-p
 import { initEnginePair, loadEnginePair, saveEnginePair, swapEnginePair, resolveLead, describePair, leadNote } from "./engine/engine-pair.mjs";
 import { decorateEngineStatus, pluginFromBody, isCorePlugin } from "./engine/engine-panel.mjs";
 import { initWorkspaceApi, WS_ROOT, findWorkspaceFiles, wsSafePath, saveArtifact, saveArtifactFromFile, handleWsTree, handleWsFile, handleWsRead, handleWsPreview, handleWsWrite, handleWsArtifacts, wsNextVersion, handleWsDeliver, handleWsPackage, handleWsDeliveries, handleWsRename, handleWsDelete, handleWsSearch, handleWsProjectCreate, handleWsConvert } from "./engine/workspace-api.mjs";
+
+// 2026-11-02：自改作用于代码仓库（引擎/前端源码在这），不是工作区。
+const SELF_CHANGE_ROOT = process.env.PI_CODE_ROOT || "D:\\pi-web";
 import { initContextLoader, makeLoader, loadExperience, readRulesWithImports, loadContextRules, jitRulesForPath, loadProjectRules, loadSkillIndex, execActivateSkill, ACTIVATE_SKILL_TOOL, WORK_PROTOCOL, loadMemory, loadMemoryIndex, loadExperienceIndex, shouldInjectFullMemory, setLastUserQuery } from "./engine/context-loader.mjs";
 import { directMediaMode, seedMediaMode } from "./engine/media-mode.mjs";
 // 2026-10-28：模型指纹（服务端快照变化要能被归因）
@@ -3819,7 +3822,7 @@ setInterval(() => {
   // 2026-11-02：自改触发（影子）——只记拟议，不改代码
   try {
     const evs = readEvoEvents(WS_ROOT, { limit: 800 });
-    const lastBy = (listProposals(WS_ROOT) || []).reduce((acc, x) => { if (x?.target && x?.targetId) acc[`${x.target}:${x.targetId}`] = Date.parse(x.at) || 0; return acc }, {});
+    const lastBy = (listProposals(SELF_CHANGE_ROOT) || []).reduce((acc, x) => { if (x?.target && x?.targetId) acc[`${x.target}:${x.targetId}`] = Date.parse(x.at) || 0; return acc }, {});
     const verdict = shouldPropose({ events: evs, lastByTarget: lastBy });
     if (verdict.should) {
       const prop = makeShadowProposal(verdict.spot, { reason: verdict.reason });
@@ -4204,23 +4207,23 @@ const API_ROUTES = [
   }],
   // 2026-11-02：脑区自调开关（默认开；关了就只按手调值跑）
   // 2026-11-02：L2 自改提案（只记录与校验；分支由她的 agent 循环创建）
-  ["GET", "/api/selfchange/proposals", (res) => json(res, 200, { ok: true, items: listProposals(WS_ROOT), policy: POLICY })],
+  ["GET", "/api/selfchange/proposals", (res) => json(res, 200, { ok: true, items: listProposals(SELF_CHANGE_ROOT), policy: POLICY })],
   // 2026-11-02：看门狗判偏结果（只读）
   ["GET", "/api/watchdog/drift", (res, req, url) => json(res, 200, { ok: true, items: recentDrift(WS_ROOT, Math.min(100, Number(url.searchParams.get("limit")) || 20)) })],
   // 2026-11-02：隔离会话——她在这里改，主树不碰
   ["POST", "/api/selfchange/session/start", async (res, req) => {
     const b = await readBody(req);
     const id = String(b?.id || "");
-    const out = await startSession({ wsRoot: WS_ROOT, id });
+    const out = await startSession({ wsRoot: SELF_CHANGE_ROOT, id });
     return json(res, out.ok ? 200 : 409, out);
   }],
   ["POST", "/api/selfchange/session/finish", async (res, req) => {
     const b = await readBody(req);
     const id = String(b?.id || "");
     const out = await finishSession({
-      wsRoot: WS_ROOT, id,
-      validate: ({ files }) => validateReal({ wsRoot: WS_ROOT, files, runGate: async () => { try { return checkDelivery({ runId: String(b?.runId || "") }) } catch { return { verdict: "RED" } } } }),
-      apply: ({ id: cid, edits }) => applyChange({ wsRoot: WS_ROOT, id: cid, edits }),
+      wsRoot: SELF_CHANGE_ROOT, id,
+      validate: ({ files }) => validateReal({ wsRoot: SELF_CHANGE_ROOT, files, runGate: async () => { try { return checkDelivery({ runId: String(b?.runId || "") }) } catch { return { verdict: "RED" } } } }),
+      apply: ({ id: cid, edits }) => applyChange({ wsRoot: SELF_CHANGE_ROOT, id: cid, edits }),
     });
     try { appendEvoEvent(WS_ROOT, { kind: "observation", target: "selfchange", targetId: id, verdict: out.ok ? "session_applied" : `session_${out.stage || "failed"}`, by: "self-change" }) } catch {}
     return json(res, out.ok ? 200 : 409, out);
@@ -4231,17 +4234,17 @@ const API_ROUTES = [
     return json(res, 200, out);
   }],
   // 2026-11-02：自改落地与回滚（改前备份、原子写、可一键还原）
-  ["GET", "/api/selfchange/backups", (res) => json(res, 200, { ok: true, items: listSelfChangeBackups(WS_ROOT) })],
+  ["GET", "/api/selfchange/backups", (res) => json(res, 200, { ok: true, items: listSelfChangeBackups(SELF_CHANGE_ROOT) })],
   ["POST", "/api/selfchange/apply", async (res, req) => {
     const b = await readBody(req);
-    const out = applyChange({ wsRoot: WS_ROOT, id: String(b?.id || ""), edits: Array.isArray(b?.edits) ? b.edits : [] });
+    const out = applyChange({ wsRoot: SELF_CHANGE_ROOT, id: String(b?.id || ""), edits: Array.isArray(b?.edits) ? b.edits : [] });
     if (!out.ok) return json(res, 400, out);
     try { appendEvoEvent(WS_ROOT, { kind: "observation", target: "selfchange", targetId: out.id, verdict: "applied", by: "self-change", meta: { files: out.manifest.files.length } }) } catch {}
     return json(res, 200, { ok: true, id: out.id, backupDir: out.backupDir, files: out.manifest.files.length });
   }],
   ["POST", "/api/selfchange/rollback", async (res, req) => {
     const b = await readBody(req);
-    const out = rollbackChange({ wsRoot: WS_ROOT, id: String(b?.id || "") });
+    const out = rollbackChange({ wsRoot: SELF_CHANGE_ROOT, id: String(b?.id || "") });
     try { appendEvoEvent(WS_ROOT, { kind: "observation", target: "selfchange", targetId: String(b?.id || ""), verdict: out.ok ? "rolled_back" : "rollback_failed", by: "self-change", meta: { conflicts: out.conflicts || [] } }) } catch {}
     return json(res, out.ok ? 200 : 409, out);
   }],
@@ -4257,14 +4260,14 @@ const API_ROUTES = [
     if (!out.ok) return json(res, 409, { ok: false, ...out });
     const made = makeProposal({ files, verdict: out.gate?.verdict, reason: String(b?.reason || "自证通过"), hypothesis: String(b?.hypothesis || "") });
     if (!made.ok) return json(res, 400, made);
-    recordProposal(WS_ROOT, made.proposal);
+    recordProposal(SELF_CHANGE_ROOT, made.proposal);
     return json(res, 200, { ok: true, stage: out.stage, proposal: made.proposal });
   }],
   ["POST", "/api/selfchange/proposal", async (res, req) => {
     const b = await readBody(req);
     const out = makeProposal({ files: b?.files, verdict: b?.verdict, reason: b?.reason, hypothesis: b?.hypothesis });
     if (!out.ok) return json(res, 400, out);
-    recordProposal(WS_ROOT, out.proposal);
+    recordProposal(SELF_CHANGE_ROOT, out.proposal);
     return json(res, 200, out);
   }],
   ["GET", "/api/brain/auto", (res) => json(res, 200, { ok: true, ...readAutoState(WS_ROOT) })],
