@@ -60,6 +60,21 @@ describe("承诺提取：不认什么（宁漏不灌水）", () => {
     assert.equal(extractPromises("下次再说。", { at: AT }).length, 0);
   });
 
+  test("括号里的插话不是承诺（白名单：未闭合括号内命中）", () => { // isParentheticalFragment 白名单用例
+    const r = extractPromises("这版先这样（我下次再帮你复查一遍配置），你先用着。", { at: AT });
+    assert.equal(r.length, 0, "括号里的插入语被当成了承诺");
+  });
+
+  test("「或者告诉你…」是把选择权交回去，不是承诺（白名单：either-or 建议）", () => {
+    const r = extractPromises("我明天把日志拉出来看看，或者告诉我你能接受用哪个通道。", { at: AT });
+    assert.equal(r.length, 0, "给用户二选一的建议被记成了承诺");
+  });
+
+  test("白名单不能误杀真承诺：自己的二选一还是承诺", () => {
+    const r = extractPromises("我明天补上，或者后天补上。", { at: AT });
+    assert.equal(r.length, 1, "「或者」后面不是第二人称时该保留");
+  });
+
   test("空回复不产生任何东西", () => {
     assert.deepEqual(extractPromises("", { at: AT }), []);
     assert.deepEqual(extractPromises(null, { at: AT }), []);

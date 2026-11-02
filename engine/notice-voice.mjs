@@ -29,7 +29,17 @@ export function personaName(wsRoot) {
 
 /** 兜底话术：模型不可用/不合格时才用。刻意口语、短、说清事。 */
 export const FALLBACK = {
-  away: ({ away }) => `你走了 ${away}，我这边的活还留着，回来接着做？`,
+  away: ({ away, done, blocked, asks }) => {
+    const d = Array.isArray(done) ? done.filter(Boolean) : [];
+    const b = Array.isArray(blocked) ? blocked.filter(Boolean) : [];
+    const a = Number(asks) || 0;
+    const parts = [`你走这 ${away}`];
+    if (d.length) parts.push(`完了 ${d.length} 件（${d.slice(0, 2).join("、")}${d.length > 2 ? "…" : ""}）`);
+    if (b.length) parts.push(`${b.length} 件卡着（${b.slice(0, 2).join("、")}）`);
+    if (a > 0) parts.push(`${a} 件事等你拍板`);
+    if (!d.length && !b.length && !a) return `你走这 ${away}，没什么要你管的。`;
+    return `${parts.join("；")}。`;
+  },
   reflection: ({ events, winner }) => (Number(events) > 0
     ? `夜里回放 ${events} 条轨迹${winner ? `，${winner} 更稳` : ""}，明天按这个来。`
     : "今天轨迹不够，没做结论，明天接着看。"),
@@ -55,7 +65,7 @@ export function briefFor(kind, facts = {}) {
   if (kind === "away") {
     return [...base,
       `背景：对方离开 ${facts.away || "一会儿"}。`,
-      "只准说三件事：你还在、手头的活没丢、回来能接着做；不要提任何具体成果（不许说报告/任务/文件已交、已完成、已搞定）。不要催，不要卖惨。",
+      "说清这段时间实际发生了什么：完成了几件、卡在哪、有没有事等他决定。只许用给定的数字与名称，不许编。不要问「回来接着做？」，不要催，不要卖惨。",
     ].join("\n");
   }
   if (kind === "night") {

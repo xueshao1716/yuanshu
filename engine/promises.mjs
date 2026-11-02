@@ -27,6 +27,30 @@ function keyOf(text) {
 }
 
 /**
+ * 括号里的插话不是承诺。
+ * 例：「这版先这样（我下次再帮你复查），或者告诉我…」——命中位置落在未闭合的左括号里，
+ * 那只是插入语的一部分，不是助手在担责。实测漏网过一条，账本里多了一句截断半句的噪音。
+ */
+function isParentheticalFragment(raw, index) {
+  const before = String(raw || "").slice(0, Math.max(0, index));
+  let depth = 0;
+  for (const ch of before) {
+    if (ch === "（" || ch === "(") depth++;
+    else if (ch === "）" || ch === ")") depth = Math.max(0, depth - 1);
+  }
+  return depth > 0;
+}
+
+/**
+ * 「…，或者告诉我你能接受用 X」= 把选择权交回给对方，是建议不是承诺。
+ * 只认句首附近紧跟第二人称的「或者/还是/要么」，免得把「我明天补上，或者后天」这类真承诺滤掉。
+ */
+function isEitherOrSuggestion(tail) {
+  const s = String(tail || "");
+  return /^[\s\S]{0,12}?(?:或者|还是|要么)\s*(?:告诉我|你先|你可以|你们|你)/.test(s);
+}
+
+/**
  * 从助手回复里提取延迟承诺（纯函数，可单测）。
  * 只认"时间词 + 我来做"的句式；条件句、否定句、给用户的建议一律不认。
  */
@@ -48,6 +72,9 @@ export function extractPromises(assistText, { at = new Date(), sessionId = "" } 
       const when = m[1];
       const tail = String(m[2] || "").trim();
       if (!tail) continue;
+      // 括号里的插话、或者「或者告诉我你能接受…」这类把选择权交回去的句子，都不是承诺
+      if (isParentheticalFragment(raw, m.index) || /^[）)]/.test(tail)) continue;
+      if (isEitherOrSuggestion(tail)) continue;
       // 否定 = 决定，不是承诺
       if (/^(?:不|没|别|不用|不再)/.test(tail)) continue;
       // 条件句不是承诺

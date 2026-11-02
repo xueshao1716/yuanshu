@@ -1682,10 +1682,27 @@ const maybeColdWake = async (now = new Date()) => {
     const sessions = (typeof getSessionList === "function" ? getSessionList() : []) || [];
     const hit = pickColdSession(sessions, { now: now.getTime(), idleMs: 3 * 60 * 60 * 1000 });
     if (!hit) return { ok: false, reason: "nothing_cold" };
-    const hours = Math.max(1, Math.round(hit.idleMs / 3600000));
+    const hours = Math.max(1, Math.min(12, Math.round(hit.idleMs / 3600000)));
+    // 这段时间到底发生了什么：完成的定时任务 / 卡住的交付 / 等拍板的事
+    const since = now.getTime() - hours * 3600000;
+    const doneList = (timeEngine ? timeEngine.list() : [])
+      .filter((t) => Date.parse(String(t.lastRun || t.lastStart || "")) >= since)
+      .map((t) => String(t.label || "任务").slice(0, 12));
+    const blockedList = (() => {
+      try {
+        return readDeliveryLedger()
+          .filter((x) => Date.parse(String(x.at || "")) >= since && String(x.verdict || "").toUpperCase() === "RED")
+          .map((x) => String(x.runId || "一次交付").slice(0, 10));
+      } catch { return [] }
+    })();
+    const asks = (() => { try { return listAsks().length } catch { return 0 } })();
+    if (!doneList.length && !blockedList.length && asks === 0) {
+      return { ok: false, reason: "nothing_to_report" };
+    }
     const what = `「${String(hit.session.name || "那个会话").slice(0, 18)}」停了 ${hours} 小时`;
-    const made = await composeNoticeFor("away", { away: `${hours} 小时`, what });
-    const env = noticeEnvelope({ kind: "away", facts: { what }, text: made.text });
+    const made = await composeNoticeFor("away", { away: `${hours} 小时`, done: doneList, blocked: blockedList, asks, what });
+    if (!made?.text) return { ok: false, reason: "empty_text" };
+    const env = noticeEnvelope({ kind: "away", facts: { done: doneList, blocked: blockedList, asks }, text: made.text });
     const spent = spendBudget(WS_ROOT, day, { cap: budget.cap, kind: "cold_wake" });
     if (!spent.ok) return { ok: false, reason: spent.reason || "budget" };
     const r = await notifier.notify({
