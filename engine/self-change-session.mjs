@@ -15,6 +15,8 @@ const run = (cmd, args, cwd) => new Promise((resolve) => {
   });
 });
 
+const GIT = process.env.PI_GIT || "C:\\Program Files\\Git\\cmd\\git.exe";
+
 export const wtPath = (wsRoot, id) => path.join(String(wsRoot), ".worktrees", `auto-${id}`);
 const branchOf = (id) => `auto/${id}`;
 
@@ -23,7 +25,7 @@ export async function startSession({ wsRoot, id, exec = run } = {}) {
   if (!id) return { ok: false, error: "缺 id" };
   const dir = wtPath(wsRoot, id);
   if (fs.existsSync(dir)) return { ok: false, error: "该会话已存在" };
-  const r = await exec("git", ["worktree", "add", dir, "-b", branchOf(id)], wsRoot);
+  const r = await exec(GIT, ["worktree", "add", dir, "-b", branchOf(id)], wsRoot);
   if (!r.ok) return { ok: false, error: (r.err || r.out).slice(0, 200) };
   return { ok: true, id, dir, branch: branchOf(id) };
 }
@@ -32,7 +34,7 @@ export async function startSession({ wsRoot, id, exec = run } = {}) {
 export async function collectChanges({ wsRoot, id, exec = run, maxFiles = 5, maxBytes = 60 * 1024 } = {}) {
   const dir = wtPath(wsRoot, id);
   if (!fs.existsSync(dir)) return { ok: false, error: "没有这个会话" };
-  const st = await exec("git", ["status", "--porcelain"], dir);
+  const st = await exec(GIT, ["status", "--porcelain"], dir);
   if (!st.ok) return { ok: false, error: "读不到改动" };
   const files = st.out.split(/\r?\n/).map((l) => l.trim()).filter(Boolean)
     .map((l) => l.replace(/^[A-Z?!]{1,2}\s+/, "").replace(/^"|"$/g, ""))
@@ -68,7 +70,7 @@ export async function finishSession({ wsRoot, id, validate, apply, exec = run } 
 export async function abortSession({ wsRoot, id, exec = run } = {}) {
   const dir = wtPath(wsRoot, id);
   const out = [];
-  if (fs.existsSync(dir)) out.push(await exec("git", ["worktree", "remove", "--force", dir], wsRoot));
-  out.push(await exec("git", ["branch", "-D", branchOf(id)], wsRoot));
+  if (fs.existsSync(dir)) out.push(await exec(GIT, ["worktree", "remove", "--force", dir], wsRoot));
+  out.push(await exec(GIT, ["branch", "-D", branchOf(id)], wsRoot));
   return { ok: true, removed: fs.existsSync(dir) === false, results: out.map((r) => r.ok) };
 }
