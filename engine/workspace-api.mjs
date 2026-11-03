@@ -78,7 +78,16 @@ export function findWorkspaceFiles({ keyword = "", types = null, max = 8, maxDep
   } catch { return []; }
 }
 // 路径安全原语已抽到 engine/tools/security.mjs；此处保留同名薄封装，15+ 调用点零改动
+// 2026-11-03：自改时可临时把写根指到隔离 worktree（不设则完全照旧）
+let _selfChangeRoot = null;
+export function setSelfChangeWriteRoot(dir) { _selfChangeRoot = dir ? String(dir) : null; }
+export function getSelfChangeWriteRoot() { return _selfChangeRoot; }
+
 export function wsSafePath(p) {
+  if (_selfChangeRoot) {
+    const r = safeJoin(_selfChangeRoot, p);
+    if (r) return r;
+  }
   return safeJoin(WS_ROOT, p);
 }
 

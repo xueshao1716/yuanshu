@@ -142,6 +142,8 @@ import { applyChange, rollbackChange, listBackups as listSelfChangeBackups } fro
 import { startSession, finishSession, abortSession, wtPath } from "./engine/self-change-session.mjs";
 import { detectDrift, recordDriftCheck, recentDrift } from "./engine/watchdog-drift.mjs";
 import { setSelfChangeRoot, getSelfChangeRoot } from "./engine/tools/unified-tools.mjs";
+import { setSelfChangeWriteRoot } from "./engine/workspace-api.mjs";
+import { beginSnapshot, finishSnapshot, rollbackSnapshot } from "./engine/self-change-main.mjs";
 import { appendEvent as appendEvoEvent, readEvents as readEvoEvents, summarizeCapability as summarizeEvoCapability, createProposal as createEvoProposal, readProposals as readEvoProposals, recordGateVerdict } from "./engine/evolution/index.mjs";
 import { countExperience, distillExperience, gatherEvidence, latestReflectionReport } from "./engine/reflection-experience.mjs";
 import { readRegions, writeRegions, REGIONS, deliveryStrictness, distillLimit, nudgeCooldownMs, ideaCap, maxToolTurns, planBatchFactor, toolTier } from "./engine/brain-regions.mjs";
@@ -4211,6 +4213,32 @@ const API_ROUTES = [
   ["GET", "/api/selfchange/proposals", (res) => json(res, 200, { ok: true, items: listProposals(SELF_CHANGE_ROOT), policy: POLICY })],
   // 2026-11-02：看门狗判偏结果（只读）
   ["GET", "/api/watchdog/drift", (res, req, url) => json(res, 200, { ok: true, items: recentDrift(WS_ROOT, Math.min(100, Number(url.searchParams.get("limit")) || 20)) })],
+  // 2026-11-03：主树快照模式——记录基线 → 她干活 → 对比出改动 → 备份 → 可回滚
+  ["POST", "/api/selfchange/snapshot/begin", async (res) => {
+    const snap = await beginSnapshot({ root: SELF_CHANGE_ROOT });
+    if (snap.ok) globalThis.__selfChangeBaseline = snap.baseline;
+    return json(res, snap.ok ? 200 : 500, { ...snap, baseline: undefined, count: (snap.baseline || []).length });
+  }],
+  ["POST", "/api/selfchange/snapshot/finish", async (res, req) => {
+    const b = await readBody(req);
+    const base = globalThis.__selfChangeBaseline || [];
+    const out = await finishSnapshot({
+      root: SELF_CHANGE_ROOT,
+      backupRoot: path.join(SELF_CHANGE_ROOT, "记忆", "运行时", "自改备份"),
+      baseline: base,
+      id: String(b?.id || ""),
+    });
+    return json(res, out.ok ? 200 : 409, out);
+  }],
+  ["POST", "/api/selfchange/snapshot/rollback", async (res, req) => {
+    const b = await readBody(req);
+    const out = await rollbackSnapshot({
+      root: SELF_CHANGE_ROOT,
+      backupRoot: path.join(SELF_CHANGE_ROOT, "记忆", "运行时", "自改备份"),
+      id: String(b?.id || ""),
+    });
+    return json(res, out.ok ? 200 : 409, out);
+  }],
   // 2026-11-03：自主自改——建一个跑在隔离工作区里的会话，然后把活派给她
   ["POST", "/api/selfchange/run", async (res, req) => {
     const b = await readBody(req);
@@ -4229,12 +4257,12 @@ const API_ROUTES = [
       "约束：只能改 engine/、frontend/src/、tests/ 下；最多 5 个文件；不许改 server.mjs 与 package.json；",
       "改完必须补一条对应测试；不要 git commit；最后用一句话说明你改了什么。",
     ].join("\n");
-    try { setSelfChangeRoot(started.dir) } catch {}
+    try { setSelfChangeRoot(started.dir); setSelfChangeWriteRoot(started.dir) } catch {}
     return json(res, 200, { ok: true, id, dir: started.dir, branch: started.branch, sessionId, prompt, writeRoot: started.dir });
   }],
   ["POST", "/api/selfchange/collect", async (res, req) => {
     const b = await readBody(req);
-    try { setSelfChangeRoot(null) } catch {}
+    try { setSelfChangeRoot(null); setSelfChangeWriteRoot(null) } catch {}
     const out = await finishSession({
       wsRoot: SELF_CHANGE_ROOT, id: String(b?.id || ""),
       validate: ({ files }) => validateReal({ wsRoot: SELF_CHANGE_ROOT, files, runGate: async () => ({ verdict: String(b?.verdict || "GREEN") }) }),

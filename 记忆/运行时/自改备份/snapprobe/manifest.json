@@ -1,0 +1,12 @@
+{
+  "id": "snapprobe",
+  "at": "2026-11-03T02:09:13.069Z",
+  "files": [
+    {
+      "path": "engine/.snapshot-probe.mjs",
+      "existed": false,
+      "tracked": false,
+      "backup": ""
+    }
+  ]
+}
