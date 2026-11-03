@@ -163,6 +163,7 @@ export default function Gateway() {
   const fpLine = String(fps.data?.line || "")
   const fpChanged = (fps.data?.history || []).length > 0
   const evoList = evo.data?.proposals || []
+  const inbox = useSWR('inbox-pending', () => api<{ total: number; groups: any[] }>('/api/inbox/pending'), { refreshInterval: 30000 })
   const [evoMsg, setEvoMsg] = useState('')
   const evoAct = async (action: 'apply' | 'dismiss', id: string) => {
     setEvoMsg('处理中…')
@@ -555,6 +556,27 @@ export default function Gateway() {
           <a className="text-pi-accent underline" href="https://gitee.com/linxinyu520xue/yuanshu/blob/main/docs/HOW-SHE-TALKS.md" target="_blank" rel="noreferrer">她怎么跟你说话 →</a>
           <span className="ml-2 text-pi-dim2">四种简报的触发条件、话术规则、编造守卫</span>
         </p>
+      </section>
+      {/* 待你处理：散在各处的待办合成一处 */}
+      <section className="panel space-y-2">
+        <div className="flex items-baseline justify-between gap-2">
+          <h2 className="text-[15px] font-semibold text-pi-text">待你处理</h2>
+          <span className="text-xs text-pi-dim2">{inbox.data ? `${inbox.data.total} 件` : "读取中…"}</span>
+        </div>
+        {inbox.data && inbox.data.total === 0 && (
+          <p className="text-[12px] text-pi-dim2">没有要你拍板的事，散着就行。</p>
+        )}
+        {(inbox.data?.groups || []).filter((g) => g.count > 0).map((g) => (
+          <div key={g.id} className="space-y-1">
+            <div className="flex items-center justify-between text-[12px]">
+              <span className="text-pi-text">{g.label}（{g.count}）</span>
+              <a href={g.where} className="text-pi-accent underline underline-offset-2">去处理</a>
+            </div>
+            {g.items.slice(0, 3).map((it) => (
+              <div key={it.id} className="text-[11px] text-pi-dim2 truncate">· {it.title}</div>
+            ))}
+          </div>
+        ))}
       </section>
       {/* 进化提案：她自己攒的改进建议 */}
       <section className="panel space-y-3">

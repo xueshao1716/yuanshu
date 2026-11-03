@@ -4269,6 +4269,27 @@ const API_ROUTES = [
     const out = replayFromDisk(WS_ROOT, { days, threshold, now: Date.now() });
     return json(res, 200, { ok: true, ...out });
   }],
+  // 2026-11-03：统一待办——待拍板 / 进化提案 / 自改提案 合成一处
+  ["GET", "/api/inbox/pending", (res) => {
+    const out = { ok: true, total: 0, groups: [] };
+    const push = (id, label, items, where) => {
+      out.groups.push({ id, label, count: items.length, where, items: items.slice(0, 10) });
+      out.total += items.length;
+    };
+    try {
+      const asks = (typeof listAsks === "function" ? listAsks() : []) || [];
+      push("asks", "等你拍板", asks.map((a) => ({ id: a.id, title: String(a.question || a.text || "一件事").slice(0, 60), at: a.at })), "#/gateway");
+    } catch {}
+    try {
+      const props = (readEvoProposals(SELF_CHANGE_ROOT) || []).filter((x) => x.status === "PROPOSED" || x.status === "AWAITING_APPROVAL");
+      push("evolution", "进化提案", props.map((x) => ({ id: x.id, title: String(x.reason || x.targetId || "提案").slice(0, 60), at: x.at })), "#/gateway");
+    } catch {}
+    try {
+      const self = (listProposals(SELF_CHANGE_ROOT) || []).filter((x) => x.shadow || x.status === undefined);
+      push("selfchange", "自改提案", self.map((x) => ({ id: x.id, title: String(x.reason || x.targetId || "自改").slice(0, 60), at: x.at })), "#/gateway");
+    } catch {}
+    return json(res, 200, out);
+  }],
   // 2026-11-03：推送反应——open/ignore/reply，喂给降频与 Adaptation
   ["POST", "/api/notice/reaction", async (res, req) => {
     const b = await readBody(req);
