@@ -141,6 +141,7 @@ import { shouldPropose, makeShadowProposal } from "./engine/self-change-trigger.
 import { applyChange, rollbackChange, listBackups as listSelfChangeBackups } from "./engine/self-change-apply.mjs";
 import { startSession, finishSession, abortSession, wtPath } from "./engine/self-change-session.mjs";
 import { detectDrift, recordDriftCheck, recentDrift } from "./engine/watchdog-drift.mjs";
+import { setSelfChangeRoot, getSelfChangeRoot } from "./engine/tools/unified-tools.mjs";
 import { appendEvent as appendEvoEvent, readEvents as readEvoEvents, summarizeCapability as summarizeEvoCapability, createProposal as createEvoProposal, readProposals as readEvoProposals, recordGateVerdict } from "./engine/evolution/index.mjs";
 import { countExperience, distillExperience, gatherEvidence, latestReflectionReport } from "./engine/reflection-experience.mjs";
 import { readRegions, writeRegions, REGIONS, deliveryStrictness, distillLimit, nudgeCooldownMs, ideaCap, maxToolTurns, planBatchFactor, toolTier } from "./engine/brain-regions.mjs";
@@ -4228,10 +4229,12 @@ const API_ROUTES = [
       "约束：只能改 engine/、frontend/src/、tests/ 下；最多 5 个文件；不许改 server.mjs 与 package.json；",
       "改完必须补一条对应测试；不要 git commit；最后用一句话说明你改了什么。",
     ].join("\n");
-    return json(res, 200, { ok: true, id, dir: started.dir, branch: started.branch, sessionId, prompt });
+    try { setSelfChangeRoot(started.dir) } catch {}
+    return json(res, 200, { ok: true, id, dir: started.dir, branch: started.branch, sessionId, prompt, writeRoot: started.dir });
   }],
   ["POST", "/api/selfchange/collect", async (res, req) => {
     const b = await readBody(req);
+    try { setSelfChangeRoot(null) } catch {}
     const out = await finishSession({
       wsRoot: SELF_CHANGE_ROOT, id: String(b?.id || ""),
       validate: ({ files }) => validateReal({ wsRoot: SELF_CHANGE_ROOT, files, runGate: async () => ({ verdict: String(b?.verdict || "GREEN") }) }),

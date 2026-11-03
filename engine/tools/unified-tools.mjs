@@ -51,6 +51,11 @@ import { checkWriteSegments } from "../context-headroom.mjs";
 import { env } from "../env.mjs";
 import { resolveShareOrigin } from "../network-endpoints.mjs";
 
+// 2026-11-03：自改时的写根（隔离 worktree）；null = 走默认工作区
+let __selfChangeRoot = null;
+export function setSelfChangeRoot(dir) { __selfChangeRoot = dir ? String(dir) : null; }
+export function getSelfChangeRoot() { return __selfChangeRoot; }
+
 // ── 工具 schema（OpenAI function 格式）──
 export const BASE_TOOL_SCHEMAS = [
   // 描述由 bashToolDescription() 动态给：实际用哪个 shell 就写哪个，别再让模型自己猜
@@ -408,7 +413,7 @@ export function normalizeInterpreter(cmd) {
 }
 export function createUnifiedToolExecutor(deps = {}) {
   const getCwd = deps.cwd || (() => process.cwd());
-  const safePath = deps.safePath || ((p) => path.resolve(getCwd(), p || ""));
+  const safePath = deps.safePath || ((p) => path.resolve(__selfChangeRoot || getCwd(), p || ""));
   // 2026-08-30 双根白名单：工作空间（CONFIG.cwd）+ 系统本体目录（server.mjs 所在 D:/pi-web）。
   // 自进化系统：模型需要能读写元枢自身源码。注入 deps.systemDir 后 read/write/edit 双根可达；
   // 其余磁盘仍仅 read 只读。敏感凭据文件由 secrets-guard 在通道层拦截。
