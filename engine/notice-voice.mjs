@@ -33,12 +33,14 @@ export const FALLBACK = {
     const d = Array.isArray(done) ? done.filter(Boolean) : [];
     const b = Array.isArray(blocked) ? blocked.filter(Boolean) : [];
     const a = Number(asks) || 0;
-    const parts = [`你走这 ${away}`];
-    if (d.length) parts.push(`完了 ${d.length} 件（${d.slice(0, 2).join("、")}${d.length > 2 ? "…" : ""}）`);
-    if (b.length) parts.push(`${b.length} 件卡着（${b.slice(0, 2).join("、")}）`);
-    if (a > 0) parts.push(`${a} 件事等你拍板`);
-    if (!d.length && !b.length && !a) return `你走这 ${away}，没什么要你管的。`;
-    return `${parts.join("；")}。`;
+    if (!d.length && !b.length && !a) return `你走这 ${away}，我这边没新动静，不用回。`;
+    const head = `你走这 ${away}`;
+    const body = [];
+    if (d.length) body.push(`做完 ${d.length} 件：${d.slice(0, 3).join("、")}${d.length > 3 ? " 等" : ""}`);
+    if (b.length) body.push(`${b.length} 件卡住：${b.slice(0, 2).join("、")}`);
+    if (a > 0) body.push(`${a} 件等你拍板`);
+    const tail = b.length || a > 0 ? "你回来我先处理卡住的，拍板后我接着动。" : "挑一件接着做就行，不用都看。";
+    return `${head}：${body.join("；")}。${tail}`;
   },
   reflection: ({ events, winner }) => (Number(events) > 0
     ? `夜里回放 ${events} 条轨迹${winner ? `，${winner} 更稳` : ""}，明天按这个来。`
@@ -50,7 +52,7 @@ export const FALLBACK = {
     ? `${what || "手头的活"}干完了，但交付门没过：${String(gate.summary || "有改动没被验证").slice(0, 60)}`
     : gate?.verdict === "YELLOW"
       ? `${what || "手头的活"}做完了，${String(gate.summary || "需要你确认").replace(/^可以交付[，,]?/, "").slice(0, 70)}`
-      : `${what || "手头的活"}做完了${minutes ? `，用了 ${minutes} 分钟` : ""}，看一眼？`),
+      : `${what || "手头的活"}做完了${minutes ? `，用了 ${minutes} 分钟` : ""}。文件在生成物里，我可以顺手整理成清单，也可以直接接着改下一版——你说一声。`),
 };
 
 /** 各类型的写作要求（给模型的要求，不是最终文案） */

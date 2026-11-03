@@ -116,16 +116,16 @@ test('交付门 GREEN：正常说完成', async () => {
 
 test('离开推送：报完成/卡住/待拍板的具体事实', () => {
   const t = FALLBACK.away({ away: '6 小时', done: ['晨报', '资产整理'], blocked: ['一次交付RED'], asks: 2 });
-  assert.match(t, /完了 2 件/);
+  assert.match(t, /做完 2 件/);
   assert.match(t, /晨报/);
-  assert.match(t, /1 件卡着/);
+  assert.match(t, /1 件卡住/);
   assert.match(t, /2 件事等你拍板/);
   assert.ok(!/回来接着做/.test(t), '不许再问回来接着做');
 });
 
 test('离开推送：没有事实就明说，不编数字', () => {
   const t = FALLBACK.away({ away: '2 小时' });
-  assert.match(t, /没什么要你管的/);
-  assert.ok(!/完了/.test(t));
+  assert.match(t, /没新动静/);
+  assert.ok(!/做完/.test(t));
   assert.ok(!/等你拍板/.test(t));
 });
