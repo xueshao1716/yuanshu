@@ -4270,6 +4270,32 @@ const API_ROUTES = [
     const out = replayFromDisk(WS_ROOT, { days, threshold, now: Date.now() });
     return json(res, 200, { ok: true, ...out });
   }],
+  // 2026-11-03：让她自己写技能——建会话（cwd=工作区）+ 给提示词
+  ["POST", "/api/learning/skill/author", async (res, req) => {
+    const b = await readBody(req);
+    const goal = String(b?.goal || "").trim();
+    if (!goal) return json(res, 400, { ok: false, error: "缺 goal" });
+    const name = String(b?.name || "").trim() || `skill-${Date.now().toString(36)}`;
+    const prompt = buildAuthorPrompt({ goal }) + `\n\n把文件写到：技能/${name}/SKILL.md（用 write 工具，写完就跑一次 node --check 不需要，直接用 write 保存即可）。`;
+    let sessionId = "";
+    try { sessionId = await createSession(`造技能·${name}`, { group: "workspace" }); } catch (e) {
+      return json(res, 500, { ok: false, error: "建会话失败：" + String(e?.message || e).slice(0, 120) });
+    }
+    return json(res, 200, { ok: true, name, sessionId, prompt, targetFile: `技能/${name}/SKILL.md` });
+  }],
+  // 收口：等她写完，校验工作区里那份文件，合格才登记为已装
+  ["POST", "/api/learning/skill/adopt", async (res, req) => {
+    const b = await readBody(req);
+    const name = String(b?.name || "").trim();
+    if (!name) return json(res, 400, { ok: false, error: "缺 name" });
+    const file = path.join(WS_ROOT, "技能", name.replace(/[\\/:*?"<>|]/g, "_"), "SKILL.md");
+    if (!fs.existsSync(file)) return json(res, 404, { ok: false, error: "她还没写出这个文件", file });
+    const content = fs.readFileSync(file, "utf8");
+    const v = validateSkillMd(content);
+    if (!v.ok) return json(res, 400, { ok: false, errors: v.errors, file });
+    try { appendEvoEvent(WS_ROOT, { kind: "observation", target: "skill", targetId: name, verdict: "applied", by: "skill-author" }) } catch {}
+    return json(res, 200, { ok: true, name, file, bytes: content.length });
+  }],
   // 2026-11-03：一句话造技能——她写 SKILL.md，这里校验并安装
   ["GET", "/api/learning/skills", (res) => json(res, 200, { ok: true, items: listAuthoredSkills(WS_ROOT), host: "/api/selfchange/run" })],
   ["POST", "/api/learning/skill/validate", async (res, req) => {
