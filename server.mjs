@@ -3591,7 +3591,7 @@ const runManager = createRunManager({
       const minutes = Math.max(1, Math.round(secs / 60));
       // 2026-10-31：交付门回灌——RED 时这条推送不许说做完了
       const gate = checkDelivery({ runId: r.id });
-      const made = await composeNoticeFor("done", { what, minutes, failed, gate: { verdict: gate.verdict, summary: gate.summary } });
+      const made = await composeNoticeFor("done", { what, minutes, failed, files: gate.changedFiles || [], gate: { verdict: gate.verdict, summary: gate.summary } });
       const env = noticeEnvelope({ kind: "done", facts: { what }, text: made.text });
       return { title: env.head, body: made.text, sender: personaName(WS_ROOT), summary: failed ? "任务失败" : "长任务完成", facts: [`用时 ${Math.round(secs / 60) || 1} 分钟`] };
     };
