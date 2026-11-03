@@ -138,6 +138,18 @@ describe("承诺结清：只能显式", () => {
     assert.ok(closed.closedAt);
   });
 
+  test("证据传对象不能落成 [object Object]（2026-11-03 真机坏记录）", () => {
+    const w = ws();
+    recordPromises(w, extractPromises("我明天给你补个测试。", { at: AT }));
+    const id = loadPromises(w)[0].id;
+    const r = closePromise(w, id, { status: "kept", evidence: { file: "engine/promises.mjs", tests: "25/25" }, now: AT });
+    assert.equal(r.ok, true);
+    const closed = loadPromises(w).find((p) => p.id === id);
+    assert.doesNotMatch(String(closed.evidence), /\[object Object\]/, "对象证据必须序列化");
+    assert.match(closed.evidence, /promises\.mjs/);
+    assert.ok(closed.evidence.length <= 200, "证据长度受 200 字限制");
+  });
+
   test("可以作废但不接受任意状态", () => {
     const w = ws();
     recordPromises(w, extractPromises("我明天给你补个测试。", { at: AT }));

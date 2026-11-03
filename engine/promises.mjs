@@ -160,7 +160,11 @@ export function closePromise(wsRoot, id, { status = "kept", evidence = null, now
     const hit = list.find((p) => p.id === id);
     if (!hit) return { ok: false, reason: "承诺不存在" };
     hit.status = status;
-    hit.evidence = evidence ? String(evidence).slice(0, 200) : null;
+    // 2026-11-03：evidence 传对象时旧代码 String() 出的是 "[object Object]"，账本里成了坏证据。
+    const evText = evidence === null || evidence === undefined || evidence === ""
+      ? ""
+      : (typeof evidence === "object" ? JSON.stringify(evidence) : String(evidence));
+    hit.evidence = evText ? evText.slice(0, 200) : null;
     hit.closedAt = (now instanceof Date ? now : new Date()).toISOString();
     const saved = savePromises(wsRoot, list, fsMod);
     if (!saved.ok) return { ok: false, id, status, reason: `承诺账本写入失败：${saved.error || "未知错误"}` };

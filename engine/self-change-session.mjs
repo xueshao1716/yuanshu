@@ -71,20 +71,32 @@ export async function finishSession({ wsRoot, id, validate, apply, exec = run } 
 /** 放弃：删工作区与分支，主树无感。 */
 export async function abortSession({ wsRoot, id, exec = run } = {}) {
   const dir = wtPath(wsRoot, id);
-  const out = [];
-  if (fs.existsSync(dir)) out.push(await exec(GIT, ["worktree", "remove", "--force", dir], wsRoot));
-  // 兜底：git 有时因文件被占用不删目录（Windows 上常见），这里补两刀
+  const trace = [];
+  const mark = (step, extra = {}) => trace.push({ step, exists: fs.existsSync(dir), ...extra });
+
+  mark("start");
   if (fs.existsSync(dir)) {
-    try { fs.rmSync(dir, { recursive: true, force: true }) } catch {}
+    const r = await exec(GIT, ["worktree", "remove", "--force", dir], wsRoot);
+    mark("git-worktree-remove", { ok: r.ok, code: r.code, err: String(r.err || "").slice(0, 200) });
+  } else {
+    mark("skip-remove");
   }
+
   if (fs.existsSync(dir)) {
-    await exec("cmd.exe", ["/c", "rmdir", "/s", "/q", dir], wsRoot);
+    try { fs.rmSync(dir, { recursive: true, force: true }) } catch (e) { mark("rmSync-error", { err: String(e?.message || e).slice(0, 120) }) }
+    mark("rmSync");
   }
-  out.push(await exec(GIT, ["worktree", "prune"], wsRoot));
-  out.push(await exec(GIT, ["branch", "-D", branchOf(id)], wsRoot));
-  return {
-    ok: true,
-    removed: fs.existsSync(dir) === false,
-    results: out.map((r) => ({ ok: r.ok, code: r.code, err: String(r.err || "").slice(0, 200) })),
-  };
+
+  if (fs.existsSync(dir)) {
+    const r = await exec("cmd.exe", ["/c", "rmdir", "/s", "/q", dir], wsRoot);
+    mark("rmdir", { ok: r.ok, code: r.code, err: String(r.err || "").slice(0, 200) });
+  }
+
+  const prune = await exec(GIT, ["worktree", "prune"], wsRoot);
+  mark("prune", { ok: prune.ok, code: prune.code, err: String(prune.err || "").slice(0, 160) });
+
+  const delBranch = await exec(GIT, ["branch", "-D", branchOf(id)], wsRoot);
+  mark("branch-delete", { ok: delBranch.ok, code: delBranch.code, err: String(delBranch.err || "").slice(0, 160) });
+
+  return { ok: true, removed: fs.existsSync(dir) === false, trace };
 }
