@@ -6,6 +6,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { listTraces } from "./trace.mjs";
 import { legacyLessons, parseReflectionLessons } from "./lesson-promotion.mjs";
+import { loadPromises, PROMISE_STALE_DAYS } from "./promises.mjs";
 
 const LOG = path.join("文档", "时间引擎日志.md");
 const LEDGER = path.join("记忆", "承诺兑现.json");
@@ -27,8 +28,6 @@ export function lastLogEntry(text, taskId) {
   return { at: last[1], title: clip(title, 80), execSummary: exec ? exec[1] : "", execRows: rows, lessons: (lessons.length ? lessons : legacyLessons(body)).slice(0, 4).map((l) => clip(l.text, 90)) };
 }
 
-function readJson(fp, fsMod) { try { return JSON.parse(fsMod.readFileSync(fp, "utf8")); } catch { return null; } }
-
 /**
  * @param {object} o
  * @param {string} o.wsRoot
@@ -37,8 +36,9 @@ function readJson(fp, fsMod) { try { return JSON.parse(fsMod.readFileSync(fp, "u
  * @param {object} [o.dream]      { eligible, observed }（skill-match 合格样本/观测）
  */
 export function buildLastNight({ wsRoot, tasks = [], nudges = [], dream = {}, fsMod = fs } = {}) {
-  const ledgerRaw = readJson(path.join(wsRoot, LEDGER), fsMod);
-  const ledger = (Array.isArray(ledgerRaw) ? ledgerRaw : []).filter((p) => p?.sessionId === "reflect");
+  // 2026-11-03：账本读取代 loadPromises——它已兼容「数组 / 对象（按序号键）」两种格式。
+  // 旧写法只认数组，账本一旦回退成对象格式，下面所有承诺统计会静默变 0（页面看着像"没有挂账"）。
+  const ledger = loadPromises(wsRoot, fsMod).filter((p) => p?.sessionId === "reflect");
   const taskId = ledger.at(-1)?.taskId || tasks.find((t) => /复盘|反思/.test(String(t.prompt || "")))?.id || null;
   const task = tasks.find((t) => t.id === taskId) || null;
   const hist = task?.history?.[0] || null;
@@ -47,11 +47,15 @@ export function buildLastNight({ wsRoot, tasks = [], nudges = [], dream = {}, fs
   const entry = taskId && log ? lastLogEntry(log, taskId) : null;
 
   const pending = ledger.filter((p) => p.status === "pending");
-  const byKind = (k) => pending.filter((p) => (p.kind || "fix") === k).length;
+  // 2026-11-03：旧代码 p.kind || "fix" 把 kind 缺省的条目也计进 fix，修复数是虚高的。
+  // 只统计真实命中的；缺省就是缺省，显示 0 比显示假数字诚实。
+  const byKind = (k) => pending.filter((p) => p.kind === k).length;
   const batchAt = ledger.at(-1)?.at || null;
   const fresh = batchAt ? ledger.filter((p) => p.at === batchAt).length : 0;
   const now = Date.now();
-  const stale = pending.filter((p) => now - Date.parse(p.at) > 7 * 86400e3).length;
+  // 2026-11-03：阈值与 expireStalePromises 的保鲜期对齐（PROMISE_STALE_DAYS = 3 天）。
+  // 原来写 7 天是死代码——pending 满 3 天就转 expired，pending 里活不到第 7 天，stale 恒为 0。
+  const stale = pending.filter((p) => now - Date.parse(p.at) > PROMISE_STALE_DAYS * 86400e3).length;
 
   const lessonOpen = nudges.filter((n) => n.subtype === "lesson" && (n.state || "open") === "open");
   let fixTraces = 0;

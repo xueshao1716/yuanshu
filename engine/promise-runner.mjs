@@ -99,14 +99,19 @@ export async function runDuePromises({ wsRoot, run, send, now = new Date(), limi
     // 先标 started，避免"跑得慢"时被下一轮重复执行
     try { markFired(wsRoot, p.id, { phase: "started", now }) } catch {}
     try {
-      const answer = String((await Promise.race([
-        run(p.text),
-        new Promise((_, rej) => setTimeout(() => rej(new Error("执行超时")), RUN_TIMEOUT_MS)),
-      ])) || "").slice(0, 1500);
-      await send({ text: `到点了，这件事我去做了：${p.text}\n\n${answer}`.trim(), channel: "wechat" });
-      closePromise(wsRoot, p.id, { status: "kept", evidence: { via: "promise-runner", answer: answer.slice(0, 400) }, now });
-      try { markFired(wsRoot, p.id, { phase: "done", now: new Date(), ms: Date.now() - startedAt }) } catch {}
-      fired += 1;
+      // 2026-11-03 real-machine: the race timeout timer was never cleared, so it
+      // held the process open for the full 150s (unit test killed by SIGTERM).
+      let timer;
+      try {
+        const answer = String((await Promise.race([
+          run(p.text),
+          new Promise((_, rej) => { timer = setTimeout(() => rej(new Error("执行超时")), RUN_TIMEOUT_MS); }),
+        ])) || "").slice(0, 1500);
+        await send({ text: `到点了，这件事我去做了：${p.text}\n\n${answer}`.trim(), channel: "wechat" });
+        closePromise(wsRoot, p.id, { status: "kept", evidence: { via: "promise-runner", answer: answer.slice(0, 400) }, now });
+        try { markFired(wsRoot, p.id, { phase: "done", now: new Date(), ms: Date.now() - startedAt }) } catch {}
+        fired += 1;
+      } finally { clearTimeout(timer); }
       results.push({ id: p.id, ok: true, ms: Date.now() - startedAt });
       log(`[承诺] 已完成：${String(p.text).slice(0, 40)}`);
     } catch (e) {

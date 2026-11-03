@@ -51,6 +51,30 @@ function isEitherOrSuggestion(tail) {
 }
 
 /**
+ * 「下次再帮你复查」「回头帮你看看有没有报错」= 姿态性客套，或把复核交回给对方，不是担责。
+ * 2026-11-03 真机投诉：伙伴写「（下次再帮你复查）」，账上多了一条不是自己的事。
+ * 只滤「帮你」紧跟复核/追问类动词、且 tail 短（没有明确交付物）的句子——
+ * 「我明天帮你把配置改好」这类带交付物的照旧算承诺。宁可漏，不可灌水。
+ */
+function isBoastfulRecheck(tail) {
+  const s = String(tail || "").replace(/\s+/g, "");
+  if (s.length > 24) return false;
+  if (!/^帮你/.test(s)) return false;
+  if (/^帮你(?:再|重新)*(?:复查|检查|核对|确认|排查|复盘|看看|看一看|瞧一眼)/.test(s)) return true;
+  if (/^帮你(?:再)?(?:重新)?(?:查|问|想|弄清楚|确认)(?:一下)?(?:怎么|为什么|是什么|多少|哪些|吗|呢)/.test(s)) return true;
+  return false;
+}
+
+/**
+ * 疑问句不是承诺：「一会儿顺口报一下吗？」是在征求意见，不是担责。
+ * 2026-11-03 真机：这句被记进了账，提示词里天天追问一件没发生过的"事"。
+ */
+function isQuestion(tail) {
+  const s = String(tail || "").trim();
+  return /[吗呢？?]\s*$/.test(s);
+}
+
+/**
  * 从助手回复里提取延迟承诺（纯函数，可单测）。
  * 只认"时间词 + 我来做"的句式；条件句、否定句、给用户的建议一律不认。
  */
@@ -75,6 +99,8 @@ export function extractPromises(assistText, { at = new Date(), sessionId = "" } 
       // 括号里的插话、或者「或者告诉我你能接受…」这类把选择权交回去的句子，都不是承诺
       if (isParentheticalFragment(raw, m.index) || /^[）)]/.test(tail)) continue;
       if (isEitherOrSuggestion(tail)) continue;
+      if (isBoastfulRecheck(tail)) continue;
+      if (isQuestion(tail)) continue;
       // 否定 = 决定，不是承诺
       if (/^(?:不|没|别|不用|不再)/.test(tail)) continue;
       // 条件句不是承诺

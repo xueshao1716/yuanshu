@@ -148,6 +148,7 @@ import { clusterFromDisk, toProposalInput } from "./engine/learning/failure-clus
 import { saveSealed, loadSealed, canUseAsBenchmark } from "./engine/learning/sealed-cases.mjs";
 import { recordExperience, readExperiences, summarizeExperiences } from "./engine/learning/experience.mjs";
 import { judgeWithSealed, compareResults } from "./engine/learning/benchmark.mjs";
+import { replayFromDisk, estimateAction } from "./engine/anticipation.mjs";
 import { recordPush, recordReaction, reactionStats, shouldThrottle, markRecentActivity, expirePushes } from "./engine/notice-reactions.mjs";
 import { runAndSave, loadResults, saveResults } from "./engine/learning/case-runner.mjs";
 import { appendEvent as appendEvoEvent, readEvents as readEvoEvents, summarizeCapability as summarizeEvoCapability, createProposal as createEvoProposal, readProposals as readEvoProposals, recordGateVerdict } from "./engine/evolution/index.mjs";
@@ -4249,6 +4250,13 @@ const API_ROUTES = [
     const b = await readBody(req);
     const out = recordExperience(WS_ROOT, { runId: b?.runId, goal: b?.goal, success: b?.success, taskType: b?.taskType, plan: b?.plan, actions: b?.actions, errors: b?.errors, userFeedback: b?.userFeedback, lessons: b?.lessons, minutes: b?.minutes, agentId: b?.agentId });
     return json(res, out.ok ? 200 : 400, out);
+  }],
+  // 2026-11-03：预判回放——过去 N 天如果按这个模型出手，会打断你几次
+  ["GET", "/api/anticipation/replay", (res, req, url) => {
+    const days = Math.min(90, Number(url.searchParams.get("days")) || 30);
+    const threshold = Number(url.searchParams.get("threshold")) || 2;
+    const out = replayFromDisk(WS_ROOT, { days, threshold, now: Date.now() });
+    return json(res, 200, { ok: true, ...out });
   }],
   // 2026-11-03：推送反应——open/ignore/reply，喂给降频与 Adaptation
   ["POST", "/api/notice/reaction", async (res, req) => {
