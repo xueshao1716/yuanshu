@@ -144,6 +144,7 @@ import { detectDrift, recordDriftCheck, recentDrift } from "./engine/watchdog-dr
 import { setSelfChangeRoot, getSelfChangeRoot } from "./engine/tools/unified-tools.mjs";
 import { setSelfChangeWriteRoot } from "./engine/workspace-api.mjs";
 import { beginSnapshot, finishSnapshot, rollbackSnapshot, beginFsSnapshot, finishFsSnapshot } from "./engine/self-change-main.mjs";
+import { clusterFromDisk, toProposalInput } from "./engine/learning/failure-cluster.mjs";
 import { appendEvent as appendEvoEvent, readEvents as readEvoEvents, summarizeCapability as summarizeEvoCapability, createProposal as createEvoProposal, readProposals as readEvoProposals, recordGateVerdict } from "./engine/evolution/index.mjs";
 import { countExperience, distillExperience, gatherEvidence, latestReflectionReport } from "./engine/reflection-experience.mjs";
 import { readRegions, writeRegions, REGIONS, deliveryStrictness, distillLimit, nudgeCooldownMs, ideaCap, maxToolTurns, planBatchFactor, toolTier } from "./engine/brain-regions.mjs";
@@ -4228,6 +4229,12 @@ const API_ROUTES = [
   // 2026-11-02：脑区自调开关（默认开；关了就只按手调值跑）
   // 2026-11-02：L2 自改提案（只记录与校验；分支由她的 agent 循环创建）
   ["GET", "/api/selfchange/proposals", (res) => json(res, 200, { ok: true, items: listProposals(SELF_CHANGE_ROOT), policy: POLICY })],
+  // 2026-11-03：失败聚类（M1 切片）——短板列表 + 可直接提交的提案草稿
+  ["GET", "/api/learning/failures", (res, req, url) => {
+    const minCount = Math.max(2, Number(url.searchParams.get("min")) || 3);
+    const out = clusterFromDisk(WS_ROOT, { minCount, now: Date.now() });
+    return json(res, 200, { ok: true, ...out, drafts: out.clusters.slice(0, 5).map((c) => toProposalInput(c)) });
+  }],
   // 2026-11-02：看门狗判偏结果（只读）
   ["GET", "/api/watchdog/drift", (res, req, url) => json(res, 200, { ok: true, items: recentDrift(WS_ROOT, Math.min(100, Number(url.searchParams.get("limit")) || 20)) })],
   // 2026-11-03：把她在工作区写好的文件搬进代码仓库（先备份仓库原文，可回滚）
