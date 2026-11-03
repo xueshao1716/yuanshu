@@ -136,7 +136,21 @@ export function checkNotice(text, { kind = "away", maxChars = 80, facts = {} } =
   // 回放 0 条时连"沉淀 N 条"也不许说——那是编出来的成绩
   if (kind === "reflection" && !Number(facts.events) && /沉淀\s*[0-9一二三四五六七八九十]+\s*条/.test(t)) reasons.push("没有轨迹却说沉淀了几条");
   // 2026-10-30：真机她写「报告已经交上去了」——离开提醒没有事实依据，不许编造成果
-  if (kind === "away" && /(报告|交上去|提交|已完成|搞定|做完|发出去|睡)/.test(t)) reasons.push("编造了不存在的进度");
+  if (kind === "away") {
+    const hasDone = Array.isArray(facts.done) && facts.done.length > 0;
+    // 有 done 事实时才允许"做完/完成/搞定"这类词；没有就一律算编造
+    const re = hasDone ? /(报告|交上去|提交|发出去|睡)/ : /(报告|交上去|提交|已完成|搞定|做完|发出去|睡)/;
+    if (re.test(t)) reasons.push("编造了不存在的进度");
+  }
+  // 2026-11-03 真机：「完成三件事，卡在方案 B 的审批流程，等你回来定夺」——实际待办是 0
+  // 规则：没有对应事实，就不许出现"完成/审批/定夺/等你"这类断言
+  if (kind === "away") {
+    const doneN = Array.isArray(facts.done) ? facts.done.length : 0;
+    const asksKnown = Object.prototype.hasOwnProperty.call(facts, "asks");
+    const asksN = Number(facts.asks || 0);
+    if (doneN === 0 && /(完成|做完|处理完|搞定)/.test(t)) reasons.push("没有完成事实却说完成了");
+    if (asksKnown && asksN === 0 && /(等你|定夺|拍板|审批|待你|需要你决定)/.test(t)) reasons.push("没有待办却说等你定夺");
+  }
   // 至少有点具体信息：数字、时间、动作词，三选一
   if (!/\d/.test(t) && !/(分钟|小时|今天|昨天|明天|早|晚)/.test(t) && !/(做完|弄好|弄完|记下|列好|过了一遍|留着|复盘|整理|收尾|排好|归了|看了|完成|跑完|交付|好了)/.test(t)) {
     reasons.push("没看出发生了什么");
