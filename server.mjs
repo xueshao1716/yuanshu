@@ -148,7 +148,7 @@ import { clusterFromDisk, toProposalInput } from "./engine/learning/failure-clus
 import { saveSealed, loadSealed, canUseAsBenchmark } from "./engine/learning/sealed-cases.mjs";
 import { recordExperience, readExperiences, summarizeExperiences } from "./engine/learning/experience.mjs";
 import { judgeWithSealed, compareResults } from "./engine/learning/benchmark.mjs";
-import { replayFromDisk, estimateAction } from "./engine/anticipation.mjs";
+import { replayFromDisk, estimateAction, buildHistory } from "./engine/anticipation.mjs";
 import { recordPush, recordReaction, reactionStats, shouldThrottle, markRecentActivity, expirePushes } from "./engine/notice-reactions.mjs";
 import { runAndSave, loadResults, saveResults } from "./engine/learning/case-runner.mjs";
 import { appendEvent as appendEvoEvent, readEvents as readEvoEvents, summarizeCapability as summarizeEvoCapability, createProposal as createEvoProposal, readProposals as readEvoProposals, recordGateVerdict } from "./engine/evolution/index.mjs";
@@ -1717,6 +1717,17 @@ const maybeColdWake = async (now = new Date()) => {
     const made = await composeNoticeFor("away", { away: `${hours} 小时`, done: doneList, blocked: blockedList, asks, what, source: "定时任务 + 交付台账" });
     if (!made?.text) return { ok: false, reason: "empty_text" };
     const env = noticeEnvelope({ kind: "away", facts: { done: doneList, blocked: blockedList, asks }, text: made.text });
+    // 2026-11-03：预判闸门——期望损失不够就不打扰
+    try {
+      const hist = buildHistory(readEvoEvents(WS_ROOT, { limit: 800 }), { now: Date.now() });
+      const st = reactionStats(WS_ROOT, { days: 30 });
+      const tot = st.reduce((a, x) => a + x.sent, 0);
+      const eng = st.reduce((a, x) => a + x.opened + x.replied, 0);
+      const engageRate = tot >= 5 ? Number((eng / tot).toFixed(2)) : 0.5;
+      const [dec] = estimateAction({ candidates: [{ id: hit.session.id, taskType: "未分类", severityMinutes: 15 }], history: hist, engageRate, threshold: 2 });
+      if (!dec?.shouldAct) { console.log(`[anticipation] 不出手：${dec?.reason || "无结论"}`); return { ok: false, reason: "anticipation" } }
+      console.log(`[anticipation] 出手：${dec.reason}`);
+    } catch {}
     const thr = shouldThrottle(WS_ROOT, "away", { threshold: 3 });
     if (thr.throttle) return { ok: false, reason: "throttled" };
     const pushKey = `away:${hit.session.id}:${Date.now()}`;
