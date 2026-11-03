@@ -4210,6 +4210,35 @@ const API_ROUTES = [
   ["GET", "/api/selfchange/proposals", (res) => json(res, 200, { ok: true, items: listProposals(SELF_CHANGE_ROOT), policy: POLICY })],
   // 2026-11-02：看门狗判偏结果（只读）
   ["GET", "/api/watchdog/drift", (res, req, url) => json(res, 200, { ok: true, items: recentDrift(WS_ROOT, Math.min(100, Number(url.searchParams.get("limit")) || 20)) })],
+  // 2026-11-03：自主自改——建一个跑在隔离工作区里的会话，然后把活派给她
+  ["POST", "/api/selfchange/run", async (res, req) => {
+    const b = await readBody(req);
+    const goal = String(b?.goal || "").trim();
+    if (!goal) return json(res, 400, { ok: false, error: "缺 goal" });
+    const id = String(b?.id || `auto${Date.now().toString(36)}`);
+    const started = await startSession({ wsRoot: SELF_CHANGE_ROOT, id });
+    if (!started.ok) return json(res, 409, started);
+    let sessionId = "";
+    try { sessionId = await createSession(`自改·${goal.slice(0, 18)}`, { group: "workspace", cwd: started.dir }); } catch (e) {
+      return json(res, 500, { ok: false, error: "建会话失败：" + String(e?.message || e).slice(0, 120), dir: started.dir });
+    }
+    const prompt = [
+      "【自主改进任务】",
+      goal,
+      "约束：只能改 engine/、frontend/src/、tests/ 下；最多 5 个文件；不许改 server.mjs 与 package.json；",
+      "改完必须补一条对应测试；不要 git commit；最后用一句话说明你改了什么。",
+    ].join("\n");
+    return json(res, 200, { ok: true, id, dir: started.dir, branch: started.branch, sessionId, prompt });
+  }],
+  ["POST", "/api/selfchange/collect", async (res, req) => {
+    const b = await readBody(req);
+    const out = await finishSession({
+      wsRoot: SELF_CHANGE_ROOT, id: String(b?.id || ""),
+      validate: ({ files }) => validateReal({ wsRoot: SELF_CHANGE_ROOT, files, runGate: async () => ({ verdict: String(b?.verdict || "GREEN") }) }),
+      apply: ({ id: cid, edits }) => applyChange({ wsRoot: SELF_CHANGE_ROOT, id: cid, edits }),
+    });
+    return json(res, out.ok ? 200 : 409, out);
+  }],
   // 2026-11-02：隔离会话——她在这里改，主树不碰
   ["POST", "/api/selfchange/session/start", async (res, req) => {
     const b = await readBody(req);
