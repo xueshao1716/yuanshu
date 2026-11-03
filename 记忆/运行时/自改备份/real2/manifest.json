@@ -1,0 +1,16 @@
+{
+  "id": "real2",
+  "at": "2026-11-03T04:26:22.265Z",
+  "files": [
+    {
+      "path": "engine/selfchange-smoke.mjs",
+      "existed": false,
+      "backup": ""
+    },
+    {
+      "path": "tests/unit/selfchange-smoke.test.mjs",
+      "existed": false,
+      "backup": ""
+    }
+  ]
+}

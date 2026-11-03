@@ -75,3 +75,45 @@ export async function rollbackSnapshot({ root, backupRoot, id = "" }) {
   }
   return { ok: failed.length === 0, restored, failed };
 }
+
+
+// ── 文件级快照（2026-11-03）：工作区 git 太脏（477 条），改用 size+mtime 对比 ──
+const WATCH_PREFIX = ["engine/", "frontend/src/", "tests/"];
+const SKIP = /(^|\/)(node_modules|\.git|dist|生成物|记忆)\/?/;
+
+function walkFiles(root) {
+  const out = [];
+  const walk = (dir, rel) => {
+    let entries = [];
+    try { entries = fs.readdirSync(dir, { withFileTypes: true }) } catch { return }
+    for (const e of entries) {
+      const r = rel ? `${rel}/${e.name}` : e.name;
+      if (SKIP.test(r)) continue;
+      if (e.isDirectory()) { walk(`${dir}/${e.name}`, r); continue }
+      if (!/^(engine|tests)\//.test(r) && !r.startsWith("frontend/src/")) continue;
+      if (!WATCH_PREFIX.some((p) => r.startsWith(p))) continue;
+      try { const st = fs.statSync(`${dir}/${e.name}`); out.push(`${r}|${st.size}|${Math.round(st.mtimeMs)}`) } catch {}
+    }
+  };
+  walk(String(root), "");
+  return out;
+}
+
+export function beginFsSnapshot({ root }) {
+  const files = walkFiles(root);
+  return { ok: true, root, at: new Date().toISOString(), files };
+}
+
+/** 对比基线，返回新增/修改的文件（相对路径）。 */
+export function finishFsSnapshot({ root, baseline = [] }) {
+  const now = walkFiles(root);
+  const before = new Map(baseline.map((l) => { const [f, size, mtime] = l.split("|"); return [f, `${size}|${mtime}`] }));
+  const changed = [];
+  for (const line of now) {
+    const [f, size, mtime] = line.split("|");
+    const prev = before.get(f);
+    if (!prev || prev !== `${size}|${mtime}`) changed.push(f);
+  }
+  if (!changed.length) return { ok: false, stage: "collect", error: "没有任何改动", files: [] };
+  return { ok: true, files: changed };
+}

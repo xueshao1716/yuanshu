@@ -143,7 +143,7 @@ import { startSession, finishSession, abortSession, wtPath } from "./engine/self
 import { detectDrift, recordDriftCheck, recentDrift } from "./engine/watchdog-drift.mjs";
 import { setSelfChangeRoot, getSelfChangeRoot } from "./engine/tools/unified-tools.mjs";
 import { setSelfChangeWriteRoot } from "./engine/workspace-api.mjs";
-import { beginSnapshot, finishSnapshot, rollbackSnapshot } from "./engine/self-change-main.mjs";
+import { beginSnapshot, finishSnapshot, rollbackSnapshot, beginFsSnapshot, finishFsSnapshot } from "./engine/self-change-main.mjs";
 import { appendEvent as appendEvoEvent, readEvents as readEvoEvents, summarizeCapability as summarizeEvoCapability, createProposal as createEvoProposal, readProposals as readEvoProposals, recordGateVerdict } from "./engine/evolution/index.mjs";
 import { countExperience, distillExperience, gatherEvidence, latestReflectionReport } from "./engine/reflection-experience.mjs";
 import { readRegions, writeRegions, REGIONS, deliveryStrictness, distillLimit, nudgeCooldownMs, ideaCap, maxToolTurns, planBatchFactor, toolTier } from "./engine/brain-regions.mjs";
@@ -4240,19 +4240,14 @@ const API_ROUTES = [
   }],
   // 2026-11-03：主树快照模式——记录基线 → 她干活 → 对比出改动 → 备份 → 可回滚
   ["POST", "/api/selfchange/snapshot/begin", async (res) => {
-    const snap = await beginSnapshot({ root: WS_ROOT });
-    if (snap.ok) globalThis.__selfChangeBaseline = snap.baseline;
-    return json(res, snap.ok ? 200 : 500, { ...snap, baseline: undefined, count: (snap.baseline || []).length });
+    const snap = beginFsSnapshot({ root: WS_ROOT });
+    if (snap.ok) globalThis.__selfChangeBaseline = snap.files;
+    return json(res, snap.ok ? 200 : 500, { ok: snap.ok, count: (snap.files || []).length, at: snap.at });
   }],
   ["POST", "/api/selfchange/snapshot/finish", async (res, req) => {
     const b = await readBody(req);
     const base = globalThis.__selfChangeBaseline || [];
-    const out = await finishSnapshot({
-      root: WS_ROOT,
-      backupRoot: path.join(SELF_CHANGE_ROOT, "记忆", "运行时", "自改备份"),
-      baseline: base,
-      id: String(b?.id || ""),
-    });
+    const out = finishFsSnapshot({ root: WS_ROOT, baseline: base });
     return json(res, out.ok ? 200 : 409, out);
   }],
   ["POST", "/api/selfchange/snapshot/rollback", async (res, req) => {
