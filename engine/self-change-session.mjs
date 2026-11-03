@@ -28,8 +28,20 @@ export async function startSession({ wsRoot, id, exec = run } = {}) {
   const dir = wtPath(wsRoot, id);
   if (fs.existsSync(dir)) return { ok: false, error: "该会话已存在" };
   const r = await exec(GIT, ["worktree", "add", dir, "-b", branchOf(id)], wsRoot);
-  if (!r.ok) return { ok: false, error: (r.err || r.out).slice(0, 200) };
-  return { ok: true, id, dir, branch: branchOf(id) };
+  const dirExists = fs.existsSync(dir);
+  const branch = await exec(GIT, ["rev-parse", "--verify", branchOf(id)], wsRoot);
+  const trace = {
+    code: r.code,
+    stdout: String(r.out || "").slice(-300),
+    stderr: String(r.err || "").slice(-300),
+    dirExists,
+    branchExists: branch.ok,
+  };
+  // 只有真建出来才算成功
+  if (!r.ok || !dirExists) {
+    return { ok: false, error: r.err || r.out || "git worktree add 没建出目录", trace };
+  }
+  return { ok: true, id, dir, branch: branchOf(id), trace };
 }
 
 /** 收集 worktree 里的改动（相对路径 + 内容）。 */

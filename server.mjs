@@ -4230,7 +4230,7 @@ const API_ROUTES = [
   }],
   ["POST", "/api/selfchange/session/abort", async (res, req) => {
     const b = await readBody(req);
-    const out = await abortSession({ wsRoot: WS_ROOT, id: String(b?.id || "") });
+    const out = await abortSession({ wsRoot: SELF_CHANGE_ROOT, id: String(b?.id || "") });
     return json(res, 200, out);
   }],
   // 2026-11-02：自改落地与回滚（改前备份、原子写、可一键还原）
