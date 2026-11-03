@@ -147,6 +147,7 @@ import { beginSnapshot, finishSnapshot, rollbackSnapshot, beginFsSnapshot, finis
 import { clusterFromDisk, toProposalInput } from "./engine/learning/failure-cluster.mjs";
 import { saveSealed, loadSealed, canUseAsBenchmark } from "./engine/learning/sealed-cases.mjs";
 import { recordExperience, readExperiences, summarizeExperiences } from "./engine/learning/experience.mjs";
+import { judgeWithSealed, compareResults } from "./engine/learning/benchmark.mjs";
 import { appendEvent as appendEvoEvent, readEvents as readEvoEvents, summarizeCapability as summarizeEvoCapability, createProposal as createEvoProposal, readProposals as readEvoProposals, recordGateVerdict } from "./engine/evolution/index.mjs";
 import { countExperience, distillExperience, gatherEvidence, latestReflectionReport } from "./engine/reflection-experience.mjs";
 import { readRegions, writeRegions, REGIONS, deliveryStrictness, distillLimit, nudgeCooldownMs, ideaCap, maxToolTurns, planBatchFactor, toolTier } from "./engine/brain-regions.mjs";
@@ -4240,6 +4241,16 @@ const API_ROUTES = [
     const b = await readBody(req);
     const out = recordExperience(WS_ROOT, { runId: b?.runId, goal: b?.goal, success: b?.success, taskType: b?.taskType, plan: b?.plan, actions: b?.actions, errors: b?.errors, userFeedback: b?.userFeedback, lessons: b?.lessons, minutes: b?.minutes, agentId: b?.agentId });
     return json(res, out.ok ? 200 : 400, out);
+  }],
+  // 2026-11-03：新旧版本对比——有回归直接拒，提升不足也拒
+  ["POST", "/api/learning/compare", async (res, req) => {
+    const b = await readBody(req);
+    const skill = String(b?.skill || "");
+    if (!skill) return json(res, 400, { ok: false, reason: "缺 skill" });
+    const out = judgeWithSealed(WS_ROOT, skill, { baseline: b?.baseline || [], candidate: b?.candidate || [], minDelta: Number(b?.minDelta) || 0.05 });
+    // 判定结果也记一条事件，便于审计
+    try { appendEvoEvent(WS_ROOT, { kind: "observation", target: "benchmark", targetId: skill, verdict: out.verdict === "promote" ? "passed" : (out.verdict || "rejected"), by: "benchmark", meta: { delta: out.delta, regressions: (out.regressions || []).length } }) } catch {}
+    return json(res, 200, out);
   }],
   // 2026-11-03：封存用例——人挑的考卷，Agent 只能读
   ["GET", "/api/learning/sealed", (res, req, url) => {
