@@ -148,7 +148,7 @@ import { clusterFromDisk, toProposalInput } from "./engine/learning/failure-clus
 import { saveSealed, loadSealed, canUseAsBenchmark } from "./engine/learning/sealed-cases.mjs";
 import { recordExperience, readExperiences, summarizeExperiences } from "./engine/learning/experience.mjs";
 import { judgeWithSealed, compareResults } from "./engine/learning/benchmark.mjs";
-import { recordPush, recordReaction, reactionStats, shouldThrottle } from "./engine/notice-reactions.mjs";
+import { recordPush, recordReaction, reactionStats, shouldThrottle, markRecentActivity } from "./engine/notice-reactions.mjs";
 import { runAndSave, loadResults, saveResults } from "./engine/learning/case-runner.mjs";
 import { appendEvent as appendEvoEvent, readEvents as readEvoEvents, summarizeCapability as summarizeEvoCapability, createProposal as createEvoProposal, readProposals as readEvoProposals, recordGateVerdict } from "./engine/evolution/index.mjs";
 import { countExperience, distillExperience, gatherEvidence, latestReflectionReport } from "./engine/reflection-experience.mjs";
@@ -6099,7 +6099,7 @@ const API_ROUTES = [
     if (!t || t.status !== "running") return json(res, 200, { active: false, taskKey: tk || null, sessionId: sid || null });
     return json(res, 200, { active: true, taskKey: tk || null, sessionId: sid || null, stage: t.stage, toolName: t.toolName || null, startedAt: t.startedAt, updatedAt: t.updatedAt });
   }],
-  ["POST", "/api/runs", async (res, req) => { try { globalThis.__lastUserMsgAt = Date.now() } catch {} return runApi.create(res, await readBody(req, 12), req) }],
+  ["POST", "/api/runs", async (res, req) => { try { globalThis.__lastUserMsgAt = Date.now(); markRecentActivity(WS_ROOT) } catch {} return runApi.create(res, await readBody(req, 12), req) }],
   ["POST", new RegExp('^/api/runs/([^/]+)/recovery/disable$'), (res, req, url, m) => runApi.disableRecovery(res, decodeURIComponent(m[1]))],
   ["GET", /^\/api\/runs\/([^/]+)$/, (res, req, url, m) => runApi.get(res, decodeURIComponent(m[1]))],
   ["GET", /^\/api\/runs\/([^/]+)\/state$/, (res, req, url, m) => runApi.state(res, decodeURIComponent(m[1]))],
@@ -6107,7 +6107,7 @@ const API_ROUTES = [
   ["POST", /^\/api\/runs\/([^/]+)\/steer$/, async (res, req, url, m) => runApi.steer(res, decodeURIComponent(m[1]), await readBody(req, 1))],
   ["POST", /^\/api\/runs\/([^/]+)\/stop$/, (res, req, url, m) => runApi.stop(res, decodeURIComponent(m[1]))],
   ["POST", /^\/api\/runs\/([^/]+)\/resume$/, (res, req, url, m) => runApi.resume(res, decodeURIComponent(m[1]), req)],
-  ["POST", "/api/chat", async (res, req) => { try { globalThis.__lastUserMsgAt = Date.now() } catch {} return handleChat(req, res, await readBody(req, 12)) }],
+  ["POST", "/api/chat", async (res, req) => { try { globalThis.__lastUserMsgAt = Date.now(); markRecentActivity(WS_ROOT) } catch {} return handleChat(req, res, await readBody(req, 12)) }],
   ["POST", "/api/compare", async (res, req) => handleCompare(res, await readBody(req))],
   // ── Agent 活动事件（pi 事件广播扩展 → 前端实时显示小语在干嘛）──
   ["POST", "/api/agent/events", async (res, req) => handleAgentEventIn(req, res, await readBody(req, 2))],

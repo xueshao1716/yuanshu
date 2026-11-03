@@ -75,3 +75,22 @@ export function shouldThrottle(wsRoot, kind, { threshold = 3 } = {}) {
     ? { throttle: true, reason: `最近 ${threshold} 条「${kind}」你都没看，建议降频` }
     : { throttle: false, reason: "有互动" };
 }
+
+
+/** 最近 window 内还没反应的推送（按时间倒序）。 */
+export function pendingPushes(wsRoot, { withinMs = 2 * 3600 * 1000, now = Date.now() } = {}) {
+  const rows = readReactions(wsRoot);
+  const reacted = new Set(rows.filter((r) => r.type === "reaction").map((r) => r.key));
+  return rows
+    .filter((r) => r.type === "push" && !reacted.has(r.key))
+    .filter((r) => now - (Date.parse(String(r.at || "")) || 0) <= withinMs)
+    .reverse();
+}
+
+/** 用户有任何动作时调用：把窗口内未反应的推送标成 open（行为近似，不假装精确）。 */
+export function markRecentActivity(wsRoot, { action = "open", withinMs = 2 * 3600 * 1000, now = Date.now() } = {}) {
+  const list = pendingPushes(wsRoot, { withinMs, now });
+  let n = 0;
+  for (const p of list) { if (recordReaction(wsRoot, { key: p.key, action, at: new Date(now).toISOString() }).ok) n += 1 }
+  return { ok: true, marked: n };
+}
