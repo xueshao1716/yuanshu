@@ -4213,9 +4213,34 @@ const API_ROUTES = [
   ["GET", "/api/selfchange/proposals", (res) => json(res, 200, { ok: true, items: listProposals(SELF_CHANGE_ROOT), policy: POLICY })],
   // 2026-11-02：看门狗判偏结果（只读）
   ["GET", "/api/watchdog/drift", (res, req, url) => json(res, 200, { ok: true, items: recentDrift(WS_ROOT, Math.min(100, Number(url.searchParams.get("limit")) || 20)) })],
+  // 2026-11-03：把她在工作区写好的文件搬进代码仓库（先备份仓库原文，可回滚）
+  ["POST", "/api/selfchange/promote", async (res, req) => {
+    const b = await readBody(req);
+    const files = Array.isArray(b?.files) ? b.files : [];
+    const id = String(b?.id || `promote${Date.now().toString(36)}`);
+    if (!files.length) return json(res, 400, { ok: false, error: "没有文件" });
+    const backupDir = path.join(SELF_CHANGE_ROOT, "记忆", "运行时", "自改备份", id);
+    fs.mkdirSync(backupDir, { recursive: true });
+    const manifest = { id, at: new Date().toISOString(), files: [] };
+    const done = [];
+    for (const f of files) {
+      const src = path.join(WS_ROOT, f);
+      const dst = path.join(SELF_CHANGE_ROOT, f);
+      if (!fs.existsSync(src)) continue;
+      const existed = fs.existsSync(dst);
+      const bak = `${f.replace(/[\\/]/g, "__")}.bak`;
+      if (existed) fs.writeFileSync(path.join(backupDir, bak), fs.readFileSync(dst));
+      manifest.files.push({ path: f, existed, backup: existed ? bak : "" });
+      fs.mkdirSync(path.dirname(dst), { recursive: true });
+      fs.copyFileSync(src, dst);
+      done.push(f);
+    }
+    fs.writeFileSync(path.join(backupDir, "manifest.json"), JSON.stringify(manifest, null, 2), "utf8");
+    return json(res, 200, { ok: true, id, promoted: done, backupDir });
+  }],
   // 2026-11-03：主树快照模式——记录基线 → 她干活 → 对比出改动 → 备份 → 可回滚
   ["POST", "/api/selfchange/snapshot/begin", async (res) => {
-    const snap = await beginSnapshot({ root: SELF_CHANGE_ROOT });
+    const snap = await beginSnapshot({ root: WS_ROOT });
     if (snap.ok) globalThis.__selfChangeBaseline = snap.baseline;
     return json(res, snap.ok ? 200 : 500, { ...snap, baseline: undefined, count: (snap.baseline || []).length });
   }],
@@ -4223,7 +4248,7 @@ const API_ROUTES = [
     const b = await readBody(req);
     const base = globalThis.__selfChangeBaseline || [];
     const out = await finishSnapshot({
-      root: SELF_CHANGE_ROOT,
+      root: WS_ROOT,
       backupRoot: path.join(SELF_CHANGE_ROOT, "记忆", "运行时", "自改备份"),
       baseline: base,
       id: String(b?.id || ""),
@@ -4233,7 +4258,7 @@ const API_ROUTES = [
   ["POST", "/api/selfchange/snapshot/rollback", async (res, req) => {
     const b = await readBody(req);
     const out = await rollbackSnapshot({
-      root: SELF_CHANGE_ROOT,
+      root: WS_ROOT,
       backupRoot: path.join(SELF_CHANGE_ROOT, "记忆", "运行时", "自改备份"),
       id: String(b?.id || ""),
     });
