@@ -148,7 +148,7 @@ import { clusterFromDisk, toProposalInput } from "./engine/learning/failure-clus
 import { saveSealed, loadSealed, canUseAsBenchmark } from "./engine/learning/sealed-cases.mjs";
 import { recordExperience, readExperiences, summarizeExperiences } from "./engine/learning/experience.mjs";
 import { judgeWithSealed, compareResults } from "./engine/learning/benchmark.mjs";
-import { recordPush, recordReaction, reactionStats, shouldThrottle, markRecentActivity } from "./engine/notice-reactions.mjs";
+import { recordPush, recordReaction, reactionStats, shouldThrottle, markRecentActivity, expirePushes } from "./engine/notice-reactions.mjs";
 import { runAndSave, loadResults, saveResults } from "./engine/learning/case-runner.mjs";
 import { appendEvent as appendEvoEvent, readEvents as readEvoEvents, summarizeCapability as summarizeEvoCapability, createProposal as createEvoProposal, readProposals as readEvoProposals, recordGateVerdict } from "./engine/evolution/index.mjs";
 import { countExperience, distillExperience, gatherEvidence, latestReflectionReport } from "./engine/reflection-experience.mjs";
@@ -3860,6 +3860,8 @@ setInterval(() => {
       console.log(`[selfchange] 影子提案：${verdict.reason}`);
     }
   } catch {}
+  // 2026-11-03：推送超时未反应 → 标 ignore（降频的真实分母）
+  try { const r = expirePushes(WS_ROOT); if (r.expired) console.log(`[notice] ${r.expired} 条推送超时未反应，已标忽略`) } catch {}
   // 2026-11-02：看门狗判偏——空转/连续失败/只改不验
   try {
     const rows = (auditGate?.tail ? auditGate.tail(300) : []) || [];

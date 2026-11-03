@@ -4,7 +4,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { recordPush, recordReaction, reactionStats, shouldThrottle, readReactions } from "../../engine/notice-reactions.mjs";
+import { recordPush, recordReaction, reactionStats, shouldThrottle, readReactions, expirePushes } from "../../engine/notice-reactions.mjs";
 
 const ws = () => fs.mkdtempSync(path.join(os.tmpdir(), "react-"));
 const now = Date.now();
@@ -61,4 +61,15 @@ test("按类型分开统计", () => {
   assert.equal(s.length, 2);
   assert.ok(s.some((x) => x.kind === "done"));
   assert.ok(s.some((x) => x.kind === "away"));
+});
+
+test("超时未反应 → 标 ignore，刚发的保持 pending", () => {
+  const root = ws();
+  recordPush(root, { key: "old1", kind: "away", at: new Date(Date.now() - 3 * 3600000).toISOString() });
+  recordPush(root, { key: "new1", kind: "away", at: new Date().toISOString() });
+  const r = expirePushes(root, { afterMs: 2 * 3600000 });
+  assert.equal(r.expired, 1);
+  const st = reactionStats(root, { days: 1 });
+  assert.equal(st[0].ignored, 1);
+  assert.equal(st[0].pending, 1);
 });

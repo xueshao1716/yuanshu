@@ -94,3 +94,21 @@ export function markRecentActivity(wsRoot, { action = "open", withinMs = 2 * 360
   for (const p of list) { if (recordReaction(wsRoot, { key: p.key, action, at: new Date(now).toISOString() }).ok) n += 1 }
   return { ok: true, marked: n };
 }
+
+
+/**
+ * 超时未反应 → 标 ignore。
+ * 只处理"发出去超过 afterMs 且仍 pending"的推送，不碰刚发的。
+ */
+export function expirePushes(wsRoot, { afterMs = 2 * 3600 * 1000, now = Date.now() } = {}) {
+  const rows = readReactions(wsRoot);
+  const reacted = new Set(rows.filter((r) => r.type === "reaction").map((r) => r.key));
+  const due = rows
+    .filter((r) => r.type === "push" && !reacted.has(r.key))
+    .filter((r) => now - (Date.parse(String(r.at || "")) || 0) > afterMs);
+  let n = 0;
+  for (const p of due) {
+    if (recordReaction(wsRoot, { key: p.key, action: "ignore", at: new Date(now).toISOString() }).ok) n += 1;
+  }
+  return { ok: true, expired: n };
+}
