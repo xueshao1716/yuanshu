@@ -145,6 +145,7 @@ import { setSelfChangeRoot, getSelfChangeRoot } from "./engine/tools/unified-too
 import { setSelfChangeWriteRoot } from "./engine/workspace-api.mjs";
 import { beginSnapshot, finishSnapshot, rollbackSnapshot, beginFsSnapshot, finishFsSnapshot } from "./engine/self-change-main.mjs";
 import { clusterFromDisk, toProposalInput } from "./engine/learning/failure-cluster.mjs";
+import { saveSealed, loadSealed, canUseAsBenchmark } from "./engine/learning/sealed-cases.mjs";
 import { appendEvent as appendEvoEvent, readEvents as readEvoEvents, summarizeCapability as summarizeEvoCapability, createProposal as createEvoProposal, readProposals as readEvoProposals, recordGateVerdict } from "./engine/evolution/index.mjs";
 import { countExperience, distillExperience, gatherEvidence, latestReflectionReport } from "./engine/reflection-experience.mjs";
 import { readRegions, writeRegions, REGIONS, deliveryStrictness, distillLimit, nudgeCooldownMs, ideaCap, maxToolTurns, planBatchFactor, toolTier } from "./engine/brain-regions.mjs";
@@ -4229,6 +4230,20 @@ const API_ROUTES = [
   // 2026-11-02：脑区自调开关（默认开；关了就只按手调值跑）
   // 2026-11-02：L2 自改提案（只记录与校验；分支由她的 agent 循环创建）
   ["GET", "/api/selfchange/proposals", (res) => json(res, 200, { ok: true, items: listProposals(SELF_CHANGE_ROOT), policy: POLICY })],
+  // 2026-11-03：封存用例——人挑的考卷，Agent 只能读
+  ["GET", "/api/learning/sealed", (res, req, url) => {
+    const skill = String(url.searchParams.get("skill") || "");
+    if (!skill) return json(res, 400, { ok: false, error: "缺 skill" });
+    const loaded = loadSealed(WS_ROOT, skill);
+    const bench = canUseAsBenchmark(WS_ROOT, skill);
+    return json(res, 200, { ok: loaded.ok, count: loaded.count || 0, sealedAt: loaded.sealedAt || null, error: loaded.error || null, benchmark: bench });
+  }],
+  ["POST", "/api/learning/sealed", async (res, req) => {
+    const b = await readBody(req);
+    // 只允许人建：请求必须带 by="human"（前端按钮触发），Agent 调用会被拒
+    const out = saveSealed(WS_ROOT, { skill: b?.skill, cases: b?.cases, by: String(b?.by || "agent") });
+    return json(res, out.ok ? 200 : 400, out);
+  }],
   // 2026-11-03：失败聚类（M1 切片）——短板列表 + 可直接提交的提案草稿
   ["GET", "/api/learning/failures", (res, req, url) => {
     const minCount = Math.max(2, Number(url.searchParams.get("min")) || 3);
