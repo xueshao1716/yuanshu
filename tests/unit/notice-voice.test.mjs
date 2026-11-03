@@ -119,7 +119,7 @@ test('离开推送：报完成/卡住/待拍板的具体事实', () => {
   assert.match(t, /做完 2 件/);
   assert.match(t, /晨报/);
   assert.match(t, /1 件卡住/);
-  assert.match(t, /2 件事等你拍板/);
+  assert.match(t, /2 件等你拍板/);
   assert.ok(!/回来接着做/.test(t), '不许再问回来接着做');
 });
 
