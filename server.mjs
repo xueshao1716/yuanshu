@@ -4248,14 +4248,15 @@ const API_ROUTES = [
     const started = await startSession({ wsRoot: SELF_CHANGE_ROOT, id });
     if (!started.ok) return json(res, 409, started);
     let sessionId = "";
-    try { sessionId = await createSession(`自改·${goal.slice(0, 18)}`, { group: "workspace", cwd: started.dir }); } catch (e) {
+    try { sessionId = await createSession(`自改·${goal.slice(0, 18)}`, { group: "workspace", cwd: SELF_CHANGE_ROOT }); } catch (e) {
       return json(res, 500, { ok: false, error: "建会话失败：" + String(e?.message || e).slice(0, 120), dir: started.dir });
     }
     const prompt = [
       "【自主改进任务】",
       goal,
+      "必须用 write 工具直接创建文件（不要只用 bash 试探，也不要先问我）。",
       "约束：只能改 engine/、frontend/src/、tests/ 下；最多 5 个文件；不许改 server.mjs 与 package.json；",
-      "改完必须补一条对应测试；不要 git commit；最后用一句话说明你改了什么。",
+      "必须补一条对应测试（tests/unit/ 下同名 .test.mjs）；不要 git commit；最后用一句话说明你改了什么。",
     ].join("\n");
     try { setSelfChangeRoot(started.dir); setSelfChangeWriteRoot(started.dir) } catch {}
     return json(res, 200, { ok: true, id, dir: started.dir, branch: started.branch, sessionId, prompt, writeRoot: started.dir });
