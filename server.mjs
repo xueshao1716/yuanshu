@@ -148,6 +148,7 @@ import { clusterFromDisk, toProposalInput } from "./engine/learning/failure-clus
 import { saveSealed, loadSealed, canUseAsBenchmark } from "./engine/learning/sealed-cases.mjs";
 import { recordExperience, readExperiences, summarizeExperiences } from "./engine/learning/experience.mjs";
 import { judgeWithSealed, compareResults } from "./engine/learning/benchmark.mjs";
+import { recordPush, recordReaction, reactionStats, shouldThrottle } from "./engine/notice-reactions.mjs";
 import { runAndSave, loadResults, saveResults } from "./engine/learning/case-runner.mjs";
 import { appendEvent as appendEvoEvent, readEvents as readEvoEvents, summarizeCapability as summarizeEvoCapability, createProposal as createEvoProposal, readProposals as readEvoProposals, recordGateVerdict } from "./engine/evolution/index.mjs";
 import { countExperience, distillExperience, gatherEvidence, latestReflectionReport } from "./engine/reflection-experience.mjs";
@@ -1715,13 +1716,17 @@ const maybeColdWake = async (now = new Date()) => {
     const made = await composeNoticeFor("away", { away: `${hours} 小时`, done: doneList, blocked: blockedList, asks, what, source: "定时任务 + 交付台账" });
     if (!made?.text) return { ok: false, reason: "empty_text" };
     const env = noticeEnvelope({ kind: "away", facts: { done: doneList, blocked: blockedList, asks }, text: made.text });
+    const thr = shouldThrottle(WS_ROOT, "away", { threshold: 3 });
+    if (thr.throttle) return { ok: false, reason: "throttled" };
+    const pushKey = `away:${hit.session.id}:${Date.now()}`;
     const spent = spendBudget(WS_ROOT, day, { cap: budget.cap, kind: "cold_wake" });
     if (!spent.ok) return { ok: false, reason: spent.reason || "budget" };
     const r = await notifier.notify({
       kind: "companion", title: env.head, body: made.text, sender: personaName(WS_ROOT),
       summary: env.summary, facts: [`今天已主动 ${spent.used}/${spent.cap} 次`],
-      toWechat: true, key: `coldwake:${hit.session.id}:${day}`,
+      toWechat: true, key: pushKey,
     });
+    try { recordPush(WS_ROOT, { key: pushKey, kind: "away" }) } catch {}
     console.log(`[proactive] 冷会话唤醒：${what}（wechat=${r?.wechat || "?"}）`);
     return { ok: true, sessionId: hit.session.id, used: spent.used };
   } catch (e) {
@@ -4242,6 +4247,18 @@ const API_ROUTES = [
     const b = await readBody(req);
     const out = recordExperience(WS_ROOT, { runId: b?.runId, goal: b?.goal, success: b?.success, taskType: b?.taskType, plan: b?.plan, actions: b?.actions, errors: b?.errors, userFeedback: b?.userFeedback, lessons: b?.lessons, minutes: b?.minutes, agentId: b?.agentId });
     return json(res, out.ok ? 200 : 400, out);
+  }],
+  // 2026-11-03：推送反应——open/ignore/reply，喂给降频与 Adaptation
+  ["POST", "/api/notice/reaction", async (res, req) => {
+    const b = await readBody(req);
+    const out = recordReaction(WS_ROOT, { key: String(b?.key || ""), action: String(b?.action || "ignore") });
+    return json(res, out.ok ? 200 : 400, out);
+  }],
+  ["GET", "/api/notice/reactions", (res, req, url) => {
+    const days = Math.min(60, Number(url.searchParams.get("days")) || 14);
+    const stats = reactionStats(WS_ROOT, { days });
+    const throttle = stats.map((x) => ({ kind: x.kind, ...shouldThrottle(WS_ROOT, x.kind, { threshold: Number(url.searchParams.get("threshold")) || 3 }) }));
+    return json(res, 200, { ok: true, days, stats, throttle });
   }],
   // 2026-11-03：跑封存用例并落盘（executor=shell 时用用例里的 cmd 执行；否则只收现成结果）
   ["POST", "/api/learning/cases/run", async (res, req) => {
