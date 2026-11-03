@@ -3597,6 +3597,17 @@ const runManager = createRunManager({
       const minutes = Math.max(1, Math.round(secs / 60));
       // 2026-10-31：交付门回灌——RED 时这条推送不许说做完了
       const gate = checkDelivery({ runId: r.id });
+      // 2026-11-03：把这次任务的真实结局写进事件流——画像/脑区自调都靠它
+      try {
+        const files = gate.changedFiles || [];
+        recordGateVerdict(WS_ROOT, { verdict: gate.verdict, changedFiles: files, blockers: gate.blockers || [], runId: r.id, text: String(what || "") });
+        appendEvoEvent(WS_ROOT, {
+          kind: "task", target: "run", targetId: String(r.id || "").slice(0, 12),
+          taskType: files.length ? undefined : "未分类",
+          verdict: failed ? "failed" : (String(gate.verdict || "").toUpperCase() === "GREEN" ? "pass" : String(gate.verdict || "").toLowerCase()),
+          by: "run-finished",
+        });
+      } catch {}
       const made = await composeNoticeFor("done", { what, minutes, failed, files: gate.changedFiles || [], source: `交付门 ${String(gate.verdict || "").toUpperCase()}`, gate: { verdict: gate.verdict, summary: gate.summary } });
       const env = noticeEnvelope({ kind: "done", facts: { what }, text: made.text });
       return { title: env.head, body: made.text, sender: personaName(WS_ROOT), summary: failed ? "任务失败" : "长任务完成", facts: [`用时 ${Math.round(secs / 60) || 1} 分钟`] };
