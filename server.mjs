@@ -148,6 +148,7 @@ import { clusterFromDisk, toProposalInput } from "./engine/learning/failure-clus
 import { saveSealed, loadSealed, canUseAsBenchmark } from "./engine/learning/sealed-cases.mjs";
 import { recordExperience, readExperiences, summarizeExperiences } from "./engine/learning/experience.mjs";
 import { judgeWithSealed, compareResults } from "./engine/learning/benchmark.mjs";
+import { installSkill, validateSkillMd, listAuthoredSkills, buildAuthorPrompt } from "./engine/learning/skill-author.mjs";
 import { replayFromDisk, estimateAction, buildHistory } from "./engine/anticipation.mjs";
 import { recordPush, recordReaction, reactionStats, shouldThrottle, markRecentActivity, expirePushes } from "./engine/notice-reactions.mjs";
 import { runAndSave, loadResults, saveResults } from "./engine/learning/case-runner.mjs";
@@ -4269,6 +4270,20 @@ const API_ROUTES = [
     const out = replayFromDisk(WS_ROOT, { days, threshold, now: Date.now() });
     return json(res, 200, { ok: true, ...out });
   }],
+  // 2026-11-03：一句话造技能——她写 SKILL.md，这里校验并安装
+  ["GET", "/api/learning/skills", (res) => json(res, 200, { ok: true, items: listAuthoredSkills(WS_ROOT), host: "/api/selfchange/run" })],
+  ["POST", "/api/learning/skill/validate", async (res, req) => {
+    const b = await readBody(req);
+    const v = validateSkillMd(String(b?.content || ""));
+    return json(res, 200, v);
+  }],
+  ["POST", "/api/learning/skill/install", async (res, req) => {
+    const b = await readBody(req);
+    const out = installSkill(WS_ROOT, { name: String(b?.name || ""), content: String(b?.content || ""), backupRoot: path.join(SELF_CHANGE_ROOT, "记忆", "运行时", "自改备份") });
+    if (out.ok) { try { appendEvoEvent(WS_ROOT, { kind: "observation", target: "skill", targetId: String(b?.name || ""), verdict: "applied", by: "skill-author" }) } catch {} }
+    return json(res, out.ok ? 200 : 400, out);
+  }],
+  ["GET", "/api/learning/skill/prompt", (res, req, url) => json(res, 200, { ok: true, prompt: buildAuthorPrompt({ goal: String(url.searchParams.get("goal") || "") }) })],
   // 2026-11-03：统一待办——待拍板 / 进化提案 / 自改提案 合成一处
   ["GET", "/api/inbox/pending", (res) => {
     const out = { ok: true, total: 0, groups: [] };
