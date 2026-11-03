@@ -776,6 +776,7 @@ export async function createSessionAgent(sm, model) {
     };
   }
   const cwd = (typeof sm.getCwd === "function" && sm.getCwd()) || _cwd;
+  try { console.log(`[agent] cwd=${cwd} default=${_cwd}`) } catch {}
   const settingsManager = _SettingsManager.create(cwd, _getAgentDir());
   const customTools = [];
   const { createRequire: teamRequire } = await import('node:module');
