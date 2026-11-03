@@ -148,6 +148,7 @@ import { clusterFromDisk, toProposalInput } from "./engine/learning/failure-clus
 import { saveSealed, loadSealed, canUseAsBenchmark } from "./engine/learning/sealed-cases.mjs";
 import { recordExperience, readExperiences, summarizeExperiences } from "./engine/learning/experience.mjs";
 import { judgeWithSealed, compareResults } from "./engine/learning/benchmark.mjs";
+import { runAndSave, loadResults, saveResults } from "./engine/learning/case-runner.mjs";
 import { appendEvent as appendEvoEvent, readEvents as readEvoEvents, summarizeCapability as summarizeEvoCapability, createProposal as createEvoProposal, readProposals as readEvoProposals, recordGateVerdict } from "./engine/evolution/index.mjs";
 import { countExperience, distillExperience, gatherEvidence, latestReflectionReport } from "./engine/reflection-experience.mjs";
 import { readRegions, writeRegions, REGIONS, deliveryStrictness, distillLimit, nudgeCooldownMs, ideaCap, maxToolTurns, planBatchFactor, toolTier } from "./engine/brain-regions.mjs";
@@ -4241,6 +4242,32 @@ const API_ROUTES = [
     const b = await readBody(req);
     const out = recordExperience(WS_ROOT, { runId: b?.runId, goal: b?.goal, success: b?.success, taskType: b?.taskType, plan: b?.plan, actions: b?.actions, errors: b?.errors, userFeedback: b?.userFeedback, lessons: b?.lessons, minutes: b?.minutes, agentId: b?.agentId });
     return json(res, out.ok ? 200 : 400, out);
+  }],
+  // 2026-11-03：跑封存用例并落盘（executor=shell 时用用例里的 cmd 执行；否则只收现成结果）
+  ["POST", "/api/learning/cases/run", async (res, req) => {
+    const b = await readBody(req);
+    const skill = String(b?.skill || "");
+    const version = String(b?.version || "");
+    if (!skill || !version) return json(res, 400, { ok: false, reason: "缺 skill 或 version" });
+    if (Array.isArray(b?.results)) {
+      const saved = saveResults(WS_ROOT, { skill, version, results: b.results });
+      return json(res, saved.ok ? 200 : 400, saved);
+    }
+    if (String(b?.executor || "") !== "shell") return json(res, 400, { ok: false, reason: "需要 results 数组，或 executor=shell（用例里带 cmd）" });
+    const { execFile } = await import("node:child_process");
+    const runOne = (c) => new Promise((resolve) => {
+      const cmd = String(c?.cmd || "");
+      if (!cmd) return resolve({ ok: false, detail: "用例没写 cmd" });
+      execFile("cmd.exe", ["/c", cmd], { cwd: SELF_CHANGE_ROOT, timeout: 60000, windowsHide: true }, (err) => resolve({ ok: !err }));
+    });
+    const out = await runAndSave(WS_ROOT, { skill, version, runCase: runOne, concurrency: 2, timeoutMs: 60000 });
+    return json(res, out.ok ? 200 : 409, out);
+  }],
+  ["GET", "/api/learning/cases/results", (res, req, url) => {
+    const skill = String(url.searchParams.get("skill") || "");
+    const version = String(url.searchParams.get("version") || "");
+    const doc = loadResults(WS_ROOT, skill, version);
+    return json(res, doc ? 200 : 404, doc || { ok: false, error: "没有这版结果" });
   }],
   // 2026-11-03：新旧版本对比——有回归直接拒，提升不足也拒
   ["POST", "/api/learning/compare", async (res, req) => {
