@@ -23,7 +23,8 @@ const nowIso = (ms = Date.now()) => new Date(ms).toISOString();
 const rid = (prefix) => `${prefix}_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 6)}`;
 
 const KIND = new Set(["task", "compare", "gate", "gene", "proposal", "observation"]);
-const PASS = new Set(["pass", "keep", "green", "promoted", "stable"]);
+const PASS = new Set(["pass", "keep", "green", "yellow", "promoted", "stable"]);
+const WARNED = new Set(["yellow"]);
 
 export function appendEvent(wsRoot, input = {}) {
   const kind = String(input.kind || "");
@@ -72,14 +73,16 @@ export function readEvents(wsRoot, { kind = "", target = "", since = 0, limit = 
 
 /** 能力画像 v0：按 taskType 与 target 滚指标；样本不足返回 null 而不是编数。 */
 export function summarizeCapability(events = [], { minN = 3 } = {}) {
+  const OK = new Set(["pass", "keep", "green", "yellow", "applied", "promoted", "stable", "session_applied"]);
+  const BAD = new Set(["rollback", "red", "rejected", "rolled_back", "failed", "session_failed", "rollback_failed"]);
   const byKey = new Map();
   const push = (key, ev) => {
-    if (!byKey.has(key)) byKey.set(key, { key, attempts: 0, success: 0, rollback: 0, unknown: 0 });
+    if (!byKey.has(key)) byKey.set(key, { key, attempts: 0, success: 0, rollback: 0, unknown: 0, warned: 0 });
     const row = byKey.get(key);
     row.attempts += 1;
-    const v = String(ev.verdict || "");
-    if (PASS.has(v)) row.success += 1;
-    else if (v === "rollback" || v === "red" || v === "rejected") row.rollback += 1;
+    const v = String(ev.verdict || "").toLowerCase();
+    if (OK.has(v)) { row.success += 1; if (v === "yellow") row.warned += 1 }
+    else if (BAD.has(v)) row.rollback += 1
     else row.unknown += 1;
   };
   for (const ev of events) {
@@ -202,7 +205,9 @@ export function classifyTaskType({ text = "", files = [] } = {}) {
   const t = String(text || "");
   const list = Array.isArray(files) ? files.join(" ") : String(files || "");
   const all = `${t} ${list}`;
-  if (/\.(tsx?|jsx?|mjs|cjs|py|rs|go|java|vue|svelte|sh|ps1|sql)\b/i.test(list) || /代码|编程|重构|测试|bug|接口|函数/i.test(t)) return "coding";
+  if (/\.(tsx?|jsx?|mjs|cjs|py|rs|go|java|vue|svelte|sh|ps1|sql)\b/i.test(list)) return "coding";
+  if (/交付门|检查|部署|重启|服务|备份|清理|迁移|线上/i.test(t)) return "ops";
+  if (/代码|编程|重构|测试|bug|接口|函数/i.test(t)) return "coding";
   if (/\.(png|jpe?g|webp|svg|fig)$/i.test(list) || /海报|出图|封面|设计稿|配色/i.test(t)) return "design";
   if (/\.(md|docx?|txt)$/i.test(list) || /小说|文案|脚本|文章|写作|章节|排版/i.test(t)) return "writing";
   if (/调研|研究|查一下|检索|资料|竞品|对比分析/i.test(t)) return "research";
