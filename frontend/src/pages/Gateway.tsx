@@ -170,8 +170,15 @@ export default function Gateway() {
     setSkillMsg('建会话中…')
     try {
       const r: any = await api('/api/learning/skill/author', { method: 'POST', body: { goal: skillGoal, name: skillName } })
-      setSkillMsg(r?.ok ? `已起会话：让她写到 ${r.targetFile}，写完点「收下」` : `失败：${r?.error || '未知'}`)
+      if (!r?.ok) { setSkillMsg(`失败：${r?.error || '未知'}`); return }
       if (r?.name) setSkillName(r.name)
+      // 建完会话直接派单，让她当场开写
+      try {
+        const run: any = await api('/api/runs', { method: 'POST', body: { sessionId: r.sessionId, message: r.prompt, clientRequestId: 'skill-' + Date.now(), backgroundRecovery: false } })
+        setSkillMsg(run?.runId ? `已派给她写：${r.targetFile}，写完点「收下」` : `会话已建，但派单没成功（${run?.error || '未知'}）`)
+      } catch (e: any) {
+        setSkillMsg(`会话已建，但派单失败：${e?.message || '接口报错'}`)
+      }
     } catch (e: any) { setSkillMsg(`失败：${e?.message || '接口报错'}`) }
   }
   const adoptSkill = async () => {
