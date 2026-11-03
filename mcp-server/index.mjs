@@ -16,7 +16,7 @@ if (!TOKEN) {
 
 const server = new McpServer({
   name: "yuanshu (元枢)",
-  version: "2.213.5",
+  version: "2.213.6",
 });
 
 // ── HTTP 辅助 ──

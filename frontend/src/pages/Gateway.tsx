@@ -163,6 +163,24 @@ export default function Gateway() {
   const fpLine = String(fps.data?.line || "")
   const fpChanged = (fps.data?.history || []).length > 0
   const evoList = evo.data?.proposals || []
+  const [skillGoal, setSkillGoal] = useState('')
+  const [skillName, setSkillName] = useState('')
+  const [skillMsg, setSkillMsg] = useState('')
+  const authorSkill = async () => {
+    setSkillMsg('建会话中…')
+    try {
+      const r: any = await api('/api/learning/skill/author', { method: 'POST', body: { goal: skillGoal, name: skillName } })
+      setSkillMsg(r?.ok ? `已起会话：让她写到 ${r.targetFile}，写完点「收下」` : `失败：${r?.error || '未知'}`)
+      if (r?.name) setSkillName(r.name)
+    } catch (e: any) { setSkillMsg(`失败：${e?.message || '接口报错'}`) }
+  }
+  const adoptSkill = async () => {
+    setSkillMsg('校验中…')
+    try {
+      const r: any = await api('/api/learning/skill/adopt', { method: 'POST', body: { name: skillName } })
+      setSkillMsg(r?.ok ? `已收下 ${r.name}（${r.bytes} 字节）` : `没收下：${(r?.errors || [r?.error]).filter(Boolean).join('；') || '未知'}`)
+    } catch (e: any) { setSkillMsg(`没收下：${e?.message || '接口报错'}`) }
+  }
   const inbox = useSWR('inbox-pending', () => api<{ total: number; groups: any[] }>('/api/inbox/pending'), { refreshInterval: 30000 })
   const [evoMsg, setEvoMsg] = useState('')
   const evoAct = async (action: 'apply' | 'dismiss', id: string) => {
@@ -556,6 +574,22 @@ export default function Gateway() {
           <a className="text-pi-accent underline" href="https://gitee.com/linxinyu520xue/yuanshu/blob/main/docs/HOW-SHE-TALKS.md" target="_blank" rel="noreferrer">她怎么跟你说话 →</a>
           <span className="ml-2 text-pi-dim2">四种简报的触发条件、话术规则、编造守卫</span>
         </p>
+      </section>
+      {/* 造技能：她写 SKILL.md，你收下 */}
+      <section className="panel space-y-2">
+        <h2 className="text-[15px] font-semibold text-pi-text">造技能</h2>
+        <p className="text-[11px] text-pi-dim2">说清要什么能力，她去写；写完点「收下」，校验通过才装上。</p>
+        <input value={skillGoal} onChange={(e) => setSkillGoal(e.target.value)} placeholder="要什么能力，比如：把网页链接整理成周报"
+          className="w-full rounded-pi-md border border-pi-border-soft bg-pi-bg2 px-2 py-1.5 text-[13px]" />
+        <div className="flex flex-wrap items-center gap-2">
+          <input value={skillName} onChange={(e) => setSkillName(e.target.value)} placeholder="技能名（可空）"
+            className="min-w-0 flex-1 rounded-pi-md border border-pi-border-soft bg-pi-bg2 px-2 py-1.5 text-[12px]" />
+          <button type="button" onClick={() => void authorSkill()} disabled={!skillGoal.trim()}
+            className="min-h-9 px-3 rounded-pi-md bg-pi-accent text-pi-on-accent text-[12px] disabled:opacity-40">让她写</button>
+          <button type="button" onClick={() => void adoptSkill()} disabled={!skillName.trim()}
+            className="min-h-9 px-3 rounded-pi-md bg-pi-bg3 text-[12px] disabled:opacity-40">收下</button>
+        </div>
+        {skillMsg && <p className="text-[11px] text-pi-text break-all">{skillMsg}</p>}
       </section>
       {/* 待你处理：散在各处的待办合成一处 */}
       <section className="panel space-y-2">
