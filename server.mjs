@@ -146,6 +146,7 @@ import { setSelfChangeWriteRoot } from "./engine/workspace-api.mjs";
 import { beginSnapshot, finishSnapshot, rollbackSnapshot, beginFsSnapshot, finishFsSnapshot } from "./engine/self-change-main.mjs";
 import { clusterFromDisk, toProposalInput } from "./engine/learning/failure-cluster.mjs";
 import { saveSealed, loadSealed, canUseAsBenchmark } from "./engine/learning/sealed-cases.mjs";
+import { recordExperience, readExperiences, summarizeExperiences } from "./engine/learning/experience.mjs";
 import { appendEvent as appendEvoEvent, readEvents as readEvoEvents, summarizeCapability as summarizeEvoCapability, createProposal as createEvoProposal, readProposals as readEvoProposals, recordGateVerdict } from "./engine/evolution/index.mjs";
 import { countExperience, distillExperience, gatherEvidence, latestReflectionReport } from "./engine/reflection-experience.mjs";
 import { readRegions, writeRegions, REGIONS, deliveryStrictness, distillLimit, nudgeCooldownMs, ideaCap, maxToolTurns, planBatchFactor, toolTier } from "./engine/brain-regions.mjs";
@@ -4230,6 +4231,16 @@ const API_ROUTES = [
   // 2026-11-02：脑区自调开关（默认开；关了就只按手调值跑）
   // 2026-11-02：L2 自改提案（只记录与校验；分支由她的 agent 循环创建）
   ["GET", "/api/selfchange/proposals", (res) => json(res, 200, { ok: true, items: listProposals(SELF_CHANGE_ROOT), policy: POLICY })],
+  // 2026-11-03：结构化经验（可追溯，成功与否来自交付门）
+  ["GET", "/api/learning/experiences", (res, req, url) => {
+    const list = readExperiences(WS_ROOT, { limit: Math.min(500, Number(url.searchParams.get("limit")) || 100) });
+    return json(res, 200, { ok: true, total: list.length, byType: summarizeExperiences(list), items: list.slice(-20).reverse() });
+  }],
+  ["POST", "/api/learning/experience", async (res, req) => {
+    const b = await readBody(req);
+    const out = recordExperience(WS_ROOT, { runId: b?.runId, goal: b?.goal, success: b?.success, taskType: b?.taskType, plan: b?.plan, actions: b?.actions, errors: b?.errors, userFeedback: b?.userFeedback, lessons: b?.lessons, minutes: b?.minutes, agentId: b?.agentId });
+    return json(res, out.ok ? 200 : 400, out);
+  }],
   // 2026-11-03：封存用例——人挑的考卷，Agent 只能读
   ["GET", "/api/learning/sealed", (res, req, url) => {
     const skill = String(url.searchParams.get("skill") || "");
