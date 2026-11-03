@@ -29,7 +29,7 @@ export function personaName(wsRoot) {
 
 /** 兜底话术：模型不可用/不合格时才用。刻意口语、短、说清事。 */
 export const FALLBACK = {
-  away: ({ away, done, blocked, asks }) => {
+  away: ({ away, done, blocked, asks, source }) => {
     const d = Array.isArray(done) ? done.filter(Boolean) : [];
     const b = Array.isArray(blocked) ? blocked.filter(Boolean) : [];
     const a = Number(asks) || 0;
@@ -40,7 +40,7 @@ export const FALLBACK = {
     if (b.length) body.push(`${b.length} 件卡住：${b.slice(0, 2).join("、")}`);
     if (a > 0) body.push(`${a} 件等你拍板`);
     const tail = b.length || a > 0 ? "你回来我先处理卡住的，拍板后我接着动。" : "挑一件接着做就行，不用都看。";
-    return `${head}：${body.join("；")}。${tail}`;
+    return `${head}：${body.join("；")}。${tail}${source ? `（来源：${String(source).slice(0, 24)}）` : ""}`;
   },
   reflection: ({ events, winner }) => (Number(events) > 0
     ? `夜里回放 ${events} 条轨迹${winner ? `，${winner} 更稳` : ""}，明天按这个来。`
@@ -48,11 +48,11 @@ export const FALLBACK = {
   night: ({ learned }) => `今天的活我过了一遍${learned ? `，记下 ${learned} 条` : ""}，明天能省点事。`,
   morning: ({ pending }) => `早，今天要做的事我列好了${pending ? `，${pending} 件在等你` : ""}。`,
   ask: ({ what }) => `有个事得你拍板：${String(what || "外面进来的一件事").slice(0, 50)}`,
-  done: ({ what, minutes, gate, files }) => (gate?.verdict === "RED"
+  done: ({ what, minutes, gate, files, source }) => (gate?.verdict === "RED"
     ? `${what || "手头的活"}干完了，但交付门没过：${String(gate.summary || "有改动没被验证").slice(0, 60)}`
     : gate?.verdict === "YELLOW"
       ? `${what || "手头的活"}做完了，${String(gate.summary || "需要你确认").replace(/^可以交付[，,]?/, "").slice(0, 70)}`
-      : `${what || "手头的活"}做完了${minutes ? `，用了 ${minutes} 分钟` : ""}。${Array.isArray(files) && files.length ? "产出：" + files.slice(0, 4).join("、") + (files.length > 4 ? " 等。" : "。") : "产出已归档到生成物。"}要清单我再整理，要改下一版直接说。`),
+      : `${what || "手头的活"}做完了${minutes ? `，用了 ${minutes} 分钟` : ""}。${Array.isArray(files) && files.length ? "产出：" + files.slice(0, 4).join("、") + (files.length > 4 ? " 等。" : "。") : "产出已归档到生成物。"}${source ? `来源：${String(source).slice(0, 30)}。` : ""}要清单我再整理，要改下一版直接说。`),
 };
 
 /** 各类型的写作要求（给模型的要求，不是最终文案） */

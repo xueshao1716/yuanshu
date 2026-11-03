@@ -1707,7 +1707,7 @@ const maybeColdWake = async (now = new Date()) => {
       return { ok: false, reason: "nothing_to_report" };
     }
     const what = `「${String(hit.session.name || "那个会话").slice(0, 18)}」停了 ${hours} 小时`;
-    const made = await composeNoticeFor("away", { away: `${hours} 小时`, done: doneList, blocked: blockedList, asks, what });
+    const made = await composeNoticeFor("away", { away: `${hours} 小时`, done: doneList, blocked: blockedList, asks, what, source: "定时任务 + 交付台账" });
     if (!made?.text) return { ok: false, reason: "empty_text" };
     const env = noticeEnvelope({ kind: "away", facts: { done: doneList, blocked: blockedList, asks }, text: made.text });
     const spent = spendBudget(WS_ROOT, day, { cap: budget.cap, kind: "cold_wake" });
@@ -3591,7 +3591,7 @@ const runManager = createRunManager({
       const minutes = Math.max(1, Math.round(secs / 60));
       // 2026-10-31：交付门回灌——RED 时这条推送不许说做完了
       const gate = checkDelivery({ runId: r.id });
-      const made = await composeNoticeFor("done", { what, minutes, failed, files: gate.changedFiles || [], gate: { verdict: gate.verdict, summary: gate.summary } });
+      const made = await composeNoticeFor("done", { what, minutes, failed, files: gate.changedFiles || [], source: `交付门 ${String(gate.verdict || "").toUpperCase()}`, gate: { verdict: gate.verdict, summary: gate.summary } });
       const env = noticeEnvelope({ kind: "done", facts: { what }, text: made.text });
       return { title: env.head, body: made.text, sender: personaName(WS_ROOT), summary: failed ? "任务失败" : "长任务完成", facts: [`用时 ${Math.round(secs / 60) || 1} 分钟`] };
     };
