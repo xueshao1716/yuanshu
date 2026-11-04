@@ -103,11 +103,30 @@ export async function handleUpdateCheck(res) {
       const vf = path.join(import.meta.dirname, "..", "version.json");
       if (fs.existsSync(vf)) versionLocal = String(JSON.parse(fs.readFileSync(vf, "utf8")).version || "");
     } catch {}
+    // 2026-11-04：多源取版本——Gitee 优先、GitHub 兜底，取更新的那个
+    let versionSource = "";
     if (versionLocal) {
-      try {
-        const vr = await fetch("https://gitee.com/linxinyu520xue/yuanshu/raw/main/version.json", { signal: AbortSignal.timeout(8000) });
-        if (vr.ok) versionRemote = String((await vr.json()).version || "");
-      } catch {}
+      const sources = [
+        { name: "gitee", url: "https://gitee.com/linxinyu520xue/yuanshu/raw/main/version.json" },
+        { name: "github", url: "https://raw.githubusercontent.com/xueshao1716/yuanshu/main/version.json" },
+      ];
+      const cmpV = (a, b) => {
+        const pa = String(a).split(".").map((n) => Number(n) || 0);
+        const pb = String(b).split(".").map((n) => Number(n) || 0);
+        for (let k = 0; k < Math.max(pa.length, pb.length); k += 1) {
+          const d = (pa[k] || 0) - (pb[k] || 0);
+          if (d !== 0) return d > 0 ? 1 : -1;
+        }
+        return 0;
+      };
+      for (const src of sources) {
+        try {
+          const vr = await fetch(src.url, { signal: AbortSignal.timeout(8000) });
+          if (!vr.ok) continue;
+          const v = String((await vr.json()).version || "");
+          if (v && (!versionRemote || cmpV(v, versionRemote) > 0)) { versionRemote = v; versionSource = src.name }
+        } catch {}
+      }
     }
     if (versionLocal && versionRemote) {
       versionCheckable = true;
@@ -136,6 +155,7 @@ export async function handleUpdateCheck(res) {
       versionRemote,
       versionBehind,
       versionCheckable,
+      versionSource,
       checkable: comparable || versionCheckable,
       // 引擎（后端）
       engineLocal,
