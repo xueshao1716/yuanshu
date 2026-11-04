@@ -156,6 +156,14 @@ export const ADDONS = [
     check: ({ run }) => pyHas(run, ['fitz']),
     install: ({ run, log }) => pipInstall(run, ['pymupdf'], log),
   },
+  {
+    id: 'asr',
+    label: '语音转文字（faster-whisper）',
+    size: '下载约 270MB（另需模型，首次自动下载）',
+    use: '微信语音、语音消息转文字；不装则语音消息只回「听不清」',
+    check: ({ run }) => pyHas(run, ['faster_whisper', 'ctranslate2']),
+    install: ({ run, log }) => pipInstall(run, ['faster-whisper', 'ctranslate2', 'tokenizers', 'onnxruntime', 'av'], log),
+  },
 ];
 
 const byId = (id) => ADDONS.find((a) => a.id === id);
