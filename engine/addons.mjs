@@ -76,6 +76,20 @@ async function pipInstall(run, pkgs, log) {
   throw new Error(`pip 安装失败：${last.slice(0, 300)}`);
 }
 
+/** 装到指定目录（语音转文字用：wechat-stt 只读 engine/py/vendor）。 */
+async function pipInstallTo(run, pkgs, target, log) {
+  fs.mkdirSync(target, { recursive: true });
+  let last = '';
+  for (const index of PIP_INDEXES) {
+    log(`pip 安装到 vendor ${pkgs.join(' ')}（源：${new URL(index).host}）`);
+    const r = await run('python', ['-m', 'pip', 'install', '--no-warn-script-location', '--disable-pip-version-check', '--target', target, '-i', index, ...pkgs], {});
+    if (r.ok) return;
+    last = (r.err || r.out).split(/\r?\n/).slice(-3).join(' ');
+    log(`失败：${last.slice(0, 200)}`);
+  }
+  throw new Error(`pip 安装失败：${last.slice(0, 300)}`);
+}
+
 async function sha256File(file) {
   const h = crypto.createHash('sha256');
   await pipeline(fs.createReadStream(file), h);
@@ -161,8 +175,11 @@ export const ADDONS = [
     label: '语音转文字（faster-whisper）',
     size: '下载约 270MB（另需模型，首次自动下载）',
     use: '微信语音、语音消息转文字；不装则语音消息只回「听不清」',
-    check: ({ run }) => pyHas(run, ['faster_whisper', 'ctranslate2']),
-    install: ({ run, log }) => pipInstall(run, ['faster-whisper', 'ctranslate2', 'tokenizers', 'onnxruntime', 'av'], log),
+    check: async () => {  // listAddons 会 .catch，必须返回 Promise
+      const dir = path.join(path.dirname(fileURLToPath(import.meta.url)), 'py', 'vendor');
+      return fs.existsSync(path.join(dir, 'faster_whisper')) && fs.existsSync(path.join(dir, 'ctranslate2'));
+    },
+    install: ({ run, log }) => pipInstallTo(run, ['faster-whisper', 'ctranslate2', 'tokenizers', 'onnxruntime', 'av'], path.join(path.dirname(fileURLToPath(import.meta.url)), 'py', 'vendor'), log),
   },
 ];
 
