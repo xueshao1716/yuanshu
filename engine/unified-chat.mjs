@@ -1304,7 +1304,29 @@ export async function handleUnifiedChat(res, entry, message, sessionId, params, 
     resumeToolPlan: runContext?.resume && runContext.checkpoint?.checkpointKind === "tool_plan" ? runContext.checkpoint?.toolPlan : null,
     executionContext: { runId: runContext?.runId, executionIdentity: runContext?.executionIdentity, sessionId: runContext?.sessionId, attempt: runContext?.attempt, onEvent: runContext?.onEvent, aibodyContext: runContext?.aibodyContext, history },
   };
-  let result = await unifiedChat(chatModel, history, chatOpts);
+  // 2026-11-04：主对话也要能换通道。
+  // 只在"一个字还没吐出去"时重试，避免流式输出重复或工具结果丢失。
+  const _emitted = { any: false };
+  if (typeof chatOpts.onDelta === "function") {
+    const _od = chatOpts.onDelta;
+    chatOpts.onDelta = (...a) => { _emitted.any = true; return _od(...a) };
+  }
+  // channelRetryWrapped: 标记已接线（幂等）
+  let result;
+  try {
+    result = await unifiedChat(chatModel, history, chatOpts);
+  } catch (err) {
+    const msg = String(err?.message || err || "");
+    const channelLevel = /(?:HTTP\s*)?(?:5\d\d|402|429|401|403)|fetch failed|ETIMEDOUT|ECONNRESET|overload|Insufficient Balance/i.test(msg);
+    if (_emitted.any || !channelLevel) throw err;
+    let next = null;
+    try { next = typeof pickFallbackExcluding === "function" ? pickFallbackExcluding(chatModel) : null } catch {}
+    if (!next) { try { next = pickFallbackDefault() } catch {} }
+    if (!next || (next.provider === chatModel.provider && next.id === chatModel.id)) throw err;
+    console.log(`[model-failover] 主对话换通道：${chatModel.provider}/${chatModel.id} → ${next.provider}/${next.id}（${msg.slice(0, 60)}）`);
+    result = await unifiedChat(next, history, chatOpts);
+    chatModel = next;
+  }
   const adoptReplacement = (replacement, selected, reason) => {
     result = { ...replacement, streamed: true, usedModel: replacement.usedModel || { provider: selected.provider, id: selected.id } };
     switchedModel = { ...result.usedModel, sameModel: result.usedModel.provider === chatModel.provider && result.usedModel.id === chatModel.id, reason };
