@@ -97,6 +97,32 @@ export async function handleUpdateCheck(res) {
         execFile(isWin ? "cmd.exe" : "npm", args, { encoding: "utf8", timeout: 20000, windowsHide: true }, (err, stdout) => resolve(err ? "" : String(stdout || "").trim()));
       });
     } catch {}
+    // 2026-11-04：安装目录没有 .git、origin 又不通时 SHA 比不了——改用 version.json 比版本号
+    let versionLocal = "", versionRemote = "", versionBehind = null, versionCheckable = false;
+    try {
+      const vf = path.join(import.meta.dirname, "..", "version.json");
+      if (fs.existsSync(vf)) versionLocal = String(JSON.parse(fs.readFileSync(vf, "utf8")).version || "");
+    } catch {}
+    if (versionLocal) {
+      try {
+        const vr = await fetch("https://gitee.com/linxinyu520xue/yuanshu/raw/main/version.json", { signal: AbortSignal.timeout(8000) });
+        if (vr.ok) versionRemote = String((await vr.json()).version || "");
+      } catch {}
+    }
+    if (versionLocal && versionRemote) {
+      versionCheckable = true;
+      const cmp = (a, b) => {
+        const pa = String(a).split(".").map((n) => Number(n) || 0);
+        const pb = String(b).split(".").map((n) => Number(n) || 0);
+        for (let k = 0; k < Math.max(pa.length, pb.length); k += 1) {
+          const d = (pa[k] || 0) - (pb[k] || 0);
+          if (d !== 0) return d > 0 ? 1 : -1;
+        }
+        return 0;
+      };
+      versionBehind = cmp(versionLocal, versionRemote) < 0 ? 1 : 0;
+    }
+
     json(res, 200, {
       ok: true,
       local: local.slice(0, 8),
@@ -105,7 +131,12 @@ export async function handleUpdateCheck(res) {
       upToDate,
       hasRemote: comparable && remote !== local,
       checkable: comparable,
-      warning: comparable ? "" : "无法取得本地或远端提交号，未判定为最新",
+      warning: comparable ? "" : (versionCheckable ? "" : "暂时无法检查更新（本地和远端都取不到版本）"),
+      versionLocal,
+      versionRemote,
+      versionBehind,
+      versionCheckable,
+      checkable: comparable || versionCheckable,
       // 引擎（后端）
       engineLocal,
       engineLatest,
