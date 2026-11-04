@@ -2351,7 +2351,7 @@ async function handleChat(req, res, body) {
       if (sessionId) saveSessionModelKey(sessionId, entry.modelKey);
     }
   } catch (error) {
-    try { sseWrite(res, 'error', { message: String(error?.message || error) }); } finally {
+    try { sseWrite(res, 'error', { message: describeFailure(error) }); } finally {
       if (entry.gen === thisGen) entry.busy = false;
       res.end();
     }
@@ -2416,7 +2416,7 @@ async function handleChat(req, res, body) {
         await handleUnifiedChat(res, entry, message, sessionId || findKeyByEntry(entry), body.params, abortCtrl.signal, wrapWriter(createSseWriter(res)), thinkOn, body.taskKey, (entry.modelKey && !isAutoModel(entry.modelKey)) ? entry.modelKey : null, null, chatRunContext);
       }
     } catch (e) {
-      try { sseWrite(res, "error", { message: String(e?.message || e) }); } catch {}
+      try { sseWrite(res, "error", { message: describeFailure(e) }); } catch {}
       // 闸门③：一轮出错就解除目标，不带着错误继续转
       if (goalTurn?.ok) noteGoalError(CONFIG.cwd, goalTurn.goal.id, e?.message || e);
     } finally {
