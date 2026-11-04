@@ -5,6 +5,7 @@
 // 才铸得出母体执行身份（培养工具要它）；其他发信人仍走 /api/chat，没有执行身份。
 // 2026-10-07：以前全走 /api/chat——那条路不建 run，身份永远为空，培养工具每次都报 identity_denied。
 import fs from "node:fs";
+import { describeFailure } from "./failure-note.mjs";
 import path from "node:path";
 import { createIlinkClient, normalizeMessage, splitForWechat, stripMarkdownForWechat, updatesOk, RATE_LIMITED, ILINK_BASE } from "./wechat-ilink.mjs";
 // 2026-10-27：文字 → SILK 语音条（系统语音 + pilk 编码）
@@ -136,7 +137,7 @@ export async function readRunStream(res) {
   }
   if (ended) await reader.cancel().catch(() => {});
   if (ended && ended !== "completed" && !answer.trim()) {
-    const err = new Error(`任务${ended}：${failure.slice(0, 160)}`);
+    const err = new Error(describeFailure(failure));
     if (/404|not.?found|不存在/i.test(failure)) err.status = 404;
     throw err;
   }

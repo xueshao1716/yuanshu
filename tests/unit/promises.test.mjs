@@ -228,6 +228,25 @@ describe("逾期与提示词", () => {
   });
 });
 
+test("引述/元讨论不是新承诺（账本不许自我繁殖）", () => {
+  const cases = [
+    "我刚才说的“我明天给你补个测试。”是在解释句式，不是承诺。",
+    "我刚说「明天补上，或者后天补上」这种句式要过滤掉。",
+    "像 `明天补上` 这种片段不该进账本。",
+    "“明天补上，或者后天补上”这类复述不是承诺。",
+  ];
+  for (const raw of cases) {
+    assert.deepEqual(extractPromises(raw, { at: AT }), [], "不该被记成承诺：" + raw);
+  }
+});
+
+test("正常延迟承诺仍然照记（别把过滤做过头）", () => {
+  const got = extractPromises("我明天给你补个测试。", { at: AT });
+  assert.equal(got.length, 1);
+  const got2 = extractPromises("明天我把这份日志补齐，然后发你截图。", { at: AT });
+  assert.equal(got2.length, 1);
+});
+
 test.after(() => {
   for (const d of cleanups) { try { fs.rmSync(d, { recursive: true, force: true }); } catch {} }
 });

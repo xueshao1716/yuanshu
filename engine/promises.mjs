@@ -75,6 +75,23 @@ function isQuestion(tail) {
 }
 
 /**
+ * 引述 / 元讨论不是承诺。
+ * 2026-11-04 真机：我在解释“什么才算承诺”时把这句原话复述了一遍，抽取器又把复述记成了新承诺，
+ * 账本于是自我繁殖（p_mvzysesw_1 / p_mvyiu5rk_0 / p_mw0iq227_0 三条都是这么来的）。
+ * 判据两条：命中落在未闭合的引号里；或命中前后紧邻元讨论词（句式/白名单/这类/不是承诺…）。
+ */
+const META_TALK = /句式|白名单|正则|抽取|提取|单测|不是承诺|不该(?:记|入)|多余条目|这类|这种真正的承诺/;
+function isQuotedOrMetaTalk(raw, index, len = 0) {
+  const s = String(raw || "");
+  const before = s.slice(0, Math.max(0, index));
+  const depth = (open, close) => Math.max(0, before.split(open).length - before.split(close).length);
+  if (depth("「", "」") > 0 || depth("“", "”") > 0) return true;
+  if (before.split("`").length % 2 === 0) return true;
+  const ctx = s.slice(Math.max(0, index - 24), index + len + 24);
+  return META_TALK.test(ctx);
+}
+
+/**
  * 从助手回复里提取延迟承诺（纯函数，可单测）。
  * 只认"时间词 + 我来做"的句式；条件句、否定句、给用户的建议一律不认。
  */
@@ -101,6 +118,8 @@ export function extractPromises(assistText, { at = new Date(), sessionId = "" } 
       if (isEitherOrSuggestion(tail)) continue;
       if (isBoastfulRecheck(tail)) continue;
       if (isQuestion(tail)) continue;
+      // 引述/元讨论（讨论“什么算承诺”时复述的原话）不是新承诺
+      if (isQuotedOrMetaTalk(raw, m.index, m[0].length)) continue;
       // 否定 = 决定，不是承诺
       if (/^(?:不|没|别|不用|不再)/.test(tail)) continue;
       // 条件句不是承诺

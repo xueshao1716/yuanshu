@@ -151,6 +151,7 @@ import { judgeWithSealed, compareResults } from "./engine/learning/benchmark.mjs
 import { installSkill, validateSkillMd, listAuthoredSkills, buildAuthorPrompt } from "./engine/learning/skill-author.mjs";
 import { replayFromDisk, estimateAction, buildHistory } from "./engine/anticipation.mjs";
 import { recordPush, recordReaction, reactionStats, shouldThrottle, markRecentActivity, expirePushes } from "./engine/notice-reactions.mjs";
+import { describeFailure } from "./engine/failure-note.mjs";
 import { runAndSave, loadResults, saveResults } from "./engine/learning/case-runner.mjs";
 import { appendEvent as appendEvoEvent, readEvents as readEvoEvents, summarizeCapability as summarizeEvoCapability, createProposal as createEvoProposal, readProposals as readEvoProposals, recordGateVerdict } from "./engine/evolution/index.mjs";
 import { countExperience, distillExperience, gatherEvidence, latestReflectionReport } from "./engine/reflection-experience.mjs";
