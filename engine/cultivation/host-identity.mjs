@@ -70,7 +70,13 @@ export function createCultivationHostIdentity({wsRoot, resolveExecution, getEntr
         if (binding.entry?.busy !== true) bad.push('busy');
         if (binding.sm?.getSessionId?.() !== binding.sessionId) bad.push('smId');
         if (safeCanon(binding.sm?.getCwd?.()) !== root) bad.push('cwd');
-        try { if (canAccess(binding.sessionId) !== true) bad.push('canAccess') } catch { bad.push('canAccess-throw') }
+        try {
+          const verdict = canAccess(binding.sessionId);
+          // 2026-11-05：canAccess 若返回 Promise，同步 bind 无法等待——一律按拒绝处理，
+          // 否则异步校验会被当成"通过"，等于把身份校验静默关掉。
+          if (verdict && typeof verdict.then === 'function') { verdict.catch(() => {}); bad.push('canAccess-async') }
+          else if (verdict !== true) bad.push('canAccess');
+        } catch { bad.push('canAccess-throw') }
         if (process.env.YUANSHU_IDENTITY_DIAG === "1") console.log('[identity] bind 失败于: ' + (bad.join(',') || '未知'));
       } catch {}
     }

@@ -125,7 +125,9 @@ test('server wires scoped cultivation routes without installing fake write ident
   const host = text.slice(text.indexOf('const cultivationHostIdentity ='), text.indexOf('const dreamCollector ='));
   assert.ok(host.includes('source => runManager.resolveExecutionIdentity(source)'));
   assert.ok(host.includes('getEntry: id => activeSessions.get(id)'));
-  assert.ok(host.includes('canAccess: canAccessSessionOrigin'));
+  // 2026-11-05：canAccess 已换成 canAccessForCultivation（2026-10-31 放行本人发起的会话），
+  // 原断言指向旧接线，属契约过期。
+  assert.ok(host.includes('canAccess: canAccessForCultivation'));
   assert.ok(host.includes('humanConfig: optionalCultivationHumanConfig()'));
   assert.ok(host.includes('knowledge: knowledgeRuntime.store, budget: knowledgeRuntime.budget, admission: knowledgeRuntime.admission'));
   assert.ok(host.includes('createCultivationProvider('));

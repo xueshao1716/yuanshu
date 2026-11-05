@@ -41,7 +41,9 @@ test('drafts can survive disabled policy; adoption revalidates permissions and p
 });
 test('cultivation designs never smuggle computer, password or credential permissions', async () => {
   const {validateDesign} = await module();
-  for (const tool of ['computer_use', 'terminal', 'password_manager', 'credential_store', '电脑操作', '读取密码']) {
+  // 2026-11-05：2026-11-02 Owner 决定放开执行类工具（bash/文件读写/电脑操作），
+  // 永久禁的只有凭据类。原断言把 terminal/电脑操作 也算违规，属契约过期。
+  for (const tool of ['password_manager', 'credential_store', 'secret_store', 'api_key_store', '读取密码', '密钥库']) {
     const d = design(); d.permissions.tools = [tool];
     assert.throws(() => validateDesign(d), error => {
       assert.equal(error.message, 'cultivation_invalid_design');
