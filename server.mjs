@@ -698,7 +698,7 @@ function waitJob(id, timeoutMs = 30 * 60_000) {
 }
 // 环境事实里要用它读"未汇报"台账（2026-10-25）
 try { setEnvWorkspace(WS_ROOT); } catch {}
-const jobPool = createJobPool({ file: path.join(WS_ROOT, "记忆", "运行时", "后台任务.json"), concurrency: 2 });
+const jobPool = createJobPool({ file: path.join(WS_ROOT, "记忆", "运行时", "后台任务.json"), concurrency: Number(process.env.PI_JOB_CONCURRENCY) || 6 });
 
 // 2026-10-28：出图/出片这类长活以前不登记，后台任务面板永远是空的。
 // 这里包一层：跑的时候在池子里挂一条 running，结束登记结果或失败（不占并发槽）。
