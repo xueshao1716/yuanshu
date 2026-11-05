@@ -1,6 +1,6 @@
 import test from 'node:test';import assert from 'node:assert/strict';
-import {extractLocal,validateCandidate} from '../../engine/knowledge-evidence.mjs';
-import {digest} from '../../engine/knowledge-state.mjs';
+import {extractLocal,validateCandidate} from '../../engine/knowledge/evidence.mjs';
+import {digest} from '../../engine/knowledge/state.mjs';
 const snapshot={id:'s',kind:'file',locator:'docs/a.md',text:'The configuration value is 12.',hash:digest('The configuration value is 12.')};
 const args={snapshots:[snapshot],job:{sourceVersion:digest('v'),event:'manual'},entries:[],now:0};
 test('exact excerpt is attributed material, not verified truth',()=>{

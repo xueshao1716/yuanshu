@@ -1,4 +1,4 @@
-import {digest} from '../knowledge-state.mjs';
+import {digest} from '../knowledge/state.mjs';
 
 // 经验闸门（参考 RSIAgent：验证通过才固化）：模型生成的输出必须经独立验证员判为 pass 才进待核验经验；
 // partial/fail/unverified 只留在任务记录里。执行记录（失败/取消/中断）不是论断，照常登记。

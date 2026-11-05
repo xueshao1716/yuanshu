@@ -1,5 +1,5 @@
 import {randomUUID} from 'node:crypto';
-import {digest,guardFor,fail} from './knowledge-state.mjs';
+import {digest,guardFor,fail} from './state.mjs';
 const safeReason=e=>/^[a-z][a-z0-9_]{0,70}$/.test(e?.code||'')?e.code:'knowledge_step_failed';
 export function createKnowledgeWorker({store,collect,extract,validate,admission,foregroundBusy=()=>false,now=Date.now,random=Math.random,onSettled=()=>{},reconcile=()=>{}}){
   const owner=randomUUID();let running=false,controller=null,timer=null,wakeTimer=null,stopped=false,failures=0,cooldownUntil=0,lastError=null,startAfter=0,inflight=null;

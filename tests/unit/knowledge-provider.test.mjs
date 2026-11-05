@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {createKnowledgeProvider} from '../../engine/knowledge-provider.mjs';
-import {defaultKnowledgePolicy} from '../../engine/knowledge-policy.mjs';
+import {createKnowledgeProvider} from '../../engine/knowledge/provider.mjs';
+import {defaultKnowledgePolicy} from '../../engine/knowledge/policy.mjs';
 const model={provider:'fixture',id:'text',api:'openai-completions',capabilities:['text'],enabled:true};
 const policy=()=>({...defaultKnowledgePolicy(),remoteEnabled:true,model:'fixture/text',allowedModels:['fixture/text'],outboundRoots:['docs'],rates:{'fixture/text':{input:1,output:2,currency:'USD',tokenBound:'utf8-bytes'}}});
 const snapshots=[{kind:'file',locator:'docs/a.txt',text:'真实原文',hash:'hash',id:'source',reference:{path:'docs/a.txt'}}];

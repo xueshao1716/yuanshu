@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {fetchKnowledgeSource,publicAddress} from '../../engine/knowledge-fetch.mjs';
+import {fetchKnowledgeSource,publicAddress} from '../../engine/knowledge/fetch.mjs';
 const url='https://example.org/article';
 const policy={localEnabled:true,networkEnabled:true,allowedUrls:[url],currency:'USD'};
 function setup(extra={}) {let requests=0,reserves=0;return {args:{url,policy,

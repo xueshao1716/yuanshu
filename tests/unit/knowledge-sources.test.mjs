@@ -3,8 +3,8 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import {collectLocalSources} from '../../engine/knowledge-sources.mjs';
-import {digest} from '../../engine/knowledge-state.mjs';
+import {collectLocalSources} from '../../engine/knowledge/sources.mjs';
+import {digest} from '../../engine/knowledge/state.mjs';
 function fixture(t){const wsRoot=fs.mkdtempSync(path.join(os.tmpdir(),'yuanshu-sources-'));t.after(()=>fs.rmSync(wsRoot,{recursive:true,force:true}));
   fs.mkdirSync(path.join(wsRoot,'docs'));fs.writeFileSync(path.join(wsRoot,'docs/a.md'),'Original source material.');return {wsRoot,policy:{localEnabled:true,allowedRoots:['docs']}};}
 test('sources require authorized roots and preserve exact hash and locator',async t=>{

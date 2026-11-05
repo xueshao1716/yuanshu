@@ -1,6 +1,6 @@
-import {digest} from './knowledge-state.mjs';
-import {trustedKnowledgeMethod} from './knowledge-method.mjs';
-import {progressOnly} from './knowledge-quality.mjs';
+import {digest} from './state.mjs';
+import {trustedKnowledgeMethod} from './method.mjs';
+import {progressOnly} from './quality.mjs';
 const suspicious=/ignore (all |previous |prior )?instructions|reveal.{0,30}(system prompt|secret|token)|忽略.{0,12}(指令|规则)|泄露.{0,12}(密钥|令牌)|修改.{0,12}(人格|基因|权限)/i;
 export function extractLocal(snapshots,job) {
   const source=snapshots.find(s=>s.kind==='run_result')||snapshots[0];if(!source)return null;

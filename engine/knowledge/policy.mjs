@@ -1,4 +1,4 @@
-import {clone,fail} from './knowledge-state.mjs';
+import {clone,fail} from './state.mjs';
 export const defaultKnowledgePolicy = () => ({revision:1,localEnabled:true,paused:false,remoteEnabled:false,networkEnabled:false,
   dailyCost:0,currency:'USD',maxModelRequests:20,maxNetworkRequests:20,inputTokens:6000,outputTokens:1200,
   allowedRoots:[],allowedUrls:[],allowedModels:[],outboundRoots:[],model:'',rates:{},concurrency:1});

@@ -1,4 +1,4 @@
-import {checkId,clone,fail,digest} from './knowledge-state.mjs';
+import {checkId,clone,fail,digest} from './state.mjs';
 
 // Decisions reference independently committed knowledge; they never promote
 // the generated hypothesis to fact or write personality / gene state.

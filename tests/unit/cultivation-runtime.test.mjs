@@ -2,8 +2,8 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {controlFixture,draft,enabledPolicy,overEnvelopePolicy} from '../helpers/cultivation-fixture.mjs';
 import {createCultivationRuntime} from '../../engine/cultivation/runtime.mjs';
-import {createKnowledgeStore} from '../../engine/knowledge-store.mjs';
-import {createKnowledgeBudget} from '../../engine/knowledge-budget.mjs';
+import {createKnowledgeStore} from '../../engine/knowledge/store.mjs';
+import {createKnowledgeBudget} from '../../engine/knowledge/budget.mjs';
 import {createBackgroundAdmission} from '../../engine/background-admission.mjs';
 
 test('mother can self-enable the bounded preset, but an envelope-breaking policy still needs a human',async t=>{

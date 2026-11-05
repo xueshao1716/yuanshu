@@ -4,8 +4,8 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import {initFileLock} from '../../engine/file-lock.mjs';
-import {createKnowledgeStore} from '../../engine/knowledge-store.mjs';
-import {createKnowledgeBudget} from '../../engine/knowledge-budget.mjs';
+import {createKnowledgeStore} from '../../engine/knowledge/store.mjs';
+import {createKnowledgeBudget} from '../../engine/knowledge/budget.mjs';
 const setup=async t=>{
   const wsRoot=fs.mkdtempSync(path.join(os.tmpdir(),'yuanshu-budget-'));
   initFileLock({dir:path.join(wsRoot,'locks')});t.after(()=>fs.rmSync(wsRoot,{recursive:true,force:true}));

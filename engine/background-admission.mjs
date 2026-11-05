@@ -1,6 +1,6 @@
 import {randomUUID} from 'node:crypto';
 import os from 'node:os';
-import {knowledgeStorage} from './knowledge-storage.mjs';
+import {knowledgeStorage} from './knowledge/storage.mjs';
 
 // A crashed owner never frees the slot merely because time passed. Operators
 // must reconcile the actual host task before any replacement is dispatched.

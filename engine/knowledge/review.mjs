@@ -1,5 +1,5 @@
-import {digest,fail,clone,checkId} from './knowledge-state.mjs';
-import {validateCandidate} from './knowledge-evidence.mjs';
+import {digest,fail,clone,checkId} from './state.mjs';
+import {validateCandidate} from './evidence.mjs';
 export function knowledgeReviewStorage({io,now,getJob}){
   return (id,decision,revision,policyRevision)=>io.transaction(data=>{
     const job=getJob(data,id);if(job.revision!==revision||data.policy.revision!==policyRevision)fail('revision_conflict');

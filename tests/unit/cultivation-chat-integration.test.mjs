@@ -8,7 +8,7 @@ import {draft,enabledPolicy} from '../helpers/cultivation-fixture.mjs';
 import {initFileLock} from '../../engine/file-lock.mjs';
 import {createRunStore} from '../../engine/run-store.mjs';
 import {createCultivationRuntime} from '../../engine/cultivation/runtime.mjs';
-import {createKnowledgeRuntime} from '../../engine/knowledge-runtime.mjs';
+import {createKnowledgeRuntime} from '../../engine/knowledge/runtime.mjs';
 import {cultivationChatContext} from '../../engine/cultivation/chat.mjs';
 
 test('live mother execution adopts independent evidence, uses it in chat and loses access on revocation',async t=>{

@@ -1,5 +1,5 @@
-import {fitKnowledgeSnippet,knowledgeTerms} from './knowledge-snippet.mjs';
-import {autoRetrievable} from './knowledge-quality.mjs';
+import {fitKnowledgeSnippet,knowledgeTerms} from './snippet.mjs';
+import {autoRetrievable} from './quality.mjs';
 export function createKnowledgeRetrieval({store,verifySource,now=Date.now}){
   let index=[],available=false;
   const unavailable=()=>({available:false,entries:[],context:'',reason:'knowledge_unavailable'});

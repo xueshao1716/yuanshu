@@ -2,12 +2,12 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {setTimeout as delay} from 'node:timers/promises';
 import {spawnSync} from 'node:child_process';
-import {knowledgeChatContext} from '../../engine/knowledge-chat.mjs';
+import {knowledgeChatContext} from '../../engine/knowledge/chat.mjs';
 import {cultivationChatContext} from '../../engine/cultivation/chat.mjs';
-import {createKnowledgeRetrieval} from '../../engine/knowledge-retrieval.mjs';
+import {createKnowledgeRetrieval} from '../../engine/knowledge/retrieval.mjs';
 
 test('synchronous abort and throw do not leave an unhandled rejection',()=>{
-  const moduleUrl=new URL('../../engine/knowledge-context-deadline.mjs',import.meta.url).href;
+  const moduleUrl=new URL('../../engine/knowledge/context-deadline.mjs',import.meta.url).href;
   const child=spawnSync(process.execPath,['--unhandled-rejections=strict','--input-type=module','-e',`
     import assert from 'node:assert/strict';
     import {boundedKnowledgeContext} from ${JSON.stringify(moduleUrl)};

@@ -1,11 +1,11 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import {isProtectedPath} from './tools/security.mjs';
-import {reviewStoragePath} from './review-file-safety.mjs';
-import {readReviewBounded} from './review-read.mjs';
-import {scopeKey} from './run-recovery.mjs';
-import {digest,fail} from './knowledge-state.mjs';
-import {knowledgeRunOutput} from './knowledge-run-source.mjs';
+import {isProtectedPath} from '../tools/security.mjs';
+import {reviewStoragePath} from '../review-file-safety.mjs';
+import {readReviewBounded} from '../review-read.mjs';
+import {scopeKey} from '../run-recovery.mjs';
+import {digest,fail} from './state.mjs';
+import {knowledgeRunOutput} from './run-source.mjs';
 const MAX_BYTES=1024*1024;
 const privateSegment=/(^|\/)(\.git|\.pi|\.ssh|\.env[^/]*|\.token|auth[^/]*\.json|credentials[^/]*|secrets?[^/]*|config[^/]*|models\.json|genome\.json|proposals\.json|人格[^/]*|关系记忆[^/]*)(\/|$)/i;
 export function knowledgeSourcePath(wsRoot,input,roots) {

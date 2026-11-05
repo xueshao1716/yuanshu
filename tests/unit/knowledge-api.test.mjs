@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-const module=await import('../../engine/knowledge-api.mjs').catch(()=>({}));
+const module=await import('../../engine/knowledge/api.mjs').catch(()=>({}));
 function api(runtime){assert.equal(typeof module.createKnowledgeApi,'function');return module.createKnowledgeApi({runtime,
  readBody:async req=>req.body,json:(res,status,body)=>Object.assign(res,{status,body}),requireAuth:req=>req.headers?.authorization==='Bearer valid'});}
 test('knowledge routes reject URL-only authentication and do not mutate on reads',async()=>{

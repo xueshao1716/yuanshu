@@ -5,11 +5,11 @@ import os from 'node:os';
 import path from 'node:path';
 import {spawn} from 'node:child_process';
 import {initFileLock} from '../../engine/file-lock.mjs';
-import {createKnowledgeStore} from '../../engine/knowledge-store.mjs';
-import {createKnowledgeWorker} from '../../engine/knowledge-worker.mjs';
-import {collectLocalSources} from '../../engine/knowledge-sources.mjs';
-import {extractLocal,validateCandidate} from '../../engine/knowledge-evidence.mjs';
-import {digest,guardFor} from '../../engine/knowledge-state.mjs';
+import {createKnowledgeStore} from '../../engine/knowledge/store.mjs';
+import {createKnowledgeWorker} from '../../engine/knowledge/worker.mjs';
+import {collectLocalSources} from '../../engine/knowledge/sources.mjs';
+import {extractLocal,validateCandidate} from '../../engine/knowledge/evidence.mjs';
+import {digest,guardFor} from '../../engine/knowledge/state.mjs';
 
 async function fixture(t,options={}) {
   const wsRoot=fs.mkdtempSync(path.join(os.tmpdir(),'yuanshu-knowledge-e2e-'));
@@ -57,7 +57,7 @@ test('two real processes cannot claim the same knowledge task',async t=>{
   const f=await fixture(t);
   const script=`import path from 'node:path';
     import {initFileLock} from ${JSON.stringify(new URL('../../engine/file-lock.mjs',import.meta.url).href)};
-    import {createKnowledgeStore} from ${JSON.stringify(new URL('../../engine/knowledge-store.mjs',import.meta.url).href)};
+    import {createKnowledgeStore} from ${JSON.stringify(new URL('../../engine/knowledge/store.mjs',import.meta.url).href)};
     const wsRoot=process.argv[1];initFileLock({dir:path.join(wsRoot,'locks')});
     const store=createKnowledgeStore({wsRoot,now:()=>1800000000000});
     process.send({ready:true});process.once('message',async()=>{

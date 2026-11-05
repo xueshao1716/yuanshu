@@ -1,4 +1,4 @@
-import {digest} from '../knowledge-state.mjs';
+import {digest} from '../knowledge/state.mjs';
 import {experienceObservation} from './experience-observation.mjs';
 import {experienceRecord,experienceOfferable} from './experience-record.mjs';
 

@@ -24,4 +24,4 @@ export async function cultivationChatContext(runtime,knowledge,input,note=()=>{}
     return '';
   }
 }
-import {boundedKnowledgeContext} from '../knowledge-context-deadline.mjs';
+import {boundedKnowledgeContext} from '../knowledge/context-deadline.mjs';

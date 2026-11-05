@@ -4,8 +4,8 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import {initFileLock} from '../../engine/file-lock.mjs';
-import {createKnowledgeStore} from '../../engine/knowledge-store.mjs';
-import {digest,guardFor} from '../../engine/knowledge-state.mjs';
+import {createKnowledgeStore} from '../../engine/knowledge/store.mjs';
+import {digest,guardFor} from '../../engine/knowledge/state.mjs';
 import {createVoiceAdmission} from '../../engine/chat-voice-admission.mjs';
 function fixture(t){const wsRoot=fs.mkdtempSync(path.join(os.tmpdir(),'yuanshu-knowledge-hardening-'));t.after(()=>fs.rmSync(wsRoot,{recursive:true,force:true}));initFileLock({dir:path.join(wsRoot,'locks')});return {wsRoot,store:createKnowledgeStore({wsRoot})};}
 test('policy change releases and fences active work immediately; blocked source never gets a claim',async t=>{

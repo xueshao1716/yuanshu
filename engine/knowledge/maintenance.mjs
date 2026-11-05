@@ -1,6 +1,6 @@
-import {knowledgeStorage} from './knowledge-storage.mjs';
-import {digest,fail} from './knowledge-state.mjs';
-import {modelOnly} from './knowledge-quality.mjs';
+import {knowledgeStorage} from './storage.mjs';
+import {digest,fail} from './state.mjs';
+import {modelOnly} from './quality.mjs';
 
 // All maintenance stays off the chat/GET path. Cursor and UTC high-water survive restarts.
 export function createKnowledgeMaintenance({wsRoot,store,budget,collect,now=Date.now}){

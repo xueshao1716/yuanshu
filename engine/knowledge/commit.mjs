@@ -1,8 +1,8 @@
 import fs from 'node:fs';
-import {assertClaim,checkId,clone,digest,fail} from './knowledge-state.mjs';
-import {collectLocalSources} from './knowledge-sources.mjs';
+import {assertClaim,checkId,clone,digest,fail} from './state.mjs';
+import {collectLocalSources} from './sources.mjs';
 // 2026-10-26：入库前把原文抽成 claim、按价值定寿命（原来一律 7 天、claimKey 只有 7 条）
-import {enrichEntry} from './knowledge-enrich.mjs';
+import {enrichEntry} from './enrich.mjs';
 export function knowledgeCommit(storage,now,fault=()=>{},sourceContext={}) {
   function finish(data,journal) {
     const job=data.jobs[journal.jobId];

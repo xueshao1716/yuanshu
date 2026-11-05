@@ -7,7 +7,7 @@ import {fileURLToPath} from 'node:url';
 import {chromium} from 'playwright';
 import {draft} from '../helpers/cultivation-fixture.mjs';
 import {defaultPolicy} from '../../engine/cultivation/policy.mjs';
-import {knowledgeFixture} from './knowledge-fixture.mjs';
+import {knowledgeFixture} from './knowledge/fixture.mjs';
 
 const root=fileURLToPath(new URL('../../',import.meta.url)),dist=path.join(root,'tmp/verification-dist');
 const server=http.createServer((req,res)=>{

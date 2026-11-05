@@ -224,7 +224,12 @@ export function createWechatBridge({
   onAlert = null,
   // 2026-10-07 真机：长任务一跑十几分钟，微信那头只看到沉默，以为不回。过了这个时长先回一句「在处理」。
   ackAfterMs = 90_000,
+  // 2026-10-29：显式指定工作区根（测试/沙箱用）。不传时按 dir 往上推两级；
+  // 若推出来的根落在系统临时目录里（单测的 mkdtemp 场景），退回用 dir 本身，
+  // 避免把 去重/规矩 等运行时文件写进真实系统目录、跨测试运行互相污染。
+  wsRoot = "",
 }) {
+  const explicitWsRoot = String(wsRoot || "").trim();
   const file = (n) => path.join(dir, n);
   const loadAccount = () => readJson(file("account.json"), null);
   const settings = () => ({ enabled: false, notify: false, ...readJson(file("settings.json"), {}) });
@@ -340,7 +345,12 @@ export function createWechatBridge({
   }
   // image 可选：带上时文字切分发完后，再排一张本地图片（sendImage 通路，2026-10-08）。
   // 2026-10-28：规矩文件（<ws>/记忆/运行时/微信规矩.md）——首次自动写一份，之后以文件为准
-  const wsRootOfDir = () => path.dirname(path.dirname(dir));
+  const wsRootOfDir = () => {
+    if (explicitWsRoot) return explicitWsRoot;
+    const root = path.dirname(path.dirname(dir));
+    const isTempRoot = /[\\/]([Tt]emp|tmp)([\\/]|$)|AppData[\\/](Local|Roaming)$/.test(root) || /AppData[\\/]Local[\\/]Temp/i.test(dir);
+    return isTempRoot ? dir : root;
+  };
   // 2026-10-28：连发合并——1200ms 静默/最长 6s；停机时 flushNow 兜底
   const batcher = createBatcher({
     delayMs: 1200, maxWaitMs: 6000,

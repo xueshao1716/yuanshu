@@ -1,8 +1,8 @@
 import https from 'node:https';
 import dns from 'node:dns/promises';
 import net from 'node:net';
-import {digest,fail} from './knowledge-state.mjs';
-import {providerError} from './knowledge-provider.mjs';
+import {digest,fail} from './state.mjs';
+import {providerError} from './provider.mjs';
 const MAX=1024*1024;
 const denied=new net.BlockList();
 for(const [ip,prefix] of [['0.0.0.0',8],['10.0.0.0',8],['100.64.0.0',10],['127.0.0.0',8],['169.254.0.0',16],['172.16.0.0',12],

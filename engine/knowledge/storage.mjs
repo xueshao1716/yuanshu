@@ -1,10 +1,10 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import {withCrossProcessLock} from './file-lock.mjs';
-import {reviewStoragePath,reviewAtomicWrite} from './review-file-safety.mjs';
-import {readReviewBounded} from './review-read.mjs';
-import {defaultKnowledgePolicy} from './knowledge-policy.mjs';
-import {clone,digest,fail,states,validId} from './knowledge-state.mjs';
+import {withCrossProcessLock} from '../file-lock.mjs';
+import {reviewStoragePath,reviewAtomicWrite} from '../review-file-safety.mjs';
+import {readReviewBounded} from '../review-read.mjs';
+import {defaultKnowledgePolicy} from './policy.mjs';
+import {clone,digest,fail,states,validId} from './state.mjs';
 export function knowledgeStorage(wsRoot) {
   const root=fs.realpathSync(wsRoot);
   if(fs.lstatSync(wsRoot).isSymbolicLink()) fail('knowledge_path_denied');

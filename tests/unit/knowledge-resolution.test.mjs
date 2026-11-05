@@ -3,9 +3,9 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';import os from 'node:os';import path from 'node:path';
 import {initFileLock} from '../../engine/file-lock.mjs';
 import {createRunStore} from '../../engine/run-store.mjs';
-import {createKnowledgeRuntime} from '../../engine/knowledge-runtime.mjs';
-import {createKnowledgeStore} from '../../engine/knowledge-store.mjs';
-import {guardFor,digest} from '../../engine/knowledge-state.mjs';
+import {createKnowledgeRuntime} from '../../engine/knowledge/runtime.mjs';
+import {createKnowledgeStore} from '../../engine/knowledge/store.mjs';
+import {guardFor,digest} from '../../engine/knowledge/state.mjs';
 const decision={decision:'accept_source',note:'核对真实来源后采用补证',confirmed:true};
 async function setup(t,blocked=false){
  const wsRoot=fs.mkdtempSync(path.join(os.tmpdir(),'yuanshu-resolution-'));

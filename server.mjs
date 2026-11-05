@@ -326,7 +326,7 @@ import { curateIdeas, readIdeas, acceptIdea, dismissIdea, readGoals, completeSte
 // 2026-10-25：交付前证据检查（响度/峰值/音画同步/时长），灵感来自 earshot
 import { checkOutput, measureAudio, evidenceNote, probeMedia, avDriftSec } from "./engine/output-qa.mjs";
 // 2026-10-26：知识摄入 / 自动上报也进作业状态机（停摆了要能看见）
-import { knowledgeJob } from "./engine/knowledge-job.mjs";
+import { knowledgeJob } from "./engine/knowledge/job.mjs";
 import { feedbackJob } from "./engine/feedback-job.mjs";
 // 2026-10-26：知识长能力——从结构化信号挖代码级提案（带证据/测试/收益）
 import { readProposals, writeProposals, refreshProposals, markProposal, mineSignals } from "./engine/capability-proposal.mjs";
@@ -356,12 +356,12 @@ import { planReflectionExecution, recordActionAttempt, summarizeExecution, runOn
 import { loadEpisodes, dream, writeDreamLog, dreamPaths, currentWeights, promoteWeights, resetWeights, recordSkillChoice } from "./engine/dream.mjs";
 import { createDreamCollector } from "./engine/dream-collector.mjs";
 import { createLearningIntake } from "./engine/learning-intake.mjs";
-import { createKnowledgeRuntime } from "./engine/knowledge-runtime.mjs";
-import { createKnowledgeOverview } from "./engine/knowledge-overview.mjs";
-import { knowledgeChatContext, deliverKnowledgeContext } from "./engine/knowledge-chat.mjs";
-import { withKnowledgeRequest, knowledgeRequestStopped } from "./engine/knowledge-chat-request.mjs";
+import { createKnowledgeRuntime } from "./engine/knowledge/runtime.mjs";
+import { createKnowledgeOverview } from "./engine/knowledge/overview.mjs";
+import { knowledgeChatContext, deliverKnowledgeContext } from "./engine/knowledge/chat.mjs";
+import { withKnowledgeRequest, knowledgeRequestStopped } from "./engine/knowledge/chat-request.mjs";
 import { cultivationChatContext } from "./engine/cultivation/chat.mjs";
-import { createKnowledgeApi } from "./engine/knowledge-api.mjs";
+import { createKnowledgeApi } from "./engine/knowledge/api.mjs";
 import { createCultivationRuntime } from "./engine/cultivation/runtime.mjs";
 import { createCultivationHostIdentity } from "./engine/cultivation/host-identity.mjs";
 import { createCultivationApi } from "./engine/cultivation/api.mjs";

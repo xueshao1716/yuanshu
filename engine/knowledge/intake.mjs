@@ -1,12 +1,12 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import {knowledgeStorage} from './knowledge-storage.mjs';
-import {collectLocalSources} from './knowledge-sources.mjs';
-import {reviewStoragePath} from './review-file-safety.mjs';
-import {readReviewBounded} from './review-read.mjs';
-import {inWorkspace} from './learning-intake.mjs';
-import {digest,fail} from './knowledge-state.mjs';
-import {enqueueKnowledgeGap} from './knowledge-gap.mjs';
+import {knowledgeStorage} from './storage.mjs';
+import {collectLocalSources} from './sources.mjs';
+import {reviewStoragePath} from '../review-file-safety.mjs';
+import {readReviewBounded} from '../review-read.mjs';
+import {inWorkspace} from '../learning-intake.mjs';
+import {digest,fail} from './state.mjs';
+import {enqueueKnowledgeGap} from './gap.mjs';
 
 // No network or model work in intake. Only terminal ledger records are authoritative.
 export function createKnowledgeIntake({wsRoot,runRoot,runStore,store}){

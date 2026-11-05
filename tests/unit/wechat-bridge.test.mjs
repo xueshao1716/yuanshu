@@ -80,13 +80,13 @@ const dm = (from, text, ctx = "c") => ({ from_user_id: from, context_token: ctx,
 
 test("扫码登录 → 自动开始收发；status 不含凭证", async () => {
   const dir = tmp(), w = fakeWorld();
-  const b = createWechatBridge({ dir, client: w.client, chat: w.chat, sleep: () => tick() });
+  const b = createWechatBridge({ dir, wsRoot: dir, client: w.client, chat: w.chat, sleep: () => tick() });
   b.startLogin();
   await until(() => b.status().running);
   w.push(dm("u1@im.wechat", "在吗"));
   w.push(dm("g@chatroom", "群里"));
   await until(() => w.sent.length === 1);
-  assert.deepEqual(w.sent[0], { to: "u1@im.wechat", text: "回：在吗", ctx: "c" });
+  assert.equal(w.sent[0].to, "u1@im.wechat"); assert.equal(w.sent[0].ctx, "c"); assert.ok(w.sent[0].text.endsWith("在吗"), "回复以对方消息文本结尾（mock 原样回显 prompt，末尾即正文）");
   const st = b.status();
   assert.equal(st.loggedIn, true);
   assert.equal(st.enabled, true);
@@ -105,9 +105,9 @@ test("同一好友复用会话；会话失效换新会话重试一次", async ()
   const dir = tmp(), w = fakeWorld();
   let fail = true;
   const ask = w.chat.ask;
-  w.chat.ask = async (t, sid) => { if (sid === "s1" && fail && t === "第二句") { fail = false; throw Object.assign(new Error("404"), { status: 404 }); } return ask(t, sid); };
+  w.chat.ask = async (t, sid) => { if (sid === "s1" && fail && t.includes("第二句")) { fail = false; throw Object.assign(new Error("404"), { status: 404 }); } return ask(t, sid); };
   fs.writeFileSync(path.join(dir, "account.json"), JSON.stringify({ token: "T", botId: "bot@im.bot", userId: "owner@im.wechat" }));
-  const b = createWechatBridge({ dir, client: w.client, chat: w.chat, sleep: () => tick() });
+  const b = createWechatBridge({ dir, wsRoot: dir, client: w.client, chat: w.chat, sleep: () => tick() });
   b.start();
   w.push(dm("u1@im.wechat", "第一句"));
   await until(() => w.sent.length === 1);
@@ -123,7 +123,7 @@ test("首次启动接管独立桥凭证（默认不自动开），notifyOwner �
   fs.writeFileSync(path.join(legacy, "ilink-weixin-account.json"), JSON.stringify({ token: "T", botId: "bot@im.bot", userId: "owner@im.wechat" }));
   fs.writeFileSync(path.join(legacy, "ilink-bridge-state.json"), JSON.stringify({ buf: "b7", ack: "" }));
   fs.writeFileSync(path.join(legacy, "ilink-weixin-sessions.json"), JSON.stringify({ "owner@im.wechat": "old-session" }));
-  const b = createWechatBridge({ dir, client: w.client, chat: w.chat, legacyDir: legacy, sleep: () => tick() });
+  const b = createWechatBridge({ dir, wsRoot: dir, client: w.client, chat: w.chat, legacyDir: legacy, sleep: () => tick() });
   b.boot();
   assert.equal(b.status().loggedIn, true);
   assert.equal(b.status().running, false);
@@ -160,9 +160,9 @@ test("没登录不能开启", () => {
 test("退出登录后重启不会从独立桥复活", () => {
   const dir = tmp(), legacy = tmp(), w = fakeWorld();
   fs.writeFileSync(path.join(legacy, "ilink-weixin-account.json"), JSON.stringify({ token: "T", botId: "b" }));
-  createWechatBridge({ dir, client: w.client, chat: w.chat, legacyDir: legacy }).boot();
+  createWechatBridge({ dir, wsRoot: dir, client: w.client, chat: w.chat, legacyDir: legacy }).boot();
   fs.rmSync(path.join(dir, "account.json"));
-  const again = createWechatBridge({ dir, client: w.client, chat: w.chat, legacyDir: legacy });
+  const again = createWechatBridge({ dir, wsRoot: dir, client: w.client, chat: w.chat, legacyDir: legacy });
   again.boot();
   assert.equal(again.status().loggedIn, false);
 });
@@ -183,13 +183,13 @@ test("微信回复翻译成版式（标题/表格/强调/引用），且幂等",
 test("只有扫码绑定的本人走任务链路（才有母体执行身份），陌生人不走", async () => {
   const dir = tmp(), w = fakeWorld();
   fs.writeFileSync(path.join(dir, "account.json"), JSON.stringify({ token: "T", botId: "bot@im.bot", userId: "owner@im.wechat" }));
-  const b = createWechatBridge({ dir, client: w.client, chat: w.chat, sleep: () => tick() });
+  const b = createWechatBridge({ dir, wsRoot: dir, client: w.client, chat: w.chat, sleep: () => tick() });
   b.start();
   w.push(dm("owner@im.wechat", "我本人"));
   await until(() => w.sent.length === 1);
   w.push(dm("u9@im.wechat", "陌生人"));
   await until(() => w.sent.length === 2);
-  assert.deepEqual(w.asked.map((a) => [a[0], a[2]]), [["我本人", true], ["陌生人", false]]);
+  assert.deepEqual(w.asked.map((a) => [a[0].endsWith(a[2] ? "我本人" : "陌生人"), a[2]]), [[true, true], [true, false]]);
   await b.stop(); await b._waitIdle();
 });
 
@@ -234,16 +234,21 @@ test("readRunStream 收到终态就断开，不等服务端关流（真机：桥
 });
 
 // 2026-10-07 真机：伙伴的「那你给注册了吧」「怎么不回话了」都在服务重启时被掐断，桥和服务同进程，回复永远丢了。
-test("处理中被重启打断的消息：下次启动告诉对方重发，不自动重跑", async () => {
+// 2026-10-28 改版：重启打断的消息改为**自动续跑**（先说一声"接着做完"，再跑任务）；跑不了才请对方重发。
+test("处理中被重启打断的消息：下次启动自动续跑，先说一声接着做完", async () => {
   const dir = tmp(), w = fakeWorld();
   fs.writeFileSync(path.join(dir, "account.json"), JSON.stringify({ token: "T", botId: "bot@im.bot", userId: "owner@im.wechat" }));
   fs.writeFileSync(path.join(dir, "inbox.json"), JSON.stringify({ "owner@im.wechat": { text: "那你给注册了吧", contextToken: "c0", at: Date.UTC(2026, 9, 6, 18, 19) } }));
-  const b = createWechatBridge({ dir, client: w.client, chat: w.chat, sleep: () => tick() });
+  const b = createWechatBridge({ dir, wsRoot: dir, client: w.client, chat: w.chat, sleep: () => tick() });
   b.start();
   await until(() => w.sent.length === 1);
-  assert.match(w.sent[0].text, /重启/); assert.match(w.sent[0].text, /那你给注册了吧/); assert.match(w.sent[0].text, /再发/);
-  assert.equal(w.sent[0].ctx, "c0");
-  assert.equal(w.asked.length, 0, "不自动重跑");
+  assert.match(w.sent[0].text, /重启/); assert.match(w.sent[0].text, /接着/);
+  await until(() => w.asked.length === 1);
+  assert.match(w.asked[0][0], /那你给注册了吧/, "自动重跑被打断的消息");
+  assert.equal(w.asked[0][2], true, "本人消息走 owner 链路");
+  await until(() => w.sent.length === 2);
+  assert.ok(w.sent[1].text.endsWith("那你给注册了吧"));
+  assert.equal(w.sent[1].ctx, "c0");
   await until(() => fs.readFileSync(path.join(dir, "inbox.json"), "utf-8").trim() === "{}");
   await b.stop(); await b._waitIdle();
 });
@@ -254,9 +259,9 @@ test("处理中落盘，回完清掉；处理中再来的消息排队接着回�
   const gate = new Promise((r) => { release = r; });
   const ask = w.chat.ask;
   let started = false;
-  w.chat.ask = async (t, sid, o) => { if (t === "长任务") { assert.ok(fs.readFileSync(path.join(dir, "inbox.json"), "utf-8").includes("长任务")); started = true; await gate; } return ask(t, sid, o); };
+  w.chat.ask = async (t, sid, o) => { if (t.includes("长任务")) { assert.ok(fs.readFileSync(path.join(dir, "inbox.json"), "utf-8").includes("长任务")); started = true; await gate; } return ask(t, sid, o); };
   fs.writeFileSync(path.join(dir, "account.json"), JSON.stringify({ token: "T", botId: "bot@im.bot", userId: "owner@im.wechat" }));
-  const b = createWechatBridge({ dir, client: w.client, chat: w.chat, sleep: () => tick(), ackAfterMs: 0 });
+  const b = createWechatBridge({ dir, wsRoot: dir, client: w.client, chat: w.chat, sleep: () => tick(), ackAfterMs: 0 });
   b.start();
   w.push(dm("u1@im.wechat", "长任务"));
   await until(() => started);
@@ -266,8 +271,8 @@ test("处理中落盘，回完清掉；处理中再来的消息排队接着回�
   assert.match(w.sent[0].text, /记下了/);
   release();
   await until(() => w.sent.length === 3);
-  assert.equal(w.sent[1].text, "回：长任务");
-  assert.equal(w.sent[2].text, "回：第二句\n第三句");
+  assert.ok(w.sent[1].text.endsWith("长任务"));
+  assert.ok(w.sent[2].text.endsWith("第二句\n第三句"));
   await until(() => fs.readFileSync(path.join(dir, "inbox.json"), "utf-8").trim() === "{}");
   await b.stop(); await b._waitIdle();
 });
@@ -284,14 +289,14 @@ test("长任务超过时限先回一句在处理，答完再回正文", async ()
     return origAsk(t, sid, o);
   };
   fs.writeFileSync(path.join(dir, "account.json"), JSON.stringify({ token: "T", botId: "bot@im.bot", userId: "owner@im.wechat" }));
-  const b = createWechatBridge({ dir, client: w.client, chat: w.chat, sleep: () => tick(), ackAfterMs: 20 });
+  const b = createWechatBridge({ dir, wsRoot: dir, client: w.client, chat: w.chat, sleep: () => tick(), ackAfterMs: 20 });
   b.start();
   w.push(dm("u1@im.wechat", "查一下"));
   await until(() => w.sent.length === 1);
   assert.match(w.sent[0].text, /做完回你/);
   release();
   await until(() => w.sent.length === 2);
-  assert.equal(w.sent[1].text, "回：查一下");
+  assert.ok(w.sent[1].text.endsWith("查一下"));
   await tick(40);
   assert.equal(w.sent.length, 2, "只提醒一次");
   await b.stop(); await b._waitIdle();

@@ -5,7 +5,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { createHash } from 'node:crypto';
 import { initFileLock } from '../../engine/file-lock.mjs';
-import { createKnowledgeStore } from '../../engine/knowledge-store.mjs';
+import { createKnowledgeStore } from '../../engine/knowledge/store.mjs';
 
 const hash = text => createHash('sha256').update(text).digest('hex');
 function fixture(t) {

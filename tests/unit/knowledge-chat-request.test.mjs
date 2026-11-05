@@ -2,8 +2,8 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {EventEmitter} from 'node:events';
 import fs from 'node:fs';
-import {knowledgeChatContext} from '../../engine/knowledge-chat.mjs';
-const mod=await import('../../engine/knowledge-chat-request.mjs').catch(()=>({}));
+import {knowledgeChatContext} from '../../engine/knowledge/chat.mjs';
+const mod=await import('../../engine/knowledge/chat-request.mjs').catch(()=>({}));
 
 test('request lifecycle cancels knowledge lookup without leaking listeners',async()=>{
   assert.equal(typeof mod.withKnowledgeRequest,'function');

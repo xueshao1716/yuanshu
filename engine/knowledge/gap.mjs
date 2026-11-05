@@ -1,7 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import {digest} from './knowledge-state.mjs';
-import {knowledgeSourcePath,collectLocalSources} from './knowledge-sources.mjs';
+import {digest} from './state.mjs';
+import {knowledgeSourcePath,collectLocalSources} from './sources.mjs';
 
 // Called only by terminal-run intake, never on the foreground retrieval path.
 export async function enqueueKnowledgeGap({run,wsRoot,runRoot,runStore,store}){

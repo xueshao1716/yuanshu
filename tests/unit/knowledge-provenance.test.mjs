@@ -6,7 +6,7 @@ import path from 'node:path';
 import {createRunStore} from '../../engine/run-store.mjs';
 import {createRunEventLog} from '../../engine/run-event-log.mjs';
 import {createTaskEvidence} from '../../engine/task-evidence.mjs';
-const mod=await import('../../engine/knowledge-provenance.mjs').catch(()=>({}));
+const mod=await import('../../engine/knowledge/provenance.mjs').catch(()=>({}));
 function fixture(t){
  const wsRoot=fs.mkdtempSync(path.join(os.tmpdir(),'yuanshu-knowledge-provenance-'));
  t.after(()=>fs.rmSync(wsRoot,{recursive:true,force:true}));

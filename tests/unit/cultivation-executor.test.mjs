@@ -3,8 +3,8 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import {controlFixture, enabledPolicy} from '../helpers/cultivation-fixture.mjs';
-import {createKnowledgeStore} from '../../engine/knowledge-store.mjs';
-import {createKnowledgeBudget} from '../../engine/knowledge-budget.mjs';
+import {createKnowledgeStore} from '../../engine/knowledge/store.mjs';
+import {createKnowledgeBudget} from '../../engine/knowledge/budget.mjs';
 import {createBackgroundAdmission} from '../../engine/background-admission.mjs';
 
 const now=()=>Date.parse('2026-09-30T12:00:00Z');

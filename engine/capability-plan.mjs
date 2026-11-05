@@ -24,7 +24,7 @@ export const AREA_PLAYBOOK = {
     verify: "拿一条真实导出跑 output_check，断言 LUFS/真峰值/音画差在阈值内",
   },
   knowledge: {
-    files: ["engine/knowledge-enrich.mjs", "engine/knowledge-commit.mjs", "tests/unit/knowledge-enrich.test.mjs"],
+    files: ["engine/knowledge/enrich.mjs", "engine/knowledge/commit.mjs", "tests/unit/knowledge-enrich.test.mjs"],
     hook: "enrichEntry() / commit()",
     testFile: "knowledge-fix",
     verify: "造带已知 claim 的样本，断言 claimType/expiresAt 正确且 entries() 校验通过",

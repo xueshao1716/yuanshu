@@ -4,7 +4,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { parseCorrections, parseRelation, renderSoulContext, soulContextPrompt } from '../../engine/soul-context.mjs';
-import { knowledgeRunOutput } from '../../engine/knowledge-run-source.mjs';
+import { knowledgeRunOutput } from '../../engine/knowledge/run-source.mjs';
 
 const FIXES = `# 纠正记忆
 

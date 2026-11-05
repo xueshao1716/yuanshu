@@ -1,6 +1,6 @@
 import {randomUUID} from 'node:crypto';
-import {knowledgeStorage} from './knowledge-storage.mjs';
-import {fail} from './knowledge-state.mjs';
+import {knowledgeStorage} from './storage.mjs';
+import {fail} from './state.mjs';
 
 // UTC high-water and reservations survive crashes. Unknown usage never refunds.
 export function createKnowledgeBudget({wsRoot,now=Date.now}) {

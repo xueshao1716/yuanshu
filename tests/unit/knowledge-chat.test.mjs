@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-const mod=await import('../../engine/knowledge-chat.mjs').catch(()=>({}));
+const mod=await import('../../engine/knowledge/chat.mjs').catch(()=>({}));
 test('knowledge failure is visible but never rejects the chat',async()=>{
  assert.equal(typeof mod.knowledgeChatContext,'function');
  // 2026-10-11 通知收窄：真故障（knowledge_unavailable）可见；任务轮本不检索（origin_excluded）与

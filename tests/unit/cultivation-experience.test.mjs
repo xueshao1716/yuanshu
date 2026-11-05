@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import {randomUUID} from 'node:crypto';
 import {controlFixture} from '../helpers/cultivation-fixture.mjs';
-import {createKnowledgeStore} from '../../engine/knowledge-store.mjs';
+import {createKnowledgeStore} from '../../engine/knowledge/store.mjs';
 import {pageRecords} from '../../engine/cultivation/pagination.mjs';
 
 test('cultivation output becomes one attributed hypothesis, never a claimed knowledge source',async t=>{
@@ -42,7 +42,7 @@ test('knowledge bridge reconciles a failed receipt write without duplicating a h
 
 test('experience projects one bounded knowledge snapshot instead of rereading per run',async()=>{
   const {createCultivationExperience}=await import('../../engine/cultivation/experience.mjs');
-  const {digest}=await import('../../engine/knowledge-state.mjs');
+  const {digest}=await import('../../engine/knowledge/state.mjs');
   let reads=0;const runs=Array.from({length:25},()=>({id:randomUUID(),cultivation:{
     agentId:randomUUID(),knowledgeJobId:digest(randomUUID()),output:'Candidate'}}));
   const bridge=createCultivationExperience({repo:{page:query=>pageRecords(runs,'a'.repeat(64),'experience',query)},workspace:'a'.repeat(64),knowledge:{

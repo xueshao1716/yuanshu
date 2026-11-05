@@ -4,7 +4,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import {initFileLock} from '../../engine/file-lock.mjs';
-import {knowledgeStorage} from '../../engine/knowledge-storage.mjs';
+import {knowledgeStorage} from '../../engine/knowledge/storage.mjs';
 test('no-op transactions do not rewrite shared state and mutations remain fenced on disk',async t=>{
  const root=fs.mkdtempSync(path.join(os.tmpdir(),'yuanshu-knowledge-storage-'));t.after(()=>fs.rmSync(root,{recursive:true,force:true}));
  initFileLock({dir:path.join(root,'locks')});const io=knowledgeStorage(root);

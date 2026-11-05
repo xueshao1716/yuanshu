@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';import os from 'node:os';import path from 'node:path';
 import {initFileLock} from '../../engine/file-lock.mjs';
 import {createRunStore} from '../../engine/run-store.mjs';
-import {createKnowledgeRuntime} from '../../engine/knowledge-runtime.mjs';
+import {createKnowledgeRuntime} from '../../engine/knowledge/runtime.mjs';
 function fixture(t){
  const wsRoot=fs.mkdtempSync(path.join(os.tmpdir(),'yuanshu-review-'));
  t.after(()=>fs.rmSync(wsRoot,{recursive:true,force:true}));initFileLock({dir:path.join(wsRoot,'locks')});

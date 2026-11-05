@@ -5,8 +5,8 @@ import os from 'node:os';
 import path from 'node:path';
 import {createHash} from 'node:crypto';
 import {initFileLock} from '../../engine/file-lock.mjs';
-import {createKnowledgeStore} from '../../engine/knowledge-store.mjs';
-import {digest as hash} from '../../engine/knowledge-state.mjs';
+import {createKnowledgeStore} from '../../engine/knowledge/store.mjs';
+import {digest as hash} from '../../engine/knowledge/state.mjs';
 const digest=createHash('sha256').update('source').digest('hex');
 const guard=j=>({revision:j.revision,generation:j.generation,owner:j.lease.owner,policyRevision:j.policyRevision});
 async function setup(t,fault) {

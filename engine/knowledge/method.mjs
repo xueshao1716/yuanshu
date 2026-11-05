@@ -1,8 +1,8 @@
 import path from 'node:path';
 import {isDeepStrictEqual} from 'node:util';
-import {collectLocalSources} from './knowledge-sources.mjs';
-import {scopeKey} from './run-recovery.mjs';
-import {digest,fail} from './knowledge-state.mjs';
+import {collectLocalSources} from './sources.mjs';
+import {scopeKey} from '../run-recovery.mjs';
+import {digest,fail} from './state.mjs';
 const signed=new WeakSet();
 const manifestKeys=new Set(['version','checker','sourcePath','offset','length','artifactPath','assertions']);
 function parseManifest(text){

@@ -5,8 +5,8 @@ import os from 'node:os';
 import path from 'node:path';
 import {initFileLock} from '../../engine/file-lock.mjs';
 import {createRunStore} from '../../engine/run-store.mjs';
-import {createKnowledgeStore} from '../../engine/knowledge-store.mjs';
-const module = await import('../../engine/knowledge-intake.mjs').catch(()=>({}));
+import {createKnowledgeStore} from '../../engine/knowledge/store.mjs';
+const module = await import('../../engine/knowledge/intake.mjs').catch(()=>({}));
 function fixture(t){
  const wsRoot=fs.mkdtempSync(path.join(os.tmpdir(),'yuanshu-knowledge-intake-'));t.after(()=>fs.rmSync(wsRoot,{recursive:true,force:true}));
  initFileLock({dir:path.join(wsRoot,'locks')});const runRoot=path.join(wsRoot,'ledger'),runStore=createRunStore({rootDir:runRoot});

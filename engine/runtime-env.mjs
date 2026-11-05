@@ -9,7 +9,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { pendingReportsLine } from './job-state.mjs';
 import { ideasLine, goalsLine } from './idea-curator.mjs';
-import { knowledgeJob } from './knowledge-job.mjs';
+import { knowledgeJob } from './knowledge/job.mjs';
 import { feedbackJob } from './feedback-job.mjs';
 import { proposalsLine } from './capability-proposal.mjs';
 // 2026-10-27：工作区文档变化（A5/EverOS 的 Diff Engine）

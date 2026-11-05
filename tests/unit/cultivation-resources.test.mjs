@@ -4,8 +4,8 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import {initFileLock} from '../../engine/file-lock.mjs';
-import {createKnowledgeStore} from '../../engine/knowledge-store.mjs';
-import {createKnowledgeBudget} from '../../engine/knowledge-budget.mjs';
+import {createKnowledgeStore} from '../../engine/knowledge/store.mjs';
+import {createKnowledgeBudget} from '../../engine/knowledge/budget.mjs';
 
 async function setup(t) {
   const wsRoot=fs.mkdtempSync(path.join(os.tmpdir(),'yuanshu-cultivation-resources-'));

@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {createCultivationExperience} from '../../engine/cultivation/experience.mjs';
-import {digest} from '../../engine/knowledge-state.mjs';
+import {digest} from '../../engine/knowledge/state.mjs';
 import {pageRecords} from '../../engine/cultivation/pagination.mjs';
 
 const observedAt=1790852400000,workspace='a'.repeat(64);

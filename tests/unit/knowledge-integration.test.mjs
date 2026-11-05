@@ -27,7 +27,7 @@ test('both aibody overview routes use the isolated read-only knowledge projectio
 });
 
 test('overview adds same-scope stages without changing aibody state or hiding its result on failure',async()=>{
- const m=await import('../../engine/knowledge-overview.mjs').catch(()=>({}));
+ const m=await import('../../engine/knowledge/overview.mjs').catch(()=>({}));
  assert.equal(typeof m.createKnowledgeOverview,'function');
  const base={genes:[],emotion:{value:1}},calls=[];
  const input={sessionId:'s1',runId:'r1'};

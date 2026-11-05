@@ -5,7 +5,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { knowledgeJob } from "../../engine/knowledge-job.mjs";
+import { knowledgeJob } from "../../engine/knowledge/job.mjs";
 
 function wsWith({ jobs = [], slot = null, entryAgeMs = 0 } = {}) {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "kjob-"));

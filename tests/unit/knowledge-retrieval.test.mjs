@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {createKnowledgeRetrieval} from '../../engine/knowledge-retrieval.mjs';
+import {createKnowledgeRetrieval} from '../../engine/knowledge/retrieval.mjs';
 const entry=(extra={})=>({id:'e',text:'路由器网络配置经验',kind:'source',status:'active',expiresAt:10000,scope:'来源陈述',
  sources:[{locator:'docs/a.txt',reference:{kind:'file'},hash:'hash'}],...extra});
 const currentStore=extra=>({policy:async()=>({revision:1}),retrievalCurrent:(_entries,revision)=>revision===1,...extra});

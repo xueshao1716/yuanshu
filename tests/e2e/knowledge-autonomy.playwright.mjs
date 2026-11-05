@@ -5,7 +5,7 @@ import path from 'node:path';
 import http from 'node:http';
 import {fileURLToPath} from 'node:url';
 import {chromium} from 'playwright';
-import {knowledgeFixture} from './knowledge-fixture.mjs';
+import {knowledgeFixture} from './knowledge/fixture.mjs';
 
 const root = fileURLToPath(new URL('../../', import.meta.url));
 const dist = path.resolve(root, process.env.YUANSHU_TEST_DIST || 'tmp/verification-dist');

@@ -4,7 +4,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { classifyJob, drainBacklog, STALE_MS } from "../../engine/knowledge-backlog.mjs";
+import { classifyJob, drainBacklog, STALE_MS } from "../../engine/knowledge/backlog.mjs";
 
 const H = 3600 * 1000;
 const now = Date.parse("2026-10-26T00:00:00Z");

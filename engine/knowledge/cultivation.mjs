@@ -1,6 +1,6 @@
-import {digest,fail} from './knowledge-state.mjs';
-import {id} from './cultivation/control-state.mjs';
-import {experienceRecord} from './cultivation/experience-record.mjs';
+import {digest,fail} from './state.mjs';
+import {id} from '../cultivation/control-state.mjs';
+import {experienceRecord} from '../cultivation/experience-record.mjs';
 
 // Host-only intake, not an HTTP source type. Generated output has zero
 // independent evidence and can never be claimed by the extraction worker.

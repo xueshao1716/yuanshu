@@ -1,7 +1,7 @@
-import {reviewStoragePath} from './review-file-safety.mjs';
-import {readReviewBounded} from './review-read.mjs';
-import {resolveTeamAcceptance} from './team-acceptance.mjs';
-import {inWorkspace} from './learning-intake.mjs';
+import {reviewStoragePath} from '../review-file-safety.mjs';
+import {readReviewBounded} from '../review-read.mjs';
+import {resolveTeamAcceptance} from '../team-acceptance.mjs';
+import {inWorkspace} from '../learning-intake.mjs';
 
 // Read on explicit detail requests only. Never approve, scan every run, or expose review text.
 export function createKnowledgeProvenance({wsRoot,runStore,taskEvidence}){

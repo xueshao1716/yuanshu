@@ -4,11 +4,11 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import {initFileLock} from '../../engine/file-lock.mjs';
-import {createKnowledgeStore} from '../../engine/knowledge-store.mjs';
-import {createKnowledgeWorker} from '../../engine/knowledge-worker.mjs';
-import {collectLocalSources} from '../../engine/knowledge-sources.mjs';
-import {extractLocal,validateCandidate} from '../../engine/knowledge-evidence.mjs';
-import {digest} from '../../engine/knowledge-state.mjs';
+import {createKnowledgeStore} from '../../engine/knowledge/store.mjs';
+import {createKnowledgeWorker} from '../../engine/knowledge/worker.mjs';
+import {collectLocalSources} from '../../engine/knowledge/sources.mjs';
+import {extractLocal,validateCandidate} from '../../engine/knowledge/evidence.mjs';
+import {digest} from '../../engine/knowledge/state.mjs';
 async function fixture(t,options={}){
  const wsRoot=fs.mkdtempSync(path.join(os.tmpdir(),'yuanshu-worker-'));t.after(()=>fs.rmSync(wsRoot,{recursive:true,force:true}));initFileLock({dir:path.join(wsRoot,'locks')});
  fs.mkdirSync(path.join(wsRoot,'docs'));fs.writeFileSync(path.join(wsRoot,'docs/source.txt'),'示例知识：出处可追溯。');

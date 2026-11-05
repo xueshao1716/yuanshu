@@ -1,7 +1,7 @@
 // 提炼成 claim + 按价值给寿命（2026-10-26）
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { extractClaims, durabilityOf, enrichEntry, renewOnUse, TTL_BY_DURABILITY, DAY } from "../../engine/knowledge-enrich.mjs";
+import { extractClaims, durabilityOf, enrichEntry, renewOnUse, TTL_BY_DURABILITY, DAY } from "../../engine/knowledge/enrich.mjs";
 
 test("决定类：活 90 天（这种才叫知识）", () => {
   const claims = extractClaims("我们商量后决定：以后都用 pnpm 装依赖，别再混用 npm。");

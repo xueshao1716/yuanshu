@@ -1,4 +1,4 @@
-import {fail} from './knowledge-state.mjs';
+import {fail} from './state.mjs';
 const publicCode=e=>/^[a-z][a-z0-9_]{0,70}$/.test(e?.code||'')?e.code:'knowledge_unavailable';
 export function createKnowledgeApi({runtime,readBody,json,requireAuth}){
   return {async handle(req,res,url){

@@ -5,8 +5,8 @@ import os from 'node:os';
 import path from 'node:path';
 import {initFileLock} from '../../engine/file-lock.mjs';
 import {createRunStore} from '../../engine/run-store.mjs';
-import {createKnowledgeRuntime} from '../../engine/knowledge-runtime.mjs';
-import {createKnowledgeRetrieval} from '../../engine/knowledge-retrieval.mjs';
+import {createKnowledgeRuntime} from '../../engine/knowledge/runtime.mjs';
+import {createKnowledgeRetrieval} from '../../engine/knowledge/retrieval.mjs';
 
 async function fixture(t){
   const wsRoot=fs.mkdtempSync(path.join(os.tmpdir(),'yuanshu-retrieval-fence-'));

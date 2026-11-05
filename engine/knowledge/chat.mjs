@@ -1,4 +1,4 @@
-import {boundedKnowledgeContext} from './knowledge-context-deadline.mjs';
+import {boundedKnowledgeContext} from './context-deadline.mjs';
 const unavailable='知识检索暂不可用，本次对话仍可继续。';
 const notify=note=>{try{note(unavailable);}catch{}};
 export async function knowledgeChatContext(runtime,input,note=()=>{}){

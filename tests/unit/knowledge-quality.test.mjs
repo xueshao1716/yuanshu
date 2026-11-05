@@ -1,9 +1,9 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {extractLocal,validateCandidate} from '../../engine/knowledge-evidence.mjs';
-import {createKnowledgeRetrieval} from '../../engine/knowledge-retrieval.mjs';
-import {createKnowledgeMaintenance} from '../../engine/knowledge-maintenance.mjs';
-import {digest} from '../../engine/knowledge-state.mjs';
+import {extractLocal,validateCandidate} from '../../engine/knowledge/evidence.mjs';
+import {createKnowledgeRetrieval} from '../../engine/knowledge/retrieval.mjs';
+import {createKnowledgeMaintenance} from '../../engine/knowledge/maintenance.mjs';
+import {digest} from '../../engine/knowledge/state.mjs';
 import {controlFixture} from '../helpers/cultivation-fixture.mjs';
 
 const source=text=>({id:'s',kind:'run_result',authority:'model_output',text,hash:digest(text),

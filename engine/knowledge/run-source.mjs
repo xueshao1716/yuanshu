@@ -1,6 +1,6 @@
-import {reviewStoragePath} from './review-file-safety.mjs';
-import {readReviewBounded} from './review-read.mjs';
-import {fail} from './knowledge-state.mjs';
+import {reviewStoragePath} from '../review-file-safety.mjs';
+import {readReviewBounded} from '../review-read.mjs';
+import {fail} from './state.mjs';
 
 // 事件日志上限：长任务的 think 流是逐字事件，一轮动辄 1~3 万条、20~30MB。
 // 原来卡在 4MB / 1 万条，实测 873 个运行里 129 个超限——恰好是最有内容的长任务全被当成 source_missing（2026-10-06）。

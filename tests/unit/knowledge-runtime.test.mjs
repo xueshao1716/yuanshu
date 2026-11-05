@@ -7,7 +7,7 @@ import {randomUUID} from 'node:crypto';
 import {initFileLock} from '../../engine/file-lock.mjs';
 import {createRunStore} from '../../engine/run-store.mjs';
 import {createBackgroundAdmission} from '../../engine/background-admission.mjs';
-const module = await import('../../engine/knowledge-runtime.mjs').catch(()=>({}));
+const module = await import('../../engine/knowledge/runtime.mjs').catch(()=>({}));
 function fixture(t,options={}){
   const wsRoot=fs.mkdtempSync(path.join(os.tmpdir(),'yuanshu-knowledge-runtime-'));
   t.after(()=>fs.rmSync(wsRoot,{recursive:true,force:true}));initFileLock({dir:path.join(wsRoot,'locks')});
@@ -20,7 +20,7 @@ function fixture(t,options={}){
 
 test('detail retains model-generated cultivation provenance separately from review provenance',async t=>{
   const {runtime:r,wsRoot}=fixture(t);
-  const {knowledgeStorage}=await import('../../engine/knowledge-storage.mjs');
+  const {knowledgeStorage}=await import('../../engine/knowledge/storage.mjs');
   const workspace=knowledgeStorage(wsRoot).workspace;
   const job=await r.store.offerCultivation({id:randomUUID(),sessionId:'child',status:'completed',request:{origin:'cultivation'},
     cultivation:{workspace,agentId:randomUUID(),designId:randomUUID(),output:'Hypothesis',goal:'Compare',criterion:'Independent check'}});
@@ -45,7 +45,7 @@ test('a cancelled lookup cannot write late references or manufacture a knowledge
 
 test('cultivation adopts only independently committed evidence with scope and retirement',async t=>{
   const {runtime:r,wsRoot}=fixture(t);
-  const {knowledgeStorage}=await import('../../engine/knowledge-storage.mjs');
+  const {knowledgeStorage}=await import('../../engine/knowledge/storage.mjs');
   const agentId=randomUUID(),other=randomUUID(),workspace=knowledgeStorage(wsRoot).workspace;
   const job=await r.store.offerCultivation({id:randomUUID(),sessionId:'cultivation:'+agentId,status:'completed',request:{origin:'cultivation'},
     cultivation:{workspace,agentId,designId:randomUUID(),output:'网络配置假设',goal:'Compare',criterion:'Independent check'}});

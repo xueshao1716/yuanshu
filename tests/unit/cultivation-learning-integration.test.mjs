@@ -5,7 +5,7 @@ import path from 'node:path';
 import {randomUUID} from 'node:crypto';
 import {controlFixture} from '../helpers/cultivation-fixture.mjs';
 import {createRunStore} from '../../engine/run-store.mjs';
-import {createKnowledgeRuntime} from '../../engine/knowledge-runtime.mjs';
+import {createKnowledgeRuntime} from '../../engine/knowledge/runtime.mjs';
 
 async function evidence(t){
   const f=await controlFixture(t),runRoot=path.join(f.root,'ledger');
@@ -58,7 +58,7 @@ test('policy-authorized mother decisions require matching live grant on retrieva
   assert.equal((await r.cultivationLearning.context({...input,query:'服装设计',requireRelevant:true})).entries.length,0);
   for(const change of [{motherLearning:false},{motherActorId:'foreign'},{controlRevision:8},{agentIds:[]}])
     assert.equal((await r.cultivationLearning.context({...input,...change})).entries.length,0);
-  const {createCultivationLearning}=await import('../../engine/knowledge-cultivation-learning.mjs');
+  const {createCultivationLearning}=await import('../../engine/knowledge/cultivation-learning.mjs');
   const restored=createCultivationLearning({store:r.store,retrieval:r.retrieval});
   assert.equal((await restored.context(input)).entries.length,1);
 });
