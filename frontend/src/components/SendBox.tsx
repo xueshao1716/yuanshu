@@ -389,7 +389,6 @@ export default function SendBox({ streaming, onStop, onSend, onSteer, onCommand,
         <div className="composer-toolbar">
           {/* 模型选择器（嵌入输入框） */}
           <ModelSelect compact />
-          <UsageChip sessionId={sessionId || ''} />
 
           <div className="composer-actions">
 
