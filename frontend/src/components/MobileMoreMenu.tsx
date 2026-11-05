@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import {
   Activity, Film, BrainCircuit, ClipboardCheck, Cpu, Factory, FolderKanban,
-  Globe2, LayoutDashboard, LayoutGrid, LogOut, MonitorCog, PackageCheck, Palette, PanelRight, ShieldCheck, Sparkles, Workflow,
+  Globe2, LayoutDashboard, LayoutGrid, LogOut, MonitorCog, Package, PackageCheck, Layers, Palette, PanelRight, ShieldCheck, Sparkles, Workflow,
   TerminalSquare, X,
 } from 'lucide-react'
 import ProfileManager from './ProfileManager'
@@ -23,6 +23,8 @@ const MORE_ROUTES: { route: Route; icon: typeof Sparkles; label: string }[] = [
   { route: 'apps', icon: LayoutGrid, label: ROUTE_LABELS.apps },
   { route: 'engine', icon: Cpu, label: ROUTE_LABELS.engine },
   { route: 'themes', icon: Palette, label: ROUTE_LABELS.themes },
+  { route: 'gateway', icon: Layers, label: ROUTE_LABELS.gateway },
+  { route: 'plugins', icon: Package, label: ROUTE_LABELS.plugins },
   { route: 'system', icon: MonitorCog, label: ROUTE_LABELS.system },
 ]
 
