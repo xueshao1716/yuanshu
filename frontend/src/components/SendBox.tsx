@@ -350,7 +350,11 @@ export default function SendBox({ streaming, onStop, onSend, onSteer, onCommand,
         </div>
       )}
 
-      <div className="sendbox-shell field-container rounded-2xl transition-[background-color,border-color,box-shadow] duration-300 shadow-lg">
+      <div className="sendbox-shell relative field-container rounded-2xl transition-[background-color,border-color,box-shadow] duration-300 shadow-lg">
+        {/* 用量计数：绝对定位在输入框内右上角，不占布局（2026-11-05） */}
+        <div className="pointer-events-none absolute right-3 top-2 z-10">
+          <UsageChip sessionId={sessionId || ''} />
+        </div>
         <textarea ref={taRef} rows={2} value={value} disabled={streaming && !canSteer}
           placeholder={canSteer ? '插一句话，下一步就按它调整（Enter 发送）' : '给小语发消息…　"/" 命令 · "@ 引用文件'}
           role="combobox"

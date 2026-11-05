@@ -46,11 +46,11 @@ test('buildLastNight：任务按承诺账的 taskId 认；挂账分类/超期；
   fs.writeFileSync(path.join(ws, '文档', '时间引擎日志.md'), LOG);
   const old = new Date(Date.now() - 9 * 86400e3).toISOString(), batch = new Date().toISOString();
   fs.writeFileSync(path.join(ws, '记忆', '承诺兑现.json'), JSON.stringify([
-    { sessionId: 'abc', status: 'pending', at: batch, kind: 'fix' },
-    { sessionId: 'reflect', taskId: '0ff41abf', status: 'pending', at: old, kind: 'ask' },
-    { sessionId: 'reflect', taskId: '0ff41abf', status: 'done', at: old, kind: 'fix' },
-    { sessionId: 'reflect', taskId: '0ff41abf', status: 'pending', at: batch, kind: 'fix' },
-    { sessionId: 'reflect', taskId: '0ff41abf', status: 'pending', at: batch, kind: 'track' },
+    { sessionId: 'abc', text: '普通任务', status: 'pending', at: batch, kind: 'fix' },
+    { sessionId: 'reflect', text: '旧复盘ask', taskId: '0ff41abf', status: 'pending', at: old, kind: 'ask' },
+    { sessionId: 'reflect', text: '旧复盘fix', taskId: '0ff41abf', status: 'done', at: old, kind: 'fix' },
+    { sessionId: 'reflect', text: '新复盘fix', taskId: '0ff41abf', status: 'pending', at: batch, kind: 'fix' },
+    { sessionId: 'reflect', text: '新复盘track', taskId: '0ff41abf', status: 'pending', at: batch, kind: 'track' },
   ]));
   const before = fs.readFileSync(path.join(ws, '记忆', '承诺兑现.json'), 'utf8');
   const out = buildLastNight({

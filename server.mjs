@@ -7242,7 +7242,7 @@ setInterval(() => heartbeat(WS_ROOT, { pid: process.pid, version: String(APP_VER
     console.log(`  本地地址: http://${CONFIG.host}:${CONFIG.port}`);
     console.log("  访问令牌: 已配置（请在本机 .token 文件中查看）");
     console.log(`  工作目录: ${CONFIG.cwd}`);
-    // 承诺账超期搁置：挂着超过 14 天、用户也没再提的 pending 转 expired，不再进提示词当待办。
+    // 承诺账超期搁置：挂着超过 3 天（PROMISE_STALE_DAYS=3）、用户也没再提的 pending 转 expired，不再进提示词当待办。
     try {
       const ex = expireStalePromises(WS_ROOT, {});
       if (ex.ok && ex.expired) console.log(`  承诺账  : ${ex.expired} 条超期未结清，已自动搁置`);
