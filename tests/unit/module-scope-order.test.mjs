@@ -59,6 +59,20 @@ function skipBlock(text, open) {
     const c = text[i];
     if (c === '"' || c === "'" || c === '`') { i = skipString(text, i) - 1; continue; }
     if (c === '/' && text[i + 1] === '/') { while (i < text.length && text[i] !== '\n') i++; continue; }
+    // 2026-11-05 修误报：正则字面量 /gzh|公众号|wechat.*post/i 里的 wechat 被当成求值期引用。
+    // 判据：斜杠前面不是标识符/右括号（即不是除法），且同一行内能找到收尾斜杠。
+    if (c === '/') {
+      const prev = text.slice(0, i).trimEnd().slice(-1);
+      if (!/[\w$)\]]/.test(prev)) {
+        let j = i + 1, closed = -1;
+        while (j < text.length && text[j] !== '\n') {
+          if (text[j] === '\\') { j += 2; continue; }
+          if (text[j] === '/') { closed = j; break; }
+          j++;
+        }
+        if (closed > 0) { i = closed + 1; while (/[a-z]/i.test(text[i] || '')) i++; continue; }
+      }
+    }
     if (c === '{') depth++;
     else if (c === '}') { depth--; if (depth === 0) return i + 1; }
   }
@@ -76,6 +90,16 @@ function valueIdents(text) {
     const c = text[i];
     if (c === '"' || c === "'" || c === '`') { i = skipString(text, i); continue; }
     if (c === '/' && text[i + 1] === '/') { while (i < text.length && text[i] !== '\n') i++; continue; }
+    // 2026-11-05：正则字面量里的词不是引用（/wechat.*post/ 曾被误判成"先用后声明"）。
+    if (c === '/' && !/[\w$)\]]/.test(text.slice(0, i).trimEnd().slice(-1))) {
+      let j = i + 1, closed = -1;
+      while (j < text.length && text[j] !== '\n') {
+        if (text[j] === '\\') { j += 2; continue; }
+        if (text[j] === '/') { closed = j; break; }
+        j++;
+      }
+      if (closed > 0) { i = closed + 1; while (/[a-z]/i.test(text[i] || '')) i++; continue; }
+    }
     if (c === '=' && text[i + 1] === '>') { // 箭头函数：整个函数体不是求值期代码
       i += 2;
       while (i < text.length && /\s/.test(text[i])) i++;

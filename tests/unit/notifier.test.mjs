@@ -73,7 +73,8 @@ test('接线：server 注册 notify_user / 通知流 / run 与定时任务终态
   assert.match(server, /^\s*NOTIFY_USER_TOOL,$/m, 'notify_user 必须进 UNIFIED_TOOLS')
   assert.match(server, /notify_user:\s*\(args, ctx\) => execNotifyUser/)
   assert.match(server, /\/api\/notify\/stream/)
-  assert.match(server, /notifier\.runFinished\(run\)/)
+  // 2026-11-05：runFinished 现在带第二参数（toWechat / compose 让她自己写通知）
+  assert.match(server, /notifier\.runFinished\(run[,)]/)
   assert.match(server, /onTaskFinished/)
   const main = fs.readFileSync(new URL('../../android/app/src/main/java/com/pixinyu/app/MainActivity.java', import.meta.url), 'utf8')
   assert.match(main, /addJavascriptInterface\(downloads, "YuanshuDownloads"\)/, 'Capacitor 壳必须带系统保存窗口的下载桥')

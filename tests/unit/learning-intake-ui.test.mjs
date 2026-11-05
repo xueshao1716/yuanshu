@@ -18,7 +18,7 @@ test('server wires ordinary completion, local reconciliation and a single retry-
   const server = read('server.mjs')
   // 2026-10-26：全文有多个 onRunFinished（培养那条在前），取第一个 slice 会切到别处。
   // 改成"含 notifier.runFinished 的那一段"，稳。
-  const anchor = server.indexOf('notifier.runFinished(run)')
+  const anchor = server.indexOf('notifier.runFinished(run')  // 2026-11-05：现在带 {toWechat, compose} 第二参数
   assert.ok(anchor > 0, '找不到 runManager 的 onRunFinished 回调')
   const callback = server.slice(Math.max(0, anchor - 200), anchor + 400)
   for (const token of ['knowledgeRuntime.enqueueFinished(run)', 'learningIntake.enqueue(run)']) assert.ok(callback.includes(token), token)

@@ -62,7 +62,17 @@ export function createNotifier({ file, wechat = null, now = Date.now, log = cons
   }
 
   // 长对话 run 终态：只对“跑了一阵子、用户大概率已经走开”的跑完/失败发，短问答不打扰。
-  async function runFinished(run, { minMs = LONG_RUN_MS, toWechat = false, compose = null } = {}) {
+  // 2026-11-05：不该通知的分支必须**同步**返回 null。原来是 async 函数，
+  // 连"短问答不打扰"这种情况也返回 Promise，调用方拿到的既不是 null 也不好判断。
+  function runFinished(run, { minMs = LONG_RUN_MS, toWechat = false, compose = null } = {}) {
+    if (!run || !["completed", "failed"].includes(run.status)) return null;
+    const _start = Date.parse(run.startedAt || run.createdAt || "");
+    const _end = Date.parse(run.completedAt || run.failedAt || "") || now();
+    if (!Number.isFinite(_start) || _end - _start < minMs) return null;
+    return runFinishedNotify(run, { minMs, toWechat, compose });
+  }
+
+  async function runFinishedNotify(run, { minMs = LONG_RUN_MS, toWechat = false, compose = null } = {}) {
     if (!run || !["completed", "failed"].includes(run.status)) return null;
     const start = Date.parse(run.startedAt || run.createdAt || "");
     const end = Date.parse(run.completedAt || run.failedAt || "") || now();

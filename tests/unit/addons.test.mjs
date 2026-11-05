@@ -9,8 +9,8 @@ import { ADDONS, listAddons, installAddon, FFMPEG_SHA } from '../../engine/addon
 
 const tmpEnv = () => ({ YUANSHU_RUNTIME: fs.mkdtempSync(path.join(os.tmpdir(), 'addon-rt-')), PATH: '' });
 
-test('addons: four optional components, each with size and use described', () => {
-  assert.deepEqual(ADDONS.map((a) => a.id), ['media', 'cutout', 'data', 'pdf']);
+test('addons: five optional components, each with size and use described', () => {
+  assert.deepEqual(ADDONS.map((a) => a.id), ["media", "cutout", "data", "pdf", "asr"]);
   for (const a of ADDONS) { assert.ok(a.label && a.size && a.use, a.id); }
   for (const v of Object.values(FFMPEG_SHA)) assert.match(v, /^[0-9a-f]{64}$/);
 });
@@ -24,7 +24,7 @@ test('addons: list reports installed state from probes without touching the netw
     return { ok: true, out: JSON.stringify(Object.fromEntries(asked.map((m) => [m, !!have[m]]))) };
   };
   const by = Object.fromEntries((await listAddons({ run, env })).map((a) => [a.id, a.installed]));
-  assert.deepEqual(by, { media: false, cutout: false, data: true, pdf: false });
+  assert.deepEqual(by, { media: false, cutout: false, data: true, pdf: false, asr: true });
 });
 
 test('addons: media install tries mirrors in order, gunzips, and rejects a bad checksum', async () => {

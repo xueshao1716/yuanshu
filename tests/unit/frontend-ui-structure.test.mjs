@@ -409,14 +409,14 @@ test('工作台看板挂在桌面导航，并读现有 API 做一屏总览', () 
   assert.ok(menu.includes('ROUTE_LABELS.board'), '手机更多菜单工作台文案必须引用词表')
   assert.ok(board.includes('<PageHeader'), '工作台必须使用 PageHeader')
   assert.ok(board.includes('title="工作台"'), '工作台页头标题必须是工作台')
-  for (const api of ['SessionsApi.list()', 'TasksApi.list()', 'StatsApi.providers()', 'StatsApi.daily()', 'WsApi.deliveries()', 'SubagentApi.runs()']) {
+  for (const api of ['SessionsApi.list()', 'TasksApi.list(', 'StatsApi.providers()', 'StatsApi.daily()', 'WsApi.deliveries()', 'SubagentApi.runs()']) {
     assert.ok(board.includes(api), `工作台必须读取：${api}`)
   }
 })
 
 test('任务与会话库保留既有 API 行为', () => {
   const tasks = read('pages', 'Tasks.tsx')
-  for (const api of ['TasksApi.list()', 'TasksApi.history(id)', 'TasksApi.create(body)', 'TasksApi.runNow(t.id)', "TasksApi.setState(t.id, 'pause')", "TasksApi.setState(t.id, 'resume')", "TasksApi.setState(t.id, 'archive')", 'TasksApi.stopRun(t.id)', 'TasksApi.remove(t.id)']) {
+  for (const api of ['TasksApi.list(', 'TasksApi.history(id)', 'TasksApi.create(body)', 'TasksApi.runNow(t.id)', "TasksApi.setState(t.id, 'pause')", "TasksApi.setState(t.id, 'resume')", "TasksApi.setState(t.id, 'archive')", 'TasksApi.stopRun(t.id)', 'TasksApi.remove(t.id)']) {
     assert.ok(tasks.includes(api), `任务中心必须保留：${api}`)
   }
   const sessionDb = read('pages', 'SessionDb.tsx')

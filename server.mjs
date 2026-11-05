@@ -268,7 +268,7 @@ import { startShare, stopShareSync, handleShare, handleShareStatus, handleShareS
 import { createStaticServer } from "./lib/static.mjs";
 import { CodeRuntime } from "./code-mode/code-runtime.mjs";
 import { createCodeMode } from "./code-mode/code-mode.mjs";
-import { createTimeEngine } from "./engine/time-engine.mjs";
+import { createTimeEngine, localStamp } from "./engine/time-engine.mjs";
 import { createChatStreamHub } from "./engine/chat-stream.mjs";
 import { createJobPool } from "./engine/job-pool.mjs";
 import { createTurnProfiler } from "./engine/turn-profile.mjs";
@@ -1773,9 +1773,7 @@ const dispatchByRouter = (task, reason = "") => {
   const guarded = DESTRUCTIVE_TASK.test(raw)
     ? `【只核对不执行】列出这项操作会动到的具体文件/对象清单和风险，等我二次确认后再执行：${raw}`
     : raw;
-  const at = new Date(Date.now() + 60 * 1000);
-  const pad = (n) => String(n).padStart(2, "0");
-  const when = `${at.getFullYear()}-${pad(at.getMonth() + 1)}-${pad(at.getDate())}T${pad(at.getHours())}:${pad(at.getMinutes())}`;
+  const when = localStamp(new Date(Date.now() + 60 * 1000));
   const dateStr = when.slice(0, 10);
   const timeStr = when.slice(11, 16);
   const r = timeEngine.register({ type: "once", date: dateStr, at: timeStr, prompt: guarded, label: "路由派活", notify: true });

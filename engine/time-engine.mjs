@@ -223,3 +223,11 @@ export function createTimeEngine(runner, opts = {}) {
 // 时间感知文本：统一由 yuanshu-seams 的 promptTimeText 产出（含"过了多久"）。
 // 这里原本还有一个 nowContext()，与它是重复实现（三份时间格式化里的两份），
 // 且**全仓零调用者**，2026-09-14 删除——避免第三套时钟各说各话。
+
+// 2026-11-05：时间戳只留一份实现，server 不再内联拼 getFullYear。
+// 返回本地时区的 YYYY-MM-DDTHH:MM（time-engine 的 date/at 字段就吃这个格式）。
+export function localStamp(date = new Date()) {
+  const d = date instanceof Date ? date : new Date(date);
+  const pad = (n) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}

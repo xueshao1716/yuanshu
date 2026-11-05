@@ -21,11 +21,14 @@ test('离开够久且不在冷却 → 推', () => {
 
 test('文案按时间段变化，并带上离开了多久', () => {
   const night = nudgeText({ now: new Date(2026, 9, 18, 2, 0).getTime(), idleMinutes: 30 })
-  assert.match(night.body, /早点睡/)
+  // 2026-11-05：2026-10-30 起 nudgeText 只给事实，话交给 notice-voice 写
+  assert.equal(night.body, '')
+  assert.equal(night.facts.away, '30 分钟')
   const morning = nudgeText({ now: new Date(2026, 9, 18, 8, 0).getTime(), idleMinutes: 150 })
-  assert.match(morning.body, /2 小时/)
+  assert.equal(morning.facts.away, '2 小时')
   const evening = nudgeText({ now: new Date(2026, 9, 18, 21, 0).getTime(), idleMinutes: 50 })
-  assert.match(evening.body, /50 分钟/)
+  assert.equal(evening.body, '')
+  assert.equal(evening.facts.away, '50 分钟')
 })
 
 test('真的到期时会调 notifier 并记下推送时间', async () => {
