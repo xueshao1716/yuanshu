@@ -8,6 +8,8 @@ const ROOT = path.join(path.dirname(fileURLToPath(import.meta.url)), "..", "..")
 
 test("APP_VERSION 从唯一来源派生，且 CHANGELOG 有对应条目", () => {
   const src = fs.readFileSync(path.join(ROOT, "engine", "unified-chat.mjs"), "utf8");
+  // 2026-11-05：公告/更新日志拉取已拆到 chat-notices.mjs，CHANGELOG 在那边读。
+  const noticesSrc = fs.readFileSync(path.join(ROOT, "engine", "chat-notices.mjs"), "utf8");
   const cl = fs.readFileSync(path.join(ROOT, "CHANGELOG.md"), "utf8");
   const { version } = JSON.parse(fs.readFileSync(path.join(ROOT, "version.json"), "utf8"));
 
@@ -16,5 +18,5 @@ test("APP_VERSION 从唯一来源派生，且 CHANGELOG 有对应条目", () => 
   assert.match(src, /const APP_VERSION = PRODUCT_VERSION/, "APP_VERSION 必须取自 engine/version.mjs 的 PRODUCT_VERSION");
 
   assert.ok(cl.includes(`## [${version}]`), `CHANGELOG 必须有 ## [${version}]`);
-  assert.ok(src.includes('path.join(import.meta.dirname, "..", "CHANGELOG.md")'), "看板必须读仓库根 CHANGELOG.md");
+  assert.ok(noticesSrc.includes('path.join(import.meta.dirname, "..", "CHANGELOG.md")'), "看板必须读仓库根 CHANGELOG.md");
 });
