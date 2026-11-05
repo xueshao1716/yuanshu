@@ -152,6 +152,7 @@ import { installSkill, validateSkillMd, listAuthoredSkills, buildAuthorPrompt } 
 import { replayFromDisk, estimateAction, buildHistory } from "./engine/anticipation.mjs";
 import { recordPush, recordReaction, reactionStats, shouldThrottle, markRecentActivity, expirePushes } from "./engine/notice-reactions.mjs";
 import { describeFailure } from "./engine/failure-note.mjs";
+import { readUrl } from "./engine/read-url.mjs";
 import { runAndSave, loadResults, saveResults } from "./engine/learning/case-runner.mjs";
 import { appendEvent as appendEvoEvent, readEvents as readEvoEvents, summarizeCapability as summarizeEvoCapability, createProposal as createEvoProposal, readProposals as readEvoProposals, recordGateVerdict } from "./engine/evolution/index.mjs";
 import { countExperience, distillExperience, gatherEvidence, latestReflectionReport } from "./engine/reflection-experience.mjs";
@@ -1386,6 +1387,13 @@ const extraToolExecutors = {
         } catch {}
       }
       return cultivationTool(lateRefs.cultivation, args, host);
+    },
+    read_url: async (args) => {
+      // 2026-11-05：她读网页（公众号正文在 HTML 里，普通抓取就够；需要 JS 才起浏览器）
+      const out = await readUrl(String(args?.url || ""), { force: String(args?.force || "") });
+      if (!out.ok) return { text: `读不到这个网址：${out.error}`, isError: true };
+      const body = out.text.length > 12000 ? `${out.text.slice(0, 12000)}\n\n…（后略，共 ${out.text.length} 字）` : out.text;
+      return { text: `# ${out.title || out.url}\n（来源：${out.via}，${out.chars} 字）\n\n${body}`, isError: false };
     },
     candidate_compare: (args) => {
       // 2026-11-01：候选 vs 基线；退化了就让她别交付

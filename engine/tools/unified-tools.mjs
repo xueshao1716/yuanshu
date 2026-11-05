@@ -82,6 +82,11 @@ export const BASE_TOOL_SCHEMAS = [
   { type: "function", function: { name: "read", description: "读取文件内容（工作空间内相对路径，或磁盘上的绝对路径）", parameters: { type: "object", properties: { path: { type: "string", description: "文件路径" } }, required: ["path"] } } },
   { type: "function", function: { name: "write", description: "写入文件（自动创建目录）。文件很大时**必须分块**：第一块不带 append，后面的块带 append:true 追加（一次写太大的文件会被单次输出上限截断，整轮白费）", parameters: { type: "object", properties: { path: { type: "string", description: "文件路径（相对工作空间）" }, content: { type: "string", description: "文件内容（分块时是这一块的内容）" }, append: { type: "boolean", description: "true = 追加到文件末尾（分块写后续块用）；不传 = 覆盖写" } }, required: ["path", "content"] } } },
   { type: "function", function: { name: "edit", description: "用精确文本替换修改文件（先 read 再 edit）", parameters: { type: "object", properties: { path: { type: "string" }, oldText: { type: "string" }, newText: { type: "string" } }, required: ["path", "oldText", "newText"] } } },
+  // 2026-11-05：读网页正文（公众号这类正文在 HTML 里的直接抓；需要 JS 的用 headless 渲染）
+  { type: "function", function: { name: "read_url", description: "读一个网址的正文，返回标题与文本。适合公众号文章、新闻、文档页。抓不到正文时会尝试用浏览器渲染再抓。", parameters: { type: "object", properties: {
+    url: { type: "string", description: "要读的网址（http/https）" },
+    force: { type: "string", enum: ["http", "chrome"], description: "可选：强制用普通抓取或浏览器渲染" },
+  }, required: ["url"] } } },
   { type: "function", function: { name: "web_search", description: "联网搜索（Bing，无需 key）。未知事实、时效新闻才搜；独白/剧本/本会话已说过的事先按判断写。一次一两个查询，锁不到人就动手并汇报假设。", parameters: { type: "object", properties: { query: { type: "string", description: "搜索关键词（中文/英文均可）" } }, required: ["query"] } } },
 ];
 
