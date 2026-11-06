@@ -55,8 +55,9 @@ test('壁纸模式下主画布与新建对话首页保持透明', () => {
 })
 
 test('侧栏分组：置顶 → 对话（按时间分段）→ 微信 → 终端 → 真测', async () => {
-  const sidebar = read('components', 'Sidebar.tsx')
-  assert.ok(sidebar.includes("from '../lib/session-sidebar.mjs'"), '分段逻辑必须来自可单测的 session-sidebar.mjs')
+  const sidebar = read('components', 'shell', 'Sidebar.tsx')
+  // 2026-11-06：Sidebar 已移入 components/shell/
+  assert.ok(sidebar.includes("from '../../lib/session-sidebar.mjs'"), '分段逻辑必须来自可单测的 session-sidebar.mjs')
   assert.ok(sidebar.includes('planSidebar('), '侧栏必须用 planSidebar 分段')
   assert.ok(sidebar.includes('SessionsApi.pin('), '会话菜单必须能置顶')
   const lib = await import(pathToFileURL(join(ROOT, 'frontend', 'src', 'lib', 'session-sidebar.mjs')).href)
@@ -67,11 +68,12 @@ test('侧栏分组：置顶 → 对话（按时间分段）→ 微信 → 终端
 })
 
 test('侧栏品牌头用 PersonaMark + persona 动态身份名，不得回退渐变字标', () => {
-  const sidebar = read('components', 'Sidebar.tsx')
+  const sidebar = read('components', 'shell', 'Sidebar.tsx')
   // 2026-10-22 换标：品牌标记改为 BrandMark（断口环 + 轴心 + 紫点）。
   // 2026-10-25 再改：这里是**小语这个人**，不是元枢这个产品——产品标志只出现在导航栏/登录页/工作台大标题，
   // 侧栏紧挨身份名的地方用 PersonaMark（对话气泡 + 声线），两者不能是同一个图标。
-  assert.match(sidebar, /import PersonaMark from '\.\/PersonaMark'/, '侧栏品牌头必须用 PersonaMark 组件')
+  // 2026-11-06：Sidebar 已移入 components/shell/，PersonaMark 仍在根 → 上一层导入
+  assert.match(sidebar, /import PersonaMark from '\.\.\/PersonaMark'/, '侧栏品牌头必须用 PersonaMark 组件')
   assert.match(sidebar, /<PersonaMark\s/, '侧栏品牌头必须渲染 PersonaMark')
   assert.doesNotMatch(sidebar, /<BrandMark\s/, '侧栏不得再用产品标志 BrandMark（那是元枢，不是小语）')
   assert.ok(sidebar.includes('aria-hidden="true"'), '装饰性标记必须 aria-hidden')
@@ -95,7 +97,7 @@ test('移动底栏固定为对话、会话、资产、任务、更多，且删�
 })
 
 test('更多菜单承载设置路由和辅助面板，并提供可访问状态', () => {
-  const menu = read('components', 'MobileMoreMenu.tsx')
+  const menu = read('components', 'shell', 'MobileMoreMenu.tsx')
   // 灵感/会话库/下载/MCP 已并入知识/工作台/资产/能力（深链别名仍在 AppLayout），不再单列
   for (const route of ['board', 'workshop', 'models', 'apps', 'engine', 'themes', 'system']) {
     assert.ok(menu.includes(`route: '${route}'`), `更多菜单缺少 ${route} 路由`)
@@ -128,7 +130,7 @@ test('更多菜单打开时底栏只能有更多一个 aria-current', () => {
 
 test('更多菜单打开后圈定焦点，关闭后把焦点还给更多触发按钮', () => {
   const layout = read('AppLayout.tsx')
-  const menu = read('components', 'MobileMoreMenu.tsx')
+  const menu = read('components', 'shell', 'MobileMoreMenu.tsx')
   assert.ok(layout.includes('const mobileMoreTriggerRef = useRef<HTMLButtonElement>(null)'), 'AppLayout 必须持有更多触发按钮 ref')
   assert.ok(layout.includes("ref={item.key === 'more' ? mobileMoreTriggerRef : undefined}"), '更多按钮必须绑定恢复焦点 ref')
   assert.ok(layout.includes('mobileMoreTriggerRef.current?.focus()'), '关闭菜单后必须由 AppLayout 恢复触发按钮焦点')
@@ -401,7 +403,7 @@ test('工作台看板挂在桌面导航，并读现有 API 做一屏总览', () 
   const layout = read('AppLayout.tsx')
   const routes = read('hooks', 'useHashRoute.tsx')
   const board = read('pages', 'Board.tsx')
-  const menu = read('components', 'MobileMoreMenu.tsx')
+  const menu = read('components', 'shell', 'MobileMoreMenu.tsx')
   assert.ok(routes.includes("'board'"), 'hash 路由必须包含 board')
   assert.ok(layout.includes("route: 'board'"), '桌面导航必须注册工作台')
   assert.ok(layout.includes('ROUTE_LABELS.board'), '工作台导航文案必须引用词表')
@@ -464,7 +466,7 @@ test('助手配图必须在正文后面，不能插在思考过程和工具卡�
 })
 
 test('移动更多菜单当前项在主题底色上使用主文字色，避免同色吞字', () => {
-  const moreMenu = read('components', 'MobileMoreMenu.tsx')
+  const moreMenu = read('components', 'shell', 'MobileMoreMenu.tsx')
   assert.match(moreMenu, /railOwner\(route\) === item\.route \? 'bg-pi-accent\/10 text-pi-text'/, '当前菜单项必须使用中性高对比文字色')
 })
 

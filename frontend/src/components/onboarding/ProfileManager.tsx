@@ -1,8 +1,8 @@
 import { useMemo, useState } from 'react'
 import { Check, Plus, RefreshCw, Trash2, UserRound, X } from 'lucide-react'
-import { getApiBase, getToken, setApiBase, setToken } from '../api'
-import { resolveSwitchTarget } from '../lib/switch-target.mjs'
-import { encodeProfileHandoff } from '../lib/profile-handoff.mjs'
+import { getApiBase, getToken, setApiBase, setToken } from '../../api'
+import { resolveSwitchTarget } from '../../lib/switch-target.mjs'
+import { encodeProfileHandoff } from '../../lib/profile-handoff.mjs'
 
 // ── 账号管理（2026-10-12 伙伴要求）────────────────────────────────
 // 每个人可能养了好多元枢（不同电脑/不同工作区），需要在各元枢之间切换。

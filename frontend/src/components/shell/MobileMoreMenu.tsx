@@ -4,9 +4,9 @@ import {
   Globe2, LayoutDashboard, LayoutGrid, LogOut, MonitorCog, Package, PackageCheck, Layers, Palette, PanelRight, ShieldCheck, Sparkles, Workflow,
   TerminalSquare, X,
 } from 'lucide-react'
-import ProfileManager from './ProfileManager'
-import type { Route } from '../hooks/useHashRoute'
-import { ROUTE_LABELS, railOwner } from '../nav'
+import ProfileManager from '../onboarding/ProfileManager'
+import type { Route } from '../../hooks/useHashRoute'
+import { ROUTE_LABELS, railOwner } from '../../nav'
 
 export type UtilityPanelKey = 'workspace' | 'deliveries' | 'terminal' | 'activity' | 'tui' | 'inspect'
 

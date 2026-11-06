@@ -6,7 +6,7 @@ const source = p => fs.existsSync(new URL(p, root)) ? fs.readFileSync(new URL(p,
 test('soul center is reachable through desktop, mobile and system', () => {
   assert.ok(source('AppLayout.tsx').includes("route: 'soul'"));
   assert.ok(source('nav.ts').includes("soul: '灵魂培养'"));
-  assert.ok(source('components/MobileMoreMenu.tsx').includes("route: 'soul'"));
+  assert.ok(source('components/shell/MobileMoreMenu.tsx').includes("route: 'soul'"));
   assert.ok(source('pages/System.tsx').includes('#/soul'));
 });
 test('soul center reuses live settings and local human approval', () => {

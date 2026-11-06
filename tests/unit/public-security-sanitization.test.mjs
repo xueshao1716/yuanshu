@@ -50,7 +50,7 @@ test("首次生成的网络入口配置不泄露私人域名", () => {
 
 test("公共登录和移动壳配置不绑定私人域名", () => {
   const files = [
-    "frontend/src/components/Login.tsx",
+    "frontend/src/components/onboarding/Login.tsx",
     "frontend/src/lib/shell-origin.ts",
     "app/src-tauri/src/lib.rs",
     "app/src-tauri/capabilities/remote-piweb.json",
@@ -65,7 +65,7 @@ test("系统页区分连接失败、登记入口与服务端版本", () => {
     assert.ok(source.includes(text), `缺少准确状态文案: ${text}`);
   }
   assert.ok(source.includes('!!data && !error'));
-  const login = read('frontend/src/components/Login.tsx');
+  const login = read('frontend/src/components/onboarding/Login.tsx');
   assert.equal(login.includes('本地安全连接'), false);
   assert.equal(login.includes('正在建立安全连接'), false);
 });

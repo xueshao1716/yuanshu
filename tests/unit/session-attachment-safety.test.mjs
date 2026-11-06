@@ -212,6 +212,6 @@ test('界面闸门：上传必须带真实 sessionId；新建会话必须先切�
   assert.match(chat, /ensureSession=\{ensureSessionId\}/, 'ChatArea 必须把 ensureSession 传给 SendBox');
   assert.match(chat, /const ensureSessionId = useCallback/, 'ensureSessionId 必须真的实现');
 
-  const sidebar = fs.readFileSync(path.join(ROOT, 'frontend', 'src', 'components', 'Sidebar.tsx'), 'utf8');
+  const sidebar = fs.readFileSync(path.join(ROOT, 'frontend', 'src', 'components', 'shell', 'Sidebar.tsx'), 'utf8');
   assert.equal(/await refreshSessions\(\);\s*selectSession\(/.test(sidebar), false, 'Sidebar 新建会话同样不许让刷新挡在切换前面');
 });

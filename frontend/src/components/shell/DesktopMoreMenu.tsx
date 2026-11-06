@@ -1,8 +1,8 @@
 import { useState } from 'react'
 import { Ellipsis } from 'lucide-react'
 import * as Menu from '@radix-ui/react-dropdown-menu'
-import type { Route } from '../hooks/useHashRoute'
-import { RAIL_MORE, railOwner } from '../nav'
+import type { Route } from '../../hooks/useHashRoute'
+import { RAIL_MORE, railOwner } from '../../nav'
 
 export default function DesktopMoreMenu({
   items,

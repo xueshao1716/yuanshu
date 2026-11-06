@@ -1,11 +1,11 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import * as D from '@radix-ui/react-dialog'
-import { useRestoreFocus } from '../hooks/useRestoreFocus'
+import { useRestoreFocus } from '../../hooks/useRestoreFocus'
 import { Film, MessagesSquare, BrainCircuit, ClipboardCheck, Images, Clock4, LayoutGrid, FolderClosed, Package, SquareTerminal, Settings2, Plus, CornerDownLeft, LayoutDashboard, Sparkles, Factory, Palette, Database, MonitorCog, Cpu, Activity, ChevronsLeftRight, ShieldCheck, Workflow, Download, Plug } from 'lucide-react'
-import { useApp } from '../store'
+import { useApp } from '../../store'
 import { toast } from './Toast'
-import { SessionsApi } from '../api'
-import type { Route } from '../hooks/useHashRoute'
+import { SessionsApi } from '../../api'
+import type { Route } from '../../hooks/useHashRoute'
 import type { UtilityPanelKey } from './MobileMoreMenu'
 
 // ── ⌘K 命令面板（08-25 评审 P1：power-user 工作台零快捷键的补课）──

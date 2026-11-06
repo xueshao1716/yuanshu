@@ -1,8 +1,8 @@
 import { useState, useEffect } from 'react'
-import BrandMark from './BrandMark'
-import { useApp } from '../store'
-import WebglBackdrop from './WebglBackdrop'
-import { mobileApiBaseError, isBundledShellOrigin } from '../lib/shell-origin'
+import BrandMark from '../BrandMark'
+import { useApp } from '../../store'
+import WebglBackdrop from '../WebglBackdrop'
+import { mobileApiBaseError, isBundledShellOrigin } from '../../lib/shell-origin'
 import { ArrowUpRight, Check, Eye, EyeOff, KeyRound, LockKeyhole, Server, Sparkles } from 'lucide-react'
 
 export default function Login() {

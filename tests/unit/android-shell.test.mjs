@@ -22,7 +22,7 @@ test('内置壳不能把 127.0.0.1 当服务器，否则会话打到手机自己
 })
 
 test('登录页在手机壳上必须要求填写远程地址', () => {
-  const login = read('frontend', 'src', 'components', 'Login.tsx')
+  const login = read('frontend', 'src', 'components', 'onboarding', 'Login.tsx')
   assert.ok(login.includes('mobileApiBaseError'), '登录必须校验手机壳的服务器地址')
   assert.ok(login.includes('https://example.com'), '占位符要给出通用公网入口示例')
   const store = read('frontend', 'src', 'store.tsx')

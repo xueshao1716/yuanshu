@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
-import { KeysApi, SystemApi, getToken } from '../api'
-import { useApp } from '../store'
+import { KeysApi, SystemApi, getToken } from '../../api'
+import { useApp } from '../../store'
 import { Check, ChevronRight, Copy, KeyRound, ServerCog, Zap, Brain, Shield, RefreshCw, Lock, Sparkles, User } from 'lucide-react'
 
 // ══ 首启向导：全新安装时引导用户完成初始化 ══

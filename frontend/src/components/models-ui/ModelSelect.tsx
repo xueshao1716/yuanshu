@@ -3,7 +3,7 @@ import { useApp } from '../../store'
 import { KeysApi } from '../../api'
 import * as DM from '@radix-ui/react-dropdown-menu'
 import { ChevronDown, Zap, Paintbrush, Video, Mic2, Cpu } from 'lucide-react'
-import { toast } from '../Toast'
+import { toast } from '../shell/Toast'
 import type { Model } from '../../types'
 import { effectiveCapabilities, isChatSelectable } from '../../../../shared/model-capabilities.mjs'
 

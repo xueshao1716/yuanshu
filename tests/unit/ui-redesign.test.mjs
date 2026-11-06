@@ -26,7 +26,7 @@ test('桌面导航把引擎作为一等工作入口，并显示文字标签', ()
 
 test('主题同步在公共布局执行，不能依赖仅桌面挂载的主题按钮', () => {
   const layout = read('AppLayout.tsx')
-  const switcher = read('components', 'ThemeSwitcher.tsx')
+  const switcher = read('components', 'shell', 'ThemeSwitcher.tsx')
   const apply = read('theme', 'apply.ts')
   assert.ok(layout.includes('useThemePreferences(authed)'), '两端必须共用登录后的主题同步')
   assert.ok(!switcher.includes('ThemeApi.get()'), '主题按钮不得另发一次同步请求')

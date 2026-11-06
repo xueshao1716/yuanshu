@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import { AlertTriangle, Download, RefreshCw, X } from 'lucide-react'
-import { useApp } from '../store'
-import { SystemApi } from '../api'
+import { useApp } from '../../store'
+import { SystemApi } from '../../api'
 
 const CHECK_KEY = 'yuanshu_update_notice_check_at'
 const DISMISSED_KEY = 'yuanshu_update_notice_dismissed_sha'

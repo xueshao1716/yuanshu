@@ -87,7 +87,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       setCurModel(mk)
       try { localStorage.setItem('pi_model', mk) } catch {}
       // 惰性 import 避免循环依赖（Toast→store）
-      import('./components/Toast').then(({ toast }) => toast(`原模型 ${currentModel} 已不可用，已切换为 ${mk}`, 'error'))
+      import('./components/shell/Toast').then(({ toast }) => toast(`原模型 ${currentModel} 已不可用，已切换为 ${mk}`, 'error'))
     }
   }, [modelsData, currentModel])
 

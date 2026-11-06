@@ -14,7 +14,7 @@ import {
   Wrench,
 } from 'lucide-react'
 import { GitReviewApi, RunApi, RunsApi, type GitReview, type GitReviewFile, type RunOverview, type RunSummary } from '../api'
-import { toast } from './Toast'
+import { toast } from './shell/Toast'
 import RunTimeline from './RunTimeline'
 
 const PHASE_LABELS: Record<string, string> = {

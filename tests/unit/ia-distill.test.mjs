@@ -14,7 +14,7 @@ test('路由中文名只有一份词表，知识/创作不再三套叫法', () =
   assert.ok(nav.includes("workshop: '创作'"), '创作必须写在 nav.ts')
   assert.ok(nav.includes("models: '模型'"), '模型必须写在 nav.ts')
   assert.ok(nav.includes("lingxi: '灵感'"), '灵感必须写在 nav.ts')
-  const menu = read('components', 'MobileMoreMenu.tsx')
+  const menu = read('components', 'shell', 'MobileMoreMenu.tsx')
   assert.ok(menu.includes('ROUTE_LABELS'), '手机更多必须引用词表')
   assert.ok(!menu.includes("label: '知识工具'"), '不得再叫知识工具')
   assert.ok(!menu.includes("label: '创作工坊'"), '不得再叫创作工坊')
@@ -25,7 +25,7 @@ test('路由中文名只有一份词表，知识/创作不再三套叫法', () =
   assert.ok(!apps.includes('title="应用中心"'), '知识页头不得再叫应用中心')
   const workshop = read('pages', 'Workshop.tsx')
   assert.ok(workshop.includes('title="创作"'), '创作页标题必须叫创作')
-  const palette = read('components', 'CommandPalette.tsx')
+  const palette = read('components', 'shell', 'CommandPalette.tsx')
   assert.ok(!palette.includes('打开应用中心'), '⌘K 不得再叫应用中心')
   assert.ok(palette.includes('打开知识'), '⌘K 必须叫打开知识')
 })
@@ -37,14 +37,14 @@ test('桌面主栏只留对话工作台创作资产任务，其余进更多', ()
     assert.ok(nav.includes(r), `主栏必须包含 ${r}`)
   }
   const layout = read('AppLayout.tsx')
-  const more = read('components', 'DesktopMoreMenu.tsx')
+  const more = read('components', 'shell', 'DesktopMoreMenu.tsx')
   assert.ok(layout.includes('RAIL_PRIMARY'), '桌面壳必须按主栏名单渲染')
   assert.ok(layout.includes('RAIL_MORE'), '桌面壳必须把长尾放进更多')
   assert.ok(more.includes("aria-label={moreActive ?") && more.includes(": '更多'}"), '桌面必须有可访问的更多按钮')
 })
 
 test('⌘K 能打开工作台、创作、主题、灵感、能力、会话库、系统', () => {
-  const palette = read('components', 'CommandPalette.tsx')
+  const palette = read('components', 'shell', 'CommandPalette.tsx')
   for (const label of ['打开工作台', '打开创作', '打开主题', '打开灵感', '打开能力', '打开会话库', '打开系统', '打开知识']) {
     assert.ok(palette.includes(label), `⌘K 缺少 ${label}`)
   }
@@ -60,7 +60,7 @@ test('工作台先写接下来做什么，空交付不再说交付/ 目录', () 
 
 test('主题切换器与主题页共用 THEME_CATALOG，不再各写一套', () => {
   const palettes = read('theme', 'palettes.ts')
-  const switcher = read('components', 'ThemeSwitcher.tsx')
+  const switcher = read('components', 'shell', 'ThemeSwitcher.tsx')
   const themes = read('pages', 'Themes.tsx')
   assert.ok(palettes.includes('export const THEME_CATALOG'), '色板必须导出 THEME_CATALOG')
   assert.ok(switcher.includes('THEME_CATALOG'), '切换器必须读目录')

@@ -3,7 +3,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { Database, RefreshCw, Search, Trash2, Pin, CheckSquare, Square, Pencil, ExternalLink, MessagesSquare, Brain } from 'lucide-react'
 import EmptyState from '../components/EmptyState'
 import PageHeader from '../components/PageHeader'
-import { toast } from '../components/Toast'
+import { toast } from '../components/shell/Toast'
 import { useApp } from '../store'
 import { api, SessionsApi, RecallApi } from '../api'
 

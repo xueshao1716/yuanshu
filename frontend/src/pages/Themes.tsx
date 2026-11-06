@@ -10,7 +10,7 @@ import { THEME_CATALOG } from '../theme/palettes'
 import { ThemeApi, ColorApi } from '../api'
 import PageHeader from '../components/PageHeader'
 import SectionHeader from '../components/SectionHeader'
-import { toast } from '../components/Toast'
+import { toast } from '../components/shell/Toast'
 
 type Seed = { bg: string; text: string; accent: string; step: number; light?: boolean; overrides?: Record<string, string> }
 

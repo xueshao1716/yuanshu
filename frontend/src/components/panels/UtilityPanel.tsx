@@ -1,6 +1,6 @@
 import { useEffect, useRef, type ReactNode } from 'react'
 import { Activity, ChevronsLeftRight, ClipboardCheck, FolderKanban, GitCompare, PackageCheck, PanelRightClose, TerminalSquare, X } from 'lucide-react'
-import type { UtilityPanelKey } from '../MobileMoreMenu'
+import type { UtilityPanelKey } from '../shell/MobileMoreMenu'
 
 const PANEL_TABS: { key: UtilityPanelKey; label: string; description: string; shortcut: string; icon: typeof Activity }[] = [
   { key: 'inspect', label: '检查', description: '查看运行状态、改动和验收', shortcut: 'Alt+1', icon: ClipboardCheck },
