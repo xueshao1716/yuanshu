@@ -2852,3 +2852,13 @@ html[data-theme="bridge"] { color-scheme: dark; }
 
 /* 表格弹窗竖屏模式（手机竖持阅读宽度；宽表转横向滚动） */
 .md-table-modal-tall { width: min(88vw, 430px); }
+
+/* ── 2026-11-06 修复：手机端「更多」与发送按钮叠在一起误触 ──
+   两个措施：
+   1) 输入区层级压过底部 tab bar：即使布局被软键盘挤压，点击也落在输入区；
+   2) 输入框聚焦时隐藏 tab bar：不只依赖 html.keyboard-open（安卓原生壳常常不打这个类）。
+   用 :has() 而不是 JS 监听，避免每次聚焦/失焦都要 setState 造成输入卡顿。 */
+@media (max-width: 768px) {
+  .mobile-composer { position: relative; z-index: 21; }
+  .mobile-app-root:has(.mobile-composer textarea:focus) .mobile-tab-bar { display: none; }
+}
