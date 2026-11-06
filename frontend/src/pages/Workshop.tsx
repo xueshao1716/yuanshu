@@ -3,7 +3,7 @@ import { ImagePlus, Presentation, BookOpen, Smartphone, Film, Clapperboard, Work
 import PageHeader from '../components/PageHeader'
 import GeneratePanel from '../components/panels/GeneratePanel'
 import VideoGeneratePanel from '../components/panels/VideoGeneratePanel'
-import VideoPrompt from '../components/VideoPrompt'
+import VideoPrompt from '../components/story/VideoPrompt'
 import WorkshopView from '../components/views/WorkshopView'
 import NovelStudioView from '../components/views/NovelStudioView'
 import WanXiang from '../components/WanXiang'

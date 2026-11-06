@@ -1,7 +1,7 @@
 import { useId } from 'react'
 import { ExternalLink } from 'lucide-react'
-import { speech, setAutoSpeech } from '../lib/speech'
-import { voiceLabUrl } from '../lib/voice-lab-entry.mjs'
+import { speech, setAutoSpeech } from '../../lib/speech'
+import { voiceLabUrl } from '../../lib/voice-lab-entry.mjs'
 
 export default function VoiceLabEntry({ busy }: { busy: boolean }) {
   const descriptionId = useId()

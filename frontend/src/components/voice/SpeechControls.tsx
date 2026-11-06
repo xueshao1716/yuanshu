@@ -1,6 +1,6 @@
 import { Pause, Play, Square, Volume2 } from 'lucide-react'
-import { useCallActive } from '../realtime/use-call-active'
-import { speech, useSpeech, useSpeechOptions } from '../lib/speech'
+import { useCallActive } from '../../realtime/use-call-active'
+import { speech, useSpeech, useSpeechOptions } from '../../lib/speech'
 
 export default function SpeechControls({ id, text, live = false }: { id: string; text: string; live?: boolean }) {
   const callActive = useCallActive()

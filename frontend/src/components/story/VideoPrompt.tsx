@@ -1,8 +1,8 @@
-import ThemedSelect from '../components/ThemedSelect'
+import ThemedSelect from '../ThemedSelect'
 import { useMemo, useRef, useState } from 'react'
 import { Sparkles, Copy, Check } from 'lucide-react'
-import { VIDEO_GRAMMARS, VIDEO_EXAMPLES, VIDEO_SCENES, buildVideoPrompt, composeVideoScript } from '../lib/video-prompt.mjs'
-import PromptSmartFill from './PromptSmartFill'
+import { VIDEO_GRAMMARS, VIDEO_EXAMPLES, VIDEO_SCENES, buildVideoPrompt, composeVideoScript } from '../../lib/video-prompt.mjs'
+import PromptSmartFill from '../PromptSmartFill'
 
 type SceneKey = keyof typeof VIDEO_SCENES & string
 const GRAMMAR_KEYS = Object.keys(VIDEO_GRAMMARS) as Array<keyof typeof VIDEO_GRAMMARS & string>

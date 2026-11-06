@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { Printer, Pencil, Check, Loader2, X, Play, ChevronLeft, ChevronRight, Maximize } from 'lucide-react'
-import { WorkshopApi } from '../api'
-import ScaledSlide from './ScaledSlide'
+import { WorkshopApi } from '../../api'
+import ScaledSlide from '../ScaledSlide'
 
 // ── PPT 设计稿工作室（2026-09-03，对标扣子/Gamma 网页 PPT）──
 // 每页是 agent 产出的 1280×720 自包含 HTML：缩略图 iframe 真渲染（所见即所得），

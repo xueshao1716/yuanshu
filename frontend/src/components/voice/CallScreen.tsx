@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { ArrowLeft, AudioLines, Check, ListTodo, MessageSquareText, Mic, MicOff, Phone, PhoneOff, Square } from 'lucide-react'
-import { callError } from '../realtime/errors'
+import { callError } from '../../realtime/errors'
 import CallStage from './CallStage'
 
 export type CallState = { phase: string; muted: boolean; error?: string; stage: string; activity: string; failureStage?: string | null

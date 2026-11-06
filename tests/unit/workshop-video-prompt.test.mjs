@@ -93,7 +93,7 @@ test("改了主体动作场景就不能再贴原镜头卡的风衣雨街", () =>
 });
 
 test("工坊提示词面板默认走标准档，把镜头卡交给生成器", () => {
-  const panel = readFileSync(join(ROOT, "frontend", "src", "components", "VideoPrompt.tsx"), "utf8");
+  const panel = readFileSync(join(ROOT, "frontend", "src", "components", "story", "VideoPrompt.tsx"), "utf8");
   assert.ok(panel.includes('useState') && panel.includes("standard"), "默认标准档");
   assert.ok(panel.includes("sceneKey"), "生成时要带镜头卡");
   assert.ok(panel.includes("PromptSmartFill") || panel.includes("expandPrompt") || panel.includes("智能填充"), "要能按一句话智能填");
@@ -119,7 +119,7 @@ test("运镜骨架是拍法不是故事，至少十种，不能写死风衣雨�
 test("示例成稿单独收着，点骨架不能覆盖已填主体", () => {
   assert.ok(VIDEO_EXAMPLES.xianxia);
   assert.match(JSON.stringify(VIDEO_EXAMPLES.xianxia), /交领|旧玉/);
-  const panel = readFileSync(join(ROOT, "frontend", "src", "components", "VideoPrompt.tsx"), "utf8");
+  const panel = readFileSync(join(ROOT, "frontend", "src", "components", "story", "VideoPrompt.tsx"), "utf8");
   assert.match(panel, /运镜骨架/);
   assert.match(panel, /示例成稿/);
   assert.match(panel, /useState<SceneKey>\('free'\)/);
@@ -202,7 +202,7 @@ test("改地点且光影还是自动写的，要再合成；人手改过的不�
 });
 
 test("点骨架要把合成写进格子，不能原样拷芯片上的光", () => {
-  const panel = readFileSync(join(ROOT, "frontend", "src", "components", "VideoPrompt.tsx"), "utf8");
+  const panel = readFileSync(join(ROOT, "frontend", "src", "components", "story", "VideoPrompt.tsx"), "utf8");
   assert.match(panel, /composeVideoScript/);
   const grammarFn = panel.slice(panel.indexOf("pickGrammar"), panel.indexOf("pickExample"));
   assert.ok(grammarFn.includes("composeVideoShot") || grammarFn.includes("composeVideoScript"), "点骨架要按人×拍法现写");

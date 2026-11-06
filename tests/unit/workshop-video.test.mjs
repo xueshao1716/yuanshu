@@ -28,7 +28,7 @@ test("出片框必须选视频模型，调 /api/media，播得了片子", () => 
 });
 
 test("视频提示词必须吃进镜头卡生成器，主体运镜还能改", () => {
-  const prompt = read("components", "VideoPrompt.tsx");
+  const prompt = read("components", "story", "VideoPrompt.tsx");
   const lib = read("lib", "video-prompt.mjs");
   assert.ok(prompt.includes("buildVideoPrompt"), "提示词组件必须用共享生成器");
   assert.ok(prompt.includes("填入出片框") || prompt.includes("填入"), "能填进出片框");

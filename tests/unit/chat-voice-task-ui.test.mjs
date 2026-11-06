@@ -18,10 +18,10 @@ test('task UI keeps batched proposals, never reopens submitting or accepted card
   assert.ok(!mod.taskStatusText({status:'completed'}).includes('验收通过'))
 })
 test('task controls provide editable transcript, confirmation and persistent authenticated list without autosubmit',()=>{
-  const source=fs.readFileSync(new URL('../../frontend/src/components/RealtimeCall.tsx',import.meta.url),'utf8')
+  const source=fs.readFileSync(new URL('../../frontend/src/components/voice/RealtimeCall.tsx',import.meta.url),'utf8')
   assert.ok(source.includes('RealtimeTasks'),'real task panel must be mounted')
   assert.ok(!source.includes('仅聊天，不执行电脑任务'))
-  assert.ok(fs.readFileSync(new URL('../../frontend/src/components/CallScreen.tsx',import.meta.url),'utf8').includes('交给元枢'))
+  assert.ok(fs.readFileSync(new URL('../../frontend/src/components/voice/CallScreen.tsx',import.meta.url),'utf8').includes('交给元枢'))
   const panel=fs.readFileSync(new URL('../../frontend/src/components/RealtimeTasks.tsx',import.meta.url),'utf8')
   for(const text of ['确认执行','不执行','刷新任务','停止任务','textarea','maxLength={12000}','touch-hit','aria-live']) assert.ok(panel.includes(text),text)
   const api=fs.readFileSync(new URL('../../frontend/src/realtime/tasks.ts',import.meta.url),'utf8')

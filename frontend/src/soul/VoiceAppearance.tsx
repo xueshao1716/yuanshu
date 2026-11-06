@@ -1,4 +1,4 @@
-import { SpeechSettings } from '../components/SpeechSettings'
+import { SpeechSettings } from '../components/voice/SpeechSettings'
 import { useCompanionContext } from '../components/xiaoyu/CompanionProvider'
 import { GALLERIES, imageForSkin } from '../components/xiaoyu/widget-state.mjs'
 import { Block } from './shared'

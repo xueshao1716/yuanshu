@@ -1,10 +1,10 @@
-import ThemedSelect from '../components/ThemedSelect'
+import ThemedSelect from '../ThemedSelect'
 import { useEffect, useId } from 'react'
 import { Play, Square, LoaderCircle } from 'lucide-react'
-import { useCallActive } from '../realtime/use-call-active'
+import { useCallActive } from '../../realtime/use-call-active'
 import { speech, useSpeech, useAutoSpeech, setAutoSpeech, useSpeechOptions, setSpeechMode,
-  refreshSpeechOptions, deviceSpeechSupported, useDeviceVoices, setDeviceVoice } from '../lib/speech'
-import './speech-settings.css'
+  refreshSpeechOptions, deviceSpeechSupported, useDeviceVoices, setDeviceVoice } from '../../lib/speech'
+import '../speech-settings.css'
 
 const previewId = 'speech-settings-preview'
 export function SpeechSettings() {

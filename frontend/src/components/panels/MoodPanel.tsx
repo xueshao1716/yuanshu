@@ -2,7 +2,7 @@
 import { useEffect, useId, useRef, useState } from 'react'
 import { X, Waves, Volume2 } from 'lucide-react'
 import { PortraitState } from '../xiaoyu/PortraitState'
-import { SpeechSettings } from '../SpeechSettings'
+import { SpeechSettings } from '../voice/SpeechSettings'
 import { refreshSpeechOptions } from '../../lib/speech'
 import type { useXiaoyuEmotion } from '../../lib/useXiaoyuEmotion'
 import type { CompanionAction } from '../xiaoyu/companion-state.mjs'

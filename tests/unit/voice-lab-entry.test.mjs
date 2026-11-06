@@ -15,7 +15,7 @@ test('voice trial is available only on the deployed IPv4 loopback origin', async
 })
 
 test('trial entry preserves isolation, blocks busy audio and silences output before opening', () => {
-  const file = new URL('../../frontend/src/components/VoiceLabEntry.tsx', import.meta.url)
+  const file = new URL('../../frontend/src/components/voice/VoiceLabEntry.tsx', import.meta.url)
   assert.ok(fs.existsSync(file), 'local voice trial entry is implemented')
   const source = fs.readFileSync(file, 'utf8'), lines = source.split('\n')
   assert.ok(source.includes('if (!url) return null'))

@@ -1,7 +1,7 @@
-import ThemedSelect from '../components/ThemedSelect'
+import ThemedSelect from '../ThemedSelect'
 import { useMemo, useState } from 'react'
 import { Plus, Trash2, RefreshCw, Loader2 } from 'lucide-react'
-import { WorkshopApi } from '../api'
+import { WorkshopApi } from '../../api'
 
 // ── PPT 大纲预览 / 设计干预（2026-09-03）：结构化页面卡，改完本地秒级重建 .pptx ──
 // 数据源是 ppt-generator 管线的中间产物（slides JSON），与 generate_pptx.py 白名单对齐。

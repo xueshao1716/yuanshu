@@ -503,7 +503,7 @@ test('工坊选择芯片：选中=主色投影，未选中安静，触摸目标�
   assert.match(css, /\.chip-pill\.is-on:hover[^{]*\{[^}]*translateY\(-1px\)/, '选中悬停要抬一下')
   assert.match(css, /\.chip-pill\.is-on:active[^{]*\{[^}]*translateY\(1px\)/, '选中按下要压回去')
   assert.match(css, /\.chip-pill\.is-off\s*\{[^}]*background:\s*transparent/, '没选中的保持安静')
-  for (const file of [['components', 'WanXiang.tsx'], ['components', 'VideoPrompt.tsx']]) {
+  for (const file of [['components', 'WanXiang.tsx'], ['components', 'story', 'VideoPrompt.tsx']]) {
     const src = read(...file)
     assert.match(src, /chip-pill is-on/, `${file[1]} 的选中态要走 chip-pill is-on`)
     assert.match(src, /chip-pill is-off/, `${file[1]} 的未选中态要走 chip-pill is-off`)

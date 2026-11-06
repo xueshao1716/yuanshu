@@ -1,7 +1,7 @@
-import ThemedSelect from '../components/ThemedSelect'
+import ThemedSelect from '../ThemedSelect'
 import { useId } from 'react'
-import type { VoiceModel } from '../realtime/ticket'
-import { callError } from '../realtime/errors'
+import type { VoiceModel } from '../../realtime/ticket'
+import { callError } from '../../realtime/errors'
 
 type Props = { models: VoiceModel[]; modelKey: string; setModelKey: (key: string) => void
   loading: boolean; error: string; retry: () => void; locked: boolean }

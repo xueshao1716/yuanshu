@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Film, Search, Settings2, Play, History, X } from 'lucide-react'
 import PageHeader from '../components/PageHeader'
 import EmptyState from '../components/EmptyState'
-import VideoPlayer from '../components/VideoPlayer'
+import VideoPlayer from '../components/story/VideoPlayer'
 import { api, imageProxyUrl } from '../api'
 
 type Variant = { source: string; sourceName: string; id: string; name: string; pic: string; remarks: string; year: string; type: string }

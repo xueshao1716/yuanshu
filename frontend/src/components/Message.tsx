@@ -22,7 +22,7 @@ import { downloadApiFile, withFileToken } from '../api'
 import { copyText } from '../lib/clipboard'
 import { requestBrowserSave, writeBrowserSave } from '../lib/browser-save'
 import { saveNativeDownload } from '../lib/native-download'
-import VideoPlayer from './VideoPlayer'
+import VideoPlayer from './story/VideoPlayer'
 import { isExternalVideo } from '../lib/tv'
 import { scrapeVideos, scrapeAudios, dedupeMediaUrls, mediaPathKey } from '../lib/media-embed'
 import { artifactName, fileNameFromUrl } from '../lib/artifact-name'
@@ -31,7 +31,7 @@ import type { ChatMessage, RunningTool, ToolStatus } from '../types'
 import { AgentWorkflow } from './AgentWorkflow'
 import { useProcessVisibility } from '../hooks/useProcessVisibility'
 import ProcessVisibilityToggle from './ProcessVisibilityToggle'
-import SpeechControls from './SpeechControls'
+import SpeechControls from './voice/SpeechControls'
 
 // 2026-10-08 子智能体派单记录折叠块：把「研究员·」行集中显示在执行记录下方
 function DispatchLog({ notes, streaming }: { notes: string[]; streaming: boolean }) {

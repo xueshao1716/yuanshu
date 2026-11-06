@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
-import { isExternalVideo, isHlsUrl, tvMediaUrl } from '../lib/tv'
-import { withFileToken } from '../api'
+import { isExternalVideo, isHlsUrl, tvMediaUrl } from '../../lib/tv'
+import { withFileToken } from '../../api'
 
 type Props = {
   src: string

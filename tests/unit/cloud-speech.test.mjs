@@ -4,7 +4,7 @@ import { EventEmitter } from 'node:events';
 import fs from 'node:fs';
 
 test('mobile UI offers explicit cloud mode and does not gate it on device synthesis', () => {
-  const file = new URL('../../frontend/src/components/SpeechSettings.tsx', import.meta.url);
+  const file = new URL('../../frontend/src/components/voice/SpeechSettings.tsx', import.meta.url);
   assert.ok(fs.existsSync(file), 'dedicated speech settings are implemented');
   const ui = fs.readFileSync(file, 'utf8');
   const wiring = fs.readFileSync(new URL('../../frontend/src/lib/speech.ts', import.meta.url), 'utf8');

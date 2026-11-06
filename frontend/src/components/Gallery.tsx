@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import useSWR from 'swr'
 import { WorkshopApi } from '../api'
-import PptStudio, { type DeckPage } from './PptStudio'
+import PptStudio, { type DeckPage } from './story/PptStudio'
 import ScaledSlide from './ScaledSlide'
 import { Presentation, ChevronDown } from 'lucide-react'
 
