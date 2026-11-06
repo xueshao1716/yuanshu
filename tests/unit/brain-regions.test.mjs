@@ -93,8 +93,9 @@ test('工具档：低权重只留基础工具，高权重全给', () => {
   assert.equal(toolTier({ tooling: 0.8 }), 'full');
   // 2026-11-06 策略变更：默认档也裁重工具（实测 55 个工具 1.7 万 token/次）。
   // 低权重 → 只留基础；高权重（>=0.7，明确要做复杂任务）→ 全给。
-  assert.deepEqual(filterToolsByTier(tools, { tooling: 0.1 }).map((t) => t.function.name), ['read', 'write']);
-  assert.deepEqual(filterToolsByTier(tools, { tooling: 0.5 }).map((t) => t.function.name), ['read', 'write']);
+  // generate_image 属常用能力（聊天里说「画一张」就会用），刻意保留
+  assert.deepEqual(filterToolsByTier(tools, { tooling: 0.1 }).map((t) => t.function.name), ['read', 'write', 'generate_image']);
+  assert.deepEqual(filterToolsByTier(tools, { tooling: 0.5 }).map((t) => t.function.name), ['read', 'write', 'generate_image']);
   assert.equal(filterToolsByTier(tools, { tooling: 0.8 }).length, 4);
 });
 
