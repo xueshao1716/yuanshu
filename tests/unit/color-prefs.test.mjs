@@ -11,7 +11,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { initColorPrefs, loadColorPrefs, saveColorPrefs, currentColorCard } from '../../engine/color-prefs.mjs';
-import { withGlobalPalette } from '../../engine/media-api.mjs';
+import { withGlobalPalette } from '../../engine/media/api.mjs';
 import { colorCardPromptBlock } from '../../engine/color-cards.mjs';
 
 const tmpFile = () => path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'yuanshu-color-')), 'color-prefs.json');
@@ -69,7 +69,7 @@ test('故事层已经写过配色的提示词，媒体层不许追加第二次',
 
 // 出口「接没接上」只能看代码：函数写好了但没人调用，等于没这个功能
 test('出图/出片的出口必须真的调用它（不是只有函数没人用）', () => {
-  const src = fs.readFileSync(path.join(process.cwd(), 'engine', 'media-api.mjs'), 'utf8');
+  const src = fs.readFileSync(path.join(process.cwd(), 'engine', 'media', 'api.mjs'), 'utf8');
   const gen = src.split('export async function generateImage')[1]?.slice(0, 300) || '';
   assert.match(gen, /withGlobalPalette\(prompt\)/, 'generateImage 出口要先补配色');
   const video = src.split('export async function startVideoJob')[1]?.slice(0, 300) || '';

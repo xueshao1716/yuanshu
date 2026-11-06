@@ -96,7 +96,7 @@ test('显式选中的模型要从目录补回 capabilities，不再无差别误�
   assert.ok(seenModel.capabilities?.reference, '适配器拿到的模型必须带着能力，否则它也没法决定要不要注入参考图');
 });
 
-// 参考图是元枢自己的文件地址，上游只认公网 http(s) 或 base64（见 engine/media-inline.mjs）。
+// 参考图是元枢自己的文件地址，上游只认公网 http(s) 或 base64（见 engine/media/inline.mjs）。
 // 这一条把「编排层内联 → 上送 base64」和「项目里仍记原始引用」两件事一起锁住：
 // 记录里存 base64 会让项目 JSON 被撑爆（一张定妆照就是 2MB 级）。
 test('参考图上送前内联成 base64，但写进项目历史的仍是原始引用', async t => {

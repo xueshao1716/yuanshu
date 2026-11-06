@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { EventEmitter } from 'node:events';
 import { createReplyTts } from '../../engine/reply-tts.mjs';
 import { voiceSession } from '../../engine/chat-voice-provider.mjs';
-import { mediaObservations } from '../../engine/media-observations.mjs';
+import { mediaObservations } from '../../engine/media/observations.mjs';
 
 function fixture() {
   const sockets = [];

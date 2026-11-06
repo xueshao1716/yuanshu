@@ -1,7 +1,7 @@
 import fs from 'node:fs'
 import path from 'node:path'
 import { createHash, randomUUID } from 'node:crypto'
-import { atomicWriteJson } from './atomic-io.mjs'
+import { atomicWriteJson } from '../atomic-io.mjs'
 const locks = new Map()
 const claims = new Map()
 export const terminal = new Set(['completed', 'failed', 'stopped', 'interrupted', 'blocked'])

@@ -7,7 +7,7 @@ import { attachChatVoice } from '../../engine/chat-voice-bridge.mjs'
 import { createVoiceAdmission } from '../../engine/chat-voice-admission.mjs'
 import { createVoiceTicketHandler } from '../../engine/chat-voice-api.mjs'
 import { createProviderEvents } from '../../engine/chat-voice-provider.mjs'
-import { createVoiceModelRegistry, DEFAULT_VOICE_MODEL } from '../../engine/voice-model-registry.mjs'
+import { createVoiceModelRegistry, DEFAULT_VOICE_MODEL } from '../../engine/media/model-registry.mjs'
 
 async function fixture(t, options = {}) {
   const providers = [], clients = [], messages = new Map(); let exists = true

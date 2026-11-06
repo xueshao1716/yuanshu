@@ -1,4 +1,4 @@
-import { effectiveCapabilities } from '../shared/model-capabilities.mjs';
+import { effectiveCapabilities } from '../../shared/model-capabilities.mjs';
 
 export function imageCandidates(models, intent = {}, prompt = '') {
   let hits = models.filter(m => m.enabled !== false && effectiveCapabilities(m).image);

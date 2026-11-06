@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { detectMediaIntents, mediaAwarePrompt } from '../../engine/media-api.mjs';
+import { detectMediaIntents, mediaAwarePrompt } from '../../engine/media/api.mjs';
 
 test('draft revision with explicit media refusal does not start media or claim generation', () => {
   const message = '继续刚才天团的雨夜书店草稿，用 read 读取草稿，用 write 保存修订稿。去掉重复的 ss，补齐每镜声音提示。不生图，不生成视频，不发送。';

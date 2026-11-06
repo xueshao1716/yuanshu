@@ -3,8 +3,8 @@ import assert from 'node:assert/strict';
 import http from 'node:http';
 import {readFileSync} from 'node:fs';
 import {createReplyTts} from '../../engine/reply-tts.mjs';
-import * as diagnostics from '../../engine/media-observations.mjs';
-import {initMediaApi, generateImage, startVideoJob, checkVideoJob, generateTTS} from '../../engine/media-api.mjs';
+import * as diagnostics from '../../engine/media/observations.mjs';
+import {initMediaApi, generateImage, startVideoJob, checkVideoJob, generateTTS} from '../../engine/media/api.mjs';
 
 test('malformed accepted responses remain visible for TTS, video and async image', async () => {
   let calls=0;

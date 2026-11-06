@@ -1,6 +1,6 @@
 import { effectiveCapabilities } from '../shared/model-capabilities.mjs';
 import { canonicalStepKey } from './run-effects.mjs';
-import { mediaDeliveryKey } from './media-embed.mjs';
+import { mediaDeliveryKey } from './media/embed.mjs';
 import { persistYuanshuUser, persistYuanshuAssistant, resumePersistenceState } from './yuanshu-session.mjs';
 import { sseWrite, startSseHeartbeat } from './sse.mjs';
 

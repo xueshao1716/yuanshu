@@ -1,6 +1,6 @@
 // ══ 会话解析纯函数（2026-08-19 拆模块：从 server.mjs 抽出）══
 // extractMessages / extractText / extractImages / extractFiles —— 无 server 内部依赖，可单测可复用。
-import { extractPlayableMedia } from "../media-embed.mjs";
+import { extractPlayableMedia } from "../media/embed.mjs";
 import { lengthStopNote } from "../context-headroom.mjs";
 
 // 从消息 content 提取文本（type: text 的块）

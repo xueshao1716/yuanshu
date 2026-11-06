@@ -36,7 +36,7 @@ test("2.5 轮询必须带 model_name，否则非 text 模式查不到", () => {
 });
 
 test("startVideoJob 创建体必须走 videoCreateBody", () => {
-  const src = readFileSync(join(dirname(fileURLToPath(import.meta.url)), "..", "..", "engine", "media-api.mjs"), "utf8");
+  const src = readFileSync(join(dirname(fileURLToPath(import.meta.url)), "..", "..", "engine", "media", "api.mjs"), "utf8");
   const start = src.indexOf("export async function startVideoJob");
   const fn = src.slice(start, src.indexOf("export async function handleMedia", start));
   assert.ok(fn.includes("videoCreateBody"), "宿主转发层必须组好 mode，不能只 POST model+prompt");

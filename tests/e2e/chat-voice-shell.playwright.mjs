@@ -3,7 +3,7 @@ import test from 'node:test'
 import fs from 'node:fs/promises'
 import { fileURLToPath } from 'node:url'
 import { startChatVoiceFixture } from './fixtures/chat-voice-server.mjs'
-import { DEFAULT_VOICE_MODEL } from '../../engine/voice-model-registry.mjs'
+import { DEFAULT_VOICE_MODEL } from '../../engine/media/model-registry.mjs'
 const { chromium } = await import(process.env.YUANSHU_PLAYWRIGHT_MODULE || 'playwright')
 
 async function setup(t, { empty = false, width = 390, microphone = 'granted' } = {}) {

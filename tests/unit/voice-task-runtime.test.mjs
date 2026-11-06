@@ -7,8 +7,8 @@ import { createRunStore } from '../../engine/run-store.mjs'
 import { createRunEventLog } from '../../engine/run-event-log.mjs'
 import { createRunManager } from '../../engine/run-manager.mjs'
 import { voiceRuntimeFixture, advance } from '../helpers/voice-runtime-fixture.mjs'
-const runtimeModule = await import('../../engine/voice-task-runtime.mjs').catch(e => { if (e.code !== 'ERR_MODULE_NOT_FOUND') throw e; return {} })
-const apiModule = await import('../../engine/voice-task-api.mjs').catch(e => { if (e.code !== 'ERR_MODULE_NOT_FOUND') throw e; return {} })
+const runtimeModule = await import('../../engine/media/task-runtime.mjs').catch(e => { if (e.code !== 'ERR_MODULE_NOT_FOUND') throw e; return {} })
+const apiModule = await import('../../engine/media/task-api.mjs').catch(e => { if (e.code !== 'ERR_MODULE_NOT_FOUND') throw e; return {} })
 const task = { title: '生成小报告', instruction: '生成隔离验收文件' }
 function fixture(t) {
   assert.equal(typeof runtimeModule.createVoiceTaskRuntime, 'function', 'runtime factory must exist')

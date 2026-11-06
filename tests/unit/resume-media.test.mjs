@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
-import * as media from '../../engine/media-embed.mjs';
+import * as media from '../../engine/media/embed.mjs';
 import { resumePersistenceState, sdkSafeAssistantBlocks } from '../../engine/yuanshu-session.mjs';
 const msg = (role, content) => ({ type: 'message', message: { role, content } });
 const url = '/api/ws/file?path=' + encodeURIComponent('生成物/图.png');

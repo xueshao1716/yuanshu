@@ -2,7 +2,7 @@
 // 真机：agnes 返回 503 video_queue_full，原样甩 JSON 用户看不懂也不知道该等还是改参数。
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { explainVideoHttp } from '../../engine/media-api.mjs'
+import { explainVideoHttp } from '../../engine/media/api.mjs'
 
 test('队列满翻译成「等一会儿再点」，并说明不是参数问题', () => {
   const text = explainVideoHttp(503, '{"code":"video_queue_full","message":"video queue is full, please retry later"}')

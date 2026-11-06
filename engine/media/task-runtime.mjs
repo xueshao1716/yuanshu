@@ -1,8 +1,8 @@
-import { createVoiceTaskCoordinator } from './voice-task-coordinator.mjs'
-import { ensureVoiceTaskSession, createVoiceTaskDelivery } from './voice-task-delivery.mjs'
-import { readVoiceTaskResult } from './voice-task-result.mjs'
-import { fail } from './voice-task-store.mjs'
-import { validateVoiceTaskSession } from './session/origin-auth.mjs'
+import { createVoiceTaskCoordinator } from './task-coordinator.mjs'
+import { ensureVoiceTaskSession, createVoiceTaskDelivery } from './task-delivery.mjs'
+import { readVoiceTaskResult } from './task-result.mjs'
+import { fail } from './task-store.mjs'
+import { validateVoiceTaskSession } from '../session/origin-auth.mjs'
 
 // Constructing the adapter is inert. Start only after run-manager recovery and
 // approval initialization. Closing the adapter never cancels accepted runs.

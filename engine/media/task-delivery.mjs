@@ -1,7 +1,7 @@
 import fs from 'node:fs'
 import path from 'node:path'
-import { voiceTaskResultText } from './voice-task-result.mjs'
-import { validateVoiceTaskSession } from './session/origin-auth.mjs'
+import { voiceTaskResultText } from './task-result.mjs'
+import { validateVoiceTaskSession } from '../session/origin-auth.mjs'
 const NL = String.fromCharCode(10)
 const entries = sm => sm.fileEntries || sm.getFileEntries()
 

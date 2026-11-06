@@ -1,4 +1,4 @@
-import { httpRawFetch } from './http.mjs';
+import { httpRawFetch } from '../http.mjs';
 
 // 只读像素头，不执行解码器，也不把核验失败猜成“上游不支持”。
 export function readImageDimensions(bytes) {

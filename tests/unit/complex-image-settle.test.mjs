@@ -15,7 +15,7 @@ test("pure image requests settle the model after one text turn", () => {
 });
 
 test("composite image requests keep the tool loop for file delivery", async () => {
-  const { isPureImageRequest } = await import("../../engine/media-api.mjs");
+  const { isPureImageRequest } = await import("../../engine/media/api.mjs");
   assert.equal(isPureImageRequest("画一张霓虹城市"), true);
   assert.equal(isPureImageRequest("生成图片并做成三页PPT，交付pptx文件"), false);
 });

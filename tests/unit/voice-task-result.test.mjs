@@ -6,7 +6,7 @@ import path from 'node:path'
 import { createRunStore } from '../../engine/run-store.mjs'
 import { createRunEventLog } from '../../engine/run-event-log.mjs'
 import { createTaskEvidence } from '../../engine/task-evidence.mjs'
-import { readVoiceTaskResult, voiceTaskResultText } from '../../engine/voice-task-result.mjs'
+import { readVoiceTaskResult, voiceTaskResultText } from '../../engine/media/task-result.mjs'
 
 function fixture(t) {
   const cwd = fs.mkdtempSync(path.join(os.tmpdir(), 'yuanshu-voice-result-')), rootDir = path.join(cwd, 'runtime')

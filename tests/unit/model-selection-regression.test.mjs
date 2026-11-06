@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import * as probe from '../../engine/model/probe.mjs';
-import { imageCandidates } from '../../engine/image-routing.mjs';
+import { imageCandidates } from '../../engine/media/routing.mjs';
 
 test('image family inference recognizes catalogs without the word image; Wan stays video', () => {
   for (const id of ['FLUX.1-schnell', 'doubao-seedream-4-0', 'stabilityai/stable-diffusion-xl']) {

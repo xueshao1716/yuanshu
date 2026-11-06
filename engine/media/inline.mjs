@@ -12,7 +12,7 @@
 // 读文件内联是唯一不依赖外部可达性的做法，也正是上游在错误信息里给出的选项之一。
 import fs from 'node:fs';
 import path from 'node:path';
-import { localPathFromArtifactUrl } from './story/film.mjs';
+import { localPathFromArtifactUrl } from '../story/film.mjs';
 
 // 视频创建体里所有承载 media 的字段（与 video-request.mjs 的转发清单一一对应）
 export const MEDIA_KEYS = ['image', 'first_frame', 'last_frame', 'images', 'audios', 'videos'];

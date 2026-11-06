@@ -6,8 +6,8 @@ import path from 'node:path'
 import * as manager from '../../engine/session/manager.mjs'
 import { createPiCompatFallback } from '../../engine/pi-compat-fallback.mjs'
 import { initSessionFiles, invalidateSessionCache } from '../../engine/session/files.mjs'
-import { createVoiceTaskDelivery } from '../../engine/voice-task-delivery.mjs'
-import { deliverTask } from '../../engine/voice-task-scheduler.mjs'
+import { createVoiceTaskDelivery } from '../../engine/media/task-delivery.mjs'
+import { deliverTask } from '../../engine/media/task-scheduler.mjs'
 
 function deferred() {
   let resolve

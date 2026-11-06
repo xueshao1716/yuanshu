@@ -1,4 +1,4 @@
-import { fail } from './voice-task-store.mjs'
+import { fail } from './task-store.mjs'
 const bounded = (value, max = 1600) => String(value || '').slice(0, max)
 const plain = value => bounded(value).replace(/!?\[([^\]\n]*)\]\([^\n]*?\)/g, '$1').replaceAll('<', '&lt;').replaceAll('>', '&gt;')
 const acceptanceLabels = { pending: '待验收', pass: '人工验收通过', fail: '人工验收未通过', stale: '验收已过期', revoke: '验收已撤销' }

@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { detectMediaIntents, extractMediaPrompt, mediaAwarePrompt, mediaReadyNotice, explainMediaError, assistantContentWithMedia, isPureImageRequest, varyImagePrompt, initMediaApi, findMediaModel } from "../../engine/media-api.mjs";
+import { detectMediaIntents, extractMediaPrompt, mediaAwarePrompt, mediaReadyNotice, explainMediaError, assistantContentWithMedia, isPureImageRequest, varyImagePrompt, initMediaApi, findMediaModel } from "../../engine/media/api.mjs";
 
 test("给我画个你的样子 会走图像意图", () => {
   const intents = detectMediaIntents("给我画个你的样子");
@@ -116,7 +116,7 @@ test("findMediaModel 出图优先 2.5，不拿列表里第一个 2.0 充数", ()
 });
 
 test("generateMediaAsync 必须把 prompt 变体交给 generateImage 并带进落盘对象", () => {
-  const src = readFileSync(join(dirname(fileURLToPath(import.meta.url)), "..", "..", "engine", "media-api.mjs"), "utf8");
+  const src = readFileSync(join(dirname(fileURLToPath(import.meta.url)), "..", "..", "engine", "media", "api.mjs"), "utf8");
   const start = src.indexOf("export async function generateMediaAsync");
   const fn = src.slice(start, start + 1600);
   assert.ok(fn.includes("varyImagePrompt"), "出图前必须打散固定词，避免平台缓存老图");
@@ -148,7 +148,7 @@ test("图片意图应保留用户要求的画幅，并传给旁路生图", () =>
   assert.equal(detectMediaIntents("制作一张16:9横版产品海报并生成图片")[0].size, "1472x832");
   assert.equal(detectMediaIntents("画一张9:16竖版手机封面图")[0].size, "832x1472");
   assert.equal(detectMediaIntents("帮我画一只猫")[0].size, undefined);
-  const src = readFileSync(join(dirname(fileURLToPath(import.meta.url)), "..", "..", "engine", "media-api.mjs"), "utf8");
+  const src = readFileSync(join(dirname(fileURLToPath(import.meta.url)), "..", "..", "engine", "media", "api.mjs"), "utf8");
   const start = src.indexOf("export async function generateMediaAsync");
   const fn = src.slice(start, start + 1700);
   assert.ok(fn.includes("drawnPrompt, intent.size"), "旁路生图必须把 intent.size 传给 generateImage");

@@ -1,7 +1,7 @@
 // 元枢会话连续性：打断也留痕，有历史就不许装新开。
 import { attachmentText, extractText } from "./session/utils.mjs";
-import { imageVerificationNotice } from "./image-dimensions.mjs";
-import { mediaDeliveryKey } from './media-embed.mjs';
+import { imageVerificationNotice } from "./media/dimensions.mjs";
+import { mediaDeliveryKey } from './media/embed.mjs';
 
 export function resumePersistenceState(entries = [], message, resume = false) {
   const state = { userPersisted: false, toolCallIds: new Set(), toolResultIds: new Set(), mediaKeys: new Set() };

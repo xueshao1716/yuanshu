@@ -41,7 +41,7 @@ test('视频适配器要把 seed 放进创建体（video-request 见到 src.seed
 });
 
 test('负向提示词要真的进图像请求体（给到才带，不给不带——不赌每家上游都认这个字段）', () => {
-  const src = fs.readFileSync(new URL('../../engine/media-api.mjs', import.meta.url), 'utf8');
+  const src = fs.readFileSync(new URL('../../engine/media/api.mjs', import.meta.url), 'utf8');
   const fn = src.slice(src.indexOf('export async function generateImage'), src.indexOf('export async function handleImage'));
   assert.match(fn, /seed != null \? \{ seed \}/, '图像请求体要带 seed');
   assert.match(fn, /negative \? \{ negative_prompt: negative \}/, '负向要走 negative_prompt，且只在真有值时带');

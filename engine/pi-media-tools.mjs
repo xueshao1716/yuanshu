@@ -1,5 +1,5 @@
 // pi 主驾的宿主媒体工具：和统一通道同一套密文执行器，首轮就能出片。
-import { MEDIA_TOOL_SCHEMAS, createMediaToolExecutor } from "./media-channels.mjs";
+import { MEDIA_TOOL_SCHEMAS, createMediaToolExecutor } from "./media/channels.mjs";
 
 export const PI_MEDIA_TOOL_NAMES = MEDIA_TOOL_SCHEMAS.map((s) => s.function.name);
 

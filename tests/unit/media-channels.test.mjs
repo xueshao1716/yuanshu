@@ -11,7 +11,7 @@ import {
   listHostChannels,
   formatSensitiveHint,
   createMediaToolExecutor,
-} from "../../engine/media-channels.mjs";
+} from "../../engine/media/channels.mjs";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..", "..");
 

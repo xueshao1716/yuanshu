@@ -1,7 +1,7 @@
 // 宿主密文通道：对话模型不见明文密钥，但能用已配置的图/视频/配音干活。
 // 密钥仍只活在 resolveAuth / generateMediaAsync 里。
-import { resolveImageRequest } from './image-request.mjs';
-import { imageVerificationNotice } from './image-dimensions.mjs';
+import { resolveImageRequest } from './request.mjs';
+import { imageVerificationNotice } from './dimensions.mjs';
 
 export const MEDIA_TOOL_SCHEMAS = [
   {
@@ -105,7 +105,7 @@ export function createMediaToolExecutor(deps = {}) {
     let prompt = String(args.prompt || args.text || "").trim();
     if (name === "generate_image" && String(args.subject || "").toLowerCase() === "self") {
       try {
-        const { buildSelfPortraitPrompt, seedLookFile } = await import("./persona-look.mjs");
+        const { buildSelfPortraitPrompt, seedLookFile } = await import("../persona-look.mjs");
         const root = deps.wsRoot || ".";
         seedLookFile(root);
         prompt = buildSelfPortraitPrompt({ wsRoot: root, extra: prompt });

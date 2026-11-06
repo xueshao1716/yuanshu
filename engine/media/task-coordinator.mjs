@@ -1,5 +1,5 @@
-import { createVoiceTaskStore, validateSubmission, terminal, fail, copy } from './voice-task-store.mjs'
-import { reconcileTask, hasCapacity, deliverTask, admissionForTask } from './voice-task-scheduler.mjs'
+import { createVoiceTaskStore, validateSubmission, terminal, fail, copy } from './task-store.mjs'
+import { reconcileTask, hasCapacity, deliverTask, admissionForTask } from './task-scheduler.mjs'
 
 // Journal transactions never await external I/O. In-process per-task claims span
 // adapters; independent task work, submit, list and stop remain available.

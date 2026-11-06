@@ -1,5 +1,5 @@
 import { randomBytes, createHash, timingSafeEqual } from 'node:crypto'
-import { voiceModelDefinition } from './voice-model-registry.mjs'
+import { voiceModelDefinition } from './media/model-registry.mjs'
 
 const hash = value => createHash('sha256').update(value || '').digest('hex')
 const matches = (a, b) => typeof a === 'string' && typeof b === 'string' && !!b &&

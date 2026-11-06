@@ -13,7 +13,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { createStoryOrchestrator, videoPollWindowMs } from '../../engine/story/orchestrator.mjs';
 import { createVideoAdapter } from '../../engine/story/adapters.mjs';
-import { videoPollPlan, generateImage, initMediaApi } from '../../engine/media-api.mjs';
+import { videoPollPlan, generateImage, initMediaApi } from '../../engine/media/api.mjs';
 import { createProject, writeProject, sweepInterruptedRuns, sweepInterruptedRunsInProject } from '../../engine/story/store.mjs';
 
 const VIDEO_CAPS = { video: true, reference: true, keyframe: true, seed: true };

@@ -1,4 +1,4 @@
-import { extractPlayableMedia } from './media-embed.mjs';
+import { extractPlayableMedia } from './media/embed.mjs';
 
 function readOnlyTool(tool) {
   if (tool?.name === 'read') return true;

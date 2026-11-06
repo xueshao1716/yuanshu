@@ -151,7 +151,7 @@ test("交付路径不得再静默吞掉本地化失败", () => {
   assert.ok(!/try\s*\{\s*mr\.url = await saveArtifact\(mr\);\s*\}\s*catch\s*\{\s*\}/.test(chat),
     "unified-chat.mjs 不得再静默吞掉本地化失败");
   assert.match(chat, /localizeError/, "unified-chat.mjs 必须把未本地化告诉用户");
-  const media = read("engine", "media-api.mjs");
+  const media = read("engine", "media", "api.mjs");
   assert.ok(!/saveArtifact\([^;]*\)\.catch\(\(\) => null\)/.test(media),
     "media-api.mjs 不得再用 .catch(() => null) 吞掉本地化失败");
   assert.match(media, /localizeError/, "media-api.mjs 必须回报未本地化");

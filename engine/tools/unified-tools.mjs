@@ -42,7 +42,7 @@ async function lockedWrite(targetPath, argsPath, run) {
     throw error;
   }
 }
-import { formatSensitiveHint } from "../media-channels.mjs";
+import { formatSensitiveHint } from "../media/channels.mjs";
 import { yuanshuExecutor } from "../yuanshu-loop.mjs";
 import { execFileAbortable, toolInterruption } from "../yuanshu-stability.mjs";
 import { withUtf8CodePage, decodeWindowsOutput, looksMojibake, riskyForCmdShell } from "../windows-shell.mjs";

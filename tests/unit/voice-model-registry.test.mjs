@@ -5,9 +5,9 @@ import { once } from 'node:events';
 import fs from 'node:fs';
 import vm from 'node:vm';
 import * as api from '../../engine/chat-voice-api.mjs';
-import { createVoiceTaskAuthorizer } from '../../engine/voice-task-auth.mjs';
+import { createVoiceTaskAuthorizer } from '../../engine/media/task-auth.mjs';
 
-const modules = () => import('../../engine/voice-model-registry.mjs').catch(() => ({}));
+const modules = () => import('../../engine/media/model-registry.mjs').catch(() => ({}));
 const modelKey = 'stepfun-plan/stepaudio-2.5-realtime';
 
 test('server voice registry wiring initializes and rechecks raw model disable flags', async () => {

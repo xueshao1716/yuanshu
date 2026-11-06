@@ -8,7 +8,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
-import { detectMediaIntents, isFollowUpDrawRequest, extractMediaPrompt } from '../../engine/media-api.mjs';
+import { detectMediaIntents, isFollowUpDrawRequest, extractMediaPrompt } from '../../engine/media/api.mjs';
 
 test('④ 续画意图：上一轮出过图时，"再换个词的出一下"要认出来（真机原话）', () => {
   const real = '这个就有那么点意思，不管字对不对，效果对了，再换个词的出一下';

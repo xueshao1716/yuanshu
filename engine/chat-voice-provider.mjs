@@ -1,6 +1,6 @@
 import WebSocket from 'ws'
 import { speechVoice } from './speech-voice.mjs'
-import { voiceModelDefinition } from './voice-model-registry.mjs'
+import { voiceModelDefinition } from './media/model-registry.mjs'
 
 export const voiceSession = {
   modalities: ['text', 'audio'], voice: speechVoice.id, input_audio_format: 'pcm16', output_audio_format: 'pcm16',

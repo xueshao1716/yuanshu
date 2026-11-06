@@ -2,7 +2,7 @@ import { httpBufferFetch } from './http.mjs';
 import { json } from './http-utils.mjs';
 import { speechVoice } from './speech-voice.mjs';
 import { streamReplyTts } from './reply-tts-stream.mjs';
-import { observeMediaRequest, recordMediaFailure } from './media-observations.mjs';
+import { observeMediaRequest, recordMediaFailure } from './media/observations.mjs';
 
 const MODEL = 'stepaudio-2.5-tts';
 const VOICE = speechVoice.id;

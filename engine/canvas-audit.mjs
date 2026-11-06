@@ -11,8 +11,8 @@
 
 import fs from 'node:fs';
 import path from 'node:path';
-import { readImageDimensions, verifyImageDimensions } from './image-dimensions.mjs';
-import { imageStats, looksEmpty } from './image-stats.mjs';
+import { readImageDimensions, verifyImageDimensions } from './media/dimensions.mjs';
+import { imageStats, looksEmpty } from './media/stats.mjs';
 
 export const AUDIT_LEVELS = ['error', 'warn', 'info'];
 const MAX_TEXT = 2000;

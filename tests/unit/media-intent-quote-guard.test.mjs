@@ -2,7 +2,7 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { createRequire } from 'node:module'
 // engine 是 ESM，直接 import
-const { detectMediaIntents } = await import(new URL('../../engine/media-api.mjs', import.meta.url))
+const { detectMediaIntents } = await import(new URL('../../engine/media/api.mjs', import.meta.url))
 
 test('贴文污染防护：复制界面文本的长贴文即使夹带"做个图"也不触发自动出图', () => {
   const quoted = `语

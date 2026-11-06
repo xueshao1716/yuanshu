@@ -4,8 +4,8 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { directMediaMode, seedMediaMode } from "../../engine/media-mode.mjs";
-import { createMediaToolExecutor } from "../../engine/media-channels.mjs";
+import { directMediaMode, seedMediaMode } from "../../engine/media/mode.mjs";
+import { createMediaToolExecutor } from "../../engine/media/channels.mjs";
 
 const ws = () => fs.mkdtempSync(path.join(os.tmpdir(), "mmode-"));
 

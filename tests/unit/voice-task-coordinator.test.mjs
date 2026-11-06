@@ -6,7 +6,7 @@ import path from 'node:path'
 import { createRunStore } from '../../engine/run-store.mjs'
 import { createRunEventLog } from '../../engine/run-event-log.mjs'
 import { createRunManager } from '../../engine/run-manager.mjs'
-const module = await import('../../engine/voice-task-coordinator.mjs').catch(() => ({}))
+const module = await import('../../engine/media/task-coordinator.mjs').catch(() => ({}))
 const advance = () => new Promise(resolve => setImmediate(resolve))
 const deferred = () => { let resolve; const promise = new Promise(r => { resolve = r }); return { promise, resolve } }
 const tasks = [{ title: 'Draft', instruction: 'Write the draft' }, { title: 'Review', instruction: 'Review it', dependsOn: [0] }]

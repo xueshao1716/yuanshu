@@ -2,8 +2,8 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { defaultFallbackAgentDir } from '../engine/pi-compat-fallback.mjs';
-import { initMediaApi, generateMediaAsync } from '../engine/media-api.mjs';
-import { createMediaToolExecutor } from '../engine/media-channels.mjs';
+import { initMediaApi, generateMediaAsync } from '../engine/media/api.mjs';
+import { createMediaToolExecutor } from '../engine/media/channels.mjs';
 const dir = defaultFallbackAgentDir();
 const auth = JSON.parse(fs.readFileSync(path.join(dir, 'auth.json'), 'utf8'));
 const store = JSON.parse(fs.readFileSync(path.join(dir, 'models-store.json'), 'utf8'));

@@ -11,7 +11,7 @@ import {
   lastPartialAssistantText,
   toolCallLoopKey,
 } from "../../engine/unified-chat.mjs";
-import { detectMediaIntents, mediaAwarePrompt } from "../../engine/media-api.mjs";
+import { detectMediaIntents, mediaAwarePrompt } from "../../engine/media/api.mjs";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..", "..");
 

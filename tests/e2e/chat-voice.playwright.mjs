@@ -6,7 +6,7 @@ import path from 'node:path'
 import http from 'node:http'
 import https from 'node:https'
 import { chromium } from 'playwright'
-import { DEFAULT_VOICE_MODEL, voiceModelDefinition } from '../../engine/voice-model-registry.mjs'
+import { DEFAULT_VOICE_MODEL, voiceModelDefinition } from '../../engine/media/model-registry.mjs'
 
 const root = path.resolve(import.meta.dirname, '../..')
 const dist = path.resolve(root, process.env.YUANSHU_VOICE_DIST || 'tmp/verification-dist')

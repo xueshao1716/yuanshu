@@ -2,8 +2,8 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import http from 'node:http'
 import { voiceRuntimeFixture } from '../helpers/voice-runtime-fixture.mjs'
-import { createVoiceTaskRuntime } from '../../engine/voice-task-runtime.mjs'
-import { createVoiceTaskApi } from '../../engine/voice-task-api.mjs'
+import { createVoiceTaskRuntime } from '../../engine/media/task-runtime.mjs'
+import { createVoiceTaskApi } from '../../engine/media/task-api.mjs'
 import { json, readBody } from '../../engine/http-utils.mjs'
 
 async function fixture(t) {

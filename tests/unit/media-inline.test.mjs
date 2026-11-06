@@ -14,7 +14,7 @@ import path from 'node:path';
 import {
   materializeMedia, materializeVideoBody, isDirectMedia, resolveLocalMedia, mimeFor,
   MEDIA_MAX_BYTES, MEDIA_KEYS,
-} from '../../engine/media-inline.mjs';
+} from '../../engine/media/inline.mjs';
 import { localPathFromArtifactUrl } from '../../engine/story/film.mjs';
 
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'yuanshu-media-inline-'));
@@ -118,15 +118,16 @@ test('MEDIA_KEYS 必须覆盖 video-request 会转发的全部 media 字段', ()
 });
 
 test('localPathFromArtifactUrl 是复用的那一份实现，不是又抄了一遍解析', () => {
-  const src = fs.readFileSync(new URL('../../engine/media-inline.mjs', import.meta.url), 'utf8');
-  assert.match(src, /from '\.\/story-film\.mjs'/, '同一个解析规则只该有一份，抄第二份就会各自漂移');
+  const src = fs.readFileSync(new URL('../../engine/media/inline.mjs', import.meta.url), 'utf8');
+  // 2026-11-06：story 已迁到 engine/story/，引用形式随之变化
+  assert.match(src, /from '\.\.\/story\/film\.mjs'/, '同一个解析规则只该有一份，抄第二份就会各自漂移');
   assert.equal(localPathFromArtifactUrl(urlFor(png), wsRoot), png);
 });
 
 // 出口契约：这两个函数是元枢把 media 交给上游的**仅有的两条路**，
 // 谁把落地那一步漏掉，同样的 400 就会从另一条路回来。
 test('upstream 出口必须都做 media 落地：视频创建体与图像参考图', () => {
-  const src = fs.readFileSync(new URL('../../engine/media-api.mjs', import.meta.url), 'utf8');
+  const src = fs.readFileSync(new URL('../../engine/media/api.mjs', import.meta.url), 'utf8');
   const start = src.slice(src.indexOf('export async function startVideoJob'), src.indexOf('export async function checkVideoJob'));
   assert.match(start, /materializeVideoBody\(/, '视频创建体必须先落地再 POST —— 直接把元枢地址发出去就是那个 400');
   const img = src.slice(src.indexOf('export async function generateImage'), src.indexOf('export async function handleImage'));

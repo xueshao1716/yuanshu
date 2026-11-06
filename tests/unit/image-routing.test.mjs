@@ -1,10 +1,10 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import http from 'node:http';
-import { initMediaApi, generateMediaAsync, assistantContentWithMedia, mediaReadyNotice } from '../../engine/media-api.mjs';
-import { imageCandidates, runImageCandidates } from '../../engine/image-routing.mjs';
+import { initMediaApi, generateMediaAsync, assistantContentWithMedia, mediaReadyNotice } from '../../engine/media/api.mjs';
+import { imageCandidates, runImageCandidates } from '../../engine/media/routing.mjs';
 import { sdkSafeAssistantBlocks } from '../../engine/yuanshu-session.mjs';
-import { createMediaToolExecutor, MEDIA_TOOL_SCHEMAS } from '../../engine/media-channels.mjs';
+import { createMediaToolExecutor, MEDIA_TOOL_SCHEMAS } from '../../engine/media/channels.mjs';
 
 const models = [
   { provider: 'agnes', id: 'agnes-image-2.5-flash', capabilities: { image: true } },

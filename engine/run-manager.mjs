@@ -1,7 +1,7 @@
 import { EventEmitter } from 'node:events'
 import { deriveRunObservability } from './run-observability.mjs'
 import { createBackgroundRecovery, newRecoveryPolicy, RUN_SLICE_MS } from './run-recovery.mjs'
-import { admitVoiceRun } from './voice-run-admission.mjs'
+import { admitVoiceRun } from './media/run-admission.mjs'
 import { createRunExecutionIdentity, isMotherExecutionCandidate } from './run-execution-identity.mjs'
 
 const TERMINAL = new Set(['completed', 'failed', 'stopped', 'interrupted'])

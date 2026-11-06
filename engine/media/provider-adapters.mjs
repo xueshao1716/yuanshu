@@ -1,7 +1,7 @@
 // Provider-specific image protocols shared by chat, stories and workshops.
 import { setTimeout as delay } from 'node:timers/promises';
-import { httpJsonFetch, httpBufferFetch } from './http.mjs';
-import { observeMediaRequest, recordMediaFailure, readMediaJson } from './media-observations.mjs';
+import { httpJsonFetch, httpBufferFetch } from '../http.mjs';
+import { observeMediaRequest, recordMediaFailure, readMediaJson } from './observations.mjs';
 
 export function imageProviderSize(provider, modelId, size = '1024x1024') {
   if (provider !== 'volces-ark' || !/seedream/i.test(modelId)) return size;

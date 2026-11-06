@@ -27,7 +27,7 @@ test("旁路要记下完整提示词，列表不能把 json 当成作品", () =>
 });
 
 test("出图落盘必须带上 prompt，否则往期填不回提示词", () => {
-  const src = readFileSync(join(ROOT, "engine", "media-api.mjs"), "utf8");
+  const src = readFileSync(join(ROOT, "engine", "media", "api.mjs"), "utf8");
   const fn = src.slice(src.indexOf("export async function handleImageWithSave"));
   assert.ok(fn.includes("prompt"), "saveArtifact 得出图提示词");
 });

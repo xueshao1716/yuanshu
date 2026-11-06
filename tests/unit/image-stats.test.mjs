@@ -2,7 +2,7 @@
 // 来源：Huashu-motion 自检清单；本机实证：今天 B 那张空黑图 stddev=1.64 被抓出，白球图 stddev=30.7 正常。
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { statsFromGray, looksEmpty, EMPTY_STDDEV } from '../../engine/image-stats.mjs'
+import { statsFromGray, looksEmpty, EMPTY_STDDEV } from '../../engine/media/stats.mjs'
 
 const uniform = (v, n = 1024) => Buffer.alloc(n, v)
 const gradient = (n = 1024) => Buffer.from(Array.from({ length: n }, (_, i) => Math.round((i / n) * 255)))

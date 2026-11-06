@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto'
-import { validateSubmission } from './voice-task-store.mjs'
+import { validateSubmission } from './media/task-store.mjs'
 
 export const taskTools = [
   { type: 'function', function: { name: 'propose_tasks', description: '提出元枢任务供用户在页面确认；调用不等于受理，不可声称已执行。', parameters: {

@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import http from 'node:http';
-import { initMediaApi, generateImage, handleImage, generateVideo, startVideoJob } from '../../engine/media-api.mjs';
+import { initMediaApi, generateImage, handleImage, generateVideo, startVideoJob } from '../../engine/media/api.mjs';
 
 async function fixture(t, respond) {
   const requests = [];

@@ -1,20 +1,20 @@
 // engine/media-api.mjs —— 媒体生成：图像/视频/TTS（2026-08-20 从 server.mjs 拆出）
 // 依赖注入：initMediaApi({ resolveAuth, readJsonFile, modelsPath, getModelList })
-import { json } from "./http-utils.mjs";
-import { httpJsonFetch, httpBufferFetch } from "./http.mjs";
-import { effectiveCapabilities } from '../shared/model-capabilities.mjs';
-import { saveArtifact, WS_ROOT } from "./workspace-api.mjs"; // saveArtifact 定义在 workspace-api（工作空间块拆分时随走）
-import { videoCreateBody, videoPollPath, repairVideoRequest, decodeAgnesVideoId } from "./video-request.mjs";
-import { materializeMedia, materializeVideoBody } from "./media-inline.mjs";
-import { extractPlayableMedia } from "./media-embed.mjs";
-import { colorCardStyleLine, hasColorCardMark } from "./color-cards.mjs";
-import { currentColorCard } from "./color-prefs.mjs";
-import { resolveImageRequest } from './image-request.mjs';
-import { verifyImageDimensions, imageVerificationNotice } from './image-dimensions.mjs';
-import { imageCandidates, runImageCandidates } from './image-routing.mjs';
-import { generateProviderImage, imageProviderSize } from './image-provider-adapters.mjs';
+import { json } from "../http-utils.mjs";
+import { httpJsonFetch, httpBufferFetch } from "../http.mjs";
+import { effectiveCapabilities } from '../../shared/model-capabilities.mjs';
+import { saveArtifact, WS_ROOT } from "../workspace-api.mjs"; // saveArtifact 定义在 workspace-api（工作空间块拆分时随走）
+import { videoCreateBody, videoPollPath, repairVideoRequest, decodeAgnesVideoId } from "../video-request.mjs";
+import { materializeMedia, materializeVideoBody } from "./inline.mjs";
+import { extractPlayableMedia } from "./embed.mjs";
+import { colorCardStyleLine, hasColorCardMark } from "../color-cards.mjs";
+import { currentColorCard } from "../color-prefs.mjs";
+import { resolveImageRequest } from './request.mjs';
+import { verifyImageDimensions, imageVerificationNotice } from './dimensions.mjs';
+import { imageCandidates, runImageCandidates } from './routing.mjs';
+import { generateProviderImage, imageProviderSize } from './provider-adapters.mjs';
 import { setTimeout as delay } from 'node:timers/promises';
-import { observeMediaRequest, recordMediaFailure, readMediaJson } from './media-observations.mjs';
+import { observeMediaRequest, recordMediaFailure, readMediaJson } from './observations.mjs';
 
 let _resolveAuth = null, _readJsonFile = null, _modelsPath = "", _authPath = "", _getModelList = () => [];
 export function initMediaApi({ resolveAuth = null, readJsonFile = null, modelsPath = "", authPath = "", getModelList = null } = {}) {
@@ -91,7 +91,7 @@ export function detectMediaIntents(message, ctx = {}) {
   }
   return intents;
 }
-import { buildSelfPortraitPrompt, isSelfPortraitAsk as _isSelfPortraitAsk, seedLookFile, FALLBACK_LOOK } from "./persona-look.mjs";
+import { buildSelfPortraitPrompt, isSelfPortraitAsk as _isSelfPortraitAsk, seedLookFile, FALLBACK_LOOK } from "../persona-look.mjs";
 
 // 2026-10-28：不再写死——只作最后兜底；真正的提示词由 persona-look 从 记忆/外观.md + 人格定义.json 拼出来
 const XIAOYU_PORTRAIT_PROMPT = FALLBACK_LOOK;

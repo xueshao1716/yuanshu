@@ -1,8 +1,8 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import * as embed from '../../engine/media-embed.mjs';
-import { createMediaToolExecutor, MEDIA_TOOL_SCHEMAS } from '../../engine/media-channels.mjs';
-import { detectMediaIntents } from '../../engine/media-api.mjs';
+import * as embed from '../../engine/media/embed.mjs';
+import { createMediaToolExecutor, MEDIA_TOOL_SCHEMAS } from '../../engine/media/channels.mjs';
+import { detectMediaIntents } from '../../engine/media/api.mjs';
 
 test('tool media: old paths from read/bash never become attachments; explicit successful media has provenance', () => {
   assert.equal(typeof embed.explicitToolMedia, 'function');

@@ -1,5 +1,5 @@
 import path from 'node:path';
-import { readImageDimensions } from './image-dimensions.mjs';
+import { readImageDimensions } from './media/dimensions.mjs';
 
 // Structural observations only: no network, code execution, or claim of task quality.
 export function inspectArtifactBytes(file, bytes) {

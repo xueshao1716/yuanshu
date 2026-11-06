@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { resolveImageRequest } from '../../engine/image-request.mjs';
+import { resolveImageRequest } from '../../engine/media/request.mjs';
 
 test('explicit parameters outrank prose and valid custom ratios work with size', () => {
   assert.equal(resolveImageRequest({ size: '1024×1536' }, 'square 1:1').size, '1024x1536');

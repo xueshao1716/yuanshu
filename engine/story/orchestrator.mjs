@@ -22,10 +22,10 @@ import { dialogueAudit, auditEngine, buildDialogueDoctorPrompt, parseDialogueDoc
 import { parseDialogueLines } from './screenplay.mjs';
 import { lintStoryProject } from './lint.mjs';
 import { concatClips, filmPlan, filmPlanWithDurations, localPathFromArtifactUrl } from './film.mjs';
-import { materializeMedia } from '../media-inline.mjs';
+import { materializeMedia } from '../media/inline.mjs';
 // seed 的合法区间由上游接口决定（Agnes 图像是 -1..999），权威定义在 media-api 里——
 // 编排层不许自己猜一个范围：上一版就是自己掷了个 2^31 的数，把画面生成全线打挂。
-import { SEED_RANGE, clampSeed } from '../media-api.mjs';
+import { SEED_RANGE, clampSeed } from '../media/api.mjs';
 import { listRecipes, saveRecipe, deleteRecipe, importRecipes, exportRecipes, normalizeRefStrategy } from './recipes.mjs';
 import { buildStorySoFar, contextBudget } from './context.mjs';
 import { renderScript, scriptStats, SCRIPT_FORMATS } from './screenplay.mjs';

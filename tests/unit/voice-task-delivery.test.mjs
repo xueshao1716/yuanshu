@@ -5,7 +5,7 @@ import os from 'node:os'
 import path from 'node:path'
 import { randomUUID } from 'node:crypto'
 import { createPiCompatFallback } from '../../engine/pi-compat-fallback.mjs'
-import { createVoiceTaskDelivery, ensureVoiceTaskSession } from '../../engine/voice-task-delivery.mjs'
+import { createVoiceTaskDelivery, ensureVoiceTaskSession } from '../../engine/media/task-delivery.mjs'
 import { createIdleSessionWriter } from '../../engine/idle-session-writer.mjs'
 const NL = String.fromCharCode(10)
 function fixture(t) {

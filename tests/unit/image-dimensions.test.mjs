@@ -1,8 +1,8 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import http from 'node:http';
-import { initMediaApi, generateMediaAsync } from '../../engine/media-api.mjs';
-import { readImageDimensions, verifyImageDimensions } from '../../engine/image-dimensions.mjs';
+import { initMediaApi, generateMediaAsync } from '../../engine/media/api.mjs';
+import { readImageDimensions, verifyImageDimensions } from '../../engine/media/dimensions.mjs';
 
 function pngHeader(width, height) {
   const b = Buffer.alloc(24);

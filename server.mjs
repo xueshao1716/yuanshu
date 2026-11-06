@@ -175,7 +175,7 @@ import { createGateway } from "./engine/gateway.mjs";
 import { sseWrite, createSseWriter, startSseHeartbeat } from "./engine/sse.mjs";
 import { json, readBody } from "./engine/http-utils.mjs";
 import { observeHttpRequest, respondHttpError } from "./engine/http-lifecycle.mjs";
-import { mediaObservations } from "./engine/media-observations.mjs";
+import { mediaObservations } from "./engine/media/observations.mjs";
 import { createRunStore } from "./engine/run-store.mjs";
 import { createRunEventLog } from "./engine/run-event-log.mjs";
 import { createRunManager } from "./engine/run-manager.mjs";
@@ -192,7 +192,7 @@ import { initWorkspaceApi, WS_ROOT, findWorkspaceFiles, wsSafePath, saveArtifact
 // 2026-11-02：自改作用于代码仓库（引擎/前端源码在这），不是工作区。
 const SELF_CHANGE_ROOT = process.env.PI_CODE_ROOT || "D:\\pi-web";
 import { initContextLoader, makeLoader, loadExperience, readRulesWithImports, loadContextRules, jitRulesForPath, loadProjectRules, loadSkillIndex, execActivateSkill, ACTIVATE_SKILL_TOOL, WORK_PROTOCOL, loadMemory, loadMemoryIndex, loadExperienceIndex, shouldInjectFullMemory, setLastUserQuery } from "./engine/context-loader.mjs";
-import { directMediaMode, seedMediaMode } from "./engine/media-mode.mjs";
+import { directMediaMode, seedMediaMode } from "./engine/media/mode.mjs";
 // 2026-10-28：模型指纹（服务端快照变化要能被归因）
 import { noteFingerprint, listFingerprints, fingerprintLine } from "./engine/model/fingerprint.mjs";
 // 2026-10-29：插件商店（技能包 / MCP 包）
@@ -206,10 +206,10 @@ import { runToolpackTool } from "./engine/toolpack-runtime.mjs";
 import { syncToolpacks, toolpacksInChat, setToolpacksInChat } from "./engine/toolpack-chat.mjs";
 import { listRuns as listBenchRuns, loadCases as loadBenchCases } from "./engine/behavior-bench.mjs";
 import { pruneBackups, listBackups, listVersions } from "./engine/plugin-store.mjs";
-import { initMediaApi, findMediaModel, detectMediaIntents, extractMediaPrompt, mediaAwarePrompt, mediaReadyNotice, explainMediaError, generateMediaAsync, generateTTS, generateImage, handleImage, handleImageWithSave, generateVideo, startVideoJob, checkVideoJob, handleMedia, assistantContentWithMedia } from "./engine/media-api.mjs";
-import { extractPlayableMedia } from "./engine/media-embed.mjs";
+import { initMediaApi, findMediaModel, detectMediaIntents, extractMediaPrompt, mediaAwarePrompt, mediaReadyNotice, explainMediaError, generateMediaAsync, generateTTS, generateImage, handleImage, handleImageWithSave, generateVideo, startVideoJob, checkVideoJob, handleMedia, assistantContentWithMedia } from "./engine/media/api.mjs";
+import { extractPlayableMedia } from "./engine/media/embed.mjs";
 import { formatSkillIndexPrompt, matchSkillsForTask } from "./engine/yuanshu-protocol.mjs";
-import { MEDIA_TOOL_SCHEMAS, mediaExtraExecutors, formatSensitiveHint, listHostChannels } from "./engine/media-channels.mjs";
+import { MEDIA_TOOL_SCHEMAS, mediaExtraExecutors, formatSensitiveHint, listHostChannels } from "./engine/media/channels.mjs";
 import { TODO_TOOL_SCHEMAS, todoExtraExecutors } from "./engine/yuanshu-todo.mjs";
 import { PLAN_FILES_SCHEMA, planFilesExtraExecutors, initYuanshuWorkmem } from "./engine/yuanshu-workmem.mjs";
 import { DELEGATE_TASK_TOOL, execDelegateTask, DELEGATE_FORK_TOOL, execDelegateFork } from "./engine/yuanshu-delegate.mjs";
@@ -227,12 +227,12 @@ import { initTuiBridge } from "./engine/tui-bridge.mjs";
 import { createVoiceSessionReader } from './engine/chat-voice-context.mjs';
 import { createVoiceAdmission } from './engine/chat-voice-admission.mjs';
 import { createVoiceTicketHandler, createVoiceModelsHandler } from './engine/chat-voice-api.mjs';
-import { createVoiceModelRegistry } from './engine/voice-model-registry.mjs';
+import { createVoiceModelRegistry } from './engine/media/model-registry.mjs';
 import { attachChatVoice } from './engine/chat-voice-bridge.mjs';
 import { createVoiceDiagnostics } from './engine/chat-voice-diagnostics.mjs';
-import { createVoiceTaskRuntime } from './engine/voice-task-runtime.mjs';
-import { createVoiceTaskApi } from './engine/voice-task-api.mjs';
-import { createVoiceTaskAuthorizer } from './engine/voice-task-auth.mjs';
+import { createVoiceTaskRuntime } from './engine/media/task-runtime.mjs';
+import { createVoiceTaskApi } from './engine/media/task-api.mjs';
+import { createVoiceTaskAuthorizer } from './engine/media/task-auth.mjs';
 import { connectVoiceProvider } from './engine/chat-voice-provider.mjs';
 import { listLingXi, addLingXi, setLingXi, removeLingXi } from "./engine/lingxi.mjs";
 import { initDshKeys, dshResolveBin, handleDshStatus, handleDshWebStart, handleKeysStatus, loadPolicies, toolMatch, policyDecide, handleKeysApply, handleKeysPresets, refreshModelList, handleModelsManage, handleModelsAdd, handleModelsDiscover, handleModelsVerify, KNOWN_PROVIDERS, PROVIDER_PRESETS, resolveAuth } from "./engine/dsh-keys.mjs";
@@ -6081,7 +6081,7 @@ const API_ROUTES = [
   // ── 外链图片代理（2026-10-12）：替代内置浏览器的图片通路，防盗链/混合内容/CSP 一次消除 ──
   ["GET", "/api/proxy/image", async (res, req, url) => {
     try {
-      const b = await import("./engine/image-proxy.mjs");
+      const b = await import("./engine/media/proxy.mjs");
       const { body, contentType } = await b.fetchProxiedImage(url.searchParams.get("url"));
       res.writeHead(200, { "Content-Type": contentType, "Cache-Control": "public, max-age=3600", "Content-Length": body.byteLength, "X-Content-Type-Options": "nosniff" });
       res.end(Buffer.from(body));
