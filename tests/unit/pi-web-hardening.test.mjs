@@ -63,7 +63,7 @@ test('endpoint resolution uses the configured remote API base', async () => {
 })
 
 test('host binding defaults to loopback and LAN mode is explicit', () => {
-  const script = "import { CONFIG } from '../../config.mjs'; console.log(CONFIG.host)"
+  const script = "import { CONFIG } from './config.mjs'; console.log(CONFIG.host)"
   const run = env => execFileSync(process.execPath, ['--input-type=module', '-e', script], {
     cwd: ROOT, encoding: 'utf8', env: { ...process.env, PI_WEB_HOST: '', PI_WEB_LAN: '', ...env },
   }).trim()
