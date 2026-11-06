@@ -76,10 +76,14 @@ function installViewportController() {
     updateBaseHeight()
     const height = effectiveHeight()
     const state = keyboardState()
-    document.documentElement.style.setProperty('--pi-viewport-height', `${height}px`)
+    // 2026-11-06：只有「真的聚焦在输入框里 + 有键盘 inset」才写 px 高度。
+    // 移动浏览器地址栏收起/展开也会让 visualViewport 变矮，那种情况不能当成键盘——
+    // 当成键盘就会把根节点压矮，底部导航浮起来、下方留一条空白。
+    const keyboardOpen = state.open && isTextEditorFocused()
+    if (keyboardOpen) document.documentElement.style.setProperty('--pi-viewport-height', `${height}px`)
+    else document.documentElement.style.removeProperty('--pi-viewport-height')
     document.documentElement.style.setProperty('--pi-keyboard-inset', `${state.inset}px`)
     document.documentElement.style.setProperty('--pi-native-keyboard-inset', `${nativeKeyboardInset}px`)
-    const keyboardOpen = state.open && isTextEditorFocused()
     document.documentElement.classList.toggle('keyboard-open', keyboardOpen)
     document.documentElement.classList.toggle('keyboard-overlay', keyboardOpen && state.overlay)
     document.documentElement.classList.toggle('keyboard-native', keyboardOpen && nativeKeyboardInset > 80)

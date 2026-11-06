@@ -2895,3 +2895,10 @@ html[data-theme="bridge"] { color-scheme: dark; }
     padding-bottom: max(env(safe-area-inset-bottom, 0px), 8px);
   }
 }
+
+/* 2026-11-06：流式生成中隐藏手机底部导航。
+   原因：点发送的瞬间 UI 会重渲染（发送键变停止键），pointerup 落到下面的「更多」按钮上，
+   一次点击同时触发发送和菜单。生成中本来也不该切页，隐藏最稳。 */
+@media (max-width: 768px) {
+  html.chat-streaming .mobile-tab-bar { display: none; }
+}

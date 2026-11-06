@@ -156,6 +156,13 @@ export default function ChatArea({ compactHeader, rightPanel, onRightPanel, onVo
   const sessionIdRef = useRef(currentSessionId)
   sessionIdRef.current = currentSessionId
   const [stream, setStream] = useViewState<StreamState | null>(viewOwner, null)
+  // 2026-11-06：流式期间隐藏手机底部导航——发送瞬间 UI 重渲染，pointerup 会落到下面的「更多」上
+  const streamActive = !!stream
+  useEffect(() => {
+    const root = document.documentElement
+    root.classList.toggle('chat-streaming', streamActive)
+    return () => root.classList.remove('chat-streaming')
+  }, [streamActive])
   const [confirm, setConfirm] = useState<any>(null) // 危险操作待确认：{ id, toolName, reason, args, sessionId }
   useEffect(() => { setConfirm(null) }, [currentSessionId])
   useEffect(() => {

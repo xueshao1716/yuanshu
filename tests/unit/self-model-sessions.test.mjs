@@ -38,3 +38,31 @@ test('会话计数：递归统计子目录，跳过归档与回收站（2026-10-
     else process.env.HOME = prev.HOME
   }
 })
+
+test('会话计数：多候选目录累加去重（2026-11-06 新口径）', () => {
+  // 构造：~/.pi/agent/sessions 有 2 段，wsRoot/sessions 有 1 段，互不重叠
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'self-model-multi-'))
+  const homeSessions = path.join(tmp, 'home', '.pi', 'agent', 'sessions')
+  const wsSessions = path.join(tmp, 'ws', 'sessions')
+  fs.mkdirSync(path.join(homeSessions, '--D--pi-web--'), { recursive: true })
+  fs.writeFileSync(path.join(homeSessions, '--D--pi-web--', 's1.jsonl'), '{}\n')
+  fs.writeFileSync(path.join(homeSessions, '--D--pi-web--', 's2.jsonl'), '{}\n')
+  fs.mkdirSync(wsSessions, { recursive: true })
+  fs.writeFileSync(path.join(wsSessions, 's3.jsonl'), '{}\n')
+  // wsRoot 下 .pi/agent/sessions 为空（第三候选路径）
+
+  const prev = { USERPROFILE: process.env.USERPROFILE, HOME: process.env.HOME }
+  process.env.USERPROFILE = path.join(tmp, 'home')
+  process.env.HOME = path.join(tmp, 'home')
+  try {
+    const model = buildSelfModel({ wsRoot: path.join(tmp, 'ws') })
+    // home 2 + ws 1 = 3（去重后各不重叠）
+    assert.equal(model.sessions, 3, `应数到 3 段（home 2 + ws 1），实际 ${model.sessions}`)
+  } finally {
+    if (prev.USERPROFILE === undefined) delete process.env.USERPROFILE
+    else process.env.USERPROFILE = prev.USERPROFILE
+    if (prev.HOME === undefined) delete process.env.HOME
+    else process.env.HOME = prev.HOME
+    fs.rmSync(tmp, { recursive: true, force: true })
+  }
+})

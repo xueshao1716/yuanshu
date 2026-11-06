@@ -51,18 +51,21 @@ function dirBirth(wsRoot) {
 // 现在递归统计，并跳过 .trash / 归档副本。
 function countSessions(wsRoot) {
   // 2026-10-24：会话在 sessions/<按 cwd 命名>/ 子目录里，必须递归收集（共享 helper，别再各写一份）
+  // 2026-11-06：改为累加所有候选目录（去重），不再只取第一个非零目录——
+  // 将来工作区本地也产生会话文件时不会漏算。
+  const home = process.env.USERPROFILE || process.env.HOME || '';
   const candidates = [
-    path.join(process.env.USERPROFILE || process.env.HOME || '', '.pi', 'agent', 'sessions'),
+    path.join(home, '.pi', 'agent', 'sessions'),
     path.join(wsRoot, '.pi', 'agent', 'sessions'),
     path.join(wsRoot, 'sessions'),
   ];
+  const seen = new Set();
   for (const dir of candidates) {
     try {
-      const n = collectSessionFiles(dir).length;
-      if (n > 0) return n;
-    } catch { /* 换下一个 */ }
+      for (const f of collectSessionFiles(dir)) seen.add(f);
+    } catch { /* 该目录不可读就跳过 */ }
   }
-  return 0;
+  return seen.size;
 }
 
 export function buildSelfModel({ wsRoot, now = new Date() } = {}) {
