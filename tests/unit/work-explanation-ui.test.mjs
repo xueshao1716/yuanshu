@@ -16,7 +16,7 @@ test('各入口共享工作说明，聊天按会话取数并保留回看入口',
   assert.ok(!chat.includes('lastRun'))
   const card = source('frontend/src/components/WorkExplanation.tsx')
   for (const token of ['verification', '尚无检查记录', '模型自报', '记忆写入', '<details', 'min-h-11', 'break-words']) assert.ok(card.includes(token), token)
-  assert.ok(!source('frontend/src/components/RunContextSummary.tsx').includes('记忆命中'))
+  assert.ok(!source('frontend/src/components/run/RunContextSummary.tsx').includes('记忆命中'))
 })
 
 test('引擎选择产生结构化记录，真实模型随执行记录输出', () => {

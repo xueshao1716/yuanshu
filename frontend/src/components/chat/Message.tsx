@@ -28,7 +28,7 @@ import { scrapeVideos, scrapeAudios, dedupeMediaUrls, mediaPathKey } from '../..
 import { artifactName, fileNameFromUrl } from '../../lib/artifact-name'
 import { fmtMsgTime } from '../../lib/fmt-time'
 import type { ChatMessage, RunningTool, ToolStatus } from '../../types'
-import { AgentWorkflow } from '../AgentWorkflow'
+import { AgentWorkflow } from '../run/AgentWorkflow'
 import { useProcessVisibility } from '../../hooks/useProcessVisibility'
 import ProcessVisibilityToggle from '../ProcessVisibilityToggle'
 import SpeechControls from '../voice/SpeechControls'

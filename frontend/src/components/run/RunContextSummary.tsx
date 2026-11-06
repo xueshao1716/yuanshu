@@ -1,6 +1,6 @@
 import { Brain, HeartPulse, Wrench } from 'lucide-react'
 import useSWR from 'swr'
-import { EmotionApi, type RunSummary } from '../api'
+import { EmotionApi, type RunSummary } from '../../api'
 
 export default function RunContextSummary({ run, sessionId, emotionOnly = false }: { run: RunSummary; sessionId: string; emotionOnly?: boolean }) {
   const { data } = useSWR(sessionId ? `emotion:${sessionId}` : null, () => EmotionApi.get(sessionId), { refreshInterval: 8000, revalidateOnFocus: false })

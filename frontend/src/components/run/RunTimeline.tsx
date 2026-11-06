@@ -1,5 +1,5 @@
 import { Check, Circle, LoaderCircle, TriangleAlert } from 'lucide-react'
-import type { RunPhase } from '../api'
+import type { RunPhase } from '../../api'
 
 const STEPS: { key: RunPhase; label: string }[] = [
   { key: 'thinking', label: '判断' },

@@ -22,7 +22,7 @@ test('task controls provide editable transcript, confirmation and persistent aut
   assert.ok(source.includes('RealtimeTasks'),'real task panel must be mounted')
   assert.ok(!source.includes('仅聊天，不执行电脑任务'))
   assert.ok(fs.readFileSync(new URL('../../frontend/src/components/voice/CallScreen.tsx',import.meta.url),'utf8').includes('交给元枢'))
-  const panel=fs.readFileSync(new URL('../../frontend/src/components/RealtimeTasks.tsx',import.meta.url),'utf8')
+  const panel=fs.readFileSync(new URL('../../frontend/src/components/run/RealtimeTasks.tsx',import.meta.url),'utf8')
   for(const text of ['确认执行','不执行','刷新任务','停止任务','textarea','maxLength={12000}','touch-hit','aria-live']) assert.ok(panel.includes(text),text)
   const api=fs.readFileSync(new URL('../../frontend/src/realtime/tasks.ts',import.meta.url),'utf8')
   assert.ok(api.includes('Authorization')); assert.ok(api.includes("cache: 'no-store'")); assert.ok(!api.includes('?token='))
@@ -37,6 +37,6 @@ test('recent history never hides pending confirmations or tasks still eligible t
   assert.ok(visible.length<=8)
   const tasks=[{id:'running',status:'running'},...Array.from({length:25},(_,i)=>({id:'t'+i,status:'completed'}))]
   assert.ok(mod.visibleTasks(tasks).some(t=>t.id==='running'))
-  const panel=fs.readFileSync(new URL('../../frontend/src/components/RealtimeTasks.tsx',import.meta.url),'utf8')
+  const panel=fs.readFileSync(new URL('../../frontend/src/components/run/RealtimeTasks.tsx',import.meta.url),'utf8')
   assert.ok(panel.includes('visibleProposals(proposals)'));assert.ok(panel.includes('visibleTasks(tasks)'))
 })

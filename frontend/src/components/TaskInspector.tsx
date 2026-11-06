@@ -15,7 +15,7 @@ import {
 } from 'lucide-react'
 import { GitReviewApi, RunApi, RunsApi, type GitReview, type GitReviewFile, type RunOverview, type RunSummary } from '../api'
 import { toast } from './shell/Toast'
-import RunTimeline from './RunTimeline'
+import RunTimeline from './run/RunTimeline'
 
 const PHASE_LABELS: Record<string, string> = {
   queued: '排队中',

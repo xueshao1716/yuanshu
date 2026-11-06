@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { ArrowUpRight, TriangleAlert } from 'lucide-react'
 import type { RunOverview } from '../../api'
-import RunTimeline from '../RunTimeline'
+import RunTimeline from '../run/RunTimeline'
 import WorkExplanation from '../WorkExplanation'
 
 export default function EngineRunDiagnostics({ data, error, onOpenSession }: { data?: RunOverview; error?: unknown; onOpenSession: (id: string) => void }) {

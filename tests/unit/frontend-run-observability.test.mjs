@@ -15,6 +15,6 @@ test('Board consumes RunApi overview and renders shared work explanations', () =
 })
 
 test('shared run components expose accessible phase and health labels', () => {
-  assert.match(read('frontend/src/components/RunTimeline.tsx'), /aria-label={`运行阶段：\$\{phase\}`}/)
-  assert.match(read('frontend/src/components/HealthBadge.tsx'), /状态正常/)
+  assert.match(read('frontend/src/components/run/RunTimeline.tsx'), /aria-label={`运行阶段：\$\{phase\}`}/)
+  assert.match(read('frontend/src/components/run/HealthBadge.tsx'), /状态正常/)
 })

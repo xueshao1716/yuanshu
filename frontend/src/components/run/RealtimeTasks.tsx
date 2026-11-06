@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
-import { listVoiceTasks, stopVoiceTask, type VoiceTask } from '../realtime/tasks'
-import { canStopTask, taskStatusText, visibleProposals, visibleTasks } from '../realtime/task-state.mjs'
+import { listVoiceTasks, stopVoiceTask, type VoiceTask } from '../../realtime/tasks'
+import { canStopTask, taskStatusText, visibleProposals, visibleTasks } from '../../realtime/task-state.mjs'
 
 type Proposal = { id: string; status: string; tasks: { title: string; instruction: string; dependsOn?: number[] }[] }
 type Props = { sessionId?: string | null; ready: boolean; proposals: Proposal[]; notice: string; revision: number

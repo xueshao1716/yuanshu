@@ -30,7 +30,7 @@ test('chat run status consumes overview and renders shared explanation with stop
 })
 
 test('run context summary exposes memory, emotion, and tool labels safely', () => {
-  const summary = read('frontend/src/components/RunContextSummary.tsx')
+  const summary = read('frontend/src/components/run/RunContextSummary.tsx')
   const status = read('frontend/src/components/chat/ChatRunStatus.tsx')
 
   assert.match(summary, /记忆|memory/i)
