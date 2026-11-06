@@ -5,9 +5,9 @@ import os from "node:os";
 import path from "node:path";
 import { execFileSync, spawn } from "node:child_process";
 import { json, readBody } from "./http-utils.mjs";
-import { modelCapabilities, effectiveCapabilities } from "./model-probe.mjs";
-import { createModelOnboarding } from './model-onboarding.mjs';
-import { buildModelCatalog } from './model-catalog.mjs';
+import { modelCapabilities, effectiveCapabilities } from "./model/probe.mjs";
+import { createModelOnboarding } from './model/onboarding.mjs';
+import { buildModelCatalog } from './model/catalog.mjs';
 import { denyCheckSegments } from './tools/security.mjs';
 
 // 支持的 provider 清单（模型管理下拉）；随块从 server.mjs 迁入

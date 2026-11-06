@@ -1,7 +1,7 @@
 // 模型路由层单测（2026-08-19 拆模块；08-20 健康冷却泛化 + 千问下架链路更新验证）
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { initModelRouter, classifyTaskComplexity, routeForAuto, routeProCandidate, isAutoModel, isOcGoBlocked, markOcGoBlocked, ocGoCandidate, pickFallbackDefault, markModelBlocked, isModelBlocked, resetModelHealth, pickFallbackExcluding, markSticky, routeSticky } from "../../engine/model-router.mjs";
+import { initModelRouter, classifyTaskComplexity, routeForAuto, routeProCandidate, isAutoModel, isOcGoBlocked, markOcGoBlocked, ocGoCandidate, pickFallbackDefault, markModelBlocked, isModelBlocked, resetModelHealth, pickFallbackExcluding, markSticky, routeSticky } from "../../engine/model/router.mjs";
 
 // 构造假模型池（2026-09-10 链路：agnes 主力 / 商汤小米 nvidia 兜底 / ark 已下架移除）
 const makePool = () => [

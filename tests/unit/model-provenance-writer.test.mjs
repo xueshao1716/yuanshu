@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { withModelProvenance } from '../../engine/model-provenance-writer.mjs';
+import { withModelProvenance } from '../../engine/model/provenance-writer.mjs';
 
 test('selected model is not an answer; done retains the last successful replacement', () => {
   const events = [], requested = { provider: 'p', id: 'flagship' }, replacement = { provider: 'q', id: 'backup' };

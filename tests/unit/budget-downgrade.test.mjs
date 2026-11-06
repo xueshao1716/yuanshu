@@ -5,7 +5,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { initModelRouter, pickBudgetDowngrade, markModelBlocked, resetModelHealth } from "../../engine/model-router.mjs";
+import { initModelRouter, pickBudgetDowngrade, markModelBlocked, resetModelHealth } from "../../engine/model/router.mjs";
 import { readBudget, checkBudget } from "../../engine/token-budget.mjs";
 
 const M = (provider, id, cost = {}) => ({ provider, id, name: id, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, ...cost } });

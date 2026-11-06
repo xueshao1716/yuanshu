@@ -1,7 +1,7 @@
-import { httpJsonFetch, sessionAffinityHeaders } from './http.mjs';
-import { catalogHeaders, modelEndpoint, normalizeModelBase, modelProbeError } from './model-endpoints.mjs';
-import { maxTokensFieldOf } from './output-budget.mjs';
-import { isTextModel } from '../shared/model-capabilities.mjs';
+import { httpJsonFetch, sessionAffinityHeaders } from '../http.mjs';
+import { catalogHeaders, modelEndpoint, normalizeModelBase, modelProbeError } from './endpoints.mjs';
+import { maxTokensFieldOf } from '../output-budget.mjs';
+import { isTextModel } from '../../shared/model-capabilities.mjs';
 
 // Explicit, bounded text check only. Never silently switches model or generates media.
 export async function verifyTextModel(model, key, { httpFetch = httpJsonFetch, timeoutMs } = {}) {

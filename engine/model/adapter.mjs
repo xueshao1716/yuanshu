@@ -5,12 +5,12 @@
 //   自动适配：baseUrl 带不带 /v1、reasoning_effort 降级重试、5xx 重试、流式关闭。
 // 依赖注入：httpFetch 由宿主注入（元枢注入 httpJsonFetch 以复用系统代理栈），
 //   不注入则用 Node 原生 fetch（Node 25+）。
-import { modelEndpoint } from './model-endpoints.mjs';
-import { normalizeToolArgs, normalizeToolCallArguments } from "./tool-args.mjs";
-import { describeHttpError, sessionAffinityHeaders } from "./http.mjs";
-import { logModelFailure } from "./model-diagnostics.mjs";
-import { clampOutputTokens, maxTokensFieldOf } from "./output-budget.mjs";
-import { buildMessagesRequest, decodeMessagesResponse, messagesEndpoint, messagesHeaders } from './anthropic-messages.mjs';
+import { modelEndpoint } from './endpoints.mjs';
+import { normalizeToolArgs, normalizeToolCallArguments } from "../tool-args.mjs";
+import { describeHttpError, sessionAffinityHeaders } from "../http.mjs";
+import { logModelFailure } from "./diagnostics.mjs";
+import { clampOutputTokens, maxTokensFieldOf } from "../output-budget.mjs";
+import { buildMessagesRequest, decodeMessagesResponse, messagesEndpoint, messagesHeaders } from '../anthropic-messages.mjs';
 
 // ── ModelAdapter 接口契约 ──
 // async chat(model, messages, opts) → {

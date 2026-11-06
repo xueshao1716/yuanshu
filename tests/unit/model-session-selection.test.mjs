@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
-import { createModelSessionApi } from '../../engine/model-session.mjs';
+import { createModelSessionApi } from '../../engine/model/session.mjs';
 
 function setup(model) {
   const entry = { sm: {}, modelKey: { provider: 'p', id: 'text' }, agent: { dispose() {} } };

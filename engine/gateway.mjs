@@ -4,7 +4,7 @@
 //   可动态注册/卸载/替换；Gateway 只负责组装和暴露便捷 API。
 //
 // 用法（宿主组装）：
-//   import { createGateway } from "./engine/gateway.mjs";
+//   import { createGateway } from "./gateway.mjs";
 //   const gw = await createGateway({
 //     httpFetch, authReader, modelReader, resolveAuth,  // 注入宿主能力
 //     defaultExecutor,                                   // 注入现有工具执行链
@@ -15,7 +15,7 @@
 //   await gw.plugins.unregister("agent-loop:standard"); // 动态卸载（演示可替换）
 
 import { PluginRegistry } from "./plugin-registry.mjs";
-import { HttpModelAdapter } from "./model-adapter.mjs";
+import { HttpModelAdapter } from "./model/adapter.mjs";
 import { ToolRegistry } from "./tool-registry.mjs";
 import { MemorySessionStore, FileSessionStore } from "./session-store.mjs";
 import { StandardAgentLoop } from "./agent-loop.mjs";

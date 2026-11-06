@@ -5,7 +5,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { createUiDesignService } from '../../engine/ui-design-service.mjs';
 import { createWebsiteService } from '../../engine/website-service.mjs';
-import { verifyTextModel } from '../../engine/model-verification.mjs';
+import { verifyTextModel } from '../../engine/model/verification.mjs';
 
 const read = file => fs.readFileSync(new URL('../../' + file, import.meta.url), 'utf8');
 const specialized = ['tts-1', 'whisper-1', 'stepaudio-2.5-realtime', 'flux-1'];

@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import http from 'node:http';
-import {directChat,initModelClient} from '../../engine/model-client.mjs';
+import {directChat,initModelClient} from '../../engine/model/client.mjs';
 for(const api of ['openai-completions','openai-responses'])for(const stream of [false,true]){
   if(api==='openai-responses'&&stream)continue;
   test(`knowledge strict ${api} stream=${stream} never hides extra 404 request`,async t=>{

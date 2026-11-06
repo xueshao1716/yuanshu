@@ -8,7 +8,7 @@
 import fs from "node:fs";
 import { atomicWriteText } from "./atomic-io.mjs";
 import path from "node:path";
-import { getCooldownHits } from "./model-router.mjs";
+import { getCooldownHits } from "./model/router.mjs";
 
 let wsRoot = "";
 let getStats = null;   // () => { sessions: n, totalTokens: n, ... }

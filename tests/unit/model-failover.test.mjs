@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { classifyModelFailure, planRetry, withModelFailover } from '../../engine/model-failover.mjs';
+import { classifyModelFailure, planRetry, withModelFailover } from '../../engine/model/failover.mjs';
 
 const err = (msg) => Object.assign(new Error(msg), {});
 

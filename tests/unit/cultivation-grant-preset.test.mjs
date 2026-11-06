@@ -46,7 +46,7 @@ test('shared patch whitelists the model and marks free only when the catalog say
   assert.deepEqual(keep.patch.allowedModels, ['a/b', m], 'existing whitelist is preserved');
 });
 test('model catalog passes through finite catalog prices only', async () => {
-  const { buildModelCatalog } = await import('../../engine/model-catalog.mjs');
+  const { buildModelCatalog } = await import('../../engine/model/catalog.mjs');
   const store = { p: { models: [{ id: 'free', cost: { input: 0, output: 0 } }, { id: 'none' }, { id: 'bad', cost: { input: 'x', output: 1 } }] } };
   const list = buildModelCatalog({ store, authed: new Set(['p']) });
   assert.deepEqual(list.find(m => m.id === 'free').cost, { input: 0, output: 0 });

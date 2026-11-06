@@ -2,7 +2,7 @@
 // handleModels：/api/models 列表（含 free/note 标注）
 // handleSwitchModel + syncContextAfterSwitch：会话级模型切换与上下文灌输
 
-import { effectiveCapabilities, isChatSelectable, isTextModel } from '../shared/model-capabilities.mjs';
+import { effectiveCapabilities, isChatSelectable, isTextModel } from '../../shared/model-capabilities.mjs';
 
 export function createModelSessionApi(deps) {
   const {

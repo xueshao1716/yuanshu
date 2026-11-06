@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import http from 'node:http';
-import { createModelOnboarding } from '../../engine/model-onboarding.mjs';
+import { createModelOnboarding } from '../../engine/model/onboarding.mjs';
 import { initDshKeys, handleModelsAdd, handleKeysApply, handleModelsManage } from '../../engine/dsh-keys.mjs';
 
 async function setup(t, status = 200) {

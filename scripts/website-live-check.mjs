@@ -21,7 +21,7 @@ const model={...definition,provider};
 const root=fs.mkdtempSync(path.join(os.tmpdir(),'yuanshu-website-live-'));
 Object.assign(process.env,{YUANSHU_CWD:root,PI_WEB_CWD:root,PI_WORKSPACE:root,
   YUANSHU_AGENT_DIR:path.join(root,'agent'),PI_WEB_AGENT_DIR:path.join(root,'agent')});
-const {initModelClient,directChat}=await import('../engine/model-client.mjs');
+const {initModelClient,directChat}=await import('../engine/model/client.mjs');
 const {createWebsiteService}=await import('../engine/website-service.mjs');
 const {exportWebsite,selectedHtml}=await import('../engine/website-document.mjs');
 initModelClient({readJsonFile,authPath,modelsPath,resolveAuth:p=>({key:auth[p]?.key,baseUrl:auth[p]?.baseUrl||''}),getModelList:()=>[model]});

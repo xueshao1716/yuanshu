@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import http from 'node:http';
-import { HttpModelAdapter } from '../../engine/model-adapter.mjs';
+import { HttpModelAdapter } from '../../engine/model/adapter.mjs';
 import { initUnifiedChat, unifiedChat } from '../../engine/unified-chat.mjs';
 import { initDshKeys } from '../../engine/dsh-keys.mjs';
 

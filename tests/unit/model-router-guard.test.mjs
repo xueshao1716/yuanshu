@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { isTextCapableModel } from '../../engine/model-router.mjs';
+import { isTextCapableModel } from '../../engine/model/router.mjs';
 
 // 2026-10-20 真机事故：自我反思被路由到 agnes-video-2.5-flash → HTTP 400「is a video model」。
 test('媒体模型不能干文本活', () => {

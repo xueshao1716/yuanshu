@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import http from 'node:http';
-import {directChat,initModelClient} from '../../engine/model-client.mjs';
+import {directChat,initModelClient} from '../../engine/model/client.mjs';
 
 async function fixture(t,api,handler){
   const server=http.createServer(handler);await new Promise(r=>server.listen(0,'127.0.0.1',r));

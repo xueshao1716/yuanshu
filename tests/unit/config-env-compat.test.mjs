@@ -16,7 +16,7 @@ const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '.
 
 // config.mjs 在 import 时就计算好 CONFIG，所以必须在子进程里改 env 再取
 function readConfig(env) {
-  const script = "import('./config.mjs').then(m => process.stdout.write(JSON.stringify({"
+  const script = "import('../../config.mjs').then(m => process.stdout.write(JSON.stringify({"
     + 'port: m.CONFIG.port, host: m.CONFIG.host, model: m.CONFIG.model, '
     + 'tools: m.CONFIG.tools, corsOrigins: m.CONFIG.corsOrigins, '
     + 'cwd: m.CONFIG.cwd, externalThinking: m.CONFIG.externalThinking })))';

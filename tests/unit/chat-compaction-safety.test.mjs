@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import http from 'node:http';
-import { initModelClient, maybeCompactHistory } from '../../engine/model-client.mjs';
+import { initModelClient, maybeCompactHistory } from '../../engine/model/client.mjs';
 import { initUnifiedChat, unifiedChat, createRunHistorySnapshot } from '../../engine/unified-chat.mjs';
 import { initDshKeys } from '../../engine/dsh-keys.mjs';
 

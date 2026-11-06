@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { buildDirectChatBody, directChat, handleThink, initModelClient } from "../../engine/model-client.mjs";
+import { buildDirectChatBody, directChat, handleThink, initModelClient } from "../../engine/model/client.mjs";
 import http from 'node:http';
 
 test("关闭思考时请求带 thinking disabled，避免 GLM-5 先想半分钟", () => {

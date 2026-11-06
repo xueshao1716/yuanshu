@@ -1,7 +1,7 @@
 // model-probe.mjs —— 模型通断探测（2026-08-21）
 // 用户理念落地：模型故障（429/400/403）时，不再"固定链跳过冷却"，而是主动探测候选模型
 // （短文本请求），直到拿到第一个实际返回文本的候选。
-import { verifyTextModel } from './model-verification.mjs';
+import { verifyTextModel } from './verification.mjs';
 let _httpFetch = null;
 let _authReader = null;   // () => auth.json 对象
 let _modelsReader = null; // () => models-store 对象

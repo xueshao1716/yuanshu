@@ -3,7 +3,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs";
-import { withModelFailover } from "../../engine/model-failover.mjs";
+import { withModelFailover } from "../../engine/model/failover.mjs";
 
 const src = fs.readFileSync(new URL("../../server.mjs", import.meta.url), "utf8");
 
@@ -40,7 +40,7 @@ test("HTTP 402 会被当成额度问题并换通道，不是直接失败", async
 });
 
 test("402 被归类为额度类失败（决定还要不要把希望寄托在这个通道）", async () => {
-  const { classifyModelFailure } = await import("../../engine/model-failover.mjs");
+  const { classifyModelFailure } = await import("../../engine/model/failover.mjs");
   const kind = classifyModelFailure(new Error("HTTP 402: Insufficient Balance"));
   assert.equal(kind, "quota", `402 应归为额度类，实际 ${kind}`);
 });

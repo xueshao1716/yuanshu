@@ -1,6 +1,6 @@
-import { catalogModel, discoverCustomModels } from './model-probe.mjs';
-import { normalizeModelBase } from './model-endpoints.mjs';
-import { verifyTextModel } from './model-verification.mjs';
+import { catalogModel, discoverCustomModels } from './probe.mjs';
+import { normalizeModelBase } from './endpoints.mjs';
+import { verifyTextModel } from './verification.mjs';
 
 const invalid = message => Object.assign(new Error(message), { localStatus: 400 });
 const same = (a, b) => JSON.stringify(a) === JSON.stringify(b);

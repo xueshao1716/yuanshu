@@ -1,5 +1,5 @@
 // Shared native Messages codec for chat, Gateway and direct model calls.
-import { modelEndpoint } from './model-endpoints.mjs';
+import { modelEndpoint } from './model/endpoints.mjs';
 export function messagesEndpoint(base) {
   return modelEndpoint(base, 'messages');
 }

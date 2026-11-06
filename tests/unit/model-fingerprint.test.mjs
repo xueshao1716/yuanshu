@@ -4,7 +4,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { noteFingerprint, listFingerprints, fingerprintLine } from "../../engine/model-fingerprint.mjs";
+import { noteFingerprint, listFingerprints, fingerprintLine } from "../../engine/model/fingerprint.mjs";
 
 const ws = () => fs.mkdtempSync(path.join(os.tmpdir(), "fp-"));
 

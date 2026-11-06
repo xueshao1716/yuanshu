@@ -2,8 +2,8 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { discoverCustomModels } from '../engine/model-probe.mjs';
-import { verifyTextModel } from '../engine/model-verification.mjs';
+import { discoverCustomModels } from '../engine/model/probe.mjs';
+import { verifyTextModel } from '../engine/model/verification.mjs';
 if (!process.argv.includes('--run')) throw new Error('Use --run to authorize small, potentially billable text requests');
 const agentDir = process.env.YUANSHU_AGENT_DIR || path.join(os.homedir(), '.pi', 'agent');
 const auth = JSON.parse(fs.readFileSync(path.join(agentDir, 'auth.json'), 'utf8'));

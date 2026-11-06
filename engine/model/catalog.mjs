@@ -1,4 +1,4 @@
-import { effectiveCapabilities } from '../shared/model-capabilities.mjs';
+import { effectiveCapabilities } from '../../shared/model-capabilities.mjs';
 
 // Startup and credential refresh must expose the same enabled, normalized catalog.
 export function buildModelCatalog({ store = {}, authed = new Set(), runtimeModels = [], keepModels = new Set() }) {

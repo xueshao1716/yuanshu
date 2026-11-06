@@ -3,7 +3,7 @@
 // 这里保证：失败时一定留下「请求形状 + 上游原文（脱敏）」，且输出预算永不越过上游硬区间。
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { logModelFailure, redactSecrets } from '../../engine/model-diagnostics.mjs'
+import { logModelFailure, redactSecrets } from '../../engine/model/diagnostics.mjs'
 import {
   clampOutputTokens,
   escalateOutputTokens,

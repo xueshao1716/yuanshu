@@ -2,11 +2,11 @@
 // 职责：标注能力推断 / 按协议读取模型目录 / 用户主动触发的文本验证，不自动生成媒体。
 // 纯逻辑 + engine/http 客户端，无 server 依赖。
 
-import { httpJsonFetch } from "./http.mjs";
-import { catalogHeaders, modelEndpoint, normalizeModelBase, modelProbeError } from './model-endpoints.mjs';
-import { verifyTextModel } from './model-verification.mjs';
-import { modelCapabilities } from '../shared/model-capabilities.mjs';
-export { modelCapabilities, effectiveCapabilities } from '../shared/model-capabilities.mjs';
+import { httpJsonFetch } from "../http.mjs";
+import { catalogHeaders, modelEndpoint, normalizeModelBase, modelProbeError } from './endpoints.mjs';
+import { verifyTextModel } from './verification.mjs';
+import { modelCapabilities } from '../../shared/model-capabilities.mjs';
+export { modelCapabilities, effectiveCapabilities } from '../../shared/model-capabilities.mjs';
 
 // 按模型 id 关键字推断能力（查档案兜底，不靠真实探测）
 

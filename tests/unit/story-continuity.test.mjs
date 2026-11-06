@@ -8,7 +8,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createImageAdapter, createVideoAdapter } from '../../engine/story/adapters.mjs';
-import { modelCapabilities } from '../../engine/model-probe.mjs';
+import { modelCapabilities } from '../../engine/model/probe.mjs';
 import { negotiateCapabilities, pickReferenceImages } from '../../engine/story/orchestrator.mjs';
 import { buildPortraitPrompt } from '../../engine/story/prompts.mjs';
 

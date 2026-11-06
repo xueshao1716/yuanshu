@@ -6,7 +6,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { initUnifiedChat, handleUnifiedChat } from '../../engine/unified-chat.mjs';
 import { initDshKeys } from '../../engine/dsh-keys.mjs';
-import { initModelRouter } from '../../engine/model-router.mjs';
+import { initModelRouter } from '../../engine/model/router.mjs';
 import { initContextLoader } from '../../engine/context-loader.mjs';
 import { initYuanshuWorkmem } from '../../engine/yuanshu-workmem.mjs';
 import { init as initEmotion } from '../../engine/emotion.mjs';

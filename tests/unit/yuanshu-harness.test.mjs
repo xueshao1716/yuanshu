@@ -6,7 +6,7 @@ import { fileURLToPath } from "node:url";
 import { writeTodos, readTodos, formatTodoPrompt, bindTodoSession } from "../../engine/yuanshu-todo.mjs";
 import { recordStuckEvent, detectStuck } from "../../engine/yuanshu-stuck.mjs";
 import { matchSkillsForTask, buildYuanshuContext } from "../../engine/yuanshu-protocol.mjs";
-import { needsMidLoopCompact } from "../../engine/model-client.mjs";
+import { needsMidLoopCompact } from "../../engine/model/client.mjs";
 import { runYuanshuToolRound } from "../../engine/yuanshu-loop.mjs";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..", "..");

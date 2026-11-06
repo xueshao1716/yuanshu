@@ -1,7 +1,7 @@
 // 模型自带联网搜索（2026-10-19）：模型给候选 → 我们逐条验活。
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { buildResearchPrompt, extractJsonRows, verifySources } from '../../engine/model-research.mjs'
+import { buildResearchPrompt, extractJsonRows, verifySources } from '../../engine/model/research.mjs'
 
 test('提示词禁止编链接，允许平台检索入口', () => {
   const p = buildResearchPrompt('极简海报')

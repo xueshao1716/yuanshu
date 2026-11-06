@@ -3,8 +3,8 @@ import assert from 'node:assert/strict';
 import http from 'node:http';
 import { initUnifiedChat, unifiedChat } from '../../engine/unified-chat.mjs';
 import { initDshKeys } from '../../engine/dsh-keys.mjs';
-import { HttpModelAdapter } from '../../engine/model-adapter.mjs';
-import { initModelClient, directChat } from '../../engine/model-client.mjs';
+import { HttpModelAdapter } from '../../engine/model/adapter.mjs';
+import { initModelClient, directChat } from '../../engine/model/client.mjs';
 
 test('all Yuanshu model entry points honor Messages, replay tools, and never reroute a 429', async () => {
   const requests = [], executed = []; let blocked = false;

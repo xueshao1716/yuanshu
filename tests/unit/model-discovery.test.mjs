@@ -1,11 +1,11 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import http from 'node:http';
-import { discoverCustomModels } from '../../engine/model-probe.mjs';
-import { initModelProbe, probeModel } from '../../engine/model-health.mjs';
+import { discoverCustomModels } from '../../engine/model/probe.mjs';
+import { initModelProbe, probeModel } from '../../engine/model/health.mjs';
 import { messagesEndpoint } from '../../engine/anthropic-messages.mjs';
-import { HttpModelAdapter } from '../../engine/model-adapter.mjs';
-import { verifyTextModel } from '../../engine/model-verification.mjs';
+import { HttpModelAdapter } from '../../engine/model/adapter.mjs';
+import { verifyTextModel } from '../../engine/model/verification.mjs';
 
 async function fixture(t, respond) {
   const calls = [];

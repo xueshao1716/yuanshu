@@ -1,17 +1,17 @@
 // engine/model-client.mjs —— 直调模型客户端（2026-08-20 从 server.mjs 拆出）
 // directChat/handleThink/handleDirectChat/maybeCompactHistory：绕过 agent 直调接口 + 思考调试 + 历史压缩
 // 依赖注入：initModelClient({ readJsonFile, writeJsonFile, authPath, modelsPath, resolveAuth, getModelList, getDefaultModel, httpJsonFetch, markModelBlocked, isAuthErrorStatus, unifiedChat, detectMediaIntents, generateMediaAsync, extractMediaPrompt, extractMessages, readEntriesFromFile, createSseWriter, json })
-import { modelEndpoint } from './model-endpoints.mjs';
+import { modelEndpoint } from './endpoints.mjs';
 import fs from "node:fs";
-import { json } from "./http-utils.mjs";
-import { markModelBlocked, isAuthErrorStatus } from "./model-router.mjs";
-import { httpJsonFetch } from "./http.mjs";
-import { extractMessages } from "./session-utils.mjs";
-import { saveArtifact } from "./workspace-api.mjs";
-import { buildMessagesRequest, decodeMessagesResponse, messagesEndpoint, messagesHeaders } from './anthropic-messages.mjs';
-import { clampOutputTokens, OUTPUT_TOKEN_HARD_CAP } from './output-budget.mjs';
-import { directChatStream } from './direct-chat-stream.mjs';
-import { partitionCompaction, validCompactionSummary } from './compaction-context.mjs';
+import { json } from "../http-utils.mjs";
+import { markModelBlocked, isAuthErrorStatus } from "./router.mjs";
+import { httpJsonFetch } from "../http.mjs";
+import { extractMessages } from "../session-utils.mjs";
+import { saveArtifact } from "../workspace-api.mjs";
+import { buildMessagesRequest, decodeMessagesResponse, messagesEndpoint, messagesHeaders } from '../anthropic-messages.mjs';
+import { clampOutputTokens, OUTPUT_TOKEN_HARD_CAP } from '../output-budget.mjs';
+import { directChatStream } from '../direct-chat-stream.mjs';
+import { partitionCompaction, validCompactionSummary } from '../compaction-context.mjs';
 
 let _noteFingerprint = null; // 2026-10-28：记录服务端实际回的模型标识（指纹）
 let _readJsonFile = null, _writeJsonFile = null, _authPath = "", _modelsPath = "", _resolveAuth = null, _getModelList = () => [], _getDefaultModel = () => null,

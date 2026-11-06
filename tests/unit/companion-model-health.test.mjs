@@ -1,8 +1,8 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import http from 'node:http';
-import { directChat, initModelClient } from '../../engine/model-client.mjs';
-import { isModelBlocked, resetModelHealth } from '../../engine/model-router.mjs';
+import { directChat, initModelClient } from '../../engine/model/client.mjs';
+import { isModelBlocked, resetModelHealth } from '../../engine/model/router.mjs';
 for (const api of ['openai-completions', 'anthropic-messages', 'openai-responses']) test(`companion ${api} failure does not cool normal chat`, async t => {
   const server = http.createServer((_req, res) => { res.writeHead(401); res.end('{}'); });
   await new Promise(r => server.listen(0, '127.0.0.1', r));

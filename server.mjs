@@ -19,15 +19,15 @@ import { fileURLToPath } from "node:url";
 // ── 输出质量守卫（Output Guard）：模型不可靠是默认假设（借鉴 dsh repeat-tool-reminder）──
 import { bindOutputGuardDeps, classifyAnomaly, isRepeatReply, normReply, recordReply, sanitizeUndefined, lastAssistantReply } from "./engine/output-guard.mjs";
 import { initOutputInspector, inspectOutput } from "./engine/output-inspector.mjs";
-import { initModelProbe, probeModel, pickHealthyModel } from "./engine/model-health.mjs";
+import { initModelProbe, probeModel, pickHealthyModel } from "./engine/model/health.mjs";
 import { rateLimit, rateLimitKey } from "./engine/rate-limit.mjs";
 import { createMiscApi } from "./engine/misc-api.mjs";
-import { createModelKeys } from "./engine/model-keys.mjs";
+import { createModelKeys } from "./engine/model/keys.mjs";
 import { createSessionBus } from "./engine/session-bus.mjs";
 import { createNotifier, NOTIFY_USER_TOOL, execNotifyUser } from "./engine/notifier.mjs";
 import { createHeartbeat } from "./engine/heartbeat.mjs";
-import { createModelSessionApi } from "./engine/model-session.mjs";
-import { buildModelCatalog } from './engine/model-catalog.mjs';
+import { createModelSessionApi } from "./engine/model/session.mjs";
+import { buildModelCatalog } from './engine/model/catalog.mjs';
 // ── Reasonix 机制（esengine/DeepSeek-Reasonix 借鉴）：工具结果压缩 / NEEDS_PRO 自报升级 / scavenge 捞回 ──
 import { shrinkToolResult, NEEDS_PRO_RE, scavengeToolCalls } from "./engine/reasonix-tools.mjs";
 import { initToolResultArchive } from "./engine/tool-result-archive.mjs";
@@ -37,7 +37,7 @@ import { readActivityRhythm } from "./engine/activity-rhythm.mjs";
 import { settleTurnMemory } from "./engine/turn-memory.mjs";
 // 连续失败计数（2026-09-16）：pi 通道的失败不抛异常，只落一条 stopReason=error 的记录；
 // 没有状态码的失败（TypeError、协议不兼容）此前没人管，用户只看到"它不说话"。
-import { noteModelFailure, clearModelFailures, modelFailureState } from "./engine/model-failures.mjs";
+import { noteModelFailure, clearModelFailures, modelFailureState } from "./engine/model/failures.mjs";
 // 会话里 assistant 消息的落盘统一要"SDK 安全化"：image/audio/video 块会让 pi 通道重放历史时
 // 抛 TypeError（estimate.js:42 把它们当工具调用读 block.name.length）。
 // 2026-09-16 复查发现：出图兜底交付那条（下面 settledMedia 的 appendMessage）**绕过了**这道闸，
@@ -64,7 +64,7 @@ import { runCompanionNudge } from "./engine/companion-nudge.mjs";
 import { composeNotice, personaName, noticeEnvelope } from "./engine/notice-voice.mjs";
 import { COMMISSION_TOOL_SCHEMA, commissionExtraExecutors, createCommission, dueCommissions, listCommissions, removeCommission, runCommission as runDesignCommission, setStatus as setCommissionStatus, pickDirection } from "./engine/design-commission.mjs";
 import { RESEARCH_TOOL_SCHEMA, listResearch, readResearch, researchExtraExecutors, runResearch } from "./engine/design-research.mjs";
-import { modelSearchRows } from "./engine/model-research.mjs";
+import { modelSearchRows } from "./engine/model/research.mjs";
 import { DESIGN_PREFS_TOOL_SCHEMA, designPrefsExecutors } from "./engine/design-prefs.mjs";
 import { createDesignRoutes } from "./engine/design-api.mjs";
 
@@ -166,9 +166,9 @@ import { createDshTool } from "./engine/dsh-tool.mjs";
 import { handleDshChat } from "./engine/dsh-chat.mjs";
 
 // ── 模型路由层（拆模块）：429 降级 / 复杂度分类 / Auto 路由 / pro 候选 ──
-import { initModelRouter, isOcGoBlocked, isModelBlocked, markModelBlocked, markOcGoBlocked, ocGoCandidate, pickFallbackDefault, pickFallbackExcluding, isTextCapableModel, resetModelHealth, isAutoModel, routeForAuto, routeProCandidate, flashCandidate, markSticky, ROUTER_AUTO, isAuthErrorStatus } from "./engine/model-router.mjs";
+import { initModelRouter, isOcGoBlocked, isModelBlocked, markModelBlocked, markOcGoBlocked, ocGoCandidate, pickFallbackDefault, pickFallbackExcluding, isTextCapableModel, resetModelHealth, isAutoModel, routeForAuto, routeProCandidate, flashCandidate, markSticky, ROUTER_AUTO, isAuthErrorStatus } from "./engine/model/router.mjs";
 // ── 模型能力探测与发现（拆模块）：能力推断 / 真实API探测(24h缓存) / 自定义 provider 发现 ──
-import { modelCapabilities, probeModelCapabilities, discoverCustomModels } from "./engine/model-probe.mjs";
+import { modelCapabilities, probeModelCapabilities, discoverCustomModels } from "./engine/model/probe.mjs";
 import { CONFIG } from "./config.mjs";
 // ── Gateway 2.0 插件化引擎 + Code Mode（dsh 设计沉淀）──
 import { createGateway } from "./engine/gateway.mjs";
@@ -194,7 +194,7 @@ const SELF_CHANGE_ROOT = process.env.PI_CODE_ROOT || "D:\\pi-web";
 import { initContextLoader, makeLoader, loadExperience, readRulesWithImports, loadContextRules, jitRulesForPath, loadProjectRules, loadSkillIndex, execActivateSkill, ACTIVATE_SKILL_TOOL, WORK_PROTOCOL, loadMemory, loadMemoryIndex, loadExperienceIndex, shouldInjectFullMemory, setLastUserQuery } from "./engine/context-loader.mjs";
 import { directMediaMode, seedMediaMode } from "./engine/media-mode.mjs";
 // 2026-10-28：模型指纹（服务端快照变化要能被归因）
-import { noteFingerprint, listFingerprints, fingerprintLine } from "./engine/model-fingerprint.mjs";
+import { noteFingerprint, listFingerprints, fingerprintLine } from "./engine/model/fingerprint.mjs";
 // 2026-10-29：插件商店（技能包 / MCP 包）
 import {
   listInstalled as listPlugins, readCatalog, installFromCatalog, installPlugin,
@@ -237,7 +237,7 @@ import { connectVoiceProvider } from './engine/chat-voice-provider.mjs';
 import { listLingXi, addLingXi, setLingXi, removeLingXi } from "./engine/lingxi.mjs";
 import { initDshKeys, dshResolveBin, handleDshStatus, handleDshWebStart, handleKeysStatus, loadPolicies, toolMatch, policyDecide, handleKeysApply, handleKeysPresets, refreshModelList, handleModelsManage, handleModelsAdd, handleModelsDiscover, handleModelsVerify, KNOWN_PROVIDERS, PROVIDER_PRESETS, resolveAuth } from "./engine/dsh-keys.mjs";
 import { initStatsApi, handleGlobalStats, handleProviderStats, handleDailyStats, handleSubagentRuns, handleSubagentHistory, safeSessionStats, handleStats, handleCompact, listBuiltinSkills, handleSkills, listSkills, handleSkillRead, handleParseFile, escHtml, handleExport, resolveFsPath, handleFsList, handleFsRead, handleRename } from "./engine/stats-api.mjs";
-import { initModelClient, directChat, handleThink, handleDirectChat, maybeCompactHistory } from "./engine/model-client.mjs";
+import { initModelClient, directChat, handleThink, handleDirectChat, maybeCompactHistory } from "./engine/model/client.mjs";
 import { initSelfHeal, createRepairCheckpoint, handleUpdateCheck, handleUpdateApply, handleRepair, handleDesignerGenerate, handleDesignerSave, handleCompare } from "./engine/self-heal.mjs";
 import { frontendVersionPayload } from "./engine/frontend-version.mjs";
 import { withSamplingParams } from './engine/sampling-params.mjs';
@@ -278,7 +278,7 @@ import { PerformanceObserver } from "node:perf_hooks";
 import { buildSelfModel, renderSelfSection, renderSelfMarkdown } from "./engine/self-model.mjs";
 import { shouldProbe, markProbed, splitBeforeAfter, abCompare, appendProbeLog, appendLesson } from "./engine/harness-probe.mjs";
 import { collectEvidence, buildProposePrompt, parseCandidates, writeCandidates, listCandidates, markCandidate, localDate } from "./engine/harness-propose.mjs";
-import { withModelFailover } from "./engine/model-failover.mjs";
+import { withModelFailover } from "./engine/model/failover.mjs";
 // 守护阈值与 watchdog 共用一个真源（CJS，Node 互操作取 default）。
 // 2026-10-25：之前通知文案硬编码 180 秒、watchdog 实际是 300 秒，用户照着一个错的数字在等。
 import watchdogLimits from "./lib/watchdog-limits.cjs";
@@ -1000,7 +1000,7 @@ initModelProbe({
 // ── 会话近期历史提取（2026-08-24 修复"失忆回复"）──
 // 现象：复读守卫/降级重试走 directChat 时传空历史 → 替补模型只看到最后一句裸消息，
 // 回出"您的消息不完整/我没有工具"这类失忆话术。修复：统一从会话树取最近 N 轮真实历史。
-import { withModelProvenance } from './engine/model-provenance-writer.mjs';
+import { withModelProvenance } from './engine/model/provenance-writer.mjs';
 
 function recentHistory(entry, limit = 10, maxChars = 1600) {
   try {
@@ -1915,7 +1915,7 @@ initUnifiedChat({
   createSandboxAsk: createSandboxAskFactory({ registry: confirmRegistry, hasLease: (q) => !!maintenanceApi?.hasLease(q) }),
 }); // 统一对话通道注入
 initRefineApi({ cwd: CONFIG.cwd }); // 经验沉淀台注入
-initMcpServer({ modelRouter: (await import("./engine/model-router.mjs")), memoryApi: memoryApi, emotion, getDefaultModel: () => defaultModel, wsRoot: () => CONFIG.cwd, getToken: () => CONFIG.token, json }); // MCP 认知层注入
+initMcpServer({ modelRouter: (await import("./engine/model/router.mjs")), memoryApi: memoryApi, emotion, getDefaultModel: () => defaultModel, wsRoot: () => CONFIG.cwd, getToken: () => CONFIG.token, json }); // MCP 认知层注入
 initMcpChat({ handleChat }); // MCP 对话注入
 
 

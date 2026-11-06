@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { HttpModelAdapter } from '../../engine/model-adapter.mjs';
+import { HttpModelAdapter } from '../../engine/model/adapter.mjs';
 
 async function requestFor(definition, opts = {}) {
   const requests = [];

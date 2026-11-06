@@ -3,7 +3,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import assert from 'node:assert/strict';
-import { initModelClient, directChat } from '../engine/model-client.mjs';
+import { initModelClient, directChat } from '../engine/model/client.mjs';
 import { createCompanionDecision } from '../engine/companion-decision.mjs';
 import { createCompanionStore } from '../engine/companion-store.mjs';
 if (!process.argv.includes('--allow-live')) throw new Error('Live calls require --allow-live');

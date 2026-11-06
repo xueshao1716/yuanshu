@@ -1,13 +1,13 @@
 // engine/unified-chat.mjs —— 统一对话通道（2026-08-20 从 server.mjs 拆出）
 // unifiedChat/handleUnifiedChat：对话 + 工具循环 + 思考 + 媒体 + 压缩 + 重试 + 任务进度
 // 依赖注入：initUnifiedChat({ executeUnifiedTool, findKeyByEntry, readJsonFile, getModelList, getDefaultModel, authPath, modelsPath, cwd })
-import { modelEndpoint } from './model-endpoints.mjs';
+import { modelEndpoint } from './model/endpoints.mjs';
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { execFile } from "node:child_process";
 import { json, readBody } from "./http-utils.mjs";
-import { markModelBlocked, isAuthErrorStatus, pickFallbackDefault, pickFallbackExcluding, pickBudgetDowngrade, routeProCandidate, routeForAuto } from "./model-router.mjs";
+import { markModelBlocked, isAuthErrorStatus, pickFallbackDefault, pickFallbackExcluding, pickBudgetDowngrade, routeProCandidate, routeForAuto } from "./model/router.mjs";
 import { classifyAnomaly, recordReply, lastAssistantReply } from "./output-guard.mjs";
 import { settleTurnMemory } from "./memory-autostore.mjs";
 import { clampOutputTokens, escalateOutputTokens, maxTokensFieldOf, declaredContextWindow, OUTPUT_TOKEN_FALLBACK } from "./output-budget.mjs";
@@ -19,7 +19,7 @@ import { extractMessages, extractText, attachmentLines } from "./session-utils.m
 import { createSseWriter } from "./sse.mjs";
 import { slimToolDefs } from "./tool-payload.mjs";
 import { httpJsonFetch, httpRawFetch, httpHedgedFetch, sessionAffinityHeaders, describeHttpError } from "./http.mjs";
-import { logModelFailure } from "./model-diagnostics.mjs";
+import { logModelFailure } from "./model/diagnostics.mjs";
 import { PRODUCT_VERSION } from "./version.mjs";
 import { createGateway } from "./gateway.mjs";
 import { CodeRuntime } from "../code-mode/code-runtime.mjs";
@@ -31,7 +31,7 @@ import { readOpenAIChatStream } from "./openai-stream.mjs";
 import { buildMessagesRequest, messagesEndpoint, messagesHeaders } from "./anthropic-messages.mjs";
 import { readMessagesStream } from "./anthropic-stream.mjs";
 import { saveArtifact } from "./workspace-api.mjs";
-import { directChat, maybeCompactHistory, needsMidLoopCompact } from "./model-client.mjs";
+import { directChat, maybeCompactHistory, needsMidLoopCompact } from "./model/client.mjs";
 import { bindTodoSession, formatTodoPrompt } from "./yuanshu-todo.mjs";
 import { readEntriesFromFile } from "./session-files.mjs";
 import { loadProjectRules, loadMemory, shouldInjectFullMemory, setLastUserQuery, loadSkillIndex, loadExperienceIndex } from "./context-loader.mjs";
@@ -686,7 +686,7 @@ export async function handleUnifiedChat(res, entry, message, sessionId, params, 
   // 在代码里根本不存在。这里按过预算的档位换到更便宜的文本模型，并当场说明换成了谁：
   // 不静默、不硬停（用户要的是"花钱有度"，不是被拦住干不了活）。
   try {
-    const { checkBudget } = await import("./engine/token-budget.mjs");
+    const { checkBudget } = await import("./token-budget.mjs");
     const bud = checkBudget(_cwd);
     const userPicked = !!(entry.modelKey?.id && entry.modelKey.id !== "auto");
     if (bud.budget?.downgrade !== false && bud.level !== "ok" && !userPicked && !engineInitError && chatModel) {

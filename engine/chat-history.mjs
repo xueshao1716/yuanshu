@@ -6,7 +6,7 @@
 //
 // 依赖全部来自既有模块，无新增副作用。
 import { extractMessages, attachmentLines } from "./session-utils.mjs";
-import { directChat } from "./model-client.mjs";
+import { directChat } from "./model/client.mjs";
 import { hashArgs } from "./run-effects.mjs";
 import { normalizeToolArgs } from "./tool-args.mjs";
 import { projectToolResult } from "./reasonix-tools.mjs";

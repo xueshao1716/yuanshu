@@ -2,7 +2,7 @@
 //   analysis：一次纯文本分析调用（天团/补全/调试接口沿用）。
 //   research：只读研究员——有界工具循环（read/list/grep/web_search，见 subagent-research.mjs），
 //             不写文件、不跑命令；delegate_task / delegate_fork 走这一种。
-import { HttpModelAdapter } from "./model-adapter.mjs";
+import { HttpModelAdapter } from "./model/adapter.mjs";
 import { RESEARCH_TOOLS, RESEARCH_MAX_STEPS, createResearchExecutor } from "./subagent-research.mjs";
 import { nextSubagentDepth, DEFAULT_MAX_DEPTH } from "./subagent-depth.mjs";
 import path from "node:path";

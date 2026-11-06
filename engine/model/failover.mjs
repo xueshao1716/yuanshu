@@ -9,7 +9,7 @@
 //   · 其它（内容错误、工具错误）→ 不重试，如实抛
 //
 // 这个模块只做"决策"，不碰具体 provider，便于单测。
-import { isTextCapableModel } from './model-router.mjs';
+import { isTextCapableModel } from './router.mjs';
 
 export const FAILOVER_MAX_ATTEMPTS = 3;
 
