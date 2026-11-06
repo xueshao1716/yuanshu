@@ -2862,3 +2862,22 @@ html[data-theme="bridge"] { color-scheme: dark; }
   .mobile-composer { position: relative; z-index: 21; }
   .mobile-app-root:has(.mobile-composer textarea:focus) .mobile-tab-bar { display: none; }
 }
+
+/* ── 2026-11-06 二次修复：手机端发送按钮与「更多」距离太近 ──
+   实测两者相隔只有输入框的 10px 内边距，拇指点击跨过边界就会误触。
+   这里在输入区与底部 tab bar 之间留出真实间隙，并把 tab bar 的点击区从顶部收 4px。 */
+@media (max-width: 768px) {
+  .mobile-composer { margin-bottom: 8px; }
+  .mobile-tab-bar { padding-top: 2px; }
+  .mobile-tab-button { padding-top: 2px; }
+}
+
+/* ── 2026-11-06 三次修复：把「更多」与发送按钮的点击区彻底拉开 ──
+   实测（390×844）：发送按钮 bottom=769、tab bar top=792，中间只有 23px；
+   真机拇指误差 ±20px 就会点到「更多」。做法：
+   1) tab bar 顶部留 10px 不响应点击（padding 而不是按钮变大）；
+   2) 发送按钮下方再留 4px，让它的热区离边界更远。 */
+@media (max-width: 768px) {
+  .mobile-tab-bar { padding-top: 10px; }
+  .mobile-composer { padding-bottom: calc(0.625rem + 4px); }
+}
