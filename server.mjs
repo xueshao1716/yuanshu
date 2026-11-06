@@ -218,8 +218,8 @@ import { withTeamToolContext } from './engine/team-tool-context.mjs';
 import { createTeamCompletion } from './engine/team-completion.mjs';
 import { createGeneralTeamChat } from './engine/team-general-chat.mjs';
 import { initAsrApi, handleAsr } from "./engine/asr-api.mjs";
-import { gardenMemory, scanMemoryHealth, markReviewed, unmarkReviewed, dedupeLog, reviewedKeys, pruneLogBackups } from "./engine/memory-gardener.mjs";
-import { upsertMemoryFact } from "./engine/memory-facts.mjs";
+import { gardenMemory, scanMemoryHealth, markReviewed, unmarkReviewed, dedupeLog, reviewedKeys, pruneLogBackups } from "./engine/memory/gardener.mjs";
+import { upsertMemoryFact } from "./engine/memory/facts.mjs";
 import { readSubscriptionText } from "./engine/subscription-reminder.mjs";
 import { systemInfo as buildSystemInfo, loadNetworkConfig, saveNetworkConfig, checkUpdate } from "./engine/system-panel.mjs";
 import { recordPreUpdate, createRollbackHandler } from "./engine/update-rollback.mjs";
@@ -288,9 +288,9 @@ import * as detachedRun from "./engine/detached-run.mjs";
 // 2026-10-26：作业目录是运行期草稿，启动时清理陈旧残留
 import { pruneOldJobs, cleanupLegacyJobDir } from "./engine/detached-run.mjs";
 // 2026-10-27：记忆 Git 版本化（抄 A5：记忆要能 diff、能回滚）
-import { commitMemory, memoryHistory, rollbackMemory } from "./engine/memory-versioning.mjs";
+import { commitMemory, memoryHistory, rollbackMemory } from "./engine/memory/versioning.mjs";
 // 2026-10-27：记忆 Wiki（把记忆/经验/知识渲染成人能读的主题页）
-import { buildWiki, listWiki, readWiki } from "./engine/memory-wiki.mjs";
+import { buildWiki, listWiki, readWiki } from "./engine/memory/wiki.mjs";
 // 2026-10-27：工作区文档变化感知（Diff Engine）
 import { diffDocs, readManifest as readDocManifest, resetManifest as resetDocManifest } from "./engine/doc-diff.mjs";
 // 2026-10-27：源文档变了 → 标出要人复核的 Wiki 页
@@ -370,8 +370,8 @@ import { ownerConfigProvider } from './engine/cultivation/owner-config.mjs';
 import { createCultivationProvider } from './engine/cultivation/provider.mjs';
 import { delegateToCultivatedAgent } from './engine/cultivation/delegate.mjs';
 import { CULTIVATION_TOOL_SCHEMA, cultivationTool, createPiCultivationTool } from './engine/cultivation/tool.mjs';
-import { createPiMemoryTool } from './engine/memory-tool.mjs';
-import { initMemoryAutoStore, autoStoreStats } from './engine/memory-autostore.mjs';
+import { createPiMemoryTool } from './engine/memory/tool.mjs';
+import { initMemoryAutoStore, autoStoreStats } from './engine/memory/autostore.mjs';
 const beliefAuditModule = await import("./engine/belief-audit.mjs"); // ToM 信念层（2026-10-13）
 import { initCultivationTool, initMemoryTool } from './engine/session/manager.mjs';
 import { buildPersistentActivity } from "./engine/persistent-activity.mjs";
@@ -401,7 +401,7 @@ import { createAIBodyHost } from "./engine/aibody-host.mjs";
 import { initRecallApi, rebuildIndex, handleRecall, handleRecallAsk, handleSummaries, buildSummaries, recallStats } from "./engine/recall-api.mjs";
 import { createPiCompatFallback, defaultFallbackAgentDir } from "./engine/pi-compat-fallback.mjs";
 const memoryApi = await import("./engine/memory.mjs");
-const { initMemorySync } = await import("./engine/memory-sync.mjs");
+const { initMemorySync } = await import("./engine/memory/sync.mjs");
 initMemorySync({ wsRoot: CONFIG.cwd, watch: true }); // 启动及源文件变化时更新生成的 TUI 共享记忆
 const emotion = await import("./engine/emotion.mjs");
 const { createEmotionDisplay } = await import('./engine/emotion-display.mjs');
@@ -419,7 +419,7 @@ const { createFeedbackStore } = await import("./engine/feedback.mjs");
 
 // 记忆库存储层（2026-10-13，Phase 1 地基）：中长期记忆（偏好/任务记录/事实），
 // 惰性打开（路径依赖运行时注入的 WS_ROOT）；增删改查全走 /api/memory，元枢后端直接读写
-const memoryDb = await import("./engine/memory-db.mjs");
+const memoryDb = await import("./engine/memory/db.mjs");
 memoryDb.initMemoryDb(() => WS_ROOT);
 const memoryVectors = await import("./engine/vector-store.mjs");
 memoryVectors.initVectorStore(() => WS_ROOT);
@@ -877,7 +877,7 @@ setInterval(() => { void writeMoodDiaryQuietly() }, 30 * 60_000).unref?.();
 // 2026-10-24：记忆卫生——每天一次，经验库/记忆日志超限就把最老条目归档（先备份，移动不删除）
 const runMemoryHygieneQuietly = async () => {
   try {
-    const { runHygieneDaily } = await import("./engine/memory-hygiene.mjs");
+    const { runHygieneDaily } = await import("./engine/memory/hygiene.mjs");
     const r = runHygieneDaily(WS_ROOT);
     if (r && !r.skipped) {
       for (const a of r.applied || []) {
@@ -6544,7 +6544,7 @@ const boardApi = createBoardApi({
   API_ROUTES.push(["GET", "/api/memory-hygiene", async (res, req) => {
     try {
       const u = new URL(req.url, "http://x");
-      const { planGrowth } = await import("./engine/memory-hygiene.mjs");
+      const { planGrowth } = await import("./engine/memory/hygiene.mjs");
       const file = path.join(WS_ROOT, "记忆", "运行时", "记忆卫生.json");
       let last = null;
       try { last = JSON.parse(fs.readFileSync(file, "utf8")) } catch {}

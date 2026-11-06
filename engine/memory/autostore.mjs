@@ -12,7 +12,7 @@
 
 import fs from "node:fs";
 import path from "node:path";
-import { settleRecall } from "./recall-journal.mjs";
+import { settleRecall } from "../recall-journal.mjs";
 
 let _deps = null; // { ingest, recall, getDefaultModel, chat, wsRoot }
 export function initMemoryAutoStore(deps) { _deps = deps; }

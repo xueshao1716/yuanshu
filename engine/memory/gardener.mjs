@@ -9,9 +9,9 @@
 import { readFileSync, existsSync } from "node:fs";
 import * as fs from "node:fs";
 import { join, basename, dirname } from "node:path";
-import { memoryPaths } from "./memory.mjs";
-import { atomicWriteText } from "./atomic-io.mjs";
-import { splitLogBlocks, blockTopic, isSupersededBlock } from "./memory-facts.mjs";
+import { memoryPaths } from "../memory.mjs";
+import { atomicWriteText } from "../atomic-io.mjs";
+import { splitLogBlocks, blockTopic, isSupersededBlock } from "./facts.mjs";
 
 const DAY = 24 * 60 * 60 * 1000;
 const STALE_DAYS = 7; // 「当前状态」节超过 7 天视作过时，建议归档

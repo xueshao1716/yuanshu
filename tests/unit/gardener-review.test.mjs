@@ -1,7 +1,7 @@
 // 园丁人工处置单测：去重保留最新 + 备份 + 已核对标记（fs 内存桩）
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { dedupeLog, markReviewed, getReviewed, unmarkReviewed } from "../../engine/memory-gardener.mjs";
+import { dedupeLog, markReviewed, getReviewed, unmarkReviewed } from "../../engine/memory/gardener.mjs";
 
 function normPath(p) { return String(p).replace(/\\/g, '/') }
 function memFs() {

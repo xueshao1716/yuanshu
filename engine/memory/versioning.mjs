@@ -9,7 +9,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { execFileSync } from "node:child_process";
-import { gitBin } from "./repo-root.mjs";
+import { gitBin } from "../repo-root.mjs";
 
 export const MEMORY_FILES = [
   "记忆.md",

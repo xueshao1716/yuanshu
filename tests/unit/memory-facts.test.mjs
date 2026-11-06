@@ -4,9 +4,9 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { upsertMemoryFact, factKey } from "../../engine/memory-facts.mjs";
+import { upsertMemoryFact, factKey } from "../../engine/memory/facts.mjs";
 import { searchMemoryLog, loadRecentMemory } from "../../engine/memory.mjs";
-import { scanMemoryHealth } from "../../engine/memory-gardener.mjs";
+import { scanMemoryHealth } from "../../engine/memory/gardener.mjs";
 
 function ws() {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "mem-facts-"));

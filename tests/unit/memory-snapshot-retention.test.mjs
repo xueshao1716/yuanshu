@@ -24,7 +24,7 @@ import {
   restoreSnapshot,
   SNAPSHOT_KEEP,
 } from "../../engine/memory.mjs";
-import { pruneLogBackups } from "../../engine/memory-gardener.mjs";
+import { pruneLogBackups } from "../../engine/memory/gardener.mjs";
 
 function mkws() {
   return fs.mkdtempSync(path.join(os.tmpdir(), "yuanshu-mem-snap-"));

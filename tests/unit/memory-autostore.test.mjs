@@ -5,7 +5,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
-const H = await import("../../engine/memory-autostore.mjs");
+const H = await import("../../engine/memory/autostore.mjs");
 
 function makeDeps({ chatReply, recallHits = [], model = { provider: "t", id: "m" } } = {}) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "yuanshu-auto-"));

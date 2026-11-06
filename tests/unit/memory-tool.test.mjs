@@ -1,7 +1,7 @@
 // MemorySkill 工具契约：四动作 + 降级分支 + 孤儿防护（2026-10-13）
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { createPiMemoryTool, MEMORY_TOOL_SCHEMA } from "../../engine/memory-tool.mjs";
+import { createPiMemoryTool, MEMORY_TOOL_SCHEMA } from "../../engine/memory/tool.mjs";
 import { createMemoryDbTestHarness } from "./helpers/memory-harness.mjs";
 
 const Type = { Unsafe: (p) => p };

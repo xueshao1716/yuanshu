@@ -3,8 +3,8 @@
 import fs from "node:fs";
 import { atomicWriteText } from "./atomic-io.mjs";
 import path from "node:path";
-import { syncMemoryToTui } from "./memory-sync.mjs";
-import { splitLogBlocks, isSupersededBlock } from "./memory-facts.mjs";
+import { syncMemoryToTui } from "./memory/sync.mjs";
+import { splitLogBlocks, isSupersededBlock } from "./memory/facts.mjs";
 
 // 记忆文件位置
 export function memoryPaths(wsRoot) {

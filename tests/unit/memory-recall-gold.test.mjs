@@ -207,7 +207,7 @@ test("gold-facts：首次读取按实况播种，人工条目按 id 去重、有
 
 test("结算接进了两条引擎路径：pi（turn-memory）与 元枢（memory-autostore）", async () => {
   const { settleTurnMemory: settlePi } = await import("../../engine/turn-memory.mjs");
-  const { initMemoryAutoStore, settleTurnMemory: settleYuan } = await import("../../engine/memory-autostore.mjs");
+  const { initMemoryAutoStore, settleTurnMemory: settleYuan } = await import("../../engine/memory/autostore.mjs");
 
   const qa = "源码仓库在哪";
   const reply = "源码仓库 D:\\pi-web 已经是最新，安装目录我也核对过";

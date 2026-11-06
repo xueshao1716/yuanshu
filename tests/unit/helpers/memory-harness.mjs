@@ -5,7 +5,7 @@ import path from "node:path";
 
 export async function createMemoryDbTestHarness() {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "yuanshu-mem-"));
-  const db = await import("../../../engine/memory-db.mjs");
+  const db = await import("../../../engine/memory/db.mjs");
   const vectors = await import("../../../engine/vector-store.mjs");
   db.initMemoryDb(() => dir);
   vectors.initVectorStore(() => dir);

@@ -5,7 +5,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { createUnifiedToolExecutor } from '../../engine/tools/unified-tools.mjs';
-import { listStaged } from '../../engine/memory-stages.mjs';
+import { listStaged } from '../../engine/memory/stages.mjs';
 
 const tmp = () => fs.mkdtempSync(path.join(os.tmpdir(), 'yuanshu-edit-gate-'));
 

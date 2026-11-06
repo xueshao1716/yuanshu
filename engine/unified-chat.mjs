@@ -9,7 +9,7 @@ import { execFile } from "node:child_process";
 import { json, readBody } from "./http-utils.mjs";
 import { markModelBlocked, isAuthErrorStatus, pickFallbackDefault, pickFallbackExcluding, pickBudgetDowngrade, routeProCandidate, routeForAuto } from "./model/router.mjs";
 import { classifyAnomaly, recordReply, lastAssistantReply } from "./output-guard.mjs";
-import { settleTurnMemory } from "./memory-autostore.mjs";
+import { settleTurnMemory } from "./memory/autostore.mjs";
 import { clampOutputTokens, escalateOutputTokens, maxTokensFieldOf, declaredContextWindow, OUTPUT_TOKEN_FALLBACK } from "./output-budget.mjs";
 import { budgetWithinWindow, estimateHistoryTokens } from "./context-headroom.mjs";
 import { continuationLimits, truncationRecoveryPrompt, toolTurnLimitResult } from "./task-continuation.mjs";

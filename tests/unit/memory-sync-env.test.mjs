@@ -10,7 +10,7 @@ test('记忆同步优先使用 YUANSHU_CWD，不写入旧工作区', () => {
   const current = path.join(root, 'current');
   const legacy = path.join(root, 'legacy');
   try {
-    const moduleUrl = new URL('../../engine/memory-sync.mjs', import.meta.url).href;
+    const moduleUrl = new URL('../../engine/memory/sync.mjs', import.meta.url).href;
     execFileSync(process.execPath, ['--input-type=module', '-e', `const {syncMemoryToTui}=await import(${JSON.stringify(moduleUrl)}); if (!syncMemoryToTui()) process.exit(1);`], {
       env: { ...process.env, YUANSHU_CWD: current, PI_WEB_CWD: legacy, MEMORY_SYNC_RUN: '' },
     });

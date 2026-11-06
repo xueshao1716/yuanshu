@@ -2,12 +2,12 @@
 // 作用：把元枢的记忆文件（记忆.md/记忆日志/经验库）同步到 TUI 项目级 APPEND_SYSTEM.md
 // 这样 TUI 在工作空间下运行时，加载同一份记忆，两端记忆相通
 import fs from "node:fs";
-import { atomicWriteText } from "./atomic-io.mjs";
+import { atomicWriteText } from "../atomic-io.mjs";
 import path from "node:path";
 import os from "node:os";
-import { env } from "./env.mjs";
-import { existingWorkspace } from "./workspace-default.mjs";
-import { watchMemorySources } from './memory-source-watch.mjs';
+import { env } from "../env.mjs";
+import { existingWorkspace } from "../workspace-default.mjs";
+import { watchMemorySources } from './source-watch.mjs';
 
 // M1 路径外部化：工作空间根不再写死盘符——
 // 优先 initMemorySync(wsRoot) 注入，再读 YUANSHU_CWD / PI_WEB_CWD，最后探测默认目录。

@@ -10,7 +10,7 @@
 //      写进承诺账——这样"今天要做的"才变成可追踪、会被追问兑现的对象，而不是写完就没了。
 import fs from "node:fs";
 import path from "node:path";
-import { splitLogBlocks } from "./memory-facts.mjs";
+import { splitLogBlocks } from "./memory/facts.mjs";
 import { readEntriesFromFile } from "./session/files.mjs";
 import { extractMessages } from "./session/utils.mjs";
 import { loadPromises, recordPromises } from "./promises.mjs";

@@ -1,5 +1,5 @@
 import { collectSessionFiles } from './session/files.mjs';
-import { probeEntry, recordProbe } from './memory-hygiene.mjs'
+import { probeEntry, recordProbe } from './memory/hygiene.mjs'
 import fs from 'node:fs'
 import path from 'node:path'
 import { atomicWriteJson } from './atomic-io.mjs'

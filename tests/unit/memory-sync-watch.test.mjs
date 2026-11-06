@@ -4,7 +4,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { setTimeout as pause } from 'node:timers/promises';
-import { initMemorySync, syncMemoryToTui } from '../../engine/memory-sync.mjs';
+import { initMemorySync, syncMemoryToTui } from '../../engine/memory/sync.mjs';
 
 test('source-only edits and atomic replacement refresh generated TUI memory', async t => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'yuanshu-memory-watch-'));

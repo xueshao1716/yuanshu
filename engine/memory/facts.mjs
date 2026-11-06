@@ -2,9 +2,9 @@
 import os from "node:os";
 import fs from "node:fs";
 import path from "node:path";
-import { atomicWriteText } from "./atomic-io.mjs";
-import { syncMemoryToTui } from "./memory-sync.mjs";
-import { defaultWorkspace } from "./workspace-default.mjs";
+import { atomicWriteText } from "../atomic-io.mjs";
+import { syncMemoryToTui } from "./sync.mjs";
+import { defaultWorkspace } from "../workspace-default.mjs";
 
 const HEADING_RE = /^#{2,4}\s+\d{4}-\d{2}-\d{2}/;
 

@@ -4,7 +4,7 @@ import assert from 'node:assert/strict'
 import { mkdtempSync, mkdirSync, writeFileSync, rmSync, readFileSync, statSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { scanMemoryHealth, gardenMemory } from '../../engine/memory-gardener.mjs'
+import { scanMemoryHealth, gardenMemory } from '../../engine/memory/gardener.mjs'
 
 function mk(wsRoot, { log = '', fixed = '' } = {}) {
   mkdirSync(join(wsRoot, '记忆'), { recursive: true })

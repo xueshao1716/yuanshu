@@ -4,7 +4,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { buildWiki, WIKI_DIR } from "../../engine/memory-wiki.mjs";
+import { buildWiki, WIKI_DIR } from "../../engine/memory/wiki.mjs";
 import { markStaleForPaths, clearStaleForGenerated, staleSummary, staleWikiLine, sourcesOfPage, readStale } from "../../engine/wiki-stale.mjs";
 
 function ws() {

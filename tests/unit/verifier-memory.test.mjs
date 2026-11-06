@@ -5,7 +5,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { buildVerifyPrompt, parseVerdict, artifactDigest, verifyArtifacts } from '../../engine/verifier.mjs';
-import { isCanonicalTarget, stageWrite, listStaged, commitStaged, dropStaged, stagingDir } from '../../engine/memory-stages.mjs';
+import { isCanonicalTarget, stageWrite, listStaged, commitStaged, dropStaged, stagingDir } from '../../engine/memory/stages.mjs';
 import { openTrace, loadTrace } from '../../engine/trace.mjs';
 
 const tmp = () => fs.mkdtempSync(path.join(os.tmpdir(), 'yuanshu-verify-'));

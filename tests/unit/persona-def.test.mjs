@@ -17,7 +17,7 @@ import {
   syncAppendSystemPersona, renderAppendSystemPersona, PERSONA_BEGIN, PERSONA_END, personaFilePath,
 } from '../../engine/persona-def.mjs';
 import { isProtectedPath } from '../../engine/tools/security.mjs';
-import { isCanonicalTarget } from '../../engine/memory-stages.mjs';
+import { isCanonicalTarget } from '../../engine/memory/stages.mjs';
 
 test('定义决定人格：名字/年龄/性别/关系/内心/语气/边界/禁忌都进人格段', () => {
   const def = { ...DEFAULT_DEFINITION, name: '小语', age: 20 };

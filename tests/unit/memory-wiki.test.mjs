@@ -4,7 +4,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { buildWiki, listWiki, readWiki, sectionsOf, topicsFromKnowledge, MARKER, WIKI_DIR } from "../../engine/memory-wiki.mjs";
+import { buildWiki, listWiki, readWiki, sectionsOf, topicsFromKnowledge, MARKER, WIKI_DIR } from "../../engine/memory/wiki.mjs";
 
 function ws() {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "wiki-"));

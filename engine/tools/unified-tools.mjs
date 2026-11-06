@@ -46,7 +46,7 @@ import { formatSensitiveHint } from "../media-channels.mjs";
 import { yuanshuExecutor } from "../yuanshu-loop.mjs";
 import { execFileAbortable, toolInterruption } from "../yuanshu-stability.mjs";
 import { withUtf8CodePage, decodeWindowsOutput, looksMojibake, riskyForCmdShell } from "../windows-shell.mjs";
-import { isCanonicalTarget, stageWrite } from "../memory-stages.mjs";
+import { isCanonicalTarget, stageWrite } from "../memory/stages.mjs";
 import { checkWriteSegments } from "../context-headroom.mjs";
 import { env } from "../env.mjs";
 import { resolveShareOrigin } from "../network-endpoints.mjs";
