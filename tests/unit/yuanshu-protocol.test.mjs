@@ -104,7 +104,7 @@ test("handleUnifiedChat 必须常驻元枢协议和技能目录", () => {
 });
 
 test("generateVideo 创建失败必须走 repair 再试一次", () => {
-  const src = readFileSync(join(ROOT, "engine", "media-api.mjs"), "utf8");
+  const src = readFileSync(join(ROOT, "engine", "media", "api.mjs"), "utf8");
   const start = src.indexOf("export async function startVideoJob");
   const fn = src.slice(start, src.indexOf("export async function handleMedia", start));
   assert.ok(fn.includes("repairVideoRequest"), "缺字段由宿主补，不要丢回给模型猜");

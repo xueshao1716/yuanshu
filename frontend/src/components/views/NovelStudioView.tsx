@@ -1,6 +1,6 @@
 import { useState } from 'react'
-import NovelShelf from './novel/NovelShelf'
-import NovelWorkbench from './novel/NovelWorkbench'
+import NovelShelf from '../novel/NovelShelf'
+import NovelWorkbench from '../novel/NovelWorkbench'
 
 export default function NovelStudioView() {
   const [openId, setOpenId] = useState<string | null>(null)

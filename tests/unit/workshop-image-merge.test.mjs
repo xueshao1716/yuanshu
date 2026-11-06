@@ -23,7 +23,7 @@ test('旧的万像页签会迁到 AI 绘画', () => {
 
 test('选模型在各工坊内部，不跟顶级页签放一起', () => {
   const workshop = read('pages', 'Workshop.tsx')
-  const ppt = read('components', 'WorkshopView.tsx')
+  const ppt = read('components', 'views', 'WorkshopView.tsx')
   const bench = read('components', 'novel', 'NovelWorkbench.tsx')
   const gen = read('components', 'panels', 'GeneratePanel.tsx')
   assert.ok(!workshop.includes('ModelSelect'), '顶级页签旁不得放选模型')
@@ -113,7 +113,7 @@ test('界面工坊不得在创作页一恢复就整页跳走', () => {
 
 test('创作三板块手机版：页签铺满、触控 44px、表单可竖排', () => {
   const workshop = read('pages', 'Workshop.tsx')
-  const ppt = read('components', 'WorkshopView.tsx')
+  const ppt = read('components', 'views', 'WorkshopView.tsx')
   const gen = read('components', 'panels', 'GeneratePanel.tsx')
   const shelf = read('components', 'novel', 'NovelShelf.tsx')
   const bench = read('components', 'novel', 'NovelWorkbench.tsx')

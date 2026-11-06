@@ -64,7 +64,7 @@ test("ppt-html 生成入口接收 brief，表单能填动词", () => {
   const ws = readFileSync(join(ROOT, "engine", "workshop.mjs"), "utf8");
   assert.ok(ws.includes("formatHtmlBriefBlock") || ws.includes("fillHtmlBrief"), "生成设计稿必须灌 brief");
   assert.ok(ws.includes("verb"), "请求体要接动词");
-  const view = readFileSync(join(ROOT, "frontend", "src", "components", "WorkshopView.tsx"), "utf8");
+  const view = readFileSync(join(ROOT, "frontend", "src", "components", "views", "WorkshopView.tsx"), "utf8");
   assert.ok(view.includes("verb"), "表单要有动词");
   assert.ok(view.includes("PromptSmartFill") || view.includes("智能填充"), "设计稿也要能一句话扩写");
 });

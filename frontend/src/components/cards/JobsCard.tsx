@@ -1,6 +1,6 @@
 import { useSWRConfig } from 'swr'
 import useSWR from 'swr'
-import { JobsApi, type BackgroundJob } from '../api'
+import { JobsApi, type BackgroundJob } from '../../api'
 import { ListChecks, X, LoaderCircle } from 'lucide-react'
 
 const STATUS_TEXT: Record<string, string> = {

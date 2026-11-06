@@ -9,9 +9,9 @@ import StatusTile from '../components/StatusTile'
 import DoctorPanel from '../components/panels/DoctorPanel'
 import WechatPanel from '../components/panels/WechatPanel'
 import EmailPanel from '../components/panels/EmailPanel'
-import PairLoginCard from '../components/PairLoginCard'
-import ServiceStatusCard from '../components/ServiceStatusCard'
-import JobsCard from '../components/JobsCard'
+import PairLoginCard from '../components/cards/PairLoginCard'
+import ServiceStatusCard from '../components/cards/ServiceStatusCard'
+import JobsCard from '../components/cards/JobsCard'
 
 type DomainRow = { domain: string; desc: string }
 

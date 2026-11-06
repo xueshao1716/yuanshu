@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { ServiceApi, type WatchdogStatus } from '../api'
+import { ServiceApi, type WatchdogStatus } from '../../api'
 
 /**
  * 守护状态（2026-10-22，方案 B+D）

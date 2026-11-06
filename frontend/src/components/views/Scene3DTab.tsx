@@ -3,7 +3,7 @@ import useSWR from 'swr'
 import * as THREE from 'three'
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js'
 import { Download, Image as ImageIcon, Plus, Redo2, Save, Trash2, Undo2, Wand2, RotateCw } from 'lucide-react'
-import { api } from '../api'
+import { api } from '../../api'
 
 // ── 创作台 · 3D 空间 v2（2026-11-01）──
 // 真编辑：选中/拖动/缩放/旋转/撤销、贴墙吸附、家具预设（多盒体拼装）、

@@ -3,9 +3,9 @@
 // 定位：母体（aibody）仪表盘里的"角色层"窗口——谁上场、什么档位、每阶到哪、清单对没对上。
 // 快照只读；新任务通过统一会话管理器启动，角色只继承有限上下文。
 import useSWR from 'swr'
-import { TeamRunApi } from '../api'
-import { TeamRunStart } from './TeamRunStart'
-import { TeamRunStatus, type TeamDelivery, type TeamProfile } from './TeamRunStatus'
+import { TeamRunApi } from '../../api'
+import { TeamRunStart } from '../TeamRunStart'
+import { TeamRunStatus, type TeamDelivery, type TeamProfile } from '../TeamRunStatus'
 
 
 const TIER_STYLE: Record<string, string> = {

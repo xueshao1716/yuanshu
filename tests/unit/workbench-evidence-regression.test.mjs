@@ -60,7 +60,7 @@ test('continuity distinguishes restored records from resumed work; evolution is 
   assert.equal(view.observationContext.sessionId, 's');
 });
 test('team UI collapses historical snapshots and warns about workflow version only when missing', () => {
-  const src = fs.readFileSync(new URL('../../frontend/src/components/TeamRunView.tsx', import.meta.url), 'utf8');
+  const src = fs.readFileSync(new URL('../../frontend/src/components/views/TeamRunView.tsx', import.meta.url), 'utf8');
   assert.ok(src.includes("data?.snapshotKind === 'current'"));
   assert.ok(src.includes('open={isCurrent}'));
   assert.ok(src.includes('历史运行记录'));

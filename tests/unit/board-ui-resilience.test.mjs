@@ -9,11 +9,11 @@ test('recovery proposals cannot be replayed and failures refresh the queue', () 
   assert.ok(src.split('\n').some(line => line.includes('finally') && line.includes('mutate()')));
 });
 test('unknown workflow versions are not interpreted as V20', () => {
-  const src = read('components/TeamRunView.tsx');
+  const src = read('components/views/TeamRunView.tsx');
   assert.equal(src.includes('此记录未提供 V20.0'), false);
   assert.ok(src.includes('未标注流程版本'));
 });
-for (const file of ['pages/Board.tsx', 'components/PendingChanges.tsx', 'components/panels/HistoryPanel.tsx', 'components/TeamRunView.tsx']) {
+for (const file of ['pages/Board.tsx', 'components/PendingChanges.tsx', 'components/panels/HistoryPanel.tsx', 'components/views/TeamRunView.tsx']) {
   test(`${file} uses shared API and displays errors`, () => {
     const src = read(file);
     assert.ok(!src.includes('fetch('));
@@ -31,7 +31,7 @@ for (const file of ['components/PendingChanges.tsx', 'components/panels/HistoryP
   });
 }
 test('team reflects actual phase status, timestamp and missing checklist', () => {
-  const src = read('components/TeamRunView.tsx');
+  const src = read('components/views/TeamRunView.tsx');
   assert.ok(src.includes('s.status'));
   assert.ok(src.includes('run.createdAt'));
   assert.ok(src.includes('正在读取'));

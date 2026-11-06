@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import QRCode from 'qrcode'
-import { PairApi, type PairDevice } from '../api'
+import { PairApi, type PairDevice } from '../../api'
 
 /**
  * 手机扫码登录（2026-10-22）

@@ -1,8 +1,8 @@
 import { useMemo, useState } from 'react'
 import { ChevronDown, ChevronRight, Check, EyeOff, Scissors, AlertTriangle, RefreshCw, Sprout, Archive, RotateCcw, Handshake, Moon, Target } from 'lucide-react'
 import useSWR from 'swr'
-import { MemoryApi, PromiseApi, GoalApi, type PromisePending } from '../api'
-import EmptyState from '../components/EmptyState'
+import { MemoryApi, PromiseApi, GoalApi, type PromisePending } from '../../api'
+import EmptyState from '../EmptyState'
 
 // ── 记忆园丁视图（08-26 重做）：明细可见 + 人工核对按钮 ──
 // 原则不变：园丁只报告；「标记已核对」只记核对结论不动记忆文件；

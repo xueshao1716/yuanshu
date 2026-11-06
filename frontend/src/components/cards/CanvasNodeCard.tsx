@@ -1,9 +1,9 @@
-import ThemedSelect from '../components/ThemedSelect'
+import ThemedSelect from '../ThemedSelect'
 import { Trash2, Wand2, Link2, Loader2, ImageOff } from 'lucide-react'
-import type { CanvasNode } from '../types'
-import { NODE_KINDS } from '../lib/canvas-nodes.mjs'
-import PanoramaViewer from './PanoramaViewer'
-import { withFileToken } from '../api'
+import type { CanvasNode } from '../../types'
+import { NODE_KINDS } from '../../lib/canvas-nodes.mjs'
+import PanoramaViewer from '../PanoramaViewer'
+import { withFileToken } from '../../api'
 
 // ── 画布节点卡片（复刻可乐 AI 画布）──
 // 三种节点：提示词（输出 prompt）/ 配置（输出 provider+modelId+size）/ 图片（吃 prompt+config 出图）。

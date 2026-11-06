@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import useSWR from 'swr'
-import { BriefApi, type MorningBrief } from '../api'
+import { BriefApi, type MorningBrief } from '../../api'
 import { RefreshCw, X, Sun } from 'lucide-react'
 
 /**

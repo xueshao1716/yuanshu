@@ -1,13 +1,13 @@
-import ThemedSelect from '../components/ThemedSelect'
+import ThemedSelect from '../ThemedSelect'
 import { useRef, useState } from 'react'
 import { Package, History } from 'lucide-react'
 import useSWR from 'swr'
-import { WorkshopApi, withFileToken, apiUrl } from '../api'
-import PptOutlineEditor, { type OutlineSlide } from './PptOutlineEditor'
-import PptStudio, { type DeckPage } from './PptStudio'
-import PromptSmartFill from './PromptSmartFill'
-import Gallery from './Gallery'
-import WorkshopModelPicker, { useWorkshopModel } from './WorkshopModelPicker'
+import { WorkshopApi, withFileToken, apiUrl } from '../../api'
+import PptOutlineEditor, { type OutlineSlide } from '../PptOutlineEditor'
+import PptStudio, { type DeckPage } from '../PptStudio'
+import PromptSmartFill from '../PromptSmartFill'
+import Gallery from '../Gallery'
+import WorkshopModelPicker, { useWorkshopModel } from '../WorkshopModelPicker'
 
 // ── 专项长文生成器（SSE 长任务，收编自 vanilla）：08-27 起仅承载 PPT（小说已迁 NovelStudioView 书架式）──
 

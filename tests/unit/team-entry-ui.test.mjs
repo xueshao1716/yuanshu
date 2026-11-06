@@ -24,7 +24,7 @@ test('server delegates to repository launcher and exposes independent launch sta
 test('team entry starts a managed session task and links back to conversation', () => {
   const source = read('frontend/src/components/TeamRunStart.tsx');
   for (const term of ['TeamRunApi.start', 'clientRequestId', 'disabled={busy', 'maxLength={taskLimit}', "workflow === 'team-general' ? 6000 : 300", '<textarea', '10 秒', 'selectSession', "nav('chat')"]) assert.ok(source.includes(term), term);
-  assert.ok(read('frontend/src/components/TeamRunView.tsx').includes('<TeamRunStart'));
+  assert.ok(read('frontend/src/components/views/TeamRunView.tsx').includes('<TeamRunStart'));
   assert.ok(read('frontend/src/components/TeamRunStatus.tsx').includes('launch?.sessionId'));
   const chat = read('frontend/src/components/ChatArea.tsx');
   assert.ok(chat.includes('RunApi.overview(currentSessionId)'));
@@ -38,7 +38,7 @@ test('runner snapshot associates launch and never assumes external role dependen
   assert.ok(source.includes('uncertain stage:'));
 });
 test('view separates launch from historical snapshot and draft from acceptance', () => {
-  const source = read('frontend/src/components/TeamRunView.tsx');
+  const source = read('frontend/src/components/views/TeamRunView.tsx');
   assert.ok(source.includes('<TeamRunStatus launch={data?.launch}'));
   assert.ok(!source.includes('node 工程/多AI角色扮演系统/scripts/team-run.mjs'));
   assert.ok(source.includes("run.mode === 'dry-run'"));

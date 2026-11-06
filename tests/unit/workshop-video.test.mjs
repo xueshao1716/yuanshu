@@ -41,7 +41,7 @@ test("视频提示词必须吃进镜头卡生成器，主体运镜还能改", ()
 test("前端 MediaApi 和后端 handleMedia 要对上，出片后落盘", () => {
   const api = read("api.ts");
   assert.ok(api.includes("MediaApi") && api.includes("/api/media"), "前端要有 MediaApi.video");
-  const media = readFileSync(join(ROOT, "engine", "media-api.mjs"), "utf8");
+  const media = readFileSync(join(ROOT, "engine", "media", "api.mjs"), "utf8");
   const fn = media.slice(media.indexOf("export async function handleMedia"));
   assert.ok(fn.includes("saveArtifact"), "工坊出片也要进生成物/视频");
 });

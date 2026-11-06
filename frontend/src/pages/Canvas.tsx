@@ -5,7 +5,7 @@ import {
   Type, Undo2, Redo2, ScanSearch, ClipboardList, Telescope, Video, Music,
 } from 'lucide-react'
 import PageHeader from '../components/PageHeader'
-import CanvasNodeCard from '../components/CanvasNodeCard'
+import CanvasNodeCard from '../components/cards/CanvasNodeCard'
 import CommissionPanel from '../components/panels/CommissionPanel'
 import ResearchPanel from '../components/panels/ResearchPanel'
 import type { CanvasNode, CanvasEdge, CanvasView, Model } from '../types'

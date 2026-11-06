@@ -4,7 +4,7 @@ import fs from "node:fs";
 import path from "node:path";
 
 const ROOT = path.join(import.meta.dirname, "..", "..");
-const source = () => fs.readFileSync(path.join(ROOT, "frontend", "src", "components", "WorkshopView.tsx"), "utf8");
+const source = () => fs.readFileSync(path.join(ROOT, "frontend", "src", "components", "views", "WorkshopView.tsx"), "utf8");
 
 test("PPT 往期载入兼容顶层数组，并通过作品集接口恢复 HTML 设计稿", () => {
   const src = source();

@@ -4,13 +4,13 @@ import PageHeader from '../components/PageHeader'
 import GeneratePanel from '../components/panels/GeneratePanel'
 import VideoGeneratePanel from '../components/panels/VideoGeneratePanel'
 import VideoPrompt from '../components/VideoPrompt'
-import WorkshopView from '../components/WorkshopView'
-import NovelStudioView from '../components/NovelStudioView'
+import WorkshopView from '../components/views/WorkshopView'
+import NovelStudioView from '../components/views/NovelStudioView'
 import WanXiang from '../components/WanXiang'
 import WorkshopUiBoard from '../components/WorkshopUiBoard'
 import { StoryPanel } from './StoryWorkbench'
 import Canvas from './Canvas'
-import Scene3DTab from '../components/Scene3DTab'
+import Scene3DTab from '../components/views/Scene3DTab'
 
 // ── 专项工作台：出图 / 视频 / PPT / 小说 / 界面工坊 / 连续创作 / 无限画布 ──
 
