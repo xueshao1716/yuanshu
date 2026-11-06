@@ -26,7 +26,7 @@ test('会话亲和头：别家不能乱发（openrouter 用 x-session-id，deeps
 });
 
 test('baseUrl 必须"模型定义优先"（auth 那份是账号级的，端点可能不同）', () => {
-  for (const f of ['engine/unified-chat.mjs', 'engine/model-adapter.mjs']) {
+  for (const f of ['engine/unified-chat.mjs', 'engine/model/adapter.mjs']) {
     const src = fs.readFileSync(f, 'utf8');
     assert.match(src, /mdef\?\.baseUrl \|\| resolved\?\.baseUrl/, `${f} 要用模型定义的 baseUrl`);
     assert.ok(!/resolved\?\.baseUrl \|\| mdef\?\.baseUrl/.test(src), `${f} 不能再用 auth 的 baseUrl 压过模型定义`);
@@ -36,7 +36,7 @@ test('baseUrl 必须"模型定义优先"（auth 那份是账号级的，端点�
 test('两条请求路径都要发亲和头（unifiedChat 的内联请求 + adapter）', () => {
   const uc = fs.readFileSync('engine/unified-chat.mjs', 'utf8');
   assert.match(uc, /sessionAffinityHeaders\(\{ provider: model\.provider/, 'unifiedChat 的 mkReq 要发');
-  const ma = fs.readFileSync('engine/model-adapter.mjs', 'utf8');
+  const ma = fs.readFileSync('engine/model/adapter.mjs', 'utf8');
   assert.match(ma, /sessionAffinityHeaders\(\{ provider: model\.provider/, 'adapter 的 mkReq 也要发');
   // 循环要把会话号传进来（否则退化成进程级稳定值，虽然能用但不是最优）
   assert.match(uc, /opts\.executionContext\?\.sessionId \|\| opts\.sessionId/, '循环要把真实会话号传下去');

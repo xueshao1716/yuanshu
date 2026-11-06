@@ -66,7 +66,7 @@ description: 万像人物写真提示词系统。生成 AI 人物写真提示词
 提示词写好后可以直接出图，走元枢自己的通路，**不要**自己 curl 上游、不要读 `.token`：
 
 - 在对话里直接说「画一张…」/「配图」，或调用 `generate_image` 工具；
-- 通路实现是 `engine/media-api.mjs` 的 `generateImage`（产物按本地化契约落进工作空间）；
+- 通路实现是 `engine/media/api.mjs` 的 `generateImage`（产物按本地化契约落进工作空间）；
 - 本机实际可用的图像模型是 `agnes-image-2.0-flash / 2.1-flash / 2.5-flash`（能力声明含 reference/seed）——
   摘要里的 MJ/SD/即梦/Imagen 是**提示词写法**的参考，不是本机能直接调的平台；
   想按 MJ/SD 的语法出图，那是把提示词拿到对应平台去用。

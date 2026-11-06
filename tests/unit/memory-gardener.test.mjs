@@ -1,4 +1,4 @@
-// engine/memory-gardener.mjs 单测（规则化记忆园丁：去重/过时状态/膨胀，只报告不自动写）
+// engine/memory/gardener.mjs 单测（规则化记忆园丁：去重/过时状态/膨胀，只报告不自动写）
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { mkdtempSync, mkdirSync, writeFileSync, rmSync, readFileSync, statSync } from 'node:fs'

@@ -12,7 +12,7 @@ const ws = () => fs.mkdtempSync(path.join(os.tmpdir(), "fail-"));
 
 test("记录：字段齐全，落盘", () => {
   const root = ws();
-  const r = recordFailure({ wsRoot: root, agent: "小语", area: "微信发图", attempt: "用 sendImage 直接发", why: "CDN 500", files: ["engine/wechat-ilink.mjs"], source: "patch" });
+  const r = recordFailure({ wsRoot: root, agent: "小语", area: "微信发图", attempt: "用 sendImage 直接发", why: "CDN 500", files: ["engine/wechat/ilink.mjs"], source: "patch" });
   assert.equal(r.ok, true);
   assert.match(r.entry.id, /^f-/);
   assert.equal(recentFailures(root).length, 1);
@@ -28,7 +28,7 @@ test("空 attempt 与空 why 一起时拒绝", () => {
 test("召回：文件命中权重最高", () => {
   const root = ws();
   recordFailure({ wsRoot: root, area: "改 doc-diff", attempt: "直接扫全盘", why: "20 万文件吃满上限", files: ["engine/doc-diff.mjs"] });
-  recordFailure({ wsRoot: root, area: "改微信", attempt: "voice_item", why: "ret=-2", files: ["engine/wechat-ilink.mjs"] });
+  recordFailure({ wsRoot: root, area: "改微信", attempt: "voice_item", why: "ret=-2", files: ["engine/wechat/ilink.mjs"] });
 
   const byFile = recallFailures({ wsRoot: root, files: ["engine/doc-diff.mjs"] });
   assert.equal(byFile[0].entry.area, "改 doc-diff");

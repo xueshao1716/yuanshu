@@ -11,7 +11,7 @@ test('aibody overview maps the three layers to available project evidence', asyn
   try {
     fs.mkdirSync(path.join(root, 'engine'), { recursive: true })
     fs.writeFileSync(path.join(root, 'engine', 'gene.mjs'), 'export {}')
-    fs.writeFileSync(path.join(root, 'engine', 'memory-gardener.mjs'), 'export {}')
+    fs.writeFileSync(path.join(root, 'engine', 'memory', 'gardener.mjs'), 'export {}')
     const api = createMiscApi({
       json: (_res, status, body) => { response = { status, body } },
       readJsonFile: () => ({}), writeJsonFile: () => true,

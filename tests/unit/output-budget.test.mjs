@@ -42,7 +42,7 @@ test('字段名走 compat：有的通道要 max_completion_tokens', () => {
 });
 
 test('两条请求路径都必须用预算模块，不能再用写死的 8192（源码契约）', () => {
-  for (const f of ['engine/unified-chat.mjs', 'engine/model-adapter.mjs']) {
+  for (const f of ['engine/unified-chat.mjs', 'engine/model/adapter.mjs']) {
     const src = fs.readFileSync(f, 'utf8');
     assert.match(src, /clampOutputTokens/, `${f} 要用预算模块`);
     assert.ok(!/Math\.min\(mdef\?\.maxTokens \|\| (opts\.maxTokens \|\| )?8192, 8192\)/.test(src), `${f} 不许再写死 8192`);

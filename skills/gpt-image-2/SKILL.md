@@ -35,7 +35,7 @@ description: GPT-Image-2 精选提示词库（929+ 案例 7 类）：海报/UI�
 
 ## 🔌 生成方式（pi-web 图像生成接口）
 
-图像模型走 pi-web `generateImage`（OpenAI 兼容 `/v1/images/generations`，`engine/media-api.mjs`）。已接入图像模型：
+图像模型走 pi-web `generateImage`（OpenAI 兼容 `/v1/images/generations`，`engine/media/api.mjs`）。已接入图像模型：
 
 - **Agnes**：`agnes-image-2.1-flash`（快，推荐）
 - **阿里云百炼**：`wan2.7-image`（高质）

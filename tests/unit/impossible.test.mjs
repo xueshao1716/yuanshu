@@ -33,15 +33,15 @@ test("到阈值：自动落一条 impossible，之后开工前能查到", () => 
 test("按文件命中也能判定（换了标题但动同一份文件）", () => {
   const root = ws();
   for (let i = 0; i < IMPOSSIBLE_THRESHOLD; i += 1) {
-    recordFailure({ wsRoot: root, area: `补丁：第${i}版`, attempt: "x", why: "门禁未过", files: ["engine/wechat-ilink.mjs"] });
+    recordFailure({ wsRoot: root, area: `补丁：第${i}版`, attempt: "x", why: "门禁未过", files: ["engine/wechat/ilink.mjs"] });
   }
-  assert.equal(isImpossible({ wsRoot: root, area: "补丁：全新标题", files: ["engine/wechat-ilink.mjs"] }).impossible, true);
+  assert.equal(isImpossible({ wsRoot: root, area: "补丁：全新标题", files: ["engine/wechat/ilink.mjs"] }).impossible, true);
 });
 
 test("无关的事不会被误判 impossible", () => {
   const root = ws();
   for (let i = 0; i < IMPOSSIBLE_THRESHOLD; i += 1) {
-    recordFailure({ wsRoot: root, area: "补丁：语音条", attempt: "x", why: "y", files: ["engine/wechat-ilink.mjs"] });
+    recordFailure({ wsRoot: root, area: "补丁：语音条", attempt: "x", why: "y", files: ["engine/wechat/ilink.mjs"] });
   }
   assert.equal(isImpossible({ wsRoot: root, area: "补丁：数据库迁移", files: ["engine/db.mjs"] }).impossible, false);
 });
