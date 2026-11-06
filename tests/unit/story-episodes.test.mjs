@@ -6,8 +6,8 @@
 // - 一集一条场次/段落/进度账（界面与批量生成共用同一个数，不各算一遍）。
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { normalizeEpisodes, createEpisode, cleanEpisodeTitle, nextEpisodeNo, groupScenesByEpisode, episodeOf, episodeStats, assignSceneToEpisode, removeEpisode, renumberEpisodes, EPISODE_MAX } from '../../engine/story-episodes.mjs';
-import { projectToElements, renderScript } from '../../engine/story-screenplay.mjs';
+import { normalizeEpisodes, createEpisode, cleanEpisodeTitle, nextEpisodeNo, groupScenesByEpisode, episodeOf, episodeStats, assignSceneToEpisode, removeEpisode, renumberEpisodes, EPISODE_MAX } from '../../engine/story/episodes.mjs';
+import { projectToElements, renderScript } from '../../engine/story/screenplay.mjs';
 
 const project = () => ({
   title: '钥匙',

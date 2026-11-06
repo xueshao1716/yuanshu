@@ -1,4 +1,4 @@
-import { colorCardPromptBlock } from './color-cards.mjs';
+import { colorCardPromptBlock } from '../color-cards.mjs';
 
 const list = (value) => Array.isArray(value) ? value : [];
 

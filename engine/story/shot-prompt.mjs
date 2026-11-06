@@ -24,7 +24,7 @@
 //      而不是要求用户重新生成一遍分镜。
 //   3. **认不出来就什么都不加**，绝不编造一个不存在的机位——宁缺勿编。
 
-import { resolveColorCard, colorCardTone } from './color-cards.mjs';
+import { resolveColorCard, colorCardTone } from '../color-cards.mjs';
 
 // ── 风格库 ──
 // 每条 = 这个风格"长什么样"的四句话：质感(look) / 光线(light) / 色调(tone) / 附带约束(tail)。

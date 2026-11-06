@@ -7,10 +7,10 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { lintStoryProject } from '../../engine/story-lint.mjs';
-import { localPathFromArtifactUrl, collectFilmClips, concatClips, ffmpegAvailable, runFfmpeg } from '../../engine/story-film.mjs';
-import { buildStoryboardPrompt, parseStoryboard } from '../../engine/story-assist.mjs';
-import { mergeStoryboardBible, pickBeatReferences } from '../../engine/story-orchestrator.mjs';
+import { lintStoryProject } from '../../engine/story/lint.mjs';
+import { localPathFromArtifactUrl, collectFilmClips, concatClips, ffmpegAvailable, runFfmpeg } from '../../engine/story/film.mjs';
+import { buildStoryboardPrompt, parseStoryboard } from '../../engine/story/assist.mjs';
+import { mergeStoryboardBible, pickBeatReferences } from '../../engine/story/orchestrator.mjs';
 
 const WS = 'D:/pi-workspace';
 

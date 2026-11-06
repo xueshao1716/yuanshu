@@ -3,8 +3,8 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { createProject, writeProject } from '../../engine/story-store.mjs';
-import { createStoryOrchestrator, handleStoryAssist } from '../../engine/story-orchestrator.mjs';
+import { createProject, writeProject } from '../../engine/story/store.mjs';
+import { createStoryOrchestrator, handleStoryAssist } from '../../engine/story/orchestrator.mjs';
 
 const catalog = [
   { provider: 'p', id: 'text', capabilities: { chat: true } },

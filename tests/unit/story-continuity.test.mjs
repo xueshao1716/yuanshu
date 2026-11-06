@@ -7,10 +7,10 @@
 //     能力协商层在问一个没有任何代码去填的字段，用户看到的是假的降级提示。
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { createImageAdapter, createVideoAdapter } from '../../engine/story-adapters.mjs';
+import { createImageAdapter, createVideoAdapter } from '../../engine/story/adapters.mjs';
 import { modelCapabilities } from '../../engine/model-probe.mjs';
-import { negotiateCapabilities, pickReferenceImages } from '../../engine/story-orchestrator.mjs';
-import { buildPortraitPrompt } from '../../engine/story-prompts.mjs';
+import { negotiateCapabilities, pickReferenceImages } from '../../engine/story/orchestrator.mjs';
+import { buildPortraitPrompt } from '../../engine/story/prompts.mjs';
 
 test('图像适配器把角色定妆照作为真实 image 参数传给上游（图生图），而不是只拼文本', async () => {
   let got = null;

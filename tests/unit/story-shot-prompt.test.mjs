@@ -9,8 +9,8 @@ import assert from 'node:assert/strict';
 import {
   STYLE_LIBRARY, GLOBAL_CONSTRAINTS, resolveStyle, inferShotFromProse, shotFieldsFromBeat,
   assetRefsForShot, splitRefs, compileShotPrompt, describeShotCompile,
-} from '../../engine/story-shot-prompt.mjs';
-import { cleanShotFields, cleanScenes } from '../../engine/story-assist.mjs';
+} from '../../engine/story/shot-prompt.mjs';
+import { cleanShotFields, cleanScenes } from '../../engine/story/assist.mjs';
 
 test('风格库：code / 中文名 / 别名都认，认不出来返回 null（绝不硬塞默认风格）', () => {
   assert.equal(resolveStyle('suspense_movie').name, '悬疑电影风格');

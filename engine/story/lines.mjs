@@ -15,8 +15,8 @@
 //   2. **`beat.dialogue` 仍是唯一真相**，`beat.lines` 只是派生缓存（老项目读时派生，不迁移）。
 //   3. **秒数是估计**：一律标注"约"，录制后允许回填真实时长（回填只改数值、不动锚点）。
 import crypto from 'node:crypto';
-import { SPEECH, speakableChars } from './story-craft.mjs';
-import { parseDialogueLines } from './story-screenplay.mjs';
+import { SPEECH, speakableChars } from './craft.mjs';
+import { parseDialogueLines } from './screenplay.mjs';
 
 // 归一化：去掉标点与空白——"你挡住了我的视线。" 与 "你挡住了我的视线" 是同一个人同一句，
 // 改个句号不该换身份。

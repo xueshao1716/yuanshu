@@ -15,7 +15,7 @@ import {
   materializeMedia, materializeVideoBody, isDirectMedia, resolveLocalMedia, mimeFor,
   MEDIA_MAX_BYTES, MEDIA_KEYS,
 } from '../../engine/media-inline.mjs';
-import { localPathFromArtifactUrl } from '../../engine/story-film.mjs';
+import { localPathFromArtifactUrl } from '../../engine/story/film.mjs';
 
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'yuanshu-media-inline-'));
 after(() => fs.rmSync(tmp, { recursive: true, force: true }));

@@ -17,7 +17,7 @@
 //   B. 构思体检：伏笔回收、断章钩子、情绪契约单元划分。
 // 模型只负责"改写"和"给方案"，事实与判定尽量由这里给出——否则每次都要花一次调用才能知道
 // "这句话说不完"，那是浪费。
-import { parseDialogueLines } from './story-screenplay.mjs';
+import { parseDialogueLines } from './screenplay.mjs';
 
 // ── 语速基准（取自 dialogue-speed-check.md 的三档标准）──
 // 标准 3.5~5 字/秒；<3.5 慢速重音（金句/遗言/威慑）；>5 快速爆发（争吵/逼问），

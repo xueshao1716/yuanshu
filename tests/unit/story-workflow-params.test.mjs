@@ -13,10 +13,10 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { compileStoryPrompt, negativeBlock } from '../../engine/story-prompts.mjs';
-import { createImageAdapter, createVideoAdapter } from '../../engine/story-adapters.mjs';
-import { createStoryOrchestrator } from '../../engine/story-orchestrator.mjs';
-import { createProject, writeProject } from '../../engine/story-store.mjs';
+import { compileStoryPrompt, negativeBlock } from '../../engine/story/prompts.mjs';
+import { createImageAdapter, createVideoAdapter } from '../../engine/story/adapters.mjs';
+import { createStoryOrchestrator } from '../../engine/story/orchestrator.mjs';
+import { createProject, writeProject } from '../../engine/story/store.mjs';
 
 // ─────────── seed 真的上送 ───────────
 

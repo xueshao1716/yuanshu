@@ -1,4 +1,4 @@
-import { effectiveCapabilities } from '../shared/model-capabilities.mjs';
+import { effectiveCapabilities } from '../../shared/model-capabilities.mjs';
 
 export const explicitStoryModel = model => Boolean(model?.id && model.id !== 'auto' && model.provider !== 'auto');
 export const supportsStoryKind = (model, kind) => Boolean(model?.id && model.enabled !== false && effectiveCapabilities(model)[kind === 'novel' ? 'chat' : kind]);

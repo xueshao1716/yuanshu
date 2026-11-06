@@ -8,8 +8,8 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
-import { createStoryOrchestrator } from '../../engine/story-orchestrator.mjs';
-import { createProject, writeProject } from '../../engine/story-store.mjs';
+import { createStoryOrchestrator } from '../../engine/story/orchestrator.mjs';
+import { createProject, writeProject } from '../../engine/story/store.mjs';
 
 async function setup(t, { saveArtifact } = {}) {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), 'yuanshu-ref-local-'));

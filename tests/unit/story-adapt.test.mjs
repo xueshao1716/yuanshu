@@ -10,9 +10,9 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
-import { buildAdaptPrompt, parseAdapt, parseStoryboard, cleanScenes } from '../../engine/story-assist.mjs';
-import { createStoryOrchestrator } from '../../engine/story-orchestrator.mjs';
-import { saveRecipe } from '../../engine/story-recipes.mjs';
+import { buildAdaptPrompt, parseAdapt, parseStoryboard, cleanScenes } from '../../engine/story/assist.mjs';
+import { createStoryOrchestrator } from '../../engine/story/orchestrator.mjs';
+import { saveRecipe } from '../../engine/story/recipes.mjs';
 
 const sample = (episodes = 2) => JSON.stringify({
   overview: {

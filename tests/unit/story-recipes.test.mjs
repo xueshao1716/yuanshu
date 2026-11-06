@@ -15,8 +15,8 @@ import path from 'node:path';
 import {
   normalizeRecipe, listRecipes, saveRecipe, deleteRecipe, exportRecipes,
   parseRecipeImport, importRecipes, RECIPE_FORMAT, RECIPE_FORMAT_VERSION,
-} from '../../engine/story-recipes.mjs';
-import * as mod from '../../engine/story-recipes.mjs';
+} from '../../engine/story/recipes.mjs';
+import * as mod from '../../engine/story/recipes.mjs';
 
 const tmpRoot = async (t) => {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), 'yuanshu-recipes-'));

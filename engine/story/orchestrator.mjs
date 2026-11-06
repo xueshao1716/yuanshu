@@ -1,6 +1,6 @@
 import crypto from 'node:crypto';
-import { recordDelegation } from "./trace.mjs";
-import { verifyArtifactFiles } from "./verifier.mjs";
+import { recordDelegation } from "../trace.mjs";
+import { verifyArtifactFiles } from "../verifier.mjs";
 
 // 轨迹要落到**工作区**，不是进程 cwd（server 的 cwd 是产品仓库本身）。
 // 2026-09-18 真机事故：这里用 process.cwd() 兜底，把 8 个分镜轨迹写进了 D:\pi-web\记忆\。
@@ -10,33 +10,33 @@ export function initStoryTrace({ wsRoot = "" } = {}) { _traceWsRoot = String(wsR
 import fsp from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
-import { createProject, listProjects, readProject, writeProject, validateProject, mergeBeatContext, trashProject } from './story-store.mjs';
-import { compileStoryPrompt, buildPortraitPrompt, buildAssetPrompt } from './story-prompts.mjs';
-import { compileShotPrompt, shotFieldsFromBeat, assetRefsForShot, splitRefs, resolveStyle } from './story-shot-prompt.mjs';
-import { storyFlow } from './story-flow.mjs';
-import { syncLines, computeTimeline } from './story-lines.mjs';
-import { createImageAdapter, createNovelAdapter, createVideoAdapter } from './story-adapters.mjs';
-import { buildStoryAssistPrompt, parseStoryAssist, buildStoryboardPrompt, parseStoryboard, buildAdaptPrompt, parseAdapt, extractJsonObjects } from './story-assist.mjs';
+import { createProject, listProjects, readProject, writeProject, validateProject, mergeBeatContext, trashProject } from './store.mjs';
+import { compileStoryPrompt, buildPortraitPrompt, buildAssetPrompt } from './prompts.mjs';
+import { compileShotPrompt, shotFieldsFromBeat, assetRefsForShot, splitRefs, resolveStyle } from './shot-prompt.mjs';
+import { storyFlow } from './flow.mjs';
+import { syncLines, computeTimeline } from './lines.mjs';
+import { createImageAdapter, createNovelAdapter, createVideoAdapter } from './adapters.mjs';
+import { buildStoryAssistPrompt, parseStoryAssist, buildStoryboardPrompt, parseStoryboard, buildAdaptPrompt, parseAdapt, extractJsonObjects } from './assist.mjs';
 // 台词与深度构思的"手艺"：机检规则 + 提示词 + 宽容解析（见 story-craft.mjs 开头的研究结论）
-import { dialogueAudit, auditEngine, buildDialogueDoctorPrompt, parseDialogueDoctor, buildStoryEnginePrompt, parseStoryEngine, CRAFT_NOTES } from './story-craft.mjs';
-import { parseDialogueLines } from './story-screenplay.mjs';
-import { lintStoryProject } from './story-lint.mjs';
-import { concatClips, filmPlan, filmPlanWithDurations, localPathFromArtifactUrl } from './story-film.mjs';
-import { materializeMedia } from './media-inline.mjs';
+import { dialogueAudit, auditEngine, buildDialogueDoctorPrompt, parseDialogueDoctor, buildStoryEnginePrompt, parseStoryEngine, CRAFT_NOTES } from './craft.mjs';
+import { parseDialogueLines } from './screenplay.mjs';
+import { lintStoryProject } from './lint.mjs';
+import { concatClips, filmPlan, filmPlanWithDurations, localPathFromArtifactUrl } from './film.mjs';
+import { materializeMedia } from '../media-inline.mjs';
 // seed 的合法区间由上游接口决定（Agnes 图像是 -1..999），权威定义在 media-api 里——
 // 编排层不许自己猜一个范围：上一版就是自己掷了个 2^31 的数，把画面生成全线打挂。
-import { SEED_RANGE, clampSeed } from './media-api.mjs';
-import { listRecipes, saveRecipe, deleteRecipe, importRecipes, exportRecipes, normalizeRefStrategy } from './story-recipes.mjs';
-import { buildStorySoFar, contextBudget } from './story-context.mjs';
-import { renderScript, scriptStats, SCRIPT_FORMATS } from './story-screenplay.mjs';
-import { runRoleplay, normalizePlayground } from './story-playground.mjs';
-import { normalizeEpisodes, createEpisode, groupScenesByEpisode, episodeStats, assignSceneToEpisode, removeEpisode, renumberEpisodes } from './story-episodes.mjs';
+import { SEED_RANGE, clampSeed } from '../media-api.mjs';
+import { listRecipes, saveRecipe, deleteRecipe, importRecipes, exportRecipes, normalizeRefStrategy } from './recipes.mjs';
+import { buildStorySoFar, contextBudget } from './context.mjs';
+import { renderScript, scriptStats, SCRIPT_FORMATS } from './screenplay.mjs';
+import { runRoleplay, normalizePlayground } from './playground.mjs';
+import { normalizeEpisodes, createEpisode, groupScenesByEpisode, episodeStats, assignSceneToEpisode, removeEpisode, renumberEpisodes } from './episodes.mjs';
 // 创作方法包（Skill）：程序性知识，跨项目复用。见 engine/story-methods.mjs 开头的研究结论。
-import { listMethods, methodOf, saveMethod, deleteMethod, captureFromProject, methodBrief, reasoningBudget } from './story-methods.mjs';
-import { resolveColorCard } from './color-cards.mjs';
-import { currentColorCard } from './color-prefs.mjs';
-import { json } from './http-utils.mjs';
-import { resolveStoryModel, storyTextCandidates } from './story-models.mjs';
+import { listMethods, methodOf, saveMethod, deleteMethod, captureFromProject, methodBrief, reasoningBudget } from './methods.mjs';
+import { resolveColorCard } from '../color-cards.mjs';
+import { currentColorCard } from '../color-prefs.mjs';
+import { json } from '../http-utils.mjs';
+import { resolveStoryModel, storyTextCandidates } from './models.mjs';
 
 const makeId = () => crypto.randomUUID();
 const nowIso = () => new Date().toISOString();

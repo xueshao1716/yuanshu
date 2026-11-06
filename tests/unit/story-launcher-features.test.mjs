@@ -9,11 +9,11 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
-import { parseDialogueLines, slugHollywood, slugChinese, beatAction, projectToElements, toFountain, toChineseScript, toFdx, renderScript, scriptStats } from '../../engine/story-screenplay.mjs';
-import { buildStorySoFar, contextBudget, latestProse } from '../../engine/story-context.mjs';
-import { buildRoleplayPrompt, cleanRoleplayReply, normalizePlayground, runRoleplay, PLAYGROUND_MAX_TURNS } from '../../engine/story-playground.mjs';
-import { createStoryOrchestrator } from '../../engine/story-orchestrator.mjs';
-import { createProject, writeProject } from '../../engine/story-store.mjs';
+import { parseDialogueLines, slugHollywood, slugChinese, beatAction, projectToElements, toFountain, toChineseScript, toFdx, renderScript, scriptStats } from '../../engine/story/screenplay.mjs';
+import { buildStorySoFar, contextBudget, latestProse } from '../../engine/story/context.mjs';
+import { buildRoleplayPrompt, cleanRoleplayReply, normalizePlayground, runRoleplay, PLAYGROUND_MAX_TURNS } from '../../engine/story/playground.mjs';
+import { createStoryOrchestrator } from '../../engine/story/orchestrator.mjs';
+import { createProject, writeProject } from '../../engine/story/store.mjs';
 
 // ─────────── 剧本要素 ───────────
 
@@ -243,7 +243,7 @@ test('对台词走 directChat，历史喂回去，空回复要报错不是静默
 });
 
 test('自述不是台词：绝不能把"用户让我扮演…"当成角色说的话', async () => {
-  const { looksLikeMetaReply } = await import('../../engine/story-playground.mjs');
+  const { looksLikeMetaReply } = await import('../../engine/story/playground.mjs');
   // 真实踩到的那一条
   assert.equal(looksLikeMetaReply('用户让我扮演角色"阿宁"，和编剧对台词。编剧问"你为什么不走？"'), true);
   assert.equal(looksLikeMetaReply('我需要扮演阿宁，所以我会回答：'), true);

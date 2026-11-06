@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { createProject, mergeBeatContext, validateProject } from '../../engine/story-store.mjs';
+import { createProject, mergeBeatContext, validateProject } from '../../engine/story/store.mjs';
 
 test('createProject returns stable bible and empty scenes', () => {
   const p = createProject({ title: '黄河边的夏天' }, { now: () => '2026-09-12T08:00:00.000Z', id: () => 'p1' });

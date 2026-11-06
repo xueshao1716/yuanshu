@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { compileStoryPrompt, normalizeBible } from '../../engine/story-prompts.mjs';
+import { compileStoryPrompt, normalizeBible } from '../../engine/story/prompts.mjs';
 
 test('normalizeBible keeps editable Story Bible fields safe and deterministic', () => {
   const bible = normalizeBible({ characters: [{ name: '阿宁' }], style: { visual: '胶片' }, rules: ['左手戴表'] });

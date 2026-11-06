@@ -1,4 +1,4 @@
-import { colorCardStoryboardNote } from './color-cards.mjs';
+import { colorCardStoryboardNote } from '../color-cards.mjs';
 
 export function buildStoryAssistPrompt({ title = '', logline = '', idea = '', current = {} } = {}) {
   return `你是元枢连续创作的故事设定助手。请根据用户想法生成一份“可编辑草稿”，由人类确认后才会保存。不要改写既有设定，只补充空缺。\n\n项目：${String(title).trim() || '未命名故事'}\n梗概：${String(logline).trim() || '暂无'}\n用户想法：${String(idea).trim() || '请补齐一个可拍摄的开端'}\n已有状态：${JSON.stringify(current).slice(0, 5000)}\n\n要求：\n1. **重视对话**：beat.dialogue 写这一段的实际台词，要具体、有语气和潜台词，能看出说话人是谁；不要写“他们交谈了几句”这种概述。\n2. beat.prompt 只写画面与动作（构图、光线、人物动作），不要把台词塞进画面描述。\n3. 内容要具体、可执行；kind 只能是 novel/image/video。\n\n只返回 JSON，不要 Markdown：{"characters":[{"name":"","appearance":""}],"locations":[{"name":"","description":""}],"props":[{"name":"","description":""}],"wardrobe":[{"name":"","description":""}],"style":{"visual":"","tone":""},"rules":[{"text":""}],"scene":{"title":"","summary":""},"beat":{"kind":"image","prompt":"","dialogue":""}}。`;

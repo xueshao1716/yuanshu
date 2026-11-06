@@ -14,9 +14,9 @@ import path from 'node:path';
 import {
   filmPlan, filmPlanWithDurations, parseDurationSeconds, probeDurationSeconds,
   cachedDurationSeconds, clearDurationCache, runFfmpeg, ffmpegAvailable,
-} from '../../engine/story-film.mjs';
-import { createStoryOrchestrator } from '../../engine/story-orchestrator.mjs';
-import { createProject, writeProject } from '../../engine/story-store.mjs';
+} from '../../engine/story/film.mjs';
+import { createStoryOrchestrator } from '../../engine/story/orchestrator.mjs';
+import { createProject, writeProject } from '../../engine/story/store.mjs';
 
 const read = rel => fss.readFileSync(path.join(process.cwd(), rel), 'utf8');
 

@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { negotiateCapabilities, createGenerationRun, appendRun, createStoryOrchestrator } from '../../engine/story-orchestrator.mjs';
-import { createProject, writeProject, readProject, sweepInterruptedRuns } from '../../engine/story-store.mjs';
+import { negotiateCapabilities, createGenerationRun, appendRun, createStoryOrchestrator } from '../../engine/story/orchestrator.mjs';
+import { createProject, writeProject, readProject, sweepInterruptedRuns } from '../../engine/story/store.mjs';
 import { initColorPrefs, saveColorPrefs } from '../../engine/color-prefs.mjs';
 import fs from 'node:fs/promises';
 import os from 'node:os';

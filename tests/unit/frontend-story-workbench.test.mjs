@@ -77,7 +77,7 @@ test('参考图策略与项目默认配方必须留在界面上', () => {
   // 前端默认值必须和后端一致，否则界面显示的和真正发出去的不是一回事
   const lib = fs.readFileSync('frontend/src/lib/story-ref.ts', 'utf8');
   assert.match(lib, /kind === 'image' \? 1 : kind === 'video' \? 4 : 0/);
-  const be = fs.readFileSync('engine/story-recipes.mjs', 'utf8');
+  const be = fs.readFileSync('engine/story/recipes.mjs', 'utf8');
   assert.match(be, /images: kind === 'image' \? 1 : kind === 'video' \? 4 : 0/, '后端那份是权威，两处必须同一套默认值');
   const types = fs.readFileSync('frontend/src/types.ts', 'utf8');
   assert.match(types, /defaultRecipeId\?: string/);

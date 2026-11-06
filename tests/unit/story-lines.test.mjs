@@ -2,8 +2,8 @@
 // 身份错了（比如按行号编号）就会整体漂移，那正是要治的病。
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { stableLineId, syncLines, computeTimeline, diffTimeline, formatLine } from '../../engine/story-lines.mjs';
-import { speechCheck } from '../../engine/story-craft.mjs';
+import { stableLineId, syncLines, computeTimeline, diffTimeline, formatLine } from '../../engine/story/lines.mjs';
+import { speechCheck } from '../../engine/story/craft.mjs';
 
 const beatWith = dialogue => ({ id: 'b1', kind: 'video', prompt: '两人站在站台', dialogue });
 

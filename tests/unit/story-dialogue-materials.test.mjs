@@ -11,10 +11,10 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { compileStoryPrompt, dialogueBlock, materialBlock } from '../../engine/story-prompts.mjs';
-import { buildStoryboardPrompt, buildStoryAssistPrompt, parseStoryboard, parseStoryAssist } from '../../engine/story-assist.mjs';
-import { normalizeBeatInputs, mergeBeatContext, createProject, writeProject } from '../../engine/story-store.mjs';
-import { createStoryOrchestrator } from '../../engine/story-orchestrator.mjs';
+import { compileStoryPrompt, dialogueBlock, materialBlock } from '../../engine/story/prompts.mjs';
+import { buildStoryboardPrompt, buildStoryAssistPrompt, parseStoryboard, parseStoryAssist } from '../../engine/story/assist.mjs';
+import { normalizeBeatInputs, mergeBeatContext, createProject, writeProject } from '../../engine/story/store.mjs';
+import { createStoryOrchestrator } from '../../engine/story/orchestrator.mjs';
 
 // ─────────── 台词 ───────────
 

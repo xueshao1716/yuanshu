@@ -10,7 +10,7 @@
 // 2. **先保证"发生了什么"，再给正文**。已生成正文按段截断，场摘要永远保留——
 //    模型真正需要的是事件与状态，不是文采；
 // 3. **在提示词里说清这是"已发生的既成事实"**，不是让它续写的地方。
-import { normalizeBeatInputs } from './story-store.mjs';
+import { normalizeBeatInputs } from './store.mjs';
 
 export const DEFAULT_CONTEXT_CHARS = 20000;
 export function contextBudget(env = process.env) {

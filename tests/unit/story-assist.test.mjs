@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { buildStoryAssistPrompt, parseStoryAssist, buildStoryboardPrompt } from '../../engine/story-assist.mjs';
+import { buildStoryAssistPrompt, parseStoryAssist, buildStoryboardPrompt } from '../../engine/story/assist.mjs';
 
 // 配色卡要在**分镜那一刻**就进提示词：等生成时再覆盖 shot.tone 只是打补丁，
 // 分镜里写的画面描述已经歪了。

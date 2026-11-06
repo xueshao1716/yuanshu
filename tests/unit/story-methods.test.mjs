@@ -15,9 +15,9 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
-import { BUILTIN_METHODS, listMethods, methodOf, saveMethod, deleteMethod, captureFromProject, methodBrief, reasoningBudget, normalizeMethod } from '../../engine/story-methods.mjs';
-import { createStoryOrchestrator } from '../../engine/story-orchestrator.mjs';
-import { createProject } from '../../engine/story-store.mjs';
+import { BUILTIN_METHODS, listMethods, methodOf, saveMethod, deleteMethod, captureFromProject, methodBrief, reasoningBudget, normalizeMethod } from '../../engine/story/methods.mjs';
+import { createStoryOrchestrator } from '../../engine/story/orchestrator.mjs';
+import { createProject } from '../../engine/story/store.mjs';
 
 const root = async t => {
   const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'yuanshu-method-'));

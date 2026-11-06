@@ -8,8 +8,8 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
-import { handleStoryAssist } from '../../engine/story-orchestrator.mjs';
-import { createProject, writeProject } from '../../engine/story-store.mjs';
+import { handleStoryAssist } from '../../engine/story/orchestrator.mjs';
+import { createProject, writeProject } from '../../engine/story/store.mjs';
 
 const answer = '{"characters":[{"name":"阿宁"}],"scene":{"title":"站台","summary":"雨夜"},"beat":{"kind":"video","prompt":"她抬头","dialogue":"阿宁：你为什么不走？"}}';
 

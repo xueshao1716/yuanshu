@@ -7,8 +7,8 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
-import { createStoryOrchestrator } from '../../engine/story-orchestrator.mjs';
-import { createProject, writeProject, listProjects } from '../../engine/story-store.mjs';
+import { createStoryOrchestrator } from '../../engine/story/orchestrator.mjs';
+import { createProject, writeProject, listProjects } from '../../engine/story/store.mjs';
 
 async function makeMedia(root, name) {
   const rel = path.join('生成物', '视频', name);

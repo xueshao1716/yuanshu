@@ -10,9 +10,9 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
-import { filmPlan, videoFileOf, localPathFromArtifactUrl } from '../../engine/story-film.mjs';
-import { createStoryOrchestrator } from '../../engine/story-orchestrator.mjs';
-import { createProject, writeProject } from '../../engine/story-store.mjs';
+import { filmPlan, videoFileOf, localPathFromArtifactUrl } from '../../engine/story/film.mjs';
+import { createStoryOrchestrator } from '../../engine/story/orchestrator.mjs';
+import { createProject, writeProject } from '../../engine/story/store.mjs';
 
 // 造一个真实存在的文件 + 指向它的签名地址（删文件这条路必须走真磁盘，否则测的是假的）
 async function makeMedia(root, name) {

@@ -17,9 +17,9 @@ const styles = read('frontend/src/lib/story-styles.ts');
 const settings = read('frontend/src/components/story/StorySettings.tsx');
 const css = read('frontend/src/components/story/story.css');
 const server = read('server.mjs');
-const orchestrator = read('engine/story-orchestrator.mjs');
-const store = read('engine/story-store.mjs');
-const craft = read('engine/story-craft.mjs');
+const orchestrator = read('engine/story/orchestrator.mjs');
+const store = read('engine/story/store.mjs');
+const craft = read('engine/story/craft.mjs');
 
 test('分集：面板挂在制作台，点某一场要真的跳到那一场', () => {
   assert.match(workbench, /StoryEpisodes/, '分集面板要挂在制作台里');

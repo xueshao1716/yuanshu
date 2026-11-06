@@ -3,7 +3,7 @@ import os from 'node:os'
 import path from 'node:path'
 import { createRequire } from 'node:module'
 import assert from 'node:assert/strict'
-import { createStoryOrchestrator } from '../engine/story-orchestrator.mjs'
+import { createStoryOrchestrator } from '../engine/story/orchestrator.mjs'
 const require=createRequire(import.meta.url)
 const pw=require(path.join(process.env.APPDATA,'npm/node_modules/camoufox-cli/node_modules/playwright-core'))
 const browserRoot=path.join(process.env.LOCALAPPDATA,'ms-playwright')

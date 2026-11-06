@@ -5,9 +5,9 @@
 // 这里全部钉成机检——**这些本来就是能算的**，不该花一次模型调用才知道"这句说不完"。
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { speakableChars, splitSentences, speechCheck, dialogueAudit, auditEngine, parseDialogueDoctor, parseStoryEngine, buildDialogueDoctorPrompt, buildStoryEnginePrompt, SPEECH } from '../../engine/story-craft.mjs';
-import { extractJsonObjects } from '../../engine/story-assist.mjs';
-import { lintStoryProject } from '../../engine/story-lint.mjs';
+import { speakableChars, splitSentences, speechCheck, dialogueAudit, auditEngine, parseDialogueDoctor, parseStoryEngine, buildDialogueDoctorPrompt, buildStoryEnginePrompt, SPEECH } from '../../engine/story/craft.mjs';
+import { extractJsonObjects } from '../../engine/story/assist.mjs';
+import { lintStoryProject } from '../../engine/story/lint.mjs';
 
 test('语速自检：只数可发音字符（标点不计入字数，另算停顿）', () => {
   // 同行那条规则最容易忽略的一点：把标点算进字数会高估时长

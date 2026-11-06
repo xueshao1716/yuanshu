@@ -1,7 +1,7 @@
 // 流水线状态机的契约：它决定"界面上哪些按钮亮着、为什么灰着"，错了就是用户对着屏幕猜。
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { storyFlow, FLOW_STEPS, FLOW_ACTIONS } from '../../engine/story-flow.mjs';
+import { storyFlow, FLOW_STEPS, FLOW_ACTIONS } from '../../engine/story/flow.mjs';
 
 const mk = (over = {}) => ({
   id: 'p1', title: '测试', logline: '一句话梗概',

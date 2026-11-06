@@ -2,8 +2,8 @@
 // 那份剧本第 5 集与第 6 集逐字相同、26% 的段落跨集重复，而当时没有任何环节报警。
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { repeatCheck } from '../../engine/story-craft.mjs';
-import { lintStoryProject } from '../../engine/story-lint.mjs';
+import { repeatCheck } from '../../engine/story/craft.mjs';
+import { lintStoryProject } from '../../engine/story/lint.mjs';
 
 const ep = (no, body) => ({ no, title: `第${no}集`, text: body });
 

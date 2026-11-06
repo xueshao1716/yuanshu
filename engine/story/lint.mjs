@@ -8,9 +8,9 @@
 // 台词那部分最要命的几条**本来就是能算的**（同行也是这么做的：语速 3.5~5 字/秒、
 // 单句 >24 字必须拆镜），以前却要花一次模型调用才能从"听起来别扭"里猜出来。
 // 现在并进体检：不花钱就能看到"这一句 37 字，最快也要 7.4 秒，而这段只有 5 秒"。
-import { dialogueAudit, auditEngine, repeatCheck } from './story-craft.mjs';
-import { beatAction } from './story-screenplay.mjs';
-import { resolveColorCard } from './color-cards.mjs';
+import { dialogueAudit, auditEngine, repeatCheck } from './craft.mjs';
+import { beatAction } from './screenplay.mjs';
+import { resolveColorCard } from '../color-cards.mjs';
 
 const text = value => String(value ?? '').trim();
 const list = value => (Array.isArray(value) ? value : []);

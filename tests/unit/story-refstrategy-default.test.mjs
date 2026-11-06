@@ -10,9 +10,9 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
-import { createStoryOrchestrator } from '../../engine/story-orchestrator.mjs';
-import { createProject, writeProject } from '../../engine/story-store.mjs';
-import { saveRecipe } from '../../engine/story-recipes.mjs';
+import { createStoryOrchestrator } from '../../engine/story/orchestrator.mjs';
+import { createProject, writeProject } from '../../engine/story/store.mjs';
+import { saveRecipe } from '../../engine/story/recipes.mjs';
 
 const IMG_CAPS = { image: true, reference: true, seed: true };
 const VIDEO_CAPS = { video: true, reference: true, keyframe: true, seed: true };

@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { createImageAdapter, createNovelAdapter, createVideoAdapter } from '../../engine/story-adapters.mjs';
+import { createImageAdapter, createNovelAdapter, createVideoAdapter } from '../../engine/story/adapters.mjs';
 
 test('image adapter returns a normalized artifact result', async () => {
   const adapter = createImageAdapter({ generateImage: async () => 'data:image/png;base64,aGk=', saveArtifact: async () => '/signed/image.png' });
