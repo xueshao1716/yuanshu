@@ -4317,6 +4317,60 @@ const API_ROUTES = [
     return json(res, out.ok ? 200 : 400, out);
   }],
   ["GET", "/api/learning/skill/prompt", (res, req, url) => json(res, 200, { ok: true, prompt: buildAuthorPrompt({ goal: String(url.searchParams.get("goal") || "") }) })],
+  // 2026-11-06：用量面板——今天花了多少、每轮花在哪、每个模型吃多少
+  ["GET", "/api/usage/report", (res, req, url) => {
+    const limit = Math.min(200, Math.max(1, Number(url.searchParams.get("limit")) || 40));
+    const file = path.join(WS_ROOT, "记忆", "运行时", "每轮耗时.jsonl");
+    const today = new Date().toLocaleDateString("sv-SE");
+    const rounds = [];
+    try {
+      const lines = fs.readFileSync(file, "utf8").split("\n").filter(Boolean);
+      for (const line of lines.slice(-4000)) {
+        let r; try { r = JSON.parse(line); } catch { continue }
+        const at = String(r.at || "");
+        const day = at ? new Date(at).toLocaleDateString("sv-SE") : "";
+        const u = r.usage || {};
+        const input = Number(u.input) || 0;
+        const output = Number(u.output) || 0;
+        const cacheRead = Number(u.cacheRead) || 0;
+        rounds.push({
+          at, day,
+          sessionId: String(r.sessionId || "").slice(0, 8),
+          runId: String(r.runId || "").slice(0, 8),
+          model: r.model ? `${r.model.provider}/${r.model.id}` : "",
+          engine: r.engine || "",
+          input, output, cacheRead,
+          total: input + output,
+          calls: Number(u.calls) || 0,
+          lastCtx: Number(u.lastCtx) || 0,
+          totalMs: Number(r.totalMs) || 0,
+          messageChars: Number(r.messageChars) || 0,
+        });
+      }
+    } catch {}
+    const todayRounds = rounds.filter(r => r.day === today);
+    const byModel = new Map();
+    for (const r of todayRounds) {
+      const k = r.model || "(未知)";
+      const cur = byModel.get(k) || { model: k, rounds: 0, calls: 0, input: 0, output: 0, cacheRead: 0, total: 0 };
+      cur.rounds += 1; cur.calls += r.calls;
+      cur.input += r.input; cur.output += r.output; cur.cacheRead += r.cacheRead; cur.total += r.total;
+      byModel.set(k, cur);
+    }
+    const sum = (arr, key) => arr.reduce((n, r) => n + (r[key] || 0), 0);
+    const models = [...byModel.values()].sort((a, b) => b.total - a.total);
+    return json(res, 200, {
+      today,
+      roundsToday: todayRounds.length,
+      total: sum(todayRounds, "total"),
+      input: sum(todayRounds, "input"),
+      output: sum(todayRounds, "output"),
+      cacheRead: sum(todayRounds, "cacheRead"),
+      calls: sum(todayRounds, "calls"),
+      models,
+      rounds: todayRounds.slice(-limit).reverse(),
+    });
+  }],
   // 2026-11-03：统一待办——待拍板 / 进化提案 / 自改提案 合成一处
   ["GET", "/api/inbox/pending", (res) => {
     const out = { ok: true, total: 0, groups: [] };

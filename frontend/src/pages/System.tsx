@@ -7,6 +7,7 @@ import PageHeader from '../components/PageHeader'
 import SectionHeader from '../components/SectionHeader'
 import StatusTile from '../components/run/StatusTile'
 import DoctorPanel from '../components/panels/DoctorPanel'
+import UsagePanel from '../components/panels/UsagePanel'
 import WechatPanel from '../components/panels/WechatPanel'
 import EmailPanel from '../components/panels/EmailPanel'
 import PairLoginCard from '../components/cards/PairLoginCard'
@@ -198,6 +199,12 @@ export default function System() {
             />
           </div>
           <DoctorPanel />
+        </section>
+
+        {/* ── 用量（2026-11-06）：每日 token、每轮花在哪、每个模型吃多少 ── */}
+        <section>
+          <SectionHeader title="用量" description="今天的 token 花在哪些模型和哪些轮次上。工具循环每多调一次模型，上下文就重发一次。" />
+          <UsagePanel />
         </section>
 
         {/* ── 访问令牌（2026-10-13 恢复：UI 整理时渲染块丢失，逻辑一直在）── */}
