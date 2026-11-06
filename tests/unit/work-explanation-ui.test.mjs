@@ -6,11 +6,11 @@ const source = file => fs.readFileSync(new URL(`../../${file}`, import.meta.url)
 test('各入口共享工作说明，聊天按会话取数并保留回看入口', () => {
   // 2026-09-14：改动验收并入工作台作为页内视图，其「近期工作说明」由工作台共享层统一渲染一次，
   // 因此它不再是第 4 个独立入口文件；改为断言工作台内确实嵌入了改动验收视图。
-  for (const file of ['frontend/src/components/ChatRunStatus.tsx', 'frontend/src/pages/Board.tsx', 'frontend/src/components/engine/EngineRunDiagnostics.tsx']) {
+  for (const file of ['frontend/src/components/chat/ChatRunStatus.tsx', 'frontend/src/pages/Board.tsx', 'frontend/src/components/engine/EngineRunDiagnostics.tsx']) {
     assert.ok(source(file).includes('WorkExplanation'), file)
   }
   assert.ok(source('frontend/src/pages/Board.tsx').includes('ReviewPanel'), '改动验收视图必须并入工作台')
-  const chat = source('frontend/src/components/ChatRunStatus.tsx')
+  const chat = source('frontend/src/components/chat/ChatRunStatus.tsx')
   assert.ok(chat.includes('RunApi.overview(sessionId'))
   assert.ok(!chat.includes('8000'))
   assert.ok(!chat.includes('lastRun'))

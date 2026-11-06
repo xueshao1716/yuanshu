@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 const read = p => fs.readFileSync(new URL('../../frontend/src/' + p, import.meta.url), 'utf8');
 test('expanded tide uses the parent shared snapshot and a portrait, never cartoon or invented measurements', () => {
-  const chat = read('components/ChatArea.tsx');
+  const chat = read('components/chat/ChatArea.tsx');
   assert.ok(chat.includes('<MoodPanel'), 'tide must open the linked portrait panel');
   assert.ok(chat.includes('emotion={companionEmotion}'));
   const panel = read('components/panels/MoodPanel.tsx');
@@ -17,7 +17,7 @@ test('expanded tide uses the parent shared snapshot and a portrait, never cartoo
   assert.ok(panel.includes('onCancel='));
 });
 test('tide and widget receive a single parent-owned behavior controller', () => {
-  const chat = read('components/ChatArea.tsx');
+  const chat = read('components/chat/ChatArea.tsx');
   const widget = read('components/XiaoyuWidget.tsx');
   const provider = read('components/xiaoyu/CompanionProvider.tsx');
   const panel = read('components/panels/MoodPanel.tsx');

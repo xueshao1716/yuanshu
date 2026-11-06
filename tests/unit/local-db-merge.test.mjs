@@ -90,7 +90,7 @@ test('历史刷新遇到正在流式的整轮快照时，不在实时消息旁�
 })
 
 test('ChatArea 合并历史时使用最新实时快照，而非等待三秒一次的本地落盘', () => {
-  const src = readFileSync(new URL('../../frontend/src/components/ChatArea.tsx', import.meta.url), 'utf8')
+  const src = readFileSync(new URL('../../frontend/src/components/chat/ChatArea.tsx', import.meta.url), 'utf8')
   assert.ok(src.includes('const liveSnapshot: LocalMessage | null = stream ?'), '实时快照须参与历史合并')
   assert.ok(src.includes('.concat(liveSnapshot ? [liveSnapshot] : [])'), '将实时快照传入 mergeMessages')
 })

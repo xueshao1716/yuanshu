@@ -97,7 +97,7 @@ test('源码闸门：余量闸门必须真的接进主循环（别只定义不�
   assert.match(budget, /export async function ensureContextHeadroom/, '闸门本体要在 context-budget 里');
   assert.match(mgr, /_activeSessions\.delete\(id\)/, '压缩后必须重开会话（内存里的旧树不会自己刷新）');
   // 界面侧：截断提示要能渲染出来（字段一路从后端映射到组件）
-  const msg = fs.readFileSync(path.join(root, 'frontend', 'src', 'components', 'Message.tsx'), 'utf8');
+  const msg = fs.readFileSync(path.join(root, 'frontend', 'src', 'components', 'chat', 'Message.tsx'), 'utf8');
   assert.match(msg, /msg\.truncated/, '截断提示必须在消息组件里渲染');
   const types = fs.readFileSync(path.join(root, 'frontend', 'src', 'types.ts'), 'utf8');
   assert.match(types, /truncated\?: string/, 'ChatMessage 要有 truncated 字段');

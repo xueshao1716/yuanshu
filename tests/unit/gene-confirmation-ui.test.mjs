@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 
-const chat = fs.readFileSync(new URL('../../frontend/src/components/ChatArea.tsx', import.meta.url), 'utf8');
+const chat = fs.readFileSync(new URL('../../frontend/src/components/chat/ChatArea.tsx', import.meta.url), 'utf8');
 const api = fs.readFileSync(new URL('../../frontend/src/api.ts', import.meta.url), 'utf8');
 
 test('session subscription admits confirmation events while chat is idle', () => {

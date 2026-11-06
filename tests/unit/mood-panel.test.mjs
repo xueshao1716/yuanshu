@@ -103,7 +103,7 @@ test('源码契约：MoodPanel 弹层交互与数据边界', () => {
 })
 
 test('源码契约：ChatArea 灵珠可点且只读展示', () => {
-  const src = read('components', 'ChatArea.tsx')
+  const src = read('components', 'chat', 'ChatArea.tsx')
   for (const needle of [
     "aria-expanded={orbPanelOpen}", "setOrbPanelOpen(true)", "<MoodPanel open={orbPanelOpen}",
     "<button type=\"button\"", "emotion={companionEmotion}", "action={companion.action}",

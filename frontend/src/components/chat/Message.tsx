@@ -1,10 +1,10 @@
 import { lazy, Suspense, useMemo, useState } from 'react'
-import { TOOL_COLORS, COLOR_ERROR, COLOR_TOOL_FALLBACK } from '../theme/palettes'
+import { TOOL_COLORS, COLOR_ERROR, COLOR_TOOL_FALLBACK } from '../../theme/palettes'
 import { Brain, FileText, Check, X, Pencil, ChevronRight, Square, Info, Download, RefreshCw, Scissors, Copy, RotateCcw, Save, ChevronDown, ChevronUp, Users } from 'lucide-react'
-import ImageViewer from './ImageViewer'
-import AvatarPortrait from './AvatarPortrait'
+import ImageViewer from '../ImageViewer'
+import AvatarPortrait from '../AvatarPortrait'
 import { useChatMedia } from './ChatMediaProvider'
-import { mediaFilename, type ChatMedia } from '../lib/chat-media'
+import { mediaFilename, type ChatMedia } from '../../lib/chat-media'
 const Markdown = lazy(() => import('./Markdown'))
 
 function LazyMarkdown({ text }: { text: string }) {
@@ -18,20 +18,20 @@ const ENGINE_LABEL: Record<string, string> = {
   dsh: '外部执行引擎(dsh)',
 }
 
-import { downloadApiFile, withFileToken } from '../api'
-import { copyText } from '../lib/clipboard'
-import { requestBrowserSave, writeBrowserSave } from '../lib/browser-save'
-import { saveNativeDownload } from '../lib/native-download'
-import VideoPlayer from './story/VideoPlayer'
-import { isExternalVideo } from '../lib/tv'
-import { scrapeVideos, scrapeAudios, dedupeMediaUrls, mediaPathKey } from '../lib/media-embed'
-import { artifactName, fileNameFromUrl } from '../lib/artifact-name'
-import { fmtMsgTime } from '../lib/fmt-time'
-import type { ChatMessage, RunningTool, ToolStatus } from '../types'
-import { AgentWorkflow } from './AgentWorkflow'
-import { useProcessVisibility } from '../hooks/useProcessVisibility'
-import ProcessVisibilityToggle from './ProcessVisibilityToggle'
-import SpeechControls from './voice/SpeechControls'
+import { downloadApiFile, withFileToken } from '../../api'
+import { copyText } from '../../lib/clipboard'
+import { requestBrowserSave, writeBrowserSave } from '../../lib/browser-save'
+import { saveNativeDownload } from '../../lib/native-download'
+import VideoPlayer from '../story/VideoPlayer'
+import { isExternalVideo } from '../../lib/tv'
+import { scrapeVideos, scrapeAudios, dedupeMediaUrls, mediaPathKey } from '../../lib/media-embed'
+import { artifactName, fileNameFromUrl } from '../../lib/artifact-name'
+import { fmtMsgTime } from '../../lib/fmt-time'
+import type { ChatMessage, RunningTool, ToolStatus } from '../../types'
+import { AgentWorkflow } from '../AgentWorkflow'
+import { useProcessVisibility } from '../../hooks/useProcessVisibility'
+import ProcessVisibilityToggle from '../ProcessVisibilityToggle'
+import SpeechControls from '../voice/SpeechControls'
 
 // 2026-10-08 子智能体派单记录折叠块：把「研究员·」行集中显示在执行记录下方
 function DispatchLog({ notes, streaming }: { notes: string[]; streaming: boolean }) {

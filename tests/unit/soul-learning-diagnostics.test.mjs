@@ -26,7 +26,7 @@ test('skill loader diagnostics are translated into plain Chinese without leaking
   for (const line of out) { assert.ok(!/[A-Za-z]:\\/.test(line), 'no private path'); assert.ok(!/collision|invalid characters/.test(line), 'no raw English'); }
 });
 test('composer separates send from utility controls and labels primary actions', () => {
-  const jsx = source('frontend/src/components/SendBox.tsx');
+  const jsx = source('frontend/src/components/chat/SendBox.tsx');
   const css = source('frontend/src/components/composer-toolbar.css');
   assert.ok(jsx.includes('className="composer-submit"'), 'send has a distinct group');
   assert.ok(jsx.includes('aria-label="发送消息"'));

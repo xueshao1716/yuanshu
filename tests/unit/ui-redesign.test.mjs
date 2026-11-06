@@ -45,7 +45,7 @@ test('引擎总览只展示事实，并为每个来源显示独立的不可用�
 })
 
 test('欢迎工作区有明确身份与命令入口，不再用渐变场和说明文字占首屏', () => {
-  const chat = read('components', 'ChatArea.tsx')
+  const chat = read('components', 'chat', 'ChatArea.tsx')
   assert.ok(!chat.includes('<GradientField'), '工作入口不应加载装饰性 3D 渐变场')
   assert.ok(chat.includes('chat-workstart'), '欢迎页需要独立的工作入口布局')
   assert.ok(!chat.includes('快速进入，不用翻菜单'), '界面不应自述功能')

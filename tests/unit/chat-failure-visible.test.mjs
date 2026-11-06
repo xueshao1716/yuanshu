@@ -60,11 +60,11 @@ test('上游报错时不许用"无历史兜底"糊过去（源码契约）', () 
   assert.match(src, /retryable: true/, '错误事件要标可重试，前端才给得出重试按钮');
   assert.match(src, /writer\.push\("error"/, '失败要推进前端，而不是只写日志');
 
-  const chat = fs.readFileSync('frontend/src/components/ChatArea.tsx', 'utf8');
+  const chat = fs.readFileSync('frontend/src/components/chat/ChatArea.tsx', 'utf8');
   assert.match(chat, /onRetry=\{retryFailed\}/, '聊天页要把重试接到消息列表上');
   assert.match(chat, /const retryFailed = /, '重试实现：找这一轮前面那条用户消息重发');
-  const msg = fs.readFileSync('frontend/src/components/Message.tsx', 'utf8');
+  const msg = fs.readFileSync('frontend/src/components/chat/Message.tsx', 'utf8');
   assert.match(msg, /msg\.error \?/, '失败条要在气泡里渲染出来');
-  const turn = fs.readFileSync('frontend/src/components/TurnList.tsx', 'utf8');
+  const turn = fs.readFileSync('frontend/src/components/chat/TurnList.tsx', 'utf8');
   assert.match(turn, /assistantError/, '折叠列表里的轮次状态也要认出"本轮失败"（不然看着像已完成）');
 });

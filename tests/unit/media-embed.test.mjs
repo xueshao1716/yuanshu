@@ -78,7 +78,7 @@ test("协议和 pi 常驻提示讲能力和汇报，不写死播放方式", () =
 });
 
 test("聊天界面只从助手正文补片子，不能把读文档的旧媒体当本轮产物", () => {
-  const chat = readFileSync(join(ROOT, "frontend", "src", "components", "ChatArea.tsx"), "utf8");
+  const chat = readFileSync(join(ROOT, "frontend", "src", "components", "chat", "ChatArea.tsx"), "utf8");
   assert.ok(chat.includes("scrapeVideos(s.text)"), "只允许从助手交付正文补视频");
   const toolEnd = chat.slice(chat.indexOf("case 'tool_end':"), chat.indexOf("case 'file':"));
   assert.ok(!toolEnd.includes('scrapeVideos'), "工具输出里的参考路径不能自动展示");
@@ -86,7 +86,7 @@ test("聊天界面只从助手正文补片子，不能把读文档的旧媒体�
   const onEnd = unified.slice(unified.indexOf('const onToolEnd ='), unified.indexOf('const onCheckpoint ='));
   assert.ok(!onEnd.includes('extractPlayableMedia'), '后端工具完成事件不得猜测媒体产物');
   assert.ok(onEnd.includes('explicitToolMedia'), '仅推送有来源的结构化媒体');
-  const msg = readFileSync(join(ROOT, "frontend", "src", "components", "Message.tsx"), "utf8");
+  const msg = readFileSync(join(ROOT, "frontend", "src", "components", "chat", "Message.tsx"), "utf8");
   const vid = msg.slice(msg.indexOf("<video"), msg.indexOf("<video") + 280);
   assert.ok(!vid.includes("max-w-[320px]"), "视频播放器要比配图缩略图大");
   assert.ok(/aspect-video|max-w-\[5/.test(vid), "要像播放器，不要邮票");
@@ -95,8 +95,8 @@ test("聊天界面只从助手正文补片子，不能把读文档的旧媒体�
 test("同一片子不同签名只能出一个播放器，media 追加也要按 path 去重", () => {
   const embed = readFileSync(join(ROOT, "frontend", "src", "lib", "media-embed.ts"), "utf8");
   assert.match(embed, /mediaPathKey|dedupeMediaUrls/, "要有按 path 去重");
-  const chat = readFileSync(join(ROOT, "frontend", "src", "components", "ChatArea.tsx"), "utf8");
+  const chat = readFileSync(join(ROOT, "frontend", "src", "components", "chat", "ChatArea.tsx"), "utf8");
   assert.match(chat, /dedupeMediaUrls|mediaPathKey/, "流式追加 video 必须去重");
-  const msg = readFileSync(join(ROOT, "frontend", "src", "components", "Message.tsx"), "utf8");
+  const msg = readFileSync(join(ROOT, "frontend", "src", "components", "chat", "Message.tsx"), "utf8");
   assert.match(msg, /mediaPathKey|dedupeMediaUrls/, "历史消息播放器也要去重");
 });

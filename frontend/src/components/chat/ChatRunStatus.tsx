@@ -1,12 +1,12 @@
 import { useId } from 'react'
 import { ChevronDown, ChevronUp, RotateCcw, Square } from 'lucide-react'
 import useSWR from 'swr'
-import { RunApi, type RunSummary } from '../api'
-import WorkExplanation from './WorkExplanation'
-import RunContextSummary from './RunContextSummary'
-import BackgroundRecoveryStatus from './BackgroundRecoveryStatus'
-import TeamDeliveryStatus from './team/TeamDeliveryStatus'
-import { useProcessVisibility } from '../hooks/useProcessVisibility'
+import { RunApi, type RunSummary } from '../../api'
+import WorkExplanation from '../WorkExplanation'
+import RunContextSummary from '../RunContextSummary'
+import BackgroundRecoveryStatus from '../BackgroundRecoveryStatus'
+import TeamDeliveryStatus from '../team/TeamDeliveryStatus'
+import { useProcessVisibility } from '../../hooks/useProcessVisibility'
 
 export default function ChatRunStatus({ sessionId, onStop, onRetry, onResume }: { sessionId: string | null; onStop?: () => void; onRetry?: (run: RunSummary) => void; onResume?: (run: RunSummary) => void }) {
   const [showStatus, toggleStatus] = useProcessVisibility('runStatus')

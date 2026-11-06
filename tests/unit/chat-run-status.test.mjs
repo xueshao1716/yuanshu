@@ -6,7 +6,7 @@ const root = new URL('../../', import.meta.url)
 const read = (file) => fs.readFileSync(new URL(file, root), 'utf8')
 
 test('whole run panel collapses independently without hiding stop or unmounting recovery', () => {
-  const component = read('frontend/src/components/ChatRunStatus.tsx')
+  const component = read('frontend/src/components/chat/ChatRunStatus.tsx')
   assert.ok(component.includes("useProcessVisibility('runStatus')"))
   assert.ok(component.includes('aria-expanded={showStatus}'))
   assert.ok(component.includes('aria-controls={detailsId}'))
@@ -19,8 +19,8 @@ test('whole run panel collapses independently without hiding stop or unmounting 
 })
 
 test('chat run status consumes overview and renders shared explanation with stop action', () => {
-  const component = read('frontend/src/components/ChatRunStatus.tsx')
-  const chatArea = read('frontend/src/components/ChatArea.tsx')
+  const component = read('frontend/src/components/chat/ChatRunStatus.tsx')
+  const chatArea = read('frontend/src/components/chat/ChatArea.tsx')
 
   assert.match(component, /RunApi\.overview/)
   assert.ok(component.includes('<WorkExplanation'))
@@ -31,7 +31,7 @@ test('chat run status consumes overview and renders shared explanation with stop
 
 test('run context summary exposes memory, emotion, and tool labels safely', () => {
   const summary = read('frontend/src/components/RunContextSummary.tsx')
-  const status = read('frontend/src/components/ChatRunStatus.tsx')
+  const status = read('frontend/src/components/chat/ChatRunStatus.tsx')
 
   assert.match(summary, /记忆|memory/i)
   assert.match(summary, /情绪|emotion/i)
@@ -40,7 +40,7 @@ test('run context summary exposes memory, emotion, and tool labels safely', () =
 })
 
 test('failed run status exposes a recoverable action', () => {
-  const component = read('frontend/src/components/ChatRunStatus.tsx')
+  const component = read('frontend/src/components/chat/ChatRunStatus.tsx')
   assert.match(component, /失败|failed/i)
   assert.match(component, /重试|恢复|retry|recover/i)
 })

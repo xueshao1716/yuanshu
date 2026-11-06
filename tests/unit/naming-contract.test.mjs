@@ -164,9 +164,9 @@ test("前端源码不得硬编码版本号（文案里的版本必须来自注�
 });
 
 test("前端不得再出现硬编码的通用下载名", () => {
-  const message = read("frontend", "src", "components", "Message.tsx");
+  const message = read("frontend", "src", "components", "chat", "Message.tsx");
   assert.ok(!/元枢视频-\$\{/.test(message), "Message.tsx 不得再回退成「元枢视频-N」");
-  const fileLink = read("frontend", "src", "components", "FileLink.tsx");
+  const fileLink = read("frontend", "src", "components", "chat", "FileLink.tsx");
   assert.ok(!/downloadApiFile\(href,\s*undefined/.test(fileLink), "FileLink 不能再把文件名传 undefined（会兜底成字面量 download）");
   const themes = read("frontend", "src", "pages", "Themes.tsx");
   // 只管下载文件名。Themes.tsx 里还有 `pi-theme-changed` 这个内部 CustomEvent 名，

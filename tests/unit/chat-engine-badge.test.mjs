@@ -8,7 +8,7 @@ import fs from 'node:fs';
 const read = (p) => fs.readFileSync(p, 'utf8');
 
 test('② engine_selected 要被消费，并随消息存下来', () => {
-  const chat = read('frontend/src/components/ChatArea.tsx');
+  const chat = read('frontend/src/components/chat/ChatArea.tsx');
   assert.match(chat, /case 'engine_selected'/, 'engine_selected 不能再被丢掉');
   assert.match(chat, /engineReason: String\(d\.reason/, '原因（为什么是它主驾）也要带进来');
   assert.match(chat, /engine: stream\.engine/, '流式期间就带上，别等回复完才知道');
@@ -19,7 +19,7 @@ test('② engine_selected 要被消费，并随消息存下来', () => {
 });
 
 test('② 界面用中文名渲染角标，不把 yuanshu/pi 直接甩给用户', () => {
-  const msg = read('frontend/src/components/Message.tsx');
+  const msg = read('frontend/src/components/chat/Message.tsx');
   assert.match(msg, /ENGINE_LABEL/, '要给引擎 id 一张中文名表');
   assert.match(msg, /yuanshu: '元枢自制循环'/, '名字与 engine-pair.mjs 保持一致');
   assert.match(msg, /pi: '兼容适配器\(pi\)'/);

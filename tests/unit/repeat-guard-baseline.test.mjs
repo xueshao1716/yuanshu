@@ -53,10 +53,10 @@ test('model_switched：服务端三处 + 自研循环都要推，前端要显示
   assert.ok((srv.match(/writer\.push\("model_switched"/g) || []).length >= 3, '同模型重写 / 换模型重生成 / 空回复兜底三处都要推');
   const uc = fs.readFileSync('engine/unified-chat.mjs', 'utf8');
   assert.ok(uc.split('\n').some(line => line.includes('writer.push(') && line.includes('model_switched')), '自研循环的守卫换模型也要推');
-  const chat = fs.readFileSync('frontend/src/components/ChatArea.tsx', 'utf8');
+  const chat = fs.readFileSync('frontend/src/components/chat/ChatArea.tsx', 'utf8');
   assert.match(chat, /case 'model_switched'/, '前端要消费这个事件');
   assert.match(chat, /switchedModel: stream\.switchedModel/, '流式期间就带上');
-  const msg = fs.readFileSync('frontend/src/components/Message.tsx', 'utf8');
+  const msg = fs.readFileSync('frontend/src/components/chat/Message.tsx', 'utf8');
   assert.match(msg, /兜底 \$\{msg\.switchedModel\.id\}/, '要渲染「兜底 <模型>」');
   assert.match(msg, /已重写/, '同模型重写也要标出来');
   const types = fs.readFileSync('frontend/src/types.ts', 'utf8');

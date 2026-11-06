@@ -38,13 +38,13 @@ test('server binds recovery scope and waits for listening before recovering task
 })
 
 test('UI displays background policy and explicit disable without mislabelling it as stopping', () => {
-  const view = source('frontend/src/components/ChatRunStatus.tsx')
+  const view = source('frontend/src/components/chat/ChatRunStatus.tsx')
   assert.ok(view.includes('BackgroundRecoveryStatus'))
   const component = source('frontend/src/components/BackgroundRecoveryStatus.tsx')
   assert.ok(component.includes('关闭自动接续'))
   assert.ok(component.includes('本轮继续执行'))
   assert.ok(component.includes('role="alert"'))
-  assert.ok(source('frontend/src/components/ChatArea.tsx').includes("case 'recovery_scheduled':"))
+  assert.ok(source('frontend/src/components/chat/ChatArea.tsx').includes("case 'recovery_scheduled':"))
 })
 
 test('both locked and normal engine paths inherit the execution deadline', () => {

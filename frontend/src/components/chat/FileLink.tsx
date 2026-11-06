@@ -1,10 +1,10 @@
 import { useRef, useState } from 'react'
 import type { MouseEvent, ReactNode } from 'react'
 import { Check, Copy, Globe2 } from 'lucide-react'
-import { apiUrl, downloadApiFile, withFileToken } from '../api'
-import { artifactName, fileNameFromUrl, artifactExtension } from '../lib/artifact-name'
-import { copyText } from '../lib/clipboard'
-import { openExternal } from '../lib/open-external'
+import { apiUrl, downloadApiFile, withFileToken } from '../../api'
+import { artifactName, fileNameFromUrl, artifactExtension } from '../../lib/artifact-name'
+import { copyText } from '../../lib/clipboard'
+import { openExternal } from '../../lib/open-external'
 
 /** 从扩展名反推产物类型，用于命名契约的「类型」段（docs/NAMING.md）。 */
 function kindFromName(name: string): string {

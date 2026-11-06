@@ -11,7 +11,7 @@ const FE = join(ROOT, 'frontend', 'src')
 const read = (...p) => readFileSync(join(FE, ...p), 'utf8')
 
 test('结构：Markdown 自定义块必须包 SafeBlock 错误隔离（mermaid/dsh-ui/高亮代码）', () => {
-  const src = read('components', 'Markdown.tsx')
+  const src = read('components', 'chat', 'Markdown.tsx')
   const safeCount = (src.match(/<SafeBlock/g) || []).length
   assert.ok(safeCount >= 3, `SafeBlock 应包裹 ≥3 条自定义渲染路径，实际 ${safeCount}`)
   for (const marker of ['MermaidBlock code={content} />', 'GenUIBlock raw={content} />']) {
@@ -22,7 +22,7 @@ test('结构：Markdown 自定义块必须包 SafeBlock 错误隔离（mermaid/d
 })
 
 test('结构：ChatArea 滚动必须走 useAutoScroll hook，禁止内联简易滚动逻辑回归', () => {
-  const chat = read('components', 'ChatArea.tsx')
+  const chat = read('components', 'chat', 'ChatArea.tsx')
   assert.ok(chat.includes('useAutoScroll({'), 'ChatArea 必须使用 useAutoScroll')
   assert.ok(!chat.includes('nearBottomRef'), '旧的 nearBottomRef 简易滚动逻辑不得回归')
   assert.ok(!chat.includes('onScroll={onScroll}'), '滚动监听归 useAutoScroll，ChatArea 不得自带 onScroll')
@@ -36,7 +36,7 @@ test('结构：ChatArea 滚动必须走 useAutoScroll hook，禁止内联简易�
 })
 
 test('结构：SendBox 按会话所有者 remount（仅接纳自身新建的初始会话）', () => {
-  const chat = read('components', 'ChatArea.tsx')
+  const chat = read('components', 'chat', 'ChatArea.tsx')
   assert.ok(chat.includes('<SendBox key={sessionViewKey}'), 'SendBox 真正切会话必须 remount 清空输入态')
   assert.ok(chat.includes('sessionView.current.keyFor(currentSessionId)'))
   assert.ok(chat.includes('sessionView.current.adopt(d.id)'))
@@ -52,7 +52,7 @@ test('结构：样式缓动必须收敛到 token（styles.css 除 :root 定义�
 })
 
 test('结构：React 聊天使用持久化 Run，关闭 SSE 不得等同停止任务', () => {
-  const chat = read('components', 'ChatArea.tsx')
+  const chat = read('components', 'chat', 'ChatArea.tsx')
   const api = read('api.ts')
   assert.ok(chat.includes('RunsApi.create('), '发送消息必须先创建持久化 Run')
   assert.ok(chat.includes('RunsApi.stream('), '消息流必须订阅 Run 事件账本')
@@ -63,7 +63,7 @@ test('结构：React 聊天使用持久化 Run，关闭 SSE 不得等同停止�
 })
 
 test('结构：心情胶囊是服务端情绪镜像，禁止本地点击换脸', () => {
-  const chat = read('components', 'ChatArea.tsx')
+  const chat = read('components', 'chat', 'ChatArea.tsx')
   const hook = read('lib', 'useXiaoyuEmotion.ts')
   const controller = read('components', 'xiaoyu', 'useCompanion.ts')
   assert.ok(!chat.includes('setMood'), '不得保留本地 setMood 点击轮换逻辑')
@@ -79,7 +79,7 @@ test('结构：心情胶囊是服务端情绪镜像，禁止本地点击换脸',
 })
 
 test('长任务无事件只提示，不得由前端自动停止后台 Run', () => {
-  const chat = read('components', 'ChatArea.tsx')
+  const chat = read('components', 'chat', 'ChatArea.tsx')
   assert.ok(chat.includes('const IDLE_WARN_MS = 600_000'), '10 分钟无事件后展示非阻塞提示')
   const start = chat.indexOf('  const streaming = !!stream')
   const end = chat.indexOf('  }, [streaming])', start)
@@ -96,13 +96,13 @@ test('长任务无事件只提示，不得由前端自动停止后台 Run', () =
 })
 
 test('流式期间过滤本地 assistant 草稿，避免与实时流重复渲染 bash 工具卡', () => {
-  const chat = read('components', 'ChatArea.tsx')
+  const chat = read('components', 'chat', 'ChatArea.tsx')
   assert.match(chat, /const renderMessages = stream \? messages\.filter\(m => !m\.isDraft\) : messages/, '流式期间不能把 IndexedDB 草稿和实时 assistant 同时渲染')
 })
 
 test('结构：聊天必须接住 SSE video 媒体并渲染 <video>', () => {
-  const chat = read('components', 'ChatArea.tsx')
-  const msg = read('components', 'Message.tsx')
+  const chat = read('components', 'chat', 'ChatArea.tsx')
+  const msg = read('components', 'chat', 'Message.tsx')
   const types = read('types.ts')
   assert.ok(chat.includes("d.type === 'video'"), 'SSE media 必须收 video')
   assert.ok(chat.includes('videos:'), '流式态必须有 videos')
@@ -111,7 +111,7 @@ test('结构：聊天必须接住 SSE video 媒体并渲染 <video>', () => {
 })
 
 test('结构：会话视频必须提供移动端可点击下载，并在播放失败时保留下载入口', () => {
-  const msg = read('components', 'Message.tsx')
+  const msg = read('components', 'chat', 'Message.tsx')
   assert.ok(msg.includes('downloadApiFile'), '视频下载必须走带鉴权的下载 API')
   assert.ok(msg.includes('下载视频'), '视频播放器下方必须有明确下载按钮')
   assert.ok(msg.includes('onError'), '移动端播放失败时必须显示可下载状态')
@@ -123,13 +123,13 @@ test('结构：前端构建必须保留上一版指纹资源，避免懒加载�
 })
 
 test('前端收到会话已更新事件后立即刷新会话列表', () => {
-  const chat = read('components', 'ChatArea.tsx')
+  const chat = read('components', 'chat', 'ChatArea.tsx')
   assert.match(chat, /case 'session_updated':[\s\S]*?refreshSessions\(\)/, 'session_updated 必须立即刷新会话列表')
   assert.doesNotMatch(chat.match(/case 'session_updated':[\s\S]*?case 'completed':/)?.[0] || '', /mutateMsgs\(\)/, '流式收尾前不能刷新消息正文，避免和实时 assistant 重复')
 })
 
 test('跨端切回前台后必须刷新当前会话正文，并恢复 SWR 焦点/重连同步', () => {
-  const chat = read('components', 'ChatArea.tsx')
+  const chat = read('components', 'chat', 'ChatArea.tsx')
   const store = read('store.tsx')
   assert.match(chat, /visibilitychange[\s\S]*?mutateMsgs\(\)/, '切回前台必须刷新当前会话消息')
   assert.match(chat, /revalidateOnFocus:\s*true/, '当前会话消息需允许焦点重验证')

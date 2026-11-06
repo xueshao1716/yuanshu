@@ -1,8 +1,8 @@
 import { createContext, useCallback, useContext, useState, type ReactNode } from 'react'
-import ImageViewer from './ImageViewer'
-import { collectChatMedia, mediaFilename, type ChatMedia } from '../lib/chat-media'
-import { mediaPathKey } from '../lib/media-embed'
-import type { ChatMessage } from '../types'
+import ImageViewer from '../ImageViewer'
+import { collectChatMedia, mediaFilename, type ChatMedia } from '../../lib/chat-media'
+import { mediaPathKey } from '../../lib/media-embed'
+import type { ChatMessage } from '../../types'
 
 const GalleryContext = createContext<((src: string, kind: ChatMedia['kind']) => void) | null>(null)
 export const useChatMedia = () => useContext(GalleryContext)

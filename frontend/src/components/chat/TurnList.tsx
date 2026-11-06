@@ -1,9 +1,9 @@
 import { useMemo, useState } from 'react'
 import { Wrench, Package, ChevronRight, ListFilter, Play } from 'lucide-react'
 import Message from './Message'
-import { withFileToken } from '../api'
-import { dayLabel, sameDayStr } from '../lib/fmt-time'
-import type { ChatMessage } from '../types'
+import { withFileToken } from '../../api'
+import { dayLabel, sameDayStr } from '../../lib/fmt-time'
+import type { ChatMessage } from '../../types'
 
 // ── 轮次折叠（turnDisclosure，对齐 NomiFun 交互）──
 // 一轮 = 一条用户消息 + 其后所有 assistant/system 消息；

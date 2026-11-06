@@ -129,6 +129,6 @@ test('chat status exposes acceptance without approving or claiming media validat
   assert.ok(!source.includes('PendingApi.accept'));
   assert.ok(source.includes('downloadApiFile('), 'delivery downloads must use the authenticated download helper');
   assert.ok(source.includes('role="alert"'), 'download failures must be visible');
-  assert.ok(fs.readFileSync(new URL('../../frontend/src/components/ChatRunStatus.tsx', import.meta.url), 'utf8').includes('<TeamDeliveryStatus'));
+  assert.ok(fs.readFileSync(new URL('../../frontend/src/components/chat/ChatRunStatus.tsx', import.meta.url), 'utf8').includes('<TeamDeliveryStatus'));
   assert.ok(fs.readFileSync(new URL('../../server.mjs', import.meta.url), 'utf8').includes('readDeliveries:'));
 });

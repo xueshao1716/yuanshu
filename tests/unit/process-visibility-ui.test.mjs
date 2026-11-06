@@ -4,7 +4,7 @@ import fs from 'node:fs';
 const read = file => fs.readFileSync(new URL(`../../frontend/src/${file}`, import.meta.url), 'utf8');
 
 test('execution visibility leaves delivery, failures and workflow outside the hidden region', () => {
-  const src = read('components/Message.tsx');
+  const src = read('components/chat/Message.tsx');
   assert.ok(src.includes('ProcessVisibilityToggle'), 'missing one-click tool visibility');
   const start = src.indexOf('data-tool-details');
   const end = src.indexOf('</div>', start);

@@ -1,6 +1,6 @@
 import useSWR from 'swr'
 import { BellRing } from 'lucide-react'
-import { ConfirmApi } from '../api'
+import { ConfirmApi } from '../../api'
 
 // 「该你出手了」全局直白弹条（2026-10-11 伙伴设计的定音）：
 // 不玩收纳、不玩担心打扰——有越线确认就把它拍在所有页面脸上，一处点击直达处理区。

@@ -3,7 +3,7 @@ import vm from 'node:vm';
 import ts from '../../frontend/node_modules/typescript/lib/typescript.js';
 
 export function chatFunction(name, scope) {
-  const source = ts.createSourceFile('ChatArea.tsx', fs.readFileSync(new URL('../../frontend/src/components/ChatArea.tsx', import.meta.url), 'utf8'), ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
+  const source = ts.createSourceFile('ChatArea.tsx', fs.readFileSync(new URL('../../frontend/src/components/chat/ChatArea.tsx', import.meta.url), 'utf8'), ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
   let initializer;
   const visit = node => {
     if (ts.isVariableDeclaration(node) && node.name.getText(source) === name) initializer = node.initializer;
@@ -17,7 +17,7 @@ export function chatFunction(name, scope) {
 export function deferred() { let resolve, reject; const promise = new Promise((yes, no) => { resolve = yes; reject = no; }); return { promise, resolve, reject }; }
 
 export function chatEffect(marker, scope) {
-  const source = ts.createSourceFile('ChatArea.tsx', fs.readFileSync(new URL('../../frontend/src/components/ChatArea.tsx', import.meta.url), 'utf8'), ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
+  const source = ts.createSourceFile('ChatArea.tsx', fs.readFileSync(new URL('../../frontend/src/components/chat/ChatArea.tsx', import.meta.url), 'utf8'), ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
   let callback;
   const visit = node => {
     if (ts.isCallExpression(node) && node.expression.getText(source) === 'useEffect' && node.arguments[0]?.getText(source).includes(marker)) callback = node.arguments[0];

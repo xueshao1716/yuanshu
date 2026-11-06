@@ -59,11 +59,11 @@ test('restored replies stay silent even when their replay arrives after opt-in',
   reader.update('new', '新回复。'); assert.deepEqual(chunks, ['新回复。']);
 });
 test('ChatArea feeds live正文 and completes existing audio instead of restarting full text', () => {
-  const source = fs.readFileSync(new URL('../../frontend/src/components/ChatArea.tsx', import.meta.url), 'utf8');
+  const source = fs.readFileSync(new URL('../../frontend/src/components/chat/ChatArea.tsx', import.meta.url), 'utf8');
   assert.ok(source.includes('speech.updateReply(')); assert.ok(source.includes('speech.finishReply('));
   assert.ok(!source.includes('speech.speak(savedId, s.text)'));
   assert.ok(source.includes('speech.skipReply(record.assistantMessageId)'));
-  const message = fs.readFileSync(new URL('../../frontend/src/components/Message.tsx', import.meta.url), 'utf8');
+  const message = fs.readFileSync(new URL('../../frontend/src/components/chat/Message.tsx', import.meta.url), 'utf8');
   assert.ok(message.includes('<SpeechControls live'));
   const sendBody = source.slice(source.indexOf('const send = async'), source.indexOf('// 失败重试'));
   assert.ok(sendBody.includes('speech.stop()'), 'new sends stop the preceding reply immediately');

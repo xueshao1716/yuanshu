@@ -10,7 +10,7 @@ const read = (...parts) => readFileSync(join(SRC, ...parts), 'utf8')
 
 test('聊天与首页数据层只在恢复时增量同步，避免整页重载', () => {
   const store = read('store.tsx')
-  const chat = read('components', 'ChatArea.tsx')
+  const chat = read('components', 'chat', 'ChatArea.tsx')
 
   assert.match(store, /const \{ data: modelsData \} = useSWR[\s\S]*?revalidateOnFocus:\s*false/, '模型配置不因焦点切换整页重拉')
   assert.match(store, /const \{ data: sessionsData \} = useSWR[\s\S]*?revalidateOnFocus:\s*true/, '会话目录恢复焦点时应增量重验')
@@ -34,8 +34,8 @@ test('会话 SSE 解析命名 session_updated 事件，确保跨端记录及时�
   assert.ok(api.includes('leafId'), 'messages API 必须能带当前枝 leafId')
 })
 test('对话欢迎页提供高频工作入口，长会话阅读区有稳定的阅读列', () => {
-  const chat = read('components', 'ChatArea.tsx')
-  const turns = read('components', 'TurnList.tsx')
+  const chat = read('components', 'chat', 'ChatArea.tsx')
+  const turns = read('components', 'chat', 'TurnList.tsx')
   for (const label of ['新建对话', 'AI 绘画', '生成 PPT', '定时任务', '会话管理']) {
     assert.ok(chat.includes(`label: '${label}'`), `欢迎页缺少高频入口：${label}`)
   }
@@ -44,7 +44,7 @@ test('对话欢迎页提供高频工作入口，长会话阅读区有稳定的�
 })
 
 test('壁纸模式下主画布与新建对话首页保持透明', () => {
-  const chat = read('components', 'ChatArea.tsx')
+  const chat = read('components', 'chat', 'ChatArea.tsx')
   const layout = read('AppLayout.tsx')
   const styles = read('styles.css')
   assert.ok(chat.includes('className="chat-welcome chat-workstart"'), '欢迎页必须使用工作入口布局')
@@ -427,7 +427,7 @@ test('任务与会话库保留既有 API 行为', () => {
 })
 
 test('思考过程正文使用隔离的实底阅读面板，避免主题色层覆盖文字', () => {
-  const message = read('components', 'Message.tsx')
+  const message = read('components', 'chat', 'Message.tsx')
   const styles = read('styles.css')
   assert.match(message, /className="thinking-panel"/, '展开的思考过程必须使用独立阅读面板')
   assert.match(styles, /\.thinking-panel\s*\{[^}]*isolation:\s*isolate[^}]*background:\s*var\(--pi-bg1\)[^}]*color:\s*var\(--pi-text\)/s, '思考面板必须建立独立层叠上下文并使用不透明的主题阅读底色和主文字色')
@@ -435,7 +435,7 @@ test('思考过程正文使用隔离的实底阅读面板，避免主题色层�
 })
 
 test('思考过程触发标签在主题底色上使用主文字色，避免同色吞字', () => {
-  const message = read('components', 'Message.tsx')
+  const message = read('components', 'chat', 'Message.tsx')
   const thinkingTrigger = message.split('function Thinking')[1]?.split('function Attachments')[0] ?? ''
   assert.match(thinkingTrigger, /text-pi-text/, '思考过程文字必须从主题色切换为主文字色')
   assert.match(thinkingTrigger, /bg-pi-accent\/6/, '思考标签背景必须是轻量半透明色')
@@ -444,7 +444,7 @@ test('思考过程触发标签在主题底色上使用主文字色，避免同�
 })
 
 test('流式中即使还没有思考/工具/正文，也要显示思考阶段，不能空白干等', () => {
-  const message = read('components', 'Message.tsx')
+  const message = read('components', 'chat', 'Message.tsx')
   const assistant = message.slice(message.indexOf('const hasThinking'))
   const phaseBlock = assistant.slice(assistant.indexOf('let phase:'), assistant.indexOf('return ('))
   assert.ok(phaseBlock.includes("else phase = 'thinking'"), '流式空窗必须落到思考阶段，不能停在 idle 把工作流藏掉')
@@ -453,7 +453,7 @@ test('流式中即使还没有思考/工具/正文，也要显示思考阶段，
 })
 
 test('助手配图必须在正文后面，不能插在思考过程和工具卡中间', () => {
-  const message = read('components', 'Message.tsx')
+  const message = read('components', 'chat', 'Message.tsx')
   const assistant = message.slice(message.indexOf('const hasThinking'))
   const attachAt = assistant.lastIndexOf('<Attachments msg={msg} />')
   const thinkAt = assistant.lastIndexOf('<Thinking')
@@ -480,7 +480,7 @@ test('助手消息装饰层保持低存在感半透明，不能压过长正文',
 })
 
 test('消息视觉只使用 pi 语义色，并保留角色、Markdown、Thinking 与 ToolCard 分支', () => {
-  const message = read('components', 'Message.tsx')
+  const message = read('components', 'chat', 'Message.tsx')
   assert.doesNotMatch(message, /(?:purple|sky|red|emerald)-/, 'Message 不得使用固定 purple/sky/red/emerald 色类')
   assert.doesNotMatch(message, /pi-red/, 'Message 错误状态必须使用 pi-danger')
   assert.ok(message.includes('Info'), '系统提示和通知必须使用 Lucide Info')

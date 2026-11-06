@@ -66,16 +66,16 @@ test('speech controller supports pause/resume, stale-event isolation, recording 
 });
 
 test('chat speech uses the saved message ID, skips drafts, and keeps mobile controls wrapping', () => {
-  const chat = read('frontend/src/components/ChatArea.tsx');
+  const chat = read('frontend/src/components/chat/ChatArea.tsx');
   assert.ok(chat.includes('speech.finishReply(savedId, s.text)'));
   assert.ok(chat.includes("id: savedId, role: 'assistant'"));
   assert.ok(chat.includes('if (!readAutomatically) try {'));
   assert.ok(chat.includes('() => speech.stop(), [currentSessionId]'));
   assert.ok(chat.includes('if (request !== voiceRequestRef.current) return'));
-  const message = read('frontend/src/components/Message.tsx');
+  const message = read('frontend/src/components/chat/Message.tsx');
   assert.ok(message.includes('message-actions inline-flex flex-wrap'));
   assert.ok(message.includes('!msg.isDraft && <SpeechControls'));
-  const send = read('frontend/src/components/SendBox.tsx');
+  const send = read('frontend/src/components/chat/SendBox.tsx');
   assert.ok(send.includes('controller.stop(true)'));
   assert.ok(send.includes('aria-label="取消录音"'));
   assert.ok(send.includes('if (mounted) voiceCallbackRef.current'));

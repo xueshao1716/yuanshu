@@ -36,7 +36,7 @@ test('聊天收尾先处理暂停，所有替代模型和只读路径也接通�
   assert.ok(source.includes('if (result?.paused) { await finishPausedChat(result); return; }'));
   assert.ok(source.includes('if (fb?.paused) { await finishPausedChat(fb); return; }'));
   assert.ok(source.includes('if (proResult?.paused) { await finishPausedChat(proResult); return; }'));
-  const ui = fs.readFileSync(new URL('../../frontend/src/components/ChatArea.tsx', import.meta.url), 'utf8');
+  const ui = fs.readFileSync(new URL('../../frontend/src/components/chat/ChatArea.tsx', import.meta.url), 'utf8');
   assert.ok(ui.includes('interruptionNotice(d)'));
   assert.ok(ui.includes('interruptionNotice(run)'));
 });

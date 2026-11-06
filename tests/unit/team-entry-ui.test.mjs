@@ -26,7 +26,7 @@ test('team entry starts a managed session task and links back to conversation', 
   for (const term of ['TeamRunApi.start', 'clientRequestId', 'disabled={busy', 'maxLength={taskLimit}', "workflow === 'team-general' ? 6000 : 300", '<textarea', '10 秒', 'selectSession', "nav('chat')"]) assert.ok(source.includes(term), term);
   assert.ok(read('frontend/src/components/views/TeamRunView.tsx').includes('<TeamRunStart'));
   assert.ok(read('frontend/src/components/team/TeamRunStatus.tsx').includes('launch?.sessionId'));
-  const chat = read('frontend/src/components/ChatArea.tsx');
+  const chat = read('frontend/src/components/chat/ChatArea.tsx');
   assert.ok(chat.includes('RunApi.overview(currentSessionId)'));
   assert.ok(chat.includes("case 'subagent_started':"));
 });

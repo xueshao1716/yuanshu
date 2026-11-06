@@ -200,13 +200,13 @@ test('会话列表缓存自愈：懒落盘的新会话必须能被按 id 查到�
 });
 
 test('界面闸门：上传必须带真实 sessionId；新建会话必须先切会话再刷新列表', () => {
-  const send = fs.readFileSync(path.join(ROOT, 'frontend', 'src', 'components', 'SendBox.tsx'), 'utf8');
+  const send = fs.readFileSync(path.join(ROOT, 'frontend', 'src', 'components', 'chat', 'SendBox.tsx'), 'utf8');
   // 上传不许再出现"拿不到 id 就发空 id"的写法（服务端一猜，卡片就落到别的会话）
   assert.match(send, /ensureSession/, 'SendBox 必须能在会话未就绪时向宿主索要一个真实会话 id');
   assert.match(send, /const d = await WsApi\.upload\(f\.name, btoa\(bin\), sid \|\| undefined\)/, '上传必须带上解析后的会话 id');
   assert.match(send, /guessedSession/, '服务端说"这次是猜的"时前端要能拿到并如实提示');
 
-  const chat = fs.readFileSync(path.join(ROOT, 'frontend', 'src', 'components', 'ChatArea.tsx'), 'utf8');
+  const chat = fs.readFileSync(path.join(ROOT, 'frontend', 'src', 'components', 'chat', 'ChatArea.tsx'), 'utf8');
   // 真机 bug 的根：`await refreshSessions()` 挡在 selectSession 前面 → currentSessionId 空几秒 → 上传裸奔
   assert.equal(/await refreshSessions\(\);\s*selectSession\(/.test(chat), false, 'ChatArea 里不许再让 refreshSessions 挡在 selectSession 前面（会让会话切换晚几秒）');
   assert.match(chat, /ensureSession=\{ensureSessionId\}/, 'ChatArea 必须把 ensureSession 传给 SendBox');

@@ -68,9 +68,10 @@ test('MoodOrb 组件契约：积分相位、缓动、reduced-motion 静态、隐
 })
 
 test('ChatArea：心情 pill 渲染 MoodOrb，emoji 不再出现在 pill 内', () => {
-  const chat = read('components', 'ChatArea.tsx')
+  const chat = read('components', 'chat', 'ChatArea.tsx')
   assert.match(chat, /<MoodOrb\b/, 'pill 应渲染 MoodOrb 灵珠')
-  assert.match(chat, /import\s*\{[^}]*MoodOrb[^}]*\}\s*from\s*'\.\/MoodOrb'/, '应从同目录导入 MoodOrb')
+  // 2026-11-06：ChatArea 已移入 components/chat/，MoodOrb 留在根 —— 导入变成上一层
+  assert.match(chat, /import\s*\{[^}]*MoodOrb[^}]*\}\s*from\s*'\.\.\/MoodOrb'/, '应导入 MoodOrb 灵珠')
   const pill = chat.match(/emo-pill[\s\S]{0,600}?\n        <\/div>/)
   assert.ok(pill, '应能定位 emo-pill 渲染块')
   assert.ok(!pill[0].includes('emo.meta.emoji'), 'pill 内不得再渲染 emoji')
@@ -82,7 +83,7 @@ test('ChatArea：心情 pill 渲染 MoodOrb，emoji 不再出现在 pill 内', (
 
 test('对话右上角灵珠和工作台潮汐必须共用同一份情绪快照', () => {
   const hook = read('lib', 'useXiaoyuEmotion.ts')
-  const chat = read('components', 'ChatArea.tsx')
+  const chat = read('components', 'chat', 'ChatArea.tsx')
   const board = read('pages', 'Board.tsx')
   assert.match(hook, /export const EMO_LIVE_KEY/, '必须有共享缓存键')
   assert.ok(hook.includes('EmotionApi.display()'), '非消费式共享快照不带 session')
@@ -103,7 +104,7 @@ test('GradientField：欢迎页氛围层——懒加载拆块、深色限定、W
   const inner = read('components', 'ShaderGradientInner.tsx')
   assert.match(inner, /@shadergradient\/react/, '实现块引入 shader gradient')
   assert.match(inner, /pixelDensity=\{1\}/, '像素密度限 1 换性能')
-  const chat = read('components', 'ChatArea.tsx')
+  const chat = read('components', 'chat', 'ChatArea.tsx')
   assert.ok(!chat.includes('<GradientField'), '日常工作入口不再挂载装饰性渐变场')
   assert.ok(chat.includes('chat-workstart'), '欢迎页使用工作入口布局')
 })

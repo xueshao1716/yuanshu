@@ -2,7 +2,7 @@ import { lazy, Suspense, useCallback, useEffect, useRef, useState } from 'react'
 import { ArrowLeft, ArrowUp, File, Folder, Paperclip, RefreshCw, Search, Upload } from 'lucide-react'
 import { useApp } from '../store'
 import { WsApi } from '../api'
-const Markdown = lazy(() => import('./Markdown'))
+const Markdown = lazy(() => import('./chat/Markdown'))
 
 function LazyMarkdown({ text }: { text: string }) {
   return <Suspense fallback={<div className="text-pi-dim2 text-xs py-2">渲染中…</div>}><Markdown text={text} /></Suspense>

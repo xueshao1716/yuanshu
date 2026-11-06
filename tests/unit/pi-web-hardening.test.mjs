@@ -110,7 +110,7 @@ test('TUI WebSocket authenticates after connect instead of using a query token',
 })
 
 test('Mermaid rendering uses strict security and rejects oversized diagrams', async () => {
-  const src = await read('frontend', 'src', 'components', 'Markdown.tsx')
+  const src = await read('frontend', 'src', 'components', 'chat', 'Markdown.tsx')
   assert.match(src, /securityLevel:\s*['"]strict['"]/, 'Mermaid must use strict security')
   assert.doesNotMatch(src, /securityLevel:\s*['"]loose['"]/, 'Mermaid must not use loose security')
   assert.match(src, /export function shouldRenderMermaid\(code: string\): boolean/)
@@ -121,7 +121,7 @@ test('Mermaid rendering uses strict security and rejects oversized diagrams', as
 
 test('chat keeps Markdown and auxiliary panels out of the initial bundle', async () => {
   const layout = await read('frontend', 'src', 'AppLayout.tsx')
-  const message = await read('frontend', 'src', 'components', 'Message.tsx')
+  const message = await read('frontend', 'src', 'components', 'chat', 'Message.tsx')
   const workspace = await read('frontend', 'src', 'components', 'Workspace.tsx')
   assert.doesNotMatch(message, /import Markdown from ['"]\.\/Markdown['"]/, 'Message must lazy-load Markdown')
   assert.match(message, /lazy\(\(\) => import\(['"]\.\/Markdown['"]\)\)/, 'Message must dynamically load Markdown')
