@@ -87,11 +87,14 @@ test('源码闸门：余量闸门必须真的接进主循环（别只定义不�
   const root = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
   const server = fs.readFileSync(path.join(root, 'server.mjs'), 'utf8');
   // 这一条是真踩过的坑：调用写了、import 忘了，异常又被 catch 吞掉 → 闸门等于不存在（核对时才露馅）
-  assert.match(server, /import \{[^}]*ensureContextHeadroom[^}]*\} from "\.\/engine\/session-manager\.mjs"/,
+  // 2026-11-06：session 域已迁到 engine/session/，manager 再转发 context-budget 的实现
+  assert.match(server, /import \{[^}]*ensureContextHeadroom[^}]*\} from "\.\/engine\/session\/manager\.mjs"/,
     'server.mjs 必须从 session-manager 导入 ensureContextHeadroom');
   assert.match(server, /await ensureContextHeadroom\(sessionId, entry, effModel\)/, '开跑前必须真的调用余量闸门');
-  const mgr = fs.readFileSync(path.join(root, 'engine', 'session-manager.mjs'), 'utf8');
-  assert.match(mgr, /export async function ensureContextHeadroom/, '闸门本体要在 session-manager 里');
+  const mgr = fs.readFileSync(path.join(root, 'engine', 'session', 'manager.mjs'), 'utf8');
+  // 本体已抽到 context-budget.mjs（manager 用 re-export 转发）
+  const budget = fs.readFileSync(path.join(root, 'engine', 'session', 'context-budget.mjs'), 'utf8');
+  assert.match(budget, /export async function ensureContextHeadroom/, '闸门本体要在 context-budget 里');
   assert.match(mgr, /_activeSessions\.delete\(id\)/, '压缩后必须重开会话（内存里的旧树不会自己刷新）');
   // 界面侧：截断提示要能渲染出来（字段一路从后端映射到组件）
   const msg = fs.readFileSync(path.join(root, 'frontend', 'src', 'components', 'Message.tsx'), 'utf8');

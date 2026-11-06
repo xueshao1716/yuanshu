@@ -8,14 +8,14 @@ import { createPiMediaTools } from "../../engine/pi-media-tools.mjs";
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..", "..");
 
 test("pi 首轮就要有出片工具，不能只剩 read/write/edit/bash", () => {
-  const src = readFileSync(join(ROOT, "engine", "session-manager.mjs"), "utf8");
+  const src = readFileSync(join(ROOT, "engine", "session", "manager.mjs"), "utf8");
   assert.ok(src.includes("generate_video"), "主驾也要能自己出片，不能只会 bash 考古");
   const boot = src.slice(src.indexOf("MIN_BOOTSTRAP"), src.indexOf("MIN_BOOTSTRAP") + 800);
   assert.ok(boot.includes("generate_video") || src.includes("FIRST_TURN"), "首轮不能把出片工具藏起来");
 });
 
 test("createSessionAgent 必须挂上宿主媒体工具", () => {
-  const src = readFileSync(join(ROOT, "engine", "session-manager.mjs"), "utf8");
+  const src = readFileSync(join(ROOT, "engine", "session", "manager.mjs"), "utf8");
   assert.ok(src.includes("initPiMediaTools") || src.includes("createPiMediaTools") || src.includes("piMediaTools"), "pi 自定义工具表要有密文出片通道");
 });
 
