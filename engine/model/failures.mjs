@@ -1,4 +1,5 @@
 // 连续失败计数：把"这条路现在不通"变成可执行的回避，而不是每一轮都撞一次墙。
+import { noteMaxTokensLimit } from "../output-budget.mjs";
 //
 // 为什么需要它：pi 通道的失败**不抛异常**——它落成一条 stopReason=error 的 assistant 记录，
 // 界面此前还会把这条记录滤掉，于是用户只看到"它不说话/变傻了"。
@@ -21,6 +22,9 @@ export function modelFailureKey(model) {
 }
 
 export function noteModelFailure(model, reason = "") {
+  // 2026-11-06：上游偶尔会直接告诉我们上限（"max_tokens exceeds the limit of 4096"）。
+  // 记下来，下一次请求就按这个值压，不用等模型目录更新。
+  try { noteMaxTokensLimit(reason, model) } catch {}
   const key = modelFailureKey(model);
   if (!key) return { key: "", count: 0, blocked: false };
   const now = Date.now();
