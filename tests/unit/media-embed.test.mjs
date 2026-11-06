@@ -4,7 +4,7 @@ import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { extractPlayableMedia, workspaceFileUrl } from "../../engine/media-embed.mjs";
-import { extractVideos, extractMessages } from "../../engine/session-utils.mjs";
+import { extractVideos, extractMessages } from "../../engine/session/utils.mjs";
 import { assistantContentWithMedia } from "../../engine/media-api.mjs";
 import { coachToolFailure } from "../../engine/yuanshu-protocol.mjs";
 import { createMediaToolExecutor } from "../../engine/media-channels.mjs";

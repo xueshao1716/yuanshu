@@ -6,8 +6,8 @@ import os from "node:os";
 import { fileURLToPath } from "node:url";
 import { execFile } from "node:child_process";
 import { json } from "./http-utils.mjs";
-import { scanSessionFiles, parseSessionFile, parseSessionFileCached, getSessionList, findSession, readEntriesFromFile, invalidateSessionCache } from "./session-files.mjs";
-import { extractMessages } from "./session-utils.mjs";
+import { scanSessionFiles, parseSessionFile, parseSessionFileCached, getSessionList, findSession, readEntriesFromFile, invalidateSessionCache } from "./session/files.mjs";
+import { extractMessages } from "./session/utils.mjs";
 import { sanitizeText } from "./sanitize.mjs";
 
 let _getAgentDir = () => "", _cwd = "", _DefaultResourceLoader = null;

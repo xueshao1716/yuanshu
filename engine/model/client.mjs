@@ -6,7 +6,7 @@ import fs from "node:fs";
 import { json } from "../http-utils.mjs";
 import { markModelBlocked, isAuthErrorStatus } from "./router.mjs";
 import { httpJsonFetch } from "../http.mjs";
-import { extractMessages } from "../session-utils.mjs";
+import { extractMessages } from "../session/utils.mjs";
 import { saveArtifact } from "../workspace-api.mjs";
 import { buildMessagesRequest, decodeMessagesResponse, messagesEndpoint, messagesHeaders } from '../anthropic-messages.mjs';
 import { clampOutputTokens, OUTPUT_TOKEN_HARD_CAP } from '../output-budget.mjs';

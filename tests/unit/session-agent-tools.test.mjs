@@ -2,7 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs";
 
-const source = fs.readFileSync(new URL("../../engine/session-manager.mjs", import.meta.url), "utf8");
+const source = fs.readFileSync(new URL("../../engine/session/manager.mjs", import.meta.url), "utf8");
 const unifiedSource = fs.readFileSync(new URL("../../engine/tools/unified-tools.mjs", import.meta.url), "utf8");
 const serverSource = fs.readFileSync(new URL("../../server.mjs", import.meta.url), "utf8");
 

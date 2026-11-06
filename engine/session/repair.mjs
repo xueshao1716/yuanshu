@@ -12,7 +12,7 @@
 // 只动 user / assistant 两类消息；toolResult 里的图是 SDK 支持的形态，不碰。
 import fs from "node:fs";
 import path from "node:path";
-import { sdkSafeUserBlocks, sdkSafeAssistantBlocks } from "./yuanshu-session.mjs";
+import { sdkSafeUserBlocks, sdkSafeAssistantBlocks } from "../yuanshu-session.mjs";
 
 const INTERESTING = /"type":"(file|image|video|audio)"/;
 

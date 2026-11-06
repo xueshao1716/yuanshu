@@ -17,7 +17,7 @@
 import { PluginRegistry } from "./plugin-registry.mjs";
 import { HttpModelAdapter } from "./model/adapter.mjs";
 import { ToolRegistry } from "./tool-registry.mjs";
-import { MemorySessionStore, FileSessionStore } from "./session-store.mjs";
+import { MemorySessionStore, FileSessionStore } from "./session/store.mjs";
 import { StandardAgentLoop } from "./agent-loop.mjs";
 
 export async function createGateway(options = {}) {

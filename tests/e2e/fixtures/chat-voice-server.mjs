@@ -11,10 +11,10 @@ import { createVoiceAdmission } from '../../../engine/chat-voice-admission.mjs'
 import { createVoiceTicketHandler, createVoiceModelsHandler } from '../../../engine/chat-voice-api.mjs'
 import { createVoiceModelRegistry } from '../../../engine/voice-model-registry.mjs'
 import { attachChatVoice } from '../../../engine/chat-voice-bridge.mjs'
-import { canAccessSessionOrigin } from '../../../engine/session-manager.mjs'
+import { canAccessSessionOrigin } from '../../../engine/session/manager.mjs'
 import { json, readBody } from '../../../engine/http-utils.mjs'
-import { createSessionBus } from '../../../engine/session-bus.mjs'
-import { extractMessages, resolveLeafId } from '../../../engine/session-utils.mjs'
+import { createSessionBus } from '../../../engine/session/bus.mjs'
+import { extractMessages, resolveLeafId } from '../../../engine/session/utils.mjs'
 
 // Real transport, PCM processing, durable runtime and session files; only the
 // paid speech provider and execution model are replaced with isolated adapters.

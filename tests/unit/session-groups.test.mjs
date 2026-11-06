@@ -4,8 +4,8 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { classifySessionGroup, isJunkSession, isListedGroup, planSweep } from "../../engine/session-groups.mjs";
-import { initSessionFiles, getSessionList, invalidateSessionCache, parseSessionFile } from "../../engine/session-files.mjs";
+import { classifySessionGroup, isJunkSession, isListedGroup, planSweep } from "../../engine/session/groups.mjs";
+import { initSessionFiles, getSessionList, invalidateSessionCache, parseSessionFile } from "../../engine/session/files.mjs";
 
 const WS = "D:\\pi-workspace";
 const HOME = "C:\\Users\\xuexiaofeng";

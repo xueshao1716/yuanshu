@@ -6,7 +6,7 @@ import { execFile, spawn } from "node:child_process";
 import { json } from "./http-utils.mjs";
 import { wsSafePath } from "./workspace-api.mjs";
 import { loadProjectRules } from "./context-loader.mjs";
-import { createSessionAgent } from "./session-manager.mjs";
+import { createSessionAgent } from "./session/manager.mjs";
 import { createUpdateHandler } from "./online-update.mjs";
 
 // 修复前留底的源码清单（2026-08-20 拆模块时随块迁入本模块；路径相对 repoRoot()）

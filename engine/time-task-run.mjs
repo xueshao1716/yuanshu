@@ -11,8 +11,8 @@
 import fs from "node:fs";
 import path from "node:path";
 import { splitLogBlocks } from "./memory-facts.mjs";
-import { readEntriesFromFile } from "./session-files.mjs";
-import { extractMessages } from "./session-utils.mjs";
+import { readEntriesFromFile } from "./session/files.mjs";
+import { extractMessages } from "./session/utils.mjs";
 import { loadPromises, recordPromises } from "./promises.mjs";
 import { normalizeActionKind } from "./reflection-exec.mjs";
 import { recentLessonTopics } from "./lesson-promotion.mjs";

@@ -3,10 +3,10 @@
 // 健康：ok <1MB ｜ large 1-5MB ｜ oversized >5MB（对齐 session-sanitize 截断阈值）
 import fs from "node:fs";
 import path from "node:path";
-import { json } from "./http-utils.mjs";
-import { sanitizeSessionFile } from "./session-sanitize.mjs";
-import { getSessionList, invalidateSessionCache, compareSessionTimes } from "./session-files.mjs";
-import { runSessionSweep } from "./session-groups.mjs";
+import { json } from "../http-utils.mjs";
+import { sanitizeSessionFile } from "./sanitize.mjs";
+import { getSessionList, invalidateSessionCache, compareSessionTimes } from "./files.mjs";
+import { runSessionSweep } from "./groups.mjs";
 
 let _agentDir = "", _cwd = "";
 let _deleteSession = async () => {};

@@ -10,7 +10,7 @@ import fs from 'node:fs';
 import {
   noteModelFailure, clearModelFailures, modelFailureState, resetModelFailures, modelFailureKey,
 } from '../../engine/model/failures.mjs';
-import { extractMessages } from '../../engine/session-utils.mjs';
+import { extractMessages } from '../../engine/session/utils.mjs';
 
 test('连续失败到阈值就标冷却，成功一次即清零', () => {
   resetModelFailures();

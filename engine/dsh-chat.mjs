@@ -3,8 +3,8 @@
 import fs from "node:fs";
 import { spawn } from "node:child_process";
 import { extractStructuredOut, friendlyDshError, resolveDshEnv, resolveDshBin } from "./dsh-tool.mjs";
-import { extractMessages } from "./session-utils.mjs";
-import { readEntriesFromFile } from "./session-files.mjs";
+import { extractMessages } from "./session/utils.mjs";
+import { readEntriesFromFile } from "./session/files.mjs";
 import { createSseWriter } from "./sse.mjs";
 
 const HIST_TAIL = 8;

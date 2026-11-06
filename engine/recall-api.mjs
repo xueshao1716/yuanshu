@@ -6,7 +6,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { json } from "./http-utils.mjs";
-import { getSessionList } from "./session-files.mjs";
+import { getSessionList } from "./session/files.mjs";
 
 let _agentDir = "", _chat = null, _getDefaultModel = null;
 let _index = null; // { files:{id:{mtimeMs,size}}, snippets:[], grams:{} }

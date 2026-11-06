@@ -7,7 +7,7 @@
 //
 // 这份自我描述是**活的**：每次生成都读当下的真实状态（人格、自主边界、跑了多久、
 // 有多少会话），所以它会随她一起变，而不是一句写死的人设文案。
-import { collectSessionFiles } from './session-files.mjs';
+import { collectSessionFiles } from './session/files.mjs';
 import fs from 'node:fs';
 import path from 'node:path';
 import { loadPersonaDefinition } from './persona-def.mjs';

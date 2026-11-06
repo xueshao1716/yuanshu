@@ -116,7 +116,7 @@ test('当场修：接线要到两个引擎（统一引擎工具 + Pi 会话 cust
   assert.match(server, /fix_problem: async \(args, ctx\)/, '统一引擎要有它的执行器');
   assert.match(server, /runOnTheSpotFix\(\{/, '执行器要用共享核心，不要另写一套');
   assert.match(server, /setOnTheSpotFixRunner\(/, '要把执行器注入会话管理（Pi 侧同名工具）');
-  const sm = fs.readFileSync('engine/session-manager.mjs', 'utf8');
+  const sm = fs.readFileSync('engine/session/manager.mjs', 'utf8');
   assert.match(sm, /name: "fix_problem"/, 'Pi 会话要注册同名 customTool');
   assert.match(sm, /customTools.push\(fixTool\)/, '注册了还要真的放进 customTools');
   assert.match(sm, /setOnTheSpotFixRunner/, '要留注入口');

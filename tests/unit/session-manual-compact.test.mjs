@@ -1,7 +1,7 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import fs from 'node:fs'
-import * as manager from '../../engine/session-manager.mjs'
+import * as manager from '../../engine/session/manager.mjs'
 import { manualCompactFixture } from '../helpers/manual-compact-fixture.mjs'
 import { createVoiceTaskDelivery } from '../../engine/voice-task-delivery.mjs'
 import { deliverTask } from '../../engine/voice-task-scheduler.mjs'

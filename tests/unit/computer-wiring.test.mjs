@@ -7,8 +7,8 @@ test('computer tool is wired to both engines and local approval',()=>{
   for(const snippet of ['COMPUTER_TOOL_SCHEMA,','computer_use: (args, ctx) => computerTool(computerUse, args, ctx)','...createComputerRoutes(',"pending?.toolName === 'computer-use'"]) assert.ok(server.includes(snippet),snippet);
   assert.ok(server.includes('initComputerTool((Type, sessionId) => createPiComputerTool(Type, () => computerUse, sessionId))'));
   assert.equal(server.split('initSessionManager({').length-1,1,'never reset session dependencies when adding a tool');
-  assert.ok(read('engine/session-manager.mjs').includes('customTools.push(computerToolFactory('));
-  assert.ok(read('engine/session-manager.mjs').includes('() => sm.getSessionId()'));
+  assert.ok(read('engine/session/manager.mjs').includes('customTools.push(computerToolFactory('));
+  assert.ok(read('engine/session/manager.mjs').includes('() => sm.getSessionId()'));
   assert.ok(read('engine/unified-chat.mjs').includes('defaultExecutor: (name, args, ctx) => _executeUnifiedTool(name, args, ctx)'));
 });
 test('system UI exposes scoped grant, clear support boundary and stop',()=>{

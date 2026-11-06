@@ -6,7 +6,7 @@ import path from 'node:path';
 import {createRunManager} from '../../engine/run-manager.mjs';
 import {createRunStore} from '../../engine/run-store.mjs';
 import {createRunEventLog} from '../../engine/run-event-log.mjs';
-import {initSessionManager, canAccessSessionOrigin} from '../../engine/session-manager.mjs';
+import {initSessionManager, canAccessSessionOrigin} from '../../engine/session/manager.mjs';
 import {createCultivationStorage} from '../../engine/cultivation/storage.mjs';
 import {createCultivationHostIdentity} from '../../engine/cultivation/host-identity.mjs';
 

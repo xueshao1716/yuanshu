@@ -15,7 +15,7 @@ import { budgetWithinWindow, estimateHistoryTokens } from "./context-headroom.mj
 import { continuationLimits, truncationRecoveryPrompt, toolTurnLimitResult } from "./task-continuation.mjs";
 import { shrinkToolResult, NEEDS_PRO_RE, scavengeToolCalls, projectToolResult } from "./reasonix-tools.mjs";
 import { normalizeToolArgs } from "./tool-args.mjs";
-import { extractMessages, extractText, attachmentLines } from "./session-utils.mjs";
+import { extractMessages, extractText, attachmentLines } from "./session/utils.mjs";
 import { createSseWriter } from "./sse.mjs";
 import { slimToolDefs } from "./tool-payload.mjs";
 import { httpJsonFetch, httpRawFetch, httpHedgedFetch, sessionAffinityHeaders, describeHttpError } from "./http.mjs";
@@ -33,7 +33,7 @@ import { readMessagesStream } from "./anthropic-stream.mjs";
 import { saveArtifact } from "./workspace-api.mjs";
 import { directChat, maybeCompactHistory, needsMidLoopCompact } from "./model/client.mjs";
 import { bindTodoSession, formatTodoPrompt } from "./yuanshu-todo.mjs";
-import { readEntriesFromFile } from "./session-files.mjs";
+import { readEntriesFromFile } from "./session/files.mjs";
 import { loadProjectRules, loadMemory, shouldInjectFullMemory, setLastUserQuery, loadSkillIndex, loadExperienceIndex } from "./context-loader.mjs";
 import { compactKeepArchive } from "./yuanshu-compact.mjs";
 import { prependAssembledSystem } from "./yuanshu-prompt.mjs";

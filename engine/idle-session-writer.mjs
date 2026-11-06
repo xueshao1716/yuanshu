@@ -1,5 +1,5 @@
 import path from 'node:path'
-import { validateSessionOrigin } from './session-origin-auth.mjs'
+import { validateSessionOrigin } from './session/origin-auth.mjs'
 
 // No await between checking lifecycle locks and persisting through the live SDK.
 export function createIdleSessionWriter({ activeSessions, SessionManager, findSession, isLocked = () => false, canUseUnpersisted = () => false, cwd, sessionsDir, invalidate = () => {} }) {

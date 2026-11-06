@@ -7,7 +7,7 @@
 //   pi_read_file / pi_write_file / pi_workspace_tree / pi_deliver
 // 传输：HTTP POST /mcp（JSON-RPC 2.0：initialize / tools/list / tools/call）
 // 认证：与元枢相同（Bearer token）
-import { extractMessages, extractText } from "./session-utils.mjs";
+import { extractMessages, extractText } from "./session/utils.mjs";
 
 // 依赖注入（server.mjs 启动时注入）
 let _getModelRouter = null;   // model-router 引用（classifyTaskComplexity/routeForAuto）

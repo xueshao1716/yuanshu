@@ -19,7 +19,7 @@ test('SDK安全化后仍保存请求与实际画幅核验事实', () => {
   assert.match(text, /832x1248/);
   assert.match(text, /比例精确匹配/);
 });
-import { extractImages } from '../../engine/session-utils.mjs';
+import { extractImages } from '../../engine/session/utils.mjs';
 
 test('落盘改写：assistant 内容里的附件块必须变成纯文本，工具调用与思考块原样保留', () => {
   const safe = sdkSafeAssistantBlocks([

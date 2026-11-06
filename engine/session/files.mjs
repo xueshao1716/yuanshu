@@ -5,8 +5,8 @@
 //   workspaceCwd = CONFIG.cwd（用于列表 group 判定：workspace vs terminal）
 import fs from "node:fs";
 import path from "node:path";
-import { extractText, extractImages, extractFiles } from "./session-utils.mjs";
-import { classifySessionGroup } from "./session-groups.mjs";
+import { extractText, extractImages, extractFiles } from "./utils.mjs";
+import { classifySessionGroup } from "./groups.mjs";
 
 let _sessionsDir = "";
 let _workspaceCwd = "";

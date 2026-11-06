@@ -9,7 +9,7 @@
 // 这个测试锁：媒体工具的产物能在历史里回放；视频不再被当成图片；搜索结果里的图不会被误当产物。
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { extractMessages, extractImages, extractVideos, mediaFromToolResult, isMediaTool, isVideoUrl, isAudioUrl } from '../../engine/session-utils.mjs';
+import { extractMessages, extractImages, extractVideos, mediaFromToolResult, isMediaTool, isVideoUrl, isAudioUrl } from '../../engine/session/utils.mjs';
 
 // 带 parentId 链，模拟真实会话：assistant → toolResult
 const assistantWithCall = (id, name) => ({

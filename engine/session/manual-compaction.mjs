@@ -1,4 +1,4 @@
-import { conversationGone } from './session-lifecycle.mjs'
+import { conversationGone } from './lifecycle.mjs'
 
 const sessionBusy = () => Object.assign(new Error('session_busy'), { code: 'session_busy' })
 

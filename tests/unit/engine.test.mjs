@@ -4,7 +4,7 @@ import assert from "node:assert/strict";
 
 import { PluginRegistry } from "../../engine/plugin-registry.mjs";
 import { ToolRegistry } from "../../engine/tool-registry.mjs";
-import { MemorySessionStore, FileSessionStore } from "../../engine/session-store.mjs";
+import { MemorySessionStore, FileSessionStore } from "../../engine/session/store.mjs";
 import { HttpModelAdapter } from "../../engine/model/adapter.mjs";
 import { StandardAgentLoop } from "../../engine/agent-loop.mjs";
 import { CodeRuntime } from "../../code-mode/code-runtime.mjs";

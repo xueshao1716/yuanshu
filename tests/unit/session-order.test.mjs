@@ -8,8 +8,8 @@ import {
   initSessionFiles,
   getSessionList,
   invalidateSessionCache,
-} from "../../engine/session-files.mjs";
-import { ensureSessionSequence, handleDbList, initSessionDb } from "../../engine/session-db.mjs";
+} from "../../engine/session/files.mjs";
+import { ensureSessionSequence, handleDbList, initSessionDb } from "../../engine/session/db.mjs";
 
 function sessionFile(dir, id, created, events = []) {
   const file = path.join(dir, `${id}.jsonl`);

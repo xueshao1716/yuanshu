@@ -22,7 +22,7 @@ import {
   estimateTokensFromText, estimateHistoryTokens, budgetWithinWindow,
   CONTEXT_SAFETY_TOKENS, MIN_OUTPUT_TOKENS,
 } from '../../engine/context-headroom.mjs';
-import { extractMessages } from '../../engine/session-utils.mjs';
+import { extractMessages } from '../../engine/session/utils.mjs';
 
 test('单次输出上限 = min(模型声明, 窗口 − 已占用 − 安全余量)；不知道窗口就不瞎砍', () => {
   // 真机那一轮：195,264 已占 / 200,000 窗口 → 只剩 ~400
@@ -101,7 +101,7 @@ test('源码闸门：余量闸门必须真的接进主循环（别只定义不�
 });
 
 test('压缩后的占用要按"摘要 + 保留消息"重估，不许拿老 usage 冒充（否则会报出"可输出 0 token"）', async () => {
-  const { estimateCompactedTokens } = await import('../../engine/session-manager.mjs');
+  const { estimateCompactedTokens } = await import('../../engine/session/manager.mjs');
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'yuanshu-headroom-'));
   try {
     const file = path.join(dir, 's.jsonl');

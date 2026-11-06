@@ -23,7 +23,7 @@ import { initModelProbe, probeModel, pickHealthyModel } from "./engine/model/hea
 import { rateLimit, rateLimitKey } from "./engine/rate-limit.mjs";
 import { createMiscApi } from "./engine/misc-api.mjs";
 import { createModelKeys } from "./engine/model/keys.mjs";
-import { createSessionBus } from "./engine/session-bus.mjs";
+import { createSessionBus } from "./engine/session/bus.mjs";
 import { createNotifier, NOTIFY_USER_TOOL, execNotifyUser } from "./engine/notifier.mjs";
 import { createHeartbeat } from "./engine/heartbeat.mjs";
 import { createModelSessionApi } from "./engine/model/session.mjs";
@@ -113,8 +113,8 @@ import { CANVAS_TOOL_SCHEMA, canvasExtraExecutors, readCanvasDoc, writeCanvasDoc
 import { auditCanvas, formatAudit } from "./engine/canvas-audit.mjs";
 import { createSoilReader } from "./engine/aibody-soil.mjs";
 // ── 会话解析纯函数（拆模块）：消息/文本/图片/文件提取 ──
-import { extractMessages, extractText, extractImages, extractFiles, resolveLeafId, windowMessages } from "./engine/session-utils.mjs";
-import { initSessionFiles, scanSessionFiles, parseSessionFile, parseSessionFileCached, readEntriesFromFile, getSessionList, findSession, invalidateSessionCache, extractMessageFiles, extractMessageImages } from "./engine/session-files.mjs";
+import { extractMessages, extractText, extractImages, extractFiles, resolveLeafId, windowMessages } from "./engine/session/utils.mjs";
+import { initSessionFiles, scanSessionFiles, parseSessionFile, parseSessionFileCached, readEntriesFromFile, getSessionList, findSession, invalidateSessionCache, extractMessageFiles, extractMessageImages } from "./engine/session/files.mjs";
 // ── 统一 HTTP 客户端（拆模块）：原生 fetch + 自动系统代理（env → Windows 注册表），替代 python 子进程 ──
 import { httpJsonFetch, httpBufferFetch } from "./engine/http.mjs";
 import { createReplyTts } from './engine/reply-tts.mjs';
@@ -243,7 +243,7 @@ import { frontendVersionPayload } from "./engine/frontend-version.mjs";
 import { withSamplingParams } from './engine/sampling-params.mjs';
 import { initImproveApi, analyzeImprovements, openImprovements, getImprovementDiagnostics, setImprovementStatus } from "./engine/improve-api.mjs";
 import { initEvolutionApi, proposeEvolution, applyEvolution, listEvolution, dismissEvolution, nudgeSkill, applySkillNudge, dismissSkillNudge, listSkillNudges, startEvolutionEvaluation, proposeMemoryNudge, proposeLessonPromotion, listMemoryNudges, applyMemoryNudge, dismissMemoryNudge, analyzeMemoryCompress, proposeMemoryCompress, listMemoryCompress, applyMemoryCompress, dismissMemoryCompress } from "./engine/evolution-api.mjs";
-import { initSessionManager, initComputerTool, createSession, cloneSessionFromEntry, evictInactiveSessions, slimSessionImages, compactSession, openSession, initSearchTool, initShareTool, createSessionAgent, ensureAgent, isFirstTurn, deleteSession, setOnTheSpotFixRunner, ensureContextHeadroom, canAccessSessionOrigin, withIdleSession, compactSessionAgent } from "./engine/session-manager.mjs";
+import { initSessionManager, initComputerTool, createSession, cloneSessionFromEntry, evictInactiveSessions, slimSessionImages, compactSession, openSession, initSearchTool, initShareTool, createSessionAgent, ensureAgent, isFirstTurn, deleteSession, setOnTheSpotFixRunner, ensureContextHeadroom, canAccessSessionOrigin, withIdleSession, compactSessionAgent } from "./engine/session/manager.mjs";
 import { initUnifiedChat, unifiedChat, engineCurrentModel, initEngine, getCodeRuntime, getCodeMode, toolBindingDesc, toolBindingArgs, toolBindingArgsObj, handleNotices, handleUnifiedChat, touchTask, clearTask, taskProgress, handleAgentEventIn, handleAgentEventOut } from "./engine/unified-chat.mjs";
 import { completedTaskText } from "./engine/task-continuation.mjs";
 import { createApprovalInterceptor } from "./engine/tools/approval.mjs";
@@ -373,7 +373,7 @@ import { CULTIVATION_TOOL_SCHEMA, cultivationTool, createPiCultivationTool } fro
 import { createPiMemoryTool } from './engine/memory-tool.mjs';
 import { initMemoryAutoStore, autoStoreStats } from './engine/memory-autostore.mjs';
 const beliefAuditModule = await import("./engine/belief-audit.mjs"); // ToM 信念层（2026-10-13）
-import { initCultivationTool, initMemoryTool } from './engine/session-manager.mjs';
+import { initCultivationTool, initMemoryTool } from './engine/session/manager.mjs';
 import { buildPersistentActivity } from "./engine/persistent-activity.mjs";
 import { runEvolutionCycle, evolutionStatus, revertEvolution } from './engine/evolution-cycle.mjs';
 import { createTaskEvidence } from './engine/task-evidence.mjs';
@@ -386,16 +386,16 @@ import { listTraces, loadTrace, replayAcrossTraces, candidatePolicies, recordDel
 import { heartbeat, liveInstances, portOwner, recordStartup, recentStartups, selfCheck, reconcileInstances } from "./engine/runtime-registry.mjs";
 import { currentExplorePolicy, promoteExplorePolicy, resetExplorePolicy, replayExploreAcross, exploreCandidates } from "./engine/explore-policy.mjs";
 import { MATCH_WEIGHTS } from "./engine/yuanshu-protocol.mjs";
-import { sanitizeSessionFile } from "./engine/session-sanitize.mjs";
+import { sanitizeSessionFile } from "./engine/session/sanitize.mjs";
 import { createCorsPolicy } from "./engine/cors-policy.mjs";
-import { initSessionDb, sessionPinnedIds, handleDbList, handleDbRebuild, handleDbSanitize, handleDbMeta, handleDbStats, handleDbSweep, sweepSessionsNow, ensureSessionSequence, hasSessionSequence } from "./engine/session-db.mjs";
-import { repairSessionFile, repairSessionDir } from "./engine/session-repair.mjs";
+import { initSessionDb, sessionPinnedIds, handleDbList, handleDbRebuild, handleDbSanitize, handleDbMeta, handleDbStats, handleDbSweep, sweepSessionsNow, ensureSessionSequence, hasSessionSequence } from "./engine/session/db.mjs";
+import { repairSessionFile, repairSessionDir } from "./engine/session/repair.mjs";
 import { outputRoomTokens, headroomNote } from "./engine/context-headroom.mjs";
 import { loadPersonaDefinition, renderPersonaSection, syncAppendSystemPersona } from "./engine/persona-def.mjs";
 // 2026-10-25：人格段唯一解析点（定义 → 灵魂 → 自我 → 会话语气）。界面与注入同源。
 import { resolvePersona, personaMeta, personaPartText, setWorkspaceExpression, setSessionExpression, listExpressionHistory, rollbackExpression, EXPRESSION_PRESETS, MAX_EXPRESSION_CHARS } from "./engine/persona-resolve.mjs";
 import { voiceAllowedOrigins } from "./engine/network-endpoints.mjs";
-import { isListedGroup, normalizeCreateGroup } from "./engine/session-groups.mjs";
+import { isListedGroup, normalizeCreateGroup } from "./engine/session/groups.mjs";
 import { createAIBodyRuntime } from "./engine/aibody-runtime.mjs";
 import { createAIBodyHost } from "./engine/aibody-host.mjs";
 import { initRecallApi, rebuildIndex, handleRecall, handleRecallAsk, handleSummaries, buildSummaries, recallStats } from "./engine/recall-api.mjs";

@@ -3,7 +3,7 @@ import assert from 'node:assert/strict'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
-import { collectSessionFiles } from '../../engine/session-files.mjs'
+import { collectSessionFiles } from '../../engine/session/files.mjs'
 import { environmentSection } from '../../engine/runtime-env.mjs'
 import { buildYuanshuSections } from '../../engine/yuanshu-prompt.mjs'
 

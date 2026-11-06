@@ -5,7 +5,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs";
-import { initSessionManager, evictInactiveSessions } from "../../engine/session-manager.mjs";
+import { initSessionManager, evictInactiveSessions } from "../../engine/session/manager.mjs";
 import { createRepairCheckpoint, initSelfHeal, repoRoot } from "../../engine/self-heal.mjs";
 import { flashCandidate, routeForAuto } from "../../engine/model/router.mjs";
 import { taskProgress, touchTask, clearTask } from "../../engine/unified-chat.mjs";

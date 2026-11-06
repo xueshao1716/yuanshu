@@ -5,7 +5,7 @@
 // 改历史格式不需要在 94KB 的主对话文件里找位置。
 //
 // 依赖全部来自既有模块，无新增副作用。
-import { extractMessages, attachmentLines } from "./session-utils.mjs";
+import { extractMessages, attachmentLines } from "./session/utils.mjs";
 import { directChat } from "./model/client.mjs";
 import { hashArgs } from "./run-effects.mjs";
 import { normalizeToolArgs } from "./tool-args.mjs";

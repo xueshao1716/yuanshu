@@ -1,9 +1,9 @@
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
-import * as manager from '../../engine/session-manager.mjs'
+import * as manager from '../../engine/session/manager.mjs'
 import { createPiCompatFallback } from '../../engine/pi-compat-fallback.mjs'
-import { initSessionFiles, invalidateSessionCache } from '../../engine/session-files.mjs'
+import { initSessionFiles, invalidateSessionCache } from '../../engine/session/files.mjs'
 
 export function originFixture(t, { lazy = false, onOpen = null } = {}) {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'yuanshu-origin-auth-'))

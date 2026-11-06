@@ -21,9 +21,9 @@ import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { sdkSafeUserBlocks } from '../../engine/yuanshu-session.mjs';
-import { attachmentText, filesFromText, stripAttachmentMarks, extractFiles, extractMessages } from '../../engine/session-utils.mjs';
-import { initSessionFiles, getSessionList, invalidateSessionCache, findSession } from '../../engine/session-files.mjs';
-import { repairSessionLine, repairSessionText, repairSessionFile } from '../../engine/session-repair.mjs';
+import { attachmentText, filesFromText, stripAttachmentMarks, extractFiles, extractMessages } from '../../engine/session/utils.mjs';
+import { initSessionFiles, getSessionList, invalidateSessionCache, findSession } from '../../engine/session/files.mjs';
+import { repairSessionLine, repairSessionText, repairSessionFile } from '../../engine/session/repair.mjs';
 import { formatSessionHistory } from '../../engine/unified-chat.mjs';
 
 const ROOT = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', '..');

@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { deriveRunObservability } from '../../engine/run-observability.mjs';
 import { persistYuanshuAssistant } from '../../engine/yuanshu-session.mjs';
-import { extractMessages } from '../../engine/session-utils.mjs';
+import { extractMessages } from '../../engine/session/utils.mjs';
 import { mergeMessages } from '../../frontend/src/lib/local-db.ts';
 import { StreamAssembler } from '../../frontend/src/lib/stream-assembler.ts';
 

@@ -25,7 +25,7 @@ test('mother tool requires live opaque identity and cannot perform human actions
 
 test('both chat engines preserve opaque cultivation identity without adding it to model arguments',()=>{
   const read=p=>fs.readFileSync(new URL('../../'+p,import.meta.url),'utf8');
-  const server=read('server.mjs'),session=read('engine/session-manager.mjs'),unified=read('engine/unified-chat.mjs');
+  const server=read('server.mjs'),session=read('engine/session/manager.mjs'),unified=read('engine/unified-chat.mjs');
   assert.ok(server.includes('CULTIVATION_TOOL_SCHEMA,'));
   // 2026-10-18：包装层要挂 requestApproval，但仍须把 ctx 原样交下去（执行身份是非枚举属性）
   // 2026-10-30：顶层执行器表用晚绑定容器，避免引用后声明的 runtime（TDZ）

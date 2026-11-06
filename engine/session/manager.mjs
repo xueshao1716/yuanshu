@@ -3,20 +3,20 @@
 // 依赖注入：initSessionManager({ cwd, sessionsDir, getModelList, getDefaultModel, activeSessions, SessionManager, SettingsManager, DefaultResourceLoader, getAgentDir, readJsonFile, writeJsonFile, initSearchTool, initShareTool, initDshTool, isExternalThinking, THINK_TOOL, modelCapabilities, bindOutputGuardDeps, extractMessages, createSseWriter, unifiedChat })
 import fs from "node:fs";
 import path from "node:path";
-import { createPiTeamTool } from './team-tool-context.mjs';
-import { invalidateSessionCache, getSessionList, findSession } from "./session-files.mjs";
-import { appendSessionGroup, normalizeCreateGroup } from "./session-groups.mjs";
-import { appendArchiveJsonl, archivePathFor } from "./yuanshu-compact.mjs";
-import { headroomCheck, estimateTokensFromText } from "./context-headroom.mjs";
-import { execActivateSkill } from "./context-loader.mjs";
-import { httpJsonFetch } from "./http.mjs";
-import { wsSafePath } from "./workspace-api.mjs";
-import { env } from "./env.mjs";
-import { createIdleSessionWriter } from './idle-session-writer.mjs';
-import { validateSessionOrigin } from './session-origin-auth.mjs';
-import { compactManagedSession } from './session-manual-compaction.mjs';
-import { createSessionLifecycle, sessionFileVersion, conversationGone, disposeAgent } from './session-lifecycle.mjs';
-import { resolveShareOrigin } from './network-endpoints.mjs';
+import { createPiTeamTool } from '../team-tool-context.mjs';
+import { invalidateSessionCache, getSessionList, findSession } from "./files.mjs";
+import { appendSessionGroup, normalizeCreateGroup } from "./groups.mjs";
+import { appendArchiveJsonl, archivePathFor } from "../yuanshu-compact.mjs";
+import { headroomCheck, estimateTokensFromText } from "../context-headroom.mjs";
+import { execActivateSkill } from "../context-loader.mjs";
+import { httpJsonFetch } from "../http.mjs";
+import { wsSafePath } from "../workspace-api.mjs";
+import { env } from "../env.mjs";
+import { createIdleSessionWriter } from '../idle-session-writer.mjs';
+import { validateSessionOrigin } from './origin-auth.mjs';
+import { compactManagedSession } from './manual-compaction.mjs';
+import { createSessionLifecycle, sessionFileVersion, conversationGone, disposeAgent } from './lifecycle.mjs';
+import { resolveShareOrigin } from '../network-endpoints.mjs';
 
 let computerToolFactory = null;
 export function initComputerTool(factory) { computerToolFactory = factory; }
@@ -551,7 +551,7 @@ export async function initSearchTool() {
     // 用 _piPackage（引擎入口路径，server 顶部已验证可用）解析 typebox
     const req2 = createRequire(_piPackage);
     const { Type } = req2("typebox");
-    const fb = await import("./filebox.mjs");
+    const fb = await import("../filebox.mjs");
     searchToolDef = {
       name: "search_files",
       label: "搜索工作空间文件",
@@ -716,7 +716,7 @@ export async function initPiMediaTools() {
     const { createRequire } = await import("node:module");
     const req2 = createRequire(_piPackage);
     const { Type } = req2("typebox");
-    const { createPiMediaTools } = await import("./pi-media-tools.mjs");
+    const { createPiMediaTools } = await import("../pi-media-tools.mjs");
     piMediaTools = createPiMediaTools({
       Type,
       generateMediaAsync: _generateMediaAsync,

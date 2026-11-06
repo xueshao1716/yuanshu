@@ -4,7 +4,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { extractMessages, extractImages, resolveLeafId, windowMessages } from "../../engine/session-utils.mjs";
+import { extractMessages, extractImages, resolveLeafId, windowMessages } from "../../engine/session/utils.mjs";
 
 function msg(id, parentId, role, text, ts = "2026-09-01T00:00:00.000Z") {
   return { type: "message", id, parentId, timestamp: ts, message: { role, content: text } };

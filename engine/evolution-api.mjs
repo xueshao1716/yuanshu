@@ -7,7 +7,7 @@ import path from "node:path";
 import { createHash, randomUUID } from "node:crypto";
 import { reviewStoragePath } from "./review-file-safety.mjs";
 import { atomicWriteText } from "./atomic-io.mjs";
-import { scanSessionFiles, readEntriesFromFile } from "./session-files.mjs";
+import { scanSessionFiles, readEntriesFromFile } from "./session/files.mjs";
 import { createEvaluation, runPromptEvaluation, validateEvolutionReview } from './evolution-evaluation.mjs';
 
 let wsRoot = "";

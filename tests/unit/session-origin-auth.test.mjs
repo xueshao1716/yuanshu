@@ -2,7 +2,7 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import fs from 'node:fs'
 import path from 'node:path'
-import * as manager from '../../engine/session-manager.mjs'
+import * as manager from '../../engine/session/manager.mjs'
 import { originFixture, makeLink } from '../helpers/session-origin-fixture.mjs'
 
 const access = id => {
