@@ -14,6 +14,7 @@ import { createProject, listProjects, readProject, writeProject, validateProject
 import { compileStoryPrompt, buildPortraitPrompt, buildAssetPrompt } from './prompts.mjs';
 import { compileShotPrompt, shotFieldsFromBeat, assetRefsForShot, splitRefs, resolveStyle } from './shot-prompt.mjs';
 import { storyFlow } from './flow.mjs';
+import { storyRecipeMethods, storyEpisodeMethods } from "./orchestrator-parts.mjs";
 import { syncLines, computeTimeline } from './lines.mjs';
 import { createImageAdapter, createNovelAdapter, createVideoAdapter } from './adapters.mjs';
 import { buildStoryAssistPrompt, parseStoryAssist, buildStoryboardPrompt, parseStoryboard, buildAdaptPrompt, parseAdapt, extractJsonObjects } from './assist.mjs';
@@ -641,56 +642,7 @@ export function createStoryOrchestrator({ root, clock = {}, adapters = {}, gener
     },
     pollWindowMs: () => videoPollWindowMs(),
     // ── 分集：短剧/系列内容的组织单位（PINNGOO 的"分集短剧"、LibTV 的"按集拆镜头"都是这个）──
-    episodes: async (id) => {
-      const project = await readProject(root, id);
-      const groups = groupScenesByEpisode(project);
-      return {
-        episodes: normalizeEpisodes(project.episodes).map(e => ({ ...e, stats: episodeStats(project, e.id) })),
-        groups: groups.map(g => ({ episode: g.episode, scenes: g.scenes.map(s => ({ id: s.id, title: s.title, beats: (s.beats || []).length })) })),
-        unassigned: (project.scenes || []).filter(s => !s.episodeId).length,
-      };
-    },
-    addEpisode: async (id, input = {}) => {
-      const project = await readProject(root, id);
-      const episode = createEpisode({ ...input, episodes: project.episodes }, clock);
-      const next = withUpdated({ ...project, episodes: normalizeEpisodes([...(project.episodes || []), episode]) });
-      validateProject(next);
-      await writeProject(root, next);
-      return { project: next, episode };
-    },
-    updateEpisode: async (id, input = {}) => {
-      const project = await readProject(root, id);
-      const target = String(input.episodeId || '');
-      const list = normalizeEpisodes(project.episodes);
-      if (!list.some(e => e.id === target)) throw Object.assign(new Error('这一集不存在'), { statusCode: 404 });
-      const episodes = list.map(e => e.id !== target ? e : {
-        ...e,
-        ...(input.title != null ? { title: String(input.title).trim().slice(0, 60) || e.title } : {}),
-        ...(input.summary != null ? { summary: String(input.summary).trim().slice(0, 600) } : {}),
-        ...(input.no != null && Number(input.no) > 0 ? { no: Math.round(Number(input.no)) } : {}),
-        ...(input.targetSeconds != null ? { targetSeconds: Number(input.targetSeconds) > 0 ? Math.round(Number(input.targetSeconds)) : undefined } : {}),
-      });
-      const next = withUpdated({ ...project, episodes: normalizeEpisodes(episodes) });
-      validateProject(next);
-      await writeProject(root, next);
-      return { project: next, episodes: next.episodes };
-    },
-    // 删集**只解绑，不删场**：删一个集就把内容一起带走，是最不能接受的一种"顺手"
-    removeEpisode: async (id, input = {}) => {
-      const project = await readProject(root, id);
-      const stripped = removeEpisode(project, input.episodeId);
-      const next = withUpdated(renumberEpisodes(stripped));
-      validateProject(next);
-      await writeProject(root, next);
-      return { project: next, unassigned: next.scenes.filter(s => !s.episodeId).length };
-    },
-    assignScene: async (id, input = {}) => {
-      const project = await readProject(root, id);
-      const next = withUpdated(assignSceneToEpisode(project, input.sceneId, input.episodeId));
-      validateProject(next);
-      await writeProject(root, next);
-      return { project: next };
-    },
+    ...storyEpisodeMethods({ root, clock, withUpdated }),
     scriptStats: async (id) => scriptStats(await readProject(root, id)),
     // ── 创作方法包（Skill）──
     // 内置 + 自己存的，跨项目共用（所以和配方一样落在项目目录之外）。
@@ -871,15 +823,7 @@ export function createStoryOrchestrator({ root, clock = {}, adapters = {}, gener
       return lintStoryProject(project, { kind: input.kind || 'image', capabilities: input.capabilities || null });
     },
     // 配方（生成设置的具名资产）：存/列/删/导出/导入。跨项目共用，所以落在项目目录之外。
-    listRecipes: input => listRecipes(root, input || {}),
-    saveRecipe: input => saveRecipe(root, input, clock),
-    deleteRecipe: id => deleteRecipe(root, id),
-    importRecipes: payload => importRecipes(root, payload, clock),
-    exportRecipes: async (ids) => {
-      const all = await listRecipes(root);
-      const want = Array.isArray(ids) && ids.length ? all.filter(r => ids.includes(r.id)) : all;
-      return exportRecipes(want, clock);
-    },
+    ...storyRecipeMethods({ root, clock }),
     // 一键分镜：一次生成整场分镜表并追加进项目，自动串好 inheritBeatId 继承链。
     // 之前 assist 只产出 1 段，用户得一段一段点「从此处继续」。
     //
