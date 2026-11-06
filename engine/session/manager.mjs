@@ -20,8 +20,19 @@ import { createIdleSessionWriter } from '../idle-session-writer.mjs';
 import { validateSessionOrigin } from './origin-auth.mjs';
 import { compactManagedSession } from './manual-compaction.mjs';
 import { createSessionLifecycle, sessionFileVersion, conversationGone, disposeAgent } from './lifecycle.mjs';
+import { createToolInitializers } from "./tool-inits.mjs";
 import { resolveShareOrigin } from '../network-endpoints.mjs';
 
+const toolInitializers = createToolInitializers({
+  getCwd: () => _cwd,
+  getPiPackage: () => _piPackage,
+  getFixRunner: () => _runOnTheSpotFix,
+});
+export const {
+  initSearchTool, initActivateSkillTool, initPiThinkTool, initShareTool, initPiMediaTools, initFixProblemTool,
+} = toolInitializers;
+
+let _runOnTheSpotFix = null;
 let computerToolFactory = null;
 export function initComputerTool(factory) { computerToolFactory = factory; }
 let cultivationToolFactory = null;
@@ -482,225 +493,7 @@ export function lastTurnContextTokens(entry, file = "") {
 // 创建 agent（pi CLI 同款 services 方式：正确注册工具 + 完整 model 触发工具调用）
 let searchToolDef = null;
 let searchToolInit = null;
-export async function initSearchTool() {
-  if (searchToolDef) return searchToolDef;
-  try {
-    // typebox 在 pi 引擎的依赖里，用 createRequire 从引擎路径解析
-    const { createRequire } = await import("node:module");
-    // 用 _piPackage（引擎入口路径，server 顶部已验证可用）解析 typebox
-    const req2 = createRequire(_piPackage);
-    const { Type } = req2("typebox");
-    const fb = await import("../filebox.mjs");
-    searchToolDef = {
-      name: "search_files",
-      label: "搜索工作空间文件",
-      description: "在本地工作空间搜索文件（按关键词/类型）。当用户要求发送/查看/交付某个文件、或不确定文件在哪时使用。搜索是本地执行的，速度快、结果准确。",
-      promptSnippet: "用户要文件时，先用 search_files 找到准确路径，再用 📎 交付 标记交付",
-      promptGuidelines: [
-        "Use search_files when the user asks to send/deliver/find a file, or when you need a specific file's path.",
-        "Pass the user's words as query (e.g. '酒店的ppt'), optionally types=['.ppt','.pptx'].",
-        "After search, deliver the chosen file(s) with 📎 交付: <path> at the end of your reply.",
-      ],
-      parameters: Type.Object({
-        query: Type.String({ description: "搜索关键词（用户原话或提取的关键词）" }),
-        types: Type.Optional(Type.Array(Type.String({ description: "文件扩展名过滤，如 ['.png','.jpg']" }))),
-      }),
-      async execute(toolCallId, params, signal, onUpdate, ctx) {
-        const wsRoot = _cwd || process.cwd();
-        const files = fb.findFiles(wsRoot, { query: params.query || "", types: params.types || null, max: 10 });
-        return {
-          content: [{ type: "text", text: fb.findResultText(files, wsRoot) }],
-          details: { files: files.map(f => ({ name: f.name, path: f.path })) },
-        };
-      },
-    };
-  } catch (e) {
-    console.log(`[元枢] search_files 工具初始化失败: ${String(e?.message || e).slice(0, 80)}`);
-  }
-  return searchToolDef;
-}
-
-// 技能渐进式披露工具：统一引擎已有 activate_skill，Pi SDK 会话也必须注册同一能力。
-// 之前只把技能摘要写进 system prompt，却没有把工具传给 AgentSession，模型于是把
-// <tool_call> 当普通文本吐出，PPT 等需要技能正文的任务会停在计划阶段。
-let activateSkillToolDef = null;
-// 当场修（fix_problem）：执行器由 server 注入（它才知道用哪个模型、哪套工具跑执行轮）。
-let fixProblemToolDef = null;
-let _runOnTheSpotFix = null;
 export function setOnTheSpotFixRunner(fn) { _runOnTheSpotFix = typeof fn === "function" ? fn : null; }
-
-export async function initActivateSkillTool() {
-  if (activateSkillToolDef) return activateSkillToolDef;
-  try {
-    const { createRequire } = await import("node:module");
-    const req2 = createRequire(_piPackage);
-    const { Type } = req2("typebox");
-    activateSkillToolDef = {
-      name: "activate_skill",
-      label: "加载技能",
-      description: "加载技能全文和资源清单。用户任务匹配技能库摘要时调用；参数优先传 name，也兼容旧格式 skill。",
-      promptSnippet: "匹配到技能时先调用 activate_skill 加载全文，再按技能执行",
-      promptGuidelines: [
-        "When a task matches a skill in the skill catalog, call activate_skill with its exact name before doing the work.",
-        "For PPT requests, load ppt-generator or ppt-html, then execute the complete generation workflow and deliver the actual file.",
-      ],
-      parameters: Type.Object({
-        name: Type.Optional(Type.String({ description: "技能名称，如 ppt-generator 或 ppt-html" })),
-        skill: Type.Optional(Type.String({ description: "兼容旧调用：技能名称" })),
-      }),
-      async execute(toolCallId, params) {
-        const name = String(params?.name || params?.skill || "").trim();
-        if (!name) return { content: [{ type: "text", text: "缺少技能名称（请传 name）" }], isError: true };
-        const result = execActivateSkill(name);
-        return { content: [{ type: "text", text: result.text }], isError: !!result.isError };
-      },
-    };
-  } catch (e) {
-    console.log(`[元枢] activate_skill 工具初始化失败: ${String(e?.message || e).slice(0, 100)}`);
-  }
-  return activateSkillToolDef;
-}
-
-// 外部思考调试工具的 SDK 形态。server 里的 THINK_TOOL 是 OpenAI schema，不能直接
-// 放进 Pi SDK customTools；转换后只在开启调试开关时注册，避免定义格式不匹配导致 agent 启动崩溃。
-let piThinkToolDef = null;
-async function initPiThinkTool() {
-  if (piThinkToolDef) return piThinkToolDef;
-  try {
-    const { createRequire } = await import("node:module");
-    const req2 = createRequire(_piPackage);
-    const { Type } = req2("typebox");
-    piThinkToolDef = {
-      name: "think",
-      label: "思考草稿",
-      description: "调试用草稿工具，把动手前的分析写进 content；不会展示给用户或写入会话文件。",
-      promptSnippet: "需要调试推理时调用 think 写下分析草稿",
-      parameters: Type.Object({ content: Type.String({ description: "推理草稿" }) }),
-      async execute(toolCallId, params) {
-        return { content: [{ type: "text", text: "思考草稿已记录（仅调试，不展示给用户）" }], details: { thinking: String(params?.content || "") } };
-      },
-    };
-  } catch (e) {
-    console.log(`[元枢] think 工具初始化失败: ${String(e?.message || e).slice(0, 100)}`);
-  }
-  return piThinkToolDef;
-}
-
-// 外网分享工具：模型只需传项目路径，本地系统复制到外网分享目录并返回链接
-// 模型永远不需要碰 cloudflared/隧道/端口——分享是自动的
-let shareToolDef = null;
-export async function initShareTool() {
-  if (shareToolDef) return shareToolDef;
-  try {
-    const { createRequire } = await import("node:module");
-    const req2 = createRequire(_piPackage);
-    const { Type } = req2("typebox");
-    shareToolDef = {
-      name: "share_project",
-      label: "外网分享项目",
-      description: "把项目/网页分享到外网。当用户要求分享链接、外网访问、上线预览、给别人看时使用。只需传入项目路径，本地系统自动处理（复制到分享目录 + 返回公网链接），不需要也不应该手动操作 cloudflared/隧道/端口/DNS。",
-      promptSnippet: "用户要分享/外链时，用 share_project 传入项目目录即可，勿动隧道",
-      promptGuidelines: [
-        "Use share_project when the user asks to share a project online, get a public link, or preview externally.",
-        "Pass the project directory path (e.g. 工程/项目名 or 交付/xxx). Never touch cloudflared/config.yml/ports/DNS manually.",
-        "The tool returns a public URL — show it to the user directly.",
-      ],
-      parameters: Type.Object({
-        path: Type.String({ description: "要分享的项目目录或文件（工作空间相对路径），如 工程/贪吃蛇" }),
-      }),
-      async execute(toolCallId, params, signal, onUpdate, ctx) {
-        const src = params.path || "";
-        const wsRoot = _cwd;
-        const safe = wsSafePath(src);
-        if (!safe || !fs.existsSync(safe)) {
-          return { content: [{ type: "text", text: `项目不存在: ${src}。请先用 search_files 找到正确路径。` }] };
-        }
-        const shareDir = path.join(wsRoot, "外网分享");
-        const origin = resolveShareOrigin({ host: env("SHARE_HOST"), agentDir: _getAgentDir() });
-        if (!origin) return { content: [{ type: "text", text: "分享域名未配置或无效，未复制项目。请先在系统页登记外网分享域名。" }] };
-        fs.mkdirSync(shareDir, { recursive: true });
-        const base = path.basename(safe);
-        const target = path.join(shareDir, base);
-        // 复制到分享目录（目录递归复制，文件直接复制）
-        try {
-          if (fs.statSync(safe).isDirectory()) {
-            // fs.cpSync 在 Windows Node 25 上会在包含图片的目录递归复制时触发
-            // 进程级 0xC0000409；异步实现走稳定路径，错误也能回到工具结果。
-            await fs.promises.cp(safe, target, { recursive: true, force: true });
-          } else {
-            fs.mkdirSync(path.dirname(target), { recursive: true });
-            fs.copyFileSync(safe, target);
-          }
-        } catch (e) {
-          return { content: [{ type: "text", text: `复制失败: ${String(e?.message || e).slice(0, 80)}` }] };
-        }
-        const isHtml = fs.existsSync(path.join(target, "index.html"));
-        const url = `${origin}/${encodeURIComponent(base)}${isHtml ? "/" : ""}`;
-        return {
-          content: [{ type: "text", text: `✅ 已分享到外网：${url}\n（项目已复制到 外网分享/${base}）` }],
-          details: { url, path: `外网分享/${base}` },
-        };
-      },
-    };
-  } catch (e) {
-    console.log(`[元枢] share_project 工具初始化失败: ${String(e?.message || e).slice(0, 80)}`);
-  }
-  return shareToolDef;
-}
-
-let piMediaTools = null;
-export async function initPiMediaTools() {
-  if (piMediaTools) return piMediaTools;
-  try {
-    const { createRequire } = await import("node:module");
-    const req2 = createRequire(_piPackage);
-    const { Type } = req2("typebox");
-    const { createPiMediaTools } = await import("../pi-media-tools.mjs");
-    piMediaTools = createPiMediaTools({
-      Type,
-      generateMediaAsync: _generateMediaAsync,
-      getModelList: _getModelList,
-    });
-  } catch (e) {
-    console.log(`[元枢] 宿主媒体工具初始化失败: ${String(e?.message || e).slice(0, 80)}`);
-    piMediaTools = [];
-  }
-  return piMediaTools;
-}
-
-export async function initFixProblemTool() {
-  if (fixProblemToolDef) return fixProblemToolDef;
-  if (typeof _runOnTheSpotFix !== "function") return null; // 没注入执行器就不注册（fail-closed）
-  try {
-    const { createRequire } = await import("node:module");
-    const req2 = createRequire(_piPackage);
-    const { Type } = req2("typebox");
-    fixProblemToolDef = {
-      name: "fix_problem",
-      label: "当场修",
-      description: "干活时发现一个当场能修的问题（代码/测试/配置/文档/脚本的小毛病），调它当场派一轮去修并拿回证据。需要人拍板的事（权限/密钥/部署/推送/删数据/花钱）不要用它——写进结论交给用户。同一会话 10 分钟内最多 3 次。",
-      promptSnippet: "发现问题就当场修（fix_problem），别只在结论里列一条建议",
-      promptGuidelines: [
-        "When you notice a problem you can fix right now in this workspace, call fix_problem once with a concrete one-line description instead of only listing it in your answer.",
-        "Never use fix_problem for things needing human approval (permissions, secrets, deploys, pushes, deleting data, spending money) — report those instead.",
-      ],
-      parameters: Type.Object({
-        problem: Type.String({ description: "要修什么，一句话，具体到可核查（≤60 字）" }),
-      }),
-      async execute(toolCallId, params, ctx) {
-        const out = await _runOnTheSpotFix({
-          problem: params?.problem,
-          sessionKey: ctx?.sessionKey || ctx?.sessionId || "anon",
-        });
-        return { content: [{ type: "text", text: String(out?.text || "（没有结果）") }], isError: !out?.ok };
-      },
-    };
-    return fixProblemToolDef;
-  } catch (e) {
-    console.log(`[元枢] fix_problem 工具初始化失败: ${String(e?.message || e).slice(0, 80)}`);
-    return null;
-  }
-}
 
 export async function createSessionAgent(sm, model) {
   // pi SDK 是可选适配器。缺失时给统一引擎一个轻量会话壳，保留会话文件、打断和模型切换接口，
