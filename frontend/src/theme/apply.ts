@@ -17,6 +17,21 @@ export function applyThemeVars(theme: string, accent: string) {
   const c = accent || seed.accent
   const v = generateTheme({ ...seed, accent: c })
   for (const [k, val] of Object.entries(v)) el.style.setProperty(k, val as string)
+  // 2026-11-06：浏览器也要"主题覆盖状态栏"。
+  // 手机浏览器的地址栏/状态栏区域由 theme-color 决定；桌面 PWA 用它决定窗口标题栏颜色。
+  // 刘海/安全区靠 index.html 的 viewport-fit=cover + CSS env(safe-area-inset-*) 处理。
+  try {
+    const bg = (v as any)['--pi-bg1'] || (v as any)['--pi-bg'] || ''
+    if (bg) {
+      let meta = document.querySelector('meta[name="theme-color"]') as HTMLMetaElement | null
+      if (!meta) {
+        meta = document.createElement('meta')
+        meta.name = 'theme-color'
+        document.head.appendChild(meta)
+      }
+      meta.content = String(bg).trim()
+    }
+  } catch {}
 }
 
 export function persistTheme(theme: string, accent: string) {
