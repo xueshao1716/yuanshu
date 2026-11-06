@@ -79,3 +79,27 @@
   .companion-overview .companion-portrait img { height: clamp(78px, 13dvh, 108px); }
   .companion-panel .companion-actions button { min-height: 44px; font-size: 13px; padding-inline: 4px; }
 }
+
+
+/* ── 2026-11-06 活体动作：视线跟随 + 眨眼 ──
+   人物会朝指针方向轻微偏转（不是整块平移，带一点旋转才像"看过去"）。
+   呼吸动画在 img 上、倾斜在容器上，两者互不覆盖。 */
+.companion-portrait[data-live="1"] {
+  transform:
+    translate3d(calc(var(--live-tilt-x, 0) * 4px), calc(var(--live-tilt-y, 0) * 3px), 0)
+    rotate(calc(var(--live-tilt-x, 0) * 1.6deg));
+  transform-origin: 50% 92%;
+  transition: transform .45s cubic-bezier(.22, .61, .36, 1);
+  will-change: transform;
+}
+
+.companion-portrait[data-blinking="1"] img {
+  filter: brightness(.98) contrast(1.02);
+  transform: scaleY(.992);
+  transition: transform .09s ease-out;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .companion-portrait[data-live="1"] { transform: none; transition: none; }
+  .companion-portrait[data-blinking="1"] img { transform: none; }
+}
