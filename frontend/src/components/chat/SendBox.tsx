@@ -358,8 +358,9 @@ export default function SendBox({ streaming, onStop, onSend, onSteer, onCommand,
       )}
 
       <div className="sendbox-shell relative field-container rounded-2xl transition-[background-color,border-color,box-shadow] duration-300 shadow-lg">
-        {/* 用量计数：绝对定位在输入框内右上角，不占布局（2026-11-05） */}
-        <div className="pointer-events-none absolute right-3 top-2 z-10">
+        {/* 用量计数：贴在工具栏上方的右侧空隙里。
+           2026-11-06：之前放在 top-2，会压在 placeholder（固定提示词）上；挪到下面这条缝隙。 */}
+        <div className="pointer-events-none absolute right-3 bottom-[52px] z-0">
           <UsageChip sessionId={sessionId || ''} />
         </div>
         <textarea ref={taRef} rows={2} value={value} disabled={streaming && !canSteer}
@@ -490,7 +491,7 @@ function UsageChip({ sessionId }: { sessionId: string }) {
   if (typeof data.contextPct === 'number') parts.push(`上下文 ${data.contextPct}%`)
   if (!parts.length) return null
   return (
-    <span className="usage-chip" title="本会话真实用量：tok/s = 输出 token ÷（总耗时 − 首字），多轮取中位、单轮标注；生成窗口不足 0.5s 时不报 tok/s 改报首字延迟；缓存命中率 = 缓存读 / 输入侧；上下文 = 最近一轮总 token / 模型窗口">
+    <span className="usage-chip whitespace-nowrap" title="本会话真实用量：tok/s = 输出 token ÷（总耗时 − 首字），多轮取中位、单轮标注；生成窗口不足 0.5s 时不报 tok/s 改报首字延迟；缓存命中率 = 缓存读 / 输入侧；上下文 = 最近一轮总 token / 模型窗口">
       {parts.join(' · ')}
     </span>
   )
