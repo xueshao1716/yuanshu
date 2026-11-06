@@ -352,7 +352,7 @@ export default function SendBox({ streaming, onStop, onSend, onSteer, onCommand,
 
       <div className="sendbox-shell relative field-container rounded-2xl transition-[background-color,border-color,box-shadow] duration-300 shadow-lg">
         {/* 用量计数：绝对定位在输入框内右上角，不占布局（2026-11-05） */}
-        <div className="pointer-events-none absolute right-3 bottom-11 z-10">
+        <div className="pointer-events-none absolute right-3 top-2 z-10">
           <UsageChip sessionId={sessionId || ''} />
         </div>
         <textarea ref={taRef} rows={2} value={value} disabled={streaming && !canSteer}

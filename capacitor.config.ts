@@ -41,7 +41,7 @@ const config: CapacitorConfig = {
     // 造成状态栏区域一层与主题不符的深灰。disable 后页面像素直接延伸到
     // 状态栏底下，颜色随前端主题/壁纸走；顶部安全距离由 CSS 兑底 24px。
     SystemBars: {
-      insetsHandling: 'disable',
+      insetsHandling: 'css',
     },
   },
 };
