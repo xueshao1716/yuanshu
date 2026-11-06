@@ -33,8 +33,8 @@ test("出图落盘必须带上 prompt，否则往期填不回提示词", () => {
 });
 
 test("绘画和视频工坊都要有往期记录，点开能回看", () => {
-  const image = read("components", "GeneratePanel.tsx");
-  const video = read("components", "VideoGeneratePanel.tsx");
+  const image = read("components", "panels", "GeneratePanel.tsx");
+  const video = read("components", "panels", "VideoGeneratePanel.tsx");
   assert.ok(image.includes("MediaHistory") || image.includes("往期"), "绘画要有往期");
   assert.ok(video.includes("MediaHistory") || video.includes("往期"), "视频要有往期");
   const hist = read("components", "MediaHistory.tsx");

@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 const source = name => { try { return fs.readFileSync(new URL(`../../frontend/src/${name}`, import.meta.url), 'utf8'); } catch { return ''; } };
 test('evolution page offers explicit review with unchecked skill labels and visible invalidation', () => {
-  const panel = source('components/TaskEvidencePanel.tsx');
+  const panel = source('components/panels/TaskEvidencePanel.tsx');
   const editor = source('components/TaskEvidenceEditor.tsx');
   const page = source('pages/Apps.tsx');
   assert.ok(page.includes('<TaskEvidencePanel />'));

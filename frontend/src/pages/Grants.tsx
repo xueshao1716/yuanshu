@@ -16,7 +16,7 @@ import { KnowledgeApi, knowledgePolling } from '../knowledge/api'
 import KnowledgePolicy from '../knowledge/KnowledgePolicy'
 import SandboxModePanel from '../components/engine/SandboxModePanel'
 import MaintenanceModePanel from '../components/engine/MaintenanceModePanel'
-import ComputerUsePanel from '../components/ComputerUsePanel'
+import ComputerUsePanel from '../components/panels/ComputerUsePanel'
 import '../soul/soul.css'
 import '../soul/cultivation/cultivation.css'
 

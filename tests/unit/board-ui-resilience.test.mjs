@@ -13,7 +13,7 @@ test('unknown workflow versions are not interpreted as V20', () => {
   assert.equal(src.includes('此记录未提供 V20.0'), false);
   assert.ok(src.includes('未标注流程版本'));
 });
-for (const file of ['pages/Board.tsx', 'components/PendingChanges.tsx', 'components/HistoryPanel.tsx', 'components/TeamRunView.tsx']) {
+for (const file of ['pages/Board.tsx', 'components/PendingChanges.tsx', 'components/panels/HistoryPanel.tsx', 'components/TeamRunView.tsx']) {
   test(`${file} uses shared API and displays errors`, () => {
     const src = read(file);
     assert.ok(!src.includes('fetch('));
@@ -21,7 +21,7 @@ for (const file of ['pages/Board.tsx', 'components/PendingChanges.tsx', 'compone
     assert.ok(src.includes('error') || src.includes('Error'));
   });
 }
-for (const file of ['components/PendingChanges.tsx', 'components/HistoryPanel.tsx']) {
+for (const file of ['components/PendingChanges.tsx', 'components/panels/HistoryPanel.tsx']) {
   test(`${file} prevents repeated actions and renders action failures`, () => {
     const src = read(file);
     assert.ok(src.includes('disabled={busy'));

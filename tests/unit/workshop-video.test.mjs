@@ -18,7 +18,7 @@ test("创作工坊有视频页签，结构模仿 AI 绘画：出片框 + 技能�
 });
 
 test("出片框必须选视频模型，调 /api/media，播得了片子", () => {
-  const panel = read("components", "VideoGeneratePanel.tsx");
+  const panel = read("components", "panels", "VideoGeneratePanel.tsx");
   assert.ok(panel.includes("video"), "过滤 video 能力模型");
   assert.ok(panel.includes("MediaApi.video") || panel.includes("/api/media"), "走宿主视频通道");
   assert.ok(panel.includes("<video"), "结果要用播放器");

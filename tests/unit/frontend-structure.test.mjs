@@ -74,7 +74,7 @@ test('结构：心情胶囊是服务端情绪镜像，禁止本地点击换脸',
   const pill = chat.slice(pillStart, chat.indexOf('</div>', pillStart))
   assert.ok(pill.includes('setOrbPanelOpen(true)'), '点击只打开同一状态流的形象面板')
   assert.ok(chat.includes('<MoodPanel open={orbPanelOpen}'), '面板开关受控')
-  const panel = read('components', 'MoodPanel.tsx')
+  const panel = read('components', 'panels', 'MoodPanel.tsx')
   assert.ok(!/fetch\(|axios|EmotionApi|publishEmotion/.test(panel), '面板只读，不独立拉数或修改情绪')
 })
 

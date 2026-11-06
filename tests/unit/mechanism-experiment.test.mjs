@@ -101,7 +101,7 @@ test('进化页展示实验边界；固定接口受既有鉴权保护，状态�
   const server = read('server.mjs');
   assert.ok(server.includes('["POST", "/api/dream/experiment"'), '缺少固定实验接口');
   assert.ok(read('engine/evolution-cycle.mjs').includes('experiment: mechanismStatus(wsRoot)'));
-  const componentPath = new URL('../../frontend/src/components/MechanismExperimentPanel.tsx', import.meta.url);
+  const componentPath = new URL('../../frontend/src/components/panels/MechanismExperimentPanel.tsx', import.meta.url);
   assert.ok(fs.existsSync(componentPath), '缺少进化页实验面板');
   const component = fs.readFileSync(componentPath, 'utf8');
   for (const text of ['隔离样例', '反证条件', '真实模型', '人工', 'role="status"']) assert.ok(component.includes(text), text);

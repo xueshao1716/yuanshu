@@ -15,7 +15,7 @@ test("工坊出片不能一条请求干等轮询，否则 Cloudflare 会 524", (
 });
 
 test("前端必须先拿 task_id 再短轮询，不能一条 POST 等到 524", () => {
-  const panel = readFileSync(join(ROOT, "frontend", "src", "components", "VideoGeneratePanel.tsx"), "utf8");
+  const panel = readFileSync(join(ROOT, "frontend", "src", "components", "panels", "VideoGeneratePanel.tsx"), "utf8");
   assert.ok(panel.includes("task_id"), "出片框要拿任务号");
   assert.ok(/for\s*\(|while\s*\(/.test(panel), "出片框要自己轮询");
   assert.ok(!panel.includes("timeoutMs: 220000") || panel.includes("task_id"), "不要靠拉长超时硬扛 524");

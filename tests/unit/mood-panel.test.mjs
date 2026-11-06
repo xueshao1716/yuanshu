@@ -93,7 +93,7 @@ test('源码契约：XiaoyuAvatar 保留原型视觉语言与工程护栏', () =
 })
 
 test('源码契约：MoodPanel 弹层交互与数据边界', () => {
-  const src = read('components', 'MoodPanel.tsx')
+  const src = read('components', 'panels', 'MoodPanel.tsx')
   for (const needle of [
     "<dialog", "el.showModal()", "onCancel=", "document.body.style.overflow",
     "e.target !== e.currentTarget", "previous?.focus", "<PortraitState action={action}",

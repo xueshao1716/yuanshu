@@ -5,7 +5,7 @@ const read = file => fs.readFileSync(new URL(`../../${file}`, import.meta.url), 
 test('knowledge library displays experience and intake with honest loading/error/qualification labels', () => {
   const apps = read('frontend/src/pages/Apps.tsx')
   assert.ok(apps.includes('<LearningIntakePanel'))
-  const panel = read('frontend/src/components/LearningIntakePanel.tsx')
+  const panel = read('frontend/src/components/panels/LearningIntakePanel.tsx')
   for (const token of ['experience', 'entries', '<KnowledgePanel', '标题数量不是验证通过数', 'isLoading', 'role="alert"', 'collection', 'failed', 'mutate']) assert.ok(panel.includes(token), token)
   assert.ok(!panel.includes('candidates?.entries.map'), 'pending jobs have one knowledge control center')
 })

@@ -17,7 +17,7 @@ import ThemeSwitcher from './components/ThemeSwitcher'
 import CommandPalette from './components/CommandPalette'
 import MobileMoreMenu, { type UtilityPanelKey } from './components/MobileMoreMenu'
 import DesktopMoreMenu from './components/DesktopMoreMenu'
-import UtilityPanel from './components/UtilityPanel'
+import UtilityPanel from './components/panels/UtilityPanel'
 import { RAIL_MORE, RAIL_PRIMARY, ROUTE_LABELS, railOwner } from './nav'
 import * as T from '@radix-ui/react-tooltip'
 import { applyWallpaper, currentWallpaper } from './theme/wallpaper.mjs'
@@ -45,7 +45,7 @@ const CanvasPage = lazy(() => import('./pages/Canvas'))
 const TuiTerminal = lazy(() => import('./components/TuiTerminal'))
 const WorkSpace = lazy(() => import('./components/Workspace'))
 const Deliveries = lazy(() => import('./components/Deliveries'))
-const TerminalPanel = lazy(() => import('./components/TerminalPanel'))
+const TerminalPanel = lazy(() => import('./components/panels/TerminalPanel'))
 const LazyModelManager = lazy(() => import('./components/ModelManager'))
 const ActivityFeed = lazy(() => import('./components/ActivityFeed'))
 const TaskInspector = lazy(() => import('./components/TaskInspector'))

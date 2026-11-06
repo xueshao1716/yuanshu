@@ -144,7 +144,7 @@ test('更多菜单打开后圈定焦点，关闭后把焦点还给更多触发�
 
 test('桌面工具区默认是真右栏，终端与 TUI 才可显式展开', () => {
   const layout = read('AppLayout.tsx')
-  const panel = read('components', 'UtilityPanel.tsx')
+  const panel = read('components', 'panels', 'UtilityPanel.tsx')
   const css = read('styles.css')
   assert.ok(layout.includes('<UtilityPanel'), '桌面工具区必须通过 UtilityPanel 渲染')
   assert.ok(!/fixed inset-x-0 bottom-0[^\n]*col-right/.test(layout), '桌面工具区不得默认全屏覆盖')

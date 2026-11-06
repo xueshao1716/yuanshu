@@ -6,7 +6,7 @@ test('expanded tide uses the parent shared snapshot and a portrait, never cartoo
   const chat = read('components/ChatArea.tsx');
   assert.ok(chat.includes('<MoodPanel'), 'tide must open the linked portrait panel');
   assert.ok(chat.includes('emotion={companionEmotion}'));
-  const panel = read('components/MoodPanel.tsx');
+  const panel = read('components/panels/MoodPanel.tsx');
   assert.ok(panel.includes('PortraitState'));
   assert.ok(!panel.includes('XiaoyuAvatar'));
   assert.ok(!panel.includes('useCompanion('));
@@ -20,7 +20,7 @@ test('tide and widget receive a single parent-owned behavior controller', () => 
   const chat = read('components/ChatArea.tsx');
   const widget = read('components/XiaoyuWidget.tsx');
   const provider = read('components/xiaoyu/CompanionProvider.tsx');
-  const panel = read('components/MoodPanel.tsx');
+  const panel = read('components/panels/MoodPanel.tsx');
   assert.ok(chat.includes('useCompanionContext()'));
   assert.ok(chat.includes('action={companion.action}'));
   assert.ok(provider.includes('useCompanion(true)'));

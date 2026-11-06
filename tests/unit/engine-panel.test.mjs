@@ -54,7 +54,7 @@ test("引擎页下半必须探活、挂预置插件、画活能力、接代码�
 test("文字按钮必须横向：btn-tool 不能锁死 28px 方块，引擎页中文钮用 btn-ghost", () => {
   const uno = readFileSync(join(ROOT, "frontend", "uno.config.ts"), "utf8");
   const src = engineSource();
-  const term = readFileSync(join(ROOT, "frontend", "src", "components", "TerminalPanel.tsx"), "utf8");
+  const term = readFileSync(join(ROOT, "frontend", "src", "components", "panels", "TerminalPanel.tsx"), "utf8");
   const m = uno.match(/'btn-tool':\s*'([^']+)'/);
   assert.ok(m, "要有 btn-tool 快捷类");
   assert.ok(!/(^|[\s'])w-7([\s']|$)/.test(m[1]), "btn-tool 不得写死 w-7，中文会竖排");

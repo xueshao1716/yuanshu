@@ -34,6 +34,6 @@ test('trial entry preserves isolation, blocks busy audio and silences output bef
   assert.ok(sendBox.split('\n').some(line => line.includes('disabled=') && line.includes('recording || requestingMic || convertingVoice || voiceBusy || streaming')))
   assert.ok(read('frontend/src/components/ChatArea.tsx').includes('<RealtimeCall key={sessionViewKey}'))
   assert.ok(!sendBox.includes('SpeechPreference'), 'speech settings leave the composer')
-  assert.ok(read('frontend/src/components/MoodPanel.tsx').includes('<SpeechSettings'), 'speech settings move into the mood panel')
+  assert.ok(read('frontend/src/components/panels/MoodPanel.tsx').includes('<SpeechSettings'), 'speech settings move into the mood panel')
   assert.ok(sendBox.indexOf('data-voice-entry') > sendBox.indexOf('className="sendbox-shell'), 'call entry belongs inside the input shell')
 })

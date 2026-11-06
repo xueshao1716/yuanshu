@@ -25,7 +25,7 @@ test('选模型在各工坊内部，不跟顶级页签放一起', () => {
   const workshop = read('pages', 'Workshop.tsx')
   const ppt = read('components', 'WorkshopView.tsx')
   const bench = read('components', 'novel', 'NovelWorkbench.tsx')
-  const gen = read('components', 'GeneratePanel.tsx')
+  const gen = read('components', 'panels', 'GeneratePanel.tsx')
   assert.ok(!workshop.includes('ModelSelect'), '顶级页签旁不得放选模型')
   // 2026-10-12：原生 select 升级 ThemedSelect（Android 系统弹层无法被 CSS 主题化）
   assert.ok(gen.includes('imageModels') && gen.includes('ThemedSelect'), '绘图工坊内必须能选出图模型')
@@ -36,7 +36,7 @@ test('选模型在各工坊内部，不跟顶级页签放一起', () => {
 test('出图页把万像提示词填进绘画框', () => {
   const workshop = read('pages', 'Workshop.tsx')
   const wanxiang = read('components', 'WanXiang.tsx')
-  const generate = read('components', 'GeneratePanel.tsx')
+  const generate = read('components', 'panels', 'GeneratePanel.tsx')
   assert.ok(workshop.includes('<GeneratePanel'), '出图页必须有绘画框')
   assert.ok(workshop.includes('<WanXiang'), '出图页必须嵌万像')
   assert.ok(workshop.includes('onUsePrompt'), '工坊必须把提示词接到绘画框')
@@ -114,7 +114,7 @@ test('界面工坊不得在创作页一恢复就整页跳走', () => {
 test('创作三板块手机版：页签铺满、触控 44px、表单可竖排', () => {
   const workshop = read('pages', 'Workshop.tsx')
   const ppt = read('components', 'WorkshopView.tsx')
-  const gen = read('components', 'GeneratePanel.tsx')
+  const gen = read('components', 'panels', 'GeneratePanel.tsx')
   const shelf = read('components', 'novel', 'NovelShelf.tsx')
   const bench = read('components', 'novel', 'NovelWorkbench.tsx')
   assert.ok(workshop.includes('data-slot="workshop-tabs"'), '页签必须有稳定槽位')

@@ -19,7 +19,7 @@ import { toast } from './Toast'
 import { emoTooltip } from '../lib/emotion'
 import { useCompanionContext } from './xiaoyu/CompanionProvider'
 import { MoodOrb } from './MoodOrb'
-import { MoodPanel } from './MoodPanel'
+import { MoodPanel } from './panels/MoodPanel'
 import type { FileAttachment } from './SendBox'
 import type { ChatMessage, RunningTool } from '../types'
 import { saveMessage, getMessages, deleteMessage, mergeMessages, type LocalMessage } from '../lib/local-db'
@@ -30,7 +30,7 @@ import { scrapeVideos, dedupeMediaUrls, mediaPathKey } from '../lib/media-embed'
 import { reconcileImageMessages } from '../lib/image-identity'
 import { workRole, workTool } from '../lib/work-explanation'
 import { createSessionViewOwner } from '../realtime/session-owner.mjs'
-import MorningPanel from './MorningPanel'
+import MorningPanel from './panels/MorningPanel'
 
 // 流式状态：覆盖服务端全部 SSE 事件（delta/think/think_end/tool/tool_output/
 // tool_end/turn_end/file/image/media/note/emotion/done/error）

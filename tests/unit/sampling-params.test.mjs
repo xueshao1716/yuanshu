@@ -33,7 +33,7 @@ test('default and invalid values never override the model; provider constraints 
 test('primary Pi request uses sampling adapter; UI distinguishes model defaults from overrides', () => {
   const server = fs.readFileSync(new URL('../../server.mjs', import.meta.url), 'utf8');
   assert.ok(server.includes('withSamplingParams(agent, body.params'));
-  const ui = fs.readFileSync(new URL('../../frontend/src/components/ParamsPanel.tsx', import.meta.url), 'utf8');
+  const ui = fs.readFileSync(new URL('../../frontend/src/components/panels/ParamsPanel.tsx', import.meta.url), 'utf8');
   assert.ok(ui.includes('模型默认')); assert.ok(ui.includes('下次发送生效'));
   assert.ok(!ui.includes('会话级 · 存本地'));
 });

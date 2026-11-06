@@ -3,13 +3,13 @@ import { Activity, Boxes, CheckCircle2, ChevronDown, LoaderCircle, RefreshCw, Sl
 import useSWR from 'swr'
 import { EngineApi, RunApi } from '../api'
 import { useApp } from '../store'
-import TerminalPanel from '../components/TerminalPanel'
+import TerminalPanel from '../components/panels/TerminalPanel'
 import PageHeader from '../components/PageHeader'
 import EnginePairPanel from '../components/engine/EnginePairPanel'
 import EngineTools from '../components/engine/EngineTools'
 import EngineGatewayPanels from '../components/engine/EngineGatewayPanels'
 import EngineRunDiagnostics from '../components/engine/EngineRunDiagnostics'
-import McpPanel from '../components/McpPanel'
+import McpPanel from '../components/panels/McpPanel'
 
 export default function Engine({ openMcp = false }: { openMcp?: boolean } = {}) {
   const { currentModel, selectSession } = useApp()

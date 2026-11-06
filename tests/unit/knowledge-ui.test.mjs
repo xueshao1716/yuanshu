@@ -30,9 +30,9 @@ test('policy makes authorization, unknown usage and cost explicit; new intake re
  for(const text of ['allowedRoots','allowedUrls','outboundRoots','remoteEnabled','networkEnabled','dailyCost','currency','tokenBound','rates','KnowledgeApi.models'])assert.ok(policy.includes(text),text);
  assert.ok(panel.includes('预留'));assert.ok(panel.includes('未知'));
  assert.ok(!read('pages/Apps.tsx').includes('RefineApi.plan()'));
- assert.ok(read('components/LearningIntakePanel.tsx').includes('<KnowledgePanel'));
- assert.ok(read('components/LearningIntakePanel.tsx').includes('experience?.entries'));
- assert.ok(!read('components/LearningIntakePanel.tsx').includes('待提炼任务'));
+ assert.ok(read('components/panels/LearningIntakePanel.tsx').includes('<KnowledgePanel'));
+ assert.ok(read('components/panels/LearningIntakePanel.tsx').includes('experience?.entries'));
+ assert.ok(!read('components/panels/LearningIntakePanel.tsx').includes('待提炼任务'));
  const soul=read('soul/LiveSections.tsx');assert.ok(soul.includes('KnowledgeApi.status'));assert.ok(soul.includes('href="#/apps"'));assert.ok(!soul.includes('<KnowledgePolicy'));
 });
 test('supplement UI links evidence to its original job with both revisions',()=>{
