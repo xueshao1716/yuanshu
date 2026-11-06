@@ -193,7 +193,33 @@ async function _unifiedChatCore(model, messages, opts = {}) {
     if (withThinking && thinkingParam !== null) body.reasoning_effort = thinkingParam;
     return body;
   };
-  const mkReq = (u, withThinking, wantStream = true) => httpHedgedFetch(nativeMessages ? messagesEndpoint(base) : u, {
+  // 2026-11-06：单轮动辄 3 万输入，先把"钱花在哪"量出来（PI_PROMPT_DIAG=1 才打）。
+  const _diagOnce = { done: false };
+  const _diagBody = (body) => {
+    const diagOn = process.env.PI_PROMPT_DIAG === "1" || (() => {
+      try { return ["D:/pi-workspace", process.cwd()].some(root => fs.existsSync(path.join(root, "记忆", "运行时", "prompt-diag.on"))) } catch { return false }
+    })();
+    if (!_diagOnce.done && diagOn) {
+      _diagOnce.done = true;
+      try {
+        const msgs = Array.isArray(body.messages) ? body.messages : [];
+        const sys = msgs.filter(m => m.role === 'system' || m.role === 'developer');
+        const others = msgs.filter(m => m.role !== 'system' && m.role !== 'developer');
+        const len = (v) => JSON.stringify(v || '').length;
+        const sysLen = sys.reduce((n, m) => n + len(m.content), 0);
+        const histLen = others.reduce((n, m) => n + len(m.content), 0);
+        const toolLen = len(body.tools || []);
+        const total = sysLen + histLen + toolLen;
+        console.log('[prompt-diag] total≈' + Math.round(total / 3.2) + 'tok'
+          + ' | system=' + Math.round(sysLen / 3.2) + ' (' + sys.length + '条)'
+          + ' | history=' + Math.round(histLen / 3.2) + ' (' + others.length + '条)'
+          + ' | tools=' + Math.round(toolLen / 3.2) + ' (' + ((body.tools || []).length) + '个)'
+          + ' | max_tokens=' + (body.max_tokens ?? body.max_completion_tokens ?? '-'));
+      } catch {}
+    }
+  };
+
+  const mkReq = (u, withThinking, wantStream = true) => { return httpHedgedFetch(nativeMessages ? messagesEndpoint(base) : u, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
@@ -202,10 +228,10 @@ async function _unifiedChatCore(model, messages, opts = {}) {
       // 会话亲和头：原生通道（opencode-go 等）缺它会 400 MissingSessionID / 认不出模型
       ...sessionAffinityHeaders({ provider: model.provider, compat, sessionId: opts.executionContext?.sessionId || opts.sessionId }),
     },
-    body: JSON.stringify(buildBody(withThinking, wantStream)),
+    body: (() => { const b = buildBody(withThinking, wantStream); _diagBody(b); return JSON.stringify(b) })(),
     timeout: 300000,
     signal: opts.signal, // P2: 客户端断开时取消 fetch
-  }, { hedgeAfterMs: isReasoning ? 0 : 8000 }); // 思考模型首包本来就慢，对冲会白白翻倍计费，只对非思考模型开
+  }, { hedgeAfterMs: isReasoning ? 0 : 8000 }); }; // 思考模型首包本来就慢，对冲会白白翻倍计费，只对非思考模型开
   let usedThinking = thinkingParam !== null;
   // 单次输出预算：起步 = min(模型声明, 32k)，命中截断时往上抬（见 escalateOutputTokens）。
   // 2026-09-18 补：还要受**剩余窗口**约束——上下文快满时向窗口装不下的量要输出，
