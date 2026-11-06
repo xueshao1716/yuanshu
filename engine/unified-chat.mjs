@@ -210,6 +210,7 @@ async function _unifiedChatCore(model, messages, opts = {}) {
         const histLen = others.reduce((n, m) => n + len(m.content), 0);
         const toolLen = len(body.tools || []);
         const total = sysLen + histLen + toolLen;
+        try { console.log("[prompt-diag] 工具名: " + (body.tools || []).map(t => t?.function?.name || t?.name || "?").join(",")) } catch {}
         console.log('[prompt-diag] total≈' + Math.round(total / 3.2) + 'tok'
           + ' | system=' + Math.round(sysLen / 3.2) + ' (' + sys.length + '条)'
           + ' | history=' + Math.round(histLen / 3.2) + ' (' + others.length + '条)'

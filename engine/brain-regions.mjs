@@ -117,17 +117,35 @@ export function toolTier(weights) {
 
 /** 高级工具：基础档里不出现。 */
 export const ADVANCED_TOOLS = new Set([
-  "computer_use", "cultivation", "generate_image", "generate_video", "generate_music",
-  "share_project", "run_detached", "dsh_task", "delegate_team", "delegate_task",
-  "design_commission", "website_build", "ui_design",
+  "computer_use", "cultivation", "generate_music",
+  "share_project", "run_detached", "dsh_task", "delegate_team", "delegate_task", "delegate_fork",
+  "design_commission", "website_build", "ui_design", "design_prefs", "design_research",
+  "story_project", "story_run", "story_storyboard", "story_adapt", "story_film",
+  "canvas", "canvas_read", "canvas_write", "music_login", "music_search", "music_play",
+  "promise_make", "promise_close",
+  // 2026-11-06 实测（42 个工具名）：下面这些在普通聊天里几乎不出现
+  "run_code", "generate_tts", "commission", "time_task", "plan_files",
+  "job_status", "output_check", "candidate_compare", "record_taste",
 ]);
+
+/** 前缀类重工具：故事工坊 / 画布 / 音乐 / 调研 / 设计委托 / 培养。 */
+const ADVANCED_PREFIXES = [
+  /^story_/, /^canvas/, /^music_/, /^commission_/, /^research_/, /^design_/, /^cultivation/,
+  // MCP 工具与 toolpack 工具：数量多、单个体积也不小，普通聊天用不到
+  /^mcp_/, /^tp_/,
+];
+
+const isAdvancedTool = (name) => ADVANCED_TOOLS.has(name) || ADVANCED_PREFIXES.some((re) => re.test(name));
 
 /** 按工具档过滤 schema 列表（保留函数名与结构，不认识的工具默认保留）。 */
 export function filterToolsByTier(tools = [], weights) {
-  if (toolTier(weights) !== "basic") return tools;
+  // 2026-11-06：以前只有"基础档"才裁，默认档会把 55 个工具全发出去（每次 1.7 万 token）。
+  // 现在反过来：默认裁掉重组；只有分析权重很高（明确要做复杂多步任务）时才全开。
+  const keepAll = Number(weights?.tooling) >= 0.7;
+  if (keepAll) return tools;
   const out = tools.filter((t) => {
     const name = t?.function?.name || t?.name || "";
-    return !ADVANCED_TOOLS.has(name);
+    return !isAdvancedTool(name);
   });
   return out.length ? out : tools;
 }
