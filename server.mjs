@@ -7314,7 +7314,12 @@ setInterval(() => heartbeat(WS_ROOT, { pid: process.pid, version: String(APP_VER
               const pinned = String(task?.model || "").trim();
               if (pinned) {
                 const hit = modelList.find(m => `${m.provider}/${m.id}` === pinned) || modelList.find(m => m.id === pinned);
-                if (hit && isTextCapableModel(hit)) return hit;
+                // 2026-11-06：钉住的模型如果已被判失败（套餐到期/额度耗尽），继续拿它开局只是白等一次超时。
+                // 这时直接走兜底路由，让这一轮复盘尽可能跑成。
+                let blocked = false;
+                try { blocked = !!hit && isModelBlocked(hit) } catch {}
+                if (hit && isTextCapableModel(hit) && !blocked) return hit;
+                if (hit && blocked) console.log(`[time-engine] 钉住的模型 ${pinned} 已被判失败，改用兜底路由`);
               }
               return isTextCapableModel(defaultModel) ? defaultModel : pickFallbackDefault();
             })(),
