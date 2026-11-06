@@ -1807,7 +1807,6 @@ body.has-wallpaper .mobile-composer {
   animation: caretBlink 1s steps(2) infinite;
 }
 
-
 /* ── 思考过程：独立、不透明的阅读面板 ──
    不能继承助手消息的装饰层：主题色只属于触发标签，绝不进入正文底层。 */
 .thinking-panel {
@@ -2852,16 +2851,6 @@ html[data-theme="bridge"] { color-scheme: dark; }
 
 /* 表格弹窗竖屏模式（手机竖持阅读宽度；宽表转横向滚动） */
 .md-table-modal-tall { width: min(88vw, 430px); }
-
-
-
-
-  html[data-app-shell] .mobile-tab-bar {
-    padding-bottom: max(env(safe-area-inset-bottom, 0px), 8px);
-  }
-}
-
-
 /* ── 2026-11-06 误触修复（只动交互，不动布局）──
    真因：点发送时输入区立刻重渲染（发送键→停止键），手指抬起时 pointerup 落到了
    下方的「更多」按钮上，于是"发送"和"打开更多"同时发生。
