@@ -8,6 +8,7 @@ import SectionHeader from '../components/SectionHeader'
 import StatusTile from '../components/run/StatusTile'
 import DoctorPanel from '../components/panels/DoctorPanel'
 import UsagePanel from '../components/panels/UsagePanel'
+import ConnectPanel from '../components/panels/ConnectPanel'
 import WechatPanel from '../components/panels/WechatPanel'
 import EmailPanel from '../components/panels/EmailPanel'
 import PairLoginCard from '../components/cards/PairLoginCard'
@@ -199,6 +200,12 @@ export default function System() {
             />
           </div>
           <DoctorPanel />
+        </section>
+
+        {/* ── 手机怎么连（2026-11-06）：Tailscale 优先，其次局域网/公网 IPv6 ── */}
+        <section>
+          <SectionHeader title="手机怎么连" description="手机客户端/浏览器该填哪个地址。Tailscale 最省事：外网也能连、地址固定、不用动路由器。" />
+          <ConnectPanel />
         </section>
 
         {/* ── 用量（2026-11-06）：每日 token、每轮花在哪、每个模型吃多少 ── */}

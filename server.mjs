@@ -4407,22 +4407,31 @@ const API_ROUTES = [
   ["GET", "/api/net/reachability", async (res) => {
     const port = CONFIG.port;
     const nets = os.networkInterfaces();
-    const ipv4 = [], ipv6 = [];
+    const ipv4 = [], ipv6 = [], tailscale = [];
+    // Tailscale 用 100.64.0.0/10（CGNAT 段）作为节点地址，形如 100.x.y.z
+    const isTailscale = (addr, iface) => /^100\.(6[4-9]|[7-9]\d|1[0-1]\d|12[0-7])\./.test(addr)
+      || /tailscale/i.test(String(iface || ""));
     for (const [name, list] of Object.entries(nets || {})) {
       for (const n of list || []) {
         if (n.internal) continue;
-        if (n.family === "IPv4") ipv4.push({ iface: name, address: n.address, url: `http://${n.address}:${port}` });
-        else if (n.family === "IPv6") {
+        if (n.family === "IPv4") {
+          const url = `http://${n.address}:${port}`;
+          if (isTailscale(n.address, name)) tailscale.push({ iface: name, address: n.address, url });
+          else ipv4.push({ iface: name, address: n.address, url });
+        } else if (n.family === "IPv6") {
           const global = !/^(fe80|fc|fd)/i.test(n.address);
           ipv6.push({ iface: name, address: n.address, global, url: `http://[${n.address}]:${port}` });
         }
       }
     }
+    // 推荐顺序：Tailscale（外网也能连、地址固定）> 局域网 IPv4 > 公网 IPv6
+    const recommended = tailscale[0]?.url || ipv4[0]?.url || ipv6.find(x => x.global)?.url || "";
     return json(res, 200, {
       port,
       boundHost: CONFIG.host,
       dualStack: CONFIG.host === "::",
-      ipv4, ipv6,
+      ipv4, ipv6, tailscale,
+      recommended,
       hint: CONFIG.host === "127.0.0.1"
         ? "当前只监听回环，手机连不上：用 LAN=1 或 HOST=:: 启动"
         : CONFIG.host === "0.0.0.0"
