@@ -251,6 +251,15 @@ export default function AppLayout() {
   const [mobileMoreOpen, setMobileMoreOpen] = useState(false)
   const mobilePanelOpen = !voiceViewOpen && isMobile && route === 'chat' && mobileDrawer === 'none' && rightPanel !== 'chat'
   const mobileMoreTriggerRef = useRef<HTMLButtonElement>(null)
+  // 2026-11-06：点在输入区、抬手指时却落到导航栏 → 一次点击触发发送+打开更多。
+  // 只记"按下点的 Y"，导航栏的 click 里比对：起点在导航栏上方就一律忽略。
+  const navRef = useRef<HTMLElement>(null)
+  const navDownY = useRef(-1)
+  useEffect(() => {
+    const onDown = (e: PointerEvent) => { navDownY.current = e.clientY }
+    window.addEventListener('pointerdown', onDown, true)
+    return () => window.removeEventListener('pointerdown', onDown, true)
+  }, [])
   const closeMobileMore = useCallback(() => {
     setMobileMoreOpen(false)
     requestAnimationFrame(() => mobileMoreTriggerRef.current?.focus())
@@ -359,7 +368,14 @@ export default function AppLayout() {
         </div>
 
         {/* 底部 TabBar：保留内容层次，同时让全面屏底部透出背景 */}
-        <nav className="mobile-tab-bar flex flex-shrink-0 relative z-20 border-t border-pi-border" aria-label="主要导航" inert={mobilePanelOpen}>
+        <nav ref={navRef} onClickCapture={(e) => {
+          // 起点在导航栏上方（输入区）的这次点击不能算到导航栏头上
+          const top = navRef.current?.getBoundingClientRect().top ?? Number.POSITIVE_INFINITY
+          if (navDownY.current >= 0 && navDownY.current < top - 1) {
+            e.preventDefault()
+            e.stopPropagation()
+          }
+        }} className="mobile-tab-bar flex flex-shrink-0 relative z-20 border-t border-pi-border" aria-label="主要导航" inert={mobilePanelOpen}>
           {([
             { key: 'chat', icon: MessagesSquare, label: '对话', active: !mobileMoreOpen && route === 'chat' && mobileDrawer === 'none', onClick: () => { setMobileMoreOpen(false); setMobileDrawer('none'); nav('chat') } },
             { key: 'sessions', icon: FolderClosed, label: '会话', active: !mobileMoreOpen && mobileDrawer === 'sessions', onClick: () => { setMobileMoreOpen(false); setMobileDrawer('sessions') } },
