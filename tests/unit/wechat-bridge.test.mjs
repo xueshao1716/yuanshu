@@ -3,8 +3,8 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { normalizeMessage, splitForWechat, stripMarkdownForWechat, updatesOk, createIlinkClient } from "../../engine/wechat-ilink.mjs";
-import { createWechatBridge, createLoopbackChat, maskId, readChatStream, readRunStream } from "../../engine/wechat-bridge.mjs";
+import { normalizeMessage, splitForWechat, stripMarkdownForWechat, updatesOk, createIlinkClient } from "../../engine/wechat/ilink.mjs";
+import { createWechatBridge, createLoopbackChat, maskId, readChatStream, readRunStream } from "../../engine/wechat/bridge.mjs";
 
 const tmp = () => fs.mkdtempSync(path.join(os.tmpdir(), "wx-"));
 const tick = (ms = 5) => new Promise((r) => setTimeout(r, ms));

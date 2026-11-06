@@ -4,7 +4,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { findSimilarImage, rescueImagePaths } from "../../engine/wechat-image-rescue.mjs";
+import { findSimilarImage, rescueImagePaths } from "../../engine/wechat/image-rescue.mjs";
 
 function sandbox() {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "rescue-"));

@@ -11,7 +11,7 @@ import path from "node:path";
 import { spawn } from "node:child_process";
 import { fileURLToPath } from "node:url";
 // 2026-10-28：服务和语音合成共用同一个 python 解析（SYSTEM 的 PATH 里通常没有 python）
-import { resolvePython } from "./wechat-voice.mjs";
+import { resolvePython } from "./voice.mjs";
 
 // 2026-10-28：依赖装在项目内 engine/py/vendor（服务以 SYSTEM 跑，读不到用户目录的 site-packages）
 const HERE = path.dirname(fileURLToPath(import.meta.url));

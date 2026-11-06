@@ -6,8 +6,8 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import crypto from "node:crypto";
-import { createIlinkClient } from "../../engine/wechat-ilink.mjs";
-import { createWechatBridge } from "../../engine/wechat-bridge.mjs";
+import { createIlinkClient } from "../../engine/wechat/ilink.mjs";
+import { createWechatBridge } from "../../engine/wechat/bridge.mjs";
 
 const tmp = () => fs.mkdtempSync(path.join(os.tmpdir(), "wximg-"));
 const tick = (ms = 5) => new Promise((r) => setTimeout(r, ms));

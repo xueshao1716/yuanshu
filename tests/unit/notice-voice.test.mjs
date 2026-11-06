@@ -5,7 +5,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { composeNotice, checkNotice, personaName, noticeEnvelope, FALLBACK } from "../../engine/notice-voice.mjs";
-import { formatWechatPush } from "../../engine/wechat-push-format.mjs";
+import { formatWechatPush } from "../../engine/wechat/push-format.mjs";
 
 const ws = () => fs.mkdtempSync(path.join(os.tmpdir(), "voice-"));
 

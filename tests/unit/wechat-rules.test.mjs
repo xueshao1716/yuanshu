@@ -4,7 +4,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { loadWechatRules, seedWechatRules, DEFAULT_RULES, RULES_REL } from "../../engine/wechat-rules.mjs";
+import { loadWechatRules, seedWechatRules, DEFAULT_RULES, RULES_REL } from "../../engine/wechat/rules.mjs";
 
 const ws = () => fs.mkdtempSync(path.join(os.tmpdir(), "wxrules-"));
 

@@ -4,7 +4,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { checkAndMark, readSeen, WINDOW_MS } from "../../engine/wechat-dedupe.mjs";
+import { checkAndMark, readSeen, WINDOW_MS } from "../../engine/wechat/dedupe.mjs";
 
 const ws = () => fs.mkdtempSync(path.join(os.tmpdir(), "wxdedupe-"));
 

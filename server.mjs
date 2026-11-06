@@ -407,7 +407,7 @@ const emotion = await import("./engine/emotion.mjs");
 const { createEmotionDisplay } = await import('./engine/emotion-display.mjs');
 const { createCompanionFacts } = await import('./engine/companion-facts.mjs');
 const { createCompanionStore } = await import('./engine/companion-store.mjs');
-const { createWechatBridge, createLoopbackChat } = await import('./engine/wechat-bridge.mjs');
+const { createWechatBridge, createLoopbackChat } = await import('./engine/wechat/bridge.mjs');
 const emailBridge = await import('./engine/email-bridge.mjs');
 const { createMcpManager, mcpToolToSchema, mcpToolName } = await import('./engine/mcp-client.mjs');
 const mcpManager = createMcpManager({ wsRoot: () => WS_ROOT }); // 延迟求值：WS_ROOT 在 initWorkspaceApi 后才有值
@@ -4892,7 +4892,7 @@ const API_ROUTES = [
       const b = await readBody(req, 4e3);
       const file = String(b?.file || '');
       if (!file || !fs.existsSync(file)) return json(res, 400, { ok: false, error: '文件不存在' });
-      const { transcribe } = await import('./engine/wechat-stt.mjs');
+      const { transcribe } = await import('./engine/wechat/stt.mjs');
       const out = await transcribe({ file, wsRoot: WS_ROOT, model: b?.model || undefined });
       return json(res, out.ok ? 200 : 500, out);
     } catch (e) { return json(res, 500, { ok: false, error: String(e?.message || e).slice(0, 160) }); }

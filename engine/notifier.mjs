@@ -2,7 +2,7 @@
 // 扇出：全局 SSE（网页、桌面客户端、手机客户端各自订阅后弹系统通知）+ 微信（面板里打开了「通知发到微信」才会真发）+ 落盘（离线补读）。
 // 为什么要有：会话 SSE 只有“正在看这个会话”的页面才收得到，任务在没人看的时候做完，用户永远不知道。
 import fs from "node:fs";
-import { formatWechatPush } from './wechat-push-format.mjs';
+import { formatWechatPush } from './wechat/push-format.mjs';
 import path from "node:path";
 import { randomUUID } from "node:crypto";
 import { readToken as ppReadToken, send as ppSend } from "./notify-channel.mjs";

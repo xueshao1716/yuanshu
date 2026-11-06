@@ -4,8 +4,8 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { healthOf } from "../../engine/wechat-bridge.mjs";
-import { createWechatBridge } from "../../engine/wechat-bridge.mjs";
+import { healthOf } from "../../engine/wechat/bridge.mjs";
+import { createWechatBridge } from "../../engine/wechat/bridge.mjs";
 
 const NOW = 1_800_000_000_000;
 

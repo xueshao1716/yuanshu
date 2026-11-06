@@ -5,8 +5,8 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import crypto from "node:crypto";
-import { imageItemsOf, parseAesKey, downloadImage, extractImagePaths } from "../../engine/wechat-media.mjs";
-import { normalizeMessage } from "../../engine/wechat-ilink.mjs";
+import { imageItemsOf, parseAesKey, downloadImage, extractImagePaths } from "../../engine/wechat/media.mjs";
+import { normalizeMessage } from "../../engine/wechat/ilink.mjs";
 
 test("normalizeMessage 会带出入站图片（以前直接丢）", () => {
   const msg = {

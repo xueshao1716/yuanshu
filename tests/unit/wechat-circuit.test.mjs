@@ -1,7 +1,7 @@
 // 发送熔断：阈值 / 窗口 / 递增冷却 / 成功后不误伤（2026-10-28）
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { createCircuit } from "../../engine/wechat-circuit.mjs";
+import { createCircuit } from "../../engine/wechat/circuit.mjs";
 
 function fakeClock() {
   let t = 1_000_000;

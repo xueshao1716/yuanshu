@@ -1,8 +1,8 @@
 // 语音入站：解析 voice_item / 找本地模型（2026-10-28）
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { voiceItemsOf } from "../../engine/wechat-media.mjs";
-import { resolveModelDir } from "../../engine/wechat-stt.mjs";
+import { voiceItemsOf } from "../../engine/wechat/media.mjs";
+import { resolveModelDir } from "../../engine/wechat/stt.mjs";
 
 test("voiceItemsOf：从 item_list 里挑出 type=3 的语音", () => {
   const msg = {

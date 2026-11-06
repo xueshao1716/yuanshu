@@ -5,31 +5,31 @@
 // 才铸得出母体执行身份（培养工具要它）；其他发信人仍走 /api/chat，没有执行身份。
 // 2026-10-07：以前全走 /api/chat——那条路不建 run，身份永远为空，培养工具每次都报 identity_denied。
 import fs from "node:fs";
-import { describeFailure } from "./failure-note.mjs";
+import { describeFailure } from "../failure-note.mjs";
 import path from "node:path";
-import { createIlinkClient, normalizeMessage, splitForWechat, stripMarkdownForWechat, updatesOk, RATE_LIMITED, ILINK_BASE } from "./wechat-ilink.mjs";
+import { createIlinkClient, normalizeMessage, splitForWechat, stripMarkdownForWechat, updatesOk, RATE_LIMITED, ILINK_BASE } from "./ilink.mjs";
 // 2026-10-27：文字 → SILK 语音条（系统语音 + pilk 编码）
-import { textToMp3 } from "./wechat-voice.mjs";
+import { textToMp3 } from "./voice.mjs";
 // 2026-10-27：微信图片收发
-import { downloadImage, downloadVoice, extractImagePaths, voiceItemsOf } from "./wechat-media.mjs";
+import { downloadImage, downloadVoice, extractImagePaths, voiceItemsOf } from "./media.mjs";
 // 2026-10-28：语音转文字（不信腾讯的 voice_item.text，自己转）
-import { transcribe, seedSttConfig } from "./wechat-stt.mjs";
+import { transcribe, seedSttConfig } from "./stt.mjs";
 import { execFileSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 // ESM 里没有 __dirname；语音解码要定位 engine/py/silk2wav.py
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 // 2026-10-28：模型写了不存在的图片路径 → 找真图替代；找不到就把裸路径剥掉
-import { rescueImagePaths } from "./wechat-image-rescue.mjs";
+import { rescueImagePaths } from "./image-rescue.mjs";
 // 2026-10-28：入站去重（message_id + 内容指纹）——没有它，重发的同一条会重复干活、重复花钱
-import { checkAndMark } from "./wechat-dedupe.mjs";
+import { checkAndMark } from "./dedupe.mjs";
 // 2026-10-28：规矩搬到可编辑文件（每轮读，改了立刻生效）
-import { loadWechatRules, seedWechatRules } from "./wechat-rules.mjs";
+import { loadWechatRules, seedWechatRules } from "./rules.mjs";
 // 2026-10-28：连续消息合并（连发三条 → 一次思考）
-import { createBatcher } from "./wechat-batch.mjs";
+import { createBatcher } from "./batch.mjs";
 // 2026-10-28：发出去之前怎么排版（keep/auto/strip，可配置）
-import { formatForWechat, readFormatMode, seedFormatConfig } from "./wechat-format.mjs";
+import { formatForWechat, readFormatMode, seedFormatConfig } from "./format.mjs";
 // 2026-10-28：发送熔断——认出"自己在挨打"就先停手，别越撞越久
-import { createCircuit } from "./wechat-circuit.mjs";
+import { createCircuit } from "./circuit.mjs";
 
 // 2026-10-28：用户反馈「让发图一直没发过来、不够主动」。
 // 根因不是能力缺失（sendImage/extractImagePaths 都在），而是模型不知道微信这条路的约定。

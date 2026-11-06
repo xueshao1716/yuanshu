@@ -3,7 +3,7 @@
 // 背景：聊天回复走 reply() 已经有 markdown → 微信文本的转换；但**主动推送**（任务完成、交付通知）
 // 以前是把 notifier 的 body 硬截 600 字直接发——长文被腰斩、没有结构，手机上很难读。
 // 这里把推送整理成一张"卡片"：标题行 + 3–5 条要点 + 时间脚注，整体控制在 400 字内。
-import { stripMarkdownForWechat } from './wechat-ilink.mjs';
+import { stripMarkdownForWechat } from './ilink.mjs';
 
 const MAX_ITEMS = 5;
 const MAX_ITEM_CHARS = 56;

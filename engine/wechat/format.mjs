@@ -10,7 +10,7 @@
 //   strip —— 全剥（旧行为）
 import fs from "node:fs";
 import path from "node:path";
-import { stripMarkdownForWechat } from "./wechat-ilink.mjs";
+import { stripMarkdownForWechat } from "./ilink.mjs";
 
 export const FORMAT_REL = path.join("记忆", "运行时", "微信格式.json");
 export const MODES = ["keep", "auto", "strip"];

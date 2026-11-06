@@ -1,7 +1,7 @@
 // 连续消息合并：debounce / 合并内容 / 最长等待 / 分人（2026-10-28）
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { createBatcher } from "../../engine/wechat-batch.mjs";
+import { createBatcher } from "../../engine/wechat/batch.mjs";
 
 function fakeTimers() {
   let seq = 0;
