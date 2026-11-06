@@ -2853,52 +2853,20 @@ html[data-theme="bridge"] { color-scheme: dark; }
 /* 表格弹窗竖屏模式（手机竖持阅读宽度；宽表转横向滚动） */
 .md-table-modal-tall { width: min(88vw, 430px); }
 
-/* ── 2026-11-06 修复：手机端「更多」与发送按钮叠在一起误触 ──
-   两个措施：
-   1) 输入区层级压过底部 tab bar：即使布局被软键盘挤压，点击也落在输入区；
-   2) 输入框聚焦时隐藏 tab bar：不只依赖 html.keyboard-open（安卓原生壳常常不打这个类）。
-   用 :has() 而不是 JS 监听，避免每次聚焦/失焦都要 setState 造成输入卡顿。 */
-@media (max-width: 768px) {
-  .mobile-composer { position: relative; z-index: 21; }
-  .mobile-app-root:has(.mobile-composer textarea:focus) .mobile-tab-bar { display: none; }
-}
 
-/* ── 2026-11-06 二次修复：手机端发送按钮与「更多」距离太近 ──
-   实测两者相隔只有输入框的 10px 内边距，拇指点击跨过边界就会误触。
-   这里在输入区与底部 tab bar 之间留出真实间隙，并把 tab bar 的点击区从顶部收 4px。 */
-@media (max-width: 768px) {
-  .mobile-composer { margin-bottom: 8px; }
-  .mobile-tab-bar { padding-top: 2px; }
-  .mobile-tab-button { padding-top: 2px; }
-}
 
-/* ── 2026-11-06 三次修复：把「更多」与发送按钮的点击区彻底拉开 ──
-   实测（390×844）：发送按钮 bottom=769、tab bar top=792，中间只有 23px；
-   真机拇指误差 ±20px 就会点到「更多」。做法：
-   1) tab bar 顶部留 10px 不响应点击（padding 而不是按钮变大）；
-   2) 发送按钮下方再留 4px，让它的热区离边界更远。 */
-@media (max-width: 768px) {
-  .mobile-tab-bar { padding-top: 10px; }
-  .mobile-composer { padding-bottom: calc(0.625rem + 4px); }
-}
 
-/* ── 2026-11-06 原生壳：底部安全区交给 Capacitor 的 insetsHandling='css' ──
-   之前在这里给根节点加 44px padding，结果导航栏整体被抬起、和屏幕下沿之间留出一大块空白。
-   正确做法：让系统把真实安全区通过 env(safe-area-inset-bottom) 注入（capacitor.config 已改），
-   CSS 只负责把导航栏自身的内边距撑够，背景仍然铺到屏幕底部。 */
-@media (max-width: 768px) {
-  html[data-app-shell] .mobile-tab-bar {
-    padding-bottom: env(safe-area-inset-bottom, 0px);
-  }
-}
   html[data-app-shell] .mobile-tab-bar {
     padding-bottom: max(env(safe-area-inset-bottom, 0px), 8px);
   }
 }
 
-/* 2026-11-06：流式生成中隐藏手机底部导航。
-   原因：点发送的瞬间 UI 会重渲染（发送键变停止键），pointerup 落到下面的「更多」按钮上，
-   一次点击同时触发发送和菜单。生成中本来也不该切页，隐藏最稳。 */
-@media (max-width: 768px) {
-  html.chat-streaming .mobile-tab-bar { display: none; }
+
+/* ── 2026-11-06 误触修复（只动交互，不动布局）──
+   真因：点发送时输入区立刻重渲染（发送键→停止键），手指抬起时 pointerup 落到了
+   下方的「更多」按钮上，于是"发送"和"打开更多"同时发生。
+   做法：发送的那一刻给 html 打一个 400ms 的标记，这期间底部导航不接收点击。
+   刻意不调整任何间距/高度——布局保持 2.128 原样。 */
+html.nav-tap-guard .mobile-tab-bar {
+  pointer-events: none;
 }

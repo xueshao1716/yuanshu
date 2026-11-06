@@ -268,6 +268,13 @@ export default function SendBox({ streaming, onStop, onSend, onSteer, onCommand,
     } catch { /* 失焦失败不影响发送 */ }
   }
   const doSend = () => {
+    // 2026-11-06：发送瞬间输入区会重渲染（发送键→停止键），手指抬起时的 pointerup
+    // 会落到下面的「更多」按钮上 —— 一次点击同时"发送"和"打开更多"。
+    // 这里 400ms 内让底部导航不接收点击；完全不改布局。
+    try {
+      document.documentElement.classList.add('nav-tap-guard')
+      setTimeout(() => document.documentElement.classList.remove('nav-tap-guard'), 400)
+    } catch {}
     const v = value.trim()
     if (canSteer) {
       if (!v || files.length || v.startsWith('/')) return
