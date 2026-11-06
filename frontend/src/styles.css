@@ -2881,3 +2881,16 @@ html[data-theme="bridge"] { color-scheme: dark; }
   .mobile-tab-bar { padding-top: 10px; }
   .mobile-composer { padding-bottom: calc(0.625rem + 4px); }
 }
+
+/* ── 2026-11-06 原生壳专用：底部系统导航栏兜底 ──
+   Capacitor 壳里 SystemBars.insetsHandling=disable + targetSdk 36（强制 edge-to-edge），
+   WebView 会画到系统导航栏下面 → 底部 tab bar 与输入区被系统栏压住，点击会落到系统手势区/串位。
+   浏览器里 env(safe-area-inset-bottom) 是准的，不需要这段；只在原生壳（html[data-app-shell]）里补。 */
+@media (max-width: 768px) {
+  html[data-app-shell] .mobile-app-root {
+    padding-bottom: 44px;
+  }
+  html[data-app-shell] .mobile-tab-bar {
+    padding-bottom: max(env(safe-area-inset-bottom, 0px), 8px);
+  }
+}
