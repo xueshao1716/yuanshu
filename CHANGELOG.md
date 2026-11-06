@@ -2,6 +2,23 @@
 
 ## [Unreleased]
 
+## [2.213.10] - 2026-11-06
+
+### 重构
+- engine 按域分组：knowledge/story/model/wechat/session/memory/media 七个域落地，根目录平铺文件 463 → 370
+- `unified-chat.mjs` 1530 → 1157 行：拆出 chat-history / chat-events / chat-notices
+- `session/manager.mjs` 857 → 623 行：拆出 context-budget / tool-inits（6 个 pi 工具初始化器改为工厂注入）
+- `story/orchestrator.mjs` 1577 → 1522 行：拆出 handlers / orchestrator-parts
+- 前端 components 根目录 117 → 42，新增 panels/chat/shell/voice/run/team/onboarding 等 11 个分组
+
+### 修复
+- 主动通知：`notifier.runFinished` 改为同步短路，不该通知时不再返回 Promise（此前"短问答不打扰"实际失效）
+- 身份校验：异步 `canAccess` 返回 Promise 时按拒绝处理（此前会被当成通过，校验静默失效）
+- 手机端：「更多」菜单补上事务台与插件商店；用量计数去重；输入区层级压过 tab bar、聚焦即隐藏 tab bar（修误触）
+- 安卓启动图标换成品牌标（此前一直是 Capacitor 模板图）
+- 15 个既有的红测试转绿，全量 4605 条恢复到 0 已知失败
+
+
 ## [2.213.9] - 2026-11-05
 
 ## [2.213.8] - 2026-11-04
