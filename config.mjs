@@ -81,7 +81,7 @@ function defaultCwd() {
 export const CONFIG = {
   port: parseInt(env("PORT") || "8787", 10),
   // 默认仅监听本机；需要手机直接通过局域网 IP 连接时显式设置 YUANSHU_LAN=1。
-  host: env("HOST") || (env("LAN") === "1" ? "0.0.0.0" : "127.0.0.1"),
+  host: env("HOST") || (env("LAN") === "1" ? "::" : "127.0.0.1"),   // 2026-11-06：LAN 模式绑双栈（::），同时吃 IPv4 与公网 IPv6
   corsOrigins: env("CORS_ORIGINS") || "",
   token: loadToken(),
   tokenFile: TOKEN_FILE,

@@ -50,8 +50,9 @@ test('两个前缀同时存在时新名优先，且不因旧名留空而回落�
 });
 
 test('局域网监听开关与 CORS、外部思考开关在两个前缀下行为一致', () => {
-  assert.equal(readConfig({ PI_WEB_LAN: '1' }).host, '0.0.0.0', '旧名 PI_WEB_LAN=1 仍要能开局域网');
-  assert.equal(readConfig({ YUANSHU_LAN: '1' }).host, '0.0.0.0', '新名 YUANSHU_LAN=1 要能开局域网');
+  // 2026-11-06：局域网/公网 IPv6 直连统一绑双栈 ::（Windows 默认 dual-stack，IPv4 照样能连）
+  assert.equal(readConfig({ PI_WEB_LAN: '1' }).host, '::', '旧名 PI_WEB_LAN=1 仍要能开局域网');
+  assert.equal(readConfig({ YUANSHU_LAN: '1' }).host, '::', '新名 YUANSHU_LAN=1 要能开局域网');
   assert.equal(readConfig({}).host, '127.0.0.1', '默认仍只监听本机');
   // 显式 HOST 优先于 LAN 开关
   assert.equal(readConfig({ YUANSHU_LAN: '1', YUANSHU_HOST: '10.0.0.5' }).host, '10.0.0.5');

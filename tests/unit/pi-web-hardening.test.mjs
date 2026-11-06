@@ -68,7 +68,7 @@ test('host binding defaults to loopback and LAN mode is explicit', () => {
     cwd: ROOT, encoding: 'utf8', env: { ...process.env, PI_WEB_HOST: '', PI_WEB_LAN: '', ...env },
   }).trim()
   assert.equal(run({}), '127.0.0.1')
-  assert.equal(run({ PI_WEB_LAN: '1' }), '0.0.0.0')
+  assert.equal(run({ PI_WEB_LAN: '1' }), '::')   // 2026-11-06：双栈监听
   assert.equal(run({ PI_WEB_HOST: '192.168.1.20' }), '192.168.1.20')
 })
 

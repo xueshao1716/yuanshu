@@ -4403,6 +4403,33 @@ const API_ROUTES = [
       return json(res, 200, { ok: true, ...out, prompt: recallPrompt({ query: q, limit }) });
     } catch (e) { return json(res, 500, { ok: false, error: String(e?.message || e).slice(0, 200) }); }
   }],
+  // 2026-11-06：手机该用哪个地址连——把本机的 IPv4/IPv6 和可用 URL 一次给全
+  ["GET", "/api/net/reachability", async (res) => {
+    const port = CONFIG.port;
+    const nets = os.networkInterfaces();
+    const ipv4 = [], ipv6 = [];
+    for (const [name, list] of Object.entries(nets || {})) {
+      for (const n of list || []) {
+        if (n.internal) continue;
+        if (n.family === "IPv4") ipv4.push({ iface: name, address: n.address, url: `http://${n.address}:${port}` });
+        else if (n.family === "IPv6") {
+          const global = !/^(fe80|fc|fd)/i.test(n.address);
+          ipv6.push({ iface: name, address: n.address, global, url: `http://[${n.address}]:${port}` });
+        }
+      }
+    }
+    return json(res, 200, {
+      port,
+      boundHost: CONFIG.host,
+      dualStack: CONFIG.host === "::",
+      ipv4, ipv6,
+      hint: CONFIG.host === "127.0.0.1"
+        ? "当前只监听回环，手机连不上：用 LAN=1 或 HOST=:: 启动"
+        : CONFIG.host === "0.0.0.0"
+          ? "只监听 IPv4；要公网 IPv6 直连请改成 HOST=::"
+          : "双栈监听中：IPv4/IPv6 都能连（IPv6 需要路由器放行端口）",
+    });
+  }],
   // 2026-11-03：统一待办——待拍板 / 进化提案 / 自改提案 合成一处
   ["GET", "/api/inbox/pending", (res) => {
     const out = { ok: true, total: 0, groups: [] };
