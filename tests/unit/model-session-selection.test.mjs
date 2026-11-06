@@ -42,7 +42,7 @@ test('Auto is an explicit session-scoped change', async () => {
   assert.equal(f.response().status, 200);
 });
 test('chat picker sends Auto and concrete choices to the active session; audio has a dedicated hint', () => {
-  const src = fs.readFileSync(new URL('../../frontend/src/components/ModelSelect.tsx', import.meta.url), 'utf8');
+  const src = fs.readFileSync(new URL('../../frontend/src/components/models-ui/ModelSelect.tsx', import.meta.url), 'utf8');
   assert.ok(src.includes('currentSessionId'));
   assert.ok(src.includes('sessionId: currentSessionId'));
   assert.ok(!src.includes("if (mk === 'auto/auto') return"));

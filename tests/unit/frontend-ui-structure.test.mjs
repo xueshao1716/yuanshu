@@ -196,7 +196,7 @@ test('模型接入入口直接可见，用量与 Provider 明细默认折叠', (
 test('模型中心业务组件只使用语义状态色，不含固定 emerald、purple、sky 色类', () => {
   const files = [
     ['pages', 'ModelHub.tsx'],
-    ['components', 'ModelChannels.tsx'],
+    ['components', 'models-ui', 'ModelChannels.tsx'],
     ['components', 'models', 'ActiveModelHero.tsx'],
     ['components', 'models', 'ModelFilterBar.tsx'],
     ['components', 'models', 'ModelCard.tsx'],
@@ -213,7 +213,7 @@ test('模型中心业务组件只使用语义状态色，不含固定 emerald、
 
 test('模型中心保留 store、统计刷新、模型切换和通道增删契约，排序不突变 models', () => {
   const hub = read('pages', 'ModelHub.tsx')
-  const channels = read('components', 'ModelChannels.tsx')
+  const channels = read('components', 'models-ui', 'ModelChannels.tsx')
   for (const storeValue of ['models', 'currentModel', 'cwd']) {
     assert.match(hub, new RegExp(`\\b${storeValue}\\b`), `ModelHub 必须保留 ${storeValue}`)
   }
@@ -330,7 +330,7 @@ test('主题与系统页清除固定 emerald、非 badge 10px 与 emoji 式勾�
     assert.doesNotMatch(source, /text-\[10px\]/, '主题/系统页不得使用非 badge 10px')
     assert.doesNotMatch(source, /✓/, '主题/系统页不得使用 emoji 式勾号')
   }
-  const channels = read('components', 'ModelChannels.tsx')
+  const channels = read('components', 'models-ui', 'ModelChannels.tsx')
   assert.doesNotMatch(channels, /\bX\b/, 'ModelChannels 不得保留未使用 X import')
 })
 

@@ -5,7 +5,7 @@ import { RunApi, type RunSummary } from '../api'
 import WorkExplanation from './WorkExplanation'
 import RunContextSummary from './RunContextSummary'
 import BackgroundRecoveryStatus from './BackgroundRecoveryStatus'
-import TeamDeliveryStatus from './TeamDeliveryStatus'
+import TeamDeliveryStatus from './team/TeamDeliveryStatus'
 import { useProcessVisibility } from '../hooks/useProcessVisibility'
 
 export default function ChatRunStatus({ sessionId, onStop, onRetry, onResume }: { sessionId: string | null; onStop?: () => void; onRetry?: (run: RunSummary) => void; onResume?: (run: RunSummary) => void }) {

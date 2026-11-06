@@ -46,7 +46,7 @@ const TuiTerminal = lazy(() => import('./components/TuiTerminal'))
 const WorkSpace = lazy(() => import('./components/Workspace'))
 const Deliveries = lazy(() => import('./components/Deliveries'))
 const TerminalPanel = lazy(() => import('./components/panels/TerminalPanel'))
-const LazyModelManager = lazy(() => import('./components/ModelManager'))
+const LazyModelManager = lazy(() => import('./components/models-ui/ModelManager'))
 const ActivityFeed = lazy(() => import('./components/ActivityFeed'))
 const TaskInspector = lazy(() => import('./components/TaskInspector'))
 

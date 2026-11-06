@@ -119,6 +119,6 @@ test('server and UI wire a separate live result, not an overwritten snapshot', (
   assert.ok(read('engine/team-run-read.mjs').includes('acceptance: resolveTeamAcceptance({ wsRoot, run })'));
   assert.ok(read('frontend/src/api.ts').includes('acceptance?: TeamAcceptance | null'));
   assert.ok(read('frontend/src/components/views/TeamRunView.tsx').includes('acceptance={data?.acceptance}'));
-  const ui = read('frontend/src/components/TeamRunStatus.tsx');
+  const ui = read('frontend/src/components/team/TeamRunStatus.tsx');
   for (const text of ['本快照的当前验收', 'target_changed:', 'record_missing:', 'acceptance?.status', '脚本草稿不代表真实视频已生成']) assert.ok(ui.includes(text), text);
 });

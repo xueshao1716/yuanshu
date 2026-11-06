@@ -1,6 +1,6 @@
-import type { TeamLaunch, TeamAcceptance } from '../api'
+import type { TeamLaunch, TeamAcceptance } from '../../api'
 import { TeamRunControls } from './TeamRunControls'
-import { useApp } from '../store'
+import { useApp } from '../../store'
 
 export type TeamDelivery = { status?: string; draft?: string; proposalId?: string }
 export type TeamProfile = { id?: string; version?: string }

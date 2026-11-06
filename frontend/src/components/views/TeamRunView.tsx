@@ -4,8 +4,8 @@
 // 快照只读；新任务通过统一会话管理器启动，角色只继承有限上下文。
 import useSWR from 'swr'
 import { TeamRunApi } from '../../api'
-import { TeamRunStart } from '../TeamRunStart'
-import { TeamRunStatus, type TeamDelivery, type TeamProfile } from '../TeamRunStatus'
+import { TeamRunStart } from '../team/TeamRunStart'
+import { TeamRunStatus, type TeamDelivery, type TeamProfile } from '../team/TeamRunStatus'
 
 
 const TIER_STYLE: Record<string, string> = {

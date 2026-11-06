@@ -47,7 +47,7 @@ test('model management exposes authenticated read-only passive diagnostics', () 
   assert.ok(server.some(line=>line.includes('["GET", "/api/models/media-observations"')&&line.includes('mediaObservations.snapshot()')&&line.includes('no-store')));
   const api=read('frontend/src/api.ts').split('\n');
   assert.ok(api.some(line=>line.includes('mediaObservations:')&&line.includes('/api/models/media-observations')&&!line.includes('POST')));
-  assert.ok(read('frontend/src/components/ModelChannels.tsx').includes('<MediaObservations'));
+  assert.ok(read('frontend/src/components/models-ui/ModelChannels.tsx').includes('<MediaObservations'));
   const panel=read('frontend/src/components/models/MediaObservations.tsx');
   for(const required of ['近期实际调用失败','不代表通道健康','实时通话','KeysApi.mediaObservations()','role="alert"','touch-hit'])assert.ok(panel.includes(required),required);
   for(const forbidden of ['KeysApi.verify','KeysApi.discover','setInterval'])assert.ok(!panel.includes(forbidden));

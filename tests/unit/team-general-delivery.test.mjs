@@ -122,7 +122,7 @@ test('linked evidence and unbound paths fail closed', async t => {
 });
 
 test('chat status exposes acceptance without approving or claiming media validation', () => {
-  const file = new URL('../../frontend/src/components/TeamDeliveryStatus.tsx', import.meta.url);
+  const file = new URL('../../frontend/src/components/team/TeamDeliveryStatus.tsx', import.meta.url);
   assert.ok(fs.existsSync(file), 'chat must show live review state');
   const source = fs.readFileSync(file, 'utf8');
   for (const text of ['awaiting_acceptance', 'ready_to_publish', 'acceptance_stale', 'submission_failed', '#/review', '仅文本流程']) assert.ok(source.includes(text), text);

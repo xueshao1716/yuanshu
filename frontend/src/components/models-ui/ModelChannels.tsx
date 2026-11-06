@@ -1,11 +1,11 @@
 import { useEffect, useRef, useState } from 'react'
 import * as AL from '@radix-ui/react-alert-dialog'
 import { Plus, KeyRound } from 'lucide-react'
-import { KeysApi } from '../api'
-import { useApp } from '../store'
-import ModelConnectionForm from './models/ModelConnectionForm'
-import MediaObservations from './models/MediaObservations'
-import type { ConnectionProvider } from './models/ModelConnectionForm'
+import { KeysApi } from '../../api'
+import { useApp } from '../../store'
+import ModelConnectionForm from '../models/ModelConnectionForm'
+import MediaObservations from '../models/MediaObservations'
+import type { ConnectionProvider } from '../models/ModelConnectionForm'
 
 export default function ModelChannels() {
   const { refreshModels } = useApp()

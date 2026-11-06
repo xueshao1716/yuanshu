@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { useSWRConfig } from 'swr'
-import { TeamRunApi, type TeamLaunch } from '../api'
+import { TeamRunApi, type TeamLaunch } from '../../api'
 
 export function TeamRunControls({ launch }: { launch?: TeamLaunch | null }) {
   const [busy, setBusy] = useState(false)

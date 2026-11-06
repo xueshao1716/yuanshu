@@ -1,8 +1,8 @@
-import ThemedSelect from '../components/ThemedSelect'
+import ThemedSelect from '../ThemedSelect'
 import { useRef, useState } from 'react'
-import { SessionsApi, TeamRunApi } from '../api'
-import { useApp } from '../store'
-import { useHashRoute } from '../hooks/useHashRoute'
+import { SessionsApi, TeamRunApi } from '../../api'
+import { useApp } from '../../store'
+import { useHashRoute } from '../../hooks/useHashRoute'
 
 export function TeamRunStart({ running = false }: { running?: boolean }) {
   const { currentSessionId, selectSession, refreshSessions } = useApp()

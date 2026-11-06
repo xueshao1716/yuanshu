@@ -34,7 +34,7 @@ test('image routing accepts partial snapshots but never an explicitly disabled c
 
 test('media pickers bind stable model identity and block removed selections', () => {
   for (const name of ['GeneratePanel', 'VideoGeneratePanel']) {
-    const text = fs.readFileSync(new URL(`../../frontend/src/components/${name}.tsx`, import.meta.url), 'utf8');
+    const text = fs.readFileSync(new URL(`../../frontend/src/components/panels/${name}.tsx`, import.meta.url), 'utf8');
     assert.ok(!text.includes('modelIdx'), name);
     assert.ok(text.includes('useMediaModel'), name);
     assert.ok(text.includes('!selectedModel'), name);

@@ -3,8 +3,8 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 const read = file => fs.existsSync(new URL('../../frontend/src/' + file, import.meta.url)) ? fs.readFileSync(new URL('../../frontend/src/' + file, import.meta.url), 'utf8') : '';
 test('model manager shares channel intake and propagates global refresh', () => {
-  assert.ok(read('components/ModelManager.tsx').split('\n').some(l => l.includes('<ModelChannels')));
-  assert.ok(read('components/ModelChannels.tsx').split('\n').some(l => l.includes('await refreshModels()')));
+  assert.ok(read('components/models-ui/ModelManager.tsx').split('\n').some(l => l.includes('<ModelChannels')));
+  assert.ok(read('components/models-ui/ModelChannels.tsx').split('\n').some(l => l.includes('await refreshModels()')));
 });
 test('onboarding offers protocol, manual IDs, preview and accessible errors', () => {
   const text = read('components/models/ModelConnectionForm.tsx');

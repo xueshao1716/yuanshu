@@ -4,7 +4,7 @@ import fs from 'node:fs';
 
 const read = file => fs.readFileSync(new URL(`../../${file}`, import.meta.url), 'utf8');
 test('team controls expose scoped stop/resume with error and duplicate-submit handling', () => {
-  const controls = read('frontend/src/components/TeamRunControls.tsx');
+  const controls = read('frontend/src/components/team/TeamRunControls.tsx');
   for (const term of ['TeamRunApi.stop', 'TeamRunApi.resume', 'disabled={busy}', 'role="alert"', '不会自动重跑', '停止后续步骤']) assert.ok(controls.includes(term), term);
   const server = read('server.mjs');
   assert.ok(server.includes(')(body, controller.signal)'));
@@ -22,10 +22,10 @@ test('server delegates to repository launcher and exposes independent launch sta
 });
 
 test('team entry starts a managed session task and links back to conversation', () => {
-  const source = read('frontend/src/components/TeamRunStart.tsx');
+  const source = read('frontend/src/components/team/TeamRunStart.tsx');
   for (const term of ['TeamRunApi.start', 'clientRequestId', 'disabled={busy', 'maxLength={taskLimit}', "workflow === 'team-general' ? 6000 : 300", '<textarea', '10 秒', 'selectSession', "nav('chat')"]) assert.ok(source.includes(term), term);
   assert.ok(read('frontend/src/components/views/TeamRunView.tsx').includes('<TeamRunStart'));
-  assert.ok(read('frontend/src/components/TeamRunStatus.tsx').includes('launch?.sessionId'));
+  assert.ok(read('frontend/src/components/team/TeamRunStatus.tsx').includes('launch?.sessionId'));
   const chat = read('frontend/src/components/ChatArea.tsx');
   assert.ok(chat.includes('RunApi.overview(currentSessionId)'));
   assert.ok(chat.includes("case 'subagent_started':"));
@@ -42,7 +42,7 @@ test('view separates launch from historical snapshot and draft from acceptance',
   assert.ok(source.includes('<TeamRunStatus launch={data?.launch}'));
   assert.ok(!source.includes('node 工程/多AI角色扮演系统/scripts/team-run.mjs'));
   assert.ok(source.includes("run.mode === 'dry-run'"));
-  const status = read('frontend/src/components/TeamRunStatus.tsx');
+  const status = read('frontend/src/components/team/TeamRunStatus.tsx');
   for (const term of ['launch?.status', 'profile', 'delivery', '待审区', '不是本次启动的结果', '未知']) assert.ok(status.includes(term), term);
 });
 
