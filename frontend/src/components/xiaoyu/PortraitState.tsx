@@ -23,7 +23,7 @@ export function PortraitState({ action, emotion, compact = false, skin = 'portra
     '--portrait-hue': visual?.hue ?? 0, '--portrait-glow': visual?.glow ?? 0,
     '--portrait-period': `${visual ? 1 / visual.tempo : 5}s` } as CSSProperties
   const Tag = compact ? 'span' : 'figure'
-  return <Tag className={`companion-portrait${compact ? ' is-compact' : ''}`} style={style} data-action={base} data-shown-action={shownAction} data-live="1" data-blinking={live.blinking ? "1" : "0"} data-shown-action={shownAction} data-live="1" data-blinking={live.blinking ? "1" : "0"} data-skin={selectedSkin}>
+  return <Tag className={`companion-portrait${compact ? ' is-compact' : ''}`} style={style} data-action={base} data-shown-action={shownAction} data-live="1" data-blinking={live.blinking ? "1" : "0"} data-skin={selectedSkin}>
     {failed ? <span className="xiaoyu-image-fallback">立绘暂不可用</span> : <img src={imageSrc}
       alt={`元枢 AI 真人形象 · ${selectedSkin === 'portrait' ? ACTION_LABELS[action] : selectedSkin === 'portrait-life' ? `${ACTION_LABELS[action]} · 生活状态组` : '当前换装'}`} draggable={false} onError={() => setFailed(true)} />}
     {!compact && <figcaption><strong>{ACTION_LABELS[shownAction]}</strong>
