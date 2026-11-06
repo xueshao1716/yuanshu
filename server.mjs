@@ -152,6 +152,9 @@ import { installSkill, validateSkillMd, listAuthoredSkills, buildAuthorPrompt } 
 import { replayFromDisk, estimateAction, buildHistory } from "./engine/anticipation.mjs";
 import { recordPush, recordReaction, reactionStats, shouldThrottle, markRecentActivity, expirePushes } from "./engine/notice-reactions.mjs";
 import { describeFailure } from "./engine/failure-note.mjs";
+import { distillTurn, distillCandidates } from "./engine/memory/distill.mjs";
+import { runForgetCycle } from "./engine/memory/forget.mjs";
+import { recallMemories, recallPrompt } from "./engine/memory/recall.mjs";
 import { readUrl } from "./engine/read-url.mjs";
 import { runAndSave, loadResults, saveResults } from "./engine/learning/case-runner.mjs";
 import { appendEvent as appendEvoEvent, readEvents as readEvoEvents, summarizeCapability as summarizeEvoCapability, createProposal as createEvoProposal, readProposals as readEvoProposals, recordGateVerdict } from "./engine/evolution/index.mjs";
@@ -4371,6 +4374,35 @@ const API_ROUTES = [
       rounds: todayRounds.slice(-limit).reverse(),
     });
   }],
+  // 2026-11-06：长期记忆三件套——主动蒸馏 / 遗忘 / 召回
+  ["POST", "/api/memory/distill", async (res, req) => {
+    const body = await readBody(req);
+    const messages = Array.isArray(body?.messages) ? body.messages : [];
+    const dryRun = body?.dryRun === true;
+    try {
+      const out = distillTurn({ messages, dryRun });
+      return json(res, 200, { ok: true, ...out });
+    } catch (e) { return json(res, 500, { ok: false, error: String(e?.message || e).slice(0, 200) }); }
+  }],
+  ["GET", "/api/memory/distill/preview", (res, req, url) => {
+    const text = String(url.searchParams.get("text") || "");
+    return json(res, 200, { ok: true, candidates: distillCandidates([{ role: "user", content: text }]) });
+  }],
+  ["POST", "/api/memory/forget", async (res, req) => {
+    const body = await readBody(req);
+    try {
+      const out = runForgetCycle({ dryRun: body?.dryRun !== false });
+      return json(res, 200, { ok: true, ...out });
+    } catch (e) { return json(res, 500, { ok: false, error: String(e?.message || e).slice(0, 200) }); }
+  }],
+  ["GET", "/api/memory/recall", (res, req, url) => {
+    const q = String(url.searchParams.get("q") || "");
+    const limit = Math.min(30, Math.max(1, Number(url.searchParams.get("limit")) || 8));
+    try {
+      const out = recallMemories({ query: q, limit, touch: url.searchParams.get("touch") !== "0" });
+      return json(res, 200, { ok: true, ...out, prompt: recallPrompt({ query: q, limit }) });
+    } catch (e) { return json(res, 500, { ok: false, error: String(e?.message || e).slice(0, 200) }); }
+  }],
   // 2026-11-03：统一待办——待拍板 / 进化提案 / 自改提案 合成一处
   ["GET", "/api/inbox/pending", (res) => {
     const out = { ok: true, total: 0, groups: [] };
@@ -7921,3 +7953,17 @@ setTimeout(() => {
 }, 4000).unref?.();
 
 startServer();
+
+// 2026-11-06：遗忘机制的执行者。只归档不删除，归档后仍可召回。
+try {
+  const forgetOnce = () => {
+    try {
+      const r = runForgetCycle({ dryRun: false });
+      if (r.expiredArchived || r.staleArchived) {
+        console.log(`[memory] 遗忘：过期归档 ${r.expiredArchived} 条，久未访问归档 ${r.staleArchived} 条`);
+      }
+    } catch (e) { console.log("[memory] 遗忘失败（不影响服务）:", String(e?.message || e).slice(0, 120)); }
+  };
+  setTimeout(forgetOnce, 60_000).unref?.();
+  setInterval(forgetOnce, 24 * 3600_000).unref?.();
+} catch {}
