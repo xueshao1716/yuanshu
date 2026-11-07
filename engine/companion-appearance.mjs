@@ -22,6 +22,36 @@ export function appearanceFor(action = 'neutral') {
   return COMPANION_APPEARANCE[action] || COMPANION_APPEARANCE.neutral;
 }
 
+/**
+ * 用「人格定义」里的形象四项拼出图母提示词（2026-11-07）。
+ *
+ * 为什么要有：原来的 COMPANION_IDENTITY_PROMPT 是硬编码的（腰下超长直黑发、厚直刘海…），
+ * 和 记忆/人格定义.json 里的形象描述是两套东西——改了定义，出图还是老样子，这就是"没有闭环"。
+ * 现在定义里有哪几项就用哪几项，并保留不可协商的风格/安全约束；四项都没有才退回原常量。
+ */
+export function buildIdentityPrompt(def = {}) {
+  const d = def || {};
+  const pick = (k) => String(d[k] || "").trim();
+  const appearance = pick("appearance");
+  const hairstyle = pick("hairstyle");
+  const clothing = pick("clothing");
+  const scenario = pick("scenarioOutfits");
+  if (!appearance && !hairstyle && !clothing && !scenario) return COMPANION_IDENTITY_PROMPT;
+  const facts = [];
+  if (appearance) facts.push(`人物外貌：${appearance}`);
+  if (hairstyle) facts.push(`发型与发色：${hairstyle}`);
+  if (clothing) facts.push(`日常服装：${clothing}`);
+  if (scenario) facts.push(`场景穿搭：${scenario}`);
+  return [
+    "成年虚构东亚女性真人形象，真实皮肤纹理，不是动漫、卡通或CG。",
+    facts.join("；"),
+    "。身份锚点是同一张脸、同样的发型、年龄感、体态比例与真人摄影质感；服装随场景自然变化，保持成年人外观与自然日常穿搭，不做色情化呈现。",
+    "基准画面：冷白自然窗光与柔和正面补光，纪实编辑时尚摄影，保留环境留白与真实材质。",
+    "禁止塑料磨皮、夸张性感姿势、私密部位裸露、额外肢体、文字和水印。",
+    "工作中、阅读中、休息中等状态只改变姿态、视线、场景和服装，不改变这个人的身份与基础外观。",
+  ].join("");
+}
+
 export function appearanceCatalog() {
   return Object.fromEntries(Object.entries(COMPANION_APPEARANCE).map(([action, value]) => [action, { ...value }]));
 }

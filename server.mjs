@@ -520,7 +520,7 @@ const { soulContextPrompt } = await import('./engine/soul-context.mjs');
 const { createCompanionDecision } = await import('./engine/companion-decision.mjs');
 const { createCompanionSessionReader } = await import('./engine/companion-session.mjs');
 const { createCompanionRoutes } = await import('./engine/companion-api.mjs');
-const { appearanceCatalog, COMPANION_IDENTITY_PROMPT } = await import('./engine/companion-appearance.mjs');
+const { appearanceCatalog, COMPANION_IDENTITY_PROMPT, buildIdentityPrompt } = await import('./engine/companion-appearance.mjs');
 const companionEmotion = createEmotionDisplay({ peek: emotion.peekLatestObservation });
 emotion.init(CONFIG.cwd); // 基因系统：加载人格基因 + 提案池
 emotion.setMemoryNudgeHook((info) => { try { proposeMemoryNudge(info); } catch {} }); // 情绪→记忆联动（09-03）：residue 跨阈值自动提案记忆写入
@@ -2821,8 +2821,11 @@ async function handleChat(req, res, body) {
       try {
         const catalog = appearanceCatalog();
         const lines = Object.entries(catalog).map(([action, item]) => `${item.label}（${action}）：${item.description}`).join('；');
+        // 2026-11-07：母提示词跟着人格定义走（以前是硬编码，改了外貌她说的还是老样子）
+        let identityPrompt = COMPANION_IDENTITY_PROMPT;
+        try { identityPrompt = buildIdentityPrompt(loadPersonaDefinition(CONFIG.cwd)?.def) } catch {}
         await entry.agent?.sendCustomMessage?.(
-          { customType: 'context', content: [{ type: 'text', text: `【公仔形象事实】你不能直接看见图片，不要声称看到了图片。当前前端使用真人立绘，并按实时动作在这些外观之间切换：${lines}。这套真人形象的母提示词是：${COMPANION_IDENTITY_PROMPT}。如果用户问“你自己的公仔长什么样”或“提示词是什么”，可以用自然语言概括这份母提示词；不要编造衣着、发型、背景等未提供细节。无法确定此刻动作时，明确说当前动作由界面实时状态决定。` }] },
+          { customType: 'context', content: [{ type: 'text', text: `【公仔形象事实】你不能直接看见图片，不要声称看到了图片。当前前端使用真人立绘，并按实时动作在这些外观之间切换：${lines}。这套真人形象的母提示词是：${identityPrompt}。如果用户问“你自己的公仔长什么样”或“提示词是什么”，可以用自然语言概括这份母提示词；不要编造衣着、发型、背景等未提供细节。无法确定此刻动作时，明确说当前动作由界面实时状态决定。` }] },
           { deliverAs: 'nextTurn' }
         );
       } catch {}
