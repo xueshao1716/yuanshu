@@ -14,6 +14,7 @@ export const GALLERIES = [
   { id: 'portrait-life', label: '小语自绘组', detail: '真人学院制服 · 小语自选的六种状态（默认）' },
   { id: 'portrait-uniform', label: '黑色制服组', detail: '黑色 JK / 学院制服 · 六种动作状态' },
   { id: 'portrait-daily', label: '日常生活组', detail: '上一套日常服装 · 六种生活姿态' },
+  { id: 'portrait-v2', label: '小语·新形象（齐耳短发）', detail: '按人格定义重画 · 六种状态' },
 ];
 const SKIN_IMAGES = {
   'wardrobe-jk': '/assets/portraits/yuanshu-wardrobe-jk-v1.png',
@@ -48,6 +49,17 @@ const DAILY_STATE_IMAGES = {
   listening: '/assets/portraits/yuanshu-life-listening-v1.webp',
   responding: '/assets/portraits/yuanshu-life-responding-v1.webp',
   neutral: '/assets/portraits/yuanshu-life-listening-v1.webp',
+};
+// 2026-11-07：按 记忆/人格定义.json 的 appearance/hairstyle/clothing/scenarioOutfits
+// 用 buildIdentityPrompt(def) 作母提示词重画的一套（齐耳短发 · 雾蓝灰卫衣）。
+const V2_STATE_IMAGES = {
+  working: '/assets/portraits/yuanshu-v2-working.webp',
+  reading: '/assets/portraits/yuanshu-v2-reading.webp',
+  resting: '/assets/portraits/yuanshu-v2-resting.webp',
+  daydreaming: '/assets/portraits/yuanshu-v2-daydreaming.webp',
+  listening: '/assets/portraits/yuanshu-v2-listening.webp',
+  responding: '/assets/portraits/yuanshu-v2-responding.webp',
+  neutral: '/assets/portraits/yuanshu-v2-listening.webp',
 };
 const SKIN_IDS = new Set(SKINS.map(s => s.id));
 const STUDIO_IMAGES = {
@@ -91,6 +103,7 @@ export function imageForSkin(skin, action = 'neutral') {
   if (normalized === 'portrait-life') return AUTHOR_STATE_IMAGES[action] || AUTHOR_STATE_IMAGES.neutral;
   if (normalized === 'portrait-uniform') return UNIFORM_STATE_IMAGES[action] || UNIFORM_STATE_IMAGES.neutral;
   if (normalized === 'portrait-daily') return DAILY_STATE_IMAGES[action] || DAILY_STATE_IMAGES.neutral;
+  if (normalized === 'portrait-v2') return V2_STATE_IMAGES[action] || V2_STATE_IMAGES.neutral;
   return portraitFor(action).src;
 }
 export function clampPosition(point, viewport) {
