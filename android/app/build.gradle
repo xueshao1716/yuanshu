@@ -7,8 +7,8 @@ android {
         applicationId "com.pixinyu.app"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
-        versionCode 2213010
-        versionName "2.213.10"
+        versionCode 2213011
+        versionName "2.213.11"
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
         aaptOptions {
              // Files and dirs to omit from the packaged assets dir, modified to accommodate modern web apps.
