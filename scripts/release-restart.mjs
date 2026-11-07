@@ -165,13 +165,21 @@ log(`端口 ${PORT} 已空闲`);
 // ── 4. 起服务 + 等 health ──
 log(`启动 ${SERVICE}`);
 sh("sc.exe", ["start", SERVICE], { timeout: 60000 });
-if (!(await waitHealth(PORT, 90000))) {
-  log("⛔ 90 秒内没等到 /api/health 200，去看 记忆/运行时/服务日志-*.log");
-  process.exit(5);
+// 2026-11-07：盖章放进 finally——health 超时/脚本中断也要把当前 commit 盖上去，
+// 否则装机标记停在旧 commit，前端会一直弹「发现新版本」（今天踩过一次）。
+let healthy = false;
+try {
+  healthy = await waitHealth(PORT, 90000);
+  if (!healthy) log("⛔ 90 秒内没等到 /api/health 200，去看 记忆/运行时/服务日志-*.log");
+  else log("health 200");
+} finally {
+  // ── 5. 盖章（无条件执行）──
+  try {
+    const stamp = sh("node", ["scripts/stamp-build.mjs", "--dir", INSTALL_DIR, "--repo", REPO], { timeout: 30000 });
+    log(stamp.ok ? stamp.out.split(/\r?\n/).filter(Boolean).join(" | ") : `盖章失败: ${stamp.err}`);
+  } catch (e) {
+    log(`盖章异常: ${String(e?.message || e).slice(0, 160)}`);
+  }
 }
-log("health 200");
-
-// ── 5. 盖章 ──
-const stamp = sh("node", ["scripts/stamp-build.mjs", "--dir", INSTALL_DIR, "--repo", REPO], { timeout: 30000 });
-log(stamp.ok ? stamp.out.split(/\r?\n/).filter(Boolean).join(" | ") : `盖章失败: ${stamp.err}`);
+if (!healthy) process.exit(5);
 log("完成");
