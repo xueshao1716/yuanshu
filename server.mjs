@@ -123,7 +123,7 @@ import { BASE_TOOL_SCHEMAS, TIME_TASK_SCHEMA, SHARE_PROJECT_SCHEMA, createUnifie
 import { createAuditGate, withAuditGate } from "./engine/tools/audit-gate.mjs";
 import { routeEvent, recentDecisions } from "./engine/router.mjs";
 // 2026-11-07：订阅直通（Super-agent 的 Fast Path）——判定归谁、直通收件箱、下一轮合并消费
-import { planDelivery, acceptDirect, takePendingBlock, taskLabelFor, threadKeyOfLabel } from "./engine/thread-delivery.mjs";
+import { planDelivery, acceptDirect, takePendingBlock, taskLabelFor, threadKeyOfLabel, readDirectSettings } from "./engine/thread-delivery.mjs";
 import { subscribe as subscribeThread, unsubscribe as unsubscribeThread, snapshot as threadSnapshot, threadKeyOf } from "./engine/thread-router.mjs";
 import { listInboxes } from "./engine/thread-inbox.mjs";
 // 2026-11-07：工单级授权——授权跟着这张活走，记依据、期限与失效条件
@@ -1839,11 +1839,12 @@ const askPush = async (event, reason) => {
 };
 
 const routerOnEvent = (event) => {
-  // 2026-11-07：先看是不是别人已经在跟的话题——是就直通收件箱，不再让主会话重判一遍
+  // 2026-11-07：先看是不是别人已经在跟的话题——是就直通收件箱，不再让主会话重判一遍。
+  // 微信要不要直通由「直通设置」决定（默认关；开了以后靠 relay 把结果回给那个会话）。
   try {
-    const plan = planDelivery(event);
+    const plan = planDelivery(event, readDirectSettings(WS_ROOT));
     if (plan.mode === "direct") {
-      const got = acceptDirect(WS_ROOT, event);
+      const got = acceptDirect(WS_ROOT, event, readDirectSettings(WS_ROOT));
       console.log(`[thread] 直通 ${plan.threadKey}：收件箱 ${got.queued} 条（订阅 ${plan.targets.length} 个），主会话不介入`);
       return { ok: true, queued: true, direct: true, threadKey: plan.threadKey };
     }

@@ -130,8 +130,21 @@ test("pendingCount：按事件推话题键，没有键返回 0", async () => {
   assert.equal(pendingCount(ws, { text: "没有话题键" }), 0);
 });
 
-test("派活标签：话题键编进 label 并能原样取回，普通任务不受影响", async () => {
-  const { taskLabelFor, threadKeyOfLabel, ROUTER_LABEL_PREFIX } = await deliveryMod();
+test("直通设置：默认关（微信不直通），写开后生效，文件坏了也退回默认关", async () => {
+  const { readDirectSettings, writeDirectSettings, directSettingsFile } = await deliveryMod();
+  const ws = tmp();
+  assert.equal(readDirectSettings(ws, { now: 1000 }).allowWechat, false);
+
+  assert.equal(writeDirectSettings(ws, { allowWechat: true, now: 2000 }).ok, true);
+  assert.equal(readDirectSettings(ws, { now: 3000 }).allowWechat, true);
+  assert.equal(readDirectSettings(ws, { now: 3000 }).source, "file");
+
+  // 坏文件不炸，退回默认关
+  fs.writeFileSync(directSettingsFile(ws), "{ 坏掉的 json", "utf8");
+  assert.equal(readDirectSettings(ws, { now: 9000 }).allowWechat, false);
+});
+
+test("派活标签：话题键编进 label 并能原样取回，普通任务不受影响", async () => {  const { taskLabelFor, threadKeyOfLabel, ROUTER_LABEL_PREFIX } = await deliveryMod();
   assert.equal(taskLabelFor("wechat:g1"), `${ROUTER_LABEL_PREFIX}wechat:g1`);
   assert.equal(threadKeyOfLabel(taskLabelFor("wechat:g1")), "wechat:g1");
   assert.equal(threadKeyOfLabel(taskLabelFor("task:t1")), "task:t1");

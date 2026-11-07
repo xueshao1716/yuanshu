@@ -5,6 +5,8 @@
 //   direct → 进该话题的收件箱（不打扰主会话），等话题自己的下一次任务合并消费
 //   main   → 照旧进路由器判断
 // 不在这一层做任何模型调用，也不写台账（调用方负责）。
+import fs from "node:fs";
+import path from "node:path";
 import { route, threadKeyOf } from "./thread-router.mjs";
 import { enqueue, size, drain } from "./thread-inbox.mjs";
 
@@ -12,6 +14,42 @@ import { enqueue, size, drain } from "./thread-inbox.mjs";
 // 微信不在里面是故意的：那边每一条消息背后都有一个正在等回话的人，
 // 直通等于已读不回。要开得显式传 allowWechat（或走 relay 通道之后）。
 export const SAFE_DIRECT_PREFIXES = Object.freeze(["task:", "run:", "mail:"]);
+export const DIRECT_SETTINGS_REL = path.join("记忆", "运行时", "直通设置.json");
+
+/** 直通设置文件路径。 */
+export function directSettingsFile(wsRoot) {
+  return path.join(String(wsRoot || "."), DIRECT_SETTINGS_REL);
+}
+
+// 5 秒缓存：每条事件都读盘没必要，但改完要能很快生效
+let settingsCache = { at: 0, value: null, file: "" };
+
+/**
+ * 读直通设置。默认 { allowWechat:false }——微信直通是显式开关，不是默认行为。
+ * @returns {{allowWechat:boolean, updatedAt:number, source:string}}
+ */
+export function readDirectSettings(wsRoot, { now = Date.now(), ttlMs = 5000 } = {}) {
+  const file = directSettingsFile(wsRoot);
+  if (settingsCache.file === file && settingsCache.value && now - settingsCache.at < ttlMs) return settingsCache.value;
+  let value = { allowWechat: false, updatedAt: 0, source: "default" };
+  try {
+    const raw = JSON.parse(fs.readFileSync(file, "utf8"));
+    value = { allowWechat: raw?.allowWechat === true, updatedAt: Number(raw?.updatedAt) || 0, source: "file" };
+  } catch { /* 没有文件/坏了就是默认关 */ }
+  settingsCache = { at: now, value, file };
+  return value;
+}
+
+/** 写设置（面板/脚本用）。 */
+export function writeDirectSettings(wsRoot, { allowWechat = false, now = Date.now() } = {}) {
+  const file = directSettingsFile(wsRoot);
+  try {
+    fs.mkdirSync(path.dirname(file), { recursive: true });
+    fs.writeFileSync(file, JSON.stringify({ allowWechat: !!allowWechat, updatedAt: now }, null, 2), "utf8");
+    settingsCache = { at: 0, value: null, file: "" };
+    return { ok: true, allowWechat: !!allowWechat, file };
+  } catch (e) { return { ok: false, error: String(e?.message || e).slice(0, 160) } }
+}
 
 /** 这个话题能不能闷声直通。 */
 export function canDirectSilently(threadKey, { allowWechat = false } = {}) {
