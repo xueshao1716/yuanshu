@@ -80,3 +80,31 @@ route(event)             有订阅 → { route:'direct', targets }；没订阅 �
 - 订阅直通 → "干活时被别的消息打断"（你提过）
 - Watchdog 巡检 → "任务卡住了没人知道，看着像在跑"
 - 两级过滤 → "什么消息都进模型，费 token 又慢"
+
+---
+
+## 六、落地记录（2026-11-07）
+
+### 已落地
+
+| 项 | 落在哪 | 怎么做的 |
+|---|---|---|
+| 订阅直通（接线） | `engine/thread-delivery.mjs`、`engine/thread-inbox.mjs`、`server.mjs` 的 `routerOnEvent` | 判定 direct 就不进主会话，事件落话题收件箱；派活时 `subscribe(threadKey, { workerId })` |
+| 合并消费（批处理） | 时间引擎 runner | 任务 label 带话题键（`路由派活·<threadKey>`），开跑时 `takePendingBlock()` 把积压合并成一条 user 消息注入 |
+| 收尾 | `onTaskFinished` | 终态退订；被停 → 撤销授权，正常结束 → 结单 |
+| 工单级授权 | `engine/mandate.mjs` | 派活即开一张授权：范围取自「自主执行」策略、期限 24h、依据 explicit；`publish/merge/spend/persona/constitution/tunnel` 永远要人 |
+| Watchdog 介入 | `engine/drift-escalation.mjs` + 10 分钟巡检 | 同类问题 4 小时冷却，且必须花主动预算（日 3 次）；**只提醒、不杀任务** |
+| 可观测 | `GET /api/threads`、`GET /api/mandates` | 谁订了哪条话题、各话题积压多少；当前有效授权与全部记录 |
+
+### 一处设计修正（与原文不同，是故意的）
+
+原文的 Fast Path 是「把事件直投运行中的 Worker」。元枢没有可 steer 的常驻 run——派活是「定时任务 → unifiedChat」，
+所以直通落成 **进收件箱 + 下一轮合并**（原文 §2.1 的 batching 那一半），而不是实时插话。
+好处：不动执行层。代价：时效上限 = 该话题下一次任务的调度间隔。
+
+### 对照表的两处勘误
+
+- 「两级过滤：无」→ 已有：`engine/router.mjs`（2026-11-01），但**只挂在 `POST /api/inbound/event`**；
+  微信走 `/api/chat`、邮件桥只 `recvEvent`，都还没过路由器。
+- 「订阅直通：已开工（仅逻辑）」→ 自 2026-11-07 起已接线，`/api/threads` 可验。
+

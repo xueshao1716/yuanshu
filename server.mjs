@@ -122,6 +122,12 @@ import { createReplyTts } from './engine/reply-tts.mjs';
 import { BASE_TOOL_SCHEMAS, TIME_TASK_SCHEMA, SHARE_PROJECT_SCHEMA, createUnifiedToolExecutorGuarded, webSearchTool, detectBashShell } from "./engine/tools/unified-tools.mjs";
 import { createAuditGate, withAuditGate } from "./engine/tools/audit-gate.mjs";
 import { routeEvent, recentDecisions } from "./engine/router.mjs";
+// 2026-11-07：订阅直通（Super-agent 的 Fast Path）——判定归谁、直通收件箱、下一轮合并消费
+import { planDelivery, acceptDirect, takePendingBlock, taskLabelFor, threadKeyOfLabel } from "./engine/thread-delivery.mjs";
+import { subscribe as subscribeThread, unsubscribe as unsubscribeThread, snapshot as threadSnapshot, threadKeyOf } from "./engine/thread-router.mjs";
+import { listInboxes } from "./engine/thread-inbox.mjs";
+// 2026-11-07：工单级授权——授权跟着这张活走，记依据、期限与失效条件
+import { createMandate, closeMandate, revokeMandate, activeMandates, listMandates, pruneMandates, getMandate, filterToolsByScope } from "./engine/mandate.mjs";
 import { parseOpenIntent, navPayload } from "./engine/intent-router.mjs";
 import { filterTasks } from "./engine/task-filter.mjs";
 import { compareCandidates, recordCompare } from "./engine/candidate-compare.mjs";
@@ -141,6 +147,8 @@ import { shouldPropose, makeShadowProposal } from "./engine/self-change-trigger.
 import { applyChange, rollbackChange, listBackups as listSelfChangeBackups } from "./engine/self-change-apply.mjs";
 import { startSession, finishSession, abortSession, wtPath } from "./engine/self-change-session.mjs";
 import { detectDrift, recordDriftCheck, recentDrift } from "./engine/watchdog-drift.mjs";
+// 2026-11-07：偏离从「记账」到「介入」——同类问题 4 小时冷却，不自动杀任务
+import { shouldEscalate, composeDriftNotice, readLastNotified, recordNotified } from "./engine/drift-escalation.mjs";
 import { setSelfChangeRoot, getSelfChangeRoot } from "./engine/tools/unified-tools.mjs";
 import { setSelfChangeWriteRoot } from "./engine/workspace-api.mjs";
 import { beginSnapshot, finishSnapshot, rollbackSnapshot, beginFsSnapshot, finishFsSnapshot } from "./engine/self-change-main.mjs";
@@ -1771,7 +1779,12 @@ const routeThink = async (prompt) => {
 };
 // 2026-11-01：破坏性动作即使被批准，也只派"核对 + 方案"，不派"直接删/发/付"
 const DESTRUCTIVE_TASK = /(删|清空|移除|格式化|覆盖|发布|上线|支付|打款|转账|rm |del )/i;
-const dispatchByRouter = (task, reason = "") => {
+// 2026-11-07：派活的任务标签里带上话题键——下一轮执行时据此合并积压的后续事件
+// 这张活拿到多少自主权，就记多少——记录取自「自主执行」策略，不凭空许诺
+const mandateScopeNow = () => {
+  try { return loadSelfPolicy(CONFIG.cwd)?.enabled ? ["read", "write", "shell", "git"] : ["read"] } catch { return ["read"] }
+};
+const dispatchByRouter = (task, reason = "", threadKey = "") => {
   const raw = String(task || "").trim();
   const guarded = DESTRUCTIVE_TASK.test(raw)
     ? `【只核对不执行】列出这项操作会动到的具体文件/对象清单和风险，等我二次确认后再执行：${raw}`
@@ -1779,9 +1792,22 @@ const dispatchByRouter = (task, reason = "") => {
   const when = localStamp(new Date(Date.now() + 60 * 1000));
   const dateStr = when.slice(0, 10);
   const timeStr = when.slice(11, 16);
-  const r = timeEngine.register({ type: "once", date: dateStr, at: timeStr, prompt: guarded, label: "路由派活", notify: true });
+  const label = taskLabelFor(threadKey);
+  const r = timeEngine.register({ type: "once", date: dateStr, at: timeStr, prompt: guarded, label, notify: true });
   if (r?.error) console.log(`[router] 派活失败：${r.error}`);
-  else console.log(`[router] 已派活（${when}）：${String(guarded).slice(0, 60)}`);
+  else {
+    console.log(`[router] 已派活（${when}）：${String(guarded).slice(0, 60)}`);
+    // 订阅直通：这个任务从此是这条话题的主人，后续事件进收件箱而不是回主会话
+    if (threadKey && r?.id) subscribeThread(threadKey, { workerId: r.id });
+    // 工单级授权：记下这张活的依据与范围（目前只记录，不接管审批）
+    if (r?.id) {
+      const m = createMandate(WS_ROOT, {
+        ticketId: r.id, threadKey, taskId: r.id, scope: mandateScopeNow(), basis: "explicit",
+        note: String(guarded).slice(0, 160),
+      });
+      if (m.ok) console.log(`[mandate] ${r.id} 授权 ${m.mandate.scope.join("/")}，${threadKey || "无话题"}`);
+    }
+  }
   return r;
 };
 const askPush = async (event, reason) => {
@@ -1811,12 +1837,23 @@ const askPush = async (event, reason) => {
 };
 
 const routerOnEvent = (event) => {
+  // 2026-11-07：先看是不是别人已经在跟的话题——是就直通收件箱，不再让主会话重判一遍
+  try {
+    const plan = planDelivery(event);
+    if (plan.mode === "direct") {
+      const got = acceptDirect(WS_ROOT, event);
+      console.log(`[thread] 直通 ${plan.threadKey}：收件箱 ${got.queued} 条（订阅 ${plan.targets.length} 个），主会话不介入`);
+      return { ok: true, queued: true, direct: true, threadKey: plan.threadKey };
+    }
+  } catch (e) {
+    console.log(`[thread] 直通判定失败，退回主会话：${String(e?.message || e).slice(0, 80)}`);
+  }
   void (async () => {
     try {
       const out = await routeEvent({ event, wsRoot: WS_ROOT, think: routeThink, seen: routerSeen });
       if (out.key) routerSeen.add(out.key);
       if (!out.ok) { console.log(`[router] 判断失败：${out.error}`); return }
-      if (out.action === "dispatch") dispatchByRouter(out.task, out.reason);
+      if (out.action === "dispatch") dispatchByRouter(out.task, out.reason, threadKeyOf(event));
       else if (out.action === "ask") { console.log(`[router] 需要人拍板：${String(out.reason || "").slice(0, 80)}`); void askPush(event, out.reason); }
     } catch (e) { console.log(`[router] 异常：${String(e?.message || e).slice(0, 120)}`) }
   })();
@@ -3885,12 +3922,34 @@ setInterval(() => {
   } catch {}
   // 2026-11-03：推送超时未反应 → 标 ignore（降频的真实分母）
   try { const r = expirePushes(WS_ROOT); if (r.expired) console.log(`[notice] ${r.expired} 条推送超时未反应，已标忽略`) } catch {}
+  // 2026-11-07：授权记录只留有用的（过期超 7 天且没有结局的清掉）
+  try { const r = pruneMandates(WS_ROOT); if (r.removed) console.log(`[mandate] 清理过期授权 ${r.removed} 条`) } catch {}
   // 2026-11-02：看门狗判偏——空转/连续失败/只改不验
   try {
     const rows = (auditGate?.tail ? auditGate.tail(300) : []) || [];
     const res = detectDrift(rows, { now: Date.now() });
     recordDriftCheck(WS_ROOT, res);
-    if (res.drift) console.log(`[watchdog] 偏离：${res.issues.map((i) => i.detail).join('；')}`);
+    if (res.drift) {
+      console.log(`[watchdog] 偏离：${res.issues.map((i) => i.detail).join('；')}`);
+      // 2026-11-07：从「记账」到「介入」——同类问题 4 小时冷却，而且必须花主动预算，不额外打扰。
+      // 只提醒、不动任务：误伤长任务的代价高于多等一轮。
+      const esc = shouldEscalate({ drift: true, issues: res.issues, last: readLastNotified(WS_ROOT) });
+      if (!esc.escalate) {
+        console.log(`[watchdog] 先不提醒：${esc.reason}`);
+      } else {
+        const day = new Date().toISOString().slice(0, 10);
+        const budget = readBudget(WS_ROOT, day, { cap: 3 });
+        if (budget.remaining <= 0) console.log("[watchdog] 该提醒，但今天的主动预算用完了");
+        else if (spendBudget(WS_ROOT, day, { cap: budget.cap, kind: "watchdog_drift" }).ok) {
+          recordNotified(WS_ROOT, esc.key);
+          void notifier.notify({
+            kind: "watchdog", title: "元枢 · 有一轮活可能跑偏",
+            body: composeDriftNotice(res.issues), key: `watchdog-drift:${esc.key}:${day}`, toWechat: true,
+          }).catch(() => {});
+          console.log(`[watchdog] 已提醒（${esc.key}）：${esc.reason}`);
+        }
+      }
+    }
   } catch {}
   // 2026-11-02：脑区自调（内部 12h 冷却 + 边界 + 审计）
   try { const r = applyNudges(WS_ROOT); if (r?.applied?.length) console.log(`[brain] 自调：${r.applied.map((x) => `${x.id}${x.delta > 0 ? "+" : ""}${x.delta}`).join(" ")}`) } catch {}
@@ -4233,6 +4292,21 @@ const API_ROUTES = [
   // 2026-11-01：路由器（事件 → 判断 → 派活）
   ["GET", "/api/router/decisions", (res, req, url) => json(res, 200, { ok: true, items: recentDecisions(WS_ROOT, Number(url.searchParams.get("limit")) || 20) })],
   ["GET", "/api/router/pending", (res, req, url) => json(res, 200, { ok: true, items: listAsks(WS_ROOT, { state: String(url.searchParams.get("state") || "pending") }) })],
+  // 2026-11-07：订阅直通的可观测面——谁订了哪条话题、各话题还积压多少
+  ["GET", "/api/threads", (res) => {
+    try {
+      const subs = threadSnapshot();
+      const inboxes = listInboxes(WS_ROOT);
+      return json(res, 200, { ok: true, subscriptions: subs, inboxes, backlog: inboxes.reduce((n, x) => n + (x.size || 0), 0) });
+    } catch (e) { return json(res, 500, { ok: false, error: String(e?.message || e).slice(0, 160) }) }
+  }],
+  // 2026-11-07：工单级授权（目前只记录与展示，不接管审批链路）
+  ["GET", "/api/mandates", (res, req, url) => {
+    try {
+      const items = url.searchParams.get("all") === "1" ? listMandates(WS_ROOT) : activeMandates(WS_ROOT);
+      return json(res, 200, { ok: true, items, count: items.length });
+    } catch (e) { return json(res, 500, { ok: false, error: String(e?.message || e).slice(0, 160) }) }
+  }],
   ["POST", "/api/router/confirm", async (res, req) => {
     const b = await readBody(req);
     const id = String(b?.id || "").trim();
@@ -7426,6 +7500,18 @@ setInterval(() => heartbeat(WS_ROOT, { pid: process.pid, version: String(APP_VER
             sessions: getSessionList(),
             now: new Date(),
           });
+          // 2026-11-07：订阅直通——这个话题在上次动手之后积压的后续，合并进这一轮（批处理），
+          // 而不是让它们各自去打断主会话
+          try {
+            const tk = threadKeyOfLabel(task.label);
+            if (tk) {
+              const block = takePendingBlock(WS_ROOT, tk);
+              if (block.count) {
+                messages.push({ role: "user", content: block.text });
+                console.log(`[thread] ${tk} 合并 ${block.count} 条积压进本轮`);
+              }
+            }
+          } catch (e) { console.log(`[thread] 合并积压失败：${String(e?.message || e).slice(0, 100)}`) }
           const tReflect0 = Date.now();
           // 2026-10-20：她自己这一轮不再只有只读工具。按「自主执行」策略放开动手能力，
           // 越线动作（对外发布/花钱）默认仍关，且每条动作写 文档/自主执行审计.md。
@@ -7435,6 +7521,17 @@ setInterval(() => heartbeat(WS_ROOT, { pid: process.pid, version: String(APP_VER
             ? selfToolDefs.filter(t => (t?.function?.name || t?.name) !== 'read')   // 已含 read
             : [];
           console.log(`[time-engine] 自主执行：${selfPolicy.enabled ? '开' : '关'} · 工具 ${selfRun.map(t => t?.function?.name).join(',') || '（只读）'}`);
+          // 2026-11-07：工单授权开始管工具面——只有派活（有授权）的任务才按授权裁，
+          // 定时复盘/做梦这类没有授权对象，维持原样。只裁写/命令/git/发布/花钱，读类永远放行。
+          let taskTools = selfToolDefs;
+          try {
+            const ticket = getMandate(WS_ROOT, task.id);
+            if (ticket) {
+              const cut = filterToolsByScope(selfToolDefs, ticket.scope);
+              taskTools = cut.tools;
+              if (cut.dropped.length) console.log(`[mandate] ${task.id} 按授权裁掉 ${cut.dropped.join(',')}`);
+            }
+          } catch (e) { console.log(`[mandate] 裁工具失败，维持原样：${String(e?.message || e).slice(0, 100)}`) }
           // 2026-10-20：按失败类型处理——额度/鉴权换通道，网络同模型退避重试，其它如实抛。
           const failover = await withModelFailover({
             // 2026-10-22：任务可以钉模型（例如夜间反思走有额度的通道）
@@ -7451,7 +7548,7 @@ setInterval(() => heartbeat(WS_ROOT, { pid: process.pid, version: String(APP_VER
               }
               return isTextCapableModel(defaultModel) ? defaultModel : pickFallbackDefault();
             })(),
-            call: (model) => unifiedChat(model, messages, { tools: selfToolDefs, signal }),
+            call: (model) => unifiedChat(model, messages, { tools: taskTools, signal }),
             pickNext: (tried) => {
               const seen = new Set(tried.map(m => `${m.provider}/${m.id}`));
               let next = pickFallbackExcluding(tried[tried.length - 1]);
@@ -7574,6 +7671,15 @@ ${rows.map((r) => `- [${r.status}${r.closed ? "/已结清" : ""}] ${r.text}\n  �
         onTaskDone: (info) => nudgeSkill(info),
         // 定时任务失败一定告诉用户；成功只在任务本身标了 notify 时才打扰（内部复盘/做梦天天跑，不该刷屏）
         onTaskFinished: (t) => {
+          // 2026-11-07：这张活收尾了——退订话题、结掉授权（被停 = 撤销，不是完成）
+          try {
+            const tk = threadKeyOfLabel(t.label);
+            if (tk) unsubscribeThread(tk, t.id);
+            if (getMandate(WS_ROOT, t.id)) {
+              if (t.status === "stopped") revokeMandate(WS_ROOT, t.id, { by: "person", reason: "任务被叫停" });
+              else closeMandate(WS_ROOT, t.id, { outcome: t.status === "ok" ? "completed" : String(t.status || "ended") });
+            }
+          } catch (e) { console.log(`[mandate] 收尾失败：${String(e?.message || e).slice(0, 100)}`) }
           // 2026-10-20：Harness² 的 Probe——用同一任务的历史运行做前后对照，判断改动到底有没有变好。
           // 只比失败率与耗时，不让模型自评；每任务每天最多一次。
           try {
