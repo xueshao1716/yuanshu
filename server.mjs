@@ -289,6 +289,12 @@ import { createCodeMode } from "./code-mode/code-mode.mjs";
 import { createTimeEngine, localStamp } from "./engine/time-engine.mjs";
 import { createChatStreamHub } from "./engine/chat-stream.mjs";
 import { createJobPool } from "./engine/job-pool.mjs";
+// 2026-11-07：值班程序（她自己写的「盯梢」）——确定性检查长期值守，命中才唤醒。
+// 三件分开：duty 负责判定/限流/落盘，wake 负责命中后交 job-pool 跑一轮，api/tools 只做参数进出。
+import { createWatchDuty } from "./engine/watch-duty.mjs";
+import { createWatchWake } from "./engine/watch-wake.mjs";
+import { createWatchRoutes } from "./engine/watch-api.mjs";
+import { WATCH_TOOLS, createWatchToolExecutors } from "./engine/tools/watch-tools.mjs";
 import { createTurnProfiler } from "./engine/turn-profile.mjs";
 import { createMemWatch } from "./engine/mem-watch.mjs";
 import { installTimerWatch } from './engine/timer-watch.mjs';
@@ -566,6 +572,8 @@ const PUBLIC_DIR = path.join(__dirname, "public");
 
 // 时间引擎实例（启动时初始化；未初始化时相关 API 返回友好错误）
 let timeEngine = null;
+// 值班程序实例（启动时初始化；工具与 /api/watches 都通过它读写）
+let watchDuty = null;
 
 // ── 加载兼容适配器 SDK ─────────────────────────────────────────────
 // piPackage 为空时 pathToFileURL("") 会解析成启动目录，报出
@@ -1357,6 +1365,8 @@ const UNIFIED_TOOLS = [
   DELEGATE_TEAM_TOOL,
   FIX_PROBLEM_TOOL,
   NOTIFY_USER_TOOL,
+  // 2026-11-07：值班程序的四个工具（watch_create/watch_list/watch_pause/watch_delete）
+  ...WATCH_TOOLS,
   RUN_DETACHED_TOOL,
   JOB_STATUS_TOOL,
   OUTPUT_CHECK_TOOL,
@@ -1608,6 +1618,8 @@ const extraToolExecutors = {
       catch (e) { return { text: String(e?.message || e).slice(0, 120), isError: true } }
     },
     notify_user: (args, ctx) => execNotifyUser(notifier, args, ctx),
+    // 2026-11-07：值班程序（晚绑定：实例在启动阶段才创建，这里只挂执行器）
+    ...createWatchToolExecutors({ getDuty: () => watchDuty }),
     delegate_team: (args, ctx) => executeTeam(args, { ...ctx, wsRoot: WS_ROOT, model: ctx?.model || defaultModel }),
     // 2026-10-08 MCP 外部工具转发：mcp_ 前缀的工具调用路由到对应 MCP server
     ...Object.fromEntries(
@@ -5431,6 +5443,8 @@ const API_ROUTES = [
       return json(res, 200, stopWatch({ wsRoot: WS_ROOT, id: String(b?.id || '') }));
     } catch (e) { return json(res, 500, { ok: false, error: String(e?.message || e).slice(0, 160) }); }
   }],
+  // 2026-11-07：值班程序（她自己写的盯梢）——增删查暂停；值守本体在 engine/watch-duty.mjs
+  ...createWatchRoutes({ duty: () => watchDuty, json, readBody }),
   ["GET", "/api/docs/changes", (res) => {
     try {
       const data = readDocManifest(WS_ROOT);
@@ -7953,6 +7967,23 @@ ${rows.map((r) => `- [${r.status}${r.closed ? "/已结清" : ""}] ${r.text}\n  �
       }); // 技能自主沉淀钩子（09-03，Hermes 闭环）
       timeEngine.start();
     } catch (e) { console.log("[time-engine] 启动失败:", String(e?.message || e).slice(0, 100)); }
+    // 2026-11-07：值班程序——她自己写的「盯梢」：长期盯一件事，只有真的命中才唤醒她。
+    // 值守是确定性检查（命令/HTTP/文件/到点），不花模型；命中后走 jobPool 跑一轮 prompt（复用排队/限并发/取消），
+    // 结果经 notifier 推送、agent-mailbox 回执、追加进 记忆/运行时/值班日志.jsonl。
+    try {
+      const watchWake = createWatchWake({
+        wsRoot: WS_ROOT,
+        jobPool,
+        notifier,
+        postMessage,
+        logFile: path.join(WS_ROOT, "记忆", "运行时", "值班日志.jsonl"),
+        runTurn: (messages, opts = {}) => chatWithFailover(defaultModel, messages, { tools: UNIFIED_TOOLS, ...opts }),
+      });
+      watchDuty = createWatchDuty({ wsRoot: WS_ROOT, wake: watchWake, log: console });
+      watchDuty.start();
+      const wsum = watchDuty.summary();
+      console.log(`[watch-duty] 值班程序已启动：${wsum.active} 条在盯 / 共 ${wsum.total} 条（每 ${Math.round(wsum.tickMs / 1000)}s 检查一次，未命中零模型调用）`);
+    } catch (e) { console.log("[watch-duty] 启动失败:", String(e?.message || e).slice(0, 160)); }
     // 2026-10-26：崩在半路的自动补丁要还原——进程一死 rollback 就不会跑，补丁会留在工作树里
     try {
       const rb = reconcileDanglingSessions({ wsRoot: WS_ROOT });
