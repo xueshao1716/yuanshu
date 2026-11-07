@@ -7123,6 +7123,12 @@ const server = http.createServer(async (req, res) => {
       }
       return await handler(res, req, url, m);
     }
+    // 2026-11-07：/api/* 没有匹配到路由时，必须回 404 JSON。
+    // 之前会掉进下面的 SPA 兜底、回 index.html，前端 r.json() 就报 "Unexpected token '<'"，
+    // 看起来像"读取失败"，其实是"这个接口不存在"。
+    if (url.pathname.startsWith("/api/")) {
+      return json(res, 404, { error: `未知接口 ${req.method} ${url.pathname}` });
+    }
     // 路由表无匹配 → SPA fallback（GET 请求返回 index.html，让前端路由处理；非 GET 才 404）
     if (req.method === "GET") {
       if (reactStatic) { req.url = "/index.html"; return await reactStatic.handle(req, res); }

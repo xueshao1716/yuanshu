@@ -1,4 +1,5 @@
 import useSWR from 'swr'
+import { api } from '../api'
 import { Block, LoadState } from './shared'
 
 // 灵魂曲线 + 讨好曲线（2026-10-11 伙伴："这就是灵魂培养的样子"）：
@@ -25,7 +26,7 @@ const axisLabels = (days: CurveDay[]) => {
 export default function SoulCurves({ sessionId }: { sessionId: string }) {
   const curve = useSWR(
     ['emotion-curve', sessionId],
-    () => fetch(`/api/emotion/curve?sessionId=${encodeURIComponent(sessionId || '')}&days=14`).then(r => r.json()) as Promise<CurveData>,
+    () => api<CurveData>(`/api/emotion/curve?sessionId=${encodeURIComponent(sessionId || '')}&days=14`),
     { refreshInterval: 60000 },
   )
   const days = curve.data?.days || []
