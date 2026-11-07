@@ -2955,7 +2955,8 @@ async function handleChat(req, res, body) {
     // （母提示词 + 立绘动作说明）。两条内容不冲突：精简事实给"她现在什么样"，完整块给"立绘/母提示词从哪来"。
     try {
       const def = (() => { try { return loadPersonaDefinition(CONFIG.cwd)?.def || {}; } catch { return {}; } })();
-      const plan = planAppearanceInjection(message, def, { catalog: appearanceCatalog() });
+      // 母提示词同源：主（人格定义四项）在前，辅（记忆/外观.md）只补细节——见 engine/appearance-merge.mjs
+      const plan = planAppearanceInjection(message, def, { catalog: appearanceCatalog(), wsRoot: CONFIG.cwd });
       if (plan.fact) {
         await entry.agent?.sendCustomMessage?.(
           { customType: 'context', content: [{ type: 'text', text: plan.fact }] },

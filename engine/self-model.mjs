@@ -13,6 +13,7 @@ import path from 'node:path';
 import { loadPersonaDefinition } from './persona-def.mjs';
 import { loadSelfPolicy, spendToday as spendTodayOf } from './self-agency.mjs';
 import { summarizeProbeLog } from './harness-probe.mjs';
+import { mergeAppearance, loadAuxAppearance, AUX_SOURCE } from './appearance-merge.mjs';
 
 export const SELF_FILE = '记忆/自我.md';
 export const CONTACT_FILE = '记忆/运行时/主人联系.json';
@@ -94,6 +95,11 @@ export function buildSelfModel({ wsRoot, now = new Date() } = {}) {
   const scopes = (policy?.scopes || []).map(s => SCOPE_TEXT[s] || s);
   const closed = ['media', 'external'].filter(s => !(policy?.scopes || []).includes(s)).map(s => SCOPE_TEXT[s]);
 
+  // 2026-11-08：主（人格定义四项）定形，辅（记忆/外观.md）只补细节。
+  // 同一个 mergeAppearance 也用在出图母提示词与「画个你」，三处写法不会各说一套。
+  const designRaw = Object.fromEntries(DESIGN_FIELDS.map(([key]) => [key, designText(def[key])]));
+  const merged = mergeAppearance({ main: designRaw, aux: loadAuxAppearance(wsRoot).lines });
+
   return {
     name: def.name || '小语',
     called: def.called || '伙伴',
@@ -113,8 +119,11 @@ export function buildSelfModel({ wsRoot, now = new Date() } = {}) {
     probeSummary: summarizeProbeLog(wsRoot),
     contact: loadContact(wsRoot),
     inner: Array.isArray(def.inner) ? def.inner : [],
-    // 形象四项：定义里有一项就带上，全空时 renderSelfMarkdown 整段跳过
-    design: Object.fromEntries(DESIGN_FIELDS.map(([key]) => [key, designText(def[key])])),
+    // 形象四项：主里有一项就带上该项；主缺、辅有的项由合并结果补上（sources=aux）。
+    // appearanceSupplements 是辅里主没写的细节（发梢光效/徽章/画风…），全空时 renderSelfMarkdown 不出补充行。
+    design: merged.primary,
+    appearanceSources: merged.sources,
+    appearanceSupplements: merged.supplements,
     updatedAt: now.toISOString(),
   };
 }
@@ -168,16 +177,30 @@ export function renderSelfMarkdown(model) {
     L.push('');
   }
   // 2026-11-08：形象四项写进自我文件——先是我是什么人，再是我长什么样。
-  // 有任何一项就渲染；四项全空整段不输出（不留空标题）。定义里多行的描述压成一行，一条一项。
+  // 主（人格定义）四项在前；辅（记忆/外观.md）里主没写的细节作为「（补充）」跟在后面，
+  // 免得读者把补充当成主设定。任何一项/补充有内容就渲染；全空整段不输出（不留空标题）。
   const looks = DESIGN_FIELDS
-    .map(([key, label]) => [label, String(model.design?.[key] || '').trim().replace(/\s*\n\s*/g, ' ')])
-    .filter(([, text]) => text);
-  if (looks.length) {
+    .map(([key, label]) => [key, label, String(model.design?.[key] || '').trim().replace(/\s*\n\s*/g, ' ')])
+    .filter(([, , text]) => text);
+  const mainLooks = looks.filter(([key]) => (model.appearanceSources?.[key] || 'main') === 'main');
+  const supplements = (Array.isArray(model.appearanceSupplements) ? model.appearanceSupplements : [])
+    .map((item) => String(item?.text || '').trim())
+    .filter(Boolean);
+  if (looks.length || supplements.length) {
     L.push('## 我的样子');
     L.push('');
-    L.push('这是经批准的人物设计；我关于"自己长什么样"的回答以这里为准，不要用记忆里零散的描述重新推断。');
+    if (mainLooks.length) {
+      L.push('这是经批准的人物设计；我关于"自己长什么样"的回答以这里为准，不要用记忆里零散的描述重新推断。');
+    } else {
+      L.push('主设定（`记忆/人格定义.json`）里还没写形象，以下内容来自补充外观，不要当成经批准的主设定。');
+    }
+    if (supplements.length) L.push(`「（补充）」行来自 \`${AUX_SOURCE}\`，只补主里没写的细节；与主冲突时以主为准。`);
     L.push('');
-    for (const [label, text] of looks) L.push(`- ${label}：${text}`);
+    for (const [key, label, text] of looks) {
+      const fromAux = (model.appearanceSources?.[key] || 'main') === 'aux';
+      L.push(`- ${label}${fromAux ? `（补自 ${AUX_SOURCE}）` : ''}：${text}`);
+    }
+    for (const text of supplements) L.push(`- （补充）${text}`);
     L.push('');
   }
   L.push('## 我自己能决定什么');

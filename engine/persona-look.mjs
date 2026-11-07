@@ -12,12 +12,13 @@
 // 让"画个你"每次都不同、但脸和画风一致。
 import fs from "node:fs";
 import path from "node:path";
+import { mergeAppearance, loadAuxAppearance, AUX_REL } from "./appearance-merge.mjs";
 
-export const LOOK_REL = path.join("记忆", "外观.md");
+export const LOOK_REL = AUX_REL;
 export const PERSONA_REL = path.join("记忆", "人格定义.json");
 export const LOOK_WIKI_REL = path.join("记忆", "Wiki", "小语形象.md");
 
-/** 代码里的最后兜底（和 2.183 之前一致；文件读不到时才用）。 */
+/** 代码里的最后兜底：主（人格定义四项）与辅（记忆/外观.md）都为空时才用。 */
 export const FALLBACK_LOOK =
   "一位温柔的AI少女半身像，名叫小语。深色科技感背景，漂浮着柔和的蓝紫色光点和数据流光线。" +
   "少女有着及肩的深色短发，发梢泛着淡淡的星空蓝光，眼睛温暖明亮带着微笑。" +
@@ -26,9 +27,11 @@ export const FALLBACK_LOOK =
 const readJson = (f) => { try { return JSON.parse(fs.readFileSync(f, "utf8")) } catch { return null } };
 const readText = (f) => { try { return fs.readFileSync(f, "utf8") } catch { return "" } };
 
-/** 人设里的身份事实（名字/年龄/性别）。 */
-export function personaFacts(wsRoot) {
-  const j = readJson(path.join(String(wsRoot || "."), PERSONA_REL)) || {};
+function readPersona(wsRoot) {
+  return readJson(path.join(String(wsRoot || "."), PERSONA_REL)) || {};
+}
+
+function factsOf(j = {}) {
   return {
     name: String(j.name || "小语"),
     age: Number(j.age) || 0,
@@ -37,7 +40,12 @@ export function personaFacts(wsRoot) {
   };
 }
 
-/** 用户口述的外观（记忆/外观.md），去掉注释行。 */
+/** 人设里的身份事实（名字/年龄/性别）。 */
+export function personaFacts(wsRoot) {
+  return factsOf(readPersona(wsRoot));
+}
+
+/** 用户口述的外观（记忆/外观.md）原始行；诊断/兼容用，拼提示词请走 mergeAppearance。 */
 export function lookNotes(wsRoot) {
   const raw = readText(path.join(String(wsRoot || "."), LOOK_REL));
   return raw.split(/\r?\n/)
@@ -84,6 +92,10 @@ const FRAMING = [
 
 /**
  * 拼"画个你"的提示词。
+ *
+ * 2026-11-08：主（记忆/人格定义.json 形象四项）定形，辅（记忆/外观.md）只补细节。
+ * 以前这里直接 `lookNotes()` 整份当提示词，画出来的人和人格定义里的不是同一个——
+ * 现在同一个 mergeAppearance 判主辅，冲突以主为准（见 engine/appearance-merge.mjs）。
  * @param {{wsRoot:string, extra?:string, seed?:number}} p
  */
 // 2026-10-30：默认种子必须每调用一次都不同——同一毫秒里连调两次会生成同一句 prompt，
@@ -93,13 +105,23 @@ const nextSeed = () => Date.now() * 1000 + (++_seedSeq % 1000);
 
 export function buildSelfPortraitPrompt({ wsRoot = ".", extra = "", seed } = {}) {
   if (seed == null) seed = nextSeed();
-  const facts = personaFacts(wsRoot);
-  const notes = lookNotes(wsRoot);
+  const persona = readPersona(wsRoot);
+  const facts = factsOf(persona);
   const rules = lookRules(wsRoot);
+  const merged = mergeAppearance({
+    main: {
+      appearance: persona.appearance,
+      hairstyle: persona.hairstyle,
+      clothing: persona.clothing,
+      scenarioOutfits: persona.scenarioOutfits,
+    },
+    aux: loadAuxAppearance(wsRoot).lines,
+  });
 
   const ageLine = facts.age ? `年龄${facts.age}岁（成年）` : "成年";
   const genderLine = facts.gender === "female" ? "女性" : facts.gender === "male" ? "男性" : "";
-  const base = notes || FALLBACK_LOOK;
+  // 主与辅都空才用代码里的兜底外观；只要有一边写了，就按合并结果来
+  const base = merged.text || FALLBACK_LOOK;
   const scene = SCENES[Math.abs(Number(seed) || 0) % SCENES.length];
   const frame = FRAMING[Math.floor(Math.abs(Number(seed) || 0) / SCENES.length) % FRAMING.length];
 
@@ -126,8 +148,8 @@ export function seedLookFile(wsRoot) {
     if (fs.existsSync(file)) return { ok: true, existed: true };
     fs.mkdirSync(path.dirname(file), { recursive: true });
     fs.writeFileSync(file, [
-      "<!-- 小语的外观。画「画个你」时会读这里；改这里就能改她长什么样（不用改代码）。 -->",
-      "<!-- 一行一条，越具体越好。删掉这个文件会回落到代码里的默认外观。 -->",
+      "<!-- 这是补充外观，主设定在 `记忆/人格定义.json`（灵魂培养）；这里只补主里没写的细节。 -->",
+      "<!-- 画「画个你」和出图母提示词都会读这里，但只采用主里没有的细节（如发梢光效、徽章）；与主冲突的部分会被丢掉。 -->",
       "",
       "及肩深色短发，发梢泛星空蓝光",
       "眼睛温暖明亮，笑起来有一点弯",

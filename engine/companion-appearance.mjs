@@ -1,3 +1,5 @@
+import { mergeAppearance, loadAuxAppearance, DESIGN_FIELDS } from "./appearance-merge.mjs";
+
 // The visual companion is rendered by the frontend, but its semantic description
 // is a runtime fact that can be safely shared with the companion model.
 export const COMPANION_APPEARANCE = Object.freeze({
@@ -23,28 +25,27 @@ export function appearanceFor(action = 'neutral') {
 }
 
 /**
- * 用「人格定义」里的形象四项拼出图母提示词（2026-11-07）。
+ * 用「人格定义」里的形象四项拼出图母提示词（2026-11-07），
+ * 2026-11-08 起接上 mergeAppearance：**主（人格定义）定形，辅（记忆/外观.md）补细节**。
  *
  * 为什么要有：原来的 COMPANION_IDENTITY_PROMPT 是硬编码的（腰下超长直黑发、厚直刘海…），
  * 和 记忆/人格定义.json 里的形象描述是两套东西——改了定义，出图还是老样子，这就是"没有闭环"。
- * 现在定义里有哪几项就用哪几项，并保留不可协商的风格/安全约束；四项都没有才退回原常量。
+ * 现在定义里有哪几项就用哪几项；四项都没有时，才让 记忆/外观.md 顶上来（辅作主），
+ * 并保留不可协商的风格/安全约束。主与辅冲突时以主为准，辅只贡献主里没写的细节。
+ *
+ * @param {object} def 人格定义（记忆/人格定义.json）
+ * @param {{aux?: string|string[]|object, wsRoot?: string}} opts
+ *        aux 显式传入辅内容；不传且给了 wsRoot 时读 记忆/外观.md；都没有就只用主。
  */
-export function buildIdentityPrompt(def = {}) {
+export function buildIdentityPrompt(def = {}, { aux, wsRoot } = {}) {
   const d = def || {};
-  const pick = (k) => String(d[k] || "").trim();
-  const appearance = pick("appearance");
-  const hairstyle = pick("hairstyle");
-  const clothing = pick("clothing");
-  const scenario = pick("scenarioOutfits");
-  if (!appearance && !hairstyle && !clothing && !scenario) return COMPANION_IDENTITY_PROMPT;
-  const facts = [];
-  if (appearance) facts.push(`人物外貌：${appearance}`);
-  if (hairstyle) facts.push(`发型与发色：${hairstyle}`);
-  if (clothing) facts.push(`日常服装：${clothing}`);
-  if (scenario) facts.push(`场景穿搭：${scenario}`);
+  const main = Object.fromEntries(DESIGN_FIELDS.map(({ key }) => [key, d[key]]));
+  const auxSource = aux != null ? aux : (wsRoot ? loadAuxAppearance(wsRoot).lines : []);
+  const merged = mergeAppearance({ main, aux: auxSource });
+  if (!merged.text) return COMPANION_IDENTITY_PROMPT;
   return [
     "成年虚构东亚女性真人形象，真实皮肤纹理，不是动漫、卡通或CG。",
-    facts.join("；"),
+    merged.text,
     "。身份锚点是同一张脸、同样的发型、年龄感、体态比例与真人摄影质感；服装随场景自然变化，保持成年人外观与自然日常穿搭，不做色情化呈现。",
     "基准画面：冷白自然窗光与柔和正面补光，纪实编辑时尚摄影，保留环境留白与真实材质。",
     "禁止塑料磨皮、夸张性感姿势、私密部位裸露、额外肢体、文字和水印。",
@@ -123,13 +124,13 @@ export function buildAppearanceFact(def = {}) {
  * 本轮要注入的形象上下文（纯函数，聊天链路与测试共用同一份判断）。
  * @returns {{fact: string, full: string}} fact=常驻精简事实（任何消息都有）；full=命中关键词时的完整块
  */
-export function planAppearanceInjection(message, def = {}, { catalog = COMPANION_APPEARANCE, identityPrompt = "" } = {}) {
+export function planAppearanceInjection(message, def = {}, { catalog = COMPANION_APPEARANCE, identityPrompt = "", aux, wsRoot } = {}) {
   const fact = buildAppearanceFact(def);
   const hit = APPEARANCE_KEYWORDS.test(String(message || ""));
   let full = "";
   if (hit) {
     const lines = Object.entries(catalog).map(([action, item]) => `${item.label}（${action}）：${item.description}`).join("；");
-    const prompt = identityPrompt || buildIdentityPrompt(def);
+    const prompt = identityPrompt || buildIdentityPrompt(def, { aux, wsRoot });
     full = `【公仔形象事实】你不能直接看见图片，不要声称看到了图片。当前前端使用真人立绘，并按实时动作在这些外观之间切换：${lines}。这套真人形象的母提示词是：${prompt}。如果用户问“你自己的公仔长什么样”或“提示词是什么”，可以用自然语言概括这份母提示词；不要编造衣着、发型、背景等未提供细节。无法确定此刻动作时，明确说当前动作由界面实时状态决定。`;
   }
   return { fact, full };
