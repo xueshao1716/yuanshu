@@ -410,6 +410,22 @@ import { initSessionDb, sessionPinnedIds, handleDbList, handleDbRebuild, handleD
 import { repairSessionFile, repairSessionDir } from "./engine/session/repair.mjs";
 import { outputRoomTokens, headroomNote } from "./engine/context-headroom.mjs";
 import { loadPersonaDefinition, renderPersonaSection, syncAppendSystemPersona, syncAllSurfaces } from "./engine/persona-def.mjs";
+// 2026-11-07：人格块要同时写 agentDir 与工作区 .pi/——两边都可能被 pi 通道读到。
+// 只写 agentDir 就会出现"灵魂培养里改了外貌、她在微信里仍读旧形象"。
+const syncPersonaAppendAll = (def) => {
+  const targets = [];
+  try { targets.push(getAgentDir()); } catch {}
+  try {
+    const wsPi = path.join(CONFIG.cwd, ".pi");
+    if (fs.existsSync(path.join(wsPi, "APPEND_SYSTEM.md"))) targets.push(wsPi);
+  } catch {}
+  const out = [];
+  for (const dir of [...new Set(targets)]) {
+    const r = syncAppendSystemPersona(def, { agentDir: dir });
+    out.push({ dir, ok: r?.ok, changed: !!r?.changed, error: r?.error });
+  }
+  return out;
+};
 // 2026-10-25：人格段唯一解析点（定义 → 灵魂 → 自我 → 会话语气）。界面与注入同源。
 import { resolvePersona, personaMeta, personaPartText, setWorkspaceExpression, setSessionExpression, listExpressionHistory, rollbackExpression, EXPRESSION_PRESETS, MAX_EXPRESSION_CHARS } from "./engine/persona-resolve.mjs";
 import { voiceAllowedOrigins } from "./engine/network-endpoints.mjs";
@@ -4028,9 +4044,9 @@ setInterval(() => {
     const pd = loadPersonaDefinition(CONFIG.cwd);
     if (!pd?.problems?.length) {
       // pi 通道读的是 agentDir 下的 APPEND_SYSTEM.md（人格块）；其余端由 syncAllSurfaces 管。
-      const append = syncAppendSystemPersona(pd.def, { agentDir: getAgentDir() });
+      const append = syncPersonaAppendAll(pd.def);
       const surfaces = syncAllSurfaces(pd.def, { wsRoot: CONFIG.cwd }) || [];
-      const changed = [append?.changed ? "append" : "", ...surfaces.filter((x) => x.changed).map((x) => x.surface)].filter(Boolean);
+      const changed = [...(append.some((x) => x.changed) ? ["append"] : []), ...surfaces.filter((x) => x.changed).map((x) => x.surface)].filter(Boolean);
       if (changed.length) console.log(`[persona] 人格块落后于定义，已同步 ${changed.join("、")}`);
     }
   } catch (e) { console.log(`[persona] 同步核对失败（不阻塞）：${String(e?.message || e).slice(0, 100)}`) }
@@ -6227,11 +6243,11 @@ const API_ROUTES = [
     try {
       const pd = loadPersonaDefinition(CONFIG.cwd);
       if (pd?.problems?.length) return json(res, 400, { ok: false, error: pd.problems.join("；") });
-      const append = syncAppendSystemPersona(pd.def, { agentDir: getAgentDir() });
+      const append = syncPersonaAppendAll(pd.def);
       const surfaces = syncAllSurfaces(pd.def, { wsRoot: CONFIG.cwd }) || [];
-      const changed = [append?.changed ? "append" : "", ...surfaces.filter((x) => x.changed).map((x) => x.surface)].filter(Boolean);
+      const changed = [...(append.some((x) => x.changed) ? ["append"] : []), ...surfaces.filter((x) => x.changed).map((x) => x.surface)].filter(Boolean);
       if (changed.length) console.log(`[persona] 手工同步：${changed.join("、")}`);
-      return json(res, 200, { ok: true, changed, append: { ok: append?.ok, file: append?.file, error: append?.error }, surfaces });
+      return json(res, 200, { ok: true, changed, append, surfaces });
     } catch (e) { return json(res, 500, { ok: false, error: String(e?.message || e).slice(0, 160) }) }
   }],
   // 2026-10-25：人格段正文按需取（界面「查看全文」用；状态接口不再背全文）
@@ -8108,7 +8124,7 @@ ${rows.map((r) => `- [${r.status}${r.closed ? "/已结清" : ""}] ${r.text}\n  �
       if (pd.source !== 'file' || pd.problems.length || fs.existsSync(path.join(CONFIG.cwd, '记忆', '人格修订', 'write.lock'))) {
         console.log('  [persona] 来源不可靠或有未恢复事务，保留现有 APPEND_SYSTEM.md，跳过启动同步');
       } else {
-        const r = syncAppendSystemPersona(pd.definition, { agentDir: getAgentDir() });
+        const r = syncPersonaAppendAll(pd.definition);
         console.log(`  [persona] 来源 ${pd.source} → APPEND_SYSTEM.md ${r.error ? '同步失败：' + r.error : r.changed ? '已同步' : '已是最新'}`);
       }
     } catch (e) { console.log(`  [persona] 同步失败（不阻断启动）: ${String(e?.message || e).slice(0, 100)}`); }
