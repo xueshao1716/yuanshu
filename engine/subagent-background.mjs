@@ -54,9 +54,13 @@ export function createSubagentBackground({
   traceHistory = null,
   now = () => Date.now(),
   minPushMs = MIN_PUSH_MS,
+  // 2026-11-07：后台子代理也是"她自己发起的轮次"，需要可追 id + 名字。
+  // 注入 internal-rounds 后，每跑一轮建一条内部 run；没注入保持旧行为。
+  rounds = null,
 } = {}) {
   if (!pool || typeof pool.submit !== "function") throw new Error("后台子代理必须注入 job-pool（不许自造调度器）");
   if (typeof spawn !== "function") throw new Error("后台子代理必须注入 spawn 执行器");
+  const roundService = rounds && typeof rounds.begin === "function" ? rounds : null;
   const root = String(wsRoot || ".");
   const records = new Map();
   const pendingPushes = new Set();
@@ -112,11 +116,22 @@ export function createSubagentBackground({
       if (record.status === "queued") applyTransition(record, "running");
       record.attempts = (Number(record.attempts) || 0) + 1;
       record.startedAt = record.startedAt || iso(now());
+      // 每跑一轮（含续聊）建一条内部 run：id/title 进审计行，看门狗才能指认这条后台活。
+      const round = roundService ? roundService.begin({
+        kind: "subagent",
+        refId: record.id,
+        // 有 name 用 name；没有就退回任务文本（deriveRunTitle 会清洗命令/换行）。
+        title: record.name || "",
+        task,
+        surface: "subagent",
+        meta: { role: record.role, attempt: record.attempts, parentSessionId: record.parentSessionId },
+      }) : null;
+      if (round) record.internalRunId = round.runId;
       save(record);
       const startedAt = now();
       let outcome;
       try {
-        outcome = await spawn({
+        const runSpawn = () => spawn({
           task,
           context,
           seed,
@@ -130,10 +145,23 @@ export function createSubagentBackground({
           // 父轮次结束不该带走后台任务，所以 start() 从不接收调用方的 abort signal。
           signal,
         });
+        outcome = await (round ? round.enter(runSpawn) : runSpawn());
       } catch (error) {
         outcome = { done: false, error: String(error?.message || error).slice(0, 800) };
       }
-      return settle(record, outcome, startedAt);
+      let summary = "";
+      try {
+        summary = settle(record, outcome, startedAt);
+      } catch (error) {
+        // 连收尾都没写成也不能把内部 run 永远挂在 running
+        round?.fail(error);
+        throw error;
+      }
+      if (round) {
+        const finalStatus = record.status === "done" ? "completed" : record.status === "cancelled" ? "stopped" : "failed";
+        round.finish(finalStatus, { error: record.error, errorCode: record.errorCode });
+      }
+      return summary;
     });
     record.jobId = job?.id || record.jobId || "";
     // job-pool 的 pump() 是同步跑的：有空槽时这里已经是 running，把状态如实写上，
@@ -245,19 +273,22 @@ export function createSubagentBackground({
       state: record.status,
       queued: record.status === "queued",
       jobId: job?.id || record.jobId || "",
+      internalRunId: record.internalRunId || "",
       task: record.task,
       timeoutMs: record.timeoutMs || null,
     };
   }
 
   function start({ task, context = [], seed = [], role = "analyst", sessionId = "", runId = "", parentAgent = DEFAULT_PARENT_AGENT,
-    model = null, profile = "research", timeoutMs = BACKGROUND_TIMEOUT_MS } = {}) {
+    model = null, profile = "research", timeoutMs = BACKGROUND_TIMEOUT_MS, name = "" } = {}) {
     const text = String(task || "").trim();
     if (!text) return failure("invalid_input", "后台子代理需要非空 task");
     const at = now();
     seq += 1;
     const record = {
       id: `subagent-bg-${at.toString(36)}-${seq}-${Math.random().toString(36).slice(2, 8)}`,
+      // 2026-11-07：给人看的短名（看门狗/通知里指认这次派活）；没给就用任务文本兜底。
+      name: String(name || "").slice(0, 120),
       parentSessionId: String(sessionId || "").slice(0, 120),
       parentAgent: String(parentAgent || DEFAULT_PARENT_AGENT).slice(0, 40),
       parentRunId: String(runId || "").slice(0, 120),
@@ -363,8 +394,10 @@ export function createSubagentBackground({
       source: "registry",
       parent: { sessionId: parentSessionId, agent: String(record.parentAgent || "") },
       parentSessionId,
+      name: String(record.name || ""),
       role: record.role,
       status: record.status,
+      internalRunId: String(record.internalRunId || ""),
       startedAt: record.startedAt || record.createdAt || "",
       endedAt: record.endedAt || "",
       durationMs: Number(record.durationMs) || 0,

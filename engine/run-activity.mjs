@@ -19,17 +19,19 @@ export function createRunActivityReader(runsDir) {
         const file = path.join(runsDir, name);
         const stamp = fingerprint(await fs.promises.stat(file, { bigint: true }));
         const cached = cache.get(name);
-        if (cached?.stamp === stamp) return cached.activity;
+        if (cached?.stamp === stamp) return cached;
         const run = JSON.parse(await fs.promises.readFile(file, 'utf8'));
         if (!run || typeof run.id !== 'string' || !run.id.trim()
             || typeof run.sessionId !== 'string' || !run.sessionId.trim()
             || typeof run.status !== 'string' || !run.status.trim()) throw new Error('invalid_run_observation');
         if (fingerprint(await fs.promises.stat(file, { bigint: true })) !== stamp) throw new Error('run_changed_during_observation');
         const activity = { id: run.id, sessionId: run.sessionId, status: run.status };
-        cache.set(name, { stamp, activity });
-        return activity;
+        // 内部轮次（定时任务/子代理/值班）默认不算“用户可见的活动运行”。
+        const value = { stamp, activity, internal: run.kind === 'internal' };
+        cache.set(name, value);
+        return value;
       }));
-      observed.push(...batch.filter(run => ACTIVE.has(run.status)).map(run => ({ ...run })));
+      observed.push(...batch.filter(entry => !entry.internal && ACTIVE.has(entry.activity.status)).map(entry => ({ ...entry.activity })));
     }
     return observed;
   };

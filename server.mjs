@@ -193,7 +193,8 @@ import { sseWrite, createSseWriter, startSseHeartbeat } from "./engine/sse.mjs";
 import { json, readBody } from "./engine/http-utils.mjs";
 import { observeHttpRequest, respondHttpError } from "./engine/http-lifecycle.mjs";
 import { mediaObservations } from "./engine/media/observations.mjs";
-import { createRunStore } from "./engine/run-store.mjs";
+import { createRunStore, runTitleOf } from "./engine/run-store.mjs";
+import { createInternalRounds } from "./engine/internal-rounds.mjs";
 import { createRunEventLog } from "./engine/run-event-log.mjs";
 import { createRunManager } from "./engine/run-manager.mjs";
 import { isMotherExecutionCandidate } from "./engine/run-execution-identity.mjs";
@@ -961,6 +962,16 @@ try { bindOutputGuardDeps({ readEntriesFromFile, extractText }); } catch {}
 const AGENT_DIR = getAgentDir();
 const AUTH_PATH = path.join(AGENT_DIR, "auth.json");
 const MODELS_PATH = path.join(AGENT_DIR, "models-store.json");
+// ── 运行存储 / 动作审计 / 内部轮次（2026-11-07 提前到这里）──
+// 后台子代理在下面 ~1170 就要拿到 internalRounds，所以三件东西必须在它之前就位；
+// 它们只依赖 AGENT_DIR/WS_ROOT，不依赖中间的任何模块，提前创建不改变启动语义。
+const RUNS_DIR = path.join(AGENT_DIR, "yuanshu-runs");
+const RUN_INSTANCE_ID = `${process.pid}-${Date.now().toString(36)}`;
+// 动作审计闸门（对应 OpenBot「没有记录就不许行动」）：每次工具调用先落一行，写不进去就拒绝执行。
+const auditGate = createAuditGate({ wsRoot: WS_ROOT });
+const runStore = createRunStore({ rootDir: RUNS_DIR });
+// 她自己发起的轮次（定时任务/后台子代理/值班唤醒）复用 run-store（kind:'internal'，默认不进用户列表）。
+const internalRounds = createInternalRounds({ runStore, auditGate, ownerId: RUN_INSTANCE_ID });
 // AIBody 是全系统运行协调层：它观察主任务、记忆、角色和子任务的真实事件，
 // 不替代既有基因/情绪/记忆实现，也不把文件存在性当作运行证据。
 const aibodyRuntime = createAIBodyRuntime({
@@ -1174,6 +1185,8 @@ const subagentBg = (() => {
       wsRoot: WS_ROOT,
       pool: jobPool,
       spawn: (params) => subagent.spawnSubagent(params),
+      // 2026-11-07：每条后台子代理轮次建内部 run（id/title 进审计，看门狗可指认）。
+      rounds: internalRounds,
       traceHistory: ({ limit }) => subagent.getSubagentHistory({ limit }),
       push: async (receipt, record) => {
         // 只推应用内/系统通知，不发微信：子代理回执多数是"干活中间态"，别拿它刷微信
@@ -1571,6 +1584,7 @@ const extraToolExecutors = {
         if (!subagentBg) return { text: "后台子代理未初始化，无法转后台；请用同步方式派或查启动日志", isError: true };
         const out = subagentBg.start({
           task,
+          name: String(args?.name || "").slice(0, 60),
           context: Array.isArray(args?.context) ? args.context : [],
           role: args?.role,
           sessionId: ctx?.sessionId || "",
@@ -1806,7 +1820,7 @@ const _rawExecuteUnifiedTool = createUnifiedToolExecutorGuarded({
 
 // 2026-10-30：动作审计闸门（对应 OpenBot「没有记录就不许行动」）。
 // 每次工具调用先落一行，写不进去就拒绝执行——除非显式 YUANSHU_AUDIT_SOFT=1。
-const auditGate = createAuditGate({ wsRoot: WS_ROOT });
+// （闸门实例在文件上部与 runStore/internalRounds 一起创建，后台子代理也要用。）
 // 2026-10-30：带上默认策略——定时任务不许删东西/对外发消息，人让做的照常
 // 2026-10-30：策略从文件读（记忆/运行时/动作策略.json），改完立刻生效，不用重启。
 
@@ -3651,8 +3665,6 @@ function handleAgentStatus(res) {
   json(res, 200, { busy, anyBusy: busy.length > 0 });
 }
 
-const RUNS_DIR = path.join(AGENT_DIR, "yuanshu-runs");
-const RUN_INSTANCE_ID = `${process.pid}-${Date.now().toString(36)}`;
 // 被压缩掉的工具结果原件归档到 agent 目录（与 pi-web-runs 同级）——
 // 不进用户工作区、不污染生成物，但给出的是**可执行的**回读路径。
 initToolResultArchive({ root: path.join(AGENT_DIR, "yuanshu-tool-results") });
@@ -3661,23 +3673,11 @@ initToolResultArchive({ root: path.join(AGENT_DIR, "yuanshu-tool-results") });
 // 外层再套跨进程锁文件（锚在 AGENT_DIR，所有元枢进程默认落到同一处，不 init 也一致）。
 initFileLock({ withFileMutationQueue, dir: path.join(AGENT_DIR, "yuanshu-locks") });
 console.log(`  🔒 文件写队列: ${usingSharedFileQueue() ? "与 Pi 共用" : "自带实现（未拿到 Pi 的队列）"} · 跨进程锁目录 ${path.join(AGENT_DIR, "yuanshu-locks")}`);
-const runStore = createRunStore({ rootDir: RUNS_DIR });
 // 2026-11-07：看门狗只拿到 runId，伙伴认不出是哪件事。这里给判断层注入一个只读查询：
-// 新 run 直接用存下的 title；老 run（没有 title）按同一套规则从消息预览补一个。
+// 新 run（含定时任务/子代理/值班这三类内部轮次）直接用存下的 title；
+// 老 run 按同一套规则从消息预览补一个；内部轮次则从 internal 元数据补（label/name/task）。
 // 查不到/读盘失败 → 空串（不猜），通知里会明说「这轮没带名字」。
-const runTitleForWatchdog = (runId) => {
-  try {
-    const run = runStore.get(runId);
-    if (!run) return "";
-    if (run.title) return String(run.title);
-    const at = Date.parse(String(run.createdAt || ""));
-    return deriveRunTitle({
-      message: run.input?.messagePreview || "",
-      surface: run.surface,
-      at: Number.isFinite(at) ? at : undefined,
-    });
-  } catch { return ""; }
-};
+const runTitleForWatchdog = (runId) => runTitleOf(runStore, runId);
 // 2026-10-22：服务被强杀后，run 记录会停在 queued/running/stopping，
 // 新消息被判 session_busy（前端只看到"执行中/状态待同步"），实际后台什么都没跑。
 // 启动时把"重启前就在跑、且 90 秒没更新"的记录收成 interrupted，避免假占用。
@@ -3685,12 +3685,15 @@ try {
   // 2026-10-22 修正：按"归属实例"判定，而不是按时间。
   // 进程刚启动，任何"属于别的实例"的活跃运行都是上一次进程的遗留（哪怕几秒前还在写），
   // 必须立刻收尾——否则用户更新/重启后马上发消息，会被一条刚断气的运行挡住 90 秒甚至更久。
-  const stale = runStore.list().filter((r) => {
+  // 2026-11-07：内部轮次（定时任务/子代理/值班）也要一起收尾，否则会永远停在 running。
+  const stale = runStore.list({ includeInternal: true }).filter((r) => {
     if (!['queued', 'running', 'stopping'].includes(String(r.status))) return false;
     return String(r.ownerId || '') !== RUN_INSTANCE_ID;
   });
   for (const r of stale) {
-    runStore.update(r.id, { status: 'interrupted', phase: 'interrupted', error: 'server_restarted', updatedAt: new Date().toISOString() });
+    // 内部轮次走同一套终态收尾（带 endedAt/durationMs），不再只改 status。
+    if (r.kind === 'internal') runStore.finishInternal(r.id, { status: 'interrupted', error: 'server_restarted' });
+    else runStore.update(r.id, { status: 'interrupted', phase: 'interrupted', error: 'server_restarted', updatedAt: new Date().toISOString() });
     console.log(`[recover] 残留运行收尾 ${r.id.slice(0, 8)}（${r.status}）→ interrupted`);
   }
 } catch (e) { console.log('[recover] 残留运行清理跳过:', String(e?.message || e).slice(0, 100)); }
@@ -6093,6 +6096,7 @@ const API_ROUTES = [
       if (!subagentBg) return json(res, 503, { error: "后台子代理未初始化（见启动日志）" });
       const out = subagentBg.start({
         task: b.task,
+        name: String(b.name || "").slice(0, 60),
         context: Array.isArray(b.context) ? b.context : [],
         role: b.role,
         sessionId: b.sessionId || "",
@@ -7920,6 +7924,8 @@ ${rows.map((r) => `- [${r.status}${r.closed ? "/已结清" : ""}] ${r.text}\n  �
         }
         return String(out);
       }, {
+        // 2026-11-07：定时任务也是她自己的轮次——每跑一次建内部 run，审计行带 id+label 标题。
+        rounds: internalRounds,
         onTaskDone: (info) => nudgeSkill(info),
         // 定时任务失败一定告诉用户；成功只在任务本身标了 notify 时才打扰（内部复盘/做梦天天跑，不该刷屏）
         onTaskFinished: (t) => {
@@ -8027,6 +8033,8 @@ ${rows.map((r) => `- [${r.status}${r.closed ? "/已结清" : ""}] ${r.text}\n  �
         postMessage,
         logFile: path.join(WS_ROOT, "记忆", "运行时", "值班日志.jsonl"),
         allTools: UNIFIED_TOOLS,
+        // 2026-11-07：唤醒轮建内部 run，审计行带 watchId 与 watch 名字。
+        rounds: internalRounds,
         runTurn: (messages, opts = {}) => chatWithFailover(defaultModel, messages, { tools: UNIFIED_TOOLS, ...opts }),
       });
       watchDuty = createWatchDuty({ wsRoot: WS_ROOT, wake: watchWake, log: console });

@@ -135,9 +135,13 @@ export function createWatchWake({
   allTools = null,
   now = () => Date.now(),
   log = console,
+  // 2026-11-07：唤醒轮也是"她自己发起的轮次"，要可追 id + 名字（内部 run）。
+  // 没注入就保持旧行为；注入后每轮在审计里留 round_start/round_end。
+  rounds = null,
 } = {}) {
   if (!jobPool || typeof jobPool.submit !== "function") throw new Error("createWatchWake 需要 jobPool（复用后台作业池）");
   if (typeof runTurn !== "function") throw new Error("createWatchWake 需要 runTurn（唤醒后跑一轮对话）");
+  const roundService = rounds && typeof rounds.begin === "function" ? rounds : null;
 
   return function wake({ watch = {}, hit = {} } = {}) {
     const deferred = hit?.deferred === true;
@@ -149,14 +153,28 @@ export function createWatchWake({
       { kind: "watch", title: `值班：${String(watch.name || watch.id || "盯梢").slice(0, 40)}` },
       async (signal) => {
         const t0 = now();
+        // 名字优先取 watch.name（deriveRunTitle 的第③/④优先级），没有就退回 id。
+        const round = roundService ? roundService.begin({
+          kind: "watch",
+          refId: watch.id || "",
+          name: watch.name || watch.id || "值班唤醒",
+          surface: "watch",
+          meta: { deferred, reason: hit?.reason || "", jobId: handle?.id || "" },
+        }) : null;
         try {
           const messages = composeWakeMessages(watch, hit, { now: t0, tools: scope?.tools || null });
           const turnOpts = { signal };
           // 空数组在 unifiedChat 里会被当成「有工具表但为空」，部分上游会 400；
           // 显式 tools:false 才是「这一轮没有工具」的正确表达。
           if (scope) turnOpts.tools = scope.tools.length ? scope.tools : false;
-          const raw = await runTurn(messages, turnOpts);
+          const runOnce = () => runTurn(messages, turnOpts);
+          const raw = await (round ? round.enter(runOnce) : runOnce());
           const text = String(completedTaskText(raw) || "").trim().slice(0, 6000) || "（这一轮没有输出）";
+          // 已经 abort 的一轮即使上游还回了文本，也按取消收尾（不能写 completed）。
+          round?.finish(signal?.aborted ? "stopped" : "completed", {
+            resultPreview: text.slice(0, 200),
+            ...(signal?.aborted ? { error: "已取消", errorCode: "cancelled" } : {}),
+          });
           const body = text.slice(0, 600);
           try {
             await notifier?.notify?.({
@@ -177,19 +195,21 @@ export function createWatchWake({
               to: "小语",
               kind: "alert",
               text: `${deferred ? "【补跑】" : ""}「${watch.name || watch.id}」${label}：${hit?.reason || "命中"}\n${text.slice(0, 1500)}`,
-              meta: { watchId: watch.id || "", jobId: handle?.id || "", kind: watch.kind || "", deferred },
+              meta: { watchId: watch.id || "", jobId: handle?.id || "", kind: watch.kind || "", deferred, runId: round?.runId || "" },
             });
           } catch (e) {
             log.warn?.(`[watch-wake] 留言板回执失败：${String(e?.message || e).slice(0, 120)}`);
           }
           appendWatchLog(logFile, {
-            event: "wake_done", watchId: watch.id || "", jobId: handle?.id || "",
+            event: "wake_done", watchId: watch.id || "", jobId: handle?.id || "", runId: round?.runId || "",
             deferred, ms: now() - t0, text: text.slice(0, 800),
           }, now());
           return text;
         } catch (e) {
           const err = String(e?.message || e).slice(0, 300);
-          appendWatchLog(logFile, { event: "wake_error", watchId: watch.id || "", jobId: handle?.id || "", deferred, error: err }, now());
+          // 取消（job-pool abort）与真失败要分开收尾，但都写终态。
+          round?.finish(signal?.aborted ? "stopped" : "failed", { error: err });
+          appendWatchLog(logFile, { event: "wake_error", watchId: watch.id || "", jobId: handle?.id || "", runId: round?.runId || "", deferred, error: err }, now());
           try {
             await notifier?.notify?.({
               kind: "watch",

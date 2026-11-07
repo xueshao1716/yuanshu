@@ -21,6 +21,9 @@ export function createTimeEngine(runner, opts = {}) {
   const taskFile = opts.file || DEFAULT_TASKS_FILE;
   const onTaskFinished = opts.onTaskFinished || null; // 主动通知钩子：每次终态（含失败/停止）都回调，fire-and-forget
   const onTaskDone = opts.onTaskDone || null; // 技能沉淀钩子（09-03）：任务成功完成后 fire-and-forget，不阻塞
+  // 2026-11-07：她自己发起的这次执行也要有可追 id + 名字（内部 run，复用 run-store）。
+  // 没注入就保持旧行为——调度语义与测试都不受影响。
+  const rounds = opts.rounds && typeof opts.rounds.begin === "function" ? opts.rounds : null;
   let tasks = [];
   let timer = null;
   const running = new Map(); // taskId → queueId（执行身份）
@@ -97,9 +100,10 @@ export function createTimeEngine(runner, opts = {}) {
   function archive(id) { return setState(id, "archived"); }
 
   // ── 执行身份与运行历史 ──
-  function recordRun(t, queueId, startedAt, status, result) {
+  function recordRun(t, queueId, startedAt, status, result, runId = "") {
     t.history = t.history || [];
-    t.history.unshift({ queueId, startedAt, durationMs: Date.now() - startedAt, status, result: String(result || "").slice(0, RESULT_CAP) });
+    // runId = 内部 run 的可追 id（看门狗/审计行用它指认这次执行）；老记录没有这个字段也不影响读取。
+    t.history.unshift({ queueId, runId, startedAt, durationMs: Date.now() - startedAt, status, result: String(result || "").slice(0, RESULT_CAP) });
     if (t.history.length > HISTORY_CAP) t.history.length = HISTORY_CAP;
   }
 
@@ -108,6 +112,15 @@ export function createTimeEngine(runner, opts = {}) {
     const queueId = randomUUID().slice(0, 12);
     const startedAt = Date.now();
     const controller = new AbortController();
+    // 先建内部轮次：成功/失败/取消都要在 finally 收尾（不能只有开始）。
+    const round = rounds ? rounds.begin({
+      kind: "time",
+      refId: t.id,
+      title: t.title || "",
+      label: t.label || "",
+      surface: "cron",
+      meta: { queueId, trigger },
+    }) : null;
     running.set(t.id, queueId);
     controllers.set(t.id, controller);
     stopRequested.delete(t.id);
@@ -116,7 +129,10 @@ export function createTimeEngine(runner, opts = {}) {
     save();
     let status = "ok", result = "";
     try {
-      const out = runner ? await runner({ ...t, firedAt: new Date().toISOString(), queueId, trigger }, controller.signal) : null;
+      const runOnce = () => (runner ? runner({ ...t, firedAt: new Date().toISOString(), queueId, trigger, internalRunId: round?.runId || "" }, controller.signal) : null);
+      // round.enter 用 AsyncLocalStorage 把这一轮的 id/title 带进工具审计；
+      // 没有内部轮次（未注入 rounds 或写盘失败）就跑原来的路径。
+      const out = round ? await round.enter(runOnce) : await runOnce();
       result = typeof out === "string" ? out : (out?.text ?? out?.result ?? "");
     } catch (e) {
       status = "error";
@@ -131,9 +147,14 @@ export function createTimeEngine(runner, opts = {}) {
       else if (!confirmed) status = status === "error" ? "error" : "stopped";
       t.lastRun = new Date(startedAt).toISOString();
       t.runs = (t.runs || 0) + 1;
-      recordRun(t, queueId, startedAt, status, result);
+      recordRun(t, queueId, startedAt, status, result, round?.runId || "");
       if (t.type === "once" && t.state === "active") t.state = "done"; // 一次性完成自动入档
       save();
+      // 收尾内部 run：ok→completed、error→failed、stopped→stopped（取消也写终态）。
+      if (round) {
+        const finalStatus = status === "ok" ? "completed" : status === "stopped" ? "stopped" : "failed";
+        round.finish(finalStatus, { error: finalStatus === "completed" ? "" : result });
+      }
       if (onTaskFinished) {
         try { Promise.resolve(onTaskFinished({ id: t.id, label: t.label || String(t.prompt || "").slice(0, 60), title: t.title || "", status, result: String(result || "").slice(0, 400), notify: t.notify === true, trigger })).catch(() => {}); } catch {}
       }

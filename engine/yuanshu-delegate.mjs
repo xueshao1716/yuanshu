@@ -12,6 +12,7 @@ export const DELEGATE_TASK_TOOL = {
       type: "object",
       properties: {
         task: { type: "string", description: "子任务：要做什么、输出什么结论" },
+        name: { type: "string", description: "可选：给这次派活起个短名（≤40 字）。看门狗/通知用它指认这一轮；不填就用 task 文本。" },
         context: { type: "array", items: { type: "string" }, description: "最小必要上下文，不要贴整段历史" },
         role: { type: "string", enum: ["analyst", "planner", "reviewer"], description: "analyst 查证 / planner 拆方案 / reviewer 复核；仅用于记录与展示" },
         agent_id: { type: "string", description: "可选：改派给自己培养的个体（cultivation agents 里状态 ready 的 id）。个体是纯文本、无工具，用它自己的设计和模型作答，结果带独立验证结论；不填则派只读研究员" },

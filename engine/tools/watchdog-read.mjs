@@ -37,6 +37,11 @@ function shortId(id) {
   return s.length > 12 ? s.slice(0, 8) : s;
 }
 
+/** 内部轮次的会话名（internal:time:…）对人不说明问题，转述时省掉。 */
+function isInternalSession(id) {
+  return /^internal:/i.test(text(id));
+}
+
 /** 把一条 issue 写成两句人话：哪一轮（有名字先说名字）+ 最近一次长什么样。 */
 function issueSentence(issue) {
   const detail = text(issue?.detail || issue?.reason || issue?.code) || "有一处偏离";
@@ -53,10 +58,10 @@ function issueSentence(issue) {
   const named = title ? `，任务「${title}」` : "";
 
   if (issue?.runId) {
-    const session = issue?.sessionId ? `，会话 ${shortId(issue.sessionId)}` : "";
+    const session = issue?.sessionId && !isInternalSession(issue.sessionId) ? `，会话 ${shortId(issue.sessionId)}` : "";
     return `${start ? clock(start) : "时间不明"} 开始的那一轮（run ${shortId(issue.runId)}${named}${session}${more}）里，${detail}。${latest}`;
   }
-  if (issue?.sessionId) {
+  if (issue?.sessionId && !isInternalSession(issue.sessionId)) {
     return `${start ? clock(start) : "时间不明"} 开始的那一轮（会话 ${shortId(issue.sessionId)}${named}${more}）里，${detail}。${latest}`;
   }
   if (issue?.taskId) {
