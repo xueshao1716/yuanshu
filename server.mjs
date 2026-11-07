@@ -153,6 +153,8 @@ import { startSession, finishSession, abortSession, wtPath } from "./engine/self
 import { detectDrift, recordDriftCheck, recentDrift } from "./engine/watchdog-drift.mjs";
 // 2026-11-07：偏离从「记账」到「介入」——同类问题 4 小时冷却，不自动杀任务
 import { shouldEscalate, composeDriftNotice, readLastNotified, recordNotified } from "./engine/drift-escalation.mjs";
+// 2026-11-07：带 id 的跑偏事件（通知 / 接口 / watchdog_read 都查同一份）
+import { recordDriftIncident, latestDriftIncident, getDriftIncident } from "./engine/watchdog-incidents.mjs";
 import { setSelfChangeRoot, getSelfChangeRoot } from "./engine/tools/unified-tools.mjs";
 import { setSelfChangeWriteRoot } from "./engine/workspace-api.mjs";
 import { beginSnapshot, finishSnapshot, rollbackSnapshot, beginFsSnapshot, finishFsSnapshot } from "./engine/self-change-main.mjs";
@@ -295,6 +297,8 @@ import { createWatchDuty } from "./engine/watch-duty.mjs";
 import { createWatchWake } from "./engine/watch-wake.mjs";
 import { createWatchRoutes } from "./engine/watch-api.mjs";
 import { WATCH_TOOLS, createWatchToolExecutors } from "./engine/tools/watch-tools.mjs";
+// 2026-11-07：用户追问「刚才哪件事跑偏了」时，模型用这个只读工具接话
+import { WATCHDOG_READ_TOOL, createWatchdogReadExecutors } from "./engine/tools/watchdog-read.mjs";
 import { createTurnProfiler } from "./engine/turn-profile.mjs";
 import { createMemWatch } from "./engine/mem-watch.mjs";
 import { installTimerWatch } from './engine/timer-watch.mjs';
@@ -1367,6 +1371,8 @@ const UNIFIED_TOOLS = [
   NOTIFY_USER_TOOL,
   // 2026-11-07：值班程序的四个工具（watch_create/watch_list/watch_pause/watch_delete）
   ...WATCH_TOOLS,
+  // 2026-11-07：查最近一次看门狗跑偏事件（回答「刚才哪件事跑偏了」）
+  WATCHDOG_READ_TOOL,
   RUN_DETACHED_TOOL,
   JOB_STATUS_TOOL,
   OUTPUT_CHECK_TOOL,
@@ -1620,6 +1626,8 @@ const extraToolExecutors = {
     notify_user: (args, ctx) => execNotifyUser(notifier, args, ctx),
     // 2026-11-07：值班程序（晚绑定：实例在启动阶段才创建，这里只挂执行器）
     ...createWatchToolExecutors({ getDuty: () => watchDuty }),
+    // 2026-11-07：看门狗事件只读查询（工作区固定，直接注入）
+    ...createWatchdogReadExecutors({ wsRoot: WS_ROOT }),
     delegate_team: (args, ctx) => executeTeam(args, { ...ctx, wsRoot: WS_ROOT, model: ctx?.model || defaultModel }),
     // 2026-10-08 MCP 外部工具转发：mcp_ 前缀的工具调用路由到对应 MCP server
     ...Object.fromEntries(
@@ -4067,8 +4075,11 @@ setInterval(() => {
     const rows = (auditGate?.tail ? auditGate.tail(300) : []) || [];
     const res = detectDrift(rows, { now: Date.now() });
     recordDriftCheck(WS_ROOT, res);
+    // 2026-11-07：每次真判出偏离都落一条带 id 的事件——通知正文、接口、watchdog_read 查的是同一件事。
+    const incidentOut = res.drift ? recordDriftIncident(WS_ROOT, res, { rows }) : null;
+    const incidentId = incidentOut?.ok ? incidentOut.incident.id : "";
     if (res.drift) {
-      console.log(`[watchdog] 偏离：${res.issues.map((i) => i.detail).join('；')}`);
+      console.log(`[watchdog] 偏离：${res.issues.map((i) => i.detail).join('；')}${incidentId ? `（事件 ${incidentId}）` : ""}`);
       // 2026-11-07：从「记账」到「介入」——同类问题 4 小时冷却，而且必须花主动预算，不额外打扰。
       // 只提醒、不动任务：误伤长任务的代价高于多等一轮。
       const esc = shouldEscalate({ drift: true, issues: res.issues, last: readLastNotified(WS_ROOT) });
@@ -4082,7 +4093,7 @@ setInterval(() => {
           recordNotified(WS_ROOT, esc.key);
           void notifier.notify({
             kind: "watchdog", title: "元枢 · 有一轮活可能跑偏",
-            body: composeDriftNotice(res.issues), key: `watchdog-drift:${esc.key}:${day}`, toWechat: true,
+            body: composeDriftNotice(res.issues, { incidentId }), key: `watchdog-drift:${esc.key}:${day}`, toWechat: true,
           }).catch(() => {});
           console.log(`[watchdog] 已提醒（${esc.key}）：${esc.reason}`);
         }
@@ -4742,6 +4753,20 @@ const API_ROUTES = [
   }],
   // 2026-11-02：看门狗判偏结果（只读）
   ["GET", "/api/watchdog/drift", (res, req, url) => json(res, 200, { ok: true, items: recentDrift(WS_ROOT, Math.min(100, Number(url.searchParams.get("limit")) || 20)) })],
+  // 2026-11-07：带 id 的跑偏事件——最新一条 / 按 id 取（只读，和推送正文里的链接一致）
+  ["GET", "/api/watchdog/drift/latest", (res) => {
+    const item = latestDriftIncident(WS_ROOT);
+    return item
+      ? json(res, 200, { ok: true, ...item })
+      : json(res, 404, { ok: false, error: "还没有看门狗事件（可能还没判出过偏离）" });
+  }],
+  ["GET", /^\/api\/watchdog\/drift\/([^/]+)$/, (res, req, url, m) => {
+    const id = decodeURIComponent(String(m?.[1] || ""));
+    const item = getDriftIncident(WS_ROOT, id);
+    return item
+      ? json(res, 200, { ok: true, ...item })
+      : json(res, 404, { ok: false, error: `没有这条看门狗事件：${id}` });
+  }],
   // 2026-11-03：把她在工作区写好的文件搬进代码仓库（先备份仓库原文，可回滚）
   ["POST", "/api/selfchange/promote", async (res, req) => {
     const b = await readBody(req);
