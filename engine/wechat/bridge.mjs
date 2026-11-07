@@ -705,6 +705,25 @@ export function createWechatBridge({
       try { fs.rmSync(v.mp3, { force: true }) } catch {}
       return { ok: true, messageId: r?.message_id || null, playtimeMs: v.durationMs, bytes: v.bytes };
     },
+    // 2026-11-07：回给某个具体的人/群（订阅直通的 relay 用）。
+    // 不受「通知发到微信」开关影响——那个开关管的是主动打扰，这里回的是别人问过的话。
+    async sendTo(to, text) {
+      const acc = loadAccount();
+      const target = String(to || "").trim();
+      const body = String(text || "").trim();
+      if (!acc?.token) throw Object.assign(new Error("微信没登录"), { status: 409 });
+      if (!target) throw Object.assign(new Error("缺少目标会话"), { status: 400 });
+      if (!body) return { ok: false, detail: "内容为空" };
+      const r = await reply(acc, target, body, contexts[target] || "", "", "");
+      stats.lastNotifyAt = now();
+      if (r && r.failedText > 0) {
+        stats.notifyFailed++;
+        stats.lastNotifyError = preview(String(r.error || "未送达"), 160);
+        return { ok: false, detail: String(r.error || "未送达") };
+      }
+      stats.notifyOk++;
+      return { ok: true, detail: "已回复" };
+    },
     async notifyOwner(text, imagePath, filePath) {
       const acc = loadAccount();
       if (!acc?.token || !acc.userId) throw Object.assign(new Error("微信没登录"), { status: 409 });

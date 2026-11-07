@@ -128,6 +128,8 @@ import { subscribe as subscribeThread, unsubscribe as unsubscribeThread, snapsho
 import { listInboxes } from "./engine/thread-inbox.mjs";
 // 2026-11-07：工单级授权——授权跟着这张活走，记依据、期限与失效条件
 import { createMandate, closeMandate, revokeMandate, activeMandates, listMandates, pruneMandates, getMandate, filterToolsByScope } from "./engine/mandate.mjs";
+// 2026-11-07：relay——直通吞掉的后续，结果要回到问的人那里（原文：Worker 不对外说话，Router 统一回）
+import { relayToThread } from "./engine/thread-relay.mjs";
 import { parseOpenIntent, navPayload } from "./engine/intent-router.mjs";
 import { filterTasks } from "./engine/task-filter.mjs";
 import { compareCandidates, recordCompare } from "./engine/candidate-compare.mjs";
@@ -7680,6 +7682,30 @@ ${rows.map((r) => `- [${r.status}${r.closed ? "/已结清" : ""}] ${r.text}\n  �
               else closeMandate(WS_ROOT, t.id, { outcome: t.status === "ok" ? "completed" : String(t.status || "ended") });
             }
           } catch (e) { console.log(`[mandate] 收尾失败：${String(e?.message || e).slice(0, 100)}`) }
+          // 2026-11-07：结果回到「问这件事的人」那里——直通吞掉的后续，不能让结果也跟着消失。
+          // 回不去（微信没登录/熔断/通道没接）就转给主人，宁可多打扰一次，不要已读不回。
+          try {
+            const tk = threadKeyOfLabel(t.label);
+            const body = String(t.result || "").trim();
+            if (tk && t.status === "ok" && body) {
+              void (async () => {
+                const sent = await relayToThread({
+                  threadKey: tk, text: body, head: "【同一话题的后续】",
+                  send: ({ channel, to, body }) => (channel === "wechat"
+                    ? wechat.sendTo(to, body)
+                    : Promise.resolve({ ok: false, detail: `${channel} 通道还没接` })),
+                });
+                if (sent.ok) console.log(`[relay] ${tk} 已回到 ${sent.channel}`);
+                else {
+                  console.log(`[relay] ${tk} 回话失败（${sent.detail}），转给主人`);
+                  void notifier.notify({
+                    kind: "thread", title: "元枢 · 话题结果", body: sent.body || body.slice(0, 600),
+                    key: `relay:${t.id}`, toWechat: true,
+                  }).catch(() => {});
+                }
+              })();
+            }
+          } catch (e) { console.log(`[relay] 异常：${String(e?.message || e).slice(0, 100)}`) }
           // 2026-10-20：Harness² 的 Probe——用同一任务的历史运行做前后对照，判断改动到底有没有变好。
           // 只比失败率与耗时，不让模型自评；每任务每天最多一次。
           try {
