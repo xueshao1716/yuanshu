@@ -38,6 +38,21 @@ const SCOPE_TEXT = {
   external: '对外发布',
 };
 
+// 2026-11-08：外貌是身份事实，不是可选项。人格定义里的形象四项原来只进人格段（注入用），
+// 落盘的自我文件里一个字都没有——所以被问"你长什么样"时她只能从记忆里的零散描述反推，答错。
+// 中文名与 engine/persona-def.mjs 的 designLabels 保持一致，别让两处叫法漂移。
+const DESIGN_FIELDS = [
+  ['appearance', '人物外貌'],
+  ['hairstyle', '发型与发色'],
+  ['clothing', '日常服装'],
+  ['scenarioOutfits', '场景穿搭'],
+];
+
+// 只认字符串；空白当没写（四项全空时整段不输出，不留空标题）
+function designText(v) {
+  return typeof v === 'string' ? v.trim() : '';
+}
+
 function dirBirth(wsRoot) {
   try {
     const st = fs.statSync(path.join(wsRoot, '记忆'));
@@ -98,6 +113,8 @@ export function buildSelfModel({ wsRoot, now = new Date() } = {}) {
     probeSummary: summarizeProbeLog(wsRoot),
     contact: loadContact(wsRoot),
     inner: Array.isArray(def.inner) ? def.inner : [],
+    // 形象四项：定义里有一项就带上，全空时 renderSelfMarkdown 整段跳过
+    design: Object.fromEntries(DESIGN_FIELDS.map(([key]) => [key, designText(def[key])])),
     updatedAt: now.toISOString(),
   };
 }
@@ -148,6 +165,19 @@ export function renderSelfMarkdown(model) {
     L.push('## 我的内心');
     L.push('');
     for (const x of model.inner) L.push(`- ${x}`);
+    L.push('');
+  }
+  // 2026-11-08：形象四项写进自我文件——先是我是什么人，再是我长什么样。
+  // 有任何一项就渲染；四项全空整段不输出（不留空标题）。定义里多行的描述压成一行，一条一项。
+  const looks = DESIGN_FIELDS
+    .map(([key, label]) => [label, String(model.design?.[key] || '').trim().replace(/\s*\n\s*/g, ' ')])
+    .filter(([, text]) => text);
+  if (looks.length) {
+    L.push('## 我的样子');
+    L.push('');
+    L.push('这是经批准的人物设计；我关于"自己长什么样"的回答以这里为准，不要用记忆里零散的描述重新推断。');
+    L.push('');
+    for (const [label, text] of looks) L.push(`- ${label}：${text}`);
     L.push('');
   }
   L.push('## 我自己能决定什么');

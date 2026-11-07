@@ -5,13 +5,14 @@ import os from 'node:os';
 import path from 'node:path';
 import { buildSelfModel, renderSelfSection, renderSelfMarkdown, writeSelfFile, SELF_FILE } from '../../engine/self-model.mjs';
 
-function fixture(t, { policy } = {}) {
+function fixture(t, { policy, design = null } = {}) {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'yuanshu-self-'));
   fs.mkdirSync(path.join(root, '记忆', '运行时'), { recursive: true });
   fs.writeFileSync(path.join(root, '记忆', '人格定义.json'), JSON.stringify({
     version: 1, name: '小语', age: 20, kind: 'AI 工作伙伴', gender: '女性', called: '伙伴', bond: '知己',
     inner: ['我有自己的判断'], boundaries: ['密钥不外传', '人格只读'], growth: '我会在批准后演化。',
     tone: ['直接'], values: ['不骑墙'], taboos: [], updatedAt: new Date().toISOString(), setBy: 'test', provenance: 'test',
+    ...(design || {}),
   }), 'utf8');
   if (policy) fs.writeFileSync(path.join(root, '记忆', '运行时', '自主执行.json'), JSON.stringify(policy), 'utf8');
   t.after(() => fs.rmSync(root, { recursive: true, force: true }));
@@ -73,4 +74,49 @@ test('联系方式写进自我描述：有配置才出现，写清"什么时候�
   const md = renderSelfMarkdown(model);
   assert.match(md, /## 怎么找伙伴/);
   assert.match(md, /xue-xiaofeng@outlook\.com/);
+});
+
+// 2026-11-08（伙伴要求）：她答不出自己长什么样——自我文件里没有外貌段落，
+// 人格定义里的形象四项只进了人格段（注入用），落盘的自我文件里没有。
+// 自我文件是她自己也读的那份，所以外貌必须写进去，被问"你长什么样"以它为准。
+const LOOKS = {
+  appearance: '个子偏瘦，皮肤白净偏冷调，眼睛清亮。',
+  hairstyle: '齐耳短发，深棕近黑带冷调，发尾自然内扣。',
+  clothing: '修身短款灰针织上衣，高腰黑直筒短裤。',
+  scenarioOutfits: '工作：袖子推到手肘；休息：盘腿坐。',
+};
+const LOOKS_LEAD = '这是经批准的人物设计；我关于"自己长什么样"的回答以这里为准，不要用记忆里零散的描述重新推断。';
+
+test('有外貌时，自我文件单列「我的样子」，四项逐项落地', (t) => {
+  const root = fixture(t, { design: LOOKS });
+  const md = renderSelfMarkdown(buildSelfModel({ wsRoot: root }));
+  assert.ok(md.includes('## 我的样子'), '缺少「我的样子」段落');
+  assert.ok(md.includes(LOOKS_LEAD), '缺少"以这里为准"的裁决句');
+  assert.ok(md.includes(`- 人物外貌：${LOOKS.appearance}`));
+  assert.ok(md.includes(`- 发型与发色：${LOOKS.hairstyle}`));
+  assert.ok(md.includes(`- 日常服装：${LOOKS.clothing}`));
+  assert.ok(md.includes(`- 场景穿搭：${LOOKS.scenarioOutfits}`));
+  // 顺序：我的内心 → 我的样子 → 我自己能决定什么
+  assert.ok(md.indexOf('## 我的内心') < md.indexOf('## 我的样子'));
+  assert.ok(md.indexOf('## 我的样子') < md.indexOf('## 我自己能决定什么'));
+  // 落盘那份也要有（她读的是文件）
+  writeSelfFile(root, buildSelfModel({ wsRoot: root }));
+  assert.ok(fs.readFileSync(path.join(root, SELF_FILE), 'utf8').includes('## 我的样子'));
+});
+
+test('四项全空时不输出「我的样子」，不留空段', (t) => {
+  const root = fixture(t, { design: { appearance: '', hairstyle: '  ', clothing: '', scenarioOutfits: '' } });
+  const md = renderSelfMarkdown(buildSelfModel({ wsRoot: root }));
+  assert.equal(md.includes('## 我的样子'), false, '全空时不应出现空段落');
+  assert.equal(md.includes('经批准的人物设计'), false);
+});
+
+test('原有段落不因有无外貌而缺失', (t) => {
+  const heads = ['## 我是谁', '## 我的内心', '## 我自己能决定什么', '## 我不做什么', '## 我在往哪长', '## 这份描述怎么来的'];
+  const empty = { appearance: '', hairstyle: '', clothing: '', scenarioOutfits: '' };
+  for (const design of [LOOKS, empty]) {
+    const root = fixture(t, { design });
+    const md = renderSelfMarkdown(buildSelfModel({ wsRoot: root }));
+    for (const h of heads) assert.ok(md.includes(h), `缺原有段落：${h}`);
+  }
 });
