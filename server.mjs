@@ -404,7 +404,7 @@ import { createCorsPolicy } from "./engine/cors-policy.mjs";
 import { initSessionDb, sessionPinnedIds, handleDbList, handleDbRebuild, handleDbSanitize, handleDbMeta, handleDbStats, handleDbSweep, sweepSessionsNow, ensureSessionSequence, hasSessionSequence } from "./engine/session/db.mjs";
 import { repairSessionFile, repairSessionDir } from "./engine/session/repair.mjs";
 import { outputRoomTokens, headroomNote } from "./engine/context-headroom.mjs";
-import { loadPersonaDefinition, renderPersonaSection, syncAppendSystemPersona } from "./engine/persona-def.mjs";
+import { loadPersonaDefinition, renderPersonaSection, syncAppendSystemPersona, syncAllSurfaces } from "./engine/persona-def.mjs";
 // 2026-10-25：人格段唯一解析点（定义 → 灵魂 → 自我 → 会话语气）。界面与注入同源。
 import { resolvePersona, personaMeta, personaPartText, setWorkspaceExpression, setSessionExpression, listExpressionHistory, rollbackExpression, EXPRESSION_PRESETS, MAX_EXPRESSION_CHARS } from "./engine/persona-resolve.mjs";
 import { voiceAllowedOrigins } from "./engine/network-endpoints.mjs";
@@ -3927,6 +3927,20 @@ setInterval(() => {
   try { const r = expirePushes(WS_ROOT); if (r.expired) console.log(`[notice] ${r.expired} 条推送超时未反应，已标忽略`) } catch {}
   // 2026-11-07：授权记录只留有用的（过期超 7 天且没有结局的清掉）
   try { const r = pruneMandates(WS_ROOT); if (r.removed) console.log(`[mandate] 清理过期授权 ${r.removed} 条`) } catch {}
+  // 2026-11-07：人格定义 → 各端注入面的闭环（形象四项尤其容易断）
+  // 断点在：任何绕过治理链直接改 记忆/人格定义.json 的写入（脚本/补字段/手工），
+  // 都不会刷新 pi 通道读的 APPEND_SYSTEM.md 人格块，于是"改了外貌她不认，直到重启"。
+  // 这里每 10 分钟做一次幂等核对，只在该刷新时写盘并留一行日志。
+  try {
+    const pd = loadPersonaDefinition(CONFIG.cwd);
+    if (!pd?.problems?.length) {
+      // pi 通道读的是 agentDir 下的 APPEND_SYSTEM.md（人格块）；其余端由 syncAllSurfaces 管。
+      const append = syncAppendSystemPersona(pd.def, { agentDir: getAgentDir() });
+      const surfaces = syncAllSurfaces(pd.def, { wsRoot: CONFIG.cwd }) || [];
+      const changed = [append?.changed ? "append" : "", ...surfaces.filter((x) => x.changed).map((x) => x.surface)].filter(Boolean);
+      if (changed.length) console.log(`[persona] 人格块落后于定义，已同步 ${changed.join("、")}`);
+    }
+  } catch (e) { console.log(`[persona] 同步核对失败（不阻塞）：${String(e?.message || e).slice(0, 100)}`) }
   // 2026-11-02：看门狗判偏——空转/连续失败/只改不验
   try {
     const rows = (auditGate?.tail ? auditGate.tail(300) : []) || [];
@@ -6070,6 +6084,18 @@ const API_ROUTES = [
       expressionPresets: Object.entries(EXPRESSION_PRESETS).map(([id, v]) => ({ id, label: v.label })),
       maxExpressionChars: MAX_EXPRESSION_CHARS,
     });
+  }],
+  // 2026-11-07：人格定义 → 注入面的同步（幂等）。改完定义立刻可刷，不用等重启。
+  ["POST", "/api/persona/sync", (res) => {
+    try {
+      const pd = loadPersonaDefinition(CONFIG.cwd);
+      if (pd?.problems?.length) return json(res, 400, { ok: false, error: pd.problems.join("；") });
+      const append = syncAppendSystemPersona(pd.def, { agentDir: getAgentDir() });
+      const surfaces = syncAllSurfaces(pd.def, { wsRoot: CONFIG.cwd }) || [];
+      const changed = [append?.changed ? "append" : "", ...surfaces.filter((x) => x.changed).map((x) => x.surface)].filter(Boolean);
+      if (changed.length) console.log(`[persona] 手工同步：${changed.join("、")}`);
+      return json(res, 200, { ok: true, changed, append: { ok: append?.ok, file: append?.file, error: append?.error }, surfaces });
+    } catch (e) { return json(res, 500, { ok: false, error: String(e?.message || e).slice(0, 160) }) }
   }],
   // 2026-10-25：人格段正文按需取（界面「查看全文」用；状态接口不再背全文）
   ["GET", "/api/persona/part", (res, req, url) => {
