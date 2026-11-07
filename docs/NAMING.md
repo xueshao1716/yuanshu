@@ -206,6 +206,22 @@ git push origin main          # 7. 双推
 - 落盘后校验文件**非空**；空文件会让"已本地化"变成另一句假话。
 - 图片额外校验 magic bytes，防止 HTML 错误页冒充图片。
 
+### 大小与超时（2026-11-07）
+
+| 类型 | 上限 | 超时 | 落盘方式 |
+|---|---|---|---|
+| 图片 / 音频 | 50MB | 60 秒 | 整包读入后写盘 |
+| 视频 | 500MB | 10 分钟 | 流式写 `<目标>.part`，完整后 rename |
+
+视频不能 `arrayBuffer()` 整包读进内存（几百 MB 的成片会瞬时占满堆，并发几部就 OOM），
+而是边下边写：先写临时文件 `.part`，校验非空后再原子改名为最终产物；
+中途失败、超时或取消一律删掉临时文件，按"没本地化"如实回报（`local=false` + `reason`），
+语义与上面一致——**下不下来就是失败，绝不悄悄降级**。
+
+上限集中定义在 `engine/workspace-api.mjs` 的 `ARTIFACT_DOWNLOAD_LIMITS`，
+运维可用 `PI_ARTIFACT_MAX_MB` / `PI_ARTIFACT_TIMEOUT_MS` 覆盖；
+测试可用 `artifact.limits` 单独注入。
+
 ### 为什么要有这个契约
 
 `saveArtifact` 原先在下载失败时 `catch` 住、**悄悄把外站 URL 原样返回**；

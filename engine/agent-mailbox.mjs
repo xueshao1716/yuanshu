@@ -30,9 +30,9 @@ function writeMailbox(wsRoot, data) {
 
 /**
  * 留一条言。
- * @param {{wsRoot:string, from:string, to?:string, text:string, kind?:string, replyTo?:string, at?:number}} p
+ * @param {{wsRoot:string, from:string, to?:string, text:string, kind?:string, replyTo?:string, at?:number, meta?:object}} p
  */
-export function postMessage({ wsRoot, from = "小语", to = "", text = "", kind = "note", replyTo = "", at = Date.now() } = {}) {
+export function postMessage({ wsRoot, from = "小语", to = "", text = "", kind = "note", replyTo = "", at = Date.now(), meta = null } = {}) {
   const body = String(text || "").trim().slice(0, 2000);
   if (!body) return { ok: false, error: "text 不能为空" };
   const who = String(from || "小语").slice(0, 40);
@@ -42,6 +42,9 @@ export function postMessage({ wsRoot, from = "小语", to = "", text = "", kind 
     id: `m-${at.toString(36)}-${Math.random().toString(36).slice(2, 6)}`,
     at, from: who, to: target, kind: k, text: body,
     replyTo: String(replyTo || "") || undefined,
+    // 2026-11-07：结构化附注（后台子代理回执用它带 subagentId/status/summary）。
+    // 读的一侧（inboxFor/markRead/mailboxLine）不认这个字段，老消费者不受影响。
+    ...(meta && typeof meta === "object" ? { meta } : {}),
     readBy: [],
   };
   const data = readMailbox(wsRoot);

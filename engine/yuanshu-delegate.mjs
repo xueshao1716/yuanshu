@@ -16,6 +16,8 @@ export const DELEGATE_TASK_TOOL = {
         role: { type: "string", enum: ["analyst", "planner", "reviewer"], description: "analyst 查证 / planner 拆方案 / reviewer 复核；仅用于记录与展示" },
         agent_id: { type: "string", description: "可选：改派给自己培养的个体（cultivation agents 里状态 ready 的 id）。个体是纯文本、无工具，用它自己的设计和模型作答，结果带独立验证结论；不填则派只读研究员" },
         criterion: { type: "string", description: "仅配合 agent_id：验收标准，写成可核对的句子；不填用通用标准" },
+        // 2026-11-07：后台化。同步派要等结果回来才能继续，几分钟的活等于把主循环按住。
+        background: { type: "boolean", description: "true = 转后台：立刻返回 subagentId，**不等结果**；跑完（成功/失败/取消都算）由系统写进留言板，并在下一轮以【系统】子代理 … 已完成 注入给你。适合几分钟以上的活；一两步就能查完的还是同步派更快。转后台后别再派同一个任务，也不要 sleep 等它。" },
       },
       required: ["task"],
     },

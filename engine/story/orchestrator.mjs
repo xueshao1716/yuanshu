@@ -390,7 +390,7 @@ export function createStoryOrchestrator({ root, clock = {}, adapters = {}, gener
   //
   // 只有两种情况才真的拼不了，而且都要说清原因：
   //   1) 落盘实现没接入（服务端没给 saveArtifact）——配置问题；
-  //   2) 下载失败（SSRF 守卫拦下内网地址、上游 404/502、超过 50MB 等）——saveArtifact 会给出 reason。
+  //   2) 下载失败（SSRF 守卫拦下内网地址、上游 404/502、超过大小上限（图片 50MB / 视频 500MB）等）——saveArtifact 会给出 reason。
   const localizeClip = async (run) => {
     const asset = (run.outputAssets || []).find(a => a?.type === 'video' && a.url);
     if (!asset?.url) return { error: '这一版没有视频成品' };

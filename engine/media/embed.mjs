@@ -29,6 +29,36 @@ export function isLocalPlayableUrl(url) {
   return LOCAL_MEDIA_ORIGIN.test(s);
 }
 
+// 聊天里愿意播放的**视频**地址（2026-11-07）：本地/同源就归一成播放器能直接吃的地址，
+// 远端临时链接（platform-outputs…）与示例外链一律返回 ""，调用方据此不生成播放块。
+//   已经是 /api/ws/file 或 data: → 原样返回（保留 exp/sig）
+//   生成物/工程/workshop-out/交付 相对路径、本机绝对路径 → /api/ws/file?path=…
+//   回环同源签名地址 → 原样返回；其余 http(s) → ""
+export function localPlayableVideoUrl(url) {
+  const s = String(url || "").trim().replace(/^["'`<]+|[>"'`]+$/g, "");
+  if (!s) return "";
+  if (/^data:video\//i.test(s)) return s;
+  if (/^\.?\/api\/ws\/file(?:[?#]|$)/i.test(s)) return s;
+  const rel = toWorkspaceRel(s);
+  if (rel) return workspaceFileUrl(rel);
+  return /^https?:\/\//i.test(s) && isLocalPlayableUrl(s) ? s : "";
+}
+
+// 远端视频落在聊天里只能是一行提示 + 链接——绝不能生成播放块（过期后就是永远转圈的黑框）。
+export const REMOTE_VIDEO_NOTE = "（远端视频未落盘，可能过期）";
+
+// 第三方工具 / 扩展直传的 details.media 统一闸门（2026-11-07）。
+// 这些 media 不经过 saveArtifact，远端签名链接以前被原样 push 进消息 → 聊天里多一个播不了的窗口。
+// 现在视频必须先过 isLocalPlayableUrl；不是本地就**不生成播放块**，改成一行文字 + 原链接。
+// 内置 generate_video 已经保证落盘（本地地址），走这里直接放行，不受影响。
+export function gateIncomingMedia(media) {
+  if (!media || typeof media !== "object" || !media.url) return { media: null, note: "" };
+  if (String(media.type || "").toLowerCase() !== "video") return { media, note: "" };
+  const playable = localPlayableVideoUrl(media.url);
+  if (playable) return { media: playable === media.url ? media : { ...media, url: playable }, note: "" };
+  return { media: null, note: `${REMOTE_VIDEO_NOTE}${String(media.url).trim()}` };
+}
+
 // Only workspace links are normalized; external hosts and version queries matter.
 export function mediaDeliveryKey(url) {
   const value = String(url || '').trim();

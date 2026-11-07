@@ -26,7 +26,7 @@ import { CodeRuntime } from "../code-mode/code-runtime.mjs";
 import { createCodeMode } from "../code-mode/code-mode.mjs";
 import { directMediaMode } from "./media/mode.mjs";
 import { detectMediaIntents, extractMediaPrompt, generateMediaAsync, mediaAwarePrompt, explainMediaError, assistantContentWithMedia, isPureImageRequest } from "./media/api.mjs";
-import { explicitToolMedia, mediaDeliveryKey } from "./media/embed.mjs";
+import { explicitToolMedia, mediaDeliveryKey, gateIncomingMedia } from "./media/embed.mjs";
 import { readOpenAIChatStream } from "./openai-stream.mjs";
 import { buildMessagesRequest, messagesEndpoint, messagesHeaders } from "./anthropic-messages.mjs";
 import { readMessagesStream } from "./anthropic-stream.mjs";
@@ -39,6 +39,8 @@ import { compactKeepArchive } from "./yuanshu-compact.mjs";
 import { prependAssembledSystem } from "./yuanshu-prompt.mjs";
 import { assembleYuanshuSystem, registerPromptSection, promptTimeText, promptPersonaText } from "./yuanshu-seams.mjs";
 import { toolAvailabilityPrompt } from './tool-availability.mjs';
+// 2026-11-07：后台子代理跑完的回执（父会话下一轮能看到【系统】子代理 … 已完成）
+import { deliverSubagentReceipts } from './subagent-receipts.mjs';
 import { bindWorkmemSession, formatPlanPrompt } from "./yuanshu-workmem.mjs";
 import { persistYuanshuUser, persistYuanshuAssistant, persistYuanshuToolTrace, resumePersistenceState, abortedAssistantText } from "./yuanshu-session.mjs";
 import { beginYuanshuEmotion, endYuanshuEmotion, lastTalkAt } from "./yuanshu-emotion.mjs";
@@ -81,11 +83,15 @@ import {
 export { toolCallLoopKey };
 
 let _executeUnifiedTool = null, _findKeyByEntry = null, _readJsonFile = null, _getModelList = () => [], _getDefaultModel = () => null, _authPath = "", _modelsPath = "", _cwd = "", _sessionDir = "", _piPackage = "", _unifiedTools = [], _getAgentDir = null, _createSandboxAsk = null, _THINK_TOOL = null;
-export function initUnifiedChat({ executeUnifiedTool = null, findKeyByEntry = null, readJsonFile = null, getModelList = null, getDefaultModel = null, authPath = "", modelsPath = "", cwd = "", sessionDir = "", piPackage = "", UNIFIED_TOOLS = [], getAgentDir = null, createSandboxAsk = null, THINK_TOOL = null } = {}) {
+// 2026-11-07：后台子代理回执要从工作区的留言板里取（记忆/运行时/agent消息.json）
+let _wsRoot = "";
+export function initUnifiedChat({ executeUnifiedTool = null, findKeyByEntry = null, readJsonFile = null, getModelList = null, getDefaultModel = null, authPath = "", modelsPath = "", cwd = "", sessionDir = "", piPackage = "", UNIFIED_TOOLS = [], getAgentDir = null, createSandboxAsk = null, THINK_TOOL = null, wsRoot = "" } = {}) {
   _executeUnifiedTool = executeUnifiedTool; _findKeyByEntry = findKeyByEntry; _readJsonFile = readJsonFile;
   if (getModelList) _getModelList = getModelList; if (getDefaultModel) _getDefaultModel = getDefaultModel;
   _authPath = authPath; _modelsPath = modelsPath; _cwd = cwd; _sessionDir = sessionDir; _piPackage = piPackage; _unifiedTools = UNIFIED_TOOLS;
   if (getAgentDir) _getAgentDir = getAgentDir;
+  // 无条件赋值：init 的语义是"整套替换"，别让上一次 init 的工作区残留下来
+  _wsRoot = String(wsRoot || "");
   _createSandboxAsk = createSandboxAsk;
   if (THINK_TOOL) _THINK_TOOL = THINK_TOOL;
 }
@@ -153,6 +159,14 @@ async function _unifiedChatCore(model, messages, opts = {}) {
   // Refresh our own capability note on continuation; never infer permission from history.
   history = history.filter(message => !(message.role === 'system' && typeof message.content === 'string' && message.content.startsWith('【本轮工具事实】')));
   history.unshift({ role: 'system', content: toolAvailabilityPrompt(toolDefs?.map(tool => tool.function?.name || tool.name) || []) });
+  // 2026-11-07：后台子代理回执。照 media/api 的【系统】写法，只在这一轮出现一次：
+  // 有未读才注入；注入后立刻标已读，否则同一条会在每轮反复占上下文。
+  try {
+    const receipt = _wsRoot
+      ? deliverSubagentReceipts({ wsRoot: _wsRoot, agent: opts.executionContext?.sessionId || opts.sessionId || "" })
+      : null;
+    if (receipt?.text) history.unshift({ role: 'system', content: receipt.text });
+  } catch { /* 回执注入失败不阻断对话 */ }
   // 脑区「分析」决定单轮工具回合上限（0.5 → 20 轮，与旧默认持平）
   const maxTurns = Math.min(toolLoopMaxTurns(opts), maxToolTurns(brainNow()));
   let streamed = false;
@@ -880,7 +894,14 @@ export async function handleUnifiedChat(res, entry, message, sessionId, params, 
     toolStartedAt.delete(id);
     writer.push("tool_end", { name, id, durationMs: startedAt ? Date.now() - startedAt : null, effectKey: context.effectKey || null, turn: context.turn ?? null, ordinal: context.ordinal ?? null, isError: out?.isError === true, uncertain: out?.uncertain === true, reused: out?.reused === true, output: text.slice(0, 2000) });
     const media = explicitToolMedia(out, { id, name });
-    if (media?.url) writer.push("media", media);
+    if (media?.url) {
+      // 2026-11-07：第三方工具/扩展直传的 video 也要过"本地才可播"的闸门——
+      // 远端签名链接以前被原样 push 进对话，过期后就是一个永远转圈的播放器。
+      // 不是本地就只留一行说明 + 原链接（note），不生成播放块；内置 generate_video 已落盘，直接放行。
+      const gated = gateIncomingMedia(media);
+      if (gated.media) writer.push("media", gated.media);
+      else if (gated.note) writer.push("note", { text: gated.note });
+    }
   };
   const onCheckpoint = createRunCheckpointWriter(writer, runContext);
   let history = [...formatSessionHistory(hist, { carryReasoning: carriesReasoningDuty(chatModel) }), { role: "user", content: mediaAwarePrompt(message, []) }];

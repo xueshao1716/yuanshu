@@ -1,6 +1,6 @@
 // ══ 会话解析纯函数（2026-08-19 拆模块：从 server.mjs 抽出）══
 // extractMessages / extractText / extractImages / extractFiles —— 无 server 内部依赖，可单测可复用。
-import { extractPlayableMedia } from "../media/embed.mjs";
+import { extractPlayableMedia, localPlayableVideoUrl } from "../media/embed.mjs";
 import { lengthStopNote } from "../context-headroom.mjs";
 
 // 从消息 content 提取文本（type: text 的块）
@@ -179,15 +179,25 @@ export function extractFiles(content) {
   return out;
 }
 
+// 2026-11-07：历史消息里已存的 video 块同样要过"本地才可播"的闸门。
+// 旧会话存过远端临时链接（platform-outputs…），刷新后会被渲染成一个永远转圈的播放器
+// （前端 Message.tsx 见到 http(s) 就走 /api/tv/media 代理播放）。抽取层直接不产出远端地址，
+// 本机路径顺手归一成 /api/ws/file，界面就只剩本地可播的片子。
+// 注意：影视页直播走 /api/tv/* + lib/tv.ts 直连原始 m3u8，**不经过这个函数**
+// （Tv.tsx 只引用 /api/tv/* 与 VideoPlayer，不引用本模块），所以直播路径不受影响。
 export function extractVideos(content) {
   const urls = [];
+  const push = (u) => {
+    const playable = localPlayableVideoUrl(u);
+    if (playable && !urls.includes(playable)) urls.push(playable);
+  };
   if (Array.isArray(content)) {
     for (const b of content) {
-      if (b && b.type === "video" && typeof b.url === "string" && b.url) urls.push(b.url);
+      if (b && b.type === "video" && typeof b.url === "string" && b.url) push(b.url);
     }
   }
   const scraped = extractPlayableMedia(typeof content === "string" ? content : extractText(content));
-  for (const u of scraped.videos) if (!urls.includes(u)) urls.push(u);
+  for (const u of scraped.videos) push(u);
   return urls;
 }
 
@@ -267,7 +277,9 @@ export function extractMessages(entries, leafId, { resolveWindow = null } = {}) 
             tools.push({ id: b.id, name: b.name, args: b.arguments || null, output: r.output || "", isError: !!r.isError });
             if (r.media && isMediaTool(b.name)) {
               fromTools.images.push(...r.media.images);
-              fromTools.videos.push(...r.media.videos);
+              // 工具结果里的视频也只收本地可播的：第三方工具可能返回远端签名链接，
+              // 直接回灌历史同样会变出一个过期就黑屏的播放器。
+              for (const u of r.media.videos) { const playable = localPlayableVideoUrl(u); if (playable) fromTools.videos.push(playable); }
               fromTools.audios.push(...r.media.audios);
             }
           } else if (b.type === "thinking" && (b.thinking || b.text)) {

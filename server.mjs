@@ -222,12 +222,15 @@ import { syncToolpacks, toolpacksInChat, setToolpacksInChat } from "./engine/too
 import { listRuns as listBenchRuns, loadCases as loadBenchCases } from "./engine/behavior-bench.mjs";
 import { pruneBackups, listBackups, listVersions } from "./engine/plugin-store.mjs";
 import { initMediaApi, findMediaModel, detectMediaIntents, extractMediaPrompt, mediaAwarePrompt, mediaReadyNotice, explainMediaError, generateMediaAsync, generateTTS, generateImage, handleImage, handleImageWithSave, generateVideo, startVideoJob, checkVideoJob, handleMedia, assistantContentWithMedia } from "./engine/media/api.mjs";
-import { extractPlayableMedia } from "./engine/media/embed.mjs";
+import { extractPlayableMedia, gateIncomingMedia } from "./engine/media/embed.mjs";
 import { formatSkillIndexPrompt, matchSkillsForTask } from "./engine/yuanshu-protocol.mjs";
 import { MEDIA_TOOL_SCHEMAS, mediaExtraExecutors, formatSensitiveHint, listHostChannels } from "./engine/media/channels.mjs";
 import { TODO_TOOL_SCHEMAS, todoExtraExecutors } from "./engine/yuanshu-todo.mjs";
 import { PLAN_FILES_SCHEMA, planFilesExtraExecutors, initYuanshuWorkmem } from "./engine/yuanshu-workmem.mjs";
 import { DELEGATE_TASK_TOOL, execDelegateTask, DELEGATE_FORK_TOOL, execDelegateFork } from "./engine/yuanshu-delegate.mjs";
+// 2026-11-07：后台子代理（后台起 + 跑完回传 + 可续聊 + 可查）。执行复用 jobPool，不自造调度器。
+import { createSubagentBackground, BACKGROUND_TIMEOUT_MS } from "./engine/subagent-background.mjs";
+import { deliverSubagentReceipts } from "./engine/subagent-receipts.mjs";
 import { DELEGATE_TEAM_TOOL, executeTeam, TEAM_DELIVERY_RULES } from './engine/team-subagents.mjs';
 import { withTeamToolContext } from './engine/team-tool-context.mjs';
 import { createTeamCompletion } from './engine/team-completion.mjs';
@@ -1129,6 +1132,42 @@ try {
     webSearch: (q) => webSearchTool(q),
   });
 } catch (e) { console.log("[元枢] subagent 初始化失败: " + String(e?.message || e).slice(0, 80)); }
+
+// ── 后台子代理（2026-11-07）──
+// 四条链路各归各家，别在这里重新发明：
+//   · 执行：jobPool.submit（排队/限并发/可取消/落盘近况都已有）；
+//   · 回传：agent-mailbox（父会话下一轮能看到【系统】子代理 … 已完成）；
+//   · 推送：notifier，但先过主动预算（免打扰时段 + 每天 3 条，超了就不硬推）；
+//   · 查证：登记表 + traces 合并成一张表。
+const subagentBg = (() => {
+  try {
+    return createSubagentBackground({
+      wsRoot: WS_ROOT,
+      pool: jobPool,
+      spawn: (params) => subagent.spawnSubagent(params),
+      traceHistory: ({ limit }) => subagent.getSubagentHistory({ limit }),
+      push: async (receipt, record) => {
+        // 只推应用内/系统通知，不发微信：子代理回执多数是"干活中间态"，别拿它刷微信
+        await notifier.notify({
+          kind: "subagent", title: receipt.title, body: receipt.body,
+          sessionId: record?.parentSessionId || "", key: `subagent:${receipt.id}`, toWechat: false,
+        });
+      },
+      budgetGate: async () => {
+        // 主动预算：与冷会话唤醒共用同一个账本（记忆/运行时/主动预算.json）
+        if (isQuietHours(Date.now())) return { allowed: false, reason: "quiet_hours" };
+        const day = new Date().toISOString().slice(0, 10);
+        const budget = readBudget(WS_ROOT, day, { cap: 3 });
+        if (budget.remaining <= 0) return { allowed: false, reason: "budget" };
+        const spent = spendBudget(WS_ROOT, day, { cap: budget.cap, kind: "subagent_receipt" });
+        return spent.ok ? { allowed: true, used: spent.used, cap: spent.cap } : { allowed: false, reason: spent.reason || "budget" };
+      },
+    });
+  } catch (e) {
+    console.log("[元枢] 后台子代理初始化失败: " + String(e?.message || e).slice(0, 100));
+    return null;
+  }
+})();
 // P3 资产路由：技能库摘要索引注入（任务→技能自动匹配）
 try { emotion.bindSkillIndex(() => loadSkillIndex()); } catch {}
 
@@ -1490,6 +1529,32 @@ const extraToolExecutors = {
     // 派活 = 元枢里真正的"多路探索"：一次派几个子任务、哪个失败、花了多久。
     // 记成轨迹节点后，"该怎么探索"才有可回放的对象（当场修那条是单线的）。
     delegate_task: async (args, ctx) => runWithInitiator("subagent", () => withClaim({ task: String(args?.task || args?.prompt || "派活"), agent: "delegate" }, async () => {
+      // 2026-11-07：background:true 不阻塞主循环——立刻回一个 subagentId，结果走回传（mailbox + 下一轮注入）。
+      // 注意：这里刻意**不**把父轮次的 ctx.signal 传下去，父轮次结束不该把后台任务带走。
+      if (args?.background === true || args?.background === "true") {
+        const task = String(args?.task || args?.prompt || "").trim();
+        if (!task) return { text: "delegate_task 需要 task", isError: true };
+        if (args?.agent_id) return { text: "background 暂不支持 agent_id（培养个体只能同步派）；去掉 background 或去掉 agent_id 再试一次", isError: true };
+        if (!subagentBg) return { text: "后台子代理未初始化，无法转后台；请用同步方式派或查启动日志", isError: true };
+        const out = subagentBg.start({
+          task,
+          context: Array.isArray(args?.context) ? args.context : [],
+          role: args?.role,
+          sessionId: ctx?.sessionId || "",
+          runId: ctx?.runId || "",
+        });
+        if (!out.ok) return { text: `转后台失败：${out.error || out.code || "未知原因"}`, isError: true };
+        return {
+          text: [
+            `已转后台：subagentId=${out.subagentId}（${out.state === "queued" ? "在作业池里排队" : "已在跑"}）`,
+            "**不要等、不要 sleep、不要再派同一个任务**：跑完（成功/失败/取消都算）会写进留言板，",
+            "下一轮你会看到一条【系统】子代理 … 已完成：…（未读 N 条）。",
+            `要它接着干：POST /api/subagent/continue {subagentId:"${out.subagentId}", message:"…"}；查状态：GET /api/subagent/list。`,
+          ].join("\n"),
+          isError: false,
+          subagentId: out.subagentId,
+        };
+      }
       const t0 = Date.now();
       const r = args?.agent_id ? await delegateToCultivatedAgent(lateRefs.cultivation, args, ctx) : await execDelegateTask(args, ctx);
       try {
@@ -1959,6 +2024,8 @@ initUnifiedChat({
   getModelList: () => modelList, getDefaultModel: () => defaultModel,
   authPath: AUTH_PATH, modelsPath: MODELS_PATH, cwd: CONFIG.cwd, sessionDir: SESSIONS_DIR,
   piPackage: CONFIG.piPackage, UNIFIED_TOOLS, getAgentDir, THINK_TOOL,
+  // 2026-11-07：后台子代理回执在统一引擎里也要能注入（父会话的 unread 从工作区留言板取）
+  wsRoot: WS_ROOT,
   // 元枢沙箱升级与 pi 共用同一人工确认注册表；没有前端应答时由注册表超时并 fail-closed。
   createSandboxAsk: createSandboxAskFactory({ registry: confirmRegistry, hasLease: (q) => !!maintenanceApi?.hasLease(q) }),
 }); // 统一对话通道注入
@@ -2725,7 +2792,14 @@ async function handleChat(req, res, body) {
         busEmit("tool_end", { name: event.toolName, id: event.toolCallId, isError: !!event.isError, output: text });
         const media = event.result?.details?.media;
         if (media?.url) {
-          try { writer.push("media", media); busEmit("media", media); } catch {}
+          // 2026-11-07：第三方工具/扩展直传的 details.media 统一过闸门。
+          // 视频只有本地/同源产物才发播放块；远端临时链接改成一行说明 + 原链接，
+          // 不再让聊天里多出一个过期就永远转圈的黑框（内置 generate_video 已落盘，直接放行）。
+          const gated = gateIncomingMedia(media);
+          try {
+            if (gated.media) { writer.push("media", gated.media); busEmit("media", gated.media); }
+            else if (gated.note) { writer.push("note", { text: gated.note }); busEmit("note", { text: gated.note }); }
+          } catch {}
         } else if (text) {
           try {
             const scraped = extractPlayableMedia(text);
@@ -3081,6 +3155,17 @@ async function handleChat(req, res, body) {
         steering.sink = deliver;
         for (const text of steering.take()) deliver(text);
       }
+      // 2026-11-07：后台子代理回执注入。与技能目录/当场修同一条口子（sendCustomMessage + nextTurn）：
+      // 不写进会话历史，只在这一轮的系统上下文里出现一次；注入即标记已读，下一条子代理完成才再来。
+      try {
+        const receipt = subagentBg?.deliverReceipts({ agent: chatRunContext.sessionId || sessionId || "" });
+        if (receipt?.text) {
+          await entry.agent?.sendCustomMessage?.(
+            { customType: "context", content: [{ type: "text", text: receipt.text }] },
+            { deliverAs: "nextTurn" }
+          );
+        }
+      } catch (e) { console.log(`[subagent] 回执注入失败(不阻断): ${String(e?.message || e).slice(0, 80)}`); }
       try {
         await withTeamToolContext(piTeamToolContext, () => withSamplingParams(agent, body.params, () => agent.prompt(promptMsg, { images })));
       } finally { if (steering) steering.sink = null; }
@@ -5924,11 +6009,55 @@ const API_ROUTES = [
   // ── P3 资产路由：任务 → 技能自动匹配 ──
   ["GET", "/api/skill-router", (res, req, url) => json(res, 200, { skills: emotion.routerSkill(url.searchParams.get("text") || "", 3) })],
   // ── P2 隔离子任务执行器（多 agent）──
+  // 2026-11-07：加 background。`background:true` 立刻返回 {subagentId,status:'running',startedAt}，
+  // 不阻塞调用方；同步模式（不带 background）保持原来的行为不变。
   ["POST", "/api/subagent", async (res, req) => {
     const b = await readBody(req);
     if (!b?.task) return json(res, 400, { error: "缺 task 参数" });
+    if (b.background === true || b.background === "true") {
+      if (!subagentBg) return json(res, 503, { error: "后台子代理未初始化（见启动日志）" });
+      const out = subagentBg.start({
+        task: b.task,
+        context: Array.isArray(b.context) ? b.context : [],
+        role: b.role,
+        sessionId: b.sessionId || "",
+        parentAgent: b.parentAgent,
+        timeoutMs: Number(b.timeoutMs) > 0 ? Number(b.timeoutMs) : BACKGROUND_TIMEOUT_MS,
+      });
+      return json(res, out.ok ? 200 : 400, out);
+    }
     const r = await subagent.spawnSubagent({ task: b.task, context: b.context || [] });
     json(res, 200, r);
+  }],
+  // 续聊：对已结束的子代理再发一条消息，保留它的任务/上下文/上一轮结论。
+  // 内部复用同一条 run 通道（job-pool + traces），状态 done → queued → running。
+  ["POST", "/api/subagent/continue", async (res, req) => {
+    const b = await readBody(req);
+    if (!subagentBg) return json(res, 503, { error: "后台子代理未初始化（见启动日志）" });
+    const out = subagentBg.continueSubagent({
+      subagentId: b?.subagentId, message: b?.message, sessionId: b?.sessionId || "",
+      timeoutMs: Number(b?.timeoutMs) > 0 ? Number(b.timeoutMs) : BACKGROUND_TIMEOUT_MS,
+    });
+    if (out.ok) return json(res, 200, out);
+    const status = out.code === "subagent_not_found" ? 404 : out.code === "not_your_subagent" ? 403 : out.code === "subagent_cancelled" ? 409 : 400;
+    return json(res, status, out);
+  }],
+  // 可查：id / 父会话 / 状态 / 起止时间 / 最近摘要 / 未读回执数（数据来自 traces + mailbox）
+  ["GET", "/api/subagent/list", async (res, req, url) => {
+    if (!subagentBg) return json(res, 503, { error: "后台子代理未初始化（见启动日志）" });
+    const out = await subagentBg.list({
+      status: url.searchParams.get("status") || "",
+      sessionId: url.searchParams.get("sessionId") || "",
+      limit: Number(url.searchParams.get("limit")) || 50,
+    });
+    return json(res, 200, out);
+  }],
+  // 取消：排队中的直接收尾，在跑的走 job-pool 的 abort，回执在它退出时补上
+  ["POST", "/api/subagent/cancel", async (res, req) => {
+    const b = await readBody(req);
+    if (!subagentBg) return json(res, 503, { error: "后台子代理未初始化（见启动日志）" });
+    const out = subagentBg.cancel({ subagentId: b?.subagentId, sessionId: b?.sessionId || "" });
+    return json(res, out.ok ? 200 : out.code === "subagent_not_found" ? 404 : 400, out);
   }],
   ["GET", /^\/api\/sessions\/([^/]+)\/tree$/, (res, req, url, m) => handleSessionTree(res, decodeURIComponent(m[1]))],
   ["POST", /^\/api\/sessions\/([^/]+)\/branch$/, async (res, req, url, m) => handleSessionBranch(res, decodeURIComponent(m[1]), await readBody(req))],

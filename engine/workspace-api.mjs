@@ -4,9 +4,11 @@ import fs from "node:fs";
 import path from "node:path";
 import crypto from "node:crypto";
 import { execFile } from "node:child_process";
+import { Readable, Transform } from "node:stream";
+import { pipeline as streamPipeline } from "node:stream/promises";
 import { json } from "./http-utils.mjs";
 import { safeJoin } from "./tools/security.mjs";
-import { httpBufferFetch } from "./http.mjs";
+import { httpBufferFetch, httpRawFetch } from "./http.mjs";
 import { setTimeout as abortableDelay } from "node:timers/promises";
 import { VERSION_TAG } from "./version.mjs";
 import { assertExportPath, exportDeliveryRoot, stageWorkspaceExport, exportError } from './workspace-export.mjs';
@@ -16,9 +18,14 @@ let _wsRoot = "";
 // 下载器可注入：SSRF 守卫会（正确地）拦掉 127.0.0.1，于是测试没法起个本地服务器冒充"外站"。
 // 与其为了测试放宽安全策略，不如照本仓库一贯的 DI 风格留一个正规的缝。
 let _fetchArtifact = httpBufferFetch;
+// 视频走流式（边下边写），需要拿到未缓冲的 Response.body；与 _fetchArtifact 同一个注入点。
+let _fetchArtifactStream = httpRawFetch;
 export function initWorkspaceApi({ wsRoot = "", fetchImpl = null } = {}) {
   _wsRoot = wsRoot;
-  if (typeof fetchImpl === "function") _fetchArtifact = fetchImpl;
+  if (typeof fetchImpl === "function") {
+    _fetchArtifact = fetchImpl;
+    _fetchArtifactStream = fetchImpl;
+  }
   // ⚠️ 2026-08-22 修复：必须在 init 时赋值——原"WS_ROOT = _wsRoot || WS_ROOT"写在模块顶层，
   // 导入时 _wsRoot 还是空串且之后不再更新 → WS_ROOT 恒为 "" → 所有 ws 接口"路径越权"。
   // ESM live binding：这里赋值后，所有 import { WS_ROOT } 的模块同步拿到新值。
@@ -348,6 +355,120 @@ export function readArtifactSidecar(filePath) {
   }
 }
 
+// ── 产物下载上限（2026-11-07）────────────────────────────────────────
+// 原来所有产物一律 50MB / 60s。图片、配音够用，但**成片**常是几十到几百 MB：
+// 正常的大片子必然下载失败，按契约只能如实报"没落下来"，等于交付不了。
+// 现在按类型分开，视频放宽到 500MB / 10 分钟，并且走流式写盘（不再 arrayBuffer 整包进内存）。
+// 运维口：PI_ARTIFACT_MAX_MB / PI_ARTIFACT_TIMEOUT_MS 可整体覆盖；
+// 测试/特殊调用可用 artifact.limits 单独覆盖（业务代码别传）。
+export const ARTIFACT_DOWNLOAD_LIMITS = Object.freeze({
+  image: Object.freeze({ maxBytes: 50 * 1024 * 1024, timeoutMs: 60_000 }),
+  audio: Object.freeze({ maxBytes: 50 * 1024 * 1024, timeoutMs: 60_000 }),
+  video: Object.freeze({ maxBytes: 500 * 1024 * 1024, timeoutMs: 10 * 60_000 }),
+});
+
+function positiveNumber(value) {
+  const n = Number(value);
+  return Number.isFinite(n) && n > 0 ? n : 0;
+}
+
+export function artifactDownloadLimits(type = "", override = null) {
+  const base = ARTIFACT_DOWNLOAD_LIMITS[String(type || "").toLowerCase()] || ARTIFACT_DOWNLOAD_LIMITS.image;
+  const envMaxBytes = positiveNumber(process.env.PI_ARTIFACT_MAX_MB) * 1024 * 1024;
+  const envTimeoutMs = positiveNumber(process.env.PI_ARTIFACT_TIMEOUT_MS);
+  const maxBytes = positiveNumber(override?.maxBytes) || envMaxBytes || base.maxBytes;
+  const timeoutMs = positiveNumber(override?.timeoutMs) || envTimeoutMs || base.timeoutMs;
+  return { maxBytes: Math.round(maxBytes), timeoutMs: Math.round(timeoutMs) };
+}
+
+// 整次下载（含 body）共用的中止开关：外部 signal（停止本轮/连接断开）与超时都汇到这一个 controller。
+// 注意：调用注入下载器时仍优先传**调用方自己的 signal**（artifact-cancel 契约要求收到的就是它），
+// 这个 controller 负责给流式 body 兜超时——rawFetch 的 timeout 只到响应头。
+function createDownloadGuard(timeoutMs, externalSignal) {
+  const controller = new AbortController();
+  let timedOut = false;
+  const timer = setTimeout(() => {
+    timedOut = true;
+    controller.abort(new Error(`下载超时（${Math.round(timeoutMs / 1000)} 秒）`));
+  }, timeoutMs);
+  const onAbort = () => controller.abort(externalSignal?.reason);
+  if (externalSignal) {
+    if (externalSignal.aborted) controller.abort(externalSignal.reason);
+    else externalSignal.addEventListener("abort", onAbort, { once: true });
+  }
+  return {
+    signal: controller.signal,
+    timedOut: () => timedOut,
+    dispose() {
+      clearTimeout(timer);
+      if (externalSignal) { try { externalSignal.removeEventListener("abort", onAbort); } catch {} }
+    },
+  };
+}
+
+function abortReasonOf(signal, fallback = "已取消") {
+  const reason = signal?.reason;
+  if (reason instanceof Error) return String(reason.message || fallback);
+  return String(reason || fallback);
+}
+
+function limitText(maxBytes) {
+  return maxBytes >= 1024 * 1024 ? `${Math.round(maxBytes / (1024 * 1024))}MB` : `${Math.round(maxBytes)} 字节`;
+}
+
+// 视频流式落盘：边下边写，内存里只有一个 chunk（不再 arrayBuffer 整包）。
+// 先写 <目标>.part，校验非空后再 rename 成最终文件——中途断掉不会留下"看起来完整"的半片子。
+// 返回 { ok, bytes, reason, retryable }；失败语义与原来一致：没下下来就是没本地化（调用方照旧报错）。
+// retryable 只给"还没写出字节的临时失败"（HTTP 5xx/连接重置）；超时、取消、超限一律不重试——
+// 10 分钟的超时再重来一次，只会把一次失败拖成二十分钟。
+async function streamVideoToFile(remote, target, limits, signal) {
+  const guard = createDownloadGuard(limits.timeoutMs, signal);
+  let bytes = 0;
+  try {
+    signal?.throwIfAborted();
+    const r = await _fetchArtifactStream(remote, { timeout: limits.timeoutMs, signal: signal || guard.signal });
+    if (!r?.ok) {
+      try { await r?.body?.cancel?.(); } catch {}
+      return { ok: false, reason: `下载失败 HTTP ${r?.status || 0}`, bytes: 0, retryable: true };
+    }
+    // 注入的下载器可能还是"整包"形态（测试替身 / 旧实现）：退回收 buffer，但上限照旧。
+    if (!r.body?.getReader) {
+      const buf = typeof r.buffer === "function" ? r.buffer() : Buffer.from(await r.arrayBuffer());
+      if (!buf?.length) return { ok: false, reason: "下载内容为空", bytes: 0, retryable: true };
+      if (buf.length > limits.maxBytes) return { ok: false, reason: `下载内容超过 ${limitText(limits.maxBytes)} 限制`, bytes: buf.length, retryable: false };
+      fs.writeFileSync(target, buf);
+      return { ok: true, bytes: buf.length };
+    }
+    // 有 Content-Length 就先挡一次：省得下了 500MB 才说超限。
+    const declared = Number(r.headers?.get?.("content-length"));
+    if (Number.isFinite(declared) && declared > limits.maxBytes) {
+      try { await r.body.cancel(); } catch {}
+      return { ok: false, reason: `下载内容超过 ${limitText(limits.maxBytes)} 限制`, bytes: 0, retryable: false };
+    }
+    await streamPipeline(
+      Readable.fromWeb(r.body),
+      new Transform({
+        transform(chunk, _enc, cb) {
+          bytes += chunk.length;
+          if (bytes > limits.maxBytes) { cb(new Error(`下载内容超过 ${limitText(limits.maxBytes)} 限制`)); return; }
+          cb(null, chunk);
+        },
+      }),
+      fs.createWriteStream(target),
+      { signal: guard.signal },
+    );
+    if (!bytes) return { ok: false, reason: "下载内容为空", bytes: 0, retryable: true };
+    return { ok: true, bytes };
+  } catch (e) {
+    // 外部取消优先（reason 带"取消"），其次超时——这两类都不该按"上游抖动"重试。
+    if (signal?.aborted) return { ok: false, reason: abortReasonOf(signal), bytes, retryable: false };
+    if (guard.timedOut()) return { ok: false, reason: `下载超时（${Math.round(limits.timeoutMs / 1000)} 秒）`, bytes, retryable: false };
+    return { ok: false, reason: String(e?.message || e).slice(0, 120), bytes, retryable: bytes === 0 };
+  } finally {
+    guard.dispose();
+  }
+}
+
 // 媒体产物本地化：远程 URL 下载 / data URL 保存 → 落进工作区并返回本地可访问路径。
 //
 // ── 本地化契约（docs/NAMING.md 第三节）──────────────────────────
@@ -364,6 +485,7 @@ export function readArtifactSidecar(filePath) {
 // 界面上看起来一样，等链接过期才发现产物没了。
 export async function saveArtifact(artifact) {
   let reservedFile = "";
+  let partFile = "";
   const signal = artifact?.signal;
   const remote = String(artifact?.url || "");
   const unsaved = reason => ({ url: remote, local: false, reason });
@@ -377,6 +499,8 @@ export async function saveArtifact(artifact) {
     // 类型表统一由 artifactExtension 提供，别在这里再写一份内联三元——两处判断迟早漂移。
     const ext = artifactExtension(artifact.type) || ".mp4";
     const baseName = artifactBaseName({ prompt: artifact.prompt, now, type: artifact.type });
+    const limits = artifactDownloadLimits(artifact.type, artifact.limits);
+    const isVideo = String(artifact.type || "").toLowerCase() === "video";
     let dataBuf = null;
     if (remote.startsWith("data:")) {
       const b64 = remote.split(",")[1];
@@ -394,35 +518,70 @@ export async function saveArtifact(artifact) {
         console.log(`[saveArtifact] SSRF 拦截: ${remote}`);
         return unsaved("地址指向内网/回环，出于安全拒绝下载");
       }
-      // 原生 fetch 下载（自动系统代理、二进制安全）。上游 CDN 抖动很常见，
-      // 失败重试一次再放弃——"没下下来"和"下不下来"是两回事。
-      let lastError = "";
-      for (let attempt = 1; attempt <= 2 && !dataBuf; attempt++) {
-        try {
+      if (isVideo) {
+        // 视频：先下到同目录的点号临时文件（文件树/资产页按名字能看出是临时件），
+        // 完整后再 allocateArtifactPath 定名 + rename——下载期间不会出现一个 0 字节的"成品"。
+        // 几十~几百 MB 的成片不能 arrayBuffer() 整包读进内存（并发几部就 OOM）。
+        partFile = path.join(dir, `.download-${Date.now().toString(36)}-${shortArtifactId()}.part`);
+        let lastError = "";
+        for (let attempt = 1; attempt <= 2; attempt++) {
           signal?.throwIfAborted();
-          const r = await _fetchArtifact(remote, { timeout: 60000, signal });
+          try { fs.rmSync(partFile, { force: true }); } catch {}
+          const got = await streamVideoToFile(remote, partFile, limits, signal);
           signal?.throwIfAborted();
-          if (!r.ok) { lastError = `下载失败 HTTP ${r.status}`; continue; }
-          const buf = r.buffer();
-          // 响应体大小限制：50MB（防 OOM）
-          if (buf.length > 50 * 1024 * 1024) { lastError = "下载内容超过 50MB 限制"; break; }
-          if (!buf.length) { lastError = "下载内容为空"; continue; }
-          if (artifact.type === "image" && !looksLikeImageBytes(buf)) { lastError = "下载内容不是图片（可能是 HTML 错误页）"; break; }
-          dataBuf = buf;
-        } catch (e) {
-          signal?.throwIfAborted();
-          lastError = String(e?.message || e).slice(0, 120);
+          if (got.ok) { lastError = ""; break; }
+          lastError = got.reason;
+          // 已经写了一部分、或超时/取消/超限 → 不再重试：重头下一遍 500MB 只会把一次失败拖成十几分钟。
+          if (got.bytes > 0 || !got.retryable) break;
           if (attempt < 2) await abortableDelay(800, undefined, { signal });
         }
+        if (lastError) {
+          try { if (fs.existsSync(partFile)) fs.unlinkSync(partFile); } catch {}
+          partFile = "";
+          return unsaved(lastError);
+        }
+      } else {
+        // 图片/音频：保持原来的整包下载（上限 50MB）。上游 CDN 抖动很常见，
+        // 失败重试一次再放弃——"没下下来"和"下不下来"是两回事。
+        let lastError = "";
+        for (let attempt = 1; attempt <= 2 && !dataBuf; attempt++) {
+          try {
+            signal?.throwIfAborted();
+            const r = await _fetchArtifact(remote, { timeout: limits.timeoutMs, signal });
+            signal?.throwIfAborted();
+            if (!r.ok) { lastError = `下载失败 HTTP ${r.status}`; continue; }
+            const buf = typeof r.buffer === "function" ? r.buffer() : Buffer.from(await r.arrayBuffer());
+            // 响应体大小限制：图片/音频 50MB（防 OOM）
+            if (buf.length > limits.maxBytes) { lastError = `下载内容超过 ${limitText(limits.maxBytes)} 限制`; break; }
+            if (!buf.length) { lastError = "下载内容为空"; continue; }
+            if (artifact.type === "image" && !looksLikeImageBytes(buf)) { lastError = "下载内容不是图片（可能是 HTML 错误页）"; break; }
+            dataBuf = buf;
+          } catch (e) {
+            signal?.throwIfAborted();
+            lastError = String(e?.message || e).slice(0, 120);
+            if (attempt < 2) await abortableDelay(800, undefined, { signal });
+          }
+        }
+        if (!dataBuf) return unsaved(lastError || "下载失败");
       }
-      if (!dataBuf) return unsaved(lastError || "下载失败");
     } else {
       // 既不是 data: 也不是 http(s)：相对路径 / 已在本地的路径。它本来就是本地的，原样返回。
       return { url: remote, local: true, reason: "" };
     }
     signal?.throwIfAborted();
-    reservedFile = allocateArtifactPath(dir, baseName, ext);
-    fs.writeFileSync(reservedFile, dataBuf);
+    if (isVideo && !dataBuf) {
+      // 流式下载收尾：.part 非空才算真的下到了，再按命名契约定名并原子改名成最终产物。
+      const partSize = fs.existsSync(partFile) ? fs.statSync(partFile).size : 0;
+      if (!partSize) throw new Error("落盘后文件为空");
+      reservedFile = allocateArtifactPath(dir, baseName, ext);
+      // allocateArtifactPath 用 wx 建的是空占位文件；Windows 上先删掉再 rename，避免目标被占。
+      fs.rmSync(reservedFile, { force: true });
+      fs.renameSync(partFile, reservedFile);
+      partFile = "";
+    } else {
+      reservedFile = allocateArtifactPath(dir, baseName, ext);
+      fs.writeFileSync(reservedFile, dataBuf);
+    }
     // 落盘校验：写完了不代表写对了。空文件会让"已本地化"变成另一句假话。
     const written = fs.statSync(reservedFile).size;
     if (!written) throw new Error("落盘后文件为空");
@@ -438,6 +597,7 @@ export async function saveArtifact(artifact) {
     }
     return { url: localUrl, local: true, reason: "" };
   } catch (e) {
+    try { if (partFile && fs.existsSync(partFile)) fs.unlinkSync(partFile); } catch {}
     if (reservedFile) {
       try { if (fs.existsSync(reservedFile) && fs.statSync(reservedFile).size === 0) fs.unlinkSync(reservedFile); } catch {}
       try { const sidecar = artifactSidecarPath(reservedFile); if (fs.existsSync(sidecar)) fs.unlinkSync(sidecar); } catch {}

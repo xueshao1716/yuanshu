@@ -24,7 +24,7 @@ import { requestBrowserSave, writeBrowserSave } from '../../lib/browser-save'
 import { saveNativeDownload } from '../../lib/native-download'
 import VideoPlayer from '../story/VideoPlayer'
 import { isExternalVideo } from '../../lib/tv'
-import { scrapeVideos, scrapeAudios, dedupeMediaUrls, mediaPathKey } from '../../lib/media-embed'
+import { scrapeVideos, scrapeAudios, dedupeMediaUrls, mediaPathKey, isChatPlayableUrl } from '../../lib/media-embed'
 import { artifactName, fileNameFromUrl } from '../../lib/artifact-name'
 import { fmtMsgTime } from '../../lib/fmt-time'
 import type { ChatMessage, RunningTool, ToolStatus } from '../../types'
@@ -148,7 +148,9 @@ function Thinking({ text, live }: { text: string; live?: boolean }) {
 }
 
 function Attachments({ msg }: { msg: ChatMessage }) {
-  const videos = dedupeMediaUrls(msg.videos?.length ? msg.videos : scrapeVideos(msg.text || ''))
+  // 2026-11-07：远端视频不再进聊天播放器。后端抽取层已经过滤过一遍，这里再兜一层——
+  // 本地库里可能还留着加过滤前存下的远端链接（旧会话缓存不会因为服务端改了就自动消失）。
+  const videos = dedupeMediaUrls(msg.videos?.length ? msg.videos : scrapeVideos(msg.text || '')).filter(isChatPlayableUrl)
   // 音频：附件里的（msg.audios）+ 正文里的试听直链（music_search 返回的 .m4a/.mp3）
   const audios = Array.from(new Set([...(msg.audios || []), ...scrapeAudios(msg.text || '')]))
   const galleryOpen = useChatMedia()
