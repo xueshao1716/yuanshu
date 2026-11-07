@@ -10,6 +10,7 @@ import path from "node:path";
 import os from "node:os";
 import { randomUUID } from "node:crypto";
 import { atomicWriteJson } from "./atomic-io.mjs";
+import { deriveRunTitle } from "./run-title.mjs";
 
 const DEFAULT_TASKS_FILE = path.join(os.homedir(), ".pi", "agent", "time-tasks.json");
 const CHECK_MS = 20_000;
@@ -47,10 +48,14 @@ export function createTimeEngine(runner, opts = {}) {
   }
 
   // 注册：type=once(需 date+at) / daily(at) / weekly(day+at, 周一=1)
-  function register({ type = "daily", at = "09:00", day, date, prompt = "", label = "", notify = false, model = "" }) {
+  function register({ type = "daily", at = "09:00", day, date, prompt = "", label = "", notify = false, model = "", title = "" }) {
     if (!prompt) return { error: "缺少任务描述 prompt" };
     if (!/^\d{2}:\d{2}$/.test(at)) return { error: "at 格式应为 HH:MM（如 09:00）" };
+    // 2026-11-07：任务也带一个给人看的名字（派活传任务名，定时任务用 label 推导）；
+    // 只加字段，调度语义不变。没给 label/title 的老任务保持不写，显示时仍用 label。
+    const named = String(title || "").trim() || (label ? deriveRunTitle({ label }) : "");
     const t = { id: randomUUID().slice(0, 8), type, at, day: day ?? null, date: date ?? null, prompt, label, created: new Date().toISOString(), lastRun: null, runs: 0, state: "active", history: [], notify: notify === true };
+    if (named) t.title = named;
     // 2026-10-22：允许按任务钉模型（夜间反思走有额度的通道），空 = 跟随默认
     if (model) t.model = String(model).slice(0, 80);
     if (type === "once" && !/^\d{4}-\d{2}-\d{2}$/.test(date || "")) return { error: "once 任务需要 date（YYYY-MM-DD）" };
@@ -130,7 +135,7 @@ export function createTimeEngine(runner, opts = {}) {
       if (t.type === "once" && t.state === "active") t.state = "done"; // 一次性完成自动入档
       save();
       if (onTaskFinished) {
-        try { Promise.resolve(onTaskFinished({ id: t.id, label: t.label || String(t.prompt || "").slice(0, 60), status, result: String(result || "").slice(0, 400), notify: t.notify === true, trigger })).catch(() => {}); } catch {}
+        try { Promise.resolve(onTaskFinished({ id: t.id, label: t.label || String(t.prompt || "").slice(0, 60), title: t.title || "", status, result: String(result || "").slice(0, 400), notify: t.notify === true, trigger })).catch(() => {}); } catch {}
       }
       // 技能自主沉淀钩子：任务成功且有实质结果 → 异步评估是否值得沉淀为技能（Hermes 闭环）
       if (onTaskDone && status === "ok" && result && result.length >= 120) {

@@ -46,19 +46,35 @@ function shortId(id) {
 }
 
 /** 「哪一轮」：优先 run，其次会话/任务；一个 id 都没有就明说只能看时间。 */
-function taskLabel(issue) {
+function taskLabel(issue, { unnamed = false } = {}) {
   const start = Number(issue?.startedAt || issue?.firstAt || 0);
   const startText = start ? `${fmtClock(start)} 开始` : "时间未知";
   const more = Array.isArray(issue?.runIds) && issue.runIds.length > 1 ? `，另有 ${issue.runIds.length - 1} 轮` : "";
-  if (issue?.runId) return `run ${shortId(issue.runId)}（${startText}${more}）`;
-  if (issue?.sessionId) return `会话 ${shortId(issue.sessionId)}（${startText}${more}）`;
-  if (issue?.taskId) return `任务 ${issue.taskId}（${startText}${more}）`;
+  // 这一轮没有人类可读的任务名时，明说「这轮没带名字」——伙伴才知道为什么只能看到 id。
+  const suffix = unnamed ? "，这轮没带名字" : "";
+  if (issue?.runId) return `run ${shortId(issue.runId)}（${startText}${more}${suffix}）`;
+  if (issue?.sessionId) return `会话 ${shortId(issue.sessionId)}（${startText}${more}${suffix}）`;
+  if (issue?.taskId) return `任务 ${issue.taskId}（${startText}${more}${suffix}）`;
   const first = Number(issue?.firstAt || 0);
   const last = Number(issue?.lastAt || 0);
   const range = first
     ? (last && last - first > 60_000 ? `${fmtClock(first)}–${fmtClock(last)}` : fmtClock(first))
     : "";
-  return `这轮没带 id，只能看时间（${range || "时间未知"}）`;
+  return `这轮没带 id，只能看时间（${range || "时间未知"}）${unnamed ? "（这轮没带名字）" : ""}`;
+}
+
+/**
+ * 有任务名时先说「哪件事」：`整理桌面截图（run f2170fcd，22:31）`。
+ * 时间只到分钟（IM 里够用），"另有 N 轮"照旧保留。
+ */
+function titledLabel(issue, title) {
+  const start = Number(issue?.startedAt || issue?.firstAt || 0);
+  const when = start ? `，${fmtClock(start)}` : "";
+  const more = Array.isArray(issue?.runIds) && issue.runIds.length > 1 ? `，另有 ${issue.runIds.length - 1} 轮` : "";
+  if (issue?.runId) return `${title}（run ${shortId(issue.runId)}${when}${more}）`;
+  if (issue?.sessionId) return `${title}（会话 ${shortId(issue.sessionId)}${when}${more}）`;
+  if (issue?.taskId) return `${title}（任务 ${issue.taskId}${when}${more}）`;
+  return start ? `${title}（${fmtClock(start)}）` : title;
 }
 
 /**
@@ -73,7 +89,10 @@ export function composeDriftNotice(issues = [], { limit = 3, incidentId = "" } =
     const tool = String(i?.tool || "").trim();
     // detail 里通常已带工具名（bash 连续失败…）；只改不验这类没说工具的，补一个前缀。
     const toolPrefix = tool && !detail.startsWith(tool) ? `${tool} · ` : "";
-    lines.push(`· 任务：${taskLabel(i)} · ${toolPrefix}${detail}`);
+    // 有任务名就先说「哪件事」，再给 run id 与时间；没有名字时退回旧写法并明说「这轮没带名字」。
+    const title = String(i?.title || "").trim();
+    const subject = title ? titledLabel(i, title) : taskLabel(i, { unnamed: true });
+    lines.push(`· 任务：${subject} · ${toolPrefix}${detail}`);
     const samples = Array.isArray(i?.samples) ? i.samples.filter(Boolean) : [];
     const latest = samples[0] ? String(samples[0]).slice(0, 80) : "";
     lines.push(`  最近一次：${latest || "没留到失败输出，只能看到次数"}`);

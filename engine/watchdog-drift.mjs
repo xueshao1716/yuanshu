@@ -6,6 +6,8 @@
 // 2026-11-07：之前 issue 只有 {code, detail, n}，推送出去是「bash 连续失败 3 次」，
 // 用户追问"哪个任务跑偏了"时谁也答不上来。现在每个 issue 都从窗口内**相关的 rows** 里
 // 取身份（runId/sessionId/taskId）、时间范围、失败样例和可查 evidence；取不到就留空，不猜。
+// 之后再补一层：run 记录里有人类可读的 title 就带上（rows 自查 → 注入的 titleOf 查 run store），
+// 通知与 watchdog_read 才能说清「是哪件事」，而不只是 run id。
 import fs from "node:fs";
 import path from "node:path";
 
@@ -32,6 +34,8 @@ function pickNewestField(rows, names) {
 const RUN_KEYS = ["runId", "run_id"];
 const SESSION_KEYS = ["sessionId", "session_id", "session"];
 const TASK_KEYS = ["taskId", "task_id", "task"];
+// 审计行本身没有任务名；未来若写进来（title/runTitle），优先用行里的，查不到才查 run store。
+const TITLE_KEYS = ["title", "runTitle", "taskTitle"];
 
 const atOf = (row) => {
   const n = Number(row?.at ?? row?.ts);
@@ -110,9 +114,11 @@ function callSample(row) {
 
 /**
  * 给一条 issue 补上下文。所有字段都从窗口内相关 rows 取，没有就留空。
- * @returns 原 issue + {tool, runId, sessionId, taskId, runIds, firstAt, lastAt, startedAt, samples, evidence}
+ * run 的 title 先看 rows 自带字段，再问调用方注入的 store 查询（titleOf）；
+ * 查不到就是空——判断层不读盘，也不替这轮起名字。
+ * @returns 原 issue + {tool, runId, sessionId, taskId, title, runIds, firstAt, lastAt, startedAt, samples, evidence}
  */
-function buildIssueContext(issue, related, win) {
+function buildIssueContext(issue, related, win, { titleOf = null } = {}) {
   const rows = (Array.isArray(related) ? related : []).filter(Boolean)
     .sort((a, b) => (atOf(a) || 0) - (atOf(b) || 0));
 
@@ -142,6 +148,13 @@ function buildIssueContext(issue, related, win) {
   const runId = pickNewestField(pool, RUN_KEYS) || pickNewestField(withArgs, RUN_KEYS);
   const sessionId = pickNewestField(pool, SESSION_KEYS) || pickNewestField(withArgs, SESSION_KEYS);
   const taskId = pickNewestField(pool, TASK_KEYS) || pickNewestField(withArgs, TASK_KEYS);
+
+  // 任务名：行里有就用（未来审计门若写入 title），否则问注入的 run store。
+  // 没有 runId / 查不到 / 查询抛错 → 留空（通知与 watchdog_read 会明说「这轮没带名字」）。
+  let title = pickNewestField(pool, TITLE_KEYS) || pickNewestField(withArgs, TITLE_KEYS);
+  if (!title && runId && typeof titleOf === "function") {
+    try { title = text(titleOf(runId)); } catch { title = ""; }
+  }
 
   // 涉及到的轮次（新的在前，最多 5 个）：一条 issue 可能横跨两轮，通知里要能说"另有 N 轮"。
   const runIds = [];
@@ -181,6 +194,7 @@ function buildIssueContext(issue, related, win) {
     runId,
     sessionId,
     taskId,
+    title: clip(title, 40),
     runIds,
     firstAt,
     lastAt,
@@ -190,7 +204,7 @@ function buildIssueContext(issue, related, win) {
   };
 }
 
-export function detectDrift(rows = [], { now = Date.now(), windowMs = 30 * 60 * 1000, repeatLimit = 5, failLimit = 3 } = {}) {
+export function detectDrift(rows = [], { now = Date.now(), windowMs = 30 * 60 * 1000, repeatLimit = 5, failLimit = 3, titleOf = null } = {}) {
   const since = now - windowMs;
   const win = (Array.isArray(rows) ? rows : []).filter((r) => {
     const t = Number(r?.at || r?.ts || 0);
@@ -212,6 +226,7 @@ export function detectDrift(rows = [], { now = Date.now(), windowMs = 30 * 60 * 
         { code: "loop", detail: `${tool} 同参数重复 ${n} 次`, n, tool },
         win.filter((r) => `${r.tool || "?"}|${r.argsHash || ""}` === k),
         win,
+        { titleOf },
       ));
     }
   }
@@ -227,6 +242,7 @@ export function detectDrift(rows = [], { now = Date.now(), windowMs = 30 * 60 * 
         { code: "failing", detail: `${tool} 连续失败 ${n} 次`, n, tool },
         win.filter((r) => (r.tool || "?") === tool && isFailure(r)),
         win,
+        { titleOf },
       ));
     }
   }
@@ -240,6 +256,7 @@ export function detectDrift(rows = [], { now = Date.now(), windowMs = 30 * 60 * 
       { code: "no_gate", detail: `改了 ${writes} 次却没过一次交付门`, n: writes, tool: "write" },
       writeRows,
       win,
+      { titleOf },
     ));
   }
 

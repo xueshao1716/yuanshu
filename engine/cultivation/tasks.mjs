@@ -72,8 +72,11 @@ export function createCultivationTasks(options) {
       const design=state.data.designs.find(d=>d.id===agent.designId).design;
       assertAdoptable(design,state.data.policy,{now:now(),agentId:agent.id,verifyAsset});
       if(agent.status!=='ready')fail('agent_paused');
+      // 2026-11-07：派给培育体的活也带一个给人看的名字（目标优先，其次输入）；
+      // run-store 会把 title 落到记录顶层，看门狗/列表才有「是哪件事」可说。只加字段。
       const run=repo.create({sessionId:`cultivation:${agent.id}`,clientRequestId:c.requestId,
-        origin:'cultivation',motherIdentityEligible:false,ownerId,message:c.payload.input,model:design.permissions.model,cultivation});
+        origin:'cultivation',motherIdentityEligible:false,ownerId,message:c.payload.input,model:design.permissions.model,cultivation,
+        title:String(c.payload.goal||c.payload.input||'').replace(/\s+/g,' ').trim().slice(0,40)});
       return {result:{id:run.id},revision:state.revision};
     });
   };

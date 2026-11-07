@@ -12,7 +12,7 @@ export const WATCHDOG_READ_TOOL = {
   type: "function",
   function: {
     name: "watchdog_read",
-    description: "查最近一次（或指定 id 的）看门狗「跑偏」事件：哪一轮/哪个会话、哪个工具、失败成了什么样、去哪里看。"
+    description: "查最近一次（或指定 id 的）看门狗「跑偏」事件：哪件事（任务名）、哪一轮/哪个会话、哪个工具、失败成了什么样、去哪里看。"
       + "用户问「刚才哪件事跑偏了」「哪个任务出问题了」「看门狗报的是什么」时先调它，再用自然语言回答。"
       + "只读，不会停任务；返回一段可直接转述的中文摘要。",
     parameters: {
@@ -37,7 +37,7 @@ function shortId(id) {
   return s.length > 12 ? s.slice(0, 8) : s;
 }
 
-/** 把一条 issue 写成两句人话：哪一轮 + 最近一次长什么样。 */
+/** 把一条 issue 写成两句人话：哪一轮（有名字先说名字）+ 最近一次长什么样。 */
 function issueSentence(issue) {
   const detail = text(issue?.detail || issue?.reason || issue?.code) || "有一处偏离";
   const samples = Array.isArray(issue?.samples) ? issue.samples.filter(Boolean) : [];
@@ -48,20 +48,26 @@ function issueSentence(issue) {
   const first = Number(issue?.firstAt || 0);
   const last = Number(issue?.lastAt || 0);
   const more = Array.isArray(issue?.runIds) && issue.runIds.length > 1 ? `，另有 ${issue.runIds.length - 1} 轮` : "";
+  // run 记录里的 title（看门狗判定时已解析好）；没有就照旧只报 id/会话。
+  const title = text(issue?.title);
+  const named = title ? `，任务「${title}」` : "";
 
   if (issue?.runId) {
     const session = issue?.sessionId ? `，会话 ${shortId(issue.sessionId)}` : "";
-    return `${start ? clock(start) : "时间不明"} 开始的那一轮（run ${shortId(issue.runId)}${session}${more}）里，${detail}。${latest}`;
+    return `${start ? clock(start) : "时间不明"} 开始的那一轮（run ${shortId(issue.runId)}${named}${session}${more}）里，${detail}。${latest}`;
   }
   if (issue?.sessionId) {
-    return `${start ? clock(start) : "时间不明"} 开始的那一轮（会话 ${shortId(issue.sessionId)}${more}）里，${detail}。${latest}`;
+    return `${start ? clock(start) : "时间不明"} 开始的那一轮（会话 ${shortId(issue.sessionId)}${named}${more}）里，${detail}。${latest}`;
   }
   if (issue?.taskId) {
-    return `${start ? clock(start) : "时间不明"} 开始的那一轮（任务 ${issue.taskId}${more}）里，${detail}。${latest}`;
+    return `${start ? clock(start) : "时间不明"} 开始的那一轮（任务 ${issue.taskId}${named}${more}）里，${detail}。${latest}`;
   }
   const range = first
     ? (last && last - first > 60_000 ? `${clock(first)}–${clock(last)}` : clock(first))
     : "时间不明";
+  if (title) {
+    return `${range} 那一段（任务「${title}」，这轮没带 id，只能按时间对）里，${detail}。${latest}`;
+  }
   return `${range} 那一段（这轮没带 id，只能按时间对）里，${detail}。${latest}`;
 }
 

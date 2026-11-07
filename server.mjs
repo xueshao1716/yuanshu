@@ -199,6 +199,7 @@ import { createRunManager } from "./engine/run-manager.mjs";
 import { isMotherExecutionCandidate } from "./engine/run-execution-identity.mjs";
 import { createRunEffects } from "./engine/run-effects.mjs";
 import { createRunApi } from "./engine/run-api.mjs";
+import { deriveRunTitle } from "./engine/run-title.mjs";
 import { readGeneralTeamDeliveries } from "./engine/team-general-delivery.mjs";
 import { initThemePrefs, loadThemePrefs, saveThemePrefs } from "./engine/theme-prefs.mjs";
 import { initColorPrefs, loadColorPrefs, saveColorPrefs } from "./engine/color-prefs.mjs";
@@ -1898,7 +1899,10 @@ const dispatchByRouter = (task, reason = "", threadKey = "") => {
   const dateStr = when.slice(0, 10);
   const timeStr = when.slice(11, 16);
   const label = taskLabelFor(threadKey);
-  const r = timeEngine.register({ type: "once", date: dateStr, at: timeStr, prompt: guarded, label, notify: true });
+  // 2026-11-07：给这张活一个「人读得懂的名字」——看门狗/任务中心报 run 或任务时，
+  // 伙伴要能认出是哪件事，而不是只有 id。派生规则统一在 run-title.mjs。
+  const title = deriveRunTitle({ task: guarded, label });
+  const r = timeEngine.register({ type: "once", date: dateStr, at: timeStr, prompt: guarded, label, title, notify: true });
   if (r?.error) console.log(`[router] 派活失败：${r.error}`);
   else {
     console.log(`[router] 已派活（${when}）：${String(guarded).slice(0, 60)}`);
@@ -3658,6 +3662,22 @@ initToolResultArchive({ root: path.join(AGENT_DIR, "yuanshu-tool-results") });
 initFileLock({ withFileMutationQueue, dir: path.join(AGENT_DIR, "yuanshu-locks") });
 console.log(`  🔒 文件写队列: ${usingSharedFileQueue() ? "与 Pi 共用" : "自带实现（未拿到 Pi 的队列）"} · 跨进程锁目录 ${path.join(AGENT_DIR, "yuanshu-locks")}`);
 const runStore = createRunStore({ rootDir: RUNS_DIR });
+// 2026-11-07：看门狗只拿到 runId，伙伴认不出是哪件事。这里给判断层注入一个只读查询：
+// 新 run 直接用存下的 title；老 run（没有 title）按同一套规则从消息预览补一个。
+// 查不到/读盘失败 → 空串（不猜），通知里会明说「这轮没带名字」。
+const runTitleForWatchdog = (runId) => {
+  try {
+    const run = runStore.get(runId);
+    if (!run) return "";
+    if (run.title) return String(run.title);
+    const at = Date.parse(String(run.createdAt || ""));
+    return deriveRunTitle({
+      message: run.input?.messagePreview || "",
+      surface: run.surface,
+      at: Number.isFinite(at) ? at : undefined,
+    });
+  } catch { return ""; }
+};
 // 2026-10-22：服务被强杀后，run 记录会停在 queued/running/stopping，
 // 新消息被判 session_busy（前端只看到"执行中/状态待同步"），实际后台什么都没跑。
 // 启动时把"重启前就在跑、且 90 秒没更新"的记录收成 interrupted，避免假占用。
@@ -4073,7 +4093,7 @@ setInterval(() => {
   // 2026-11-02：看门狗判偏——空转/连续失败/只改不验
   try {
     const rows = (auditGate?.tail ? auditGate.tail(300) : []) || [];
-    const res = detectDrift(rows, { now: Date.now() });
+    const res = detectDrift(rows, { now: Date.now(), titleOf: runTitleForWatchdog });
     recordDriftCheck(WS_ROOT, res);
     // 2026-11-07：每次真判出偏离都落一条带 id 的事件——通知正文、接口、watchdog_read 查的是同一件事。
     const incidentOut = res.drift ? recordDriftIncident(WS_ROOT, res, { rows }) : null;
@@ -7903,6 +7923,9 @@ ${rows.map((r) => `- [${r.status}${r.closed ? "/已结清" : ""}] ${r.text}\n  �
         onTaskDone: (info) => nudgeSkill(info),
         // 定时任务失败一定告诉用户；成功只在任务本身标了 notify 时才打扰（内部复盘/做梦天天跑，不该刷屏）
         onTaskFinished: (t) => {
+          // 2026-11-07：任务名优先用 title（派活=任务文本、定时任务=label 推导），
+          // 通知里先说「是哪件事」，而不是只有 label/id。
+          const taskName = String(t.title || t.label || "定时任务").slice(0, 40);
           // 2026-11-07：这张活收尾了——退订话题、结掉授权（被停 = 撤销，不是完成）
           try {
             const tk = threadKeyOfLabel(t.label);
@@ -7986,8 +8009,8 @@ ${rows.map((r) => `- [${r.status}${r.closed ? "/已结清" : ""}] ${r.text}\n  �
               }
             }
           } catch (e) { console.log("[harness-probe] 跳过:", String(e?.message || e).slice(0, 100)); }
-          if (t.status === "error") return notifier.notify({ kind: "task", title: "元枢 · 定时任务失败", body: `${t.label}：${t.result}`, key: `task:${t.id}` });
-          if (t.status === "ok" && t.notify) return notifier.notify({ kind: "task", title: `元枢 · ${t.label} 已完成`, body: t.result || "任务已完成", key: `task:${t.id}`, toWechat: true });
+          if (t.status === "error") return notifier.notify({ kind: "task", title: "元枢 · 定时任务失败", body: `${taskName}：${t.result}`, key: `task:${t.id}` });
+          if (t.status === "ok" && t.notify) return notifier.notify({ kind: "task", title: `元枢 · ${taskName} 已完成`, body: t.result || "任务已完成", key: `task:${t.id}`, toWechat: true });
         },
       }); // 技能自主沉淀钩子（09-03，Hermes 闭环）
       timeEngine.start();

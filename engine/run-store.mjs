@@ -5,6 +5,7 @@ import { randomUUID } from 'node:crypto'
 import { atomicWriteJson } from './atomic-io.mjs'
 import { withLegacyContinuation } from './task-continuation.mjs'
 import { createRunActivityReader } from './run-activity.mjs'
+import { deriveRunTitle } from './run-title.mjs'
 
 const ACTIVE_STATUSES = new Set(['queued', 'running', 'stopping'])
 
@@ -144,6 +145,20 @@ export function createRunStore({ rootDir, now = () => new Date().toISOString(), 
       if (existing) return existing
 
       const createdAt = now()
+      // 2026-11-07：每个 run 都带一个给人看的名字——看门狗只能报 runId 时，
+      // 伙伴认不出是哪件事。显式 title 优先，否则按派活文本/定时 label/子代理 name/
+      // 用户消息首句/来源+时间兜底（推导规则集中在 run-title.mjs，纯函数）。
+      const createdMs = Date.parse(createdAt)
+      const title = deriveRunTitle({
+        title: input.title,
+        task: input.task,
+        label: input.label,
+        name: input.name,
+        message: input.message,
+        surface: input.surface,
+        at: Number.isFinite(createdMs) ? createdMs : undefined,
+      })
+      const surface = String(input.surface || '').trim().slice(0, 24)
       const run = {
         v: 1,
         id: idFactory(),
@@ -151,6 +166,9 @@ export function createRunStore({ rootDir, now = () => new Date().toISOString(), 
         clientRequestId: input.clientRequestId,
         ownerId: input.ownerId || null,
         status: 'queued',
+        // 顶层 title 是给人看的（≤40 字）；老记录没有这个字段，读时再按同一套规则推导。
+        title,
+        ...(surface ? { surface } : {}),
         input: persistedInput(input),
         request: persistedRequest(input),
         ...(typeof input.motherIdentityEligible === 'boolean' ? { motherIdentityEligible: input.motherIdentityEligible } : {}),

@@ -1,9 +1,24 @@
 const TERMINAL = new Set(['completed', 'failed', 'stopped', 'interrupted'])
 import { publicRecovery } from './run-recovery.mjs'
+import { deriveRunTitle } from './run-title.mjs'
+
+function createdMsOf(run) {
+  const ms = Date.parse(String(run?.createdAt || ''))
+  return Number.isFinite(ms) ? ms : undefined
+}
+
+/** 顶层 title；老 run 没存过就按同一套规则从消息预览/来源推一个（不猜，只用记录里有的）。 */
+function safeTitle(run) {
+  if (!run) return ''
+  const stored = String(run.title || '').trim()
+  if (stored) return stored
+  return deriveRunTitle({ message: run?.input?.messagePreview || '', surface: run?.surface, at: createdMsOf(run) })
+}
 
 function publicRun(run) {
   if (!run) return run
   const { request, ...safe } = run
+  safe.title = safeTitle(run)
   if (safe.backgroundRecovery) safe.backgroundRecovery = publicRecovery(safe.backgroundRecovery)
   if (safe.checkpoint && typeof safe.checkpoint === 'object') {
     const { historySnapshot, team, ...checkpoint } = safe.checkpoint
@@ -83,6 +98,8 @@ export function createRunApi({ manager, json, readContext = null, readDeliveries
       const visible = new Map([...snapshot.active, ...snapshot.recent].map(run => [run.id, run]))
       await Promise.all([...visible.values()].map(async run => {
         const source = sources.get(run.id), events = eventsByRun.get(run.id)
+        // 概览里也要能看出「是哪件事」：新 run 用存下的 title，老 run 按同一套规则推导。
+        run.title = safeTitle(source)
         run.explanation = await explain(source, events)
         Object.assign(run, await deliveryView(source, events))
       }))

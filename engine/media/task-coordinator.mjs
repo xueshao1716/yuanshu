@@ -58,7 +58,9 @@ export function createVoiceTaskCoordinator({ rootDir, manager, createSession, ca
         context.voiceTaskAdmission = admissionForTask(current, policy)
         current.launchAttempted = true; store.save(state)
         try {
-          const run = manager.create({ ...defaults, model: policy.model ?? defaults?.model, sessionId: current.sessionId, clientRequestId: current.id, message: current.instruction, stream: true, backgroundRecovery: false }, context)
+          // 2026-11-07：语音任务的标题就是它的名字——带进 run 记录，
+          // 看门狗说「哪件事」时不必再让伙伴对着 run id 猜。
+          const run = manager.create({ ...defaults, model: policy.model ?? defaults?.model, sessionId: current.sessionId, clientRequestId: current.id, message: current.instruction, title: current.title, stream: true, backgroundRecovery: false }, context)
           if (run?.then) throw fail('async_run_manager_unsupported')
           current.runId = run.id; current.status = run.status
         } catch (error) {
