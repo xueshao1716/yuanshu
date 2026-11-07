@@ -83,6 +83,11 @@ export async function runSelectedMedia({ req, res, entry, generation, model, kin
       const url = kind === 'image' ? result : result?.video;
       if (!url) throw new Error(result?.error || '所选模型没有返回媒体结果');
       const localized = await bounded(() => saveArtifact({ type: kind, url, prompt: message, signal }));
+      // 视频「不落盘就不交付」：远端签名链接会过期，不能直接发播放器。图片仍允许先展示外链，
+      // 但要在界面上注明没存到本机。
+      if (kind === 'video' && !localized?.local) {
+        throw new Error(`视频已生成，但没能保存到本机（${localized?.reason || '本地保存失败'}）；远端临时链接会过期，未按交付处理`);
+      }
       media = { type: kind, url: localized?.url || url };
       if (!localized?.local) emit('note', { text: `媒体已生成，但未保存到本机：${localized?.reason || '本地保存失败'}。临时链接可能过期。` });
       // Base64 exceeds the bounded journal payload. Never cache a truncated image.

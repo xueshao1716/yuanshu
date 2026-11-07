@@ -3,6 +3,32 @@ const VIDEO_EXT = /\.(mp4|webm|mov)(?:\b|$)/i;
 const IMAGE_EXT = /\.(png|jpe?g|gif|webp)(?:\b|$)/i;
 const AUDIO_EXT = /\.(mp3|wav|m4a)(?:\b|$)/i;
 
+// 相对工作区路径：生成物/工程/交付（含连续创作的历史目录 workshop-out），会被收成 /api/ws/file。
+const LOCAL_MEDIA_REL = /^(?:生成物|工程|workshop-out|交付)[\\/]/i;
+// 本机（回环）绝对地址：老会话里存过 http://127.0.0.1:8787/api/ws/file?... 这种写法。
+const LOCAL_MEDIA_ORIGIN = /^https?:\/\/(?:127\.0\.0\.1|localhost|\[::1\])(?::\d+)?\/api\/ws\/file(?:[?#]|$)/i;
+
+// 聊天里"能不能放播放器"的唯一判据（2026-11-07）。
+//
+// 产品原则：远程图像/视频模型的生成物必须先下载到本地，再由窗口发出来——远端签名链接
+// 几小时到几天就过期，平台也会清，直接塞进 <video> 只会得到一个永远转圈的黑框，
+// 用户还以为片子坏了。所以聊天只给**本地/同源**地址放播放器，远端地址退回文本 + 链接。
+//   /api/ws/file?path=…                → 允许（工作区文件服务，含 exp/sig 签名变体）
+//   生成物/ 工程/ workshop-out/ 交付/  → 允许（相对工作区路径，先归一成上面的地址）
+//   https://platform-outputs…          → 不允许（远端临时产物，没落盘）
+//   https://example.com/x.mp4          → 不允许（示例/外链，不是本机产物）
+//
+// 注意边界：这条规则**只用于聊天嵌入**。影视页的直播源由 frontend/src/lib/tv.ts 直接直连
+// 原始 m3u8，不走这里，也不要拿这个判据去改写直播地址（手机上转换过的地址会半天刷不出来）。
+export function isLocalPlayableUrl(url) {
+  const s = String(url || "").trim().replace(/^["'`<]+|[>"'`]+$/g, "");
+  if (!s) return false;
+  if (/^data:video\//i.test(s)) return true;          // data: 视频本身就是本地字节
+  if (/^\.?\/api\/ws\/file(?:[?#]|$)/i.test(s)) return true;
+  if (LOCAL_MEDIA_REL.test(s)) return true;
+  return LOCAL_MEDIA_ORIGIN.test(s);
+}
+
 // Only workspace links are normalized; external hosts and version queries matter.
 export function mediaDeliveryKey(url) {
   const value = String(url || '').trim();
@@ -59,7 +85,8 @@ export function extractPlayableMedia(text) {
     else if (IMAGE_EXT.test(pathPart) || IMAGE_EXT.test(hit)) add(images, url);
     else if (AUDIO_EXT.test(pathPart) || AUDIO_EXT.test(hit)) add(audios, url);
   }
-  return { videos, images, audios };
+  // 这里只负责"从正文里捞本机片子"；外链一律不进播放器（远端地址由调用方写成文本 + 链接）。
+  return { videos: videos.filter(isLocalPlayableUrl), images, audios };
 }
 
 function clipMediaPath(s) {

@@ -6,7 +6,7 @@ import { effectiveCapabilities } from '../../shared/model-capabilities.mjs';
 import { saveArtifact, WS_ROOT } from "../workspace-api.mjs"; // saveArtifact 定义在 workspace-api（工作空间块拆分时随走）
 import { videoCreateBody, videoPollPath, repairVideoRequest, decodeAgnesVideoId } from "../video-request.mjs";
 import { materializeMedia, materializeVideoBody } from "./inline.mjs";
-import { extractPlayableMedia } from "./embed.mjs";
+import { extractPlayableMedia, isLocalPlayableUrl } from "./embed.mjs";
 import { colorCardStyleLine, hasColorCardMark } from "../color-cards.mjs";
 import { currentColorCard } from "../color-prefs.mjs";
 import { resolveImageRequest } from './request.mjs';
@@ -122,18 +122,35 @@ export function extractMediaPrompt(message, ctx = {}) {
   return stripped;
 }
 
+// 远端视频只写一行提示 + 链接，不发播放器：临时签名链接过期后就是永远转圈的黑框。
+const REMOTE_VIDEO_NOTE = "（视频仍在远端，未落盘，可能过期）";
+
 export function assistantContentWithMedia(text, mediaResults) {
   const blocks = [];
+  const remoteVideos = [];
   const t = String(text || "").trim();
   if (t) blocks.push({ type: "text", text: t });
   for (const m of mediaResults || []) {
     if (m && m.type === "image" && m.url) blocks.push({ type: "image", url: m.url, ...(m.model ? { model: m.model } : {}), ...(m.attempts ? { attempts: m.attempts } : {}), ...(m.verification ? { verification: m.verification } : {}) });
-    else if (m && m.type === "video" && m.url) blocks.push({ type: "video", url: m.url });
+    // 视频只认本地/同源产物（/api/ws/file 或 生成物/工程/交付 相对路径）。远端 URL 是临时地址，
+    // 没下载到本地就不能当成品发播放器——改成一行文本 + 链接，至少不会让用户对着黑框等。
+    else if (m && m.type === "video" && m.url) {
+      if (isLocalPlayableUrl(m.url)) blocks.push({ type: "video", url: m.url });
+      else remoteVideos.push(m.url);
+    }
     else if (m && (m.type === "audio" || m.type === "tts") && m.url) blocks.push({ type: "audio", url: m.url });
   }
   const scraped = extractPlayableMedia(t);
   for (const url of scraped.videos) {
+    // 正文里扫到的同样只认本机产物；example.com 这类外链/示例地址不再变成播放器。
+    if (!isLocalPlayableUrl(url)) continue;
     if (!blocks.some((b) => b.type === "video" && b.url === url)) blocks.push({ type: "video", url });
+  }
+  if (remoteVideos.length) {
+    const note = [...new Set(remoteVideos)].map((url) => `${REMOTE_VIDEO_NOTE}[打开远端视频](${url})`).join("\n");
+    const textBlock = blocks.find((b) => b.type === "text");
+    if (textBlock) textBlock.text = `${textBlock.text}\n\n${note}`;
+    else blocks.unshift({ type: "text", text: note });
   }
   return blocks.length ? blocks : [{ type: "text", text: t }];
 }
@@ -261,8 +278,16 @@ export async function generateMediaAsync(intent, prompt, observations = {}) {
       if (!m) { console.log(`[元枢] 媒体: 无 video 模型`); return { type: "video", error: "无 video 模型" }; }
       const r = await generateVideo(m.provider, m.id, prompt, intent);
       if (r?.video) {
-        console.log(`[元枢] 媒体 video: 成功`);
-        return { type: "video", url: r.video, model: `${m.provider}/${m.id}`, prompt };
+        // 出片侧「不落盘就不交付」：上游给的是临时签名链接，先下载进工作区再当成品。
+        // 下不来就按失败回报（带上原因），绝不把远端 URL 透传给对话/播放器。
+        const saved = await saveArtifact({ type: "video", url: r.video, prompt });
+        if (!saved.local) {
+          const error = `片子没存到本地（${saved.reason || "下载失败"}）；远端临时链接会过期，未按交付处理`;
+          console.log(`[元枢] 媒体 video: 未落盘 ${saved.reason || ""}`);
+          return { type: "video", error };
+        }
+        console.log(`[元枢] 媒体 video: 成功（已落盘）`);
+        return { type: "video", url: saved.url, model: `${m.provider}/${m.id}`, prompt, localized: true };
       }
       const error = r?.error || "视频模型未返回片子";
       console.log(`[元枢] 媒体 video: 失败 ${error}`);
@@ -609,9 +634,10 @@ export async function handleMedia(res, body) {
   if (task_id) {
     const r = await checkVideoJob(provider, modelId, task_id);
     if (r.video) {
-      // 外站视频必须先落到本地（临时链接会过期）；没落成要如实回报，不能当成功
+      // 外站视频必须先落到本地（临时链接会过期）；没落成就按失败回报，不能把远端链接当交付物。
       const saved = await saveArtifact({ type: "video", url: r.video, prompt });
-      return json(res, 200, { video: saved.url, task_id, ...(saved.local ? {} : { localizeError: saved.reason }) });
+      if (!saved.local) return json(res, 502, { error: `片子已生成但没能下载到本地（${saved.reason || "下载失败"}）；远端临时链接会过期，未按交付处理`, task_id });
+      return json(res, 200, { video: saved.url, task_id });
     }
     if (r.error && r.status !== "pending") return json(res, 500, { error: r.error, task_id });
     return json(res, 200, { status: r.status || "pending", task_id });
@@ -620,7 +646,8 @@ export async function handleMedia(res, body) {
   const r = await startVideoJob(provider, modelId, prompt, body);
   if (r.video) {
     const saved = await saveArtifact({ type: "video", url: r.video, prompt });
-    return json(res, 200, { video: saved.url, task_id: r.task_id, ...(saved.local ? {} : { localizeError: saved.reason }) });
+    if (!saved.local) return json(res, 502, { error: `片子已生成但没能下载到本地（${saved.reason || "下载失败"}）；远端临时链接会过期，未按交付处理`, task_id: r.task_id });
+    return json(res, 200, { video: saved.url, task_id: r.task_id });
   }
   if (r.error) return json(res, 500, { error: r.error });
   return json(res, 202, { task_id: r.task_id, status: "pending" });

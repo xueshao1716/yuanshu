@@ -10,6 +10,7 @@ import { httpBufferFetch } from "./http.mjs";
 import { setTimeout as abortableDelay } from "node:timers/promises";
 import { VERSION_TAG } from "./version.mjs";
 import { assertExportPath, exportDeliveryRoot, stageWorkspaceExport, exportError } from './workspace-export.mjs';
+import { workspaceCandidates } from "./workspace-default.mjs";
 
 let _wsRoot = "";
 // 下载器可注入：SSRF 守卫会（正确地）拦掉 127.0.0.1，于是测试没法起个本地服务器冒充"外站"。
@@ -89,6 +90,55 @@ export function wsSafePath(p) {
     if (r) return r;
   }
   return safeJoin(WS_ROOT, p);
+}
+
+// ── 可读工作区根（2026-11-07）──────────────────────────────────
+// 主根是 WS_ROOT（本机 D:\pi-workspace）。但同一台机器上常还留着同名工作区目录
+// （C:\pi-workspace、%USERPROFILE%\pi-workspace…）——出片/出图工具一旦把文件写到那边，
+// 聊天里按相对路径发出的 `/api/ws/file?path=生成物/视频/x.mp4` 就会 404：文件真实存在，
+// 只是不在主根下。读文件时按候选根依次找；**写仍然只认主根**，且每个根都过一遍 safeJoin 越权校验。
+export function workspaceReadRoots() {
+  const roots = [];
+  const seen = new Set();
+  const add = (dir) => {
+    const text = String(dir || "");
+    if (!text) return;
+    let real;
+    try {
+      if (!fs.statSync(text).isDirectory()) return;
+      real = fs.realpathSync(text);
+    } catch { return; }
+    const key = real.replace(/\\/g, "/").replace(/\/+$/, "").toLowerCase();
+    if (seen.has(key)) return;
+    seen.add(key);
+    roots.push(real);
+  };
+  add(WS_ROOT);
+  for (const dir of workspaceCandidates()) add(dir);
+  return roots;
+}
+
+function isExistingWorkspaceFile(file) {
+  try { return !!file && fs.statSync(file).isFile(); } catch { return false; }
+}
+
+// 解析「读文件」目标：先主根，找不到再按可读根找。绝对路径不跨根猜（避免任意盘符被读成产物）；
+// roots 可注入，单测用临时目录验，不碰真实工作区。
+export function resolveWorkspaceReadFile(p, { roots = null } = {}) {
+  const raw = String(p || "");
+  if (!raw) return null;
+  const injected = Array.isArray(roots) && roots.length ? roots : null;
+  const primary = injected ? safeJoin(injected[0], raw) : wsSafePath(raw);
+  if (isExistingWorkspaceFile(primary)) return primary;
+  // 绝对路径不跨根猜；没初始化主根 / 自改隔离期间也不回落（避免未初始化时按候选根乱读）。
+  if (path.isAbsolute(raw)) return primary;
+  if (!injected && (!WS_ROOT || _selfChangeRoot)) return primary;
+  const list = injected || workspaceReadRoots();
+  for (const root of list.slice(1)) {
+    const hit = safeJoin(root, raw);
+    if (isExistingWorkspaceFile(hit)) return hit;
+  }
+  return primary;
 }
 
 const WS_MIME = {
@@ -448,15 +498,17 @@ export async function handleWsTree(res, reqPath) {
 export async function handleWsFile(res, req, url) {
   // 优先：签名 URL（path+exp+sig，安全防篡改、可过期，不依赖内存映射）
   const fb = await import("./filebox.mjs");
-  let target = null;
+  let rel = "";
   if (url?.searchParams.get("sig")) {
     const v = fb.verifySigned(req);
-    if (v.ok) target = wsSafePath(v.rel);
+    if (v.ok) rel = v.rel;
     else return json(res, 403, { error: v.reason || "无权访问" });
   } else if (url?.searchParams.get("path")) {
     // 兼容旧链接（直接 path，需带 token 鉴权）
-    target = wsSafePath(url.searchParams.get("path") || "");
+    rel = url.searchParams.get("path") || "";
   }
+  // 主根找不到时回落同机其它工作区根（见 resolveWorkspaceReadFile 的注释），HEAD/GET 同一套查找。
+  const target = rel ? resolveWorkspaceReadFile(rel) : null;
   if (!target || !fs.existsSync(target)) return json(res, 404, { error: "文件不存在" });
   const safe = target;
   let stat;

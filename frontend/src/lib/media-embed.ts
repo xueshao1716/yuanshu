@@ -1,5 +1,21 @@
 const VIDEO = /\.(mp4|webm|mov)(?:\b|$)/i
 
+/**
+ * 聊天里能不能给这条地址放播放器（2026-11-07）。
+ * 只认本地/同源产物：/api/ws/file?...、生成物/工程/交付 开头的相对路径。
+ * 远端 http(s) 一律不进播放器——签名链接几小时就过期，示例链接更是死链，
+ * 播不了只会留一个永远转圈的黑框。远端地址交给正文文本 + 链接。
+ * 注意：影视页直播源走 lib/tv.ts 直连原始 m3u8，不套这个判据。
+ */
+export function isChatPlayableUrl(url: string): boolean {
+  const s = String(url || '').trim().replace(/^["'`<]+|[>"'`]+$/g, '')
+  if (!s) return false
+  if (/^data:video\//i.test(s)) return true
+  if (/^\.?\/api\/ws\/file(?:[?#]|$)/i.test(s)) return true
+  if (/^(?:生成物|工程|workshop-out|交付)[\\/]/i.test(s)) return true
+  return /^https?:\/\/(?:127\.0\.0\.1|localhost|\[::1\])(?::\d+)?\/api\/ws\/file(?:[?#]|$)/i.test(s)
+}
+
 function clipMediaPath(s: string): string {
   const m = String(s || '').match(/^(.*?\.(?:mp4|webm|mov|png|jpe?g|gif|webp|mp3|wav|m4a))/i)
   return m ? m[1] : String(s || '')
@@ -72,6 +88,8 @@ export function scrapeVideos(text: string): string[] {
   const out: string[] = []
   const add = (u: string) => {
     if (!u) return
+    // 只认本地/同源片子：远端签名链接、example.com 之类的示例链接不再变成播放器。
+    if (!isChatPlayableUrl(u)) return
     const k = mediaPathKey(u)
     if (!k || out.some(x => mediaPathKey(x) === k)) return
     out.push(u)
@@ -82,10 +100,8 @@ export function scrapeVideos(text: string): string[] {
   for (const m of raw.matchAll(/[A-Za-z]:\\[^\s)）"'<>]+/g)) hits.add(m[0].replace(/[.,;。，]+$/, ''))
   for (const m of raw.matchAll(/(?:生成物|工程|workshop-out|交付)[\\/][^\s)）"'<>]+/g)) hits.add(m[0].replace(/[.,;。，]+$/, ''))
   for (const m of raw.matchAll(/📎\s*交付:\s*(\S+)/g)) hits.add(m[1])
-  // 外链视频：只认明确的 m3u8 / mp4 / webm 链接，由播放器经同源代理播放
-  for (const m of raw.matchAll(/https?:\/\/[^\s)）"'<>\]]+?\.(?:m3u8|mp4|webm)(?:\?[^\s)）"'<>\]]*)?/gi)) {
-    if (!m[0].includes('/api/ws/file')) add(m[0].replace(/[.,;。，]+$/, ''))
-  }
+  // 2026-11-07：外链视频不再抓。以前这里把 https://…\.mp4|webm|m3u8 也塞进播放器，
+  // 上游签名链接一过期、示例链接本来就不存在，聊天里就多出一个播不了的窗口。
   for (const rawHit of hits) {
     const hit = clipMediaPath(rawHit)
     const url = hit.startsWith('/api/ws/file') ? hit.split('&')[0] : workspaceFileUrl(hit)
