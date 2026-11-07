@@ -130,6 +130,8 @@ import { listInboxes } from "./engine/thread-inbox.mjs";
 import { createMandate, closeMandate, revokeMandate, activeMandates, listMandates, pruneMandates, getMandate, filterToolsByScope } from "./engine/mandate.mjs";
 // 2026-11-07：relay——直通吞掉的后续，结果要回到问的人那里（原文：Worker 不对外说话，Router 统一回）
 import { relayToThread } from "./engine/thread-relay.mjs";
+// 2026-11-07：派活各用一棵 worktree（借 worktrunk 的做法，主树不碰）
+import { startTicketWorktree, closeTicketWorktree, ticketWorktreeStatus, branchOf } from "./engine/ticket-worktree.mjs";
 import { parseOpenIntent, navPayload } from "./engine/intent-router.mjs";
 import { filterTasks } from "./engine/task-filter.mjs";
 import { compareCandidates, recordCompare } from "./engine/candidate-compare.mjs";
@@ -1809,6 +1811,9 @@ const dispatchByRouter = (task, reason = "", threadKey = "") => {
       });
       if (m.ok) console.log(`[mandate] ${r.id} 授权 ${m.mandate.scope.join("/")}，${threadKey || "无话题"}`);
     }
+    // 2026-11-07：派活任务各用一棵独立 worktree（借 worktrunk 的做法），
+    // 由 runner 在开跑时创建（那里才知道最终 task.id），这里只留痕。
+    if (r?.id) console.log(`[worktree] ${r.id} 开跑时建独立树`);
   }
   return r;
 };
@@ -7532,6 +7537,17 @@ setInterval(() => heartbeat(WS_ROOT, { pid: process.pid, version: String(APP_VER
             sessions: getSessionList(),
             now: new Date(),
           });
+          // 2026-11-07：派活任务先开一棵独立 worktree（有授权 = 派活），
+          // 让它在自己的树里改，主工作区一根手指都不碰。
+          try {
+            if (getMandate(WS_ROOT, task.id)) {
+              const wt = startTicketWorktree(CONFIG.cwd, task.id);
+              if (wt.ok) {
+                messages.push({ role: "user", content: `【工作目录】这次活请在 ${wt.dir}（独立 worktree，分支 ${branchOf(task.id)}）里做，不要改主工作区；改完在那边提交，并说明改了哪些文件。` });
+                console.log(`[worktree] ${task.id} 本轮在 ${wt.dir}`);
+              } else console.log(`[worktree] ${task.id} 开树失败（照旧在主干做）：${wt.error}`);
+            }
+          } catch (e) { console.log(`[worktree] 开树异常（照旧）：${String(e?.message || e).slice(0, 100)}`) }
           // 2026-11-07：订阅直通——这个话题在上次动手之后积压的后续，合并进这一轮（批处理），
           // 而不是让它们各自去打断主会话
           try {
@@ -7712,6 +7728,19 @@ ${rows.map((r) => `- [${r.status}${r.closed ? "/已结清" : ""}] ${r.text}\n  �
               else closeMandate(WS_ROOT, t.id, { outcome: t.status === "ok" ? "completed" : String(t.status || "ended") });
             }
           } catch (e) { console.log(`[mandate] 收尾失败：${String(e?.message || e).slice(0, 100)}`) }
+          // 2026-11-07：工单树收尾——干净的删掉；有改动就留着等人审（不硬删、不自动合）
+          try {
+            if (getMandate(WS_ROOT, t.id) || ticketWorktreeStatus(CONFIG.cwd, t.id).exists) {
+              const wt = closeTicketWorktree(CONFIG.cwd, t.id);
+              if (wt.kept) {
+                console.log(`[worktree] ${t.id} ${wt.detail}：${wt.dir}`);
+                void notifier.notify({
+                  kind: "worktree", title: "元枢 · 工单有改动待审",
+                  body: `${wt.detail}\n${wt.dir}`, key: `worktree:${t.id}`, toWechat: true,
+                }).catch(() => {});
+              } else if (wt.removed) console.log(`[worktree] ${t.id} ${wt.detail}`);
+            }
+          } catch (e) { console.log(`[worktree] 收尾失败：${String(e?.message || e).slice(0, 100)}`) }
           // 2026-11-07：结果回到「问这件事的人」那里——直通吞掉的后续，不能让结果也跟着消失。
           // 回不去（微信没登录/熔断/通道没接）就转给主人，宁可多打扰一次，不要已读不回。
           try {
