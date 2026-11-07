@@ -9,6 +9,7 @@ export const SKINS = [
 ];
 export const GALLERIES = [
   { id: 'portrait-gpt', label: '小语·日常组（新）', detail: '四状态同角色：静候 / 工作 / 阅读 / 休息' },
+  { id: 'portrait-studio', label: '冷调棚拍', detail: '柔和紫调 · 半身特写' },
   { id: 'portrait', label: '元枢状态组', detail: '原有状态立绘 · 随任务与情绪切换' },
   { id: 'portrait-life', label: '小语自绘组', detail: '真人学院制服 · 小语自选的六种状态（默认）' },
   { id: 'portrait-uniform', label: '黑色制服组', detail: '黑色 JK / 学院制服 · 六种动作状态' },
@@ -49,6 +50,16 @@ const DAILY_STATE_IMAGES = {
   neutral: '/assets/portraits/yuanshu-life-listening-v1.webp',
 };
 const SKIN_IDS = new Set(SKINS.map(s => s.id));
+const STUDIO_IMAGES = {
+  neutral: '/assets/portraits/studio-neutral.png',
+  working: '/assets/portraits/studio-neutral.png',
+  reading: '/assets/portraits/studio-neutral.png',
+  resting: '/assets/portraits/studio-neutral.png',
+  listening: '/assets/portraits/studio-neutral.png',
+  responding: '/assets/portraits/studio-neutral.png',
+  daydreaming: '/assets/portraits/studio-neutral.png',
+};
+
 const GPT_STATE_IMAGES = {
   neutral: '/assets/portraits/gpt-neutral.png',
   working: '/assets/portraits/gpt-working.png',
@@ -75,6 +86,7 @@ export function imageForSkin(skin, action = 'neutral') {
   // the gallery migration above.
   if (SKIN_IMAGES[skin]) return SKIN_IMAGES[skin];
   const normalized = normalizeSkin(skin);
+  if (normalized === 'portrait-studio') return STUDIO_IMAGES[action] || STUDIO_IMAGES.neutral;
   if (normalized === 'portrait-gpt') return GPT_STATE_IMAGES[action] || GPT_STATE_IMAGES.neutral;
   if (normalized === 'portrait-life') return AUTHOR_STATE_IMAGES[action] || AUTHOR_STATE_IMAGES.neutral;
   if (normalized === 'portrait-uniform') return UNIFORM_STATE_IMAGES[action] || UNIFORM_STATE_IMAGES.neutral;
