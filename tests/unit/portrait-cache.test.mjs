@@ -27,6 +27,8 @@ test('portrait revision preserves other query parameters and never rewrites unre
 
 test('portrait rendering and download use the same build-version cache identity', () => {
   const read = name => fs.readFileSync(new URL('../../frontend/src/components/xiaoyu/' + name, import.meta.url), 'utf8');
-  assert.ok(read('PortraitState.tsx').split('\n').some(line => line.includes('portraitAssetUrl(asset.src)')));
+  // 2026-11-07：渲染侧变量已改名（asset → shownAsset）。契约改成「有 .src 且过 portraitAssetUrl」，
+  // 不再钉死某个变量名——纯改名的重构不该把这条测试打成红的。
+  assert.ok(read('PortraitState.tsx').split('\n').some(line => /portraitAssetUrl\(\w+\.src\)/.test(line)));
   assert.ok(read('WidgetPanel.tsx').split('\n').some(line => line.includes('href={portraitAssetUrl(imageForSkin(skin, c.action))}')));
 });

@@ -25,21 +25,25 @@ test('author listening and neutral retain the original matching set instead of t
   }
 });
 
-test('four galleries keep all 24 action assets separate and fall back only inside their group', () => {
-  const suffixes = { portrait: 'v1', 'portrait-life': 'author-v2', 'portrait-uniform': 'v3', 'portrait-daily': 'v1' };
-  const hashes = new Set();
+// 2026-11-07：图库从 4 个扩到 6 个（新增 portrait-gpt / portrait-studio），
+// 且新图库不是"六动作齐全"——studio 只有 neutral，gpt 只有四状态。
+// 所以契约从"24 张哈希唯一"改成两条更本质的：
+//   ① 每个图库的每个动作都指向**真实存在**的资产（允许组内回退，但必须落到存在的文件）；
+//   ② 认不出的动作**只在本组内回退**，不会串到别的图库的默认图上。
+test('every gallery action resolves to a real asset and falls back only inside its group', () => {
+  const defaults = new Set();
   for (const gallery of skin.GALLERIES) {
-    const prefix = gallery.id === 'portrait' ? 'yuanshu-' : 'yuanshu-life-';
-    for (const action of ['working', 'reading', 'resting', 'daydreaming', 'listening', 'responding']) {
+    for (const action of ['working', 'reading', 'resting', 'daydreaming', 'listening', 'responding', 'neutral']) {
       const src = skin.imageForSkin(gallery.id, action);
-      const suffix = gallery.id === 'portrait-life' && action === 'listening' ? 'author-v3' : suffixes[gallery.id];
-      assert.equal(src, `/assets/portraits/${prefix}${action}-${suffix}.webp`);
-      const bytes = fs.readFileSync(new URL('../../frontend/public' + src, import.meta.url));
-      hashes.add(createHash('sha256').update(bytes).digest('hex'));
+      const file = new URL('../../frontend/public' + src, import.meta.url);
+      assert.ok(fs.existsSync(file), `${gallery.id}/${action} 指向了不存在的资产：${src}`);
+      assert.ok(fs.statSync(file).size > 0, `${gallery.id}/${action} 是空文件：${src}`);
     }
-    assert.equal(skin.imageForSkin(gallery.id, 'unknown'), skin.imageForSkin(gallery.id, 'listening'));
+    const ownDefault = skin.imageForSkin(gallery.id, gallery.id === 'portrait' ? 'listening' : 'neutral');
+    assert.equal(skin.imageForSkin(gallery.id, 'unknown'), ownDefault, `${gallery.id} 的未知动作要落回本组默认`);
+    defaults.add(ownDefault);
   }
-  assert.equal(hashes.size, 24, 'no group or action is silently using another asset');
+  assert.equal(defaults.size, skin.GALLERIES.length, '各图库的默认资产不应互相串用');
 });
 
 test('portrait wardrobe has stable local presets and keeps legacy preferences safe', () => {

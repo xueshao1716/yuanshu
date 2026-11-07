@@ -117,9 +117,13 @@ test('当场修：接线要到两个引擎（统一引擎工具 + Pi 会话 cust
   assert.match(server, /runOnTheSpotFix\(\{/, '执行器要用共享核心，不要另写一套');
   assert.match(server, /setOnTheSpotFixRunner\(/, '要把执行器注入会话管理（Pi 侧同名工具）');
   const sm = fs.readFileSync('engine/session/manager.mjs', 'utf8');
-  assert.match(sm, /name: "fix_problem"/, 'Pi 会话要注册同名 customTool');
+  // 2026-11-07：fix_problem 的名字与 schema 已搬进 engine/session/tool-inits.mjs，
+  // manager 只负责初始化并塞进 customTools——契约跟着搬家，不钉在旧文件上。
+  assert.match(sm, /initFixProblemTool\(\)/, 'Pi 会话要初始化同名 customTool');
   assert.match(sm, /customTools.push\(fixTool\)/, '注册了还要真的放进 customTools');
   assert.match(sm, /setOnTheSpotFixRunner/, '要留注入口');
+  const toolInits = fs.readFileSync('engine/session/tool-inits.mjs', 'utf8');
+  assert.match(toolInits, /name: "fix_problem"/, 'Pi 侧 fix_problem 的定义在这里');
   const proto = fs.readFileSync('engine/yuanshu-protocol.mjs', 'utf8');
   assert.match(proto, /发现问题就当场修/, '协议里要写清"别只在结论里列一条建议修复"');
   assert.match(proto, /最多当场修 3 次/, '协议里要写出预算，免得模型以为能无限修');
