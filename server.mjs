@@ -553,7 +553,7 @@ const { soulContextPrompt } = await import('./engine/soul-context.mjs');
 const { createCompanionDecision } = await import('./engine/companion-decision.mjs');
 const { createCompanionSessionReader } = await import('./engine/companion-session.mjs');
 const { createCompanionRoutes } = await import('./engine/companion-api.mjs');
-const { appearanceCatalog, COMPANION_IDENTITY_PROMPT, buildIdentityPrompt } = await import('./engine/companion-appearance.mjs');
+const { appearanceCatalog, planAppearanceInjection } = await import('./engine/companion-appearance.mjs');
 const companionEmotion = createEmotionDisplay({ peek: emotion.peekLatestObservation });
 emotion.init(CONFIG.cwd); // 基因系统：加载人格基因 + 提案池
 emotion.setMemoryNudgeHook((info) => { try { proposeMemoryNudge(info); } catch {} }); // 情绪→记忆联动（09-03）：residue 跨阈值自动提案记忆写入
@@ -2948,21 +2948,27 @@ async function handleChat(req, res, body) {
     const prevTalkAt = (() => { try { return Number(emotion.getSnapshot(sessKey)?.lastTalk) || 0; } catch { return 0; } })();
     emotion.updateEmotion(sessKey, emotionInput.message, emotionInput);
     const emoPrompt = emotion.emotionPrompt(sessKey, message);
-    // 公仔自我认知：模型没有视觉输入，需把当前系统支持的真人立绘语义描述明确交给它。
-    // 仅在相关问题出现时注入，避免给普通对话增加无关上下文。
-    if (/(公仔|立绘|形象|长什么样|外观|姿态)/.test(message)) {
-      try {
-        const catalog = appearanceCatalog();
-        const lines = Object.entries(catalog).map(([action, item]) => `${item.label}（${action}）：${item.description}`).join('；');
-        // 2026-11-07：母提示词跟着人格定义走（以前是硬编码，改了外貌她说的还是老样子）
-        let identityPrompt = COMPANION_IDENTITY_PROMPT;
-        try { identityPrompt = buildIdentityPrompt(loadPersonaDefinition(CONFIG.cwd)?.def) } catch {}
+    // 公仔自我认知：模型没有视觉输入，必须把形象事实显式交给它。
+    // 2026-11-08：原来只在命中「公仔|立绘|形象|长什么样|外观|姿态」时才注入，
+    // 普通轮次她拿不到任何外貌事实——于是改了 人格定义.json 的外貌，前台对话里仍"看不到最新形象"。
+    // 现在拆两条：① 每条消息都注入的精简事实（≤60 字）；② 命中关键词时照旧给完整块
+    // （母提示词 + 立绘动作说明）。两条内容不冲突：精简事实给"她现在什么样"，完整块给"立绘/母提示词从哪来"。
+    try {
+      const def = (() => { try { return loadPersonaDefinition(CONFIG.cwd)?.def || {}; } catch { return {}; } })();
+      const plan = planAppearanceInjection(message, def, { catalog: appearanceCatalog() });
+      if (plan.fact) {
         await entry.agent?.sendCustomMessage?.(
-          { customType: 'context', content: [{ type: 'text', text: `【公仔形象事实】你不能直接看见图片，不要声称看到了图片。当前前端使用真人立绘，并按实时动作在这些外观之间切换：${lines}。这套真人形象的母提示词是：${identityPrompt}。如果用户问“你自己的公仔长什么样”或“提示词是什么”，可以用自然语言概括这份母提示词；不要编造衣着、发型、背景等未提供细节。无法确定此刻动作时，明确说当前动作由界面实时状态决定。` }] },
+          { customType: 'context', content: [{ type: 'text', text: plan.fact }] },
           { deliverAs: 'nextTurn' }
         );
-      } catch {}
-    }
+      }
+      if (plan.full) {
+        await entry.agent?.sendCustomMessage?.(
+          { customType: 'context', content: [{ type: 'text', text: plan.full }] },
+          { deliverAs: 'nextTurn' }
+        );
+      }
+    } catch {}
     // 自我认知：仅当用户问"你是谁/介绍自己"等身份问题时注入固定答案（不主动开场白）
     let promptMsg = message;
     if (navHint) promptMsg = `${message}\n\n【导航提示】${navHint}`;
