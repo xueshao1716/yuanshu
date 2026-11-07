@@ -15,7 +15,10 @@ export const WATCH_CREATE_TOOL = {
     description: "建一条值班：长期盯一件事，只有真的命中才唤醒你，平时不调用模型。"
       + "适合「等 CI 挂了告诉我」「这个页面出 500 叫我」「文件一改就提醒」「每天早上到点处理」。"
       + "命中后你会被叫醒跑 prompt；同时最多 10 条活跃，检查间隔最短 60 秒。"
-      + "命令要过现有沙箱与红线（deny 优先），只读命令为主。",
+      + "命令要过现有沙箱与红线（deny 优先），只读命令为主。"
+      + "唤醒轮默认只给最小只读工具集（read/search_files/web_search/read_url + notify_user 等回执工具），"
+      + "默认不给 write/edit/bash/pwsh/dsh_task/媒体生成；确实需要写操作时，用 allowTools 显式列出工具名（仍要过沙箱与红线）。"
+      + "服务重启后会按状态文件恢复；0–7 点免打扰期间命中的，7 点后按时间顺序补跑（每天最多 3 条，仍过冷却/日限/预算）。",
     parameters: {
       type: "object",
       properties: {
@@ -47,6 +50,12 @@ export const WATCH_CREATE_TOOL = {
         intervalMs: { type: "number", description: "检查间隔（毫秒），最小 60000，默认 300000（5 分钟）" },
         cooldownMs: { type: "number", description: "两次唤醒的最小间隔（毫秒），默认 1800000（30 分钟）" },
         dailyCap: { type: "number", description: "这条值班每天最多唤醒几次，默认 12，上限 100" },
+        allowTools: {
+          type: "array",
+          items: { type: "string" },
+          description: "可选：唤醒这一轮允许使用的工具名白名单。不填 = 默认最小只读集（read/search_files/grep/glob/web_search/read_url + notify_user 等回执工具），"
+            + "不给 write/edit/bash/pwsh/dsh_task/媒体生成。显式填写（如 [\"read\",\"bash\"]）才按它给，且仍要过沙箱与红线；空数组 = 这一轮不给任何工具。",
+        },
       },
       required: ["name", "kind", "spec", "prompt"],
     },
@@ -108,10 +117,14 @@ export function createWatchToolExecutors({ getDuty } = {}) {
       const out = d.create(args);
       if (!out.ok) return { text: `建不了这条值班：${out.error}`, isError: true };
       const w = out.watch || {};
+      const tools = Array.isArray(w.allowTools)
+        ? (w.allowTools.length ? `显式白名单：${w.allowTools.join("、")}` : "空数组：唤醒轮不给任何工具")
+        : "默认最小只读集（read/search_files/web_search/read_url + notify_user 等）";
       return {
         text: [
           `已建值班 ${out.id}「${w.name}」（${w.kind}）：每 ${Math.round((w.intervalMs || 0) / 1000)} 秒做一次确定性检查，不花模型；`,
           `命中后才会叫醒我，冷却 ${Math.round((w.cooldownMs || 0) / 60000)} 分钟、每天最多 ${w.dailyCap} 次，推送还要过主动预算。`,
+          `唤醒工具：${tools}。0–7 点免打扰命中的，7 点后补跑（每天最多 3 条）。`,
           ...(out.notes || []),
         ].join(""),
         isError: false,

@@ -41,7 +41,14 @@ function setup(t, { t0 = T0 } = {}) {
   return { ws, clock, calls, obs, duty };
 }
 
-const readLog = (ws) => fs.readFileSync(path.join(ws, WATCH_LOG_REL), "utf8").trim().split("\n").filter(Boolean).map((l) => JSON.parse(l));
+// 日志按天切分（值班日志-YYYYMMDD.jsonl）：测试把当天所有分片读回来看。
+const readLog = (ws) => {
+  const dir = path.join(ws, "记忆", "运行时");
+  if (!fs.existsSync(dir)) return [];
+  return fs.readdirSync(dir)
+    .filter((n) => /^值班日志-\d{8}\.jsonl$/.test(n)).sort()
+    .flatMap((n) => fs.readFileSync(path.join(dir, n), "utf8").trim().split("\n").filter(Boolean).map((l) => JSON.parse(l)));
+};
 
 test("端到端：创建 → 未命中零唤醒 → 命中一次 → 预算不足不推送 → 重启恢复补跑一次", async (t) => {
   const { ws, clock, calls, obs, duty } = setup(t);
@@ -205,8 +212,10 @@ test("唤醒执行链：交 job-pool → 跑模型轮 → 推送 + 留言板回�
     postMessage: (m) => { mails.push(m); return { ok: true }; },
     logFile: path.join(ws, WATCH_LOG_REL),
     runTurn: async (messages) => {
-      assert.match(messages[0].content, /值班程序唤醒/);
-      assert.match(messages[0].content, /CI 偶发失败/);
+      // 第一条是 system（值班执行轮规则），命中信息在 user 消息里
+      const user = messages.find((m) => m.role === "user");
+      assert.match(user.content, /值班程序唤醒/);
+      assert.match(user.content, /CI 偶发失败/);
       return { text: "已核对：CI 是偶发失败，不用处理" };
     },
     now: () => T0,

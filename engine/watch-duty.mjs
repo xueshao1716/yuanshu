@@ -12,9 +12,12 @@
 //      唤醒函数 wake 由外面注入，本文件连它的实现都看不见。
 //   ② 活过重启：状态落 记忆/运行时/值班.json；重启后每条活跃 watch **最多补查一次**（不按错过次数补，避免雪崩）。
 //   ③ 限流与兜底：intervalMs 下限 60s、cooldownMs、dailyCap；命中还要过 proactive 的主动预算（readBudget/spendBudget）
-//      和 0–7 点免打扰，预算不够只记日志不推送。
+//      和 0–7 点免打扰。免打扰拦下的命中有一次补跑机会（7:00 后按时间顺序、每天最多 3 条，见 catchUpDeferred）；
+//      **预算耗尽是有意放弃，不补**（见闸门④注释）。
 //   ④ 安全：kind:'cmd' 的命令先过 security.mjs 的宪法 deny 规则、危险命令表，再过 yuanshu-sandbox.mjs 的沙箱闸门；
 //      deny 永远优先；后台通道没人能当场批 → fail-closed。这里不跑任何 JS eval（没有 new Function、不 import vm）。
+//   ⑤ 并发与日志：tick 内有限并发（默认 3，tickConcurrency 可配），一条慢请求不拖累同轮其它 watch；
+//      并发期间只在轮末原子落盘一次。日志按天切分，单文件 2MB 滚动进 值班归档/，保留最近 30 天（engine/watch-log.mjs）。
 //
 // 不自造调度器：tick 只是确定性检查的节拍；真正的「唤醒执行」统一走注入的 wake（server 侧 = job-pool）。
 import fs from "node:fs";
@@ -27,9 +30,16 @@ import { matchDenyRule, DANGEROUS_CMD_RE } from "./tools/security.mjs";
 import { checkSandboxCall } from "./yuanshu-sandbox.mjs";
 import { createTimeEngine } from "./time-engine.mjs";
 import { readBudget, spendBudget, isQuietHours } from "./proactive.mjs";
+import { appendWatchLog, dailyLogPath, localDayKey, LOG_MAX_BYTES } from "./watch-log.mjs";
+
+// appendWatchLog / LOG_MAX_BYTES 原先是本文件导出的，挪到 watch-log.mjs 后继续 re-export，
+// 避免 watch-wake 与既有测试改 import 路径。
+export { appendWatchLog, LOG_MAX_BYTES };
 
 export const WATCH_FILE_REL = path.join("记忆", "运行时", "值班.json");
 export const WATCH_LOG_REL = path.join("记忆", "运行时", "值班日志.jsonl");
+export const WATCH_LOG_DIR_REL = path.join("记忆", "运行时");
+export const WATCH_ARCHIVE_REL = path.join("记忆", "运行时", "值班归档");
 
 // ── 限流常数（写死在这里，别让模型随手改成 1 秒一次）──
 export const KINDS = ["cmd", "http", "file", "time"];
@@ -45,7 +55,14 @@ export const HTTP_TIMEOUT_MS = 10_000;
 export const CMD_OUTPUT_CAP = 64 * 1024;
 export const HTTP_BODY_CAP = 200_000;
 export const FILE_READ_CAP = 512 * 1024;
-export const LOG_MAX_BYTES = 2 * 1024 * 1024;
+
+// ── 免打扰补跑 / 并发 tick 的常数 ──
+export const QUIET_DEFER_MAX_PER_DAY = 3;              // 免打扰补跑每天最多 3 条（防雪崩）
+export const MAX_DEFERRED_ENTRIES = 20;                // 单条 watch 最多攒 20 条待补（内存/状态文件上限）
+export const DEFERRED_TTL_MS = 24 * 3600_000;          // 超过一天的补跑作废，不把昨天的事拖到今天
+export const DEFAULT_TICK_CONCURRENCY = 3;             // 同一轮内最多同时检查 3 条
+export const MAX_TICK_CONCURRENCY = 10;
+export const MAX_ALLOW_TOOLS = 32;                     // allowTools 白名单最长 32 个工具名
 
 const FILE_MODES = ["changed", "appeared", "disappeared", "contains", "size_gt"];
 
@@ -86,6 +103,39 @@ export function clampLimits({ intervalMs, intervalSec, cooldownMs, cooldownSec, 
   if (!Number.isFinite(cap) || cap <= 0) cap = DEFAULT_DAILY_CAP;
   cap = Math.min(MAX_DAILY_CAP, Math.max(1, Math.round(cap)));
   return { intervalMs: Math.round(interval), cooldownMs: Math.round(cooldown), dailyCap: cap, notes };
+}
+
+/** tick 并发上限归一：默认 3，夹在 1–10（并发太高会把一条慢请求的代价放大成十份）。 */
+export function clampConcurrency(v, fallback = DEFAULT_TICK_CONCURRENCY) {
+  const n = Number(v);
+  if (!Number.isFinite(n) || n <= 0) return fallback;
+  return Math.min(MAX_TICK_CONCURRENCY, Math.max(1, Math.round(n)));
+}
+
+/**
+ * 归一 allowTools（唤醒轮的工具白名单）。
+ *   · 不传 / null → { tools:null }：用 watch-wake 里的默认最小只读集；
+ *   · 显式 []      → { tools:[] }：这一轮一个工具都不给（只看得到 prompt 与现场）；
+ *   · 显式数组      → 按名字去重、原样保留顺序，真正可用的工具由唤醒侧与 UNIFIED_TOOLS 求交集。
+ * 这里只做参数校验，不判断工具是否存在——工具表在 server 侧，运行时才知道。
+ */
+export function normalizeAllowTools(input) {
+  if (input == null) return { ok: true, tools: null, notes: [] };
+  const raw = typeof input === "string" ? [input] : input;
+  if (!Array.isArray(raw)) return { ok: false, error: "allowTools 必须是字符串数组（工具名），如 [\"read\",\"search_files\"]" };
+  const tools = [];
+  for (const item of raw) {
+    const name = String(item == null ? "" : item).trim();
+    if (!name) continue;
+    if (!/^[A-Za-z0-9_.:-]{1,64}$/.test(name)) {
+      return { ok: false, error: `allowTools 里有不合法的工具名：${name.slice(0, 40)}（只允许字母/数字/下划线/点/冒号/横线，最长 64）` };
+    }
+    if (!tools.includes(name)) tools.push(name);
+  }
+  if (tools.length > MAX_ALLOW_TOOLS) {
+    return { ok: false, error: `allowTools 最多 ${MAX_ALLOW_TOOLS} 个工具，现在 ${tools.length} 个` };
+  }
+  return { ok: true, tools, notes: [] };
 }
 
 // ─────────────────────── 四种 kind 的 spec 校验 ───────────────────────
@@ -176,6 +226,7 @@ export function normalizeSpec(kind, rawSpec = {}) {
 /** kind:'cmd' —— 按退出码 / 输出子串 / 输出正则判定。 */
 export function judgeCmd(spec = {}, obs = {}) {
   if (obs?.timedOut) return { hit: false, reason: "命令超时（已终止），不算命中" };
+  if (obs?.aborted) return { hit: false, reason: "命令被取消（值班停止/服务退出），不算命中" };
   if (obs?.blocked) return { hit: false, blocked: true, reason: `命令被策略拒绝：${obs.error || "未执行"}` };
   const exit = Number(obs?.exitCode);
   const expects = asArray(spec.expectExit ?? 0).map(Number);
@@ -317,35 +368,118 @@ export function preflightCommand(command, { wsRoot = "" } = {}) {
 // ───────────────────────────── 观测器 ─────────────────────────────
 // 三个默认观测器都有超时与输出上限；测试里可以整体替换（probes）。
 
-/** 跑一条命令。先过 preflightCommand；被拒时**不 spawn**，直接返回 blocked。 */
-export function probeCmd(spec = {}, { wsRoot = "" } = {}) {
+/**
+ * 杀掉「这条命令」的整棵进程树（超时与取消共用这一条清理路径）。
+ *   · Windows：`taskkill /PID <pid> /T /F` —— 只 child.kill() 往往只杀到 cmd.exe，孙进程继续跑；
+ *   · 其它平台：spawn 时 detached:true 让命令自成进程组，这里对 -pid 发 SIGKILL 一次带走整组。
+ * 返回 {ok, method, pid}，调用方不依赖结果（清理失败也要 resolve，不能让 tick 卡死）。
+ */
+export function killProcessTree(child, {
+  platform = process.platform,
+  spawnFn = spawn,
+  killFn = process.kill,
+} = {}) {
+  const pid = Number(child?.pid);
+  if (!Number.isFinite(pid) || pid <= 0) return { ok: false, method: "none", pid: null, error: "没有 pid" };
+  if (platform === "win32") {
+    try {
+      const tk = spawnFn("taskkill", ["/PID", String(pid), "/T", "/F"], { windowsHide: true, stdio: "ignore" });
+      // taskkill 自己起不来（PATH 异常/权限）时退回杀直接子进程，至少不留 shell。
+      tk?.on?.("error", () => { try { child.kill?.(); } catch { /* 已退出 */ } });
+      tk?.unref?.();
+      return { ok: true, method: "taskkill", pid };
+    } catch (e) {
+      try { child.kill?.(); } catch { /* 已退出 */ }
+      return { ok: false, method: "taskkill", pid, error: String(e?.message || e).slice(0, 120) };
+    }
+  }
+  try {
+    killFn(-pid, "SIGKILL");
+    return { ok: true, method: "process-group", pid: -pid };
+  } catch {
+    try {
+      child.kill?.("SIGKILL");
+      return { ok: true, method: "pid", pid };
+    } catch (e) {
+      return { ok: false, method: "pid", pid, error: String(e?.message || e).slice(0, 120) };
+    }
+  }
+}
+
+/**
+ * 跑一条命令。先过 preflightCommand；被拒时**不 spawn**，直接返回 blocked。
+ * 超时与 signal 取消都走 killProcessTree；结果里带 pid，方便测试断言父子都被清理。
+ */
+export function probeCmd(spec = {}, {
+  wsRoot = "",
+  signal = null,
+  platform = process.platform,
+  spawnFn = spawn,
+  killFn = process.kill,
+} = {}) {
   const check = preflightCommand(spec.command, { wsRoot });
   if (!check.ok) return Promise.resolve({ blocked: true, error: check.reason, exitCode: null, stdout: "", stderr: "" });
   const timeoutMs = Math.min(60_000, Math.max(1_000, Number(spec.timeoutMs) || CMD_TIMEOUT_MS));
   return new Promise((resolve) => {
     let child;
     try {
-      child = spawn(spec.command, { cwd: wsRoot || process.cwd(), shell: true, windowsHide: true, env: process.env });
+      child = spawnFn(spec.command, {
+        cwd: wsRoot || process.cwd(),
+        shell: true,
+        windowsHide: true,
+        env: process.env,
+        // 非 Windows 必须自成进程组，否则 process.kill(-pid) 杀不到孙进程
+        detached: platform !== "win32",
+      });
     } catch (e) {
-      resolve({ blocked: false, exitCode: null, stdout: "", stderr: "", error: String(e?.message || e) });
+      resolve({ blocked: false, exitCode: null, stdout: "", stderr: "", error: String(e?.message || e), pid: null });
       return;
     }
+    const pid = Number(child?.pid) || null;
     let stdout = "";
     let stderr = "";
     let timedOut = false;
+    let aborted = false;
     let settled = false;
-    const finish = (exitCode, error) => {
+    let cleaned = false;
+    // 超时 / 取消 / 停止都从这里走：保证「杀掉整棵树」只有一份实现。
+    function cleanup() {
+      if (cleaned) return;
+      cleaned = true;
+      killProcessTree(child, { platform, spawnFn, killFn });
+    }
+    function finish(exitCode, error) {
       if (settled) return;
       settled = true;
       clearTimeout(timer);
-      resolve({ exitCode, stdout: stdout.slice(0, CMD_OUTPUT_CAP), stderr: stderr.slice(0, CMD_OUTPUT_CAP), timedOut, error });
-    };
+      try { signal?.removeEventListener?.("abort", onAbort); } catch { /* 忽略 */ }
+      resolve({
+        exitCode,
+        stdout: stdout.slice(0, CMD_OUTPUT_CAP),
+        stderr: stderr.slice(0, CMD_OUTPUT_CAP),
+        timedOut,
+        aborted,
+        error,
+        pid,
+      });
+    }
+    function onAbort() {
+      if (settled) return;
+      aborted = true;
+      cleanup();
+      finish(null, "aborted");
+    }
     const timer = setTimeout(() => {
+      if (settled) return;
       timedOut = true;
-      try { child.kill(); } catch { /* 已经退出 */ }
+      cleanup();
       finish(null, "timeout");
     }, timeoutMs);
     timer.unref?.();
+    if (signal) {
+      if (signal.aborted) { onAbort(); return; }
+      signal.addEventListener?.("abort", onAbort, { once: true });
+    }
     child.stdout?.on("data", (d) => { if (stdout.length < CMD_OUTPUT_CAP) stdout += d.toString("utf8"); });
     child.stderr?.on("data", (d) => { if (stderr.length < CMD_OUTPUT_CAP) stderr += d.toString("utf8"); });
     child.on("error", (e) => finish(null, String(e?.message || e)));
@@ -388,25 +522,29 @@ export async function probeFile(spec = {}, { wsRoot = "" } = {}) {
 }
 
 // ───────────────────────────── 日志 ─────────────────────────────
-
-/** 追加一行 JSONL 值班日志；文件超过 2MB 就轮换成 .1（不无限长）。 */
-export function appendWatchLog(logFile, entry, now = Date.now()) {
-  if (!logFile) return;
-  try {
-    fs.mkdirSync(path.dirname(logFile), { recursive: true });
-    try {
-      const st = fs.statSync(logFile);
-      if (st.size > LOG_MAX_BYTES) {
-        const bak = `${logFile}.1`;
-        try { fs.rmSync(bak, { force: true }); } catch { /* 忽略 */ }
-        fs.renameSync(logFile, bak);
-      }
-    } catch { /* 文件还不存在 */ }
-    fs.appendFileSync(logFile, `${JSON.stringify({ at: now, ...entry })}\n`, "utf8");
-  } catch { /* 日志写不进去不该影响值守 */ }
-}
+// 按天切分 / 2MB 滚动归档 / 30 天清理都在 engine/watch-log.mjs（appendWatchLog 已从那里 re-export）。
 
 // ───────────────────────────── 值班实例 ─────────────────────────────
+
+/**
+ * 有限并发跑一组异步任务：同时最多 width 个，一个失败/变慢不挡住队列里的其它项。
+ * tick 用它实现「同一轮有限并发」，不引入调度器——就是本文件里的一个循环。
+ */
+export async function mapWithConcurrency(items, limit, worker) {
+  const list = Array.isArray(items) ? items : [];
+  if (!list.length) return [];
+  const width = Math.max(1, Math.min(clampConcurrency(limit), list.length));
+  const results = new Array(list.length);
+  let next = 0;
+  await Promise.all(Array.from({ length: width }, async () => {
+    while (next < list.length) {
+      const i = next;
+      next += 1;
+      results[i] = await worker(list[i], i);
+    }
+  }));
+  return results;
+}
 
 /**
  * 创建值班程序实例。
@@ -424,20 +562,28 @@ export function createWatchDuty({
   tickMs = TICK_MS,
   quiet = true,
   maxActive = MAX_ACTIVE_WATCHES,
+  tickConcurrency = DEFAULT_TICK_CONCURRENCY,
 } = {}) {
   const clock = typeof now === "function" ? now : () => Number(now);
   const probe = { cmd: probeCmd, http: probeHttp, file: probeFile, ...probes };
+  const concurrency = clampConcurrency(tickConcurrency);
   let watches = [];
+  // meta 是「跨 watch 的全局计数」：免打扰补跑每天最多 3 条，这个数不属于任何单条 watch。
+  let meta = { deferredDay: "", deferredReplayed: 0 };
+  const stats = { persists: 0, ticks: 0 };
   let timer = null;
   let ticking = false;
   let dirty = false;
   let lastTickAt = 0;
+  // stop() 时用来取消正在跑的命令树（abort → probeCmd 的 killProcessTree）
+  const activeTicks = new Set();
 
   // ── 落盘 ──
   function persist() {
     try {
-      atomicWriteJson(file, { v: 1, updatedAt: clock(), watches });
+      atomicWriteJson(file, { v: 1, updatedAt: clock(), meta: { ...meta }, watches });
       dirty = false;
+      stats.persists += 1;
     } catch (e) { log.warn?.(`[watch-duty] 状态落盘失败：${String(e?.message || e).slice(0, 120)}`); }
   }
   function logEvent(entry) { appendWatchLog(logFile, entry, clock()); }
@@ -447,6 +593,11 @@ export function createWatchDuty({
       if (!fs.existsSync(file)) return { loaded: 0 };
       const doc = JSON.parse(fs.readFileSync(file, "utf8"));
       const list = Array.isArray(doc?.watches) ? doc.watches : Array.isArray(doc) ? doc : [];
+      // 免打扰补跑的「全局每天 3 条」计数跟状态一起活过重启。
+      meta = {
+        deferredDay: String(doc?.meta?.deferredDay || ""),
+        deferredReplayed: Math.max(0, Number(doc?.meta?.deferredReplayed) || 0),
+      };
       watches = list.filter((w) => w && w.id && KINDS.includes(w.kind)).map((w) => {
         // state 只存生命周期字符串（active/paused，与 time-engine 的任务状态一致）；
         // 早期草稿里 state 曾是对象，这里做一次兼容迁移，运行时数据统一落到 runtime。
@@ -455,6 +606,8 @@ export function createWatchDuty({
         const runtime = { ...(w.runtime || legacy || {}) };
         return {
           ...w,
+          // allowTools：null = 用默认最小只读集；[] = 这一轮不给工具；数组 = 显式白名单
+          allowTools: Array.isArray(w.allowTools) ? w.allowTools.filter((x) => typeof x === "string") : null,
           intervalMs: Number(w.intervalMs) || DEFAULT_INTERVAL_MS,
           cooldownMs: Number(w.cooldownMs) || DEFAULT_COOLDOWN_MS,
           dailyCap: Number(w.dailyCap) || DEFAULT_DAILY_CAP,
@@ -464,6 +617,8 @@ export function createWatchDuty({
             checkCount: 0, hitCount: 0, wakeCount: 0, counters: { day: "", wakes: 0 }, baseline: null, last: null,
             ...runtime,
             counters: { day: "", wakes: 0, ...(runtime.counters || {}) },
+            // 免打扰期间攒下的待补记录（只存 quiet；预算耗尽是放弃，不进这里）
+            deferred: Array.isArray(runtime.deferred) ? runtime.deferred : [],
           },
         };
       });
@@ -484,6 +639,9 @@ export function createWatchDuty({
     return {
       id: w.id, name: w.name, kind: w.kind, spec: w.spec, prompt: w.prompt,
       intervalMs: w.intervalMs, cooldownMs: w.cooldownMs, dailyCap: w.dailyCap,
+      // null = 唤醒时用默认最小只读工具集；数组 = 该 watch 自己的白名单
+      allowTools: Array.isArray(w.allowTools) ? w.allowTools : null,
+      pendingDeferred: Array.isArray(s.deferred) ? s.deferred.length : 0,
       state: w.state === "paused" ? "paused" : "active",
       runtime: s,
       wakesToday: s.counters?.day === day ? Number(s.counters?.wakes || 0) : 0,
@@ -503,6 +661,9 @@ export function createWatchDuty({
     if (prompt.length > 4000) return { ok: false, error: "prompt 太长（上限 4000 字）" };
 
     const limits = clampLimits(input);
+    // allowTools 只校验形状；真正可用的工具由唤醒侧与 UNIFIED_TOOLS 求交集（不认识的会被过滤掉）。
+    const allow = normalizeAllowTools(input.allowTools);
+    if (!allow.ok) return { ok: false, error: allow.error };
     const active = watches.filter((w) => w.state === "active").length;
     if (active >= maxActive) {
       return { ok: false, error: `同时活跃的值班最多 ${maxActive} 条（现在 ${active} 条）。先暂停或删除一条，再建新的。` };
@@ -515,6 +676,7 @@ export function createWatchDuty({
       kind,
       spec: normalized.spec,
       prompt,
+      allowTools: allow.tools,
       intervalMs: limits.intervalMs,
       cooldownMs: limits.cooldownMs,
       dailyCap: limits.dailyCap,
@@ -527,12 +689,13 @@ export function createWatchDuty({
         counters: { day: "", wakes: 0 },
         baseline: null,
         last: null,
+        deferred: [],
       },
     };
     watches.push(watch);
     dirty = true;
     persist();
-    logEvent({ event: "create", watchId: watch.id, name, kind, notes: limits.notes });
+    logEvent({ event: "create", watchId: watch.id, name, kind, allowTools: allow.tools, notes: limits.notes });
     log.log?.(`[watch-duty] 新建值班 ${watch.id}「${name}」（${kind}，每 ${Math.round(watch.intervalMs / 1000)}s 检查一次）`);
     return { ok: true, id: watch.id, watch: publicWatch(watch), notes: limits.notes };
   }
@@ -551,10 +714,14 @@ export function createWatchDuty({
       paused: watches.filter((w) => w.state !== "active").length,
       maxActive,
       tickMs,
+      tickConcurrency: concurrency,
       running: !!timer,
       lastTickAt: lastTickAt || null,
+      pendingDeferred: watches.reduce((n, w) => n + (Array.isArray(w.runtime?.deferred) ? w.runtime.deferred.length : 0), 0),
       file,
       logFile,
+      logDir: path.dirname(logFile),
+      dailyLogFile: dailyLogPath(logFile, clock()),
     };
   }
 
@@ -568,6 +735,11 @@ export function createWatchDuty({
     if (w.state === mode) return { ok: true, id: w.id, state: mode, unchanged: true };
     w.state = mode;
     w.runtime.updatedAt = clock();
+    // 暂停 = 现在不要再叫醒我：免打扰期间攒下的待补也一起作废，免得恢复时突然补一条上周的旧事。
+    if (mode === "paused" && Array.isArray(w.runtime.deferred) && w.runtime.deferred.length) {
+      logEvent({ event: "deferred", kind: "deferred", action: "drop", watchId: w.id, reason: "paused", count: w.runtime.deferred.length });
+      w.runtime.deferred = [];
+    }
     dirty = true;
     persist();
     logEvent({ event: mode === "paused" ? "pause" : "resume", watchId: w.id, name: w.name });
@@ -588,10 +760,10 @@ export function createWatchDuty({
   }
 
   // ── 单条检查：只做确定性观测 + 纯函数判定（这里不碰模型）──
-  async function observe(w, t) {
+  async function observe(w, t, signal) {
     try {
       if (w.kind === "cmd") {
-        const obs = await probe.cmd(w.spec, { wsRoot, now: t });
+        const obs = await probe.cmd(w.spec, { wsRoot, now: t, signal });
         const verdict = judgeCmd(w.spec, obs || {});
         return { verdict, detail: { exitCode: obs?.exitCode ?? null, stdout: tail(obs?.stdout, 800), stderr: tail(obs?.stderr, 400) } };
       }
@@ -615,8 +787,8 @@ export function createWatchDuty({
     }
   }
 
-  async function runWatch(w, t, summaryOut) {
-    const { verdict, detail } = await observe(w, t);
+  async function runWatch(w, t, summaryOut, signal = null) {
+    const { verdict, detail } = await observe(w, t, signal);
     w.runtime.lastCheckAt = t;
     w.runtime.checkCount = Number(w.runtime.checkCount || 0) + 1;
     w.runtime.updatedAt = t;
@@ -669,13 +841,17 @@ export function createWatchDuty({
       return;
     }
 
-    // 闸门 ③：免打扰时段（0–7 点）——不叫醒，只记日志（这一条会被明天的检查重新判定）
+    // 闸门 ③：免打扰时段（0–7 点）——不是放弃，是「顺延」：
+    //   记一条 deferred（spec/prompt 快照），7:00 后由 catchUpDeferred 按时间顺序补跑，每条最多一次。
     if (quiet && isQuietHours(t)) {
-      suppress("quiet_hours", { hour: new Date(t).getHours() });
+      recordDeferred(w, t, verdict, detail);
+      suppress("quiet_hours", { hour: new Date(t).getHours(), deferred: true });
       return;
     }
 
     // 闸门 ④：主动预算（proactive 的 readBudget/spendBudget，和冷会话唤醒共用同一个池子）
+    // ★ 预算耗尽 = 今天主动打扰够了，是**有意的放弃**：只记日志，不记 deferred、之后也不补。
+    //   只有免打扰（时段限制）才允许顺延。否则预算会变成「先欠着、明天补」的账，主动预算就形同虚设。
     const budget = readBudget(wsRoot, day, { cap: budgetCap });
     if (budget.remaining <= 0) {
       suppress("budget", { used: budget.used, cap: budget.cap });
@@ -688,42 +864,207 @@ export function createWatchDuty({
     }
 
     // ★ 唯一会花模型的调用点 ★：wake 由 server 注入（内部走 job-pool），本模块不知道模型是谁。
+    dispatchWake(w, t, { reason: verdict.reason, detail, at: t }, summaryOut, { used: spent.used, cap: spent.cap });
+  }
+
+  // ── 免打扰补跑 ──
+  // 规则（写死，别让模型自己改）：
+  //   · 只有 quiet 会进 deferred；预算耗尽是放弃，永远不进；
+  //   · 免打扰结束（本地 ≥7:00）后的第一次 tick 补跑，按命中时间升序；
+  //   · 每条 deferred 最多补一次（补失败/被拦下就丢弃，绝不反复重试）；
+  //   · 全局每天最多补 3 条（meta.deferredReplayed，按本地日期重置）；
+  //   · 补跑同样过「每日上限 / 冷却 / 主动预算」三道闸门。
+  function recordDeferred(w, t, verdict, detail) {
+    const list = Array.isArray(w.runtime.deferred) ? w.runtime.deferred : [];
+    const entry = {
+      at: t,
+      reason: "quiet",
+      kind: w.kind,
+      // spec/prompt 快照：凌晨的命中到 7 点才补，期间 watch 的定义不该影响「当时到底盯的是什么」
+      spec: w.spec,
+      prompt: w.prompt,
+      hitReason: verdict.reason || "",
+      detail: detail || {},
+    };
+    w.runtime.deferred = [...list, entry].slice(-MAX_DEFERRED_ENTRIES);
+    w.runtime.updatedAt = t;
+    dirty = true;
+    logEvent({
+      event: "deferred", kind: "deferred", action: "record",
+      watchId: w.id, name: w.name, at: t, reason: "quiet",
+      spec: w.spec, prompt: String(w.prompt || "").slice(0, 400),
+    });
+  }
+
+  function dropDeferredEntry(w, entry) {
+    const list = Array.isArray(w.runtime.deferred) ? w.runtime.deferred : [];
+    const next = list.filter((x) => x !== entry);
+    if (next.length !== list.length) {
+      w.runtime.deferred = next;
+      dirty = true;
+    }
+  }
+
+  function logDeferredSkip(w, entry, t, reason) {
+    logEvent({
+      event: "deferred", kind: "deferred", action: "skip",
+      watchId: w.id, name: w.name, at: entry?.at || 0, replayAt: t, reason,
+    });
+  }
+
+  /** 真正叫醒（常规命中与补跑共用）：wake 抛错只记日志、不重试。返回 wake 的返回值或 null。 */
+  function dispatchWake(w, t, hit, summaryOut, { used = null, cap = null } = {}) {
     let out = null;
     try {
-      out = wake ? wake({ watch: publicWatch(w), hit: { reason: verdict.reason, detail, at: t } }) : { skipped: "wake_not_injected" };
+      out = wake ? wake({ watch: publicWatch(w), hit }) : { skipped: "wake_not_injected" };
     } catch (e) {
       summaryOut.errors += 1;
       w.runtime.lastWakeAt = t;
       logEvent({ event: "wake_failed", watchId: w.id, error: String(e?.message || e).slice(0, 300) });
-      return;
+      return null;
     }
     w.runtime.lastWakeAt = t;
+    // 补跑成功也要把冷却锚点重置，避免紧接着的常规检查再叫一次
+    w.runtime.lastTriggerAt = t;
     w.runtime.counters.wakes = Number(w.runtime.counters.wakes || 0) + 1;
     w.runtime.wakeCount = Number(w.runtime.wakeCount || 0) + 1;
     summaryOut.wakes += 1;
-    logEvent({ event: "wake", watchId: w.id, name: w.name, jobId: out?.jobId || "", reason: verdict.reason, used: spent.used, cap: spent.cap });
+    logEvent({
+      event: "wake", watchId: w.id, name: w.name, jobId: out?.jobId || "",
+      reason: hit?.reason || "", deferred: hit?.deferred === true, used, cap,
+    });
+    return out;
+  }
+
+  /** 补跑一条 deferred；返回是否真的叫醒。补跑占主动预算（否则免打扰会变成绕过预算的后门）。 */
+  function replayDeferred(w, entry, t, summaryOut) {
+    const day = budgetDay(t);
+    if (w.runtime.counters?.day !== day) w.runtime.counters = { day, wakes: 0 };
+
+    // 闸门 ②：每条 watch 的每日上限
+    if (Number(w.runtime.counters.wakes || 0) >= w.dailyCap) {
+      logDeferredSkip(w, entry, t, "daily_cap");
+      return false;
+    }
+    // 闸门 ①：冷却。这里以「上次真的唤醒」为锚，而不是 lastTriggerAt——
+    // 后者可能正是这条被免打扰拦下的命中，拿它当锚会让补跑在 7:00 立刻被自己挡住。
+    const lastWake = Number(w.runtime.lastWakeAt) || 0;
+    if (lastWake && t - lastWake < w.cooldownMs) {
+      logDeferredSkip(w, entry, t, "cooldown");
+      return false;
+    }
+    // 闸门 ④：主动预算
+    const budget = readBudget(wsRoot, day, { cap: budgetCap });
+    if (budget.remaining <= 0) {
+      logDeferredSkip(w, entry, t, "budget");
+      return false;
+    }
+    const spent = spendBudget(wsRoot, day, { cap: budget.cap, kind: "watch_deferred" });
+    if (!spent.ok) {
+      logDeferredSkip(w, entry, t, "budget");
+      return false;
+    }
+
+    const out = dispatchWake(w, t, {
+      reason: entry.hitReason || "免打扰期间的命中，现在补跑",
+      detail: entry.detail || {},
+      at: Number(entry.at) || t,
+      deferred: true,
+      deferredAt: t,
+    }, summaryOut, { used: spent.used, cap: spent.cap });
+    if (!out) return false;
+    summaryOut.deferred += 1;
+    logEvent({
+      event: "deferred", kind: "deferred", action: "replay",
+      watchId: w.id, name: w.name, at: Number(entry.at) || 0, replayAt: t,
+      jobId: out?.jobId || "", reason: entry.hitReason || "",
+    });
+    return true;
+  }
+
+  /**
+   * 免打扰结束后补跑：按命中时间升序，每条只试一次，全局每天最多 3 条。
+   * 被闸门拦下/超时/补跑抛错都算「试过了」，直接丢弃并留一条 deferred skip 日志——
+   * 反复重试会让一条凌晨的旧命中在白天反复撞墙。
+   */
+  async function catchUpDeferred(t, summaryOut) {
+    const rows = [];
+    for (const w of watches) {
+      if (w.state !== "active") continue;
+      for (const d of Array.isArray(w.runtime.deferred) ? w.runtime.deferred : []) rows.push({ w, d });
+    }
+    if (!rows.length) return;
+    rows.sort((a, b) => (Number(a.d?.at) || 0) - (Number(b.d?.at) || 0));
+
+    const day = localDayKey(t);
+    if (meta.deferredDay !== day) {
+      meta.deferredDay = day;
+      meta.deferredReplayed = 0;
+      dirty = true;
+    }
+    for (const { w, d } of rows) {
+      dropDeferredEntry(w, d);
+      if (t - (Number(d?.at) || 0) > DEFERRED_TTL_MS) {
+        summaryOut.deferredDropped += 1;
+        logDeferredSkip(w, d, t, "expired");
+        continue;
+      }
+      if (meta.deferredReplayed >= QUIET_DEFER_MAX_PER_DAY) {
+        summaryOut.deferredDropped += 1;
+        logDeferredSkip(w, d, t, "deferred_cap");
+        continue;
+      }
+      if (replayDeferred(w, d, t, summaryOut)) {
+        meta.deferredReplayed += 1;
+        dirty = true;
+      } else {
+        summaryOut.deferredDropped += 1;
+      }
+    }
   }
 
   // ── 检查节拍 ──
   // catchUp=true 时每条活跃 watch 立刻补查一次（启动恢复用）；除此之外按 lastCheckAt+intervalMs 判定是否到期。
-  async function tick({ catchUp = false } = {}) {
+  // 同一轮内有限并发（默认 3）：一条慢 HTTP / 慢命令只占它自己的坑，不把其它 watch 推迟到下一轮。
+  // 并发期间**不写状态文件**：所有结果先在内存里汇总，轮末 atomic 落盘一次（避免并发写同一文件）。
+  async function tick({ catchUp = false, signal = null } = {}) {
     if (ticking) return { ok: false, reason: "busy" };
     ticking = true;
+    stats.ticks += 1;
     const t = clock();
-    const out = { ok: true, at: t, catchUp: !!catchUp, checked: 0, hits: 0, wakes: 0, suppressed: 0, errors: 0 };
+    const out = {
+      ok: true, at: t, catchUp: !!catchUp,
+      checked: 0, hits: 0, wakes: 0, suppressed: 0, errors: 0,
+      deferred: 0, deferredDropped: 0,
+    };
+    const controller = new AbortController();
+    activeTicks.add(controller);
+    const tickSignal = signal || controller.signal;
     try {
+      // ① 免打扰刚结束：先按时间顺序补跑（最多 3 条/天）。quiet=false 时没有 deferred，自然跳过。
+      if (!(quiet && isQuietHours(t))) await catchUpDeferred(t, out);
+
+      // ② 到期检查：一次性算出名单，再有限并发跑（catchUp 时每条仍只跑一次）
+      const due = [];
       for (const w of [...watches]) {
         if (w.state !== "active") continue;
         const last = Number(w.runtime.lastCheckAt) || 0;
-        const due = catchUp || !last || t - last >= w.intervalMs;
-        if (!due) continue;
-        await runWatch(w, t, out);
-        // 每条检查完就落盘：进程半路死掉，也不会把"已经查过/已经唤醒"忘掉
-        persist();
+        if (catchUp || !last || t - last >= w.intervalMs) due.push(w);
       }
+      await mapWithConcurrency(due, concurrency, async (w) => {
+        try {
+          await runWatch(w, t, out, tickSignal);
+        } catch (e) {
+          // 单条出错不拖累同轮其它 watch：记一笔，继续
+          out.errors += 1;
+          logEvent({ event: "error", watchId: w.id, error: String(e?.message || e).slice(0, 300) });
+        }
+      });
       lastTickAt = clock();
     } finally {
+      activeTicks.delete(controller);
       ticking = false;
+      // 轮末统一落盘：并发期间只有内存状态，不会出现两个 atomicWriteJson 抢同一个文件
       if (dirty) persist();
     }
     return out;
@@ -743,6 +1084,9 @@ export function createWatchDuty({
 
   function stop() {
     if (timer) { clearInterval(timer); timer = null; }
+    // 取消进行中的观测：probeCmd 收到 abort 会走同一条 killProcessTree（Windows 上杀整棵树）
+    for (const c of activeTicks) { try { c.abort(); } catch { /* 已结束 */ } }
+    activeTicks.clear();
   }
 
   return {
@@ -750,5 +1094,7 @@ export function createWatchDuty({
     create, get, list, summary, pause, resume, remove, setMode,
     // 给测试/诊断用的只读口
     _file: file, _logFile: logFile, _budgetDay: budgetDay,
+    _meta: () => ({ ...meta }),
+    _stats: () => ({ ...stats }),
   };
 }

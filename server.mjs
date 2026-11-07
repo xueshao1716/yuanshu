@@ -7969,7 +7969,8 @@ ${rows.map((r) => `- [${r.status}${r.closed ? "/已结清" : ""}] ${r.text}\n  �
     } catch (e) { console.log("[time-engine] 启动失败:", String(e?.message || e).slice(0, 100)); }
     // 2026-11-07：值班程序——她自己写的「盯梢」：长期盯一件事，只有真的命中才唤醒她。
     // 值守是确定性检查（命令/HTTP/文件/到点），不花模型；命中后走 jobPool 跑一轮 prompt（复用排队/限并发/取消），
-    // 结果经 notifier 推送、agent-mailbox 回执、追加进 记忆/运行时/值班日志.jsonl。
+    // 结果经 notifier 推送、agent-mailbox 回执，日志按天切分到 记忆/运行时/值班日志-YYYYMMDD.jsonl（2MB 滚动归档、留 30 天）。
+    // 唤醒轮**不再给整张 UNIFIED_TOOLS**：传入 allTools 后，watch-wake 只发默认最小只读集（或 watch.allowTools 白名单）。
     try {
       const watchWake = createWatchWake({
         wsRoot: WS_ROOT,
@@ -7977,6 +7978,7 @@ ${rows.map((r) => `- [${r.status}${r.closed ? "/已结清" : ""}] ${r.text}\n  �
         notifier,
         postMessage,
         logFile: path.join(WS_ROOT, "记忆", "运行时", "值班日志.jsonl"),
+        allTools: UNIFIED_TOOLS,
         runTurn: (messages, opts = {}) => chatWithFailover(defaultModel, messages, { tools: UNIFIED_TOOLS, ...opts }),
       });
       watchDuty = createWatchDuty({ wsRoot: WS_ROOT, wake: watchWake, log: console });
