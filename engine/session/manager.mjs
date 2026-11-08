@@ -29,7 +29,7 @@ const toolInitializers = createToolInitializers({
   getFixRunner: () => _runOnTheSpotFix,
 });
 export const {
-  initSearchTool, initActivateSkillTool, initPiThinkTool, initShareTool, initPiMediaTools, initFixProblemTool,
+  initSearchTool, initActivateSkillTool, initPiThinkTool, initShareTool, initPiMediaTools, initFixProblemTool, initVerifyCheckTool,
 } = toolInitializers;
 
 let _runOnTheSpotFix = null;
@@ -527,6 +527,10 @@ export async function createSessionAgent(sm, model) {
   // 当场修：把"干活时发现问题"接到"当场做掉"（同一个核心，见 engine/reflection-exec.mjs）
   const fixTool = await initFixProblemTool();
   if (fixTool) customTools.push(fixTool);
+  // 断言闸门（2026-11-09）：报数之前先落断言。两条入口（统一引擎 / Pi SDK）都能用，
+  // 否则模型在 Pi 通道里又会"凭印象报数"而没有任何可核的痕迹。
+  const verifyTool = await initVerifyCheckTool();
+  if (verifyTool) customTools.push(verifyTool);
   // 双引擎：dsh（DeepSeek Harness）作为执行臂——pi 主引擎派单，dsh 干代码/沙箱活，pi 验收
   const dt = await _initDshTool();
   if (dt) customTools.push(dt);

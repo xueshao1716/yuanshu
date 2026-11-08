@@ -308,6 +308,9 @@ import { createWatchRoutes } from "./engine/watch-api.mjs";
 import { WATCH_TOOLS, createWatchToolExecutors } from "./engine/tools/watch-tools.mjs";
 // 2026-11-07：用户追问「刚才哪件事跑偏了」时，模型用这个只读工具接话
 import { WATCHDOG_READ_TOOL, createWatchdogReadExecutors } from "./engine/tools/watchdog-read.mjs";
+// 2026-11-09：断言闸门（verify-gate）——报数之前先把话落成断言，逐条比对事实。
+// 交付门管"改动的验证覆盖"，这里管"话里的数字和事实"（存在性/数量/路径/大小/测试结果）。
+import { VERIFY_CHECK_TOOL, executeVerifyCheck } from "./engine/tools/verify-check.mjs";
 import { createTurnProfiler } from "./engine/turn-profile.mjs";
 import { createMemWatch } from "./engine/mem-watch.mjs";
 import { installTimerWatch } from './engine/timer-watch.mjs';
@@ -1403,6 +1406,9 @@ const UNIFIED_TOOLS = [
   RUN_DETACHED_TOOL,
   JOB_STATUS_TOOL,
   OUTPUT_CHECK_TOOL,
+  // 2026-11-09：断言闸门。交付门之后还有一道「话对不对」的闸：
+  // 数量/存在性/路径/大小/测试结果必须先落成断言，有一条 FAIL 就不许说完成。
+  VERIFY_CHECK_TOOL,
 ];
 // ══ 外部思考工具（externalThinking 调试开关，默认关）══
 // 思路：关闭模型原生隐藏思考后，给它一张外部"草稿纸"（think 工具），
@@ -1819,6 +1825,13 @@ const extraToolExecutors = {
         return { text: 'output_check 出错：' + String(e?.message || e).slice(0, 200), isError: true };
       }
     },
+    // 断言闸门（2026-11-09）：报数之前把话落成断言，逐条比对事实。
+    // 允许根 = 工作区 + 系统本体（与 read/write 的双根白名单同口径），越界直接判失败；
+    // 命令走注入的 run（默认 execFile）并过宪法红线。结果只回给模型，不推聊天。
+    verify_check: (args) => executeVerifyCheck(args, {
+      cwd: () => CONFIG.cwd,
+      roots: () => [CONFIG.cwd, __dirname],
+    }),
     // 当场修：把"发现问题"接到"动手做掉"（逻辑在 engine/reflection-exec.mjs，与复盘那条共用规则）。    // 执行轮用完整工具集（这一步才发可写工具），一轮只做这一条，必须交证据。
     fix_problem: async (args, ctx) => {
       const sessionKey = ctx?.sessionKey || ctx?.sessionId || "anon";

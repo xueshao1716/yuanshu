@@ -12,6 +12,7 @@ export function createToolInitializers({ getCwd = () => "", getPiPackage = () =>
   let searchToolDef = null, searchToolInit = null;
   let activateSkillToolDef = null;
   let piThinkToolDef = null, shareToolDef = null, piMediaTools = null, fixProblemToolDef = null;
+  let verifyCheckToolDef = null;
 
   async function initSearchTool() {
   if (searchToolDef) return searchToolDef;
@@ -236,8 +237,61 @@ async function initPiThinkTool() {
 }
 
 
+// 断言闸门（2026-11-09，verify-gate）：Pi 通道也要有同一个 verify_check。
+// 元枢最贵的幻觉不是"活干错了"，是"话里的数字没核过"——所以这个工具的使用场景必须写死：
+// **报数之前用**（数量/存在性/路径/大小/测试结果），不是"另一个跑测试的工具"。
+// 结果只回给模型，不推聊天：验证是后台动作，不是回复内容。
+  async function initVerifyCheckTool() {
+  if (verifyCheckToolDef) return verifyCheckToolDef;
+  try {
+    const { createRequire } = await import("node:module");
+    const req2 = createRequire(getPiPackage());
+    const { Type } = req2("typebox");
+    const { createVerifyCheckExecutor, VERIFY_CHECK_TOOL } = await import("../tools/verify-check.mjs");
+    const { ASSERTION_TYPES, COUNT_OPS, MAX_CLAIMS } = await import("../claim-verify.mjs");
+    const exec = createVerifyCheckExecutor({ cwd: getCwd, roots: () => [getCwd()], maxClaims: MAX_CLAIMS });
+    verifyCheckToolDef = {
+      name: "verify_check",
+      label: "断言闸门",
+      // 适用场景写在第一句：「报数之前用」。先说清什么时候用，再说参数，
+      // 否则它会被当成"想跑测试时才调"的工具，而真正该过闸的"我查过了"永远不过闸。
+      description: "报数之前用：把你要说出口的数字/存在性/路径/大小/测试结果落成断言，逐条比对事实（文件在不在、目录几项、命令输出几行、文件多少字节）。"
+        + "要说「一共 N 项 / 我查过了 / 文件在里面 / 测试全过 / 生成物有 M 个」之前先跑它；一次最多 8 条。"
+        + "有一条 ❌ 就不许说完成：换成实际数字，或如实说没查到。命令类断言会真的执行命令（仍过宪法红线与危险命令拦截），路径只能看工作区内的。"
+        + "结果只给你自己核对，不会推给用户——验证是后台动作，别提断言清单，只说结论。",
+      promptSnippet: "报数之前（数量/存在性/路径/大小/测试结果）先 verify_check 落断言；有一条 FAIL 就不许说完成",
+      promptGuidelines: [
+        "Before stating any count, existence, path, file size or test result, call verify_check with atomic claims — do not report numbers from impression.",
+        "Pass at most 8 claims per call; command-backed claims are really executed and still pass the constitution deny rules and dangerous-command block.",
+        "If any claim comes back ❌, do not say the work is done: state the actual number, or say plainly that you could not verify it.",
+        "The result is for your own checking — never paste the assertion list or raw verification output to the user; only the conclusion.",
+      ],
+      parameters: Type.Object({
+        claims: Type.Array(Type.Object({
+          kind: Type.String({ enum: ASSERTION_TYPES, description: "EXISTS / NOT_EXISTS / COUNT / CONTAINS / LINE_EQ / LINE_INCLUDES / SIZE_GT / SIZE_EQ" }),
+          target: Type.Optional(Type.String({ description: "路径（文件或目录，工作区内）；COUNT 数目录条目/文件行数/匹配数时也用它" })),
+          command: Type.Optional(Type.String({ description: "可选：用命令输出当事实来源（会真的执行，仍过红线与危险命令拦截）" })),
+          expected: Type.Optional(Type.String({ description: "期望值：COUNT/SIZE_* 是数字；CONTAINS/LINE_* 是要找的文字" })),
+          op: Type.Optional(Type.String({ enum: COUNT_OPS, description: "COUNT 的比较方式，默认 ==" })),
+          line: Type.Optional(Type.Number({ description: "LINE_EQ / LINE_INCLUDES 用：第几行（从 1 开始）" })),
+          match: Type.Optional(Type.String({ description: "可选：COUNT 时数这段文字出现几次；target 是目录时按文件名包含匹配" })),
+        }), { maxItems: MAX_CLAIMS, description: `断言列表，最多 ${MAX_CLAIMS} 条` }),
+      }),
+      async execute(toolCallId, params) {
+        const out = await exec(params || {});
+        return { content: [{ type: "text", text: String(out?.text || "（没有结果）") }], isError: !!out?.isError };
+      },
+    };
+  } catch (e) {
+    console.log(`[元枢] verify_check 工具初始化失败: ${String(e?.message || e).slice(0, 100)}`);
+    verifyCheckToolDef = null;
+  }
+  return verifyCheckToolDef;
+}
+
+
   return {
-    initSearchTool, initActivateSkillTool, initPiThinkTool, initShareTool, initPiMediaTools, initFixProblemTool,
+    initSearchTool, initActivateSkillTool, initPiThinkTool, initShareTool, initPiMediaTools, initFixProblemTool, initVerifyCheckTool,
     peekSearchToolDef: () => searchToolDef,
   };
 }
