@@ -105,3 +105,42 @@ test('脚本输出没有测试结果 → 仍算未覆盖', () => {
   assert.equal(r.verdict, 'RED');
   assert.deepEqual(r.uncovered, ['src/x.mjs']);
 });
+
+// 2026-11-08：RED 不许只回一句"不能交付"。
+// 真事故里日志只有「13 次命令执行失败；8 个改动文件没被验证覆盖；未覆盖：a、b、c…」，
+// 既看不到失败的是哪条命令、输出是什么，也不知道未覆盖的到底有几个。
+test('RED 结构化：失败命令数 + 前 3 条命令与输出摘要（各 ≤120 字）', () => {
+  const longOutput = 'E'.repeat(300);
+  const rows = [];
+  for (let i = 0; i < 5; i++) {
+    rows.push({ at: 10 + i * 100, phase: 'before', tool: 'bash', argsHash: `h${i}`, argsPreview: JSON.stringify({ command: `npm test -- case-${i}` }) });
+    rows.push({ at: 11 + i * 100, phase: 'after', tool: 'bash', argsHash: `h${i}`, ok: false, error: 'exit 1', resultPreview: i === 0 ? longOutput : `Error ${i}` });
+  }
+  const r = judgeDelivery({ rows });
+  assert.equal(r.verdict, 'RED');
+  assert.equal(r.failedChecks.length, 5);
+  assert.equal(r.failedCommands.length, 3, '只带前 3 条，不是把 13 条全塞回去');
+  assert.equal(r.failedCount, 5);
+  assert.equal(r.failedCommands[0].command, 'npm test -- case-0');
+  assert.ok(r.failedCommands[0].output.length <= 120, '输出摘要要截断到 120 字');
+  const s = describeVerdict(r);
+  assert.match(s, /^不能交付：5 次命令执行失败/);
+  assert.match(s, /失败命令（共 5 次，前 3 条）/);
+  assert.match(s, /1\. npm test -- case-0 → E{10}/);
+  assert.ok(s.split('\n').length >= 4, '要分行列出，不是一行糊着');
+});
+
+test('RED 结构化：未覆盖文件只列前 5 个，但给出总数', () => {
+  const rows = [];
+  for (let i = 0; i < 7; i++) {
+    rows.push({ at: 10 + i, phase: 'before', tool: 'write', argsPreview: JSON.stringify({ path: `src/file-${i}.mjs` }) });
+  }
+  const r = judgeDelivery({ rows });
+  assert.equal(r.verdict, 'RED');
+  assert.equal(r.uncoveredTotal, 7);
+  const s = describeVerdict(r);
+  assert.match(s, /未覆盖文件（共 7 个，前 5 个）：/);
+  assert.match(s, /src\/file-0\.mjs/);
+  assert.ok(s.includes('src/file-4.mjs'));
+  assert.ok(!s.includes('src/file-5.mjs'), '第 6 个不列，只给总数');
+});

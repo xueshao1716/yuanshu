@@ -54,6 +54,37 @@ export function classifyAction(action) {
   return { kind, executable: true, reason: "" };
 }
 
+// ── 前置判断：观察类问题不派轮（2026-11-08）────────────────────────────────
+//
+// 真事故：伙伴让"核实截图里微信搜索是否搜到某人"，模型把它包装成 fix_problem。
+// 这个工具不是"看一眼图"，而是派一个完整执行轮（带工具、进工作目录、跑到能交付）；
+// 那个目录里的探测脚本本身 import 就崩 → 命令连续失败 → 交付门一直 RED → 一轮轮重试。
+// 观察类请求的正确做法是**直接看图/截图后回答**，不该派执行轮。这里在派轮前轻量拦一道。
+const OBSERVE_LOOK = /(看看|看一下|看一眼|瞧瞧|瞅瞅|核实|确认|查看|检查|判断|辨别|辨认|识别|认出|分析一下)/;
+const OBSERVE_QUESTION = /(是否|是不是|有没有|有无|能不能|能否|对不对|是什么|是谁|在哪|多少|几个|几张)/;
+const OBSERVE_MEDIA = /(截图|截屏|截图中|截图里|截图上|图片|图片里|图里|图中|照片|画面里|画面中|屏幕|界面|录屏|视频里)/;
+// 出现明确的动手词就按"修"处理，不误伤"修复截图里发现的错别字"这类真修复。
+const FIX_VERB = /(修|改|补|删|替换|重写|重构|加上|加个|加一条|对齐|调整|配置|安装|升级|降级|迁移|打通|接上)/;
+
+/**
+ * 判断一条 problem 是不是"观察/核实"类（看一眼图里有什么、某件事是否成立）。
+ * 纯函数，好测，也让"为什么拒"能说清楚。
+ * @returns {{observational:boolean, matched:string}}
+ */
+export function classifyObservationTask(problem) {
+  const t = String(problem || "").trim();
+  if (!t) return { observational: false, matched: "" };
+  if (FIX_VERB.test(t)) return { observational: false, matched: "" };
+  const look = OBSERVE_LOOK.test(t);
+  const question = OBSERVE_QUESTION.test(t);
+  const media = OBSERVE_MEDIA.test(t);
+  const leading = /^(看看|看一下|看一眼|瞧瞧|核实一下|核实|确认一下|检查一下)/.test(t);
+  if ((look && (question || media)) || (media && question) || leading) {
+    return { observational: true, matched: look ? "看/核实/确认" : media ? "截图/图里" : "开头就是看看/核实" };
+  }
+  return { observational: false, matched: "" };
+}
+
 /** 把一批行动分派成"现在执行的"和"留下的"（留下的保留原 kind，账本照旧追踪）。 */
 export function planReflectionExecution(actions, { max = MAX_AUTO_FIX } = {}) {
   const list = Array.isArray(actions) ? actions : [];
@@ -188,14 +219,42 @@ export function takeOnTheSpotBudget(key, { max = ON_THE_SPOT_MAX, windowMs = ON_
 }
 
 /**
- * 当场修一条问题。核心逻辑（可单测）：红线 → 拒绝；预算 → 判定；执行轮 → 解析结果。
+ * 当场修的"别一直重试"记录（2026-11-08）。
+ *
+ * 观察到的事故：同一会话里同一个问题连续两次都以 RED 结束（命令全崩在环境上），
+ * 模型每次都会再提一次，工具每次都再派一整轮 —— 越修越久、看起来像卡住。
+ * 记住"同一会话 + 同一问题"最近的结果：10 分钟内两次 RED 就不再派轮，直接说清卡点。
+ * 内存态：约束的是对话节奏，不是账本；进程重启即清零。
+ */
+const fixRedHistory = new Map();
+export const FIX_RED_LIMIT = 2;
+
+const problemKeyOf = (sessionKey, text) => `${String(sessionKey || "anon")}::${String(text || "").replace(/\s+/g, " ").trim().toLowerCase()}`;
+
+/** 读窗口内该问题的失败记录（纯函数，便于单测注入 store/now）。 */
+export function readFixRedAttempts(key, { now = Date.now(), windowMs = ON_THE_SPOT_WINDOW_MS, store = fixRedHistory } = {}) {
+  const list = store.get(key);
+  if (!Array.isArray(list)) return [];
+  return list.filter((x) => x && !x.ok && now - Number(x.at || 0) < windowMs);
+}
+
+/** 记一次结果（只留窗口内的最近几条；成功则清空，下一轮重新计数）。 */
+export function recordFixResult(key, entry, { now = Date.now(), windowMs = ON_THE_SPOT_WINDOW_MS, store = fixRedHistory } = {}) {
+  if (entry?.ok) { store.delete(key); return; }
+  const list = (Array.isArray(store.get(key)) ? store.get(key) : []).filter((x) => x && now - Number(x.at || 0) < windowMs);
+  list.push({ ...entry, at: now });
+  store.set(key, list.slice(-10));
+}
+
+/**
+ * 当场修一条问题。核心逻辑（可单测）：观察类前置拒绝 → 红线 → 重复 RED → 预算 → 执行轮 → 解析结果。
  * `runTurn(prompt)` 由调用方注入（server 里是 unifiedChat），这样这一层不依赖任何引擎。
  *
  * 2026-09-18：顺手记一条**探索轨迹**（engine/trace.mjs）——"试了什么动作、花了多久、结果如何"
  * 落成可回放的节点。有了它，"试几次就放弃/先试哪条"这类探索策略才有可能离线回放比较；
  * 只写文本日志是回放不了的。wsRoot 没给就跳过记录（纯单测场景）。
  */
-export async function runOnTheSpotFix({ problem, runTurn, sessionKey = "anon", now = Date.now(), store = budgets, max = ON_THE_SPOT_MAX, windowMs = ON_THE_SPOT_WINDOW_MS, wsRoot = "" } = {}) {
+export async function runOnTheSpotFix({ problem, runTurn, sessionKey = "anon", now = Date.now(), store = budgets, max = ON_THE_SPOT_MAX, windowMs = ON_THE_SPOT_WINDOW_MS, wsRoot = "", redStore = fixRedHistory, redWindowMs = ON_THE_SPOT_WINDOW_MS, redLimit = FIX_RED_LIMIT, deliveryCheck = null } = {}) {
   const text = String(problem || "").trim();
   const cls = classifyAction({ text, kind: "fix" });
   if (!cls.executable) {
@@ -205,6 +264,33 @@ export async function runOnTheSpotFix({ problem, runTurn, sessionKey = "anon", n
       refused: true,
       reason: cls.reason,
       text: `这条不能当场自动修（${cls.reason}）。请把它写进给用户的结论里，并说明需要谁来做哪一步。`,
+    };
+  }
+  // ① 观察类前置拒绝（2026-11-08）：看一眼/核实/确认图里有什么，不是"修"，不派轮。
+  const obs = classifyObservationTask(text);
+  if (obs.observational) {
+    return {
+      ok: false,
+      refused: true,
+      reason: "这类是观察任务，不走当场修",
+      text: `这类是观察任务，不走当场修（命中「${obs.matched}」）：请直接看那张图/截图（或读文件）后在同一轮里回答，不要派执行轮。真要改代码，先把问题定位到具体文件与改法，再用 fix_problem。`,
+    };
+  }
+  // ② 同一会话 + 同一问题 10 分钟内两次 RED：不再重试（2026-11-08）。
+  //    不派轮、不耗预算，把上一轮卡点说清楚，让模型去汇报而不是继续重试。
+  const redKey = problemKeyOf(sessionKey, text);
+  const reds = readFixRedAttempts(redKey, { now, windowMs: redWindowMs, store: redStore });
+  if (reds.length >= redLimit) {
+    const last = reds[reds.length - 1] || {};
+    const why = Number(last.failedCommands) > 0
+      ? `上一轮 ${Number(last.failedCommands)} 次命令执行失败`
+      : "上一轮执行以 RED 结束";
+    const uncovered = Number(last.uncovered) > 0 ? `、${Number(last.uncovered)} 个文件没被验证覆盖` : "";
+    return {
+      ok: false,
+      refused: true,
+      reason: `同类问题 ${Math.round(redWindowMs / 60000)} 分钟内已 ${reds.length} 次 RED，不再重试`,
+      text: `不再重试：${why}${uncovered}。先修环境或换目录（脚本/依赖/工作目录），再重新提一次；这次卡点请写进结论交给用户。`,
     };
   }
   const budget = takeOnTheSpotBudget(sessionKey, { max, windowMs, now, store });
@@ -278,6 +364,22 @@ export async function runOnTheSpotFix({ problem, runTurn, sessionKey = "anon", n
     closeTrace(wsRoot, traceId, { result: result.status, score: result.status === 'done' ? 1 : 0,
       cost: Number(((Date.now() - startedAt) / 1000).toFixed(2)) });
   }
+  // ③ RED 要说清为什么（2026-11-08）：失败时把交付门的结构化失败项带回来——
+  //    失败命令数、前 3 条命令及输出摘要、未覆盖文件（≤5 + 总数）。
+  //    deliveryCheck 由 server 注入（这一层不知道审计账本在哪）；拿不到就退化成一句 RED。
+  let gate = null;
+  if (result.status !== "done" && typeof deliveryCheck === "function") {
+    try {
+      const g = await deliveryCheck();
+      if (g && String(g.verdict || "").toUpperCase() === "RED") gate = g;
+    } catch { gate = null; }
+  }
+  const failedCount = Math.max(0, Number(gate?.failedCount ?? gate?.failedChecks?.length ?? 0) || 0);
+  const uncoveredCount = Math.max(0, Number(gate?.uncoveredTotal ?? gate?.uncovered?.length ?? 0) || 0);
+  // ④ 记住这次结果：同一问题连续两次 RED 后不再重试；成功则清零。
+  try {
+    recordFixResult(redKey, { ok: result.status === "done", failedCommands: failedCount, uncovered: uncoveredCount }, { now, windowMs: redWindowMs, store: redStore });
+  } catch { /* 记录失败不影响结论 */ }
   const label = { done: "已当场修好（独立验证 PASS）", blocked: "没做成（受阻）", failed: "没做成（失败）" }[result.status] || result.status;
   return {
     ok: result.status === "done",
@@ -286,10 +388,19 @@ export async function runOnTheSpotFix({ problem, runTurn, sessionKey = "anon", n
     evidence: result.evidence,
     files: result.files,
     summary: result.summary,
+    red: gate ? {
+      verdict: "RED",
+      failedCount,
+      failedCommands: Array.isArray(gate.failedCommands) ? gate.failedCommands.slice(0, 3) : [],
+      uncovered: Array.isArray(gate.uncovered) ? gate.uncovered : [],
+      uncoveredTotal: uncoveredCount,
+      summary: String(gate.summary || ""),
+    } : null,
     text: [
       `${label}：${text}`,
       `证据：${result.evidence || "（无）"}`,
       result.files?.length ? `改动：${result.files.join("、")}` : "",
+      gate ? `交付门 RED：${gate.summary || "失败项没有给出摘要"}` : "",
       result.status === "done" ? "汇报时可以据实说这条已经修掉并给出上面的证据。" : "汇报时如实说这条没做成、卡在哪，不要含糊过去。",
     ].filter(Boolean).join("\n"),
   };

@@ -32,6 +32,9 @@ import { AgentWorkflow } from '../run/AgentWorkflow'
 import { useProcessVisibility } from '../../hooks/useProcessVisibility'
 import ProcessVisibilityToggle from '../ProcessVisibilityToggle'
 import SpeechControls from '../voice/SpeechControls'
+// 2026-11-08：工具执行中不再只说"运行中"——把命令/文件/URL/查询等压成一行摘要。
+import { toolRunningSummary } from '../../lib/tool-summary'
+import { useApp } from '../../store'
 
 // 2026-10-08 子智能体派单记录折叠块：把「研究员·」行集中显示在执行记录下方
 function DispatchLog({ notes, streaming }: { notes: string[]; streaming: boolean }) {
@@ -82,6 +85,9 @@ function ToolCard({ tool }: { tool: Partial<RunningTool> & { name: string } }) {
     const a = typeof tool.argsText === 'string' ? JSON.parse(tool.argsText) : tool.argsText
     if (a && typeof a === 'object') argsText = a.command || a.path || a.content?.slice?.(0, 80) || JSON.stringify(a).slice(0, 80)
   } catch { /* 保持原文本 */ }
+  // 运行中：说明"具体在跑什么"（命令首行/文件/URL/查询…）。完成后保持原来的 argsText 展示。
+  const app = useApp()
+  const runningSummary = running ? toolRunningSummary(tool.name, tool.argsText || '', { cwd: app?.cwd || '' }) : ''
 
   return (
     <div className={`my-2 rounded-xl border overflow-hidden text-[13px] bg-pi-bg1/60 transition-[background-color,border-color,box-shadow] duration-200 ${isError ? 'border-pi-danger/40' : 'border-pi-border-soft/60 hover:border-pi-border hover:shadow-md hover:shadow-black/10'}`}>
@@ -92,7 +98,11 @@ function ToolCard({ tool }: { tool: Partial<RunningTool> & { name: string } }) {
       >
         <span className="w-5 h-5 rounded-pi-sm flex items-center justify-center text-white text-[12px] font-bold flex-shrink-0 font-mono" style={{ backgroundColor: tc, boxShadow: 'var(--pi-shadow-sm)' }}>{icon}</span>
         <span className="font-mono font-semibold text-[11px] px-1.5 py-0.5 rounded-pi-sm flex-shrink-0" style={{ color: tc, background: `${tc}14` }}>{tool.name}</span>
-        <span className="text-pi-dim truncate flex-1 font-mono text-[12px]">{argsText}</span>
+        {running && runningSummary ? (
+          <span className="text-pi-dim truncate flex-1 font-mono text-[12px]" title={runningSummary}>· {runningSummary}</span>
+        ) : (
+          <span className="text-pi-dim truncate flex-1 font-mono text-[12px]">{argsText}</span>
+        )}
         {status === 'running' ? (
           <span className="flex items-center gap-1.5 text-pi-accent text-[11px] flex-shrink-0">
             <span className="w-3 h-3 rounded-full border-[1.5px] border-pi-accent/25 border-t-pi-accent animate-spin" />

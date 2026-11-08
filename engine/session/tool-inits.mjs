@@ -206,14 +206,19 @@ async function initPiThinkTool() {
     fixProblemToolDef = {
       name: "fix_problem",
       label: "当场修",
-      description: "干活时发现一个当场能修的问题（代码/测试/配置/文档/脚本的小毛病），调它当场派一轮去修并拿回证据。需要人拍板的事（权限/密钥/部署/推送/删数据/花钱）不要用它——写进结论交给用户。同一会话 10 分钟内最多 3 次。",
-      promptSnippet: "发现问题就当场修（fix_problem），别只在结论里列一条建议",
+      // 2026-11-08 真事故：伙伴让"核实截图里微信搜索是否搜到某人"，模型把它包成 fix_problem，
+      // 于是派了一个完整执行轮进那个目录——探测脚本 import 就崩，命令连续失败、交付门一直 RED、
+      // 一轮轮重试，看起来像卡住。描述必须写清适用边界，并给出观察类任务的替代做法。
+      description: "只用来修一个**已经定位到、能当场改代码/配置/文档修掉**的问题：派一个完整执行轮去改、跑验证、拿证据。**观察类任务不要用**——「看一眼/核实/确认截图或图片里是什么、有没有、是不是」不是修，是看：直接看那张图（或读文件）后在同一轮里回答，不要派执行轮；误用会被前置拒绝，白耗一次调用。需要人拍板的事（权限/密钥/部署/推送/删数据/花钱）不要用它——写进结论交给用户。同一会话 10 分钟内最多 3 次。",
+      promptSnippet: "只修已定位、能当场改的问题；看一眼/核实/确认图里的内容是观察任务——直接看图回答，别调 fix_problem",
       promptGuidelines: [
-        "When you notice a problem you can fix right now in this workspace, call fix_problem once with a concrete one-line description instead of only listing it in your answer.",
+        "Only call fix_problem when the problem is already located and can be fixed by editing code/config/docs in this workspace right now. It dispatches a full execution turn with tools — it is not a way to look at something.",
+        "NEVER call it to observe/verify/confirm what is in an image or screenshot (e.g. 'check whether the WeChat search found this person', 'look at this screenshot'). Read the image yourself and answer directly in the same turn.",
         "Never use fix_problem for things needing human approval (permissions, secrets, deploys, pushes, deleting data, spending money) — report those instead.",
+        "Observation-type problems, and the same problem after two RED attempts in 10 minutes, are refused before any turn runs. Do not retry them — fix the environment or switch workspace directory instead.",
       ],
       parameters: Type.Object({
-        problem: Type.String({ description: "要修什么，一句话，具体到可核查（≤60 字）" }),
+        problem: Type.String({ description: "要当场修什么，一句话，具体到可核查（≤60 字）。必须是能动手改的问题；观察/核实类（截图里有没有、图里是什么）不要用这个工具。" }),
       }),
       async execute(toolCallId, params, ctx) {
         const out = await getFixRunner()({

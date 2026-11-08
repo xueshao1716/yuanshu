@@ -1307,10 +1307,13 @@ const FIX_PROBLEM_TOOL = {
   type: "function",
   function: {
     name: "fix_problem",
-    description: "干活时发现一个当场能修的问题（代码/测试/配置/文档/脚本的小毛病），用这个工具当场派一轮去修，并拿到证据。不要用它做需要人拍板的事（权限/密钥/部署/推送/删数据/花钱）——那些写进结论交给用户。同一个会话 10 分钟内最多 3 次。",
+    // 2026-11-08 真事故：伙伴让"核实截图里微信搜索是否搜到某人"，模型把它包成 fix_problem。
+    // 这个工具不是"看一眼图"，而是派一个完整执行轮（带工具、进工作目录）。
+    // 描述里必须写清适用边界，观察类任务给出替代做法，否则它还会被当成"看图的接口"。
+    description: "只用来修一个**已经定位到、能当场改代码/配置/文档修掉**的问题：派一个完整执行轮去改、跑验证、拿证据回来。**观察类任务不要用**——「看一眼/核实/确认截图或图片里是什么、有没有、是不是」不是修，是看：直接看那张图（或读文件）后在同一轮里回答，不要派执行轮；误用会被前置拒绝，白耗一次调用。需要人拍板的事（权限/密钥/部署/推送/删数据/花钱）也不要碰，写进结论交给用户。同一会话 10 分钟内最多 3 次。",
     parameters: {
       type: "object",
-      properties: { problem: { type: "string", description: "要修什么，一句话，具体到可核查（≤60 字）" } },
+      properties: { problem: { type: "string", description: "要当场修什么，一句话，具体到可核查（≤60 字）。必须是能动手改的问题；观察/核实类（截图里有没有、图里是什么）不要用这个工具。" } },
       required: ["problem"],
     },
   },
@@ -1531,9 +1534,13 @@ const extraToolExecutors = {
         blockers: args?.note ? [String(args.note)] : [] });
       return { text: JSON.stringify({
         verdict: r.verdict, summary: r.summary,
+        // 2026-11-08：RED 要能看懂"卡在哪"——失败命令数 + 前 3 条命令及输出摘要 + 未覆盖总数。
+        failedCount: r.failedCount || 0,
+        failedCommands: r.failedCommands || [],
+        uncoveredTotal: r.uncoveredTotal ?? r.uncovered.length,
         uncovered: r.uncovered.slice(0, 10), reasons: r.reasons, conditions: r.conditions,
         nextAction: r.verdict === "RED"
-          ? "先补验证（node --test / npm run build / node --check 等），再调一次；不要报完成。"
+          ? "先补验证（node --test / npm run build / node --check 等），再调一次；不要报完成。命令连续失败多半是环境/目录问题——先修环境或换目录，别在同一处反复重试。"
           : r.verdict === "YELLOW" ? "可以报完成，但要把附带条件说清楚。" : "可以报完成。",
       }, null, 1), isError: false };
     },
@@ -1814,10 +1821,18 @@ const extraToolExecutors = {
     },
     // 当场修：把"发现问题"接到"动手做掉"（逻辑在 engine/reflection-exec.mjs，与复盘那条共用规则）。    // 执行轮用完整工具集（这一步才发可写工具），一轮只做这一条，必须交证据。
     fix_problem: async (args, ctx) => {
+      const sessionKey = ctx?.sessionKey || ctx?.sessionId || "anon";
+      const fixStartedAt = Date.now();
       const out = await runOnTheSpotFix({
         problem: args?.problem,
-        sessionKey: ctx?.sessionKey || ctx?.sessionId || "anon",
+        sessionKey,
         runTurn: runFixTurn,
+        // 2026-11-08：失败时把**这一轮执行轮**产生的审计行交给交付门判一次。
+        // RED 的失败命令与未覆盖文件要带回给模型，不能只回一句"不能交付"。
+        // 只取本次调用之后的行，避免把历史遗留问题算到这次头上。
+        deliveryCheck: () => checkDelivery({
+          rows: auditGate.tail(400).filter((r) => Number(r?.at || 0) >= fixStartedAt),
+        }),
       });
       return { text: out.text, isError: !out.ok };
     },
@@ -2015,7 +2030,9 @@ const checkDelivery = ({ runId = "", rows = null, changedFiles = [], verified = 
   const result = judgeRun({ rows: auditRows, runId, changedFiles, verified, strictness: deliveryStrictness(brainWeights()) });
   const item = { at: Date.now(), runId, verdict: result.verdict, uncovered: result.uncovered.slice(0, 20), reasons: result.reasons, conditions: [...result.conditions, ...blockers], summary: describeVerdict(result) };
   if (runId) { const items = readDeliveryLedger().filter((x) => x.runId !== runId); items.push(item); writeDeliveryLedger(items) }
-  if (result.verdict === "RED") console.log(`[deliver] RED：${item.summary}`.slice(0, 220));
+  // 2026-11-08：RED 日志不再只截 220 字（那会把"哪条命令失败"切掉）。结构化的前 3 条命令
+  // 与未覆盖文件要能直接看，900 字足够覆盖；仍设上限避免异常长路径灌日志。
+  if (result.verdict === "RED") console.log(`[deliver] RED：${item.summary}`.slice(0, 900));
   return { ...result, summary: item.summary };
 };
 const policyProvider = createPolicyProvider({ wsRoot: WS_ROOT });
@@ -2036,11 +2053,18 @@ initSessionManager({ cwd: CONFIG.cwd, sessionsDir: SESSIONS_DIR, tools: CONFIG.t
 let maintenanceApi = null;
 // 当场修的执行器：Pi 会话里的 fix_problem 与统一引擎里的同名工具走**同一套规则**
 // （engine/reflection-exec.mjs：红线不碰 / 每会话 10 分钟最多 3 次 / 必须交证据）。
-setOnTheSpotFixRunner(({ problem, sessionKey }) => runOnTheSpotFix({
-  problem,
-  sessionKey,
-  runTurn: runFixTurn,
-}));
+setOnTheSpotFixRunner(({ problem, sessionKey }) => {
+  // 2026-11-08：与统一引擎那条一致——失败时把本轮审计行交给交付门，RED 要带失败项回来。
+  const fixStartedAt = Date.now();
+  return runOnTheSpotFix({
+    problem,
+    sessionKey,
+    runTurn: runFixTurn,
+    deliveryCheck: () => checkDelivery({
+      rows: auditGate.tail(400).filter((r) => Number(r?.at || 0) >= fixStartedAt),
+    }),
+  });
+});
 
 /**
  * 当场修/自动执行的执行轮：**必须走通道切换**。
@@ -3141,7 +3165,7 @@ async function handleChat(req, res, body) {
       skillCatalogSent.add(`${sessKey}::fix`);
       try {
         await entry.agent?.sendCustomMessage?.(
-          { customType: "context", content: [{ type: "text", text: "【发现问题就当场修】干活时发现**当场能修**的小毛病（代码/测试/配置/文档/脚本），别只在结论里写一条「建议修复」——用 fix_problem 当场派一轮修掉、拿回证据再继续（同一会话 10 分钟内最多 3 次）。需要人拍板的（权限/密钥/部署/推送/删数据/花钱）不要碰，写进结论说清等谁做哪一步。修不成如实说卡在哪。" }] },
+          { customType: "context", content: [{ type: "text", text: "【发现问题就当场修】干活时发现**当场能修**的小毛病（代码/测试/配置/文档/脚本），别只在结论里写一条「建议修复」——用 fix_problem 当场派一轮修掉、拿回证据再继续（同一会话 10 分钟内最多 3 次）。它是「修」不是「看」：看一眼/核实/确认截图或图片里有什么、有没有、是不是，这类观察任务直接看图后回答，不要调 fix_problem。需要人拍板的（权限/密钥/部署/推送/删数据/花钱）不要碰，写进结论说清等谁做哪一步。修不成如实说卡在哪。" }] },
           { deliverAs: "nextTurn" }
         );
       } catch {}
