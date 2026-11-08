@@ -18,6 +18,6 @@ export function fileAccess(path: string, base: string, token: string, download =
   // 2026-11-08：聊天里的内联图（小图/附件预览）常是 data: URL，保存时应原样交给浏览器，
   // 不该被判成"不支持的地址"。blob: 同理。
   if (parsed.protocol === 'data:') return { url: path, headers: {} }
-  if (!['http:', 'https:', 'blob:'].includes(parsed.protocol)) throw new Error('不支持此文件地址，请从资产库重新打开')
+  if (!['http:', 'https:', 'blob:'].includes(parsed.protocol)) throw new Error(`不支持此文件地址（${parsed.protocol}），请从资产库重新打开`)
   return { url: path, headers: {} }
 }
