@@ -1,11 +1,21 @@
 // 元枢自己的 VAD 情绪接线：开轮注入、收轮推 SSE。不走 pi SDK 的 nextTurn。
 import { updateEmotion, updateFromOutput, emotionPrompt, recordFeeling, getSnapshot, flushPersonaAttribution } from "./emotion.mjs";
+// 关系层（2026-11-09）：情绪是分钟级快变量，关系是月级慢变量，摘要紧贴情绪段注入。
+import { summary as relationshipSummary } from "./relationship.mjs";
 import { completeGeneTurn } from './gene-turn.mjs';
 
 const recent = new Map();
 
 function sessionKey(id) {
   return String(id || "new");
+}
+
+// 关系一行：读不回来就当场返回空串，绝不因为关系文件影响开轮
+function relationshipLine() {
+  try {
+    const line = relationshipSummary();
+    return typeof line === "string" ? line.trim() : "";
+  } catch { return ""; }
 }
 
 /**
@@ -32,9 +42,11 @@ export function beginYuanshuEmotion(sessionId, message, history = [], context = 
     if (recent.size > 2000) recent.delete(recent.keys().next().value);
   }
   const prompt = emotionPrompt(key, msg);
-  if (!prompt) return history;
-  if (history.some((m) => m?.role === "system" && /情绪语境/.test(String(m.content || "")))) return history;
-  return [{ role: "system", content: prompt }, ...history];
+  // 关系摘要放在情绪段同一块 system 里（不是另起一段）：慢变量贴着快变量读，语气才连贯。
+  const content = [prompt, relationshipLine()].filter(Boolean).join("\n");
+  if (!content) return history;
+  if (history.some((m) => m?.role === "system" && /情绪语境|关系：信任/.test(String(m.content || "")))) return history;
+  return [{ role: "system", content }, ...history];
 }
 
 export function endYuanshuEmotion(sessionId, message, text, writer) {

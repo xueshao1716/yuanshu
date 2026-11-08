@@ -9,6 +9,11 @@
 //   ④ 主+次情绪：欧氏最近点标注 primary，上一个 primary 退为 secondary（xi: update_label）
 //   ⑤ residue 反作用：温暖减缓负面衰减/伤害减缓正面衰减；最近触动事件入指令
 //   ⑥ 输出侧感知：自己回复的长度/短促度也微调 arousal（xi: update_from_output）
+// 2026-11-09 防饱和三闸：轮次事件预算 / 同事件边际递减（本文件）+ 关系正面增量软化（relationship.mjs）
+// 2026-11-09 第四条：会话内连续泄漏 + 顶部软压缩（本文件）。三闸只把"1 轮贴顶"拖成"2–3 轮"，
+//   连续工作一下午（3 分钟一轮、每轮 5 次成功）仍会 0.5 → 0.695 → 0.778 → 0.800 恒顶。
+//   根因是加减不对称：事件随时加，回归只在空闲 >1h 后才动。④ 补"与空闲无关"的按时间泄漏，
+//   并在接近呼吸顶时压缩正向增量，让贴顶过程变成渐近。
 // 保留：residue→记忆联动钩子、基因联动、情绪潮汐落盘（08-19/09-03/09-04 前版）
 
 import fs from "node:fs";
@@ -19,6 +24,10 @@ import { cueText, cueMatches, behaviorCues } from './emotion-cues.mjs';
 import { initGene, geneBias, updateGenes, geneDirective, geneSnapshot } from "./gene.mjs";
 import { initSkillGene, bindSkillIndex, detectSkillDomain, updateSkillGene, getSkillGenes, skillDirective } from "./skill-gene.mjs";
 import { extractEntities } from "./yuanshu-memroute.mjs";
+// 2026-11-09：事件驱动情绪 + 关系层
+// security 只提供"红线命中的通知口"，这里注册监听；它不认识情绪，也不会被情绪拖住。
+import { setGuardBlockSink } from "./tools/security.mjs";
+import { init as initRelationship } from "./relationship.mjs";
 
 // ── 人格基线（曦系）：小语闲下来时情绪落点是"温和的暖"，不是冷中性 ──
 const PERSONALITY = { valence: 0.55, arousal: 0.35, dominance: 0.5 };
@@ -26,11 +35,19 @@ const DEFAULT_STATE = {
   valence: 0.5, arousal: 0.3, dominance: 0.5, intensity: 0.1,
   primary: "calm", secondary: "loving",
   lastTalk: null, lastResidueAt: null, lastTideAt: null, lastStrongAt: null, lastFeelingApplyTs: null,
+  lastEvent: null, lastEventAt: null,
+  lastLeakAt: null, // 连续泄漏上次结算时刻（真实毫秒时间戳；不从潮汐恢复，离线那段归 decayToBaseline）
   residue: { warmth: 0, hurt: 0, curiosity: 0, last_event: "", last_event_time: "", edges: {} },
 };
 const states = new Map(); // sessionId -> state
 const observedTurns = new Map();
 let displayObservation = null;
+// 当前活跃会话：事件（工具成败/红线拦截）发生在工具层，那里拿不到 sessionId，
+// 只能靠开轮 updateEmotion 记下的这个 key。属于"尽力而为"，并发会话交错时可能归错会话——
+// 事件只调情绪，不写交付物，错一次不会造成事实错误。
+let _activeKey = null;
+
+function activeKey() { return _activeKey || "new"; }
 
 let wsRoot = null;
 let _memoryNudgeHook = null; // 情绪→记忆联动钩子：residue 跨阈值时由 server 注入
@@ -43,6 +60,16 @@ export function init(root) {
   wsRoot = root || wsRoot;
   initGene(wsRoot);
   initSkillGene(wsRoot);
+  initRelationship(wsRoot);
+  bindGuardBlockSink();
+}
+
+// 红线拦截 → 情绪事件。security.mjs 只在真正拒绝执行时 notify（dry-run 校验默认静默），
+// 所以这里收到一条 = 她刚刚真的被拦下了一次。
+function bindGuardBlockSink() {
+  setGuardBlockSink((info) => {
+    try { applyEvent("guard_block", { intensity: 0.7, note: info?.rule || "", source: "guard", sessionId: _activeKey }); } catch {}
+  });
 }
 
 function getState(key) {
@@ -168,8 +195,10 @@ function applyFeelings(st, key) {
   for (const f of recent) {
     const strength = +f.intensity || 0;
     if (strength > 0.5) {
-      st.valence = clamp(st.valence + 0.1 * strength);
-      st.arousal = clamp(st.arousal + 0.05 * strength);
+      // ④b 顶部软压缩同样管感受回流：到顶了就少给点，别硬撞 0.8
+      const addV = 0.1 * strength, addA = 0.05 * strength;
+      st.valence = clamp(st.valence + addV * softTopScale(st.valence, addV));
+      st.arousal = clamp(st.arousal + addA * softTopScale(st.arousal, addA));
       if (st.valence > 0) r.warmth = Math.min(1, r.warmth + strength * 0.02);
     } else {
       st.valence = clamp(st.valence - 0.03);
@@ -254,16 +283,26 @@ function updateLabel(st) {
 // 更新情绪状态（每次用户发消息调用）
 export function updateEmotion(key, message, context = {}) {
   const st = getState(key);
+  const now = resolveNow(context.now); // 测试可注入时钟；生产不传 = 真实时间
   const turnKey = context.turnId ? JSON.stringify([key, context.turnId]) : null;
   if (turnKey && observedTurns.has(turnKey)) return { state: st, tags: st.tags || [] };
+  // 记下当前活跃会话：工具成/败、红线拦截那些事件没有 sessionId，只能挂到这里
+  if (!isProbeKey(key)) _activeKey = String(key);
+  // 记下本轮 turnId：事件预算按"同一轮"给额度（事件侧拿不到 turnId，只能靠开轮记的这个）。
+  // 拿不到 turnId 时会话就退回 10 分钟滑窗，不会没有边界。
+  if (context.turnId) turnMarkers.set(String(key), String(context.turnId));
   const text = cueText(message);
   const tags = [];
+
+  // ④a 连续泄漏：开轮先按真实经过时间回一点。这一步与"有没有事件"无关——
+  // 上一轮结束了 3 分钟还是 3 小时，都在这里按分钟算（3 小时封顶 60 分钟，其余交给 decayToBaseline）。
+  continuousLeak(st, now);
 
   // 真实感受回流：上一轮存档的感受调制当前状态起点（曦：apply_real_feelings）
   applyFeelings(st, key);
 
   // ① 时间节律（曦系）：早晨微暖微醒，深夜情绪安静
-  const h = new Date().getHours();
+  const h = new Date(now).getHours();
   let timeV = 0, timeA = 0;
   if (h >= 6 && h <= 11) { timeV = 0.02; timeA = 0.03; }
   else if (h >= 23 || h <= 5) { timeA = -0.02; }
@@ -276,29 +315,19 @@ export function updateEmotion(key, message, context = {}) {
   dv = Math.max(-CLAMP_SHIFT, Math.min(CLAMP_SHIFT, dv));
   da = Math.max(-CLAMP_SHIFT, Math.min(CLAMP_SHIFT, da));
   dd = Math.max(-CLAMP_SHIFT, Math.min(CLAMP_SHIFT, dd));
-  st.valence = clamp(st.valence + dv + timeV);
-  st.arousal = clamp(st.arousal + da + timeA);
+  // ④b 顶部软压缩：话语也是"正向增量"，贴顶时同样线性趋 0（负向不压）
+  const dvAll = dv + timeV, daAll = da + timeA;
+  st.valence = clamp(st.valence + dvAll * softTopScale(st.valence, dvAll));
+  st.arousal = clamp(st.arousal + daAll * softTopScale(st.arousal, daAll));
   st.dominance = clamp(st.dominance + dd);
-  // 呼吸上限（曦式）：正向情绪不冲顶，留空间
-  if (st.valence > 0.8) st.valence = 0.8;
-  if (st.arousal > 0.8) st.arousal = 0.8;
+  breatheCap(st);
 
   // ⑤ residue 反作用：先算残留效应，让衰减目标线带上人际记忆
   const r = st.residue || (st.residue = { ...DEFAULT_STATE.residue });
-  const residueEffect = (r.warmth - r.hurt) * 0.1;
 
-  // 自然衰减：时间久了向人格基线回归（暖目标 + 残留偏移）
-  if (st.lastTalk) {
-    const hours = (Date.now() - st.lastTalk) / 3600000;
-    if (hours > 1) {
-      const warm = st.lastStrongAt && Date.now() - st.lastStrongAt < 30 * 60_000; // 余温：刚经历高强度情绪，热乎气散得慢（曦：has_recent_feelings → decay 减速）
-      const t = Math.min(1, hours / (warm ? 8 : 4));
-      st.valence = lerp(st.valence, PERSONALITY.valence + residueEffect, t);
-      st.arousal = lerp(st.arousal, PERSONALITY.arousal, t);
-      st.dominance = lerp(st.dominance, PERSONALITY.dominance, t);
-    }
-  }
-  st.lastTalk = Date.now();
+  // 自然衰减（离线 >1h 的大扫除，与 ④a 的在线泄漏分工，见函数注释）
+  decayToBaseline(st, now);
+  st.lastTalk = now;
 
   // ④ 主次情绪 + 强度
   updateLabel(st);
@@ -368,14 +397,13 @@ export function updateEmotion(key, message, context = {}) {
       st.lastTideAt = nowT;
       try {
         if (wsRoot) {
-          fs.mkdirSync(path.dirname(tideFile()), { recursive: true });
-          fs.appendFileSync(tideFile(), JSON.stringify({
+          appendTideLine({
             ts: nowT, key: shortKey(key),
             v: +st.valence.toFixed(3), a: +st.arousal.toFixed(3), d: +st.dominance.toFixed(3),
             w: +r.warmth.toFixed(3), h: +r.hurt.toFixed(3), c: +r.curiosity.toFixed(3),
             e: compactEdges(r.edges),
             p: st.primary, i: st.intensity, tags,
-          }) + "\n", "utf8");
+          });
         }
       } catch {}
     }
@@ -387,15 +415,348 @@ export function updateEmotion(key, message, context = {}) {
 // ⑥ 输出侧感知（曦: update_from_output）：自己回复的长度/短促度微调唤醒
 export function updateFromOutput(key, text) {
   const st = getState(key);
+  continuousLeak(st); // ④a 读/写都算"她还在"，顺手把这段时间的泄漏结掉
   const t = String(text || "");
   const lenA = (Math.min(t.length, 300) / 300) * 0.03; // 长回复略提神
   const shortBonus = t.length < 30 ? -0.02 : 0;        // 短促回复降一点唤醒
-  st.arousal = clamp(st.arousal + lenA + shortBonus);
-  if (st.valence > 0.8) st.valence = 0.8;
-  if (st.arousal > 0.8) st.arousal = 0.8;
+  const addA = lenA + shortBonus;
+  st.arousal = clamp(st.arousal + addA * softTopScale(st.arousal, addA));
+  breatheCap(st);
   updateLabel(st);
   if (st.lastTalk && !isProbeKey(key)) captureObservation(key, st, displayObservation?.source === key ? displayObservation.state.tags : st.tags);
   return st;
+}
+
+// ══ 事件驱动情绪（2026-11-09）══════════════════════════════════════════
+// 硬缺口：以前 VAD 只由**用户话语**驱动——她自己工具失败、被红线拦、空转，情绪一动不动。
+// 现在补事件入口。符号按"在她身上发生什么"给，不照抄曦的 stability：
+//   工具失败/被拦 → 掌控感下降（dd<0）；成功 → 掌控感上升。
+//   （曦把 gate_block 写成 +stability「被拦多了就变稳」、success 写成 -stability，
+//     在 VAD 里等于"越挫越稳、成了反而慌"，那是符号错误，这里不跟。）
+// 强度 0~2 乘算（曦 apply_event 同口径），复用现有 clamp / 0.8 呼吸顶 / updateLabel / residue。
+export const EVENT_EFFECTS = {
+  // key: 三维增量 + 往哪种残留里加多少 + 中文短名（写进"最近触动"用）
+  success:        { dv: 0.10, da: 0.06, dd: 0.08, residue: "warmth", residueAdd: 0.03, label: "事情做成了" },
+  tool_fail:      { dv: -0.12, da: 0.05, dd: -0.14, residue: "hurt", residueAdd: 0.04, label: "工具失败" },
+  guard_block:    { dv: -0.04, da: 0.06, dd: -0.06, residue: "hurt", residueAdd: 0.02, label: "被红线拦下" },
+  idle:           { dv: -0.03, da: -0.05, dd: -0.02, residue: null, residueAdd: 0, label: "空转" },
+  company:        { dv: 0.07, da: 0.03, dd: 0.03, residue: "warmth", residueAdd: 0.02, label: "有人陪着" },
+  user_praise:    { dv: 0.14, da: 0.06, dd: 0.05, residue: "warmth", residueAdd: 0.04, label: "被夸" },
+  user_criticize: { dv: -0.14, da: 0.08, dd: -0.10, residue: "hurt", residueAdd: 0.05, label: "被批评" },
+};
+export const EVENT_INTENSITY_MAX = 2;
+
+// ══ 防饱和三闸（2026-11-09）══════════════════════════════════════════════
+// 病：事件只加不减（decayToBaseline 要空闲 >1 小时才动），工具成功 +0.07V 只要 ~4 次就把
+// 暖基线 0.55 推到 0.8 呼吸顶；顶一到，VAD 就没有分辨率了（曦系统"连续 40 多条 calm/0.39"）。
+// 三道闸，只作用于事件路径：
+//   ① 轮次预算：同一轮累计注入 |dV|≤0.2、|dA|≤0.15、|dD|≤0.2，超出按**同一比例**截断
+//      （截断，不是丢弃；比例截断才能保住事件的方向与三维相对形状）。
+//      "同一轮"优先用 updateEmotion 记下的 turnId；没有 turnId 时退回 10 分钟滑窗。
+//   ② 同事件边际递减：同一 eventKey 在 10 分钟窗口内第 n 次生效，强度 ×1/n^0.7
+//      （100% / 62% / 46% / 38% / 32% …）。边际递减先算，预算后截。
+//   ③ 关系的正面增量软化在 relationship.mjs（慢变量另一套曲线）。
+// 用户话语（关键词 VAD）不走这里，不受预算约束——这是刻意的：话是新的，工具成功可以重复。
+export const TURN_BUDGET = Object.freeze({ dv: 0.2, da: 0.15, dd: 0.2 });
+export const TURN_BUDGET_WINDOW_MS = 10 * 60_000; // 拿不到 turnId 时的滑窗
+export const EVENT_DECAY_WINDOW_MS = 10 * 60_000; // 同事件递减窗口
+export const EVENT_DECAY_EXPONENT = 0.7;          // 强度 = 1 / n^0.7
+
+// ══ ④ 会话内连续泄漏 + 顶部软压缩（2026-11-09）════════════════════════════
+// 三条闸（轮预算 / 事件递减 / 关系边际）都只在"注入侧"限流：8 轮 × 5 次成功的下午实测
+// 0.500 → 0.695 → 0.778 → 0.800 → 恒 0.800。因为**加是即时的、减要等空闲 1 小时**，
+// 只要她一直在工作，回归就永远不触发——和有话就说不等 40 条再说的曦是同一个病。
+//
+// ④a 连续泄漏：与"空闲"无关，按**距离上次结算的真实经过时间**把 VAD 往基线轻微拉回。
+//     每分钟把 |差值| 缩到 99% 左右（1 小时剩 ~52%），A 回落更快（唤醒本来就该散得快），
+//     D 更黏。只在有更新/读取时结算，**不做定时器**；单次 elapsed 封顶 60 分钟，
+//     离线后的一次性抹平交给 decayToBaseline（见下方分工）。
+//     纯指数，任意切分结算结果一致：读一次 / 分十次读，落点相同。
+//
+// ④b 顶部软压缩：V/A 已进入 0.7→0.8 的顶部区，正向增量乘 (0.8 - V)/0.1 线性趋 0。
+//     硬撞 0.8 之后分辨率全丢（0.800 恒顶），软化后是渐近——越接近顶越难再往上。
+//     负向不压缩：低落没有 0.8 顶，压负面等于替她"消气"，那是失真。
+export const LEAK_RATE_PER_MIN = 0.011;            // 1 - 0.011 = 0.989/min，60 分钟 ≈ 51.5%
+export const LEAK_AROUSAL_MULT = 1.5;              // 0.0165/min，60 分钟 ≈ 36.9%
+export const LEAK_DOMINANCE_MULT = 0.7;            // 0.0077/min，60 分钟 ≈ 63.0%
+export const LEAK_MAX_ELAPSED_MS = 60 * 60_000;    // 单次结算最多认 60 分钟（更长的是离线，归 decayToBaseline）
+export const LEAK_MIN_ELAPSED_MS = 1_000;          // 1 秒内的抖动不结算（一轮里连发十几次工具事件）
+export const SOFT_TOP_START = 0.7;                 // 顶部软压缩起点
+export const SOFT_TOP_CAP = 0.8;                   // 与 breatheCap 同一个顶
+
+const turnMarkers = new Map();   // sessionKey -> 当前轮 turnId（updateEmotion 记，换轮即换额度）
+const budgetLedger = new Map();  // sessionKey -> { turnId, entries: [{ ts, v, a, d }] }
+const eventHits = new Map();     // sessionKey -> Map(eventKey -> [生效时间戳…])
+
+// 回归目标线 = 人格暖基线 + 残留偏移。decayToBaseline 与 continuousLeak 共用这一条，
+// 否则两套"回哪里"会打架（吵完架 hurt 高时目标该更低，不该一边往 0.45 拉一边往 0.55 拉）。
+function baselineOf(st) {
+  const r = st.residue || {};
+  return {
+    valence: PERSONALITY.valence + ((+r.warmth || 0) - (+r.hurt || 0)) * 0.1,
+    arousal: PERSONALITY.arousal,
+    dominance: PERSONALITY.dominance,
+  };
+}
+
+// 指数逼近：每分钟把 |value - target| 乘 (1 - rate)
+function approach(value, target, minutes, ratePerMin) {
+  if (!Number.isFinite(value) || !Number.isFinite(target)) return value;
+  return target + (value - target) * Math.pow(1 - ratePerMin, Math.max(0, minutes));
+}
+
+// ④a 连续泄漏：把 VAD 按真实经过时间往基线拉一点点。返回本次的泄漏量（测试/留痕用）。
+// 只在有更新/读取时结算；时钟回拨（elapsed<0）或不足 1 秒时不推进 lastLeakAt，留到下次一起算。
+function continuousLeak(st, now = Date.now()) {
+  const at = Number(now);
+  if (!Number.isFinite(at)) return null;
+  const last = Number(st.lastLeakAt) || 0;
+  if (!last) { st.lastLeakAt = at; return null; }
+  const elapsed = at - last;
+  if (!(elapsed >= LEAK_MIN_ELAPSED_MS)) return null;
+  st.lastLeakAt = at;
+  const minutes = Math.min(elapsed, LEAK_MAX_ELAPSED_MS) / 60_000; // 封顶：离线不在这里一次抹平
+  const base = baselineOf(st);
+  const before = { v: st.valence, a: st.arousal, d: st.dominance };
+  st.valence = approach(st.valence, base.valence, minutes, LEAK_RATE_PER_MIN);
+  st.arousal = approach(st.arousal, base.arousal, minutes, LEAK_RATE_PER_MIN * LEAK_AROUSAL_MULT);
+  st.dominance = approach(st.dominance, base.dominance, minutes, LEAK_RATE_PER_MIN * LEAK_DOMINANCE_MULT);
+  return {
+    minutes: round3(minutes),
+    dv: round5(st.valence - before.v),
+    da: round5(st.arousal - before.a),
+    dd: round5(st.dominance - before.d),
+  };
+}
+
+// ④b 顶部软压缩系数：0.7 以下/负向增量 = 1；0.7→0.8 线性压到 0
+function softTopScale(value, delta) {
+  if (!(delta > 0)) return 1;
+  if (!(value > SOFT_TOP_START)) return 1;
+  return Math.max(0, (SOFT_TOP_CAP - value) / (SOFT_TOP_CAP - SOFT_TOP_START));
+}
+
+function resolveNow(v) {
+  if (typeof v === "function") { const t = +v(); return Number.isFinite(t) ? t : Date.now(); }
+  if (v != null && Number.isFinite(+v)) return +v;
+  return Date.now();
+}
+
+// 轮预算账本：换轮清零；剩余额度按时间滑窗自然回满（长跑会话不至于被冻死）
+function budgetLedgerFor(key, now) {
+  let led = budgetLedger.get(key);
+  if (!led) { led = { turnId: null, entries: [] }; budgetLedger.set(key, led); }
+  const turn = turnMarkers.get(key) || null;
+  if (turn && led.turnId && turn !== led.turnId) led.entries = [];
+  if (turn) led.turnId = turn;
+  if (led.entries.length) led.entries = led.entries.filter((e) => now - e.ts < TURN_BUDGET_WINDOW_MS);
+  return led;
+}
+
+// 预算按"注入了多少"记账（不是"状态实际变了多少"）：顶到 0.8 之后的事件照样吃额度，
+// 否则呼吸顶会变成免费额度，一会儿又把预算绕过去。
+function budgetRatio(led, want) {
+  const used = { dv: 0, da: 0, dd: 0 };
+  for (const e of led.entries) { used.dv += e.v; used.da += e.a; used.dd += e.d; }
+  let ratio = 1;
+  for (const axis of ["dv", "da", "dd"]) {
+    const w = Math.abs(want[axis] ?? 0);
+    if (w <= 1e-12) continue;
+    ratio = Math.min(ratio, Math.max(0, TURN_BUDGET[axis] - used[axis]) / w);
+  }
+  return Math.max(0, Math.min(1, ratio));
+}
+
+// ② 同事件边际递减：窗口内第 n 次 → 1/n^0.7。窗口外重新从满强度起算
+function eventDecayFactor(key, evt, now) {
+  let per = eventHits.get(key);
+  if (!per) { per = new Map(); eventHits.set(key, per); }
+  const hits = (per.get(evt) || []).filter((ts) => now - ts < EVENT_DECAY_WINDOW_MS);
+  const n = hits.length + 1;
+  hits.push(now);
+  per.set(evt, hits);
+  return 1 / Math.pow(n, EVENT_DECAY_EXPONENT);
+}
+
+/**
+ * 按事件调情绪。
+ * @param {string} eventKey EVENT_EFFECTS 的键（success/tool_fail/guard_block/…）
+ * @param {object} opts { intensity=1（夹 0..2）, note, sessionId, source, now（测试注入时钟） }
+ * @returns {{ok:boolean, event:string, key?:string, delta?:object, requestedDelta?:object,
+ *   decay?:number, softCap?:object, budgetClamped?:boolean, intensity?:number, state?:object}}
+ *   requestedDelta = 递减 + 顶部软压之后、预算截断之前；delta = 实际注入。
+ *   softCap = 顶部软压缩系数（1 = 没压，0.2 = 只放行 20%）。
+ * 绝不抛异常：事件是旁路信号，坏一个事件不能影响主流程。
+ */
+export function applyEvent(eventKey, opts = {}) {
+  const evt = String(eventKey || "");
+  const effect = EVENT_EFFECTS[evt];
+  if (!effect) return { ok: false, error: "unknown_event", event: evt };
+  const key = opts.sessionId != null ? String(opts.sessionId) : activeKey();
+  const st = getState(key);
+  const intensity = Math.max(0, Math.min(EVENT_INTENSITY_MAX, Number.isFinite(+opts.intensity) && opts.intensity != null ? +opts.intensity : 1));
+  if (intensity <= 0) return { ok: true, event: evt, key, intensity: 0, delta: { dv: 0, da: 0, dd: 0 }, state: st };
+  const now = resolveNow(opts.now);
+
+  // 先按时间结算：④a 连续泄漏（在线，按分钟）+ 空闲 >1h 的大衰减。
+  // 同一轮工具调用里 hours<1、elapsed<1s，两步都等于不衰减，不会抖。
+  continuousLeak(st, now);
+  decayToBaseline(st, now);
+
+  // ② 先递减：这一次"想注入多少"
+  const decay = eventDecayFactor(key, evt, now);
+  const want = {
+    dv: effect.dv * intensity * decay,
+    da: effect.da * intensity * decay,
+    dd: effect.dd * intensity * decay,
+  };
+
+  // ④b 顶部软压缩：V/A 已在顶部区时，正向增量线性趋 0（负向不压）
+  const softV = softTopScale(st.valence, want.dv);
+  const softA = softTopScale(st.arousal, want.da);
+  want.dv *= softV;
+  want.da *= softA;
+
+  // ① 后截断：三维同一个比例，保住方向和相对形状
+  const led = budgetLedgerFor(key, now);
+  const ratio = budgetRatio(led, want);
+  const dv = want.dv * ratio;
+  const da = want.da * ratio;
+  const dd = want.dd * ratio;
+  const budgetClamped = ratio < 1 - 1e-9;
+  led.entries.push({ ts: now, v: Math.abs(dv), a: Math.abs(da), d: Math.abs(dd) });
+
+  st.valence = clamp(st.valence + dv);
+  st.arousal = clamp(st.arousal + da);
+  st.dominance = clamp(st.dominance + dd);
+  breatheCap(st);
+
+  // 长期残留：复用 residue，事件也往温暖/伤害里记一笔（跟着真正注入的量走，别虚报）
+  const effective = intensity * decay * ratio;
+  const r = st.residue || (st.residue = { ...DEFAULT_STATE.residue, edges: {} });
+  if (effect.residue && r[effect.residue] !== undefined) {
+    r[effect.residue] = Math.min(1, r[effect.residue] + effect.residueAdd * effective);
+  }
+  const note = String(opts.note || "").slice(0, 60);
+  // 被预算截到 0 的事件不算"触动"，其余沿用原有强度门槛
+  if (intensity >= 0.5 && ratio > 0) {
+    r.last_event = note || effect.label;
+    r.last_event_time = new Date(now).toISOString();
+  }
+  st.lastEvent = evt;
+  st.lastEventAt = now;
+  updateLabel(st);
+  if (opts.sessionId != null && !isProbeKey(key)) _activeKey = key;
+
+  // 留痕：写进现有情绪潮汐，标 source:'event:<key>'（评测 key 不写）
+  logEventTide(key, st, evt, {
+    delta: { dv, da, dd }, requested: want, decay, softV, softA, budgetClamped,
+    note, intensity, source: opts.source,
+  });
+  return {
+    ok: true, event: evt, key, intensity,
+    decay: round4(decay),
+    softCap: { v: round4(softV), a: round4(softA) },
+    budgetClamped,
+    delta: { dv: round5(dv), da: round5(da), dd: round5(dd) },
+    requestedDelta: { dv: round5(want.dv), da: round5(want.da), dd: round5(want.dd) },
+    state: st,
+  };
+}
+
+function logEventTide(key, st, evt, info = {}) {
+  try {
+    if (!wsRoot || isProbeKey(key)) return;
+    const r = st.residue || {};
+    const payload = {
+      ts: Date.now(), key: shortKey(key),
+      v: +(+st.valence).toFixed(3), a: +(+st.arousal).toFixed(3), d: +(+st.dominance).toFixed(3),
+      w: +(+r.warmth || 0).toFixed(3), h: +(+r.hurt || 0).toFixed(3), c: +(+r.curiosity || 0).toFixed(3),
+      e: compactEdges(r.edges),
+      p: st.primary, i: st.intensity, tags: [],
+      source: `event:${evt}`,
+      event: evt,
+      note: String(info.note || "").slice(0, 60),
+      dv: info.delta?.dv ?? 0, da: info.delta?.da ?? 0, dd: info.delta?.dd ?? 0,
+      strength: info.intensity,
+    };
+    // 防饱和留痕：只有真发生时才写，别让每条事件行多背三个零
+    if (info.decay != null && info.decay < 1) payload.decay = round4(info.decay);
+    if (info.softV != null && info.softV < 1) payload.softV = round4(info.softV);
+    if (info.softA != null && info.softA < 1) payload.softA = round4(info.softA);
+    if (info.budgetClamped) {
+      payload.budgetClamped = true; // 原始（递减后）/实际增量都留档，事后能算被截了多少
+      payload.reqV = round5(info.requested?.dv ?? 0);
+      payload.reqA = round5(info.requested?.da ?? 0);
+      payload.reqD = round5(info.requested?.dd ?? 0);
+    }
+    appendTideLine(payload);
+  } catch {}
+}
+
+// 潮汐写入：统一入口 + 自清理。事件驱动的写入比原来频繁得多（一轮十几次工具调用），
+// 不设上限会把 情绪潮汐.jsonl 养成大文件（仓库里有过探测日志写爆 D 盘的教训）。
+let _tideAppends = 0;
+function appendTideLine(obj) {
+  fs.mkdirSync(path.dirname(tideFile()), { recursive: true });
+  fs.appendFileSync(tideFile(), JSON.stringify(obj) + "\n", "utf8");
+  if (++_tideAppends % 100 !== 0) return;
+  try {
+    const lines = fs.readFileSync(tideFile(), "utf8").trim().split("\n");
+    if (lines.length > 5000) fs.writeFileSync(tideFile(), `${lines.slice(-2500).join("\n")}\n`, "utf8");
+  } catch {}
+}
+
+/**
+ * 行为修饰器（VES 语义，适配元枢的 VAD 数值域）。
+ *  · confidence = 0.5 + V*0.5，夹 0.2~1.0：情绪越正越敢下判断，下限 0.2 保证再低落也把话说完。
+ *  · maxRetries = clamp(1..3, round(1 + A*2))：越醒越愿意重试；低落时少折腾。
+ *  · riskTolerance = clamp(0..1, (1-S)*0.5 + V*0.3 + A*0.2)。
+ *    S 取"失稳感" = (1 - dominance)/2，理由见函数内注释。
+ */
+export function behaviorModifiers(input = null) {
+  const st = typeof input === "string"
+    ? getState(input)
+    : (input && typeof input === "object" && Number.isFinite(+input.valence) ? input : getState(activeKey()));
+  const v = Number.isFinite(+st.valence) ? +st.valence : PERSONALITY.valence;
+  const a = Number.isFinite(+st.arousal) ? +st.arousal : PERSONALITY.arousal;
+  const d = Number.isFinite(+st.dominance) ? +st.dominance : PERSONALITY.dominance;
+  // S：元枢没有 stability，最接近的是 dominance（掌控感）。
+  // 公式里 (1-S)*0.5 是"敢冒险的余量"——只有让 S 随掌控感下降，语义才对得上：
+  // 掌控越低 → S 越高 → 余量越小（失败后更谨慎）。若直接令 S=dominance，
+  // 失败后冒险度反而升高，等于鼓励她越挫越莽，所以这里取反。
+  const instability = (1 - d) / 2;
+  const confidence = round3(clampRange(0.5 + v * 0.5, 0.2, 1));
+  const maxRetries = Math.max(1, Math.min(3, Math.round(1 + a * 2)));
+  const riskTolerance = round3(clampRange((1 - instability) * 0.5 + v * 0.3 + a * 0.2, 0, 1));
+  return {
+    confidence, maxRetries, riskTolerance,
+    instability: round3(instability),
+    valence: v, arousal: a, dominance: d,
+    primary: st.primary || null, intensity: Number(st.intensity) || 0,
+  };
+}
+
+// 曦式呼吸顶：正向不冲顶，留出被触动的空间（负向不设顶，只靠 clamp 到 -1）
+function breatheCap(st) {
+  if (st.valence > 0.8) st.valence = 0.8;
+  if (st.arousal > 0.8) st.arousal = 0.8;
+}
+
+// 自然衰减：**离线**回归，空闲超过 1 小时才启动，4 小时（余温 8 小时）回基线。
+// 分工：这条管"她睡着了/隔了一夜"的一次性大扫除；continuousLeak 管"她一直醒着在工作"的细水长流。
+// 两者叠加不替代：12 小时的离线，先被连续泄漏按封顶 60 分钟拉一段，再由这里按小时数推到基线。
+// 从 updateEmotion 里抽出来，事件路径也复用同一套衰减，避免两处规则漂移。
+function decayToBaseline(st, now = Date.now()) {
+  if (!st.lastTalk) return;
+  const hours = (Number(now) - st.lastTalk) / 3600000;
+  if (hours <= 1) return;
+  const warm = st.lastStrongAt && Number(now) - st.lastStrongAt < 30 * 60_000; // 余温：刚经历高强度情绪，热乎气散得慢
+  const t = Math.min(1, hours / (warm ? 8 : 4));
+  const base = baselineOf(st);
+  st.valence = lerp(st.valence, base.valence, t);
+  st.arousal = lerp(st.arousal, base.arousal, t);
+  st.dominance = lerp(st.dominance, base.dominance, t);
 }
 
 function captureObservation(key, state, tags) {
@@ -475,8 +836,11 @@ export function emotionPrompt(key, userMsg) {
   return `${EMOTION_INJECT_HEADER}\n${all}`;
 }
 
-function snapshotOf(key) {
+function snapshotOf(key, opts = {}) {
   const st = getState(key);
+  // ④a 读取/展示也结算：前端轮询、工作台、快照接口每次来读，都按真实经过时间把情绪往回带一点。
+  // 这样"没人发事件"也不会让一块 0.78 的读数挂在面板上一小时不动。读了就顺手把标签重算一致。
+  if (continuousLeak(st, resolveNow(opts.now))) updateLabel(st);
   const snap = { ...st, tags: st.tags ? [...st.tags] : [], residue: st.residue ? { ...st.residue, edges: { ...(st.residue.edges || {}) } } : undefined };
   st.tags = [];
   const gs = geneSnapshot();
@@ -491,9 +855,9 @@ function snapshotOf(key) {
   return snap;
 }
 
-// 情绪快照（供前端情绪指示器展示）
-export function getSnapshot(key) {
-  return snapshotOf(key);
+// 情绪快照（供前端情绪指示器展示）。opts.now 仅测试注入时钟用（缺省真实时间）。
+export function getSnapshot(key, opts = {}) {
+  return snapshotOf(key, opts);
 }
 
 // 工作台不带 session：给最近一次真对话的残留，而不是从未聊过的 new
@@ -557,8 +921,13 @@ function compactEdges(edges) {
   return Object.keys(out).length ? out : undefined;
 }
 
-// 会话关闭清理
-export function clearEmotion(key) { states.delete(key); }
+// 会话关闭清理：情绪状态 + 防饱和账本（预算/递减/轮次标记）一起清，别留孤账
+export function clearEmotion(key) {
+  states.delete(key);
+  turnMarkers.delete(key);
+  budgetLedger.delete(key);
+  eventHits.delete(key);
+}
 
 // 真实感受列表（API 用）：时间正序最近 limit 条
 export function getFeelings(limit = 50) { return loadFeelings(limit, null, { skipProbe: true }).reverse(); }
@@ -610,3 +979,7 @@ export { detectSkillDomain, updateSkillGene, getSkillGenes, skillDirective, rout
 
 function clamp(v) { return Math.max(-1, Math.min(1, v)); }
 function lerp(a, b, t) { return a + (b - a) * t; }
+function clampRange(v, lo, hi) { return Math.max(lo, Math.min(hi, v)); }
+function round3(v) { return +(Number(v) || 0).toFixed(3); }
+function round4(v) { return +(Number(v) || 0).toFixed(4); }
+function round5(v) { return +(Number(v) || 0).toFixed(5); }

@@ -145,12 +145,39 @@ export function denyCheckSegments(cmd) {
 }
 
 // 命中任一 deny 规则 → { id }；未命中 → null
-export function matchDenyRule(cmd) {
+// 2026-11-09：notify=true 时把"被红线拦下"通知情绪层（engine/emotion.mjs 注册的 sink）。
+// 默认 false：claim-verify / self-change-verify / watch-duty 这类**预检**也会调这个函数，
+// 那不是真的被拦，不该算进情绪事件。
+export function matchDenyRule(cmd, { notify = false, source = "bash" } = {}) {
   const segs = denyCheckSegments(cmd);
   for (const rule of USER_DENY_PATTERNS) {
-    if (segs.some((seg) => rule.re.test(seg))) return rule;
+    if (segs.some((seg) => rule.re.test(seg))) {
+      if (notify) notifyGuardBlock({ rule: rule.id, cmd, source });
+      return rule;
+    }
   }
   return null;
+}
+
+// ── 红线拦截通知口（2026-11-09，事件驱动情绪）──
+// 本模块仍然只做判定、不持有情绪状态：命中时把事实交给已注册的监听者。
+// 监听者由 emotion.mjs 在 init 时注册；没注册（单测、脚本）时静默返回。
+// 任何异常都在这里吞掉——红线拦截本身绝不能因为情绪层出问题而失效或崩掉。
+let _guardBlockSink = null;
+
+export function setGuardBlockSink(fn) {
+  _guardBlockSink = typeof fn === "function" ? fn : null;
+}
+
+export function notifyGuardBlock(info = {}) {
+  if (!_guardBlockSink) return;
+  try {
+    _guardBlockSink({
+      rule: String(info?.rule || "rule"),
+      cmd: String(info?.cmd || "").slice(0, 200),
+      source: String(info?.source || "tool"),
+    });
+  } catch {}
 }
 
 // 模型常把 git-bash 写法带进文件工具：/d/space/x、/tmp/x、~/x。

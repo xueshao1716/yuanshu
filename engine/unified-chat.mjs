@@ -45,6 +45,9 @@ import { deliverSubagentReceipts } from './subagent-receipts.mjs';
 import { bindWorkmemSession, formatPlanPrompt } from "./yuanshu-workmem.mjs";
 import { persistYuanshuUser, persistYuanshuAssistant, persistYuanshuAssistantLocalized, localizeAssistantMarkdown, persistYuanshuToolTrace, resumePersistenceState, abortedAssistantText } from "./yuanshu-session.mjs";
 import { beginYuanshuEmotion, endYuanshuEmotion, lastTalkAt } from "./yuanshu-emotion.mjs";
+// 2026-11-09 事件驱动情绪 + 关系层：工具成败是事件、一轮结束是关系增量，都是旁路信号
+import { applyEvent } from "./emotion.mjs";
+import { recordInteraction } from "./relationship.mjs";
 import { readActivityRhythm } from "./activity-rhythm.mjs";
 import { pendingPromiseText } from "./promises.mjs";
 import { goalPrompt } from "./goals.mjs";
@@ -799,9 +802,11 @@ export async function handleUnifiedChat(res, entry, message, sessionId, params, 
     console.log(`[sandbox-approval] 兑底通道升级请求拒绝(fail-closed): ${name} ${JSON.stringify(args || {}).slice(0, 120)} ${note || ""}`);
     return "rejected";
   };
-  let collected = "";
+  let collected = "", turnToolFailures = 0; // 本轮工具失败数：工具事件与收轮关系共用
   const finishEmotion = () => {
     try { endYuanshuEmotion(sessionId || "new", emotionInput.message, collected, writer); } catch {}
+    // turn_end → 关系层：有工具失败判 negative，否则 positive；无产出/评测 key 不记。异常吞掉。
+    try { if (collected && !/^eval-/.test(String(sessionId || ""))) recordInteraction({ kind: turnToolFailures ? "negative" : "positive", note: turnToolFailures ? `${turnToolFailures} 次工具失败` : "" }); } catch {}
   };
   touchTask(taskId, { stage: "处理中" });
   let hist = [];
@@ -934,6 +939,12 @@ export async function handleUnifiedChat(res, entry, message, sessionId, params, 
     const startedAt = toolStartedAt.get(id);
     toolStartedAt.delete(id);
     writer.push("tool_end", { name, id, durationMs: startedAt ? Date.now() - startedAt : null, effectKey: context.effectKey || null, turn: context.turn ?? null, ordinal: context.ordinal ?? null, isError: out?.isError === true, uncertain: out?.uncertain === true, reused: out?.reused === true, output: text.slice(0, 2000) });
+    // 事件驱动情绪（2026-11-09）：工具成败必须落在情绪上；旁路信号，异常一律吞掉。
+    try {
+      const failed = out?.isError === true;
+      if (failed) turnToolFailures += 1;
+      applyEvent(failed ? "tool_fail" : "success", { sessionId: sessionId || "new", intensity: failed ? 1 : 0.7, note: `${name}${failed ? " 失败" : " 成功"}`, source: "tool" });
+    } catch {}
     const media = explicitToolMedia(out, { id, name });
     if (media?.url) deliverGatedToolMedia(media, { writer });
   };

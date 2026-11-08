@@ -10,6 +10,7 @@ import net from "node:net";
 import { httpJsonFetch } from "../http.mjs";
 import {
   matchDenyRule, isProtectedPath, DANGEROUS_CMD_RE, PI_CMDS, INTERACTIVE_CMD_RE, safeJoin, normalizeToolPath,
+  notifyGuardBlock,
 } from "./security.mjs";
 import { readOnlyOn, allowInReadOnly } from "./readonly-mode.mjs";
 import { isSensitivePath, commandTouchesSensitive, redactSecrets } from "./secrets-guard.mjs";
@@ -507,12 +508,16 @@ export function createUnifiedToolExecutor(deps = {}) {
         // ② 凭据防护：命令引用敏感文件 → 拒绝（混淆绕过由③输出脱敏兑底）
         if (commandTouchesSensitive(cmd)) return { text: sensitiveHint(), isError: false };
         // User 层 deny：宪法红线硬拦截（先于内置默认层检查）
-        const deny = matchDenyRule(cmd);
+        // notify:true —— 真的拒掉了才通知情绪层（这个分支就是"真的拒掉"）
+        const deny = matchDenyRule(cmd, { notify: true, source: "bash" });
         if (deny) {
           return { text: `⛔ 拒绝执行 [宪法规则 ${deny.id}]：该命令命中硬性红线（${deny.re.source.slice(0, 60)}…）。\n这是代码级拦截，不是建议——如需执行请联系伙伴人工操作。`, isError: true };
         }
         // 危险命令拦截（防 prompt injection / 幻觉触发不可逆操作）
-        if (DANGEROUS_CMD_RE.test(cmd)) return { text: "⚠️ 拒绝执行：该命令可能造成不可逆数据丢失", isError: true };
+        if (DANGEROUS_CMD_RE.test(cmd)) {
+          try { notifyGuardBlock({ rule: "dangerous-cmd", cmd, source: "bash" }); } catch {}
+          return { text: "⚠️ 拒绝执行：该命令可能造成不可逆数据丢失", isError: true };
+        }
         // 2026-10-28：bash 也要守「受保护路径」——write/edit 会拦，bash 以前不拦，
         // 结果一条 echo 重定向就能把记忆文件覆盖掉。
         {
@@ -655,11 +660,14 @@ export function createUnifiedToolExecutor(deps = {}) {
         const cmd = String(args?.command || "").trim();
         if (!cmd) return { text: "空命令", isError: true };
         if (commandTouchesSensitive(cmd)) return { text: sensitiveHint(), isError: false };
-        const deny = matchDenyRule(cmd);
+        const deny = matchDenyRule(cmd, { notify: true, source: "pwsh" });
         if (deny) {
           return { text: `⛔ 拒绝执行 [宪法规则 ${deny.id}]：该命令命中硬性红线（${deny.re.source.slice(0, 60)}…）。\n这是代码级拦截，不是建议——如需执行请联系伙伴人工操作。`, isError: true };
         }
-        if (DANGEROUS_CMD_RE.test(cmd)) return { text: "⚠️ 拒绝执行：该命令可能造成不可逆数据丢失", isError: true };
+        if (DANGEROUS_CMD_RE.test(cmd)) {
+          try { notifyGuardBlock({ rule: "dangerous-cmd", cmd, source: "pwsh" }); } catch {}
+          return { text: "⚠️ 拒绝执行：该命令可能造成不可逆数据丢失", isError: true };
+        }
         if (INTERACTIVE_CMD_RE.test(cmd)) return { text: `⚠️ 拒绝执行交互式命令（${cmd.slice(0, 40)}），可能挂起等待输入`, isError: true };
 
         const script = [
@@ -752,7 +760,10 @@ export function createUnifiedToolExecutor(deps = {}) {
         if (isSensitivePath(String(args?.path || ""))) return { text: `⛔ 拒绝写入 [凭据防护]：${args?.path} 是敏感凭据文件`, isError: true };
         const p = resolveToolPath(args?.path);
         if (!p) return { text: "路径越权（write 仅限工作空间与系统目录内）", isError: true };
-        if (isProtectedPath(p)) return { text: `⛔ 拒绝写入 [仓库法律]：${args?.path} 是受保护文件（人格/宪法/凭据），只读不写`, isError: true };
+        if (isProtectedPath(p)) {
+          try { notifyGuardBlock({ rule: "protected-path", cmd: String(args?.path || p), source: "write" }); } catch {}
+          return { text: `⛔ 拒绝写入 [仓库法律]：${args?.path} 是受保护文件（人格/宪法/凭据），只读不写`, isError: true };
+        }
         const content = String(args?.content ?? "");
         const append = args?.append === true;
         // 分段闸门（2026-09-18）：内容就是模型的输出，一次写太大必然被输出上限截断，
@@ -791,7 +802,10 @@ export function createUnifiedToolExecutor(deps = {}) {
         if (isSensitivePath(String(args?.path || ""))) return { text: `⛔ 拒绝修改 [凭据防护]：${args?.path} 是敏感凭据文件`, isError: true };
         const p = resolveToolPath(args?.path);
         if (!p) return { text: `文件不存在或路径越权（edit 仅限工作空间与系统目录内）: ${args?.path}`, isError: true };
-        if (isProtectedPath(p)) return { text: `⛔ 拒绝修改 [仓库法律]：${args?.path} 是受保护文件（人格/宪法/凭据），只读不写`, isError: true };
+        if (isProtectedPath(p)) {
+          try { notifyGuardBlock({ rule: "protected-path", cmd: String(args?.path || p), source: "edit" }); } catch {}
+          return { text: `⛔ 拒绝修改 [仓库法律]：${args?.path} 是受保护文件（人格/宪法/凭据），只读不写`, isError: true };
+        }
         const oldT = String(args?.oldText ?? "");
         const newT = String(args?.newText ?? "");
         // 读→替换→写是经典的 lost update 现场：与 Pi 的写工具共用同一把队列，
