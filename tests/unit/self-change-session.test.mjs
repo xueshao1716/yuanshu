@@ -74,7 +74,13 @@ test("finish：自证过 → 写入 → 清理工作区", async () => {
     return okExec();
   });
   let got = null;
-  const r = await finishSession({ wsRoot: root, id: "s5", exec, validate: async () => ({ ok: true, stage: "green" }), apply: async ({ edits }) => { got = edits; return { ok: true, backupDir: "/tmp/bak" } } });
+  const r = await finishSession({
+    wsRoot: root, id: "s5", exec,
+    validate: async () => ({ ok: true, stage: "green" }),
+    verify: async ({ files }) => ({ ok: true, filesetHash: "s5-hash", files, steps: [{ name: "deps", ok: true }], reason: "自证通过" }),
+    admit: async () => ({ ok: true, commit: "c0ffee1" }),
+    apply: async ({ edits }) => { got = edits; return { ok: true, backupDir: "/tmp/bak" } },
+  });
   assert.equal(r.ok, true);
   assert.equal(r.stage, "applied");
   assert.equal(got[0].path, "engine/x.mjs");
