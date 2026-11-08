@@ -79,6 +79,17 @@ test('upstream rejection is visible and releases busy state', async () => {
   assert.equal(f.entry.busy, false);
   assert.ok(f.res.writableEnded);
 });
+test('图片没落盘时整轮失败，绝不把厂商地址当媒体发出去', async () => {
+  const { runSelectedMedia } = await load();
+  const vendor = 'https://platform-outputs.agnes-ai.space/images/t2i/task_x/output_x.png';
+  const f = fixture({ saveArtifact: async () => ({ url: vendor, local: false, reason: '下载失败 HTTP 502' }) });
+  await runSelectedMedia(f.options);
+  assert.match(f.events().find(e => e.type === 'error').data.message, /没能保存到本机|未按交付处理/);
+  assert.equal(f.events().filter(e => e.type === 'media').length, 0, '不允许发任何媒体块');
+  assert.ok(!JSON.stringify(f.events()).includes('platform-outputs'), '事件流里不能出现厂商地址');
+  assert.equal(f.messages.filter(m => m.role === 'assistant').length, 0, '没落盘就不写入会话历史');
+  assert.equal(f.entry.busy, false);
+});
 test('cancel aborts upstream promptly and cannot deliver into a newer turn', async () => {
   const { runSelectedMedia } = await load();
   let signal, release;

@@ -83,13 +83,14 @@ export async function runSelectedMedia({ req, res, entry, generation, model, kin
       const url = kind === 'image' ? result : result?.video;
       if (!url) throw new Error(result?.error || '所选模型没有返回媒体结果');
       const localized = await bounded(() => saveArtifact({ type: kind, url, prompt: message, signal }));
-      // 视频「不落盘就不交付」：远端签名链接会过期，不能直接发播放器。图片仍允许先展示外链，
-      // 但要在界面上注明没存到本机。
-      if (kind === 'video' && !localized?.local) {
-        throw new Error(`视频已生成，但没能保存到本机（${localized?.reason || '本地保存失败'}）；远端临时链接会过期，未按交付处理`);
+      // 「不落盘就不交付」（2026-11-08）：图片和视频一样——远端厂商链接随时可能被关，
+      // 关了就永远没图看；所以下载失败按失败处理，绝不把厂商地址当交付物。
+      if (!localized?.local) {
+        const what = kind === 'video' ? '视频' : '图片';
+        const tail = kind === 'video' ? '远端临时链接会过期' : '原图在厂商侧可能随时失效';
+        throw new Error(`${what}已生成，但没能保存到本机（${localized?.reason || '本地保存失败'}）；${tail}，未按交付处理`);
       }
-      media = { type: kind, url: localized?.url || url };
-      if (!localized?.local) emit('note', { text: `媒体已生成，但未保存到本机：${localized?.reason || '本地保存失败'}。临时链接可能过期。` });
+      media = { type: kind, url: localized.url };
       // Base64 exceeds the bounded journal payload. Never cache a truncated image.
       if (effects && runId && localized?.local && media.url.length < 12000) {
         effects.complete(runId, step, media);

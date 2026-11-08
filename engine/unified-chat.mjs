@@ -698,6 +698,48 @@ let noticesCacheAt = 0;
 // 2026-11-05：公告拉取搬到 chat-notices.mjs
 export { handleNotices } from "./chat-notices.mjs";
 
+// ── 聊天媒体交付（2026-11-08）────────────────────────────────────────
+// 放在 handleUnifiedChat 外面：出图/出片/工具直传三条入口共用同一条
+// "本地存档才算交付"的规矩，函数本身也不用继续膨胀。
+// 图片尤其硬：厂商地址随时可能被关，没落盘就不发图（只写一行说明），
+// unlocalized 只是排查/统计标记，**不是**可显示状态。
+async function localizeChatMediaForDelivery(mr, { writer, effects, runId }) {
+  const saved = await saveArtifact(mr);
+  if (!saved.local && mr.type === "image") {
+    mr.localizeError = saved.reason;
+    mr.unlocalized = true;
+    console.log(`[元枢] 聊天图片未落盘，不交付: ${saved.reason || ""}`);
+    try { writer.push("note", { text: `有一张图没能存到本地（${saved.reason || "下载失败"}），已不展示；原图在厂商侧可能随时失效。` }); } catch {}
+    if (mr.__effectKey && effects && runId) {
+      try { effects.complete(runId, mr.__effectKey, { ...mr, artifactUrl: "" }); } catch {}
+    }
+    return false;
+  }
+  mr.url = saved.url;
+  mr.localized = saved.local;
+  if (!saved.local) {
+    mr.localizeError = saved.reason;
+    const kind = mr.type === "video" ? "视频" : mr.type === "audio" ? "配音" : "图片";
+    try { writer.push("note", { text: `⚠️ ${kind}已生成，但没能存到本地（${saved.reason}）。当前显示的是外站临时链接，过期后会失效，请尽快下载保存。` }); } catch {}
+  }
+  if (mr.__effectKey && effects && runId) {
+    try { effects.complete(runId, mr.__effectKey, { ...mr, artifactUrl: mr.url }); } catch {}
+  }
+  return true;
+}
+
+// 工具/扩展直传的 media 统一过闸门：视频不是本地就不发播放器（一行说明 + 原链接）；
+// 图片远端先 saveArtifact 落盘，落不下来这一条就不进聊天（图片没有远端退路）。
+function deliverGatedToolMedia(media, { writer }) {
+  void (async () => {
+    try {
+      const gated = await gateIncomingMedia(media, { saveArtifact });
+      if (gated.media) writer.push("media", gated.media);
+      else if (gated.note) writer.push("note", { text: gated.note });
+    } catch {}
+  })();
+}
+
 export async function handleUnifiedChat(res, entry, message, sessionId, params, signal, writer, thinkOn, taskKey, modelOverride = null, sandboxAskFactory = null, runContext = null) {
   const emotionInput = runContext?.emotionInput || { turnId: crypto.randomUUID(), message };
   let engineInitError = null;
@@ -844,20 +886,8 @@ export async function handleUnifiedChat(res, entry, message, sessionId, params, 
         }
         if (!mr.url) continue;
         if (mr.artifactUrl) { mr.url = mr.artifactUrl; mr.localized = true; }
-        else {
-          // 本地化契约：外站临时链接必须先落到本地。没落成不能静默——
-          // 以前这里是 try { ... } catch {}，失败后 mr.url 仍是外站地址，
-          // 界面看起来正常，等链接过期才发现产物根本不在本地。
-          const saved = await saveArtifact(mr);
-          mr.url = saved.url;
-          mr.localized = saved.local;
-          if (!saved.local) {
-            mr.localizeError = saved.reason;
-            try { writer.push("note", { text: `⚠️ ${mr.type === "video" ? "视频" : mr.type === "audio" ? "配音" : "图片"}已生成，但没能存到本地（${saved.reason}）。当前显示的是外站临时链接，过期后会失效，请尽快下载保存。` }); } catch {}
-          }
-          if (mr.__effectKey && runContext?.effects && runContext?.runId) {
-            try { runContext.effects.complete(runContext.runId, mr.__effectKey, { ...mr, artifactUrl: mr.url }); } catch {}
-          }
+        else if (!(await localizeChatMediaForDelivery(mr, { writer, effects: runContext?.effects, runId: runContext?.runId }))) {
+          continue;   // 图片没落盘：不发图，只留说明（见 localizeChatMediaForDelivery）
         }
         // 同一远程地址或同一已落盘路径只交付一次，避免模型重复引用时把同一文件发多遍。
         const deliveryKey = mediaDeliveryKey(mr.url);
@@ -894,14 +924,7 @@ export async function handleUnifiedChat(res, entry, message, sessionId, params, 
     toolStartedAt.delete(id);
     writer.push("tool_end", { name, id, durationMs: startedAt ? Date.now() - startedAt : null, effectKey: context.effectKey || null, turn: context.turn ?? null, ordinal: context.ordinal ?? null, isError: out?.isError === true, uncertain: out?.uncertain === true, reused: out?.reused === true, output: text.slice(0, 2000) });
     const media = explicitToolMedia(out, { id, name });
-    if (media?.url) {
-      // 2026-11-07：第三方工具/扩展直传的 video 也要过"本地才可播"的闸门——
-      // 远端签名链接以前被原样 push 进对话，过期后就是一个永远转圈的播放器。
-      // 不是本地就只留一行说明 + 原链接（note），不生成播放块；内置 generate_video 已落盘，直接放行。
-      const gated = gateIncomingMedia(media);
-      if (gated.media) writer.push("media", gated.media);
-      else if (gated.note) writer.push("note", { text: gated.note });
-    }
+    if (media?.url) deliverGatedToolMedia(media, { writer });
   };
   const onCheckpoint = createRunCheckpointWriter(writer, runContext);
   let history = [...formatSessionHistory(hist, { carryReasoning: carriesReasoningDuty(chatModel) }), { role: "user", content: mediaAwarePrompt(message, []) }];

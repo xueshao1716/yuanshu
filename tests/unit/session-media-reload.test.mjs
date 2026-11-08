@@ -7,6 +7,8 @@
 //      extractImages 把它当图片收下（界面渲染裂图），真正该在 videos 里的又容易看着像丢了。
 //
 // 这个测试锁：媒体工具的产物能在历史里回放；视频不再被当成图片；搜索结果里的图不会被误当产物。
+// 2026-11-08 收紧：只有**本地存档**的图能回放。工具结果里的厂商临时地址（platform-outputs…）
+// 当年没落盘，现在多半已经失效，历史里不再渲染，只留一行"当年未落盘"的说明。
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { extractMessages, extractImages, extractVideos, mediaFromToolResult, isMediaTool, isVideoUrl, isAudioUrl } from '../../engine/session/utils.mjs';
@@ -21,16 +23,23 @@ const toolResult = (id, text) => ({
   message: { role: 'toolResult', toolCallId: id, content: [{ type: 'text', text }] },
 });
 
-test('媒体工具的结果（远程出图 URL）刷新后仍在历史里', () => {
-  const url = 'https://platform-outputs.agnes-ai.space/images/t2i/task_FQkkix5OuDRmkDmc9yRp0HXyOgTrOoV2/output_40a64c846ebd4901ac01af7cfbd6804a.png';
-  const entries = [assistantWithCall('c1', 'generate_image'), toolResult('c1', `✅ 已生成 image：${url}`)];
+test('媒体工具的结果（本地存档图）刷新后仍在历史里；厂商图不再渲染', () => {
+  const local = '/api/ws/file?path=' + encodeURIComponent('生成物/图片/海报.png');
+  const entries = [assistantWithCall('c1', 'generate_image'), toolResult('c1', `✅ 已生成 image：${local}`)];
   // 走叶链（刷新时前端拿的就是这条路径）
   const msgs = extractMessages(entries, 't_c1');
   const a = msgs.find(m => m.role === 'assistant');
   assert.ok(a, '这条 assistant 必须在叶链上（parentId 链要对）');
-  assert.deepEqual(a.images, [url], '出图产物必须挂在这条 assistant 上，刷新后才看得见');
+  assert.deepEqual(a.images, [local], '落盘的图必须挂在这条 assistant 上，刷新后才看得见');
   // 不传 leafId 也要一样
-  assert.deepEqual(extractMessages(entries).find(m => m.role === 'assistant').images, [url]);
+  assert.deepEqual(extractMessages(entries).find(m => m.role === 'assistant').images, [local]);
+
+  // 旧会话里存的是厂商临时地址：不渲染，只留一行说明
+  const remote = 'https://platform-outputs.agnes-ai.space/images/t2i/task_FQkkix5OuDRmkDmc9yRp0HXyOgTrOoV2/output_40a64c846ebd4901ac01af7cfbd6804a.png';
+  const oldEntries = [assistantWithCall('c2', 'generate_image'), toolResult('c2', `✅ 已生成 image：${remote}`)];
+  const a2 = extractMessages(oldEntries, 't_c2').find(m => m.role === 'assistant');
+  assert.deepEqual(a2.images, [], '厂商地址随时可能被关，不能再放进聊天');
+  assert.match(a2.text, /当年未落盘/, '要说明这张图为什么不见了');
 });
 
 test('视频不再被当成图片；本地 /api/ws/file 的产物同样能回放', () => {

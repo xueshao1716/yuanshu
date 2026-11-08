@@ -6,7 +6,7 @@ import { effectiveCapabilities } from '../../shared/model-capabilities.mjs';
 import { saveArtifact, WS_ROOT } from "../workspace-api.mjs"; // saveArtifact 定义在 workspace-api（工作空间块拆分时随走）
 import { videoCreateBody, videoPollPath, repairVideoRequest, decodeAgnesVideoId } from "../video-request.mjs";
 import { materializeMedia, materializeVideoBody } from "./inline.mjs";
-import { extractPlayableMedia, isLocalPlayableUrl } from "./embed.mjs";
+import { extractPlayableMedia, isLocalPlayableUrl, localImageUrl, REMOTE_IMAGE_NOTE } from "./embed.mjs";
 import { colorCardStyleLine, hasColorCardMark } from "../color-cards.mjs";
 import { currentColorCard } from "../color-prefs.mjs";
 import { resolveImageRequest } from './request.mjs';
@@ -125,13 +125,20 @@ export function extractMediaPrompt(message, ctx = {}) {
 // 远端视频只写一行提示 + 链接，不发播放器：临时签名链接过期后就是永远转圈的黑框。
 const REMOTE_VIDEO_NOTE = "（视频仍在远端，未落盘，可能过期）";
 
+// 聊天块里只留本地/同源图片（2026-11-08）：远端厂商地址不进图片块——厂商随时会关，
+// 关了别的终端就永远看不到那张图。没落盘的图片只留一行"未落盘"文字（不带厂商地址）。
 export function assistantContentWithMedia(text, mediaResults) {
   const blocks = [];
   const remoteVideos = [];
+  let unlocalizedImages = 0;
   const t = String(text || "").trim();
   if (t) blocks.push({ type: "text", text: t });
   for (const m of mediaResults || []) {
-    if (m && m.type === "image" && m.url) blocks.push({ type: "image", url: m.url, ...(m.model ? { model: m.model } : {}), ...(m.attempts ? { attempts: m.attempts } : {}), ...(m.verification ? { verification: m.verification } : {}) });
+    if (m && m.type === "image" && m.url) {
+      const local = localImageUrl(m.url);
+      if (!local) { unlocalizedImages += 1; continue; }   // 远端/坏地址：绝不发图片块
+      blocks.push({ type: "image", url: local, ...(m.model ? { model: m.model } : {}), ...(m.attempts ? { attempts: m.attempts } : {}), ...(m.verification ? { verification: m.verification } : {}) });
+    }
     // 视频只认本地/同源产物（/api/ws/file 或 生成物/工程/交付 相对路径）。远端 URL 是临时地址，
     // 没下载到本地就不能当成品发播放器——改成一行文本 + 链接，至少不会让用户对着黑框等。
     else if (m && m.type === "video" && m.url) {
@@ -148,6 +155,12 @@ export function assistantContentWithMedia(text, mediaResults) {
   }
   if (remoteVideos.length) {
     const note = [...new Set(remoteVideos)].map((url) => `${REMOTE_VIDEO_NOTE}[打开远端视频](${url})`).join("\n");
+    const textBlock = blocks.find((b) => b.type === "text");
+    if (textBlock) textBlock.text = `${textBlock.text}\n\n${note}`;
+    else blocks.unshift({ type: "text", text: note });
+  }
+  if (unlocalizedImages) {
+    const note = `（${unlocalizedImages} 张图未落盘，已不展示；${REMOTE_IMAGE_NOTE}）`;
     const textBlock = blocks.find((b) => b.type === "text");
     if (textBlock) textBlock.text = `${textBlock.text}\n\n${note}`;
     else blocks.unshift({ type: "text", text: note });
@@ -255,6 +268,27 @@ export function clampSeed(value) {
   const seed = Math.min(SEED_RANGE.max, Math.max(SEED_RANGE.min, Math.round(n)));
   return { seed, clamped: seed !== Math.round(n), asked: Math.round(n) };
 }
+// 出图结果落盘（2026-11-08）：模型的图**必须先下载进 生成物/图片/**，块里只发本地地址。
+// 用户原话："聊天界面给我放的图的地址是模型平台的地址，不是我们约定的图存档本地。
+// 所以刚有一个 gpt 平台的图，在一个终端可以看到，别的终端都看不到了。"
+// 所以这里和视频同一条规矩、并且更硬：下不下来就按失败回报（带原因），
+// **不退回厂商地址**，也不给同源代理（代理仍要靠厂商地址活着）。
+// saveArtifact / verify 可注入，单测据此覆盖"落盘成功 / 下载失败"两条分支。
+export async function deliverImageResult(result, { prompt = "", requestedSize = "1024x1024", aspectRatio = "", saveArtifact: save = saveArtifact, verify = verifyImageDimensions } = {}) {
+  const url = String(result?.url || "").trim();
+  const meta = { type: "image", prompt, ...(result?.model ? { model: result.model } : {}), ...(result?.attempts ? { attempts: result.attempts } : {}) };
+  if (!url) return { ...meta, ...(result?.error ? { error: result.error } : {}) };
+  let verification;
+  try { verification = await verify(url, requestedSize, aspectRatio); } catch { verification = undefined; }
+  const saved = await save({ type: "image", url, prompt });
+  if (!saved?.local) {
+    const reason = saved?.reason || "下载失败";
+    console.log(`[元枢] 媒体 image: 未落盘 ${reason}`);
+    return { ...meta, error: `图片已生成但没能存到本地（${reason}）；${REMOTE_IMAGE_NOTE}，未按交付处理`, unlocalized: true };
+  }
+  return { ...meta, url: saved.url, localized: true, ...(verification ? { verification } : {}) };
+}
+
 // 异步生成媒体（与主模型并行）
 export async function generateMediaAsync(intent, prompt, observations = {}) {
   try {
@@ -263,10 +297,10 @@ export async function generateMediaAsync(intent, prompt, observations = {}) {
       const drawnPrompt = varyImagePrompt(prompt);
       intent = { ...intent, ...resolveImageRequest(intent, prompt) };
       const result = await runImageCandidates(candidates, m => generateImage(m.provider, m.id, drawnPrompt, intent.size, undefined, { onRequest: observations.onImageRequest }));
-      const { url } = result;
-      const verification = url ? await verifyImageDimensions(url, intent.size || '1024x1024', intent.aspectRatio) : undefined;
-      console.log(`[元枢] 媒体 image: ${url ? "成功" : "失败"} prompt=${String(drawnPrompt).slice(0,30)}`);
-      return { type: 'image', ...result, prompt: drawnPrompt, ...(verification ? { verification } : {}) };
+      // 出图侧「不落盘就不交付」：先下载进 生成物/图片/，再返回本地地址；下不下来按失败回报。
+      const delivered = await deliverImageResult(result, { prompt: drawnPrompt, requestedSize: intent.size || "1024x1024", aspectRatio: intent.aspectRatio });
+      console.log(`[元枢] 媒体 image: ${delivered.error ? `失败（${delivered.error}）` : delivered.localized ? "成功（已落盘）" : "成功"} prompt=${String(drawnPrompt).slice(0,30)}`);
+      return delivered;
     }
     if (intent.type === "tts") {
       const url = await generateTTS(prompt);
@@ -486,9 +520,14 @@ export async function handleImageWithSave(res, req, body) {
   // 成功出图 → 落盘本地，覆盖返回
   if (payload && payload.code === 200 && payload.obj?.image) {
     const saved = await saveArtifact({ type: "image", url: payload.obj.image, prompt: body?.prompt });
+    // 本地存档是唯一交付路径（2026-11-08）：没落成就不回厂商地址——厂商链接随时可能被关，
+    // 关了就永远没图看。按失败回报，错误里写清"未落盘、原图可能已失效"。
+    if (!saved.local) {
+      const localizeError = saved.reason || "下载失败";
+      console.log(`[元枢] /api/image 未落盘: ${localizeError}`);
+      return json(res, 502, { error: `图片已生成但没能存到本地（${localizeError}）；${REMOTE_IMAGE_NOTE}，未按交付处理`, localizeError });
+    }
     payload.obj.image = saved.url;
-    // 没落成要如实告诉调用方——外站临时链接会过期，装作成功等于埋雷
-    if (!saved.local) payload.obj.localizeError = saved.reason;
     // 相对路径补全为绝对 URL（按实际访问 Host，本地/公网都可用）——修复"每次手动拼 127.0.0.1:8787"的坑
     if (typeof payload.obj.image === "string" && payload.obj.image.startsWith("/")) {
       const host = req?.headers?.host || "127.0.0.1:8787";

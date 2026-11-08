@@ -1,6 +1,6 @@
 // ══ 会话解析纯函数（2026-08-19 拆模块：从 server.mjs 抽出）══
 // extractMessages / extractText / extractImages / extractFiles —— 无 server 内部依赖，可单测可复用。
-import { extractPlayableMedia, localPlayableVideoUrl } from "../media/embed.mjs";
+import { extractPlayableMedia, localPlayableVideoUrl, localImageUrl } from "../media/embed.mjs";
 import { lengthStopNote } from "../context-headroom.mjs";
 
 // 从消息 content 提取文本（type: text 的块）
@@ -102,12 +102,38 @@ export function mediaFromToolResult(content) {
 }
 
 
+// 2026-11-08：图片也过"本地存档才算交付"的判据。历史里存过的远端厂商图（platform-outputs…）
+// 当年没落盘，现在多半已经失效；继续渲染只会让用户以为"图还在，只是这台机器打不开"。
+// 所以历史抽取只产出本地/同源图片，远端图整条丢掉，返回 dropped 计数由调用方写一行说明。
+// 注意：data: 图仍是本地字节，照旧显示。
 export function imageSrc(img) {
   if (!img) return "";
-  if (typeof img === "string") return img;
-  if (img.url) return img.url;
+  const raw = typeof img === "string" ? img : (img.url || "");
+  if (raw) {
+    const local = localImageUrl(raw);
+    if (local) return local;
+    return /^https?:\/\//i.test(raw) ? "" : raw;   // 远端厂商图不展示；data:/相对路径原样
+  }
   if (img.data && img.mimeType) return String(img.data).startsWith("data:") ? img.data : `data:${img.mimeType};base64,${img.data}`;
   return "";
+}
+
+// 历史里未落盘的图片只留一行文字说明（不暴露厂商地址，也不假装它还能打开）。
+export function unlocalizedImagesNote(count) {
+  const n = Number(count) || 0;
+  return n > 0 ? `（历史里有 ${n} 张图当年未落盘，已不展示）` : "";
+}
+
+function imagesOf(content) {
+  const all = extractImages(content);
+  const urls = [];
+  let dropped = 0;
+  for (const img of all) {
+    const src = imageSrc(img);
+    if (src) { if (!urls.includes(src)) urls.push(src); }
+    else dropped += 1;
+  }
+  return { urls, dropped };
 }
 
 // ── 附件标记（2026-09-18）─────────────────────────────────────────────
@@ -253,16 +279,21 @@ export function extractMessages(entries, leafId, { resolveWindow = null } = {}) 
     if (!m) continue;
     if (m.role === "user") {
       // 显示文本剥掉附件标记（卡片负责呈现）；模型侧由 formatSessionHistory 把 files 还原成文字
-      const text = stripAttachmentMarks(extractText(m.content));
+      const baseText = stripAttachmentMarks(extractText(m.content));
       const files = extractFiles(m.content);
-      const images = extractImages(m.content).map(imageSrc).filter(Boolean);
+      const img = imagesOf(m.content);
+      const images = img.urls;
       const videos = extractVideos(m.content);
       const audios = extractAudios(m.content);
+      const note = unlocalizedImagesNote(img.dropped);
+      const text = note ? `${baseText}${baseText ? "\n\n" : ""}${note}` : baseText;
       if (text || files.length || images.length || videos.length || audios.length) out.push({ role: "user", text, files, images, videos, audios, ts: e.timestamp, id: e.id });
     } else if (m.role === "assistant") {
-      const text = extractText(m.content);
+      const baseText = extractText(m.content);
       const files = extractFiles(m.content);
-      const images = extractImages(m.content).map(imageSrc).filter(Boolean);
+      const img = imagesOf(m.content);
+      const images = img.urls;
+      let droppedImages = img.dropped;
       const videos = extractVideos(m.content);
       const audios = extractAudios(m.content);
       const tools = [];
@@ -276,7 +307,11 @@ export function extractMessages(entries, leafId, { resolveWindow = null } = {}) 
             const r = toolResults.get(b.id) || {};
             tools.push({ id: b.id, name: b.name, args: b.arguments || null, output: r.output || "", isError: !!r.isError });
             if (r.media && isMediaTool(b.name)) {
-              fromTools.images.push(...r.media.images);
+              // 图片同样只收本地存档：工具结果里的远端厂商图当年没落盘，回灌历史只会是裂图。
+              for (const u of r.media.images) {
+                const local = localImageUrl(u);
+                if (local) fromTools.images.push(local); else droppedImages += 1;
+              }
               // 工具结果里的视频也只收本地可播的：第三方工具可能返回远端签名链接，
               // 直接回灌历史同样会变出一个过期就黑屏的播放器。
               for (const u of r.media.videos) { const playable = localPlayableVideoUrl(u); if (playable) fromTools.videos.push(playable); }
@@ -296,12 +331,15 @@ export function extractMessages(entries, leafId, { resolveWindow = null } = {}) 
       const allImages = mergeMedia(images, fromTools.images);
       const allVideos = mergeMedia(videos, fromTools.videos);
       const allAudios = mergeMedia(audios, fromTools.audios);
+      // 历史里没落盘的图不再渲染，只留一行说明（不暴露厂商地址，也不假装它还能打开）。
+      const imageNote = unlocalizedImagesNote(droppedImages);
+      const text = imageNote ? `${baseText}${baseText ? "\n\n" : ""}${imageNote}` : baseText;
       // 失败也要看得见（2026-09-16）：pi 通道的失败会落成一条 content 空、stopReason=error 的记录。
       // 此前它不满足任何推送条件 → 被静默丢弃 → 用户只看到"它不说话/变傻了"。
       const stopReason = m.stopReason || null;
       const error = stopReason === "error"
         ? String(m.errorMessage || m.error || "本轮失败（未给出原因）")
-        : stopReason === "aborted" && !text ? "本轮已停止（没有产出内容）" : "";
+        : stopReason === "aborted" && !baseText ? "本轮已停止（没有产出内容）" : "";
       // 输出被上限截断（2026-09-18）：stopReason=length 以前什么都不显示，用户只看到"半句话，
       // 像是被打断"。现在如实写成人话（含用量），界面用琥珀色提示条呈现。
       const win = (() => { try { return (typeof resolveWindow === "function" ? resolveWindow(m.model, m.provider) : null) || {}; } catch { return {}; } })();

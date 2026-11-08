@@ -47,16 +47,89 @@ export function localPlayableVideoUrl(url) {
 // 远端视频落在聊天里只能是一行提示 + 链接——绝不能生成播放块（过期后就是永远转圈的黑框）。
 export const REMOTE_VIDEO_NOTE = "（远端视频未落盘，可能过期）";
 
-// 第三方工具 / 扩展直传的 details.media 统一闸门（2026-11-07）。
+// ── 图片：本地存档是**唯一**交付路径（2026-11-08）────────────────────────
+// 用户原话："聊天界面给我放的图的地址是模型平台的地址，不是我们约定的图存档本地。
+// 所以刚有一个 gpt 平台的图，在一个终端可以看到，别的终端都看不到了。"
+// 视频那条判据（远端就退回文字+链接）对图片还不够狠：厂商随时可能把地址关掉，
+// 关了就**永远没图可看**，连"点开原链接"都救不回来。所以：
+//   /api/ws/file?path=… / data:image / 生成物|工程|workshop-out|交付 相对路径 → 可交付
+//   其它 http(s)（platform-outputs… 等厂商临时地址）→ 不可交付；调用方必须先
+//   saveArtifact 下载进 生成物/图片/，落不下来就按失败处理（只留一行文字说明），
+//   **绝不**把厂商地址当图片块发出去（也不走同源代理：代理仍依赖厂商地址活着）。
+export function isLocalImageUrl(url) {
+  const s = String(url || "").trim().replace(/^["'`<]+|[>"'`]+$/g, "");
+  if (!s) return false;
+  if (/^data:image\//i.test(s)) return true;          // data: 图片本身就是本地字节
+  if (/^\.?\/api\/ws\/file(?:[?#]|$)/i.test(s)) return true;
+  if (LOCAL_MEDIA_REL.test(s)) return true;
+  return LOCAL_MEDIA_ORIGIN.test(s);
+}
+
+// 聊天里愿意显示的图片地址：本地/同源归一成窗口能直接加载的地址，远端一律返回 ""。
+//   已经是 /api/ws/file 或 data: → 原样返回（保留 exp/sig）
+//   生成物/工程/workshop-out/交付 相对路径、本机绝对路径 → /api/ws/file?path=…
+//   回环同源签名地址 → 原样返回
+//   其它同源相对路径（/assets/x.png、blob:…）→ 原样返回，它们不依赖厂商
+//   其余 http(s)（厂商临时地址）→ ""（调用方必须落盘后再发）
+export function localImageUrl(url) {
+  const s = String(url || "").trim().replace(/^["'`<]+|[>"'`]+$/g, "");
+  if (!s) return "";
+  if (/^data:image\//i.test(s)) return s;
+  if (/^\.?\/api\/ws\/file(?:[?#]|$)/i.test(s)) return s;
+  const rel = toWorkspaceRel(s);
+  if (rel) return workspaceFileUrl(rel);
+  if (/^https?:\/\//i.test(s)) return isLocalImageUrl(s) ? s : "";
+  return s;   // 同源相对路径：不是厂商地址，照原样
+}
+
+// 厂商/外站图片地址（需要先落盘）：是 http(s) 且不是本机同源。
+export function isRemoteImageUrl(url) {
+  const s = String(url || "").trim().replace(/^["'`<]+|[>"'`]+$/g, "");
+  return /^https?:\/\//i.test(s) && !isLocalImageUrl(s);
+}
+
+// "未落盘"这条状态只用于统计/排查（unlocalized:true），**不是**可显示状态：
+// 图片没进本地存档就不进聊天，用户看到的应该是"这张图没存下来"，而不是一个随时会裂的图。
+export const REMOTE_IMAGE_NOTE = "图片未落盘，原图在厂商侧可能随时失效";
+export function imageUnlocalizedNote(reason = "") {
+  const why = String(reason || "").trim();
+  return `有一张${why ? `图没能存到本地（${why}）` : "图没能存到本地"}，已不展示；${REMOTE_IMAGE_NOTE}。`;
+}
+
+// 第三方工具 / 扩展直传的 details.media 统一闸门（2026-11-07，2026-11-08 扩到图片）。
 // 这些 media 不经过 saveArtifact，远端签名链接以前被原样 push 进消息 → 聊天里多一个播不了的窗口。
-// 现在视频必须先过 isLocalPlayableUrl；不是本地就**不生成播放块**，改成一行文字 + 原链接。
-// 内置 generate_video 已经保证落盘（本地地址），走这里直接放行，不受影响。
-export function gateIncomingMedia(media) {
-  if (!media || typeof media !== "object" || !media.url) return { media: null, note: "" };
-  if (String(media.type || "").toLowerCase() !== "video") return { media, note: "" };
-  const playable = localPlayableVideoUrl(media.url);
-  if (playable) return { media: playable === media.url ? media : { ...media, url: playable }, note: "" };
-  return { media: null, note: `${REMOTE_VIDEO_NOTE}${String(media.url).trim()}` };
+//   · video：必须先过 isLocalPlayableUrl；不是本地就**不生成播放块**，改一行文字 + 原链接；
+//   · image：本地/data: 直接放行；远端 http(s) 先 saveArtifact 落盘，成功改本地地址，
+//     失败就**这一条不进聊天**（返回 media:null + 一行说明，unlocalized:true 供统计排查），
+//     绝不把厂商 URL 塞进图片块，也不走代理（代理同样依赖厂商地址活着）。
+// 内置 generate_image / generate_video 已经保证落盘（本地地址），走这里直接放行。
+// 注意：图片这条分支要下载，所以整个闸门是 async；不传 saveArtifact 时按"没有落盘实现"处理。
+export async function gateIncomingMedia(media, { saveArtifact = null } = {}) {
+  if (!media || typeof media !== "object" || !media.url) return { media: null, note: "", unlocalized: false };
+  const type = String(media.type || "").toLowerCase();
+  if (type === "video") {
+    const playable = localPlayableVideoUrl(media.url);
+    if (playable) return { media: playable === media.url ? media : { ...media, url: playable }, note: "", unlocalized: false };
+    return { media: null, note: `${REMOTE_VIDEO_NOTE}${String(media.url).trim()}`, unlocalized: false };
+  }
+  if (type !== "image") return { media, note: "", unlocalized: false };
+  const local = localImageUrl(media.url);
+  if (local) return { media: local === media.url ? media : { ...media, url: local }, note: "", unlocalized: false };
+  const remote = String(media.url).trim();
+  if (!isRemoteImageUrl(remote)) return { media: null, note: "", unlocalized: false };
+  if (typeof saveArtifact === "function") {
+    try {
+      const saved = await saveArtifact({ type: "image", url: remote, prompt: String(media.prompt || "") });
+      if (saved?.local && saved.url) return { media: { ...media, url: saved.url, localized: true }, note: "", unlocalized: false };
+      console.log(`[元枢] 图片未落盘，不交付: ${saved?.reason || "下载失败"}`);
+      return { media: null, note: imageUnlocalizedNote(saved?.reason || "下载失败"), unlocalized: true };
+    } catch (e) {
+      console.log(`[元枢] 图片未落盘，不交付: ${String(e?.message || e).slice(0, 120)}`);
+      return { media: null, note: imageUnlocalizedNote(String(e?.message || e).slice(0, 120)), unlocalized: true };
+    }
+  }
+  console.log("[元枢] 图片未落盘，不交付: 没有落盘实现");
+  return { media: null, note: imageUnlocalizedNote("没有落盘实现"), unlocalized: true };
 }
 
 // Only workspace links are normalized; external hosts and version queries matter.

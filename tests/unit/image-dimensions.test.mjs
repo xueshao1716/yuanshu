@@ -1,8 +1,17 @@
-import { test } from 'node:test';
+import { test, after } from 'node:test';
 import assert from 'node:assert/strict';
 import http from 'node:http';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
 import { initMediaApi, generateMediaAsync } from '../../engine/media/api.mjs';
+import { initWorkspaceApi } from '../../engine/workspace-api.mjs';
 import { readImageDimensions, verifyImageDimensions } from '../../engine/media/dimensions.mjs';
+
+// 出图现在必须落盘：给测试一个临时工作区，别把夹具图写进真实工作空间。
+const WS = fs.mkdtempSync(path.join(os.tmpdir(), 'yuanshu-image-dimensions-'));
+initWorkspaceApi({ wsRoot: WS });
+after(() => fs.rmSync(WS, { recursive: true, force: true }));
 
 function pngHeader(width, height) {
   const b = Buffer.alloc(24);

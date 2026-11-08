@@ -1,10 +1,21 @@
-import { test } from 'node:test';
+import { test, after } from 'node:test';
 import assert from 'node:assert/strict';
 import http from 'node:http';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
 import { initMediaApi, generateMediaAsync, assistantContentWithMedia, mediaReadyNotice } from '../../engine/media/api.mjs';
 import { imageCandidates, runImageCandidates } from '../../engine/media/routing.mjs';
 import { sdkSafeAssistantBlocks } from '../../engine/yuanshu-session.mjs';
 import { createMediaToolExecutor, MEDIA_TOOL_SCHEMAS } from '../../engine/media/channels.mjs';
+import { initWorkspaceApi } from '../../engine/workspace-api.mjs';
+
+// 出图现在必须落盘：给测试一个临时工作区，别把图写进真实工作空间。
+const WS = fs.mkdtempSync(path.join(os.tmpdir(), 'yuanshu-image-routing-'));
+initWorkspaceApi({ wsRoot: WS });
+after(() => fs.rmSync(WS, { recursive: true, force: true }));
+// 1x1 PNG：出图落盘会校验图片字节，夹具必须是真图。
+const PNG_1X1 = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==';
 
 const models = [
   { provider: 'agnes', id: 'agnes-image-2.5-flash', capabilities: { image: true } },
@@ -17,7 +28,7 @@ async function fixture(t, status = 200) {
     const body = JSON.parse(raw); calls.push(body.model);
     const code = body.model.startsWith('agnes') ? status : 200;
     res.writeHead(code, { 'Content-Type': 'application/json' });
-    res.end(JSON.stringify(code === 200 ? { data: [{ b64_json: 'aGVsbG8=' }] } : { error: 'fixture failure' }));
+    res.end(JSON.stringify(code === 200 ? { data: [{ b64_json: PNG_1X1 }] } : { error: 'fixture failure' }));
   });
   await new Promise(r => server.listen(0, '127.0.0.1', r));
   t.after(() => { server.closeAllConnections(); server.close(); });
@@ -30,6 +41,8 @@ test('explicit image model reaches the selected provider, never default Agnes', 
   const r = await generateMediaAsync({ type: 'image', provider: 'relay', modelId: 'gpt-image-1' }, 'a leaf');
   assert.deepEqual(calls, ['gpt-image-1']);
   assert.equal(r.model, 'relay/gpt-image-1');
+  assert.match(String(r.url), /^\/api\/ws\/file\?path=/, '出的图必须先落盘，块里只发本地地址');
+  assert.ok(!String(r.url).includes('data:'), '不能把 base64 直接塞进聊天');
 });
 test('OpenAI request selects configured GPT Image on a third-party provider', async t => {
   const calls = await fixture(t);

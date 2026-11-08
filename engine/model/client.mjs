@@ -213,11 +213,19 @@ export async function handleDirectChat(res, entry, message, sessionId, writer) {
   const mediaResults = await mediaPromise;
   for (const mr of mediaResults) {
     if (!mr?.url) continue;
-    // 产物本地化：外站临时链接必须落到本地；没落成要把原因带出去，不能装作已存
+    // 产物本地化：外站临时链接必须落到本地；没落成要把原因带出去，不能装作已存。
+    // 2026-11-08：图片更硬——本地存档是唯一交付路径，没落盘就不发图（厂商地址随时会失效）。
     const saved = await saveArtifact(mr);
+    if (!saved.local) {
+      mr.localizeError = saved.reason;
+      mr.unlocalized = true;
+      if (mr.type === "image") {
+        try { writer.push("note", { text: `有一张图没能存到本地（${saved.reason || "下载失败"}），已不展示；原图在厂商侧可能随时失效。` }); } catch {}
+        continue;
+      }
+    }
     mr.url = saved.url;
     mr.localized = saved.local;
-    if (!saved.local) mr.localizeError = saved.reason;
     writer.push("media", mr);
   }
   writer.push("done", { sessionId });

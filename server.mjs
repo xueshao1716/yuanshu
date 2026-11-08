@@ -101,12 +101,13 @@ function researchModelSearch() {
 }
 
 // ── 设计委托：出图并落盘（复用 /api/image 同一条通道，返回本地地址）──────────
+// 2026-11-08：本地存档是图片唯一交付路径。没落盘就报错，绝不把厂商地址当成品返回。
 async function generateImageSaved({ provider, modelId, prompt, size } = {}) {  let payload = null;
   const fakeRes = { writeHead() {}, end(d) { try { payload = JSON.parse(String(d)) } catch { payload = {} } } };
   await handleImage(fakeRes, { provider, modelId, prompt, size });
   if (!payload?.image) throw new Error(String(payload?.error || '接口没有返回图片').slice(0, 160));
   const saved = await saveArtifact({ type: 'image', url: payload.image, prompt });
-  if (!saved?.url) throw new Error(String(saved?.reason || '图片落盘失败').slice(0, 160));
+  if (!saved?.local || !saved.url) throw new Error(String(saved?.reason || '图片落盘失败；原图在厂商侧可能随时失效').slice(0, 160));
   return { url: saved.url };
 }
 import { CANVAS_TOOL_SCHEMA, canvasExtraExecutors, readCanvasDoc, writeCanvasDoc, normalizeCanvasDoc } from "./engine/canvas.mjs";
@@ -2765,6 +2766,19 @@ async function handleChat(req, res, body) {
           // 本地化契约：外站临时链接必须先落本地；没落成要标记出来，
           // 不能再 try/catch 一吞了事——那样界面分辨不出"已存"和"没存"。
           const saved = await saveArtifact(mr);
+          if (!saved.local && mr.type === "image") {
+            // 2026-11-08：图片本地存档是唯一交付路径。没落盘就不发图（也不发厂商地址）——
+            // 厂商随时可能把地址关掉，发了也只是"只有生成它的那台终端能看到"。
+            mr.localizeError = saved.reason;
+            mr.unlocalized = true;
+            console.log(`[元枢] 聊天图片未落盘，不交付: ${saved.reason || ""}`);
+            errors.push(`有一张图没能存到本地（${saved.reason || "下载失败"}），已不展示；原图在厂商侧可能随时失效`);
+            try {
+              const miss = `有一张图没能存到本地（${saved.reason || "下载失败"}），已不展示；原图在厂商侧可能随时失效。`;
+              writer.push("note", { text: miss }); busEmit("note", { text: miss });
+            } catch {}
+            continue;
+          }
           mr.url = saved.url;
           mr.localized = saved.local;
           if (!saved.local) {
@@ -2846,28 +2860,40 @@ async function handleChat(req, res, body) {
         busEmit("tool_end", { name: event.toolName, id: event.toolCallId, isError: !!event.isError, output: text });
         const media = event.result?.details?.media;
         if (media?.url) {
-          // 2026-11-07：第三方工具/扩展直传的 details.media 统一过闸门。
-          // 视频只有本地/同源产物才发播放块；远端临时链接改成一行说明 + 原链接，
-          // 不再让聊天里多出一个过期就永远转圈的黑框（内置 generate_video 已落盘，直接放行）。
-          const gated = gateIncomingMedia(media);
-          try {
-            if (gated.media) { writer.push("media", gated.media); busEmit("media", gated.media); }
-            else if (gated.note) { writer.push("note", { text: gated.note }); busEmit("note", { text: gated.note }); }
-          } catch {}
+          // 2026-11-07 / 2026-11-08：第三方工具/扩展直传的 details.media 统一过闸门。
+          // 视频：只有本地/同源产物才发播放块，远端临时链接改成一行说明 + 原链接；
+          // 图片：远端先 saveArtifact 落盘，落不下来这一条就不进聊天（图片没有远端退路）。
+          // 内置 generate_video / generate_image 已落盘，直接放行。
+          void (async () => {
+            try {
+              const gated = await gateIncomingMedia(media, { saveArtifact });
+              if (gated.media) { writer.push("media", gated.media); busEmit("media", gated.media); }
+              else if (gated.note) { writer.push("note", { text: gated.note }); busEmit("note", { text: gated.note }); }
+            } catch {}
+          })();
         } else if (text) {
           try {
             const scraped = extractPlayableMedia(text);
             // 2026-09-16：从工具输出里刮出来的媒体也要走**本地化契约**。
             // 以前是原样推给前端：真机验证时就看到一条 platform-outputs.agnes-ai.space 的外站链接
             // 直接进了对话——那种链接会过期，图和视频迟早变裂图。这里统一 saveArtifact 后再推。
+            // 2026-11-08：图片更硬——没落盘就**不推**（连厂商地址都不发），只留一行说明。
             const pushScraped = async (type, url) => {
-              let finalUrl = url;
+              let finalUrl = "";
               let localizeError = "";
               try {
                 const saved = await saveArtifact({ type, url });
-                if (saved?.url) finalUrl = saved.url;
-                if (saved && !saved.local) localizeError = saved.reason || "下载失败";
+                if (saved?.local && saved.url) finalUrl = saved.url;
+                else localizeError = saved?.reason || "下载失败";
               } catch (e) { localizeError = String(e?.message || e).slice(0, 120); }
+              if (!finalUrl) {
+                if (type === "image") {
+                  const miss = `有一张图没能存到本地（${localizeError}），已不展示；原图在厂商侧可能随时失效。`;
+                  try { writer.push("note", { text: miss }); busEmit("note", { text: miss }); } catch {}
+                  return;
+                }
+                finalUrl = url;   // 视频/音频保留旧行为：至少留个能点的地址
+              }
               const payload = { type, url: finalUrl, ...(localizeError ? { localizeError } : {}) };
               try { writer.push("media", payload); busEmit("media", payload); } catch {}
             };
