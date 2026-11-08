@@ -57,11 +57,17 @@ test('主有发型、辅也有发型：只取主，辅的发型定形描述不�
   assert.ok(merged.dropped.some((d) => d.reason === 'conflict' && d.text.includes('及肩')), '被丢掉的原因要留痕');
 });
 
-test('辅的细节（发梢光效 / 领口徽章）作为 supplement 追加，带来源', () => {
+test('辅的细节（神态/笑）作为 supplement 追加，带来源；染色与徽章按新口径丢弃留痕', () => {
   const merged = mergeAppearance({ main: MAIN, aux: AUX });
   const supp = texts(merged);
-  assert.ok(supp.includes('发梢泛星空蓝光'), '发梢光效应作为补充');
-  assert.ok(supp.includes('领口一枚发光圆形徽章'), '徽章应作为补充');
+  // 2026-11-08 口径：染色（发梢/挑染/渐变染）与徽章都算冲突，不再当「补充」，改在 dropped 留痕。
+  assert.equal(supp.includes('发梢泛星空蓝光'), false, '染色是冲突项，不再作为补充');
+  assert.equal(supp.includes('领口一枚发光圆形徽章'), false, '徽章是冲突项，不再作为补充');
+  assert.ok(merged.dropped.some((d) => d.reason === 'conflict' && d.text === '发梢泛星空蓝光'), '被丢的染色要留痕');
+  assert.ok(merged.dropped.some((d) => d.reason === 'conflict' && d.text === '领口一枚发光圆形徽章'), '被丢的徽章要留痕');
+  // 主里没写的神态/笑照旧作为补充（这才是「补充细节」该收的内容）
+  assert.ok(supp.includes('眼睛温暖明亮'), '神态应作为补充');
+  assert.ok(supp.includes('笑起来有一点弯'), '笑的神态应作为补充');
   assert.ok(merged.supplements.every((s) => s.source === '记忆/外观.md'));
   assert.ok(merged.supplements.every((s) => s.kind === 'detail' || s.kind === 'style'));
   assert.match(merged.text, /补充细节（来自 记忆\/外观\.md/);
@@ -81,12 +87,16 @@ test('两边都空：返回空 primary / 空 supplements / 空 text，且不报�
   }
 });
 
-test('出图母提示词：主在前、补充在后；辅的冲突发型不进提示词', () => {
+test('出图母提示词：主在前、补充在后；辅的冲突发型与画风词不进提示词', () => {
   const prompt = buildIdentityPrompt(MAIN, { aux: AUX });
   assert.match(prompt, /人物外貌：20 岁上下的中国女生/);
-  assert.match(prompt, /发梢泛星空蓝光/);
+  // 2026-11-08 口径：染发（发梢星空蓝）算冲突、画风词不再拼进 text，改用主没写的神态细节验证「补充在后」。
+  assert.match(prompt, /眼睛温暖明亮/);
+  assert.match(prompt, /补充细节（来自 记忆\/外观\.md/);
   assert.equal(prompt.includes('及肩'), false);
-  assert.ok(prompt.indexOf('齐耳短发') < prompt.indexOf('发梢泛星空蓝光'), '主应排在补充之前');
+  assert.equal(prompt.includes('发梢'), false, '染发是冲突项，不该进母提示词');
+  assert.equal(prompt.includes('赛博朋克'), false, '画风词不该进母提示词');
+  assert.ok(prompt.indexOf('齐耳短发') < prompt.indexOf('眼睛温暖明亮'), '主应排在补充之前');
   for (const must of ['不是动漫、卡通或CG', '不做色情化呈现', '禁止塑料磨皮']) {
     assert.ok(prompt.includes(must), `缺不可协商约束：${must}`);
   }
@@ -105,10 +115,13 @@ test('记忆/自我.md：主四项逐项落地，补充细节标「（补充）�
   const md = renderSelfMarkdown(buildSelfModel({ wsRoot: root }));
   assert.ok(md.includes(`- 人物外貌：${MAIN.appearance}`));
   assert.ok(md.includes(`- 发型与发色：${MAIN.hairstyle}`));
-  assert.ok(md.includes('- （补充）发梢泛星空蓝光'));
-  assert.ok(md.includes('- （补充）领口一枚发光圆形徽章'));
+  // 2026-11-08 口径：发梢染色与徽章算冲突，不再以「（补充）」落盘；改验证主没写的神态细节。
+  assert.ok(md.includes('- （补充）眼睛温暖明亮'));
+  assert.ok(md.includes('- （补充）笑起来有一点弯'));
+  assert.equal(md.includes('发梢泛星空蓝光'), false, '染色是冲突项，不该以补充写进自我文件');
+  assert.equal(md.includes('领口一枚发光圆形徽章'), false, '徽章是冲突项，不该以补充写进自我文件');
   assert.ok(md.includes('记忆/外观.md'));
-  assert.ok(md.indexOf('- 发型与发色：') < md.indexOf('- （补充）发梢泛星空蓝光'), '补充应在主项之后');
+  assert.ok(md.indexOf('- 发型与发色：') < md.indexOf('- （补充）眼睛温暖明亮'), '补充应在主项之后');
 });
 
 test('parseAuxLines：注释与标题不算外观', () => {

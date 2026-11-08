@@ -171,13 +171,15 @@ test('主正常但某项为空：辅仍可补该项（硬边界不误伤）', (t
   assert.ok(merged.primary.hairstyle.includes('发梢泛星空蓝光'));
   // 主有的项仍是主的；辅的细节补在后面
   assert.equal(merged.primary.appearance, MAIN.appearance);
-  assert.ok(merged.supplements.some((s) => s.text === '领口一枚发光圆形徽章'));
+  // 2026-11-08 口径：徽章算服装冲突，不再作为补充；改验证主没写的神态细节，冲突项在 dropped 留痕。
+  assert.ok(merged.supplements.some((s) => s.text === '眼睛温暖明亮'));
+  assert.ok(merged.dropped.some((d) => d.reason === 'conflict' && d.text === '领口一枚发光圆形徽章'));
 
   const model = buildSelfModel({ wsRoot: root });
   assert.equal(model.appearanceAuxDisabled, false);
   const md = renderSelfMarkdown(model);
-  assert.ok(md.includes('发梢泛星空蓝光'));
-  assert.ok(md.includes('- （补充）领口一枚发光圆形徽章'));
+  assert.ok(md.includes('发梢泛星空蓝光')); // 主缺发型 → 辅整项顶上，仍是正文
+  assert.ok(md.includes('- （补充）眼睛温暖明亮'));
 
   const identity = buildIdentityPrompt(pd.def, { wsRoot: root });
   assert.ok(identity.includes('发梢泛星空蓝光'));
@@ -196,5 +198,8 @@ test('显式传 aux 也绕不过：只要给了 wsRoot 且主不可用，aux 一
   const noRoot = mergeAppearanceWithPersona({ def: MAIN, aux: AUX });
   assert.equal(noRoot.auxDisabled, false);
   assert.equal(noRoot.auxDisabledReason, 'unchecked');
-  assert.ok(noRoot.supplements.some((s) => s.text === '发梢泛星空蓝光'));
+  // 2026-11-08 口径：染发算冲突，不再作为补充；用神态细节 + 画风补充证明 aux 仍被照用。
+  assert.ok(noRoot.supplements.some((s) => s.text === '眼睛温暖明亮'));
+  assert.ok(noRoot.supplements.some((s) => s.kind === 'style' && s.text.includes('赛博朋克')));
+  assert.match(noRoot.text, /补充细节（来自 记忆\/外观\.md/);
 });
