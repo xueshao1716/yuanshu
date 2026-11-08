@@ -27,6 +27,7 @@ import { createCodeMode } from "../code-mode/code-mode.mjs";
 import { directMediaMode } from "./media/mode.mjs";
 import { detectMediaIntents, extractMediaPrompt, generateMediaAsync, mediaAwarePrompt, explainMediaError, assistantContentWithMedia, isPureImageRequest } from "./media/api.mjs";
 import { explicitToolMedia, mediaDeliveryKey, gateIncomingMedia } from "./media/embed.mjs";
+import { localizeMarkdownImagesCached } from "./media/markdown-images.mjs";
 import { readOpenAIChatStream } from "./openai-stream.mjs";
 import { buildMessagesRequest, messagesEndpoint, messagesHeaders } from "./anthropic-messages.mjs";
 import { readMessagesStream } from "./anthropic-stream.mjs";
@@ -42,7 +43,7 @@ import { toolAvailabilityPrompt } from './tool-availability.mjs';
 // 2026-11-07：后台子代理跑完的回执（父会话下一轮能看到【系统】子代理 … 已完成）
 import { deliverSubagentReceipts } from './subagent-receipts.mjs';
 import { bindWorkmemSession, formatPlanPrompt } from "./yuanshu-workmem.mjs";
-import { persistYuanshuUser, persistYuanshuAssistant, persistYuanshuToolTrace, resumePersistenceState, abortedAssistantText } from "./yuanshu-session.mjs";
+import { persistYuanshuUser, persistYuanshuAssistant, persistYuanshuAssistantLocalized, localizeAssistantMarkdown, persistYuanshuToolTrace, resumePersistenceState, abortedAssistantText } from "./yuanshu-session.mjs";
 import { beginYuanshuEmotion, endYuanshuEmotion, lastTalkAt } from "./yuanshu-emotion.mjs";
 import { readActivityRhythm } from "./activity-rhythm.mjs";
 import { pendingPromiseText } from "./promises.mjs";
@@ -823,6 +824,16 @@ export async function handleUnifiedChat(res, entry, message, sessionId, params, 
     userPersisted = true;
   };
   try { persistUser(); } catch {}
+  // 新消息的正文 Markdown 外链图：落库/广播前先归档（下载→生成物/图片/…→改本地地址）。
+  // 这是与读路径同一个归档器；单条最多 3 张，失败/超限只留一行文字，绝不把厂商地址发出去。
+  const localizeAssistantText = async (value) => {
+    try {
+      return (await localizeAssistantMarkdown(value, { wsRoot: _cwd, saveArtifact })).text;
+    } catch {
+      // 极端兜底：归档器本身不该抛；万一抛了，也用只读缓存的同步版把远端地址挡住。
+      try { return typeof value === "string" ? localizeMarkdownImagesCached(value, { wsRoot: _cwd }) : value; } catch { return value; }
+    }
+  };
   const steeringTake = typeof runContext?.steering?.take === "function" ? () => runContext.steering.take() : null;
   const steeringNote = text => writer.push("note", { text: `收到插话，下一步按它调整：${String(text).slice(0, 120)}` });
   // 2026-10-28：默认不抢跑——让模型自己调工具；只有 出图.json {"direct":true} 才自动出图
@@ -969,12 +980,12 @@ export async function handleUnifiedChat(res, entry, message, sessionId, params, 
       clearTask(taskId, "error"); writer.push("error", { message: result?.error || "模型未返回内容" }); finishEmotion(); return;
     }
     if (result?.aborted || signal?.aborted) {
-      try { persistUser(); persistYuanshuAssistant(entry.sm, abortedAssistantText(result), [], metadataFor(result)); } catch {}
+      try { persistUser(); await persistYuanshuAssistantLocalized(entry.sm, abortedAssistantText(result), [], metadataFor(result), { wsRoot: _cwd, saveArtifact }); } catch {}
       collected = abortedAssistantText(result);
       clearTask(taskId, "aborted"); finishEmotion(); return;
     }
     if (result?.paused) { await finishPausedChat(result); return; }
-    const text = result.text;
+    const text = await localizeAssistantText(result.text);
     if (!text) { writer.push("error", { message: "模型未返回内容" }); finishEmotion(); return; }
     try { persistTrace(result.history || []); persistYuanshuAssistant(entry.sm, text, [], metadataFor(result)); } catch {}
     if (entry.agent) { try { entry.agent.dispose(); } catch {} entry.agent = null; }
@@ -990,9 +1001,10 @@ export async function handleUnifiedChat(res, entry, message, sessionId, params, 
     await deliverUnifiedMedia();
     persistUser();
     persistTrace(result.history || []);
-    const text = [result.text, result.message].filter(Boolean).join('\n\n');
+    const pausedText = await localizeAssistantText(result.text || "");
+    const text = [pausedText, result.message].filter(Boolean).join('\n\n');
     persistYuanshuAssistant(entry.sm, assistantContentWithMedia(text, mediaItems), [], metadataFor(result));
-    if (result.text && !result.streamed) writer.push('delta', { text: result.text });
+    if (pausedText && !result.streamed) writer.push('delta', { text: pausedText });
     collected = text;
     clearTask(taskId, 'interrupted');
     settleTurnMemory({ sessionId: sessionId || 'new', user: emotionInput.message, assistant: text, executionIdentity: runContext?.executionIdentity, model: result.usedModel }); // 暂停态也沉淀（内容已完成）
@@ -1074,11 +1086,14 @@ export async function handleUnifiedChat(res, entry, message, sessionId, params, 
     result = await unifiedChat(next, history, chatOpts);
     chatModel = next;
   }
-  const adoptReplacement = (replacement, selected, reason) => {
+  const adoptReplacement = async (replacement, selected, reason) => {
     result = { ...replacement, streamed: true, usedModel: replacement.usedModel || { provider: selected.provider, id: selected.id } };
     switchedModel = { ...result.usedModel, sameModel: result.usedModel.provider === chatModel.provider && result.usedModel.id === chatModel.id, reason };
+    // 替换给前端的文本也要先归档外链图：response_replace 会直接覆盖界面上那条消息。
+    const replacedText = await localizeAssistantText(result.text || "");
+    result = { ...result, text: replacedText };
     writer.push('model_switched', { ...switchedModel, requestedModel });
-    writer.push('response_replace', { text: result.text || '', think: result.think || '' });
+    writer.push('response_replace', { text: replacedText, think: result.think || '' });
   };
   // The resumed tool plan is consumed before the first model request. Do not
   // replay it again if output quality later triggers a fallback/pro model.
@@ -1086,7 +1101,11 @@ export async function handleUnifiedChat(res, entry, message, sessionId, params, 
   chatOpts.resumeSnapshot = null;
   chatOpts.resumeCheckpointKind = null;
   if (result?.aborted || signal?.aborted) {
-    try { persistUser(); persistYuanshuAssistant(entry.sm, assistantContentWithMedia(abortedAssistantText(result), mediaItems), [], metadataFor(result)); } catch {}
+    try {
+      persistUser();
+      const aborted = await localizeAssistantText(abortedAssistantText(result));
+      persistYuanshuAssistant(entry.sm, assistantContentWithMedia(aborted, mediaItems), [], metadataFor(result));
+    } catch {}
     collected = abortedAssistantText(result);
     clearTask(taskId, "aborted"); finishEmotion(); return;
   }
@@ -1098,12 +1117,16 @@ export async function handleUnifiedChat(res, entry, message, sessionId, params, 
       writer.push('model_switched', { ...switchedModel, requestedModel });
       const fb = await unifiedChat(fbModel, result.history || history, { ...chatOpts, onDelta: undefined, onThink: undefined, onThinkEnd: undefined });
       if (fb?.aborted || signal?.aborted) {
-        try { persistUser(); persistYuanshuAssistant(entry.sm, assistantContentWithMedia(abortedAssistantText(fb), mediaItems), [], metadataFor(fb)); } catch {}
+        try {
+          persistUser();
+          const aborted = await localizeAssistantText(abortedAssistantText(fb));
+          persistYuanshuAssistant(entry.sm, assistantContentWithMedia(aborted, mediaItems), [], metadataFor(fb));
+        } catch {}
         collected = abortedAssistantText(fb);
         clearTask(taskId, "aborted"); finishEmotion(); return;
       }
       if (fb?.paused) { await finishPausedChat(fb); return; }
-      if (fb?.text && !fb.error && !fb.empty) adoptReplacement(fb, fbModel, '主模型空回复，备用模型重新回答');
+      if (fb?.text && !fb.error && !fb.empty) await adoptReplacement(fb, fbModel, '主模型空回复，备用模型重新回答');
       else result = { ...result, history: fb?.history || result.history, usedModel: fb?.usedModel || result.usedModel,
         error: fb?.error || `${EMPTY_TURN_ERROR}（主模型 ${chatModel.provider}/${chatModel.id}；备用 ${fbModel.provider}/${fbModel.id} 亦未完成）` };
     } else {
@@ -1118,12 +1141,16 @@ export async function handleUnifiedChat(res, entry, message, sessionId, params, 
       writer.push("note", { text: `⚠️ ${TRUNCATED_TOOL_ERROR}，正在切换 ${fbModel.provider}/${fbModel.id} 接续已完成步骤…` });
       const fb = await unifiedChat(fbModel, result.history, { ...chatOpts, onDelta: undefined, onThink: undefined, onThinkEnd: undefined, resumeSnapshot: null, resumeCheckpointKind: null, resumeToolPlan: null });
       if (fb?.aborted || signal?.aborted) {
-        try { persistUser(); persistTrace(fb?.history || result.history); persistYuanshuAssistant(entry.sm, assistantContentWithMedia(abortedAssistantText(fb), mediaItems), [], metadataFor(fb)); } catch {}
+        try {
+          persistUser(); persistTrace(fb?.history || result.history);
+          const aborted = await localizeAssistantText(abortedAssistantText(fb));
+          persistYuanshuAssistant(entry.sm, assistantContentWithMedia(aborted, mediaItems), [], metadataFor(fb));
+        } catch {}
         collected = abortedAssistantText(fb);
         clearTask(taskId, "aborted"); finishEmotion(); return;
       }
       if (fb?.paused) { await finishPausedChat(fb); return; }
-      if (fb?.text && !fb.error) adoptReplacement(fb, fbModel, '输出截断，备用模型接续已完成步骤');
+      if (fb?.text && !fb.error) await adoptReplacement(fb, fbModel, '输出截断，备用模型接续已完成步骤');
       else if (fb?.history) result = { ...result, history: fb.history };
     }
   }
@@ -1132,9 +1159,10 @@ export async function handleUnifiedChat(res, entry, message, sessionId, params, 
     await deliverUnifiedMedia();
     if (mediaItems.length) {
       try { persistTrace(result?.history || []); } catch {}
-      if (result?.text && !result.streamed) writer.push("delta", { text: result.text });
+      const errorText = await localizeAssistantText(result?.text || "");
+      if (errorText && !result.streamed) writer.push("delta", { text: errorText });
       try {
-        persistYuanshuAssistant(entry.sm, assistantContentWithMedia(result?.text || "", mediaItems), [], metadataFor(result));
+        persistYuanshuAssistant(entry.sm, assistantContentWithMedia(errorText, mediaItems), [], metadataFor(result));
       } catch {}
       writer.push("done", { sessionId, model: result?.usedModel || null, requestedModel });
       collected = result?.text || "";
@@ -1144,7 +1172,7 @@ export async function handleUnifiedChat(res, entry, message, sessionId, params, 
     }
     try {
       persistTrace(result?.history || []);
-      if (result?.text) persistYuanshuAssistant(entry.sm, result.text, [], metadataFor(result));
+      if (result?.text) await persistYuanshuAssistantLocalized(entry.sm, result.text, [], metadataFor(result), { wsRoot: _cwd, saveArtifact });
     } catch {}
     clearTask(taskId, "error");
     writer.push("error", { message: result?.error || "模型未返回内容，请稍后重试" });
@@ -1157,7 +1185,8 @@ export async function handleUnifiedChat(res, entry, message, sessionId, params, 
     if (mediaItems.length || result.partial || result.truncated) {
       try {
         persistTrace(result.history || []);
-        persistYuanshuAssistant(entry.sm, assistantContentWithMedia(result.partial ? lastPartialAssistantText(result.history || []) : "", mediaItems), [], metadataFor(result));
+        const partialText = await localizeAssistantText(result.partial ? lastPartialAssistantText(result.history || []) : "");
+        persistYuanshuAssistant(entry.sm, assistantContentWithMedia(partialText, mediaItems), [], metadataFor(result));
       } catch {}
       writer.push("done", { sessionId, model: result.usedModel || null, requestedModel });
       clearTask(taskId, "done");
@@ -1180,7 +1209,7 @@ export async function handleUnifiedChat(res, entry, message, sessionId, params, 
         const proTxt = String(proResult.text).trim();
         if (!NEEDS_PRO_RE.test(proTxt)) {
           text = proTxt;
-          adoptReplacement(proResult, proModel, '模型自报任务超纲，升级模型回答');
+          await adoptReplacement(proResult, proModel, '模型自报任务超纲，升级模型回答');
           console.log(`[元枢] NEEDS_PRO 升级成功: ${proModel.provider}/${proModel.id}`);
         }
       }
@@ -1202,7 +1231,8 @@ export async function handleUnifiedChat(res, entry, message, sessionId, params, 
       if (fb?.text) {
         // 落盘时要带标记（2026-09-16）：只推事件不落盘的话，刷新/换设备就变回"静默换模型"了
         text = `（已切换 ${fbModel.provider}/${fbModel.id} 重新生成的回复）\n${fb.text}`;
-        adoptReplacement({ ...fb, text, history: result.history }, fbModel, `${anomaly.reason} → 自动切换重试`);
+        await adoptReplacement({ ...fb, text, history: result.history }, fbModel, `${anomaly.reason} → 自动切换重试`);
+        text = (await localizeAssistantText(text));
         recordReply(rkU, text);
         // 静默换模型是用户最直接的"乱做"体感（原话："静默换成 agnes 3.0"）：显式推事件，界面标出兜底模型
       } else {
@@ -1215,6 +1245,15 @@ export async function handleUnifiedChat(res, entry, message, sessionId, params, 
     }
   } else {
     recordReply(rkU, text);
+  }
+  // 最终落库/广播前统一归档正文里的外链图。流式回复可能已经把远端地址发出去过，
+  // 这里再推一条 response_replace 把界面上那条消息覆盖成本地地址（前端兜底先挡住裂图）。
+  const localizedFinal = await localizeAssistantText(text);
+  if (localizedFinal !== text) {
+    text = localizedFinal;
+    if (result.streamed) {
+      try { writer.push("response_replace", { text, think: result.think || "" }); } catch {}
+    }
   }
   try {
     await deliverUnifiedMedia();

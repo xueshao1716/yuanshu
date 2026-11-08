@@ -8,6 +8,7 @@ import { markModelBlocked, isAuthErrorStatus } from "./router.mjs";
 import { httpJsonFetch } from "../http.mjs";
 import { extractMessages } from "../session/utils.mjs";
 import { saveArtifact } from "../workspace-api.mjs";
+import { localizeMarkdownImagesDetailed } from "../media/markdown-images.mjs";
 import { buildMessagesRequest, decodeMessagesResponse, messagesEndpoint, messagesHeaders } from '../anthropic-messages.mjs';
 import { clampOutputTokens, OUTPUT_TOKEN_HARD_CAP } from '../output-budget.mjs';
 import { directChatStream } from '../direct-chat-stream.mjs';
@@ -200,7 +201,8 @@ export async function handleDirectChat(res, entry, message, sessionId, writer) {
     writer.push("error", { message: result?.timeout ? "模型响应超时（60s），请稍后重试" : "模型未返回内容，请稍后重试" });
     return;
   }
-  const text = result.text;
+  // 正文里的外链图先归档：落库/广播都只发本地地址（失败/超限只留一行文字）。
+  const text = (await localizeMarkdownImagesDetailed(result.text, { saveArtifact })).text;
   if (!text) { writer.push("error", { message: "模型未返回内容，请稍后重试" }); return; }
   try {
     entry.sm.appendMessage({ role: "user", content: [{ type: "text", text: message }] });

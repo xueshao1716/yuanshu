@@ -208,6 +208,7 @@ import { initColorPrefs, loadColorPrefs, saveColorPrefs } from "./engine/color-p
 import { initEnginePair, loadEnginePair, saveEnginePair, swapEnginePair, resolveLead, describePair, leadNote } from "./engine/engine-pair.mjs";
 import { decorateEngineStatus, pluginFromBody, isCorePlugin } from "./engine/engine-panel.mjs";
 import { initWorkspaceApi, WS_ROOT, findWorkspaceFiles, wsSafePath, saveArtifact, saveArtifactFromFile, handleWsTree, handleWsFile, handleWsRead, handleWsPreview, handleWsWrite, handleWsArtifacts, wsNextVersion, handleWsDeliver, handleWsPackage, handleWsDeliveries, handleWsRename, handleWsDelete, handleWsSearch, handleWsProjectCreate, handleWsConvert } from "./engine/workspace-api.mjs";
+import { configureMarkdownImages } from "./engine/media/markdown-images.mjs";
 
 // 2026-11-02：自改作用于代码仓库（引擎/前端源码在这），不是工作区。
 const SELF_CHANGE_ROOT = process.env.PI_CODE_ROOT || "D:\\pi-web";
@@ -619,6 +620,9 @@ function encodeCwdDir(cwd) {
 const SESSIONS_DIR = path.join(getAgentDir(), "sessions", encodeCwdDir(CONFIG.cwd));
 initSessionFiles({ sessionsDir: SESSIONS_DIR, workspaceCwd: CONFIG.cwd }); // 会话文件层外部依赖注入
 initWorkspaceApi({ wsRoot: path.resolve(CONFIG.cwd) }); // 工作空间根注入
+// 正文外链图归档缓存（记忆/运行时/外链图归档.json）也以工作区根定位：
+// 读历史时只查这份缓存，写消息时才下载并回写。
+configureMarkdownImages({ wsRoot: path.resolve(CONFIG.cwd) });
 initContextLoader({ cwd: CONFIG.cwd, DefaultResourceLoader }); // 上下文加载层注入
 console.log(`[元枢] 会话目录: ${SESSIONS_DIR}`);
 
@@ -3577,6 +3581,8 @@ async function handleMessages(res, id, req, url) {
   const leafId = resolveLeafId(entries, url?.searchParams?.get("leafId") || null);
   // 带上模型窗口：这样"被上限截断"的提示能说清"上下文占了多少 / 模型声明多少"（2026-09-18）
   const all = extractMessages(entries, leafId, {
+    // 正文外链图只查 记忆/运行时/外链图归档.json（不在这里下载）；写路径负责把新图归档。
+    wsRoot: CONFIG.cwd,
     resolveWindow: (id, provider) => {
       // 必须带上 provider：同一个 id 可能挂在多个通道下（glm-5.3-flash 在 zhipu-paid 是 200k 窗口、
       // 在 opencode-go 是 1000k），只按 id 找会说错占比（核对时踩过）。

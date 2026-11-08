@@ -6,6 +6,8 @@ import { extractStructuredOut, friendlyDshError, resolveDshEnv, resolveDshBin } 
 import { extractMessages } from "./session/utils.mjs";
 import { readEntriesFromFile } from "./session/files.mjs";
 import { createSseWriter } from "./sse.mjs";
+import { saveArtifact } from "./workspace-api.mjs";
+import { localizeMarkdownImagesDetailed } from "./media/markdown-images.mjs";
 
 const HIST_TAIL = 8;
 const BUBBLE = 800;
@@ -134,11 +136,13 @@ export async function handleDshChat(res, entry, message, sessionId, signal, opts
     writer.push("error", { message: result?.error || "dsh 未返回内容" });
     return result;
   }
-  const text = finishDshText(result.text);
-  if (!text) {
+  const rawText = finishDshText(result.text);
+  if (!rawText) {
     writer.push("error", { message: "dsh 未返回内容" });
     return { ...result, ok: false };
   }
+  // 正文外链图先归档：落库/广播都只发本地地址（失败/超限只留一行文字）。
+  const text = (await localizeMarkdownImagesDetailed(rawText, { wsRoot: opts.cwd || "", saveArtifact })).text;
   try {
     entry?.sm?.appendMessage({ role: "user", content: [{ type: "text", text: message }] });
     entry?.sm?.appendMessage({ role: "assistant", content: [{ type: "text", text }] });

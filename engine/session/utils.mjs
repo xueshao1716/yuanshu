@@ -1,6 +1,7 @@
 // ══ 会话解析纯函数（2026-08-19 拆模块：从 server.mjs 抽出）══
 // extractMessages / extractText / extractImages / extractFiles —— 无 server 内部依赖，可单测可复用。
 import { extractPlayableMedia, localPlayableVideoUrl, localImageUrl } from "../media/embed.mjs";
+import { IMAGE_UNAVAILABLE_NOTE, localizeMarkdownImagesCachedDetailed, markdownImagesRoot, readImageArchive } from "../media/markdown-images.mjs";
 import { lengthStopNote } from "../context-headroom.mjs";
 
 // 从消息 content 提取文本（type: text 的块）
@@ -251,10 +252,54 @@ export function windowMessages(messages, tail) {
   return { messages: list.slice(-n), truncated: true, total: list.length };
 }
 
+// ── 正文 Markdown 外链图：读历史时只查归档缓存（2026-11-08）──────────────
+// 旧会话里可能存着 `![图](https://厂商/…)`。extractMessages 不能下载（它是同步函数，
+// 而且一次翻 80 条历史会触发几十次网络请求），所以这里只做**缓存命中**：
+//   · 归档成功过 → 换成本地 /api/ws/file 地址；
+//   · 归档失败过（24h 内）或从没归档过 → 换成一行文字说明。
+// 关键：**任何情况下都不把远端 URL 留在正文里**——前端 ReactMarkdown 见到 http(s)
+// 会走 /api/proxy/image 直接显示，那就又回到"厂商一关就裂图"的老路上了。
+// 写路径（unified-chat / 直调 / dsh）会先下载并写缓存，所以新消息一开始就是本地地址。
+const REMOTE_MARKDOWN_IMAGE_FALLBACK = /!\[([^\]]*)\]\(\s*<?(https?:\/\/[^)\s>]+)>?(?:\s+["'][^"']*["'])?\s*\)/g;
+function stripRemoteMarkdownImages(text) {
+  return String(text || "").replace(REMOTE_MARKDOWN_IMAGE_FALLBACK, () => IMAGE_UNAVAILABLE_NOTE);
+}
+
+// 把 content 里的 text 块过一遍本地化；其它块（image/video/file/toolCall…）原样保留。
+function localizeContentText(content, localizeText) {
+  if (typeof content === "string") return localizeText(content);
+  if (!Array.isArray(content)) return content;
+  let changed = false;
+  const out = content.map((b) => {
+    if (!b || b.type !== "text" || typeof b.text !== "string" || b.text.indexOf("![") < 0) return b;
+    const next = localizeText(b.text);
+    if (next === b.text) return b;
+    changed = true;
+    return { ...b, text: next };
+  });
+  return changed ? out : content;
+}
+
 // 从会话 entries 中提取消息（供历史渲染；指定 leafId 时只返回该分支路径上的消息）
 // opts.resolveWindow(modelId) → { contextWindow, maxOutputTokens }：查模型窗口用，
 // 有了它，"被截断"提示才能说清"上下文占了多少 / 模型声明多少"（查不到就只说用量）。
-export function extractMessages(entries, leafId, { resolveWindow = null } = {}) {
+// opts.wsRoot / opts.now / opts.maxPerMessage：给 Markdown 外链图归档器用（测试可注入）。
+export function extractMessages(entries, leafId, { resolveWindow = null, wsRoot = "", now = null, maxPerMessage = 3 } = {}) {
+  // 归档表懒加载 + 只读一次：同一条会话里的几十条消息共用一个内存映射
+  // （命中缓存时是纯同步判断）。没有 Markdown 图片的会话连 stat 都不做。
+  const archiveRoot = markdownImagesRoot(wsRoot);
+  let archive = null;
+  const nowDate = now instanceof Date ? now : (now == null ? new Date() : new Date(now));
+  const localizeText = (text) => {
+    const source = String(text ?? "");
+    if (!source || source.indexOf("![") < 0) return source;
+    try {
+      if (!archive) archive = readImageArchive({ wsRoot: archiveRoot });
+      return localizeMarkdownImagesCachedDetailed(source, { wsRoot: archiveRoot, now: nowDate, maxPerMessage, map: archive }).text;
+    } catch {
+      return stripRemoteMarkdownImages(source);
+    }
+  };
   // 若指定 leafId：只返回该分支路径上的消息（沿 parentId 回溯）
   const byId = new Map(entries.filter(e => e.id).map(e => [e.id, e]));
   const pathIds = new Set();
@@ -268,7 +313,10 @@ export function extractMessages(entries, leafId, { resolveWindow = null } = {}) 
     if (e.type !== "message" || !e.message) continue;
     const m = e.message;
     if (m.role === "toolResult" && m.toolCallId) {
-      toolResults.set(m.toolCallId, { output: extractText(m.content), isError: !!m.isError, media: mediaFromToolResult(m.content) });
+      // 工具正文里的 `![图](https://…)` 同样先过缓存归档：本地命中就换成 /api/ws/file，
+      // 没命中就换成文字——工具输出也不能把厂商地址带进界面。
+      const localized = localizeContentText(m.content, localizeText);
+      toolResults.set(m.toolCallId, { output: extractText(localized), isError: !!m.isError, media: mediaFromToolResult(localized) });
     }
   }
   const out = [];
@@ -278,10 +326,12 @@ export function extractMessages(entries, leafId, { resolveWindow = null } = {}) 
     const m = e.message;
     if (!m) continue;
     if (m.role === "user") {
-      // 显示文本剥掉附件标记（卡片负责呈现）；模型侧由 formatSessionHistory 把 files 还原成文字
-      const baseText = stripAttachmentMarks(extractText(m.content));
+      // 显示文本剥掉附件标记（卡片负责呈现）；模型侧由 formatSessionHistory 把 files 还原成文字。
+      // 正文里的 Markdown 外链图先过缓存归档（不联网），避免用户贴的厂商图走前端代理。
+      const localizedContent = localizeContentText(m.content, localizeText);
+      const baseText = stripAttachmentMarks(extractText(localizedContent));
       const files = extractFiles(m.content);
-      const img = imagesOf(m.content);
+      const img = imagesOf(localizedContent);
       const images = img.urls;
       const videos = extractVideos(m.content);
       const audios = extractAudios(m.content);
@@ -289,9 +339,12 @@ export function extractMessages(entries, leafId, { resolveWindow = null } = {}) 
       const text = note ? `${baseText}${baseText ? "\n\n" : ""}${note}` : baseText;
       if (text || files.length || images.length || videos.length || audios.length) out.push({ role: "user", text, files, images, videos, audios, ts: e.timestamp, id: e.id });
     } else if (m.role === "assistant") {
-      const baseText = extractText(m.content);
+      // assistant 正文里的 Markdown 外链图：命中归档缓存→本地地址；没命中→文字说明。
+      // 必须在 imagesOf 之前换掉，否则 imagesOf 还会从原文里抠出远端地址再丢掉、多写一条说明。
+      const localizedContent = localizeContentText(m.content, localizeText);
+      const baseText = extractText(localizedContent);
       const files = extractFiles(m.content);
-      const img = imagesOf(m.content);
+      const img = imagesOf(localizedContent);
       const images = img.urls;
       let droppedImages = img.dropped;
       const videos = extractVideos(m.content);

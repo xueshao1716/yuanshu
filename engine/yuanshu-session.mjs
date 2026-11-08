@@ -2,6 +2,7 @@
 import { attachmentText, extractText } from "./session/utils.mjs";
 import { imageVerificationNotice } from "./media/dimensions.mjs";
 import { mediaDeliveryKey } from './media/embed.mjs';
+import { IMAGE_UNAVAILABLE_NOTE, localizeMarkdownImagesCached, localizeMarkdownImagesDetailed } from "./media/markdown-images.mjs";
 
 export function resumePersistenceState(entries = [], message, resume = false) {
   const state = { userPersisted: false, toolCallIds: new Set(), toolResultIds: new Set(), mediaKeys: new Set() };
@@ -140,10 +141,26 @@ export function sdkSafeUserBlocks(blocks = []) {
   return out;
 }
 
+// 同步兜底：任何直接调用 persistYuanshuAssistant 的路径，也不能把远端 Markdown 图写进会话。
+// 这里只查归档缓存（不下载）：命中本地→换地址；没命中→一行文字。
+// 会下载的写路径用 persistYuanshuAssistantLocalized（先落盘再落库）。
+function localizeBlocksForPersistence(blocks) {
+  const out = [];
+  for (const b of Array.isArray(blocks) ? blocks : []) {
+    if (b?.type === "text" && typeof b.text === "string" && b.text.indexOf("![") >= 0) {
+      try {
+        const next = localizeMarkdownImagesCached(b.text);
+        out.push(next === b.text ? b : { ...b, text: next });
+      } catch { out.push(b); }
+    } else out.push(b);
+  }
+  return out;
+}
+
 export function persistYuanshuAssistant(sm, text, mediaItems = [], metadata = {}) {
   if (!sm?.appendMessage) return;
   const body = typeof text === "string" ? [{ type: "text", text }] : text;
-  const content = sdkSafeAssistantBlocks(Array.isArray(body) ? body : [{ type: "text", text: String(text || "") }]);
+  const content = localizeBlocksForPersistence(sdkSafeAssistantBlocks(Array.isArray(body) ? body : [{ type: "text", text: String(text || "") }]));
   // 2026-10-24：usage 一并落盘——统计/成本面板此前看不到自己循环的花费
   const { model, requestedModel, switchedModel, engine, usage } = metadata;
   sm.appendMessage({ role: "assistant", content,
@@ -151,6 +168,46 @@ export function persistYuanshuAssistant(sm, text, mediaItems = [], metadata = {}
     ...(requestedModel ? { requestedModel } : {}), ...(switchedModel ? { switchedModel } : {}), ...(engine ? { engine } : {}),
     ...(usage ? { usage } : {}) });
   void mediaItems;
+}
+
+// 落库/广播前的正文外链图归档（2026-11-08）。
+// 与 extractMessages 读路径用同一个归档器：下载成功→本地地址；失败/超限→一行文字；
+// 单条消息最多 3 张；任何异常都降级，绝不把远端 URL 留进新消息。
+// 返回 { blocks, text, changed, localized, failed, skipped }：
+//   blocks 已过 sdkSafeAssistantBlocks（附件块→markdown），可直接交给 persistYuanshuAssistant；
+//   text 只是正文拼接，供需要广播纯文本的调用方使用。
+export async function localizeAssistantMarkdown(text, { wsRoot = "", saveArtifact = null, now = null, maxPerMessage = 3 } = {}) {
+  const list = Array.isArray(text) ? text : [{ type: "text", text: String(text ?? "") }];
+  const blocks = sdkSafeAssistantBlocks(list);
+  const out = [];
+  const stats = { changed: false, found: 0, localized: 0, failed: 0, skipped: 0, attempted: 0 };
+  for (const b of blocks) {
+    if (b?.type === "text" && typeof b.text === "string" && b.text.indexOf("![") >= 0) {
+      try {
+        const r = await localizeMarkdownImagesDetailed(b.text, { wsRoot, saveArtifact, now, maxPerMessage });
+        if (r.text !== b.text) stats.changed = true;
+        stats.found += r.found || 0;
+        stats.localized += r.localized || 0;
+        stats.failed += r.failed || 0;
+        stats.skipped += r.skipped || 0;
+        stats.attempted += r.attempted || 0;
+        out.push(r.text === b.text ? b : { ...b, text: r.text });
+      } catch {
+        // 归档器本身不该抛；真抛了也不能把远端 URL 留在正文里。
+        out.push({ ...b, text: String(b.text).replace(/!\[[^\]]*\]\(\s*<?https?:\/\/[^)\s>]+>?[^)]*\)/g, IMAGE_UNAVAILABLE_NOTE) });
+        stats.changed = true;
+      }
+    } else {
+      out.push(b);
+    }
+  }
+  return { blocks: out, text: extractText(out), ...stats };
+}
+
+/** 本地化后再落盘；写路径统一走这个，避免新消息一开始带厂商地址。 */
+export async function persistYuanshuAssistantLocalized(sm, text, mediaItems = [], metadata = {}, opts = {}) {
+  const localized = await localizeAssistantMarkdown(text, opts);
+  return persistYuanshuAssistant(sm, localized.blocks, mediaItems, metadata);
 }
 
 // Persist the model/tool exchange that happened after the current user turn.

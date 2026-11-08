@@ -4,7 +4,7 @@ import { memo, useEffect, useRef, useState } from 'react'
 import { Maximize2, X } from 'lucide-react'
 import { highlightCode, highlightAuto } from '../../lib/highlight'
 import GenUIBlock from '../GenUI'
-import { imageProxyUrl, withFileToken } from '../../api'
+import { withFileToken } from '../../api'
 import SafeBlock from './SafeBlock'
 import FileLink from './FileLink'
 import { Check, Copy } from 'lucide-react'
@@ -182,8 +182,21 @@ function Markdown({ text }: { text: string }) {
           a({ children, href }) { return <FileLink href={href}>{children}</FileLink> },
           img({ src, alt }) {
             if (!src) return null
-            // 外链图走同源代理（防盗链/混合内容）；服务端媒体走既有 token 通道
-            const finalSrc = /^https?:\/\//i.test(src) ? imageProxyUrl(src) : (/^\/api\//i.test(src) ? withFileToken(src) : src)
+            // 远端外链图不再交给 /api/proxy/image：代理仍然依赖厂商地址活着，厂商一关就裂图。
+            // 正文外链图应由后端归档器换成 /api/ws/file；这里兜底只给一行文字链接，
+            // 本地/同源地址（/api/ws/file、data:、相对路径）照旧显示。
+            const isRemote = /^(?:https?:)?\/\//i.test(src) && !/\/api\/ws\/file(?:[?#]|$)/i.test(src)
+            if (isRemote) {
+              return (
+                <span className="inline-flex flex-wrap items-baseline gap-1 my-1 text-[13px] text-pi-dim">
+                  （外链图未归档）
+                  <a href={src} target="_blank" rel="noopener noreferrer" className="text-pi-accent hover:underline break-all">
+                    原链接
+                  </a>
+                </span>
+              )
+            }
+            const finalSrc = /^\/api\//i.test(src) ? withFileToken(src) : src
             return <img src={finalSrc} alt={alt || ''} loading="lazy" className="max-w-full rounded-pi-lg border border-pi-border-soft my-1" />
           },
           table({ children }) { return <TableBlock>{children}</TableBlock> },
