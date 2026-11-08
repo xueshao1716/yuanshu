@@ -305,7 +305,7 @@ import { createTurnProfiler } from "./engine/turn-profile.mjs";
 import { createMemWatch } from "./engine/mem-watch.mjs";
 import { installTimerWatch } from './engine/timer-watch.mjs';
 import { PerformanceObserver } from "node:perf_hooks";
-import { buildSelfModel, renderSelfSection, renderSelfMarkdown } from "./engine/self-model.mjs";
+import { buildSelfModel, renderSelfSection, renderSelfMarkdown, writeSelfFile } from "./engine/self-model.mjs";
 import { shouldProbe, markProbed, splitBeforeAfter, abCompare, appendProbeLog, appendLesson } from "./engine/harness-probe.mjs";
 import { collectEvidence, buildProposePrompt, parseCandidates, writeCandidates, listCandidates, markCandidate, localDate } from "./engine/harness-propose.mjs";
 import { withModelFailover } from "./engine/model/failover.mjs";
@@ -4389,7 +4389,12 @@ const API_ROUTES = [
   ["GET", "/api/self", (res) => {
     try {
       const model = buildSelfModel({ wsRoot: WS_ROOT });
-      json(res, 200, { ...model, section: renderSelfSection(model), markdown: renderSelfMarkdown(model), file: '记忆/自我.md' });
+      // 2026-11-08：这里顺手把磁盘那份刷新。以前 记忆/自我.md 只在聊天拼 prompt 时才写，
+      // 改了 self-model 模板/重启后只要没聊天，文件就一直是旧的（真机：重启后仍是改动前的版本）。
+      // writeSelfFile 只差生成时间时不重写，所以 GET 的副作用是幂等的，不会反复改 mtime。
+      let written = { changed: false, path: '' };
+      try { written = writeSelfFile(WS_ROOT, model); } catch {}
+      json(res, 200, { ...model, section: renderSelfSection(model), markdown: renderSelfMarkdown(model), file: '记忆/自我.md', written });
     } catch (e) { json(res, 500, { error: String(e?.message || e).slice(0, 120) }); }
   }],
   ["GET", "/api/soul/graph", async (res) => {
@@ -7694,6 +7699,13 @@ setInterval(() => heartbeat(WS_ROOT, { pid: process.pid, version: String(APP_VER
     console.log(`  本地地址: http://${CONFIG.host}:${CONFIG.port}`);
     console.log("  访问令牌: 已配置（请在本机 .token 文件中查看）");
     console.log(`  工作目录: ${CONFIG.cwd}`);
+    // 2026-11-08：重启后立即按当前模板重算一次 记忆/自我.md。
+    // 以前这份文件只在聊天拼 prompt 时才写，所以"重启过了"并不等于文件被重算——
+    // 真机上模板改了、服务也重启了，文件还停在改动前。启动时补一次，幂等（只差生成时间不重写）。
+    try {
+      const selfFile = writeSelfFile(WS_ROOT, buildSelfModel({ wsRoot: WS_ROOT }));
+      if (selfFile?.changed) console.log(`  自我文件: 已重算 ${selfFile.path}`);
+    } catch (e) { console.log("  自我文件: 重算失败", String(e?.message || e).slice(0, 80)); }
     // 承诺账超期搁置：挂着超过 3 天（PROMISE_STALE_DAYS=3）、用户也没再提的 pending 转 expired，不再进提示词当待办。
     try {
       const ex = expireStalePromises(WS_ROOT, {});

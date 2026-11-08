@@ -57,6 +57,19 @@ test('落盘 记忆/自我.md：内容可读、重复写不重复变', (t) => {
   assert.match(renderSelfMarkdown(m), /这份描述怎么来的/);
 });
 
+// /api/self 与启动都会调 writeSelfFile；如果每次 updatedAt 变一下就重写，等于每看一眼页面就改一次文件。
+test('只差生成时间不重写自我文件；内容真变才写', (t) => {
+  const root = fixture(t);
+  const t0 = Date.now();
+  const first = buildSelfModel({ wsRoot: root, now: new Date(t0) });
+  assert.equal(writeSelfFile(root, first).changed, true);
+  const second = buildSelfModel({ wsRoot: root, now: new Date(t0 + 60_000) });
+  assert.notEqual(second.updatedAt, first.updatedAt);
+  assert.equal(writeSelfFile(root, second).changed, false, '只差 updatedAt 不该重写');
+  second.name = '小语（测试）';
+  assert.equal(writeSelfFile(root, second).changed, true, '内容变了必须写');
+});
+
 test('联系方式写进自我描述：有配置才出现，写清"什么时候才用"', (t) => {
   const root = fixture(t);
   // 没有配置 → 不出现这一段
@@ -119,4 +132,12 @@ test('原有段落不因有无外貌而缺失', (t) => {
     const md = renderSelfMarkdown(buildSelfModel({ wsRoot: root }));
     for (const h of heads) assert.ok(md.includes(h), `缺原有段落：${h}`);
   }
+});
+
+// 2026-11-08 真机 bug：self-model 加了「（补充）」合并，但 记忆/自我.md 只在聊天拼 prompt 时才写，
+// 服务重启后没聊天 → 文件一直停在改动前（补充行 0、星空蓝 false）。修法：/api/self 与启动都落地。
+test('记忆/自我.md 不只在聊天时写：/api/self 与启动都会刷新（回归）', () => {
+  const src = fs.readFileSync(new URL('../../server.mjs', import.meta.url), 'utf8');
+  assert.match(src, /\["GET", "\/api\/self",[\s\S]{0,900}writeSelfFile\(WS_ROOT, model\)/, '/api/self 要顺手把自我文件落盘');
+  assert.match(src, /writeSelfFile\(WS_ROOT, buildSelfModel\(\{ wsRoot: WS_ROOT \}\)\)/, '启动时要按当前模板重算自我文件');
 });

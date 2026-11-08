@@ -12,7 +12,7 @@
 // 让"画个你"每次都不同、但脸和画风一致。
 import fs from "node:fs";
 import path from "node:path";
-import { mergeAppearance, loadAuxAppearance, AUX_REL } from "./appearance-merge.mjs";
+import { mergeAppearanceWithPersona, AUX_REL } from "./appearance-merge.mjs";
 
 export const LOOK_REL = AUX_REL;
 export const PERSONA_REL = path.join("记忆", "人格定义.json");
@@ -96,32 +96,36 @@ const FRAMING = [
  * 2026-11-08：主（记忆/人格定义.json 形象四项）定形，辅（记忆/外观.md）只补细节。
  * 以前这里直接 `lookNotes()` 整份当提示词，画出来的人和人格定义里的不是同一个——
  * 现在同一个 mergeAppearance 判主辅，冲突以主为准（见 engine/appearance-merge.mjs）。
- * @param {{wsRoot:string, extra?:string, seed?:number}} p
+ *
+ * 2026-11-08 硬边界：主读取失败时禁用辅（判据 appearanceMainGate）。这时连 FALLBACK_LOOK
+ * 也不顶——那套"及肩深色短发 + 深色连帽衫"和 外观.md 是同一套外观，顶上就是绕过规则。
+ * 结果：提示词保留"成年/女性/姓名/场景/构图"，但没有任何具体外貌描述。
+ * 诊断通过 diagnostics.auxDisabled / auxDisabledReason 回传。
+ * @param {{wsRoot:string, extra?:string, seed?:number, diagnostics?:object}} p
  */
 // 2026-10-30：默认种子必须每调用一次都不同——同一毫秒里连调两次会生成同一句 prompt，
 // 平台按 prompt 缓存，就会反复吐同一张构图（真机用户原话：怎么又是这张）。
 let _seedSeq = 0;
 const nextSeed = () => Date.now() * 1000 + (++_seedSeq % 1000);
 
-export function buildSelfPortraitPrompt({ wsRoot = ".", extra = "", seed } = {}) {
+export function buildSelfPortraitPrompt({ wsRoot = ".", extra = "", seed, diagnostics } = {}) {
   if (seed == null) seed = nextSeed();
   const persona = readPersona(wsRoot);
   const facts = factsOf(persona);
   const rules = lookRules(wsRoot);
-  const merged = mergeAppearance({
-    main: {
-      appearance: persona.appearance,
-      hairstyle: persona.hairstyle,
-      clothing: persona.clothing,
-      scenarioOutfits: persona.scenarioOutfits,
-    },
-    aux: loadAuxAppearance(wsRoot).lines,
-  });
+  const merged = mergeAppearanceWithPersona({ wsRoot, def: persona });
+  if (diagnostics && typeof diagnostics === "object") {
+    Object.assign(diagnostics, {
+      auxDisabled: merged.auxDisabled,
+      auxDisabledReason: merged.auxDisabledReason,
+      personaSource: merged.personaSource,
+    });
+  }
 
   const ageLine = facts.age ? `年龄${facts.age}岁（成年）` : "成年";
   const genderLine = facts.gender === "female" ? "女性" : facts.gender === "male" ? "男性" : "";
-  // 主与辅都空才用代码里的兜底外观；只要有一边写了，就按合并结果来
-  const base = merged.text || FALLBACK_LOOK;
+  // 主与辅都空才用代码里的兜底外观；主读失败（aux 被禁用）时不用兜底，宁可没有外貌。
+  const base = merged.text || (merged.auxDisabled ? "" : FALLBACK_LOOK);
   const scene = SCENES[Math.abs(Number(seed) || 0) % SCENES.length];
   const frame = FRAMING[Math.floor(Math.abs(Number(seed) || 0) / SCENES.length) % FRAMING.length];
 

@@ -13,7 +13,7 @@ import path from 'node:path';
 import { loadPersonaDefinition } from './persona-def.mjs';
 import { loadSelfPolicy, spendToday as spendTodayOf } from './self-agency.mjs';
 import { summarizeProbeLog } from './harness-probe.mjs';
-import { mergeAppearance, loadAuxAppearance, AUX_SOURCE } from './appearance-merge.mjs';
+import { mergeAppearanceWithPersona, AUX_SOURCE } from './appearance-merge.mjs';
 
 export const SELF_FILE = '记忆/自我.md';
 export const CONTACT_FILE = '记忆/运行时/主人联系.json';
@@ -49,10 +49,13 @@ const DESIGN_FIELDS = [
   ['scenarioOutfits', '场景穿搭'],
 ];
 
-// 只认字符串；空白当没写（四项全空时整段不输出，不留空标题）
-function designText(v) {
-  return typeof v === 'string' ? v.trim() : '';
-}
+// 主读失败时写进文件的原因（给人和她自己看的诊断，不写辅的任何内容）
+const AUX_DISABLED_REASON_TEXT = {
+  'read-failed': '`记忆/人格定义.json` 读取失败，已回退默认定义',
+  missing: '缺 `记忆/人格定义.json`',
+  invalid: '`记忆/人格定义.json` 校验未通过',
+  'load-threw': '`记忆/人格定义.json` 读取异常',
+};
 
 function dirBirth(wsRoot) {
   try {
@@ -96,9 +99,9 @@ export function buildSelfModel({ wsRoot, now = new Date() } = {}) {
   const closed = ['media', 'external'].filter(s => !(policy?.scopes || []).includes(s)).map(s => SCOPE_TEXT[s]);
 
   // 2026-11-08：主（人格定义四项）定形，辅（记忆/外观.md）只补细节。
-  // 同一个 mergeAppearance 也用在出图母提示词与「画个你」，三处写法不会各说一套。
-  const designRaw = Object.fromEntries(DESIGN_FIELDS.map(([key]) => [key, designText(def[key])]));
-  const merged = mergeAppearance({ main: designRaw, aux: loadAuxAppearance(wsRoot).lines });
+  // 同一个 mergeAppearanceWithPersona 也用在出图母提示词与「画个你」，三处写法不会各说一套。
+  // 硬边界：主读取失败时 aux 被禁用（merged.auxDisabled），这里不做任何"辅顶上"的兜底。
+  const merged = mergeAppearanceWithPersona({ wsRoot, def });
 
   return {
     name: def.name || '小语',
@@ -124,6 +127,9 @@ export function buildSelfModel({ wsRoot, now = new Date() } = {}) {
     design: merged.primary,
     appearanceSources: merged.sources,
     appearanceSupplements: merged.supplements,
+    // 硬边界标记：主读取失败时 aux 被禁用，primary 里绝不会有外观.md 的内容。
+    appearanceAuxDisabled: merged.auxDisabled === true,
+    appearanceAuxDisabledReason: merged.auxDisabledReason || '',
     updatedAt: now.toISOString(),
   };
 }
@@ -186,22 +192,32 @@ export function renderSelfMarkdown(model) {
   const supplements = (Array.isArray(model.appearanceSupplements) ? model.appearanceSupplements : [])
     .map((item) => String(item?.text || '').trim())
     .filter(Boolean);
-  if (looks.length || supplements.length) {
+  // 硬边界：主读取失败时 aux 被禁用。没有外貌也要在文件里留一个可排查的标记，
+  // 但绝不能再把 外观.md 的任何内容写进来。
+  const auxOff = model.appearanceAuxDisabled === true;
+  const auxOffWhy = AUX_DISABLED_REASON_TEXT[model.appearanceAuxDisabledReason] || model.appearanceAuxDisabledReason || '主形象设定不可用';
+  if (looks.length || supplements.length || auxOff) {
     L.push('## 我的样子');
     L.push('');
-    if (mainLooks.length) {
-      L.push('这是经批准的人物设计；我关于"自己长什么样"的回答以这里为准，不要用记忆里零散的描述重新推断。');
-    } else {
-      L.push('主设定（`记忆/人格定义.json`）里还没写形象，以下内容来自补充外观，不要当成经批准的主设定。');
+    if (auxOff) {
+      L.push(`（诊断）补充外观已禁用：${auxOffWhy}；不采用 \`${AUX_SOURCE}\` 的内容。`);
+      L.push('');
     }
-    if (supplements.length) L.push(`「（补充）」行来自 \`${AUX_SOURCE}\`，只补主里没写的细节；与主冲突时以主为准。`);
-    L.push('');
-    for (const [key, label, text] of looks) {
-      const fromAux = (model.appearanceSources?.[key] || 'main') === 'aux';
-      L.push(`- ${label}${fromAux ? `（补自 ${AUX_SOURCE}）` : ''}：${text}`);
+    if (looks.length || supplements.length) {
+      if (mainLooks.length) {
+        L.push('这是经批准的人物设计；我关于"自己长什么样"的回答以这里为准，不要用记忆里零散的描述重新推断。');
+      } else {
+        L.push('主设定（`记忆/人格定义.json`）里还没写形象，以下内容来自补充外观，不要当成经批准的主设定。');
+      }
+      if (supplements.length) L.push(`「（补充）」行来自 \`${AUX_SOURCE}\`，只补主里没写的细节；与主冲突时以主为准。`);
+      L.push('');
+      for (const [key, label, text] of looks) {
+        const fromAux = (model.appearanceSources?.[key] || 'main') === 'aux';
+        L.push(`- ${label}${fromAux ? `（补自 ${AUX_SOURCE}）` : ''}：${text}`);
+      }
+      for (const text of supplements) L.push(`- （补充）${text}`);
+      L.push('');
     }
-    for (const text of supplements) L.push(`- （补充）${text}`);
-    L.push('');
   }
   L.push('## 我自己能决定什么');
   L.push('');
@@ -247,7 +263,9 @@ export function writeSelfFile(wsRoot, model) {
     const target = path.join(wsRoot, SELF_FILE);
     const next = renderSelfMarkdown(model);
     const prev = fs.existsSync(target) ? fs.readFileSync(target, 'utf8') : '';
-    if (prev === next) return { changed: false, path: target };
+    // updatedAt 每次生成都变；只差这一行时不重写，否则 /api/self、启动、每一轮都会白写一次。
+    const body = (md) => String(md || '').replace(/生成（[^）]+）/, '生成（…）');
+    if (prev === next || (prev && body(prev) === body(next))) return { changed: false, path: target };
     fs.mkdirSync(path.dirname(target), { recursive: true });
     fs.writeFileSync(target, next, 'utf8');
     return { changed: true, path: target };

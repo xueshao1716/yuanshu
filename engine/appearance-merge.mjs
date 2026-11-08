@@ -17,8 +17,13 @@
 //      外貌：主有外貌时，辅里的脸型/身材/肤质/年龄说法丢掉，眼睛神态/笑/气质照收。
 //   5. 纯函数：mergeAppearance 不读文件、不碰 IO；读文件只在 loadAuxAppearance 里，
 //      读不到就当没有辅（主照常生效，不报错）。
+//   6. 硬边界（2026-11-08）：**主读取失败时禁用辅**。人格定义读失败会回退 DEFAULT_DEFINITION
+//      （四项空），这时如果再让 外观.md 顶上 primary，"及肩连帽衫"就成了她的正式外观——
+//      那比没有外貌更糟。判据只看 loadPersonaDefinition 的 source / problems，
+//      三处调用（出图母提示词、画个你、自我.md）统一走 mergeAppearanceWithPersona，不许各写一份。
 import fs from "node:fs";
 import path from "node:path";
+import { loadPersonaDefinition } from "./persona-def.mjs";
 
 export const AUX_REL = path.join("记忆", "外观.md");
 export const AUX_SOURCE = "记忆/外观.md";
@@ -54,6 +59,64 @@ export function loadAuxAppearance(wsRoot, { fsMod = fs } = {}) {
   let raw = "";
   try { raw = fsMod.readFileSync(file, "utf8"); } catch { /* 辅设定缺失 → 只用主 */ }
   return { file, lines: parseAuxLines(raw), text: raw };
+}
+
+// ── 硬边界（2026-11-08）：主读取失败 → 禁用辅 ───────────────────────────────
+// 判据只认 loadPersonaDefinition 的返回值（engine/persona-def.mjs）：
+//   source === "file" 且 problems 为空            → 主可用，辅可以补细节；
+//   source !== "file"（文件缺失 / JSON 读坏回退）  → 主不可用，辅一律不参与；
+//   problems 非空（校验不过）                      → 主不可用，辅一律不参与。
+// 没有"主读失败但辅顶上 primary"这条兜底：宁可没有外貌，也不要一套假的。
+let _lastGateWarnKey = "";
+
+function warnAuxDisabled(gate) {
+  const key = `${gate.reason}|${gate.source}|${gate.detail || ""}`;
+  if (key === _lastGateWarnKey) return; // 每轮都拼自我描述，同一种故障只提示一次，别刷屏
+  _lastGateWarnKey = key;
+  try {
+    console.warn(
+      `[appearance] 主形象设定不可用（source=${gate.source || "?"}，reason=${gate.reason}），已禁用 ${AUX_SOURCE}：${gate.detail || "读不到主设定"}`
+    );
+  } catch { /* 日志失败不影响主流程 */ }
+}
+
+/**
+ * 主形象设定能不能用（唯一判据）。失败时区分原因，便于排查：
+ *   read-failed / missing / invalid / load-threw
+ * @returns {{ok:boolean, disabled:boolean, reason:string, source:string, problems:string[], detail:string}}
+ */
+export function appearanceMainGate(wsRoot, { loadPersona = loadPersonaDefinition } = {}) {
+  let pd;
+  try { pd = loadPersona(wsRoot) || {}; }
+  catch (e) {
+    return { ok: false, disabled: true, reason: "load-threw", source: "", problems: [], detail: String(e?.message || e).slice(0, 120) };
+  }
+  const source = String(pd.source || "");
+  const problems = Array.isArray(pd.problems) ? pd.problems.filter(Boolean).map(String) : [];
+  const detail = problems.join("；").slice(0, 160);
+  if (source !== "file") {
+    // 人格定义缺失与 JSON 读坏都会走到 source=default；问题文案里带"读取失败"的是后者。
+    const readFailed = problems.some((p) => p.includes("读取失败"));
+    return { ok: false, disabled: true, reason: readFailed ? "read-failed" : "missing", source: source || "default", problems, detail };
+  }
+  if (problems.length) return { ok: false, disabled: true, reason: "invalid", source, problems, detail };
+  return { ok: true, disabled: false, reason: "", source, problems, detail: "" };
+}
+
+/**
+ * 三处唯一入口：这次能交给 mergeAppearance 的辅内容。
+ * - 给了 wsRoot：先判主；主不可用 → aux=[]（宁可没有外貌）。调用方显式传的 aux 也一并作废，
+ *   否则"主失败禁用辅"只要传一次 aux 就能绕过去。
+ * - 没给 wsRoot：无从判断主，保留旧行为（调用方显式 aux 照用；不读盘），reason=unchecked。
+ * @returns {{aux:any, disabled:boolean, reason:string, source:string, problems:string[], detail:string}}
+ */
+export function appearanceAuxFor(wsRoot, { aux, loadPersona } = {}) {
+  if (!wsRoot) {
+    return { aux: aux != null ? aux : [], disabled: false, reason: "unchecked", source: "", problems: [], detail: "" };
+  }
+  const gate = appearanceMainGate(wsRoot, { loadPersona });
+  if (gate.disabled) { warnAuxDisabled(gate); return { ...gate, aux: [] }; }
+  return { ...gate, aux: aux != null ? aux : loadAuxAppearance(wsRoot).lines };
 }
 
 // ── 归类：一句话属于哪一项 / 是不是画风 ─────────────────────────────────────
@@ -211,4 +274,25 @@ export function mergeAppearance({ main, aux } = {}) {
   }
 
   return { primary, supplements, text: lines.join("；"), sources, dropped };
+}
+
+/**
+ * 带「主失败禁用辅」硬边界的合并入口——三处调用只用这一个函数。
+ * 返回在 mergeAppearance 的结果上多四个字段，便于调用方/界面看出为什么没外貌：
+ *   auxDisabled / auxDisabledReason / auxDisabledDetail / personaSource
+ * @param {{wsRoot?:string, def?:object, aux?:any, loadPersona?:Function}} input
+ */
+export function mergeAppearanceWithPersona({ wsRoot, def, aux, loadPersona } = {}) {
+  const gate = appearanceAuxFor(wsRoot, { aux, loadPersona });
+  const main = Object.fromEntries(
+    DESIGN_FIELDS.map(({ key }) => [key, typeof def?.[key] === "string" ? def[key] : ""])
+  );
+  const merged = mergeAppearance({ main, aux: gate.aux });
+  return {
+    ...merged,
+    auxDisabled: gate.disabled,
+    auxDisabledReason: gate.reason,
+    auxDisabledDetail: gate.detail || "",
+    personaSource: gate.source || "",
+  };
 }
