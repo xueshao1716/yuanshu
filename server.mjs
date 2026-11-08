@@ -146,11 +146,14 @@ import { createPolicyProvider, readPolicy, writePolicy, rollbackPolicy } from ".
 import { syncActionRights, readRights } from "./engine/action-rights.mjs";
 import { syncPluginReceipt } from "./engine/plugin-receipt.mjs";
 import { applyNudges, readAutoState, writeAutoState } from "./engine/brain-auto.mjs";
-import { makeProposal, recordProposal, listProposals, POLICY } from "./engine/self-change.mjs";
+import { makeProposal, recordProposal, listProposals, checkChange, POLICY } from "./engine/self-change.mjs";
 import { validateReal } from "./engine/self-change-validate.mjs";
 import { shouldPropose, makeShadowProposal } from "./engine/self-change-trigger.mjs";
 import { applyChange, rollbackChange, listBackups as listSelfChangeBackups } from "./engine/self-change-apply.mjs";
 import { startSession, finishSession, abortSession, wtPath } from "./engine/self-change-session.mjs";
+// 2026-11-08：自证 → 准入——她自己做的改动，必须先自证通过才允许进仓库（默认不 push）
+import { verifyChange, resolveChangeFiles } from "./engine/self-change-verify.mjs";
+import { admit as admitSelfChange, recordVerification, listLedger as listSelfChangeLedger } from "./engine/self-change-admit.mjs";
 import { detectDrift, recordDriftCheck, recentDrift } from "./engine/watchdog-drift.mjs";
 // 2026-11-07：偏离从「记账」到「介入」——同类问题 4 小时冷却，不自动杀任务
 import { shouldEscalate, composeDriftNotice, readLastNotified, recordNotified } from "./engine/drift-escalation.mjs";
@@ -4971,6 +4974,64 @@ const API_ROUTES = [
     if (!out.ok) return json(res, 400, out);
     recordProposal(SELF_CHANGE_ROOT, out.proposal);
     return json(res, 200, out);
+  }],
+  // ===== 2026-11-08：自证 → 准入（自进化缺的最后一环）=====
+  // 她改完 → verify 出五步证据并落账本 → admit 只认还对的上的那份证据 → 只 commit 这套文件（默认不 push）。
+  // 两个写接口都走现有 POLICY（自改边界）与 security.mjs（受保护路径 / 命令红线），不另开旁路。
+  ["POST", "/api/self-change/verify", async (res, req) => {
+    let b;
+    try { b = await readBody(req, 1); }
+    catch (e) { return json(res, Number(e?.statusCode) || 400, { ok: false, error: String(e?.message || e).slice(0, 200) }); }
+    let files = Array.isArray(b?.files) ? b.files : [];
+    let repoRoot = SELF_CHANGE_ROOT;
+    const changeId = String(b?.changeId || "").trim();
+    if (!files.length) {
+      if (!changeId) return json(res, 400, { ok: false, error: "缺 files 或 changeId" });
+      const resolved = await resolveChangeFiles({ repoRoot: SELF_CHANGE_ROOT, changeId });
+      if (!resolved.ok) return json(res, 404, { ok: false, error: resolved.error });
+      files = resolved.files;
+      repoRoot = resolved.repoRoot;
+    }
+    const bound = checkChange({ files });
+    if (!bound.ok) return json(res, 400, { ok: false, stage: "policy", errors: bound.errors });
+    const verdict = await verifyChange({ repoRoot, files: bound.files });
+    // 账本放运行时根（WS_ROOT/记忆/运行时），不写进代码仓，免得自证记录自己变成"夹带改动"
+    const recorded = recordVerification(WS_ROOT, verdict);
+    try {
+      appendEvoEvent(WS_ROOT, {
+        kind: "observation", target: "selfchange", targetId: String(verdict.filesetHash || "").slice(0, 16),
+        verdict: verdict.ok ? "self_verified" : "self_verify_failed", by: "self-change",
+        meta: { files: bound.files.length, reason: String(verdict.reason || "").slice(0, 120) },
+      });
+    } catch {}
+    return json(res, 200, { ok: true, repoRoot, verdict, recorded: recorded.ok === true });
+  }],
+  ["POST", "/api/self-change/admit", async (res, req) => {
+    let b;
+    try { b = await readBody(req, 1); }
+    catch (e) { return json(res, Number(e?.statusCode) || 400, { ok: false, error: String(e?.message || e).slice(0, 200) }); }
+    const files = Array.isArray(b?.files) ? b.files : [];
+    if (!files.length) return json(res, 400, { ok: false, error: "缺 files" });
+    const out = await admitSelfChange({
+      repoRoot: SELF_CHANGE_ROOT,
+      wsRoot: WS_ROOT,
+      files,
+      note: String(b?.note || ""),
+    });
+    try {
+      appendEvoEvent(WS_ROOT, {
+        kind: "observation", target: "selfchange", targetId: String(out.filesetHash || "").slice(0, 16),
+        verdict: out.ok ? "admitted" : `admit_${out.code || "failed"}`, by: "self-change",
+        meta: { commit: out.commit || "", files: Array.isArray(out.files) ? out.files.length : files.length, reason: String(out.reason || "").slice(0, 120) },
+      });
+    } catch {}
+    if (!out.ok) return json(res, 409, out);
+    return json(res, 200, out);
+  }],
+  ["GET", "/api/self-change/admissions", (res, req, url) => {
+    const n = Number(url.searchParams.get("limit") || 50);
+    const limit = Math.max(1, Math.min(200, Number.isFinite(n) ? Math.trunc(n) : 50));
+    return json(res, 200, { ok: true, items: listSelfChangeLedger(WS_ROOT, { limit }) });
   }],
   ["GET", "/api/brain/auto", (res) => json(res, 200, { ok: true, ...readAutoState(WS_ROOT) })],
   ["POST", "/api/brain/auto", async (res, req) => {
