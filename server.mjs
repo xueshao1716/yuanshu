@@ -154,6 +154,8 @@ import { startSession, finishSession, abortSession, wtPath } from "./engine/self
 // 2026-11-08：自证 → 准入——她自己做的改动，必须先自证通过才允许进仓库（默认不 push）
 import { verifyChange, resolveChangeFiles } from "./engine/self-change-verify.mjs";
 import { admit as admitSelfChange, recordVerification, listLedger as listSelfChangeLedger } from "./engine/self-change-admit.mjs";
+// 2026-11-08：旁路留痕——默认路径走闸，四条还绕得过去的路不堵，但每次绕过都落一行记录（可审计、不阻断）
+import { recordBypass, listBypasses, countBypasses } from "./engine/admission-bypass.mjs";
 import { detectDrift, recordDriftCheck, recentDrift } from "./engine/watchdog-drift.mjs";
 // 2026-11-07：偏离从「记账」到「介入」——同类问题 4 小时冷却，不自动杀任务
 import { shouldEscalate, composeDriftNotice, readLastNotified, recordNotified } from "./engine/drift-escalation.mjs";
@@ -4843,6 +4845,8 @@ const API_ROUTES = [
     const files = Array.isArray(b?.files) ? b.files : [];
     const id = String(b?.id || `promote${Date.now().toString(36)}`);
     if (!files.length) return json(res, 400, { ok: false, error: "没有文件" });
+    // 旁路留痕：promote 只备份不验证（绕过自证准入），写之前先记一行；不拦、不改返回值
+    try { recordBypass({ wsRoot: WS_ROOT, route: "selfchange.promote", files, note: `从 WS_ROOT 拷入主树，只备份不验证（未走自证准入）${b?.reason ? "：" + String(b.reason).slice(0, 150) : ""}`, extra: { id } }) } catch {}
     const backupDir = path.join(SELF_CHANGE_ROOT, "记忆", "运行时", "自改备份", id);
     fs.mkdirSync(backupDir, { recursive: true });
     const manifest = { id, at: new Date().toISOString(), files: [] };
@@ -4864,6 +4868,8 @@ const API_ROUTES = [
   }],
   // 2026-11-03：主树快照模式——记录基线 → 她干活 → 对比出改动 → 备份 → 可回滚
   ["POST", "/api/selfchange/snapshot/begin", async (res) => {
+    // 旁路留痕：快照模式让主树先被直接改、事后才对比/备份（绕过自证准入）。此处只有基线快照，files 未知
+    try { recordBypass({ wsRoot: WS_ROOT, route: "selfchange.snapshot", files: [], note: "快照模式：直接改主树，只做快照/备份（未走自证准入）；files 未知（finish 对比后才得出）", extra: { stage: "begin" } }) } catch {}
     const snap = beginFsSnapshot({ root: WS_ROOT });
     if (snap.ok) globalThis.__selfChangeBaseline = snap.files;
     return json(res, snap.ok ? 200 : 500, { ok: snap.ok, count: (snap.files || []).length, at: snap.at });
@@ -4942,6 +4948,8 @@ const API_ROUTES = [
   ["GET", "/api/selfchange/backups", (res) => json(res, 200, { ok: true, items: listSelfChangeBackups(SELF_CHANGE_ROOT) })],
   ["POST", "/api/selfchange/apply", async (res, req) => {
     const b = await readBody(req);
+    // 旁路留痕：apply 直接写主树（绕过自证准入），在 applyChange 之前先记一行；不拦、不改返回值
+    try { recordBypass({ wsRoot: WS_ROOT, route: "selfchange.apply", files: (Array.isArray(b?.edits) ? b.edits : []).map((e) => e?.path).filter(Boolean), note: `直接 applyChange 写主树（未走自证准入）${b?.reason ? "：" + String(b.reason).slice(0, 150) : ""}`, extra: { id: String(b?.id || "") } }) } catch {}
     const out = applyChange({ wsRoot: SELF_CHANGE_ROOT, id: String(b?.id || ""), edits: Array.isArray(b?.edits) ? b.edits : [] });
     if (!out.ok) return json(res, 400, out);
     try { appendEvoEvent(WS_ROOT, { kind: "observation", target: "selfchange", targetId: out.id, verdict: "applied", by: "self-change", meta: { files: out.manifest.files.length } }) } catch {}
@@ -5032,6 +5040,12 @@ const API_ROUTES = [
     const n = Number(url.searchParams.get("limit") || 50);
     const limit = Math.max(1, Math.min(200, Number.isFinite(n) ? Math.trunc(n) : 50));
     return json(res, 200, { ok: true, items: listSelfChangeLedger(WS_ROOT, { limit }) });
+  }],
+  // 2026-11-08：旁路留痕查询——"哪次绕过了自证准入"（只读；没走闸的路由各留一行）
+  ["GET", "/api/self-change/bypasses", (res, req, url) => {
+    const n = Number(url.searchParams.get("limit") || 50);
+    const limit = Math.max(1, Math.min(200, Number.isFinite(n) ? Math.trunc(n) : 50));
+    return json(res, 200, { ok: true, items: listBypasses(WS_ROOT, { limit }), total: countBypasses(WS_ROOT) });
   }],
   ["GET", "/api/brain/auto", (res) => json(res, 200, { ok: true, ...readAutoState(WS_ROOT) })],
   ["POST", "/api/brain/auto", async (res, req) => {
@@ -5690,6 +5704,10 @@ const API_ROUTES = [
       const sha = reviewSha(PATCH_REPO.root, branch);
       const gate = consumeToken({ wsRoot: WS_ROOT, token: b?.token, action: 'merge_patch', payload: { branch, sha } });
       if (!gate.ok) return json(res, 409, { ok: false, error: gate.error, reason: gate.reason, need: 'approve' });
+      // 旁路留痕：merge 只校验一次性 token，不读自证记录（绕过自证准入）；合之前先记一行，文件尽量从分支 diff 里取
+      let bypassFiles = [];
+      try { bypassFiles = (listPatchBranches(PATCH_REPO.root).items || []).find((x) => x.branch === branch)?.files || [] } catch {}
+      try { recordBypass({ wsRoot: WS_ROOT, route: "autopatch.merge", files: bypassFiles, note: `凭一次性 token 合入 auto 分支，只校验 token（未走自证准入）${bypassFiles.length ? "" : "；files 未知"}`, extra: { branch, sha } }) } catch {}
       const out = mergeBranch(PATCH_REPO.root, branch, { message: b?.message });
       return json(res, out.ok ? 200 : 409, out);
     } catch (e) { return json(res, 500, { ok: false, error: String(e?.message || e).slice(0, 160) }); }
