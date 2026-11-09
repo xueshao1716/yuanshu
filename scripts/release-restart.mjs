@@ -11,13 +11,17 @@
 //   node scripts/release-restart.mjs                 # 真执行
 //   node scripts/release-restart.mjs --keep-stray    # 端口被残留占着时只报告、不强杀
 //   node scripts/release-restart.mjs --skip-gate     # 仅排障：服务已停时门禁必然"未知"
+//   node scripts/release-restart.mjs --skip-import-preflight  # 仅排障：跳过符号级导入预检
+//   node scripts/release-restart.mjs --root <dir>    # 预检对象目录（默认装机目录）
 import fs from "node:fs";
 import { execFileSync } from "node:child_process";
+import { preflightImports } from "./lib/import-preflight.mjs";
 
 const args = process.argv.slice(2);
 const PLAN = args.includes("--plan");
 const KEEP_STRAY = args.includes("--keep-stray");
 const SKIP_GATE = args.includes("--skip-gate");
+const SKIP_IMPORT_PREFLIGHT = args.includes("--skip-import-preflight");
 const argOf = (name, dflt = "") => {
   const i = args.indexOf(`--${name}`);
   return i >= 0 && args[i + 1] ? args[i + 1] : dflt;
@@ -27,6 +31,7 @@ const PORT = Number(argOf("port", "8787"));
 const SERVICE = argOf("service", "YuanShuService");
 const INSTALL_DIR = argOf("dir", "C:\\Users\\xuexiaofeng\\AppData\\Local\\Programs\\Yuanshu\\app");
 const REPO = argOf("repo", "D:\\pi-web");
+const PREFLIGHT_ROOT = argOf("root", INSTALL_DIR);
 
 const sh = (cmd, cmdArgs, opts = {}) => {
   try {
@@ -125,8 +130,33 @@ if (!SKIP_GATE) {
 if (PLAN) {
   const owners = portOwners(PORT);
   log(`当前 ${PORT} 占用者: ${owners.length ? owners.map((p) => `${p}(${processInfo(p).name})`).join(", ") : "无"}`);
-  log("计划：停服务 → 等端口释放（最多 25s）→ 残留实例（只认元枢的 server.mjs）停掉 → 起服务 → 等 health 90s → 盖章");
+  log("计划：符号级导入预检 → 停服务 → 等端口释放（最多 25s）→ 残留实例（只认元枢的 server.mjs）停掉 → 起服务 → 等 health 90s → 盖章");
   process.exit(0);
+}
+
+// ── 1.5 符号级导入预检（2026-11-10：忘拷模块 ERR_MODULE_NOT_FOUND / 缺导出 failureAttribution 两起事故）──
+// 放在门禁之后、停服务之前：预检不过就原地退出，老服务继续跑。
+if (SKIP_IMPORT_PREFLIGHT) {
+  log("⚠️ --skip-import-preflight：跳过符号级导入预检，缺文件/缺导出会推迟到服务启动时暴露");
+} else {
+  log(`符号级导入预检（root=${PREFLIGHT_ROOT}，entry=server.mjs）`);
+  const pf = await preflightImports({
+    root: PREFLIGHT_ROOT,
+    entry: "server.mjs",
+    timeoutMs: Number(argOf("preflight-timeout", "60000")),
+  });
+  if (!pf.ok) {
+    for (const issue of pf.issues.slice(0, 20)) {
+      const symbols = issue.symbols?.length ? `  符号: ${issue.symbols.join(", ")}` : "";
+      console.log(`  · [${issue.kind}] ${issue.from || "(entry)"} -> ${issue.target}${symbols}`);
+      if (issue.hint) console.log(`    ${issue.hint}`);
+    }
+    if (pf.issues.length > 20) console.log(`  … 另有 ${pf.issues.length - 20} 条未显示`);
+    log(`⛔ 符号级导入预检不通过（${pf.issues.length} 项${pf.timedOut ? "，含超时" : ""}），拒绝重启；服务保持不动`);
+    log("   确需带病重启：加 --skip-import-preflight（不推荐）");
+    process.exit(6);
+  }
+  log(`预检通过（检查 ${pf.checked} 个文件，无法具名断言 ${pf.unknowns.length} 条）`);
 }
 
 // 2026-10-28：先把微信手上正在跑的消息等完，别把回合杀掉
