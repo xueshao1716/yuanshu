@@ -5,8 +5,17 @@
 //
 // 记录什么：谁、在哪块、试了什么、为什么不行、碰过哪些文件、证据在哪。
 // 怎么用：开工前用 failure_recall 查一下「这块/这些文件之前失败过吗」。
+//
+// 2026-11-09（失败归因，出处 xinyu-hermes replay_writer.py:31-38）：
+// 每条新失败入库时自动打四类标签（failure-attribution.mjs）；只有 skill_noncompliant /
+// skill_knowledge_gap 是可改进信号，才会进「改进队列」并落一条教训候选。
+// 其余两类（任务不可能 / 工具不够）只留档，不进改进队列——避免"改了也白改"的噪声。
 import fs from "node:fs";
 import path from "node:path";
+import {
+  classifyFailure, dedupeFailures, enqueueImprovement, attributionReport, listImprovementQueue,
+  DEDUPE_THRESHOLD,
+} from "./failure-attribution.mjs";
 
 export const LEDGER_REL = path.join("记忆", "运行时", "失败台账.json");
 export const MAX_ENTRIES = 300;
@@ -44,10 +53,17 @@ const words = (s) => {
 
 /**
  * 记一条失败。
+ * 入库即归因（四类之一 + isSignal）；isSignal 的自动进「改进队列」。
  * @param {{wsRoot:string, agent?:string, area?:string, attempt:string, why:string,
- *          files?:string[], source?:string, evidence?:string, at?:number}} p
+ *          files?:string[], source?:string, evidence?:string, at?:number,
+ *          ctx?:{skills?:Array, knowledge?:Array, retrySucceeded?:boolean, retry?:object,
+ *                environmental?:boolean, envFailures?:number, priorFailures?:Array}}} p
+ * @returns {{ok:boolean, entry?:object, attribution?:object, improvement?:object|null, error?:string}}
  */
-export function recordFailure({ wsRoot, agent = "小语", area = "", attempt = "", why = "", files = [], source = "manual", evidence = "", kind = "", at = Date.now() } = {}) {
+export function recordFailure({
+  wsRoot, agent = "小语", area = "", attempt = "", why = "", files = [], source = "manual",
+  evidence = "", kind = "", at = Date.now(), ctx = {},
+} = {}) {
   const tried = String(attempt || "").trim().slice(0, 400);
   const reason = String(why || "").trim().slice(0, 400);
   if (!tried && !reason) return { ok: false, error: "attempt 和 why 至少填一个" };
@@ -62,9 +78,25 @@ export function recordFailure({ wsRoot, agent = "小语", area = "", attempt = "
     evidence: String(evidence || "").slice(0, 200) || undefined,
   };
   const data = readFailures(wsRoot);
-  data.items = [entry, ...(data.items || [])].slice(0, MAX_ENTRIES);
+  const prior = Array.isArray(data.items) ? data.items : [];
+  // 归因只读台账里已有的真实字段：别处传进来的 ctx（技能/知识/重试结果）优先，priorFailures 默认用台账。
+  let attribution;
+  try {
+    attribution = classifyFailure(entry, { ...(ctx || {}), priorFailures: (ctx && ctx.priorFailures) || prior, now: at });
+  } catch (e) {
+    // 归因失败不能挡住记账（元枢的纪律：闸门自己出错一律放行）
+    attribution = { kind: "task_impossible", isSignal: false, reason: `归因异常：${String(e?.message || e).slice(0, 120)}`, confidence: 0, evidence: [] };
+  }
+  entry.attribution = attribution;
+  data.items = [entry, ...prior].slice(0, MAX_ENTRIES);
   writeFailures(wsRoot, data);
-  return { ok: true, entry };
+
+  let improvement = null;
+  if (attribution.isSignal === true) {
+    try { improvement = enqueueImprovement({ wsRoot, entry, attribution, now: at }); }
+    catch (e) { improvement = { ok: false, error: String(e?.message || e).slice(0, 160) }; }
+  }
+  return { ok: true, entry, attribution, improvement };
 }
 
 /**
@@ -107,9 +139,11 @@ export function countSimilar({ wsRoot, area = "", files = [] } = {}) {
       return [...wantFiles].some((w) => n === w || n.endsWith("/" + w) || w.endsWith("/" + n));
     });
   });
+  // 去重合并过的条目带 occurrences：次数按"实际发生"算，不然 prune 之后永远到不了阈值。
+  const times = rows.reduce((sum, e) => sum + Math.max(1, Number(e.occurrences) || 1), 0);
   return {
-    times: rows.length,
-    lastAt: rows.length ? Math.max(...rows.map((e) => Number(e.at) || 0)) : 0,
+    times,
+    lastAt: rows.length ? Math.max(...rows.map((e) => Number(e.lastAt) || Number(e.at) || 0)) : 0,
     reasons: rows.slice(0, 3).map((e) => String(e.why || "").slice(0, 80)),
   };
 }
@@ -164,11 +198,65 @@ export function recentFailures(wsRoot, { limit = 20 } = {}) {
   return (readFailures(wsRoot).items || []).slice(0, Math.max(1, limit));
 }
 
+// ── 归因看板 / 去重（2026-11-09）─────────────────────────────────
+
+/**
+ * 看板数据：四类分布 + 最近条目 + 改进队列。
+ * 旧条目（归因功能上线前记的）没有 attribution，现场归因一次（标 inferred）。
+ * @returns {{ok:true, distribution:object, signal:number, nonSignal:number, needsReview:number, recent:Array, queue:Array}}
+ */
+export function failureAttribution({ wsRoot, limit = 20 } = {}) {
+  const items = readFailures(wsRoot).items || [];
+  const report = attributionReport({ items, limit: Math.max(1, Math.min(200, Number(limit) || 20)) });
+  return {
+    ...report,
+    queue: listImprovementQueue(wsRoot, { limit: 20 }).map((q) => ({
+      id: q.id, kind: q.kind, area: q.area, why: q.why, occurrences: q.occurrences || 1,
+      status: q.status, at: q.at, lastAt: q.lastAt,
+    })),
+  };
+}
+
+/**
+ * 相似失败去重（≥threshold 合并，参考 hermes replay_writer 的 --prune）。
+ * 默认 dryRun：只报会合并几组，不动台账；要真合并传 dryRun:false。
+ * 合并保留 "occurrences" 计数，countSimilar / isImpossible 的阈值语义不变。
+ * @returns {{ok:boolean, dryRun:boolean, before:number, after:number, mergedCount:number, merged:Array, file?:string}}
+ */
+export function pruneFailures({ wsRoot, threshold = DEDUPE_THRESHOLD, dryRun = true } = {}) {
+  const data = readFailures(wsRoot);
+  const before = (data.items || []).length;
+  const out = dedupeFailures(data.items || [], { threshold });
+  if (!dryRun) {
+    data.items = out.items.slice(0, MAX_ENTRIES);
+    writeFailures(wsRoot, data);
+  }
+  return {
+    ok: true, dryRun: !!dryRun, before, after: out.items.length,
+    mergedCount: out.mergedCount, merged: out.merged,
+    file: dryRun ? undefined : fileOf(wsRoot),
+  };
+}
+
 /** 从补丁失败里抽一条：给 patch-runner 用。 */
 export function recordPatchFailure({ wsRoot, proposal, stage, error, files = [], at = Date.now() } = {}) {
   return recordFailure({
     wsRoot, agent: "autopatch", area: `补丁：${proposal?.title || proposal?.id || "未命名"}`,
     attempt: `走自动补丁（阶段 ${stage}）`, why: String(error || "").slice(0, 300),
     files, source: stage === "gate" ? "gate" : "patch", at,
+  });
+}
+
+/**
+ * 交付/验收关口挡下的一次改动：落失败台账（source=gate），入库即归因。
+ * 调用点：self-change-admit 的自证失败 / 棘轮未过 / 评估器未过（不阻断准入流程）。
+ */
+export function recordGateFailure({ wsRoot, stage = "gate", area = "", reason = "", files = [], evidence = "", at = Date.now(), ctx = {} } = {}) {
+  return recordFailure({
+    wsRoot, agent: "admit",
+    area: area || `验收：${stage}`,
+    attempt: `走自改准入（阶段 ${stage}）`,
+    why: String(reason || "").slice(0, 300),
+    files, source: "gate", evidence, at, ctx,
   });
 }

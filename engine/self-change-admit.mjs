@@ -15,6 +15,7 @@
 //   dirty        工作区夹带无关改动
 //   no_changes   没有可提交的改动
 //   add_failed / commit_failed  git 失败
+//   evaluator    评估器棘轮未过（evaluator.enabled === true 才启用；严格更高才接受）
 //
 // 通过后只做 `git add -- <files>` + `git commit -m <msg> -- <files>`，**默认不 push**。
 // 记录落 记忆/运行时/自证记录.jsonl 与 记忆/运行时/准入记录.jsonl（相对 wsRoot，各保留最近 200 条）。
@@ -24,7 +25,8 @@ import path from "node:path";
 import { checkChange, POLICY } from "./self-change.mjs";
 import { computeFilesetHash, normalizeFiles, parsePorcelain, isGateArtifact, assertCommandAllowed, defaultRun, DEFAULT_GIT, GIT_STATUS_ARGS } from "./self-change-verify.mjs";
 import { isProtectedPath } from "./tools/security.mjs";
-import { gateBeforeAdmit } from "./evolution-gate.mjs";
+import { gateBeforeAdmit, evaluatorRatchet } from "./evolution-gate.mjs";
+import { recordGateFailure } from "./failure-ledger.mjs";
 
 export const MAX_RECORDS = 200;
 export const DEFAULT_MAX_AGE_MS = 30 * 60 * 1000;
@@ -135,7 +137,7 @@ export function buildCommitMessage({ files = [], filesetHash = "", steps = [], u
  */
 export async function admit({
   repoRoot, files = [], verdict, now = Date.now(),
-  maxAgeMs = DEFAULT_MAX_AGE_MS, note = "", run, wsRoot, ratchet = {},
+  maxAgeMs = DEFAULT_MAX_AGE_MS, note = "", run, wsRoot, ratchet = {}, evaluator = {},
 } = {}) {
   const root = path.resolve(String(repoRoot || "."));
   const stateRoot = String(wsRoot || repoRoot || ".");
@@ -143,6 +145,14 @@ export async function admit({
 
   const norm = normalizeFiles(files);
   if (!norm.ok) return reject("invalid", `文件列表不合法：${norm.errors.join("；")}`);
+
+  // 验收失败也进失败台账（入库即归因，2026-11-09）：台账写不进不能影响准入判定，所以全包 try。
+  const gateArea = `自改准入：${norm.files.slice(0, 2).join("、") || "未命名"}`;
+  const noteGateFailure = (stage, reason, evidence = "") => {
+    try {
+      recordGateFailure({ wsRoot: stateRoot, stage, area: gateArea, reason, files: norm.files, evidence });
+    } catch { /* 台账写不进不影响准入 */ }
+  };
 
   // ① 自改边界（与"她能不能改这个文件"同一套 POLICY）
   const bound = checkChange({ files: norm.files });
@@ -171,7 +181,27 @@ export async function admit({
   } catch (e) {
     ratchetOut = { ok: true, skipped: true, enforced: false, reason: `棘轮异常（不阻断）：${String(e?.message || e).slice(0, 160)}` };
   }
-  if (ratchetOut.ok === false) return reject("ratchet", `棘轮未过：${ratchetOut.reason}`, { ratchet: ratchetOut });
+  if (ratchetOut.ok === false) {
+    noteGateFailure("ratchet", ratchetOut.reason, `棘轮：${ratchetOut.reason || ""}`);
+    return reject("ratchet", `棘轮未过：${ratchetOut.reason}`, { ratchet: ratchetOut });
+  }
+
+  // ③.6 评估器棘轮（2026-11-09）：严格更高才接受——参考分是"历史最高分"，同分不算改进。
+  //     默认关（enabled 必须显式 true）：没有独立判者时硬接会 100% 拒，先留给带 judge 的调用方开；
+  //     关掉即回退到上面那套"人确认基线 + 噪声容忍"的棘轮。
+  const evaluatorOpt = { ...(evaluator || {}), ...(ratchet?.evaluator || {}) };
+  let evaluatorOut = { ok: true, skipped: true, reason: "评估器未启用（enabled 默认关）" };
+  if (evaluatorOpt.enabled === true) {
+    try {
+      evaluatorOut = await evaluatorRatchet({ wsRoot: stateRoot, ...evaluatorOpt });
+    } catch (e) {
+      evaluatorOut = { ok: true, skipped: true, reason: `评估器异常（不阻断）：${String(e?.message || e).slice(0, 160)}` };
+    }
+    if (evaluatorOut.ok === false) {
+      noteGateFailure("evaluator", evaluatorOut.reason, `评估器：${evaluatorOut.reason || ""}`);
+      return reject("evaluator", `评估器未过：${evaluatorOut.reason}`, { evaluator: evaluatorOut });
+    }
+  }
 
   // ④ 当前文件集指纹：证明只对这套内容有效
   const current = computeFilesetHash({ repoRoot: root, files: norm.files });
@@ -183,7 +213,10 @@ export async function admit({
   const sameSet = records.filter((r) => sameFiles(r.files, norm.files));
   if (!sameSet.length) return reject("no_record", "没有自证记录：先调 POST /api/self-change/verify 跑通自证");
   const rec = sameSet[0];
-  if (rec.ok !== true) return reject("verify_failed", `最近一次自证失败（${rec.reason || "见自证记录"}），不允许入库`);
+  if (rec.ok !== true) {
+    noteGateFailure("verify", rec.reason || "最近一次自证失败", (rec.steps || []).filter((s) => s?.ok === false).map((s) => s.name).join("、"));
+    return reject("verify_failed", `最近一次自证失败（${rec.reason || "见自证记录"}），不允许入库`);
+  }
   const verifiedAt = Date.parse(String(rec.at || ""));
   if (!Number.isFinite(verifiedAt)) return reject("no_record", "自证记录的时间坏了，请重新自证");
   const age = now - verifiedAt;

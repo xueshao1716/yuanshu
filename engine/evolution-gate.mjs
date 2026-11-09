@@ -702,3 +702,33 @@ export function gateBeforeAdmit({ wsRoot, files = [], verdict, candidate, enforc
     }),
   };
 }
+
+// ── 评估器闸：严格更高才接受（2026-11-09）──────────────────────
+
+/**
+ * 评估器棘轮（建在 ratchetGate 之上）：参考分来自 evaluator.bestScore 的历史最高分，
+ * 候选必须**严格大于**参考分（同分不接受）、且 ratchetGate 逐维零回归，才 promote。
+ * 与 gateBeforeAdmit 的分工：那个用"人确认的基线 + 噪声容忍"，这个用"历史最高分 + 严格递增"。
+ * enabled:false → 整体跳过（回退开关；也可用环境变量 YUANSHU_EVALUATOR=off）。
+ * 评估器自己出异常一律不阻断（元枢纪律），返回 skipped。
+ * @param {{enabled?:boolean, wsRoot?:string, kind?:string, artifact?:object, rubric?:object,
+ *          judge?:object, writer?:object, threshold?:number, dryRun?:boolean}} options
+ */
+export async function evaluatorRatchet({ enabled = true, ...rest } = {}) {
+  if (enabled === false) {
+    return { ok: true, skipped: true, enabled: false, accepted: false, reason: '评估器闸已关闭（enabled:false），按回退路径放行' };
+  }
+  let mod;
+  try {
+    // 动态 import：evaluator.mjs 静态依赖本模块（RUBRIC_* + ratchetGate），静态互相 import 会成环。
+    mod = await import('./evaluator.mjs');
+  } catch (e) {
+    return { ok: true, skipped: true, reason: `评估器加载失败（不阻断）：${String(e?.message || e).slice(0, 160)}` };
+  }
+  try {
+    const out = mod.evaluateWithRatchet({ enabled: true, ...rest });
+    return { ...out, skipped: out.skipped === true };
+  } catch (e) {
+    return { ok: true, skipped: true, reason: `评估器异常（不阻断）：${String(e?.message || e).slice(0, 160)}` };
+  }
+}
