@@ -282,6 +282,10 @@ import { createSandboxAskFactory } from "./engine/sandbox-ask.mjs";
 import { isLocalMaintenanceApproval } from "./engine/maintenance-approval.mjs";
 import { createGeneApproval } from './engine/gene-approval.mjs';
 import { createPersonaGovernance } from './engine/persona-governance.mjs';
+// 2026-11-09 GRN 最后一层：5 维成长 + 换代（人批准/拒绝/回滚）。
+// 换代是人格级变化，所以写接口复用 confirmRegistry 的人工确认，不采信请求体里的 approvedBy。
+import * as growth from './engine/genome-growth.mjs';
+import { createGrowthApproval } from './engine/growth-approval.mjs';
 import { isSetupPending, clearSetupPending, applySetupSoul, isLocalSetupRequest } from './engine/setup-state.mjs';
 import { createPersonaApproval } from './engine/persona-approval.mjs';
 import { createComputerUse } from './engine/computer-use/controller.mjs';
@@ -4342,6 +4346,7 @@ initMemoryAutoStore({
   getModel: () => defaultModel || undefined,
 });
 const requestGeneApproval = createGeneApproval({ api: emotion, registry: confirmRegistry, sessionExists: maintenanceSessionExists, push: busPush });
+const requestGrowthApproval = createGrowthApproval({ api: growth, registry: confirmRegistry, sessionExists: maintenanceSessionExists, push: busPush });
 const personaGovernance = createPersonaGovernance({ wsRoot: CONFIG.cwd, agentDir: getAgentDir() });
 const requestPersonaApproval = createPersonaApproval({ api: personaGovernance, registry: confirmRegistry, sessionExists: maintenanceSessionExists, push: busPush });
 const sandboxApi = createSandboxApi({ agentDir: AGENT_DIR });
@@ -6236,6 +6241,28 @@ const API_ROUTES = [
     const result = emotion.autoProposeFromDrift();
     json(res, result?.error ? 503 : 200, result?.error ? result : { proposals: result });
   }],
+  // ── 5 维成长 + 换代（2026-11-09 GRN 最后一层）──
+  // 读：只读快照（5 维 / 世代 / 待批提案 / 每维来源与归一化上限）。
+  ["GET", "/api/genome/growth", (res) => json(res, 200, growth.status())],
+  // 写：换代/回滚必须人确认（confirmRegistry 一次性 allowed-once）+ 仅限本机；
+  //     approvedBy 由服务端铸，请求体里的 approvedBy 一律不采信。
+  ["POST", "/api/genome/growth/promote", async (res, req) => {
+    if (!isLocalMaintenanceApproval(req)) return json(res, 403, { error: "换代须在运行元枢的电脑上人工确认，远程入口不能批准。" });
+    const b = await readBody(req, 1);
+    const result = await requestGrowthApproval("promote", b);
+    json(res, result.error ? 409 : 200, result);
+  }],
+  ["POST", "/api/genome/growth/reject", async (res, req) => {
+    const b = await readBody(req, 1);
+    const result = growth.reject({ by: b?.by || "operator", reason: b?.reason });
+    json(res, result.error ? 409 : 200, result);
+  }],
+  ["POST", "/api/genome/growth/rollback", async (res, req) => {
+    if (!isLocalMaintenanceApproval(req)) return json(res, 403, { error: "回滚换代须在运行元枢的电脑上人工确认，远程入口不能批准。" });
+    const b = await readBody(req, 1);
+    const result = await requestGrowthApproval("rollback", b);
+    json(res, result.error ? 409 : 200, result);
+  }],
   // ── 技能基因 ──
   ["GET", "/api/skill-genes", (res) => json(res, 200, emotion.getSkillGenes())],
   ["POST", "/api/skill-genes/feedback", async (res, req) => {
@@ -6390,7 +6417,7 @@ const API_ROUTES = [
   ['GET', '/api/persona/confirmations', (res, req, url) => {
     const sid = url.searchParams.get('sessionId');
     if (!sid || !maintenanceSessionExists(sid)) return json(res, 400, { error: '请先选择有效会话' });
-    const items = confirmRegistry.list().filter(item => item.sessionId === sid && ['persona-governance', 'gene-governance'].includes(item.toolName))
+    const items = confirmRegistry.list().filter(item => item.sessionId === sid && ['persona-governance', 'gene-governance', 'growth-governance'].includes(item.toolName))
       .map(({ id, sessionId, toolName, reason, expiresAt }) => ({ id, sessionId, toolName, reason, expiresAt }));
     return json(res, 200, { items, canApprove: isLocalMaintenanceApproval(req) });
   }],
@@ -6824,6 +6851,8 @@ const API_ROUTES = [
       if (ok && pending?.toolName === 'computer-use' && !isLocalMaintenanceApproval(req)) return json(res, 403, {error:'电脑操作须在本机系统页逐次人工确认，远程不能批准。'});
       if (ok && pending?.toolName === 'maintenance' && !isLocalMaintenanceApproval(req)) return json(res, 403, { error: '请在运行元枢的电脑上，通过 http://127.0.0.1:8787 的超维面板人工确认。远程入口不能批准。' });
       if (ok && ['gene-governance', 'persona-governance'].includes(pending?.toolName) && !isLocalMaintenanceApproval(req)) return json(res, 403, { error: '人格及基线批准与回退须在运行元枢的电脑上，通过本地人工确认。' });
+      // 2026-11-09：换代/回滚同属人格级变化，同样只许本机确认（远程入口不能批准）。
+      if (ok && pending?.toolName === 'growth-governance' && !isLocalMaintenanceApproval(req)) return json(res, 403, { error: '换代与回滚须在运行元枢的电脑上，通过本地人工确认。' });
       const r = confirmRegistry.settle(sid, id, ok);
       // 培养越线申请：批准→执行那一次（内部一次性凭证）；拒绝→记下来，她下次能看到原因
       const requestId = pending?.meta?.requestId;

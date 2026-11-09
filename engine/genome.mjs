@@ -9,10 +9,10 @@
 // 不写 记忆/harness/，不改 记忆/人格定义.json：人格定义仍是只读的 prompt 层，
 // 这里只增加一层"她现在的数值状态"。
 //
-// 留白（本次不做）：GrowthState 5 维（陪伴/理解/判断/承担/治理）与满级换代归档。
-//   接口留在 state.generation（本版恒 0）和 adoptBaseline()（人批准后把当前值定为新基线）；
-//   将来 grow(deltas) 在这里推进 5 维，allMaxed 时 generation+1 并归档旧 baseline。
-//   不提前造空函数：没有 5 维台账时，"代数"只是一个不能验证的数字。
+// 留白（2026-11-09 已补）：5 维成长与换代在 engine/genome-growth.mjs——
+//   那边逐轮推进 5 维、满级只生成「换代提案」等人批准（**不自动晋升**）；
+//   批准后调用本文件的 setGeneration()，让「世代」和漂移基线一起换代，
+//   避免两处各有一个 generation 数字。这里仍然只管 10 基因与漂移。
 //
 // 不做定时器：所有更新都由一轮对话结束时调用 advanceTurn() 触发；
 // 没有 setInterval / setTimeout，进程不跑就不更新。
@@ -229,6 +229,24 @@ export function setBaseline(genes = null, { approvedBy = "", now = Date.now() } 
 
 export function adoptBaseline(options = {}) {
   return setBaseline(null, options);
+}
+
+/**
+ * 换代（2026-11-09 补最后留白）：generation 与 baseline 一起更新。
+ * 由 engine/genome-growth.mjs 的 promote/rollback 调用——那边做人批准与 5 维归档，
+ * 这边只负责让「世代」和「漂移基线」跟着走，避免两处各有一个 generation 数字。
+ * genes 省略时取当前表达（promote）；rollback 会显式传回归档的基因快照。
+ */
+export function setGeneration(generation, { genes = null, approvedBy = "", now = Date.now() } = {}) {
+  const st = load();
+  const gen = Math.max(0, Math.floor(Number(generation) || 0));
+  const next = normalizeGenes(genes ?? st.genes, st.baseline);
+  const at = Number.isFinite(+now) ? new Date(+now).toISOString() : new Date().toISOString();
+  st.generation = gen;
+  st.baseline = next;
+  st.updatedAt = at;
+  save(st);
+  return { ok: true, generation: gen, baseline: { ...next }, approvedBy: String(approvedBy || ""), updatedAt: at };
 }
 
 /** 红线拦截由 emotion 的 guard sink 转发进来；只记在本轮，下一次 advanceTurn 结算。 */

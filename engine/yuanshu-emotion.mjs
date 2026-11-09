@@ -4,6 +4,8 @@ import { updateEmotion, updateFromOutput, emotionPrompt, recordFeeling, getSnaps
 import { summary as relationshipSummary } from "./relationship.mjs";
 // 2026-11-09 GRN：人格的可观测状态。只注入**一行**漂移摘要，不把 10 个基因全塞进 prompt。
 import { promptLine as genomePromptLine } from "./genome.mjs";
+// 2026-11-09：5 维成长也只占一行，紧贴「人格漂移」——同一个 system 块里的并列行，不另起段落。
+import { promptLine as growthPromptLine } from "./genome-growth.mjs";
 import { completeGeneTurn } from './gene-turn.mjs';
 
 const recent = new Map();
@@ -26,6 +28,14 @@ function relationshipLine() {
 function genomeLine() {
   try {
     const line = genomePromptLine();
+    return typeof line === "string" ? line.replace(/\s*\n\s*/g, " ").trim() : "";
+  } catch { return ""; }
+}
+
+// 成长一行：与人格漂移并列（同一 system 块里的下一行）；读不到就返回空串，绝不影响开轮。
+function growthLine() {
+  try {
+    const line = growthPromptLine();
     return typeof line === "string" ? line.replace(/\s*\n\s*/g, " ").trim() : "";
   } catch { return ""; }
 }
@@ -54,12 +64,12 @@ export function beginYuanshuEmotion(sessionId, message, history = [], context = 
     if (recent.size > 2000) recent.delete(recent.keys().next().value);
   }
   const prompt = emotionPrompt(key, msg);
-  // 关系摘要 + 基因漂移放在情绪段同一块 system 里（不是另起一段）：慢变量贴着快变量读，语气才连贯。
-  const content = [prompt, relationshipLine(), genomeLine()].filter(Boolean).join("\n");
+  // 关系摘要 + 基因漂移 + 成长放在情绪段同一块 system 里（不是另起一段）：慢变量贴着快变量读，语气才连贯。
+  const content = [prompt, relationshipLine(), genomeLine(), growthLine()].filter(Boolean).join("\n");
   if (!content) return history;
   // 去重：历史里已经有同一块就不再插。旧前缀「基因：」一并认——
   // 升级前已注入过的会话历史里还留着那一行，只认新前缀会再插一段，两套措辞就并排出现了。
-  if (history.some((m) => m?.role === "system" && /情绪语境|关系：信任|人格漂移：|人格漂移告警：|基因：|基因告警：/.test(String(m.content || "")))) return history;
+  if (history.some((m) => m?.role === "system" && /情绪语境|关系：信任|人格漂移：|人格漂移告警：|成长：|基因：|基因告警：/.test(String(m.content || "")))) return history;
   return [{ role: "system", content }, ...history];
 }
 

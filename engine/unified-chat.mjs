@@ -50,6 +50,8 @@ import { applyEvent } from "./emotion.mjs";
 import { recordInteraction } from "./relationship.mjs";
 // 2026-11-09 GRN 基因网络：轮末按"关系 + 工具失败 + 距上次对话"推进一次；不做定时器。
 import { advanceTurn as advanceGenomeTurn } from "./genome.mjs";
+// 2026-11-09 GRN 最后一层：5 维成长跟着同一次收轮推进；满级只生成换代提案，等人批准。
+import { advance as advanceGrowthTurn } from "./genome-growth.mjs";
 import { readActivityRhythm } from "./activity-rhythm.mjs";
 import { pendingPromiseText } from "./promises.mjs";
 import { goalPrompt } from "./goals.mjs";
@@ -811,11 +813,14 @@ export async function handleUnifiedChat(res, entry, message, sessionId, params, 
     // turn_end → 关系层：有工具失败判 negative，否则 positive；无产出/评测 key 不记。异常吞掉。
     try { if (collected && !/^eval-/.test(String(sessionId || ""))) recordInteraction({ kind: turnToolFailures ? "negative" : "positive", note: turnToolFailures ? `${turnToolFailures} 次工具失败` : "" }); } catch {}
     // turn_end → 基因层：读刚更新的 relationship（亲密/信任）+ 本轮失败数 + 距上次对话时长。
-    // 任何异常都吞掉：基因读错了不该让这一轮回复失败。
+    // turn_end → 成长层（同一处）：5 维按已有台账推进；本轮红线拦截次数从基因层结算拿。
+    // 任何异常都吞掉：基因/成长读错了不该让这一轮回复失败。
     try {
       if (!genomeAdvanced && !/^eval-/.test(String(sessionId || ""))) {
         genomeAdvanced = true;
-        advanceGenomeTurn({ toolFailures: turnToolFailures });
+        let guardBlocks = 0;
+        try { guardBlocks = Number(advanceGenomeTurn({ toolFailures: turnToolFailures })?.guardBlocks) || 0; } catch {}
+        try { advanceGrowthTurn(null, { reason: "对话轮末", guardBlocks }); } catch {}
       }
     } catch {}
   };
