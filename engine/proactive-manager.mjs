@@ -14,11 +14,16 @@
 import fs from "node:fs";
 import path from "node:path";
 import { collectJobs, enqueueReport, readReports } from "./job-state.mjs";
+import { decide } from "./proactive-policy.mjs";
+import { readOutreach, recordOutreach } from "./proactive-journal.mjs";
+import { isQuietHours } from "./proactive.mjs";
 
 export const STATE_FILE = path.join("记忆", "运行时", "主动管理.json");
 export const NUDGE_COOLDOWN_MS = 6 * 3600 * 1000;
 export const MAX_NUDGES = 2;
 export const ESCALATE_AFTER = 24 * 3600 * 1000;
+// 2026-11-09：未闭环的事走 proactive-policy 的 open_loop 这一类（priority 72 / 6h 冷却）。
+export const POLICY_TRIGGER = "open_loop";
 // 2026-10-27：真机第一次扫就刷了 48 条（全是两三天前的测试作业与旧汇报）。
 // 教训：主动管理必须"只追新鲜的"，否则就是噪音制造机。
 export const JOB_MAX_AGE_MS = 24 * 3600 * 1000;      // 作业失败超过一天就不再追
@@ -178,6 +183,10 @@ export function sweepProactive({ wsRoot, detached = [], runs = [], docChanges = 
   const escalated = [];
   let skipped = 0;
   let silent = 0;
+  let heldByPolicy = 0;
+  // 2026-11-09：主动推送台账（读一次，本轮催出去的行边推边接上——否则同一轮里"连续没回复"数不准）
+  let journal = [];
+  try { if (wsRoot) journal = readOutreach(wsRoot) } catch {}
 
   for (const loop of loops) {
     // 每轮最多催 MAX_PER_SWEEP 条，其余留到下一轮（宁可慢，不要刷屏）
@@ -191,6 +200,19 @@ export function sweepProactive({ wsRoot, detached = [], runs = [], docChanges = 
     if ((rec.attempts || 0) >= cfg.maxNudges && rec.lastAction === "escalate") { silent += 1; continue }
     // 冷却中 → 跳过
     if (rec.lastAction && since < cfg.nudgeCooldownMs) { skipped += 1; continue }
+
+    // 2026-11-09：旧闸都过了，再问策略层"这一刻该不该发"——
+    // 死夜 1-7 点 / 同一话题冷却 / urgency 配额 / 连续 3 条没回复，任一挡住就本轮不推。
+    // **不动账本**：不算一次尝试，下一轮还能追（不能因为半夜三点没推就把它记成"催过了"）。
+    let decision = null;
+    if (push) {
+      decision = decide({
+        now,
+        candidates: [{ trigger: POLICY_TRIGGER, topic: loop.key, vars: { title: loop.title } }],
+        state: { recent: journal, quietHours: isQuietHours(now) },
+      });
+      if (decision.action !== "send") { skipped += 1; heldByPolicy += 1; continue }
+    }
 
     const action = (rec.attempts || 0) >= cfg.maxNudges || (now - (rec.firstSeenAt || now)) > ESCALATE_AFTER
       ? "escalate"
@@ -219,6 +241,18 @@ export function sweepProactive({ wsRoot, detached = [], runs = [], docChanges = 
           at: now,
         });
       } catch {}
+      // 台账：这一条真的推出去了。text 记的是策略层选中的那句话术（作业事实仍在 label/step 里，
+      // 不改写事实），textId 形如 open_loop#2 —— 回看"哪句话被回过"就看它。
+      try {
+        if (wsRoot && decision) {
+          const r = recordOutreach(wsRoot, {
+            at: now, trigger: POLICY_TRIGGER, priority: decision.priority, urgency: decision.urgency,
+            topic: loop.key, text: decision.text || loop.title, textId: decision.textId || "",
+            channel: "report", kind: `proactive:${action}`,
+          });
+          if (r.ok) journal.push(r.row);
+        }
+      } catch {}
     }
   }
 
@@ -240,7 +274,7 @@ export function sweepProactive({ wsRoot, detached = [], runs = [], docChanges = 
   }
 
   writeState(wsRoot, state);
-  return { baseline: false, nudged, escalated, skipped, silent, total: loops.length };
+  return { baseline: false, nudged, escalated, skipped, silent, heldByPolicy, total: loops.length };
 }
 
 /** 环境事实一行：只说"我在盯 N 件事"，细节走面板。 */

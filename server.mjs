@@ -171,6 +171,8 @@ import { judgeWithSealed, compareResults } from "./engine/learning/benchmark.mjs
 import { installSkill, validateSkillMd, listAuthoredSkills, buildAuthorPrompt } from "./engine/learning/skill-author.mjs";
 import { replayFromDisk, estimateAction, buildHistory } from "./engine/anticipation.mjs";
 import { recordPush, recordReaction, reactionStats, shouldThrottle, markRecentActivity, expirePushes } from "./engine/notice-reactions.mjs";
+// 2026-11-09 三档主动触达：主动推送台账（「连续 3 条没回复暂停」的恢复开关接在用户动作上）
+import { markOutreachReplied } from "./engine/proactive-journal.mjs";
 import { describeFailure } from "./engine/failure-note.mjs";
 import { distillTurn, distillCandidates } from "./engine/memory/distill.mjs";
 import { runForgetCycle } from "./engine/memory/forget.mjs";
@@ -3973,7 +3975,11 @@ const wechat = createWechatBridge({
     } catch {}
   },
   // 2026-10-28：微信消息也算"人在这儿"，否则深夜推送会把在线的人当成"走了很久"
-  onUserActivity: () => { try { companionStore.touchSeen({ throttleMs: 0 }); } catch {} },
+  // 2026-11-09：微信回话也是"有回复"——主动推送台账的暂停靠它解除（只认真实动作，不认心跳）
+  onUserActivity: () => {
+    try { companionStore.touchSeen({ throttleMs: 0 }); } catch {}
+    try { markOutreachReplied(WS_ROOT); } catch {}
+  },
   dir: path.join(CONFIG.cwd, '.yuanshu', 'wechat'),
   legacyDir: path.join(CONFIG.cwd, '工程'),
   chat: createLoopbackChat({ base: () => `http://127.0.0.1:${CONFIG.port}`, token: () => CONFIG.token }),
@@ -4210,6 +4216,9 @@ setInterval(() => {
         console.log(`[watchdog] 先不提醒：${esc.reason}`);
       } else {
         const day = new Date().toISOString().slice(0, 10);
+        // 2026-11-09：看门狗提醒此前只查预算与冷却，凌晨照样推；补上与冷唤醒/watch 一致的静默闸。
+        if (isQuietHours(Date.now())) console.log("[watchdog] 该提醒，但现在是免打扰时段");
+        else {
         const budget = readBudget(WS_ROOT, day, { cap: 3 });
         if (budget.remaining <= 0) console.log("[watchdog] 该提醒，但今天的主动预算用完了");
         else if (spendBudget(WS_ROOT, day, { cap: budget.cap, kind: "watchdog_drift" }).ok) {
@@ -4220,13 +4229,14 @@ setInterval(() => {
           }).catch(() => {});
           console.log(`[watchdog] 已提醒（${esc.key}）：${esc.reason}`);
         }
+        }
       }
     }
   } catch {}
   // 2026-11-02：脑区自调（内部 12h 冷却 + 边界 + 审计）
   try { const r = applyNudges(WS_ROOT); if (r?.applied?.length) console.log(`[brain] 自调：${r.applied.map((x) => `${x.id}${x.delta > 0 ? "+" : ""}${x.delta}`).join(" ")}`) } catch {}
 }, withJitter(10 * 60 * 1000, { ratio: 0.08 })).unref?.();
-setInterval(() => { runWithInitiator("scheduler", () => runCompanionNudge({ store: companionStore, notifier, compose: composeNoticeFor, persona: personaName(WS_ROOT), cooldownMs: nudgeCooldownMs(brainWeights()) }).catch(() => {})) }, 5 * 60 * 1000).unref?.();
+setInterval(() => { runWithInitiator("scheduler", () => runCompanionNudge({ store: companionStore, notifier, compose: composeNoticeFor, persona: personaName(WS_ROOT), cooldownMs: nudgeCooldownMs(brainWeights()), wsRoot: WS_ROOT, budgetRemaining: readBudget(WS_ROOT, new Date().toISOString().slice(0, 10), { cap: 3 }).remaining }).catch(() => {})) }, 5 * 60 * 1000).unref?.();
 } catch {}
 
 // 设计委托：每 60 秒看一眼到期的周期委托（一次只跑一单，出错不影响后面的）
@@ -4816,6 +4826,8 @@ const API_ROUTES = [
   ["POST", "/api/notice/reaction", async (res, req) => {
     const b = await readBody(req);
     const out = recordReaction(WS_ROOT, { key: String(b?.key || ""), action: String(b?.action || "ignore") });
+    // 2026-11-09：人点了推送就是"有反应"——主动推送台账里的待回复条目跟着清掉，暂停才能解除
+    if (out.ok) { try { markOutreachReplied(WS_ROOT) } catch {} }
     return json(res, out.ok ? 200 : 400, out);
   }],
   ["GET", "/api/notice/reactions", (res, req, url) => {
@@ -6832,7 +6844,7 @@ const API_ROUTES = [
     if (!t || t.status !== "running") return json(res, 200, { active: false, taskKey: tk || null, sessionId: sid || null });
     return json(res, 200, { active: true, taskKey: tk || null, sessionId: sid || null, stage: t.stage, toolName: t.toolName || null, startedAt: t.startedAt, updatedAt: t.updatedAt });
   }],
-  ["POST", "/api/runs", async (res, req) => { try { globalThis.__lastUserMsgAt = Date.now(); markRecentActivity(WS_ROOT) } catch {} return runApi.create(res, await readBody(req, 12), req) }],
+  ["POST", "/api/runs", async (res, req) => { try { globalThis.__lastUserMsgAt = Date.now(); markRecentActivity(WS_ROOT); markOutreachReplied(WS_ROOT) } catch {} return runApi.create(res, await readBody(req, 12), req) }],
   ["POST", new RegExp('^/api/runs/([^/]+)/recovery/disable$'), (res, req, url, m) => runApi.disableRecovery(res, decodeURIComponent(m[1]))],
   ["GET", /^\/api\/runs\/([^/]+)$/, (res, req, url, m) => runApi.get(res, decodeURIComponent(m[1]))],
   ["GET", /^\/api\/runs\/([^/]+)\/state$/, (res, req, url, m) => runApi.state(res, decodeURIComponent(m[1]))],
@@ -6840,7 +6852,7 @@ const API_ROUTES = [
   ["POST", /^\/api\/runs\/([^/]+)\/steer$/, async (res, req, url, m) => runApi.steer(res, decodeURIComponent(m[1]), await readBody(req, 1))],
   ["POST", /^\/api\/runs\/([^/]+)\/stop$/, (res, req, url, m) => runApi.stop(res, decodeURIComponent(m[1]))],
   ["POST", /^\/api\/runs\/([^/]+)\/resume$/, (res, req, url, m) => runApi.resume(res, decodeURIComponent(m[1]), req)],
-  ["POST", "/api/chat", async (res, req) => { try { globalThis.__lastUserMsgAt = Date.now(); markRecentActivity(WS_ROOT) } catch {} return handleChat(req, res, await readBody(req, 12)) }],
+  ["POST", "/api/chat", async (res, req) => { try { globalThis.__lastUserMsgAt = Date.now(); markRecentActivity(WS_ROOT); markOutreachReplied(WS_ROOT) } catch {} return handleChat(req, res, await readBody(req, 12)) }],
   ["POST", "/api/compare", async (res, req) => handleCompare(res, await readBody(req))],
   // ── Agent 活动事件（pi 事件广播扩展 → 前端实时显示小语在干嘛）──
   ["POST", "/api/agent/events", async (res, req) => handleAgentEventIn(req, res, await readBody(req, 2))],
@@ -7490,7 +7502,7 @@ const boardApi = createBoardApi({
 API_ROUTES.push(...createCompanionRoutes({ exists: id => activeSessions.has(id) || !!findSession(id),
   facts: companionFacts, store: companionStore, decisions: companionDecisions, json, readBody,
   // 久不互动把人叫回来：notifier 自带应用内事件，toWechat 时同时推微信
-  nudge: { run: (opts = {}) => runCompanionNudge({ store: companionStore, notifier, force: opts?.force === true, compose: composeNoticeFor, persona: personaName(WS_ROOT) }) } }));
+  nudge: { run: (opts = {}) => runCompanionNudge({ store: companionStore, notifier, force: opts?.force === true, compose: composeNoticeFor, persona: personaName(WS_ROOT), wsRoot: WS_ROOT, budgetRemaining: readBudget(WS_ROOT, new Date().toISOString().slice(0, 10), { cap: 3 }).remaining }) } }));
 
 // 设计三组路由（巡检 / 委托 / 调研）在 engine/design-api.mjs；这里只负责注入依赖
 API_ROUTES.push(...createDesignRoutes({

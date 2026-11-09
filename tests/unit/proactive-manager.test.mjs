@@ -10,11 +10,19 @@ import {
 } from "../../engine/proactive-manager.mjs";
 
 const ws = () => fs.mkdtempSync(path.join(os.tmpdir(), "proact-"));
-const now0 = () => Date.now();
+// 2026-11-09：策略层加了死夜硬阻断（本地 1-7 点不推），所以基准时钟固定到"最近的白天 15:00"，
+// 否则凌晨跑 npm test 会红。所有时间都相对这个基准算，跑多久都一样。
+const T_BASE = (() => {
+  const d = new Date();
+  d.setHours(15, 0, 0, 0);
+  if (d.getTime() > Date.now()) d.setDate(d.getDate() - 1);
+  return d.getTime();
+})();
+const now0 = () => T_BASE;
 
 const makeFailed = (id, label, agoMs = 60000) => ({
   id, label, done: true, exitCode: 1,
-  startedAt: Date.now() - agoMs, updatedAt: Date.now() - agoMs,
+  startedAt: T_BASE - agoMs, updatedAt: T_BASE - agoMs,
 });
 
 /** 先建基线（默认空场景），之后进来的才算"新事"。 */
