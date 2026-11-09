@@ -11,6 +11,9 @@ import { antiPatternPromptLine, alreadyInjected } from "./anti-patterns.mjs";
 // 2026-11-09：教训复习。一天最多一次、最多 2 条，和反模式同一块（前缀「复习：」）。
 // 这一行有落盘副作用（注入即记账），所以下面必须先判去重、再取它。
 import { replayPromptLine } from "./lesson-replay.mjs";
+// 2026-11-10：正向账本。做对过的一天念 1 条（前缀「做对过：」），额度和「复习：」各记各的
+// （正向状态.json vs 复习状态.json），互不挤占。失衡（7 天负向 ≥ 3×正向）时这一轮不念反模式。
+import { praisePromptLine, stats as praiseStats } from "./praise-ledger.mjs";
 import { completeGeneTurn } from "./gene-turn.mjs";
 
 const recent = new Map();
@@ -62,8 +65,32 @@ function replayLine(history) {
   } catch { return ""; }
 }
 
+// 做对过：每天第一次进对话时最多注入 1 条（正向账本的额度，和复习互不挤占）。
+// 同样是"注入即记账"，所以调用点必须在去重判断之后。空账本返回空串（零注入）。
+function praiseLine(history) {
+  try {
+    const line = praisePromptLine({ history });
+    return typeof line === "string" ? line.trim() : "";
+  } catch { return ""; }
+}
+
+// 正/负比：读不到/算不出就返回 null（null = 不知道，不因此改变任何注入行为）。
+// 只有 7 天负向 ≥ 3×正向 才跳过反模式：失衡时先补正向，别一轮里全在念"别这样"。
+// 60 秒缓存：这个信号是"这一周的比例"，不需要每轮都读一遍反模式流水和失败台账；
+// 读失败不缓存（下一轮再试），也不改变任何行为。
+let skewCache = { at: 0, value: false };
+function ratioSkewed() {
+  const now = Date.now();
+  if (now - skewCache.at < 60000) return skewCache.value;
+  try {
+    const value = praiseStats({ days: 7 })?.skipAntiPattern === true;
+    skewCache = { at: now, value };
+    return value;
+  } catch { return false; }
+}
+
 // 同一块的旧前缀都认：升级前注入过的会话历史里还留着老措辞，只认新前缀会再插一段。
-const INJECTED_BLOCK = /情绪语境|关系：信任|人格漂移：|人格漂移告警：|成长：|基因：|基因告警：|复习：/;
+const INJECTED_BLOCK = /情绪语境|关系：信任|人格漂移：|人格漂移告警：|成长：|基因：|基因告警：|复习：|做对过：/;
 
 /**
  * 上次对话时间（毫秒），供时间上下文算"距上次对话多久"。
@@ -95,9 +122,21 @@ export function beginYuanshuEmotion(sessionId, message, history = [], context = 
   // 别在一条会被丢掉的返回路径上把账记了。
   const already = alreadyInjected(history)
     || history.some((m) => m?.role === "system" && INJECTED_BLOCK.test(String(m.content || "")));
-  // 关系摘要 + 基因漂移 + 成长 + 反模式 + 复习放在情绪段同一块 system 里（不是另起一段）：
+  // 关系摘要 + 基因漂移 + 成长 + 做对过 + 反模式 + 复习放在情绪段同一块 system 里（不是另起一段）：
   // 慢变量贴着快变量读，语气才连贯；复习是"想起来"的那一半，跟反模式同一块最省上下文。
-  const content = [prompt, relationshipLine(), genomeLine(), growthLine(), antiPatternLine(msg, context), already ? "" : replayLine(history)]
+  // 2026-11-10：正向放在反模式**前面**——先看见做对的，再看见别做的。
+  // 「做对过：」和「复习：」各自一天 1 次/2 条、各记各的状态文件，谁先念都不影响另一个。
+  // 7 天负向 ≥ 3×正向时这轮不念反模式（失衡时先补正向；正向账本空了就一轮也不念负面）。
+  const skewed = ratioSkewed();
+  const content = [
+    prompt,
+    relationshipLine(),
+    genomeLine(),
+    growthLine(),
+    already ? "" : praiseLine(history),
+    skewed ? "" : antiPatternLine(msg, context),
+    already ? "" : replayLine(history),
+  ]
     .filter(Boolean)
     .join("\n");
   if (!content || already) return history;

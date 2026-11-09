@@ -38,6 +38,9 @@ import { init as initGrowth } from "./genome-growth.mjs";
 import { init as initAntiPatterns } from "./anti-patterns.mjs";
 // 2026-11-09：教训复习。注入点是 yuanshu-emotion（和反模式同一块），工作区根同样在这里绑一次。
 import { init as initLessonReplay } from "./lesson-replay.mjs";
+// 2026-11-10：正向账本（做对过）。工作区根在这里绑；记 praise 时回调 applyEvent("user_praise")——
+// 用钩子回调而不是让账本 import 本项目，避免 emotion ↔ praise-ledger 的循环依赖。
+import { init as initPraiseLedger, setEmotionHook as setPraiseEmotionHook } from "./praise-ledger.mjs";
 
 // ── 人格基线（曦系）：小语闲下来时情绪落点是"温和的暖"，不是冷中性 ──
 const PERSONALITY = { valence: 0.55, arousal: 0.35, dominance: 0.5 };
@@ -75,6 +78,16 @@ export function init(root) {
   try { initGrowth(wsRoot); } catch {}
   try { initAntiPatterns(wsRoot); } catch {}
   try { initLessonReplay(wsRoot); } catch {}
+  try { initPraiseLedger(wsRoot); } catch {}
+  // 被夸 → user_praise（EVENT_EFFECTS 里早就有这条）。强度压到 0.8：记账是记录事实，
+  // 不该为了让情绪好看而放大；情绪出错也不影响记账（账本侧已经 try 住）。
+  try {
+    setPraiseEmotionHook((entry) => applyEvent("user_praise", {
+      intensity: 0.8,
+      note: String(entry?.what || "").slice(0, 60),
+      source: "praise_ledger",
+    }));
+  } catch {}
   bindGuardBlockSink();
 }
 

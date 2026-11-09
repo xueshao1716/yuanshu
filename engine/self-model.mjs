@@ -14,6 +14,10 @@ import { loadPersonaDefinition } from './persona-def.mjs';
 import { loadSelfPolicy, spendToday as spendTodayOf } from './self-agency.mjs';
 import { summarizeProbeLog } from './harness-probe.mjs';
 import { mergeAppearanceWithPersona, AUX_SOURCE } from './appearance-merge.mjs';
+// 2026-11-10：正向账本。自我描述里加一段「我做对过的事」——只有负向（不做什么/别这样）
+// 的自我描述会把人写成"处处不达标"。这里取 weight 最高的 3 条，每条都带证据。
+// 注意：这里不进 system prompt（注入有每天 1 条的额度，见 yuanshu-emotion），只进 自我.md。
+import { topPositive, KIND_LABELS } from './praise-ledger.mjs';
 
 export const SELF_FILE = '记忆/自我.md';
 export const CONTACT_FILE = '记忆/运行时/主人联系.json';
@@ -103,6 +107,10 @@ export function buildSelfModel({ wsRoot, now = new Date() } = {}) {
   // 硬边界：主读取失败时 aux 被禁用（merged.auxDisabled），这里不做任何"辅顶上"的兜底。
   const merged = mergeAppearanceWithPersona({ wsRoot, def });
 
+  // 我做对过的事：读不到就空数组（自我描述不能因为账本坏掉而生成不出来）
+  let positive = [];
+  try { positive = topPositive({ limit: 3, wsRoot }); } catch { positive = []; }
+
   return {
     name: def.name || '小语',
     called: def.called || '伙伴',
@@ -119,6 +127,7 @@ export function buildSelfModel({ wsRoot, now = new Date() } = {}) {
     } : null,
     boundaries: Array.isArray(def.boundaries) ? def.boundaries : [],
     growth: typeof def.growth === 'string' ? def.growth : '',
+    positive,
     probeSummary: summarizeProbeLog(wsRoot),
     contact: loadContact(wsRoot),
     inner: Array.isArray(def.inner) ? def.inner : [],
@@ -242,6 +251,20 @@ export function renderSelfMarkdown(model) {
     L.push(model.growth);
     L.push('');
   }
+  // 2026-11-10：正向账本。只写有证据的条目；账本空就整段不出现（不留空标题、不编夸奖）。
+  const positives = (Array.isArray(model.positive) ? model.positive : []).filter((x) => x && x.what && x.evidence);
+  if (positives.length) {
+    L.push('## 我做对过的事');
+    L.push('');
+    L.push('> 来自 `记忆/运行时/正向账本.json`：只记有证据、说得出是哪件事的。不是为了让人高兴，是为了不把"什么都做错了"当成事实。');
+    L.push('');
+    for (const x of positives) {
+      const kind = KIND_LABELS[x.kind] || x.kind;
+      const times = Number(x.weight) > 1 ? `（${x.weight} 次）` : '';
+      L.push(`- ${x.what}${times} —— ${kind}｜证据：${x.evidence}`);
+    }
+    L.push('');
+  }
   if (model.contact) {
     L.push('## 怎么找' + model.called);
     L.push('');
@@ -254,6 +277,7 @@ export function renderSelfMarkdown(model) {
   L.push('');
   L.push('- 性格与价值观：`记忆/人格定义.json`（只读，改它要经人批准）');
   L.push('- 自主边界：`记忆/运行时/自主执行.json`');
+  L.push('- 我做对过的事：`记忆/运行时/正向账本.json`（只记有证据、说得出具体哪件事的）');
   L.push('- 天数与会话数：工作区里的真实记录，不是写死的文案');
   return L.join('\n') + '\n';
 }
