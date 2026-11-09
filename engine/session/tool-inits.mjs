@@ -13,6 +13,7 @@ export function createToolInitializers({ getCwd = () => "", getPiPackage = () =>
   let activateSkillToolDef = null;
   let piThinkToolDef = null, shareToolDef = null, piMediaTools = null, fixProblemToolDef = null;
   let verifyCheckToolDef = null;
+  let antiPatternToolDef = null;
 
   async function initSearchTool() {
   if (searchToolDef) return searchToolDef;
@@ -289,9 +290,47 @@ async function initPiThinkTool() {
   return verifyCheckToolDef;
 }
 
+// 反模式对照（2026-11-09，移植林心语 anti_patterns.json）：她**主动查**的那条入口。
+// 为什么要有：prompt 里只注入最相关 2 条（省上下文），其余 9 条平时不占位置；
+// 拿不准"这一步是不是踩过的坑"时，靠这个工具把台账全文取回来。
+// 边界写清楚：是自查清单，不是门禁——不该每轮都调，也不该把台账原文贴给用户。
+  async function initAntiPatternTool() {
+  if (antiPatternToolDef) return antiPatternToolDef;
+  try {
+    const { createRequire } = await import("node:module");
+    const { Type } = createRequire(getPiPackage())("typebox");
+    const { runAntiPatternCheck, DEFAULT_LIMIT } = await import("../anti-patterns.mjs");
+    antiPatternToolDef = {
+      name: "anti_pattern_check",
+      label: "反模式对照",
+      description: "查反模式台账：按场景关键词、工具名或失败类型匹配已知踩过的坑，返回条目全文（症状、改法、判定方式）；不传 context 返回索引。拿不准这一步有什么坑时用；是自查清单，不是门禁。",
+      promptSnippet: "拿不准有什么坑时用 anti_pattern_check 查台账；回复只给结论，不贴台账原文",
+      promptGuidelines: [
+        "Self-check checklist, not a gate: call it when unsure which known mistake applies, not every turn; never paste the ledger into the reply.",
+      ],
+      parameters: Type.Object({
+        context: Type.Optional(Type.String({ description: "场景关键词 / 工具名 / 失败类型，如「跑测试 报数」「fix_problem」「timeout」" })),
+        limit: Type.Optional(Type.Number({ description: "返回几条，默认 3，最多 10" })),
+      }),
+      async execute(toolCallId, params) {
+        const out = runAntiPatternCheck({
+          wsRoot: getCwd(),
+          context: params?.context || "",
+          limit: params?.limit || DEFAULT_LIMIT,
+        });
+        return { content: [{ type: "text", text: String(out?.text || "（没有结果）") }], isError: !!out?.isError };
+      },
+    };
+  } catch (e) {
+    console.log(`[元枢] anti_pattern_check 工具初始化失败: ${String(e?.message || e).slice(0, 100)}`);
+    antiPatternToolDef = null;
+  }
+  return antiPatternToolDef;
+}
+
 
   return {
-    initSearchTool, initActivateSkillTool, initPiThinkTool, initShareTool, initPiMediaTools, initFixProblemTool, initVerifyCheckTool,
+    initSearchTool, initActivateSkillTool, initPiThinkTool, initShareTool, initPiMediaTools, initFixProblemTool, initVerifyCheckTool, initAntiPatternTool,
     peekSearchToolDef: () => searchToolDef,
   };
 }

@@ -6,7 +6,9 @@ import { summary as relationshipSummary } from "./relationship.mjs";
 import { promptLine as genomePromptLine } from "./genome.mjs";
 // 2026-11-09：5 维成长也只占一行，紧贴「人格漂移」——同一个 system 块里的并列行，不另起段落。
 import { promptLine as growthPromptLine } from "./genome-growth.mjs";
-import { completeGeneTurn } from './gene-turn.mjs';
+// 2026-11-09：反模式台账。和漂移/成长同一块注入，每条一行，最多 2 条；无匹配返回空串（零注入）。
+import { antiPatternPromptLine, alreadyInjected } from "./anti-patterns.mjs";
+import { completeGeneTurn } from "./gene-turn.mjs";
 
 const recent = new Map();
 
@@ -40,6 +42,15 @@ function growthLine() {
   } catch { return ""; }
 }
 
+// 反模式：只注入与本轮场景最相关的 2 条，每条一行「⚠ 别：… → 该：…」。
+// 多行是故意的（一条一行才读得动），所以这里不把换行压平；读不到/没匹配都返回空串。
+function antiPatternLine(msg, context = {}) {
+  try {
+    const line = antiPatternPromptLine({ text: msg, tools: context?.tools || context?.toolNames || [] });
+    return typeof line === "string" ? line.trim() : "";
+  } catch { return ""; }
+}
+
 /**
  * 上次对话时间（毫秒），供时间上下文算"距上次对话多久"。
  *
@@ -64,11 +75,12 @@ export function beginYuanshuEmotion(sessionId, message, history = [], context = 
     if (recent.size > 2000) recent.delete(recent.keys().next().value);
   }
   const prompt = emotionPrompt(key, msg);
-  // 关系摘要 + 基因漂移 + 成长放在情绪段同一块 system 里（不是另起一段）：慢变量贴着快变量读，语气才连贯。
-  const content = [prompt, relationshipLine(), genomeLine(), growthLine()].filter(Boolean).join("\n");
+  // 关系摘要 + 基因漂移 + 成长 + 反模式放在情绪段同一块 system 里（不是另起一段）：慢变量贴着快变量读，语气才连贯。
+  const content = [prompt, relationshipLine(), genomeLine(), growthLine(), antiPatternLine(msg, context)].filter(Boolean).join("\n");
   if (!content) return history;
   // 去重：历史里已经有同一块就不再插。旧前缀「基因：」一并认——
   // 升级前已注入过的会话历史里还留着那一行，只认新前缀会再插一段，两套措辞就并排出现了。
+  if (alreadyInjected(history)) return history;
   if (history.some((m) => m?.role === "system" && /情绪语境|关系：信任|人格漂移：|人格漂移告警：|成长：|基因：|基因告警：/.test(String(m.content || "")))) return history;
   return [{ role: "system", content }, ...history];
 }

@@ -52,6 +52,8 @@ import { recordInteraction } from "./relationship.mjs";
 import { advanceTurn as advanceGenomeTurn } from "./genome.mjs";
 // 2026-11-09 GRN 最后一层：5 维成长跟着同一次收轮推进；满级只生成换代提案，等人批准。
 import { advance as advanceGrowthTurn } from "./genome-growth.mjs";
+// 2026-11-09 反模式台账：轮末把本轮工具事件过一遍三类机械检测，命中只落 jsonl（不改回复、不拦动作）。
+import { detectViolations, recordViolation } from "./anti-patterns.mjs";
 import { readActivityRhythm } from "./activity-rhythm.mjs";
 import { pendingPromiseText } from "./promises.mjs";
 import { goalPrompt } from "./goals.mjs";
@@ -808,8 +810,29 @@ export async function handleUnifiedChat(res, entry, message, sessionId, params, 
   };
   let collected = "", turnToolFailures = 0; // 本轮工具失败数：工具事件与收轮关系共用
   let genomeAdvanced = false;               // 收轮可能走多个 return 分支，基因只推进一次
+  // 反模式自动检测（2026-11-09）：本轮工具事件攒在这里，收轮时判三类可机械判定的坑。
+  // 只写 记忆/运行时/反模式命中.jsonl；不改回复、不拦动作，任何异常都吞掉。
+  const antiPatternEvents = [];
+  let antiPatternScanned = false;
+  const scanTurnAntiPatterns = () => {
+    if (antiPatternScanned) return;
+    antiPatternScanned = true;
+    if (!_cwd) return;
+    const hits = detectViolations(antiPatternEvents);
+    // 空头承诺只在"整轮一个工具都没调"时判：这里拿不到本轮分段的 assistant 文本，
+    // 硬判会把"先说、后做"的真执行误伤成空头承诺——宁可漏，不可误。
+    if (!antiPatternEvents.length && collected) {
+      for (const h of detectViolations([{ at: new Date().toISOString(), type: "assistant", text: collected }])) {
+        if (h.id === "AP-006") hits.push(h);
+      }
+    }
+    for (const hit of hits) {
+      try { recordViolation(_cwd, hit); } catch {}
+    }
+  };
   const finishEmotion = () => {
     try { endYuanshuEmotion(sessionId || "new", emotionInput.message, collected, writer); } catch {}
+    try { scanTurnAntiPatterns(); } catch {}
     // turn_end → 关系层：有工具失败判 negative，否则 positive；无产出/评测 key 不记。异常吞掉。
     try { if (collected && !/^eval-/.test(String(sessionId || ""))) recordInteraction({ kind: turnToolFailures ? "negative" : "positive", note: turnToolFailures ? `${turnToolFailures} 次工具失败` : "" }); } catch {}
     // turn_end → 基因层：读刚更新的 relationship（亲密/信任）+ 本轮失败数 + 距上次对话时长。
@@ -952,6 +975,8 @@ export async function handleUnifiedChat(res, entry, message, sessionId, params, 
   const onToolEnd = (id, name, args, out, context = {}) => {
     touchTask(taskId, { stage: "工具完成", toolName: name });
     const text = out?.text || "";
+    // 反模式检测采样：只留工具名/参数/成败（不落输出正文），收轮统一判定。
+    try { antiPatternEvents.push({ at: new Date().toISOString(), type: "tool", name, args, ok: out?.isError !== true, error: out?.isError ? text.slice(0, 200) : "" }); } catch {}
     const startedAt = toolStartedAt.get(id);
     toolStartedAt.delete(id);
     writer.push("tool_end", { name, id, durationMs: startedAt ? Date.now() - startedAt : null, effectKey: context.effectKey || null, turn: context.turn ?? null, ordinal: context.ordinal ?? null, isError: out?.isError === true, uncertain: out?.uncertain === true, reused: out?.reused === true, output: text.slice(0, 2000) });

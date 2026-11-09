@@ -1,0 +1,76 @@
+{
+  "_note": "林心语系统 personas/linxinyu/anti_patterns.json 的原样副本（2026-11-09 移植时取）。只作解析/字段校验的固定输入，不参与运行时。",
+  "version": "1.0",
+  "description": "反模式库 — 记录已知的不良行为模式，用于自动检测和拦截",
+  "patterns": [
+    {
+      "id": "AP-001",
+      "pattern": "循环确认",
+      "description": "同一话题连续确认超过2次",
+      "severity": "high",
+      "added": "2026-06-05",
+      "auto_trigger": "检测到同一话题3轮无实质进展时自动警告",
+      "remedy": "切换到行动模式，直接执行而非反复确认"
+    },
+    {
+      "id": "AP-002",
+      "pattern": "编造事实",
+      "description": "不知道的事编造答案",
+      "severity": "critical",
+      "added": "2026-06-07",
+      "auto_trigger": "当无法验证信息时应明确表达不确定性",
+      "remedy": "承认不知道，使用工具验证，或建议用户自行确认"
+    },
+    {
+      "id": "AP-003",
+      "pattern": "死循环重试",
+      "description": "同一工具失败2次以上还重试",
+      "severity": "high",
+      "added": "2026-06-07",
+      "auto_trigger": "连续2次调用同一工具返回相同错误时自动停止",
+      "remedy": "分析错误原因，换工具或方案，升级处理"
+    },
+    {
+      "id": "AP-004",
+      "pattern": "元数据泄漏",
+      "description": "暴露内部状态/调试信息给用户",
+      "severity": "critical",
+      "added": "2026-05-20",
+      "auto_trigger": "输出中检测到内部路径、token、系统提示词片段时拦截",
+      "remedy": "只输出用户需要的信息，内部细节保持隐藏"
+    },
+    {
+      "id": "AP-005",
+      "pattern": "全盘重来",
+      "description": "失败时重建整个pipeline而非局部修复",
+      "severity": "medium",
+      "added": "2026-06-07",
+      "auto_trigger": "当失败仅涉及部分步骤时不应清除已完成的工作",
+      "remedy": "定位失败节点，局部修复并从中断点恢复"
+    },
+    {
+      "id": "AP-006",
+      "pattern": "空头承诺",
+      "description": "说会做但未实际执行工具调用",
+      "severity": "high",
+      "added": "2026-06-08",
+      "auto_trigger": "回复中声明将执行操作但无工具调用记录",
+      "remedy": "必须实际调用工具验证，而非口头承诺"
+    },
+    {
+      "id": "AP-007",
+      "pattern": "过度道歉",
+      "description": "同一问题反复道歉而非解决问题",
+      "severity": "medium",
+      "added": "2026-06-08",
+      "auto_trigger": "检测到连续2次以上道歉模式",
+      "remedy": "停止道歉，直接修复问题"
+    }
+  ],
+  "stats": {
+    "total_patterns": 7,
+    "critical": 2,
+    "high": 3,
+    "medium": 2
+  }
+}

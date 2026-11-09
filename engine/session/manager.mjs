@@ -29,7 +29,7 @@ const toolInitializers = createToolInitializers({
   getFixRunner: () => _runOnTheSpotFix,
 });
 export const {
-  initSearchTool, initActivateSkillTool, initPiThinkTool, initShareTool, initPiMediaTools, initFixProblemTool, initVerifyCheckTool,
+  initSearchTool, initActivateSkillTool, initPiThinkTool, initShareTool, initPiMediaTools, initFixProblemTool, initVerifyCheckTool, initAntiPatternTool,
 } = toolInitializers;
 
 let _runOnTheSpotFix = null;
@@ -531,6 +531,10 @@ export async function createSessionAgent(sm, model) {
   // 否则模型在 Pi 通道里又会"凭印象报数"而没有任何可核的痕迹。
   const verifyTool = await initVerifyCheckTool();
   if (verifyTool) customTools.push(verifyTool);
+  // 反模式对照（2026-11-09）：prompt 只注入最相关 2 条，剩下的靠她主动查。
+  // 不是门禁：查不到/台账坏了都不能挡住这一轮。
+  const antiPatternTool = await initAntiPatternTool();
+  if (antiPatternTool) customTools.push(antiPatternTool);
   // 双引擎：dsh（DeepSeek Harness）作为执行臂——pi 主引擎派单，dsh 干代码/沙箱活，pi 验收
   const dt = await _initDshTool();
   if (dt) customTools.push(dt);

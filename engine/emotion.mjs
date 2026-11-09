@@ -34,6 +34,8 @@ import { init as initGenome, recordGuardBlock } from "./genome.mjs";
 // 2026-11-09：5 维成长（陪伴/理解/判断/承担/治理）+ 人批准换代。这里只负责初始化；
 // 推进仍在轮末由 unified-chat 调一次（满级只生成提案，绝不自动换代）。
 import { init as initGrowth } from "./genome-growth.mjs";
+// 2026-11-09：反模式台账。和成长/漂移同一个 system 块注入，所以工作区根也在同一处绑。
+import { init as initAntiPatterns } from "./anti-patterns.mjs";
 
 // ── 人格基线（曦系）：小语闲下来时情绪落点是"温和的暖"，不是冷中性 ──
 const PERSONALITY = { valence: 0.55, arousal: 0.35, dominance: 0.5 };
@@ -69,6 +71,7 @@ export function init(root) {
   initRelationship(wsRoot);
   try { initGenome(wsRoot); } catch {}
   try { initGrowth(wsRoot); } catch {}
+  try { initAntiPatterns(wsRoot); } catch {}
   bindGuardBlockSink();
 }
 

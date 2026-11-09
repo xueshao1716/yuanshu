@@ -332,6 +332,9 @@ import { WATCHDOG_READ_TOOL, createWatchdogReadExecutors } from "./engine/tools/
 // 2026-11-09：断言闸门（verify-gate）——报数之前先把话落成断言，逐条比对事实。
 // 交付门管"改动的验证覆盖"，这里管"话里的数字和事实"（存在性/数量/路径/大小/测试结果）。
 import { VERIFY_CHECK_TOOL, executeVerifyCheck } from "./engine/tools/verify-check.mjs";
+// 2026-11-09：反模式台账（移植林心语 anti_patterns.json）。prompt 只注入最相关 2 条，
+// 这个工具是她主动把台账取回来对一遍的入口；纯读，不拦任何动作。
+import { ANTI_PATTERN_CHECK_TOOL, runAntiPatternCheck } from "./engine/anti-patterns.mjs";
 import { createTurnProfiler } from "./engine/turn-profile.mjs";
 import { createMemWatch } from "./engine/mem-watch.mjs";
 import { installTimerWatch } from './engine/timer-watch.mjs';
@@ -1430,6 +1433,8 @@ const UNIFIED_TOOLS = [
   // 2026-11-09：断言闸门。交付门之后还有一道「话对不对」的闸：
   // 数量/存在性/路径/大小/测试结果必须先落成断言，有一条 FAIL 就不许说完成。
   VERIFY_CHECK_TOOL,
+  // 2026-11-09：反模式对照。注入的 2 条之外，她主动查全台账用这个。
+  ANTI_PATTERN_CHECK_TOOL,
 ];
 // ══ 外部思考工具（externalThinking 调试开关，默认关）══
 // 思路：关闭模型原生隐藏思考后，给它一张外部"草稿纸"（think 工具），
@@ -1852,6 +1857,12 @@ const extraToolExecutors = {
     verify_check: (args) => executeVerifyCheck(args, {
       cwd: () => CONFIG.cwd,
       roots: () => [CONFIG.cwd, __dirname],
+    }),
+    // 反模式对照（2026-11-09）：读台账，返回匹配条目全文；不拦动作、不改状态。
+    anti_pattern_check: (args) => runAntiPatternCheck({
+      wsRoot: CONFIG.cwd,
+      context: args?.context || "",
+      limit: args?.limit || 3,
     }),
     // 当场修：把"发现问题"接到"动手做掉"（逻辑在 engine/reflection-exec.mjs，与复盘那条共用规则）。    // 执行轮用完整工具集（这一步才发可写工具），一轮只做这一条，必须交证据。
     fix_problem: async (args, ctx) => {
