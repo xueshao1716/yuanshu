@@ -76,6 +76,8 @@ export const BASE_TOOL_SCHEMAS = [
     note: { type: "string", description: "一句话说明这次改了什么（可选）" },
   }, required: ["kind", "baseline", "candidate"] } } },
   { type: "function", function: { name: "record_taste", description: "记一条判断轨迹：这次选了什么、否了什么、为什么。只在做出有取舍的判断时记，不要每轮都记。", parameters: { type: "object", properties: { topic: { type: "string", description: "判断的主题，如「封面字体」" }, chose: { type: "string", description: "最终选定的方案" }, rejected: { type: "array", items: { type: "string" }, description: "被否掉的方案（最多 5 个）" }, why: { type: "string", description: "为什么这样选（一句）" }, tags: { type: "array", items: { type: "string" }, description: "标签：设计/写作/工程" } }, required: ["topic", "chose"] } } },
+  // 2026-11-09：人格基因网络的可观测入口（只读）。想看"我现在偏没偏"时调它。
+  { type: "function", function: { name: "genome_status", description: "查看人格基因状态（只读）：10 个基因表达值、4 路信号（亲密/新奇/压力/信任）、四个基因簇的漂移与阈值、世代号和体检告警。被问到自己状态、或想确认有没有偏离基线时用；不改变任何状态。", parameters: { type: "object", properties: {} } } },
   { type: "function", function: { name: "bash", get description() { return bashToolDescription() + "出图/视频/配音用 generate_image / generate_video / generate_tts，不要读 auth.json/.token。不要 curl 本机 /api/image，不要启动 Vite 5173 或第二份 8787。" }, parameters: { type: "object", properties: { command: { type: "string", description: "要运行的命令" } }, required: ["command"] } } },
   // 2026-10-25：Windows 原生 PowerShell。有这条就尽量别用 bash 拼 Unix 命令——
   // git-bash 的路径/引号/编码语义和 Windows 不是一套，真机上会把工具调用次数翻倍。
@@ -449,6 +451,31 @@ export function createUnifiedToolExecutor(deps = {}) {
         const content = String(args?.content || "").trim();
         if (!content) return { text: "（空思考）", isError: true };
         return { text: "✅ 思考已记录（调试草稿，仅本次会话内存可见，不落盘）", think: content };
+      }
+
+      if (name === "genome_status") {
+        // 只读：读 gene 状态 + 情绪潮汐里的 primary 分布（供"同一情绪 >80%"体检项）。
+        // 动态导入：无头入口/单测不初始化情绪时也能返回基因部分，不把整条链路拖进来。
+        try {
+          const { statusText } = await import("../genome.mjs");
+          let emotions = [];
+          try {
+            const { getTide } = await import("../emotion.mjs");
+            // 潮汐里一轮内每次工具事件都写一行，直接按行数算占比会把"同一次心情"放大几十倍。
+            // 按 10 分钟时间桶各取一条 primary，才是"同一情绪在时间里占多少"的口径。
+            const seen = new Set();
+            for (const p of getTide(200) || []) {
+              const ts = Number(p?.ts) || 0;
+              const bucket = ts ? Math.floor(ts / 600_000) : `i${seen.size}`;
+              if (seen.has(bucket)) continue;
+              seen.add(bucket);
+              if (p?.p) emotions.push(String(p.p));
+            }
+          } catch {}
+          return { text: statusText({ emotions }) };
+        } catch (e) {
+          return { text: `基因状态读取失败：${String(e?.message || e).slice(0, 140)}`, isError: true };
+        }
       }
 
       if (name === "share_project") {

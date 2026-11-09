@@ -97,7 +97,9 @@ test("yuanshu: 接缝是核心锁定，网页卸不掉", () => {
 test("主聊天开轮必须收接缝，不能中途热替换循环", () => {
   const src = readFileSync(join(ROOT, "engine", "unified-chat.mjs"), "utf8");
   const start = src.indexOf("export async function handleUnifiedChat");
-  const fn = src.slice(start, start + 12000);
+  // 2026-11-09：窗口从 12000 放宽到 20000——GRN 接线后 assembleYuanshuSystem 的偏移
+  // 从 11888 挪到 12258，原窗口正好卡在边界；断言意图（开轮从接缝拼 system）不变。
+  const fn = src.slice(start, start + 20000);
   assert.ok(fn.includes("assembleYuanshuSystem"), "开轮要从接缝拼 system");
   assert.ok(fn.includes("collectPromptContributions") || fn.includes("assembleYuanshuSystem"), "必须读 registry");
   const init = src.slice(src.indexOf("export async function initEngine"), src.indexOf("export async function initEngine") + 8000);

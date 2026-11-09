@@ -28,6 +28,9 @@ import { extractEntities } from "./yuanshu-memroute.mjs";
 // security 只提供"红线命中的通知口"，这里注册监听；它不认识情绪，也不会被情绪拖住。
 import { setGuardBlockSink } from "./tools/security.mjs";
 import { init as initRelationship } from "./relationship.mjs";
+// 2026-11-09：GRN 基因网络（4 信号 → 10 基因 → 漂移）。情绪是快变量，基因是慢变量；
+// 这里只负责初始化与"被红线拦下"的信号转发，基因推进仍在轮末由 unified-chat 调一次。
+import { init as initGenome, recordGuardBlock } from "./genome.mjs";
 
 // ── 人格基线（曦系）：小语闲下来时情绪落点是"温和的暖"，不是冷中性 ──
 const PERSONALITY = { valence: 0.55, arousal: 0.35, dominance: 0.5 };
@@ -61,6 +64,7 @@ export function init(root) {
   initGene(wsRoot);
   initSkillGene(wsRoot);
   initRelationship(wsRoot);
+  try { initGenome(wsRoot); } catch {}
   bindGuardBlockSink();
 }
 
@@ -69,6 +73,8 @@ export function init(root) {
 function bindGuardBlockSink() {
   setGuardBlockSink((info) => {
     try { applyEvent("guard_block", { intensity: 0.7, note: info?.rule || "", source: "guard", sessionId: _activeKey }); } catch {}
+    // 基因的 stress 也吃这一口：被红线拦下 = 有压力的证据；异常照旧吞掉，不影响拦截本身。
+    try { recordGuardBlock(); } catch {}
   });
 }
 

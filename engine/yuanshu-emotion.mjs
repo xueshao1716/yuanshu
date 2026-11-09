@@ -2,6 +2,8 @@
 import { updateEmotion, updateFromOutput, emotionPrompt, recordFeeling, getSnapshot, flushPersonaAttribution } from "./emotion.mjs";
 // 关系层（2026-11-09）：情绪是分钟级快变量，关系是月级慢变量，摘要紧贴情绪段注入。
 import { summary as relationshipSummary } from "./relationship.mjs";
+// 2026-11-09 GRN：人格的可观测状态。只注入**一行**漂移摘要，不把 10 个基因全塞进 prompt。
+import { promptLine as genomePromptLine } from "./genome.mjs";
 import { completeGeneTurn } from './gene-turn.mjs';
 
 const recent = new Map();
@@ -15,6 +17,14 @@ function relationshipLine() {
   try {
     const line = relationshipSummary();
     return typeof line === "string" ? line.trim() : "";
+  } catch { return ""; }
+}
+
+// 基因一行：正常报最接近阈值的簇；超阈值才告警。读不到就不注入，绝不影响开轮。
+function genomeLine() {
+  try {
+    const line = genomePromptLine();
+    return typeof line === "string" ? line.replace(/\s*\n\s*/g, " ").trim() : "";
   } catch { return ""; }
 }
 
@@ -42,10 +52,10 @@ export function beginYuanshuEmotion(sessionId, message, history = [], context = 
     if (recent.size > 2000) recent.delete(recent.keys().next().value);
   }
   const prompt = emotionPrompt(key, msg);
-  // 关系摘要放在情绪段同一块 system 里（不是另起一段）：慢变量贴着快变量读，语气才连贯。
-  const content = [prompt, relationshipLine()].filter(Boolean).join("\n");
+  // 关系摘要 + 基因漂移放在情绪段同一块 system 里（不是另起一段）：慢变量贴着快变量读，语气才连贯。
+  const content = [prompt, relationshipLine(), genomeLine()].filter(Boolean).join("\n");
   if (!content) return history;
-  if (history.some((m) => m?.role === "system" && /情绪语境|关系：信任/.test(String(m.content || "")))) return history;
+  if (history.some((m) => m?.role === "system" && /情绪语境|关系：信任|基因：|基因告警：/.test(String(m.content || "")))) return history;
   return [{ role: "system", content }, ...history];
 }
 

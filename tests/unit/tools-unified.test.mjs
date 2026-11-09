@@ -113,7 +113,7 @@ test("engine/tools 工具集（unified-tools.mjs）", (t) => {
     // 2026-10-25：新增 pwsh（Windows 原生 PowerShell 通道）。两个 shell 通道挨在一起，
     // 模型选工具时先看到"这台机器有什么壳"。
     const names = BASE_TOOL_SCHEMAS.map((s) => s.function.name);
-    assert.deepEqual(names, ["delivery_check", "candidate_compare", "record_taste", "bash", "pwsh", "read", "write", "edit", "read_url", "web_search"]);
+    assert.deepEqual(names, ["delivery_check", "candidate_compare", "record_taste", "genome_status", "bash", "pwsh", "read", "write", "edit", "read_url", "web_search"]);
     for (const s of BASE_TOOL_SCHEMAS) assert.equal(s.type, "function");
   });
 

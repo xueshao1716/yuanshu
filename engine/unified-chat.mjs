@@ -48,6 +48,8 @@ import { beginYuanshuEmotion, endYuanshuEmotion, lastTalkAt } from "./yuanshu-em
 // 2026-11-09 事件驱动情绪 + 关系层：工具成败是事件、一轮结束是关系增量，都是旁路信号
 import { applyEvent } from "./emotion.mjs";
 import { recordInteraction } from "./relationship.mjs";
+// 2026-11-09 GRN 基因网络：轮末按"关系 + 工具失败 + 距上次对话"推进一次；不做定时器。
+import { advanceTurn as advanceGenomeTurn } from "./genome.mjs";
 import { readActivityRhythm } from "./activity-rhythm.mjs";
 import { pendingPromiseText } from "./promises.mjs";
 import { goalPrompt } from "./goals.mjs";
@@ -803,10 +805,19 @@ export async function handleUnifiedChat(res, entry, message, sessionId, params, 
     return "rejected";
   };
   let collected = "", turnToolFailures = 0; // 本轮工具失败数：工具事件与收轮关系共用
+  let genomeAdvanced = false;               // 收轮可能走多个 return 分支，基因只推进一次
   const finishEmotion = () => {
     try { endYuanshuEmotion(sessionId || "new", emotionInput.message, collected, writer); } catch {}
     // turn_end → 关系层：有工具失败判 negative，否则 positive；无产出/评测 key 不记。异常吞掉。
     try { if (collected && !/^eval-/.test(String(sessionId || ""))) recordInteraction({ kind: turnToolFailures ? "negative" : "positive", note: turnToolFailures ? `${turnToolFailures} 次工具失败` : "" }); } catch {}
+    // turn_end → 基因层：读刚更新的 relationship（亲密/信任）+ 本轮失败数 + 距上次对话时长。
+    // 任何异常都吞掉：基因读错了不该让这一轮回复失败。
+    try {
+      if (!genomeAdvanced && !/^eval-/.test(String(sessionId || ""))) {
+        genomeAdvanced = true;
+        advanceGenomeTurn({ toolFailures: turnToolFailures });
+      }
+    } catch {}
   };
   touchTask(taskId, { stage: "处理中" });
   let hist = [];
