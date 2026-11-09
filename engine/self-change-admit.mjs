@@ -24,6 +24,7 @@ import path from "node:path";
 import { checkChange, POLICY } from "./self-change.mjs";
 import { computeFilesetHash, normalizeFiles, parsePorcelain, isGateArtifact, assertCommandAllowed, defaultRun, DEFAULT_GIT, GIT_STATUS_ARGS } from "./self-change-verify.mjs";
 import { isProtectedPath } from "./tools/security.mjs";
+import { gateBeforeAdmit } from "./evolution-gate.mjs";
 
 export const MAX_RECORDS = 200;
 export const DEFAULT_MAX_AGE_MS = 30 * 60 * 1000;
@@ -134,7 +135,7 @@ export function buildCommitMessage({ files = [], filesetHash = "", steps = [], u
  */
 export async function admit({
   repoRoot, files = [], verdict, now = Date.now(),
-  maxAgeMs = DEFAULT_MAX_AGE_MS, note = "", run, wsRoot,
+  maxAgeMs = DEFAULT_MAX_AGE_MS, note = "", run, wsRoot, ratchet = {},
 } = {}) {
   const root = path.resolve(String(repoRoot || "."));
   const stateRoot = String(wsRoot || repoRoot || ".");
@@ -160,6 +161,17 @@ export async function admit({
       return reject("missing", `文件不存在：${f}（本闸不允许删除文件）`);
     }
   }
+
+  // ③.5 进化棘轮（2026-11-09）：准入前核一次"改完有没有真变好"。
+  //     无基线 / 候选证据不足 → 跳过并留痕（不阻断）；有基线且五维都有分 → 逐维比，回归才挡。
+  //     写者/判者分离（judgeSeparated）这里还没接：没有独立判者模型时硬接会 100% 拒。
+  let ratchetOut = { ok: true, skipped: true, enforced: false, reason: "未调用" };
+  try {
+    ratchetOut = gateBeforeAdmit({ wsRoot: stateRoot, files: norm.files, verdict, note, ...ratchet });
+  } catch (e) {
+    ratchetOut = { ok: true, skipped: true, enforced: false, reason: `棘轮异常（不阻断）：${String(e?.message || e).slice(0, 160)}` };
+  }
+  if (ratchetOut.ok === false) return reject("ratchet", `棘轮未过：${ratchetOut.reason}`, { ratchet: ratchetOut });
 
   // ④ 当前文件集指纹：证明只对这套内容有效
   const current = computeFilesetHash({ repoRoot: root, files: norm.files });
@@ -244,6 +256,7 @@ export async function admit({
     verifiedAt: rec.at,
     note: String(note || "").replace(/\s+/g, " ").trim().slice(0, 200),
     pushed: false,
+    ratchet: { skipped: ratchetOut.skipped === true, enforced: ratchetOut.enforced === true, reason: String(ratchetOut.reason || "").slice(0, 200) },
   };
   let recorded = true;
   try { appendRecord(stateRoot, ADMIT_LEDGER, admission); } catch { recorded = false; }
@@ -257,5 +270,6 @@ export async function admit({
     pushed: false,
     verifiedAt: rec.at,
     recorded,
+    ratchet: ratchetOut,
   };
 }

@@ -217,6 +217,21 @@ import { configureMarkdownImages } from "./engine/media/markdown-images.mjs";
 
 // 2026-11-02：自改作用于代码仓库（引擎/前端源码在这），不是工作区。
 const SELF_CHANGE_ROOT = process.env.PI_CODE_ROOT || "D:\\pi-web";
+// 2026-11-09：自改提案的四前提证据（进化闸门 evolution-gate.mjs 用）——
+// 台账取统一事件流，工具链取 UNIFIED_TOOLS 的真名字；不传这份 ctx 就只做边界校验（旧行为）。
+function selfChangeLoopCtx(files = []) {
+  let events = [];
+  try { events = readEvoEvents(WS_ROOT, { limit: 2000 }); } catch {}
+  let tools = [];
+  try { tools = UNIFIED_TOOLS.map((t) => t?.function?.name || t?.name).filter(Boolean); } catch {}
+  return {
+    wsRoot: SELF_CHANGE_ROOT,
+    repoRoot: SELF_CHANGE_ROOT,
+    events,
+    tools,
+    files: Array.isArray(files) ? files : [],
+  };
+}
 import { initContextLoader, makeLoader, loadExperience, readRulesWithImports, loadContextRules, jitRulesForPath, loadProjectRules, loadSkillIndex, execActivateSkill, ACTIVATE_SKILL_TOOL, WORK_PROTOCOL, loadMemory, loadMemoryIndex, loadExperienceIndex, shouldInjectFullMemory, setLastUserQuery } from "./engine/context-loader.mjs";
 import { directMediaMode, seedMediaMode } from "./engine/media/mode.mjs";
 // 2026-10-28：模型指纹（服务端快照变化要能被归因）
@@ -5013,14 +5028,14 @@ const API_ROUTES = [
       runGate: async () => { try { return checkDelivery({ runId: String(b?.runId || "") }) } catch (e) { return { verdict: "RED", error: String(e?.message || e).slice(0, 120) } } },
     });
     if (!out.ok) return json(res, 409, { ok: false, ...out });
-    const made = makeProposal({ files, verdict: out.gate?.verdict, reason: String(b?.reason || "自证通过"), hypothesis: String(b?.hypothesis || "") });
+    const made = makeProposal({ files, verdict: out.gate?.verdict, reason: String(b?.reason || "自证通过"), hypothesis: String(b?.hypothesis || ""), ctx: selfChangeLoopCtx(files) });
     if (!made.ok) return json(res, 400, made);
     recordProposal(SELF_CHANGE_ROOT, made.proposal);
     return json(res, 200, { ok: true, stage: out.stage, proposal: made.proposal });
   }],
   ["POST", "/api/selfchange/proposal", async (res, req) => {
     const b = await readBody(req);
-    const out = makeProposal({ files: b?.files, verdict: b?.verdict, reason: b?.reason, hypothesis: b?.hypothesis });
+    const out = makeProposal({ files: b?.files, verdict: b?.verdict, reason: b?.reason, hypothesis: b?.hypothesis, ctx: selfChangeLoopCtx(b?.files) });
     if (!out.ok) return json(res, 400, out);
     recordProposal(SELF_CHANGE_ROOT, out.proposal);
     return json(res, 200, out);

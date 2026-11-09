@@ -7,6 +7,7 @@
 // 她怎么写出这些改动，交给上层 agent 循环——本模块不执行写操作。
 import fs from "node:fs";
 import path from "node:path";
+import { checkLoopConditions } from "./evolution-gate.mjs";
 
 export const POLICY = {
   // 允许改的目录（相对仓库根）：引擎与前端源码；测试只能新增不能删
@@ -35,16 +36,43 @@ export function checkChange({ files = [] } = {}) {
   return { ok: errors.length === 0, errors, files: list };
 }
 
-/** 生成提案（只记录，不落分支）。verdict 不是 GREEN 直接拒。 */
-export function makeProposal({ files = [], verdict = "", reason = "", hypothesis = "", now = Date.now() } = {}) {
+/** @typedef {{wsRoot?:string, repoRoot?:string, events?:object[], tools?:string[], budget?:object, estimate?:object, minRepeats?:number}} LoopGateCtx */
+
+/**
+ * 生成提案（只记录，不落分支）。verdict 不是 GREEN 直接拒。
+ * 2026-11-09 接进化闸门：传了 ctx 就必须过四前提（缺一条直接拒提案，并说明缺哪条——省 token；
+ * 不传 ctx = 只做边界校验，旧行为）。闸门自己异常不阻断提案。
+ * @param {{files?:string[], verdict?:string, reason?:string, hypothesis?:string, now?:number,
+ *   ctx?:LoopGateCtx|null, proposal?:object}} opts
+ */
+export function makeProposal({ files = [], verdict = "", reason = "", hypothesis = "", now = Date.now(), ctx = null, proposal = {} } = {}) {
   const c = checkChange({ files });
   const errors = [...c.errors];
   if (String(verdict).toUpperCase() !== POLICY.requireVerdict) errors.push(`交付门判决是 ${verdict || "未知"}，只有 ${POLICY.requireVerdict} 才能进面板`);
   if (!String(reason).trim()) errors.push("缺原因");
   if (!String(hypothesis).trim()) errors.push("缺假设");
   if (errors.length) return { ok: false, errors };
+
+  let loop = null;
+  if (ctx) {
+    try {
+      loop = checkLoopConditions({ ...proposal, files: c.files, verdict, reason, hypothesis }, ctx);
+    } catch (e) {
+      loop = { ok: true, skipped: true, reason: `闸门异常，按放行处理：${String(e?.message || e).slice(0, 160)}`, results: {}, blockers: [] };
+    }
+    if (loop.ok === false) {
+      return {
+        ok: false,
+        gate: loop,
+        errors: loop.blockers.map((b) => `四前提不满足（${b}）`),
+        hint: "缺上面任一条都不开自我改进循环：先把条件补齐（让任务重复出现 / 补测试 / 抬预算 / 补工具）再提提案",
+      };
+    }
+  }
+
   return {
     ok: true,
+    gate: loop ? { ok: true, results: loop.results } : { ok: true, skipped: true, reason: "未注入证据（ctx 缺失），只做边界校验" },
     proposal: {
       id: `self_${now.toString(36)}`,
       at: new Date(now).toISOString(),
@@ -54,6 +82,7 @@ export function makeProposal({ files = [], verdict = "", reason = "", hypothesis
       reason: String(reason).slice(0, 200),
       hypothesis: String(hypothesis).slice(0, 200),
       rollback: "丢弃该分支：git branch -D <branch>（合并前不影响任何东西）",
+      ...(loop && loop.results ? { loop: loop.results } : {}),
     },
   };
 }
