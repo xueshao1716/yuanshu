@@ -70,9 +70,10 @@ test('故事层已经写过配色的提示词，媒体层不许追加第二次',
 // 出口「接没接上」只能看代码：函数写好了但没人调用，等于没这个功能
 test('出图/出片的出口必须真的调用它（不是只有函数没人用）', () => {
   const src = fs.readFileSync(path.join(process.cwd(), 'engine', 'media', 'api.mjs'), 'utf8');
-  const gen = src.split('export async function generateImage')[1]?.slice(0, 300) || '';
+  // 2026-11-09：函数前言加过闸检查后，配色调用被推到 ~360 字符处，窗口从 300 放宽到 500。
+  const gen = src.split('export async function generateImage')[1]?.slice(0, 500) || '';
   assert.match(gen, /withGlobalPalette\(prompt\)/, 'generateImage 出口要先补配色');
-  const video = src.split('export async function startVideoJob')[1]?.slice(0, 300) || '';
+  const video = src.split('export async function startVideoJob')[1]?.slice(0, 500) || '';
   assert.match(video, /withGlobalPalette\(prompt\)/, 'startVideoJob 出口也要补配色');
 
   // 前端：主题页要有全局选择器（写 /api/color-prefs），制作台要有「跟随全局」

@@ -16,6 +16,12 @@
 //   ③ 动作分险：low 只做可逆、不碰用户东西的事；medium（text-only）和 high（global-pause）
 //      只在 critical 出现，且 high 才允许写全局闸（高危暂停.json），且必须带理由。
 //
+// 2026-11-09 补：**动作会自己跑，但只跑 low**。applyLowRiskOnly 挂在 server 的 10 分钟循环上，
+// 每轮最多执行一个动作、同一条动作 30 分钟内不重复；medium/high 一律只落
+// `skipped:'requires-human'` 等人点。自动挂的闸署名 `degradation:auto`，健康 30 分钟后由
+// releaseAutoPauses 放回；当前挂着哪些闸（谁挂的、什么时候挂的）由 activeActions() 暴露给
+// GET /api/degradation 的 activeActions[]。
+//
 // 落位：
 //   · 评分读的信号（全部是已有台账，不新造埋点）：
 //       记忆/运行时/动作审计.jsonl   —— 工具失败率（delivery-gate 的同一批行）
@@ -30,6 +36,9 @@ import fs from "node:fs";
 import path from "node:path";
 import { classifyFailure } from "./run-observability.mjs";
 import { headroomCheck } from "./context-headroom.mjs";
+// 2026-11-09：定时任务静默失败要并进同一张健康看板（reasons）。单向依赖：
+// scheduled-policy 不 import 本文件，所以不会成环。
+import { readScheduledHealth } from "./scheduled-policy.mjs";
 
 // ── 文件位置 ────────────────────────────────────────────────────────────
 export const PAUSE_REL = path.join("记忆", "运行时", "高危暂停.json");
@@ -64,6 +73,25 @@ export const ACTIONS = Object.freeze({
 export const HIGH_RISK_ACTIONS = Object.freeze(["global-pause"]);
 /** 分项停用只认自己的动作：主动推送 ← pause-proactive；媒体 ← text-only。 */
 export const SCOPE_ACTIONS = Object.freeze({ proactive: "pause-proactive", media: "text-only" });
+
+// ── 自动执行边界（2026-11-09，用户批准）────────────────────────────────
+// 只自动跑 risk:'low'；text-only（medium）与 global-pause（high）**永远要人点**。
+// 这两条不是"配置"，是硬约束：自动路径里直接跳过并落 skipped:'requires-human'。
+export const HUMAN_ONLY_ACTIONS = Object.freeze(["text-only", "global-pause"]);
+export const AUTO_RISK = "low";
+/** 同一条自动动作 30 分钟内不重复执行（防抖），与 ACTION_COOLDOWN_MS 同值但语义不同。 */
+export const AUTO_ACTION_COOLDOWN_MS = 30 * 60 * 1000;
+/** 自动写闸用的署名：以 degradation 开头 → 健康 30 分钟后能被 releaseAutoPauses 放回。 */
+export const GATE_BY_AUTO = "degradation:auto";
+/** 动作 → "它是哪一维的证据"。用于 trigger.subscore（审计时能说清是凭哪一维动手的）。 */
+export const ACTION_DIM = Object.freeze({
+  "compress-session": "contextPressure",
+  "switch-model": "modelStability",
+  "pause-proactive": "hallucination",
+  "freeze-subagents": "subagents",
+  "text-only": "modelStability",
+  "global-pause": "hallucination",
+});
 
 // ── 校准常数（都 export，测试直接钉住，别在实现里藏魔法数字）──────────────
 export const COMPETENCE = Object.freeze({
@@ -528,6 +556,20 @@ export function assessWorkspace(wsRoot, opts = {}) {
   const out = assessDegradation({ signals, now });
   out.workspace = String(wsRoot || "");
   out.signalsAt = signals.at;
+  // 2026-11-09：定时任务静默失败并进同一张看板——「任务连续 3 次没产出」也是退化的一种，
+  // 不该只躺在另一个 jsonl 里等人翻。这里只并进 reasons（不新增维度、不改总分算式），
+  // 明细另挂 out.scheduled，GET /api/degradation 会原样带出去。
+  try {
+    const scheduled = readScheduledHealth(String(wsRoot || "."), { now });
+    out.scheduled = {
+      at: scheduled.at, windowMs: scheduled.windowMs,
+      jobs: scheduled.jobs.length, silent: scheduled.silent,
+      alerts: scheduled.alerts.slice(0, 10),
+    };
+    if (scheduled.reasons.length) out.reasons.push(...scheduled.reasons);
+  } catch {
+    out.scheduled = null;
+  }
   return out;
 }
 
@@ -742,9 +784,237 @@ export function releaseAutoPauses({ wsRoot, now = Date.now(), by = SELF_WRITTEN_
 }
 
 
+// ============================ 六点五、自动执行（只 low）============================
+
 /**
- * 一步到位：读盘 → 评估 → 执行。给"有人定期看一眼"的调用方用（查询接口是只读的，
- * 不调这个；要不要动手由调用方决定，见 /api/degradation 的说明）。
+ * 署名归类：auto（自动钩子）/ degradation（自评但经人触发）/ human（人手挂的）。
+ * 看板要一眼看出"这个闸是谁挂的"。
+ */
+const byKind = (by) => {
+  const s = String(by || "");
+  if (s === "auto" || s.startsWith(GATE_BY_AUTO)) return "auto";
+  if (s.startsWith("degradation")) return "degradation";
+  if (!s) return "unknown";
+  return "human";
+};
+
+/**
+ * 当前真正挂着的闸（GET /api/degradation 的 activeActions）。
+ *
+ * 每条都带 `by`（auto / degradation / human）和 `since`（这条作用域**是什么时候**被挂上的，
+ * 从 history 里取，不是闸文件最后一次写入的时间）。全局停时只列一条 global——
+ * 因为三个作用域同时停，逐条列是重复。
+ *
+ * @param {string} wsRoot
+ * @returns {Array<{scope:string, action:string, by:string, byRaw:string, since:number, reason:string, autoReleasable:boolean}>}
+ */
+export function activeActions(wsRoot) {
+  const gate = readPauseGate(wsRoot);
+  const hist = Array.isArray(gate.history) ? gate.history : [];
+  const lastOn = (scope) => [...hist].reverse().find((h) => h && h.scope === scope && h.on === true) || null;
+  const out = [];
+  if (gate.on) {
+    out.push({
+      scope: "global", action: gate.action || "global-pause",
+      by: byKind(gate.by), byRaw: String(gate.by || ""),
+      since: Number(gate.at) || 0, reason: gate.reason || "",
+      autoReleasable: false,
+    });
+    return out;
+  }
+  for (const scope of Object.keys(SCOPE_ACTIONS)) {
+    if (gate.scopes?.[scope] !== true) continue;
+    const h = lastOn(scope);
+    const by = byKind(h?.by || gate.by);
+    out.push({
+      scope,
+      action: String(h?.action || SCOPE_ACTIONS[scope]),
+      by, byRaw: String(h?.by || gate.by || ""),
+      since: Number(h?.at) || Number(gate.at) || 0,
+      reason: String(h?.reason || gate.reason || ""),
+      autoReleasable: by === "auto" || by === "degradation",
+    });
+  }
+  return out;
+}
+
+const subscoreMap = (assessment) => {
+  const out = {};
+  for (const d of DIMENSIONS) {
+    const s = assessment?.subscores?.[d];
+    out[d] = s?.evaluated ? Number((Number(s.score) || 0).toFixed(4)) : null;
+  }
+  return out;
+};
+const scoreOf = (assessment, dim) => {
+  const s = assessment?.subscores?.[dim];
+  return s?.evaluated ? Number(s.score) || 0 : 0;
+};
+/** 这个动作是凭哪一维动手的（写进 trigger.subscore，事后能对账）。 */
+const dimOf = (action, assessment) =>
+  action === "pause-proactive"
+    ? (scoreOf(assessment, "hallucination") >= 0.4 ? "hallucination" : "competence")
+    : (ACTION_DIM[action] || "competence");
+
+function appendAutoLog(root, entry) {
+  try {
+    const file = path.join(root, ACTION_LOG_REL);
+    fs.mkdirSync(path.dirname(file), { recursive: true });
+    fs.appendFileSync(file, `${JSON.stringify({ by: "auto", ...entry })}\n`, "utf8");
+    return true;
+  } catch { return false; }
+}
+
+/**
+ * 只自动执行 **low 风险动作**（2026-11-09 用户批准的边界）。
+ *
+ * 硬约束（不是配置）：
+ *   · `text-only`（medium）与 `global-pause`（high）**永远不执行**，只记 `skipped:'requires-human'`；
+ *   · 不写全局闸（唯一会写全局闸的 global-pause 根本进不了候选）；
+ *   · 每次调用最多执行 `limit`（默认 1）个动作——挂在 10 分钟循环上，一轮一个，防止一口气全挂；
+ *   · 同一条动作 30 分钟内不重复执行（读盘上的 `by:'auto'` 记录，重启也不重放）。
+ *
+ * 可逆与可见：
+ *   · 自动挂的闸署名 `degradation:auto` → 健康后 30 分钟由 releaseAutoPauses 自动放回；
+ *   · 每次真执行都往 记忆/运行时/退化动作.jsonl 追一条 `by:'auto'` + `trigger:{level,subscore}`；
+ *   · 挂上的闸由 activeActions() 在 GET /api/degradation 的 activeActions[] 里可见。
+ *
+ * compress-session / switch-model / freeze-subagents 仍按仓库既有约定只落"建议"
+ * （真压缩/切模型/冻结会改用户现场，不在这次授权里；见 ACTIONS 的注释）。
+ *
+ * @param {{wsRoot:string, assessment?:object|null, now?:number, contextWindow?:number,
+ *          limit?:number, cooldownMs?:number}} p
+ */
+export function applyLowRiskOnly({ wsRoot, assessment = null, now = Date.now(), contextWindow = 0, limit = 1, cooldownMs = AUTO_ACTION_COOLDOWN_MS } = {}) {
+  const root = String(wsRoot || "");
+  if (!root) return { ok: false, error: "没有工作区根，不知道动作记在哪" };
+  const at = Number(now) || Date.now();
+  const a = assessment || assessWorkspace(root, { now: at, contextWindow });
+  const trigger = { level: String(a?.level || ""), score: Number(a?.score) || 0, subscore: subscoreMap(a) };
+  const key = actionKey(a);
+
+  // ① 健康：只做"放回"（保留既有 30 分钟 + 只放自己挂的那条规则），绝不执行任何动作
+  if (a.level === "healthy") {
+    const released = releaseAutoPauses({ wsRoot: root, now: at });
+    const recorded = released.length
+      ? appendAutoLog(root, { at, key, trigger, level: "healthy", score: a.score, executed: [], pendingHuman: [], skipped: [], released, pendingKey: "" })
+      : false;
+    return { ok: true, at, level: "healthy", score: a.score, trigger, key, executed: [], pendingHuman: [], skipped: [], released, recorded, limit: 0 };
+  }
+
+  // ② 分拣：medium/high 一律"待人工确认"，一个字都不执行
+  const candidates = [];
+  const pendingHuman = [];
+  for (const act of a.actions || []) {
+    const def = ACTIONS[act.action];
+    const risk = String(def?.risk || act.risk || "unknown");
+    if (HUMAN_ONLY_ACTIONS.includes(act.action) || risk !== AUTO_RISK) {
+      pendingHuman.push({
+        action: act.action, risk, label: def?.label || act.action,
+        dim: ACTION_DIM[act.action] || "", reason: act.reason || "", skipped: "requires-human",
+      });
+      continue;
+    }
+    candidates.push({
+      action: act.action, risk: AUTO_RISK, reversible: def?.reversible !== false,
+      label: def?.label || act.action, reason: act.reason || "", scope: def?.scope || "",
+    });
+  }
+
+  // ③ 全局闸（可能人挂的）优先于一切自动化：停着就一个动作都不动，只说明为什么
+  const gateNow = readPauseGate(root);
+  if (gateNow.on) {
+    return {
+      ok: true, at, level: a.level, score: a.score, trigger, key,
+      executed: [], pendingHuman,
+      skipped: candidates.map((c) => ({ action: c.action, reason: "全局闸已挂上（人工优先，自动路径不动）", skipped: "global-gate" })),
+      released: [], recorded: false, limit: 0, paused: true,
+    };
+  }
+
+  // ④ 同一条动作 30 分钟内不重复；已经停着的作用域不再改写（不能覆盖人的署名）
+  const lastAuto = new Map();
+  for (const row of readActionLog(root, { limit: 500 })) {
+    if (String(row?.by || "") !== "auto") continue;
+    const t = Number(row.at) || 0;
+    for (const x of row.executed || []) {
+      const id = String(x?.action || "");
+      if (id) lastAuto.set(id, Math.max(lastAuto.get(id) || 0, t));
+    }
+  }
+  const eligible = [];
+  const skipped = [];
+  for (const c of candidates) {
+    // 已经停着就别再写一遍：分项停可能也是人挂的。再写一次会把 by/reason/at 改成"自动"，
+    // 看板就分不清是谁的主意了。
+    if (c.scope && gateNow.scopes?.[c.scope] === true) {
+      skipped.push({ action: c.action, reason: `${c.scope} 分项已暂停（不覆盖现有署名）`, skipped: "already-paused" });
+      continue;
+    }
+    const last = lastAuto.get(c.action) || 0;
+    if (last && at - last < cooldownMs) {
+      skipped.push({ action: c.action, reason: "cooldown", lastAt: last, remainMs: cooldownMs - (at - last), skipped: "cooldown" });
+      continue;
+    }
+    eligible.push(c);
+  }
+
+  // ④ 每次最多执行一个（limit 默认 1）
+  const max = Math.max(0, Math.floor(Number(limit) || 0));
+  const executed = [];
+  for (const c of eligible.slice(0, max)) {
+    const dim = dimOf(c.action, a);
+    const row = { action: c.action, risk: AUTO_RISK, reversible: c.reversible !== false, dim, subscore: subscoreMap(a)[dim], reason: c.reason };
+    // 双保险：即使上游分拣出了 bug，走到这里也不许写闸
+    if (HUMAN_ONLY_ACTIONS.includes(c.action) || c.risk !== AUTO_RISK) {
+      row.effect = "refused";
+      row.error = `${c.action} 属于人工确认档，自动路径永不执行`;
+      executed.push(row);
+      continue;
+    }
+    if (c.scope) {
+      const r = setPauseGate(root, { on: true, reason: c.reason, by: GATE_BY_AUTO, action: c.action, scope: c.scope, at });
+      row.effect = r.ok ? "paused" : "failed";
+      row.scope = c.scope;
+      row.gateBy = GATE_BY_AUTO;
+      if (!r.ok) row.error = r.error;
+    } else {
+      row.effect = "suggested";
+      row.note = "压缩/切模型/冻结会改用户现场，仍由调用方按建议执行";
+    }
+    executed.push(row);
+  }
+
+  // ⑤ 落账：有执行 / 同一 actionKey 且待人工清单没变时不重复写（30 分钟内）
+  const pendingKey = pendingHuman.map((x) => x.action).sort().join(",");
+  const lastRow = readActionLog(root, { limit: 1 })[0] || null;
+  const sameState = Boolean(
+    lastRow && String(lastRow.by || "") === "auto" && Number(lastRow.at || 0)
+    && String(lastRow.key || "") === key
+    && at - Number(lastRow.at) < cooldownMs
+    && String(lastRow.pendingKey || "") === pendingKey
+    && !executed.length,
+  );
+  let recorded = false;
+  if (!sameState && (executed.length || pendingHuman.length)) {
+    recorded = appendAutoLog(root, { at, key, trigger, level: a.level, score: a.score, executed, pendingHuman, skipped, pendingKey });
+  }
+  return { ok: true, at, level: a.level, score: a.score, trigger, key, executed, pendingHuman, skipped, released: [], recorded, limit: max };
+}
+
+/**
+ * 一步到位：读盘 → 评估 → 只执行 low。挂在 10 分钟循环里（每次最多一个动作）。
+ */
+export function assessAndApplyLowRisk(wsRoot, opts = {}) {
+  const now = Number(opts.now) || Date.now();
+  const assessment = assessWorkspace(wsRoot, { now, contextWindow: opts.contextWindow });
+  const result = applyLowRiskOnly({ ...opts, wsRoot, assessment, now });
+  return { assessment, result };
+}
+
+/**
+ * 一步到位：读盘 → 评估 → 执行全部动作（含 medium/high）。给"有人点一下"的 POST 用。
+ * 查询接口是只读的，不调这个。
  */
 export function assessAndApply(wsRoot, { now = Date.now(), by = "degradation", contextWindow = 0 } = {}) {
   const assessment = assessWorkspace(wsRoot, { now, contextWindow });
@@ -760,6 +1030,17 @@ export function degradationSnapshot(wsRoot, { now = Date.now(), limit = 20, cont
     at: Number(now),
     assessment,
     gate: readPauseGate(wsRoot),
+    // 看板要的：现在挂着哪些闸、谁挂的、什么时候挂的
+    activeActions: activeActions(wsRoot),
+    // 自动执行的边界也回给前端，别让人以为"系统什么都会自己动"
+    auto: {
+      risk: AUTO_RISK,
+      humanOnly: [...HUMAN_ONLY_ACTIONS],
+      actionCooldownMs: AUTO_ACTION_COOLDOWN_MS,
+      gateBy: GATE_BY_AUTO,
+    },
+    // 定时任务静默失败（与 reasons 里那几条同源）
+    scheduled: assessment.scheduled || null,
     actions: readActionLog(wsRoot, { limit }),
     thresholds: THRESHOLDS,
     ladder: Object.entries(ACTIONS).map(([action, def]) => ({ action, ...def })),

@@ -368,7 +368,11 @@ import { channelStatus, saveToken, clearToken, sendTest, openConsole } from "./e
 // 2026-10-27：向外发的统一口子（降级链 + 投递账本）
 import { sendOut, recentDeliveries, outboundLine } from "./engine/outbound.mjs";
 // 2026-11-09：退化自评 + 自救阶梯 + 全局暂停闸（外发/主动触达/媒体入口都会读它写的闸）
-import { degradationSnapshot, assessAndApply, setPauseGate, readPauseGate } from "./engine/degradation.mjs";
+// applyLowRiskOnly：只自动执行 low 档动作（10 分钟循环里跑，每轮最多一个）
+import { degradationSnapshot, assessAndApply, setPauseGate, readPauseGate, applyLowRiskOnly } from "./engine/degradation.mjs";
+// 2026-11-09：定时任务双模式 + 静默失败告警（连续 3 次没产出 → 定时任务告警.jsonl + /api/degradation）
+// 规范与审计名单在 engine/scheduled-policy.mjs（纯函数）；server 只用到心跳记录。
+import { recordJobRun } from "./engine/scheduled-policy.mjs";
 // 2026-10-27：向内管——外部事件入口
 import { recvEvent, listEvents, inboundLine } from "./engine/inbound.mjs";
 // 2026-10-28：承诺到点自动干活
@@ -383,7 +387,7 @@ import { claimTask, releaseClaim, renewClaim, listClaims, reapExpired } from "./
 // 2026-10-27：agent 之间的留言（Agensh 第二件套）
 import { postMessage, inboxFor, markRead, recentMessages } from "./engine/agent-mailbox.mjs";
 // 2026-10-27：失败台账（共享"这条路走不通"）
-import { recordFailure, recallFailures, recentFailures, failureLine } from "./engine/failure-ledger.mjs";
+import { recordFailure, recallFailures, recentFailures, failureLine, failureAttribution } from "./engine/failure-ledger.mjs";
 import { docChangesLine } from "./engine/doc-diff.mjs";
 // 2026-10-25：后台作业状态机（做完没汇报、坏在哪一步）
 import { collectJobs, summarizeJobs, syncReports, pendingReports, ackReports, autoAckByText, urgentReports } from "./engine/job-state.mjs";
@@ -4248,6 +4252,27 @@ setInterval(() => {
   } catch {}
   // 2026-11-02：脑区自调（内部 12h 冷却 + 边界 + 审计）
   try { const r = applyNudges(WS_ROOT); if (r?.applied?.length) console.log(`[brain] 自调：${r.applied.map((x) => `${x.id}${x.delta > 0 ? "+" : ""}${x.delta}`).join(" ")}`) } catch {}
+  // 2026-11-09：退化自评的 low 档动作**自动执行**——挂在同一个 10 分钟循环里，
+  // 每轮最多一个动作（limit:1），同一条动作 30 分钟内不重复；text-only(medium) 与
+  // global-pause(high) 永远不会走到这里（applyLowRiskOnly 里直接跳过记 requires-human）。
+  // 顺带把这一拍记成心跳：连续 3 次没产出 → 定时任务告警.jsonl + /api/degradation 的 reasons。
+  try {
+    const deg = applyLowRiskOnly({ wsRoot: WS_ROOT, now: Date.now(), contextWindow: currentContextWindow(), limit: 1 });
+    try {
+      recordJobRun(WS_ROOT, {
+        jobId: "degradation-auto", at: Date.now(), produced: deg?.ok === true,
+        note: deg?.ok === true
+          ? `level=${deg.level} 执行 ${deg.executed.length} / 待人工 ${deg.pendingHuman.length}`
+          : String(deg?.error || "返回不正常"),
+      });
+    } catch {}
+    if (deg?.executed?.length) {
+      console.log(`[degradation] 自动执行 ${deg.executed.map((x) => `${x.action}(${x.effect})`).join("、")}${deg.pendingHuman.length ? `；待人工确认 ${deg.pendingHuman.map((x) => x.action).join("、")}` : ""}`);
+    }
+  } catch (e) {
+    try { recordJobRun(WS_ROOT, { jobId: "degradation-auto", at: Date.now(), produced: false, note: String(e?.message || e).slice(0, 120) }); } catch {}
+    console.log(`[degradation] 自动执行失败（不阻塞循环）：${String(e?.message || e).slice(0, 120)}`);
+  }
 }, withJitter(10 * 60 * 1000, { ratio: 0.08 })).unref?.();
 setInterval(() => { runWithInitiator("scheduler", () => runCompanionNudge({ store: companionStore, notifier, compose: composeNoticeFor, persona: personaName(WS_ROOT), cooldownMs: nudgeCooldownMs(brainWeights()), wsRoot: WS_ROOT, budgetRemaining: readBudget(WS_ROOT, new Date().toISOString().slice(0, 10), { cap: 3 }).remaining }).catch(() => {})) }, 5 * 60 * 1000).unref?.();
 } catch {}
@@ -5247,6 +5272,13 @@ const API_ROUTES = [
       const b = await readBody(req, 8e3);
       const out = recordFailure({ wsRoot: WS_ROOT, agent: b?.agent, area: b?.area, attempt: b?.attempt, why: b?.why, files: b?.files, source: b?.source });
       return json(res, out.ok ? 200 : 400, out);
+    } catch (e) { return json(res, 500, { ok: false, error: String(e?.message || e).slice(0, 160) }); }
+  }],
+  // 2026-11-09：失败归因看板——四类分布 + 最近条目 + 改进队列（只有 skill_* 两类是改进信号）
+  ["GET", "/api/failures/attribution", (res, req, url) => {
+    try {
+      const limit = Math.min(100, Math.max(1, Number(url.searchParams.get('limit')) || 20));
+      return json(res, 200, failureAttribution({ wsRoot: WS_ROOT, limit }));
     } catch (e) { return json(res, 500, { ok: false, error: String(e?.message || e).slice(0, 160) }); }
   }],
   ["GET", "/api/agent/msg", (res, req, url) => {
