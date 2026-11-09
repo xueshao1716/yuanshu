@@ -59,12 +59,13 @@ describe("轮末接线", () => {
 });
 
 describe("prompt 注入一行", () => {
-  test("yuanshu-emotion 把基因摘要拼在情绪段，且只取一行", () => {
+  test("yuanshu-emotion 把人格漂移摘要拼在情绪段，且只取一行", () => {
     const src = read("engine/yuanshu-emotion.mjs");
     assert.ok(src.includes("genomePromptLine"));
     assert.ok(src.includes("replace(/\\s*\\n\\s*/g"));
     assert.ok(src.includes("relationshipLine(), genomeLine()"));
-    assert.ok(src.includes("基因：|基因告警："), "去重判断要认得基因行");
+    assert.ok(src.includes("人格漂移：|人格漂移告警："), "去重判断要认得人格漂移行");
+    assert.ok(src.includes("基因：|基因告警："), "升级前已注入的旧前缀也要认，免得新旧两行并排出现");
   });
 
   test("端到端：正常状态注入且只出现一次；超阈值时变成告警", async () => {
@@ -77,8 +78,11 @@ describe("prompt 注入一行", () => {
     genome.init(root1);
     const h1 = beginYuanshuEmotion("wire-ok", "你好", []);
     const text1 = h1.filter((m) => m.role === "system").map((m) => String(m.content || "")).join("\n");
-    assert.match(text1, /基因：core_identity 漂移 0\.00\/0\.15（正常）/);
-    assert.equal((text1.match(/基因：/g) || []).length, 1, "prompt 里只能有一行基因摘要");
+    assert.match(text1, /人格漂移：core_identity 漂移 0\.00\/0\.15（正常）/);
+    assert.equal((text1.match(/人格漂移：/g) || []).length, 1, "prompt 里只能有一行人格漂移摘要");
+    // 两套层次在同一块里各说各的：旧层说"我倾向于怎样"，新层说"我偏离基线多少"
+    assert.ok(text1.includes("性格倾向："), "旧层（gene.mjs 的 11 基因）要用「性格倾向」措辞");
+    assert.equal(/(^|\n)基因：/.test(text1), false, "新层摘要不能再以「基因：」开头");
 
     const root2 = tmpRoot();
     fs.mkdirSync(path.join(root2, "记忆", "运行时"), { recursive: true });
@@ -97,7 +101,7 @@ describe("prompt 注入一行", () => {
     genome.init(root2);
     const h2 = beginYuanshuEmotion("wire-over", "你好", []);
     const text2 = h2.filter((m) => m.role === "system").map((m) => String(m.content || "")).join("\n");
-    assert.match(text2, /基因告警：核心认同簇（core_identity）偏离 0\.17\/0\.15/);
+    assert.match(text2, /人格漂移告警：核心认同簇（core_identity）偏离 0\.17\/0\.15/);
     assert.match(text2, /建议复看最近经历/);
   });
 });
@@ -115,7 +119,7 @@ describe("genome_status 工具", () => {
     assert.equal(schema.function.parameters.type, "object");
   });
 
-  test("执行 genome_status 返回 10 基因 / 4 信号 / 4 簇，不写文件", async () => {
+  test("执行 genome_status 返回 10 项表达值 / 4 信号 / 4 簇，不写文件", async () => {
     const { createUnifiedToolExecutor } = await import("../../engine/tools/unified-tools.mjs");
     const genome = await import("../../engine/genome.mjs");
     const root = tmpRoot();
@@ -124,9 +128,9 @@ describe("genome_status 工具", () => {
     const out = await execute("genome_status", {}, {});
     assert.notEqual(out.isError, true);
     const parsed = JSON.parse(out.text);
-    assert.equal(Object.keys(parsed["基因"]).length, 10);
+    assert.equal(Object.keys(parsed["人格漂移"]["表达值"]).length, 10);
     assert.equal(Object.keys(parsed["信号"]).length, 4);
-    assert.equal(Object.keys(parsed["簇"]).length, 4);
+    assert.equal(Object.keys(parsed["人格漂移"]["簇"]).length, 4);
     assert.equal(parsed["世代"], 0);
     assert.equal(fs.existsSync(path.join(root, "记忆", "运行时", "基因.json")), false, "只读工具不得顺手落盘");
   });

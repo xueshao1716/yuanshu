@@ -206,10 +206,10 @@ export function promptLine(state = null) {
     const f2 = (n) => Number(n).toFixed(2);
     if (!over.length) {
       const w = d.worst;
-      return `基因：${w.key} 漂移 ${f2(w.drift)}/${f2(w.threshold)}（正常）`;
+      return `人格漂移：${w.key} 漂移 ${f2(w.drift)}/${f2(w.threshold)}（正常）`;
     }
     const parts = over.map((c) => `${c.label}簇（${c.key}）偏离 ${f2(c.drift)}/${f2(c.threshold)}`);
-    return `基因告警：${parts.join("、")}，建议复看最近经历。`;
+    return `人格漂移告警：${parts.join("、")}，建议复看最近经历。`;
   } catch { return ""; }
 }
 
@@ -304,20 +304,26 @@ export function status({ emotions = [], proactiveActions, reflectionCount } = {}
   };
 }
 
-/** genome_status 的模型可读文本：中文键 + JSON。 */
+/**
+ * genome_status 的模型可读文本：中文键 + JSON。
+ * 措辞统一叫「人格漂移」：这是**只读的漂移监控**（偏离基线多少），
+ * 与 gene.mjs 那套可改的「性格倾向」是两回事，别让模型把两段读成两套自我描述。
+ */
 export function statusText(options = {}) {
   const s = status(options);
   return JSON.stringify({
     "世代": s.generation,
     "更新时间": s.updatedAt,
-    "基因": s.genes,
-    "基因标签": s.labels,
-    "上下界": s.bounds,
+    "人格漂移": {
+      "表达值": s.genes,
+      "标签": s.labels,
+      "上下界": s.bounds,
+      "簇": s.clusters,
+      "整体正常": s.withinAll,
+      "一行摘要": s.prompt,
+    },
     "信号": s.signals,
     "信号标签": s.signalLabels,
-    "簇": s.clusters,
-    "整体正常": s.withinAll,
-    "一行摘要": s.prompt,
     "体检告警": s.warnings,
     "文件": s.file,
   }, null, 1);

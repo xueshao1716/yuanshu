@@ -287,7 +287,7 @@ describe("prompt 注入：只有一行", () => {
   test("正常时一行，格式与示例一致", () => {
     fresh();
     const line = promptLine();
-    assert.equal(line, "基因：core_identity 漂移 0.00/0.15（正常）");
+    assert.equal(line, "人格漂移：core_identity 漂移 0.00/0.15（正常）");
     assert.equal(line.includes("\n"), false);
   });
 
@@ -297,7 +297,7 @@ describe("prompt 注入：只有一行", () => {
       baseline: { ...DEFAULT_BASELINE },
     });
     const line = promptLine();
-    assert.equal(line, "基因告警：认知簇（cognitive）偏离 0.45/0.20，建议复看最近经历。");
+    assert.equal(line, "人格漂移告警：认知簇（cognitive）偏离 0.45/0.20，建议复看最近经历。");
     assert.equal(line.includes("\n"), false);
   });
 
@@ -315,7 +315,7 @@ describe("prompt 注入：只有一行", () => {
 });
 
 describe("genome_status：只读状态", () => {
-  test("返回 10 基因、4 信号、4 簇、世代号与一行摘要", () => {
+  test("返回 10 项表达值、4 信号、4 簇、世代号与一行摘要", () => {
     fresh();
     const s = status();
     assert.equal(Object.keys(s.genes).length, 10);
@@ -326,11 +326,13 @@ describe("genome_status：只读状态", () => {
     assert.equal(s.clusters.core_identity.threshold, 0.15);
     assert.equal(typeof s.prompt, "string");
     assert.ok(Array.isArray(s.warnings));
-    const text = statusText();
-    const parsed = JSON.parse(text);
-    assert.equal(Object.keys(parsed["基因"]).length, 10);
-    assert.equal(Object.keys(parsed["簇"]).length, 4);
+    const parsed = JSON.parse(statusText());
+    // 工具输出统一叫「人格漂移」，不再冒出「基因」这一层叫法
+    assert.equal(Object.keys(parsed["人格漂移"]["表达值"]).length, 10);
+    assert.equal(Object.keys(parsed["人格漂移"]["簇"]).length, 4);
     assert.equal(parsed["世代"], 0);
+    assert.equal(parsed["基因"], undefined);
+    assert.match(parsed["人格漂移"]["一行摘要"], /^人格漂移：/);
   });
 });
 

@@ -67,7 +67,7 @@ export function driftWarnings(state = null, context = {}) {
       );
     }
   } else {
-    skipped.push("（跳过）基因漂移：没有基因值");
+    skipped.push("（跳过）人格漂移：没有表达值");
   }
 
   // ② 自主性下限

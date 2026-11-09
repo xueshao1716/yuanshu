@@ -20,7 +20,9 @@ function relationshipLine() {
   } catch { return ""; }
 }
 
-// 基因一行：正常报最接近阈值的簇；超阈值才告警。读不到就不注入，绝不影响开轮。
+// 人格漂移一行：正常报最接近阈值的簇；超阈值才告警。读不到就不注入，绝不影响开轮。
+// 措辞用「人格漂移」而不是「基因」：这一层只读、只说明"偏离基线多少"，
+// 和 gene.mjs 那套可改的「性格倾向」（11 基因 aibody 层）不是同一种自我描述。
 function genomeLine() {
   try {
     const line = genomePromptLine();
@@ -55,7 +57,9 @@ export function beginYuanshuEmotion(sessionId, message, history = [], context = 
   // 关系摘要 + 基因漂移放在情绪段同一块 system 里（不是另起一段）：慢变量贴着快变量读，语气才连贯。
   const content = [prompt, relationshipLine(), genomeLine()].filter(Boolean).join("\n");
   if (!content) return history;
-  if (history.some((m) => m?.role === "system" && /情绪语境|关系：信任|基因：|基因告警：/.test(String(m.content || "")))) return history;
+  // 去重：历史里已经有同一块就不再插。旧前缀「基因：」一并认——
+  // 升级前已注入过的会话历史里还留着那一行，只认新前缀会再插一段，两套措辞就并排出现了。
+  if (history.some((m) => m?.role === "system" && /情绪语境|关系：信任|人格漂移：|人格漂移告警：|基因：|基因告警：/.test(String(m.content || "")))) return history;
   return [{ role: "system", content }, ...history];
 }
 

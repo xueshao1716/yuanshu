@@ -164,8 +164,11 @@ describe("② 同事件边际递减（先递减，再截断）", () => {
   test("截断用的是递减后的量，且三维按同一比例（保方向）", () => {
     init(tmpRoot());
     clearEmotion("dec-order");
-    updateEmotion("dec-order", "普通消息");
-    const t = Date.now();
+    // 全程用固定时钟 T0（15:00）：6–11 点节律会 +0.02V，起点变 0.52，
+    // 三轮预算（0.2V）走完正好越过 0.70 软压缩线，第 4 次的 requestedDelta 会被压掉 20%，
+    // 这条测的是"递减+截断"的比例关系，不该被时钟影响。
+    updateEmotion("dec-order", "普通消息", { now: T0 });
+    const t = T0;
     const rs = [];
     for (let i = 0; i < 4; i++) rs.push(applyEvent("success", { sessionId: "dec-order", intensity: 1, now: t + i }));
 

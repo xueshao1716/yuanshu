@@ -44,11 +44,16 @@ test("同一句 10 秒内再开轮不能把关键词加两遍（pi 兑底元枢�
 test("handleUnifiedChat 必须自己开轮收轮情绪，不能指望 handleChat", () => {
   const src = readFileSync(join(ROOT, "engine", "unified-chat.mjs"), "utf8");
   const start = src.indexOf("export async function handleUnifiedChat");
-  const fn = src.slice(start, start + 14000);
+  // 不再用写死的窗口长度：GRN 轮末接线（2026-11-09）把函数撑过了 14000 字，
+  // 旧窗口会切在 `await unifiedChat` 之前，把"顺序"断言变成"没找到"。
+  // 切到本函数结束（下一个顶级 export 之前）才是这条测试的本意。
+  const next = src.indexOf("\nexport {", start + 1);
+  const fn = src.slice(start, next > start ? next : src.length);
   assert.ok(fn.includes("beginYuanshuEmotion"), "开轮要接 beginYuanshuEmotion");
   assert.ok(fn.includes("endYuanshuEmotion"), "收轮要接 endYuanshuEmotion");
   const beginAt = fn.indexOf("beginYuanshuEmotion");
   const chatAt = fn.indexOf("await unifiedChat");
+  assert.ok(chatAt > 0, "切片里要能找到 await unifiedChat");
   assert.ok(beginAt >= 0 && beginAt < chatAt, "情绪指令必须在模型开跑之前注入");
 });
 
