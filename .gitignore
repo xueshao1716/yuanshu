@@ -94,3 +94,7 @@ models/
 
 # 可选安装：语音转文字依赖（约 269MB，不进仓库）
 engine/py/vendor/
+
+# 2026-11-09 runtime memory is not source: it changes every turn and blocks self-verify
+/记忆/自我.md
+/记忆/运行时/
