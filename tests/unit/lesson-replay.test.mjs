@@ -346,7 +346,8 @@ test('接线：yuanshu-emotion 把复习接进同一块 system，emotion.init �
   const read = (...p) => fs.readFileSync(path.join(import.meta.dirname, '..', '..', ...p), 'utf8');
   const src = read('engine', 'yuanshu-emotion.mjs');
   assert.match(src, /import \{ replayPromptLine \} from "\.\/lesson-replay\.mjs"/);
-  assert.match(src, /antiPatternLine\(msg, context\), already \? "" : replayLine\(history\)/, '和反模式同一块，顺序在反模式之后');
+  // 复习行仍在反模式之后、同一 system 块里；中间可插别的行（2026-11-09 插了正向账本），顺序约束不变。
+  assert.match(src, /antiPatternLine\(msg, context\)[\s\S]{0,200}?replayLine\(history\)/, '和反模式同一块，顺序在反模式之后');
   assert.match(src, /const already = alreadyInjected\(history\)/, '先判去重，再取有落盘副作用的复习行');
   const emo = read('engine', 'emotion.mjs');
   assert.match(emo, /initLessonReplay\(wsRoot\)/);

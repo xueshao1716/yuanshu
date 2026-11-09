@@ -27,11 +27,12 @@ export const CAPABILITIES = [
     id: "relationship",
     name: "关系层",
     files: ["engine/relationship.mjs"],
-    exports: ["recordInteraction", "positiveTrustGain"],
+    exports: ["recordInteraction", "positiveTrustGain", "current"],
     tests: ["tests/unit/relationship.test.mjs"],
-    // recordInteraction：unified-chat 收轮时按本轮正负记账
-    callSites: ["engine/unified-chat.mjs"],
-    switches: [], // 没有 API/环境变量/闸：关系只进 prompt，不给外面读
+    // recordInteraction：unified-chat 收轮时按本轮正负记账；current：GET /api/relationship 只读查状态
+    callSites: ["engine/unified-chat.mjs", "server.mjs"],
+    // 只读路由（2026-11-10）：状态/阶段/最近 20 条备注能查；没有可写开关（写开关要人批准）
+    switches: [{ kind: "route", path: "/api/relationship" }],
   },
 
   // ── 基因与成长 ──
@@ -61,12 +62,14 @@ export const CAPABILITIES = [
     id: "anti-patterns",
     name: "反模式台账",
     files: ["engine/anti-patterns.mjs"],
-    exports: ["antiPatternPromptLine", "matchAntiPatterns", "runAntiPatternCheck"],
+    exports: ["antiPatternPromptLine", "matchAntiPatterns", "runAntiPatternCheck", "loadAntiPatterns"],
     tests: ["tests/unit/anti-patterns.test.mjs"],
-    // antiPatternPromptLine：yuanshu-emotion 开轮注入；runAntiPatternCheck：server 的 anti_pattern_check 工具
+    // antiPatternPromptLine：yuanshu-emotion 开轮注入；runAntiPatternCheck：server 的 anti_pattern_check 工具；
+    // loadAntiPatterns：GET /api/anti-patterns 只读查台账
     callSites: ["engine/yuanshu-emotion.mjs", "server.mjs"],
-    switches: [], // 只有模型工具，没有 API 路由/环境变量
-    note: "可查状态只有模型工具 anti_pattern_check；没有 API 路由，也没有能关掉它的开关。",
+    // 只读路由（2026-11-10）：台账 + 分级计数能查；没有能关掉它的开关，更没有写开关
+    switches: [{ kind: "route", path: "/api/anti-patterns" }],
+    note: "可查状态 = 模型工具 anti_pattern_check + 只读路由 /api/anti-patterns；只有读口，没有可写开关。",
   },
   {
     id: "lesson-replay",
@@ -74,18 +77,21 @@ export const CAPABILITIES = [
     files: ["engine/lesson-replay.mjs"],
     exports: ["replayPromptLine", "selectDueLessons", "markReplayed"],
     tests: ["tests/unit/lesson-replay.test.mjs"],
-    callSites: ["engine/yuanshu-emotion.mjs"],
-    switches: [],
+    // replayPromptLine：yuanshu-emotion 开轮注入；selectDueLessons：GET /api/lesson-replay 只读算"今天该念哪几条"
+    callSites: ["engine/yuanshu-emotion.mjs", "server.mjs"],
+    // 只读路由（2026-11-10）：复习状态 + 到期清单能查；没有可写开关（markReplayed 只在注入时被调）
+    switches: [{ kind: "route", path: "/api/lesson-replay" }],
   },
   {
     id: "praise-ledger",
     name: "正向账本",
     files: ["engine/praise-ledger.mjs"],
-    exports: ["praisePromptLine", "recordFromTurn", "judgePraise"],
+    exports: ["praisePromptLine", "recordFromTurn", "judgePraise", "topPositive"],
     tests: ["tests/unit/praise-ledger.test.mjs"],
-    // praisePromptLine：开轮注入；recordFromTurn：unified-chat 收轮按客观信号记账
-    callSites: ["engine/yuanshu-emotion.mjs", "engine/unified-chat.mjs"],
-    switches: [],
+    // praisePromptLine：开轮注入；recordFromTurn：unified-chat 收轮按客观信号记账；topPositive：只读路由取权重最高的几条
+    callSites: ["engine/yuanshu-emotion.mjs", "engine/unified-chat.mjs", "server.mjs"],
+    // 只读路由（2026-11-10）：账本/正负比/注入状态能查；没有可写开关（记账仍由收轮那条路做）
+    switches: [{ kind: "route", path: "/api/praise-ledger" }],
   },
 
   // ── 退化自评与自救 ──
@@ -122,11 +128,12 @@ export const CAPABILITIES = [
     files: ["engine/scheduled-policy.mjs"],
     exports: ["planJob", "auditJobs", "classifyJob"],
     tests: ["tests/unit/scheduled-policy.test.mjs"],
-    // 故意只填这两个"双模式判定"的入口：planJob/auditJobs 在运行时到底有没有人调，正是要判的
+    // auditJobs/planJob：server 的 10 分钟循环里只读跑一次 + GET /api/scheduled/audit 看同一份快照
     callSites: ["server.mjs", "engine/degradation.mjs"],
-    switches: [],
+    // 只读路由（2026-11-10）：分类/计划/违规能查；没有可写开关（本轮只做"看得见"）
+    switches: [{ kind: "route", path: "/api/scheduled/audit" }],
     note: "同模块另一半已接：recordJobRun 在 server 的 10 分钟循环里落心跳，readScheduledHealth 被 degradation 读；"
-      + "但双模式判定 planJob/auditJobs 没有任何外部调用点（auditJobs 只导出、没人调）。",
+      + "双模式判定 planJob/auditJobs 现在由 10 分钟循环只读调用，分类漂移打一行日志并落 记忆/运行时/定时任务审计.json，作业行为未改。",
   },
   {
     id: "failure-attribution",
@@ -157,7 +164,9 @@ export const CAPABILITIES = [
     exports: ["VERIFY_CHECK_TOOL", "executeVerifyCheck"],
     tests: ["tests/unit/verify-check.test.mjs"],
     callSites: ["server.mjs"], // 工具表里注册，executeVerifyCheck 真被包一层
-    switches: [], // 常开工具：没有关掉它的开关（允许根写死在 server 的 roots 里）
+    // 只读状态口（2026-11-10）：GET /api/tools/verify-check 报边界与允许口径
+    switches: [{ kind: "route", path: "/api/tools/verify-check" }],
+    note: "常开工具：只有只读状态路由，没有可写开关（允许根写死在 server 的 roots 里）；结果不落盘。",
   },
   {
     id: "self-change-admit",
@@ -197,10 +206,11 @@ export const CAPABILITIES = [
     files: ["engine/vitality.mjs"],
     exports: ["auditVitality", "auditOne", "summarize"],
     tests: ["tests/unit/vitality.test.mjs"],
-    // 只有 CLI（scripts/vitality.mjs）在调；服务里没有路由、没有定时任务
-    callSites: ["scripts/vitality.mjs"],
-    switches: [], // CLI 的 --strict/--root 是报告选项，不是这套机制的开关
-    note: "盘面体检只有 CLI 在调，服务里没有路由、也没有定时任务跑它——没人手动跑就等于没有体检。",
+    // CLI（scripts/vitality.mjs）+ server 的 10 分钟循环里每 6 小时跑一次（落 记忆/运行时/体检.json）
+    callSites: ["scripts/vitality.mjs", "server.mjs"],
+    // 只读路由（2026-11-10）：GET /api/vitality 随时看最新体检；CLI 的 --strict/--root 仍只是报告选项
+    switches: [{ kind: "route", path: "/api/vitality" }],
+    note: "CLI 之外接了运行时：10 分钟循环里每 6 小时只读体检一次，有 never/stale 只打一行日志（不推送）。",
   },
   {
     id: "import-preflight",

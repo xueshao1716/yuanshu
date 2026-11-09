@@ -331,10 +331,23 @@ import { WATCH_TOOLS, createWatchToolExecutors } from "./engine/tools/watch-tool
 import { WATCHDOG_READ_TOOL, createWatchdogReadExecutors } from "./engine/tools/watchdog-read.mjs";
 // 2026-11-09：断言闸门（verify-gate）——报数之前先把话落成断言，逐条比对事实。
 // 交付门管"改动的验证覆盖"，这里管"话里的数字和事实"（存在性/数量/路径/大小/测试结果）。
-import { VERIFY_CHECK_TOOL, executeVerifyCheck } from "./engine/tools/verify-check.mjs";
+import { VERIFY_CHECK_TOOL, VERIFY_CHECK_STATUS, executeVerifyCheck } from "./engine/tools/verify-check.mjs";
 // 2026-11-09：反模式台账（移植林心语 anti_patterns.json）。prompt 只注入最相关 2 条，
 // 这个工具是她主动把台账取回来对一遍的入口；纯读，不拦任何动作。
-import { ANTI_PATTERN_CHECK_TOOL, runAntiPatternCheck } from "./engine/anti-patterns.mjs";
+// 2026-11-10：装配分级补只读观测口——loadAntiPatterns/statsOf 给 GET /api/anti-patterns 用。
+import {
+  ANTI_PATTERN_CHECK_TOOL, runAntiPatternCheck, loadAntiPatterns, statsOf as antiPatternStats,
+  LEDGER_REL as ANTI_PATTERN_LEDGER_REL, HIT_REL as ANTI_PATTERN_HIT_REL, SEVERITIES as ANTI_PATTERN_SEVERITIES,
+} from "./engine/anti-patterns.mjs";
+// 2026-11-10：装配分级——关系层 / 教训复习 / 正向账本 / 产出新鲜度的只读状态口。
+// 全部只调读函数；写开关要人批准，本轮不做（下面这些路由一个写操作都没有）。
+import { current as relationshipCurrent, summary as relationshipSummary, stage as relationshipStage } from "./engine/relationship.mjs";
+import {
+  readReplayState, selectDueLessons, lessonId,
+  REPLAY_STATE_REL, REPLAY_LOG_REL, DEFAULT_MAX_PER_DAY as REPLAY_MAX_PER_DAY,
+} from "./engine/lesson-replay.mjs";
+import { loadLedger as loadPraiseLedger, stats as praiseStats, readState as readPraiseState, topPositive } from "./engine/praise-ledger.mjs";
+import { auditVitality, summarize as summarizeVitality } from "./engine/vitality.mjs";
 import { createTurnProfiler } from "./engine/turn-profile.mjs";
 import { createMemWatch } from "./engine/mem-watch.mjs";
 import { installTimerWatch } from './engine/timer-watch.mjs';
@@ -371,8 +384,10 @@ import { sendOut, recentDeliveries, outboundLine } from "./engine/outbound.mjs";
 // applyLowRiskOnly：只自动执行 low 档动作（10 分钟循环里跑，每轮最多一个）
 import { degradationSnapshot, assessAndApply, setPauseGate, readPauseGate, applyLowRiskOnly } from "./engine/degradation.mjs";
 // 2026-11-09：定时任务双模式 + 静默失败告警（连续 3 次没产出 → 定时任务告警.jsonl + /api/degradation）
-// 规范与审计名单在 engine/scheduled-policy.mjs（纯函数）；server 只用到心跳记录。
-import { recordJobRun } from "./engine/scheduled-policy.mjs";
+// 规范与审计名单在 engine/scheduled-policy.mjs（纯函数）。
+// 2026-11-10：auditJobs/planJob 也接上了——10 分钟循环里只读审计一次（不执行任何作业），
+// GET /api/scheduled/audit 看同一份快照；作业的实际行为一点没改。
+import { recordJobRun, auditJobs, planJob, JOB_INVENTORY } from "./engine/scheduled-policy.mjs";
 // 2026-10-27：向内管——外部事件入口
 import { recvEvent, listEvents, inboundLine } from "./engine/inbound.mjs";
 // 2026-10-28：承诺到点自动干活
@@ -420,7 +435,7 @@ import { readReportLedger } from "./engine/telemetry.mjs";
 import { setEnvWorkspace } from "./engine/runtime-env.mjs";
 import { loadSelfPolicy, selfTools, recordSelfAction, withinDailyLimit } from "./engine/self-agency.mjs";
 import { composeTimeTaskMessages, timeTaskReadTools, recordReflectionActions, parseReflectionActions, yesterdayYmd } from "./engine/time-task-run.mjs";
-import { promoteReflectionLessons, buildLessonProposal } from "./engine/lesson-promotion.mjs";
+import { promoteReflectionLessons, buildLessonProposal, loadLessonLedger } from "./engine/lesson-promotion.mjs";
 import { buildLastNight } from "./engine/last-night.mjs";
 import { planReflectionExecution, recordActionAttempt, summarizeExecution, runOnTheSpotFix, executeReflectionAction, REFLECTION_EXEC_BUDGET_MS } from "./engine/reflection-exec.mjs";
 import { loadEpisodes, dream, writeDreamLog, dreamPaths, currentWeights, promoteWeights, resetWeights, recordSkillChoice } from "./engine/dream.mjs";
@@ -4181,6 +4196,99 @@ async function maybeMorningBrief(now = new Date(), { force = false } = {}) {
   writeBriefState({ ...st, morning: day });
   return { ok: true, text: made.text, source: made.source };
 }
+
+// ── 装配分级补的两件只读审计（2026-11-10）────────────────────────────────────
+// 为什么挂进循环：auditJobs 只导出没人调＝规范写了却没人拿它校对；新鲜度体检只有 CLI 在跑＝
+// 没人手动跑就等于没有体检。两件都**只读**：不执行任何作业、不改任何能力的行为，
+// 出问题只打一行日志，不推送、不打扰。
+
+const SCHEDULED_AUDIT_REL = path.join("记忆", "运行时", "定时任务审计.json");
+const VITALITY_AUDIT_REL = path.join("记忆", "运行时", "体检.json");
+const VITALITY_EVERY_MS = 6 * 60 * 60 * 1000; // 低频：6 小时一次（新鲜度阈值是天级，跑太勤只是浪费盘）
+let lastScheduledKinds = null; // 上一拍的分类；只在内存里，重启后从新的一拍重新起算
+let lastVitalityAt = 0;
+
+/**
+ * 双模式审计快照（纯读，路由直接用）。
+ * auditJobs() 的统计 + 每个作业的分类与理由 + planJob() 的两步计划。
+ * 注意：planJob 只是**算计划**，不执行——这里没有任何东西会让作业真跑起来。
+ */
+function scheduledAuditSnapshot({ now = Date.now() } = {}) {
+  const audit = auditJobs();
+  const plans = new Map(JOB_INVENTORY.map((job) => [String(job?.id || ""), planJob(job)]));
+  const jobs = audit.rows.map((row) => {
+    const plan = plans.get(row.id) || null;
+    return {
+      ...row,
+      planOk: plan ? plan.ok === true : false,
+      plan: plan
+        ? { ok: plan.ok === true, steps: plan.steps, violation: plan.violation || null, blocked: plan.blocked || null }
+        : null,
+    };
+  });
+  return {
+    at: now,
+    ok: audit.ok === true,
+    total: audit.total,
+    counts: {
+      deterministic: audit.deterministicCount,
+      needsJudgement: audit.needsJudgementCount,
+      violations: (audit.violations || []).length,
+    },
+    deterministicJobs: audit.noModelNeeded,
+    needsJudgementJobs: audit.needsJudgement,
+    violations: audit.violations,
+    jobs,
+  };
+}
+
+/**
+ * 10 分钟循环里跑一次：只读审计 + 分类漂移检查 + 落一份快照。
+ * 连续两拍同一作业分类不一致 → console.log 一行（防规范悄悄漂：改了 classify 规则没人发现）。
+ * @returns {Array<{id:string, from:string, to:string}>} 这一拍发现的漂移项
+ */
+function runScheduledAuditTick({ now = Date.now() } = {}) {
+  const snapshot = scheduledAuditSnapshot({ now });
+  const kinds = Object.fromEntries(snapshot.jobs.map((j) => [j.id, j.kind]));
+  const drift = lastScheduledKinds
+    ? snapshot.jobs
+      .filter((j) => lastScheduledKinds[j.id] && lastScheduledKinds[j.id] !== j.kind)
+      .map((j) => ({ id: j.id, from: lastScheduledKinds[j.id], to: j.kind }))
+    : [];
+  lastScheduledKinds = kinds;
+  writeJsonFile(path.join(WS_ROOT, SCHEDULED_AUDIT_REL), { ...snapshot, drift });
+  if (drift.length) {
+    console.log(`[scheduled] 作业分类漂移 ${drift.length} 项：${drift.map((d) => `${d.id} ${d.from}→${d.to}`).join("；")}（规范可能改过，先看 engine/scheduled-policy.mjs）`);
+  }
+  return drift;
+}
+
+/**
+ * 新鲜度体检：6 小时一次（低频）。有 stale/never 只打一行日志，不推送、不打扰。
+ * 结果落 记忆/运行时/体检.json，GET /api/vitality 可以随时看最新一次。
+ */
+function runVitalityAuditTick({ now = Date.now(), force = false } = {}) {
+  if (!force && now - lastVitalityAt < VITALITY_EVERY_MS) return null;
+  lastVitalityAt = now;
+  const audit = auditVitality({ wsRoot: WS_ROOT, now });
+  const verdict = summarizeVitality(audit);
+  writeJsonFile(path.join(WS_ROOT, VITALITY_AUDIT_REL), {
+    at: now,
+    line: verdict.line,
+    counts: verdict.counts,
+    healthy: verdict.ok,
+    needsAttention: verdict.needsAttention,
+    issues: verdict.issues,
+    unknown: verdict.unknown,
+    flags: verdict.flags,
+  });
+  if (verdict.needsAttention > 0) {
+    const names = verdict.issues.slice(0, 3).map((i) => `${i.name}(${i.label})`).join("、");
+    console.log(`[vitality] ${verdict.counts.stale} 停更 / ${verdict.counts.never} 从未产出：${names}${verdict.issues.length > 3 ? ` 等 ${verdict.issues.length} 项` : ""}（明细见 ${VITALITY_AUDIT_REL}）`);
+  }
+  return verdict;
+}
+
 try {
 setInterval(() => {
   runWithInitiator("scheduler", () => maybeNightBrief().catch(() => {}));
@@ -4273,6 +4381,10 @@ setInterval(() => {
     try { recordJobRun(WS_ROOT, { jobId: "degradation-auto", at: Date.now(), produced: false, note: String(e?.message || e).slice(0, 120) }); } catch {}
     console.log(`[degradation] 自动执行失败（不阻塞循环）：${String(e?.message || e).slice(0, 120)}`);
   }
+  // 2026-11-10：装配分级——定时任务双模式审计（每拍一次）与产出新鲜度体检（6 小时一次）。
+  // 两件都只读：不执行作业、不改行为；失败只打日志，不阻塞循环。
+  try { runScheduledAuditTick(); } catch (e) { console.log(`[scheduled] 只读审计失败（不阻塞循环）：${String(e?.message || e).slice(0, 120)}`); }
+  try { runVitalityAuditTick(); } catch (e) { console.log(`[vitality] 体检失败（不阻塞循环）：${String(e?.message || e).slice(0, 120)}`); }
 }, withJitter(10 * 60 * 1000, { ratio: 0.08 })).unref?.();
 setInterval(() => { runWithInitiator("scheduler", () => runCompanionNudge({ store: companionStore, notifier, compose: composeNoticeFor, persona: personaName(WS_ROOT), cooldownMs: nudgeCooldownMs(brainWeights()), wsRoot: WS_ROOT, budgetRemaining: readBudget(WS_ROOT, new Date().toISOString().slice(0, 10), { cap: 3 }).remaining }).catch(() => {})) }, 5 * 60 * 1000).unref?.();
 } catch {}
@@ -6703,6 +6815,144 @@ const API_ROUTES = [
         action: body?.action, scope: body?.scope || "global",
       });
       return json(res, out.ok ? 200 : 400, out);
+    } catch (e) {
+      return json(res, 500, { ok: false, error: String(e?.message || e).slice(0, 240) });
+    }
+  }],
+  // ── 装配分级补的只读观测口（2026-11-10）────────────────────────────────
+  // 纪律：全是 GET、全不写状态（快照由 10 分钟循环负责写，路由只读）；
+  // **没有可写开关**——写开关要人批准，本轮只做"看得见"。
+  // 鉴权和其它 /api 一样：Authorization: Bearer <token>。
+  ["GET", "/api/scheduled/audit", (res) => {
+    try {
+      return json(res, 200, { ok: true, ...scheduledAuditSnapshot() });
+    } catch (e) {
+      return json(res, 500, { ok: false, error: String(e?.message || e).slice(0, 240) });
+    }
+  }],
+  ["GET", "/api/vitality", (res, _req, url) => {
+    try {
+      const limit = Math.min(20, Math.max(1, Number(url?.searchParams?.get("limit")) || 20));
+      const audit = auditVitality({ wsRoot: WS_ROOT, now: Date.now() });
+      const verdict = summarizeVitality(audit);
+      const last = readJsonFile(path.join(WS_ROOT, VITALITY_AUDIT_REL));
+      return json(res, 200, {
+        ok: true,
+        at: audit.now,
+        line: verdict.line,
+        counts: verdict.counts,
+        healthy: verdict.ok,
+        needsAttention: verdict.needsAttention,
+        issues: verdict.issues.slice(0, limit),   // 最多 20 条：红项点名，不堆全量
+        unknown: verdict.unknown.slice(0, limit),
+        flags: verdict.flags.slice(0, limit),
+        // 循环每 6 小时落一次盘；这里只读最近一次，用来看"体检到底还在不在跑"
+        lastTick: Number.isFinite(Number(last?.at))
+          ? { at: Number(last.at), line: String(last.line || ""), needsAttention: Number(last.needsAttention) || 0 }
+          : null,
+      });
+    } catch (e) {
+      return json(res, 500, { ok: false, error: String(e?.message || e).slice(0, 240) });
+    }
+  }],
+  ["GET", "/api/relationship", (res) => {
+    try {
+      const st = relationshipCurrent();
+      return json(res, 200, {
+        ok: true,
+        summary: relationshipSummary(),
+        stage: relationshipStage(st),
+        trust: st.trust,
+        intimacy: st.intimacy,
+        interactions: st.interactions,
+        firstSeen: st.firstSeen,
+        lastAt: st.lastAt,
+        notes: st.notes.slice(-20), // 关系层自己只留 20 条备注，这里照原样给
+      });
+    } catch (e) {
+      return json(res, 500, { ok: false, error: String(e?.message || e).slice(0, 240) });
+    }
+  }],
+  ["GET", "/api/anti-patterns", (res, _req, url) => {
+    try {
+      const limit = Math.min(20, Math.max(1, Number(url?.searchParams?.get("limit")) || 20));
+      const patterns = loadAntiPatterns(WS_ROOT);
+      const rank = (s) => Math.max(0, ANTI_PATTERN_SEVERITIES.indexOf(String(s)));
+      const items = [...patterns]
+        .sort((a, b) => rank(b?.severity) - rank(a?.severity) || String(a?.id || "").localeCompare(String(b?.id || "")))
+        .slice(0, limit);
+      return json(res, 200, {
+        ok: true,
+        total: patterns.length,
+        stats: antiPatternStats(patterns),
+        ledgerFile: ANTI_PATTERN_LEDGER_REL,
+        hitLog: ANTI_PATTERN_HIT_REL,  // 命中记录由 recordViolation 追加，这里只报路径不读全量
+        patterns: items,
+      });
+    } catch (e) {
+      return json(res, 500, { ok: false, error: String(e?.message || e).slice(0, 240) });
+    }
+  }],
+  ["GET", "/api/lesson-replay", (res) => {
+    try {
+      const ledger = loadLessonLedger(WS_ROOT);
+      const state = readReplayState(WS_ROOT);
+      const due = selectDueLessons({
+        lessons: ledger.lessons, now: new Date(), maxPerDay: REPLAY_MAX_PER_DAY, avoidTopics: state.lastTopics,
+      });
+      const recent = ledger.lessons
+        .filter((l) => l && l.lastReplayed)
+        .sort((a, b) => (Date.parse(b.lastReplayed) || 0) - (Date.parse(a.lastReplayed) || 0))
+        .slice(0, 20)
+        .map((l) => ({
+          id: lessonId(l), text: String(l.text || "").slice(0, 200), topic: String(l.topic || ""),
+          lastReplayed: String(l.lastReplayed || ""), replayCount: Number(l.replayCount) || 0,
+          replayEscalated: l.replayEscalated === true,
+        }));
+      return json(res, 200, {
+        ok: true,
+        total: ledger.lessons.length,
+        promoted: ledger.promoted.length,
+        maxPerDay: REPLAY_MAX_PER_DAY,
+        stateFile: REPLAY_STATE_REL,
+        logFile: REPLAY_LOG_REL,
+        state,
+        // 今天这一轮"该念哪几条"：和开轮注入同一套挑法，只算不记（selectDueLessons 是纯函数）
+        due: due.map((l) => ({ id: lessonId(l), text: String(l.text || "").slice(0, 200), topic: String(l.topic || "") })),
+        recent,
+      });
+    } catch (e) {
+      return json(res, 500, { ok: false, error: String(e?.message || e).slice(0, 240) });
+    }
+  }],
+  ["GET", "/api/praise-ledger", (res) => {
+    try {
+      const ledger = loadPraiseLedger(WS_ROOT);
+      const items = Array.isArray(ledger.items) ? ledger.items : [];
+      const recent = [...items]
+        .sort((a, b) => (Number(b?.at) || 0) - (Number(a?.at) || 0))
+        .slice(0, 20);
+      return json(res, 200, {
+        ok: true,
+        total: items.length,
+        updatedAt: Number(ledger.updatedAt) || 0,
+        stats: praiseStats({ wsRoot: WS_ROOT }),   // 正/负比、失衡判定（只读）
+        state: readPraiseState(WS_ROOT),
+        top: topPositive({ limit: 5, wsRoot: WS_ROOT }),
+        recent,
+      });
+    } catch (e) {
+      return json(res, 500, { ok: false, error: String(e?.message || e).slice(0, 240) });
+    }
+  }],
+  ["GET", "/api/tools/verify-check", (res) => {
+    try {
+      return json(res, 200, {
+        ok: true,
+        ...VERIFY_CHECK_STATUS,
+        // 边界写死在 engine/claim-verify.mjs（允许根 + 危险命令拦截），这里只报口径
+        note: "常开工具：没有可写开关；核对结果只回给模型、不落盘，所以没有历史条目可读。",
+      });
     } catch (e) {
       return json(res, 500, { ok: false, error: String(e?.message || e).slice(0, 240) });
     }

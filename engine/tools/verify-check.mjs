@@ -55,6 +55,21 @@ export const VERIFY_CHECK_TOOL = {
 };
 
 /**
+ * 闸门的只读状态（GET /api/tools/verify-check 用）。
+ *
+ * 没有可写开关：这个工具常开，边界写死在下面的 schema 里；这里只是把边界摆出来给人看。
+ * 也**不落盘**——核对结果只回给模型，所以没有"历史条目"可读（如实写在这里，不编一个）。
+ */
+export const VERIFY_CHECK_STATUS = Object.freeze({
+  name: "verify_check",
+  alwaysOn: true,
+  persistsResults: false,
+  maxClaims: MAX_CLAIMS,
+  assertionTypes: Object.freeze([...ASSERTION_TYPES]),
+  countOps: Object.freeze([...COUNT_OPS]),
+});
+
+/**
  * 造一个 verify_check 执行器。
  * @param {object} opts
  *   cwd     工作目录（默认 process.cwd）；同时作为命令执行目录与第一个允许根

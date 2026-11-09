@@ -468,8 +468,15 @@ describe("接线：两条引擎入口都挂上了", () => {
     const src = read("engine", "yuanshu-emotion.mjs");
     assert.match(src, /antiPatternPromptLine/);
     assert.match(src, /alreadyInjected\(history\)/);
-    // 反模式仍是同一块里的并列行；后面可以再接别的行（2026-11-09 接的是复习），但顺序不能挪到 prompt 之前。
-    assert.match(src, /\[prompt, relationshipLine\(\), genomeLine\(\), growthLine\(\), antiPatternLine\(msg, context\)/);
+    // 反模式仍是同一块里的并列行；顺序在 prompt/关系/基因/成长之后即可，中间可插别的行（2026-11-09 插了正向账本）。
+    // 源码里这个数组是多行的，所以按出现位置比较，不按单行正则。
+    const pos = (s) => src.indexOf(s);
+    assert.ok(pos("const content = [") >= 0, "content 数组还在");
+    // 只在 content 数组内比较，避免命中上面的函数定义（函数名与调用同名）。
+    const block = src.slice(pos("const content = ["));
+    const inBlock = (s) => block.indexOf(s);
+    assert.ok(inBlock("growthLine(),") < inBlock("antiPatternLine(msg, context)"), "反模式排在成长之后");
+    assert.ok(inBlock("antiPatternLine(msg, context)") < inBlock("replayLine(history)"), "反模式仍在复习之前");
     // 工作区根绑定在 emotion.init 里，和 genome/growth 同一处
     const emo = read("engine", "emotion.mjs");
     assert.match(emo, /initAntiPatterns\(wsRoot\)/);

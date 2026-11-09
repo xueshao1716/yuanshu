@@ -317,9 +317,14 @@ test("告警出现在 GET /api/degradation：reasons 有话说、scheduled 有�
 
 test("接线：server 的 10 分钟循环会记 degradation-auto 心跳；degradation 读本模块的告警", () => {
   const server = read("server.mjs");
-  assert.match(server, /import \{ recordJobRun \} from "\.\/engine\/scheduled-policy\.mjs"/);
+  assert.match(server, /import \{[^}]*\brecordJobRun\b[^}]*\} from "\.\/engine\/scheduled-policy\.mjs"/);
   assert.match(server, /recordJobRun\(WS_ROOT, \{\s*jobId: "degradation-auto"/);
   assert.match(server, /produced: deg\?\.ok === true/, "成功/失败要如实上报，不能永远 true");
+
+  // 2026-11-10：双模式判定也接上了——10 分钟循环 → 只读 tick → auditJobs/planJob
+  assert.match(server, /import \{[^}]*\bauditJobs\b[^}]*\bplanJob\b[^}]*\} from "\.\/engine\/scheduled-policy\.mjs"/);
+  assert.match(server, /auditJobs\(\)/);
+  assert.match(server, /runScheduledAuditTick\(\);/);
 
   const deg = read("engine/degradation.mjs");
   assert.match(deg, /import \{ readScheduledHealth \} from "\.\/scheduled-policy\.mjs"/);
