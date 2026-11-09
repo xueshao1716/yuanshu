@@ -6,6 +6,9 @@ import { formatWechatPush } from './wechat/push-format.mjs';
 import path from "node:path";
 import { randomUUID } from "node:crypto";
 import { readToken as ppReadToken, send as ppSend } from "./notify-channel.mjs";
+// 2026-11-09：退化自救的全局暂停闸。闸开时**外发全停**（微信 / PushPlus），
+// 站内 SSE 与落盘照旧——它们不是"往外发"，本地界面还得看得见发生了什么。
+import { readPauseGate } from "./degradation.mjs";
 
 const RING = 100;
 const LONG_RUN_MS = Number(process.env.YUANSHU_NOTIFY_LONG_RUN_MS) || 45_000;
@@ -40,6 +43,17 @@ export function createNotifier({ file, wechat = null, now = Date.now, log = cons
     persist();
     for (const sub of subs) send(sub, ev);
     const result = { ok: true, id: ev.id, seq: ev.seq, clients: subs.size, wechat: "skipped" };
+    // ⓪ 退化自救的全局暂停闸：外发（微信 / PushPlus）只记不发；站内 SSE 与落盘不受影响。
+    let gate = { on: false, reason: "" };
+    try { gate = readPauseGate(wsRoot); } catch { /* 读不到闸就当没暂停 */ }
+    if (gate.on) {
+      result.paused = true;
+      result.pauseReason = gate.reason || "";
+      result.wechat = "paused";
+      result.pushplus = "paused";
+      log.warn?.(`[notifier] 全局暂停中，只记不发：${kind}`);
+      return result;
+    }
     if (toWechat && wechat?.notifyOwner) {
       try { await wechat.notifyOwner(formatWechatPush({ title: t, body: b, kind, sender, summary, facts })); result.wechat = "sent"; log.info?.(`[notifier] 微信已发：${kind}`); }
       catch (e) { result.wechat = `failed: ${String(e?.message || e).slice(0, 80)}`; log.warn?.(`[notifier] 微信通知失败: ${result.wechat}`); }

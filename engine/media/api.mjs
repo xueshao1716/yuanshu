@@ -15,6 +15,27 @@ import { imageCandidates, runImageCandidates } from './routing.mjs';
 import { generateProviderImage, imageProviderSize } from './provider-adapters.mjs';
 import { setTimeout as delay } from 'node:timers/promises';
 import { observeMediaRequest, recordMediaFailure, readMediaJson } from './observations.mjs';
+// 2026-11-09：退化自救的 text-only 闸。所有出图/出片/合成语音的入口都先问一句
+// 「现在是不是只让说话不让生成」，闸开就**直接拒绝并说清原因**（不悄悄降级、不偷偷重试）。
+import { isPaused } from "../degradation.mjs";
+
+/** 媒体生成现在停着吗；停着返回闸对象（带理由），否则 null。 */
+function mediaPauseGate() {
+  try {
+    const gate = isPaused(WS_ROOT, "media");
+    return gate || null;
+  } catch { return null; }   // 读闸失败不能让出图整体坏掉：按"没停"继续
+}
+
+/** 停用时给用户的原话（要能照着做：等谁、怎么恢复）。 */
+function mediaPausedNote(gate) {
+  const why = String(gate?.reason || "").slice(0, 120);
+  return `媒体生成已暂停（退化自救 text-only${gate?.on ? " / 全局暂停" : ""}）${why ? `：${why}` : ""}。`
+    + `这轮只出文字；恢复后出图/出片会自动可用（解闸：POST /api/degradation/pause {on:false} 或人工清 记忆/运行时/高危暂停.json）。`;
+}
+
+/** 媒体类型 → 回话里用的 type（tts 对外叫 audio）。 */
+const mediaKindOf = (intent) => (intent?.type === "tts" ? "audio" : intent?.type === "video" ? "video" : "image");
 
 let _resolveAuth = null, _readJsonFile = null, _modelsPath = "", _authPath = "", _getModelList = () => [];
 export function initMediaApi({ resolveAuth = null, readJsonFile = null, modelsPath = "", authPath = "", getModelList = null } = {}) {
@@ -291,6 +312,8 @@ export async function deliverImageResult(result, { prompt = "", requestedSize = 
 
 // 异步生成媒体（与主模型并行）
 export async function generateMediaAsync(intent, prompt, observations = {}) {
+  const paused = mediaPauseGate();   // text-only / 全局暂停闸：开着一律不发起生成
+  if (paused) return { type: mediaKindOf(intent), error: mediaPausedNote(paused), paused: true };
   try {
     if (intent.type === "image") {
       const candidates = imageCandidates(_getModelList(), intent, observations.requestText ?? prompt);
@@ -414,6 +437,10 @@ export function withGlobalPalette(prompt) {
 // 而 model-probe 却对每个图/视频模型声明 caps.seed=true，于是界面上"固定 seed"是一项
 // 声称支持、实际一次都没生效的能力。参数要么真的生效，要么别说。
 export async function generateImage(provider, modelId, prompt, size, image, opts = {}) {
+  const paused = mediaPauseGate();
+  // 工坊/故事层直接调这个函数（不经 generateMediaAsync），所以闸也要在这里读一次。
+  // 抛错而不是静默换通道：媒体入口的纪律是"不落盘就不交付"，停了更不能假装生成过。
+  if (paused) throw Object.assign(new Error(mediaPausedNote(paused)), { paused: true, code: "DEGRADATION_PAUSED" });
   prompt = withGlobalPalette(prompt);
   opts.signal?.throwIfAborted();
   const resolved = _resolveAuth(provider);
@@ -564,6 +591,9 @@ export function explainVideoHttp(status, text = "") {
 
 // 只创建、立刻返回。工坊走这条，避免 Cloudflare 100s 掐成 524。
 export async function startVideoJob(provider, modelId, prompt, body = {}) {
+  // 出片入口同 generateImage：闸开就拒，别把"停了"变成一条排队中的假任务。
+  const paused = mediaPauseGate();
+  if (paused) return { error: mediaPausedNote(paused), paused: true };
   prompt = withGlobalPalette(prompt);
   const auth = resolveVideoAuth(provider, modelId);
   if (auth.error) return auth;

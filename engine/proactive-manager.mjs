@@ -209,7 +209,8 @@ export function sweepProactive({ wsRoot, detached = [], runs = [], docChanges = 
       decision = decide({
         now,
         candidates: [{ trigger: POLICY_TRIGGER, topic: loop.key, vars: { title: loop.title } }],
-        state: { recent: journal, quietHours: isQuietHours(now) },
+        // 2026-11-09：带上 wsRoot —— 策略层要最先读退化自救的暂停闸（闸开就整路不发）
+        state: { recent: journal, quietHours: isQuietHours(now), wsRoot },
       });
       if (decision.action !== "send") { skipped += 1; heldByPolicy += 1; continue }
     }

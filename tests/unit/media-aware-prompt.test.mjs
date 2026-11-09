@@ -118,7 +118,9 @@ test("findMediaModel 出图优先 2.5，不拿列表里第一个 2.0 充数", ()
 test("generateMediaAsync 必须把 prompt 变体交给 generateImage 并带进落盘对象", () => {
   const src = readFileSync(join(dirname(fileURLToPath(import.meta.url)), "..", "..", "engine", "media", "api.mjs"), "utf8");
   const start = src.indexOf("export async function generateMediaAsync");
-  const fn = src.slice(start, start + 1600);
+  // 2026-11-09：函数开头多了「暂停闸」那一句（text-only），1600 字窗口会把 video 分支切出去，
+  // 窗口放宽到 3000 —— 断言内容不变，只是别让"函数长了两行"误判成"分支没了"。
+  const fn = src.slice(start, start + 3000);
   assert.ok(fn.includes("varyImagePrompt"), "出图前必须打散固定词，避免平台缓存老图");
   assert.ok(/prompt:\s*drawnPrompt|prompt:\s*prompt/.test(fn) && fn.includes("varyImagePrompt"), "落盘对象要带本次实际提示词，文件名才能区分");
   assert.ok(fn.includes("generateVideo"), "视频意图必须走宿主 generateVideo，不能让模型自己翻密钥");

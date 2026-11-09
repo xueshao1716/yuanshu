@@ -367,6 +367,8 @@ import { sweepProactive, addWatch, stopWatch, listProactive, proactiveLine } fro
 import { channelStatus, saveToken, clearToken, sendTest, openConsole } from "./engine/notify-channel.mjs";
 // 2026-10-27：向外发的统一口子（降级链 + 投递账本）
 import { sendOut, recentDeliveries, outboundLine } from "./engine/outbound.mjs";
+// 2026-11-09：退化自评 + 自救阶梯 + 全局暂停闸（外发/主动触达/媒体入口都会读它写的闸）
+import { degradationSnapshot, assessAndApply, setPauseGate, readPauseGate } from "./engine/degradation.mjs";
 // 2026-10-27：向内管——外部事件入口
 import { recvEvent, listEvents, inboundLine } from "./engine/inbound.mjs";
 // 2026-10-28：承诺到点自动干活
@@ -1188,7 +1190,7 @@ const sessionBusApi = createSessionBus({ json });
 const { busGet, busPush, busReset, handleSessionStream } = sessionBusApi;
 // 主动通知中枢：wechat 在后面才创建，这里用闭包延迟取。
 let agentBeat = null;
-const notifier = createNotifier({ file: path.join(AGENT_DIR, "notifications.json"), wechat: { notifyOwner: (...a) => wechat.notifyOwner(...a) } });
+const notifier = createNotifier({ file: path.join(AGENT_DIR, "notifications.json"), wsRoot: WS_ROOT, wechat: { notifyOwner: (...a) => wechat.notifyOwner(...a) } });
 const { handleModels, handleSwitchModel } = createModelSessionApi({ json, readJsonFile, resolveAuth, modelCapabilities, modelsPath: MODELS_PATH, getModelList: () => modelList, getDefaultModel: () => defaultModel, getModelRuntime: () => modelRuntime, getConfig: () => CONFIG, activeSessions, createSessionAgent, saveLastModel, saveSessionModelKey });
 
 // ── 隔离子任务执行器初始化（P2）──
@@ -4394,6 +4396,17 @@ maintenanceApi = createMaintenanceApi({
     return reg.promise;
   },
 });
+// 2026-11-09：退化自评的上下文压力要用**真窗口**（models.json 里每个模型都声明了 contextWindow）。
+// 拿不到就返回 0，degradation 会按默认窗口估并在 evidence 里标 estimated —— 不假装知道。
+function currentContextWindow() {
+  try {
+    const m = defaultModel;
+    if (!m) return 0;
+    const id = String(m.id || m.model || "");
+    const hit = (modelList || []).find((x) => x && String(x.provider || "") === String(m.provider || "") && String(x.id || "") === id);
+    return Math.max(0, Number(hit?.contextWindow || m.contextWindow) || 0);
+  } catch { return 0; }
+}
 const API_ROUTES = [
   ...createComputerRoutes({service:computerUse,json,readBody}),
   ...createBehaviorExperimentRoutes({ service: behaviorExperiments, json, readBody }),
@@ -6621,6 +6634,47 @@ const API_ROUTES = [
   // ── 系统 ──
   ["GET", "/api/notices", (res) => handleNotices(res)],
   ["GET", "/api/health", (res) => json(res, 200, { ok: true })],
+  // ── 退化自评（2026-11-09）──
+  // 只读：读工作区台账算 5 维子分 → 等级 → 动作建议；附带闸状态和最近动作记录。
+  // **不在这里动手**：要执行动作走 POST /api/degradation/actions（写闸/落账都在那一刻发生）。
+  ["GET", "/api/degradation", (res) => {
+    try {
+      return json(res, 200, degradationSnapshot(WS_ROOT, { now: Date.now(), limit: 20, contextWindow: currentContextWindow() }));
+    } catch (e) {
+      return json(res, 500, { ok: false, error: String(e?.message || e).slice(0, 240) });
+    }
+  }],
+  // 执行阶梯：按当前评估推荐的动作执行（写闸 / 落账），同一状态 30 分钟内不重复追加。
+  ["POST", "/api/degradation/actions", async (res, req) => {
+    try {
+      const body = await readBody(req, 8);
+      // by 缺省用 "degradation"：这样分项闸（pause-proactive / text-only）健康后能被自动放回；
+      // 人想让它一直挂着就显式传 by:"user"（人挂的闸系统一律不动）。
+      const { assessment, result } = assessAndApply(WS_ROOT, { now: Date.now(), by: String(body?.by || "degradation"), contextWindow: currentContextWindow() });
+      return json(res, result?.ok === false ? 500 : 200, {
+        ok: result?.ok !== false, result,
+        score: assessment.score, level: assessment.level, actions: assessment.actions,
+        evaluated: assessment.evaluated, unevaluated: assessment.unevaluated,
+      });
+    } catch (e) {
+      return json(res, 500, { ok: false, error: String(e?.message || e).slice(0, 240) });
+    }
+  }],
+  // 读/写暂停闸：on:true 只接受 high 风险动作（global-pause）；分项停用走 scope。
+  ["GET", "/api/degradation/pause", (res) => json(res, 200, { ok: true, gate: readPauseGate(WS_ROOT) })],
+  ["POST", "/api/degradation/pause", async (res, req) => {
+    try {
+      const body = await readBody(req, 8);
+      const out = setPauseGate(WS_ROOT, {
+        on: body?.on === true,
+        reason: body?.reason, by: body?.by || "api",
+        action: body?.action, scope: body?.scope || "global",
+      });
+      return json(res, out.ok ? 200 : 400, out);
+    } catch (e) {
+      return json(res, 500, { ok: false, error: String(e?.message || e).slice(0, 240) });
+    }
+  }],
   // 网易云扫码登录页（仅本机）：二维码服务端自刷新，解决"5 分钟就过期、扫到的是死码"
   ["GET", "/api/music/login", async (res) => {
     try { json(res, 200, await musicLoginView()) } catch (e) { json(res, 500, { ok: false, error: String(e?.message || e).slice(0, 120) }) }

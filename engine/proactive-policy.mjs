@@ -19,6 +19,13 @@
 //   ③ 落盘的活不在这里（见 engine/proactive-journal.mjs）。
 //
 // 落位：companion-nudge（long_silence）、proactive-manager（open_loop）在真正推送前先调 decide。
+//
+// 2026-11-09 补：decide 一开始先读**全局暂停闸**（engine/degradation.mjs 的高危暂停.json）。
+// 退化自评判到 critical 时会用 `pause-proactive` 把主动推送这一路停掉；闸一开，
+// 任何 trigger 都 hold（不是降权、不排队、不补发）。闸是状态不是事件——人解掉就立刻恢复。
+// 为了不破坏"纯函数"这条纪律：state.pauseGate 可以直接注入一个 {on, scopes} 对象，
+// 只有在给了 state.wsRoot 时才真去读文件。
+import { readPauseGate } from "./degradation.mjs";
 
 export const MINUTE = 60 * 1000;
 export const HOUR = 60 * MINUTE;
@@ -238,9 +245,34 @@ function lastTextIdFor(rows = [], trigger = "") {
 }
 
 /**
+ * 取当前暂停闸：state.pauseGate（显式注入，测试用）优先，否则 state.wsRoot 现读文件。
+ * 读不到/没给根 → 视为没暂停（不能让一次读盘失败把主动推送永久静音）。
+ */
+export function resolvePauseGate(state = {}) {
+  const injected = state?.pauseGate;
+  if (injected && typeof injected === "object" && (injected.on === true || injected.scopes)) {
+    return {
+      on: injected.on === true,
+      scopes: { proactive: injected?.scopes?.proactive === true, media: injected?.scopes?.media === true },
+      reason: String(injected.reason || ""),
+      by: String(injected.by || ""),
+    };
+  }
+  const root = String(state?.wsRoot || "");
+  if (!root) return { on: false, scopes: { proactive: false, media: false }, reason: "", by: "" };
+  try {
+    const gate = readPauseGate(root);
+    return { on: gate.on, scopes: gate.scopes, reason: gate.reason, by: gate.by };
+  } catch {
+    return { on: false, scopes: { proactive: false, media: false }, reason: "", by: "" };
+  }
+}
+
+/**
  * 这一刻该不该发。
  *
  * 闸门按顺序过，全部是「与」关系（取更严格的一方赢）：
+ *   ⓪ 全局暂停闸 on（或 proactive 分项停）→ hold（退化自救把这一路停了，任何 trigger 都不发）
  *   ① 死夜 1-7 点 → hold（硬阻断，任何 priority 都不发）
  *   ② 旧闸：dnd → hold；旧静默 0-7 点 → hold；旧每日预算为 0 → drop；旧最小间隔未到 → hold
  *   ③ 连续 3 条没回复 → hold（用户一有动作即恢复）
@@ -265,12 +297,24 @@ export function decide({ now = Date.now(), candidates = [], state = {} } = {}) {
   const streak = consecutiveNoReply(rows);
   const today = tally(rows, t);
   const cooldowns = cooldownMap(rows, state);
+  // ⓪ 全局暂停闸：退化自救已经把主动触达停掉（或全局停），任何 trigger 都不发。
+  const pauseGate = resolvePauseGate(state);
 
   const out = {
     action: "hold", reason: "", trigger: "", topic: "", priority: 0, urgency: "",
     text: "", textId: "", hour, deadNight, streak, sentToday: today,
-    rank: ranked.map(brief), held: [...unknownHeld],
+    pauseGate, rank: ranked.map(brief), held: [...unknownHeld],
   };
+
+  // ⓪ 暂停闸最先过：退化自救（pause-proactive / global-pause）把这一路停了，
+  //    任何 trigger 都 hold——包括死夜之外的本该发的那条。闸是状态，人解掉立刻恢复。
+  if (pauseGate.on || pauseGate.scopes.proactive) {
+    return {
+      ...out, action: "hold", reason: pauseGate.on ? "global_pause" : "proactive_paused",
+      pauseReason: pauseGate.reason || "",
+      held: ranked.map((c) => ({ trigger: c.trigger, topic: c.topic, reason: "pause_gate" })).concat(unknownHeld),
+    };
+  }
 
   if (!ranked.length) {
     return { ...out, action: "drop", reason: unknownHeld.length ? "unknown_trigger" : "no_candidate" };

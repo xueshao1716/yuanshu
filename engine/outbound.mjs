@@ -10,8 +10,13 @@
 //   · sendOut({text, image, file, voice, channel}) —— 内部按顺序试通道，失败自动降级；
 //   · 每次投递都落账（记忆/运行时/投递.json），带通道、结果、失败原因、是否降级；
 //   · 通道可扩展：微信 / 邮件 / Webhook / PushPlus。
+//
+// 2026-11-09：出站前先读**全局暂停闸**（engine/degradation.mjs 的高危暂停.json）。
+// 退化自评判到 critical 时用 global-pause 把外发整路停掉——闸开时**只记不发**：
+// 落一条 ok:false + paused:true 的账，调用方拿得到"为什么没发"，人解闸后自动恢复。
 import fs from "node:fs";
 import path from "node:path";
+import { readPauseGate } from "./degradation.mjs";
 
 export const LEDGER_REL = path.join("记忆", "运行时", "投递.json");
 export const MAX_LEDGER = 200;
@@ -61,6 +66,20 @@ export async function sendOut(p = {}) {
   const wsRoot = p.wsRoot;
   const body = payloadOf(p);
   if (isEmptyPayload(body)) return { ok: false, channel: "", detail: "内容为空", tried: [], fallbacks: 0, kind: "none" };
+
+  // 全局暂停闸：只记不发。落一条账，让"为什么没发出去"在面板上查得到。
+  const gate = readPauseGate(wsRoot);
+  if (gate.on) {
+    const kind = kindOf(body);
+    const detail = `全局暂停中，只记不发${gate.reason ? `（${gate.reason}）` : ""}`;
+    try {
+      appendLedger(wsRoot, {
+        at: Date.now(), channel: "-", kind, ok: false, paused: true,
+        detail: detail.slice(0, 160), text: body.text.slice(0, 80), fallbacks: 0,
+      });
+    } catch {}
+    return { ok: false, channel: "", detail, tried: [], fallbacks: 0, kind, paused: true, pauseReason: gate.reason || "" };
+  }
 
   const kind = kindOf(body);
   const preferred = String(p.channel || "wechat");

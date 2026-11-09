@@ -61,12 +61,14 @@ export async function runCompanionNudge({
   const idleMinutes = Math.max(0, Math.round((t - seen.seenAt) / 60000));
   const fact = nudgeText({ now: t, idleMinutes });
   // 2026-11-09：先把"这一刻该不该发"判掉。旧闸已经过了，这里只叠加更严格的那一层。
-  // force 是「人明确要求推一条」，可以跳过冷却/配额/暂停，但**死夜不跳**（2-7 点不打扰是硬的）。
+  // force 是「人明确要求推一条」，可以跳过冷却/配额/暂停，但**死夜不跳**（2-7 点不打扰是硬的）；
+  // 退化自救的暂停闸（pause-proactive / global-pause）同样不跳——它是系统级停机，不是"这条太吵"。
   const decision = decide({
     now: t,
     candidates: [{ trigger: NUDGE_TRIGGER, topic: NUDGE_TOPIC, vars: { away: fact.away, hours: Math.max(1, Math.round(idleMinutes / 60)) } }],
     state: {
       recent: wsRoot ? readOutreach(wsRoot) : [],
+      wsRoot,
       dnd: prefs.dnd,
       quietHours: isQuietHours(t),
       budgetRemaining,
@@ -74,7 +76,8 @@ export async function runCompanionNudge({
       rand,
     },
   });
-  const bypass = force === true && decision.deadNight !== true;
+  const gatePaused = decision.reason === "global_pause" || decision.reason === "proactive_paused";
+  const bypass = force === true && decision.deadNight !== true && !gatePaused;
   if (!bypass && decision.action !== "send") {
     return { ok: false, reason: decision.reason, policy: decision.action, trigger: NUDGE_TRIGGER };
   }
