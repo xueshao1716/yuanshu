@@ -8,6 +8,9 @@ import { promptLine as genomePromptLine } from "./genome.mjs";
 import { promptLine as growthPromptLine } from "./genome-growth.mjs";
 // 2026-11-09：反模式台账。和漂移/成长同一块注入，每条一行，最多 2 条；无匹配返回空串（零注入）。
 import { antiPatternPromptLine, alreadyInjected } from "./anti-patterns.mjs";
+// 2026-11-09：教训复习。一天最多一次、最多 2 条，和反模式同一块（前缀「复习：」）。
+// 这一行有落盘副作用（注入即记账），所以下面必须先判去重、再取它。
+import { replayPromptLine } from "./lesson-replay.mjs";
 import { completeGeneTurn } from "./gene-turn.mjs";
 
 const recent = new Map();
@@ -51,6 +54,17 @@ function antiPatternLine(msg, context = {}) {
   } catch { return ""; }
 }
 
+// 复习：每天第一次进对话时最多注入 2 条到期的教训，注入即记账；没有到期/今天已经念过都返回空串。
+function replayLine(history) {
+  try {
+    const line = replayPromptLine({ history });
+    return typeof line === "string" ? line.trim() : "";
+  } catch { return ""; }
+}
+
+// 同一块的旧前缀都认：升级前注入过的会话历史里还留着老措辞，只认新前缀会再插一段。
+const INJECTED_BLOCK = /情绪语境|关系：信任|人格漂移：|人格漂移告警：|成长：|基因：|基因告警：|复习：/;
+
 /**
  * 上次对话时间（毫秒），供时间上下文算"距上次对话多久"。
  *
@@ -75,13 +89,18 @@ export function beginYuanshuEmotion(sessionId, message, history = [], context = 
     if (recent.size > 2000) recent.delete(recent.keys().next().value);
   }
   const prompt = emotionPrompt(key, msg);
-  // 关系摘要 + 基因漂移 + 成长 + 反模式放在情绪段同一块 system 里（不是另起一段）：慢变量贴着快变量读，语气才连贯。
-  const content = [prompt, relationshipLine(), genomeLine(), growthLine(), antiPatternLine(msg, context)].filter(Boolean).join("\n");
-  if (!content) return history;
   // 去重：历史里已经有同一块就不再插。旧前缀「基因：」一并认——
-  // 升级前已注入过的会话历史里还留着那一行，只认新前缀会再插一段，两套措辞就并排出现了。
-  if (alreadyInjected(history)) return history;
-  if (history.some((m) => m?.role === "system" && /情绪语境|关系：信任|人格漂移：|人格漂移告警：|成长：|基因：|基因告警：/.test(String(m.content || "")))) return history;
+  // 升级前注入过的会话历史里还留着那一行，只认新前缀会再插一段，两套措辞就并排出现了。
+  // 必须**先判去重再取复习行**：replayLine 有落盘副作用（注入即记账、当天不再注入），
+  // 别在一条会被丢掉的返回路径上把账记了。
+  const already = alreadyInjected(history)
+    || history.some((m) => m?.role === "system" && INJECTED_BLOCK.test(String(m.content || "")));
+  // 关系摘要 + 基因漂移 + 成长 + 反模式 + 复习放在情绪段同一块 system 里（不是另起一段）：
+  // 慢变量贴着快变量读，语气才连贯；复习是"想起来"的那一半，跟反模式同一块最省上下文。
+  const content = [prompt, relationshipLine(), genomeLine(), growthLine(), antiPatternLine(msg, context), already ? "" : replayLine(history)]
+    .filter(Boolean)
+    .join("\n");
+  if (!content || already) return history;
   return [{ role: "system", content }, ...history];
 }
 

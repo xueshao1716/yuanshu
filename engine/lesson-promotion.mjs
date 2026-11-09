@@ -14,6 +14,13 @@ import { atomicWriteText } from "./atomic-io.mjs";
 export const LESSON_LEDGER = path.join("记忆", "做梦", "教训账.json");
 export const LESSON_CAP = 400;
 export const SIMILAR_MIN = 0.34;
+// 2026-11-09：复习联动。一条教训复习后 REPLAY_RECURRENCE_DAYS 天内又被复现，
+// 说明"回看"没起作用，提案优先级升一档（low→medium→high），并在注入文案后追一句。
+// 窗口只在这里定义一份：engine/lesson-replay.mjs 只管把标翻译成文案，不重算相似度。
+export const REPLAY_RECURRENCE_DAYS = 7;
+export const PRIORITY_LEVELS = Object.freeze(["low", "medium", "high"]);
+export const DEFAULT_PRIORITY = "medium";
+const DAY_MS = 24 * 60 * 60 * 1000;
 
 const clean = (s, n) => String(s || "").replace(/\s+/g, " ").trim().slice(0, n);
 const topicKey = (t) => clean(t, 24).toLowerCase().replace(/[\s·・,，。:：;；、/\\|()（）「」【】"'`-]+/g, "");
@@ -79,6 +86,56 @@ export function loadLessonLedger(wsRoot, fsMod = fs) {
   } catch { return { lessons: [], promoted: [] }; }
 }
 
+// ── 复习联动（2026-11-09）──────────────────────────────────────────────
+
+export function normalizePriority(p) {
+  const s = clean(p, 12).toLowerCase();
+  return PRIORITY_LEVELS.includes(s) ? s : "";
+}
+
+/** 升一档：low→medium→high（high 封顶）。 */
+export function bumpPriority(p) {
+  const i = PRIORITY_LEVELS.indexOf(normalizePriority(p));
+  if (i < 0) return bumpPriority(DEFAULT_PRIORITY);
+  return PRIORITY_LEVELS[Math.min(PRIORITY_LEVELS.length - 1, i + 1)];
+}
+
+/**
+ * 纯逻辑：给复现候选算「复习后仍复现」的升级。
+ *
+ * 判定只用账本里已有的字段：被匹配到的那条老教训带 lastReplayed，且落在 now 之前
+ * REPLAY_RECURRENCE_DAYS 天内 → 升级。升级同时给**被复习的那条**打 replayEscalated 标
+ * （注入文案靠它追一句「（复习后仍复现，已升级）」）——返回的候选是副本，账本条目的改动由调用方落盘。
+ *
+ * @returns {Array} 候选副本，带 priority / replayEscalated / replayWindowDays
+ */
+export function escalateReplayedRecurrence(recurring, ledger, { now = new Date(), windowDays = REPLAY_RECURRENCE_DAYS, threshold = SIMILAR_MIN } = {}) {
+  const nowMs = (now instanceof Date ? now : new Date(now)).getTime();
+  const past = Array.isArray(ledger?.lessons) ? ledger.lessons : [];
+  const at = new Date(Number.isFinite(nowMs) ? nowMs : Date.now()).toISOString();
+  return (Array.isArray(recurring) ? recurring : []).map((c) => {
+    const base = normalizePriority(c?.priority) || DEFAULT_PRIORITY;
+    const reviewed = past.filter((p) => {
+      const t = Date.parse(String(p?.lastReplayed ?? ""));
+      if (!Number.isFinite(t) || t > nowMs) return false;
+      if (nowMs - t > windowDays * DAY_MS) return false;
+      return lessonSimilarity(c, p) >= threshold;
+    });
+    if (!reviewed.length) return { ...c, priority: base };
+    for (const p of reviewed) {
+      p.replayEscalated = true;
+      p.replayEscalatedAt = at;
+    }
+    return {
+      ...c,
+      priority: bumpPriority(base),
+      replayEscalated: true,
+      replayWindowDays: windowDays,
+      replayReviewedAt: reviewed.map((p) => String(p.lastReplayed)).sort().pop() || "",
+    };
+  });
+}
+
 /**
  * 纯函数：给定账本和今晚的教训，算出谁复现了（跨日 ≥ minDays 天，含今天）。
  * 已晋升过的（按 topic 或与已晋升文本高度相似）跳过。
@@ -99,19 +156,21 @@ export function findRecurringLessons(ledger, lessons, ymd, { minDays = 2, thresh
 }
 
 /**
- * 复盘后调用：落账 → 找复现 → 交给 propose（evolution-api 的提案池）→ 记已提。
+ * 复盘后调用：落账 → 找复现 → 算复习升级 → 交给 propose（evolution-api 的提案池）→ 记已提。
  * propose(candidate) 返回 {ok}|{skip}；失败不影响落账。
  */
-export function promoteReflectionLessons(wsRoot, text, { ymd, now = new Date(), propose, fsMod = fs } = {}) {
+export function promoteReflectionLessons(wsRoot, text, { ymd, now = new Date(), propose, fsMod = fs, replayWindowDays = REPLAY_RECURRENCE_DAYS } = {}) {
   const lessons = parseReflectionLessons(text);
   if (!lessons.length || !ymd) return { recorded: 0, proposed: [] };
   const ledger = loadLessonLedger(wsRoot, fsMod);
   const recurring = findRecurringLessons(ledger, lessons, ymd);
+  // 复习联动：复习后 replayWindowDays 天内又复现的，提案升一档；被复习的那条打标（写回账本）。
+  const candidates = escalateReplayedRecurrence(recurring, ledger, { now, windowDays: replayWindowDays });
   const at = (now instanceof Date ? now : new Date()).toISOString();
   ledger.lessons.push(...lessons.map((l) => ({ ...l, ymd, at })));
   ledger.lessons = ledger.lessons.slice(-LESSON_CAP);
   const proposed = [];
-  for (const c of recurring) {
+  for (const c of candidates) {
     let r = null;
     try { r = typeof propose === "function" ? propose(c) : null; } catch { r = null; }
     if (r?.ok) { proposed.push({ ...c, id: r.id }); ledger.promoted.push({ text: c.text, topic: c.topic, at, days: c.days }); }
@@ -125,7 +184,21 @@ export function promoteReflectionLessons(wsRoot, text, { ymd, now = new Date(), 
 /** 提案正文：经验库一行，带来源（复盘日期），和压缩提案同一个出处规矩。 */
 export function lessonDraft(c, today) {
   const topic = c.topic ? `[${c.topic}] ` : "";
-  return `- [${today}] ${topic}${c.text}（晋升：复盘 ${c.days.length} 天复现；来源：${c.days.join("、")}）`;
+  const escalated = c?.replayEscalated ? "·复习后仍复现，已升级" : "";
+  return `- [${today}] ${topic}${c.text}（晋升：复盘 ${c.days.length} 天复现${escalated}；来源：${c.days.join("、")}）`;
+}
+
+/** 交给 evolution-api.proposeLessonPromotion 的入参。server.mjs 只调这一个，别在调用点手抄字段。 */
+export function buildLessonProposal(c, today) {
+  const escalated = !!c?.replayEscalated;
+  return {
+    draft: lessonDraft(c, today),
+    topic: c?.topic || "",
+    days: Array.isArray(c?.days) ? c.days : [],
+    earlier: Array.isArray(c?.earlier) ? c.earlier : [],
+    // 只有升级过的才带优先级：普通提案不带 priority，提案池仍按时间排，升级的浮到最前。
+    priority: escalated ? (normalizePriority(c?.priority) || DEFAULT_PRIORITY) : "",
+  };
 }
 
 /** 喂给复盘的已有主题词（近的在前，去重，最多 n 个）：同类教训沿用原词，跨日复现才认得出。 */

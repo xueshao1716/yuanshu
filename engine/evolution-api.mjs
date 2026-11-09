@@ -265,22 +265,29 @@ export function proposeMemoryNudge(info) {
 
 // 复盘教训晋升（2026-10-07，engine/lesson-promotion.mjs 算出「跨日复现」后调这里）：
 // 和情绪 nudge 同一个提案池、同一个写入/驳回按钮，只是目标是经验库、去重按正文而不是按天。
+// 2026-11-09：priority 由 lesson-promotion 的复习联动算（复习后仍复现的升一档），
+// 只用来排序"先看哪条"——写不写仍然由伙伴点。
 export const LESSON_TARGET = "工程/经验库/experience.md";
-export function proposeLessonPromotion({ draft, topic = "", days = [], earlier = [] } = {}) {
+const PRIORITY_RANK = { high: 3, medium: 2, low: 1 };
+export function proposeLessonPromotion({ draft, topic = "", days = [], earlier = [], priority = "" } = {}) {
   const text = String(draft || "").trim();
   if (text.length < 8) return { error: "教训正文太短" };
   const pool = loadPool();
   if (pool.some(x => x.kind === "memory-nudge" && x.subtype === "lesson" && x.draft === text)) return { skip: true, reason: "同一条已提过" };
   const id = `mem-lesson-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
-  pool.push({ id, kind: "memory-nudge", subtype: "lesson", targetFile: LESSON_TARGET, draft: text,
+  const item = { id, kind: "memory-nudge", subtype: "lesson", targetFile: LESSON_TARGET, draft: text,
     topic: String(topic).slice(0, 24), days: days.slice(0, 10), messagePreview: earlier.slice(0, 3).join(" / ").slice(0, 200),
-    created: new Date().toISOString(), state: "open" });
+    created: new Date().toISOString(), state: "open" };
+  if (PRIORITY_RANK[String(priority).toLowerCase()]) item.priority = String(priority).toLowerCase();
+  pool.push(item);
   savePool(pool);
   return { ok: true, id };
 }
 export function listMemoryNudges() {
   return loadPool().filter(x => x.kind === "memory-nudge")
-    .sort((a, b) => String(b.created).localeCompare(String(a.created)))
+    // 优先级高的先看，同档仍按时间倒序（没有 priority 的老条目排在后面，不丢）。
+    .sort((a, b) => (PRIORITY_RANK[b.priority] || 0) - (PRIORITY_RANK[a.priority] || 0)
+      || String(b.created).localeCompare(String(a.created)))
     .slice(0, 20);
 }
 export function applyMemoryNudge(id) {

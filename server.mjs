@@ -414,7 +414,7 @@ import { readReportLedger } from "./engine/telemetry.mjs";
 import { setEnvWorkspace } from "./engine/runtime-env.mjs";
 import { loadSelfPolicy, selfTools, recordSelfAction, withinDailyLimit } from "./engine/self-agency.mjs";
 import { composeTimeTaskMessages, timeTaskReadTools, recordReflectionActions, parseReflectionActions, yesterdayYmd } from "./engine/time-task-run.mjs";
-import { promoteReflectionLessons, lessonDraft } from "./engine/lesson-promotion.mjs";
+import { promoteReflectionLessons, buildLessonProposal } from "./engine/lesson-promotion.mjs";
 import { buildLastNight } from "./engine/last-night.mjs";
 import { planReflectionExecution, recordActionAttempt, summarizeExecution, runOnTheSpotFix, executeReflectionAction, REFLECTION_EXEC_BUDGET_MS } from "./engine/reflection-exec.mjs";
 import { loadEpisodes, dream, writeDreamLog, dreamPaths, currentWeights, promoteWeights, resetWeights, recordSkillChoice } from "./engine/dream.mjs";
@@ -8140,7 +8140,7 @@ ${rows.map((r) => `- [${r.status}${r.closed ? "/已结清" : ""}] ${r.text}\n  �
             try {
               const today = new Date().toISOString().slice(0, 10);
               const lp = promoteReflectionLessons(CONFIG.cwd, out, { ymd: yesterdayYmd(),
-                propose: (c) => proposeLessonPromotion({ draft: lessonDraft(c, today), topic: c.topic, days: c.days, earlier: c.earlier }) });
+                propose: (c) => proposeLessonPromotion(buildLessonProposal(c, today)) });
               if (lp.recorded) console.log(`[lesson] 教训落账 ${lp.recorded} 条，复现出提案 ${lp.proposed.length} 条${lp.proposed.length ? `：${lp.proposed.map((x) => x.topic || x.text.slice(0, 12)).join("、")}` : ""}`);
             } catch (e) { console.log(`[lesson] 晋升异常: ${String(e?.message || e).slice(0, 120)}`); }
           }

@@ -468,7 +468,8 @@ describe("接线：两条引擎入口都挂上了", () => {
     const src = read("engine", "yuanshu-emotion.mjs");
     assert.match(src, /antiPatternPromptLine/);
     assert.match(src, /alreadyInjected\(history\)/);
-    assert.match(src, /\[prompt, relationshipLine\(\), genomeLine\(\), growthLine\(\), antiPatternLine\(msg, context\)\]/);
+    // 反模式仍是同一块里的并列行；后面可以再接别的行（2026-11-09 接的是复习），但顺序不能挪到 prompt 之前。
+    assert.match(src, /\[prompt, relationshipLine\(\), genomeLine\(\), growthLine\(\), antiPatternLine\(msg, context\)/);
     // 工作区根绑定在 emotion.init 里，和 genome/growth 同一处
     const emo = read("engine", "emotion.mjs");
     assert.match(emo, /initAntiPatterns\(wsRoot\)/);

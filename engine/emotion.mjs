@@ -36,6 +36,8 @@ import { init as initGenome, recordGuardBlock } from "./genome.mjs";
 import { init as initGrowth } from "./genome-growth.mjs";
 // 2026-11-09：反模式台账。和成长/漂移同一个 system 块注入，所以工作区根也在同一处绑。
 import { init as initAntiPatterns } from "./anti-patterns.mjs";
+// 2026-11-09：教训复习。注入点是 yuanshu-emotion（和反模式同一块），工作区根同样在这里绑一次。
+import { init as initLessonReplay } from "./lesson-replay.mjs";
 
 // ── 人格基线（曦系）：小语闲下来时情绪落点是"温和的暖"，不是冷中性 ──
 const PERSONALITY = { valence: 0.55, arousal: 0.35, dominance: 0.5 };
@@ -72,6 +74,7 @@ export function init(root) {
   try { initGenome(wsRoot); } catch {}
   try { initGrowth(wsRoot); } catch {}
   try { initAntiPatterns(wsRoot); } catch {}
+  try { initLessonReplay(wsRoot); } catch {}
   bindGuardBlockSink();
 }
 
