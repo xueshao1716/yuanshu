@@ -151,6 +151,8 @@ export default function System() {
         <PageHeader
           title="系统"
           actions={<>
+            {/* 2026-11-10：观测类信息（机制体检 / 退化 / 审计）搬到「运行健康」，系统页只管配置 */}
+            <a className="btn-ghost min-h-11 inline-flex items-center px-3" href="#/health">运行健康</a>
             <a className="btn-ghost min-h-11 inline-flex items-center px-3" href="#/grants">授权中心</a>
             <a className="btn-ghost min-h-11 inline-flex items-center px-3" href="#/soul">灵魂培养中心</a>
           </>}

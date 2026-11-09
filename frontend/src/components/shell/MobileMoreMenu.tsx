@@ -25,6 +25,7 @@ const MORE_ROUTES: { route: Route; icon: typeof Sparkles; label: string }[] = [
   { route: 'themes', icon: Palette, label: ROUTE_LABELS.themes },
   { route: 'gateway', icon: Layers, label: ROUTE_LABELS.gateway },
   { route: 'plugins', icon: Package, label: ROUTE_LABELS.plugins },
+  { route: 'health', icon: Activity, label: ROUTE_LABELS.health },
   { route: 'system', icon: MonitorCog, label: ROUTE_LABELS.system },
 ]
 

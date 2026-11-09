@@ -21,6 +21,8 @@ export const sections = [
   ['memory','记忆与关系','回忆检索、来源与记忆快照'], ['learning','学习与技能','学习接收、经验与技能目录'],
   ['mother','aibody 母体','宿主、生命层与表达层的实况'], ['team','天团协作','角色分工、任务与交付记录'],
   ['cultivation','智能体培养','小语的设计、个体、运行与学习证据'],
+  // 2026-11-10：关系 / 五维成长与世代 / 正向账本 / 教训复习——后台早就有只读接口，前端一直没出口。
+  ['growth','成长与自省','关系进度、五维成长、做对过的事、教训复习'],
   ['voice','声音与形象','外貌、服装、声音与现有立绘'], ['history','审批与回退','修订、人工确认与安全撤回'],
 ] as const
 export type Section = typeof sections[number][0]
@@ -28,6 +30,7 @@ export type Section = typeof sections[number][0]
 export const groups = [
   ['overview','总览',['overview']], ['self','身份与形象',['identity','voice']],
   ['nature','性格与情绪',['genes','rhythm']], ['mind','记忆与学习',['memory','learning']],
+  ['growth','成长与自省',['growth']],
   ['cultivation','智能体培养',['cultivation']], ['records','记录与协作',['history','team','mother']],
 ] as const satisfies readonly (readonly [string,string,readonly Section[]])[]
 export const groupOf = (id: Section) => groups.find(g => (g[2] as readonly Section[]).includes(id))!

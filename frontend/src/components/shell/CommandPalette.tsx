@@ -62,6 +62,7 @@ export default function CommandPalette({ open, onClose, nav, onRightPanel, onMod
       page('downloads', '打开下载记录（资产 · 下载记录）', Download),
       page('mcp', '打开 MCP 外部工具（能力 · MCP）', Plug),
       page('system', '打开系统', MonitorCog),
+      page('health', '打开运行健康（机制新鲜度 / 退化 / 审计）', Activity),
       page('grants', '打开授权中心（放权 / 提权 / 批准）', ShieldCheck),
       { key: 'rp-inspect', icon: ClipboardCheck, label: '右栏 · 任务检查', hint: '对话页', run: () => { onRightPanel('inspect'); nav('chat'); onClose() } },
       { key: 'rp-workspace', icon: FolderClosed, label: '右栏 · 工作空间', hint: '对话页', run: () => { onRightPanel('workspace'); nav('chat'); onClose() } },

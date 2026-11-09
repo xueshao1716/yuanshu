@@ -10,6 +10,7 @@ import VoiceAppearance from '../soul/VoiceAppearance'
 import Memory from '../soul/Memory'
 import Cultivation from '../soul/cultivation/Panel'
 import Overview, { groupOf, groups, sections, type Section } from '../soul/Overview'
+import Growth from '../soul/Growth'
 import { Learning, Mother, Rhythm, Team } from '../soul/LiveSections'
 import { Confirmations, SessionChoice } from '../soul/Confirmations'
 import { errorText } from '../soul/shared'
@@ -17,9 +18,19 @@ import '../soul/soul.css'
 
 const draftSections: Section[] = ['identity', 'genes', 'history']
 
+// 深链：#/soul?s=growth 直接落到「成长与自省」。
+// 对话页那条状态带上的"信任 / 换代提案待批"就往这里跳——不然点了只能落到总览再自己找。
+function initialSection(): Section {
+  try {
+    const raw = new URLSearchParams(location.hash.split('?')[1] || '').get('s')
+    if (raw && sections.some(([id]) => id === raw)) return raw as Section
+  } catch {}
+  return 'overview'
+}
+
 export default function Soul() {
   const { currentSessionId } = useApp()
-  const [section,setSection] = useState<Section>('overview'), [visited,setVisited] = useState<Section[]>(['overview'])
+  const [section,setSection] = useState<Section>(initialSection), [visited,setVisited] = useState<Section[]>([section])
   const [sessionId,setSessionId] = useState(currentSessionId || '')
   // 会话列表异步加载：进页面时当前会话可能还没就绪，就绪后自动补上，不让人从几百个会话里挑。
   useEffect(()=>{if(!sessionId&&currentSessionId)setSessionId(currentSessionId)},[currentSessionId,sessionId])
@@ -64,7 +75,7 @@ export default function Soul() {
           {message && <p role={failed?'alert':'status'} className="soul-notice">{message}</p>}
           {(visited.includes('identity') || visited.includes('voice')) && <div hidden={!(section === 'identity' || section === 'voice')}><PersonaEditor {...props} designMode={section === 'voice'} onDirtyChange={setDirty}/></div>}
           {visited.filter(id => id === section || draftSections.includes(id)).map(id=><div key={id} hidden={id!==section}>
-            {id==='overview'?<Overview open={open}/>:id==='identity'?null:id==='genes'?<Genes {...props}/>:id==='rhythm'?<Rhythm sessionId={sessionId}/>:id==='memory'?<Memory/>:id==='learning'?<Learning/>:id==='mother'?<Mother/>:id==='team'?<Team/>:id==='voice'?<VoiceAppearance/>:id==='cultivation'?<Cultivation sessionId={sessionId}/>:<History {...props}/>}
+            {id==='overview'?<Overview open={open}/>:id==='growth'?<Growth/>:id==='identity'?null:id==='genes'?<Genes {...props}/>:id==='rhythm'?<Rhythm sessionId={sessionId}/>:id==='memory'?<Memory/>:id==='learning'?<Learning/>:id==='mother'?<Mother/>:id==='team'?<Team/>:id==='voice'?<VoiceAppearance/>:id==='cultivation'?<Cultivation sessionId={sessionId}/>:<History {...props}/>}
           </div>)}
         </main>
       </div>

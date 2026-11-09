@@ -1,5 +1,5 @@
 import { Suspense, lazy, useCallback, useEffect, useRef, useState, type ComponentType, type LazyExoticComponent, type ReactNode } from 'react'
-import { Puzzle, Film, MessagesSquare, BrainCircuit, Images, Clock4, Download, LayoutGrid, LayoutDashboard, Settings2, FolderClosed, PanelLeftOpen, Sparkles, Factory, MonitorCog, Cpu, Palette, Database, GitCompare, LogOut, Ellipsis, Globe2, ShieldCheck, Workflow, PenLine, LayoutTemplate, UserRound, Plug, Network } from 'lucide-react'
+import { Puzzle, Film, MessagesSquare, BrainCircuit, Images, Clock4, Download, LayoutGrid, LayoutDashboard, Settings2, FolderClosed, PanelLeftOpen, Sparkles, Factory, MonitorCog, Cpu, Palette, Database, GitCompare, LogOut, Ellipsis, Globe2, ShieldCheck, Workflow, PenLine, LayoutTemplate, UserRound, Plug, Network, Activity } from 'lucide-react'
 import { useApp } from './store'
 import { useIsMobile } from './hooks/useIsMobile'
 import { useHashRoute, PageErrorBoundary, type Route } from './hooks/useHashRoute'
@@ -33,6 +33,8 @@ const Apps = lazy(() => import('./pages/Apps'))
 const EnginePage = lazy(() => import('./pages/Engine'))
 const BoardPage = lazy(() => import('./pages/Board'))
 const SystemPage = lazy(() => import('./pages/System'))
+// 2026-11-10：运行健康——机制新鲜度 / 退化自评 / 定时审计 / 自证与旁路，全部只读
+const HealthPage = lazy(() => import('./pages/Health'))
 const SoulPage = lazy(() => import('./pages/Soul'))
 const AutoPatchesPage = lazy(() => import('./pages/AutoPatches'))
 const GatewayPage = lazy(() => import('./pages/Gateway'))
@@ -116,6 +118,7 @@ const PAGE_ROUTES: PageRoute[] = [
   { route: 'themes', icon: Palette, label: ROUTE_LABELS.themes, Page: ThemesPage, nav: false },
   { route: 'sessiondb', icon: Database, label: ROUTE_LABELS.sessiondb, Page: BoardSessionsPage, nav: false },
   { route: 'mcp', icon: Plug, label: ROUTE_LABELS.mcp, Page: EngineMcpPage, nav: false },
+  { route: 'health', icon: Activity, label: ROUTE_LABELS.health, Page: HealthPage },
   { route: 'system', icon: MonitorCog, label: ROUTE_LABELS.system, Page: SystemPage },
 ]
 const APP_ROUTES: Route[] = ['chat', ...PAGE_ROUTES.map(p => p.route)]

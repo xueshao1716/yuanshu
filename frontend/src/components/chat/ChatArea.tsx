@@ -13,6 +13,8 @@ import SendBox from './SendBox'
 import RealtimeCall from '../voice/RealtimeCall'
 import TurnList from './TurnList'
 import ChatRunStatus from './ChatRunStatus'
+// 她的状态带（2026-11-10）：关系阶段 / 当前情绪 / 待批换代提案 / 退化暂停，常驻顶栏下方一条
+import HerStatusStrip from '../shell/HerStatusStrip'
 import { useAutoScroll } from '../../hooks/useAutoScroll'
 import { useViewState } from '../../hooks/useViewState'
 import { toast } from '../shell/Toast'
@@ -1329,6 +1331,9 @@ export default function ChatArea({ compactHeader, rightPanel, onRightPanel, onVo
         </div>
         <MoodPanel open={orbPanelOpen} onClose={() => setOrbPanelOpen(false)} emotion={companionEmotion} action={companion.action} known={!!companion.facts?.known} skin={companion.skin} />
       </div>
+
+      {/* 她的状态带：只读一行，接口挂了就静默隐藏——状态带不能变成错误条 */}
+      <HerStatusStrip emotionLabel={emoMetaLive.label} />
 
       {/* 无新事件只提示，不改变服务端任务状态 */}
       {idleWarned && (
