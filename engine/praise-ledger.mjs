@@ -14,6 +14,8 @@
 //   · 同一个 what（相似 ≥ 0.9）合并成一条、weight+1：重复被夸是同一件事的强度，不是新条目。
 //     合并只在**同一 kind** 内做：同一轮里"用户道谢"和"交付门 GREEN"证据不同，不能揉成一条。
 //   · 上限 MAX_ENTRIES 条，超了按 weight 淘汰（轻的、旧的先走）：账本要有边界，不然会变噪声库。
+//   · 一轮最多记 1 条（MAX_RECORDS_PER_TURN）：道谢/交付门 GREEN/重试成功可能同时成立，
+//     四类各记一条会把账本刷成积分表——一轮只记最先成立的那条（被夸 → 做成 → 恢复 → 提醒被采纳）。
 //   · 注入一天最多 DAILY_INJECT_LIMIT 条（正向状态.json 的 lastInjectedDate）；
 //     和「复习：」各用各的状态文件，互不挤占：今天念过教训不影响今天念一条做对过。
 //   · 账本为空 → 零注入：没证据就不夸，绝不生成「你真棒」这种无凭据文案。
@@ -41,6 +43,7 @@ export const KIND_LABELS = Object.freeze({
   praise: "被夸", completed: "做成", recovered: "失败后做成", handled_well: "提醒被采纳",
 });
 export const MAX_ENTRIES = 200;      // 账本上限
+export const MAX_RECORDS_PER_TURN = 1; // 一轮最多记几条（硬上限，防四类各记一条）
 export const MERGE_THRESHOLD = 0.9;  // 同一个 what 相似到这个程度就合并
 export const MIN_WHAT = 6;           // 「具体不泛泛」的下限（「她很棒」= 3 字，直接拒）
 export const DAILY_INJECT_LIMIT = 1; // 一天最多念几条
@@ -349,6 +352,53 @@ function followUpInfo(fu) {
   };
 }
 
+// 能当"失败后重试成功"证据的只有命令类工具：文件工具的「先 read 失败、write 后再 read 成功」
+// 多半是探索而不是恢复，记进来会把普通操作夸成韧性。宁可漏，不可凑。
+const RETRY_TOOL_NAMES = new Set(["bash", "pwsh", "run_code"]);
+
+/** 同一工具 + 同一条命令的身份键：配对靠它，参数只取命令正文。 */
+function toolEventKey(name, args) {
+  const command = args && typeof args === "object" ? String(args.command ?? args.cmd ?? args.code ?? "") : "";
+  return `${name}::${clip(command, 160)}`;
+}
+
+/**
+ * 从收轮工具事件里找**客观**的"失败后重试成功"：同一工具、同一条命令先 fail 后 ok。
+ * 只认事件流的顺序证据：只有失败 / 只有成功 / 换了命令都不算（返回 null，不猜）。
+ * @param {Array<{type?:string, name?:string, args?:object, ok?:boolean, error?:string}>} events
+ * @returns {null|{failed:boolean, succeeded:boolean, attempts:number, error:string, what:string}}
+ */
+export function retryFromToolEvents(events = []) {
+  const list = Array.isArray(events) ? events : [];
+  const failed = new Map(); // key -> { attempts, error, name, command }
+  for (const ev of list) {
+    if (!ev || (ev.type && ev.type !== "tool")) continue;
+    const name = String(ev.name || "").trim();
+    if (!name || !RETRY_TOOL_NAMES.has(name)) continue;
+    const args = ev.args && typeof ev.args === "object" ? ev.args : {};
+    const command = clip(args.command ?? args.cmd ?? args.code ?? "", 120);
+    const key = toolEventKey(name, args);
+    if (ev.ok === false) {
+      const hit = failed.get(key) || { attempts: 0, error: "", name, command };
+      hit.attempts += 1;
+      if (!hit.error) hit.error = clip(ev.error || ev.reason || "", 60);
+      failed.set(key, hit);
+      continue;
+    }
+    if (ev.ok !== true) continue; // 成败不明（暂停/中断）的不算
+    const hit = failed.get(key);
+    if (!hit) continue;
+    return {
+      failed: true,
+      succeeded: true,
+      attempts: hit.attempts,
+      error: hit.error,
+      what: hit.command ? `${name}「${clip(hit.command, 40)}」` : `${name} 失败后重试成功`,
+    };
+  }
+  return null;
+}
+
 /**
  * 收轮判定：四类**保守**规则，拿不准不记（返回的 skipped 里写明为什么不记）。
  *   ① praise       用户明确表扬/道谢（含糊、转折、带抱怨一律不算）
@@ -357,18 +407,27 @@ function followUpInfo(fu) {
  *   ④ handled_well 主动提醒明确被采纳
  * 没有 scene 的表扬不记：夸的是"哪件事"说不清，就是无凭据夸奖。
  *
+ * 每轮硬上限 maxRecords（默认 1）：四类可能同时成立（用户道谢 + 交付门 GREEN + 重试成功），
+ * 只记最先成立的那条，其余进 skipped 说明——账本记的是"做对了什么"，不是积分表。
+ *
  * @returns {{ok:boolean, recorded:Array, merged:number, skipped:Array<{kind:string,reason:string}>}}
  */
 export function recordFromTurn({
   userText = "", gate = null, retry = null, followUp = null,
   scene = "", wsRoot: root = wsRoot, at = Date.now(), source = "turn",
+  maxRecords = MAX_RECORDS_PER_TURN,
 } = {}) {
   const ts = nowNum(at);
   const ctxScene = clip(scene, 80);
   const recorded = [];
   const skipped = [];
+  const cap = Math.max(1, Math.floor(num(maxRecords, MAX_RECORDS_PER_TURN)));
 
   const attempt = (cand) => {
+    if (recorded.length >= cap) {
+      skipped.push({ kind: cand.kind, reason: `本轮已记 ${cap} 条，达到每轮上限` });
+      return { ok: false, error: "达到每轮上限" };
+    }
     const res = recordPositive({ wsRoot: root, at: ts, source, ...cand });
     if (res.ok) recorded.push(res);
     else skipped.push({ kind: cand.kind, reason: res.error });

@@ -54,6 +54,11 @@ import { advanceTurn as advanceGenomeTurn } from "./genome.mjs";
 import { advance as advanceGrowthTurn } from "./genome-growth.mjs";
 // 2026-11-09 反模式台账：轮末把本轮工具事件过一遍三类机械检测，命中只落 jsonl（不改回复、不拦动作）。
 import { detectViolations, recordViolation } from "./anti-patterns.mjs";
+// 2026-11-10 正向账本：收轮把客观信号（交付门 GREEN / 失败后重试成功 / 用户原话）记一条。
+// 旁路信号：任何异常都吞掉，绝不影响收轮；每轮硬上限 1 条由账本 recordFromTurn 把门。
+import { recordFromTurn, retryFromToolEvents } from "./praise-ledger.mjs";
+// 交付门里"什么算改动"的同一份定义：本轮写类工具碰过的路径才当客观证据。
+import { CHANGE_TOOLS } from "./delivery-gate.mjs";
 import { readActivityRhythm } from "./activity-rhythm.mjs";
 import { pendingPromiseText } from "./promises.mjs";
 import { goalPrompt } from "./goals.mjs";
@@ -814,6 +819,15 @@ export async function handleUnifiedChat(res, entry, message, sessionId, params, 
   // 只写 记忆/运行时/反模式命中.jsonl；不改回复、不拦动作，任何异常都吞掉。
   const antiPatternEvents = [];
   let antiPatternScanned = false;
+  // 正向账本（2026-11-10）：本轮客观信号攒在这里，收轮统一记一条。
+  //   turnGate        = 本轮最后一次 delivery_check 工具自己返回的判定（judgeRun 的结果，只认 GREEN）；
+  //   turnChangedFiles= 本轮写类工具真的碰过的路径（交付门同一份 CHANGE_TOOLS 定义）；
+  //   *Seq            = 事件顺序，只认"最后一次改动之后"的交付门判定（防止早判 GREEN、后面又改）；
+  //   praiseLedgerDone= 收轮可能走多个 return 分支，账本每轮只记一次（账本内部还有硬上限兜底）。
+  let turnGate = null;
+  const turnChangedFiles = [];
+  let turnSeq = 0, turnGateSeq = 0, lastChangeSeq = 0;
+  let praiseLedgerDone = false;
   const scanTurnAntiPatterns = () => {
     if (antiPatternScanned) return;
     antiPatternScanned = true;
@@ -844,6 +858,32 @@ export async function handleUnifiedChat(res, entry, message, sessionId, params, 
         let guardBlocks = 0;
         try { guardBlocks = Number(advanceGenomeTurn({ toolFailures: turnToolFailures })?.guardBlocks) || 0; } catch {}
         try { advanceGrowthTurn(null, { reason: "对话轮末", guardBlocks }); } catch {}
+      }
+    } catch {}
+    // turn_end → 正向账本（2026-11-10）：只接本轮客观信号，每轮最多 1 条（recordFromTurn 内部硬上限）。
+    // 信号来源：交付门（delivery_check 的 judgeRun 回执，只认 GREEN 且有实际改动）+ 失败后重试成功
+    // （同一命令先 fail 后 ok 的工具事件序列）+ 用户原话（judgePraise 保守判定）。
+    // 上一轮主动提醒是否被照做拿不到客观证据 → followUp 不传，不猜。
+    // 任何异常吞掉：账本读/写失败绝不能影响这一轮回复收尾。
+    try {
+      if (!praiseLedgerDone && collected && _cwd && !/^eval-/.test(String(sessionId || ""))) {
+        praiseLedgerDone = true;
+        const scene = turnChangedFiles.length
+          ? `改动了 ${turnChangedFiles.slice(0, 2).join("、")}`
+          : "";
+        const settled = recordFromTurn({
+          wsRoot: _cwd,
+          userText: String(emotionInput.message || ""),
+          gate: turnGate && turnChangedFiles.length && turnGateSeq > lastChangeSeq
+            ? { ...turnGate, files: [...turnChangedFiles] }
+            : null,
+          retry: retryFromToolEvents(antiPatternEvents),
+          followUp: undefined,
+          scene,
+        });
+        for (const rec of settled.recorded || []) {
+          console.log(`[正向账本] 记一条 ${rec.entry?.kind || "?"}：${String(rec.entry?.what || "").slice(0, 40)}${rec.merged ? "（合并）" : ""}`);
+        }
       }
     } catch {}
   };
@@ -988,6 +1028,31 @@ export async function handleUnifiedChat(res, entry, message, sessionId, params, 
     } catch {}
     const media = explicitToolMedia(out, { id, name });
     if (media?.url) deliverGatedToolMedia(media, { writer });
+    // 正向账本采样（2026-11-10）：交付门回执 + 写类工具碰过的路径，都是工具事件的客观回执。
+    // 只留判定/路径，不碰输出正文；解析失败就当没这个信号。
+    try {
+      const seq = (turnSeq += 1);
+      if (name === "delivery_check" && out?.isError !== true) {
+        const verdict = JSON.parse(text);
+        if (verdict && typeof verdict === "object" && verdict.verdict) {
+          turnGate = {
+            verdict: String(verdict.verdict).toUpperCase(),
+            summary: String(verdict.summary || ""),
+            reasons: Array.isArray(verdict.reasons) ? verdict.reasons.slice(0, 5).map(String) : [],
+            runId: String(runContext?.runId || ""),
+          };
+          turnGateSeq = seq;
+        }
+      }
+      if (out?.isError !== true && CHANGE_TOOLS.has(name)) {
+        const file = String(args?.path || args?.file || "").trim();
+        if (file && !turnChangedFiles.includes(file)) {
+          turnChangedFiles.push(file);
+          if (turnChangedFiles.length > 8) turnChangedFiles.shift();
+        }
+        lastChangeSeq = seq;
+      }
+    } catch {}
   };
   const onCheckpoint = createRunCheckpointWriter(writer, runContext);
   let history = [...formatSessionHistory(hist, { carryReasoning: carriesReasoningDuty(chatModel) }), { role: "user", content: mediaAwarePrompt(message, []) }];

@@ -9,7 +9,7 @@ import path from 'node:path';
 
 import {
   LEDGER_REL, STATE_REL, HIT_REL, FAILURE_REL, PROMPT_PREFIX, MAX_ENTRIES, MERGE_THRESHOLD, DAY_MS,
-  recordPositive, recordFromTurn, judgePraise, similarity, stats, praisePromptLine,
+  MAX_RECORDS_PER_TURN, recordPositive, recordFromTurn, retryFromToolEvents, judgePraise, similarity, stats, praisePromptLine,
 } from '../../engine/praise-ledger.mjs';
 import { replayPromptLine } from '../../engine/lesson-replay.mjs';
 import { LESSON_LEDGER } from '../../engine/lesson-promotion.mjs';
@@ -267,4 +267,105 @@ test('比例：7 天负向 ≥ 3 倍正向就标失衡，注入换鼓励式文�
   assert.equal(s2.negative, 2);
   assert.equal(s2.ratio, 0.5);
   assert.equal(s2.imbalanced, false);
+});
+
+// ── 生产接线（2026-11-10）：收轮把客观信号接进账本，每轮最多 1 条 ──
+
+test('每轮硬上限：交付门 GREEN + 用户道谢也只记 1 条（四类不会把账本刷满）', () => {
+  const root = tmp();
+  const r = recordFromTurn({
+    wsRoot: root, at: NOW,
+    userText: '谢谢你，这次收轮接得很稳',
+    gate: { verdict: 'GREEN', files: ['engine/unified-chat.mjs'], reasons: ['改动都有验证覆盖'], runId: 'r-2' },
+    retry: { failed: true, succeeded: true, attempts: 1, error: 'ECONNRESET', what: 'bash「node --test tests/unit/praise-ledger.test.mjs」' },
+    scene: '把正向账本接进统一通道的收轮处',
+  });
+  assert.equal(MAX_RECORDS_PER_TURN, 1);
+  assert.equal(r.recorded.length, 1, '一轮记了不止一条');
+  assert.equal(r.recorded[0].entry.kind, 'praise'); // 顺序：被夸 → 做成 → 恢复
+  assert.equal(readItems(root).length, 1);
+  assert.ok(r.skipped.some((s) => /每轮上限/.test(s.reason)), '被上限挡下的原因没写进 skipped');
+
+  // 只有显式放宽 maxRecords 才允许一轮多条；默认值就是硬上限
+  const wide = recordFromTurn({
+    wsRoot: tmp(), at: NOW, maxRecords: 2,
+    userText: '谢谢你，这次收轮接得很稳',
+    gate: { verdict: 'GREEN', files: ['engine/unified-chat.mjs'], reasons: ['改动都有验证覆盖'] },
+    scene: '把正向账本接进统一通道的收轮处',
+  });
+  assert.equal(wide.recorded.length, 2);
+});
+
+test('收轮 RED：交付门没过就不记 completed（改了文件也不算做成）', () => {
+  const root = tmp();
+  const r = recordFromTurn({
+    wsRoot: root, at: NOW,
+    scene: '改了 engine/unified-chat.mjs 的收轮逻辑',
+    gate: { verdict: 'RED', files: ['engine/unified-chat.mjs'], reasons: ['1 次验证没通过'] },
+  });
+  assert.equal(r.ok, false);
+  assert.equal(r.recorded.length, 0);
+  assert.ok(r.skipped.some((s) => s.kind === 'completed' && /RED/.test(s.reason)));
+  assert.equal(fs.existsSync(ledgerFile(root)), false, 'RED 不该写账本');
+});
+
+test('重试成功：同一命令先 fail 后 ok 才记 recovered（工具事件推出来，不猜）', () => {
+  const root = tmp();
+  const events = [
+    { type: 'tool', name: 'bash', args: { command: 'node --test tests/unit/praise-ledger.test.mjs' }, ok: false, error: '1 failing' },
+    { type: 'tool', name: 'bash', args: { command: 'node --test tests/unit/praise-ledger.test.mjs' }, ok: true },
+  ];
+  const retry = retryFromToolEvents(events);
+  assert.equal(retry.failed, true);
+  assert.equal(retry.succeeded, true);
+  assert.equal(retry.attempts, 1);
+  assert.match(retry.what, /node --test/);
+
+  const r = recordFromTurn({ wsRoot: root, at: NOW, scene: '收轮测试先红后绿', retry });
+  assert.equal(r.ok, true);
+  assert.equal(r.recorded[0].entry.kind, 'recovered');
+  assert.match(r.recorded[0].entry.evidence, /重试成功/);
+
+  // 只有成功 / 只有失败 / 换了一条命令 / 文件工具的“先读失败、写后能读”，都不算恢复
+  assert.equal(retryFromToolEvents([{ type: 'tool', name: 'bash', args: { command: 'npm test' }, ok: true }]), null);
+  assert.equal(retryFromToolEvents([{ type: 'tool', name: 'bash', args: { command: 'npm test' }, ok: false }]), null);
+  assert.equal(retryFromToolEvents([
+    { type: 'tool', name: 'bash', args: { command: 'npm test' }, ok: false },
+    { type: 'tool', name: 'bash', args: { command: 'npm run build' }, ok: true },
+  ]), null);
+  assert.equal(retryFromToolEvents([
+    { type: 'tool', name: 'read', args: { path: 'D:/pi-web/engine/unified-chat.mjs' }, ok: false },
+    { type: 'tool', name: 'read', args: { path: 'D:/pi-web/engine/unified-chat.mjs' }, ok: true },
+  ]), null);
+  assert.equal(readItems(root).length, 1);
+});
+
+test('生产接线：unified-chat 收轮处确有 recordFromTurn 调用，且被 try/catch 包住', () => {
+  const src = fs.readFileSync(new URL('../../engine/unified-chat.mjs', import.meta.url), 'utf8');
+  const lines = src.split(/\r?\n/);
+  const start = lines.findIndex((l) => l.includes('const finishEmotion'));
+  assert.ok(start >= 0, '找不到 finishEmotion（收轮处被改名了？）');
+  const endRel = lines.slice(start + 1).findIndex((l) => l.trim() === '};');
+  assert.ok(endRel > 0, '找不到 finishEmotion 的结束行');
+  const end = start + 1 + endRel;
+
+  const callRel = lines.slice(start, end).findIndex((l) => l.includes('recordFromTurn({'));
+  assert.ok(callRel > 0, '收轮处没有调用 recordFromTurn');
+  const call = start + callRel;
+
+  // 调用点上方最近的 try { 必须存在，下方有 catch 兜底：账本失败绝不影响收轮
+  const tryRel = lines
+    .slice(start, call)
+    .map((l, i) => (l.trim() === 'try {' ? i : -1))
+    .filter((i) => i >= 0)
+    .pop();
+  assert.ok(tryRel >= 0, 'recordFromTurn 不在 try 块里');
+  assert.ok(lines.slice(call, end).some((l) => l.includes('} catch')), 'recordFromTurn 的 try 没有 catch 兜底');
+
+  // 信号必须是客观来源：用户原话 + 交付门回执 + 工具事件推的重试；followUp 拿不到就不猜
+  const block = lines.slice(start + tryRel, end).join('\n');
+  assert.ok(block.includes('userText: String(emotionInput.message'), '没接用户原话');
+  assert.ok(block.includes('turnGate'), '没接交付门判定');
+  assert.ok(block.includes('retryFromToolEvents(antiPatternEvents)'), '没接工具事件推的重试');
+  assert.ok(block.includes('followUp: undefined'), 'followUp 不该猜');
 });
