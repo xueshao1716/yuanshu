@@ -4,7 +4,7 @@ import http from 'node:http';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { initUnifiedChat, handleUnifiedChat } from '../../engine/unified-chat.mjs';
+import { initUnifiedChat, handleUnifiedChat, flushCloseoutQueue } from '../../engine/unified-chat.mjs';
 import { initDshKeys } from '../../engine/dsh-keys.mjs';
 import { initModelRouter } from '../../engine/model/router.mjs';
 import { initContextLoader } from '../../engine/context-loader.mjs';
@@ -49,6 +49,9 @@ test('空回复备用模型接续工具进度，切换先通知；失败仍保�
     const entry = {modelKey:primary,sm:{appendMessage:m=>saved.push(m),getTree:()=>[],getSessionName:()=>'test'}};
     await handleUnifiedChat(null, entry, '查询结果', 'empty-fallback-test', {}, undefined,
       {push:(type,data)=>events.push({type,data})}, false, 'empty-fallback-test', primary);
+    // 2026-11-10 P1：收尾已改成响应后异步队列。本测试 finally 会删工作区，
+    // 不排空队列的话收尾会在删完之后重建目录（写完再退出），断言不受影响但会留下垃圾。
+    await flushCloseoutQueue();
     const backupRequest = requests.find(r=>r.model===fallback.id);
     assert.ok(announcedBeforeFallback, '备用请求之前必须通知切换');
     assert.ok(backupRequest.messages.some(m=>m.role==='tool' && m.content.includes('evidence-1')));
@@ -58,6 +61,7 @@ test('空回复备用模型接续工具进度，切换先通知；失败仍保�
     assert.ok(events.some(e=>e.type==='error' && e.data.message.includes('备用 agnes/2.5-flash')));
     assert.ok(!events.some(e=>e.type==='done'), '双模型空不能伪报成功');
   } finally {
+    await flushCloseoutQueue(); // 删工作区之前必须让队列跑完（上面已排过一次，这里兜底异常路径）
     await new Promise(resolve=>server.close(resolve));
     fs.rmSync(root,{recursive:true,force:true});
   }

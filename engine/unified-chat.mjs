@@ -21,6 +21,10 @@ import { slimToolDefs } from "./tool-payload.mjs";
 import { httpJsonFetch, httpRawFetch, httpHedgedFetch, sessionAffinityHeaders, describeHttpError } from "./http.mjs";
 import { logModelFailure } from "./model/diagnostics.mjs";
 import { PRODUCT_VERSION } from "./version.mjs";
+// 2026-11-10 P1：收轮异步队列的模式开关（YUANSHU_CLOSEOUT）沿用项目统一的环境变量入口（新旧名都认）。
+import { env } from "./env.mjs";
+// 收尾观测：写盘次数/空写跳过次数从原子写层取（内容没变的那次不落盘）。
+import { jsonWriteStats } from "./atomic-io.mjs";
 import { createGateway } from "./gateway.mjs";
 import { CodeRuntime } from "../code-mode/code-runtime.mjs";
 import { createCodeMode } from "../code-mode/code-mode.mjs";
@@ -110,6 +114,126 @@ export function initUnifiedChat({ executeUnifiedTool = null, findKeyByEntry = nu
   _createSandboxAsk = createSandboxAsk;
   if (THINK_TOOL) _THINK_TOOL = THINK_TOOL;
 }
+
+// ══ 收轮队列（2026-11-10 P1，最后一个 P1）══════════════════════════════════════
+// 问题（实测）：收轮一口气做 12–20 次同步写盘（关系/基因/成长/账本/审计/情绪感受/反模式），
+// 回复已经推给前端，服务却还在 finally 里"卡一下"——25 轮里 15 次 10–52s 的事件循环停顿。
+// 现在改成"响应结束后异步串行队列"：
+//   · FIFO、同一时刻只跑一个任务：上一轮收尾没写完，下一轮收尾不会插进来；
+//   · 队列任务里的异常只记 console，绝不冒泡（收尾失败不该影响任何一轮回复）；
+//   · YUANSHU_CLOSEOUT=sync 回退旧行为（请求内直接同步执行），默认 async；
+//   · 顺序不变：一次任务内部仍是「关系 → 基因（读关系）→ 成长（读关系/基因）→ 账本/审计」。
+// 注意：这里只搬运"收尾"，不搬会话落库/done 广播——那些仍必须在 res.end 之前同步完成。
+const CLOSEOUT_SLOW_MS = 300;
+// 启动时读一次。空值/非法值一律按 async（新行为），只有显式 sync 才回退。
+const CLOSEOUT_ENV_MODE = String(env("CLOSEOUT") || "").trim().toLowerCase() === "sync" ? "sync" : "async";
+let _closeoutMode = CLOSEOUT_ENV_MODE;
+const closeoutQueue = [];
+let closeoutRunning = false;
+let closeoutIdleWaiters = [];
+
+function noteCloseoutError(error) {
+  try { console.error(`[closeout] 任务失败（已吞掉，不影响下一轮）：${error?.message || error}`); } catch {}
+}
+
+// 单段失败只记一行 console，不外抛：收尾是旁路信号，坏了也不该影响下一轮。
+function warnCloseoutStage(stage, error) {
+  try { console.warn(`[closeout] ${stage}失败（已吞掉）：${error?.message || error}`); } catch {}
+}
+
+function markCloseoutIdle() {
+  const waiters = closeoutIdleWaiters;
+  closeoutIdleWaiters = [];
+  for (const resolve of waiters) { try { resolve(); } catch {} }
+}
+
+// 一个任务跑完再取下一个（用 setImmediate 而不是队列里连跑：中间让出事件循环，心跳/请求先走）。
+function drainCloseoutQueue() {
+  if (closeoutRunning) return;
+  const task = closeoutQueue.shift();
+  if (!task) { markCloseoutIdle(); return; }
+  closeoutRunning = true;
+  Promise.resolve()
+    .then(() => task.fn())
+    .catch(noteCloseoutError)
+    .finally(() => {
+      closeoutRunning = false;
+      try { task.resolve(); } catch {}
+      if (closeoutQueue.length) setImmediate(drainCloseoutQueue);
+      else markCloseoutIdle();
+    });
+}
+
+/** 收尾任务入队：FIFO、串行、同一时刻只跑一个；返回的 promise 永不 reject。 */
+export function enqueueCloseout(fn) {
+  if (typeof fn !== "function") return Promise.resolve();
+  return new Promise((resolve) => {
+    closeoutQueue.push({ fn, resolve });
+    if (!closeoutRunning) setImmediate(drainCloseoutQueue);
+  });
+}
+
+/** 等待队列清空（测试用；进程退出前也可用）。 */
+export function flushCloseoutQueue() {
+  if (!closeoutRunning && !closeoutQueue.length) return Promise.resolve();
+  return new Promise((resolve) => { closeoutIdleWaiters.push(resolve); });
+}
+
+/** 同步模式 = 旧行为（当场跑完）；异步模式 = 入队。测试用 setCloseoutMode 注入，不改环境变量。 */
+export function dispatchCloseout(fn) {
+  if (typeof fn !== "function") return Promise.resolve();
+  if (_closeoutMode === "sync") {
+    try { fn(); } catch (error) { noteCloseoutError(error); }
+    return Promise.resolve();
+  }
+  return enqueueCloseout(fn);
+}
+
+/** 切换收尾模式（返回切换前的值）。生产只读 YUANSHU_CLOSEOUT；测试可注入。 */
+export function setCloseoutMode(mode) {
+  const prev = _closeoutMode;
+  _closeoutMode = String(mode || "").trim().toLowerCase() === "sync" ? "sync" : "async";
+  return prev;
+}
+export function getCloseoutMode() { return _closeoutMode; }
+
+/**
+ * 一轮收尾的观测：console 一行 + 记忆/运行时/收尾耗时.jsonl 一行（at/sessionMs/writes/skipped/queued）。
+ * writes/skipped 来自 atomic-io 的内容级去重：内容没变的空写会被跳过（skipped++），不再 rename。
+ * 只在队列任务里调用，已经离开请求生命周期；这里再 appendFileSync 一行不会挡回复。
+ */
+export function recordCloseoutTiming({ sessionId = "", startedAt = Date.now(), before = null, queued = true } = {}) {
+  let writes = 0, skipped = 0;
+  try {
+    const after = jsonWriteStats();
+    writes = Math.max(0, after.writes - (Number(before?.writes) || 0));
+    skipped = Math.max(0, after.skipped - (Number(before?.skipped) || 0));
+  } catch {}
+  const sessionMs = Math.max(0, Date.now() - startedAt);
+  const slow = sessionMs > CLOSEOUT_SLOW_MS;
+  const sid = String(sessionId || "new");
+  const line = `[closeout] ${sid.slice(-6)} ${sessionMs}ms ${writes}/${skipped} 写${slow ? " ⚠ 慢收尾" : ""}`;
+  try { console.log(line); } catch {}
+  if (_cwd) {
+    try {
+      const file = path.join(_cwd, "记忆", "运行时", "收尾耗时.jsonl");
+      fs.mkdirSync(path.dirname(file), { recursive: true });
+      fs.appendFileSync(file, `${JSON.stringify({
+        at: new Date().toISOString(),
+        sessionId: sid.slice(0, 36),
+        sessionMs,
+        writes,
+        skipped,
+        queued: Boolean(queued),
+      })}\n`, "utf8");
+    } catch {} // 观测写不进去也不能影响收尾
+  }
+  return { sessionMs, writes, skipped };
+}
+
+try {
+  console.log(`[closeout] 收尾模式：${_closeoutMode === "sync" ? "sync（请求内同步，回退档）" : "async（响应后异步串行队列）"}`);
+} catch {}
 // ══ 工具调用消毒（2026-08-22 修复 400 "`function` is not set"）：
 // 上游返回的 tool_calls 可能缺 function 字段（流式截断/非标准格式），原样回传给 API 会 400，
 // 且坏消息留在历史里每轮重发 → 会话永久卡死。策略：能修补则修补（空 name 丢弃），缺 function 的条目剔除。
@@ -855,7 +979,13 @@ export async function handleUnifiedChat(res, entry, message, sessionId, params, 
   const finishEmotion = () => {
     if (emotionFinished) return;
     emotionFinished = true;
-    try { endYuanshuEmotion(sessionId || "new", emotionInput.message, collected, writer); } catch {}
+    // 2026-11-10 P1：整段收尾投进队列（调用方不再 await）；关系→基因→成长→账本/审计顺序由任务内部+FIFO 保证。
+    // sync 回退由 dispatchCloseout 直接执行（旧行为），async 默认入队。缩进保持原样，减少 diff。
+    const queued = getCloseoutMode() !== "sync";
+    const runCloseout = () => {
+      const closeoutStartedAt = Date.now();
+      const writeBefore = jsonWriteStats();
+    try { endYuanshuEmotion(sessionId || "new", emotionInput.message, collected, writer); } catch (e) { warnCloseoutStage("情绪/感受", e); }
     try { scanTurnAntiPatterns(); } catch {}
     // turn_end → 关系层（2026-11-10 P0-1）：不再拿"工具非零退出"当负向——
     // exit≠0 太常见（grep 没命中/探路命令），旧逻辑四次就把 trust 打到 0.0144。
@@ -865,7 +995,7 @@ export async function handleUnifiedChat(res, entry, message, sessionId, params, 
         const verdict = judgeTurnKind({ userText: message, repeatedFailures: turnToolFailures });
         recordInteraction({ kind: verdict.kind, note: verdict.note || (verdict.kind === "negative" ? verdict.reason : "") });
       }
-    } catch {}
+    } catch (e) { warnCloseoutStage("关系", e); }
     // turn_end → 基因层：读刚更新的 relationship（亲密/信任）+ 本轮失败数 + 距上次对话时长。
     // turn_end → 成长层（同一处）：5 维按已有台账推进；本轮红线拦截次数从基因层结算拿。
     // 任何异常都吞掉：基因/成长读错了不该让这一轮回复失败。
@@ -876,7 +1006,7 @@ export async function handleUnifiedChat(res, entry, message, sessionId, params, 
         try { guardBlocks = Number(advanceGenomeTurn({ toolFailures: turnToolFailures })?.guardBlocks) || 0; } catch {}
         try { advanceGrowthTurn(null, { reason: "对话轮末", guardBlocks }); } catch {}
       }
-    } catch {}
+    } catch (e) { warnCloseoutStage("基因/成长", e); }
     // turn_end → 正向账本（2026-11-10）：只接本轮客观信号，每轮最多 1 条（recordFromTurn 内部硬上限）。
     // 信号来源：交付门（delivery_check 的 judgeRun 回执，只认 GREEN 且有实际改动）+ 失败后重试成功
     // （同一命令先 fail 后 ok 的工具事件序列）+ 用户原话（judgePraise 保守判定）。
@@ -906,7 +1036,12 @@ export async function handleUnifiedChat(res, entry, message, sessionId, params, 
           console.log(`[正向账本] 记一条 ${rec.entry?.kind || "?"}：${String(rec.entry?.what || "").slice(0, 40)}${rec.merged ? "（合并）" : ""}`);
         }
       }
-    } catch {}
+    } catch (e) { warnCloseoutStage("正向账本", e); }
+      // 每轮一条观测：收尾耗时 + 写盘次数/空写跳过数（"卡一下"到底卡在哪，不用再猜）。
+      // 每段收尾自带 try/catch，这里不需要再包一层；真有意外的异常由队列兜底记录。
+      recordCloseoutTiming({ sessionId, startedAt: closeoutStartedAt, before: writeBefore, queued });
+    };
+    dispatchCloseout(runCloseout);
   };
   // 收轮 done 只发一次（2026-11-10 P0-3）：媒体/半截/错误三条路径都可能提前收尾，
   // 重复 done 会让前端把同一轮当两次"完成"处理。成功路径仍直写 writer.push("done")，

@@ -13,7 +13,7 @@ import http from "node:http";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { initUnifiedChat, handleUnifiedChat } from "../../engine/unified-chat.mjs";
+import { initUnifiedChat, handleUnifiedChat, flushCloseoutQueue } from "../../engine/unified-chat.mjs";
 import { initDshKeys } from "../../engine/dsh-keys.mjs";
 import { initModelRouter } from "../../engine/model/router.mjs";
 import { initContextLoader } from "../../engine/context-loader.mjs";
@@ -82,7 +82,13 @@ function makeEntry(model, saved) {
 
 async function runTurn({ model, entry, events, message, sessionId, writer }) {
   const w = writer || { push: (type, data) => events.push({ type, data }) };
-  await handleUnifiedChat(null, entry, message, sessionId, {}, undefined, w, false, sessionId, model);
+  try {
+    await handleUnifiedChat(null, entry, message, sessionId, {}, undefined, w, false, sessionId, model);
+  } finally {
+    // 2026-11-10 P1：收尾改成响应后异步串行队列。断言前必须把队列排空，
+    // 否则账本/关系还没写、emotion 事件也还没推——测到的会是"队列还没跑"而不是收尾逻辑。
+    await flushCloseoutQueue();
+  }
 }
 
 test("A1：流式中途报错 → 半截正文落库 + 只发一次 done", async (t) => {
@@ -157,6 +163,13 @@ test("A3：正常收轮 finishEmotion 也只跑一次（finally 是 no-op）", a
   assert.equal(events.filter((e) => e.type === "emotion").length, 1,
     "正常路径上 finishEmotion 被 finally 重复调用了");
   assert.ok(saved.some((m) => m.role === "assistant" && JSON.stringify(m.content).includes("说完了")));
+
+  // 2026-11-10 P1：收尾确实走了异步队列，并留下每轮观测（一行一轮）。
+  const timingFile = path.join(root, "记忆", "运行时", "收尾耗时.jsonl");
+  const row = JSON.parse(fs.readFileSync(timingFile, "utf8").trim().split("\n").at(-1));
+  assert.equal(row.queued, true, "默认 async 模式必须走队列");
+  assert.ok(row.writes >= 1, "关系/基因/成长至少要留下写盘次数");
+  assert.equal(typeof row.sessionMs, "number");
 });
 
 test("B：纯聊天轮 + 用户「谢谢你」→ 记一条 praise，scene 是原话摘要", async (t) => {
