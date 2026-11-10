@@ -268,7 +268,9 @@ export function noveltyFromGap(prevUpdatedAt, now = Date.now(), prevNovelty = 0.
 /** 压力：近 N 轮的等价衰减窗口（0.6/轮）+ 本轮失败 + 红线拦截。 */
 export function nextStress(prevStress, toolFailures = 0, guardBlocks = 0) {
   const prev = clamp01(Number(prevStress) || 0);
-  const fail = Math.min(1, Math.max(0, Number(toolFailures) || 0));
+  // 2026-11-10 P0-1：一次失败不再拉满——三次才到 1.0。旧口径下一次 grep 没命中就 stress=1，
+  // 半天之内就能把 caution 顶上去、把治理簇漂移推到阈值。
+  const fail = Math.min(1, Math.max(0, Number(toolFailures) || 0) / 3);
   const guard = Math.min(1, Math.max(0, Number(guardBlocks) || 0)) * 0.3;
   return round4(clamp01(prev * 0.6 + fail * 0.4 + guard));
 }

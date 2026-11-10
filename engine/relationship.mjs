@@ -44,6 +44,84 @@ export function positiveTrustGain(trust, weight = 1) {
   return KIND_DELTAS.positive.trust * w * positiveTrustFactor(trust);
 }
 
+// ── 收轮判负向（2026-11-10 P0-1）────────────────────────────────────────
+// 旧逻辑是 `turnToolFailures ? "negative" : "positive"`：工具只要非零退出就按 −0.08 扣信任。
+// 但 exit≠0 太常见了（grep 没命中、探路命令、检查脚本故意 exit 1），一次"没查到"不等于一次
+// 关系裂缝——四次就把 trust 打到 0.0144。新的判据只认两类**明确**的负向证据：
+//   ① 用户原话里明确不满（不是"这个 bug 怎么修"这类技术词，见 DISSATISFIED_MARKERS）
+//   ② 同一条命令在本轮失败 ≥3 次（换了命令/换了文件是探索，不算撞墙）
+// 其余一律 neutral：只记互动次数，不动 trust/亲密。正面也不自动记——没失败不等于被认可，
+// 正向证据在 praise-ledger（用户明确道谢 / 交付门 GREEN）。
+export const REPEATED_FAILURE_LIMIT = 3;
+
+// 只收"说得出口就是不满"的词。刻意不收「失败 / 报错 / bug / 不行」：它们在正常排障里天天出现
+// （emotion.mjs 的 user_frustrated 词表也是这个取舍），拿来判关系会误伤。
+export const DISSATISFIED_MARKERS = Object.freeze([
+  "不对", "错了", "搞错", "又错", "还是错", "不是这样", "不是这个意思", "你听错", "我说的是",
+  "没用", "没有用", "没做到", "做不到", "白做", "白费", "太差", "差劲", "离谱", "垃圾", "废话",
+  "敷衍", "糊弄", "别这样", "别再", "听不懂", "答非所问",
+  "失望", "生气", "气死", "烦死", "受够了", "无语", "搞什么",
+]);
+
+// 命中词但语境不是"怪她"的：用户自责、正常描述。宁可漏判，不可误判（误判直接掉 trust）。
+const NOT_DISSATISFIED = [
+  /没用过/,                              // 「这个功能我没用过」
+  /(?:我|俺)(?:也|是不是|真的)?错了/,     // 用户自责
+];
+
+/** 用户这句话是不是在明确表达不满。拿不准一律 false。 */
+export function judgeDissatisfaction(userText = "") {
+  const raw = String(userText || "").trim();
+  if (!raw) return { dissatisfied: false, reason: "没有用户原话" };
+  if (raw.length > 600) return { dissatisfied: false, reason: "一段话太长，分不清是不是在说这一轮" };
+  const text = raw.replace(/\s+/g, " ");
+  const excused = NOT_DISSATISFIED.find((re) => re.test(text));
+  if (excused) return { dissatisfied: false, reason: "像自我归因或正常描述，不算怪她" };
+  const marker = DISSATISFIED_MARKERS.find((m) => text.includes(m));
+  return marker
+    ? { dissatisfied: true, marker }
+    : { dissatisfied: false, reason: "没有明确的不满词" };
+}
+
+/** 同一条命令本轮最多失败了几次（工具事件形状与 antiPatternEvents 一致）。 */
+export function maxSameCommandFailures(events = []) {
+  const counts = new Map();
+  for (const ev of Array.isArray(events) ? events : []) {
+    if (!ev || (ev.type && ev.type !== "tool") || ev.ok !== false) continue;
+    const args = ev.args && typeof ev.args === "object" ? ev.args : {};
+    const raw = args.command ?? args.cmd ?? args.code;
+    const cmd = typeof raw === "string" ? raw.replace(/\s+/g, " ").trim().slice(0, 160) : "";
+    if (!cmd) continue; // 没命令的（read/write 之类）不算"同一条命令"
+    const key = `${String(ev.name || "")}::${cmd}`;
+    counts.set(key, (counts.get(key) || 0) + 1);
+  }
+  return counts.size ? Math.max(...counts.values()) : 0;
+}
+
+/**
+ * 收轮互动性质：negative 只在"用户明确不满"或"同一命令失败 ≥3 次"时成立，其余 neutral。
+ * @returns {{kind:'negative'|'neutral', reason:string, note:string, marker?:string, repeated?:number}}
+ */
+export function judgeTurnKind({ userText = "", toolEvents = [], repeatedFailures = null } = {}) {
+  const bad = judgeDissatisfaction(userText);
+  if (bad.dissatisfied) {
+    return { kind: "negative", reason: `用户明确不满（「${bad.marker}」）`, note: `用户明确不满「${bad.marker}」` };
+  }
+  const n = Number.isFinite(+repeatedFailures)
+    ? Math.max(0, Math.floor(+repeatedFailures))
+    : maxSameCommandFailures(toolEvents);
+  if (n >= REPEATED_FAILURE_LIMIT) {
+    return { kind: "negative", reason: `同一条命令本轮失败 ${n} 次`, note: `同一命令本轮失败 ${n} 次` };
+  }
+  return {
+    kind: "neutral",
+    reason: n > 0
+      ? `工具失败 ${n} 次，但没到「同一条命令 ≥${REPEATED_FAILURE_LIMIT} 次」`
+      : "没有明确不满，也没有同一条命令反复失败",
+    note: "", // neutral 只计次数：不留备注，notes 不该被"本轮正常"刷满
+  };
+}
+
 // 阶段阈值（仅展示）：先够"亲近"，再"信任"，再"熟悉"，否则陌生。
 // 熟悉允许"聊得多"单条达标（次数 8）：天天在一起干活本身就是熟悉，不必靠信任背书。
 export const STAGE_RULES = [

@@ -47,7 +47,7 @@ import { persistYuanshuUser, persistYuanshuAssistant, persistYuanshuAssistantLoc
 import { beginYuanshuEmotion, endYuanshuEmotion, lastTalkAt } from "./yuanshu-emotion.mjs";
 // 2026-11-09 事件驱动情绪 + 关系层：工具成败是事件、一轮结束是关系增量，都是旁路信号
 import { applyEvent } from "./emotion.mjs";
-import { recordInteraction } from "./relationship.mjs";
+import { recordInteraction, judgeTurnKind } from "./relationship.mjs";
 // 2026-11-09 GRN 基因网络：轮末按"关系 + 工具失败 + 距上次对话"推进一次；不做定时器。
 import { advanceTurn as advanceGenomeTurn } from "./genome.mjs";
 // 2026-11-09 GRN 最后一层：5 维成长跟着同一次收轮推进；满级只生成换代提案，等人批准。
@@ -847,8 +847,15 @@ export async function handleUnifiedChat(res, entry, message, sessionId, params, 
   const finishEmotion = () => {
     try { endYuanshuEmotion(sessionId || "new", emotionInput.message, collected, writer); } catch {}
     try { scanTurnAntiPatterns(); } catch {}
-    // turn_end → 关系层：有工具失败判 negative，否则 positive；无产出/评测 key 不记。异常吞掉。
-    try { if (collected && !/^eval-/.test(String(sessionId || ""))) recordInteraction({ kind: turnToolFailures ? "negative" : "positive", note: turnToolFailures ? `${turnToolFailures} 次工具失败` : "" }); } catch {}
+    // turn_end → 关系层（2026-11-10 P0-1）：不再拿"工具非零退出"当负向——
+    // exit≠0 太常见（grep 没命中/探路命令），旧逻辑四次就把 trust 打到 0.0144。
+    // 现在只认两类明确证据：用户原话明确不满、或同一命令本轮失败 ≥3 次；其余 neutral（只计次数）。
+    try {
+      if (collected && !/^eval-/.test(String(sessionId || ""))) {
+        const verdict = judgeTurnKind({ userText: message, repeatedFailures: turnToolFailures });
+        recordInteraction({ kind: verdict.kind, note: verdict.note || (verdict.kind === "negative" ? verdict.reason : "") });
+      }
+    } catch {}
     // turn_end → 基因层：读刚更新的 relationship（亲密/信任）+ 本轮失败数 + 距上次对话时长。
     // turn_end → 成长层（同一处）：5 维按已有台账推进；本轮红线拦截次数从基因层结算拿。
     // 任何异常都吞掉：基因/成长读错了不该让这一轮回复失败。
@@ -894,7 +901,10 @@ export async function handleUnifiedChat(res, entry, message, sessionId, params, 
     const file = entry.sm.sessionFile;
     if (file && fs.existsSync(file)) {
       savedEntries = readEntriesFromFile(file);
-      hist = extractMessages(savedEntries).slice(-20);
+      // 2026-11-10 P0-2：主通道此前没传 leafId，分支会话里会拿到"文件最后 20 条"（可能是另一支）。
+      // 与 server.mjs 的 pi 臂/消息接口对齐：优先取当前分支叶子。
+      const leaf = (() => { try { return entry?.sm?.getLeafId?.() || resolveLeafId(savedEntries) || undefined; } catch { return undefined; } })();
+      hist = extractMessages(savedEntries, leaf).slice(-20);
     }
   } catch {}
   // Paused replies and tool traces follow the user message. Inspect the full

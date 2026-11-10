@@ -349,8 +349,11 @@ describe("信号来源：关系 + 失败计数 + 时间间隔 + 红线拦截", (
   test("本轮工具失败 → stress 上升；下一轮成功 → 回落", () => {
     const root = tmpRoot();
     init(root);
+    // 2026-11-10 口径：fail = min(1, 失败次数/3)，2 次失败只到 2/3，压力增量不再是满值。
+    const before = DEFAULT_SIGNALS.stress;
     const failed = advanceTurn({ toolFailures: 2, now: Date.parse("2026-11-09T12:00:00Z") });
-    assert.ok(failed.state.signals.stress > 0.4, `失败后压力应上升，实际 ${failed.state.signals.stress}`);
+    assert.equal(failed.state.signals.stress, nextStress(before, 2, 0), "按 fail=2/3 计的增量结算");
+    assert.ok(failed.state.signals.stress > before, `失败后压力应上升，实际 ${failed.state.signals.stress}`);
     const recovered = advanceTurn({ toolFailures: 0, now: Date.parse("2026-11-09T12:01:00Z") });
     assert.ok(recovered.state.signals.stress < failed.state.signals.stress, "成功后压力应回落");
   });
@@ -384,7 +387,9 @@ describe("信号来源：关系 + 失败计数 + 时间间隔 + 红线拦截", (
     assert.equal(noveltyFromGap(null), 0.5);
     assert.ok(noveltyFromGap(new Date(0).toISOString(), 24 * 3600_000) > noveltyFromGap(new Date(0).toISOString(), 0));
     assert.equal(nextStress(0, 0, 0), 0);
-    assert.equal(nextStress(0, 1, 0), 0.4);
+    // 2026-11-10 口径：fail = min(1, 失败次数/3)，1 次只 1/3（0.4/3≈0.1333），3 次才满 0.4。
+    assert.equal(nextStress(0, 1, 0), 0.1333);
+    assert.equal(nextStress(0, 3, 0), 0.4);
     assert.equal(nextStress(0, 0, 2), 0.3);
     assert.equal(nextStress(0, 5, 5), 0.7);
   });

@@ -10,6 +10,7 @@ import {
   init, recordInteraction, current, summary, stage,
   KIND_DELTAS, DEFAULT_RELATIONSHIP, MAX_NOTES, NOTE_MAX,
   positiveTrustFactor, positiveTrustGain, TRUST_SOFTEN_SPAN,
+  judgeTurnKind,
 } from "../../engine/relationship.mjs";
 
 const ROOT = path.join(path.dirname(fileURLToPath(import.meta.url)), "..", "..");
@@ -236,15 +237,26 @@ describe("落盘", () => {
 });
 
 describe("接线（静态断言）", () => {
-  test("turn_end：unified-chat finishEmotion 记关系，按本轮有没有工具失败给 kind", () => {
+  test("turn_end：unified-chat finishEmotion 记关系，kind 由 judgeTurnKind 判", () => {
     const src = fs.readFileSync(path.join(ROOT, "engine", "unified-chat.mjs"), "utf8");
     const start = src.indexOf("const finishEmotion = (");
     assert.ok(start > 0, "finishEmotion 还在");
     const fn = src.slice(start, start + 1000);
     assert.ok(fn.includes("recordInteraction("), "一轮结束必须记关系");
-    assert.ok(fn.includes("negative") && fn.includes("positive"), "本轮有无工具失败要映射到 positive/negative");
+    // 2026-11-10 口径：kind 不再按「本轮有没有工具失败」二分，改由 judgeTurnKind 判
+    // （用户明确不满 / 同一命令失败 ≥3 → negative，其余 neutral）。
+    assert.match(fn, /judgeTurnKind\(\{[^)]*repeatedFailures:\s*turnToolFailures/, "kind 要交给 judgeTurnKind 判");
+    assert.match(fn, /recordInteraction\(\{\s*kind:\s*verdict\.kind/, "记关系用 judgeTurnKind 的结论");
+    assert.ok(!/turnToolFailures\s*\?\s*["']negative["']/.test(fn), "不能再用「有工具失败就 negative」的旧口径");
     const at = fn.indexOf("recordInteraction(");
     assert.ok(fn.lastIndexOf("try {", at) >= 0, "关系写入必须 try/catch 吞掉");
+  });
+
+  test("judgeTurnKind：只有明确不满或同一命令失败 ≥3 次才判 negative", () => {
+    // 2026-11-10 口径：工具非零退出不再直接等于关系裂缝，kind 只看这两类明确证据。
+    assert.equal(judgeTurnKind({ userText: "这个还是不对，别再这样了", repeatedFailures: 0 }).kind, "negative");
+    assert.equal(judgeTurnKind({ userText: "帮我看看日志", repeatedFailures: 2 }).kind, "neutral");
+    assert.equal(judgeTurnKind({ userText: "帮我看看日志", repeatedFailures: 3 }).kind, "negative");
   });
 
   test("prompt 注入：yuanshu-emotion 里把 summary 一行放进情绪段", () => {
