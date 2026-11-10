@@ -421,7 +421,13 @@ async function _unifiedChatCore(model, messages, opts = {}) {
       const streamedText = String(parsed.message?.content || "").trim();
       return { aborted: true, history, text: lastPartialAssistantText(history) || streamedText, streamed };
     }
-    if (parsed.error) return { error: parsed.error };
+    if (parsed.error) {
+      // 2026-11-10 P0-3：流到一半上游报错时，正文可能已经推给前端了。
+      // 之前这里只返回 error，半截正文被丢掉 → 前端一闪而过、会话里一个字也不落。
+      // 把已累积的正文（和 streamed 标记：前端已经收过，别再整段重推）一起交回收轮处。
+      const streamedText = String(parsed.message?.content || "").trim();
+      return { error: parsed.error, text: streamedText, streamed };
+    }
     if (parsed.model) usedModel = { provider: model.provider, id: parsed.model };
     opts.onModel?.(usedModel);
     // 2026-10-24：把 provider 返回的 usage 交出去（之前直接丢弃，导致
@@ -799,7 +805,6 @@ export async function handleUnifiedChat(res, entry, message, sessionId, params, 
       }
     }
   } catch {}
-  const metadataFor = result => ({ model: result?.usedModel, requestedModel, switchedModel, engine: 'yuanshu', usage: (turnUsage.input || turnUsage.output) ? { ...turnUsage } : null });
   try { writer.push("model_selected", { model: { provider: chatModel?.provider, id: chatModel?.id }, requestedModel }); } catch {}
   if (engineInitError) {
     try { writer.push("note", { code: "engine_init_failed", text: `engine_init_failed：引擎初始化失败，本次降级运行（${engineInitError.message}）。` }); } catch {}
@@ -844,7 +849,12 @@ export async function handleUnifiedChat(res, entry, message, sessionId, params, 
       try { recordViolation(_cwd, hit); } catch {}
     }
   };
+  // 2026-11-10 P0-3：收轮收尾只跑一次。收轮可能走多个 return 分支，外面还包了 try/finally 兜底，
+  // 没有这个标记时 endYuanshuEmotion / 关系记账会跟着重复跑（情绪事件与关系次数都会翻倍）。
+  let emotionFinished = false;
   const finishEmotion = () => {
+    if (emotionFinished) return;
+    emotionFinished = true;
     try { endYuanshuEmotion(sessionId || "new", emotionInput.message, collected, writer); } catch {}
     try { scanTurnAntiPatterns(); } catch {}
     // turn_end → 关系层（2026-11-10 P0-1）：不再拿"工具非零退出"当负向——
@@ -875,9 +885,13 @@ export async function handleUnifiedChat(res, entry, message, sessionId, params, 
     try {
       if (!praiseLedgerDone && collected && _cwd && !/^eval-/.test(String(sessionId || ""))) {
         praiseLedgerDone = true;
+        // 2026-11-10 P1-2：纯聊天轮不碰文件 → scene 只来自 turnChangedFiles 会为空，
+        // 账本按「没写清夸的是哪件事」拒记（30 轮实测 0 条）。回落成用户原话前 40 字：
+        // 有原话就能锚定；账本侧的「太泛不记 / 没证据不记」门槛一条都不放宽。
+        const userSnippet = String(emotionInput.message || "").replace(/\s+/g, " ").trim().slice(0, 40);
         const scene = turnChangedFiles.length
           ? `改动了 ${turnChangedFiles.slice(0, 2).join("、")}`
-          : "";
+          : (userSnippet ? `用户原话：${userSnippet}` : "");
         const settled = recordFromTurn({
           wsRoot: _cwd,
           userText: String(emotionInput.message || ""),
@@ -894,6 +908,23 @@ export async function handleUnifiedChat(res, entry, message, sessionId, params, 
       }
     } catch {}
   };
+  // 收轮 done 只发一次（2026-11-10 P0-3）：媒体/半截/错误三条路径都可能提前收尾，
+  // 重复 done 会让前端把同一轮当两次"完成"处理。成功路径仍直写 writer.push("done")，
+  // 保证「最终落库之后才广播 done」的源码契约还能被静态测试认出来。
+  let donePushed = false;
+  const pushDone = (data) => {
+    if (donePushed) return;
+    donePushed = true;
+    try { writer.push("done", data); } catch {}
+  };
+  // 2026-11-10 P0-3：整段主体收进 try/finally。上游断流、工具/收尾抛错等任何异常路径，
+  // 也必须跑到 finishEmotion()——否则这一轮的关系/基因/成长全停更（之前抛错时一次都不跑）。
+  // finishEmotion 自带一次性标记：正常 return 的路径已经跑过，finally 再次调用只是 no-op。
+  // 为了不制造几百行的缩进 diff，try 内的代码保持原缩进；finally 只做收尾，不改任何 return 语义。
+  try {
+  // 收轮元数据必须在 try 块内：它读的 turnUsage 也是在块内声明的（块作用域），
+  // 放在 try 外面会变成 ReferenceError——落库那一步会被 catch 吞掉，正文悄无声息地不落盘。
+  const metadataFor = result => ({ model: result?.usedModel, requestedModel, switchedModel, engine: 'yuanshu', usage: (turnUsage.input || turnUsage.output) ? { ...turnUsage } : null });
   touchTask(taskId, { stage: "处理中" });
   let hist = [];
   let savedEntries = [];
@@ -1291,7 +1322,7 @@ export async function handleUnifiedChat(res, entry, message, sessionId, params, 
       try {
         persistYuanshuAssistant(entry.sm, assistantContentWithMedia(errorText, mediaItems), [], metadataFor(result));
       } catch {}
-      writer.push("done", { sessionId, model: result?.usedModel || null, requestedModel });
+      pushDone({ sessionId, model: result?.usedModel || null, requestedModel });
       collected = result?.text || "";
       clearTask(taskId, "done");
       finishEmotion();
@@ -1303,6 +1334,9 @@ export async function handleUnifiedChat(res, entry, message, sessionId, params, 
     } catch {}
     clearTask(taskId, "error");
     writer.push("error", { message: result?.error || "模型未返回内容，请稍后重试" });
+    // 2026-11-10 P0-3：半截正文已经流给前端了，必须补一次 done 收尾，
+    // 否则界面一直等一个永远不会来的完成；全空失败不补（不把错误伪报成完成）。
+    if (result?.text) pushDone({ sessionId, model: result?.usedModel || null, requestedModel });
     finishEmotion();
     return;
   }
@@ -1315,7 +1349,7 @@ export async function handleUnifiedChat(res, entry, message, sessionId, params, 
         const partialText = await localizeAssistantText(result.partial ? lastPartialAssistantText(result.history || []) : "");
         persistYuanshuAssistant(entry.sm, assistantContentWithMedia(partialText, mediaItems), [], metadataFor(result));
       } catch {}
-      writer.push("done", { sessionId, model: result.usedModel || null, requestedModel });
+      pushDone({ sessionId, model: result.usedModel || null, requestedModel });
       clearTask(taskId, "done");
       finishEmotion();
       return;
@@ -1394,12 +1428,19 @@ export async function handleUnifiedChat(res, entry, message, sessionId, params, 
   if (!entry.sm.getSessionName()) { try { entry.sm.appendSessionInfo(message.slice(0, 24)); } catch {} }
   if (result.think && !result.streamed) { writer.push("think", { text: result.think }); writer.push("think_end", {}); }
   if (!result.streamed) writer.push("delta", { text });
-  writer.push("done", { sessionId, model: result.usedModel || { provider: chatModel.provider, id: chatModel.id }, requestedModel });
+  if (!donePushed) {
+    donePushed = true; // 与 pushDone 共用同一标记：错误/半截分支已经收过尾，就别再发第二次
+    writer.push("done", { sessionId, model: result.usedModel || { provider: chatModel.provider, id: chatModel.id }, requestedModel });
+  }
   collected = text;
   clearTask(taskId, "done");
   settleTurnMemory({ sessionId: sessionId || "new", user: message, assistant: text, executionIdentity: runContext?.executionIdentity, model: result.usedModel }); // 自循环沉淀（主聊天路径），fire-and-forget
   finishEmotion();
   console.log(`[元枢] 统一通道: ${(result.usedModel || chatModel).provider}/${(result.usedModel || chatModel).id}`);
+  } finally {
+    // 收尾绝不能再抛：finally 里抛错会顶掉真正的原始异常，排查时只剩一个假的错误。
+    try { finishEmotion(); } catch {}
+  }
 }
 
 // ============================================================
