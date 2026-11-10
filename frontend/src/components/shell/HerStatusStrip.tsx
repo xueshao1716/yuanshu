@@ -1,13 +1,12 @@
-// 她的状态带（2026-11-10）：对话页顶栏下方的常驻一条，只放"此刻要一直在眼前"的四件事——
-// 关系阶段 / 当前情绪 / 有没有待批的换代提案 / 有没有处在退化暂停。
-// 为什么放在这里而不是塞进「她」页：这四条是**判断现在该不该动手**的上下文
-// （关系决定语气、情绪决定节奏、待批提案和暂停闸决定能不能放手干），看一次页面就忘掉等于没有。
+// 她的状态带（2026-11-10）：对话页顶栏下方的常驻一条，只放"此刻要一直在眼前"的三件事——
+// 关系阶段 / 有没有待批的换代提案 / 有没有处在退化暂停。
+// 情绪**不在这条里**：右上角灵珠（情绪潮汐）本来就是情绪的常驻位置，放两处会各说各话。
 // 只读、极轻：接口挂了就静默隐藏那一块，状态带绝不能变成错误条。
 import useSWR from 'swr'
 import { HerApi, fixed2, finite, levelMeta } from '../../lib/her-api'
 import { Tag } from '../readout'
 
-export default function HerStatusStrip({ emotionLabel }: { emotionLabel?: string }) {
+export default function HerStatusStrip() {
   const relationship = useSWR('her-relationship', HerApi.relationship, { refreshInterval: 120000, revalidateOnFocus: true })
   const growth = useSWR('her-growth', HerApi.growth, { refreshInterval: 180000, revalidateOnFocus: true })
   const degradation = useSWR('her-degradation', HerApi.degradation, { refreshInterval: 180000, revalidateOnFocus: true })
@@ -28,8 +27,8 @@ export default function HerStatusStrip({ emotionLabel }: { emotionLabel?: string
   const levelInfo = levelMeta(level)
   const alerts = (pending ? 1 : 0) + (paused || down ? 1 : 0)
 
-  // 三份数据一份都没到、而且没有任何警报时干脆不占这条高度（首屏加载时别画一条空带）。
-  if (!rel && !emotionLabel && !alerts) return null
+  // 数据一份都没到、而且没有任何警报时干脆不占这条高度（首屏加载时别画一条空带）。
+  if (!rel && !alerts) return null
 
   return (
     <div
@@ -40,12 +39,6 @@ export default function HerStatusStrip({ emotionLabel }: { emotionLabel?: string
         <a href="#/soul?s=growth" title={detail} className="inline-flex items-center min-w-0 truncate hover:text-pi-text transition-colors">
           <span className="truncate tabular-nums">{trust}</span>
         </a>
-      )}
-      {emotionLabel && (
-        <span className="hidden sm:inline-flex items-center gap-1 text-pi-dim2">
-          <span aria-hidden="true">·</span>
-          <span className="truncate">情绪 {emotionLabel}</span>
-        </span>
       )}
       {pending && (
         <a href="#/soul?s=growth" title="五维满级后生成的换代提案，需要你批准" className="flex-shrink-0">

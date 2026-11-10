@@ -1321,8 +1321,12 @@ export default function ChatArea({ compactHeader, rightPanel, onRightPanel, onVo
             </div>
           )}
         </div>
-        {/* 心情：服务端真实情绪镜像，只展示不可点改。灵珠连续反映 VAD（2026-09-03，替代 emoji 八桶） */}
-        <div className="emo-pill w-[30px] h-[30px] flex items-center justify-center">
+        {/* 心情：服务端真实情绪镜像，只展示不可点改。灵珠连续反映 VAD（2026-09-03，替代 emoji 八桶）
+            2026-11-10：情绪文字从"状态带"收回这里——情绪的常驻位置只有右上角情绪潮汐一处。 */}
+        <div className="emo-pill flex items-center gap-1">
+          <span className="hidden sm:inline text-[11px] text-pi-dim whitespace-nowrap" title={emoTooltip(emoState, emoMetaLive)}>
+            {emoMetaLive.label}
+          </span>
           <button type="button" className="min-w-[44px] min-h-[44px] rounded-full flex items-center justify-center hover:bg-pi-bg2/40"
             title={`${emoTooltip(emoState, emoMetaLive)} · 情绪与声音设置`} aria-label="查看情绪潮汐与真人形象" aria-expanded={orbPanelOpen}
             onClick={() => setOrbPanelOpen(true)}>
@@ -1333,7 +1337,7 @@ export default function ChatArea({ compactHeader, rightPanel, onRightPanel, onVo
       </div>
 
       {/* 她的状态带：只读一行，接口挂了就静默隐藏——状态带不能变成错误条 */}
-      <HerStatusStrip emotionLabel={emoMetaLive.label} />
+      <HerStatusStrip />
 
       {/* 无新事件只提示，不改变服务端任务状态 */}
       {idleWarned && (
