@@ -68,6 +68,15 @@ export function setMemoryNudgeHook(fn) { _memoryNudgeHook = fn; }
 
 // 初始化：server 启动时调用，传入工作空间根
 export function init(root) {
+  // P1-3：切工作区前先把旧根的事件落盘——别把上一轮的尾巴写进新根（测试里每例一个临时根，
+  // 不 flush 会串味到下一个根的文件里）。
+  if (root && root !== wsRoot) flushTideBuffer();
+  if (root && root !== wsRoot) {
+    // 感受文件换了路径：计数器作废，下一次追加时重读一次对齐（P1-3 自愈路径）。
+    _feelingSynced = false;
+    _feelingLines = 0;
+    _feelingBytes = 0;
+  }
   if (root && root !== wsRoot) observedTurns.clear();
   if (root && root !== wsRoot) displayObservation = null;
   wsRoot = root || wsRoot;
@@ -115,15 +124,21 @@ function getState(key) {
 }
 
 function readTidePoints() {
+  const pts = [];
   try {
-    if (!wsRoot || !fs.existsSync(tideFile())) return [];
-    const lines = fs.readFileSync(tideFile(), "utf8").trim().split("\n");
-    const pts = [];
-    for (const line of lines) {
-      try { pts.push(JSON.parse(line)); } catch {}
+    if (wsRoot && fs.existsSync(tideFile())) {
+      const lines = fs.readFileSync(tideFile(), "utf8").trim().split("\n");
+      for (const line of lines) {
+        try { pts.push(JSON.parse(line)); } catch {}
+      }
     }
-    return pts;
-  } catch { return []; }
+  } catch {}
+  // P1-3：还没 flush 的事件行也要读得到（工作台曲线/观测不能比内存状态旧）。
+  // 缓冲里的行一定比文件里的新：直写入口会先 flush 缓冲。
+  for (const line of _tideBuffer) {
+    try { pts.push(JSON.parse(line)); } catch {}
+  }
+  return pts;
 }
 
 function hydrateFromTide(key) {
@@ -169,6 +184,13 @@ function shortKey(id) {
 function feelingsFile() { return path.join(wsRoot || ".", "记忆", "情绪感受.jsonl"); }
 function tideFile() { return path.join(wsRoot || ".", "记忆", "情绪潮汐.jsonl"); }
 
+// 2026-11-10 P1-3：感受文件的行数判断改用内存计数器（照抄潮汐 _tideAppends 的写法）。
+// 原来每 append 一行就整份 readFileSync（实测 225KB），工具密集的一轮能读十几遍。
+// 自愈：每次追加后用 statSync 对账字节数——文件被外部删掉/截断/追加过就整份重读一次。
+let _feelingLines = 0;
+let _feelingBytes = 0;
+let _feelingSynced = false;
+
 // 记录一条真实感受（server turn_end 调用；曦语义：event=用户消息摘要，felt=主情绪(强度%)）
 export function recordFeeling(key, eventText) {
   try {
@@ -183,13 +205,38 @@ export function recordFeeling(key, eventText) {
     });
     const f = feelingsFile();
     fs.mkdirSync(path.dirname(f), { recursive: true });
-    fs.appendFileSync(f, line + "\n", "utf8");
+    const chunk = line + "\n";
+    fs.appendFileSync(f, chunk, "utf8");
     if (st.intensity > 0.5) st.lastStrongAt = Date.now(); // 余温起点：高强度情绪后衰减变慢
-    // 自清理：超 2000 行裁到 1000（曦有 emotion_archive.py 归档，这里轻量化）
-    const content = fs.readFileSync(f, "utf8");
-    const lines = content.trim().split("\n");
-    if (lines.length > 2000) fs.writeFileSync(f, lines.slice(-1000).join("\n") + "\n", "utf8");
+    // 计数器与文件对账：进程内第一次/被外部改写 → 重读一次；否则只 +1，不碰文件内容。
+    if (!_feelingSynced) recountFeelings(f);
+    else {
+      _feelingLines += 1;
+      _feelingBytes += Buffer.byteLength(chunk, "utf8");
+    }
+    let sizeNow = -1;
+    try { sizeNow = fs.statSync(f).size; } catch { sizeNow = -1; }
+    if (sizeNow >= 0 && sizeNow !== _feelingBytes) recountFeelings(f);
+    // 自清理：超 2000 行裁到 1000（曦有 emotion_archive.py 归档，这里轻量化）；只在真超阈值时读一次
+    if (_feelingLines > 2000) {
+      const keptLines = fs.readFileSync(f, "utf8").trim().split("\n").slice(-1000);
+      fs.writeFileSync(f, keptLines.join("\n") + "\n", "utf8");
+      _feelingLines = keptLines.length;
+      _feelingBytes = Buffer.byteLength(keptLines.join("\n") + "\n", "utf8");
+    }
   } catch {}
+}
+
+function recountFeelings(f) {
+  try {
+    const content = fs.readFileSync(f, "utf8");
+    _feelingLines = content ? content.trim().split("\n").filter(Boolean).length : 0;
+    _feelingBytes = Buffer.byteLength(content, "utf8");
+  } catch {
+    _feelingLines = 0;
+    _feelingBytes = 0;
+  }
+  _feelingSynced = true;
 }
 
 // 读最近 limit 条感受（尾部往前扫）；withinMs 给定时只取窗口内的
@@ -719,22 +766,64 @@ function logEventTide(key, st, evt, info = {}) {
       payload.reqA = round5(info.requested?.da ?? 0);
       payload.reqD = round5(info.requested?.dd ?? 0);
     }
-    appendTideLine(payload);
+    bufferTideLine(payload); // P1-3：只进缓冲，收尾队列统一 flush
   } catch {}
 }
 
 // 潮汐写入：统一入口 + 自清理。事件驱动的写入比原来频繁得多（一轮十几次工具调用），
 // 不设上限会把 情绪潮汐.jsonl 养成大文件（仓库里有过探测日志写爆 D 盘的教训）。
 let _tideAppends = 0;
+// 2026-11-10 P1-3：工具事件（一轮十几次）改内存缓冲，收尾队列一次 flush。
+// 原来每条 applyEvent 都 appendFileSync 一次：一轮 15 次工具 = 15 次同步写盘，全挡在事件循环上。
+// 缓冲上限 200 行：没人收尾（异常退出/长任务）也不会无限涨，到顶就自动落一次。
+const TIDE_BUFFER_MAX = 200;
+let _tideBuffer = [];
+
+// 每轮一条 VAD 基线点（低频）走直写。先把事件缓冲落盘，保证文件里的时间顺序不乱。
 function appendTideLine(obj) {
-  fs.mkdirSync(path.dirname(tideFile()), { recursive: true });
-  fs.appendFileSync(tideFile(), JSON.stringify(obj) + "\n", "utf8");
-  if (++_tideAppends % 100 !== 0) return;
-  try {
-    const lines = fs.readFileSync(tideFile(), "utf8").trim().split("\n");
-    if (lines.length > 5000) fs.writeFileSync(tideFile(), `${lines.slice(-2500).join("\n")}\n`, "utf8");
-  } catch {}
+  flushTideBuffer();
+  writeTideChunk(JSON.stringify(obj) + "\n", 1);
 }
+
+// 事件留痕只进缓冲；到上限立刻落一次（防泄漏）。
+function bufferTideLine(obj) {
+  _tideBuffer.push(JSON.stringify(obj) + "\n");
+  if (_tideBuffer.length >= TIDE_BUFFER_MAX) flushTideBuffer();
+}
+
+/** 把事件缓冲一次落盘（收尾队列 / 进程退出调用）。返回本次写了几行。 */
+export function flushTideBuffer() {
+  if (!_tideBuffer.length) return 0;
+  const lines = _tideBuffer;
+  _tideBuffer = [];
+  if (!writeTideChunk(lines.join(""), lines.length)) {
+    // 写失败（磁盘满/权限/没工作区）：放回缓冲等下次，最多留上限那么多行，不越积越多。
+    _tideBuffer = lines.slice(-TIDE_BUFFER_MAX);
+    return 0;
+  }
+  return lines.length;
+}
+
+function writeTideChunk(chunk, count) {
+  try {
+    if (!wsRoot) return false;
+    fs.mkdirSync(path.dirname(tideFile()), { recursive: true });
+    fs.appendFileSync(tideFile(), chunk, "utf8");
+    _tideAppends += count;
+    // 每 100 行做一次行数自清理（写越频繁越要防写爆；读一次文件换 100 行，频率已降到 1%）
+    if (_tideAppends >= 100) {
+      _tideAppends = 0;
+      try {
+        const lines = fs.readFileSync(tideFile(), "utf8").trim().split("\n");
+        if (lines.length > 5000) fs.writeFileSync(tideFile(), `${lines.slice(-2500).join("\n")}\n`, "utf8");
+      } catch {}
+    }
+    return true;
+  } catch { return false; }
+}
+
+// 进程退出兜底：收尾队列没跑完（崩溃/直接退出）时，缓冲里的事件也不能丢。
+try { process.once("exit", () => { try { flushTideBuffer(); } catch {} }); } catch {}
 
 /**
  * 行为修饰器（VES 语义，适配元枢的 VAD 数值域）。

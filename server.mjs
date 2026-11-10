@@ -4516,7 +4516,9 @@ initMemoryAutoStore({
   chat: (model, messages) => {
     const m = model || defaultModel;
     if (!m) throw new Error("no-judge-model");
-    return unifiedChat(m, messages);
+    // 2026-11-10 P1-5：判断只需要一个 {"store":true/false}，不该背着整套工具定义（几十 KB）。
+    // opts.tools === false 才会真的不带 tools（unified-chat.mjs 的 toolDefs 判定），返回结构不变。
+    return unifiedChat(m, messages, { tools: false });
   },
   getModel: () => defaultModel || undefined,
 });

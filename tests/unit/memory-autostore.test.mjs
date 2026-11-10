@@ -4,6 +4,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 
 const H = await import("../../engine/memory/autostore.mjs");
 
@@ -80,4 +81,17 @@ test("stats 只读面", () => {
 test("模块未注入时 settle 静默无操作", () => {
   H.initMemoryAutoStore(null);
   assert.doesNotThrow(() => H.settleTurnMemory({ user: "x", assistant: "y", executionIdentity: "z" }));
+});
+
+// 2026-11-10 P1-5：判断一轮只为一个 {"store":true/false}，不该把整套工具定义发给模型。
+// server.mjs 的 chat 回调必须显式带 { tools: false }——不带 opts 时 opts.tools === false 不成立。
+test("接线（静态断言）：判断调用带 { tools: false }，不背工具表", () => {
+  const root = path.join(path.dirname(fileURLToPath(import.meta.url)), "..", "..");
+  const src = fs.readFileSync(path.join(root, "server.mjs"), "utf8");
+  const start = src.indexOf("initMemoryAutoStore({");
+  assert.ok(start > 0, "initMemoryAutoStore 接线还在");
+  const block = src.slice(start, src.indexOf("getModel:", start));
+  assert.ok(block.includes("unifiedChat(m, messages, { tools: false })"),
+    "chat 回调必须传 { tools: false }（opts.tools === false 才真的不带工具定义）");
+  assert.ok(!/unifiedChat\(m,\s*messages\)/.test(block), "不能退回不带 opts 的调用");
 });

@@ -2,10 +2,13 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { EventEmitter } from "node:events";
-import { readFileSync } from "node:fs";
+import { readFileSync, mkdtempSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { buildDshPrompt, finishDshText, runDshTurn, handleDshChat } from "../../engine/dsh-chat.mjs";
+import { sdkSafeAssistantBlocks } from "../../engine/yuanshu-session.mjs";
+import { init as initEmotion } from "../../engine/emotion.mjs";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..", "..");
 
@@ -104,4 +107,70 @@ test("handleChat 主驾 dsh 必须走 handleDshChat", () => {
   const fn = src.slice(start, start + 20000);
   assert.ok(fn.includes("handleDshChat"), "dsh 主驾不能掉进 unifiedChat");
   assert.ok(fn.includes('lead === "dsh"') || fn.includes("lead === 'dsh'"));
+});
+
+// 2026-11-10 P1-6：dsh 臂接上"最小一致面"——落库 sdkSafe + usage 事件 + 情绪/关系收尾。
+// 其余四层（基因/成长/反模式/复习/正向账本）明确不接，理由是 dsh 没有工具事件/交付回执，
+// 证据来源不成立；源码里的说明注释由下面的契约断言守住，别悄悄删掉改成"接上了"。
+test("P1-6：dsh 一轮后 关系.json interactions +1、落库块是 sdkSafe 形式、有 usage 事件", async () => {
+  const root = mkdtempSync(join(tmpdir(), "dsh-closeout-"));
+  initEmotion(root);
+  const events = [];
+  const appended = [];
+  let capturedTask = "";
+  const entry = {
+    sm: {
+      sessionFile: "",
+      appendMessage: (m) => appended.push(m),
+      getSessionName: () => "t",
+      appendSessionInfo: () => {},
+    },
+  };
+  await handleDshChat(null, entry, "帮我把这句话改顺一点", "sid-dsh-p16", undefined, {
+    writer: { push: (e, d) => events.push({ e, d }) },
+    history: [{ role: "user", text: "之前聊过" }],
+    runTurn: async ({ task }) => { capturedTask = task; return { ok: true, text: "改好了，读起来更顺。" }; },
+  });
+
+  // ① 落库块与主通道同一形态：sdkSafeAssistantBlocks 的输出，不是裸字符串
+  const assistant = appended.find((m) => m.role === "assistant");
+  assert.ok(assistant, "必须落一条 assistant");
+  assert.deepEqual(assistant.content, sdkSafeAssistantBlocks([{ type: "text", text: "改好了，读起来更顺。" }]));
+  assert.ok(Array.isArray(assistant.content) && assistant.content.every((b) => typeof b?.type === "string"));
+
+  // ② usage 事件必须在（没有实测值 → 0/0，但要标 estimated，别让界面当"0 成本"）
+  const usage = events.find((x) => x.e === "usage");
+  assert.ok(usage, "dsh 也要推 usage 事件");
+  assert.equal(usage.d.estimated, true);
+  assert.equal(usage.d.prompt, 0);
+  assert.equal(usage.d.completion, 0);
+
+  // ③ 情绪开轮注入进了 prompt，收尾推了 emotion 事件
+  assert.match(capturedTask, /本轮语境/, "情绪语境必须真的进 dsh 的 prompt");
+  assert.ok(events.some((x) => x.e === "emotion" && x.d?.state), "收尾要推 emotion 事件");
+  // usage/emotion 必须在 done 之前（done 之后前端就不再跑了）
+  const doneAt = events.findIndex((x) => x.e === "done");
+  for (const name of ["usage", "emotion"]) {
+    const at = events.findIndex((x) => x.e === name);
+    assert.ok(at >= 0 && at < doneAt, `${name} 事件必须在 done 之前`);
+  }
+
+  // ④ 关系.json interactions +1（judgeTurnKind 判 neutral，只计次数）
+  const rel = JSON.parse(readFileSync(join(root, "记忆", "运行时", "关系.json"), "utf8"));
+  assert.equal(rel.interactions, 1, "dsh 一轮必须记一次互动");
+  assert.match(String(rel.lastAt || ""), /^\d{4}-\d{2}-\d{2}T/);
+});
+
+test("P1-6：不接的层在源码里写明理由（不许悄悄接半套）", () => {
+  const src = readFileSync(join(ROOT, "engine", "dsh-chat.mjs"), "utf8");
+  // 纯文本正文时 sdkSafeAssistantBlocks 的输出与裸块相同，运行时断言区分不出"有没有走它"，
+  // 所以这条守源码契约：dsh 的落库块必须来自 sdkSafeAssistantBlocks。
+  assert.match(src, /sdkSafeAssistantBlocks\(/, "落库必须走 sdkSafeAssistantBlocks（防重放崩）");
+  assert.match(src, /基因 \/ 成长/, "要写明基因/成长不接");
+  assert.match(src, /反模式/, "要写明反模式不接");
+  assert.match(src, /复习/, "要写明复习不接");
+  assert.match(src, /正向账本/, "要写明正向账本不接");
+  assert.ok(!src.includes("advanceGenomeTurn"), "dsh 不能硬接基因层");
+  assert.ok(!src.includes("advanceGrowthTurn"), "dsh 不能硬接成长层");
+  assert.ok(!src.includes("recordFromTurn"), "dsh 不能硬接正向账本");
 });

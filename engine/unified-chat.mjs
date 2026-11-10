@@ -30,7 +30,7 @@ import { CodeRuntime } from "../code-mode/code-runtime.mjs";
 import { createCodeMode } from "../code-mode/code-mode.mjs";
 import { directMediaMode } from "./media/mode.mjs";
 import { detectMediaIntents, extractMediaPrompt, generateMediaAsync, mediaAwarePrompt, explainMediaError, assistantContentWithMedia, isPureImageRequest } from "./media/api.mjs";
-import { explicitToolMedia, mediaDeliveryKey, gateIncomingMedia } from "./media/embed.mjs";
+import { explicitToolMedia, mediaDeliveryKey, gateIncomingMedia, imageUnlocalizedNote } from "./media/embed.mjs";
 import { localizeMarkdownImagesCached } from "./media/markdown-images.mjs";
 import { readOpenAIChatStream } from "./openai-stream.mjs";
 import { buildMessagesRequest, messagesEndpoint, messagesHeaders } from "./anthropic-messages.mjs";
@@ -50,7 +50,8 @@ import { bindWorkmemSession, formatPlanPrompt } from "./yuanshu-workmem.mjs";
 import { persistYuanshuUser, persistYuanshuAssistant, persistYuanshuAssistantLocalized, localizeAssistantMarkdown, persistYuanshuToolTrace, resumePersistenceState, abortedAssistantText } from "./yuanshu-session.mjs";
 import { beginYuanshuEmotion, endYuanshuEmotion, lastTalkAt } from "./yuanshu-emotion.mjs";
 // 2026-11-09 事件驱动情绪 + 关系层：工具成败是事件、一轮结束是关系增量，都是旁路信号
-import { applyEvent } from "./emotion.mjs";
+// 2026-11-10 P1-3：工具事件的潮汐先攒内存，收尾队列里一次 flush（不再每个工具同步写一次盘）。
+import { applyEvent, flushTideBuffer } from "./emotion.mjs";
 import { recordInteraction, judgeTurnKind } from "./relationship.mjs";
 // 2026-11-09 GRN 基因网络：轮末按"关系 + 工具失败 + 距上次对话"推进一次；不做定时器。
 import { advanceTurn as advanceGenomeTurn } from "./genome.mjs";
@@ -875,14 +876,97 @@ async function localizeChatMediaForDelivery(mr, { writer, effects, runId }) {
 
 // 工具/扩展直传的 media 统一过闸门：视频不是本地就不发播放器（一行说明 + 原链接）；
 // 图片远端先 saveArtifact 落盘，落不下来这一条就不进聊天（图片没有远端退路）。
-function deliverGatedToolMedia(media, { writer }) {
-  void (async () => {
+//
+// 2026-11-10 P1-4：这里原来是 `void (async () => …)()` 的 fire-and-forget。
+// 闸门对远端图片要**下载**；下载一旦晚于 done，图既不显示也不落库——前端
+// ChatArea 在 streamRef 已清空时直接 return（finalize 已把它置 null），而落库路径
+// 只认 mediaItems（工具直传的图从来没进过这个数组）。现在的约定：
+//   · 返回 promise，并登记到本轮 sink.pending；deliverUnifiedMedia 在落库/done 之前等它，
+//     顺序固定为「先本地化 → 再落库 → 再 done」；
+//   · 下载有 10s 上限（可注入，测试用短超时）。超时按**现有"未落盘"路径**处理——
+//     只留一行 note，这一条不进聊天也不落库，整轮照常成功；
+//   · 超时后即使下载又回来了也不再发布（note 已经说过不显示，不能自相矛盾）。
+const GATED_TOOL_MEDIA_TIMEOUT_MS = 10_000;
+let _toolMediaGate = { timeoutMs: GATED_TOOL_MEDIA_TIMEOUT_MS, saveArtifact: null };
+
+/** 测试/嵌入用：注入落盘实现与超时。生产路径不调用，永远走 workspace-api 的 saveArtifact。 */
+export function initToolMediaGate({ timeoutMs = 0, saveArtifact = null } = {}) {
+  _toolMediaGate = {
+    timeoutMs: Number(timeoutMs) > 0 ? Math.floor(Number(timeoutMs)) : GATED_TOOL_MEDIA_TIMEOUT_MS,
+    saveArtifact: typeof saveArtifact === "function" ? saveArtifact : null,
+  };
+}
+
+/** 本轮工具直传媒体的收集器：只有落盘成功的**图片**才进 items（落库用），pending 用来在收尾时等待。 */
+export function createToolMediaSink() {
+  const sink = {
+    pending: new Set(),
+    items: [],
+    keys: new Set(),
+    // 返回值只表示"这条没重复、可以直播"。落库只收图片：视频/音频的闸门是同步的
+    // （本地才发、远端只留一行说明），不存在"晚到"问题，落库行为保持原样，不扩大改动面。
+    accept(m) {
+      const key = mediaDeliveryKey(m?.url);
+      if (!key || sink.keys.has(key)) return false;
+      sink.keys.add(key);
+      if (String(m?.type || "").toLowerCase() === "image") sink.items.push({ ...m });
+      return true;
+    },
+  };
+  return sink;
+}
+
+function gateIncomingToolMedia(media, saveArtifact) {
+  return gateIncomingMedia(media, { saveArtifact });
+}
+
+function gateTimeoutNote(media) {
+  const kind = String(media?.type || "").toLowerCase();
+  if (kind === "image") return imageUnlocalizedNote("下载超时");
+  const label = kind === "video" ? "视频" : kind === "audio" ? "配音" : "文件";
+  return `有一条${label}没能及时存到本地（下载超时），已不展示。`;
+}
+
+function deliverGatedToolMedia(media, { writer, sink = null } = {}) {
+  if (!media?.url) return Promise.resolve(null);
+  const saveArtifactImpl = _toolMediaGate.saveArtifact || saveArtifact;
+  let timedOut = false;
+  const task = (async () => {
     try {
-      const gated = await gateIncomingMedia(media, { saveArtifact });
-      if (gated.media) writer.push("media", gated.media);
-      else if (gated.note) writer.push("note", { text: gated.note });
-    } catch {}
+      const gated = await gateIncomingToolMedia(media, saveArtifactImpl);
+      if (timedOut) return null;   // 已经按"未落盘"报过了，迟到的图不能再冒出来
+      if (gated.media) {
+        const accepted = sink ? sink.accept(gated.media) : true;
+        if (accepted) try { writer.push("media", gated.media); } catch {}
+        return gated.media;
+      }
+      if (gated.note) try { writer.push("note", { text: gated.note }); } catch {}
+      return null;
+    } catch { return null; }
   })();
+  const guarded = new Promise((resolve) => {
+    let timer = null;
+    const settle = (value) => { if (timer) { clearTimeout(timer); timer = null; } resolve(value); };
+    timer = setTimeout(() => {
+      timedOut = true;
+      try { writer.push("note", { text: gateTimeoutNote(media) }); } catch {}
+      settle(null);
+    }, _toolMediaGate.timeoutMs);
+    // 不让这个上限把进程吊着（测试/脚本退出时尤其重要）
+    if (typeof timer.unref === "function") timer.unref();
+    task.then(settle, () => settle(null));
+  });
+  if (sink) {
+    sink.pending.add(guarded);
+    guarded.finally(() => sink.pending.delete(guarded));
+  }
+  return guarded;
+}
+
+/** 收尾等待：本轮所有工具直传下载落定（超时的那条由定时器兜底，绝不会无限等）。 */
+async function drainToolMediaSink(sink) {
+  if (!sink) return;
+  while (sink.pending.size) await Promise.all([...sink.pending]);
 }
 
 export async function handleUnifiedChat(res, entry, message, sessionId, params, signal, writer, thinkOn, taskKey, modelOverride = null, sandboxAskFactory = null, runContext = null) {
@@ -986,6 +1070,8 @@ export async function handleUnifiedChat(res, entry, message, sessionId, params, 
       const closeoutStartedAt = Date.now();
       const writeBefore = jsonWriteStats();
     try { endYuanshuEmotion(sessionId || "new", emotionInput.message, collected, writer); } catch (e) { warnCloseoutStage("情绪/感受", e); }
+    // 2026-11-10 P1-3：本轮工具事件攒在内存里的潮汐，收尾一次落盘（进程退出钩子里还有一次兜底）。
+    try { flushTideBuffer(); } catch (e) { warnCloseoutStage("情绪潮汐", e); }
     try { scanTurnAntiPatterns(); } catch {}
     // turn_end → 关系层（2026-11-10 P0-1）：不再拿"工具非零退出"当负向——
     // exit≠0 太常见（grep 没命中/探路命令），旧逻辑四次就把 trust 打到 0.0144。
@@ -1139,42 +1225,60 @@ export async function handleUnifiedChat(res, entry, message, sessionId, params, 
     : Promise.resolve([]);
   let mediaItems = [];
   let mediaFlushing = null;
+  // P1-4：工具直传的媒体（下载完才算数）也进本轮落库清单，收尾前等它落定。
+  const toolMediaSink = createToolMediaSink();
+  function mergeToolMediaIntoTurn() {
+    if (!toolMediaSink.items.length) return;
+    const seen = new Set(mediaItems.map((m) => mediaDeliveryKey(m?.url)));
+    for (const m of toolMediaSink.items) {
+      const key = mediaDeliveryKey(m?.url);
+      if (!key || seen.has(key)) continue;
+      seen.add(key);
+      mediaItems.push(m);
+    }
+  }
   async function deliverUnifiedMedia() {
-    if (mediaFlushing) return mediaFlushing;
-    mediaFlushing = (async () => {
-      const results = await Promise.resolve(mediaPromise).catch((e) => {
-        try { writer.push("note", { text: `出图未成功：${explainMediaError(e)}。思考和工具不受影响。` }); } catch {}
-        return [];
-      });
-      const items = [];
-      const deliveredKeys = new Set(persistedTurn.mediaKeys);
-      for (const mr of results || []) {
-        if (!mr) continue;
-        if (mr.error && !mr.url) {
-          const kind = mr.type === "video" ? "视频模型这次没出成片" : mr.type === "audio" ? "配音这次没出成" : "图像模型这次没出成图";
-          try { writer.push("note", { text: `${kind}：${mr.error}` }); } catch {}
-          continue;
+    if (!mediaFlushing) {
+      mediaFlushing = (async () => {
+        const results = await Promise.resolve(mediaPromise).catch((e) => {
+          try { writer.push("note", { text: `出图未成功：${explainMediaError(e)}。思考和工具不受影响。` }); } catch {}
+          return [];
+        });
+        const items = [];
+        const deliveredKeys = new Set(persistedTurn.mediaKeys);
+        for (const mr of results || []) {
+          if (!mr) continue;
+          if (mr.error && !mr.url) {
+            const kind = mr.type === "video" ? "视频模型这次没出成片" : mr.type === "audio" ? "配音这次没出成" : "图像模型这次没出成图";
+            try { writer.push("note", { text: `${kind}：${mr.error}` }); } catch {}
+            continue;
+          }
+          if (!mr.url) continue;
+          if (mr.artifactUrl) { mr.url = mr.artifactUrl; mr.localized = true; }
+          else if (!(await localizeChatMediaForDelivery(mr, { writer, effects: runContext?.effects, runId: runContext?.runId }))) {
+            continue;   // 图片没落盘：不发图，只留说明（见 localizeChatMediaForDelivery）
+          }
+          // 同一远程地址或同一已落盘路径只交付一次，避免模型重复引用时把同一文件发多遍。
+          const deliveryKey = mediaDeliveryKey(mr.url);
+          if (deliveredKeys.has(deliveryKey)) continue;
+          deliveredKeys.add(deliveryKey);
+          const clean = { ...mr };
+          delete clean.__effectKey;
+          delete clean.__effectReused;
+          delete clean.artifactUrl;
+          try { writer.push("media", clean); } catch {}
+          items.push(clean);
         }
-        if (!mr.url) continue;
-        if (mr.artifactUrl) { mr.url = mr.artifactUrl; mr.localized = true; }
-        else if (!(await localizeChatMediaForDelivery(mr, { writer, effects: runContext?.effects, runId: runContext?.runId }))) {
-          continue;   // 图片没落盘：不发图，只留说明（见 localizeChatMediaForDelivery）
-        }
-        // 同一远程地址或同一已落盘路径只交付一次，避免模型重复引用时把同一文件发多遍。
-        const deliveryKey = mediaDeliveryKey(mr.url);
-        if (deliveredKeys.has(deliveryKey)) continue;
-        deliveredKeys.add(deliveryKey);
-        const clean = { ...mr };
-        delete clean.__effectKey;
-        delete clean.__effectReused;
-        delete clean.artifactUrl;
-        try { writer.push("media", clean); } catch {}
-        items.push(clean);
-      }
-      mediaItems = items;
-      return items;
-    })();
-    return mediaFlushing;
+        mediaItems = items;
+        return items;
+      })();
+    }
+    await mediaFlushing.catch(() => []);
+    // P1-4：先本地化（等下载落盘）再落库再 done。这一步放在 memo 之外，
+    // 否则媒体意图那条早跑的 flush 已 resolve，收尾时就不会再等晚到的工具直传图。
+    await drainToolMediaSink(toolMediaSink);
+    mergeToolMediaIntoTurn();
+    return mediaItems;
   }
   const mediaDelivered = mediaIntents.length
     ? mediaPromise.then(() => deliverUnifiedMedia())
@@ -1203,7 +1307,7 @@ export async function handleUnifiedChat(res, entry, message, sessionId, params, 
       applyEvent(failed ? "tool_fail" : "success", { sessionId: sessionId || "new", intensity: failed ? 1 : 0.7, note: `${name}${failed ? " 失败" : " 成功"}`, source: "tool" });
     } catch {}
     const media = explicitToolMedia(out, { id, name });
-    if (media?.url) deliverGatedToolMedia(media, { writer });
+    if (media?.url) deliverGatedToolMedia(media, { writer, sink: toolMediaSink });
     // 正向账本采样（2026-11-10）：交付门回执 + 写类工具碰过的路径，都是工具事件的客观回执。
     // 只留判定/路径，不碰输出正文；解析失败就当没这个信号。
     try {

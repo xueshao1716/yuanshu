@@ -3,10 +3,12 @@
 // 且 wawazz 中转返回的 tool_calls.arguments 带 "{}" 脏前缀（'{}{"path":...}'），JSON.parse 直接失败。
 import { test } from "node:test";
 import assert from "node:assert";
+import http from "node:http";
 import { readFileSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
-import { sanitizeToolCallList, repairToolArgs, modelAllowsTools, createRunHistorySnapshot, restoreRunHistorySnapshot, formatSessionHistory } from "../../engine/unified-chat.mjs";
+import { sanitizeToolCallList, repairToolArgs, modelAllowsTools, createRunHistorySnapshot, restoreRunHistorySnapshot, formatSessionHistory, initUnifiedChat, unifiedChat } from "../../engine/unified-chat.mjs";
+import { initDshKeys } from "../../engine/dsh-keys.mjs";
 import { persistYuanshuToolTrace } from "../../engine/yuanshu-session.mjs";
 import { resetProjectionCounts, countProjection, FULL_SENDS, TURN_END_RESULT_CAP } from "../../engine/reasonix-tools.mjs";
 
@@ -114,4 +116,39 @@ test("恢复后的备用模型不得重新携带旧快照", () => {
   const source = readFileSync(join(root, "engine", "unified-chat.mjs"), "utf8");
   assert.match(source, /chatOpts\.resumeToolPlan = null;\s*chatOpts\.resumeSnapshot = null;\s*chatOpts\.resumeCheckpointKind = null/);
   assert.match(source, /resumeSnapshot: null, resumeCheckpointKind: null, resumeToolPlan: null/);
+});
+
+// 2026-11-10 P1-5：记忆判断这类旁路调用只有一句 {"store":true/false} 要判，
+// 不该背着整套工具定义（几十 KB）。opts.tools === false 才是真的不带（不是传空数组）。
+test("unifiedChat opts.tools === false：请求体不带工具定义，返回结构不变", async (t) => {
+  const bodies = [];
+  const server = http.createServer(async (req, res) => {
+    let raw = "";
+    for await (const part of req) raw += part;
+    bodies.push(JSON.parse(raw));
+    res.writeHead(200, { "content-type": "text/event-stream" });
+    res.end(`data: ${JSON.stringify({ choices: [{ message: { content: '{"store":false}' } }] })}\n\ndata: [DONE]\n\n`);
+  });
+  await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+  t.after(() => new Promise((resolve) => server.close(resolve)));
+
+  const model = { provider: "tools-off", id: "judge-mock", api: "openai-completions", baseUrl: `http://127.0.0.1:${server.address().port}/v1` };
+  const readJsonFile = (file) => (file === "auth" ? { "tools-off": { key: "test-only" } } : { "tools-off": { models: [model] } });
+  initDshKeys({ authPath: "auth", modelsPath: "models", readJsonFile });
+  initUnifiedChat({
+    authPath: "auth",
+    modelsPath: "models",
+    readJsonFile,
+    getModelList: () => [model],
+    getDefaultModel: () => model,
+    UNIFIED_TOOLS: [{ type: "function", function: { name: "read", description: "读文件", parameters: { type: "object", properties: {} } } }],
+  });
+  const messages = [{ role: "system", content: "判断这轮是否值得沉淀" }, { role: "user", content: "【用户】在吗\n\n【助手】在的。" }];
+
+  const off = await unifiedChat(model, messages, { tools: false });
+  assert.equal(typeof off?.text, "string", "tools:false 也要返回 { text }（parseJudge 依赖它）");
+  assert.equal(bodies[0].tools, undefined, "tools:false 时请求体不能出现 tools");
+
+  const on = await unifiedChat(model, messages);
+  assert.ok(Array.isArray(bodies[1].tools) && bodies[1].tools.length === 1, "默认路径仍带工具定义（对照，证明断言不是空转）");
 });

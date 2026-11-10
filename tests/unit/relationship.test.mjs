@@ -241,7 +241,9 @@ describe("接线（静态断言）", () => {
     const src = fs.readFileSync(path.join(ROOT, "engine", "unified-chat.mjs"), "utf8");
     const start = src.indexOf("const finishEmotion = (");
     assert.ok(start > 0, "finishEmotion 还在");
-    const fn = src.slice(start, start + 1000);
+    // 切片长度只是"取到函数体"的粗办法：P1-3 在 finishEmotion 里加了潮汐 flush（+~80 字符），
+    // 1000 已经切不到 recordInteraction。放宽到 1600，断言意图不变。
+    const fn = src.slice(start, start + 1600);
     assert.ok(fn.includes("recordInteraction("), "一轮结束必须记关系");
     // 2026-11-10 口径：kind 不再按「本轮有没有工具失败」二分，改由 judgeTurnKind 判
     // （用户明确不满 / 同一命令失败 ≥3 → negative，其余 neutral）。
