@@ -14,7 +14,7 @@ import RealtimeCall from '../voice/RealtimeCall'
 import TurnList from './TurnList'
 import ChatRunStatus from './ChatRunStatus'
 // 她的状态带（2026-11-10）：关系阶段 / 当前情绪 / 待批换代提案 / 退化暂停，常驻顶栏下方一条
-import HerStatusStrip from '../shell/HerStatusStrip'
+import HerAlertBadge from '../shell/HerStatusStrip'
 import { useAutoScroll } from '../../hooks/useAutoScroll'
 import { useViewState } from '../../hooks/useViewState'
 import { toast } from '../shell/Toast'
@@ -1329,6 +1329,7 @@ export default function ChatArea({ compactHeader, rightPanel, onRightPanel, onVo
             title={`${emoTooltip(emoState, emoMetaLive)} · 情绪与声音设置`} aria-label="查看情绪潮汐与真人形象" aria-expanded={orbPanelOpen}
             onClick={() => setOrbPanelOpen(true)}>
             <MoodOrb state={emoState} size={26} label={`小语情绪：${emoMetaLive.label}`} />
+            <HerAlertBadge />
             <span
               aria-hidden="true"
               className="absolute inset-0 flex items-center justify-center pointer-events-none select-none text-[8.5px] font-medium leading-none tracking-tight text-white/95"
@@ -1341,8 +1342,7 @@ export default function ChatArea({ compactHeader, rightPanel, onRightPanel, onVo
         <MoodPanel open={orbPanelOpen} onClose={() => setOrbPanelOpen(false)} emotion={companionEmotion} action={companion.action} known={!!companion.facts?.known} skin={companion.skin} />
       </div>
 
-      {/* 她的状态带：只读一行，接口挂了就静默隐藏——状态带不能变成错误条 */}
-      <HerStatusStrip />
+      {/* 2026-11-11：状态带收进灵珠——只有待批提案/退化暂停才在球上点一颗小点，其余不占一行 */}
 
       {/* 无新事件只提示，不改变服务端任务状态 */}
       {idleWarned && (
