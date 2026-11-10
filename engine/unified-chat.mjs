@@ -886,7 +886,7 @@ async function localizeChatMediaForDelivery(mr, { writer, effects, runId }) {
 //   · 下载有 10s 上限（可注入，测试用短超时）。超时按**现有"未落盘"路径**处理——
 //     只留一行 note，这一条不进聊天也不落库，整轮照常成功；
 //   · 超时后即使下载又回来了也不再发布（note 已经说过不显示，不能自相矛盾）。
-const GATED_TOOL_MEDIA_TIMEOUT_MS = 10_000;
+const GATED_TOOL_MEDIA_TIMEOUT_MS = 4_000; // 2026-11-11: 10s -> 4s，单张图下载最多拖 4s，别再让 done 干等
 let _toolMediaGate = { timeoutMs: GATED_TOOL_MEDIA_TIMEOUT_MS, saveArtifact: null };
 
 /** 测试/嵌入用：注入落盘实现与超时。生产路径不调用，永远走 workspace-api 的 saveArtifact。 */
@@ -964,9 +964,23 @@ function deliverGatedToolMedia(media, { writer, sink = null } = {}) {
 }
 
 /** 收尾等待：本轮所有工具直传下载落定（超时的那条由定时器兜底，绝不会无限等）。 */
-async function drainToolMediaSink(sink) {
-  if (!sink) return;
-  while (sink.pending.size) await Promise.all([...sink.pending]);
+// 2026-11-11：工具直传媒体**不能无限期拖住 done**。
+// 手机端反馈"字都出完了，状态还转好久"——根因是收尾在 done 前 await 媒体落盘（单张最多 10s）。
+// 现在给 drain 一个硬上限：到点就放 done 先走，媒体晚到最多不显示（有 note），不让用户干等。
+const TOOL_MEDIA_DRAIN_MS = 1500;
+async function drainToolMediaSink(sink, ms = TOOL_MEDIA_DRAIN_MS) {
+  if (!sink || !sink.pending?.size) return { drained: true, waited: 0 };
+  const started = Date.now();
+  let timer = null;
+  const all = (async () => { while (sink.pending.size) await Promise.all([...sink.pending]); return { drained: true }; })();
+  const capped = await Promise.race([
+    all,
+    new Promise((resolve) => { timer = setTimeout(() => resolve({ drained: false }), ms); }),
+  ]);
+  if (timer) clearTimeout(timer);
+  const waited = Date.now() - started;
+  if (!capped.drained) console.warn(`[media] 工具直传媒体 ${ms}ms 内没落盘，done 先走（图可能不显示）`);
+  return { ...capped, waited };
 }
 
 export async function handleUnifiedChat(res, entry, message, sessionId, params, signal, writer, thinkOn, taskKey, modelOverride = null, sandboxAskFactory = null, runContext = null) {
