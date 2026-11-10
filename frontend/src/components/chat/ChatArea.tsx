@@ -1322,15 +1322,20 @@ export default function ChatArea({ compactHeader, rightPanel, onRightPanel, onVo
           )}
         </div>
         {/* 心情：服务端真实情绪镜像，只展示不可点改。灵珠连续反映 VAD（2026-09-03，替代 emoji 八桶）
-            2026-11-10：情绪文字从"状态带"收回这里——情绪的常驻位置只有右上角情绪潮汐一处。 */}
-        <div className="emo-pill flex items-center gap-1">
-          <span className="hidden sm:inline text-[11px] text-pi-dim whitespace-nowrap" title={emoTooltip(emoState, emoMetaLive)}>
-            {emoMetaLive.label}
-          </span>
-          <button type="button" className="min-w-[44px] min-h-[44px] rounded-full flex items-center justify-center hover:bg-pi-bg2/40"
+            2026-11-10：情绪文字从"状态带"收回，并**收纳进灵珠本身**（叠在球面上），
+            不再在珠子旁边挂第二行字——情绪的常驻位置只有这颗珠子。 */}
+        <div className="emo-pill flex items-center justify-center">
+          <button type="button" className="min-w-[44px] min-h-[44px] rounded-full flex items-center justify-center hover:bg-pi-bg2/40 relative"
             title={`${emoTooltip(emoState, emoMetaLive)} · 情绪与声音设置`} aria-label="查看情绪潮汐与真人形象" aria-expanded={orbPanelOpen}
             onClick={() => setOrbPanelOpen(true)}>
-            <MoodOrb state={emoState} size={24} label={`小语情绪：${emoMetaLive.label}`} />
+            <MoodOrb state={emoState} size={26} label={`小语情绪：${emoMetaLive.label}`} />
+            <span
+              aria-hidden="true"
+              className="absolute inset-0 flex items-center justify-center pointer-events-none select-none text-[8.5px] font-medium leading-none tracking-tight text-white/95"
+              style={{ textShadow: '0 1px 2px rgba(0,0,0,.55)' }}
+            >
+              {String(emoMetaLive.label || '').slice(0, 3)}
+            </span>
           </button>
         </div>
         <MoodPanel open={orbPanelOpen} onClose={() => setOrbPanelOpen(false)} emotion={companionEmotion} action={companion.action} known={!!companion.facts?.known} skin={companion.skin} />
