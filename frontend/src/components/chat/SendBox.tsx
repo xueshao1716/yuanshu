@@ -361,7 +361,7 @@ export default function SendBox({ streaming, onStop, onSend, onSteer, onCommand,
         {/* 用量计数：贴在工具栏上方的右侧空隙里。
            2026-11-06：之前放在 top-2，会压在 placeholder（固定提示词）上；挪到下面这条缝隙。 */}
         <div className="pointer-events-none absolute right-3 bottom-[52px] z-0">
-          <UsageChip sessionId={sessionId || ''} />
+          <UsageChip sessionId={sessionId || ''} busy={streaming} />
         </div>
         <textarea ref={taRef} rows={2} value={value} disabled={streaming && !canSteer}
           placeholder={canSteer ? '插一句话，下一步就按它调整（Enter 发送）' : '给小语发消息…　"/" 命令 · "@ 引用文件'}
@@ -468,12 +468,20 @@ export default function SendBox({ streaming, onStop, onSend, onSteer, onCommand,
 }
 
 /** 用量状态条（2026-10-24）：tok/s、缓存命中率、上下文占用，数据来自 provider 真实 usage */
-function UsageChip({ sessionId }: { sessionId: string }) {
-  const { data } = useSWR<SessionUsage>(
+function UsageChip({ sessionId, busy }: { sessionId: string; busy?: boolean }) {
+  // 2026-11-11：轮询只在"执行中"开（4s），空闲不轮询 —— 原来固定 20s 一次，
+  // 手机端既费电、又让"20 秒"这个数字混进状态排查里（它从来不管执行状态）。
+  const { data, mutate } = useSWR<SessionUsage>(
     sessionId ? ['usage', sessionId] : null,
     () => UsageApi.session(sessionId),
-    { refreshInterval: 20000, revalidateOnFocus: false, shouldRetryOnError: false },
+    { refreshInterval: busy ? 4000 : 0, revalidateOnFocus: true, shouldRetryOnError: false },
   )
+  // 一轮结束时补最后一次（空闲态不再轮询，否则会把"刚跑完"的用量漏掉）
+  const prevBusy = useRef(!!busy)
+  useEffect(() => {
+    if (prevBusy.current && !busy) void mutate()
+    prevBusy.current = !!busy
+  }, [busy, mutate])
   if (!sessionId || !data || !data.measured) return null
   const parts: string[] = []
   if (typeof data.lastTps === 'number' && data.lastTps > 0) {

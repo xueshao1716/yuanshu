@@ -26,6 +26,8 @@ function sendEnv() {
   const env = owner(), pending = deferred(), connected = [], saved = [], errors = [];
   const streamRef = { current: null }, assistantMsgIdRef = { current: null };
   const scope = { ...env, currentSessionId: 'A', currentModel: 'auto/auto', streamRef, assistantMsgIdRef,
+    // 2026-11-11：发送键改由"有请求在飞"驱动，send 会写这个 setter 和两个探针时间戳
+    setRequestInFlight() {}, lastEventAtRef: { current: 0 }, lastProbeAtRef: { current: 0 },
     speech: { stop() {} }, localStorage: { setItem() {}, getItem() { return null; } },
     wasBackgroundRef: { current: false }, appendMessage() {}, setStream() {}, makeAssembler() {}, scroll() {},
     emptyStream: () => ({ text: '', tools: [], notes: [] }), RunsApi: { create: () => pending.promise },

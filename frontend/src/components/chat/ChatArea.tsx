@@ -28,6 +28,7 @@ import { saveMessage, getMessages, deleteMessage, mergeMessages, type LocalMessa
 import { notifyTaskDone } from '../../lib/notify'
 import { StreamAssembler, type AssemblerSnapshot } from '../../lib/stream-assembler'
 import { advanceRunCursor, isTerminalRunStatus, interruptionNotice, type RunCursor, type RunEvent } from '../../lib/run-events'
+import { closeoutAction, shouldProbe, streamProbeInterval, RESUME_SYNC_MIN_HIDDEN_MS, STREAM_RESYNC_MIN_MS, type ProbeReason } from '../../lib/stream-closeout'
 import { scrapeVideos, dedupeMediaUrls, mediaPathKey } from '../../lib/media-embed'
 import { reconcileImageMessages } from '../../lib/image-identity'
 import { workRole, workTool } from '../../lib/work-explanation'
@@ -158,6 +159,10 @@ export default function ChatArea({ compactHeader, rightPanel, onRightPanel, onVo
   const sessionIdRef = useRef(currentSessionId)
   sessionIdRef.current = currentSessionId
   const [stream, setStream] = useViewState<StreamState | null>(viewOwner, null)
+  // 发送键是否可用只取决于"有没有请求在飞"（2026-11-11）：以前直接绑在 stream 上，
+  // 手机端 completed 迟到时 stream 一直非空，发送键就一直不恢复。现在由 finalize 无条件清掉，
+  // 即使 stream 状态更新滞后，按钮也能先回来；真正的二次发送仍由 send() 里的 streamRef 守卫兜住。
+  const [requestInFlight, setRequestInFlight] = useState(false)
   // 2026-11-06：流式期间隐藏手机底部导航——发送瞬间 UI 重渲染，pointerup 会落到下面的「更多」上
   const streamActive = !!stream
   useEffect(() => {
@@ -193,6 +198,11 @@ export default function ChatArea({ compactHeader, rightPanel, onRightPanel, onVo
   // 流式组装器：阶段分流 + 16ms 合帧 + toolCallId 幂等（旧版 vanilla 机制恢复，见 lib/stream-assembler.ts）
   const asmRef = useRef<StreamAssembler | null>(null)
   const lastEventAtRef = useRef(0)
+  // 手机端收尾兜底（2026-11-11）：探针节流 / 重连节流 / 最新一次同步函数（声明见 finalize 之后）
+  const lastProbeAtRef = useRef(0)
+  const lastResyncAtRef = useRef(0)
+  const probingRef = useRef(false)
+  const streamSyncRef = useRef<(reason: ProbeReason) => void>(() => {})
   const assistantMsgIdRef = useRef<string | null>(null) // 本轮 assistant 消息的固定 id，流式期间快照与最终写入用同一 id（避免重复）
   // 同一轮只收尾一次（finalize 有 6 个调用点，重复触发会造成"消息出现两次"）
   const finalizedStreamRef = useRef<any>(null)
@@ -379,7 +389,13 @@ export default function ChatArea({ compactHeader, rightPanel, onRightPanel, onVo
       }
       // 息屏恢复：先把组装器缓冲强制落盘，再刷新会话目录（旧版 flushNow 行为）
       asmRef.current?.flushNow()
-      if (hiddenAt && Date.now() - hiddenAt > 1_000 && !streamRef.current) {
+      // 2026-11-11 手机端：从后台回来立刻同步一次执行状态，不等看门狗、更不等轮询。
+      // 手机切后台会把 SSE 连接挂起，回到前台时 `completed` 可能还在缓冲区里躺着；
+      // 这条同步会问一次服务端轻量态，服务端说完了就当场收尾（按钮立刻恢复）。
+      if (hiddenAt && Date.now() - hiddenAt > RESUME_SYNC_MIN_HIDDEN_MS && streamRef.current) {
+        void streamSyncRef.current('resume')
+      }
+      if (hiddenAt && Date.now() - hiddenAt > RESUME_SYNC_MIN_HIDDEN_MS && !streamRef.current) {
         void mutateMsgs()
         void refreshSessions()
       }
@@ -455,6 +471,8 @@ export default function ChatArea({ compactHeader, rightPanel, onRightPanel, onVo
     finalizedStreamRef.current = null // 2026-10-19：runId 维度守卫跟着会话清零，别让旧 key 误挡新一轮
     teardownAssembler()
     setStream(null)
+    setRequestInFlight(false)
+    lastProbeAtRef.current = 0
   }, [currentSessionId])
   // 多端同步：只在新消息或一轮完成的提交边界合并历史。
   // 不能把每个 delta/工具事件都转成整段 messages 请求，否则长会话会持续闪屏并跳阅读位置。
@@ -479,6 +497,9 @@ export default function ChatArea({ compactHeader, rightPanel, onRightPanel, onVo
       if (!event?.type && Number.isInteger(event?.lastSeq)) { primed = true; return }
       if (!primed) return
       if (event?.type === 'message' || event?.type === 'turn_end' || event?.type === 'session_updated') syncCommittedHistory()
+      // turn_end 是"本轮已提交"的独立信号（走会话总线，和 Run SSE 不是一条连接）：
+      // 手机端 Run SSE 被挂起时它可能先到，顺手核对一次执行状态。
+      if (event?.type === 'turn_end') void streamSyncRef.current('turn_end')
     })
     return () => { alive = false; off(); if (syncTimerRef.current) clearTimeout(syncTimerRef.current) }
   }, [currentSessionId]) // eslint-disable-line
@@ -528,6 +549,18 @@ export default function ChatArea({ compactHeader, rightPanel, onRightPanel, onVo
     return () => clearInterval(t)
   }, [streaming])
 
+  // 执行中兜底轮询 + 看门狗（2026-11-11，手机端）：只在流式期间开，空闲不轮询（省电）。
+  // 每 3s 检查一次：若已 8s 没有任何增量事件，就去问服务端"这轮到底完没完"
+  // ——手机 WebView 里 completed 可能始终不到，用户看到的"消息都显示完了，
+  // '执行中'还要再挂二十秒、发送键不给按"就是这条缺失的收尾通道。
+  useEffect(() => {
+    if (!streaming) return
+    const ms = streamProbeInterval(streaming)
+    if (!ms) return
+    const t = setInterval(() => { void streamSyncRef.current('tick') }, ms)
+    return () => clearInterval(t)
+  }, [streaming])
+
   // 流式增量持久化：每 3s 快照到 IndexedDB（同 id 覆盖写入，不会重复），刷新后可从本地恢复未完成的回复
   // 注意：只依赖 streaming（true/false）控制定时器启停，不能依赖 stream 对象本身——
   // 否则每个 delta 到达都会重建定时器，3s 永远跡不完，快照永远不会真正触发。
@@ -559,6 +592,11 @@ export default function ChatArea({ compactHeader, rightPanel, onRightPanel, onVo
   }, [streaming, currentSessionId])
 
   const finalize = (model?: { provider: string; id: string }) => {
+    // 2026-11-11：收尾是第一优先级——先把"有请求在飞"放掉，发送键无条件恢复。
+    // 放在所有 early return 之前：任何一条收尾路径（completed / 看门狗 / 断线 / 后台恢复）
+    // 走到这里，按钮都不能再被本地状态机扣着。
+    setRequestInFlight(false)
+    lastProbeAtRef.current = 0
     // 只有持久化 Run 进入终态才收尾；普通 SSE 断线/错误事件不会结束后台任务。
     try { localStorage.removeItem('pi_pending_msg') } catch {}
     // 收尾前强制落盘组装器缓冲，确保最后一截增量不丢
@@ -645,6 +683,68 @@ export default function ChatArea({ compactHeader, rightPanel, onRightPanel, onVo
     mutateMsgs()
     refreshSessions()
   }
+
+  /**
+   * 手机端收尾兜底（2026-11-11）：不依赖 SSE 的 completed 事件，去服务端核对一次本轮到底完没完。
+   *
+   * 三条触发通道：
+   *   ① 流结束 / 断线（onEnd / onError）——SSE 这条连接没了；
+   *   ② 看门狗 tick：执行中每 3s 检查，8s 没有任何增量才真的去问；
+   *   ③ 页面回到前台 resume——立刻问（手机把 SSE 挂起后这是最快的一条路）。
+   *
+   * 只用轻量态 GET /api/runs/:id/state（常数代价，不读事件流），并且**先确认再加收尾**：
+   * 服务端说还在跑就继续等。长工具（出图/出片）几十秒没有事件是常态，本地硬判死会
+   * 把还在跑的轮次收掉、续写时再追一条重复消息。桌面端 completed 照常先到，这里只是补路。
+   */
+  const syncRunState = async (reason: ProbeReason) => {
+    const active = activeRunRef.current
+    if (!active) return
+    if (!isCurrentView() || active.sessionId !== sessionIdRef.current) return
+    if (reason === 'tick' && document.hidden) return            // 后台不耗电，回到前台会走 resume
+    if (reason === 'tick' && probingRef.current) return          // 上一次核对还没回来
+    const now = Date.now()
+    if (reason === 'tick' && !shouldProbe({ reason, now, lastEventAt: lastEventAtRef.current, lastProbeAt: lastProbeAtRef.current })) return
+    probingRef.current = true
+    lastProbeAtRef.current = now
+    try {
+      const state = await RunsApi.state(active.runId)
+      if (!isCurrentView() || activeRunRef.current?.runId !== active.runId) return
+      const verdict = closeoutAction(state, { cursor: activeRunRef.current?.lastSeq ?? active.lastSeq })
+      if (verdict.action === 'finalize') {
+        if (verdict.status !== 'completed') {
+          const message = verdict.status === 'stopped' ? '已停止' : '任务执行失败'
+          updStream(p => ({ ...p, error: p.error || message }))
+        }
+        finalize(pendingModelRef.current)
+        return
+      }
+      if (verdict.action === 'resync') {
+        // 服务端有我们还没收到的事件（或状态暂时查不到）→ 按游标重连，服务端会补发。
+        // 手机把连接挂起后，新连接比等旧连接"自己醒过来"快得多；节流避免网络半死时每 4s 抖一次。
+        if (Date.now() - lastResyncAtRef.current < STREAM_RESYNC_MIN_MS) return
+        lastResyncAtRef.current = Date.now()
+        connectRun(activeRunRef.current as ActiveRunRecord)
+      }
+      // wait：服务端说还在跑 → 什么都不做，绝不提前收尾
+    } catch (error: any) {
+      if (!isCurrentView() || activeRunRef.current?.runId !== active.runId) return
+      // 404 = 这轮记录已经不存在（服务重启/被清理）：本地再等也等不到 completed，如实收尾。
+      if (error?.status === 404) {
+        updStream(p => ({ ...p, error: p.error || '任务记录已不存在（服务可能重启过），已结束本地等待。' }))
+        finalize(pendingModelRef.current)
+        return
+      }
+      // 其他错误（离线/超时/网关）：重连 SSE，它自带 1.5s 重试；不改本地状态。
+      const still = activeRunRef.current
+      if (still && still.runId === active.runId && Date.now() - lastResyncAtRef.current >= STREAM_RESYNC_MIN_MS) {
+        lastResyncAtRef.current = Date.now()
+        connectRun(still)
+      }
+    } finally {
+      probingRef.current = false
+    }
+  }
+  streamSyncRef.current = syncRunState
 
   const applyRunEvent = (event: RunEvent) => {
     const active = activeRunRef.current
@@ -817,6 +917,9 @@ export default function ChatArea({ compactHeader, rightPanel, onRightPanel, onVo
     assistantMsgIdRef.current = record.assistantMessageId
     streamRef.current = record.stream
     setStream({ ...record.stream })
+    setRequestInFlight(true)          // 有轮次在飞（刷新恢复后发送键也应该是"停止"）
+    lastEventAtRef.current = Date.now()
+    lastProbeAtRef.current = 0
     // 断线恢复：把快照灌回组装器，游标之后的新事件在快照基础上继续累加（不重复、不丢段）
     makeAssembler()?.hydrate(record.stream)
     streamCloseRef.current = RunsApi.stream(
@@ -827,7 +930,12 @@ export default function ChatArea({ compactHeader, rightPanel, onRightPanel, onVo
         if (!isCurrentView() || activeRunRef.current?.runId !== record.runId) return
         lastEventAtRef.current = Date.now()
         updStream(p => ({ ...p, notes: p.notes.includes('连接中断，正在恢复…') ? p.notes : [...p.notes, '连接中断，正在恢复…'] }))
+        // 2026-11-11：连接断了不等于任务没跑完 —— 手机端 completed 常常就是丢在这一下。
+        // 立刻核对一次服务端状态：完了就收尾，没完就让 SSE 自己 1.5s 后重连。
+        void streamSyncRef.current('error')
       },
+      // 流被服务端正常关掉（reader done）：同样不能只等下一帧事件。
+      () => { void streamSyncRef.current('end') },
     )
   }
 
@@ -949,6 +1057,10 @@ export default function ChatArea({ compactHeader, rightPanel, onRightPanel, onVo
     wasBackgroundRef.current = false // 新一轮开始，重置后台跟踪状态
     streamRef.current = initialStream
     setStream({ ...streamRef.current })
+    // 2026-11-11：从"发出去"这一刻就算有请求在飞（runId 还没回来，看门狗会等 activeRunRef 落地）
+    setRequestInFlight(true)
+    lastEventAtRef.current = Date.now()
+    lastProbeAtRef.current = 0
     makeAssembler()
     // 模型参数（ParamsPanel 存 localStorage，随请求带给 server）
     let params: { temperature?: number; top_p?: number } | undefined
@@ -1462,7 +1574,7 @@ export default function ChatArea({ compactHeader, rightPanel, onRightPanel, onVo
       )}
       <div className="mobile-composer border-t border-pi-border bg-pi-bg1 px-3 sm:px-4 py-2.5 flex-shrink-0">
         <div className="chat-reading-column mx-auto">
-          <SendBox key={sessionViewKey} streaming={!!stream} onStop={stop} onSend={send} onSteer={steer} onCommand={runCommand}
+          <SendBox key={sessionViewKey} streaming={requestInFlight} onStop={stop} onSend={send} onSteer={steer} onCommand={runCommand}
             onOpenCall={() => setVoiceOpen(true)}
             voiceBusy={voiceBusy} onVoice={handleVoice} onVoiceTextReady={fn => { voiceTextRef.current = fn }}
             sessionId={currentSessionId} ensureSession={ensureSessionId}
