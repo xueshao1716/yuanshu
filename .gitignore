@@ -100,3 +100,8 @@ engine/py/vendor/
 /记忆/运行时/
 # 2026-11-09 梦境/教训/进化状态都是运行时产物（failure-attribution 会往里追加教训候选），不是源码
 /记忆/做梦/
+
+# 2026-11-13 安全审计 SECRET-001
+auth.json
+.env*
+.token*
