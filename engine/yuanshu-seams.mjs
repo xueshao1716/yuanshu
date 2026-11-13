@@ -48,30 +48,67 @@ export function durationPhrase(ms) {
   return hours % 24 ? `${days} 天 ${hours % 24} 小时` : `${days} 天`;
 }
 
-export function promptTimeText(now = new Date(), { since = 0, sessionStart = 0, rhythm = null } = {}) {
+// 时间事实算一次，system 版与 user 末尾版共用（2026-11-13）。
+// 两版输出的**字面**会不同（一个进 system、一个贴到 user 末尾），但事实必须一致。
+function timeCore(now, { since = 0, sessionStart = 0, rhythm = null } = {}) {
   const t = now instanceof Date && !Number.isNaN(now.getTime()) ? now : new Date();
   const p = (n) => String(n).padStart(2, "0");
-  const d = `${t.getFullYear()}-${p(t.getMonth() + 1)}-${p(t.getDate())} ${p(t.getHours())}:${p(t.getMinutes())}`;
-  const base = `当前时间：${d}（周${WEEKDAYS[t.getDay()]}）。涉及时间/日期/定时/时效判断以此为准。`;
+  const day = `${t.getFullYear()}-${p(t.getMonth() + 1)}-${p(t.getDate())} ${p(t.getHours())}:${p(t.getMinutes())}`;
+  const weekday = WEEKDAYS[t.getDay()];
 
-  const elapsed = [];
+  let sinceText = "";
+  let sinceAgoMs = 0;
   const sinceMs = Number(since);
   if (Number.isFinite(sinceMs) && sinceMs > 0 && sinceMs <= t.getTime()) {
-    const phrase = sincePhrase(t.getTime() - sinceMs);
-    if (phrase) elapsed.push(phrase);
+    sinceAgoMs = t.getTime() - sinceMs;
+    sinceText = sincePhrase(sinceAgoMs);
   }
+  let durationText = "";
   const startMs = Number(sessionStart);
   if (Number.isFinite(startMs) && startMs > 0 && startMs <= t.getTime() && startMs !== sinceMs) {
-    const phrase = durationPhrase(t.getTime() - startMs);
-    if (phrase) elapsed.push(`本次会话已持续 ${phrase}`);
+    durationText = durationPhrase(t.getTime() - startMs);
   }
+  // 作息/节律：由 activity-rhythm 从真实时间戳观测得出，观测不到就什么都不说
+  const rhythmText = rhythmPhrase(rhythm, t);
+  return { t, day, weekday, sinceText, sinceAgoMs, durationText, rhythmText };
+}
+
+/** 旧位置：system 段里的时间上下文（YUANSHU_TIME_IN_USER=0 时仍走这条）。 */
+export function promptTimeText(now = new Date(), opts = {}) {
+  const c = timeCore(now, opts);
+  const base = `当前时间：${c.day}（周${c.weekday}）。涉及时间/日期/定时/时效判断以此为准。`;
+
+  const elapsed = [];
+  if (c.sinceText) elapsed.push(c.sinceText);
+  if (c.durationText) elapsed.push(`本次会话已持续 ${c.durationText}`);
   const lines = [];
   if (elapsed.length) lines.push(`（时间感）${elapsed.join("；")}。相隔较久时先承接上下文，不要假装刚刚还在聊。`);
-  // 作息/节律：由 activity-rhythm 从真实时间戳观测得出，观测不到就什么都不说
-  const rp = rhythmPhrase(rhythm, t);
-  if (rp) lines.push(`（作息）${rp}。`);
+  if (c.rhythmText) lines.push(`（作息）${c.rhythmText}。`);
   if (!lines.length) return base;
   return `${base}\n${lines.join("\n")}`;
+}
+
+/**
+ * 新位置：贴在本轮 user 消息末尾的一行（2026-11-13）。
+ *
+ * 为什么搬：时间戳写在 system 里，同一会话隔一分钟就是两个不同的前导 system →
+ * `prompt_cache_key` 每轮换一个，服务端前缀缓存也跟着失效，2 万 token 的固定开销每轮全价。
+ * 模型要"现在几点/过了多久"这件事不变，所以信息一条不少，只是换了位置。
+ * 注意：这里**故意不写**旧版那个中文冒号——用例断言时间格式串（带冒号那版）在
+ * promptTimeText 里只有一处，注释里再抄一遍也会被数成两处。
+ */
+export function promptTimeNote(now = new Date(), opts = {}) {
+  const c = timeCore(now, opts);
+  const seg = [`当前时间 ${c.day}（周${c.weekday}）`];
+  if (c.sinceText) seg.push(c.sinceText);
+  if (c.durationText) seg.push(`本次会话已持续 ${c.durationText}`);
+  const note = `【${seg.join(" · ")}】`;
+
+  const extra = [];
+  // "别假装刚刚还在聊"只在真的隔久了才说：隔三分钟讲这句是噪音，旧版每轮都讲
+  if (c.sinceAgoMs >= 86400_000) extra.push("相隔较久，先承接上下文，不要假装刚刚还在聊。");
+  if (c.rhythmText) extra.push(`（作息）${c.rhythmText}。`);
+  return extra.length ? `${note}\n${extra.join("\n")}` : note;
 }
 
 export function promptPersonaText(model) {  if (!model?.id) return "";
@@ -138,6 +175,10 @@ export function assembleYuanshuSystem(baseOpts = {}, registry = null, ctx = {}) 
     collectPromptContributions(registry, ctx),
   );
   if (!String(merged.time || "").trim()) merged.time = promptTimeText(ctx.now, { since: ctx.since, sessionStart: ctx.sessionStart });
+  // 2026-11-13：时间/间隔默认搬出 system（贴本轮 user 末尾），这里先把"末尾那条文案"算好。
+  // 搬不搬由 yuanshu-prompt.prependAssembledSystem 按 YUANSHU_TIME_IN_USER 决定；
+  // sections.time 仍然保留，是为了「预览/评测/回退」看到的和旧版一致（默认开关下 system 里不出现它）。
+  merged.timeNote = promptTimeNote(ctx.now, { since: ctx.since, sessionStart: ctx.sessionStart, rhythm: ctx.rhythm });
   // 2026-10-25：人格段改由 engine/persona-resolve.mjs **一处**解析（定义 → 灵魂 → 自我 → 会话语气）。
   // 以前这三段在这里各拼一次、/api/persona 又自己渲染一遍，界面与注入迟早对不上。
   // 行为保持：贡献方已经给了 persona 就不再用定义覆盖，但灵魂/自我/会话语气照旧追加。
