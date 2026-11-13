@@ -101,10 +101,19 @@ test('elapsed budget pauses after saving tool results, without starting another 
   });
 });
 
-test('repeated identical tools still stop before automatic continuation', async () => {
-  await fixture(() => call(1), async ({ chat, requests }) => {
+// 2026-11-14 口径变更（用户定）：发现重复**不中断**，而是内部自查、换条路继续。
+// 旧断言要求 error 匹配 /循环|重复|停滞/ 且 requests ≤3——那是"重复即停"时代；
+// 现在重复第 3 次会往 history 塞一条内部自查提示，循环继续，直到模型自己换路。
+test('repeated identical tools no longer stop; an internal self-check asks for another route', async () => {
+  await fixture(n => n <= 4 ? call(1) : answer('换了个办法，已完成'), async ({ chat, requests }) => {
     const result = await chat();
-    assert.match(result.error, /循环|重复|停滞/); assert.ok(requests.length <= 3);
+    assert.equal(result.error, undefined, '重复调用不应再报错中止');
+    assert.equal(result.text, '换了个办法，已完成', '应继续跑到模型自己换路');
+    assert.ok(requests.length >= 4, `至少要多跑几轮，实际 ${requests.length}`);
+    // 自查提示只进内部 history（system），不进用户可见回复
+    const seen = JSON.stringify(requests);
+    assert.match(seen, /自查|重复|换一条路/, '应能观察到内部自查提示');
+    assert.equal(/循环|停滞/.test(result.error || ''), false);
   });
 });
 
