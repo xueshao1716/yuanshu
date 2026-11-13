@@ -5,6 +5,7 @@ import { modelEndpoint } from './model/endpoints.mjs';
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { createHash } from "node:crypto";
 import { execFile } from "node:child_process";
 import { json, readBody } from "./http-utils.mjs";
 import { markModelBlocked, isAuthErrorStatus, pickFallbackDefault, pickFallbackExcluding, pickBudgetDowngrade, routeProCandidate, routeForAuto } from "./model/router.mjs";
@@ -114,6 +115,65 @@ export function initUnifiedChat({ executeUnifiedTool = null, findKeyByEntry = nu
   _wsRoot = String(wsRoot || "");
   _createSandboxAsk = createSandboxAsk;
   if (THINK_TOOL) _THINK_TOOL = THINK_TOOL;
+}
+
+// ══ prompt cache 复用（省钱，2026-11-13）══════════════════════════════════════
+// pi 1.5 的做法：给支持缓存的 provider 发一个稳定的 prompt_cache_key，服务端按前缀复用，
+// 系统提示 + 工具定义（约 2.2 万 token 固定开销）不再每轮全价重算。
+// 元枢原来一个缓存键都不发，每轮从零算——这是账单里最贵的那部分。
+//
+// 开关：<工作区>/记忆/运行时/缓存.json  { "mode": "auto" | "enabled" | "disabled" }
+//   auto     —— 只给明确声明支持缓存的通道发（默认；未知网关不乱发，避免 400）
+//   enabled  —— 除 Anthropic 原生 Messages 外全发
+//   disabled —— 全不发
+// 键 = sessionId + 模型 + 系统提示哈希 的 sha256 前 32 位：同会话同提示稳定命中，提示一改就换键。
+const PROMPT_CACHE_REL = path.join("记忆", "运行时", "缓存.json");
+
+export function promptCacheMode(wsRoot = _cwd) {
+  try {
+    const raw = JSON.parse(fs.readFileSync(path.join(String(wsRoot || "."), PROMPT_CACHE_REL), "utf8"));
+    const mode = String(raw?.mode || "").trim().toLowerCase();
+    return mode === "enabled" || mode === "disabled" ? mode : "auto";
+  } catch { return "auto"; }
+}
+
+// 只取**开头连续的** system/developer 块：那才是常驻系统提示。
+// 中途插话（【伙伴中途插话】）也是 role:system，但它落在历史尾部；跟着它换键等于每句话都换缓存。
+export function leadingSystemPrompt(messages = []) {
+  const parts = [];
+  for (const m of Array.isArray(messages) ? messages : []) {
+    if (!m || !["system", "developer"].includes(m.role)) break;
+    parts.push(typeof m.content === "string" ? m.content : JSON.stringify(m.content ?? ""));
+  }
+  return parts.join("\n\n");
+}
+
+// 已知支持显式缓存模式的通道：模型定义里的 compat 声明优先（pi 的自描述字段，models-store 里已有）；
+// 再兜底"官方端点 + Responses API"这一种确定支持 prompt_cache_key 的组合。
+// 不认识这个字段的网关（国内中转居多）硬发可能直接 400 —— 默认不发。
+export function knownPromptCacheProvider({ api = "", compat = null, baseUrl = "" } = {}) {
+  if (compat && compat.supportsExplicitPromptCacheMode === true) return true;
+  let host = "";
+  try { host = new URL(String(baseUrl || "")).hostname.toLowerCase(); } catch { return false; }
+  const official = host === "api.openai.com" || host.endsWith(".openai.azure.com");
+  return official && api === "openai-responses";
+}
+
+// 纯函数：给定这一轮的通道/模型/历史，算出键与"发不发"。测试直接调它，不用起服务。
+export function promptCacheDecision({ provider = "", modelId = "", api = "", compat = null, baseUrl = "", messages = [], sessionId = "", mode = "auto" } = {}) {
+  const prompt = leadingSystemPrompt(messages);
+  const digest = createHash("sha256").update(`${String(sessionId || "anon")}\n${provider}/${modelId}\n${prompt}`).digest("hex").slice(0, 32);
+  const base = { key: digest, mode, promptChars: prompt.length };
+  if (mode === "disabled") return { ...base, sent: false, reason: "mode-disabled" };
+  // Anthropic 原生 Messages 走的是 cache_control 标记，塞 prompt_cache_key 只会 400
+  if (api === "anthropic-messages") return { ...base, sent: false, reason: "anthropic-native" };
+  if (!prompt) return { ...base, sent: false, reason: "no-system-prompt" };
+  if (mode !== "enabled" && !knownPromptCacheProvider({ api, compat, baseUrl })) return { ...base, sent: false, reason: "unknown-provider" };
+  return { ...base, sent: true, reason: "provider-supports-cache" };
+}
+
+export function logPromptCache(decision) {
+  try { console.log(`[cache] key=${String(decision?.key || "").slice(0, 8)} sent=${decision?.sent === true} reason=${decision?.reason || "-"}`); } catch {}
 }
 
 // ══ 收轮队列（2026-11-10 P1，最后一个 P1）══════════════════════════════════════
@@ -328,6 +388,19 @@ async function _unifiedChatCore(model, messages, opts = {}) {
       type: "function",
       function: { name: t.name, description: t.description || "", parameters: t.parameters || { type: "object", properties: {} } },
     });
+  // prompt cache：一轮只算一次键，循环里的重试/换端点都复用（同一轮不该换键）。
+  // 放在 buildBody 之前，因为 body 要带这个字段；也保证每轮只打一行 [cache]。
+  const promptCache = promptCacheDecision({
+    provider: model.provider,
+    modelId: model.id,
+    api: mdef?.api || model.api,
+    compat,
+    baseUrl,
+    messages: history,
+    sessionId: opts.sessionId || opts.executionContext?.sessionId,
+    mode: promptCacheMode(_cwd),
+  });
+  logPromptCache(promptCache);
   const buildBody = (withThinking, wantStream = true) => {
     if (nativeMessages) return buildMessagesRequest({ model: model.id, modelKey: `${model.provider}/${model.id}`, messages: history, tools: toolDefs, maxTokens: outputBudget, stream: wantStream, params: opts.params });
     const body = {
@@ -336,6 +409,9 @@ async function _unifiedChatCore(model, messages, opts = {}) {
       ...(toolDefs ? { tools: normTools(toolDefs), tool_choice: "auto" } : {}),
       stream: wantStream,
     };
+    // 缓存键：OpenAI 系（含 Responses 兼容网关）认 prompt_cache_key；
+    // Anthropic 原生走 cache_control，不发这个字段（见 promptCacheDecision）。
+    if (promptCache.sent) body.prompt_cache_key = promptCache.key;
     // 单次输出预算（2026-09-16）：以前写死 8192，比模型声明的 32k~384k 低一个数量级，
     // 结果是"一次写完一个大文件"必然被截断 → 守卫报 truncated → 甩锅给用户"请把任务拆小"。
     body[maxTokensFieldOf(compat)] = outputBudget;
@@ -1456,6 +1532,8 @@ export async function handleUnifiedChat(res, entry, message, sessionId, params, 
     },
     params,
     signal,
+    // prompt cache 的键要绑在会话上（同会话同系统提示才稳定命中）
+    sessionId,
     // 纯生图请求由媒体旁路完成，主模型只做一次文本收口；复合生图仍须保留
     // 工具循环，才能在图片完成的同时继续制作 PPT、网页或其它交付文件。
     tools: skipTools ? false : toolDefs,

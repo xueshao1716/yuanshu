@@ -22,6 +22,9 @@ import { compactManagedSession } from './manual-compaction.mjs';
 import { createSessionLifecycle, sessionFileVersion, conversationGone, disposeAgent } from './lifecycle.mjs';
 import { createToolInitializers } from "./tool-inits.mjs";
 import { resolveShareOrigin } from '../network-endpoints.mjs';
+// 2026-11-13：同一会话文件可能以 c:\… / C:\… 两种大小写进来，Set 里会变成两个"不同会话"，
+// 压缩互斥就失效了。做键前统一走 pathKey（只归一键，不改真正读写的 file）。
+import { pathKey } from '../path-key.mjs';
 
 const toolInitializers = createToolInitializers({
   getCwd: () => _cwd,
@@ -232,8 +235,10 @@ export async function slimSessionImages(file) {
 let compactingSessions = new Set();
 
 export async function compactSession(file, model, force = false, focus = "") {
-  if (compactingSessions.has(file)) return { skip: true, reason: "busy: 该会话正在压缩中" };
-  compactingSessions.add(file);
+  // 互斥用归一化键：Windows 下 c:\x 与 C:\x 是同一个文件，不能当两条会话各压一遍
+  const sessionKey = pathKey(file);
+  if (compactingSessions.has(sessionKey)) return { skip: true, reason: "busy: 该会话正在压缩中" };
+  compactingSessions.add(sessionKey);
   const token = lifecycle.begin('compacting', null, file);
   let sm = null;
   try {
@@ -395,7 +400,7 @@ ${inputText}`;
     console.log(`[元枢] 分层记忆跳过: ${String(e?.message || e).slice(0, 120)}`);
     return { skip: true, reason: "异常: " + String((e && (e.stack || e.message)) || e).slice(0, 500) };
   } finally {
-    compactingSessions.delete(file);
+    compactingSessions.delete(sessionKey);
     lifecycle.end(token);
   }
   return null;
