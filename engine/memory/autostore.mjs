@@ -13,6 +13,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { settleRecall } from "../recall-journal.mjs";
+import { buildCardText } from "./db.mjs";
 
 let _deps = null; // { ingest, recall, getDefaultModel, chat, wsRoot }
 export function initMemoryAutoStore(deps) { _deps = deps; }
@@ -69,7 +70,7 @@ function wsRootOf() {
 }
 
 /** 轮次结束后调用。不 await——后台执行，调用方 fire-and-forget。 */
-export function settleTurnMemory({ sessionId = "new", user = "", assistant = "", executionIdentity = null, model = null, user_id = "owner" } = {}) {
+export function settleTurnMemory({ sessionId = "new", user = "", assistant = "", executionIdentity = null, model = null, user_id = "owner", msgId = null } = {}) {
   if (!_deps) return;
   // 2026-10-24：先给召回台账结算（哪几条记忆真被用上了），再走"要不要沉淀"的判断。
   // 两件事无关：沉淀是写新记忆，结算是给已有记忆记功/记过；结算还被执行身份门槛
@@ -106,7 +107,17 @@ export function settleTurnMemory({ sessionId = "new", user = "", assistant = "",
       if (dup) { st.sessions[sessionId] = { ...(st.sessions[sessionId] || {}), lastAt: Date.now(), lastVerdict: "dup" }; saveState(st); return; }
     } catch { } // 召回去重失败不拦截写入
     // 双写（memoryIngest：建行→向量化→绑定）
-    const out = await _deps.ingest({ user_id, memory_type: judged.memory_type, summary: judged.summary, importance_score: judged.importance_score, source: "auto" });
+    // 卡片层（2026-11-13）：摘要写结论，原话写 card_text——事实提炼完就只剩结论、
+    // 找不到出处是老问题。这里存触发这条记忆的那轮用户原话 + 必要的助手回应片段，
+    // 超长按 CARD_MAX 截断且保留头部（用户原话优先）。
+    const out = await _deps.ingest({
+      user_id, memory_type: judged.memory_type, summary: judged.summary,
+      importance_score: judged.importance_score, source: "auto",
+      card_text: buildCardText({ user, assistant }),
+      card_session: sessionId,
+      card_at: Date.now(),
+      card_msg_id: msgId || null,
+    });
     st.sessions[sessionId] = { ...(st.sessions[sessionId] || {}), lastAt: Date.now(), lastVerdict: "stored", lastMemoryId: out?.item?.memory_id };
     st.dayCount = (st.dayCount || 0) + 1;
     saveState(st);

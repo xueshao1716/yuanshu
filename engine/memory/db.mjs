@@ -11,11 +11,75 @@ const TYPES = new Set(["preference", "task_record", "fact"]);
 const STATUSES = new Set(["active", "archived", "superseded"]);
 const SOURCES = new Set(["manual", "auto", "skill", "feedback"]);
 
+// ---------------------------------------------------------------------------
+// 卡片层 + 归档层（2026-11-13）：两处设计取舍的存储契约
+//   卡片层：事实一旦被提炼，原对话就只剩在日志里 → 检索得到结论却不知道出处。
+//           所以每条记忆可带一份「触发它的那轮用户原话（+必要助手回应）」，
+//           召回默认只给开头 200 字，全文按 id 取，避免把上下文撑爆。
+//   归档层：遗忘默认归档不物理删除，所以需要 archived_at / archive_reason / restored_at。
+// 旧库兼容：这些列都走 ensureMemorySchema 幂等 ALTER，老库第一次打开自动补齐。
+// ---------------------------------------------------------------------------
+export const CARD_MAX = 600;      // card_text 落库上限：留得住出处，又不至于把库撑大
+export const CARD_PREVIEW = 200;  // 召回默认只给开头 200 字，全文按 id 取
+
+const CARD_COLUMNS = Object.freeze({
+  card_text: "TEXT",
+  card_session: "TEXT",
+  card_at: "INTEGER",
+  card_msg_id: "TEXT",
+  archived_at: "INTEGER",
+  archive_reason: "TEXT",
+  restored_at: "INTEGER",
+});
+
+/** 幂等补列：db 层与遗忘 CLI 共用同一份 schema，旧库（缺列）直接跑也不炸。 */
+export function ensureMemorySchema(db) {
+  const cols = new Set(db.prepare("PRAGMA table_info(memories)").all().map(c => c.name));
+  for (const [name, type] of Object.entries(CARD_COLUMNS)) {
+    if (!cols.has(name)) db.exec(`ALTER TABLE memories ADD COLUMN ${name} ${type};`);
+  }
+  db.exec("CREATE INDEX IF NOT EXISTS idx_mem_archived ON memories(archived_at) WHERE archived_at IS NOT NULL;");
+  return db;
+}
+
+/** 截断保留头部（用户原话在前，超长只砍尾巴），末尾一个省略号。 */
+export function clipCard(text, max = CARD_MAX) {
+  const s = String(text ?? "").trim();
+  if (!s) return "";
+  if (s.length <= max) return s;
+  return s.slice(0, Math.max(0, max - 1)).trimEnd() + "…";
+}
+
+/** 卡片 = 触发这条记忆的那轮用户原话 + 必要的助手回应片段（用户原话优先，总长 ≤ CARD_MAX）。 */
+export function buildCardText({ user = "", assistant = "", max = CARD_MAX } = {}) {
+  const u = String(user || "").trim();
+  const a = String(assistant || "").trim();
+  const head = `【用户】${u}`;
+  if (!a) return clipCard(head, max);
+  const room = max - head.length - 5; // "\n【助手】" 占 5 字
+  if (room <= 0) return clipCard(head, max);
+  return clipCard(`${head}\n【助手】${a.slice(0, room)}`, max);
+}
+
+/** 召回用的卡片片段：头 200 字（含省略号），没有卡片就 null。 */
+export function cardPreview(text, max = CARD_PREVIEW) {
+  const s = String(text ?? "").trim();
+  if (!s) return null;
+  return s.length <= max ? s : s.slice(0, Math.max(0, max - 1)).trimEnd() + "…";
+}
+
 let _db = null;
 let _wsRoot = null;
 
 export function initMemoryDb(wsRoot) {
   _wsRoot = wsRoot; // 注入函数或字符串均可，openDb 时求值
+}
+
+/** 关掉惰性连接并清空注入（测试换工作区/CLI 单次运行用；生产不调用）。 */
+export function resetMemoryDb() {
+  try { _db?.close(); } catch { }
+  _db = null;
+  _wsRoot = null;
 }
 
 function openDb() {
@@ -56,6 +120,8 @@ function openDb() {
     _db.exec("UPDATE memories SET last_confirmed_at = created_at WHERE last_confirmed_at IS NULL;");
   }
   _db.exec("CREATE INDEX IF NOT EXISTS idx_mem_confirmed ON memories(last_confirmed_at) WHERE last_confirmed_at IS NOT NULL;");
+  // 卡片层 + 归档层字段：旧库缺列就 ALTER 补（幂等；新库也会走这一遍，保持单一 schema 来源）
+  ensureMemorySchema(_db);
   return _db;
 }
 
@@ -67,7 +133,7 @@ function validExpire(v) {
 }
 
 /** 新增记忆。importance 缺省按来源给初值：manual 0.9 / skill 0.7 / auto 0.5 / feedback 0.6 */
-export function addMemory({ user_id = "owner", memory_type, summary, raw_content = null, importance_score = null, expire_at = null, source = "manual", vector_id = null, last_confirmed_at = null } = {}) {
+export function addMemory({ user_id = "owner", memory_type, summary, raw_content = null, importance_score = null, expire_at = null, source = "manual", vector_id = null, last_confirmed_at = null, card_text = null, card_session = null, card_at = null, card_msg_id = null } = {}) {
   if (!TYPES.has(memory_type)) throw new Error(`memory_type 必须是 ${[...TYPES].join("/")}`);
   if (!String(summary || "").trim()) throw new Error("summary 不能为空");
   if (!SOURCES.has(source)) throw new Error(`source 必须是 ${[...SOURCES].join("/")}`);
@@ -79,9 +145,17 @@ export function addMemory({ user_id = "owner", memory_type, summary, raw_content
     : Math.max(0, Math.min(1, Number(importance_score)));
   // 信念保鲜：last_confirmed_at = 伙伴最近一次行为支持该条目的时间。未传则视为刚确认（创建=确认，保守正确）。
   const confirmed = last_confirmed_at ? (new Date(last_confirmed_at).getTime() || now) : now;
-  db.prepare(`INSERT INTO memories (memory_id, user_id, memory_type, summary, raw_content, created_at, updated_at, importance_score, expire_at, source, vector_id, last_confirmed_at)
-              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
-    .run(id, user_id, memory_type, String(summary).trim().slice(0, 2000), raw_content, now, now, imp, validExpire(expire_at), source, vector_id, confirmed);
+  // 卡片：只有给了原文才存；card_at 缺省=此刻（就是"这段话发生在什么时候"），msg_id 有就存。
+  const card = clipCard(card_text);
+  const rawCardAt = card_at instanceof Date ? card_at.getTime() : Number(card_at);
+  const cardAt = card ? (Number.isFinite(rawCardAt) && rawCardAt > 0 ? Math.round(rawCardAt) : now) : null;
+  const cardSession = card && card_session ? String(card_session).trim().slice(0, 160) || null : null;
+  const cardMsg = card && card_msg_id ? String(card_msg_id).trim().slice(0, 160) || null : null;
+  db.prepare(`INSERT INTO memories (memory_id, user_id, memory_type, summary, raw_content, created_at, updated_at, importance_score, expire_at, source, vector_id, last_confirmed_at,
+                                   card_text, card_session, card_at, card_msg_id)
+              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+    .run(id, user_id, memory_type, String(summary).trim().slice(0, 2000), raw_content, now, now, imp, validExpire(expire_at), source, vector_id, confirmed,
+      card || null, cardSession, cardAt, cardMsg);
   return getMemory(id);
 }
 
@@ -140,6 +214,26 @@ export function getMemory(id, { touch = false } = {}) {
   return it || null;
 }
 
+/** 按 id 取完整卡片（召回默认只给 200 字片段，全文走这里，避免上下文被卡片撑爆）。 */
+export function getMemoryCard(id) {
+  return openDb().prepare(
+    "SELECT memory_id, summary, status, card_text, card_session, card_at, card_msg_id FROM memories WHERE memory_id = ?",
+  ).get(String(id)) || null;
+}
+
+/** 恢复归档：archived → active，并记 restored_at（归档历史不清空，仍可审计）。 */
+export function restoreMemory(id, { at = Date.now() } = {}) {
+  const db = openDb();
+  const it = db.prepare("SELECT memory_id, status FROM memories WHERE memory_id = ?").get(String(id));
+  if (!it) return { ok: false, error: "not_found" };
+  if (it.status !== "archived") return { ok: false, error: "not_archived", status: it.status };
+  const now = Date.now();
+  const t = Number(at);
+  db.prepare("UPDATE memories SET status = 'active', restored_at = ?, updated_at = ? WHERE memory_id = ?")
+    .run(Number.isFinite(t) && t > 0 ? Math.round(t) : now, now, String(id));
+  return { ok: true, item: getMemory(String(id)) };
+}
+
 /** 编辑。只允许改这些字段（memory_id/user_id/vector_id/created_at 不可变）。 */
 export function updateMemory(id, patch = {}) {
   const db = openDb();
@@ -192,11 +286,13 @@ export function deleteMemory(id) {
   return { ok: true, vector_id: it.vector_id || null };
 }
 
-/** 召回统计 + 过期归档（定时调用）：过期 active → archived；返回 { archived } */
+/** 召回统计 + 过期归档（定时调用）：过期 active → archived；返回 { archived }。
+ *  归档优先：顺手记 archived_at / archive_reason，跟遗忘 CLI 的归档口径保持一致。 */
 export function sweepExpired() {
   const db = openDb();
-  const r = db.prepare("UPDATE memories SET status = 'archived', updated_at = ? WHERE status = 'active' AND expire_at IS NOT NULL AND expire_at < ?")
-    .run(Date.now(), Date.now());
+  const now = Date.now();
+  const r = db.prepare("UPDATE memories SET status = 'archived', archived_at = COALESCE(archived_at, ?), archive_reason = COALESCE(archive_reason, '过期自动归档'), updated_at = ? WHERE status = 'active' AND expire_at IS NOT NULL AND expire_at < ?")
+    .run(now, now, now);
   return { archived: r.changes };
 }
 

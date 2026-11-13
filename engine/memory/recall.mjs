@@ -2,7 +2,7 @@
 //
 // 长期记忆不能"全量塞进提示词"（那正是 token 浪费的主因之一）。
 // 这里按 相关性 × 时效 × 重要性 打分，只取 top-N，并且限量字数。
-import { listMemories, getMemory } from "./db.mjs";
+import { listMemories, getMemory, cardPreview } from "./db.mjs";
 
 const DAY = 86400000;
 
@@ -60,7 +60,12 @@ export function recallMemories({ query = "", limit = 8, maxChars = 600, touch = 
     const text = String(row.summary || "");
     if (!text) continue;
     if (chars + text.length > maxChars && picked.length > 0) continue;
-    picked.push({ id: row.memory_id, summary: text, type: row.memory_type, score: Number(score.toFixed(3)) });
+    // 卡片层：结果里带上原话片段的头 200 字——知道有出处、可以去查；
+    // 但**不注入提示词**（recallPrompt 仍只用 summary），也默认不给全文（全文按 id 取）。
+    picked.push({
+      id: row.memory_id, summary: text, type: row.memory_type, score: Number(score.toFixed(3)),
+      card: cardPreview(row.card_text), card_at: row.card_at || null,
+    });
     chars += text.length;
   }
 

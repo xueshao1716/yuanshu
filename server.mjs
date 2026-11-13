@@ -543,6 +543,7 @@ async function memoryIngest(body) {
 }
 
 // 召回管线：提问 → 向量检索拿 vector_id 列表 → 表格回查完整记忆 → 重要性加权排序
+// 卡片层（2026-11-13）：每条结果带 card（原话片段的头 200 字），全文按 id 走 /api/memory/:id/card。
 async function memoryRecall(query, opts = {}) {
   const user_id = opts.user_id || "owner";
   const topK = opts.topK || 5;
@@ -552,7 +553,7 @@ async function memoryRecall(query, opts = {}) {
   const rows = memoryDb.listByVectorIds(hits.map(h => h.id), user_id);
   return rows.map(r => {
     const h = byId.get(r.vector_id);
-    return { memory_id: r.memory_id, summary: r.summary, memory_type: r.memory_type, importance_score: r.importance_score, source: r.source, similarity: h ? Number(h.score.toFixed(4)) : 0, weight: Number((h.score * (0.5 + r.importance_score)).toFixed(4)) };
+    return { memory_id: r.memory_id, summary: r.summary, memory_type: r.memory_type, importance_score: r.importance_score, source: r.source, similarity: h ? Number(h.score.toFixed(4)) : 0, weight: Number((h.score * (0.5 + r.importance_score)).toFixed(4)), card: memoryDb.cardPreview(r.card_text), card_at: r.card_at || null };
   }).sort((a, b) => b.weight - a.weight).slice(0, topK);
 }
 const feedbackStore = createFeedbackStore({
@@ -5763,7 +5764,10 @@ const API_ROUTES = [
   // 身份模型：MVP 单用户 owner（user_id 自声明）；小程序/Agent 多用户接入时此参数改由认证态解析，存储层已按 user_id 隔离
   ["GET", "/api/memory", (res, req, url) => {
     const q = Object.fromEntries(url.searchParams);
-    json(res, 200, memoryDb.listMemories({ user_id: q.user_id || "owner", memory_type: q.memory_type || "", status: q.status || "active", q: q.q || "", view: q.view || "", limit: q.limit, offset: q.offset }));
+    const out = memoryDb.listMemories({ user_id: q.user_id || "owner", memory_type: q.memory_type || "", status: q.status || "active", q: q.q || "", view: q.view || "", limit: q.limit, offset: q.offset });
+    // 卡片层：列表默认只给 200 字片段，全文按 id 取（GET /api/memory/:id 或 /api/memory/:id/card），
+    // 否则整表 600 字/条的卡片会把列表响应和调用方上下文一起撑大。
+    json(res, 200, { ...out, items: out.items.map(({ card_text, ...rest }) => ({ ...rest, card: memoryDb.cardPreview(card_text) })) });
   }],
   ["POST", "/api/memory", async (res, req) => {
     const b = await readBody(req, 8);
@@ -5792,7 +5796,15 @@ const API_ROUTES = [
       return json(res, 200, ba.scanBeliefs({ wsRoot: WS_ROOT, listMemories: memoryDb.listMemories, now: new Date() }));
     } catch (e) { return json(res, 502, { error: String(e?.message || e).slice(0, 150) }); }
   }],
+  // 卡片层（2026-11-13）：按 memory id 取**完整**卡片。召回/列表默认只给 200 字片段，
+  // 全文只在这里给——避免每轮注入/列表响应被卡片撑爆。
+  ["GET", /^\/api\/memory\/([^/]+)\/card$/, (res, req, url, m) => {
+    const it = memoryDb.getMemoryCard(m[1]);
+    if (!it) return json(res, 404, { error: "not_found" });
+    json(res, 200, { ok: true, memory_id: it.memory_id, summary: it.summary, status: it.status, card: it.card_text, card_session: it.card_session, card_at: it.card_at, card_msg_id: it.card_msg_id });
+  }],
   ["GET", /^\/api\/memory\/([^/]+)$/, (res, req, url, m) => {
+    // 按 id 取整行（含完整 card_text）；列表/召回只给片段
     const it = memoryDb.getMemory(m[1], { touch: url.searchParams.get("touch") === "1" });
     json(res, it ? 200 : 404, it || { error: "not_found" });
   }],
@@ -5805,6 +5817,12 @@ const API_ROUTES = [
     // ToM 信念层（Phase 2）：伙伴复核过这条信念仍是现行意愿 → 推确认时间（refresh 保鲜期）
     const it = memoryDb.confirmMemory(m[1]);
     json(res, it ? 200 : 404, it ? { ok: true, item: it } : { error: "not_found" });
+  }],
+  ["POST", /^\/api\/memory\/([^/]+)\/restore$/, (res, req, url, m) => {
+    // 归档优先于删除（2026-11-13）：被归档的记忆能救回来——archived → active，并记 restored_at
+    const r = memoryDb.restoreMemory(m[1]);
+    if (r.ok) return json(res, 200, { ok: true, item: r.item });
+    json(res, r.error === "not_found" ? 404 : 409, { error: r.error, status: r.status ?? null });
   }],
   ["DELETE", /^\/api\/memory\/([^/]+)$/, (res, req, url, m) => {
     const r = memoryDb.deleteMemory(m[1]);
