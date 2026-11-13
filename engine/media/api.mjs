@@ -6,7 +6,7 @@ import { effectiveCapabilities } from '../../shared/model-capabilities.mjs';
 import { saveArtifact, WS_ROOT } from "../workspace-api.mjs"; // saveArtifact 定义在 workspace-api（工作空间块拆分时随走）
 import { videoCreateBody, videoPollPath, repairVideoRequest, decodeAgnesVideoId } from "../video-request.mjs";
 import { materializeMedia, materializeVideoBody } from "./inline.mjs";
-import { extractPlayableMedia, isLocalPlayableUrl, localImageUrl, REMOTE_IMAGE_NOTE } from "./embed.mjs";
+import { extractPlayableMedia, isLocalPlayableUrl, localImageUrl, mediaDeliveryKey, REMOTE_IMAGE_NOTE } from "./embed.mjs";
 import { colorCardStyleLine, hasColorCardMark } from "../color-cards.mjs";
 import { currentColorCard } from "../color-prefs.mjs";
 import { resolveImageRequest } from './request.mjs';
@@ -148,25 +148,45 @@ const REMOTE_VIDEO_NOTE = "（视频仍在远端，未落盘，可能过期）";
 
 // 聊天块里只留本地/同源图片（2026-11-08）：远端厂商地址不进图片块——厂商随时会关，
 // 关了别的终端就永远看不到那张图。没落盘的图片只留一行"未落盘"文字（不带厂商地址）。
+//
+// 2026-11-13 去重：同一张图只进一次。两个来源都会造成"一条消息里同一张图出现两三遍"：
+//   · mediaResults 里重复（媒体意图早跑 / 工具直传都收了同一张）；
+//   · 正文里模型自己把工具返回的 `![图片](…)` 原样回显了一遍，落库时又追加一个图片块。
+// 这里按"落盘路径归一后的键"去重，并把正文已引用的图视为已交付。
 export function assistantContentWithMedia(text, mediaResults) {
   const blocks = [];
   const remoteVideos = [];
   let unlocalizedImages = 0;
   const t = String(text || "").trim();
   if (t) blocks.push({ type: "text", text: t });
+  // 正文已引用的图片（模型回显/它自己写的 markdown）：同一张不再追加图片块。
+  const referenced = new Set();
+  for (const m of t.matchAll(/!\[[^\]]*\]\(([^)\s]+)\)/g)) {
+    const key = mediaDeliveryKey(m[1]);
+    if (key) referenced.add(key);
+  }
+  const seenMedia = new Set();
   for (const m of mediaResults || []) {
     if (m && m.type === "image" && m.url) {
       const local = localImageUrl(m.url);
       if (!local) { unlocalizedImages += 1; continue; }   // 远端/坏地址：绝不发图片块
+      const key = mediaDeliveryKey(local);
+      if (key && (referenced.has(key) || seenMedia.has(key))) continue;   // 同一张图只出现一次
+      if (key) seenMedia.add(key);
       blocks.push({ type: "image", url: local, ...(m.model ? { model: m.model } : {}), ...(m.attempts ? { attempts: m.attempts } : {}), ...(m.verification ? { verification: m.verification } : {}) });
     }
     // 视频只认本地/同源产物（/api/ws/file 或 生成物/工程/交付 相对路径）。远端 URL 是临时地址，
     // 没下载到本地就不能当成品发播放器——改成一行文本 + 链接，至少不会让用户对着黑框等。
     else if (m && m.type === "video" && m.url) {
-      if (isLocalPlayableUrl(m.url)) blocks.push({ type: "video", url: m.url });
-      else remoteVideos.push(m.url);
+      if (isLocalPlayableUrl(m.url)) {
+        const key = mediaDeliveryKey(m.url);
+        if (!(key && seenMedia.has(key))) { if (key) seenMedia.add(key); blocks.push({ type: "video", url: m.url }); }
+      } else remoteVideos.push(m.url);
     }
-    else if (m && (m.type === "audio" || m.type === "tts") && m.url) blocks.push({ type: "audio", url: m.url });
+    else if (m && (m.type === "audio" || m.type === "tts") && m.url) {
+      const key = mediaDeliveryKey(m.url);
+      if (!(key && seenMedia.has(key))) { if (key) seenMedia.add(key); blocks.push({ type: "audio", url: m.url }); }
+    }
   }
   const scraped = extractPlayableMedia(t);
   for (const url of scraped.videos) {

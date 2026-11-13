@@ -91,7 +91,9 @@ test("源码契约：unified-chat 在最终落库/广播前调用归档器", () 
   assert.match(fn, /localizeAssistantText/, "要有统一的正文归档入口");
   assert.match(fn, /persistYuanshuAssistantLocalized|localizeAssistantMarkdown/, "写路径要接归档器");
   const localizeAt = fn.indexOf("const localizedFinal = await localizeAssistantText(text)");
-  const finalPersistAt = fn.lastIndexOf("persistYuanshuAssistant(entry.sm, assistantContentWithMedia(text");
+  // 2026-11-13：最终正文先过 claimAssistantBody（一轮只落一条），再交给 assistantContentWithMedia；
+  // 契约不变——归档（localizeAt）必须排在最终落库之前，且落库的不是未归档的 result.text。
+  const finalPersistAt = fn.lastIndexOf("persistYuanshuAssistant(entry.sm, assistantContentWithMedia(");
   const finalDoneAt = fn.lastIndexOf('writer.push("done"');
   assert.ok(localizeAt > 0, "最终归档必须真的执行");
   assert.ok(localizeAt < finalPersistAt, "落库前必须先归档");

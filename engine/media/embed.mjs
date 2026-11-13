@@ -1,4 +1,8 @@
 // 把模型随口写的片子路径收成对话播放器能用的 /api/ws/file。
+import fs from "node:fs";
+import path from "node:path";
+import { createHash } from "node:crypto";
+
 const VIDEO_EXT = /\.(mp4|webm|mov)(?:\b|$)/i;
 const IMAGE_EXT = /\.(png|jpe?g|gif|webp)(?:\b|$)/i;
 const AUDIO_EXT = /\.(mp3|wav|m4a)(?:\b|$)/i;
@@ -137,6 +141,48 @@ export function mediaDeliveryKey(url) {
   const value = String(url || '').trim();
   const rel = toWorkspaceRel(value);
   return rel ? `workspace:${rel}` : value;
+}
+
+// 内容级去重键（2026-11-13）：同一张图经三条投递路径（媒体意图早跑 / 工具直传 / 统一收尾）
+// 到达时，每次下载都会生成新文件名 → 路径键不同 → 同一张图被发三遍。改用「文件大小 + 首 4KB 哈希」：
+//   · 本机落盘的地址（/api/ws/file?path=…、工作区绝对/相对路径）→ content:<size>:<sha1 前 16>
+//   · 远端地址拿不到字节 → ""（调用方退回 mediaDeliveryKey，仍是 URL 级）
+// 结果按 (路径, size, mtime) 缓存：同一轮里同一张图只读一次盘。
+const CONTENT_FINGERPRINT_BYTES = 4096;
+const _contentKeyCache = new Map();
+
+export function mediaContentKey(url, { wsRoot = "" } = {}) {
+  const file = localMediaFile(url, wsRoot);
+  if (!file) return "";
+  try {
+    const st = fs.statSync(file);
+    if (!st.isFile() || !st.size) return "";
+    const hit = _contentKeyCache.get(file);
+    if (hit && hit.size === st.size && hit.mtimeMs === st.mtimeMs) return hit.key;
+    const fd = fs.openSync(file, "r");
+    const buf = Buffer.alloc(Math.min(CONTENT_FINGERPRINT_BYTES, st.size));
+    try { fs.readSync(fd, buf, 0, buf.length, 0); } finally { fs.closeSync(fd); }
+    const key = `content:${st.size}:${createHash("sha1").update(buf).digest("hex").slice(0, 16)}`;
+    _contentKeyCache.set(file, { size: st.size, mtimeMs: st.mtimeMs, key });
+    return key;
+  } catch { return ""; }
+}
+
+/** 统一去重键：本机文件用内容键，远端/取不到字节时退回 URL 键。 */
+export function mediaDedupeKey(url, opts = {}) {
+  return mediaContentKey(url, opts) || mediaDeliveryKey(url);
+}
+
+/** URL → 本机绝对文件路径（不是本机产物就返回 ""）。 */
+export function localMediaFile(url, wsRoot = "") {
+  const s = String(url || "").trim().replace(/^["'`<]+|[>"'`]+$/g, "");
+  if (!s) return "";
+  if (/^[A-Za-z]:[\\/]/.test(s)) return s.replace(/\//g, "\\");
+  const root = String(wsRoot || "");
+  if (!root) return "";
+  const rel = toWorkspaceRel(s);
+  if (!rel) return "";
+  return path.join(root, rel.replace(/[\\/]+/g, path.sep));
 }
 
 // 工具文本可能是别的任务的协议/经验/搜索结果；路径存在不等于本轮交付。

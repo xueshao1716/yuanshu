@@ -31,7 +31,7 @@ import { CodeRuntime } from "../code-mode/code-runtime.mjs";
 import { createCodeMode } from "../code-mode/code-mode.mjs";
 import { directMediaMode } from "./media/mode.mjs";
 import { detectMediaIntents, extractMediaPrompt, generateMediaAsync, mediaAwarePrompt, explainMediaError, assistantContentWithMedia, isPureImageRequest } from "./media/api.mjs";
-import { explicitToolMedia, mediaDeliveryKey, gateIncomingMedia, imageUnlocalizedNote } from "./media/embed.mjs";
+import { explicitToolMedia, mediaDeliveryKey, mediaDedupeKey, gateIncomingMedia, imageUnlocalizedNote } from "./media/embed.mjs";
 import { localizeMarkdownImagesCached } from "./media/markdown-images.mjs";
 import { readOpenAIChatStream } from "./openai-stream.mjs";
 import { buildMessagesRequest, messagesEndpoint, messagesHeaders } from "./anthropic-messages.mjs";
@@ -974,17 +974,21 @@ export function initToolMediaGate({ timeoutMs = 0, saveArtifact = null } = {}) {
 }
 
 /** 本轮工具直传媒体的收集器：只有落盘成功的**图片**才进 items（落库用），pending 用来在收尾时等待。 */
-export function createToolMediaSink() {
+export function createToolMediaSink({ wsRoot = "", isDelivered = null, markDelivered = null } = {}) {
   const sink = {
     pending: new Set(),
     items: [],
     keys: new Set(),
     // 返回值只表示"这条没重复、可以直播"。落库只收图片：视频/音频的闸门是同步的
     // （本地才发、远端只留一行说明），不存在"晚到"问题，落库行为保持原样，不扩大改动面。
+    // 2026-11-13：去重键换成内容级（同一张图下载成不同文件名也算同一张），见 mediaDedupeKey；
+    // isDelivered/markDelivered 让"媒体意图早跑"那条路径和工具直传共用同一份已交付集合。
     accept(m) {
-      const key = mediaDeliveryKey(m?.url);
+      const key = mediaDedupeKey(m?.url, { wsRoot }) || mediaDeliveryKey(m?.url);
       if (!key || sink.keys.has(key)) return false;
+      if (typeof isDelivered === "function" && isDelivered(m?.url)) return false;
       sink.keys.add(key);
+      if (typeof markDelivered === "function") markDelivered(m?.url);
       if (String(m?.type || "").toLowerCase() === "image") sink.items.push({ ...m });
       return true;
     },
@@ -1223,6 +1227,9 @@ export async function handleUnifiedChat(res, entry, message, sessionId, params, 
   // 重复 done 会让前端把同一轮当两次"完成"处理。成功路径仍直写 writer.push("done")，
   // 保证「最终落库之后才广播 done」的源码契约还能被静态测试认出来。
   let donePushed = false;
+  // 2026-11-13：最终正文也只推一段。错误/半截/成功三条路径都走这个标记，
+  // 已流式推过的内容绝不整段重推（用户端的"文字重复"）。
+  let finalDeltaPushed = false;
   const pushDone = (data) => {
     if (donePushed) return;
     donePushed = true;
@@ -1252,7 +1259,42 @@ export async function handleUnifiedChat(res, entry, message, sessionId, params, 
   // Paused replies and tool traces follow the user message. Inspect the full
   // saved turn, not just the last projected message or the last 20 entries.
   const persistedTurn = resumePersistenceState(savedEntries, message, runContext?.resume);
-  const persistTrace = history => persistYuanshuToolTrace(entry.sm, history, persistedTurn);
+  // ══ 2026-11-13 重复问题 P0：一轮只落一条 assistant 正文 ══
+  // 收轮有成功/错误/暂停/半截多个 return 分支，每个分支都会写一次正文；而 persistTrace 又会先把
+  // "工具轮里的正文"（assistant + toolCall 那一块）写进会话。截断重试、执行预算暂停时，result.text
+  // 恰好就是轨迹里那段（lastPartialAssistantText）→ 同一段正文落两条，刷新后屏幕上是"文字重复"。
+  // 两道闸：① 本轮只允许一次正文落库；② 轨迹已写过的正文不再整段重写，只保留后加的那截（如暂停说明）。
+  let assistantBodyPersisted = false;
+  const tracedAssistantBodies = new Set();
+  const rememberTraced = (history) => {
+    try {
+      const list = Array.isArray(history) ? history : [];
+      // 只认本轮（最后一条 user 之后）的轨迹，别拿上一轮的回答前缀误吞本轮正文。
+      let from = 0;
+      for (let i = list.length - 1; i >= 0; i--) if (list[i]?.role === "user") { from = i + 1; break; }
+      for (const m of list.slice(from)) {
+        if (m?.role !== "assistant" || !Array.isArray(m.tool_calls) || !m.tool_calls.length) continue;
+        if (typeof m.content === "string" && m.content.trim()) tracedAssistantBodies.add(m.content.trim());
+      }
+    } catch {}
+  };
+  /** 返回本次该落盘的正文（可能是去掉重复前缀后的尾巴，也可能空串只落媒体）；null = 本轮已落过。 */
+  function claimAssistantBody(text) {
+    if (assistantBodyPersisted) return null;
+    assistantBodyPersisted = true;
+    const raw = String(text ?? "");
+    const body = raw.trim();
+    if (!body) return raw;
+    for (const traced of tracedAssistantBodies) {
+      if (body === traced) return "";
+      if (body.startsWith(traced) && body.length > traced.length) return body.slice(traced.length).trim();
+    }
+    return raw;
+  }
+  const persistTrace = history => {
+    rememberTraced(history);
+    return persistYuanshuToolTrace(entry.sm, history, persistedTurn);
+  };
   let userPersisted = persistedTurn.userPersisted;
   const persistUser = () => {
     if (userPersisted) return;
@@ -1315,13 +1357,33 @@ export async function handleUnifiedChat(res, entry, message, sessionId, params, 
     : Promise.resolve([]);
   let mediaItems = [];
   let mediaFlushing = null;
+  // 2026-11-13：三条投递路径（媒体意图早跑 / 工具直传 / 统一收尾）共用一份"已交付"集合。
+  // 键优先用内容级（同一张图下载成不同文件名也是同一张），取不到字节时退回 URL 级。
+  const deliveredMediaKeys = new Set(persistedTurn.mediaKeys);
+  const mediaKeyOf = (url) => mediaDedupeKey(url, { wsRoot: _cwd }) || mediaDeliveryKey(url);
+  const mediaAlreadyDelivered = (url) => {
+    const key = mediaKeyOf(url);
+    return !!key && deliveredMediaKeys.has(key);
+  };
+  const markMediaDelivered = (url) => {
+    const key = mediaKeyOf(url);
+    if (key) deliveredMediaKeys.add(key);
+    const urlKey = mediaDeliveryKey(url);
+    if (urlKey) deliveredMediaKeys.add(urlKey);
+  };
   // P1-4：工具直传的媒体（下载完才算数）也进本轮落库清单，收尾前等它落定。
-  const toolMediaSink = createToolMediaSink();
+  const toolMediaSink = createToolMediaSink({
+    wsRoot: _cwd,
+    isDelivered: mediaAlreadyDelivered,
+    markDelivered: markMediaDelivered,
+  });
   function mergeToolMediaIntoTurn() {
     if (!toolMediaSink.items.length) return;
-    const seen = new Set(mediaItems.map((m) => mediaDeliveryKey(m?.url)));
+    // 2026-11-13：内容级去重。早跑那条用的是"下载后的本地地址"，工具直传又下一次生成新文件名，
+    // 只比 URL 会把同一张图当两张 → 这里两边都换算成内容键。
+    const seen = new Set(mediaItems.map((m) => mediaKeyOf(m?.url)));
     for (const m of toolMediaSink.items) {
-      const key = mediaDeliveryKey(m?.url);
+      const key = mediaKeyOf(m?.url);
       if (!key || seen.has(key)) continue;
       seen.add(key);
       mediaItems.push(m);
@@ -1335,7 +1397,6 @@ export async function handleUnifiedChat(res, entry, message, sessionId, params, 
           return [];
         });
         const items = [];
-        const deliveredKeys = new Set(persistedTurn.mediaKeys);
         for (const mr of results || []) {
           if (!mr) continue;
           if (mr.error && !mr.url) {
@@ -1348,10 +1409,13 @@ export async function handleUnifiedChat(res, entry, message, sessionId, params, 
           else if (!(await localizeChatMediaForDelivery(mr, { writer, effects: runContext?.effects, runId: runContext?.runId }))) {
             continue;   // 图片没落盘：不发图，只留说明（见 localizeChatMediaForDelivery）
           }
-          // 同一远程地址或同一已落盘路径只交付一次，避免模型重复引用时把同一文件发多遍。
+          // 同一远程地址、同一已落盘路径、**或同一份内容**只交付一次：
+          // 三条投递路径各自下载会生成不同文件名，只比 URL 挡不住重复（见 mediaContentKey）。
           const deliveryKey = mediaDeliveryKey(mr.url);
-          if (deliveredKeys.has(deliveryKey)) continue;
-          deliveredKeys.add(deliveryKey);
+          const contentKey = mediaDedupeKey(mr.url, { wsRoot: _cwd }) || deliveryKey;
+          if ((deliveryKey && deliveredMediaKeys.has(deliveryKey)) || (contentKey && deliveredMediaKeys.has(contentKey))) continue;
+          if (deliveryKey) deliveredMediaKeys.add(deliveryKey);
+          if (contentKey) deliveredMediaKeys.add(contentKey);
           const clean = { ...mr };
           delete clean.__effectKey;
           delete clean.__effectReused;
@@ -1467,14 +1531,22 @@ export async function handleUnifiedChat(res, entry, message, sessionId, params, 
       clearTask(taskId, "error"); writer.push("error", { message: result?.error || "模型未返回内容" }); finishEmotion(); return;
     }
     if (result?.aborted || signal?.aborted) {
-      try { persistUser(); await persistYuanshuAssistantLocalized(entry.sm, abortedAssistantText(result), [], metadataFor(result), { wsRoot: _cwd, saveArtifact }); } catch {}
+      try {
+        persistUser();
+        const body = claimAssistantBody(abortedAssistantText(result));
+        if (body !== null) await persistYuanshuAssistantLocalized(entry.sm, body, [], metadataFor(result), { wsRoot: _cwd, saveArtifact });
+      } catch {}
       collected = abortedAssistantText(result);
       clearTask(taskId, "aborted"); finishEmotion(); return;
     }
     if (result?.paused) { await finishPausedChat(result); return; }
     const text = await localizeAssistantText(result.text);
     if (!text) { writer.push("error", { message: "模型未返回内容" }); finishEmotion(); return; }
-    try { persistTrace(result.history || []); persistYuanshuAssistant(entry.sm, text, [], metadataFor(result)); } catch {}
+    try {
+      persistTrace(result.history || []);
+      const body = claimAssistantBody(text);
+      if (body !== null) persistYuanshuAssistant(entry.sm, body, [], metadataFor(result));
+    } catch {}
     if (entry.agent) { try { entry.agent.dispose(); } catch {} entry.agent = null; }
     if (result.think) { writer.push("think", { text: result.think }); writer.push("think_end", {}); }
     writer.push("delta", { text });
@@ -1490,7 +1562,8 @@ export async function handleUnifiedChat(res, entry, message, sessionId, params, 
     persistTrace(result.history || []);
     const pausedText = await localizeAssistantText(result.text || "");
     const text = [pausedText, result.message].filter(Boolean).join('\n\n');
-    persistYuanshuAssistant(entry.sm, assistantContentWithMedia(text, mediaItems), [], metadataFor(result));
+    const body = claimAssistantBody(text);
+    if (body !== null) persistYuanshuAssistant(entry.sm, assistantContentWithMedia(body, mediaItems), [], metadataFor(result));
     if (pausedText && !result.streamed) writer.push('delta', { text: pausedText });
     collected = text;
     clearTask(taskId, 'interrupted');
@@ -1593,7 +1666,8 @@ export async function handleUnifiedChat(res, entry, message, sessionId, params, 
     try {
       persistUser();
       const aborted = await localizeAssistantText(abortedAssistantText(result));
-      persistYuanshuAssistant(entry.sm, assistantContentWithMedia(aborted, mediaItems), [], metadataFor(result));
+      const body = claimAssistantBody(aborted);
+      if (body !== null) persistYuanshuAssistant(entry.sm, assistantContentWithMedia(body, mediaItems), [], metadataFor(result));
     } catch {}
     collected = abortedAssistantText(result);
     clearTask(taskId, "aborted"); finishEmotion(); return;
@@ -1609,7 +1683,8 @@ export async function handleUnifiedChat(res, entry, message, sessionId, params, 
         try {
           persistUser();
           const aborted = await localizeAssistantText(abortedAssistantText(fb));
-          persistYuanshuAssistant(entry.sm, assistantContentWithMedia(aborted, mediaItems), [], metadataFor(fb));
+          const body = claimAssistantBody(aborted);
+          if (body !== null) persistYuanshuAssistant(entry.sm, assistantContentWithMedia(body, mediaItems), [], metadataFor(fb));
         } catch {}
         collected = abortedAssistantText(fb);
         clearTask(taskId, "aborted"); finishEmotion(); return;
@@ -1633,7 +1708,8 @@ export async function handleUnifiedChat(res, entry, message, sessionId, params, 
         try {
           persistUser(); persistTrace(fb?.history || result.history);
           const aborted = await localizeAssistantText(abortedAssistantText(fb));
-          persistYuanshuAssistant(entry.sm, assistantContentWithMedia(aborted, mediaItems), [], metadataFor(fb));
+          const body = claimAssistantBody(aborted);
+          if (body !== null) persistYuanshuAssistant(entry.sm, assistantContentWithMedia(body, mediaItems), [], metadataFor(fb));
         } catch {}
         collected = abortedAssistantText(fb);
         clearTask(taskId, "aborted"); finishEmotion(); return;
@@ -1649,9 +1725,13 @@ export async function handleUnifiedChat(res, entry, message, sessionId, params, 
     if (mediaItems.length) {
       try { persistTrace(result?.history || []); } catch {}
       const errorText = await localizeAssistantText(result?.text || "");
-      if (errorText && !result.streamed) writer.push("delta", { text: errorText });
+      const body = claimAssistantBody(errorText);
+      if (body !== null && body !== "" && !result.streamed && !finalDeltaPushed) {
+        finalDeltaPushed = true;
+        writer.push("delta", { text: body });
+      }
       try {
-        persistYuanshuAssistant(entry.sm, assistantContentWithMedia(errorText, mediaItems), [], metadataFor(result));
+        if (body !== null) persistYuanshuAssistant(entry.sm, assistantContentWithMedia(body, mediaItems), [], metadataFor(result));
       } catch {}
       pushDone({ sessionId, model: result?.usedModel || null, requestedModel });
       collected = result?.text || "";
@@ -1661,7 +1741,8 @@ export async function handleUnifiedChat(res, entry, message, sessionId, params, 
     }
     try {
       persistTrace(result?.history || []);
-      if (result?.text) await persistYuanshuAssistantLocalized(entry.sm, result.text, [], metadataFor(result), { wsRoot: _cwd, saveArtifact });
+      const body = claimAssistantBody(result?.text || "");
+      if (body) await persistYuanshuAssistantLocalized(entry.sm, body, [], metadataFor(result), { wsRoot: _cwd, saveArtifact });
     } catch {}
     clearTask(taskId, "error");
     writer.push("error", { message: result?.error || "模型未返回内容，请稍后重试" });
@@ -1678,7 +1759,8 @@ export async function handleUnifiedChat(res, entry, message, sessionId, params, 
       try {
         persistTrace(result.history || []);
         const partialText = await localizeAssistantText(result.partial ? lastPartialAssistantText(result.history || []) : "");
-        persistYuanshuAssistant(entry.sm, assistantContentWithMedia(partialText, mediaItems), [], metadataFor(result));
+        const body = claimAssistantBody(partialText);
+        if (body !== null) persistYuanshuAssistant(entry.sm, assistantContentWithMedia(body, mediaItems), [], metadataFor(result));
       } catch {}
       pushDone({ sessionId, model: result.usedModel || null, requestedModel });
       clearTask(taskId, "done");
@@ -1752,13 +1834,15 @@ export async function handleUnifiedChat(res, entry, message, sessionId, params, 
     // 异常未解决时不写 assistant（避免复读/空/纯思考文本落盘污染会话，防止下轮复读死循环）
     if (!anomalyUnresolved) {
       persistTrace(result.history || history);
-      persistYuanshuAssistant(entry.sm, assistantContentWithMedia(text, mediaItems), [], metadataFor(result));
+      const body = claimAssistantBody(text);
+      if (body !== null) persistYuanshuAssistant(entry.sm, assistantContentWithMedia(body, mediaItems), [], metadataFor(result));
     }
   } catch {}
   if (entry.agent) { try { entry.agent.dispose(); } catch {} entry.agent = null; }
   if (!entry.sm.getSessionName()) { try { entry.sm.appendSessionInfo(message.slice(0, 24)); } catch {} }
   if (result.think && !result.streamed) { writer.push("think", { text: result.think }); writer.push("think_end", {}); }
-  if (!result.streamed) writer.push("delta", { text });
+  // 已经流式推过的正文绝不整段再推一遍（2026-11-13 重复问题）；一轮也只推一段最终文本。
+  if (!result.streamed && !finalDeltaPushed) { finalDeltaPushed = true; writer.push("delta", { text }); }
   if (!donePushed) {
     donePushed = true; // 与 pushDone 共用同一标记：错误/半截分支已经收过尾，就别再发第二次
     writer.push("done", { sessionId, model: result.usedModel || { provider: chatModel.provider, id: chatModel.id }, requestedModel });
