@@ -487,6 +487,12 @@ async function _unifiedChatCore(model, messages, opts = {}) {
   const jitInjected = new Set(); // 本会话 JIT 目录规则已注入集合（每目录一次）
   const seenCalls = new Map();
   const stuckEvents = [];
+  // 长跑进度提示（2026-11-13）：工具轮把 { text, round } 交进来，这里降成字符串再走
+  // 既有 onNote 契约——所有 onNote 消费方（前端 note 事件、测试）拿到的仍是纯文本。
+  // 44 轮无反馈的根因是中途不给进度；提示只报进展，不改变任何停止/中止语义。
+  const noteToolProgress = typeof opts.onNote === "function"
+    ? (note) => opts.onNote(typeof note === "string" ? note : String(note?.text || ""))
+    : undefined;
   let lastCompactTurn = 0;
   let emptyTries = 0;
   // 上游偶发只吐出半截工具 JSON。允许在保留已完成工具结果的前提下
@@ -517,6 +523,7 @@ async function _unifiedChatCore(model, messages, opts = {}) {
       signal: opts.signal,
       onTool: opts.onTool,
       onToolEnd: opts.onToolEnd,
+      onNote: noteToolProgress,
       seenCalls,
       jitInjected,
       spill: spillIfHuge,
@@ -665,7 +672,7 @@ async function _unifiedChatCore(model, messages, opts = {}) {
         try { opts.onCheckpoint?.({ phase: "tool_plan", turn, toolPlan: toolPlanFor(validCalls), ...createRunHistorySnapshot(history, { turn }) }); } catch {}
         const recovered = await withToolIdentity(opts.executionContext, () => runYuanshuToolRound({
           toolCalls: validCalls, history, execute: _executeUnifiedTool, signal: opts.signal,
-          onTool: opts.onTool, onToolEnd: opts.onToolEnd, seenCalls, jitInjected, spill: spillIfHuge,
+          onTool: opts.onTool, onToolEnd: opts.onToolEnd, onNote: noteToolProgress, seenCalls, jitInjected, spill: spillIfHuge,
           stuckEvents, sandboxMode: opts.sandboxMode, sandboxWsRoot: opts.sandboxWsRoot || _cwd,
           sandboxAsk: resumeSandboxAsk, effects: opts.effects, toolDefs,
           executionContext: { ...(opts.executionContext || {}), turn },
@@ -708,7 +715,7 @@ async function _unifiedChatCore(model, messages, opts = {}) {
       try { opts.onCheckpoint?.({ phase: "tool_plan", turn, toolPlan: toolPlanFor(tcs), ...createRunHistorySnapshot(history, { turn }) }); } catch {}
       const official = await withToolIdentity(opts.executionContext, () => runYuanshuToolRound({
         toolCalls: tcs, history, execute: _executeUnifiedTool, signal: opts.signal,
-        onTool: opts.onTool, onToolEnd: opts.onToolEnd, seenCalls, jitInjected, spill: spillIfHuge,
+        onTool: opts.onTool, onToolEnd: opts.onToolEnd, onNote: noteToolProgress, seenCalls, jitInjected, spill: spillIfHuge,
         stuckEvents, sandboxMode: opts.sandboxMode, sandboxWsRoot: opts.sandboxWsRoot || _cwd,
         sandboxAsk: opts.sandboxAsk,
         effects: opts.effects,
@@ -735,7 +742,7 @@ async function _unifiedChatCore(model, messages, opts = {}) {
       try { opts.onCheckpoint?.({ phase: "tool_plan", turn, toolPlan: toolPlanFor(scavCalls), ...createRunHistorySnapshot(history, { turn }) }); } catch {}
       const scavengedRound = await withToolIdentity(opts.executionContext, () => runYuanshuToolRound({
         toolCalls: scavCalls, history, execute: _executeUnifiedTool, signal: opts.signal,
-        onTool: opts.onTool, onToolEnd: opts.onToolEnd, seenCalls, jitInjected, spill: spillIfHuge,
+        onTool: opts.onTool, onToolEnd: opts.onToolEnd, onNote: noteToolProgress, seenCalls, jitInjected, spill: spillIfHuge,
         stuckEvents, sandboxMode: opts.sandboxMode, sandboxWsRoot: opts.sandboxWsRoot || _cwd,
         sandboxAsk: opts.sandboxAsk,
         effects: opts.effects,

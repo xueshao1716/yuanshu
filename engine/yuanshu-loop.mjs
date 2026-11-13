@@ -36,10 +36,92 @@ export function emptyResultText(name) {
   return `（工具 ${name} 执行完成，但没有输出。这不是失败：命令跑过了，只是没打印东西——grep/find 没匹配到、命令只改了文件、或者参数给错了。别原样重跑：换关键词、换路径或换工具继续。）`;
 }
 
+// ── 长跑进度提示（2026-11-13）────────────────────────────────────────────────
+// 用户原话：「最新的对话，执行了 44 轮了，没有反馈，究竟在干啥。」
+// 那 44 轮是真实只读考古，不是死循环；错在**中途不给任何进度**——持久化和进度都只在
+// 收尾发生，人在 29 分钟里什么也看不到。所以每 10 个工具轮，经 opts.onNote 给用户一条
+// 人话：还在干活、最近在动哪个文件/命令。只说进展，不说"卡住/重试/中断"；不返回 stop，
+// 不碰任何停止或中止语义。
+const PROGRESS_EVERY = 10;        // 每 10 轮报一次（10、20、30…）
+const PROGRESS_MAX_NOTES = 5;     // 一次对话最多 5 条（50 轮封顶），长跑也不刷屏
+const PROGRESS_RECENT_TOOLS = 3;  // 摘要取最近 3 次工具调用
+const PROGRESS_SUMMARY_MAX = 40;  // 摘要整行 ≤40 字
+const PROGRESS_ITEM_MAX = 20;     // 单条「工具名 + 目标」≤20 字
+
+function clipText(text, max) {
+  const line = String(text ?? "").replace(/\s+/g, " ").trim();
+  if (line.length <= max) return line;
+  return `${line.slice(0, max - 1).trimEnd()}…`;
+}
+
+/** 一次工具调用 → 「工具名 + 参数首行/目标路径」，压缩到 PROGRESS_ITEM_MAX 字。 */
+export function toolCallSummary(name, args) {
+  const n = String(name || "").trim() || "工具";
+  const a = args && typeof args === "object" ? args : {};
+  const pathBase = (value) => {
+    const parts = String(value ?? "").trim().split(/[\\/]+/).filter(Boolean);
+    return parts.length ? parts[parts.length - 1] : "";
+  };
+  // 读写类只留文件名：全路径又长又占地方，用户只需要知道在动哪个文件。
+  const raw = ["read", "write", "edit"].includes(n)
+    ? pathBase(a.path || a.file_path || a.filePath)
+    : String(a.command || a.cmd || a.query || a.q || a.path || a.pattern || a.url || a.target || a.prompt || a.task || "");
+  // 摘要是给人看的一行提示，不是可复跑的命令：去掉引号，别在截断后留半个引号。
+  const cleaned = raw.replace(/["']/g, "").replace(/\s+/g, " ").trim();
+  if (n.length >= PROGRESS_ITEM_MAX) return clipText(n, PROGRESS_ITEM_MAX);
+  const target = clipText(cleaned, PROGRESS_ITEM_MAX - n.length - 1);
+  return target ? `${n} ${target}` : n;
+}
+
+/** 最近几次工具压成一行：从最近一次往前拼，旧的按剩余预算截短，拼不下就停。 */
+export function compactToolTrail(list, max = PROGRESS_SUMMARY_MAX) {
+  const items = (Array.isArray(list) ? list : []).map((value) => String(value ?? "").trim()).filter(Boolean);
+  if (!items.length) return "";
+  const recent = items.slice(-PROGRESS_RECENT_TOOLS).map((value) => clipText(value, PROGRESS_ITEM_MAX));
+  let line = recent[recent.length - 1];
+  for (let i = recent.length - 2; i >= 0; i--) {
+    const room = max - line.length - " / ".length;
+    if (room < 6) break;
+    line = `${clipText(recent[i], room)} / ${line}`;
+  }
+  return clipText(line, max);
+}
+
+/** 给用户看的进度文案：拿得到摘要就带上，拿不到就只写轮数。 */
+export function progressNoteText(round, trail) {
+  const recent = compactToolTrail(trail);
+  return recent
+    ? `已执行 ${round} 轮工具，仍在处理（最近：${recent}）`
+    : `已执行 ${round} 轮工具，仍在处理`;
+}
+
+/**
+ * 记录一轮工具执行，并在跨过 10 的整数倍时发一条进度。
+ * @returns {{text:string, round:number}|null} 发出的那条；没发就是 null（永远不返回 stop）。
+ */
+export function noteToolRoundProgress(state, onNote, results) {
+  const executed = (Array.isArray(results) ? results : [])
+    .filter((item) => item && item.name && item.out?.text !== ABORTED_MARKER);
+  if (!executed.length) return null;
+  state.rounds = (Number(state.rounds) || 0) + 1;
+  for (const item of executed) state.recentTools.push(toolCallSummary(item.name, item.args));
+  if (state.recentTools.length > PROGRESS_RECENT_TOOLS) state.recentTools = state.recentTools.slice(-PROGRESS_RECENT_TOOLS);
+  if (typeof onNote !== "function") return null;
+  if (state.progressNotes >= PROGRESS_MAX_NOTES) return null;
+  if (state.rounds % PROGRESS_EVERY !== 0) return null;
+  const payload = { text: progressNoteText(state.rounds, state.recentTools), round: state.rounds };
+  state.progressNotes += 1;
+  try { onNote(payload); } catch {}
+  return payload;
+}
+
 function selfCheckState(history) {
   let state = loopStates.get(history);
   if (!state) {
-    state = { sig: null, same: 0, blank: 0, lastText: "" };
+    state = {
+      sig: null, same: 0, blank: 0, lastText: "",
+      rounds: 0, progressNotes: 0, recentTools: [],
+    };
     loopStates.set(history, state);
   }
   return state;
@@ -153,6 +235,7 @@ export async function runYuanshuToolRound({
   signal,
   onTool,
   onToolEnd,
+  onNote, // 长跑进度：每 10 轮收到一条 { text, round }（可选，不发也不影响任何语义）
   seenCalls = new Map(),
   jitInjected = new Set(),
   spill = (_n, t) => t,
@@ -227,6 +310,8 @@ export async function runYuanshuToolRound({
   }
 
   const loopState = selfCheckState(history);
+  // 长跑进度：每 10 轮给用户报一次"还在干什么"。只发提示，不改 stop。
+  noteToolRoundProgress(loopState, onNote, results);
   for (const item of results) {
     const { id, name, args, out } = item;
     const text = String(out?.text || "");
