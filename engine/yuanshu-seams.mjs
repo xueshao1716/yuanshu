@@ -170,10 +170,18 @@ export function assembleYuanshuSystem(baseOpts = {}, registry = null, ctx = {}) 
     const gold = goldSection(goldRoot);
     if (gold) baseOpts = { ...baseOpts, goldFacts: gold };
   } catch {}
+  // 2026-11-13（任务 B）：插件贡献的 skills/memory 也按"稳定/易变"分流。
+  // 待兑现承诺（yuanshu:prompt:promises）自带「N 天前/已逾期」这类随时间变的措辞，
+  // 若留在 system，承诺一多 system 就变；它和路由记忆一样属于"本轮参考"，随尾块走。
+  const contribs = collectPromptContributions(registry, ctx);
   const merged = mergeContributedSections(
     buildYuanshuSections(baseOpts),
-    collectPromptContributions(registry, ctx),
+    contribs,
   );
+  for (const c of contribs) {
+    if (c.section === "memory") merged.memoryNote = [merged.memoryNote, c.text].filter(Boolean).join("\n\n");
+    else if (c.section === "skills") merged.turnSkills = [merged.turnSkills, c.text].filter(Boolean).join("\n");
+  }
   if (!String(merged.time || "").trim()) merged.time = promptTimeText(ctx.now, { since: ctx.since, sessionStart: ctx.sessionStart });
   // 2026-11-13：时间/间隔默认搬出 system（贴本轮 user 末尾），这里先把"末尾那条文案"算好。
   // 搬不搬由 yuanshu-prompt.prependAssembledSystem 按 YUANSHU_TIME_IN_USER 决定；

@@ -14,9 +14,13 @@ import {
   timeInUserEnabled,
   stateInTailEnabled,
   appendStateNoteToLastUser,
+  appendMemoryNoteToLastUser,
   TAIL_STATE_MAX_CHARS,
+  TAIL_STATE_AUTHORITY,
+  TAIL_MEMORY_MAX_CHARS,
 } from "../../engine/yuanshu-prompt.mjs";
 import { beginYuanshuEmotion } from "../../engine/yuanshu-emotion.mjs";
+import { shouldInjectFullMemory } from "../../engine/context-loader.mjs";
 
 const SYS = [{ role: "system", content: "你是元枢。工具约束：……（约 2 万 token 的固定系统提示）" }];
 const ask = (over = {}) => promptCacheDecision({
@@ -305,7 +309,7 @@ test("状态段只出现在最后一条 user 消息里：含情绪、关系、�
   assert.match(tail, /待办：任务1、任务2、任务3 等 4 条/, "待办只列前 3 条 + 总数");
   assert.match(tail, /计划：/);
   assert.match(tail, /运行时：/);
-  assert.ok(!leadingSystemPrompt(history).includes("【本轮状态】"), "system 里不能再出现状态段");
+  assert.ok(!/^【本轮状态】$/m.test(leadingSystemPrompt(history)), "system 里不能再有状态块（常量的权威说明里提到这个词不算）");
 });
 
 test("状态段超长会被截断到 600 字以内；后到的情绪合并进同一段、先保待办", () => {
@@ -349,5 +353,122 @@ test("YUANSHU_STATE_IN_TAIL=0 回到旧行为：状态回 system 最前面，末
   const src = fs.readFileSync(new URL("../../engine/yuanshu-prompt.mjs", import.meta.url), "utf8");
   assert.match(src, /YUANSHU_STATE_IN_TAIL/);
   assert.match(src, /String\(env\?\.YUANSHU_STATE_IN_TAIL \?\? ""\)\.trim\(\) !== "0"/);
+});
+
+// ══ 任务 A + B（2026-11-13）：权威句常量化 + skills/memory 不再随消息换 system ═════════
+// 旧行为：skills 段带「本轮匹配到的技能」、memory 段按 shouldInjectFullMemory(message) 决定是否
+// 全量注入 → 闲聊↔任务来回切，system 仍变、prompt_cache_key 仍换。
+// 新行为：system 只留技能目录 / 黄金事实 / 工作协议 + 一句逐字节常量的权威说明；
+// 本轮匹配到的技能并进【本轮状态】，闸门放行的记忆进【本轮记忆】——都贴最后一条 user 末尾。
+const CACHE_SKILLS = [
+  { name: "aigc-video-production", desc: "视频创作流水线" },
+  { name: "ppt-generator", desc: "智能 PPT 幻灯片生成" },
+];
+const EXPERIENCE_NOTE = "【经验库·最近 1 条标题索引】- ✅ 2026-11-12 视频交付要过 output_check";
+const MEMORY_NOTE = "【参考信息·路由记忆 Top-1】用户偏好暗色主题；交付前先跑 output_check。";
+const CHAT_MSG = "嗯，今天有点累";
+const TASK_MSG = "帮我剪个视频，做成 30 秒的成片";
+
+/** 真实一轮：接缝拼 system → 末尾贴时间/记忆/状态（与 unified-chat 的调用顺序一致）。 */
+function cacheTurn(wsRoot, { msg = "继续", now = T0, todos = "", plan = "" } = {}) {
+  const sections = assembleYuanshuSystem(
+    {
+      message: msg,
+      skills: CACHE_SKILLS,
+      experience: [EXPERIENCE_NOTE],
+      fullMemory: [MEMORY_NOTE],
+      persona: "你是小语。",
+      rules: "别乱改文件",
+      tools: "工具说明",
+      todos,
+      runtime: "runtime 事实",
+    },
+    null,
+    {
+      wsRoot,
+      now,
+      since: T0.getTime() - 3 * 60000,
+      sessionStart: T0.getTime() - 30 * 60000,
+      model: { provider: "deepseek", id: "v4-flash" },
+      sessionId: "session-cache-1",
+      message: msg,
+    },
+  );
+  if (plan) sections.plan = plan;   // 计划平时由接缝插件贡献（formatPlanPrompt），这里直接给
+  const history = prependAssembledSystem([{ role: "user", content: msg }], sections);
+  return { sections, history, system: leadingSystemPrompt(history), lastUser: lastUserText(history) };
+}
+
+test("闲聊 vs 任务：system 哈希相同、prompt_cache_key 相同（任务 B 核心断言）", (t) => {
+  const wsRoot = tempWorkspace(t);
+  assert.equal(shouldInjectFullMemory(CHAT_MSG), false, "闲聊不触发全量记忆闸门");
+  assert.equal(shouldInjectFullMemory(TASK_MSG), true, "任务句要触发闸门（否则这条用例没意义）");
+
+  const chat = cacheTurn(wsRoot, { msg: CHAT_MSG, todos: tempTodos(1) });
+  const task = cacheTurn(wsRoot, {
+    msg: TASK_MSG,
+    todos: tempTodos(5),
+    plan: "【工作记忆·磁盘】刷新后仍在。\n### task_plan\n- [ ] 阶段一",
+  });
+
+  assert.equal(chat.system, task.system, "两种消息的 system 必须逐字节相同");
+  assert.equal(sysHash(chat.history), sysHash(task.history));
+  assert.equal(cacheKey(chat.history), cacheKey(task.history), "闲聊↔任务不能换 cache key");
+  assert.notEqual(chat.lastUser, task.lastUser, "两轮末尾注入必须不同（技能/记忆/状态各归各的）");
+});
+
+test("system 含固定权威句：逐字节常量、无数字/时间，排在规矩与记忆段之后", (t) => {
+  const wsRoot = tempWorkspace(t);
+  const a = cacheTurn(wsRoot, { msg: CHAT_MSG, todos: tempTodos(1) });
+  const b = cacheTurn(wsRoot, { msg: TASK_MSG, todos: tempTodos(5) });
+
+  assert.ok(a.system.includes(TAIL_STATE_AUTHORITY), "system 里必须有这句话");
+  assert.ok(b.system.includes(TAIL_STATE_AUTHORITY));
+  assert.equal(a.system, b.system, "两种不同状态的 system 仍逐字节相同（没引入变量）");
+  assert.ok(!/\d/.test(TAIL_STATE_AUTHORITY), "常量里不能出现数字/时间");
+  assert.match(TAIL_STATE_AUTHORITY, /【本轮状态】由系统生成/);
+  const at = a.system.indexOf("### section:stateAuthority");
+  assert.ok(at > a.system.indexOf("### section:rules"), "权威句要在规矩段之后");
+  assert.ok(at > a.system.indexOf("### section:memory"), "权威句要在记忆段之后");
+});
+
+test("被挪走的技能/记忆确实出现在末尾：技能进【本轮状态】，记忆进【本轮记忆】", (t) => {
+  const wsRoot = tempWorkspace(t);
+  const task = cacheTurn(wsRoot, { msg: TASK_MSG, todos: tempTodos(2) });
+  const tail = task.lastUser;
+  const stateAt = tail.indexOf("【本轮状态】");
+  const memAt = tail.indexOf("【本轮记忆】");
+
+  assert.ok(stateAt >= 0 && memAt >= 0, "两段尾块都要在最后一条 user 里");
+  assert.ok(memAt < stateAt, "记忆块在前、状态块仍收在消息末尾");
+  assert.match(tail.slice(stateAt), /本轮任务可能匹配技能：aigc-video-production/);
+  assert.match(tail.slice(memAt, stateAt), /用户偏好暗色主题/);
+  assert.match(tail.slice(memAt, stateAt), /经验库/);
+  assert.ok(!task.system.includes("本轮任务可能匹配技能"), "匹配技能不许留在 system");
+  assert.ok(!task.system.includes("用户偏好暗色主题"), "闸门记忆不许留在 system");
+  assert.ok(!task.system.includes("### section:time"), "时间照旧在末尾");
+});
+
+test("状态块挪进技能行后仍 ≤600 字；记忆块自有预算、不挤占状态", (t) => {
+  const wsRoot = tempWorkspace(t);
+  const task = cacheTurn(wsRoot, {
+    msg: TASK_MSG,
+    todos: tempTodos(5),
+    plan: "【工作记忆·磁盘】刷新后仍在。\n### task_plan\n- [ ] 阶段一\n- [ ] 阶段二",
+  });
+  const tail = task.lastUser;
+  const block = tail.slice(tail.indexOf("【本轮状态】"));
+  assert.ok(block.length > 0);
+  assert.ok(block.length <= TAIL_STATE_MAX_CHARS, `状态块必须 ≤${TAIL_STATE_MAX_CHARS} 字，实际 ${block.length}`);
+  assert.match(block, /本轮任务可能匹配技能/, "技能行确实在状态块里");
+
+  const mem = tail.slice(tail.indexOf("【本轮记忆】"), tail.indexOf("【本轮状态】"));
+  assert.ok(mem.length <= TAIL_MEMORY_MAX_CHARS, "记忆块不超过自己的上限");
+  assert.ok(mem.includes("用户偏好暗色主题"), "预算内不能丢记忆内容");
+
+  // 超长记忆只截记忆块，不动状态块
+  const huge = appendMemoryNoteToLastUser([{ role: "user", content: "继续" }], "长".repeat(TAIL_MEMORY_MAX_CHARS * 2));
+  const hugeBlock = lastUserText(huge).slice(lastUserText(huge).indexOf("【本轮记忆】"));
+  assert.ok(hugeBlock.length <= TAIL_MEMORY_MAX_CHARS, `记忆块 ≤${TAIL_MEMORY_MAX_CHARS} 字，实际 ${hugeBlock.length}`);
 });
 
