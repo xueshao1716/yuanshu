@@ -7,6 +7,7 @@ import { fileAccess } from './lib/file-access'
 import type { WorkExplanationData } from './lib/work-explanation'
 import { consumeHashToken } from './lib/hash-token.mjs'
 import { consumeProfileHandoff, mergeProfileHandoff } from './lib/profile-handoff.mjs'
+import { createTicketStore, ticketScopeForUrl, withTicketParam } from './lib/media-ticket'
 
 // ── 本地鉴权 ──
 // 元枢只把访问令牌留在当前设备的浏览器存储中；旧 key 只用于一次性迁移，避免升级后掉线。
@@ -45,7 +46,7 @@ try {
 let _token = readLocal(LOCAL_TOKEN_KEY, LEGACY_TOKEN_KEY)
 let _apiBase = readLocal(LOCAL_API_BASE_KEY, LEGACY_API_BASE_KEY)
 
-export function setToken(t: string) { _token = t; try { localStorage.setItem(LOCAL_TOKEN_KEY, t); localStorage.removeItem(LEGACY_TOKEN_KEY) } catch {} window.dispatchEvent(new Event('yuanshu-auth-change')) }
+export function setToken(t: string) { _token = t; try { localStorage.setItem(LOCAL_TOKEN_KEY, t); localStorage.removeItem(LEGACY_TOKEN_KEY) } catch {} resetMediaTickets(); window.dispatchEvent(new Event('yuanshu-auth-change')) }
 export function getToken() { return _token }
 export function setApiBase(b: string) { _apiBase = b.replace(/\/+$/, ''); try { localStorage.setItem(LOCAL_API_BASE_KEY, _apiBase); localStorage.removeItem(LEGACY_API_BASE_KEY) } catch {} }
 export function getApiBase() { return _apiBase.replace(/\/+$/, '') }
@@ -69,25 +70,73 @@ export function webSocketUrl(path: string): string {
   return `${protocol}//${host}/${path.replace(/^\/+/, '')}`
 }
 
-// 文件 URL 补 token（<img>/<audio>/<video> 标签带不了 Authorization 头，服务端 checkAuth 接受 ?token=）
-export function withFileToken(url: string): string {
-  if (!url) return url
-  if (url.includes('/api/ws/file')) return fileAccess(url, getApiBase(), _token).url
-  // 音乐流同源代理也要鉴权：<audio> 带不了 Authorization 头，只能走 query token
-  if (url.includes('/api/music/stream') && _token && !/[?&]token=/.test(url)) {
-    const base = getApiBase() || ''
-    const sep = url.includes('?') ? '&' : '?'
-    return `${base}${url}${sep}token=${encodeURIComponent(_token)}`
-  }
-  return url
+// ── AUTH-003（2026-11-13）：长期令牌不再进 URL，媒体改用 60 秒短时票据 ─────────
+// 票据由 POST /api/ticket 用 Bearer 换；同一 scope 45 秒内复用，票快过期时后台续期。
+// 换不到票（旧后端 / 网络抖动）时降级回旧的 ?token=，并 console.warn 一次。
+const _mediaTickets = createTicketStore(async (scope) => {
+  const r = await api<{ ticket: string; exp: number; scope?: string }>('/api/ticket', {
+    method: 'POST', body: { scope }, timeoutMs: 8000,
+  })
+  return { ticket: r?.ticket, exp: r?.exp }
+})
+let _ticketFallbackWarned = false
+
+function warnTicketFallbackOnce(): void {
+  if (_ticketFallbackWarned) return
+  _ticketFallbackWarned = true
+  console.warn('[元枢] 短时票据不可用（POST /api/ticket 失败），这次先回退旧的 ?token=（AUTH-003 过渡期，服务端会打 deprecated 日志）')
 }
 
-/** 外链图片走同源代理（防盗链/混合内容/CSP 一次消除）；img 标签用 query token 鉴权。 */
+/** 取一张媒体票据（带 Bearer 换票；失败返回 null，由调用方决定降级）。 */
+export async function getMediaTicket(scope: string): Promise<string | null> {
+  if (!scope) return null
+  const ticket = await _mediaTickets.get(scope)
+  if (!ticket) warnTicketFallbackOnce()
+  return ticket
+}
+
+/** 登录/换令牌后清空票据桶，并预取一张文件票：首屏图片就不用等换票，少一个降级窗口。 */
+function resetMediaTickets(): void {
+  _mediaTickets.clear()
+  _ticketFallbackWarned = false
+  if (_token) void _mediaTickets.get('file:')
+}
+
+/** 旧规则兜底（2.216 随服务端 ?token= 一起删）：服务端 checkAuth 仍接受，但会打 deprecated 日志。 */
+function legacyMediaUrl(url: string, scope: string): string {
+  if (scope === 'file:') return fileAccess(url, getApiBase(), _token).url
+  const base = getApiBase() || ''
+  if (!_token || /[?&]token=/.test(url)) return `${base}${url}`
+  const separator = url.includes('?') ? '&' : '?'
+  return `${base}${url}${separator}token=${encodeURIComponent(_token)}`
+}
+
+/**
+ * 给 <img>/<audio>/<video> 补鉴权：能拿到票据就用 ?ticket=，
+ * 拿不到（票据接口不可用）才退回旧的 ?token=——两条路都通，图不会因为改鉴权裂掉。
+ */
+export function withFileToken(url: string): string {
+  if (!url) return url
+  const scope = ticketScopeForUrl(url)
+  if (!scope) return url
+  const ticket = _mediaTickets.sync(scope)
+  if (ticket) return withTicketParam(url, getApiBase(), ticket)
+  warnTicketFallbackOnce()
+  return legacyMediaUrl(url, scope)
+}
+
+/** 外链图片走同源代理（防盗链/混合内容/CSP 一次消除）。
+ *  注意：/api/proxy/image 不在 AUTH-003 的票据白名单里（白名单只有 /api/ws/file、/api/media/ 子路径、
+ *  /api/<一段>/stream），所以这里仍用 ?token=——下一期要么把它纳入票据白名单，要么改成
+ *  Bearer+blob，才能彻底不留长期令牌。 */
 export function imageProxyUrl(url: string): string {
   const base = getApiBase() || ''
   const params = new URLSearchParams({ url, ...( _token ? { token: _token } : {}) })
   return `${base}/api/proxy/image?${params.toString()}`
 }
+
+// 首屏预取：有令牌就先换一张文件票，媒体渲染时直接走票据，不必先踩一次降级
+if (_token) void resetMediaTickets()
 
 /** Download a non-JSON API/file response with the current local token. */
 export async function downloadApiFile(path: string, filename?: string, onProgress?: (message: string) => void): Promise<string> {

@@ -200,6 +200,8 @@ import { createGateway } from "./engine/gateway.mjs";
 import { sseWrite, createSseWriter, startSseHeartbeat } from "./engine/sse.mjs";
 import { json, readBody } from "./engine/http-utils.mjs";
 import { observeHttpRequest, respondHttpError } from "./engine/http-lifecycle.mjs";
+// 2026-11-13 AUTH-003：短时媒体票据（长期令牌不再出现在 <img>/<audio>/<video>/SSE 的 URL 里）
+import { configureTicketKey, issueTicket, verifyTicket, ticketScopeForPath, isTicketScopeAllowed, ALLOWED_TICKET_SCOPE_PREFIXES } from "./engine/media-ticket.mjs";
 import { mediaObservations } from "./engine/media/observations.mjs";
 import { createRunStore, runTitleOf } from "./engine/run-store.mjs";
 import { createInternalRounds } from "./engine/internal-rounds.mjs";
@@ -1298,6 +1300,16 @@ function verifyDeviceTokenCached(token) {
   return device;
 }
 
+// ── AUTH-003（2026-11-13）：URL 凭据收敛为"短时票据" ──────────────────
+// <img>/<audio>/<video>/SSE 带不了 Authorization 头，以前只能把 ?token=<长期令牌> 拼进 URL，
+// 于是长期令牌会进浏览器历史、代理访问日志和 Referer。现在：
+//   1) POST /api/ticket（必须 Bearer）换一张 60 秒票据，URL 里只出现 ?ticket=；
+//   2) ?ticket= 只在"媒体/流"白名单路径上生效，且必须验签 + 未过期 + scope 匹配；
+//   3) ?token= 保留为 deprecated 兼容分支（老客户端），每命中一次打一行 warn（同进程 60 秒一行），
+//      计划在 2.216 删除——删掉后 AUTH-003 才会在安全审计里转绿。
+// 票据密钥由 CONFIG.token 派生（HMAC-SHA256，不落盘）；换令牌时下面的 POST /api/system/token 会重新派生。
+try { configureTicketKey(CONFIG.token); } catch (e) { console.log("[元枢] 票据密钥初始化失败: " + String(e?.message || e).slice(0, 120)); }
+
 function checkAuth(req) {
   const h = req.headers.authorization || "";
   if (h === `Bearer ${CONFIG.token}`) return true;
@@ -1306,8 +1318,52 @@ function checkAuth(req) {
     if (device) return true;
   }
   const url = new URL(req.url, `http://${req.headers.host || "localhost"}`);
-  return url.searchParams.get("token") === CONFIG.token;
+  // 短时票据分支：只有白名单路径（/api/ws/file、/api/media/*、/api/*/stream）才看 ticket 参数。
+  // 其余路径带了 ticket 也当没带——票据能进日志/历史，使用面必须小。
+  const ticketScope = ticketScopeForPath(url.pathname);
+  const ticket = ticketScope ? url.searchParams.get("ticket") : "";
+  if (ticket) {
+    // 带了票据但无效：直接拒，不回落 ?token=（否则无效票据等于白带，客户端 bug 被掩盖）
+    return verifyTicket(ticket, { scope: ticketScope }).ok;
+  }
+  // deprecated（AUTH-003 过渡期）：老客户端/第三方脚本仍把长期令牌放 URL，兼容期照旧放行，只记 warn。
+  const legacyToken = url.searchParams.get("token");
+  if (legacyToken && legacyToken === CONFIG.token) {
+    const at = Date.now();
+    if (!(at - Number(checkAuth.legacyWarnAt || 0) < 60_000)) {
+      checkAuth.legacyWarnAt = at;
+      console.warn(`[元枢] AUTH-003 deprecated: URL 查询串里出现长期令牌（${url.pathname}）。请升级客户端改用 POST /api/ticket 的短时票据；该兼容分支计划在 2.216 删除。`);
+    }
+    return true;
+  }
+  return false;
 }
+
+// POST /api/ticket {scope} → {ticket, exp, scope}
+// 只认 Authorization: Bearer（URL 里的 ?token= 不能换票，否则票据就成了绕过 AUTH-003 的后门）。
+async function handleTicketRoute(res, req) {
+  const auth = String(req.headers.authorization || "");
+  if (!auth.startsWith("Bearer ")) {
+    return json(res, 401, { error: "换取票据必须使用 Authorization: Bearer", code: "TICKET_NEEDS_BEARER" });
+  }
+  let body;
+  try {
+    body = await readBody(req, 2);
+  } catch (e) {
+    return json(res, Number(e?.statusCode) || 400, { error: String(e?.message || e).slice(0, 160), code: "TICKET_BAD_BODY" });
+  }
+  const scope = String(body?.scope || "").trim();
+  if (!isTicketScopeAllowed(scope)) {
+    return json(res, 400, { error: `scope 不受支持，允许前缀：${ALLOWED_TICKET_SCOPE_PREFIXES.join("、")}`, code: "TICKET_SCOPE_UNSUPPORTED" });
+  }
+  try {
+    const { ticket, exp } = issueTicket({ scope });
+    return json(res, 200, { ticket, exp, scope });
+  } catch (e) {
+    return json(res, 400, { error: String(e?.message || e).slice(0, 160), code: "TICKET_ISSUE_FAILED" });
+  }
+}
+
 
 // ── 路由 ───────────────────────────────────────────────────────────
 const MIME = {
@@ -6341,6 +6397,8 @@ const API_ROUTES = [
     } catch (e) { return json(res, 500, { ok: false, error: String(e?.message || e).slice(0, 160) }); }
   }],
   ["GET", "/api/system/token", (res) => json(res, 200, { token: CONFIG.token, tokenFile: CONFIG.tokenFile })],
+  // AUTH-003：Bearer 换短时媒体票据（只给 <img>/<audio>/<video>/SSE 这类带不了头的请求用）
+  ["POST", "/api/ticket", (res, req) => handleTicketRoute(res, req)],
   // 2026-11-13：安全审计（只读，鉴权后可用）。与 CLI 同源：scripts/security-audit.mjs。
   // 检查项：AUTH-001/002/003/004、NET-001、RATE-001、SECRET-001、PATH-001、SSE-001、CORS-001。
   ["GET", "/api/security/audit", async (res) => {
@@ -6384,6 +6442,8 @@ const API_ROUTES = [
     const fs2 = (await import("node:fs")).default;
     fs2.writeFileSync(CONFIG.tokenFile, newToken, { mode: 0o600 });
     CONFIG.token = newToken;
+    // AUTH-003：票据密钥跟令牌一起换，旧票据立即失效（不给"换了令牌旧票还能用"留缝）
+    try { configureTicketKey(newToken); } catch {}
     return json(res, 200, { ok: true });
   }],
   ["POST", "/api/system/network", async (res, req) => {
@@ -7997,7 +8057,7 @@ const server = http.createServer(async (req, res) => {
     const needsAuth = !isStatic && !isSignedFile && !isSetupStatus && !isPublicFeedback && !isPublicTvMedia && !isMusicLogin && !isPairPage && !isPairPublic && !isLocalLogin;
     if (needsAuth) {
       const clientIp = clientIpOf(req);
-      const hasCredential = !!(req.headers.authorization || url.searchParams.get("token"));
+      const hasCredential = !!(req.headers.authorization || url.searchParams.get("token") || url.searchParams.get("ticket"));
       const pre = rateLimitGate.preAuth(clientIp, { credential: hasCredential, pathname: url.pathname, method: req.method });
       if (!pre.ok) return sendRateLimited(res, pre);
       if (!checkAuth(req)) {
