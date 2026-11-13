@@ -20,7 +20,7 @@ import { fileURLToPath } from "node:url";
 import { bindOutputGuardDeps, classifyAnomaly, isRepeatReply, normReply, recordReply, sanitizeUndefined, lastAssistantReply } from "./engine/output-guard.mjs";
 import { initOutputInspector, inspectOutput } from "./engine/output-inspector.mjs";
 import { initModelProbe, probeModel, pickHealthyModel } from "./engine/model/health.mjs";
-import { rateLimit, rateLimitKey } from "./engine/rate-limit.mjs";
+import { rateLimit, rateLimitKey, createRateLimiter } from "./engine/rate-limit.mjs";
 import { createMiscApi } from "./engine/misc-api.mjs";
 import { createModelKeys } from "./engine/model/keys.mjs";
 import { createSessionBus } from "./engine/session/bus.mjs";
@@ -6341,6 +6341,19 @@ const API_ROUTES = [
     } catch (e) { return json(res, 500, { ok: false, error: String(e?.message || e).slice(0, 160) }); }
   }],
   ["GET", "/api/system/token", (res) => json(res, 200, { token: CONFIG.token, tokenFile: CONFIG.tokenFile })],
+  // 2026-11-13：安全审计（只读，鉴权后可用）。与 CLI 同源：scripts/security-audit.mjs。
+  // 检查项：AUTH-001/002/003/004、NET-001、RATE-001、SECRET-001、PATH-001、SSE-001、CORS-001。
+  ["GET", "/api/security/audit", async (res) => {
+    try {
+      const { auditSecurity } = await import("./engine/security-audit.mjs");
+      return json(res, 200, auditSecurity({
+        wsRoot: WS_ROOT,
+        config: { token: CONFIG.token, host: CONFIG.host, port: CONFIG.port, corsOrigins: CONFIG.corsOrigins, repoRoot: __dirname },
+      }));
+    } catch (e) {
+      return json(res, 500, { error: String(e?.message || e).slice(0, 200) });
+    }
+  }],
   // ── 首启向导（令牌 → 模型 → 灵魂）──
   // status 免鉴权（登录页要用来提示「用桌面快捷方式打开」），只回布尔值，不含令牌
   ["GET", "/api/setup/status", (res) => json(res, 200, { needsSetup: isSetupPending(path.dirname(CONFIG.tokenFile)) })],
@@ -7881,6 +7894,41 @@ for (const method of ['GET', 'POST', 'PUT']) API_ROUTES.push([method, /^\/api\/c
   (res, req, url) => cultivationApi.handle(req, res, url)]);
 Object.freeze(API_ROUTES);
 
+// ── 公网暴露防护：预认证预算 / 失败锁定 / 路由级限流（2026-11-13）──
+// 顺序固定：preAuth（鉴权前）→ chargeAuthFailure（401 之前）→ authSuccess + check（通过之后）。
+// 配置在 记忆/运行时/限流.json（可缺省），命中写 记忆/运行时/限流命中.jsonl（最多 2000 行）。
+const rateLimitGate = createRateLimiter({ wsRoot: WS_ROOT });
+function clientIpOf(req) {
+  const socketIp = String(req.socket?.remoteAddress || "").replace(/^::ffff:/, "");
+  // frp/反代从回环转发时，真实客户端在 X-Forwarded-For；只信回环来源，防直连伪造。
+  if (isLoopbackReq(req)) {
+    const forwarded = String(req.headers["x-forwarded-for"] || "").split(",")[0].trim()
+      || String(req.headers["x-real-ip"] || "").trim();
+    if (forwarded) return forwarded.replace(/^::ffff:/, "").slice(0, 64);
+  }
+  return socketIp;
+}
+function sendRateLimited(res, guard) {
+  const retryAfter = Math.max(1, Math.ceil(Number(guard?.retryAfter) || 1));
+  const locked = guard?.reason === "auth_locked";
+  const scope = String(guard?.category || (guard?.reason === "preauth_budget" ? "preauth" : "auth"));
+  return json(res, 429, {
+    error: locked ? "认证失败次数过多，请稍后再试" : "请求过于频繁，请稍后再试",
+    code: locked ? "AUTH_RATE_LIMITED" : "RATE_LIMITED",
+    reason: String(guard?.reason || "rate_limited"),
+    retryAfter,
+    retryAfterMs: retryAfter * 1000,
+    scope,
+    limit: Number(guard?.limit) || 0,
+  }, {
+    "Retry-After": String(retryAfter),
+    "X-RateLimit-Limit": String(Number(guard?.limit) || 0),
+    "X-RateLimit-Remaining": "0",
+    "X-RateLimit-Scope": scope,
+  });
+}
+
+
 const server = http.createServer(async (req, res) => {
   // 默认不落浏览器/代理缓存；成功静态资源由 lib/static.mjs 明确覆盖。
   // 不再包裹 writeHead，避免文件后缀把鉴权失败、404 或私有 API 变成一年强缓存。
@@ -7945,8 +7993,21 @@ const server = http.createServer(async (req, res) => {
     const isMusicLogin = (url.pathname === "/music-login" || url.pathname === "/api/music/login") && req.method === "GET" && isLoopbackReq(req);
     // 2026-10-28：本机一键登录（只回环，令牌含 # 手抄易错）
     const isLocalLogin = url.pathname === "/api/auth/local-token" && req.method === "GET" && isLoopbackReq(req);
-    if (!isStatic && !isSignedFile && !isSetupStatus && !isPublicFeedback && !isPublicTvMedia && !isMusicLogin && !isPairPage && !isPairPublic && !isLocalLogin && !checkAuth(req)) {
-      return json(res, 401, { error: "未授权，请提供访问令牌" });
+    // 2026-11-13 公网暴露防护：预认证预算（拦扫描）→ 鉴权失败锁定 → 通过后按路由类别限流。
+    const needsAuth = !isStatic && !isSignedFile && !isSetupStatus && !isPublicFeedback && !isPublicTvMedia && !isMusicLogin && !isPairPage && !isPairPublic && !isLocalLogin;
+    if (needsAuth) {
+      const clientIp = clientIpOf(req);
+      const hasCredential = !!(req.headers.authorization || url.searchParams.get("token"));
+      const pre = rateLimitGate.preAuth(clientIp, { credential: hasCredential, pathname: url.pathname, method: req.method });
+      if (!pre.ok) return sendRateLimited(res, pre);
+      if (!checkAuth(req)) {
+        const fail = rateLimitGate.chargeAuthFailure(clientIp, url.pathname, req.method);
+        if (fail.locked) return sendRateLimited(res, { reason: "auth_locked", retryAfter: fail.retryAfter, limit: fail.failures, category: "auth" });
+        return json(res, 401, { error: "未授权，请提供访问令牌" });
+      }
+      rateLimitGate.authSuccess(clientIp);
+      const routeGuard = rateLimitGate.check(clientIp, url.pathname, req.method);
+      if (!routeGuard.ok) return sendRateLimited(res, routeGuard);
     }
 
     // 扫码配对页：手机上打开 /pair/<code>，脚本走同源 /pair.js（全站 CSP 禁内联脚本）
