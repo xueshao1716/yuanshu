@@ -144,6 +144,35 @@ function TableBlock({ children }: { children?: React.ReactNode }) {
   )
 }
 
+// 正文图片键盘可达（2026-11-13）：以前只有鼠标/触摸能点开全屏——外面那层 onClick 代理
+// 只认 event.target 是 IMG，所以键盘触发时把 click 转给 img 自己，走的是同一条查看器/画廊路径。
+// 容器用 button 而不是裸 tabIndex：Tab 能停、Enter/Space 原生语义、读屏把它念成按钮。
+function MarkdownImage({ src, alt }: { src: string; alt?: string }) {
+  const imgRef = useRef<HTMLImageElement>(null)
+  const label = (alt || '').trim()
+  const activate = () => { try { imgRef.current?.click() } catch { /* 代理没挂时点不开，也不该抛 */ } }
+  return (
+    <button
+      type="button"
+      role="button"
+      tabIndex={0}
+      aria-label={label ? `查看大图：${label}` : '查看大图'}
+      data-markdown-image=""
+      onKeyDown={event => {
+        if (event.key === 'Enter' || event.key === ' ' || event.key === 'Spacebar') {
+          event.preventDefault()
+          event.stopPropagation()
+          activate()
+        }
+      }}
+      className="my-1 inline-block max-w-full cursor-zoom-in rounded-pi-lg p-0 align-baseline focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-pi-accent"
+      style={{ border: 0, background: 'transparent', lineHeight: 0 }}
+    >
+      <img ref={imgRef} src={src} alt={label} loading="lazy" className="max-w-full rounded-pi-lg border border-pi-border-soft" />
+    </button>
+  )
+}
+
 // shownImageKeys：本条消息的媒体块已经展示过的图片（按本地路径归一，见 lib/media-embed）。
 // 正文里再遇到同一张图就只留一行指引——同一条消息里同一张图只画一次。
 function Markdown({ text, shownImageKeys }: { text: string; shownImageKeys?: ReadonlySet<string> }) {
@@ -210,7 +239,7 @@ function Markdown({ text, shownImageKeys }: { text: string; shownImageKeys?: Rea
               )
             }
             const finalSrc = /^\/api\//i.test(src) ? withFileToken(src) : src
-            return <img src={finalSrc} alt={alt || ''} loading="lazy" className="max-w-full rounded-pi-lg border border-pi-border-soft my-1" />
+            return <MarkdownImage src={finalSrc} alt={alt || ''} />
           },
           table({ children }) { return <TableBlock>{children}</TableBlock> },
           th({ children }) { return <th className="border border-gray-700 px-3 py-1.5 bg-gray-800/50 font-semibold text-left">{children}</th> },

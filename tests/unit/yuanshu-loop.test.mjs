@@ -128,7 +128,7 @@ test("toolCallsFromPlan：恢复时只重建未完成步骤并保留参数", () 
   ]);
 });
 
-test("runYuanshuToolRound：相同成功调用 3 次停循环", async () => {
+test("runYuanshuToolRound：相同成功调用 3 次给内部自查，不中断", async () => {
   const seenCalls = new Map();
   const history = [];
   const args = { path: "a.svg", content: "<svg></svg>" };
@@ -151,7 +151,13 @@ test("runYuanshuToolRound：相同成功调用 3 次停循环", async () => {
     policyDecide: () => ({ decision: "allow" }),
     jitForPath: () => [],
   });
-  assert.match(third.stop?.error || "", /循环/);
+  // 2026-11-13 口径：发现自己重复了要"换路继续"，不是不干了——所以这里不能有 stop。
+  assert.ok(!third.stop, "重复调用不允许中断任务");
+  const hints = history.filter(m => m.role === "system").map(m => String(m.content));
+  assert.equal(hints.length, 1, "第 3 次塞一条内部自查");
+  assert.match(hints[0], /内部自查/);
+  assert.match(hints[0], /换一条路|换参数|换工具/);
+  assert.match(String(history.filter(m => m.role === "tool").pop()?.content || ""), /\[自查\]/);
 });
 
 test("attachYuanshuCodeTool 把 run_code 挂进工具表", () => {
