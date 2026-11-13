@@ -53,6 +53,39 @@ export function mediaPathKey(url: string): string {
   return String(url || '').trim()
 }
 
+/**
+ * 媒体块已经展示过的图片 → 规范化路径键集合（2026-11-13）。
+ * 服务端把附件块改写成 markdown 落盘后，读回来时 extractImages 会再从正文里
+ * 把同一张图抠进 msg.images；于是同一条消息里「媒体块」和「正文 markdown 图」
+ * 各画一次（一张自然尺寸、一张 320×280 缩略）。这里按本地路径归一，
+ * 让正文那边认出"这张已经由媒体块画过"。
+ * 忽略 ticket/token/v/exp/sig 等签名参数：只有路径才是"同一张图"。
+ */
+export function collectShownImageKeys(urls: Array<string | null | undefined> = []): Set<string> {
+  const keys = new Set<string>()
+  for (const url of urls) {
+    if (!url) continue
+    const s = String(url).trim()
+    if (!s) continue
+    // 远端图不进媒体块去重：正文里它们本来就不显示（走"外链图未归档"），
+    // 用远端地址做键只会把不同签名的同一张图误判成两张。
+    if (/^(?:https?:)?\/\//i.test(s) && !/\/api\/ws\/file(?:[?#]|$)/i.test(s)) continue
+    const key = mediaPathKey(s)
+    if (key) keys.add(key)
+  }
+  return keys
+}
+
+/** 这张正文图是不是已经由媒体块展示过（是 → 正文里不再画第二遍）。 */
+export function isImageShownByMedia(src: string, shownKeys?: ReadonlySet<string> | null): boolean {
+  if (!shownKeys || !shownKeys.size) return false
+  const s = String(src || '').trim()
+  if (!s) return false
+  if (/^(?:https?:)?\/\//i.test(s) && !/\/api\/ws\/file(?:[?#]|$)/i.test(s)) return false
+  const key = mediaPathKey(s)
+  return !!key && shownKeys.has(key)
+}
+
 export function dedupeMediaUrls(urls: string[]): string[] {
   const seen = new Set<string>()
   const out: string[] = []

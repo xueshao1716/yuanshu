@@ -5,6 +5,7 @@ import { Maximize2, X } from 'lucide-react'
 import { highlightCode, highlightAuto } from '../../lib/highlight'
 import GenUIBlock from '../GenUI'
 import { withFileToken } from '../../api'
+import { isImageShownByMedia } from '../../lib/media-embed'
 import SafeBlock from './SafeBlock'
 import FileLink from './FileLink'
 import { Check, Copy } from 'lucide-react'
@@ -143,7 +144,9 @@ function TableBlock({ children }: { children?: React.ReactNode }) {
   )
 }
 
-function Markdown({ text }: { text: string }) {
+// shownImageKeys：本条消息的媒体块已经展示过的图片（按本地路径归一，见 lib/media-embed）。
+// 正文里再遇到同一张图就只留一行指引——同一条消息里同一张图只画一次。
+function Markdown({ text, shownImageKeys }: { text: string; shownImageKeys?: ReadonlySet<string> }) {
   return (
     <div className="markdown-body text-[15px] leading-relaxed">
       <ReactMarkdown remarkPlugins={[remarkGfm]}
@@ -193,6 +196,16 @@ function Markdown({ text }: { text: string }) {
                   <a href={src} target="_blank" rel="noopener noreferrer" className="text-pi-accent hover:underline break-all">
                     原链接
                   </a>
+                </span>
+              )
+            }
+            // 同一张图媒体块已经画过（大图缩略 + 可点开全屏）：正文不再重复画一遍，
+            // 只留一行指引（assistant 的媒体块就在正文下面）。
+            if (isImageShownByMedia(src, shownImageKeys)) {
+              return (
+                <span className="inline-flex items-baseline gap-1 my-1 text-[12px] text-pi-dim2" data-image-dedupe="media"
+                  title="这张图已由下方媒体块展示">
+                  〔图片见下〕
                 </span>
               )
             }

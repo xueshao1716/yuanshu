@@ -7,8 +7,8 @@ import { useChatMedia } from './ChatMediaProvider'
 import { mediaFilename, type ChatMedia } from '../../lib/chat-media'
 const Markdown = lazy(() => import('./Markdown'))
 
-function LazyMarkdown({ text }: { text: string }) {
-  return <Suspense fallback={<div className="text-pi-dim2 text-xs py-2">渲染中…</div>}><Markdown text={text} /></Suspense>
+function LazyMarkdown({ text, shownImageKeys }: { text: string; shownImageKeys?: ReadonlySet<string> }) {
+  return <Suspense fallback={<div className="text-pi-dim2 text-xs py-2">渲染中…</div>}><Markdown text={text} shownImageKeys={shownImageKeys} /></Suspense>
 }
 
 // ② 引擎标签：与 engine/engine-pair.mjs 里的名字保持一致，别在这里另起一套叫法
@@ -24,7 +24,7 @@ import { requestBrowserSave, writeBrowserSave } from '../../lib/browser-save'
 import { saveNativeDownload } from '../../lib/native-download'
 import VideoPlayer from '../story/VideoPlayer'
 import { isExternalVideo } from '../../lib/tv'
-import { scrapeVideos, scrapeAudios, dedupeMediaUrls, mediaPathKey, isChatPlayableUrl } from '../../lib/media-embed'
+import { scrapeVideos, scrapeAudios, dedupeMediaUrls, mediaPathKey, isChatPlayableUrl, collectShownImageKeys } from '../../lib/media-embed'
 import { artifactName, fileNameFromUrl } from '../../lib/artifact-name'
 import { fmtMsgTime } from '../../lib/fmt-time'
 import type { ChatMessage, RunningTool, ToolStatus } from '../../types'
@@ -257,6 +257,10 @@ export default function Message({ msg, onEdit, onRetry, onBranch, onNotice }: { 
   const [messageAction, setMessageAction] = useState<'copied' | 'saved' | 'error' | ''>('')
   const [showTools, toggleTools] = useProcessVisibility('tools')
   const failedTools = msg.tools?.filter(tool => tool.status === 'error' || (!tool.status && tool.isError)).length || 0
+  // 本条消息媒体块（Attachments）已经展示过的图片。正文 markdown 里遇到同一张图就
+  // 只留一行「图片见下」——否则同一条消息里同一张图会被两套渲染器各画一次
+  // （媒体块 320×280 缩略 + 正文自然尺寸）。归一化只按本地路径，忽略 ticket/exp/sig。
+  const shownImageKeys = useMemo(() => collectShownImageKeys(msg.images), [msg.images])
   const canEdit = isUser && !!onEdit && !streaming && msg.id !== '__streaming__' && !msg.id.startsWith('sys')
 
   // 系统提示条：独立窄条，不进气泡流
@@ -409,18 +413,18 @@ export default function Message({ msg, onEdit, onRetry, onBranch, onNotice }: { 
             历史消息无 conclusion 字段，保持原渲染不变 */}
         {msg.conclusion != null && msg.text ? (
           <div className={"markdown-body-wrapper" + (streaming ? " streaming-caret" : "")}>
-            <LazyMarkdown text={msg.text} />
+            <LazyMarkdown text={msg.text} shownImageKeys={shownImageKeys} />
           </div>
         ) : null}
         {msg.conclusion != null
           ? (msg.conclusion ? (
             <div className={"markdown-body-wrapper" + (streaming ? " streaming-caret" : "")}>
-              <LazyMarkdown text={msg.conclusion} />
+              <LazyMarkdown text={msg.conclusion} shownImageKeys={shownImageKeys} />
             </div>
           ) : null)
           : (
             <div className={"markdown-body-wrapper" + (streaming ? " streaming-caret" : "")}>
-              <LazyMarkdown text={msg.text} />
+              <LazyMarkdown text={msg.text} shownImageKeys={shownImageKeys} />
             </div>
           )}
         <Attachments msg={msg} />
