@@ -8,16 +8,21 @@ import { getSnapshot, clearEmotion } from "../../engine/emotion.mjs";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..", "..");
 
-test("开轮必须更新 VAD 并把情绪指令注入历史，不能只留给 pi", () => {
+test("开轮必须更新 VAD，并把情绪/关系贴在本轮 user 末尾（不再插 system 前缀）", () => {
   const key = "ys-emo-begin";
   clearEmotion(key);
   const hist = [{ role: "user", content: "你好" }];
   const next = beginYuanshuEmotion(key, "我好烦，这破东西又坏了", hist);
   const snap = getSnapshot(key);
-  assert.ok(next.length > hist.length, "必须往历史里加情绪语境");
-  assert.ok(next.some((m) => m.role === "system" && /情绪语境/.test(m.content)), "注入头必须是情绪语境");
+  // 2026-11-13：情绪块从"历史最前面的 system 块"改成"最后一条 user 末尾的状态段"。
+  // 前者会让 system 前缀随强度（0.62→0.4）逐轮变，prompt_cache_key 跟着换。
+  assert.equal(next.length, hist.length, "不再往历史里插 system 块");
+  assert.ok(!next.some((m) => m.role === "system"), "system 前缀必须保持干净");
+  const tail = String(next[next.length - 1].content || "");
+  assert.match(tail, /【本轮状态】/, "情绪要贴在最后一条 user 的末尾状态段里");
+  assert.match(tail, /情绪语境/);
   assert.ok(typeof snap.valence === "number" && typeof snap.arousal === "number", "VAD 要有数字");
-  assert.ok((snap.tags || []).includes("user_frustrated") || /烦躁|共情/.test(next.find((m) => /情绪语境/.test(m.content || ""))?.content || ""), "烦躁要进指令");
+  assert.ok((snap.tags || []).includes("user_frustrated") || /烦躁|共情/.test(tail), "烦躁要进状态段");
 });
 
 test("收轮必须落感受并推 emotion，灵珠才能跟元枢走", () => {

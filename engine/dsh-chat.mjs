@@ -9,7 +9,7 @@ import { createSseWriter } from "./sse.mjs";
 import { saveArtifact } from "./workspace-api.mjs";
 import { localizeMarkdownImagesDetailed } from "./media/markdown-images.mjs";
 import { sdkSafeAssistantBlocks } from "./yuanshu-session.mjs";
-import { beginYuanshuEmotion, endYuanshuEmotion } from "./yuanshu-emotion.mjs";
+import { endYuanshuEmotion, yuanshuEmotionStateText } from "./yuanshu-emotion.mjs";
 import { recordInteraction, judgeTurnKind } from "./relationship.mjs";
 
 const HIST_TAIL = 8;
@@ -30,7 +30,7 @@ export function buildDshPrompt(history, message, context = "") {
   }
   const recent = lines.length ? `【最近对话】\n${lines.join("\n")}\n\n` : "";
   // dsh 是独立单轮进程：主通道那种"往 history 里插 system 块"在这里不生效，
-  // 开轮注入只能靠 prompt。这段语境由 beginYuanshuEmotion 生成（情绪/关系/人格/成长）。
+  // 开轮注入只能靠 prompt。这段语境由 yuanshuEmotionStateText 生成（情绪/关系/人格/成长）。
   const injected = String(context || "").trim();
   const contextBlock = injected ? `【本轮语境】\n${injected}\n\n` : "";
   return [
@@ -146,11 +146,10 @@ function loadHistory(entry) {
 
 function beginDshEmotionContext(sessionId, message, history) {
   try {
-    const injected = beginYuanshuEmotion(sessionId || "new", message, Array.isArray(history) ? history : [], { turnId: crypto.randomUUID() });
-    // 返回 [system, ...history] 才说明本轮有新语境；没插块就什么都不加。
-    if (Array.isArray(injected) && injected.length > (history?.length || 0) && injected[0]?.role === "system") {
-      return String(injected[0].content || "").trim();
-    }
+    // 2026-11-13：情绪块不再返回 [system, ...history]——那会让 system 前缀每轮都变、缓存键跟着换。
+    // 这里直接取状态文本拼进 dsh 的【本轮语境】：dsh 是单轮 headless prompt，这段就是它的"末尾"。
+    const stateText = yuanshuEmotionStateText(sessionId || "new", message, Array.isArray(history) ? history : [], { turnId: crypto.randomUUID() });
+    return String(stateText || "").trim();
   } catch {}
   return "";
 }

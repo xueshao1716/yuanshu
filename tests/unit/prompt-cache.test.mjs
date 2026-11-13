@@ -9,7 +9,14 @@ import { tmpdir } from "node:os";
 import { createHash } from "node:crypto";
 import { promptCacheDecision, leadingSystemPrompt } from "../../engine/unified-chat.mjs";
 import { assembleYuanshuSystem } from "../../engine/yuanshu-seams.mjs";
-import { prependAssembledSystem, timeInUserEnabled } from "../../engine/yuanshu-prompt.mjs";
+import {
+  prependAssembledSystem,
+  timeInUserEnabled,
+  stateInTailEnabled,
+  appendStateNoteToLastUser,
+  TAIL_STATE_MAX_CHARS,
+} from "../../engine/yuanshu-prompt.mjs";
+import { beginYuanshuEmotion } from "../../engine/yuanshu-emotion.mjs";
 
 const SYS = [{ role: "system", content: "你是元枢。工具约束：……（约 2 万 token 的固定系统提示）" }];
 const ask = (over = {}) => promptCacheDecision({
@@ -197,8 +204,8 @@ test("模型仍拿得到时间：文案贴在本轮 user 末尾；YUANSHU_TIME_I
   const on = buildTurn(wsRoot, T0);
   assert.match(
     on.lastUser,
-    /【当前时间 2026-11-13 21:40（周五） · 距上次对话 3 分钟 · 本次会话已持续 30 分钟】$/,
-    "时间必须出现在最后一条 user 消息的末尾",
+    /【当前时间 2026-11-13 21:40（周五） · 距上次对话 3 分钟 · 本次会话已持续 30 分钟】（仅本轮）/,
+    "时间必须出现在最后一条 user 消息里，并标明「仅本轮」",
   );
 
   // 静态断言：开关在 prompt.mjs 里按调用时读环境变量，只有显式 "0" 才回退
@@ -206,7 +213,7 @@ test("模型仍拿得到时间：文案贴在本轮 user 末尾；YUANSHU_TIME_I
   assert.match(src, /YUANSHU_TIME_IN_USER/);
   assert.match(src, /String\(env\?\.YUANSHU_TIME_IN_USER \?\? ""\)\.trim\(\) !== "0"/);
 
-  // 回退档：时间留在 system 原位置，user 末尾不再追加
+  // 回退档：时间留在 system 原位置，user 末尾不再追加时间
   const prev = process.env.YUANSHU_TIME_IN_USER;
   process.env.YUANSHU_TIME_IN_USER = "0";
   t.after(() => {
@@ -217,6 +224,130 @@ test("模型仍拿得到时间：文案贴在本轮 user 末尾；YUANSHU_TIME_I
   const off = buildTurn(wsRoot, T0);
   assert.ok(off.system.includes("### section:time"), "回退档 time 段要回到 system");
   assert.match(off.system, /当前时间：2026-11-13 21:40/);
-  assert.equal(off.lastUser, "继续", "回退档不该再往 user 末尾贴时间");
+  assert.ok(!off.lastUser.includes("【当前时间"), "回退档不该再往 user 末尾贴时间");
+});
+
+// ══ 情绪/待办搬出 system（2026-11-13）════════════════════════════════════════
+// 旧行为：beginYuanshuEmotion 把情绪/关系/人格漂移/成长/反模式/复习/做对过插在历史**最前面**
+// （[systemBlock, ...history]），其中「强度 0.62」逐轮变 → 前缀从第一块就断、cache key 跟着换；
+// runtime（待办）和 plan（工作记忆/目标）又压在大 system 块后半段 → 待办一改，往后全废。
+// 新行为：这些当下状态压成**一段**，贴在最后一条 user 消息末尾；system 只留规矩。
+const tempTodos = (n) => [
+  "【当前待办】按清单推进，完成就 todo_write 勾选：",
+  ...Array.from({ length: n }, (_, i) => `${i + 1}. [ ] 任务${i + 1}`),
+].join("\n");
+
+const cacheKey = (messages) => promptCacheDecision({
+  provider: "openai",
+  modelId: "gpt-5.6-luna",
+  api: "openai-responses",
+  compat: { supportsExplicitPromptCacheMode: true },
+  messages,
+  sessionId: "session-cache-1",
+  mode: "auto",
+}).key;
+
+const sysHash = (messages) => createHash("sha256").update(leadingSystemPrompt(messages)).digest("hex");
+const lastUserText = (messages) => String(messages[messages.length - 1]?.content ?? "");
+
+/** 真实一轮：接缝拼 system → 末尾贴状态 → 情绪块也贴末尾（顺序与 unified-chat 一致）。 */
+async function liveTurn(wsRoot, { now = T0, todos = "", plan = "", msg = "继续", turnId = "t1" } = {}) {
+  const { init: initEmotion } = await import("../../engine/emotion.mjs");
+  initEmotion(wsRoot);
+  const sections = assembleYuanshuSystem(
+    { message: msg, persona: "你是小语。", rules: "别乱改文件", tools: "工具说明", todos, runtime: "runtime 事实" },
+    null,
+    {
+      wsRoot,
+      now,
+      since: T0.getTime() - 3 * 60000,
+      sessionStart: T0.getTime() - 30 * 60000,
+      model: { provider: "deepseek", id: "v4-flash" },
+      sessionId: "session-cache-1",
+      message: msg,
+    },
+  );
+  if (plan) sections.plan = plan;   // 计划平时由接缝插件贡献（formatPlanPrompt），这里直接给
+  let history = prependAssembledSystem([{ role: "user", content: msg }], sections);
+  history = beginYuanshuEmotion("session-cache-1", msg, history, { turnId });
+  return history;
+}
+
+test("情绪档位/待办条数都变：system 哈希与 prompt_cache_key 逐字节不变", async (t) => {
+  const wsRoot = tempWorkspace(t);
+  // 同一会话、同一人格：一轮心情好 + 1 条待办，另一轮烦躁 + 5 条待办 + 磁盘计划
+  const calm = await liveTurn(wsRoot, { msg: "谢谢你，太棒了", todos: tempTodos(1), turnId: "calm" });
+  const upset = await liveTurn(wsRoot, {
+    msg: "我好烦，这破东西又坏了",
+    todos: tempTodos(5),
+    plan: "【工作记忆·磁盘】刷新后仍在。改计划用 plan_files。\n### task_plan\n- [ ] 阶段一",
+    turnId: "upset",
+  });
+
+  assert.equal(sysHash(calm), sysHash(upset), "状态变了，system 必须逐字节相同");
+  assert.equal(cacheKey(calm), cacheKey(upset), "状态不能进 prompt_cache_key");
+  assert.ok(!/### section:(runtime|plan|todos)/.test(leadingSystemPrompt(calm)), "状态段不能留在 system");
+  const emotionLine = (messages) => (lastUserText(messages).match(/情绪语境[^\n]*/) || [""])[0];
+  assert.notEqual(emotionLine(calm), emotionLine(upset), "两轮情绪档位/指令必须不同（否则这条用例没意义）");
+  assert.notEqual(lastUserText(calm), lastUserText(upset), "两轮状态段本身必须不同");
+});
+
+test("状态段只出现在最后一条 user 消息里：含情绪、关系、待办、计划", async (t) => {
+  const wsRoot = tempWorkspace(t);
+  const history = await liveTurn(wsRoot, {
+    todos: tempTodos(4),
+    plan: "【工作记忆·磁盘】刷新后仍在。\n### task_plan\n- [ ] 阶段一",
+  });
+  const tail = lastUserText(history);
+  assert.match(tail, /【本轮状态】/);
+  assert.match(tail, /情绪语境/);
+  assert.match(tail, /关系：信任/);
+  assert.match(tail, /待办：任务1、任务2、任务3 等 4 条/, "待办只列前 3 条 + 总数");
+  assert.match(tail, /计划：/);
+  assert.match(tail, /运行时：/);
+  assert.ok(!leadingSystemPrompt(history).includes("【本轮状态】"), "system 里不能再出现状态段");
+});
+
+test("状态段超长会被截断到 600 字以内；后到的情绪合并进同一段、先保待办", () => {
+  const lines = Array.from({ length: 80 }, (_, i) => `第 ${i} 行：这是一段很长很长的状态描述，用来把总量撑过上限。`);
+  const first = appendStateNoteToLastUser([{ role: "user", content: "继续" }], lines.join("\n"));
+  const blockOf = (messages) => {
+    const text = lastUserText(messages);
+    return text.slice(text.indexOf("【本轮状态】"));
+  };
+  const block = blockOf(first);
+  assert.ok(block.length <= TAIL_STATE_MAX_CHARS, `状态段必须 ≤${TAIL_STATE_MAX_CHARS} 字，实际 ${block.length}`);
+  assert.match(block, /…$/, "截断要留省略号");
+
+  // 合并：先贴待办（能干活的那半），再贴超长情绪——总量仍 ≤600，且待办不被后到的挤掉
+  const withTodos = appendStateNoteToLastUser([{ role: "user", content: "继续" }], "待办：A、B、C 等 5 条");
+  const merged = appendStateNoteToLastUser(withTodos, `情绪语境（按此调整语气，不要复述这段）：${"很长".repeat(600)}`);
+  const block2 = blockOf(merged);
+  assert.ok(block2.length <= TAIL_STATE_MAX_CHARS, "合并后仍要 ≤600 字");
+  assert.match(block2, /^【本轮状态】\n情绪语境/, "后到的情绪排在块首，块还是同一个");
+  assert.match(block2, /待办：A、B、C 等 5 条/, "先贴的待办必须保留（预算先保已有的）");
+});
+
+test("YUANSHU_STATE_IN_TAIL=0 回到旧行为：状态回 system 最前面，末尾不再贴", async (t) => {
+  const wsRoot = tempWorkspace(t);
+  const prev = process.env.YUANSHU_STATE_IN_TAIL;
+  process.env.YUANSHU_STATE_IN_TAIL = "0";
+  t.after(() => {
+    if (prev === undefined) delete process.env.YUANSHU_STATE_IN_TAIL;
+    else process.env.YUANSHU_STATE_IN_TAIL = prev;
+  });
+  assert.equal(stateInTailEnabled(), false);
+
+  const history = await liveTurn(wsRoot, { todos: tempTodos(2) });
+  const leading = leadingSystemPrompt(history);
+  assert.match(leading, /### section:todos/, "回退档待办要回到 system");
+  assert.match(leading, /情绪语境/, "回退档情绪块回 system 最前面（旧的 [system,...history] 形状）");
+  assert.ok(!lastUserText(history).includes("【本轮状态】"), "回退档末尾不该再贴状态");
+  assert.equal(lastUserText(history).replace(/\n\n【当前时间[\s\S]*$/, ""), "继续", "末尾只剩时间（时间是另一个开关）");
+
+  // 静态断言：开关按调用时读环境变量（不是模块加载时），只有显式 "0" 才回退
+  const src = fs.readFileSync(new URL("../../engine/yuanshu-prompt.mjs", import.meta.url), "utf8");
+  assert.match(src, /YUANSHU_STATE_IN_TAIL/);
+  assert.match(src, /String\(env\?\.YUANSHU_STATE_IN_TAIL \?\? ""\)\.trim\(\) !== "0"/);
 });
 

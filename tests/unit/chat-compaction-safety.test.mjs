@@ -64,6 +64,21 @@ test('压缩长工具轮仍保留原系统约束和当前问题，且不修改�
   assert.ok(out.some(m => m._section === 'compaction' && m.role === 'assistant'), 'summary is data, not new system authority');
 });
 
+test('摘要器看不到旧时间读数，也不会把它写回上下文', async () => {
+  let prompt = '';
+  initModelClient({ unifiedChat: async (m, messages) => { prompt = String(messages[0]?.content || ''); return { text: summary }; } });
+  const input = history();
+  // 2026-11-13：时间搬到每条 user 末尾后，旧消息里会留下一串「【当前时间 …】（仅本轮）」。
+  // 摘要器必须看不到它们，否则旧时钟会被写进摘要、长期留在上下文里冒充"现在"。
+  input[2] = { role: 'user', content: `${input[2].content}\n\n【当前时间 2026-11-13 09:20（周五） · 距上次对话 3 分钟】（仅本轮）\n\n【本轮状态】\n情绪语境：平静（强度 0.3）` };
+  input.push({ role: 'user', content: '接着干\n\n【当前时间 2026-11-13 21:40（周五）】（仅本轮）' });
+  await maybeCompactHistory(input, {}, '', opts);
+  assert.ok(prompt, '摘要请求必须发出');
+  assert.ok(!prompt.includes('2026-11-13 09:20'), '旧时间戳不能喂给摘要器');
+  assert.ok(!prompt.includes('2026-11-13 21:40'), '本轮时间戳也不能喂给摘要器');
+  assert.match(prompt, /当轮快照/, '要明确要求摘要器剔除当轮读数');
+});
+
 test('压缩边界不会截断并行工具调用及其结果', async () => {
   initModelClient({ unifiedChat: async () => ({ text: summary }) });
   const input = history();

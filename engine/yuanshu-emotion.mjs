@@ -15,6 +15,9 @@ import { replayPromptLine } from "./lesson-replay.mjs";
 // （正向状态.json vs 复习状态.json），互不挤占。失衡（7 天负向 ≥ 3×正向）时这一轮不念反模式。
 import { praisePromptLine, stats as praiseStats } from "./praise-ledger.mjs";
 import { completeGeneTurn } from "./gene-turn.mjs";
+// 2026-11-13：情绪块不再自己插 system 前缀，改由 yuanshu-prompt 的末尾注入器统一贴到
+// 本轮 user 消息末尾（与时间/待办同一段）。回退：YUANSHU_STATE_IN_TAIL=0。
+import { appendStateNoteToLastUser, stateInTailEnabled } from "./yuanshu-prompt.mjs";
 
 const recent = new Map();
 
@@ -92,6 +95,14 @@ function ratioSkewed() {
 // 同一块的旧前缀都认：升级前注入过的会话历史里还留着老措辞，只认新前缀会再插一段。
 const INJECTED_BLOCK = /情绪语境|关系：信任|人格漂移：|人格漂移告警：|成长：|基因：|基因告警：|复习：|做对过：/;
 
+// 2026-11-13：情绪块换成「状态段」的头一行。以前这里是一整段【内部指令·情绪语境】system 块，
+// 插在历史最前面 → 只要强度从 0.62 变成 0.4，system 前缀就断、prompt_cache_key 跟着换。
+// 现在只产出**状态文本**，由 yuanshu-prompt.mjs 的 appendStateNoteToLastUser 统一贴到末尾。
+const EMOTION_STATE_HEAD = "情绪语境（按此调整语气，不要复述这段）：";
+// 旧版 system 块的开头是一整句「以下是本会话当前的情绪/行为指令…」；搬到末尾后这句是纯占位，
+// 整行剥掉，只留一行短头（省下的字给待办/计划，总量控制在 600 字以内）。
+const EMOTION_HEADER_RE = /^【[^】]*情绪语境[^】]*】[^\n]*\n?/;
+
 /**
  * 上次对话时间（毫秒），供时间上下文算"距上次对话多久"。
  *
@@ -105,7 +116,11 @@ export function lastTalkAt(sessionId) {
   } catch { return 0; }
 }
 
-export function beginYuanshuEmotion(sessionId, message, history = [], context = {}) {
+/**
+ * 本轮状态文本（情绪/关系/人格漂移/成长/做对过/反模式/复习），**只返回文本**，不改历史。
+ * 调用方（unified-chat 经 beginYuanshuEmotion、dsh 适配器）决定放哪：统一去末尾。
+ */
+export function yuanshuEmotionStateText(sessionId, message, history = [], context = {}) {
   const key = sessionKey(sessionId);
   const msg = String(message || "");
   const prev = recent.get(key);
@@ -122,16 +137,18 @@ export function beginYuanshuEmotion(sessionId, message, history = [], context = 
   // 别在一条会被丢掉的返回路径上把账记了。
   const already = alreadyInjected(history)
     || history.some((m) => m?.role === "system" && INJECTED_BLOCK.test(String(m.content || "")));
-  // 关系摘要 + 基因漂移 + 成长 + 做对过 + 反模式 + 复习放在情绪段同一块 system 里（不是另起一段）：
+  // 关系摘要 + 基因漂移 + 成长 + 做对过 + 反模式 + 复习放在情绪同一块里（不是另起一段）：
   // 慢变量贴着快变量读，语气才连贯；复习是"想起来"的那一半，跟反模式同一块最省上下文。
   // 2026-11-10：正向放在反模式**前面**——先看见做对的，再看见别做的。
   // 「做对过：」和「复习：」各自一天 1 次/2 条、各记各的状态文件，谁先念都不影响另一个。
   // 7 天负向 ≥ 3×正向时这轮不念反模式（失衡时先补正向；正向账本空了就一轮也不念负面）。
   const skewed = ratioSkewed();
+  // 情绪指令的固定前缀（【内部指令·情绪语境】…）在末尾状态段里换成一行短头，
+  // 省下的字给待办/计划——总量控制在 600 字以内。
+  const directive = String(prompt || "").replace(EMOTION_HEADER_RE, "").trim();
   const content = [
-    prompt,
-    relationshipLine(),
-    genomeLine(),
+    directive ? `${EMOTION_STATE_HEAD}${directive}` : "",
+    relationshipLine(), genomeLine(),
     growthLine(),
     already ? "" : praiseLine(history),
     skewed ? "" : antiPatternLine(msg, context),
@@ -139,8 +156,26 @@ export function beginYuanshuEmotion(sessionId, message, history = [], context = 
   ]
     .filter(Boolean)
     .join("\n");
-  if (!content || already) return history;
-  return [{ role: "system", content }, ...history];
+  // 去重语义与旧版一致：历史里已经有同一块就整轮不再注入（哪怕这轮又算出了新状态）。
+  if (!content || already) return "";
+  return content;
+}
+
+/**
+ * 开轮：更新情绪并把状态贴到本轮 user 末尾。
+ * 返回历史数组（不另插 system 块）；`YUANSHU_STATE_IN_TAIL=0` 或调用方显式要旧形状
+ * （context.legacyShape=true）时，退回旧的 `[systemBlock, ...history]`。
+ */
+export function beginYuanshuEmotion(sessionId, message, history = [], context = {}) {
+  const stateText = yuanshuEmotionStateText(sessionId, message, history, context);
+  if (!stateText) return history;
+  const list = Array.isArray(history) ? history : [];
+  const hasUser = list.some((m) => m?.role === "user");
+  // 贴不到末尾（没有 user 消息）或明确回退时，宁可留在 system 原位，也不把状态丢掉。
+  if (context.legacyShape === true || !stateInTailEnabled() || !hasUser) {
+    return [{ role: "system", content: stateText }, ...list];
+  }
+  return appendStateNoteToLastUser(list, stateText);
 }
 
 export function endYuanshuEmotion(sessionId, message, text, writer) {
