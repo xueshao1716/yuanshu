@@ -1,4 +1,4 @@
-import { lazy, Suspense, useMemo, useState } from 'react'
+import { lazy, Suspense, useMemo, useState, type MouseEvent as ReactMouseEvent } from 'react'
 import { TOOL_COLORS, COLOR_ERROR, COLOR_TOOL_FALLBACK } from '../../theme/palettes'
 import { Brain, FileText, Check, X, Pencil, ChevronRight, Square, Info, Download, RefreshCw, Scissors, Copy, RotateCcw, Save, ChevronDown, ChevronUp, Users } from 'lucide-react'
 import ImageViewer from '../ImageViewer'
@@ -7,8 +7,8 @@ import { useChatMedia } from './ChatMediaProvider'
 import { mediaFilename, type ChatMedia } from '../../lib/chat-media'
 const Markdown = lazy(() => import('./Markdown'))
 
-function LazyMarkdown({ text, shownImageKeys }: { text: string; shownImageKeys?: ReadonlySet<string> }) {
-  return <Suspense fallback={<div className="text-pi-dim2 text-xs py-2">渲染中…</div>}><Markdown text={text} shownImageKeys={shownImageKeys} /></Suspense>
+function LazyMarkdown({ text }: { text: string }) {
+  return <Suspense fallback={<div className="text-pi-dim2 text-xs py-2">渲染中…</div>}><Markdown text={text} /></Suspense>
 }
 
 // ② 引擎标签：与 engine/engine-pair.mjs 里的名字保持一致，别在这里另起一套叫法
@@ -24,7 +24,7 @@ import { requestBrowserSave, writeBrowserSave } from '../../lib/browser-save'
 import { saveNativeDownload } from '../../lib/native-download'
 import VideoPlayer from '../story/VideoPlayer'
 import { isExternalVideo } from '../../lib/tv'
-import { scrapeVideos, scrapeAudios, dedupeMediaUrls, mediaPathKey, isChatPlayableUrl, collectShownImageKeys } from '../../lib/media-embed'
+import { scrapeVideos, scrapeAudios, dedupeMediaUrls, mediaPathKey, isChatPlayableUrl, collectShownImageKeys, isImageShownByMedia } from '../../lib/media-embed'
 import { artifactName, fileNameFromUrl } from '../../lib/artifact-name'
 import { fmtMsgTime } from '../../lib/fmt-time'
 import type { ChatMessage, RunningTool, ToolStatus } from '../../types'
@@ -157,18 +157,55 @@ function Thinking({ text, live }: { text: string; live?: boolean }) {
   )
 }
 
+// 2026-11-13 图片取舍反转：正文 markdown 的大图优先，媒体块让位。
+//
+// 旧版反过来（媒体块留 320×280 缩略图、正文大图折叠成「图片见下」），用户原话：
+// "大图吧，好不好看一目了然，缩略图也得加工"。所以现在正文照常画图，媒体块只在
+// 正文**没有**画同一张时才补缩略图——一条消息里同一张图仍然只出现一次。
+//
+// 正文里哪些图算"已经画过"：只认 markdown 图片语法 `![alt](src)`
+// （裸路径只是文字说明，不等于画了图；远端图正文只渲染一行外链文案，也不算画）。
+const BODY_IMAGE = /!\[[^\]]*\]\(\s*<?([^)\s>]+)>?(?:\s+(?:"[^"]*"|'[^']*'))?\s*\)/g
+
+function bodyImageSrcs(...texts: Array<string | null | undefined>): string[] {
+  const out: string[] = []
+  for (const text of texts) {
+    if (!text) continue
+    for (const match of String(text).matchAll(BODY_IMAGE)) out.push(match[1])
+  }
+  return out
+}
+
+/**
+ * 媒体块和正文共用同一套查看器：会话里有画廊（ChatArea 的 ChatMediaProvider）就交给它，
+ * 能左右翻整条会话的素材；没有画廊（独立渲染）就本地开一个。
+ */
+function useMediaViewer() {
+  const galleryOpen = useChatMedia()
+  const [viewer, setViewer] = useState<ChatMedia | null>(null)
+  const openMedia = (src: string, kind: ChatMedia['kind']) => {
+    if (!src) return
+    if (galleryOpen) galleryOpen(src, kind)
+    else setViewer({ src, kind, name: mediaFilename(src, kind) })
+  }
+  const viewerNode = viewer ? <ImageViewer src={viewer.src} items={[viewer]} onClose={() => setViewer(null)} /> : null
+  return { openMedia, viewerNode }
+}
+
 function Attachments({ msg }: { msg: ChatMessage }) {
   // 2026-11-07：远端视频不再进聊天播放器。后端抽取层已经过滤过一遍，这里再兜一层——
   // 本地库里可能还留着加过滤前存下的远端链接（旧会话缓存不会因为服务端改了就自动消失）。
   const videos = dedupeMediaUrls(msg.videos?.length ? msg.videos : scrapeVideos(msg.text || '')).filter(isChatPlayableUrl)
   // 音频：附件里的（msg.audios）+ 正文里的试听直链（music_search 返回的 .m4a/.mp3）
   const audios = Array.from(new Set([...(msg.audios || []), ...scrapeAudios(msg.text || '')]))
-  const galleryOpen = useChatMedia()
-  const [viewer, setViewer] = useState<ChatMedia | null>(null)
-  const openMedia = (src: string, kind: ChatMedia['kind']) => {
-    if (galleryOpen) galleryOpen(src, kind)
-    else setViewer({ src, kind, name: mediaFilename(src, kind) })
-  }
+  const { openMedia, viewerNode } = useMediaViewer()
+  // 正文已经画过的本地图（正文 markdown 大图优先）。media 块里同一张就不再画缩略图，
+  // 也不留空占位。只按本地路径归一（见 lib/media-embed）：exp/sig/ticket 换了还是同一张。
+  // 用户消息的正文是纯文本、不是 markdown，本来就没画图，所以不做这种让位。
+  const bodyImageKeys = useMemo(
+    () => (msg.role === 'user' ? new Set<string>() : collectShownImageKeys(bodyImageSrcs(msg.text, msg.conclusion))),
+    [msg.role, msg.text, msg.conclusion],
+  )
   const [downloading, setDownloading] = useState<string | null>(null)
   const [failed, setFailed] = useState<Record<string, boolean>>({})
   const [downloadStatus, setDownloadStatus] = useState<Record<string, string>>({})
@@ -204,7 +241,7 @@ function Attachments({ msg }: { msg: ChatMessage }) {
   }
   return (
     <>
-      {msg.images?.map((src, i) => (
+      {msg.images?.filter(src => !isImageShownByMedia(src, bodyImageKeys)).map((src, i) => (
         <div key={'img' + i} className="my-1.5">
           {/* 点开用应用内查看器（2026-09-18）：以前是 window.open('_blank')，在安卓 WebView 里
               会被同一个 webview 直接导航过去 → 没地址栏、没返回键 → "点开就回不去了"。 */}
@@ -214,7 +251,7 @@ function Attachments({ msg }: { msg: ChatMessage }) {
           </button>
         </div>
       ))}
-      {viewer && <ImageViewer src={viewer.src} items={[viewer]} onClose={() => setViewer(null)} />}
+      {viewerNode}
       {audios.map((url, i) => (
         <div key={'aud' + i} className="my-1.5"><audio controls preload="none" src={withFileToken(url)} className="max-w-full h-9" /></div>
       ))}
@@ -257,10 +294,8 @@ export default function Message({ msg, onEdit, onRetry, onBranch, onNotice }: { 
   const [messageAction, setMessageAction] = useState<'copied' | 'saved' | 'error' | ''>('')
   const [showTools, toggleTools] = useProcessVisibility('tools')
   const failedTools = msg.tools?.filter(tool => tool.status === 'error' || (!tool.status && tool.isError)).length || 0
-  // 本条消息媒体块（Attachments）已经展示过的图片。正文 markdown 里遇到同一张图就
-  // 只留一行「图片见下」——否则同一条消息里同一张图会被两套渲染器各画一次
-  // （媒体块 320×280 缩略 + 正文自然尺寸）。归一化只按本地路径，忽略 ticket/exp/sig。
-  const shownImageKeys = useMemo(() => collectShownImageKeys(msg.images), [msg.images])
+  // 正文 markdown 的图也要能点开全屏（2026-11-13）：复用媒体块那套查看器。
+  const { openMedia: openBodyMedia, viewerNode: bodyViewerNode } = useMediaViewer()
   const canEdit = isUser && !!onEdit && !streaming && msg.id !== '__streaming__' && !msg.id.startsWith('sys')
 
   // 系统提示条：独立窄条，不进气泡流
@@ -357,6 +392,18 @@ export default function Message({ msg, onEdit, onRetry, onBranch, onNotice }: { 
     else if (hasText) phase = 'result'
     else phase = 'thinking'
   }
+  // 正文大图点开全屏（2026-11-13）：事件委托放在正文容器上，Markdown 组件不必知道查看器的存在。
+  // 只接管图片元素：正文里的链接、代码块复制按钮、表格放大按钮都照旧。
+  const openBodyImage = (event: ReactMouseEvent<HTMLDivElement>) => {
+    const target = event.target as HTMLElement | null
+    if (!target || target.tagName !== 'IMG') return
+    const src = (target as HTMLImageElement).getAttribute('src') || ''
+    if (!src) return
+    event.preventDefault()
+    openBodyMedia(src, 'image')
+  }
+  // 图片可点：cursor-zoom-in 只落在 img 上（cursor 会继承，挂在容器上会连文字一起变放大镜）
+  const bodyWrap = 'markdown-body-wrapper [&_img]:cursor-zoom-in' + (streaming ? ' streaming-caret' : '')
   return (
     <div className="group/msg flex gap-2 py-2 msg-assistant">
       <AvatarPortrait
@@ -412,19 +459,19 @@ export default function Message({ msg, onEdit, onRetry, onBranch, onNotice }: { 
         {/* 阶段分区（stream-assembler）：conclusion 存在时，工具前文字在上、结论在工具卡之后；
             历史消息无 conclusion 字段，保持原渲染不变 */}
         {msg.conclusion != null && msg.text ? (
-          <div className={"markdown-body-wrapper" + (streaming ? " streaming-caret" : "")}>
-            <LazyMarkdown text={msg.text} shownImageKeys={shownImageKeys} />
+          <div className={bodyWrap} onClick={openBodyImage}>
+            <LazyMarkdown text={msg.text} />
           </div>
         ) : null}
         {msg.conclusion != null
           ? (msg.conclusion ? (
-            <div className={"markdown-body-wrapper" + (streaming ? " streaming-caret" : "")}>
-              <LazyMarkdown text={msg.conclusion} shownImageKeys={shownImageKeys} />
+            <div className={bodyWrap} onClick={openBodyImage}>
+              <LazyMarkdown text={msg.conclusion} />
             </div>
           ) : null)
           : (
-            <div className={"markdown-body-wrapper" + (streaming ? " streaming-caret" : "")}>
-              <LazyMarkdown text={msg.text} shownImageKeys={shownImageKeys} />
+            <div className={bodyWrap} onClick={openBodyImage}>
+              <LazyMarkdown text={msg.text} />
             </div>
           )}
         <Attachments msg={msg} />
@@ -494,6 +541,8 @@ export default function Message({ msg, onEdit, onRetry, onBranch, onNotice }: { 
             {msg.model && <span className="px-1.5 py-0.5 rounded-pi-pill bg-pi-bg3 text-pi-dim2 text-[10px]" title={`${msg.model.provider}/${msg.model.id}`}>实际 {msg.model.id}</span>}
           </div>
         )}
+        {/* 正文大图的全屏查看器（会话画廊不在时才会用到本地这个） */}
+        {bodyViewerNode}
       </div>
     </div>
   )
