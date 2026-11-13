@@ -246,7 +246,12 @@ export function needsMidLoopCompact(history, { turn = 0, lastCompactTurn = 0 } =
 export async function maybeCompactHistory(history, model, focus = "", opts = {}) {
   const total = history.reduce((n, m) => n + String(m.content || "").length, 0);
   const minMessages = opts.minMessages ?? 12;
-  const minChars = opts.minChars ?? 80000;
+  // 2026-11-13：阈值从 80k 降到 50k 字符（约 1.2 万 token）。
+  // 起因：实测单轮输入能到 85 万 token——不是"模型贵"，是把全部历史每轮重发一遍贵。
+  // 80k 触发太晚，长会话在触发前已经滚成大球；50k 提前压，代价是更早丢细节。
+  // 想调回来改这里或设 YUANSHU_COMPACT_MIN_CHARS；设 0 等于永不自动压。
+  const envChars = Number(process.env.YUANSHU_COMPACT_MIN_CHARS);
+  const minChars = Number.isFinite(envChars) && envChars >= 0 ? envChars : (opts.minChars ?? 50_000);
   if (history.length < minMessages || total < minChars) return history;
   const { system, retained, old } = partitionCompaction(history);
   if (!old.length) return history;
