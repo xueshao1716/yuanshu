@@ -243,6 +243,23 @@ export const DEFAULT_PATTERNS = Object.freeze([
     tools: ["stamp-build", "deploy"],
     errors: [],
   },
+  {
+    id: "AP-013",
+    title: "用翻日志/读源码代替一次探测",
+    severity: "medium",
+    trigger: {
+      kind: "model",
+      detect: "出图/出片后为了确认「用户能不能看见」，连跑多条 bash（grep serve.log 的状态码分布、读 server.mjs 或 workspace-api.mjs 的实现、verify_check/delivery_check 反复），却始终没有一个一次性的交付探测结论",
+    },
+    symptom: "图其实是好的（HTTP 200 / image/png / 1.4MB / PNG 魔数正确），她却要跑十几条命令还没确信，然后换一轮再来一遍。",
+    remedy: "出图/出片后先调一次 delivery_probe 拿到 ok/loadable 与 issues；结论不确定才深挖（那时才有具体问题可查），不要用翻日志、读服务端源码代替这一次探测。",
+    examples: ["2026-11-14：图 200 / image/png / 1403279 字节 / 832×1248 / PNG 魔数正确，仍跑了十几条 bash 查 serve.log、读 PNG 头、翻 server.mjs，第二轮还是不确信。"],
+    discoveredAt: "2026-11-14",
+    source: "元枢 2026-11-14 真机（伙伴口述：出图后反复自证图片可不可见）+ engine/tools/delivery-probe.mjs",
+    keywords: ["看不见", "能不能看到", "看不到图", "显示不出来", "图是不是好的", "serve.log", "状态码", "可不可见", "确认图片", "反复确认图"],
+    tools: ["delivery_probe"],
+    errors: [],
+  },
 ]);
 
 // ── 小工具 ──
@@ -413,7 +430,7 @@ function readJson(file) {
 }
 
 /**
- * 读台账。文件不存在 → 用内置 11 条（零配置可用）；文件坏了 → 抛错（不静默回落，
+ * 读台账。文件不存在 → 用内置 12 条（零配置可用）；文件坏了 → 抛错（不静默回落，
  * 静默回落本身就是"自证链长期失败无人察觉"那种病）。
  * 返回条目副本，调用方改不到缓存。
  */

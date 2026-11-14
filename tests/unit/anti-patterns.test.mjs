@@ -69,12 +69,12 @@ describe("源记录解析与字段校验", () => {
     assert.throws(() => validatePattern({ ...base, title: "" }), /缺少 title/);
   });
 
-  test("内置台账 11 条、id 唯一、每条 remedy 都是可执行句而不是提醒", () => {
+  test("内置台账 12 条、id 唯一、每条 remedy 都是可执行句而不是提醒", () => {
     const list = loadAntiPatterns(path.join(os.tmpdir(), `ap-none-${Date.now()}`));
-    assert.equal(list.length, 11);
-    assert.equal(new Set(list.map((p) => p.id)).size, 11);
+    assert.equal(list.length, 12);
+    assert.equal(new Set(list.map((p) => p.id)).size, 12);
     assert.doesNotThrow(() => validateLedger(list));
-    assert.deepEqual(statsOf(list), { total: 11, high: 8, medium: 3, low: 0 });
+    assert.deepEqual(statsOf(list), { total: 12, high: 8, medium: 4, low: 0 });
     for (const p of list) {
       assert.ok(Array.isArray(p.examples), `${p.id} examples 不是数组`);
       assert.ok(p.examples.every((x) => typeof x === "string"), `${p.id} examples 里有非字符串`);
@@ -92,8 +92,8 @@ describe("台账落盘（默认 dry-run）", () => {
     assert.equal(r.dryRun, true);
     assert.equal(fs.existsSync(ledgerPath(root)), false);
     const doc = JSON.parse(r.text);
-    assert.equal(doc.patterns.length, 11);
-    assert.equal(doc.stats.total, 11);
+    assert.equal(doc.patterns.length, 12);
+    assert.equal(doc.stats.total, 12);
   });
 
   test("dryRun:false 才落盘，loadAntiPatterns 读得回来", () => {
@@ -102,7 +102,7 @@ describe("台账落盘（默认 dry-run）", () => {
     assert.equal(r.created, true);
     assert.equal(fs.existsSync(ledgerPath(root)), true);
     const list = loadAntiPatterns(root, { fresh: true });
-    assert.equal(list.length, 11);
+    assert.equal(list.length, 12);
     assert.equal(list[0].id, "AP-001");
     assert.equal(statsOf(list).high, 8);
   });
@@ -329,7 +329,7 @@ describe("命中落盘与连续升级", () => {
     const saved = JSON.parse(fs.readFileSync(ledgerPath(root), "utf8"));
     assert.equal(saved.patterns.find((p) => p.id === "AP-001").severity, "high");
     assert.equal(saved.stats.high, 8);
-    assert.equal(saved.stats.medium, 3);
+    assert.equal(saved.stats.medium, 4);
   });
 
   test("中间夹了别的命中，连续计数被打断", () => {
@@ -392,7 +392,7 @@ describe("主动查：anti_pattern_check", () => {
   test("不给 context 返回索引，不把全文倒进上下文", () => {
     const out = runAntiPatternCheck({ wsRoot: root });
     assert.equal(out.isError, false);
-    assert.match(out.text, /反模式台账：11 条/);
+    assert.match(out.text, /反模式台账：12 条/);
     assert.match(out.text, /AP-001 \[high\]/);
     assert.doesNotMatch(out.text, /症状：/, "索引不该带全文");
   });

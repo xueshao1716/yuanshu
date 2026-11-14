@@ -334,6 +334,10 @@ import { WATCHDOG_READ_TOOL, createWatchdogReadExecutors } from "./engine/tools/
 // 2026-11-09：断言闸门（verify-gate）——报数之前先把话落成断言，逐条比对事实。
 // 交付门管"改动的验证覆盖"，这里管"话里的数字和事实"（存在性/数量/路径/大小/测试结果）。
 import { VERIFY_CHECK_TOOL, VERIFY_CHECK_STATUS, executeVerifyCheck } from "./engine/tools/verify-check.mjs";
+// 2026-11-14：一次确认交付。出图/出片后，她为了确认"用户到底看不看得见"会跑十几条 bash
+// （grep serve.log 的状态码分布、读 PNG 头、翻 server.mjs 与 workspace-api.mjs、verify_check、
+// delivery_check），而图其实是好的。这个工具把那条自证链收成一次调用，并给一行结论。
+import { DELIVERY_PROBE_TOOL, executeDeliveryProbe } from "./engine/tools/delivery-probe.mjs";
 // 2026-11-09：反模式台账（移植林心语 anti_patterns.json）。prompt 只注入最相关 2 条，
 // 这个工具是她主动把台账取回来对一遍的入口；纯读，不拦任何动作。
 // 2026-11-10：装配分级补只读观测口——loadAntiPatterns/statsOf 给 GET /api/anti-patterns 用。
@@ -1511,6 +1515,8 @@ const UNIFIED_TOOLS = [
   // 2026-11-09：断言闸门。交付门之后还有一道「话对不对」的闸：
   // 数量/存在性/路径/大小/测试结果必须先落成断言，有一条 FAIL 就不许说完成。
   VERIFY_CHECK_TOOL,
+  // 2026-11-14：交付探测。出图/出片后先调它一次，替代"翻日志 + 读源码 + 反复 verify_check"。
+  DELIVERY_PROBE_TOOL,
   // 2026-11-09：反模式对照。注入的 2 条之外，她主动查全台账用这个。
   ANTI_PATTERN_CHECK_TOOL,
 ];
@@ -1935,6 +1941,11 @@ const extraToolExecutors = {
     verify_check: (args) => executeVerifyCheck(args, {
       cwd: () => CONFIG.cwd,
       roots: () => [CONFIG.cwd, __dirname],
+    }),
+    // 一次确认交付（2026-11-14）：路径归一/越界边界走 workspace-api（与 /api/ws/file 同口径，
+    // 所以不传 roots——保留"同机其它工作区根"的回落），HTTP 探测打自己监听的端口。
+    delivery_probe: (args) => executeDeliveryProbe(args, {
+      baseUrl: `http://127.0.0.1:${CONFIG.port}`,
     }),
     // 反模式对照（2026-11-09）：读台账，返回匹配条目全文；不拦动作、不改状态。
     anti_pattern_check: (args) => runAntiPatternCheck({
