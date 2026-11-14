@@ -6433,6 +6433,20 @@ const API_ROUTES = [
   // ── 首启向导（令牌 → 模型 → 灵魂）──
   // status 免鉴权（登录页要用来提示「用桌面快捷方式打开」），只回布尔值，不含令牌
   ["GET", "/api/setup/status", (res) => json(res, 200, { needsSetup: isSetupPending(path.dirname(CONFIG.tokenFile)) })],
+  // ── 认证自检（2026-11-14）：未鉴权，只回布尔值与重试秒数，不含任何令牌 ──
+  // 用途：换了令牌之后 App 先问这里——needsToken=true 说明该重新填令牌；locked=true 说明这个 IP
+  // 还在锁定里（此时带旧令牌的请求会拿 401 TOKEN_STALE_OR_INVALID，而不是 429）。
+  // 预认证预算照旧扣（防扫描）；锁定不挡它自己，否则客户端连"我为什么连不上"都问不到。
+  ["GET", "/api/auth/state", (res, req, url) => {
+    const ip = clientIpOf(req);
+    const hasCredential = !!(req.headers.authorization || url.searchParams.get("token") || url.searchParams.get("ticket"));
+    const pre = rateLimitGate.preAuth(ip, { credential: hasCredential, pathname: url.pathname, method: req.method });
+    if (!pre.ok) return sendRateLimited(res, pre);
+    const st = rateLimitGate.authStateOf(ip);
+    const body = { needsToken: !checkAuth(req), locked: st.locked };
+    if (st.locked) body.retryAfter = st.retryAfter;
+    return json(res, 200, body, { "Cache-Control": "no-store" });
+  }],
   ["POST", "/api/setup/soul", async (res, req) => {
     if (!isSetupPending(path.dirname(CONFIG.tokenFile))) return json(res, 409, { error: "初始化已完成，请到「灵魂」页修改人格", code: "setup_done" });
     const body = await readBody(req);
@@ -8003,6 +8017,31 @@ function sendRateLimited(res, guard) {
     "X-RateLimit-Limit": String(Number(guard?.limit) || 0),
     "X-RateLimit-Remaining": "0",
     "X-RateLimit-Scope": scope,
+    "X-RateLimit-Reason": String(guard?.reason || "rate_limited"),
+  });
+}
+// 2026-11-14 紧急修复（真实故障：换 48 位令牌后 App 用旧令牌，5 次失败锁死 IP）：
+// 锁定期间**带凭据**的请求回 401 而不是 429。429 的语义是"过一会儿再试"，
+// 但真实原因多半是"令牌换了、客户端还是旧的"——用户要的是重新填令牌，不是等 15 分钟。
+const TOKEN_STALE_HINT = "令牌可能已更换，请重新填写";
+function sendTokenStale(res, guard) {
+  const retryAfter = Math.max(1, Math.ceil(Number(guard?.retryAfter) || 1));
+  const limit = Number(guard?.limit) || 0;
+  return json(res, 401, {
+    error: TOKEN_STALE_HINT,
+    code: "TOKEN_STALE_OR_INVALID",
+    hint: TOKEN_STALE_HINT,
+    reason: String(guard?.reason || "auth_locked"),
+    retryAfter,
+    retryAfterMs: retryAfter * 1000,
+    scope: "auth",
+    limit,
+  }, {
+    "Retry-After": String(retryAfter),
+    "X-RateLimit-Limit": String(limit),
+    "X-RateLimit-Remaining": "0",
+    "X-RateLimit-Scope": "auth",
+    "X-RateLimit-Reason": "auth_locked",
   });
 }
 
@@ -8071,16 +8110,27 @@ const server = http.createServer(async (req, res) => {
     const isMusicLogin = (url.pathname === "/music-login" || url.pathname === "/api/music/login") && req.method === "GET" && isLoopbackReq(req);
     // 2026-10-28：本机一键登录（只回环，令牌含 # 手抄易错）
     const isLocalLogin = url.pathname === "/api/auth/local-token" && req.method === "GET" && isLoopbackReq(req);
+    // 2026-11-14：未鉴权的认证自检端点（只回布尔/重试秒数，不含令牌）——App 用它区分
+    // "令牌已更换"和"被限流"，否则换令牌后连登录入口都拿 429（锁定把自救路也锁死了）。
+    const isAuthState = url.pathname === "/api/auth/state" && req.method === "GET";
     // 2026-11-13 公网暴露防护：预认证预算（拦扫描）→ 鉴权失败锁定 → 通过后按路由类别限流。
-    const needsAuth = !isStatic && !isSignedFile && !isSetupStatus && !isPublicFeedback && !isPublicTvMedia && !isMusicLogin && !isPairPage && !isPairPublic && !isLocalLogin;
+    const needsAuth = !isStatic && !isSignedFile && !isSetupStatus && !isPublicFeedback && !isPublicTvMedia && !isMusicLogin && !isPairPage && !isPairPublic && !isLocalLogin && !isAuthState;
     if (needsAuth) {
       const clientIp = clientIpOf(req);
       const hasCredential = !!(req.headers.authorization || url.searchParams.get("token") || url.searchParams.get("ticket"));
       const pre = rateLimitGate.preAuth(clientIp, { credential: hasCredential, pathname: url.pathname, method: req.method });
-      if (!pre.ok) return sendRateLimited(res, pre);
+      if (!pre.ok) {
+        // 锁定期间带凭据 → 401「令牌可能已更换」；不带凭据才是 429（等锁到期）。
+        if (pre.reason === "auth_locked" && pre.credential) return sendTokenStale(res, pre);
+        return sendRateLimited(res, pre);
+      }
       if (!checkAuth(req)) {
         const fail = rateLimitGate.chargeAuthFailure(clientIp, url.pathname, req.method);
-        if (fail.locked) return sendRateLimited(res, { reason: "auth_locked", retryAfter: fail.retryAfter, limit: fail.failures, category: "auth" });
+        if (fail.locked) {
+          // 第 5 次失败当场上锁：带凭据的请求同样回 401（这次不是"稍后再试"，是"令牌不对"）
+          if (hasCredential) return sendTokenStale(res, { reason: "auth_locked", retryAfter: fail.retryAfter, limit: fail.failures });
+          return sendRateLimited(res, { reason: "auth_locked", retryAfter: fail.retryAfter, limit: fail.failures, category: "auth" });
+        }
         return json(res, 401, { error: "未授权，请提供访问令牌" });
       }
       rateLimitGate.authSuccess(clientIp);

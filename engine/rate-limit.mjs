@@ -12,6 +12,12 @@
 //   鉴权通过 check()      —— 按 ip + 路由类别扣令牌桶：/api/chat 20/分钟、/api/*/stream 10/分钟、
 //                            其它 /api/* 120/分钟。
 //
+// 2026-11-14 紧急修复（换令牌把用户锁死的现场）：
+//   · 锁定期间带凭据的请求，preAuth 返回的 r 带 credential:true；server 据此回 **401**
+//     （code=TOKEN_STALE_OR_INVALID）而不是 429 —— 429 会让客户端一直等，而实际要重新填令牌。
+//   · BOOTSTRAP_PATHS 里的只读端点豁免「锁定」（仍照旧扣预认证预算）：换令牌后 App 还能查
+//     健康/更新/模型/认证状态，能自己判断该重新填令牌，而不是连登录入口都打不开。
+//
 // 约定：
 //   - 本机回环默认豁免（127.0.0.1 / ::1 / 127.x），可用 exemptLoopback:false 关掉；
 //   - 配置 `记忆/运行时/限流.json` 可缺省，缺省=默认值；enabled:false 一键关（测试/排障用）；
@@ -154,6 +160,24 @@ export function classifyRoute(pathname) {
   return "api";
 }
 
+/**
+ * bootstrap 只读端点（2026-11-14）：换令牌后客户端用它判断"是令牌过期还是被限流"。
+ * 锁定期间这些路径豁免「锁定」——否则 App 连检查更新/模型/认证状态都拿 429，用户无法自救；
+ * 但**不豁免预认证预算**（照旧 30/分钟/IP 挡扫描）。
+ */
+export const BOOTSTRAP_PATHS = Object.freeze([
+  "/api/health",
+  "/api/system/check-update",
+  "/api/models",
+  "/api/auth/state",
+]);
+
+/** 是否 bootstrap 只读端点（只看路径，方法在 preAuth 里按 GET/HEAD 判）。 */
+export function isBootstrapPath(pathname) {
+  const p = String(pathname || "").split("?")[0];
+  return BOOTSTRAP_PATHS.includes(p);
+}
+
 // ── 令牌桶（可注入时钟）──────────────────────────────────────────
 function createBucketStore() {
   const buckets = new Map(); // key -> { tokens, at }
@@ -278,7 +302,19 @@ export function createRateLimiter({ wsRoot = "", config = null, now = () => Date
     if (exempt(ip)) return { ok: true, exempt: true };
     const t = now();
     const s = stateOf(ip, t);
-    if (s.lockedUntil > t) return lockedReply(s, ip, t, pathname, method);
+    if (s.lockedUntil > t) {
+      // 2026-11-14：锁定期间 bootstrap 只读端点豁免锁定（仍扣预认证预算）；其余照旧拦截。
+      const bootstrap = isBootstrapPath(pathname) && (method === "GET" || method === "HEAD" || !method);
+      if (!bootstrap) {
+        const r = lockedReply(s, ip, t, pathname, method);
+        // credential 标出来：server 据此把这次 429 改判成 401（令牌可能换了，不是"过一会儿再试"）
+        return credential ? { ...r, credential: true } : r;
+      }
+      const b = preBuckets.take(`preauth:${ip}`, cfg.preAuth, t);
+      if (b.ok) return { ok: true, locked: true, bootstrap: true, remaining: b.remaining, limit: b.limit };
+      hit({ ip, pathname, method, category: "preauth", reason: "preauth_budget", retryAfter: b.retryAfter, limit: b.limit });
+      return { ok: false, locked: true, reason: "preauth_budget", retryAfter: b.retryAfter, limit: b.limit, remaining: 0 };
+    }
     if (credential) return { ok: true, credential: true };
     const b = preBuckets.take(`preauth:${ip}`, cfg.preAuth, t);
     if (b.ok) return { ok: true, remaining: b.remaining, limit: b.limit };
@@ -313,6 +349,18 @@ export function createRateLimiter({ wsRoot = "", config = null, now = () => Date
   function authSuccess(ip) {
     if (!ip) return;
     authState.delete(ip);
+  }
+
+  /**
+   * 只读：这个 IP 现在是否在锁定中。不记账、不建条目、不写日志（给 /api/auth/state 用）。
+   * @returns {{locked:boolean, retryAfter:number, failures:number}}
+   */
+  function authStateOf(ip = "") {
+    const t = now();
+    const s = authState.get(String(ip || ""));
+    if (!s) return { locked: false, retryAfter: 0, failures: 0 };
+    if (s.lockedUntil && s.lockedUntil > t) return { locked: true, retryAfter: toSeconds(s.lockedUntil - t), failures: s.failures };
+    return { locked: false, retryAfter: 0, failures: 0 };
   }
 
   /** 鉴权通过后：按 ip + 路由类别扣令牌桶。 */
@@ -353,9 +401,11 @@ export function createRateLimiter({ wsRoot = "", config = null, now = () => Date
     config: cfg,
     enabled: cfg.enabled,
     classify: classifyRoute,
+    isBootstrap: isBootstrapPath,
     preAuth,
     chargeAuthFailure,
     authSuccess,
+    authStateOf,
     check,
     status,
     reset,

@@ -32,6 +32,7 @@ export const PUBLIC_API_ALLOWLIST = Object.freeze([
   "/api/pair/status",      // 扫码进度
   "/api/music/login",      // 网易云扫码登录，仅回环
   "/api/auth/local-token", // 本机一键登录，仅回环
+  "/api/auth/state",       // 认证自检（2026-11-14）：只回 needsToken/locked/retryAfter 三个非敏感值，不验令牌
 ]);
 
 export const SEVERITY_WEIGHT = Object.freeze({ high: 18, medium: 8, low: 3 });
