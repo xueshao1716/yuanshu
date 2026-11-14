@@ -137,15 +137,27 @@ const ADVANCED_PREFIXES = [
 
 const isAdvancedTool = (name) => ADVANCED_TOOLS.has(name) || ADVANCED_PREFIXES.some((re) => re.test(name));
 
+/**
+ * 2026-11-14 修复：协议点名要求调用的工具，永远不裁。
+ * 起因：yuanshu-protocol.mjs 第 6/8 条明确命令「重活派 dsh_task」「同一轮并列派 delegate_task」
+ * 「长任务用 plan_files」，但这几个名字都在 ADVANCED_TOOLS 里 —— 只要 tooling < 0.7 就被整批裁掉。
+ * 结果：系统提示词让模型去调一个工具表里根本不存在的工具，模型只能自己干或回「没有委托工具」。
+ * 派活/进度是核心能力，不是「高级玩具」，所以从裁剪里豁免（体积很小，不影响 11-06 的省 token 初衷）。
+ */
+export const PROTOCOL_KEEP_TOOLS = new Set([
+  "delegate_task", "delegate_fork", "delegate_team", "dsh_task", "plan_files", "job_status",
+]);
+
 /** 按工具档过滤 schema 列表（保留函数名与结构，不认识的工具默认保留）。 */
 export function filterToolsByTier(tools = [], weights) {
   // 2026-11-06：以前只有"基础档"才裁，默认档会把 55 个工具全发出去（每次 1.7 万 token）。
   // 现在反过来：默认裁掉重组；只有分析权重很高（明确要做复杂多步任务）时才全开。
+  // 2026-11-14：协议点名的工具（PROTOCOL_KEEP_TOOLS）不受这条影响。
   const keepAll = Number(weights?.tooling) >= 0.7;
   if (keepAll) return tools;
   const out = tools.filter((t) => {
     const name = t?.function?.name || t?.name || "";
-    return !isAdvancedTool(name);
+    return PROTOCOL_KEEP_TOOLS.has(name) || !isAdvancedTool(name);
   });
   return out.length ? out : tools;
 }
