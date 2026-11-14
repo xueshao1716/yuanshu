@@ -409,6 +409,8 @@ import { claimTask, releaseClaim, renewClaim, listClaims, reapExpired } from "./
 import { postMessage, inboxFor, markRead, recentMessages } from "./engine/agent-mailbox.mjs";
 // 2026-10-27：失败台账（共享"这条路走不通"）
 import { recordFailure, recallFailures, recentFailures, failureLine, failureAttribution } from "./engine/failure-ledger.mjs";
+// 2026-11-14：每轮工具表快照（GET /api/tools/surface；只读诊断面）
+import { handleToolSurfaceRoute } from "./engine/tool-surface-log.mjs";
 import { docChangesLine } from "./engine/doc-diff.mjs";
 // 2026-10-25：后台作业状态机（做完没汇报、坏在哪一步）
 import { collectJobs, summarizeJobs, syncReports, pendingReports, ackReports, autoAckByText, urgentReports } from "./engine/job-state.mjs";
@@ -7075,6 +7077,9 @@ const API_ROUTES = [
       return json(res, 500, { ok: false, error: String(e?.message || e).slice(0, 240) });
     }
   }],
+  // 2026-11-14：每轮工具表快照（只读）——"这一轮到底下发了哪些工具"不用再翻会话原文反推。
+  // 鉴权走 server 统一的 needsAuth（和别的 /api 一样，不在白名单里）。
+  ["GET", "/api/tools/surface", (res, req, url) => handleToolSurfaceRoute(res, req, url, { wsRoot: WS_ROOT, json })],
   // 网易云扫码登录页（仅本机）：二维码服务端自刷新，解决"5 分钟就过期、扫到的是死码"
   ["GET", "/api/music/login", async (res) => {
     try { json(res, 200, await musicLoginView()) } catch (e) { json(res, 500, { ok: false, error: String(e?.message || e).slice(0, 120) }) }

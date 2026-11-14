@@ -73,6 +73,8 @@ import { resolveAuth } from "./dsh-keys.mjs";
 import { runYuanshuToolRound, attachYuanshuCodeTool, toolCallLoopKey } from "./yuanshu-loop.mjs";
 import { withTeamToolContext } from "./team-tool-context.mjs";
 import { readRegions, maxToolTurns, planBatchFactor, filterToolsByTier } from "./brain-regions.mjs";
+// 2026-11-14：每轮工具表快照（诊断盲区：这一轮到底下发了哪些工具）+ 工具硬失败落失败台账。
+import { recordToolSurface, recordToolFailure, TOOL_FAILURE_TURN_CAP } from "./tool-surface-log.mjs";
 
 // 2026-10-31：工具执行器（尤其 cultivation）从 team-tool-context 取母体身份；
 // 统一引擎原先没设置这个上下文，培养工具因此永远"没身份"，她只能理解成不可用。
@@ -355,7 +357,23 @@ async function _unifiedChatCore(model, messages, opts = {}) {
   if (noTools && !history.some(message => message?.role === "system" && String(message.content || "").includes("【无工具模式】"))) {
     history.unshift({ role: "system", content: "【无工具模式】本次对话你没有工具可用（不能读写文件、执行命令、搜索网页）。不要输出 <tool_call>、<function_call> 等任何形式的工具调用——那只是文本，没有系统会执行它们。若任务需要文件内容或命令输出，请直接请用户粘贴相关内容，再基于内容回答。" });
   }
-  const toolDefs = opts.tools === false || noTools ? undefined : slimToolDefs(filterToolsByTier(opts.tools || _unifiedTools, brainNow()));
+  // 2026-11-14：工具档只算一次，并把「这一轮实际下发了哪些工具」落一行快照
+  // （记忆/运行时/工具表.jsonl，按内容哈希去重）——不然下次再被裁，只能翻会话原文反推。
+  const toolWeights = brainNow();
+  const tierValue = toolWeights?.tooling === null || toolWeights?.tooling === undefined ? null : Number(toolWeights.tooling);
+  const rawToolDefs = opts.tools === false || noTools ? undefined : (opts.tools || _unifiedTools);
+  const toolDefs = rawToolDefs === undefined ? undefined : slimToolDefs(filterToolsByTier(rawToolDefs, toolWeights));
+  if (toolDefs !== undefined) {
+    try {
+      recordToolSurface({
+        wsRoot: _wsRoot || _cwd,
+        sessionId: opts.sessionId || opts.executionContext?.sessionId || "",
+        tier: tierValue,
+        allTools: rawToolDefs,
+        sentTools: toolDefs,
+      });
+    } catch { /* 快照失败绝不阻断这一轮 */ }
+  }
   // Refresh our own capability note on continuation; never infer permission from history.
   history = history.filter(message => !(message.role === 'system' && typeof message.content === 'string' && message.content.startsWith('【本轮工具事实】')));
   history.unshift({ role: 'system', content: toolAvailabilityPrompt(toolDefs?.map(tool => tool.function?.name || tool.name) || []) });
@@ -1128,6 +1146,7 @@ export async function handleUnifiedChat(res, entry, message, sessionId, params, 
     return "rejected";
   };
   let collected = "", turnToolFailures = 0; // 本轮工具失败数：工具事件与收轮关系共用
+  let turnFailuresLedgered = 0;              // 本轮已进失败台账的条数（只数真正落账的，封顶用）
   let genomeAdvanced = false;               // 收轮可能走多个 return 分支，基因只推进一次
   // 反模式自动检测（2026-11-09）：本轮工具事件攒在这里，收轮时判三类可机械判定的坑。
   // 只写 记忆/运行时/反模式命中.jsonl；不改回复、不拦动作，任何异常都吞掉。
@@ -1466,6 +1485,15 @@ export async function handleUnifiedChat(res, entry, message, sessionId, params, 
       const failed = out?.isError === true;
       if (failed) turnToolFailures += 1;
       applyEvent(failed ? "tool_fail" : "success", { sessionId: sessionId || "new", intensity: failed ? 1 : 0.7, note: `${name}${failed ? " 失败" : " 成功"}`, source: "tool" });
+      // 2026-11-14：工具硬失败（超时 / verify_check 断言未过 / 执行器异常）也进失败台账。
+      // 以前台账只有 patch / gate / manual 三个写入口，工具超时压根没地方落账——
+      // 于是 10-28 之后台账看着像"没有新失败"，其实天天在超时。单轮封顶防刷屏。
+      if (failed && turnFailuresLedgered < TOOL_FAILURE_TURN_CAP) {
+        try {
+          const noted = recordToolFailure({ wsRoot: _wsRoot || _cwd, name, out, args, sessionId });
+          if (noted?.ok && !noted?.skipped) turnFailuresLedgered += 1;
+        } catch {}
+      }
     } catch {}
     const media = explicitToolMedia(out, { id, name });
     if (media?.url) deliverGatedToolMedia(media, { writer, sink: toolMediaSink });
