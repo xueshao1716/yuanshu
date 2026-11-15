@@ -192,6 +192,8 @@ import { handleDshChat } from "./engine/dsh-chat.mjs";
 
 // ── 模型路由层（拆模块）：429 降级 / 复杂度分类 / Auto 路由 / pro 候选 ──
 import { initModelRouter, isOcGoBlocked, isModelBlocked, markModelBlocked, markOcGoBlocked, ocGoCandidate, pickFallbackDefault, pickFallbackExcluding, isTextCapableModel, resetModelHealth, isAutoModel, routeForAuto, routeProCandidate, flashCandidate, markSticky, ROUTER_AUTO, isAuthErrorStatus } from "./engine/model/router.mjs";
+// ── 辅助模型路由（2026-11-15）：非对话主链的一次性判断走便宜模型（记忆审核/会话摘要/输出质检）──
+import { initAuxModel, callAux, auxStatus } from "./engine/model/auxiliary.mjs";
 // ── 模型能力探测与发现（拆模块）：能力推断 / 真实API探测(24h缓存) / 自定义 provider 发现 ──
 import { modelCapabilities, probeModelCapabilities, discoverCustomModels } from "./engine/model/probe.mjs";
 import { CONFIG } from "./config.mjs";
@@ -1103,9 +1105,24 @@ console.log(`[元枢] 可用模型: ${modelList.length} 个（含 ${Object.keys(
 
 // 模型路由层依赖注入（engine/model-router.mjs）：getter 动态读取，避免值拷贝 stale
 initModelRouter({ getModelList: () => modelList, getDefaultModel: () => defaultModel, configModel: CONFIG.model });
+// 辅助模型路由（2026-11-15）：非对话主链的一次性判断从这里出去。解析/超时/fail-open/记账
+// 都在 engine/model/auxiliary.mjs；本行只注入"模型清单 + 默认模型 + 统一通道"。WS_ROOT 在上方 686 行已注入。
+initAuxModel({
+  getModelList: () => modelList,
+  getDefaultModel: () => defaultModel,
+  chat: (model, messages, opts) => unifiedChat(model, messages, opts),
+  wsRoot: () => WS_ROOT,
+});
 // 2026-08-21 AI 检测员 + 模型通断探测（用户理念：复读引导修正/故障主动探测）
 initOutputInspector({
-  directChat: (m, msg, hist, opts) => directChat(m, msg, hist, opts),
+  // 2026-11-15：质检员是典型辅助判断（规则先命中才跑、失败由规则兜底）→ 走 aux 路由：
+  // 免费 flash 优先 + 独立 2.5s 超时，失败 fail-open 回它原来的检测员模型一次，调用量在
+  // GET /api/model-routing 里可查。输出契约不变（仍是 { verdict, suggestion } 的 JSON）。
+  directChat: (m, msg) => callAux({
+    kind: "output-inspector",
+    messages: [{ role: "user", content: String(msg || "") }],
+    maxTokens: 200, timeoutMs: 2500, json: true, mainModel: m,
+  }),
   getInspectorModel: () => modelList.find((x) => x.provider === "sensenova" && /flash-lite/i.test(x.id)) || null,
 });
 initModelProbe({
@@ -4592,9 +4609,12 @@ initMemoryAutoStore({
   chat: (model, messages) => {
     const m = model || defaultModel;
     if (!m) throw new Error("no-judge-model");
-    // 2026-11-10 P1-5：判断只需要一个 {"store":true/false}，不该背着整套工具定义（几十 KB）。
-    // opts.tools === false 才会真的不带 tools（unified-chat.mjs 的 toolDefs 判定），返回结构不变。
-    return unifiedChat(m, messages, { tools: false });
+    // 2026-11-15：这一步是"辅助判断"——只要一个 {"store":true/false}。改走 aux 路由：
+    // 便宜 flash 优先（本机探测到 agnes-2.5-flash，免费）、独立 5s 超时（上限）、失败 fail-open
+    // 回 m 一次（m 仍是 memory/autostore.json 配的模型，没配就是主模型）。tools:false 语义不变——
+    // aux 的 callOnce 固定下发 { tools: false }，绝不背着几十 KB 工具表做判断。
+    // 调用量与耗时见 GET /api/model-routing；enabled:false 即恢复"直接用 m"。
+    return callAux({ kind: "memory-judge", messages, maxTokens: 300, timeoutMs: 5000, json: true, mainModel: m });
   },
   getModel: () => defaultModel || undefined,
 });
@@ -7651,6 +7671,11 @@ const boardApi = createBoardApi({
       return json(res, 500, { error: String(e?.message || e).slice(0, 200) });
     }
   }]);
+
+  // 2026-11-15：辅助模型路由可见性——当前解析结果（配置>探测>主模型）+ 探测依据 +
+  // 最近 20 次辅助调用统计（次数/平均耗时/失败率/估算 token/模型分布）。
+  // 鉴权走统一的 /api 鉴权（checkAuth），只读，前端暂不做。
+  API_ROUTES.push(["GET", "/api/model-routing", (res) => json(res, 200, auxStatus())]);
 
   // 2026-10-24：记忆召回台账（ORM）——哪几条被注入、哪几条真被用上、谁在提权/沉底
   // 注意路径不能叫 /api/memory/recall：会被 /^\/api\/memory\/([^/]+)$/ 那条路由接走返回 not_found

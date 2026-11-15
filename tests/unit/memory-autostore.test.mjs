@@ -84,14 +84,16 @@ test("模块未注入时 settle 静默无操作", () => {
 });
 
 // 2026-11-10 P1-5：判断一轮只为一个 {"store":true/false}，不该把整套工具定义发给模型。
-// server.mjs 的 chat 回调必须显式带 { tools: false }——不带 opts 时 opts.tools === false 不成立。
-test("接线（静态断言）：判断调用带 { tools: false }，不背工具表", () => {
+// 2026-11-15：这一步改走辅助模型路由（callAux）——aux 的 callOnce 固定下发 { tools: false }。
+// server.mjs 的 chat 回调必须走 callAux 并带 kind，不能退回直接 unifiedChat。
+test("接线（静态断言）：判断调用走 callAux 辅助路由，不背工具表", () => {
   const root = path.join(path.dirname(fileURLToPath(import.meta.url)), "..", "..");
   const src = fs.readFileSync(path.join(root, "server.mjs"), "utf8");
   const start = src.indexOf("initMemoryAutoStore({");
   assert.ok(start > 0, "initMemoryAutoStore 接线还在");
   const block = src.slice(start, src.indexOf("getModel:", start));
-  assert.ok(block.includes("unifiedChat(m, messages, { tools: false })"),
-    "chat 回调必须传 { tools: false }（opts.tools === false 才真的不带工具定义）");
-  assert.ok(!/unifiedChat\(m,\s*messages\)/.test(block), "不能退回不带 opts 的调用");
+  assert.ok(block.includes("callAux("),
+    "chat 回调必须走 callAux（辅助模型路由，内部固定 tools:false）");
+  assert.ok(block.includes('kind: "memory-judge"'), "调用点要带 kind，便于 /api/model-routing 对账");
+  assert.ok(!/unifiedChat\(m,\s*messages/.test(block), "不能退回直接 unifiedChat（不带 opts 会背工具表）");
 });

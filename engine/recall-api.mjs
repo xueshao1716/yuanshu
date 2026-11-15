@@ -7,6 +7,8 @@ import fs from "node:fs";
 import path from "node:path";
 import { json } from "./http-utils.mjs";
 import { getSessionList } from "./session/files.mjs";
+// 2026-11-15：会话一句话摘要属于辅助判断（批量补历史，不参与对话主链）→ 走 aux 路由。
+import { callAux } from "./model/auxiliary.mjs";
 
 let _agentDir = "", _chat = null, _getDefaultModel = null;
 let _index = null; // { files:{id:{mtimeMs,size}}, snippets:[], grams:{} }
@@ -184,11 +186,21 @@ export async function buildSummaries({ count = 5 } = {}) {
     const msgs = entries.filter(e => e?.type === "message" && e.message?.role && e.message?.role !== "system");
     if (msgs.length < 6) { idx.summaries[s.id] = "(过短会话)"; continue; }
     const convo = msgs.slice(0, 20).map(m => `${m.message.role}: ${String(typeof m.message.content === "string" ? m.message.content : JSON.stringify(m.message.content)).replace(/\s+/g, " ").slice(0, 150)}`).join("\n");
-    const r = await _chat(model, [
-      { role: "system", content: "用一句不超过 40 字的中文概括这段对话做了什么（做了什么/产出什么/结论是什么）。只输出这句话。" },
-      { role: "user", content: convo.slice(0, 3500) },
-    ]);
-    if (r && !r.error && r.text) { idx.summaries[s.id] = String(r.text).replace(/\s+/g, " ").trim().slice(0, 60); done++; }
+    // 2026-11-15：一句话概括是典型辅助判断（40 字、不需要推理力）→ aux 路由：便宜 flash 优先、
+    // 独立超时、失败 fail-open 回 model（原摘要模型）一次。通道用本模块注入的 _chat，
+    // 保持 initRecallApi 的既有隔离语义（测试/多实例各用各的通道）。
+    const r = await callAux({
+      kind: "session-summary",
+      messages: [
+        { role: "system", content: "用一句不超过 40 字的中文概括这段对话做了什么（做了什么/产出什么/结论是什么）。只输出这句话。" },
+        { role: "user", content: convo.slice(0, 3500) },
+      ],
+      maxTokens: 80,
+      timeoutMs: 3000,
+      mainModel: model,
+      chat: _chat,
+    });
+    if (r && r.ok && r.text) { idx.summaries[s.id] = String(r.text).replace(/\s+/g, " ").trim().slice(0, 60); done++; }
   }
   idx.summariesAt = new Date().toISOString();
   saveIndex();
