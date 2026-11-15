@@ -237,6 +237,8 @@ export function createRunManager({ store, eventLog, executeChat, instanceId, onS
     const resumableFailure = status === 'failed'
       && !!current.checkpoint?.historySnapshot
       && /截断|超长|timeout|timed out|超时|fetch failed|连接|网络/i.test(failureText)
+    // 天团内容门禁失败明确标成"这次别续跑"：检查点里存的是同一批阶段结果，重放只会得到同一条复核意见。
+    const gateBlocked = status === 'failed' && data?.resumeUnavailable === true
     const updated = store.update(runId, {
       status,
       ...(status === 'completed' ? { completedAt: new Date().toISOString() } : {}),
@@ -246,7 +248,8 @@ export function createRunManager({ store, eventLog, executeChat, instanceId, onS
         pauseReason: data.reason || 'interrupted', pauseMessage: data.message || null,
         resumeAvailable: !!current.checkpoint?.historySnapshot } : {}),
       ...(status === 'failed' ? { resumeAvailable: current.resumeAvailable === true || resumableFailure } : {}),
-      ...(['failed', 'stopped'].includes(status) && (current.checkpoint?.team?.launchId || current.checkpoint?.team?.general) ? { resumeAvailable: true } : {}),
+      ...(['failed', 'stopped'].includes(status) && !gateBlocked && (current.checkpoint?.team?.launchId || current.checkpoint?.team?.general) ? { resumeAvailable: true } : {}),
+      ...(gateBlocked ? { resumeAvailable: false } : {}),
     })
     append(updated, status, data)
     const observability = deriveRunObservability(updated, eventLog.readAfter(runId, 0))
@@ -309,7 +312,8 @@ export function createRunManager({ store, eventLog, executeChat, instanceId, onS
       if (control.stopRequested || current?.status === 'stopping') {
         finish(running.id, 'stopped', { reason: 'user_stop' })
       } else {
-        finish(running.id, 'failed', { message: String(error?.message || error) })
+        finish(running.id, 'failed', { message: String(error?.message || error),
+          resumeUnavailable: error?.resumeUnavailable === true })
       }
     } finally {
       identities.revoke(control)

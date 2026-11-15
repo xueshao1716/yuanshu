@@ -111,6 +111,28 @@ test('HTTP corrupted proposal cannot retain a previously accepted status', async
   assert.equal((await f.get()).body.acceptance.status, 'unknown');
 });
 
+test('latest general run snapshot is returned instead of a stale video run', async t => {
+  const f = await fixture(t, { stage: false });
+  const generalFile = path.join(f.wsRoot, '工程/多AI角色扮演系统/team-run-general.json');
+  fs.mkdirSync(path.dirname(generalFile), { recursive: true });
+  fs.writeFileSync(generalFile, JSON.stringify({ workflow: 'team-general', runId: 'general-run', sessionId: 'g-session',
+    task: '写一条带货脚本', status: 'failed', createdAt: '2026-11-15T08:00:00.000Z' }));
+  const read = () => module.createTeamRunRead({ wsRoot: f.wsRoot, json: (_res, status, body) => ({ status, ...body }),
+    getLaunch: () => f.launch })({});
+  const latest = read();
+  assert.equal(latest.status, 200);
+  assert.equal(latest.run?.runId, 'general-run');
+  assert.equal(latest.snapshotKind, 'current');
+  // A newer video run snapshot must still win; general is an overlay, not a takeover.
+  fs.writeFileSync(f.snapshot, JSON.stringify({ runId: 'video-new', launchId: 'l2', createdAt: '2026-11-15T09:00:00.000Z' }));
+  const video = read();
+  assert.equal(video.run?.runId, 'video-new');
+  assert.equal(video.snapshotKind, 'history');
+  // A corrupt general overlay must not take the read path down.
+  fs.writeFileSync(generalFile, '[]');
+  assert.equal(read().run?.runId, 'video-new');
+});
+
 test('HTTP missing snapshot still exposes launch state', async t => {
   const f = await fixture(t, { stage: false });
   const result = await f.get();

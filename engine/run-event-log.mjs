@@ -5,6 +5,10 @@ import { sanitizeText } from './sanitize.mjs'
 import { withoutLegacyReferenceMedia } from './legacy-media-events.mjs'
 
 const SENSITIVE_KEY = /^(authorization|api[_-]?key|token|password|secret)$/i
+// 内容摘要（sha256 hex）不是凭据：天团交付靠 artifactDigest/evidenceDigest 把事件与磁盘
+// 核验记录绑在一起。若按长 hex 一并替换成占位符，交付视图就只能 fail closed 成 unverified。
+const DIGEST_KEY = /^(artifactDigest|evidenceDigest)$/
+const DIGEST_VALUE = /^[0-9a-f]{64}$/i
 
 function sanitizeEventData(type, data, omitLarge = true) {
   if (!data || typeof data !== 'object') return typeof data === 'string' ? sanitizeText(data) : data
@@ -12,6 +16,9 @@ function sanitizeEventData(type, data, omitLarge = true) {
   for (const [key, value] of Object.entries(data)) {
     if (SENSITIVE_KEY.test(key)) {
       clean[key] = '[REDACTED]'
+    } else if (DIGEST_KEY.test(key) && typeof value === 'string' && DIGEST_VALUE.test(value)) {
+      // 只放行确认为 64 位 hex 的内容摘要，其余仍走脱敏。
+      clean[key] = value
     } else if (type === 'image' && key === 'data' && typeof value === 'string' && value.length > 8_192) {
       if (omitLarge) {
         clean.omitted = true

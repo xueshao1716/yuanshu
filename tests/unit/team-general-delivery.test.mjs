@@ -5,6 +5,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { createPendingApi } from '../../engine/pending-api.mjs';
 import { createRunApi } from '../../engine/run-api.mjs';
+import { createRunEventLog } from '../../engine/run-event-log.mjs';
 import { newRecoveryPolicy } from '../../engine/run-recovery.mjs';
 const mod = await import('../../engine/team-general-delivery.mjs').catch(e => { if (e.code === 'ERR_MODULE_NOT_FOUND') return {}; throw e; });
 async function fixture(t) {
@@ -119,6 +120,25 @@ test('linked evidence and unbound paths fail closed', async t => {
   assert.deepEqual(mod.readGeneralTeamDeliveries({ ...f, events: [{ type: 'artifact_created', data: { delivery: { ...f.delivery, draft: '工程/other.md' } } }] }), []);
   fs.linkSync(path.join(f.wsRoot, f.delivery.evidencePath), path.join(f.wsRoot, 'evidence-link'));
   assert.equal(f.read().decision, 'unverified');
+});
+
+test('delivery digests survive the run event log and keep the observation verified', async t => {
+  const f = await fixture(t);
+  const eventsRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'yuanshu-general-events-'));
+  t.after(() => fs.rmSync(eventsRoot, { recursive: true, force: true }));
+  const log = createRunEventLog({ rootDir: eventsRoot });
+  try {
+    log.append({ runId: f.run.id, sessionId: f.run.sessionId, type: 'artifact_created',
+      data: { path: f.delivery.draft, kind: 'document', status: f.delivery.status,
+        artifactDigest: f.delivery.artifactDigest, delivery: f.delivery } });
+    const events = log.readAfter(f.run.id, 0);
+    const stored = events[0].data.delivery;
+    assert.equal(stored.artifactDigest, f.delivery.artifactDigest, 'artifact digest must not be redacted');
+    assert.equal(stored.evidenceDigest, f.delivery.evidenceDigest, 'evidence digest must not be redacted');
+    const view = mod.readGeneralTeamDeliveries({ wsRoot: f.wsRoot, run: f.run, events })[0];
+    assert.equal(view.decision, 'awaiting_acceptance', 'a pending human acceptance must stay observable');
+    assert.equal(view.acceptance.status, 'pending');
+  } finally { log.close(); }
 });
 
 test('chat status exposes acceptance without approving or claiming media validation', () => {

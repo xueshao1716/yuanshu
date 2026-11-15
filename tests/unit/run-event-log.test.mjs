@@ -140,6 +140,22 @@ test('事件账本脱敏凭据并省略大段图片 base64', () => {
   } finally { log.close(); cleanup() }
 })
 
+test('内容摘要（artifactDigest/evidenceDigest）不被脱敏，其他长 hex 仍按凭据处理', () => {
+  const { log, cleanup } = fixture()
+  try {
+    const digest = 'ab'.repeat(32)
+    log.append({
+      runId: 'run-1', sessionId: 'session-1', type: 'artifact_created',
+      data: { artifactDigest: digest, evidenceDigest: digest, otherDigest: digest, note: 'token=' + digest },
+    })
+    const data = log.readAfter('run-1', 0)[0].data
+    assert.equal(data.artifactDigest, digest)
+    assert.equal(data.evidenceDigest, digest)
+    assert.notEqual(data.otherDigest, digest, 'only the whitelisted digest keys are exempt')
+    assert.ok(!data.note.includes(digest), 'digest values elsewhere are still redacted')
+  } finally { log.close(); cleanup() }
+})
+
 test('单个 subscriber 抛错不影响事件落盘和其他 subscriber', () => {
   const { log, cleanup } = fixture()
   try {
