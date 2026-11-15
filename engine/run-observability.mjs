@@ -64,6 +64,9 @@ export function classifyFailure(message, status = 'failed') {
   const text = String(message || '').toLowerCase()
   if (!text) return status === 'failed' ? 'unknown' : null
   if (/timeout|timed out|etimedout|超时|504/.test(text)) return 'timeout'
+  // 2026-11-15：交付门禁拒绝要单独归类。此前 "主代理确认" 这类复核文案会被 /确认/ 误判成 approval，
+  // 看上去像"等人审批"，实际是内容没过门禁。把 delivery 提到 approval 之前、且只认门禁专有措辞。
+  if (/复核未通过|复核不通过|交付门禁|门禁未过|未通过复核|正文复核|delivery.?gate|review.?failed/.test(text)) return 'delivery'
   if (/approval|permission|sandbox|确认|权限|审批/.test(text)) return 'approval'
   if (/tool|工具/.test(text)) return 'tool'
   if (/401|403|429|quota|rate.?limit|api.?key|鉴权|额度|密钥/.test(text)) return 'provider'
