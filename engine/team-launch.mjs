@@ -4,6 +4,17 @@ import { spawn } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import { reviewStoragePath, reviewAtomicWrite } from './review-file-safety.mjs';
 import { ensureBoard } from './team-board.mjs';
+import { seedBoardStages } from './team-subagents.mjs';
+
+// 天团「真跑」流水线的阶段任务（2026-11-15）：建团队时由主控预建，成员（/api/team/complete 派出的
+// 子代理）自己在工具循环里 list → claim → complete，主控不代劳。subject 前缀就是成员角色名。
+export const LAUNCH_BOARD_TASKS = Object.freeze([
+  { key: 'ANALYST', subject: 'ANALYST：任务解构', detail: '拆解任务、判断复杂度与交付物，产出 TaskSpec。' },
+  { key: 'VIDEO', subject: 'VIDEO：视频脚本与分镜', detail: '写视频脚本、分镜、镜头提示词与一致性约束。' },
+  { key: 'GUARDIAN', subject: 'GUARDIAN：约束注入与合规审查', detail: '注入任务约束，列出合规风险、红线与检查清单。' },
+  { key: 'ARBIT', subject: 'ARBIT：冲突裁决与终稿', detail: '裁决冲突并合成最终脚本；没有冲突也要给出终稿。' },
+  { key: 'REVIEWER', subject: 'REVIEWER：逐条质量校验', detail: '按清单逐条核对，给出问题、严重级别与修订建议。' },
+]);
 
 // The launcher owns process admission; durable checkpoints own stage replay.
 export function createTeamLauncher({ wsRoot, repoRoot, port, token, spawnProcess = spawn }) {
@@ -68,10 +79,17 @@ export function createTeamLauncher({ wsRoot, repoRoot, port, token, spawnProcess
       if (claimed) { try { release(); } catch {} }
       return { status: 500, body: { error: '无法保存启动状态，未启动任务' } };
     }
-    // 建团队时就落一张空看板（幂等：续跑复用同一 teamId，已有任务原样保留）。
+    // 建团队时就落一张看板并预建本趟阶段任务（幂等：续跑复用同一 teamId，已有任务原样保留，
+    // 只补缺失的 subject，不会冲掉成员已认领的活）。
     // 失败不阻断启动——看板是成员之间的协作提示层，写不进盘不该把天团卡死；只把原因留在状态里。
-    try { ensureBoard(state.teamId, { wsRoot }); }
-    catch (e) {
+    try {
+      ensureBoard(state.teamId, { wsRoot });
+      const seeded = seedBoardStages(state.teamId, LAUNCH_BOARD_TASKS, { wsRoot });
+      if (seeded?.error) {
+        state.note = `团队看板预建任务未完成：${String(seeded.error).slice(0, 80)}`;
+        try { persist(state); } catch {}
+      }
+    } catch (e) {
       state.note = `团队看板未能创建：${String(e?.message || e).slice(0, 80)}`;
       try { persist(state); } catch {}
     }

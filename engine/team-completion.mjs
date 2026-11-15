@@ -34,6 +34,11 @@ export function createTeamCompletion({ launcher, wsRoot = '' }) {
     const r = await spawnSubagent({ task: message, model: { provider, id: modelId },
       profile: 'team', outputFormat: 'text', timeoutMs: 180000, signal,
       role: /REVIEW|GUARD|ARBIT/.test(String(role)) ? 'reviewer' : 'planner',
+      // 天团成员身份：看板归属 + claim 的 owner。role 可能是「ARBIT裁决」这类阶段名，
+      // 取首个大写词（ANALYST / VIDEO / ARBIT …）与预建任务 subject 前缀对齐。
+      teamId: host.teamId || body?.launchId || '',
+      member: (String(role || '').toUpperCase().match(/^[A-Z]+/) || [''])[0] || undefined,
+      wsRoot,
       runId: host.runId, sessionId: host.sessionId,
       onEvent: (type, data) => host.onEvent?.(type, { ...data, agent: String(role || data.role).slice(0, 100) }),
     });
