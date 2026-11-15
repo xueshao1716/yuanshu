@@ -87,6 +87,20 @@ export function createResearchExecutor({ roots = [], webSearch = null } = {}) {
     const root = usable.map(r => path.resolve(r)).find(r => abs.toLowerCase().startsWith(r.toLowerCase()));
     return root ? path.relative(root, abs).replace(/\\/g, "/") || "." : abs;
   };
+  // 2026-11-15：同一个相对路径在多个根下都存在时（例如工作区有 engine/ 而代码仓也有 engine/），
+  // 以前只返回第一个根的内容，模型会以为"目录里只有这些文件"，据此下结论。
+  // 现在明确告出"用的是哪个根"以及"别处还有同名的"，让它能自己换根再查。
+  const rootHint = (abs, requested) => {
+    const list = usable.map(r => path.resolve(r));
+    const raw = String(requested || "").trim() || ".";
+    if (path.isAbsolute(raw)) return `（绝对路径：${abs}）`;
+    const hits = list.map(r => path.resolve(r, raw)).filter(c => {
+      try { return fs.existsSync(c); } catch { return false; }
+    });
+    if (hits.length <= 1) return `（实际路径：${abs}）`;
+    const others = hits.filter(c => c.toLowerCase() !== abs.toLowerCase()).map(c => c);
+    return `（实际路径：${abs}；注意：另一处也有同名路径 ${others.join("、")}，若内容不符就用绝对路径再查一次）`;
+  };
   return async function executeResearchTool(name, args = {}) {
     try {
       usable = [...new Set((typeof roots === "function" ? roots() : roots) || [])].filter(Boolean);
@@ -108,7 +122,7 @@ export function createResearchExecutor({ roots = [], webSearch = null } = {}) {
         if (!p || !fs.existsSync(p) || !fs.statSync(p).isDirectory()) return fail(`目录不可读：${args.path || "."}`);
         const entries = fs.readdirSync(p, { withFileTypes: true }).filter(e => !isSensitivePath(path.join(p, e.name)));
         const shown = entries.slice(0, MAX_LIST).map(e => e.isDirectory() ? `${e.name}/` : e.name);
-        return { text: clip(`${rel(p)}（${entries.length} 项）\n${shown.join("\n")}${entries.length > MAX_LIST ? "\n…" : ""}`) };
+        return { text: clip(`${rel(p)}（${entries.length} 项）${rootHint(p, args.path)}\n${shown.join("\n")}${entries.length > MAX_LIST ? "\n…" : ""}`) };
       }
       if (name === "grep") {
         let re;
@@ -132,7 +146,8 @@ export function createResearchExecutor({ roots = [], webSearch = null } = {}) {
           }
         }
         const tail = hits.length >= MAX_GREP_HITS ? `\n…（命中超过 ${MAX_GREP_HITS} 条，请缩小范围）` : budget.files >= MAX_GREP_FILES ? `\n…（扫描到 ${MAX_GREP_FILES} 个文件上限，请缩小目录）` : "";
-        return { text: clip(hits.length ? hits.join("\n") + tail : `无匹配（扫描 ${budget.files} 个文件）`) };
+        const head = `范围：${rel(start)} ${rootHint(start, args.path)}\n`;
+        return { text: clip(head + (hits.length ? hits.join("\n") + tail : `无匹配（扫描 ${budget.files} 个文件）`)) };
       }
       if (name === "web_search") {
         if (typeof webSearch !== "function") return fail("联网搜索未接入");
