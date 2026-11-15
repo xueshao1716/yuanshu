@@ -264,6 +264,8 @@ import { deliverSubagentReceipts } from "./engine/subagent-receipts.mjs";
 import { DELEGATE_TEAM_TOOL, executeTeam, TEAM_DELIVERY_RULES } from './engine/team-subagents.mjs';
 import { withTeamToolContext } from './engine/team-tool-context.mjs';
 import { createTeamCompletion } from './engine/team-completion.mjs';
+// 2026-11-15：团队共享任务看板——成员之间声明「这块我占了」「这块依赖你」（一个工具带 6 个动作）。
+import { TEAM_BOARD_TOOL, executeTeamBoard } from './engine/team-board.mjs';
 import { createGeneralTeamChat } from './engine/team-general-chat.mjs';
 import { initAsrApi, handleAsr } from "./engine/asr-api.mjs";
 import { gardenMemory, scanMemoryHealth, markReviewed, unmarkReviewed, dedupeLog, reviewedKeys, pruneLogBackups } from "./engine/memory/gardener.mjs";
@@ -1505,6 +1507,8 @@ const UNIFIED_TOOLS = [
   DELEGATE_TASK_TOOL,
   DELEGATE_FORK_TOOL,
   DELEGATE_TEAM_TOOL,
+  // 2026-11-15：团队共享看板。一个工具（6 个动作）而不是六个工具，避免工具表膨胀。
+  TEAM_BOARD_TOOL,
   FIX_PROBLEM_TOOL,
   NOTIFY_USER_TOOL,
   // 2026-11-07：值班程序的四个工具（watch_create/watch_list/watch_pause/watch_delete）
@@ -1779,6 +1783,8 @@ const extraToolExecutors = {
     // 2026-11-07：看门狗事件只读查询（工作区固定，直接注入）
     ...createWatchdogReadExecutors({ wsRoot: WS_ROOT }),
     delegate_team: (args, ctx) => executeTeam(args, { ...ctx, wsRoot: WS_ROOT, model: ctx?.model || defaultModel }),
+    // 2026-11-15：团队共享看板。teamId 缺省用当前运行编号（与 delegate_team 注入成员提示时同一个编号）。
+    team_board: (args, ctx) => executeTeamBoard(args, { wsRoot: CONFIG.cwd, teamId: ctx?.runId }),
     // 2026-10-08 MCP 外部工具转发：mcp_ 前缀的工具调用路由到对应 MCP server
     ...Object.fromEntries(
       mcpManager.allTools().map(t => [`mcp_${t.exposedName}`, (args) => mcpManager.callTool(t.exposedName, args)])
@@ -6762,7 +6768,7 @@ const API_ROUTES = [
     const onClose = () => { if (!res.writableEnded) controller.abort(); };
     res.once('close', onClose);
     try {
-      const r = await createTeamCompletion({ launcher: teamLauncher })(body, controller.signal);
+      const r = await createTeamCompletion({ launcher: teamLauncher, wsRoot: CONFIG.cwd })(body, controller.signal);
       return json(res, 200, r);
     } catch (e) { if (!res.destroyed) return json(res, e.statusCode || 500, { error: String(e && e.message || e).slice(0, 120) }); }
     finally { res.off('close', onClose); }

@@ -3,6 +3,7 @@ import path from 'node:path';
 import { spawn } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import { reviewStoragePath, reviewAtomicWrite } from './review-file-safety.mjs';
+import { ensureBoard } from './team-board.mjs';
 
 // The launcher owns process admission; durable checkpoints own stage replay.
 export function createTeamLauncher({ wsRoot, repoRoot, port, token, spawnProcess = spawn }) {
@@ -47,6 +48,8 @@ export function createTeamLauncher({ wsRoot, repoRoot, port, token, spawnProcess
   async function start(task, checkpointId = null, binding = {}, onEvent = null) {
     if (typeof task !== 'string' || !task.trim() || task.length > 300 || /[\x00-\x1f]/.test(task)) return { status: 400, body: { error: '任务须为 1–300 字的单行文本' } };
     const state = { id: randomUUID(), checkpointId, binding, status: 'launching', task: task.trim(), at: new Date().toISOString(), ownerPid: process.pid };
+    // 团队看板编号：续跑沿用检查点编号，这样恢复后还是同一块板，不会把成员已经认领的任务丢掉。
+    state.teamId = typeof checkpointId === 'string' && checkpointId ? checkpointId : state.id;
     let claimed = false;
     const release = () => {
       if (read(claimPath())?.id !== state.id) throw new Error('claim owner changed');
@@ -64,6 +67,13 @@ export function createTeamLauncher({ wsRoot, repoRoot, port, token, spawnProcess
     catch {
       if (claimed) { try { release(); } catch {} }
       return { status: 500, body: { error: '无法保存启动状态，未启动任务' } };
+    }
+    // 建团队时就落一张空看板（幂等：续跑复用同一 teamId，已有任务原样保留）。
+    // 失败不阻断启动——看板是成员之间的协作提示层，写不进盘不该把天团卡死；只把原因留在状态里。
+    try { ensureBoard(state.teamId, { wsRoot }); }
+    catch (e) {
+      state.note = `团队看板未能创建：${String(e?.message || e).slice(0, 80)}`;
+      try { persist(state); } catch {}
     }
     return new Promise(resolve => {
       let child, settled = false, spawned = false, finished = false;
@@ -108,7 +118,7 @@ export function createTeamLauncher({ wsRoot, repoRoot, port, token, spawnProcess
           if (finished) return;
           spawned = true;
           liveChildren.add(state.id);
-          observers.set(state.id, { ...binding, onEvent });
+          observers.set(state.id, { ...binding, teamId: state.teamId, onEvent });
           Object.assign(state, { status: 'running', pid: child.pid });
           try { persist(state); child.unref(); respond(200); }
           catch { state.note = '进程已启动但状态保存失败，请勿重复启动'; respond(500); }

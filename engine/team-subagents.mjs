@@ -6,6 +6,7 @@ import { stageGeneralTeamDelivery } from './team-general-delivery.mjs';
 import { forkSeedFromHistory } from './subagent-fork.mjs';
 import { inspectTimedSpeech, TEAM_REVIEW_RULES } from './team-delivery-checks.mjs';
 import { parseTeamReview, revisionItems, TEAM_REVISION_RULES, TEAM_REVISION_REVIEW_RULES } from './team-revision.mjs';
+import { boardSummary, formatBoardContext, formatBoardReminder } from './team-board.mjs';
 
 export const TEAM_DELIVERY_RULES = `天团必须通过 delegate_team 或真实子任务工具执行，不能用 IDEA/CHALLENGE/EXEC 标题冒充独立调用。简单问题直接回答。
 交付正文必须回应用户原始目标，区分已知事实、假设和待核实项；建议要有选择依据、具体实施材料、成本约束和验证办法。
@@ -40,6 +41,13 @@ export async function executeTeam(args = {}, ctx = {}) {
   const save = () => ctx.saveTeamState?.(structuredClone(state));
   const seed = forkSeedFromHistory(ctx.history || []).messages;
   const abort = () => { if (ctx.signal?.aborted) throw new Error('天团已取消'); };
+  // 团队共享看板（2026-11-15）：成员之间"这块我占了 / 这块依赖你"的清单。
+  // 派活前只读一次快照，作为共享上下文注进每个成员的提示；空板或读不出来就当没有——
+  // 看板是协作提示层，不能因为它读失败把整趟天团拖停。
+  const boardTeamId = String(ctx.teamId || ctx.runId || '');
+  let boardSnapshot = null;
+  try { boardSnapshot = boardSummary(boardTeamId, { wsRoot: ctx.wsRoot }); } catch { boardSnapshot = null; }
+  const boardContext = boardSnapshot ? formatBoardContext(boardSnapshot) : '';
   const stage = async (label, role, instruction, references = prior) => {
     abort();
     const n = index++;
@@ -50,7 +58,7 @@ export async function executeTeam(args = {}, ctx = {}) {
       return saved.result;
     }
     state.inFlight = label; save();
-    const r = await spawnSubagent({ task: `${label}：${instruction}\n\n${TEAM_DELIVERY_RULES}\n\n你是内部协作中的一个步骤，只完成上面分派的阶段；只有 EXEC 写完整交付，其余阶段不要提前写成稿。禁止再派子代理。\n\n用户原始任务：${task}`, role,
+    const r = await spawnSubagent({ task: `${label}：${instruction}\n\n${TEAM_DELIVERY_RULES}\n\n你是内部协作中的一个步骤，只完成上面分派的阶段；只有 EXEC 写完整交付，其余阶段不要提前写成稿。禁止再派子代理。\n\n用户原始任务：${task}${boardContext ? `\n\n${boardContext}` : ''}`, role,
       // Prose does not need a JSON envelope. REVIEW has its own strict schema below.
       profile: 'team', outputFormat: 'text', reasoningEffort: label === 'REVIEW' || label.startsWith('EXEC') ? 'medium' : 'low',
       model: ctx.model, timeoutMs: ctx.timeoutMs || (label.startsWith('EXEC') ? 300000 : label === 'REVIEW' ? 240000 : 180000),
@@ -95,7 +103,7 @@ export async function executeTeam(args = {}, ctx = {}) {
     state.artifactDigest = delivery.artifactDigest;
     ctx.onEvent?.('artifact_created', { path: artifact, kind: 'document', status: delivery.status, artifactDigest: delivery.artifactDigest, delivery });
     const note = delivery.status === 'awaiting_acceptance' ? '已进入工作台「改动验收」，等待人工验收。' : '草稿已保存，但未成功进入验收队列，请检查待审存储后人工处理。';
-    state.result = { isError: false, text: `${draft}\n\n[下载本次草稿](/api/ws/file?path=${encodeURIComponent(artifact)})\n\n已完成 ${children.length} 次子任务调用及模型复核；仅验证文本流程，不代表真实图片或视频实测。${note}`, artifact, children, delivery };
+    state.result = { isError: false, text: `${draft}\n\n[下载本次草稿](/api/ws/file?path=${encodeURIComponent(artifact)})\n\n已完成 ${children.length} 次子任务调用及模型复核；仅验证文本流程，不代表真实图片或视频实测。${note}${boardSnapshot ? formatBoardReminder(boardSnapshot) : ''}`, artifact, children, delivery };
     save();
     return state.result;
   } catch (e) {
