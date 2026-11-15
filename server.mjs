@@ -201,7 +201,8 @@ import { CONFIG } from "./config.mjs";
 import { createGateway } from "./engine/gateway.mjs";
 import { sseWrite, createSseWriter, startSseHeartbeat } from "./engine/sse.mjs";
 import { json, readBody } from "./engine/http-utils.mjs";
-import { observeHttpRequest, respondHttpError } from "./engine/http-lifecycle.mjs";
+import { observeHttpRequest, respondHttpError, appendSlowLog } from "./engine/http-lifecycle.mjs";
+import { watchAgentIdle, DEFAULT_CHAT_IDLE_MS } from "./engine/agent-idle-watchdog.mjs";
 // 2026-11-13 AUTH-003：短时媒体票据（长期令牌不再出现在 <img>/<audio>/<video>/SSE 的 URL 里）
 import { configureTicketKey, issueTicket, verifyTicket, ticketScopeForPath, isTicketScopeAllowed, ALLOWED_TICKET_SCOPE_PREFIXES } from "./engine/media-ticket.mjs";
 import { mediaObservations } from "./engine/media/observations.mjs";
@@ -3454,9 +3455,17 @@ async function handleChat(req, res, body) {
           );
         }
       } catch (e) { console.log(`[subagent] 回执注入失败(不阻断): ${String(e?.message || e).slice(0, 80)}`); }
+      const stopIdleWatch = watchAgentIdle(agent, {
+        ms: Number(process.env.YUANSHU_CHAT_IDLE_MS) || DEFAULT_CHAT_IDLE_MS,
+        onIdle: ms => {
+          const text = `模型 ${Math.round(ms / 1000)} 秒没有任何新动静，已中止这一轮（已有内容保留，可以让她继续）。`;
+          console.log(`[元枢] 会话 ${sessionId || "new"} 空闲超时，已 abort`);
+          try { writer.push("note", { text }); busEmit("note", { text }); } catch {}
+        },
+      });
       try {
         await withTeamToolContext(piTeamToolContext, () => withSamplingParams(agent, body.params, () => agent.prompt(promptMsg, { images })));
-      } finally { if (steering) steering.sink = null; }
+      } finally { stopIdleWatch(); if (steering) steering.sink = null; }
     } finally {
       // 处理完恢复原模型（避免把会话默认模型悄悄改掉）
       if (visionSwitched && origAgentModel) {
@@ -9136,11 +9145,7 @@ setInterval(rebuildRecallQuietly, RECALL_REBUILD_MS).unref?.();
 
 // 慢请求留证据（>1.5s，不含事件流）：和 事件循环停顿.jsonl 对时间戳，就能看出卡的那一刻是谁在占线。
 function recordSlowRequest(entry) {
-  try {
-    const file = path.join(WS_ROOT, "记忆", "运行时", "慢请求.jsonl");
-    try { if (fs.statSync(file).size > 2 * 1024 * 1024) return; } catch {}
-    fs.appendFileSync(file, JSON.stringify(entry) + "\n");
-  } catch {}
+  appendSlowLog(path.join(WS_ROOT, "记忆", "运行时", "慢请求.jsonl"), entry);
 }
 
 // ── 事件循环停顿监测（2026-09-19）────────────────────────────────────────────

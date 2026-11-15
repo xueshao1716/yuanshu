@@ -1,4 +1,13 @@
 import { json } from './http-utils.mjs';
+import fs from 'node:fs';
+
+/** 慢请求日志：超过上限就把旧文件挪到 .1 再从头记。之前是超限直接 return，11-05 起静默停记，晨报还当"没有慢请求"。 */
+export function appendSlowLog(file, entry, maxBytes = 2 * 1024 * 1024) {
+  try {
+    try { if (fs.statSync(file).size > maxBytes) fs.renameSync(file, file.replace(/\.jsonl$/, '.1.jsonl')); } catch {}
+    fs.appendFileSync(file, JSON.stringify(entry) + '\n');
+  } catch {}
+}
 
 /** Observe the transport, not the lifetime of the route handler's promise. */
 export function observeHttpRequest(req, res, requestId, log = console.log, { slowMs = 0, onSlow = null } = {}) {

@@ -31,3 +31,20 @@ test('fast requests and event streams are not reported', async () => {
   const stream = await run((_req, res) => { res.setHeader('content-type', 'text/event-stream'); setTimeout(() => res.end('x'), 60); }, { slowMs: 30 });
   assert.equal(stream.length, 0);
 });
+
+test('appendSlowLog 超过上限时轮转到 .1，而不是静默停记', async () => {
+  const fs = await import('node:fs');
+  const os = await import('node:os');
+  const path = await import('node:path');
+  const { appendSlowLog } = await import('../../engine/http-lifecycle.mjs');
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'slowlog-'));
+  const file = path.join(dir, '慢请求.jsonl');
+  try {
+    fs.writeFileSync(file, 'x'.repeat(200) + '\n');
+    appendSlowLog(file, { path: '/api/new' }, 100);
+    assert.deepEqual(fs.readFileSync(file, 'utf8').trim().split('\n').map(l => JSON.parse(l).path), ['/api/new']);
+    assert.ok(fs.readFileSync(file.replace(/\.jsonl$/, '.1.jsonl'), 'utf8').startsWith('xxx'));
+    appendSlowLog(file, { path: '/api/two' }, 100);
+    assert.equal(fs.readFileSync(file, 'utf8').trim().split('\n').length, 2);
+  } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+});
