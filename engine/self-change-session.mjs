@@ -16,6 +16,7 @@ import path from "node:path";
 import { verifyChange } from "./self-change-verify.mjs";
 import { admit as admitChange, recordVerification } from "./self-change-admit.mjs";
 import { rollbackChange } from "./self-change-apply.mjs";
+import { recordGateFailure } from "./failure-ledger.mjs";
 
 const run = (cmd, args, cwd) => new Promise((resolve) => {
   // 服务以 LocalSystem 跑，仓库属主是当前用户，git 会拒绝操作（dubious ownership）
@@ -158,6 +159,18 @@ export async function finishSession({
   const filesetHash = String(verdict?.filesetHash || "");
   if (!verdict?.ok) {
     const failedStep = firstFailedStep(verdict);
+    // 2026-11-15：自证失败也要进失败台账。
+    // 此前这里直接 return，recordGateFailure 永远走不到，于是"自证挂了"在失败统计里是隐形的
+    // （工具失败、准入失败都有账，唯独自证失败没有）。记账本身失败不能影响返回值，故 try 包住。
+    try {
+      recordGateFailure({
+        wsRoot,
+        stage: "verify",
+        area: `self-change:verify:${failedStep || "unknown"}`,
+        reason: String(verdict?.reason || verdict?.errors?.[0] || "自证未过").slice(0, 300),
+        files,
+      });
+    } catch {}
     return {
       ok: false, stage: "verify", verdict, filesetHash, failedStep,
       errors: Array.isArray(verdict?.errors) && verdict.errors.length ? verdict.errors : [verdict?.reason || "自证未过"],
