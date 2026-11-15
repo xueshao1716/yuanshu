@@ -176,7 +176,7 @@ import { markOutreachReplied } from "./engine/proactive-journal.mjs";
 import { describeFailure } from "./engine/failure-note.mjs";
 import { distillTurn, distillCandidates } from "./engine/memory/distill.mjs";
 import { runForgetCycle } from "./engine/memory/forget.mjs";
-import { recallMemories, recallPrompt } from "./engine/memory/recall.mjs";
+import { recallMemories, recallPrompt, compareRecall, initRecallEmbedding } from "./engine/memory/recall.mjs";
 import { readUrl } from "./engine/read-url.mjs";
 import { runAndSave, loadResults, saveResults } from "./engine/learning/case-runner.mjs";
 import { appendEvent as appendEvoEvent, readEvents as readEvoEvents, summarizeCapability as summarizeEvoCapability, createProposal as createEvoProposal, readProposals as readEvoProposals, recordGateVerdict } from "./engine/evolution/index.mjs";
@@ -538,9 +538,14 @@ const memoryVectors = await import("./engine/vector-store.mjs");
 memoryVectors.initVectorStore(() => WS_ROOT);
 const memoryEmbedding = await import("./engine/embedding.mjs");
 memoryEmbedding.initEmbedding(() => WS_ROOT);
+// 2026-11-15：把 embedding 注入召回（engine/memory/recall.mjs 自己绝不偷偷发请求——测试/脚本不注入即降级）。
+// 只注入"算 query 向量"这一个能力；算出来的向量与库里 memory_vectors 的 model 必须一致（见 resolveEmbedModel）。
+initRecallEmbedding(memoryEmbedding.embed);
 
 // 写入管线（伙伴定稿）：摘要条目 → 向量化拿 vector_id → 多维表格建行绑定。embedding 失败降级：行照建 vector_id 空。
 // 顺序：先建行（校验失败此处抛，零副作用）→ 再向量化 → 成功后回写绑定，杜绝孤儿向量。
+// 2026-11-15：向量同时写一份到 memory_vectors（混合召回的 BLOB 层）；vector_id/vectors.json 保持旧口径不动，
+// 双写只是让召回能读到，不破坏任何已有调用方。
 async function memoryIngest(body) {
   const item = memoryDb.addMemory({ ...body, vector_id: null });
   let vector_id = null, embedNote = "";
@@ -548,6 +553,10 @@ async function memoryIngest(body) {
     const vec = await memoryEmbedding.embed(body?.summary || "");
     vector_id = memoryVectors.add(null, vec, { memory_type: body?.memory_type || "fact", user_id: body?.user_id || "owner" });
     memoryDb.updateMemory(item.memory_id, { vector_id });
+    try {
+      const model = memoryEmbedding.configInfo()?.model || "unknown";
+      memoryDb.setMemoryVector(item.memory_id, { model, vec });
+    } catch (e) { embedNote = `向量层写入失败：${String(e.message || e).slice(0, 80)}`; }
   } catch (e) { embedNote = String(e.message || e).slice(0, 100); }
   return { item: memoryDb.getMemory(item.memory_id), vector_id, embedNote };
 }
@@ -5016,12 +5025,26 @@ const API_ROUTES = [
       return json(res, 200, { ok: true, ...out });
     } catch (e) { return json(res, 500, { ok: false, error: String(e?.message || e).slice(0, 200) }); }
   }],
-  ["GET", "/api/memory/recall", (res, req, url) => {
+  ["GET", "/api/memory/recall", async (res, req, url) => {
     const q = String(url.searchParams.get("q") || "");
     const limit = Math.min(30, Math.max(1, Number(url.searchParams.get("limit")) || 8));
     try {
-      const out = recallMemories({ query: q, limit, touch: url.searchParams.get("touch") !== "0" });
-      return json(res, 200, { ok: true, ...out, prompt: recallPrompt({ query: q, limit }) });
+      // 2026-11-15：召回改混合检索（向量 + 关键词），embedding 失败/未配置自动退回旧公式；
+      // debug=1 时额外给 scoreParts（默认不给，避免把内部调试字段带到普通调用方）。
+      const debug = url.searchParams.get("debug") === "1";
+      const out = await recallMemories({ query: q, limit, touch: url.searchParams.get("touch") !== "0", debug });
+      const prompt = await recallPrompt({ query: q, limit });
+      return json(res, 200, { ok: true, ...out, prompt });
+    } catch (e) { return json(res, 500, { ok: false, error: String(e?.message || e).slice(0, 200) }); }
+  }],
+  // 2026-11-15：混合召回的新旧对照（只读，鉴权同 /api）。同一条 q 跑旧公式与新混合分两种排序，
+  // 每条给 scoreParts{kw,vec,imp,fresh} 与 cos——判断"接向量后到底有没有变好"用，不进提示词。
+  ["GET", "/api/memory/recall/debug", async (res, req, url) => {
+    const q = String(url.searchParams.get("q") || "").trim();
+    if (!q) return json(res, 400, { ok: false, error: "缺 q" });
+    const limit = Math.min(30, Math.max(1, Number(url.searchParams.get("limit")) || 8));
+    try {
+      return json(res, 200, { ok: true, ...(await compareRecall({ query: q, limit })) });
     } catch (e) { return json(res, 500, { ok: false, error: String(e?.message || e).slice(0, 200) }); }
   }],
   // 2026-11-06：手机该用哪个地址连——把本机的 IPv4/IPv6 和可用 URL 一次给全

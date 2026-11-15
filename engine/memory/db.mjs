@@ -32,6 +32,34 @@ const CARD_COLUMNS = Object.freeze({
   restored_at: "INTEGER",
 });
 
+// ---------------------------------------------------------------------------
+// 向量层（2026-11-15）：**独立表** memory_vectors，不给 memories 加 BLOB 列。
+//   ① 主表读路径全是 SELECT *（listMemories/getMemory/召回都走它）。2048 维 float32
+//      = 8KB/行，塞进主表等于每次召回/列表多读 MB 级数据；而且 GET /api/memory 的
+//      JSON 会把 Buffer 展开成 2048 个数字。
+//   ② 换模型要并存新旧两版向量：主键 (memory_id, model) 天然支持"新版算完再删旧版"，
+//      加列方案只能原地覆盖 → 重建期间半新半旧。
+//   ③ "按模型统计缺向量" 用 GROUP BY 一次查完，不需要扫描主表大字段。
+// 存储格式：L2 归一化后的 float32 原始字节（cos = 点积；~8KB/条，147 条约 1.2MB）。
+// ---------------------------------------------------------------------------
+export const VECTOR_STAGING_SUFFIX = "~staging"; // 重建期的影子模型名，成功后一次性改名切换
+
+/** 幂等建向量表：旧库第一次打开自动补上（等价于补列，独立表方案）。 */
+export function ensureVectorSchema(db) {
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS memory_vectors (
+      memory_id TEXT NOT NULL,
+      model TEXT NOT NULL,
+      dim INTEGER NOT NULL,
+      vec BLOB NOT NULL,
+      at INTEGER NOT NULL,
+      PRIMARY KEY (memory_id, model)
+    );
+    CREATE INDEX IF NOT EXISTS idx_memvec_model ON memory_vectors(model);
+  `);
+  return db;
+}
+
 /** 幂等补列：db 层与遗忘 CLI 共用同一份 schema，旧库（缺列）直接跑也不炸。 */
 export function ensureMemorySchema(db) {
   const cols = new Set(db.prepare("PRAGMA table_info(memories)").all().map(c => c.name));
@@ -73,6 +101,13 @@ let _wsRoot = null;
 
 export function initMemoryDb(wsRoot) {
   _wsRoot = wsRoot; // 注入函数或字符串均可，openDb 时求值
+}
+
+/** 记忆存储目录（{wsRoot}/memory）：召回权重等旁路配置与 db/vector 同口径，不各自拼路径。 */
+export function memoryDir() {
+  const root = typeof _wsRoot === "function" ? _wsRoot() : _wsRoot;
+  if (!root) throw new Error("记忆库未初始化（initMemoryDb 未注入 wsRoot）");
+  return path.join(root, "memory");
 }
 
 /** 关掉惰性连接并清空注入（测试换工作区/CLI 单次运行用；生产不调用）。 */
@@ -122,6 +157,10 @@ function openDb() {
   _db.exec("CREATE INDEX IF NOT EXISTS idx_mem_confirmed ON memories(last_confirmed_at) WHERE last_confirmed_at IS NOT NULL;");
   // 卡片层 + 归档层字段：旧库缺列就 ALTER 补（幂等；新库也会走这一遍，保持单一 schema 来源）
   ensureMemorySchema(_db);
+  // 向量层（2026-11-15）：独立表，同样幂等；旧库打开即补。
+  ensureVectorSchema(_db);
+  // 回填脚本/服务器可能同时写（WAL 下多进程可写，但会 busy）——给 5s 退避而不是立刻抛。
+  _db.exec("PRAGMA busy_timeout = 5000;");
   return _db;
 }
 
@@ -207,6 +246,137 @@ export function listByVectorIds(vectorIds, user_id = "owner") {
     .all(...ids, user_id);
 }
 
+// ---------------------------------------------------------------------------
+// 向量层 CRUD（2026-11-15）：BLOB = L2 归一化 float32，cos 相似度即点积。
+// 写入统一走 setMemoryVector 归一化，避免"有的存原向量、有的存归一化"导致分数漂移。
+// ---------------------------------------------------------------------------
+
+/** 校验 + L2 归一化。返回 Float32Array；0 模长/非有限值直接抛，让调用方降级。 */
+export function normalizeVector(vec) {
+  const arr = ArrayBuffer.isView(vec) || Array.isArray(vec) ? Array.from(vec, Number) : [];
+  if (!arr.length) throw new Error("向量必须是非空数组");
+  if (arr.length > 8192) throw new Error(`向量维度异常：${arr.length}`);
+  let sq = 0;
+  for (const v of arr) {
+    if (!Number.isFinite(v)) throw new Error("向量含非有限数值");
+    sq += v * v;
+  }
+  if (!sq) throw new Error("向量模长为 0");
+  const inv = 1 / Math.sqrt(sq);
+  const out = new Float32Array(arr.length);
+  for (let i = 0; i < arr.length; i += 1) out[i] = arr[i] * inv;
+  return out;
+}
+
+function decodeVectorRow(row) {
+  const bytes = row.vec instanceof Uint8Array ? row.vec : Uint8Array.from(row.vec || []);
+  // Buffer 可能来自 Node 的池化 ArrayBuffer，必须按 byteOffset 精确切，否则会读到隔壁数据。
+  const copy = bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength);
+  return new Float32Array(copy);
+}
+
+/** 写一条向量（同 model 覆盖，旧 model 保留——换模型重建时新旧并存，切换前不动旧版）。 */
+export function setMemoryVector(memoryId, { model, vec, at = Date.now() } = {}) {
+  const m = String(model || "").trim();
+  if (!m) throw new Error("embed_model 不能为空");
+  const arr = normalizeVector(vec);
+  const db = openDb();
+  const buf = Buffer.from(arr.buffer, arr.byteOffset, arr.byteLength);
+  const ts = Number.isFinite(Number(at)) ? Math.round(Number(at)) : Date.now();
+  db.prepare(`INSERT INTO memory_vectors (memory_id, model, dim, vec, at) VALUES (?, ?, ?, ?, ?)
+              ON CONFLICT(memory_id, model) DO UPDATE SET dim = excluded.dim, vec = excluded.vec, at = excluded.at`)
+    .run(String(memoryId), m, arr.length, buf, ts);
+  return { memory_id: String(memoryId), model: m, dim: arr.length, at: ts };
+}
+
+export function getMemoryVector(memoryId, model) {
+  const row = openDb().prepare("SELECT memory_id, model, dim, vec, at FROM memory_vectors WHERE memory_id = ? AND model = ?")
+    .get(String(memoryId), String(model || ""));
+  if (!row) return null;
+  return { memory_id: row.memory_id, model: row.model, dim: row.dim, vec: decodeVectorRow(row), at: row.at };
+}
+
+/** 批量取向量（召回用）：返回 Map<memory_id, Float32Array>。分批拼 IN，避免超过 SQLite 变量上限。 */
+export function listMemoryVectors(memoryIds, model, { chunk = 400 } = {}) {
+  const m = String(model || "").trim();
+  const ids = [...new Set((Array.isArray(memoryIds) ? memoryIds : []).filter(Boolean).map(String))];
+  const out = new Map();
+  if (!m || !ids.length) return out;
+  const db = openDb();
+  for (let i = 0; i < ids.length; i += chunk) {
+    const part = ids.slice(i, i + chunk);
+    const ph = part.map(() => "?").join(",");
+    const rows = db.prepare(`SELECT memory_id, vec FROM memory_vectors WHERE model = ? AND memory_id IN (${ph})`)
+      .all(m, ...part);
+    for (const row of rows) out.set(row.memory_id, decodeVectorRow(row));
+  }
+  return out;
+}
+
+/** 已有向量的 memory_id 集合（回填脚本用：只取 id，不搬 8KB BLOB）。 */
+export function listMemoryIdsWithVector(model) {
+  const m = String(model || "").trim();
+  if (!m) return new Set();
+  return new Set(openDb().prepare("SELECT memory_id FROM memory_vectors WHERE model = ?").all(m).map(r => r.memory_id));
+}
+
+/** 脚本/审计用：不受分页上限（listMemories 最多 200）限制地取行——只在离线工具里用，别进请求路径。 */
+export function listAllMemoryRows({ status = "", user_id = "owner" } = {}) {
+  const db = openDb();
+  const where = ["user_id = ?"];
+  const args = [user_id];
+  if (status && status !== "all") { where.push("status = ?"); args.push(status); }
+  return db.prepare(`SELECT * FROM memories WHERE ${where.join(" AND ")} ORDER BY created_at ASC`).all(...args);
+}
+
+/** 向量覆盖率统计：总行数 / 已有向量 / 缺向量 + 按模型分布（回填脚本与 debug 接口共用）。 */
+export function memoryVectorStats({ model = "" } = {}) {
+  const db = openDb();
+  const total = db.prepare("SELECT COUNT(*) AS c FROM memories").get().c;
+  const models = db.prepare("SELECT model, COUNT(*) AS count, MIN(dim) AS min_dim, MAX(dim) AS max_dim, MAX(at) AS last_at FROM memory_vectors GROUP BY model ORDER BY model")
+    .all().map(r => ({ model: r.model, count: r.count, dim: r.max_dim ?? null, minDim: r.min_dim ?? null, lastAt: r.last_at ?? null }));
+  const m = String(model || "").trim();
+  let withVec = 0;
+  let missing = total;
+  if (m) {
+    withVec = db.prepare("SELECT COUNT(*) AS c FROM memory_vectors v JOIN memories x ON x.memory_id = v.memory_id WHERE v.model = ?").get(m).c;
+    missing = Math.max(0, total - withVec);
+  }
+  const orphan = db.prepare("SELECT COUNT(*) AS c FROM memory_vectors v LEFT JOIN memories x ON x.memory_id = v.memory_id WHERE x.memory_id IS NULL").get().c;
+  return { total, withVec, missing, model: m, models, orphan };
+}
+
+/** 删掉某个模型的全部向量（重建失败清理 staging / 换模型后清理旧版）。 */
+export function deleteMemoryVectorsByModel(model) {
+  const m = String(model || "").trim();
+  if (!m) return { deleted: 0 };
+  const r = openDb().prepare("DELETE FROM memory_vectors WHERE model = ?").run(m);
+  return { deleted: r.changes };
+}
+
+/**
+ * 重建切换：把 from（staging 模型名）整体改名为 to。
+ * 先删 to 的旧行再改名，同一事务内完成——调用方要么看到旧模型全量、要么看到新模型全量。
+ * dropOthers=true 时顺带清掉别的模型（换模型重建后旧模型向量不再需要）。
+ */
+export function switchMemoryVectors({ from, to, dropOthers = false } = {}) {
+  const f = String(from || "").trim();
+  const t = String(to || "").trim();
+  if (!f || !t || f === t) throw new Error("switchMemoryVectors 需要 from/to 且不能相同");
+  const db = openDb();
+  db.exec("BEGIN IMMEDIATE");
+  try {
+    const replaced = db.prepare("DELETE FROM memory_vectors WHERE model = ?").run(t).changes;
+    const moved = db.prepare("UPDATE memory_vectors SET model = ? WHERE model = ?").run(t, f).changes;
+    const dropped = dropOthers ? db.prepare("DELETE FROM memory_vectors WHERE model <> ?").run(t).changes : 0;
+    db.exec("COMMIT");
+    return { moved, replaced, dropped };
+  } catch (e) {
+    try { db.exec("ROLLBACK"); } catch { }
+    throw e;
+  }
+}
+
 export function getMemory(id, { touch = false } = {}) {
   const db = openDb();
   const it = db.prepare("SELECT * FROM memories WHERE memory_id = ?").get(String(id));
@@ -282,6 +452,8 @@ export function deleteMemory(id) {
   const db = openDb();
   const it = db.prepare("SELECT vector_id FROM memories WHERE memory_id = ?").get(String(id));
   if (!it) return { ok: false, error: "not_found" };
+  // 向量层（2026-11-15）：BLOB 表随主行一起删，主表没有 ON DELETE CASCADE 可依赖。
+  db.prepare("DELETE FROM memory_vectors WHERE memory_id = ?").run(String(id));
   db.prepare("DELETE FROM memories WHERE memory_id = ?").run(String(id));
   return { ok: true, vector_id: it.vector_id || null };
 }
