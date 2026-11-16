@@ -48,11 +48,11 @@ const pill = (primary = false): React.CSSProperties => ({
 })
 const input: React.CSSProperties = {
   minHeight: 32, padding: '0 10px', fontSize: 12.5, borderRadius: 8,
-  border: '1px solid var(--pi-border-soft, #bfc4cb)', background: 'var(--pi-panel, #fff)', color: 'var(--pi-text, #222)',
+  border: '1px solid var(--pi-border-soft, #bfc4cb)', background: 'var(--pi-surface)', color: 'var(--pi-text, #222)',
 }
 const chip: React.CSSProperties = {
   display: 'inline-flex', alignItems: 'baseline', gap: 6, padding: '6px 12px', borderRadius: 10,
-  border: '1px solid var(--pi-border-soft, #bfc4cb)', background: 'var(--pi-panel, #fff)', fontSize: 12.5,
+  border: '1px solid var(--pi-border-soft, #bfc4cb)', background: 'var(--pi-surface)', color: 'var(--pi-text)', fontSize: 12.5,
 }
 
 /** 收件箱归类：真实反馈 / 系统告警 / 自动上捞。 */

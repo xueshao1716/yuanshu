@@ -1548,7 +1548,7 @@ body.has-wallpaper .mobile-composer {
   justify-content: space-between;
   gap: var(--pi-space-lg);
 }
-.page-header { margin-bottom: var(--pi-space-xxl); }
+.page-header { margin-bottom: var(--pi-space-xl); }
 .page-header__content,
 .section-header__content { min-width: 0; }
 .page-header__description,
@@ -1559,6 +1559,22 @@ body.has-wallpaper .mobile-composer {
   font-size: var(--pi-fs-sm);
   line-height: var(--pi-lh-sm);
 }
+/* 2026-11-16 页面块减字：页头说明只留一行（全文在 title 里），区块说明收进「？」 */
+.page-header__description {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 1;
+  overflow: hidden;
+}
+.section-header__hint {
+  display: inline-grid; place-items: center;
+  width: 22px; height: 22px; border-radius: 999px;
+  color: var(--pi-dim2); opacity: .7;
+  transition: opacity 140ms, color 140ms, background-color 140ms;
+}
+.section-header__hint svg { width: 14px; height: 14px; }
+.section-header__hint:hover,
+.section-header__hint[aria-expanded="true"] { opacity: 1; color: var(--pi-accent); background: color-mix(in srgb, var(--pi-accent) 12%, transparent); }
 .page-header__meta { margin-top: var(--pi-space-sm); }
 .page-header__actions,
 .section-header__actions { display: flex; flex: 0 0 auto; align-items: center; gap: var(--pi-space-sm); }

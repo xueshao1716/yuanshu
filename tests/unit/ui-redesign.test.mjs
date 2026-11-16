@@ -68,3 +68,23 @@ test('壁纸只做背景层，工作画布保持不透明可读', () => {
   assert.match(css, /body\.has-wallpaper #pi-wallpaper\s*\{[\s\S]*opacity:\s*0\.22/, '壁纸必须退到低存在感')
   assert.match(css, /\.desktop-rail\s*\{[\s\S]*width:\s*132px/, '桌面主导航需要稳定宽度承载标签')
 })
+
+// 2026-11-16 页面块减字：区块说明默认收进「？」，点开才显示；页头说明只占一行
+test('区块说明默认收起，用可访问的「？」按钮展开', () => {
+  const section = read('components', 'SectionHeader.tsx')
+  assert.match(section, /aria-expanded=\{open\}/, '说明按钮要报告展开状态')
+  assert.match(section, /description && open &&/, '说明默认不渲染，展开后才出现')
+  const css = read('styles.css')
+  assert.match(css, /\.page-header__description\s*\{[^}]*-webkit-line-clamp:\s*1/s, '页头说明只占一行')
+})
+
+test('页面不再引用未定义的 --pi-panel（会退成白底，深色主题下字看不见）', () => {
+  for (const file of [['pages', 'Gateway.tsx'], ['soul', 'ProactiveCard.tsx']]) {
+    assert.doesNotMatch(read(...file), /var\(--pi-panel[,)]/, file.join('/'))
+  }
+})
+
+test('工作台里的链接不带浏览器默认的下划线和链接色', () => {
+  const css = read('components', 'board', 'board-home.css')
+  assert.match(css, /\.board-shortcuts a[\s\S]{0,200}text-decoration:\s*none/, 'board 链接要重置')
+})

@@ -66,7 +66,7 @@ export default function ProactiveCard() {
           style={{
             flex: 1, minHeight: 32, padding: '0 10px', fontSize: 12.5,
             borderRadius: 8, border: '1px solid var(--pi-border-soft, #bfc4cb)',
-            background: 'var(--pi-panel, #fff)', color: 'var(--pi-text, #222)',
+            background: 'var(--pi-surface)', color: 'var(--pi-text, #222)',
           }}
         />
         <button type="button" style={pill} onClick={add}>盯着</button>

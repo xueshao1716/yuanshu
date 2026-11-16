@@ -97,6 +97,12 @@
 - 提示词输入区：补可见表面（2.6% 底 + 发丝边 + 10px 圆角），原来是一块无边框空白，看起来像"空洞"。
 - **经验**：组件内的同类名 CSS 会被构建顺序反超 → 用 `data-*` 属性做钩子（`[data-active="true"]`）比猜类名可靠。
 
+### v2.8（2026-11-16）页面块减字
+- **区块说明收进「？」**：`SectionHeader` 的 description 默认不渲染，标题旁 22px 圆形「？」按钮（悬停 title 看全文，点开在标题下展开，`aria-expanded`）。18 个页面一起生效。
+- **页头说明只占一行**：`.page-header__description` line-clamp 1，全文放 `title`；页头下边距 xxl → xl。
+- 新写的说明文字照旧传 description，不要自己在区块里另起一段解释——要解释就进「？」。
+- 修：事务台/主动卡片用了不存在的 `--pi-panel`（退成白底，深色主题字看不见）→ `--pi-surface`；工作台里的 `<a>` 没重置，显示成浏览器默认紫色下划线 → `:root` 前缀重置。
+
 ## 8. 验证方式
 
 - 无头 Chrome + CDP 截图（`D:\deepseek\shot-app.mjs`，需先向 localStorage 写 `yuanshu_access_token`）。
