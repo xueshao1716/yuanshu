@@ -313,3 +313,22 @@ test("发给主链的只有对方的话，规矩不再拼进正文（服务端�
     assert.equal(w.asked[0][0], "在吗");
   } finally { await b.stop(); await b._waitIdle(); }
 });
+
+test("会话文件太大且已安静一阵 → 下一条开新会话；聊得正热时不换", async () => {
+  const dir = tmp(), w = fakeWorld();
+  let clock = 10 * 3600_000;
+  const info = { s1: { bytes: 3e6, mtimeMs: clock - 60_000 } };
+  fs.writeFileSync(path.join(dir, "account.json"), JSON.stringify({ token: "T", botId: "bot@im.bot", userId: "owner@im.wechat" }));
+  const b = createWechatBridge({ dir, wsRoot: dir, client: w.client, chat: w.chat, sleep: () => tick(), now: () => clock, sessionInfo: (id) => info[id] || null });
+  b.start();
+  try {
+    w.push(dm("u1@im.wechat", "第一句"));
+    await until(() => w.sent.length === 1);
+    w.push(dm("u1@im.wechat", "刚聊完又一句"));
+    await until(() => w.sent.length === 2);
+    clock += 5 * 3600_000;
+    w.push(dm("u1@im.wechat", "隔了五小时"));
+    await until(() => w.sent.length === 3);
+    assert.deepEqual(w.asked.map((a) => a[1]), ["s1", "s1", "s2"]);
+  } finally { await b.stop(); await b._waitIdle(); }
+});

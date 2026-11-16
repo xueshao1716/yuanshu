@@ -4152,6 +4152,13 @@ const wechat = createWechatBridge({
   dir: path.join(CONFIG.cwd, '.yuanshu', 'wechat'),
   legacyDir: path.join(CONFIG.cwd, '工程'),
   chat: createLoopbackChat({ base: () => `http://127.0.0.1:${CONFIG.port}`, token: () => CONFIG.token }),
+  // 2026-11-16：会话文件过大且安静了 → 桥换新会话（判断在 bridge 里）
+  sessionInfo: (id) => {
+    const file = findSession(id)?.file;
+    if (!file) return null;
+    const st = fs.statSync(file);
+    return { bytes: st.size, mtimeMs: st.mtimeMs };
+  },
   log: (m) => console.log(m),
 });
 const wechatAction = (fn) => async (res, req) => {

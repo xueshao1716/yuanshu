@@ -228,6 +228,9 @@ export function createWechatBridge({
   // 若推出来的根落在系统临时目录里（单测的 mkdtemp 场景），退回用 dir 本身，
   // 避免把 去重/规矩 等运行时文件写进真实系统目录、跨测试运行互相污染。
   wsRoot = "",
+  // 2026-11-16：一个好友一条会话，聊一个多月文件到 3MB，每轮整份读。
+  // sessionInfo(id) → { bytes, mtimeMs }：文件超过 rotateBytes 且安静了 rotateIdleMs，下一条换新会话（旧的留着能翻）
+  sessionInfo = null, rotateBytes = 2 * 1024 * 1024, rotateIdleMs = 4 * 3600_000,
 }) {
   const explicitWsRoot = String(wsRoot || "").trim();
   const file = (n) => path.join(dir, n);
@@ -401,7 +404,20 @@ export function createWechatBridge({
     return flush(acc);
   };
 
+  // 聊得正热时不换（换了就丢掉眼前的上下文）；隔了几小时再来，前情靠每日摘要/记忆接上
+  function shouldRotate(id) {
+    if (typeof sessionInfo !== "function") return false;
+    try {
+      const info = sessionInfo(id);
+      return !!info && info.bytes > rotateBytes && now() - info.mtimeMs > rotateIdleMs;
+    } catch { return false; }
+  }
+
   async function sessionFor(sender, fresh = false) {
+    if (!fresh && sessions[sender] && shouldRotate(sessions[sender])) {
+      log(`[wechat] 会话 ${sessions[sender]} 过大且已安静，换新会话`);
+      fresh = true;
+    }
     if (!fresh && sessions[sender]) return sessions[sender];
     const id = await chat.createSession(`微信·${maskId(sender)}`);
     sessions[sender] = id;
