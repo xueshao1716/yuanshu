@@ -2875,3 +2875,14 @@ html[data-theme="bridge"] { color-scheme: dark; }
 html.nav-tap-guard .mobile-tab-bar {
   pointer-events: none;
 }
+
+/* 2026-11-16 事务台区块卡片：.panel 在深色主题下与页面同为 bg1，看不出块。
+   用 3.6% 文字色叠底（DESIGN §5 卡片规则）+ 发丝边，所有主题都成立。 */
+:root [data-gw] > section {
+  background: color-mix(in srgb, var(--pi-text) 3.6%, var(--pi-bg1));
+  border: 1px solid color-mix(in srgb, var(--pi-text) 7%, transparent);
+  border-radius: var(--pi-r-xl);
+  padding: 16px 18px;
+}
+:root [data-gw] > section > .section-header { margin-bottom: var(--pi-space-sm); }
+:root [data-gw] .section-header__actions { flex-wrap: wrap; justify-content: flex-end; }

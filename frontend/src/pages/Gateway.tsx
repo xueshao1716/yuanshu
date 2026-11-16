@@ -2,6 +2,8 @@ import useSWR from 'swr'
 import { useState } from 'react'
 import { api } from '../api'
 import AutoPatchCard from '../soul/AutoPatchCard'
+import PageHeader from '../components/PageHeader'
+import SectionHeader from '../components/SectionHeader'
 
 /**
  * 事务台（2026-10-28 改版）
@@ -268,14 +270,8 @@ export default function Gateway() {
   }
 
   return (
-    <div className="mx-auto w-full max-w-[1040px] px-4 py-8 space-y-6">
-      <header>
-        <h1 className="text-[20px] font-semibold text-pi-text">事务台</h1>
-        <p className="mt-1.5 text-[13px] leading-relaxed text-pi-dim2">
-          外面进来的事、我发出去的话、正在办和办砸过的——都在这一页。
-          <strong className="text-pi-text">平时只需要看最上面那排数字。</strong>
-        </p>
-      </header>
+    <div data-gw className="mx-auto w-full max-w-[1040px] px-4 py-8 space-y-4">
+      <PageHeader title="事务台" description="外面进来的事、我发出去的话、正在办和办砸过的——都在这一页。平时只需要看最上面那排数字。" />
 
       <div className="flex flex-wrap gap-2">
         <span style={chip}><strong>{events.length}</strong> 件进来</span>
@@ -290,11 +286,10 @@ export default function Gateway() {
 
       {/* 只读模式：最常用的一个开关，放第一屏 */}
       <section className="panel">
-        <div className="flex flex-wrap items-center justify-between gap-3">
-          <div>
-            <div className="flex items-center gap-2">
-              <h2 className="text-[15px] font-semibold tracking-tight text-pi-text">只读模式</h2>
-              <span
+        <SectionHeader
+          title="只读模式"
+          description={readonlyOn ? '她现在只能读文件、跑只读命令。改文件、删东西、装包都会被拦下。' : '她可以改文件、跑命令。担心她乱动的时候就打开这个开关。'}
+          actions={<><span
                 style={{
                   fontSize: 11.5, padding: '2px 8px', borderRadius: 999,
                   border: '1px solid var(--pi-border-soft, #bfc4cb)',
@@ -304,18 +299,10 @@ export default function Gateway() {
                 }}
               >
                 {readonlyOn ? '已开启 · 只能看' : '已关闭 · 可以改'}
-              </span>
-            </div>
-            <p className="mt-1 text-[12px] leading-relaxed text-pi-dim2">
-              {readonlyOn
-                ? '她现在只能读文件、跑只读命令。改文件、删东西、装包都会被拦下。'
-                : '她可以改文件、跑命令。担心她乱动的时候就打开这个开关。'}
-            </p>
-          </div>
-          <button type="button" style={pill(readonlyOn)} onClick={toggleReadOnly}>
+              </span><button type="button" style={pill(readonlyOn)} onClick={toggleReadOnly}>
             {readonlyOn ? '恢复可写' : '开启只读'}
-          </button>
-        </div>
+          </button></>}
+        />
         {roHint ? <p className="mt-2 text-xs text-pi-dim2">{roHint}</p> : null}
         <details className="mt-2 text-xs text-pi-dim2">
           <summary style={{ cursor: 'pointer' }}>开启后具体会拦下什么？</summary>
@@ -331,20 +318,17 @@ export default function Gateway() {
       </section>
 
       {/* 2026-10-30：插件商店入口（左侧栏也有，这里再给一个显眼的） */}
-      <section className="panel flex flex-wrap items-center justify-between gap-2 !p-3">
-        <div className="text-[12.5px] text-pi-text">插件商店 <span className="text-pi-dim2">装技能包 / MCP / 工具包；工具包权限逐项核对</span></div>
+      <section className="panel flex flex-wrap items-center justify-between gap-2">
+        <div className="text-[13px] font-semibold text-pi-text" title="装技能包 / MCP / 工具包；工具包权限逐项核对">插件商店</div>
         <a className="btn-tool min-h-9 px-3 text-[12px]" href="#/plugins">打开插件商店</a>
       </section>
       {/* 后台任务（像 DSH 顶上那几个） */}
       <section className="panel space-y-3">
-        <div className="flex flex-wrap items-baseline justify-between gap-2">
-          <h2 className="text-[15px] font-semibold tracking-tight text-pi-text">后台任务</h2>
-          <span className="text-xs text-pi-dim2">
+        <SectionHeader title="后台任务" description="长活（渲染/调研/爬取）会自动登记在这里，可以随时取消。" actions={<span className="text-xs text-pi-dim2">
             {runningJobs.length ? `正在跑 ${runningJobs.length} 个` : "现在没有任务在跑"}
             {jobs.data?.queued ? ` · 排队 ${jobs.data.queued}` : ""}
             {jobs.data?.concurrency ? ` · 并发上限 ${jobs.data.concurrency}` : ""}
-          </span>
-        </div>
+          </span>} />
         {runningJobs.length ? (
           <ul className="space-y-2">
             {runningJobs.map((j) => (
@@ -359,7 +343,7 @@ export default function Gateway() {
               </li>
             ))}
           </ul>
-        ) : <p className="text-xs text-pi-dim2">后台没有任务在跑。长活（渲染/调研/爬取）会自动登记在这里，可以随时取消。</p>}
+        ) : null}
 
         {recentJobs.length ? (
           <details className="pt-2 border-t border-pi-border-soft">
@@ -391,12 +375,9 @@ export default function Gateway() {
       </section>
       {/* 行为题库：像不像样，用跑分说 */}
       <section className="panel space-y-3">
-        <div className="flex flex-wrap items-baseline justify-between gap-2">
-          <h2 className="text-[15px] font-semibold tracking-tight text-pi-text">行为题库</h2>
-          <span className="text-xs text-pi-dim2">
+        <SectionHeader title="行为题库" description="点「跑一遍」用真实对话跑题库：画图/跑命令/读网页/讲清楚一件事。几分钟起步。" actions={<span className="text-xs text-pi-dim2">
             {benchLatest ? `最近 ${benchLatest.passed}/${benchLatest.total}（${benchLatest.score}%）` : `${benchCases.length} 条用例 · 还没跑过`}
-          </span>
-        </div>
+          </span>} />
         {benchLatest ? (
           <ul className="space-y-1.5">
             {(benchLatest.results || []).map((r: any) => (
@@ -408,9 +389,7 @@ export default function Gateway() {
               </li>
             ))}
           </ul>
-        ) : (
-          <p className="text-xs text-pi-dim2">点「跑一遍」用真实对话跑题库：画图/跑命令/读网页/讲清楚一件事。几分钟起步。</p>
-        )}
+        ) : null}
         {benchLatest && benchPrev && benchPrev.score !== undefined && (
           <p className="text-[11px] text-pi-dim2">上一次：{benchPrev.passed}/{benchPrev.total}（{benchPrev.score}%）</p>
         )}
@@ -418,12 +397,9 @@ export default function Gateway() {
       </section>
       {/* 最近动作：先记账再执行的证据（OpenBot 那条） */}
       <section className="panel p-4 space-y-3">
-        <div className="flex flex-wrap items-baseline justify-between gap-2">
-          <h2 className="text-[15px] font-semibold tracking-tight text-pi-text">最近动作</h2>
-          <span className="text-xs text-pi-dim2">
+        <SectionHeader title="最近动作" description="每次工具调用都会先写一行审计再执行；拒绝的会标出来。" actions={<span className="text-xs text-pi-dim2">
             {auditRows.length ? `最近 ${auditRows.length} 次` : "还没有记录"}
-          </span>
-        </div>
+          </span>} />
         {auditRows.length ? (
           <ul className="space-y-1.5">
             {auditRows.map((r, i) => (
@@ -439,14 +415,11 @@ export default function Gateway() {
               </li>
             ))}
           </ul>
-        ) : <p className="text-xs text-pi-dim2">每次工具调用都会先写一行审计再执行；拒绝的会标出来。</p>}
+        ) : null}
       </section>
       {/* 路由器：外面进来的事，先判断要不要做 */}
       <section className="panel p-4 space-y-3">
-        <div className="flex flex-wrap items-baseline justify-between gap-2">
-          <h2 className="text-[15px] font-semibold tracking-tight text-pi-text">路由判断</h2>
-          <span className="text-xs text-pi-dim2">快筛不花钱 · 慢判用轻量模型</span>
-        </div>
+        <SectionHeader title="路由判断" description="快筛不花钱，慢判用轻量模型。dispatch 会派给定时引擎（+1 分钟）真跑；ask 需要你拍板；ignore 不打扰。" />
         {(pending.data?.items || []).length ? (
           <div className="space-y-1 border-t border-pi-border-soft pt-2">
             <p className="text-[11px] text-pi-dim2">待你拍板</p>
@@ -477,16 +450,12 @@ export default function Gateway() {
           <button type="button" style={{ ...pill(), minHeight: 26, fontSize: 12 }} onClick={() => void judgeNow()} disabled={!routeText.trim()}>判断</button>
         </div>
         {routeMsg && <p className="text-[11px] text-pi-text">{routeMsg}</p>}
-        <p className="text-[11px] text-pi-dim2">dispatch 会派给定时引擎（+1 分钟）真跑；ask 需要你拍板；ignore 不打扰。</p>
       </section>
       {/* 脑区：8 个旋钮，每个都绑着真机制 */}
       <section className="panel p-4 space-y-3">
-        <div className="flex flex-wrap items-baseline justify-between gap-2">
-          <h2 className="text-[15px] font-semibold tracking-tight text-pi-text">脑区</h2>
-          <span className="text-xs text-pi-dim2">
+        <SectionHeader title="脑区" description="验证=交付门严格度；记忆=蒸馏条数；社交=冷却；分析=回合上限；规划=批次大小；工具=工具档；创造=建议条数。改完即时生效。" actions={<span className="text-xs text-pi-dim2">
             {brain.data?.effects ? `验证 ${brain.data.effects.strictness} · 蒸馏 ${brain.data.effects.distillLimit} 条 · 冷却 ${brain.data.effects.nudgeCooldownHours} 小时` : '读取中'}
-          </span>
-        </div>
+          </span>} />
         {(brain.data?.regions || []).map((r: any) => (
           <div key={r.id} className="text-[12px]">
             <div className="flex items-baseline justify-between gap-2">
@@ -501,7 +470,6 @@ export default function Gateway() {
           </div>
         ))}
         {brainMsg && <p className="text-[11px] text-pi-text">{brainMsg}</p>}
-        <p className="text-[11px] text-pi-dim2">验证=交付门严格度；记忆=蒸馏条数；社交=冷却；分析=回合上限；规划=批次大小；工具=工具档；创造=建议条数。改完即时生效。</p>
       </section>
       {/* 小语改了自己：改动先放这儿，点头才生效 */}
       <section className="panel p-4 space-y-3">
@@ -509,12 +477,9 @@ export default function Gateway() {
       </section>
       {/* 交付门：没有证据不算完成（GREEN / YELLOW / RED） */}
       <section className="panel p-4 space-y-3">
-        <div className="flex flex-wrap items-baseline justify-between gap-2">
-          <h2 className="text-[15px] font-semibold tracking-tight text-pi-text">交付门</h2>
-          <span className="text-xs text-pi-dim2">
+        <SectionHeader title="交付门" description="判定逻辑：改过的文件之后必须有一次验证（test / build / lint）才算覆盖；有失败或未覆盖 → RED，禁止说「完成」。" actions={<span className="text-xs text-pi-dim2">
             {(delivery.data?.items || []).length ? `最近 ${(delivery.data?.items || []).length} 次判定` : "还没有判定"}
-          </span>
-        </div>
+          </span>} />
         {(delivery.data?.items || []).slice(0, 4).map((d: any, i: number) => (
           <div key={`${d.runId}-${i}`} className="text-[12px] leading-relaxed">
             <span style={{ color: d.verdict === "RED" ? "var(--pi-red)" : d.verdict === "YELLOW" ? "var(--pi-yellow)" : "var(--pi-green)" }}>
@@ -526,18 +491,12 @@ export default function Gateway() {
             ) : null}
           </div>
         ))}
-        <p className="text-[11px] text-pi-dim2">
-          判定逻辑：改过的文件之后必须有一次验证（test / build / lint）才算覆盖；有失败或未覆盖 → RED，禁止说「完成」。
-        </p>
       </section>
       {/* 动作策略：谁能干什么，写在这里 */}
       <section className="panel p-4 space-y-3">
-        <div className="flex flex-wrap items-baseline justify-between gap-2">
-          <h2 className="text-[15px] font-semibold tracking-tight text-pi-text">动作策略</h2>
-          <span className="text-xs text-pi-dim2">
+        <SectionHeader title="动作策略" description={`改完立刻生效，不用重启。文件：${policy.data?.path || "记忆/运行时/动作策略.json"}`} actions={<span className="text-xs text-pi-dim2">
             {policy.data ? `${policy.data.rules?.length || 0} 条 · 来源 ${policy.data.source}` : "读取中"}
-          </span>
-        </div>
+          </span>} />
         {(policy.data?.rules || []).map((r: any) => (
           <div key={r.id} className="text-[12px] leading-relaxed">
             <span className="text-pi-text">{r.reason || r.id}</span>
@@ -574,18 +533,13 @@ export default function Gateway() {
           </div>
         )}
         {policyMsg && <p className="text-[11px] text-pi-text">{policyMsg}</p>}
-        <p className="text-[11px] text-pi-dim2">
-          改完立刻生效，不用重启。文件：{policy.data?.path || "记忆/运行时/动作策略.json"}
-        </p>
         <p className="text-[11px]">
-          <a className="text-pi-accent underline" href="https://gitee.com/linxinyu520xue/yuanshu/blob/main/docs/HOW-SHE-TALKS.md" target="_blank" rel="noreferrer">她怎么跟你说话 →</a>
-          <span className="ml-2 text-pi-dim2">四种简报的触发条件、话术规则、编造守卫</span>
+          <a className="text-pi-accent underline" href="https://gitee.com/linxinyu520xue/yuanshu/blob/main/docs/HOW-SHE-TALKS.md" target="_blank" rel="noreferrer" title="四种简报的触发条件、话术规则、编造守卫">她怎么跟你说话 →</a>
         </p>
       </section>
       {/* 造技能：她写 SKILL.md，你收下 */}
       <section className="panel p-4 space-y-3">
-        <h2 className="text-[15px] font-semibold tracking-tight text-pi-text">造技能</h2>
-        <p className="text-[11px] text-pi-dim2">说清要什么能力，她去写；写完点「收下」，校验通过才装上。</p>
+        <SectionHeader title="造技能" description="说清要什么能力，她去写；写完点「收下」，校验通过才装上。" />
         <input value={skillGoal} onChange={(e) => setSkillGoal(e.target.value)} placeholder="要什么能力，比如：把网页链接整理成周报"
           className="w-full rounded-pi-md border border-pi-border-soft bg-pi-bg2 px-2 py-1.5 text-[13px]" />
         <div className="flex flex-wrap items-center gap-2">
@@ -600,10 +554,7 @@ export default function Gateway() {
       </section>
       {/* 待你处理：散在各处的待办合成一处 */}
       <section className="panel p-4 space-y-3">
-        <div className="flex items-baseline justify-between gap-2">
-          <h2 className="text-[15px] font-semibold tracking-tight text-pi-text">待你处理</h2>
-          <span className="text-xs text-pi-dim2">{inbox.data ? `${inbox.data.total} 件` : "读取中…"}</span>
-        </div>
+        <SectionHeader title="待你处理" actions={<span className="text-xs text-pi-dim2">{inbox.data ? `${inbox.data.total} 件` : "读取中…"}</span>} />
         {inbox.data && inbox.data.total === 0 && (
           <p className="flex items-center gap-2 text-[12px] leading-6 text-pi-dim2"><span className="inline-block h-1.5 w-1.5 rounded-full bg-pi-ok/70" />没有要你拍板的事，散着就行。</p>
         )}
@@ -621,10 +572,7 @@ export default function Gateway() {
       </section>
       {/* 进化提案：她自己攒的改进建议 */}
       <section className="panel space-y-3">
-        <div className="flex flex-wrap items-baseline justify-between gap-2">
-          <h2 className="text-[15px] font-semibold tracking-tight text-pi-text">进化提案 <span className="font-normal text-pi-dim2">（她自己攒的改进）</span></h2>
-          <span className="text-xs text-pi-dim2">{evoList.length} 条待决定</span>
-        </div>
+        <SectionHeader title="进化提案" description="她自己攒的改进。攒够同类失败后会自己提。" actions={<span className="text-xs text-pi-dim2">{evoList.length} 条待决定</span>} />
         {evoList.length ? (
           <ul className="space-y-2">
             {evoList.slice(0, 6).map((e) => (
@@ -640,15 +588,12 @@ export default function Gateway() {
               </li>
             ))}
           </ul>
-        ) : <p className="text-xs text-pi-dim2">还没有提案。她攒够同类失败后会自己提。</p>}
+        ) : <p className="text-xs text-pi-dim2">还没有提案。</p>}
               {evoMsg && <p className="text-[11px] text-pi-dim2">{evoMsg}</p>}
       </section>
       {/* 收件箱：反馈与建议 */}
       <section className="panel space-y-3">
-        <div className="flex flex-wrap items-baseline justify-between gap-2">
-          <h2 className="text-[15px] font-semibold tracking-tight text-pi-text">收件箱 <span className="font-normal text-pi-dim2">（反馈与建议）</span></h2>
-          <span className="text-xs text-pi-dim2">待处理 {openFeedback.length} · 全部 {feedback.length}</span>
-        </div>
+        <SectionHeader title="收件箱" description="反馈与建议：人工提的，加上系统自己上报的告警和收获。" actions={<span className="text-xs text-pi-dim2">待处理 {openFeedback.length} · 全部 {feedback.length}</span>} />
         {openFeedback.length ? (
           <div className="space-y-3">
             {groupedFeedback.human.length === 0 ? (
@@ -692,17 +637,7 @@ export default function Gateway() {
         ) : <p className="text-xs text-pi-dim2">{feedback.length ? "待处理的都清了。" : "还没有反馈进来。"}</p>}
       </section>
       <section className="panel space-y-3">
-        <div className="flex flex-wrap items-baseline justify-between gap-2">
-          <h2 className="text-[15px] font-semibold tracking-tight text-pi-text">外面进来的事</h2>
-          <details className="text-xs text-pi-dim2">
-            <summary style={{ cursor: 'pointer' }}>怎么让它自动进来？</summary>
-            <p className="mt-1.5 leading-relaxed">
-              邮件已经在自动进来了。别的系统（钉钉、监控、价格变动）只要往
-              <code className="mx-1 px-1 rounded bg-pi-bg3">/api/inbound/event</code>
-              推一条 JSON：<code className="mx-1 px-1 rounded bg-pi-bg3">{'{ source, text, severity }'}</code>。
-            </p>
-          </details>
-        </div>
+        <SectionHeader title="外面进来的事" description="邮件已经在自动进来了。别的系统（钉钉、监控、价格变动）只要往 /api/inbound/event 推一条 JSON：{ source, text, severity }。" />
 
         <div className="flex flex-wrap gap-2">
           <input
@@ -733,11 +668,11 @@ export default function Gateway() {
               </li>
             ))}
           </ul>
-        ) : <p className="text-xs text-pi-dim2">还没有事情进来。上面可以手动投一条试试。</p>}
+        ) : <p className="text-xs text-pi-dim2">还没有事情进来。</p>}
       </section>
 
       <section className="panel space-y-3">
-        <h2 className="text-[15px] font-semibold tracking-tight text-pi-text">我发出去的</h2>
+        <SectionHeader title="我发出去的" description="小语的通报会走这里。" />
         {deliveries.length ? (
           <ul className="space-y-2">
             {deliveries.map((d, i) => (
@@ -751,14 +686,11 @@ export default function Gateway() {
               </li>
             ))}
           </ul>
-        ) : <p className="text-xs text-pi-dim2">还没发过东西。小语的通报会走这里。</p>}
+        ) : <p className="text-xs text-pi-dim2">还没发过东西。</p>}
       </section>
 
       <section className="panel space-y-3">
-        <div className="flex flex-wrap items-baseline justify-between gap-2">
-          <h2 className="text-[15px] font-semibold tracking-tight text-pi-text">正在办的事</h2>
-          <span className="text-xs text-pi-dim2">同一件事不会被两个人同时办</span>
-        </div>
+        <SectionHeader title="正在办的事" description="同一件事不会被两个人同时办。" />
         <div className="flex flex-wrap gap-2">
           <input style={{ ...input, flex: 1, minWidth: 200 }} value={claimTaskText} onChange={(e) => setClaimTaskText(e.target.value)} placeholder="要办的事，比如「修微信发图」" />
           <input style={{ ...input, flex: 1, minWidth: 200 }} value={claimScope} onChange={(e) => setClaimScope(e.target.value)} placeholder="会动到哪些文件（可选）" />
@@ -793,10 +725,7 @@ export default function Gateway() {
       </section>
 
       <section className="panel space-y-3">
-        <div className="flex flex-wrap items-baseline justify-between gap-2">
-          <h2 className="text-[15px] font-semibold tracking-tight text-pi-text">同事留言</h2>
-          <span className="text-xs text-pi-dim2">多个小语同时干活时，用这个对口径</span>
-        </div>
+        <SectionHeader title="同事留言" description="多个小语同时干活时，用这个对口径。" />
         <div className="flex flex-wrap gap-2">
           <input style={{ ...input, width: 140 }} value={msgTo} onChange={(e) => setMsgTo(e.target.value)} placeholder="发给谁（可空）" />
           <input
@@ -821,10 +750,7 @@ export default function Gateway() {
       </section>
 
       <section className="panel space-y-3">
-        <div className="flex flex-wrap items-baseline justify-between gap-2">
-          <h2 className="text-[15px] font-semibold tracking-tight text-pi-text">走过的弯路</h2>
-          <span className="text-xs text-pi-dim2">记下来，下次不再踩</span>
-        </div>
+        <SectionHeader title="走过的弯路" description="记下来，下次不再踩。补丁被门禁拦下时会自动记一条。" />
         {failures.length ? (
           <ul className="space-y-2.5">
             {failures.slice(0, 8).map((f) => (
@@ -836,7 +762,7 @@ export default function Gateway() {
               </li>
             ))}
           </ul>
-        ) : <p className="text-xs text-pi-dim2">还没有失败记录。补丁被门禁拦下时会自动记一条。</p>}
+        ) : <p className="text-xs text-pi-dim2">还没有失败记录。</p>}
       </section>
     </div>
   )

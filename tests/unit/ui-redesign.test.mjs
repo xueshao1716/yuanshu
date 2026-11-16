@@ -88,3 +88,17 @@ test('工作台里的链接不带浏览器默认的下划线和链接色', () =>
   const css = read('components', 'board', 'board-home.css')
   assert.match(css, /\.board-shortcuts a[\s\S]{0,200}text-decoration:\s*none/, 'board 链接要重置')
 })
+
+test('事务台：区块走统一卡片与 SectionHeader，段尾解释收进「？」', () => {
+  const gw = read('pages', 'Gateway.tsx')
+  const css = read('styles.css')
+  assert.ok(gw.includes('data-gw'), '事务台根节点要有 data-gw 钩子')
+  assert.ok(/:root \[data-gw\] > section/.test(css), '事务台区块要有可见卡片底')
+  assert.ok(gw.includes('<PageHeader'), '页头用公共 PageHeader')
+  assert.ok(!gw.includes('<h2 className'), '区块标题统一走 SectionHeader')
+  for (const s of ['dispatch 会派给定时引擎', '验证=交付门严格度', '判定逻辑：改过的文件', '说清要什么能力，她去写']) {
+    const idx = gw.indexOf(s)
+    assert.ok(idx > 0, `保留说明：${s}`)
+    assert.ok(gw.lastIndexOf('description=', idx) > gw.lastIndexOf('<p', idx), `${s} 应该进 description，不是常驻段落`)
+  }
+})
