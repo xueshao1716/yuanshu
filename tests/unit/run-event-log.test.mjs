@@ -188,3 +188,23 @@ test('subscriber 只在事件成功落盘后收到通知，取消订阅后不再
     assert.deepEqual(observed, [{ event: first, persisted: true }])
   } finally { log.close(); cleanup() }
 })
+
+test('pruneRunEvents 只删超过保留期且不在跑的事件文件', async () => {
+  const { pruneRunEvents } = await import('../../engine/run-event-log.mjs')
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'run-prune-'))
+  const dir = path.join(root, 'events')
+  fs.mkdirSync(dir)
+  const day = 86400_000, now = Date.now()
+  const put = (id, ageDays) => {
+    const f = path.join(dir, `${id}.jsonl`)
+    fs.writeFileSync(f, '{"seq":1}\n')
+    const t = (now - ageDays * day) / 1000
+    fs.utimesSync(f, t, t)
+  }
+  put('old', 20); put('old-active', 20); put('fresh', 3)
+  try {
+    const r = await pruneRunEvents({ rootDir: root, maxAgeMs: 14 * day, now, isActive: id => id === 'old-active' })
+    assert.equal(r.removed, 1)
+    assert.deepEqual(fs.readdirSync(dir).sort(), ['fresh.jsonl', 'old-active.jsonl'])
+  } finally { fs.rmSync(root, { recursive: true, force: true }) }
+})

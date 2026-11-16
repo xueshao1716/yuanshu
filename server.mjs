@@ -208,7 +208,7 @@ import { configureTicketKey, issueTicket, verifyTicket, ticketScopeForPath, isTi
 import { mediaObservations } from "./engine/media/observations.mjs";
 import { createRunStore, runTitleOf } from "./engine/run-store.mjs";
 import { createInternalRounds } from "./engine/internal-rounds.mjs";
-import { createRunEventLog } from "./engine/run-event-log.mjs";
+import { createRunEventLog, pruneRunEvents } from "./engine/run-event-log.mjs";
 import { createRunManager } from "./engine/run-manager.mjs";
 import { isMotherExecutionCandidate } from "./engine/run-execution-identity.mjs";
 import { createRunEffects } from "./engine/run-effects.mjs";
@@ -4059,6 +4059,15 @@ const taskEvidence = createTaskEvidence({ wsRoot: WS_ROOT, rootDir: RUNS_DIR });
 const behaviorExperiments = createBehaviorExperiments({ wsRoot: WS_ROOT, rootDir: RUNS_DIR });
 const taskEvidenceApi = createTaskEvidenceApi({ service: taskEvidence, json, onReview: () => runDreamCycle(true) });
 const runEventLog = createRunEventLog({ rootDir: RUNS_DIR });
+// 2026-11-16：事件流保留 14 天（只删事件文件，run 记录留着）；启动 6 分钟后一次，之后每天一次
+const pruneRunEventsQuietly = async () => {
+  try {
+    const r = await pruneRunEvents({ rootDir: RUNS_DIR, isActive: (id) => ["queued", "running", "stopping"].includes(runStore.get(id)?.status) });
+    if (r.removed) console.log(`[runs] 清掉 ${r.removed} 个过期事件文件，${(r.bytes / 1e6).toFixed(0)}MB`);
+  } catch {}
+};
+setTimeout(() => { void pruneRunEventsQuietly() }, 6 * 60_000).unref?.();
+setInterval(() => { void pruneRunEventsQuietly() }, 24 * 3600_000).unref?.();
 const runEffects = createRunEffects({ rootDir: RUNS_DIR });
 const teamLauncher = createTeamLauncher({ wsRoot: CONFIG.cwd, repoRoot: __dirname, port: CONFIG.port, token: () => CONFIG.token });
 const teamRunRead = createTeamRunRead({ wsRoot: CONFIG.cwd, json, getLaunch: () => teamLauncher.status() });

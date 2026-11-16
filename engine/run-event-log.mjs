@@ -151,3 +151,24 @@ export function createRunEventLog({ rootDir, now = () => new Date().toISOString(
     },
   }
 }
+
+// 2026-11-16：事件流只增不删，两个月攒到 2GB。保留期外、且不在跑的 run，删掉它的事件文件；
+// run 记录本身（runs/*.json，含结果摘要）不动——只是老 run 看不到逐步时间线了。
+export async function pruneRunEvents({ rootDir, maxAgeMs = 14 * 86400_000, now = Date.now(), isActive = () => false } = {}) {
+  const dir = path.join(rootDir, 'events')
+  let names = []
+  try { names = await fs.promises.readdir(dir) } catch { return { removed: 0, bytes: 0 } }
+  let removed = 0, bytes = 0
+  for (const name of names) {
+    if (!name.endsWith('.jsonl')) continue
+    const file = path.join(dir, name)
+    try {
+      const st = await fs.promises.stat(file)
+      if (now - st.mtimeMs <= maxAgeMs || isActive(name.slice(0, -'.jsonl'.length))) continue
+      await fs.promises.unlink(file)
+      removed += 1
+      bytes += st.size
+    } catch {}
+  }
+  return { removed, bytes }
+}
