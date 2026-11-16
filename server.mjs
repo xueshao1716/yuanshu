@@ -1003,6 +1003,31 @@ const writeMoodDiaryQuietly = async () => {
 };
 setTimeout(() => { void writeMoodDiaryQuietly() }, 3 * 60_000).unref?.();
 setInterval(() => { void writeMoodDiaryQuietly() }, 30 * 60_000).unref?.();
+// 2026-11-16：每日对话摘要——补写过去 7 天缺的（今天不写）；摘要走辅助模型，失败落规则版
+const writeDayDigestsQuietly = async () => {
+  try {
+    const { maybeWriteDigests } = await import("./engine/day-digest.mjs");
+    const { callAux } = await import("./engine/model/auxiliary.mjs");
+    const summarize = async (source, { date }) => {
+      const r = await callAux({
+        kind: "day-digest",
+        messages: [
+          { role: "system", content: "下面是某一天的对话片段（按会话分组）。用 3–6 条中文要点概括这天做了什么、定了什么、还没完成什么，每条一行、以「- 」开头、不超过 40 字。只输出要点。" },
+          { role: "user", content: `日期：${date}\n${source}` },
+        ],
+        maxTokens: 400,
+        timeoutMs: 5000,
+        mainModel: defaultModel,
+        chat: unifiedChat,
+      });
+      return r && r.ok ? r.text : "";
+    };
+    const done = await maybeWriteDigests(WS_ROOT, { sessions: getSessionList() || [], summarize });
+    for (const d of done) console.log(`[digest] ${d.date} 每日摘要已写（${d.sessions} 个会话 ${d.messages} 条${d.fallback ? "，规则版" : ""}）`);
+  } catch (e) { console.log("[digest] 每日摘要写入失败:", String(e?.message || e).slice(0, 120)); }
+};
+setTimeout(() => { void writeDayDigestsQuietly() }, 4 * 60_000).unref?.();
+setInterval(() => { void writeDayDigestsQuietly() }, 30 * 60_000).unref?.();
 // 2026-10-24：记忆卫生——每天一次，经验库/记忆日志超限就把最老条目归档（先备份，移动不删除）
 const runMemoryHygieneQuietly = async () => {
   try {

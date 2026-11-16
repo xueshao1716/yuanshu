@@ -67,6 +67,7 @@ import { recordFromTurn, retryFromToolEvents } from "./praise-ledger.mjs";
 import { CHANGE_TOOLS } from "./delivery-gate.mjs";
 import { readActivityRhythm } from "./activity-rhythm.mjs";
 import { pendingPromiseText } from "./promises.mjs";
+import { dayDigestNote } from "./day-digest.mjs";
 import { goalPrompt } from "./goals.mjs";
 import { effectiveSandboxMode } from "./sandbox-session.mjs";
 import { resolveAuth } from "./dsh-keys.mjs";
@@ -850,6 +851,13 @@ export async function initEngine() {
       name: "待兑现承诺",
       section: "memory",
       contribute: (ctx) => pendingPromiseText(ctx?.cwd, { now: ctx?.now }),
+    });
+    // 2026-11-16：这句话提到哪天（昨天/11月8日/11-08），就把那天的每日摘要给本轮记忆段
+    await registerPromptSection(nextGateway.registry, {
+      id: "yuanshu:prompt:day-digest",
+      name: "提到那天的摘要",
+      section: "memory",
+      contribute: (ctx) => dayDigestNote(ctx?.cwd, ctx?.message, ctx?.now),
     });
     // 跨轮目标：轮号已由 server.mjs 在分支之前认领，这里只读当前状态，不重复推进
     await registerPromptSection(nextGateway.registry, {
