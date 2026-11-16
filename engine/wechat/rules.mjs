@@ -65,3 +65,20 @@ export function seedWechatRules(wsRoot) {
     return { ok: false, error: String(e?.message || e).slice(0, 120) };
   }
 }
+
+// 2026-11-16：规矩以前拼在每条微信消息正文前（「规矩\n\n【对方消息】\n原话」），
+// 跟着消息存进会话历史——20 条窗口里就有 10 份重复规矩。现在改成服务端按 surface 注入本轮，
+// 历史里旧存的前缀在读取时剥掉（会话文件不改）。
+const MARK = "【对方消息】";
+
+/** 旧格式的微信用户消息 → 只留对方的话；不是这个格式的原样返回 */
+export function stripWechatPreamble(text) {
+  if (typeof text !== "string" || !text.startsWith("【微信环境")) return text;
+  const at = text.lastIndexOf(MARK);
+  return at >= 0 ? text.slice(at + MARK.length).trim() : text;
+}
+
+/** 本轮来自微信时给规矩，别的来源给空 */
+export function wechatRulesNote(wsRoot, surface) {
+  return surface === "wechat" ? loadWechatRules(wsRoot).text : "";
+}

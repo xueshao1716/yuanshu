@@ -23,7 +23,7 @@ import { rescueImagePaths } from "./image-rescue.mjs";
 // 2026-10-28：入站去重（message_id + 内容指纹）——没有它，重发的同一条会重复干活、重复花钱
 import { checkAndMark } from "./dedupe.mjs";
 // 2026-10-28：规矩搬到可编辑文件（每轮读，改了立刻生效）
-import { loadWechatRules, seedWechatRules } from "./rules.mjs";
+import { seedWechatRules } from "./rules.mjs";
 // 2026-10-28：连续消息合并（连发三条 → 一次思考）
 import { createBatcher } from "./batch.mjs";
 // 2026-10-28：发出去之前怎么排版（keep/auto/strip，可配置）
@@ -202,7 +202,7 @@ export function createLoopbackChat({ base, token, fetch: f = globalThis.fetch, n
         if (!res.ok || !res.body) throw Object.assign(new Error(`/api/runs events ${res.status}`), { status: res.status });
         return readRunStream(res);
       }
-      const res = await f(`${base()}/api/chat`, { method: "POST", headers: headers(), body: JSON.stringify({ message, sessionId }) });
+      const res = await f(`${base()}/api/chat`, { method: "POST", headers: headers(), body: JSON.stringify({ message, sessionId, surface: "wechat" }) });
       if (!res.ok || !res.body) {
         const t = await res.text().catch(() => "");
         const err = new Error(`/api/chat ${res.status}: ${t.slice(0, 160)}`);
@@ -442,10 +442,11 @@ export function createWechatBridge({
       // 只有扫码绑定的本人算「伙伴亲自发起」；陌生发信人拿不到母体执行身份
       const owner = !!acc?.userId && m.sender === acc.userId;
       try {
-        answer = await chat.ask(`${loadWechatRules(wsRootOfDir()).text}\n\n【对方消息】\n${m.text}`, await sessionFor(m.sender), { owner });
+        // 2026-11-16：规矩由服务端按 surface:"wechat" 注入本轮，不再拼进正文（拼了会跟着存进历史）
+        answer = await chat.ask(m.text, await sessionFor(m.sender), { owner });
       } catch (e) {
         if (e.status !== 404 && e.status !== 400) throw e;
-        answer = await chat.ask(`${loadWechatRules(wsRootOfDir()).text}\n\n【对方消息】\n${m.text}`, await sessionFor(m.sender, true), { owner }); // 会话被删：换新会话重来一次
+        answer = await chat.ask(m.text, await sessionFor(m.sender, true), { owner }); // 会话被删：换新会话重来一次
       }
       // 2026-10-28：对方要图、模型却没给路径 → 留痕，省得下次只能靠猜
       try {

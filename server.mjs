@@ -2535,6 +2535,7 @@ async function handleChat(req, res, body) {
     onEvent: (type, data) => res.write(`event: ${type}\ndata: ${JSON.stringify(data)}\n\n`),
     aibodyContext: { goal: aibodyTurn.topic, strategy: aibodyTurn.directive },
     knowledgeContext,
+    surface: String(body?.surface || ""), // 微信桥带 "wechat"：主链按它注入微信规矩
   };
   // Keep the live execution authority available to both chat engines without
   // making it enumerable. This prevents accidental prompt/event/persistence

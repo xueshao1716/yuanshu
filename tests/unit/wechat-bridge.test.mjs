@@ -301,3 +301,15 @@ test("长任务超过时限先回一句在处理，答完再回正文", async ()
   assert.equal(w.sent.length, 2, "只提醒一次");
   await b.stop(); await b._waitIdle();
 });
+
+test("发给主链的只有对方的话，规矩不再拼进正文（服务端按 surface 注入）", async () => {
+  const dir = tmp(), w = fakeWorld();
+  const b = createWechatBridge({ dir, wsRoot: dir, client: w.client, chat: w.chat, sleep: () => tick() });
+  b.startLogin();
+  await until(() => b.status().running);
+  w.push(dm("u1@im.wechat", "在吗"));
+  try {
+    await until(() => w.asked.length === 1);
+    assert.equal(w.asked[0][0], "在吗");
+  } finally { await b.stop(); await b._waitIdle(); }
+});

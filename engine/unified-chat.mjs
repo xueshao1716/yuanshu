@@ -68,6 +68,15 @@ import { CHANGE_TOOLS } from "./delivery-gate.mjs";
 import { readActivityRhythm } from "./activity-rhythm.mjs";
 import { pendingPromiseText } from "./promises.mjs";
 import { dayDigestNote } from "./day-digest.mjs";
+import { stripWechatPreamble, wechatRulesNote } from "./wechat/rules.mjs";
+
+// 旧微信消息正文里存着整份规矩：读历史时剥掉，只留对方的话（会话文件不改）
+function stripStoredWechatRules(m) {
+  if (m?.role !== "user") return m;
+  if (typeof m.content === "string") return { ...m, content: stripWechatPreamble(m.content) };
+  if (!Array.isArray(m.content)) return m;
+  return { ...m, content: m.content.map((p) => (p?.type === "text" ? { ...p, text: stripWechatPreamble(p.text) } : p)) };
+}
 import { goalPrompt } from "./goals.mjs";
 import { effectiveSandboxMode } from "./sandbox-session.mjs";
 import { resolveAuth } from "./dsh-keys.mjs";
@@ -859,6 +868,13 @@ export async function initEngine() {
       section: "memory",
       contribute: (ctx) => dayDigestNote(ctx?.cwd, ctx?.message, ctx?.now),
     });
+    // 2026-11-16：微信规矩按来源注入本轮记忆段（以前拼在消息正文里，跟着存进历史，窗口里重复十份）
+    await registerPromptSection(nextGateway.registry, {
+      id: "yuanshu:prompt:wechat-rules",
+      name: "微信规矩",
+      section: "memory",
+      contribute: (ctx) => wechatRulesNote(ctx?.cwd, ctx?.surface),
+    });
     // 跨轮目标：轮号已由 server.mjs 在分支之前认领，这里只读当前状态，不重复推进
     await registerPromptSection(nextGateway.registry, {
       id: "yuanshu:prompt:goal",
@@ -1287,7 +1303,7 @@ export async function handleUnifiedChat(res, entry, message, sessionId, params, 
       // 2026-11-10 P0-2：主通道此前没传 leafId，分支会话里会拿到"文件最后 20 条"（可能是另一支）。
       // 与 server.mjs 的 pi 臂/消息接口对齐：优先取当前分支叶子。
       const leaf = (() => { try { return entry?.sm?.getLeafId?.() || resolveLeafId(savedEntries) || undefined; } catch { return undefined; } })();
-      hist = extractMessages(savedEntries, leaf).slice(-20);
+      hist = extractMessages(savedEntries, leaf).slice(-20).map(stripStoredWechatRules);
     }
   } catch {}
   // Paused replies and tool traces follow the user message. Inspect the full
@@ -1552,7 +1568,7 @@ export async function handleUnifiedChat(res, entry, message, sessionId, params, 
     // 恰恰是写给主角色的。runtime 段本来就存在，只是一直没人往里传。
     runtime: runContext?.aibodyContext?.strategy || "",
     task: thinkOn ? "你可以调用 think 工具，在动手之前写下你的分析过程（理解、步骤、计划、可能的坑）。写完后再执行任务。think 的内容仅供调试，不展示给用户，可以放心写。" : "",
-  }, gateway?.registry, { engine: 'yuanshu', wsRoot: _cwd, now: new Date(), model: chatModel, sessionId, message, cwd: _cwd, rhythm: readActivityRhythm(_cwd, { now: new Date(), sessionDir: _sessionDir }), since: lastTalkAt(sessionId), sessionStart: sessionStartedAt(hist) });
+  }, gateway?.registry, { engine: 'yuanshu', wsRoot: _cwd, now: new Date(), model: chatModel, sessionId, message, cwd: _cwd, surface: runContext?.surface || "", rhythm: readActivityRhythm(_cwd, { now: new Date(), sessionDir: _sessionDir }), since: lastTalkAt(sessionId), sessionStart: sessionStartedAt(hist) });
   history = prependAssembledSystem(history, sections);
   history = beginYuanshuEmotion(sessionId || "new", emotionInput.message, history, emotionInput);
   history = (await compactKeepArchive(history, (h) => maybeCompactHistory(h, chatModel))).view;

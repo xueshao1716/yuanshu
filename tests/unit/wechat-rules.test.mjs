@@ -54,3 +54,20 @@ test("文件是空的 → 回落默认（不变成哑巴）", () => {
   assert.equal(r.source, "builtin");
   assert.equal(r.text, DEFAULT_RULES);
 });
+
+// 2026-11-16：规矩改由服务端按 surface 注入，不再拼进消息正文；旧历史里存过的前缀读取时剥掉
+import { stripWechatPreamble, wechatRulesNote } from "../../engine/wechat/rules.mjs";
+
+test("stripWechatPreamble 剥掉旧消息里拼的规矩，只留对方的话", () => {
+  assert.equal(stripWechatPreamble("【微信环境·必读】回复短。\n\n【对方消息】\n发张截图"), "发张截图");
+  assert.equal(stripWechatPreamble(`${DEFAULT_RULES}\n\n【对方消息】\n在吗`), "在吗");
+  assert.equal(stripWechatPreamble("普通消息里提到【对方消息】不动"), "普通消息里提到【对方消息】不动");
+  assert.equal(stripWechatPreamble("在吗"), "在吗");
+});
+
+test("wechatRulesNote 只在微信来源时给规矩", () => {
+  const root = ws();
+  assert.match(wechatRulesNote(root, "wechat"), /微信环境/);
+  assert.equal(wechatRulesNote(root, ""), "");
+  assert.equal(wechatRulesNote(root, "web"), "");
+});
