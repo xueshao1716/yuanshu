@@ -1,5 +1,13 @@
 import { ArrowRight, Plus, Sparkles, ListTodo, Users, Settings2 } from 'lucide-react'
 import type { Session } from '../../types'
+import { displayName } from '../../lib/session-sidebar.mjs'
+
+// 微信桥会话名是「微信·<掩码id>」，原样显示就是一串 id；这里沿用侧栏的短名，再标上来源。
+function sessionTitle(session: Session) {
+  const name = String(session.name || '').trim()
+  if (/^微信[·・]/.test(name)) return '微信 · ' + displayName({ ...session, group: 'wechat' })
+  return name || '未命名会话'
+}
 
 export default function BoardWelcome({ session, loaded, error, onContinue, onNew }: {
   session: Session | null; loaded: boolean; error?: unknown
@@ -13,7 +21,7 @@ export default function BoardWelcome({ session, loaded, error, onContinue, onNew
         <span className="board-label">最近会话</span>
         {error && <p role="alert">会话暂时无法更新{session ? '，以下为上次读取的记录。' : '，仍可开始新对话。'}</p>}
         {session ? <>
-          <h3>{session.name || '未命名会话'}</h3>
+          <h3 title={session.name || undefined}>{sessionTitle(session)}</h3>
           <p className="board-preview">{session.preview || '打开会话，继续之前的工作。'}</p>
         </> : <p>{loaded ? '还没有会话，从一个想法开始。' : error ? '暂时没有可显示的会话。' : '正在读取最近会话…'}</p>}
       </div>

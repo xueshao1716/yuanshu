@@ -102,6 +102,10 @@
 - **页头说明只占一行**：`.page-header__description` line-clamp 1，全文放 `title`；页头下边距 xxl → xl。
 - 新写的说明文字照旧传 description，不要自己在区块里另起一段解释——要解释就进「？」。
 - 修：事务台/主动卡片用了不存在的 `--pi-panel`（退成白底，深色主题字看不见）→ `--pi-surface`；工作台里的 `<a>` 没重置，显示成浏览器默认紫色下划线 → `:root` 前缀重置。
+- **第二轮**：
+  - 事务台根节点 `data-gw`。`.panel` 在深色主题下和页面同为 bg1，看不出块，所以 `:root [data-gw] > section` 叠 3.6% 文字色底、加发丝边、12px 圆角。
+  - 健康面板的脚注一律改成一行小号数字，比如「定时 1 · 静默 0 · 告警 0」；解释放 `title`。
+  - 会话名展示复用 `lib/session-sidebar.mjs` 的 `displayName`，不在别处另写掩码逻辑。
 
 ## 8. 验证方式
 

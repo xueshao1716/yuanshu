@@ -102,3 +102,22 @@ test('事务台：区块走统一卡片与 SectionHeader，段尾解释收进「
     assert.ok(gw.lastIndexOf('description=', idx) > gw.lastIndexOf('<p', idx), `${s} 应该进 description，不是常驻段落`)
   }
 })
+
+test('运行健康：面板脚注/图例收成数字与颜色，长解释只放 title', () => {
+  const p = (n) => read('components', 'panels', n)
+  const vit = p('HealthVitalityPanel.tsx'), deg = p('HealthDegradationPanel.tsx'), asm = p('HealthAssemblyPanel.tsx')
+  const health = read('pages', 'Health.tsx')
+  assert.ok(!vit.includes('{data.line &&'), '新鲜度：不再重复一行计数文字')
+  assert.ok(!/<p[^>]*>\s*这套体检由后台/.test(vit), '新鲜度：落盘说明不作段落')
+  assert.ok(!/<p[^>]*>\s*分类规则/.test(asm), '定时任务：分类规则不作段落')
+  assert.ok(!/<p[^>]*>\s*自动边界/.test(deg), '退化：自动边界不作段落')
+  assert.ok(!/<p[^>]*>\s*已评估/.test(deg), '退化：评估维度说明不作段落')
+  assert.ok(!deg.includes('总分；'), '退化：阈值说明进 title')
+  assert.ok(!health.includes('只读观测：本页没有任何开关'), '页头不再挂一行说明')
+})
+
+test('工作台最近会话：微信桥会话显示短名，不露原始 id', () => {
+  const welcome = read('components', 'board', 'BoardWelcome.tsx')
+  assert.ok(welcome.includes('displayName'), '复用侧栏的 displayName')
+  assert.ok(!welcome.includes('<h3>{session.name'), '不能直接渲染原始会话名')
+})

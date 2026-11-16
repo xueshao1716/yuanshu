@@ -56,11 +56,14 @@ export default function HealthDegradationPanel() {
       <div className="flex flex-wrap items-baseline gap-x-3 gap-y-2">
         <span className="text-xl font-semibold tabular-nums text-pi-text">{finite(assessment.score).toFixed(2)}</span>
         <Tag tone={level.tone}>{level.label}</Tag>
-        <span className="text-xs text-pi-dim">
-          总分；≥{degradedAt.toFixed(2)} 判下滑，≥{criticalAt.toFixed(2)} 判严重
+        <span
+          className="text-[11px] text-pi-dim2 tabular-nums"
+          title={`总分只算已评估的维度；≥${degradedAt.toFixed(2)} 判下滑，≥${criticalAt.toFixed(2)} 判严重。缺数据不等于健康。`}
+        >
+          {evaluated.length} 维{assessment.unevaluated?.length ? ` · ${assessment.unevaluated.length} 维未评估` : ''}
         </span>
         <span className="ml-auto text-[11px] text-pi-dim2">
-          {data.at ? `算于 ${fmtMsgTime(data.at)}` : ''}
+          {data.at ? fmtMsgTime(data.at) : ''}
         </span>
       </div>
 
@@ -80,11 +83,6 @@ export default function HealthDegradationPanel() {
           )
         })}
       </div>
-
-      <p className="text-[11px] text-pi-dim2">
-        已评估 {evaluated.length} 维{assessment.unevaluated?.length ? ` · 未评估 ${assessment.unevaluated.length} 维（${assessment.unevaluated.join('、')}）` : ''}
-        ；未评估的维度不计入总分，缺数据不等于健康。
-      </p>
 
       <div className="space-y-1.5">
         <div className="flex flex-wrap items-center gap-2 text-xs">
@@ -116,14 +114,17 @@ export default function HealthDegradationPanel() {
               </li>
             ))}
           </ul>
-        ) : <EmptyLine>没有挂起的动作：当前没有闸在挡她。</EmptyLine>}
+        ) : <EmptyLine>没有挂起的动作。</EmptyLine>}
       </div>
 
-      <p className="text-[11px] leading-relaxed text-pi-dim2">
-        自动边界：低风险动作由系统按冷却时间自动执行；
-        {(data.auto?.humanOnly || []).length ? `「${(data.auto?.humanOnly || []).map(actionLabel).join('」「')}」只能由人来按。` : '全局暂停只能由人来按。'}
-        定时任务这边：{finite(scheduled.jobs)} 个作业 · 静默 {scheduled.silent?.length || 0} · 告警 {scheduled.alerts?.length || 0}。
-      </p>
+      <div
+        className="flex flex-wrap gap-x-3 text-[11px] text-pi-dim2 tabular-nums"
+        title={`低风险动作由系统按冷却时间自动执行；${(data.auto?.humanOnly || []).length ? `「${(data.auto?.humanOnly || []).map(actionLabel).join('」「')}」只能由人来按。` : '全局暂停只能由人来按。'}`}
+      >
+        <span>定时 {finite(scheduled.jobs)}</span>
+        <span>静默 {scheduled.silent?.length || 0}</span>
+        <span className={scheduled.alerts?.length ? 'text-pi-yellow' : ''}>告警 {scheduled.alerts?.length || 0}</span>
+      </div>
     </div>
   )
 }

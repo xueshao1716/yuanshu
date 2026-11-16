@@ -34,13 +34,19 @@ export default function HealthVitalityPanel() {
             <strong className="font-mono tabular-nums text-pi-text">{finite((counts as Record<string, unknown>)[state])}</strong>
           </span>
         ))}
-        <span className="text-xs text-pi-dim2">共 {total} 项机制</span>
-        <span className="ml-auto">
+        <span className="text-xs text-pi-dim2">共 {total}</span>
+        <span className="ml-auto inline-flex items-center gap-2">
+          {lastTick?.at ? (
+            <span
+              className="text-[11px] text-pi-dim2"
+              title={`后台每 6 小时落一次盘${finite(lastTick.needsAttention) > 0 ? `；当时 ${finite(lastTick.needsAttention)} 项要处理` : '；当时全部正常'}`}
+            >
+              {fmtMsgTime(lastTick.at)}
+            </span>
+          ) : <span className="text-[11px] text-pi-dim2" title="后台还没落过盘：这是实时算出来的结果，循环可能刚起。">实时</span>}
           <Tag tone={data.healthy ? 'ok' : 'warn'}>{data.healthy ? '都在产出' : `${finite(data.needsAttention)} 项要处理`}</Tag>
         </span>
       </div>
-
-      {data.line && <p className="text-[11px] leading-relaxed text-pi-dim2 break-words">{data.line}</p>}
 
       {issues.length > 0 && (
         <ul className="space-y-2">
@@ -63,7 +69,7 @@ export default function HealthVitalityPanel() {
 
       {unknown.length > 0 && (
         <div className="space-y-1.5">
-          <p className="text-[11px] text-pi-dim2">无证据（不能判好坏，别当成正常）</p>
+          <p className="text-[11px] text-pi-dim2" title="不能判好坏，别当成正常">无证据</p>
           <ul className="space-y-1">
             {unknown.map(item => (
               <li key={item.id || item.name} className="flex items-start gap-2 text-xs text-pi-dim">
@@ -88,14 +94,6 @@ export default function HealthVitalityPanel() {
         </ul>
       )}
 
-      {lastTick?.at ? (
-        <p className="text-[11px] text-pi-dim2">
-          这套体检由后台每 6 小时落一次盘；最近一次 {fmtMsgTime(lastTick.at)}
-          {finite(lastTick.needsAttention) > 0 ? `（当时 ${finite(lastTick.needsAttention)} 项要处理）` : '（当时全部正常）'}
-        </p>
-      ) : (
-        <p className="text-[11px] text-pi-dim2">后台还没落过盘：这是实时算出来的结果，循环可能刚起。</p>
-      )}
     </div>
   )
 }

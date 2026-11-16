@@ -23,7 +23,7 @@ export default function HealthAssemblyPanel() {
     <div className="space-y-3">
       <div className="flex flex-wrap items-center gap-x-4 gap-y-2 text-xs text-pi-dim">
         <span>共 <strong className="font-mono tabular-nums text-pi-text">{total}</strong> 个作业</span>
-        <span className="inline-flex items-center gap-1.5"><Tag tone="info">纯脚本</Tag>{finite(counts.deterministic)}</span>
+        <span className="inline-flex items-center gap-1.5"><span title="固定产出、不需要判断的活走脚本；要读上下文、要权衡的才调模型。"><Tag tone="info">纯脚本</Tag></span>{finite(counts.deterministic)}</span>
         <span className="inline-flex items-center gap-1.5"><Tag tone="warn">需模型判断</Tag>{finite(counts.needsJudgement)}</span>
         <span className="inline-flex items-center gap-1.5">
           <Tag tone={violations.length ? 'danger' : 'ok'}>{violations.length ? `${violations.length} 处违约` : '无违约'}</Tag>
@@ -33,10 +33,6 @@ export default function HealthAssemblyPanel() {
         </span>
       </div>
 
-      <p className="text-[11px] leading-relaxed text-pi-dim2">
-        分类规则：固定产出、不需要判断的活走脚本；要读上下文、要权衡的才调模型。两类都在同一份快照里审计，
-        所以"该用模型却用了脚本"（或反过来）能当场看出来。
-      </p>
 
       {violations.length > 0 && (
         <ul className="space-y-1">

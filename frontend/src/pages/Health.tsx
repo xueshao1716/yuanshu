@@ -18,7 +18,6 @@ export default function Health() {
         <PageHeader
           title="运行健康"
           description="她自己的机制是否还在产出、退化到什么程度、定时任务怎么分派、改自己之前有没有过闸。"
-          meta={<span className="text-[11px] text-pi-dim2">只读观测：本页没有任何开关，数据按需现算</span>}
           actions={<>
             <a className="btn-ghost min-h-11 inline-flex items-center px-3" href="#/soul?s=growth">成长与自省</a>
             <a className="btn-ghost min-h-11 inline-flex items-center px-3" href="#/system">系统</a>
