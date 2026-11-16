@@ -22,6 +22,8 @@ export default defineConfig({
   },
   build: {
     outDir: 'dist',        // 独立输出，绝不覆盖 public/
+    // 默认目标是近两年的浏览器；外网新电脑若是旧版 Edge/Chrome/360，主包解析失败就整页空白
+    target: ['es2020', 'chrome87', 'edge88', 'firefox78', 'safari14'],
     // 保留上一版指纹资源，避免手机/桌面端仍在运行旧主包时，懒加载模块变成 404。
     // 新入口通过 no-cache 自动更新；旧资源多留一段时间不会影响当前版本。
     emptyOutDir: false,

@@ -137,3 +137,20 @@ test('事务台第一屏只留要拍板和每天看的，机制区收进「高�
   for (const t of ['脑区', '动作策略', '造技能', '路由判断']) assert.ok(gw.indexOf(`title="${t}"`) > more, `${t} 收进高级`)
   assert.ok(gw.indexOf('title="待你处理"') < gw.indexOf('title="只读模式"'), '待你处理放最前')
 })
+
+// 2026-11-16 外网新电脑黑屏：旧浏览器解析不了主包时，页面要给出原因而不是一片空
+test('启动失败有兜底提示，构建目标覆盖较旧浏览器', () => {
+  const html = readFileSync(join(ROOT, 'frontend', 'index.html'), 'utf8')
+  assert.ok(html.indexOf('/boot-check.js') > 0 && html.indexOf('/boot-check.js') < html.indexOf('type="module"'), '兜底脚本要排在主包前面')
+  const boot = readFileSync(join(ROOT, 'frontend', 'public', 'boot-check.js'), 'utf8')
+  assert.doesNotMatch(boot, /=>|\blet\b|\bconst\b|`|\?\./, '兜底脚本只能用 ES5，老浏览器也要能跑')
+  assert.ok(boot.includes('root'), '要检查 #root 是否渲染')
+  const vite = readFileSync(join(ROOT, 'frontend', 'vite.config.ts'), 'utf8')
+  assert.match(vite, /target:\s*\[[^\]]*chrome8\d/, '显式构建目标，覆盖 Chrome 8x 一代')
+})
+
+test('启动兜底脚本免 token 可取（新电脑还没登录）', () => {
+  const server = readFileSync(join(ROOT, 'server.mjs'), 'utf8')
+  const hits = server.split('\n').filter(l => l.includes('url.pathname === "/manifest.webmanifest"'))
+  assert.ok(hits.length >= 2 && hits.every(l => l.includes('"/boot-check.js"')), '鉴权白名单与静态分发都要放行 /boot-check.js')
+})

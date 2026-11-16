@@ -8205,7 +8205,7 @@ const server = http.createServer(async (req, res) => {
       res.setHeader("Content-Security-Policy", "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com https://fonts.loli.net; img-src 'self' data: blob: https:; media-src 'self' data: blob: https:; connect-src 'self' https://fonts.googleapis.com https://fonts.gstatic.com; worker-src 'self' blob:; font-src 'self' data: https://fonts.gstatic.com https://fonts.googleapis.com https://fonts.loli.net https://gstatic.loli.net; frame-ancestors 'self'");
     }
     const isStatic = ((req.method === "GET" || req.method === "HEAD") && (url.pathname === "/" || url.pathname === "/index.html" || url.pathname === "/sw.js" || url.pathname === "/api/health" || WORKSHOP_PAGES[url.pathname])) ||
-                     ((req.method === "GET" || req.method === "HEAD") && (url.pathname.startsWith("/static/") || url.pathname.startsWith("/assets/") || url.pathname.startsWith("/legacy/") || url.pathname === "/vite.svg" || url.pathname === "/manifest.webmanifest" || url.pathname.startsWith("/icons/")));
+                     ((req.method === "GET" || req.method === "HEAD") && (url.pathname.startsWith("/static/") || url.pathname.startsWith("/assets/") || url.pathname.startsWith("/legacy/") || url.pathname === "/vite.svg" || url.pathname === "/manifest.webmanifest" || url.pathname === "/boot-check.js" || url.pathname.startsWith("/icons/")));
     // 健康探活接口免 token（只返回 {ok:true}，无敏感信息）：安卓客户端连接页需在没有 token 时也能探地址是否可达（2026-08-31 修：之前需鉴权导致探活永远 401，客户端误判为连不上）
     // 签名文件链接（filebox 签名）免 token：签名本身是凭证
     let isSignedFile = false;
@@ -8287,7 +8287,7 @@ const server = http.createServer(async (req, res) => {
       return await handleStatic(req, res);
     }
     // Vite 指纹资产 + PWA 资源（manifest/图标无敏感内容，免 token 供安装器拉取）
-    if (reactStatic && req.method === "GET" && (url.pathname.startsWith("/assets/") || url.pathname === "/vite.svg" || url.pathname === "/manifest.webmanifest" || url.pathname.startsWith("/icons/"))) return await reactStatic.handle(req, res);
+    if (reactStatic && req.method === "GET" && (url.pathname.startsWith("/assets/") || url.pathname === "/vite.svg" || url.pathname === "/manifest.webmanifest" || url.pathname === "/boot-check.js" || url.pathname.startsWith("/icons/"))) return await reactStatic.handle(req, res);
     // 旧版入口：/legacy/* → public/*
     if (req.method === "GET" && url.pathname.startsWith("/legacy/")) {
       req.url = url.pathname.slice("/legacy".length) || "/index.html";
