@@ -144,13 +144,41 @@ function auxChainRank(m) {
   return AUX_PREFERRED_CHAIN.length;
 }
 
-/** flash 探测池：单价升序 → 既有降级链 → id 短 → 字典序（稳定、可解释）。 */
+// 2026-11-16：同价并列时原先靠降级链 + 字典序，agnes-2.5-flash 永远压过 3.0-flash。
+// 改成通用口径：id 里第一个版本号抽掉后剩下的算"系列"，同服务商同系列同价，版本高的优先。
+const VERSION_RE = /\d+(?:\.\d+)*/;
+function idVersion(m) {
+  const id = String(m?.id || "").toLowerCase();
+  const v = id.match(VERSION_RE)?.[0];
+  return v ? { family: `${m?.provider}|${id.replace(v, "#")}`, parts: v.split(".").map(Number) } : null;
+}
+function compareParts(a, b) {
+  for (let i = 0; i < Math.max(a.length, b.length); i += 1) {
+    const d = (a[i] || 0) - (b[i] || 0);
+    if (d) return d;
+  }
+  return 0;
+}
+/** 池里有同系列、同价、版本更高的模型 → 这个算被取代，排到同价组后面 */
+function supersededSet(pool) {
+  const out = new Set();
+  for (const m of pool) {
+    const v = idVersion(m);
+    if (v && pool.some((o) => o !== m && auxPrice(o) === auxPrice(m) && idVersion(o)?.family === v.family
+      && compareParts(idVersion(o).parts, v.parts) > 0)) out.add(m);
+  }
+  return out;
+}
+
+/** flash 探测池：单价升序 → 同系列新版本优先 → 既有降级链 → id 短 → 字典序（稳定、可解释）。 */
 export function rankAuxCandidates(models = []) {
   const pool = (Array.isArray(models) ? models : [])
     .filter(isAuxEligible)
     .filter((m) => AUX_PROBE_RE.test(String(m.id)));
+  const superseded = supersededSet(pool);
   pool.sort((a, b) =>
     (auxPrice(a) - auxPrice(b))
+    || (Number(superseded.has(a)) - Number(superseded.has(b)))
     || (auxChainRank(a) - auxChainRank(b))
     || (String(a.id).length - String(b.id).length)
     || String(a.id).localeCompare(String(b.id))

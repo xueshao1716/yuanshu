@@ -370,3 +370,18 @@ test("接线（静态断言）：记忆判断/会话摘要/输出质检走 callA
   assert.ok(recall.includes('kind: "session-summary"'));
   assert.ok(!/await _chat\(model, \[\s*\{ role: "system", content: "用一句不超过 40 字/.test(recall), "不能退回直接 _chat");
 });
+
+test("探测：同服务商同系列同价时新版本优先（不靠写死的型号）", () => {
+  const OLD = { provider: "agnes", id: "agnes-2.5-flash", cost: { input: 0, output: 0 } };
+  const NEW = { provider: "agnes", id: "agnes-3.0-flash", cost: { input: 0, output: 0 } };
+  const MAX = { provider: "agnes", id: "agnes-3.0-flash-max", cost: { input: 0, output: 0 } };
+  const G1 = { provider: "gem", id: "gemini-2.0-flash-lite", cost: { input: 0, output: 0 } };
+  const G2 = { provider: "gem", id: "gemini-2.10-flash-lite", cost: { input: 0, output: 0 } };
+  const dir = tmpWs();
+  assert.equal(resolveAuxModel({ wsRoot: dir, list: [MAIN, OLD, NEW, MAX], mainModel: MAIN }).model.id, "agnes-3.0-flash");
+  // 版本按数字比，2.10 > 2.0；不同系列（-max）不算"新版本"
+  assert.equal(resolveAuxModel({ wsRoot: dir, list: [MAIN, G1, G2], mainModel: MAIN }).model.id, "gemini-2.10-flash-lite");
+  // 新版更贵时仍按单价：便宜优先的口径不变
+  const PRICY = { ...NEW, cost: { input: 0.5, output: 1 } };
+  assert.equal(resolveAuxModel({ wsRoot: dir, list: [MAIN, OLD, PRICY], mainModel: MAIN }).model.id, "agnes-2.5-flash");
+});
