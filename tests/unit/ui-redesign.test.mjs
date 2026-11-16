@@ -93,7 +93,7 @@ test('事务台：区块走统一卡片与 SectionHeader，段尾解释收进「
   const gw = read('pages', 'Gateway.tsx')
   const css = read('styles.css')
   assert.ok(gw.includes('data-gw'), '事务台根节点要有 data-gw 钩子')
-  assert.ok(/:root \[data-gw\] > section/.test(css), '事务台区块要有可见卡片底')
+  assert.ok(/:root \[data-gw\] section\.panel/.test(css), '事务台区块要有可见卡片底')
   assert.ok(gw.includes('<PageHeader'), '页头用公共 PageHeader')
   assert.ok(!gw.includes('<h2 className'), '区块标题统一走 SectionHeader')
   for (const s of ['dispatch 会派给定时引擎', '验证=交付门严格度', '判定逻辑：改过的文件', '说清要什么能力，她去写']) {
@@ -120,4 +120,20 @@ test('工作台最近会话：微信桥会话显示短名，不露原始 id', ()
   const welcome = read('components', 'board', 'BoardWelcome.tsx')
   assert.ok(welcome.includes('displayName'), '复用侧栏的 displayName')
   assert.ok(!welcome.includes('<h3>{session.name'), '不能直接渲染原始会话名')
+})
+
+test('深色主题下 .panel 有可见卡片底（不再与页面同为 bg1）', () => {
+  const css = read('styles.css')
+  for (const t of ['ink', 'violet']) {
+    assert.ok(css.includes(`:root[data-theme="${t}"] .panel`), `${t} 主题要给 .panel 叠底`)
+  }
+})
+
+test('事务台第一屏只留要拍板和每天看的，机制区收进「高级」', () => {
+  const gw = read('pages', 'Gateway.tsx')
+  const more = gw.indexOf('data-gw-more')
+  assert.ok(more > 0, '要有高级折叠区')
+  for (const t of ['待你处理', '只读模式', '外面进来的事', '走过的弯路']) assert.ok(gw.indexOf(`title="${t}"`) < more, `${t} 在第一屏`)
+  for (const t of ['脑区', '动作策略', '造技能', '路由判断']) assert.ok(gw.indexOf(`title="${t}"`) > more, `${t} 收进高级`)
+  assert.ok(gw.indexOf('title="待你处理"') < gw.indexOf('title="只读模式"'), '待你处理放最前')
 })

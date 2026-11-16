@@ -284,6 +284,24 @@ export default function Gateway() {
         <span style={chip}><strong>{failures.length}</strong> 条弯路</span>
       </div>
 
+      {/* 待你处理：散在各处的待办合成一处 */}
+      <section className="panel p-4 space-y-3">
+        <SectionHeader title="待你处理" actions={<span className="text-xs text-pi-dim2">{inbox.data ? `${inbox.data.total} 件` : "读取中…"}</span>} />
+        {inbox.data && inbox.data.total === 0 && (
+          <p className="flex items-center gap-2 text-[12px] leading-6 text-pi-dim2"><span className="inline-block h-1.5 w-1.5 rounded-full bg-pi-ok/70" />没有要你拍板的事，散着就行。</p>
+        )}
+        {(inbox.data?.groups || []).filter((g) => g.count > 0).map((g) => (
+          <div key={g.id} className="space-y-1">
+            <div className="flex items-center justify-between text-[12px]">
+              <span className="text-pi-text">{g.label}（{g.count}）</span>
+              <a href={g.where} className="text-pi-accent underline underline-offset-2">去处理</a>
+            </div>
+            {g.items.slice(0, 3).map((it) => (
+              <div key={it.id} className="text-[11px] text-pi-dim2 truncate">· {it.title}</div>
+            ))}
+          </div>
+        ))}
+      </section>
       {/* 只读模式：最常用的一个开关，放第一屏 */}
       <section className="panel">
         <SectionHeader
@@ -316,11 +334,94 @@ export default function Gateway() {
           <p className="mt-1.5">放行的：ls、cat、grep、git status、git diff、wc、node 跑一个脚本文件 这类只读命令。</p>
         </details>
       </section>
+      {/* 小语改了自己：改动先放这儿，点头才生效 */}
+      <section className="panel p-4 space-y-3">
+        <AutoPatchCard />
+      </section>
+      <section className="panel space-y-3">
+        <SectionHeader title="外面进来的事" description="邮件已经在自动进来了。别的系统（钉钉、监控、价格变动）只要往 /api/inbound/event 推一条 JSON：{ source, text, severity }。" />
 
-      {/* 2026-10-30：插件商店入口（左侧栏也有，这里再给一个显眼的） */}
-      <section className="panel flex flex-wrap items-center justify-between gap-2">
-        <div className="text-[13px] font-semibold text-pi-text" title="装技能包 / MCP / 工具包；工具包权限逐项核对">插件商店</div>
-        <a className="btn-tool min-h-9 px-3 text-[12px]" href="#/plugins">打开插件商店</a>
+        <div className="flex flex-wrap gap-2">
+          <input
+            style={{ ...input, flex: 1, minWidth: 240 }}
+            value={text} onChange={(e) => setText(e.target.value)}
+            onKeyDown={(e) => { if (e.key === 'Enter') void post() }}
+            placeholder="试着投一条进来，比如「老师通知：明天交回执」"
+          />
+          <select style={input} value={sev} onChange={(e) => setSev(e.target.value)}>
+            <option value="normal">普通</option>
+            <option value="high">重要</option>
+            <option value="low">不重要</option>
+          </select>
+          <button type="button" style={pill(true)} onClick={post}>收下</button>
+        </div>
+        {msg ? <p className="text-xs text-pi-dim2">{msg}</p> : null}
+
+        {events.length ? (
+          <ul className="space-y-2.5">
+            {events.map((e) => (
+              <li key={e.id} className="text-[12.5px] leading-relaxed">
+                <span className="text-pi-dim2">
+                  {time(e.at)} · {SOURCE_LABEL[e.source] || e.source}
+                  {e.severity === 'high' ? <span className="ml-2 text-pi-danger">重要</span> : null}
+                </span>
+                <div className="text-pi-text">{e.text}</div>
+                {e.matched?.length ? <div className="text-pi-dim2">和你盯的「{e.matched.join('、')}」有关</div> : null}
+              </li>
+            ))}
+          </ul>
+        ) : <p className="text-xs text-pi-dim2">还没有事情进来。</p>}
+      </section>
+      <section className="panel space-y-3">
+        <SectionHeader title="我发出去的" description="小语的通报会走这里。" />
+        {deliveries.length ? (
+          <ul className="space-y-2">
+            {deliveries.map((d, i) => (
+              <li key={`${d.at}-${i}`} className="text-[12.5px] leading-relaxed">
+                <span className={d.ok ? 'text-pi-dim2' : 'text-pi-danger'}>
+                  {time(d.at)} · {CHANNEL_LABEL[d.channel] || d.channel} · {d.ok ? '送到了' : '没送到'}
+                  {d.fallbacks ? `（换了 ${d.fallbacks} 个渠道才成功）` : ''}
+                </span>
+                <div className="text-pi-text">{d.text || d.detail}</div>
+                {!d.ok ? <div className="text-pi-dim2">{d.detail}</div> : null}
+              </li>
+            ))}
+          </ul>
+        ) : <p className="text-xs text-pi-dim2">还没发过东西。</p>}
+      </section>
+      <section className="panel space-y-3">
+        <SectionHeader title="正在办的事" description="同一件事不会被两个人同时办。" />
+        <div className="flex flex-wrap gap-2">
+          <input style={{ ...input, flex: 1, minWidth: 200 }} value={claimTaskText} onChange={(e) => setClaimTaskText(e.target.value)} placeholder="要办的事，比如「修微信发图」" />
+          <input style={{ ...input, flex: 1, minWidth: 200 }} value={claimScope} onChange={(e) => setClaimScope(e.target.value)} placeholder="会动到哪些文件（可选）" />
+          <button type="button" style={pill()} onClick={doClaim}>接下来办</button>
+        </div>
+        {claimMsg ? <p className="text-xs text-pi-dim2">{claimMsg}</p> : null}
+
+        {claims.length ? (
+          <ul className="space-y-2.5">
+            {claims.map((c) => (
+              <li key={c.id} className="text-[12.5px] leading-relaxed">
+                <span className="text-pi-dim2">{c.agent} · {time(c.createdAt)} 开始</span>
+                <div className="text-pi-text">{c.task}</div>
+                {c.scope?.length ? <div className="text-pi-dim2">会动：{c.scope.join('、')}</div> : null}
+                <div className="flex gap-2 mt-1.5">
+                  <button type="button" style={{ ...pill(), minHeight: 26, fontSize: 12 }} onClick={() => void doRelease(c.id, true)}>办完了</button>
+                  <button type="button" style={{ ...pill(), minHeight: 26, fontSize: 12 }} onClick={() => void doRelease(c.id, false)}>不办了</button>
+                </div>
+              </li>
+            ))}
+          </ul>
+        ) : <p className="text-xs text-pi-dim2">现在手上没有在办的事。</p>}
+
+        {watches.length || loops.length ? (
+          <div className="pt-2 border-t border-pi-border-soft">
+            <p className="text-xs text-pi-dim2">
+              在盯 {watches.length} 件{watches.length ? `：${watches.map((w) => w.title).join('、')}` : ''}
+              {loops.length ? `；在追 ${loops.length} 件：${loops.slice(0, 3).map((l) => l.title).join('、')}` : ''}
+            </p>
+          </div>
+        ) : null}
       </section>
       {/* 后台任务（像 DSH 顶上那几个） */}
       <section className="panel space-y-3">
@@ -372,203 +473,6 @@ export default function Gateway() {
             {fpChanged ? "（近期变过：行为漂移先看这里）" : "（没变过）"}
           </p>
         ) : null}
-      </section>
-      {/* 行为题库：像不像样，用跑分说 */}
-      <section className="panel space-y-3">
-        <SectionHeader title="行为题库" description="点「跑一遍」用真实对话跑题库：画图/跑命令/读网页/讲清楚一件事。几分钟起步。" actions={<span className="text-xs text-pi-dim2">
-            {benchLatest ? `最近 ${benchLatest.passed}/${benchLatest.total}（${benchLatest.score}%）` : `${benchCases.length} 条用例 · 还没跑过`}
-          </span>} />
-        {benchLatest ? (
-          <ul className="space-y-1.5">
-            {(benchLatest.results || []).map((r: any) => (
-              <li key={r.id} className="text-[12.5px] leading-relaxed">
-                <span className={r.pass ? "text-pi-accent" : "text-pi-red"}>{r.pass ? "✔" : "✘"}</span>{" "}
-                <span className="text-pi-text">{r.title}</span>
-                {typeof r.durationMs === "number" && <span className="ml-2 text-[11px] text-pi-dim2">{fmtDuration(r.durationMs)}</span>}
-                {!r.pass && <div className="text-[11px] text-pi-red">{(r.failures || []).join("；")}</div>}
-              </li>
-            ))}
-          </ul>
-        ) : null}
-        {benchLatest && benchPrev && benchPrev.score !== undefined && (
-          <p className="text-[11px] text-pi-dim2">上一次：{benchPrev.passed}/{benchPrev.total}（{benchPrev.score}%）</p>
-        )}
-        <button type="button" style={{ ...pill(), minHeight: 26, fontSize: 12 }} onClick={() => void runBenchNow()}>跑一遍</button>
-      </section>
-      {/* 最近动作：先记账再执行的证据（OpenBot 那条） */}
-      <section className="panel p-4 space-y-3">
-        <SectionHeader title="最近动作" description="每次工具调用都会先写一行审计再执行；拒绝的会标出来。" actions={<span className="text-xs text-pi-dim2">
-            {auditRows.length ? `最近 ${auditRows.length} 次` : "还没有记录"}
-          </span>} />
-        {auditRows.length ? (
-          <ul className="space-y-1.5">
-            {auditRows.map((r, i) => (
-              <li key={`${r.at}-${i}`} className="text-[12px] leading-relaxed">
-                <span className={r.phase === "denied" ? "text-pi-red" : "text-pi-dim2"}>
-                  {new Date(r.at).toLocaleTimeString("zh-CN", { hour12: false })}
-                  {r.phase === "denied" ? " · 被拒" : " · 执行"}
-                  {r.initiator && r.initiator !== "user" ? ` · ${r.initiator}` : ""}
-                </span>
-                <span className="ml-2 text-pi-text">{r.tool}</span>
-                {r.argsPreview ? <span className="ml-2 text-pi-dim2">{String(r.argsPreview).slice(0, 60)}</span> : null}
-                {r.phase === "denied" && r.reason ? <div className="text-[11px] text-pi-red">{r.ruleId}：{r.reason}</div> : null}
-              </li>
-            ))}
-          </ul>
-        ) : null}
-      </section>
-      {/* 路由器：外面进来的事，先判断要不要做 */}
-      <section className="panel p-4 space-y-3">
-        <SectionHeader title="路由判断" description="快筛不花钱，慢判用轻量模型。dispatch 会派给定时引擎（+1 分钟）真跑；ask 需要你拍板；ignore 不打扰。" />
-        {(pending.data?.items || []).length ? (
-          <div className="space-y-1 border-t border-pi-border-soft pt-2">
-            <p className="text-[11px] text-pi-dim2">待你拍板</p>
-            {(pending.data?.items || []).map((a: any) => (
-              <div key={a.id} className="text-[12px]">
-                <span className="text-pi-text">{String(a.text || "").slice(0, 60)}</span>
-                <span className="ml-2 text-[11px] text-pi-dim2">{String(a.reason || "").slice(0, 30)}</span>
-                <div className="flex gap-2 pt-1">
-                  <button type="button" style={{ ...pill(true), minHeight: 24, fontSize: 11 }} onClick={() => void confirmAsk(a.id, true)}>同意</button>
-                  <button type="button" style={{ ...pill(), minHeight: 24, fontSize: 11 }} onClick={() => void confirmAsk(a.id, false)}>不用</button>
-                </div>
-              </div>
-            ))}
-          </div>
-        ) : null}
-        {(router.data?.items || []).slice(0, 5).map((d: any, i: number) => (
-          <div key={`${d.at}-${i}`} className="text-[12px] leading-relaxed">
-            <span style={{ color: d.action === "dispatch" ? "var(--pi-green)" : d.action === "ask" ? "var(--pi-yellow)" : "var(--pi-dim2)" }}>{d.action}</span>
-            <span className="ml-2 text-[11px] text-pi-dim2">{d.by === "fast" ? "快筛" : "慢判"} · {String(d.source || "")}</span>
-            <span className="ml-2 text-pi-text">{String(d.reason || "").slice(0, 60)}</span>
-            {d.task ? <div className="text-[11px] text-pi-dim2">派活：{String(d.task).slice(0, 70)}</div> : null}
-          </div>
-        ))}
-        <div className="flex gap-2">
-          <input value={routeText} onChange={(e) => setRouteText(e.target.value)}
-            placeholder="投一条事件试试，比如「CI 挂了，auth 测试失败」"
-            className="flex-1 rounded-pi-md border border-pi-border-soft bg-pi-bg2 px-3 py-1.5 text-[12px] text-pi-text" />
-          <button type="button" style={{ ...pill(), minHeight: 26, fontSize: 12 }} onClick={() => void judgeNow()} disabled={!routeText.trim()}>判断</button>
-        </div>
-        {routeMsg && <p className="text-[11px] text-pi-text">{routeMsg}</p>}
-      </section>
-      {/* 脑区：8 个旋钮，每个都绑着真机制 */}
-      <section className="panel p-4 space-y-3">
-        <SectionHeader title="脑区" description="验证=交付门严格度；记忆=蒸馏条数；社交=冷却；分析=回合上限；规划=批次大小；工具=工具档；创造=建议条数。改完即时生效。" actions={<span className="text-xs text-pi-dim2">
-            {brain.data?.effects ? `验证 ${brain.data.effects.strictness} · 蒸馏 ${brain.data.effects.distillLimit} 条 · 冷却 ${brain.data.effects.nudgeCooldownHours} 小时` : '读取中'}
-          </span>} />
-        {(brain.data?.regions || []).map((r: any) => (
-          <div key={r.id} className="text-[12px]">
-            <div className="flex items-baseline justify-between gap-2">
-              <span className="text-pi-text">{r.name}<span className="ml-1 text-[11px] text-pi-dim2">{r.desc}</span></span>
-              <span className="text-[11px] text-pi-dim2">{(brain.data?.weights?.[r.id] ?? 0.5).toFixed(2)}{r.wired ? "" : " · 未接线"}</span>
-            </div>
-            <input type="range" min={0} max={1} step={0.05}
-              value={brain.data?.weights?.[r.id] ?? 0.5}
-              onChange={(e) => void setBrain(r.id, Number(e.target.value))}
-              className="w-full accent-pi-accent" />
-            <div className="text-[11px] text-pi-dim2">{r.knob}</div>
-          </div>
-        ))}
-        {brainMsg && <p className="text-[11px] text-pi-text">{brainMsg}</p>}
-      </section>
-      {/* 小语改了自己：改动先放这儿，点头才生效 */}
-      <section className="panel p-4 space-y-3">
-        <AutoPatchCard />
-      </section>
-      {/* 交付门：没有证据不算完成（GREEN / YELLOW / RED） */}
-      <section className="panel p-4 space-y-3">
-        <SectionHeader title="交付门" description="判定逻辑：改过的文件之后必须有一次验证（test / build / lint）才算覆盖；有失败或未覆盖 → RED，禁止说「完成」。" actions={<span className="text-xs text-pi-dim2">
-            {(delivery.data?.items || []).length ? `最近 ${(delivery.data?.items || []).length} 次判定` : "还没有判定"}
-          </span>} />
-        {(delivery.data?.items || []).slice(0, 4).map((d: any, i: number) => (
-          <div key={`${d.runId}-${i}`} className="text-[12px] leading-relaxed">
-            <span style={{ color: d.verdict === "RED" ? "var(--pi-red)" : d.verdict === "YELLOW" ? "var(--pi-yellow)" : "var(--pi-green)" }}>
-              {d.verdict}
-            </span>
-            <span className="ml-2 text-pi-text">{String(d.summary || "").slice(0, 90)}</span>
-            {Array.isArray(d.uncovered) && d.uncovered.length ? (
-              <div className="text-[11px] text-pi-dim2">未覆盖：{d.uncovered.slice(0, 4).join("、")}</div>
-            ) : null}
-          </div>
-        ))}
-      </section>
-      {/* 动作策略：谁能干什么，写在这里 */}
-      <section className="panel p-4 space-y-3">
-        <SectionHeader title="动作策略" description={`改完立刻生效，不用重启。文件：${policy.data?.path || "记忆/运行时/动作策略.json"}`} actions={<span className="text-xs text-pi-dim2">
-            {policy.data ? `${policy.data.rules?.length || 0} 条 · 来源 ${policy.data.source}` : "读取中"}
-          </span>} />
-        {(policy.data?.rules || []).map((r: any) => (
-          <div key={r.id} className="text-[12px] leading-relaxed">
-            <span className="text-pi-text">{r.reason || r.id}</span>
-            <span className="ml-2 text-[11px] text-pi-dim2">{r.id}</span>
-            <div className="text-[11px] text-pi-dim2">
-              {r.initiator ? `发起者：${r.initiator.join("/")}` : "所有发起者"} · 拦：{(r.deny || []).join("、")}
-            </div>
-          </div>
-        ))}
-        {policy.data?.error && <p className="text-[11px] text-pi-red">{policy.data.error}</p>}
-        {editingPolicy ? (
-          <div className="space-y-2">
-            <textarea
-              value={policyDraft} onChange={(e) => setPolicyDraft(e.target.value)} rows={8}
-              className="w-full rounded-pi-md border border-pi-border-soft bg-pi-bg2 px-3 py-2 font-mono text-[11px] text-pi-text"
-            />
-            <div className="flex gap-2">
-              <button type="button" style={{ ...pill(true), minHeight: 26, fontSize: 12 }} onClick={() => void savePolicy()}>保存</button>
-              <button type="button" style={{ ...pill(), minHeight: 26, fontSize: 12 }} onClick={() => setEditingPolicy(false)}>取消</button>
-            </div>
-          </div>
-        ) : (
-          <button type="button" style={{ ...pill(), minHeight: 26, fontSize: 12 }} onClick={() => { setPolicyDraft(JSON.stringify(policy.data?.rules || [], null, 2)); setEditingPolicy(true) }}>编辑规则</button>
-        )}
-        {(policyHistory.data?.history || []).length > 0 && (
-          <div className="space-y-1 border-t border-pi-border-soft pt-2">
-            <p className="text-[11px] text-pi-dim2">策略历史（点一下回滚）</p>
-            {(policyHistory.data?.history || []).slice(-3).reverse().map((h: any) => (
-              <button key={h.id} type="button" className="block text-left text-[11px] text-pi-dim2 hover:text-pi-text"
-                onClick={() => void rollbackPolicyTo(h.id)}>
-                {h.at ? new Date(h.at).toLocaleString('zh-CN', { hour12: false }) : h.id} · {(h.rules || []).length} 条规则
-              </button>
-            ))}
-          </div>
-        )}
-        {policyMsg && <p className="text-[11px] text-pi-text">{policyMsg}</p>}
-        <p className="text-[11px]">
-          <a className="text-pi-accent underline" href="https://gitee.com/linxinyu520xue/yuanshu/blob/main/docs/HOW-SHE-TALKS.md" target="_blank" rel="noreferrer" title="四种简报的触发条件、话术规则、编造守卫">她怎么跟你说话 →</a>
-        </p>
-      </section>
-      {/* 造技能：她写 SKILL.md，你收下 */}
-      <section className="panel p-4 space-y-3">
-        <SectionHeader title="造技能" description="说清要什么能力，她去写；写完点「收下」，校验通过才装上。" />
-        <input value={skillGoal} onChange={(e) => setSkillGoal(e.target.value)} placeholder="要什么能力，比如：把网页链接整理成周报"
-          className="w-full rounded-pi-md border border-pi-border-soft bg-pi-bg2 px-2 py-1.5 text-[13px]" />
-        <div className="flex flex-wrap items-center gap-2">
-          <input value={skillName} onChange={(e) => setSkillName(e.target.value)} placeholder="技能名（可空）"
-            className="min-w-0 flex-1 rounded-pi-md border border-pi-border-soft bg-pi-bg2 px-2 py-1.5 text-[12px]" />
-          <button type="button" onClick={() => void authorSkill()} disabled={!skillGoal.trim()}
-            className="min-h-9 px-3 rounded-pi-md bg-pi-accent text-pi-on-accent text-[12px] disabled:opacity-40">让她写</button>
-          <button type="button" onClick={() => void adoptSkill()} disabled={!skillName.trim()}
-            className="min-h-9 px-3 rounded-pi-md bg-pi-bg3 text-[12px] disabled:opacity-40">收下</button>
-        </div>
-        {skillMsg && <p className="text-[11px] text-pi-text break-all">{skillMsg}</p>}
-      </section>
-      {/* 待你处理：散在各处的待办合成一处 */}
-      <section className="panel p-4 space-y-3">
-        <SectionHeader title="待你处理" actions={<span className="text-xs text-pi-dim2">{inbox.data ? `${inbox.data.total} 件` : "读取中…"}</span>} />
-        {inbox.data && inbox.data.total === 0 && (
-          <p className="flex items-center gap-2 text-[12px] leading-6 text-pi-dim2"><span className="inline-block h-1.5 w-1.5 rounded-full bg-pi-ok/70" />没有要你拍板的事，散着就行。</p>
-        )}
-        {(inbox.data?.groups || []).filter((g) => g.count > 0).map((g) => (
-          <div key={g.id} className="space-y-1">
-            <div className="flex items-center justify-between text-[12px]">
-              <span className="text-pi-text">{g.label}（{g.count}）</span>
-              <a href={g.where} className="text-pi-accent underline underline-offset-2">去处理</a>
-            </div>
-            {g.items.slice(0, 3).map((it) => (
-              <div key={it.id} className="text-[11px] text-pi-dim2 truncate">· {it.title}</div>
-            ))}
-          </div>
-        ))}
       </section>
       {/* 进化提案：她自己攒的改进建议 */}
       <section className="panel space-y-3">
@@ -637,119 +541,6 @@ export default function Gateway() {
         ) : <p className="text-xs text-pi-dim2">{feedback.length ? "待处理的都清了。" : "还没有反馈进来。"}</p>}
       </section>
       <section className="panel space-y-3">
-        <SectionHeader title="外面进来的事" description="邮件已经在自动进来了。别的系统（钉钉、监控、价格变动）只要往 /api/inbound/event 推一条 JSON：{ source, text, severity }。" />
-
-        <div className="flex flex-wrap gap-2">
-          <input
-            style={{ ...input, flex: 1, minWidth: 240 }}
-            value={text} onChange={(e) => setText(e.target.value)}
-            onKeyDown={(e) => { if (e.key === 'Enter') void post() }}
-            placeholder="试着投一条进来，比如「老师通知：明天交回执」"
-          />
-          <select style={input} value={sev} onChange={(e) => setSev(e.target.value)}>
-            <option value="normal">普通</option>
-            <option value="high">重要</option>
-            <option value="low">不重要</option>
-          </select>
-          <button type="button" style={pill(true)} onClick={post}>收下</button>
-        </div>
-        {msg ? <p className="text-xs text-pi-dim2">{msg}</p> : null}
-
-        {events.length ? (
-          <ul className="space-y-2.5">
-            {events.map((e) => (
-              <li key={e.id} className="text-[12.5px] leading-relaxed">
-                <span className="text-pi-dim2">
-                  {time(e.at)} · {SOURCE_LABEL[e.source] || e.source}
-                  {e.severity === 'high' ? <span className="ml-2 text-pi-danger">重要</span> : null}
-                </span>
-                <div className="text-pi-text">{e.text}</div>
-                {e.matched?.length ? <div className="text-pi-dim2">和你盯的「{e.matched.join('、')}」有关</div> : null}
-              </li>
-            ))}
-          </ul>
-        ) : <p className="text-xs text-pi-dim2">还没有事情进来。</p>}
-      </section>
-
-      <section className="panel space-y-3">
-        <SectionHeader title="我发出去的" description="小语的通报会走这里。" />
-        {deliveries.length ? (
-          <ul className="space-y-2">
-            {deliveries.map((d, i) => (
-              <li key={`${d.at}-${i}`} className="text-[12.5px] leading-relaxed">
-                <span className={d.ok ? 'text-pi-dim2' : 'text-pi-danger'}>
-                  {time(d.at)} · {CHANNEL_LABEL[d.channel] || d.channel} · {d.ok ? '送到了' : '没送到'}
-                  {d.fallbacks ? `（换了 ${d.fallbacks} 个渠道才成功）` : ''}
-                </span>
-                <div className="text-pi-text">{d.text || d.detail}</div>
-                {!d.ok ? <div className="text-pi-dim2">{d.detail}</div> : null}
-              </li>
-            ))}
-          </ul>
-        ) : <p className="text-xs text-pi-dim2">还没发过东西。</p>}
-      </section>
-
-      <section className="panel space-y-3">
-        <SectionHeader title="正在办的事" description="同一件事不会被两个人同时办。" />
-        <div className="flex flex-wrap gap-2">
-          <input style={{ ...input, flex: 1, minWidth: 200 }} value={claimTaskText} onChange={(e) => setClaimTaskText(e.target.value)} placeholder="要办的事，比如「修微信发图」" />
-          <input style={{ ...input, flex: 1, minWidth: 200 }} value={claimScope} onChange={(e) => setClaimScope(e.target.value)} placeholder="会动到哪些文件（可选）" />
-          <button type="button" style={pill()} onClick={doClaim}>接下来办</button>
-        </div>
-        {claimMsg ? <p className="text-xs text-pi-dim2">{claimMsg}</p> : null}
-
-        {claims.length ? (
-          <ul className="space-y-2.5">
-            {claims.map((c) => (
-              <li key={c.id} className="text-[12.5px] leading-relaxed">
-                <span className="text-pi-dim2">{c.agent} · {time(c.createdAt)} 开始</span>
-                <div className="text-pi-text">{c.task}</div>
-                {c.scope?.length ? <div className="text-pi-dim2">会动：{c.scope.join('、')}</div> : null}
-                <div className="flex gap-2 mt-1.5">
-                  <button type="button" style={{ ...pill(), minHeight: 26, fontSize: 12 }} onClick={() => void doRelease(c.id, true)}>办完了</button>
-                  <button type="button" style={{ ...pill(), minHeight: 26, fontSize: 12 }} onClick={() => void doRelease(c.id, false)}>不办了</button>
-                </div>
-              </li>
-            ))}
-          </ul>
-        ) : <p className="text-xs text-pi-dim2">现在手上没有在办的事。</p>}
-
-        {watches.length || loops.length ? (
-          <div className="pt-2 border-t border-pi-border-soft">
-            <p className="text-xs text-pi-dim2">
-              在盯 {watches.length} 件{watches.length ? `：${watches.map((w) => w.title).join('、')}` : ''}
-              {loops.length ? `；在追 ${loops.length} 件：${loops.slice(0, 3).map((l) => l.title).join('、')}` : ''}
-            </p>
-          </div>
-        ) : null}
-      </section>
-
-      <section className="panel space-y-3">
-        <SectionHeader title="同事留言" description="多个小语同时干活时，用这个对口径。" />
-        <div className="flex flex-wrap gap-2">
-          <input style={{ ...input, width: 140 }} value={msgTo} onChange={(e) => setMsgTo(e.target.value)} placeholder="发给谁（可空）" />
-          <input
-            style={{ ...input, flex: 1, minWidth: 220 }}
-            value={msgText} onChange={(e) => setMsgText(e.target.value)}
-            onKeyDown={(e) => { if (e.key === 'Enter') void sendMsg() }}
-            placeholder="留一句：我在改什么、哪条路走不通"
-          />
-          <button type="button" style={pill()} onClick={sendMsg}>留言</button>
-        </div>
-        {msgHint ? <p className="text-xs text-pi-dim2">{msgHint}</p> : null}
-        {messages.length ? (
-          <ul className="space-y-2">
-            {messages.map((m) => (
-              <li key={m.id} className="text-[12.5px] leading-relaxed">
-                <span className="text-pi-dim2">{time(m.at)} · {m.from}{m.to ? ` → ${m.to}` : '（对所有人）'}</span>
-                <div className="text-pi-text">{m.text}</div>
-              </li>
-            ))}
-          </ul>
-        ) : <p className="text-xs text-pi-dim2">还没有留言。</p>}
-      </section>
-
-      <section className="panel space-y-3">
         <SectionHeader title="走过的弯路" description="记下来，下次不再踩。补丁被门禁拦下时会自动记一条。" />
         {failures.length ? (
           <ul className="space-y-2.5">
@@ -764,6 +555,216 @@ export default function Gateway() {
           </ul>
         ) : <p className="text-xs text-pi-dim2">还没有失败记录。</p>}
       </section>
+      {/* 2026-11-16：不常看的机制区收进「高级」——第一屏只留要你拍板和每天看的事 */}
+      <details data-gw-more className="space-y-4">
+        <summary className="cursor-pointer select-none text-[13px] text-pi-dim2 hover:text-pi-text">高级：路由 · 题库 · 审计 · 脑区 · 交付门 · 策略 · 造技能 · 留言 · 插件</summary>
+        <div className="mt-4 space-y-4">
+          {/* 路由器：外面进来的事，先判断要不要做 */}
+          <section className="panel p-4 space-y-3">
+            <SectionHeader title="路由判断" description="快筛不花钱，慢判用轻量模型。dispatch 会派给定时引擎（+1 分钟）真跑；ask 需要你拍板；ignore 不打扰。" />
+            {(pending.data?.items || []).length ? (
+              <div className="space-y-1 border-t border-pi-border-soft pt-2">
+                <p className="text-[11px] text-pi-dim2">待你拍板</p>
+                {(pending.data?.items || []).map((a: any) => (
+                  <div key={a.id} className="text-[12px]">
+                    <span className="text-pi-text">{String(a.text || "").slice(0, 60)}</span>
+                    <span className="ml-2 text-[11px] text-pi-dim2">{String(a.reason || "").slice(0, 30)}</span>
+                    <div className="flex gap-2 pt-1">
+                      <button type="button" style={{ ...pill(true), minHeight: 24, fontSize: 11 }} onClick={() => void confirmAsk(a.id, true)}>同意</button>
+                      <button type="button" style={{ ...pill(), minHeight: 24, fontSize: 11 }} onClick={() => void confirmAsk(a.id, false)}>不用</button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            ) : null}
+            {(router.data?.items || []).slice(0, 5).map((d: any, i: number) => (
+              <div key={`${d.at}-${i}`} className="text-[12px] leading-relaxed">
+                <span style={{ color: d.action === "dispatch" ? "var(--pi-green)" : d.action === "ask" ? "var(--pi-yellow)" : "var(--pi-dim2)" }}>{d.action}</span>
+                <span className="ml-2 text-[11px] text-pi-dim2">{d.by === "fast" ? "快筛" : "慢判"} · {String(d.source || "")}</span>
+                <span className="ml-2 text-pi-text">{String(d.reason || "").slice(0, 60)}</span>
+                {d.task ? <div className="text-[11px] text-pi-dim2">派活：{String(d.task).slice(0, 70)}</div> : null}
+              </div>
+            ))}
+            <div className="flex gap-2">
+              <input value={routeText} onChange={(e) => setRouteText(e.target.value)}
+                placeholder="投一条事件试试，比如「CI 挂了，auth 测试失败」"
+                className="flex-1 rounded-pi-md border border-pi-border-soft bg-pi-bg2 px-3 py-1.5 text-[12px] text-pi-text" />
+              <button type="button" style={{ ...pill(), minHeight: 26, fontSize: 12 }} onClick={() => void judgeNow()} disabled={!routeText.trim()}>判断</button>
+            </div>
+            {routeMsg && <p className="text-[11px] text-pi-text">{routeMsg}</p>}
+          </section>
+          {/* 行为题库：像不像样，用跑分说 */}
+          <section className="panel space-y-3">
+            <SectionHeader title="行为题库" description="点「跑一遍」用真实对话跑题库：画图/跑命令/读网页/讲清楚一件事。几分钟起步。" actions={<span className="text-xs text-pi-dim2">
+                {benchLatest ? `最近 ${benchLatest.passed}/${benchLatest.total}（${benchLatest.score}%）` : `${benchCases.length} 条用例 · 还没跑过`}
+              </span>} />
+            {benchLatest ? (
+              <ul className="space-y-1.5">
+                {(benchLatest.results || []).map((r: any) => (
+                  <li key={r.id} className="text-[12.5px] leading-relaxed">
+                    <span className={r.pass ? "text-pi-accent" : "text-pi-red"}>{r.pass ? "✔" : "✘"}</span>{" "}
+                    <span className="text-pi-text">{r.title}</span>
+                    {typeof r.durationMs === "number" && <span className="ml-2 text-[11px] text-pi-dim2">{fmtDuration(r.durationMs)}</span>}
+                    {!r.pass && <div className="text-[11px] text-pi-red">{(r.failures || []).join("；")}</div>}
+                  </li>
+                ))}
+              </ul>
+            ) : null}
+            {benchLatest && benchPrev && benchPrev.score !== undefined && (
+              <p className="text-[11px] text-pi-dim2">上一次：{benchPrev.passed}/{benchPrev.total}（{benchPrev.score}%）</p>
+            )}
+            <button type="button" style={{ ...pill(), minHeight: 26, fontSize: 12 }} onClick={() => void runBenchNow()}>跑一遍</button>
+          </section>
+          {/* 最近动作：先记账再执行的证据（OpenBot 那条） */}
+          <section className="panel p-4 space-y-3">
+            <SectionHeader title="最近动作" description="每次工具调用都会先写一行审计再执行；拒绝的会标出来。" actions={<span className="text-xs text-pi-dim2">
+                {auditRows.length ? `最近 ${auditRows.length} 次` : "还没有记录"}
+              </span>} />
+            {auditRows.length ? (
+              <ul className="space-y-1.5">
+                {auditRows.map((r, i) => (
+                  <li key={`${r.at}-${i}`} className="text-[12px] leading-relaxed">
+                    <span className={r.phase === "denied" ? "text-pi-red" : "text-pi-dim2"}>
+                      {new Date(r.at).toLocaleTimeString("zh-CN", { hour12: false })}
+                      {r.phase === "denied" ? " · 被拒" : " · 执行"}
+                      {r.initiator && r.initiator !== "user" ? ` · ${r.initiator}` : ""}
+                    </span>
+                    <span className="ml-2 text-pi-text">{r.tool}</span>
+                    {r.argsPreview ? <span className="ml-2 text-pi-dim2">{String(r.argsPreview).slice(0, 60)}</span> : null}
+                    {r.phase === "denied" && r.reason ? <div className="text-[11px] text-pi-red">{r.ruleId}：{r.reason}</div> : null}
+                  </li>
+                ))}
+              </ul>
+            ) : null}
+          </section>
+          {/* 脑区：8 个旋钮，每个都绑着真机制 */}
+          <section className="panel p-4 space-y-3">
+            <SectionHeader title="脑区" description="验证=交付门严格度；记忆=蒸馏条数；社交=冷却；分析=回合上限；规划=批次大小；工具=工具档；创造=建议条数。改完即时生效。" actions={<span className="text-xs text-pi-dim2">
+                {brain.data?.effects ? `验证 ${brain.data.effects.strictness} · 蒸馏 ${brain.data.effects.distillLimit} 条 · 冷却 ${brain.data.effects.nudgeCooldownHours} 小时` : '读取中'}
+              </span>} />
+            {(brain.data?.regions || []).map((r: any) => (
+              <div key={r.id} className="text-[12px]">
+                <div className="flex items-baseline justify-between gap-2">
+                  <span className="text-pi-text">{r.name}<span className="ml-1 text-[11px] text-pi-dim2">{r.desc}</span></span>
+                  <span className="text-[11px] text-pi-dim2">{(brain.data?.weights?.[r.id] ?? 0.5).toFixed(2)}{r.wired ? "" : " · 未接线"}</span>
+                </div>
+                <input type="range" min={0} max={1} step={0.05}
+                  value={brain.data?.weights?.[r.id] ?? 0.5}
+                  onChange={(e) => void setBrain(r.id, Number(e.target.value))}
+                  className="w-full accent-pi-accent" />
+                <div className="text-[11px] text-pi-dim2">{r.knob}</div>
+              </div>
+            ))}
+            {brainMsg && <p className="text-[11px] text-pi-text">{brainMsg}</p>}
+          </section>
+          {/* 交付门：没有证据不算完成（GREEN / YELLOW / RED） */}
+          <section className="panel p-4 space-y-3">
+            <SectionHeader title="交付门" description="判定逻辑：改过的文件之后必须有一次验证（test / build / lint）才算覆盖；有失败或未覆盖 → RED，禁止说「完成」。" actions={<span className="text-xs text-pi-dim2">
+                {(delivery.data?.items || []).length ? `最近 ${(delivery.data?.items || []).length} 次判定` : "还没有判定"}
+              </span>} />
+            {(delivery.data?.items || []).slice(0, 4).map((d: any, i: number) => (
+              <div key={`${d.runId}-${i}`} className="text-[12px] leading-relaxed">
+                <span style={{ color: d.verdict === "RED" ? "var(--pi-red)" : d.verdict === "YELLOW" ? "var(--pi-yellow)" : "var(--pi-green)" }}>
+                  {d.verdict}
+                </span>
+                <span className="ml-2 text-pi-text">{String(d.summary || "").slice(0, 90)}</span>
+                {Array.isArray(d.uncovered) && d.uncovered.length ? (
+                  <div className="text-[11px] text-pi-dim2">未覆盖：{d.uncovered.slice(0, 4).join("、")}</div>
+                ) : null}
+              </div>
+            ))}
+          </section>
+          {/* 动作策略：谁能干什么，写在这里 */}
+          <section className="panel p-4 space-y-3">
+            <SectionHeader title="动作策略" description={`改完立刻生效，不用重启。文件：${policy.data?.path || "记忆/运行时/动作策略.json"}`} actions={<span className="text-xs text-pi-dim2">
+                {policy.data ? `${policy.data.rules?.length || 0} 条 · 来源 ${policy.data.source}` : "读取中"}
+              </span>} />
+            {(policy.data?.rules || []).map((r: any) => (
+              <div key={r.id} className="text-[12px] leading-relaxed">
+                <span className="text-pi-text">{r.reason || r.id}</span>
+                <span className="ml-2 text-[11px] text-pi-dim2">{r.id}</span>
+                <div className="text-[11px] text-pi-dim2">
+                  {r.initiator ? `发起者：${r.initiator.join("/")}` : "所有发起者"} · 拦：{(r.deny || []).join("、")}
+                </div>
+              </div>
+            ))}
+            {policy.data?.error && <p className="text-[11px] text-pi-red">{policy.data.error}</p>}
+            {editingPolicy ? (
+              <div className="space-y-2">
+                <textarea
+                  value={policyDraft} onChange={(e) => setPolicyDraft(e.target.value)} rows={8}
+                  className="w-full rounded-pi-md border border-pi-border-soft bg-pi-bg2 px-3 py-2 font-mono text-[11px] text-pi-text"
+                />
+                <div className="flex gap-2">
+                  <button type="button" style={{ ...pill(true), minHeight: 26, fontSize: 12 }} onClick={() => void savePolicy()}>保存</button>
+                  <button type="button" style={{ ...pill(), minHeight: 26, fontSize: 12 }} onClick={() => setEditingPolicy(false)}>取消</button>
+                </div>
+              </div>
+            ) : (
+              <button type="button" style={{ ...pill(), minHeight: 26, fontSize: 12 }} onClick={() => { setPolicyDraft(JSON.stringify(policy.data?.rules || [], null, 2)); setEditingPolicy(true) }}>编辑规则</button>
+            )}
+            {(policyHistory.data?.history || []).length > 0 && (
+              <div className="space-y-1 border-t border-pi-border-soft pt-2">
+                <p className="text-[11px] text-pi-dim2">策略历史（点一下回滚）</p>
+                {(policyHistory.data?.history || []).slice(-3).reverse().map((h: any) => (
+                  <button key={h.id} type="button" className="block text-left text-[11px] text-pi-dim2 hover:text-pi-text"
+                    onClick={() => void rollbackPolicyTo(h.id)}>
+                    {h.at ? new Date(h.at).toLocaleString('zh-CN', { hour12: false }) : h.id} · {(h.rules || []).length} 条规则
+                  </button>
+                ))}
+              </div>
+            )}
+            {policyMsg && <p className="text-[11px] text-pi-text">{policyMsg}</p>}
+            <p className="text-[11px]">
+              <a className="text-pi-accent underline" href="https://gitee.com/linxinyu520xue/yuanshu/blob/main/docs/HOW-SHE-TALKS.md" target="_blank" rel="noreferrer" title="四种简报的触发条件、话术规则、编造守卫">她怎么跟你说话 →</a>
+            </p>
+          </section>
+          {/* 造技能：她写 SKILL.md，你收下 */}
+          <section className="panel p-4 space-y-3">
+            <SectionHeader title="造技能" description="说清要什么能力，她去写；写完点「收下」，校验通过才装上。" />
+            <input value={skillGoal} onChange={(e) => setSkillGoal(e.target.value)} placeholder="要什么能力，比如：把网页链接整理成周报"
+              className="w-full rounded-pi-md border border-pi-border-soft bg-pi-bg2 px-2 py-1.5 text-[13px]" />
+            <div className="flex flex-wrap items-center gap-2">
+              <input value={skillName} onChange={(e) => setSkillName(e.target.value)} placeholder="技能名（可空）"
+                className="min-w-0 flex-1 rounded-pi-md border border-pi-border-soft bg-pi-bg2 px-2 py-1.5 text-[12px]" />
+              <button type="button" onClick={() => void authorSkill()} disabled={!skillGoal.trim()}
+                className="min-h-9 px-3 rounded-pi-md bg-pi-accent text-pi-on-accent text-[12px] disabled:opacity-40">让她写</button>
+              <button type="button" onClick={() => void adoptSkill()} disabled={!skillName.trim()}
+                className="min-h-9 px-3 rounded-pi-md bg-pi-bg3 text-[12px] disabled:opacity-40">收下</button>
+            </div>
+            {skillMsg && <p className="text-[11px] text-pi-text break-all">{skillMsg}</p>}
+          </section>
+          <section className="panel space-y-3">
+            <SectionHeader title="同事留言" description="多个小语同时干活时，用这个对口径。" />
+            <div className="flex flex-wrap gap-2">
+              <input style={{ ...input, width: 140 }} value={msgTo} onChange={(e) => setMsgTo(e.target.value)} placeholder="发给谁（可空）" />
+              <input
+                style={{ ...input, flex: 1, minWidth: 220 }}
+                value={msgText} onChange={(e) => setMsgText(e.target.value)}
+                onKeyDown={(e) => { if (e.key === 'Enter') void sendMsg() }}
+                placeholder="留一句：我在改什么、哪条路走不通"
+              />
+              <button type="button" style={pill()} onClick={sendMsg}>留言</button>
+            </div>
+            {msgHint ? <p className="text-xs text-pi-dim2">{msgHint}</p> : null}
+            {messages.length ? (
+              <ul className="space-y-2">
+                {messages.map((m) => (
+                  <li key={m.id} className="text-[12.5px] leading-relaxed">
+                    <span className="text-pi-dim2">{time(m.at)} · {m.from}{m.to ? ` → ${m.to}` : '（对所有人）'}</span>
+                    <div className="text-pi-text">{m.text}</div>
+                  </li>
+                ))}
+              </ul>
+            ) : <p className="text-xs text-pi-dim2">还没有留言。</p>}
+          </section>
+          {/* 2026-10-30：插件商店入口（左侧栏也有，这里再给一个显眼的） */}
+          <section className="panel flex flex-wrap items-center justify-between gap-2">
+            <div className="text-[13px] font-semibold text-pi-text" title="装技能包 / MCP / 工具包；工具包权限逐项核对">插件商店</div>
+            <a className="btn-tool min-h-9 px-3 text-[12px]" href="#/plugins">打开插件商店</a>
+          </section>
+        </div>
+      </details>
     </div>
   )
 }
