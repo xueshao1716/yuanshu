@@ -118,20 +118,34 @@ export async function writeDayDigest(wsRoot, { date, sessions = [], summarize = 
 
 // 没消息的日子不落盘；记在内存里，免得每 30 分钟把几百个会话重扫一遍
 const _noData = new Set();
+// 规则版是模型失败时的兜底：之后的定时任务再试模型升级，每个日子每次启动最多试 3 次（模型一直挂着就别反复扫盘）
+const MAX_MODEL_ATTEMPTS = 3;
+const _attempts = new Map();
+
+function needsWrite(wsRoot, date, canSummarize) {
+  const key = `${wsRoot}|${date}`;
+  if (_noData.has(key)) return false;
+  let text = '';
+  try { text = fs.readFileSync(digestPath(wsRoot, date), 'utf8') } catch { return true }
+  return canSummarize && text.includes('（规则摘要）') && (_attempts.get(key) || 0) < MAX_MODEL_ATTEMPTS;
+}
 
 /** 补写过去 backfill 天里缺的摘要（不写今天：今天还没过完）；缺的日子一次扫完 */
 export async function maybeWriteDigests(wsRoot, { now = new Date(), sessions = [], summarize = null, backfill = 7 } = {}) {
+  const canSummarize = typeof summarize === 'function';
   const missing = [];
   for (let i = 1; i <= backfill; i++) {
     const date = localDate(now.getTime() - i * DAY_MS);
-    if (!_noData.has(`${wsRoot}|${date}`) && !fs.existsSync(digestPath(wsRoot, date))) missing.push(date);
+    if (needsWrite(wsRoot, date, canSummarize)) missing.push(date);
   }
   if (!missing.length) return [];
   const byDate = await collectDays(sessions, missing);
   const out = [];
   for (const date of missing) {
-    const r = await writeDayDigest(wsRoot, { date, summarize, groups: byDate.get(date) });
-    if (r.reason === 'no_data') _noData.add(`${wsRoot}|${date}`);
+    const key = `${wsRoot}|${date}`;
+    if (canSummarize) _attempts.set(key, (_attempts.get(key) || 0) + 1);
+    const r = await writeDayDigest(wsRoot, { date, summarize, groups: byDate.get(date), force: true });
+    if (r.reason === 'no_data') _noData.add(key);
     if (!r.skipped) out.push(r);
   }
   return out;

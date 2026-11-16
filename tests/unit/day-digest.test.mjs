@@ -102,3 +102,23 @@ test('dayDigestNote 提到日期且有摘要时才给出', async () => {
     assert.equal(dayDigestNote(root, '昨天呢', new Date(2026, 10, 15)), '');
   } finally { fs.rmSync(root, { recursive: true, force: true }); }
 });
+
+test('规则版摘要之后会再试模型升级，最多重试 3 次', async () => {
+  const { root, sessions } = fixture();
+  try {
+    const now = new Date('2026-11-09T04:00:00.000Z');
+    const day = localDay('2026-11-08T02:00:00.000Z');
+    const fail = async () => { throw new Error('timeout'); };
+    await maybeWriteDigests(root, { now, sessions, summarize: fail, backfill: 1 });
+    assert.match(fs.readFileSync(digestPath(root, day), 'utf8'), /规则摘要/);
+    let calls = 0;
+    const counting = async () => { calls++; throw new Error('timeout'); };
+    for (let i = 0; i < 5; i++) await maybeWriteDigests(root, { now, sessions, summarize: counting, backfill: 1 });
+    assert.equal(calls, 2, '首写算 1 次，之后只再试 2 次');
+    const fresh = fixture();
+    await maybeWriteDigests(fresh.root, { now, sessions: fresh.sessions, summarize: fail, backfill: 1 });
+    await maybeWriteDigests(fresh.root, { now, sessions: fresh.sessions, summarize: async () => '- 修了日志', backfill: 1 });
+    assert.match(fs.readFileSync(digestPath(fresh.root, day), 'utf8'), /修了日志[\s\S]*模型摘要/);
+    fs.rmSync(fresh.root, { recursive: true, force: true });
+  } finally { fs.rmSync(root, { recursive: true, force: true }); }
+});
