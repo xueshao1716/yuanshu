@@ -23,6 +23,7 @@ import * as T from '@radix-ui/react-tooltip'
 import { applyWallpaper, currentWallpaper } from './theme/wallpaper.mjs'
 import { installVisualViewportHeight } from './lib/viewport'
 import { useThemePreferences } from './hooks/useThemePreferences'
+import { useThemeLiquidGlass } from './components/shell/LiquidGlass'
 import BrandMark from './components/BrandMark'
 
 // 页面 lazy（路线图：每路由 lazy + ErrorBoundary）
@@ -168,6 +169,7 @@ function PageBody({ route }: { route: Route }) {
 export default function AppLayout() {
   const { authed, token, login, logout, selectSession, currentSessionId } = useApp()
   const themeReady = useThemePreferences(authed)
+  useThemeLiquidGlass()
   // 首启向导：服务端 .setup-pending 标记（新装生成令牌时落盘）或 ?setup=1 唤出。
   // 新装 + 本机直连：自动领取令牌登录，不让用户先输令牌；手机/远程仍走登录页，登录后进向导。
   const [setupPhase, setSetupPhase] = useState<'checking' | 'needed' | 'none'>('checking')

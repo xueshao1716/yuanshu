@@ -2964,3 +2964,86 @@ html.nav-tap-guard .mobile-tab-bar {
 @media (prefers-reduced-motion: reduce) {
   .pi-island, .pi-island__body, .pi-island__count, .pi-island__bar { transition: opacity .15s ease !important; animation: none !important; }
 }
+
+/* ══ 液态玻璃主题 v2（2026-11-17）══
+   v1 只有一层毛玻璃，底下又是近乎纯色的淡蓝 → 模糊了也看不出是玻璃，像普通白卡片。
+   v2：① 背景放几团更饱和的彩光，让玻璃有东西可透、可弯折；
+       ② 玻璃件加「边」：顶边亮线、底边反光、内发光、顶部反光层（玻璃感主要来自边，不是模糊）；
+       ③ 层次：内容区仍较实，浮着的控件（输入框/命令卡/导航选中/主按钮）最透最亮；
+       ④ Chromium 上 useThemeLiquidGlass 给这些控件叠 SVG 折射 + 色散。 */
+:root[data-theme="liquid-glass"] body {
+  background:
+    radial-gradient(46% 52% at 14% 16%, rgba(80, 150, 255, .62), transparent 70%),
+    radial-gradient(44% 50% at 86% 14%, rgba(170, 116, 255, .55), transparent 70%),
+    radial-gradient(44% 50% at 76% 86%, rgba(255, 132, 180, .48), transparent 70%),
+    radial-gradient(40% 46% at 30% 90%, rgba(70, 216, 190, .50), transparent 70%),
+    radial-gradient(34% 38% at 54% 48%, rgba(255, 200, 120, .34), transparent 72%),
+    linear-gradient(135deg, #e9f0fb 0%, #f4f2fb 50%, #eef4f8 100%);
+  background-attachment: fixed;
+}
+:root[data-theme="liquid-glass"] .col-canvas,
+:root[data-theme="liquid-glass"] .chat-welcome,
+:root[data-theme="liquid-glass"] .mobile-composer { background: transparent; border-color: transparent; }
+:root[data-theme="liquid-glass"] .sendbox-shell textarea { background: transparent; }
+:root[data-theme="liquid-glass"] .col-sidebar,
+:root[data-theme="liquid-glass"] .col-right,
+:root[data-theme="liquid-glass"] .desktop-rail {
+  background: linear-gradient(180deg, rgba(255,255,255,.50), rgba(255,255,255,.30));
+  box-shadow: inset -1px 0 0 rgba(255,255,255,.75), inset 1px 0 0 rgba(255,255,255,.35), 10px 0 30px rgba(53,79,130,.07);
+  -webkit-backdrop-filter: blur(30px) saturate(170%);
+  backdrop-filter: blur(30px) saturate(170%);
+}
+/* 玻璃件：透亮 + 有边 */
+:root[data-theme="liquid-glass"] .sendbox-shell,
+:root[data-theme="liquid-glass"] .workstart-command,
+:root[data-theme="liquid-glass"] section.morning,
+:root[data-theme="liquid-glass"] .panel,
+:root[data-theme="liquid-glass"] .chat-topbar button {
+  background: linear-gradient(180deg, rgba(255,255,255,.62) 0%, rgba(255,255,255,.26) 46%, rgba(255,255,255,.34) 100%);
+  border: 1px solid rgba(255, 255, 255, .58);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, .95),
+    inset 0 -1px 0 rgba(255, 255, 255, .40),
+    inset 0 0 18px rgba(255, 255, 255, .30),
+    0 10px 28px -10px rgba(40, 62, 120, .28),
+    0 1px 2px rgba(40, 62, 120, .08);
+  -webkit-backdrop-filter: blur(18px) saturate(180%);
+  backdrop-filter: blur(18px) saturate(180%);
+}
+:root[data-theme="liquid-glass"] .workstart-command:hover,
+:root[data-theme="liquid-glass"] .chat-topbar button:hover {
+  background: linear-gradient(180deg, rgba(255,255,255,.78) 0%, rgba(255,255,255,.40) 50%, rgba(255,255,255,.48) 100%);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 1),
+    inset 0 -1px 0 rgba(255, 255, 255, .5),
+    inset 0 0 22px rgba(255, 255, 255, .42),
+    0 14px 34px -10px rgba(40, 62, 120, .34);
+}
+:root[data-theme="liquid-glass"] .sendbox-shell { border-radius: 22px; }
+/* 导航：未选中只是字，选中项是一颗玻璃胶囊 */
+:root[data-theme="liquid-glass"] .desktop-rail-item { border: 1px solid transparent; }
+:root[data-theme="liquid-glass"] .desktop-rail-item[aria-current="page"],
+:root[data-theme="liquid-glass"] .desktop-rail-item[data-active="true"] {
+  background: linear-gradient(180deg, rgba(255,255,255,.80), rgba(255,255,255,.42));
+  border-color: rgba(255, 255, 255, .7);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,.95), inset 0 0 14px rgba(255,255,255,.35), 0 6px 18px -6px rgba(40,62,120,.30);
+}
+/* 主按钮：彩色玻璃——底色之上叠一层顶部反光 + 亮边 */
+:root[data-theme="liquid-glass"] .btn-primary {
+  background:
+    linear-gradient(180deg, rgba(255,255,255,.42) 0%, rgba(255,255,255,.08) 48%, rgba(255,255,255,0) 52%),
+    linear-gradient(135deg, rgba(64, 116, 230, .88), rgba(124, 150, 250, .82));
+  border: 1px solid rgba(255, 255, 255, .45);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,.75), inset 0 -2px 6px rgba(20,40,110,.18), 0 10px 24px -8px rgba(64,116,230,.55);
+  text-shadow: 0 1px 1px rgba(20, 40, 110, .25);
+}
+@media (prefers-reduced-transparency: reduce) {
+  :root[data-theme="liquid-glass"] body { background: #eef3fa; }
+  :root[data-theme="liquid-glass"] .sendbox-shell,
+  :root[data-theme="liquid-glass"] .workstart-command,
+  :root[data-theme="liquid-glass"] section.morning,
+  :root[data-theme="liquid-glass"] .panel,
+  :root[data-theme="liquid-glass"] .col-sidebar,
+  :root[data-theme="liquid-glass"] .col-right,
+  :root[data-theme="liquid-glass"] .desktop-rail { background: #f7faff; -webkit-backdrop-filter: none; backdrop-filter: none; }
+}

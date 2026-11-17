@@ -38,3 +38,15 @@ export function buildLiquidFilter(id, width, height, radius = 16, strength = 1) 
     channel(Math.round(s * 1.12), '0 0 0 0 0 0 0 0 0 0 0 0 1 0 0 0 0 0 1 0', 'b') +
     `<feBlend in="r" in2="g" mode="screen" result="rg"/><feBlend in="rg" in2="b" mode="screen"/></filter>`
 }
+
+// 「液态玻璃」主题下自动挂折射的浮层控件（2026-11-17）。
+// 只挑浮在内容上的小块：输入框、命令卡、晨报、导航项、主按钮、顶栏小按钮。大栏不挂（边缘折射在大面积上看不出，还费 GPU）。
+export const THEME_GLASS_SELECTORS = [
+  '.sendbox-shell',
+  '.workstart-command',
+  'section.morning',
+  '.desktop-rail-item[aria-current="page"]', // 只挂选中项：未选中的是纯文字，挂了反而糊成灰块
+  '.btn-primary',
+  '.chat-topbar button',
+]
+export const THEME_GLASS_MAX = 48

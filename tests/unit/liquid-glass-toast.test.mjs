@@ -80,3 +80,16 @@ test('通知与命令面板接上液态玻璃；减少透明度时退回实底',
   assert.match(css, /prefers-reduced-transparency:\s*reduce\)[\s\S]{0,200}\.liquid-glass/, '减少透明度要退回实底')
   assert.match(css, /prefers-reduced-motion:\s*reduce\)[\s\S]{0,200}\.pi-island/, '减弱动画时胶囊不弹')
 })
+
+test('液态玻璃主题：浮层控件自动挂折射，背景有可透的彩光，玻璃有亮边', async () => {
+  const { THEME_GLASS_SELECTORS } = await import('../../frontend/src/lib/liquid-glass.mjs')
+  for (const s of ['.sendbox-shell', '.workstart-command', '.btn-primary', '.desktop-rail-item[aria-current="page"]']) {
+    assert.ok(THEME_GLASS_SELECTORS.includes(s), `主题里 ${s} 要挂折射`)
+  }
+  assert.ok(read('AppLayout.tsx').includes('useThemeLiquidGlass('), '公共布局挂主题折射')
+  const css = read('styles.css')
+  const theme = css.slice(css.indexOf('液态玻璃主题 v2'))
+  assert.ok(theme.length > 100, '主题要有 v2 段')
+  assert.ok((theme.match(/radial-gradient/g) || []).length >= 4, '背景至少 4 团彩光，玻璃才有东西可透')
+  assert.match(theme, /inset 0 1px 0 rgba\(255, ?255, ?255, ?\.9/, '玻璃顶边要有亮线')
+})

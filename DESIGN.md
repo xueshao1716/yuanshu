@@ -116,6 +116,7 @@
 - 系统开「减少透明度」→ 实底；开「减弱动画」→ 胶囊不弹。
 - **通知 = 一个胶囊**：新消息原地变形（量内容尺寸，外壳宽高过渡）；同一句话 ×N；带 key 的任务同一个胶囊里推进度（`toast(msg, tone, { key, progress, sticky })` / `toast.dismiss(key)`）；报错至少停 2.5 秒，后来的排队显示 +N；悬停不消失，点一下收起。排队逻辑在 `lib/toast-queue.mjs`（纯函数，有单测）。
 - 非 React 代码弹通知：`window.dispatchEvent(new CustomEvent('pi:toast', { detail: { msg, tone } }))`。
+- **「液态玻璃」主题 v2**：v1 只有毛玻璃 + 近乎纯色底，看不出是玻璃。v2 背景放 5 团彩光（玻璃得有东西可透）；输入框/命令卡/晨报/顶栏按钮/导航选中项 = 半透白 + 顶边亮线 + 底边反光 + 内发光；主按钮是彩色玻璃；主区和输入区底栏去掉白底。选中该主题时 `useThemeLiquidGlass` 给 `THEME_GLASS_SELECTORS` 里的控件自动挂折射（最多 48 个，新出现的补挂）。导航只挂选中项——未选中的挂了会糊成灰块。
 
 ## 8. 验证方式
 
