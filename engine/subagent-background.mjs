@@ -15,12 +15,16 @@
 import { assertTransition, buildReceipt, filterSubagents, statusLabel, shouldPushReceipt } from "./subagent-state.mjs";
 import { KEEP_RECORDS, readSubagentRegistry, writeSubagentRegistry } from "./subagent-registry.mjs";
 import { deliverSubagentReceipts, postSubagentReceipt, subagentUnreadCount, unreadBySubagent } from "./subagent-receipts.mjs";
+import { countSteps, readProgress, removeProgress, saveProgress } from "./subagent-progress.mjs";
 
 export const BACKGROUND_TIMEOUT_MS = 15 * 60_000;   // 后台不占单轮预算，允许比同步模式（180s）长得多
 export const MIN_PUSH_MS = 20_000;                  // 太短的成功不打扰人（与 notifier 的 LONG_RUN_MS 同向）
 export const DEFAULT_PARENT_AGENT = "小语";
 const MAX_STORED_RESULT = 3000;
 const MAX_MEMORY_RECORDS = 200;
+// 2026-11-17 开机自动续的上限：防止一条每次都把宿主搞崩的子代理被无限重跑
+export const AUTO_RESUME_DEFAULTS = Object.freeze({ enabled: false, delayMs: 20_000, maxPerRecord: 2, maxAgeMs: 48 * 3600_000, limit: 4 });
+const MAX_PENDING_MESSAGES = 5;
 
 const iso = (ms) => new Date(ms).toISOString();
 const clip = (value, max) => {
@@ -57,6 +61,8 @@ export function createSubagentBackground({
   // 2026-11-07：后台子代理也是"她自己发起的轮次"，需要可追 id + 名字。
   // 注入 internal-rounds 后，每跑一轮建一条内部 run；没注入保持旧行为。
   rounds = null,
+  // 2026-11-17：宿主重启后把被打断的子代理自动续上（见 AUTO_RESUME_DEFAULTS）
+  autoResume = null,
 } = {}) {
   if (!pool || typeof pool.submit !== "function") throw new Error("后台子代理必须注入 job-pool（不许自造调度器）");
   if (typeof spawn !== "function") throw new Error("后台子代理必须注入 spawn 执行器");
@@ -64,6 +70,7 @@ export function createSubagentBackground({
   const root = String(wsRoot || ".");
   const records = new Map();
   const pendingPushes = new Set();
+  const autoCfg = { ...AUTO_RESUME_DEFAULTS, ...(autoResume || {}) };
   let seq = 0;
 
   for (const row of readSubagentRegistry(root)) if (row?.id) records.set(row.id, row);
@@ -91,27 +98,64 @@ export function createSubagentBackground({
     return record.status;
   }
 
-  // 进程重启前还在跑的记录不可能还活着：统一落成 interrupted 并留回执，别让父会话永远等
+  // 进程重启前还在跑的记录不可能还活着：统一落成 interrupted 并留回执，别让父会话永远等。
+  // 2026-11-17：有进度存档的可以从断点续；开了 autoResume 的在上限内自动续上。
   function recoverOrphans() {
     const orphans = [...records.values()].filter((record) => record.status === "running" || record.status === "queued");
+    const resumable = [];
     for (const record of orphans) {
       const at = now();
+      const steps = countSteps(readProgress(root, record.id));
+      const auto = autoCfg.enabled
+        && resumable.length < autoCfg.limit
+        && (Number(record.autoResumes) || 0) < autoCfg.maxPerRecord
+        && at - (Date.parse(record.createdAt) || at) < autoCfg.maxAgeMs;
+      if (auto) resumable.push(record.id);
       record.status = "interrupted";
       record.endedAt = iso(at);
       record.durationMs = 0;
       record.errorCode = "interrupted";
-      record.error = "宿主在子代理结束前重启，已恢复为中断（可以续聊接着干）";
+      record.progressSteps = steps;
+      // 打断用的新指令还没来得及用：并进排队消息，续上时一起带过去
+      if (Array.isArray(record.interruptWith) && record.interruptWith.length) {
+        record.pendingMessages = [...(record.pendingMessages || []), ...record.interruptWith].slice(-MAX_PENDING_MESSAGES);
+        record.interruptWith = [];
+      }
+      record.error = steps
+        ? `宿主在子代理结束前重启；进度已存档（${steps} 轮工具调用），可以从断点续上`
+        : "宿主在子代理结束前重启，已恢复为中断（可以续聊接着干）";
       record.summary = record.error;
       record.history = [...(Array.isArray(record.history) ? record.history : []), { at, kind: "interrupted" }].slice(-8);
       const receipt = buildReceipt({ id: record.id, status: "interrupted", task: record.task, error: record.error, durationMs: 0, continueCount: record.continueCount });
+      receipt.hint = auto
+        ? `约 ${Math.round(autoCfg.delayMs / 1000)} 秒后会自动续上（${steps ? "从存档进度接着干" : "没有存档，从头再跑"}），不用你操作。它中断前做到一半的事可能已经有副作用，续上的结果里留意重复。`
+        : continueHint(record.id, "接着干") + "续之前先想一下：它中断前做到一半的事可能已经有副作用。";
       try { postSubagentReceipt({ wsRoot: root, record, receipt, at }); } catch { /* 回执失败不影响恢复 */ }
       save(record);
+    }
+    if (resumable.length) {
+      const timer = setTimeout(() => autoResumeAll(resumable), Math.max(0, Number(autoCfg.delayMs) || 0));
+      timer.unref?.();
     }
     return orphans.length;
   }
 
+  function continueHint(id, message) {
+    return `要它接着干：delegate_task(action:"continue", subagent_id:"${id}", message:"${message}")。`;
+  }
+
+  function autoResumeAll(ids) {
+    for (const id of ids) {
+      const record = records.get(id);
+      // 这期间可能已经被手动续上/取消了：只续还停在 interrupted 的
+      if (!record || record.status !== "interrupted") continue;
+      record.autoResumes = (Number(record.autoResumes) || 0) + 1;
+      try { resumeRun(record, "", { reason: "restart" }); } catch { /* 续不上就留在 interrupted，手动续 */ }
+    }
+  }
+
   // ── 执行 ──────────────────────────────────────────────────
-  function submitRun(record, { task, context, seed, timeoutMs }) {
+  function submitRun(record, { task, context, seed, resume = [], timeoutMs }) {
     const job = pool.submit({ kind: "subagent", title: `子代理：${clip(task, 60)}` }, async (signal) => {
       if (record.status === "queued") applyTransition(record, "running");
       record.attempts = (Number(record.attempts) || 0) + 1;
@@ -141,6 +185,13 @@ export function createSubagentBackground({
           runId: record.parentRunId,
           model: record.model || null,
           timeoutMs,
+          resume,
+          // 每轮工具调用后存一次进度：重启/被打断/等人拍板之后从这里续
+          onCheckpoint: (messages) => {
+            const out = saveProgress(root, record.id, messages);
+            if (out.ok) record.progressSteps = out.steps;
+          },
+          askUser: record.profile === "research",
           // 关键：这里的 signal 只来自 job-pool（用户取消），**不是**父轮次的 signal——
           // 父轮次结束不该带走后台任务，所以 start() 从不接收调用方的 abort signal。
           signal,
@@ -158,9 +209,10 @@ export function createSubagentBackground({
         throw error;
       }
       if (round) {
-        const finalStatus = record.status === "done" ? "completed" : record.status === "cancelled" ? "stopped" : "failed";
+        const finalStatus = record.status === "done" ? "completed" : record.status === "cancelled" || record.status === "interrupted" ? "stopped" : "failed";
         round.finish(finalStatus, { error: record.error, errorCode: record.errorCode });
       }
+      followUp(record);
       return summary;
     });
     record.jobId = job?.id || record.jobId || "";
@@ -181,6 +233,17 @@ export function createSubagentBackground({
     const durationMs = Math.max(0, endedAt - startedAt);
     const cancelled = outcome?.cancelled === true;
     const completed = outcome?.done === true;
+    // interrupt 改需求：这次"取消"是为了带新指令重跑，不是用户叫停——不发已取消回执、不清进度
+    if (cancelled && Array.isArray(record.interruptWith) && record.interruptWith.length) {
+      try { applyTransition(record, "interrupted"); } catch { record.status = "interrupted"; }
+      record.endedAt = iso(endedAt);
+      record.durationMs = durationMs;
+      record.errorCode = "interrupted_by_update";
+      record.error = "被新指令打断，带着进度重跑";
+      record.summary = record.error;
+      save(record);
+      return record.summary;
+    }
     const nextStatus = cancelled ? "cancelled" : completed ? "done" : "failed";
     const errorCode = String(outcome?.errorCode || (cancelled ? "cancelled" : completed ? "" : "upstream_error"));
     try { applyTransition(record, nextStatus); }
@@ -193,7 +256,23 @@ export function createSubagentBackground({
     record.lastResult = completed ? String(outcome?.result || "").slice(0, MAX_STORED_RESULT) : "";
     record.evidence = Array.isArray(outcome?.evidence) ? outcome.evidence.slice(0, 6).map((item) => String(item).slice(0, 300)) : [];
     record.traceId = String(outcome?.subagentRunId || record.traceId || "");
+    const needsInput = completed && outcome?.needsInput?.question ? outcome.needsInput : null;
+    record.waitingInput = needsInput ? { question: String(needsInput.question), options: (needsInput.options || []).map(String) } : null;
+    // 进度：做完/取消就清；失败、等人拍板留着（续上从这里接）
+    if ((completed && !needsInput) || cancelled) { removeProgress(root, record.id); record.progressSteps = 0; }
+    let hint = "";
+    if (record.waitingInput) {
+      const card = JSON.stringify({ type: "choice", question: record.waitingInput.question, options: record.waitingInput.options });
+      hint = [
+        "它停下来等伙伴拍板。把下面这张卡原样放进你的回复，让伙伴点选：",
+        "```dsh-ui", card, "```",
+        `伙伴答了以后调用 delegate_task(action:"continue", subagent_id:"${record.id}", message:伙伴的原话)，它会带着之前的进度接着干。`,
+      ].join("\n");
+    } else if (!completed && !cancelled && record.progressSteps) {
+      hint = `进度已存档（${record.progressSteps} 轮工具调用）。` + continueHint(record.id, "接着干");
+    }
     writeReceipt(record, {
+      hint,
       status: record.status,
       result: String(outcome?.result || ""),
       error: record.error,
@@ -204,7 +283,7 @@ export function createSubagentBackground({
     return record.summary || clip(record.lastReceipt, 200);
   }
 
-  function writeReceipt(record, { status, result = "", error = "", errorCode = "", durationMs = 0, at = now() }) {
+  function writeReceipt(record, { status, result = "", error = "", errorCode = "", durationMs = 0, at = now(), hint = "" }) {
     const receipt = buildReceipt({
       id: record.id,
       status,
@@ -216,6 +295,7 @@ export function createSubagentBackground({
       durationMs,
       continueCount: record.continueCount,
     });
+    if (hint) receipt.hint = hint;
     record.lastReceipt = receipt.text.slice(0, 400);
     try {
       const posted = postSubagentReceipt({ wsRoot: root, record, receipt, at });
@@ -333,33 +413,88 @@ export function createSubagentBackground({
     return seed;
   }
 
-  function continueSubagent({ subagentId, message, sessionId = "", timeoutMs = BACKGROUND_TIMEOUT_MS } = {}) {
-    const found = findByOwner(subagentId, sessionId);
-    if (found.error) return found.error;
-    const record = found.record;
-    const text = String(message || "").trim();
-    if (!text) return failure("invalid_message", "续聊需要非空 message");
-    if (record.status === "cancelled") return failure("subagent_cancelled", `子代理 ${record.id} 已被取消，不能续聊；要接着做请重新派一个`);
-    if (record.status === "queued" || record.status === "running") {
-      return failure("subagent_busy", `子代理 ${record.id} 还在${statusLabel(record.status)}，等它结束再续聊`);
-    }
-    try { assertTransition(record.status, "queued"); }
-    catch (error) { return failure(error.code || "illegal_transition", error.message); }
-    const seed = continuationSeed(record);
+  /** 续上时接在进度后面的那句话：说清楚为什么停过、现在要干什么。 */
+  function resumeNote(record, reason, text) {
+    if (reason === "restart") return `（宿主重启打断了你，上面是你中断前的进度。接着把原任务干完，查过的不要重复查。）${text ? `\n另外：${text}` : ""}`;
+    if (reason === "interrupt") return `（伙伴中途改了需求，打断了你。上面是你到目前为止的进度。）\n新的要求：${text}`;
+    if (record.waitingInput) return `伙伴的回答：${text}\n按这个接着干。`;
+    return `（接着上面的进度继续。）\n${text}`;
+  }
+
+  /**
+   * 续上的唯一入口（手动续聊 / 开机自动续 / interrupt 改需求 / enqueue 排队消息都走这里）。
+   * 有进度存档：任务不变，进度接在任务后面再加一句说明——从断点接着干；
+   * 没有存档：旧行为，原任务 + 上一轮结论做种子，这条消息当新任务。
+   */
+  function resumeRun(record, message, { reason = "continue", timeoutMs = record.timeoutMs || BACKGROUND_TIMEOUT_MS } = {}) {
+    assertTransition(record.status, "queued");
+    const pending = Array.isArray(record.pendingMessages) ? record.pendingMessages : [];
+    const text = [String(message || "").trim(), ...pending].filter(Boolean).join("\n");
+    const progress = readProgress(root, record.id);
+    const run = progress.length
+      ? { task: record.task, seed: record.seed || [], resume: [...progress, { role: "user", content: resumeNote(record, reason, text) }] }
+      : { task: text || record.task, seed: text ? continuationSeed(record) : record.seed || [], resume: [] };
     record.status = "queued";
     record.acceptedAt = iso(now());
     record.continueCount = (Number(record.continueCount) || 0) + 1;
     record.continueMessage = clip(text, 300);
+    record.pendingMessages = [];
+    record.interruptWith = [];
+    record.waitingInput = null;
     record.timeoutMs = timeoutMs;
     record.error = "";
     record.errorCode = "";
     record.endedAt = "";
     record.durationMs = 0;
     record.startedAt = "";
-    record.history = [...(Array.isArray(record.history) ? record.history : []), { at: now(), kind: "continue", message: clip(text, 120) }].slice(-8);
+    record.history = [...(Array.isArray(record.history) ? record.history : []), { at: now(), kind: reason, message: clip(text, 120) }].slice(-8);
     save(record);
     // 续聊复用同一条 run 通道（同一个 job-pool + 同一份 traces），只是多带一条消息
-    const job = submitRun(record, { task: text, context: record.context || [], seed, timeoutMs });
+    return submitRun(record, { task: run.task, context: record.context || [], seed: run.seed, resume: run.resume, timeoutMs });
+  }
+
+  /** 一轮跑完之后：interrupt 的新指令马上重跑；enqueue 排着的消息接着做。 */
+  function followUp(record) {
+    try {
+      if (record.status === "interrupted" && record.errorCode === "interrupted_by_update") {
+        const text = record.interruptWith.join("\n");
+        record.interruptWith = [];
+        resumeRun(record, text, { reason: "interrupt" });
+      } else if ((record.status === "done" || record.status === "failed") && record.pendingMessages?.length) {
+        resumeRun(record, "", { reason: "continue" });
+      }
+    } catch { /* 接不上就停在当前终态，留给手动续 */ }
+  }
+
+  function continueSubagent({ subagentId, message, sessionId = "", timeoutMs = BACKGROUND_TIMEOUT_MS, strategy = "" } = {}) {
+    const found = findByOwner(subagentId, sessionId);
+    if (found.error) return found.error;
+    const record = found.record;
+    const text = String(message || "").trim();
+    if (!text) return failure("invalid_message", "续聊需要非空 message");
+    if (record.status === "cancelled") return failure("subagent_cancelled", `子代理 ${record.id} 已被取消，不能续聊；要接着做请重新派一个`);
+    // 2026-11-17 跑到一半改需求（学 deepagents update_strategy）：
+    // interrupt = 纠偏，打断当前这轮、带着进度和新指令重跑；enqueue（默认）= 加活，跑完这轮接着做。
+    if (record.status === "queued" || record.status === "running") {
+      if (strategy === "interrupt" && record.status === "running") {
+        record.interruptWith = [...(record.interruptWith || []), text.slice(0, 4000)];
+        save(record);
+        const out = pool.cancel(record.jobId);
+        if (out && out.ok === false) {
+          record.interruptWith = [];
+          save(record);
+          return failure("cancel_failed", `打断失败：${out.reason || "pool 拒绝"}`);
+        }
+        return { ok: true, subagentId: record.id, status: "running", state: record.status, strategy: "interrupt", note: "已打断当前这轮，马上带着进度和新指令重跑" };
+      }
+      record.pendingMessages = [...(record.pendingMessages || []), text.slice(0, 4000)].slice(-MAX_PENDING_MESSAGES);
+      save(record);
+      return { ok: true, subagentId: record.id, status: "running", state: record.status, strategy: "enqueue",
+        queuedMessages: record.pendingMessages.length, note: "已排队：它跑完这轮会接着做（要立刻纠偏用 strategy:\"interrupt\"）" };
+    }
+    let job;
+    try { job = resumeRun(record, text, { reason: "continue", timeoutMs }); }
+    catch (error) { return failure(error.code || "illegal_transition", error.message); }
     return accepted(record, job);
   }
 
@@ -409,6 +544,9 @@ export function createSubagentBackground({
       traceId: String(record.traceId || ""),
       push: String(record.push || ""),
       queued: record.status === "queued",
+      waitingInput: record.waitingInput || null,
+      progressSteps: Number(record.progressSteps) || 0,
+      pendingMessages: Array.isArray(record.pendingMessages) ? record.pendingMessages.length : 0,
     };
   }
 

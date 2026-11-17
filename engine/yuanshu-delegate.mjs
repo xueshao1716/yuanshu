@@ -11,7 +11,12 @@ export const DELEGATE_TASK_TOOL = {
     parameters: {
       type: "object",
       properties: {
-        task: { type: "string", description: "子任务：要做什么、输出什么结论" },
+        // 2026-11-17：派活 / 续上 / 点名 / 叫停 收进同一个工具（学 deepagents 的五件套），不用再记 HTTP 接口。
+        action: { type: "string", enum: ["start", "continue", "list", "cancel"], description: "默认 start 派新活。continue = 给后台子代理发消息（续上中断的、回答它的提问、中途改需求）；list = 查后台子代理状态（汇报前先查，历史里的状态都是过期的）；cancel = 叫停" },
+        subagent_id: { type: "string", description: "continue/cancel 用：后台子代理 id，一个字符都不能截断" },
+        message: { type: "string", description: "continue 用：要对它说的话（伙伴的回答、新要求、\"接着干\"）" },
+        strategy: { type: "string", enum: ["interrupt", "enqueue"], description: "continue 时它还在跑：interrupt = 纠偏，立刻打断带着进度按新要求重跑；enqueue（默认）= 加活，跑完这轮接着做" },
+        task: { type: "string", description: "start 用：子任务，要做什么、输出什么结论" },
         name: { type: "string", description: "可选：给这次派活起个短名（≤40 字）。看门狗/通知用它指认这一轮；不填就用 task 文本。" },
         context: { type: "array", items: { type: "string" }, description: "最小必要上下文，不要贴整段历史" },
         role: { type: "string", enum: ["analyst", "planner", "reviewer"], description: "analyst 查证 / planner 拆方案 / reviewer 复核；仅用于记录与展示" },
@@ -20,7 +25,6 @@ export const DELEGATE_TASK_TOOL = {
         // 2026-11-07：后台化。同步派要等结果回来才能继续，几分钟的活等于把主循环按住。
         background: { type: "boolean", description: "true = 转后台：立刻返回 subagentId，**不等结果**；跑完（成功/失败/取消都算）由系统写进留言板，并在下一轮以【系统】子代理 … 已完成 注入给你。适合几分钟以上的活；一两步就能查完的还是同步派更快。转后台后别再派同一个任务，也不要 sleep 等它。" },
       },
-      required: ["task"],
     },
   },
 };

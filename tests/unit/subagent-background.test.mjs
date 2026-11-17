@@ -122,7 +122,8 @@ test("入口错误：不存在 / 还在跑 / 不是你的 / 已取消，都要�
   const started = bg.start({ task: "A", sessionId: "sess-A" });
   await until(() => fake.calls[0]);
 
-  assert.equal(bg.continueSubagent({ subagentId: started.subagentId, message: "x", sessionId: "sess-A" }).code, "subagent_busy");
+  // 2026-11-17：还在跑时不再拒绝，默认排队（enqueue），跑完接着做——见 subagent-durable.test.mjs
+  assert.equal(bg.continueSubagent({ subagentId: started.subagentId, message: "x", sessionId: "sess-A" }).strategy, "enqueue");
   assert.equal(bg.continueSubagent({ subagentId: started.subagentId, message: "x", sessionId: "sess-B" }).code, "not_your_subagent");
   assert.equal(bg.continueSubagent({ subagentId: started.subagentId, message: "  ", sessionId: "sess-A" }).code, "invalid_message");
 

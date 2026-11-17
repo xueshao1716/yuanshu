@@ -44,8 +44,10 @@ export function postSubagentReceipt({ wsRoot, record = {}, receipt = {}, at = Da
     meta: {
       subagentId: id,
       status: String(record.status || ""),
-      statusLabel: statusLabel(record.status, { errorCode: record.errorCode }),
+      statusLabel: record.waitingInput ? "等你拍板" : statusLabel(record.status, { errorCode: record.errorCode }),
       summary: String(receipt.summary || "").slice(0, 200),
+      // 2026-11-17：给父会话的操作提示（怎么续、选项卡），摘要会被截到 200 字，单独放
+      hint: String(receipt.hint || "").slice(0, 1500),
       durationMs: Number(record.durationMs) || 0,
       continueCount: Number(record.continueCount) || 0,
     },
@@ -71,6 +73,7 @@ export function listUnreadSubagentReceipts(wsRoot, agent, { limit = 20 } = {}) {
       status: String(message.meta?.status || ""),
       statusLabel: String(message.meta?.statusLabel || statusLabel(message.meta?.status)),
       summary: String(message.meta?.summary || ""),
+      hint: String(message.meta?.hint || ""),
     }));
 }
 
@@ -119,6 +122,7 @@ export function deliverSubagentReceipts({ wsRoot, agent, limit = MAX_NOTE_ITEMS 
     status: row.status,
     statusLabel: row.statusLabel,
     summary: row.summary || row.text,
+    hint: row.hint || "",
   }));
   const text = buildReceiptNote(items, unread);
   if (!text) return empty;

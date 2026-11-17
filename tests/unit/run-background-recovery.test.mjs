@@ -200,3 +200,29 @@ test('same request stays idempotent and a different session cannot consume its c
     assert.equal(fx.store.get(other.id).backgroundRecovery.used, 1)
   } finally { fx.cleanup() }
 })
+
+// 2026-11-17 repro: a restart while the model is generating leaves a model_request checkpoint.
+// Its snapshot is the same paired history as tool_results; it used to be rejected as checkpoint_invalid.
+test('model_request checkpoint with a paired snapshot is resumable; an unanswered tool call is not', async () => {
+  const contexts = []
+  const modelRequest = () => ({ ...checkpoint(), checkpointKind: 'model_request' })
+  const fx = fixture((req, res, body) => {
+    contexts.push(body.__runContext)
+    if (contexts.length === 1) { emit(res, 'checkpoint', modelRequest()); emit(res, 'interrupted', { reason: 'execution_budget' }) }
+    res.end()
+  })
+  try {
+    const run = fx.create(); await tick()
+    assert.equal(fx.store.get(run.id).status, 'queued')
+    await fx.next()
+    assert.equal(fx.store.get(run.id).status, 'completed')
+    assert.equal(contexts[1].checkpoint.checkpointKind, 'model_request')
+  } finally { fx.cleanup() }
+  const messages = [{ role: 'user', content: 'finish this task' }, { role: 'assistant', content: '', tool_calls: [{ id: 'c1', function: { name: 'bash', arguments: '{}' } }] }]
+  const dangling = { ...checkpoint(), checkpointKind: 'model_request', historySnapshot: { v: 1, turn: 2, messages, digest: hashArgs(messages) } }
+  const fx2 = fixture((req, res) => { emit(res, 'checkpoint', dangling); emit(res, 'interrupted', { reason: 'execution_budget' }); res.end() })
+  try {
+    const run = fx2.create(); await tick()
+    assert.equal(fx2.store.get(run.id).backgroundRecovery.reason, 'checkpoint_invalid')
+  } finally { fx2.cleanup() }
+})

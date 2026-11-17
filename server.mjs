@@ -1309,6 +1309,8 @@ const subagentBg = (() => {
       spawn: (params) => subagent.spawnSubagent(params),
       // 2026-11-07：每条后台子代理轮次建内部 run（id/title 进审计，看门狗可指认）。
       rounds: internalRounds,
+      // 2026-11-17：宿主重启打断的后台子代理，开机后自动续上（有上限，见 AUTO_RESUME_DEFAULTS）
+      autoResume: { enabled: true, delayMs: 20_000 },
       traceHistory: ({ limit }) => subagent.getSubagentHistory({ limit }),
       push: async (receipt, record) => {
         // 只推应用内/系统通知，不发微信：子代理回执多数是"干活中间态"，别拿它刷微信
@@ -1769,6 +1771,25 @@ const extraToolExecutors = {
     delegate_task: async (args, ctx) => runWithInitiator("subagent", () => withClaim({ task: String(args?.task || args?.prompt || "派活"), agent: "delegate" }, async () => {
       // 2026-11-07：background:true 不阻塞主循环——立刻回一个 subagentId，结果走回传（mailbox + 下一轮注入）。
       // 注意：这里刻意**不**把父轮次的 ctx.signal 传下去，父轮次结束不该把后台任务带走。
+      const action = String(args?.action || "start");
+      if (action !== "start") {
+        if (!subagentBg) return { text: "后台子代理未初始化；请查启动日志", isError: true };
+        const sessionId = ctx?.sessionId || "";
+        if (action === "list") {
+          const out = await subagentBg.list({ sessionId, limit: 10 });
+          const rows = out.items.filter((row) => row.source === "registry").map((row) =>
+            `- ${row.id}（${row.name || String(row.task).slice(0, 40)}）${row.waitingInput ? "等你拍板" : row.status}${row.progressSteps ? ` · 存档 ${row.progressSteps} 轮` : ""}${row.pendingMessages ? ` · 排队 ${row.pendingMessages} 条` : ""}：${row.summary || ""}`);
+          return { text: rows.length ? rows.join("\n") : "这个会话没有后台子代理", isError: false };
+        }
+        const subagentId = String(args?.subagent_id || "").trim();
+        const out = action === "cancel"
+          ? subagentBg.cancel({ subagentId, sessionId })
+          : action === "continue"
+            ? subagentBg.continueSubagent({ subagentId, message: args?.message, sessionId, strategy: args?.strategy === "interrupt" ? "interrupt" : "" })
+            : { ok: false, error: `不认识的 action：${action}` };
+        if (!out.ok) return { text: `${action} 失败：${out.error || out.code}`, isError: true };
+        return { text: `${action} 已受理：subagentId=${out.subagentId}${out.strategy ? `（${out.strategy}）` : ""}${out.note ? `；${out.note}` : ""}。结果会以【系统】子代理 … 注入，不要等、不要 sleep。`, isError: false, subagentId: out.subagentId };
+      }
       if (args?.background === true || args?.background === "true") {
         const task = String(args?.task || args?.prompt || "").trim();
         if (!task) return { text: "delegate_task 需要 task", isError: true };
@@ -1788,7 +1809,7 @@ const extraToolExecutors = {
             `已转后台：subagentId=${out.subagentId}（${out.state === "queued" ? "在作业池里排队" : "已在跑"}）`,
             "**不要等、不要 sleep、不要再派同一个任务**：跑完（成功/失败/取消都算）会写进留言板，",
             "下一轮你会看到一条【系统】子代理 … 已完成：…（未读 N 条）。",
-            `要它接着干：POST /api/subagent/continue {subagentId:"${out.subagentId}", message:"…"}；查状态：GET /api/subagent/list。`,
+            `要它接着干或中途改需求：delegate_task(action:"continue", subagent_id:"${out.subagentId}", message:"…", strategy:"interrupt"|"enqueue")；查状态：delegate_task(action:"list")。`,
           ].join("\n"),
           isError: false,
           subagentId: out.subagentId,
@@ -3963,9 +3984,13 @@ try {
     return String(r.ownerId || '') !== RUN_INSTANCE_ID;
   });
   for (const r of stale) {
+    // 2026-11-17：这里只收内部轮次。聊天运行留给 listen 后 runManager 的 recover——
+    // 它会补 resumeAvailable + 检查点并安排自动续；以前在这里先改成 interrupted，
+    // recover 就再也找不到它，重启后的自动接续从没触发过。recover 在 listen 回调里同步先跑，
+    // 用户的新消息进不来之前就已收尾，不会被断气的运行挡住。
+    if (r.kind !== 'internal') continue;
     // 内部轮次走同一套终态收尾（带 endedAt/durationMs），不再只改 status。
-    if (r.kind === 'internal') runStore.finishInternal(r.id, { status: 'interrupted', error: 'server_restarted' });
-    else runStore.update(r.id, { status: 'interrupted', phase: 'interrupted', error: 'server_restarted', updatedAt: new Date().toISOString() });
+    runStore.finishInternal(r.id, { status: 'interrupted', error: 'server_restarted' });
     console.log(`[recover] 残留运行收尾 ${r.id.slice(0, 8)}（${r.status}）→ interrupted`);
   }
 } catch (e) { console.log('[recover] 残留运行清理跳过:', String(e?.message || e).slice(0, 100)); }
@@ -6718,6 +6743,7 @@ const API_ROUTES = [
     if (!subagentBg) return json(res, 503, { error: "后台子代理未初始化（见启动日志）" });
     const out = subagentBg.continueSubagent({
       subagentId: b?.subagentId, message: b?.message, sessionId: b?.sessionId || "",
+      strategy: b?.strategy === "interrupt" ? "interrupt" : "",
       timeoutMs: Number(b?.timeoutMs) > 0 ? Number(b.timeoutMs) : BACKGROUND_TIMEOUT_MS,
     });
     if (out.ok) return json(res, 200, out);

@@ -19,7 +19,8 @@ export function publicRecovery(policy) {
 
 function safeSnapshot(checkpoint) {
   const snapshot = checkpoint?.historySnapshot
-  if (checkpoint?.checkpointKind !== 'tool_results' || snapshot?.v !== 1 || !Array.isArray(snapshot.messages) || !snapshot.messages.length) return false
+  // model_request = 模型生成中被打断：快照与 tool_results 同样是已配对的历史，模型调用本身无外部副作用（2026-11-17）
+  if (!['tool_results', 'model_request'].includes(checkpoint?.checkpointKind) || snapshot?.v !== 1 || !Array.isArray(snapshot.messages) || !snapshot.messages.length) return false
   if (!snapshot.digest || snapshot.digest !== hashArgs(snapshot.messages)) return false
   if (checkpoint.historyDigest && checkpoint.historyDigest !== snapshot.digest) return false
   if (checkpoint.pendingSteps?.length || checkpoint.uncertainSteps?.length) return false

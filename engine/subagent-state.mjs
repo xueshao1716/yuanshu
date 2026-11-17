@@ -145,7 +145,8 @@ export function buildReceiptNote(items = [], unread = 0) {
     .map((row, index) => {
       const label = row.statusLabel || statusLabel(row.status);
       const summary = clip(row.summary || "（无摘要）", 200);
-      return `【系统】子代理 ${row.id} ${label}：${summary}${index === 0 ? `（未读 ${total} 条）` : ""}`;
+      const hint = String(row.hint || "").trim();
+      return `【系统】子代理 ${row.id} ${label}：${summary}${index === 0 ? `（未读 ${total} 条）` : ""}${hint ? `\n${hint}` : ""}`;
     })
     .join("\n");
 }

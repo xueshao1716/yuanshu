@@ -230,6 +230,31 @@ function emit(onEvent, type, data) {
   } catch { /* observers cannot break execution */ }
 }
 
+export const ASK_USER_TOOL = Object.freeze({
+  type: "function",
+  function: {
+    name: "ask_user",
+    description: "遇到只有伙伴能定的取舍（方向、范围、口味）时调用：停下来，把问题和 2-6 个选项交给主代理转给伙伴。能自己查清的不要问。",
+    parameters: {
+      type: "object",
+      properties: {
+        question: { type: "string", description: "一句话问题" },
+        options: { type: "array", items: { type: "string" }, description: "2-6 个短选项" },
+      },
+      required: ["question", "options"],
+    },
+  },
+});
+const ASK_USER_NOTE = "\n真遇到只有伙伴能定的取舍，调用 ask_user 停下来问（会转成选项卡给伙伴点）；能自己查清的不要问。";
+
+export function parseAskUser(raw) {
+  let args = {};
+  try { args = JSON.parse(raw || "{}"); } catch { /* 坏参数按空处理 */ }
+  const question = String(args.question || "").trim().slice(0, 200) || "需要你拍板";
+  const options = [...new Set((Array.isArray(args.options) ? args.options : []).map(o => String(o?.label ?? o ?? "").trim().slice(0, 60)).filter(Boolean))].slice(0, 6);
+  return { question, options };
+}
+
 export function initSubagent(options = {}) {
   const { httpFetch, authReader, modelReader, resolveAuth, getDefaultModel, getFlashModel, traceDir, researchRoots, webSearch } = options;
   _researchRoots = researchRoots || null;
@@ -265,6 +290,11 @@ export async function spawnSubagent({
   // 闸门保留是为了将来扩工具时不会绕过上限，以及让 depth 在 trace 里可见。
   parentDepth = 0,
   maxDepth = DEFAULT_MAX_DEPTH,
+  // 2026-11-17 可续：resume = 上次存档的进度（接在任务后面）；onCheckpoint 每轮工具后回调一次；
+  // askUser = 允许研究员调 ask_user 停下来等人拍板（只给后台子代理，同步派没有地方等人）。
+  resume = [],
+  onCheckpoint = null,
+  askUser = false,
 } = {}) {
   const normalizedRole = safeRole(role);
   const m = model || _getFlashModel() || _getDefaultModel();
@@ -344,12 +374,20 @@ export async function spawnSubagent({
         "你只有文本分析能力，不联网、不读文件、不看图片，不得声称已检索、写文件、运行命令或生成真实产物。材料不足时明确指出缺口，请主代理补充。\n" +
         (outputFormat === 'text' ? '直接输出要求的正文，不输出隐藏思考。' : ENVELOPE);
     let messages = [
-      { role: "system", content: SYSTEM },
+      { role: "system", content: SYSTEM + (askUser && policy.kind === "research" ? ASK_USER_NOTE : "") },
       ...contextMessages(aibodyContext),
       // fork 型：先给继承来的父对话前缀（真实消息，不是短字符串摘要），
       // 再给 context（显式补充的最小事实），最后才是本轮子任务。
       ...explicitMessages,
     ];
+    const baseLength = messages.length;
+    if (Array.isArray(resume) && resume.length) messages = [...messages, ...resume];
+    const checkpoint = (msgs) => {
+      if (typeof onCheckpoint !== "function") return;
+      try { onCheckpoint(msgs.slice(baseLength)); } catch { /* 存档失败不影响干活 */ }
+    };
+    const tools = askUser && policy.kind === "research" ? [...policy.tools, ASK_USER_TOOL] : policy.tools;
+    let needsInput = null;
     diagnostics = subagentBudget(modelDefinition, messages, { longForm, reasoningEffort });
     const { outputBudget } = diagnostics;
     const ask = (msgs, tools) => adapter.chat(m, msgs, { params: { temperature: 0.3 }, maxTokens: outputBudget,
@@ -366,7 +404,7 @@ export async function spawnSubagent({
         const finalNote = remaining <= 0
           ? `工具调用总预算已用完（${policy.maxToolCalls} 次），不能再调用任何工具。请基于已获得的证据直接给出最终${policy.kind === "team" ? "正文" : " JSON 结论"}。`
           : `工具轮次已用完（${policy.maxSteps} 轮），不能再调用工具。请基于已获得的证据直接给出最终${policy.kind === "team" ? "正文" : " JSON 结论"}。`;
-        response = await ask(finalStep ? [...messages, { role: "user", content: finalNote }] : messages, finalStep ? null : policy.tools);
+        response = await ask(finalStep ? [...messages, { role: "user", content: finalNote }] : messages, finalStep ? null : tools);
         // 通道不接受 tools 字段时退回纯分析，并在诊断里留痕，不把整次委派判死。
         if (step === 0 && response?.error && /HTTP 4\d\d/.test(response.error) && /tool/i.test(response.error)) {
           diagnostics = { ...diagnostics, errorCode: 'tools_unsupported' };
@@ -375,6 +413,14 @@ export async function spawnSubagent({
         }
         if (combined.signal.aborted) throw abortError(combined.timedOut() ? "子任务超时" : "子任务已取消");
         if (!response?.toolCalls?.length) break;
+        const askCall = response.toolCalls.find(tc => tc.function?.name === ASK_USER_TOOL.function.name);
+        if (askCall) {
+          // 停下来等人：存档里只留"它问了什么"，不留没回答的调用——续上时直接接答案
+          needsInput = parseAskUser(askCall.function.arguments);
+          messages = [...messages, { role: "assistant", content: `我需要你拍板：${needsInput.question}（选项：${needsInput.options.join(" / ")}）` }];
+          checkpoint(messages);
+          break;
+        }
         messages = response.history;
         // 同一轮并行调用按剩余总额度截断：超出预算的调用不执行，但都回明确文本（不静默丢）。
         const allowance = Math.max(0, policy.maxToolCalls - toolCalls);
@@ -396,6 +442,7 @@ export async function spawnSubagent({
         }));
         toolCalls += results.filter(item => item.executed).length;
         messages = [...messages, ...results.map(item => item.message)];
+        checkpoint(messages);
       }
     } else {
       response = await ask(messages, null);
@@ -405,6 +452,11 @@ export async function spawnSubagent({
     if (combined.signal.aborted) throw abortError(combined.timedOut() ? "子任务超时" : "子任务已取消");
     combined.dispose();
     if (response?.aborted) throw abortError("子任务已取消");
+    if (needsInput) {
+      const result = `需要你拍板：${needsInput.question}`;
+      await finish({ status: "completed", result, evidence: [], confidence: 0.5, diagnostics });
+      return { done: true, result, evidence: [], confidence: 0.5, needsInput, model: m, subagentRunId, diagnostics };
+    }
     const parsed = parseSubagentResult(response, { outputFormat, maxChars: longForm ? 24000 : 8000, outputBudget });
     const result = parsed.result;
     const evidence = safeEvidence(parsed.evidence);
