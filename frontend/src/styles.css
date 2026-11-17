@@ -2618,7 +2618,7 @@ body.has-color-card .col-right::before { left: 0; }
 .float-pill-value { font-size: 11px; font-family: var(--pi-font-mono); opacity: .78; }
 /* 配色卡列表：一行一枚，像参考图那样摞起来 */
 .float-pill-list { display: flex; flex-direction: column; gap: 10px; }
-.float-pill-list .float-pill { box-shadow: 0 10px 20px -6px color-mix(in srgb, var(--float-tint) 42%, transparent), 0 3px 8px -2px color-mix(in srgb, var(--float-tint) 26%, transparent), inset 0 1px 0 color-mix(in srgb, #fff 42%, transparent); }
+.float-pill-list .float-pill, .float-pill-grid .float-pill { box-shadow: 0 10px 20px -6px color-mix(in srgb, var(--float-tint) 42%, transparent), 0 3px 8px -2px color-mix(in srgb, var(--float-tint) 26%, transparent), inset 0 1px 0 color-mix(in srgb, #fff 42%, transparent); }
 
 /* 工坊里的"选择芯片"（绘画/视频的光影、风格、运镜、平台那几排）也借用同一套手感：
    选中时投影是主色系的、按下去有分量；没选中的保持安静（每颗都浮起来会吵）。
@@ -2899,8 +2899,8 @@ html.nav-tap-guard .mobile-tab-bar {
    只用在浮在内容上的东西（通知胶囊、⌘K 面板）；大面板仍是实底，见 DESIGN.md。
    这里是全浏览器都有的部分：半透明底 + 毛玻璃 + 顶部高光 + 菲涅尔亮边。
    Chromium 上 useLiquidGlass 会把 backdrop-filter 换成「SVG 折射 + 色散 + 毛玻璃」。 */
+.liquid-glass:not(.absolute, .fixed, .sticky) { position: relative; } /* 别盖掉弹层自己的定位 */
 .liquid-glass {
-  position: relative;
   isolation: isolate;
   background:
     linear-gradient(color-mix(in oklab, var(--lg-tint, transparent) 12%, transparent), color-mix(in oklab, var(--lg-tint, transparent) 12%, transparent)),
@@ -3028,14 +3028,25 @@ html.nav-tap-guard .mobile-tab-bar {
   border-color: rgba(255, 255, 255, .7);
   box-shadow: inset 0 1px 0 rgba(255,255,255,.95), inset 0 0 14px rgba(255,255,255,.35), 0 6px 18px -6px rgba(40,62,120,.30);
 }
-/* 主按钮：彩色玻璃——底色之上叠一层顶部反光 + 亮边 */
+/* 主按钮：彩色玻璃——底色之上叠一层顶部反光 + 亮边。颜色跟主色走（精调里换主色要能看到），不写死蓝 */
 :root[data-theme="liquid-glass"] .btn-primary {
   background:
     linear-gradient(180deg, rgba(255,255,255,.42) 0%, rgba(255,255,255,.08) 48%, rgba(255,255,255,0) 52%),
-    linear-gradient(135deg, rgba(64, 116, 230, .88), rgba(124, 150, 250, .82));
+    linear-gradient(135deg, color-mix(in srgb, var(--pi-accent) 92%, transparent), color-mix(in srgb, var(--pi-accent) 70%, #fff 12%));
   border: 1px solid rgba(255, 255, 255, .45);
-  box-shadow: inset 0 1px 0 rgba(255,255,255,.75), inset 0 -2px 6px rgba(20,40,110,.18), 0 10px 24px -8px rgba(64,116,230,.55);
+  color: var(--pi-on-accent);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,.75), inset 0 -2px 6px rgba(20,40,110,.18), 0 10px 24px -8px color-mix(in srgb, var(--pi-accent) 55%, transparent);
   text-shadow: 0 1px 1px rgba(20, 40, 110, .25);
+}
+/* 创作配色卡的色纱叠在玻璃底之上（上面 .col-sidebar/.col-right 用了 background 简写，会把色纱清掉） */
+:root[data-theme="liquid-glass"] body.has-color-card .col-sidebar {
+  background-image: var(--pi-card-shell-left), linear-gradient(180deg, rgba(255,255,255,.50), rgba(255,255,255,.30));
+}
+:root[data-theme="liquid-glass"] body.has-color-card .col-right {
+  background-image: var(--pi-card-shell-right), linear-gradient(180deg, rgba(255,255,255,.50), rgba(255,255,255,.30));
+}
+:root[data-theme="liquid-glass"] body.has-color-card .desktop-rail-item[aria-current="page"] {
+  box-shadow: inset 0 0 0 1px var(--pi-card-edge), inset 0 1px 0 rgba(255,255,255,.95), 0 6px 18px -6px rgba(40,62,120,.30);
 }
 @media (prefers-reduced-transparency: reduce) {
   :root[data-theme="liquid-glass"] body { background: #eef3fa; }

@@ -8,19 +8,29 @@ import { atomicWriteJson } from "./atomic-io.mjs"
 
 let _file = ""
 
+// 层级密度按主题分别记（2026-11-17）：{ 主题id: step }，只收合法 id 与精调滑块范围内的数
+function cleanDensities(o) {
+  const out = {}
+  if (!o || typeof o !== "object") return out
+  for (const [k, v] of Object.entries(o).slice(0, 40)) {
+    if (/^[a-z][a-z-]{0,23}$/.test(k) && typeof v === "number" && v >= 0.02 && v <= 0.08) out[k] = v
+  }
+  return out
+}
+
 export function initThemePrefs(file) {
   _file = file
 }
 
-// 读：返回 { theme, accent }；无文件/残缺 → 给默认
+// 读：返回 { theme, accent, wallpaper, densities }；无文件/残缺 → 给默认
 export function loadThemePrefs() {
   try {
     if (_file && fs.existsSync(_file)) {
       const o = JSON.parse(fs.readFileSync(_file, "utf8"))
-      return { theme: String(o.theme || "mist"), accent: String(o.accent || ""), wallpaper: String(o.wallpaper || "") }
+      return { theme: String(o.theme || "mist"), accent: String(o.accent || ""), wallpaper: String(o.wallpaper || ""), densities: cleanDensities(o.densities) }
     }
   } catch {}
-  return { theme: "mist", accent: "", wallpaper: "" }
+  return { theme: "mist", accent: "", wallpaper: "", densities: {} }
 }
 
 // 写：白名单字段，原子写；返回规范化对象
@@ -31,6 +41,7 @@ export function saveThemePrefs(obj) {
     theme: String(obj?.theme || prev.theme || "mist"),
     accent: typeof obj?.accent === "string" ? obj.accent : prev.accent,
     wallpaper: hasWallpaper ? String(obj.wallpaper || "") : prev.wallpaper,
+    densities: obj?.densities !== undefined ? cleanDensities(obj.densities) : prev.densities,
   }
   if (_file) { try { atomicWriteJson(_file, t) } catch {} }
   return t

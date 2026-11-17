@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { Check, ChevronDown, Code2, Download, RotateCcw, Trash2, Upload } from 'lucide-react'
 import { generateTheme, SEEDS } from '../theme/generate.mjs'
-import { applyTheme, currentTheme } from '../theme/apply'
+import { applyTheme, currentTheme, themeDensities, persistDensity } from '../theme/apply'
 import { persistWallpaper, currentWallpaper } from '../theme/wallpaper.mjs'
 import { COLOR_CARDS, CARD_FAMILIES, colorCardGradient, colorCardOn, resolveColorCard } from '../theme/colorcards.mjs'
 import { persistColorCardShell } from '../theme/colorcard-shell.mjs'
@@ -81,7 +81,10 @@ export default function Themes() {
   const init = useRef(currentTheme())
   const [theme, setTheme] = useState(init.current.theme)
   const [accent, setAccent] = useState(init.current.accent)
-  const [density, setDensity] = useState<number>(() => ((SEEDS as any)[init.current.theme]?.step) || 0.043)
+  // 密度按主题分别记，存服务端；没调过的主题用种子默认值
+  const [densities, setDensities] = useState<Record<string, number>>(() => themeDensities())
+  const density = densities[theme] || ((SEEDS as any)[theme]?.step) || 0.043
+  const setDensity = (step: number) => setDensities(persistDensity(theme, step))
   const [wallpaper, setWallpaper] = useState(() => currentWallpaper())
   // 全局创作配色卡：服务端一份，所有出图/出片入口共用（项目要单独覆盖在项目里指定）
   const [colorCardId, setColorCardId] = useState('')
@@ -116,14 +119,11 @@ export default function Themes() {
       const detail = (e as CustomEvent).detail || {}
       if (detail.theme) setTheme(detail.theme)
       if (typeof detail.accent === 'string') setAccent(detail.accent)
+      setDensities(themeDensities()) // 别的端同步过来的密度
     }
     window.addEventListener('pi-theme-changed', onExt)
     return () => window.removeEventListener('pi-theme-changed', onExt)
   }, [])
-  useEffect(() => {
-    const s = (SEEDS as any)[theme] as Seed
-    if (s) setDensity(s.step ?? 0.043)
-  }, [theme])
 
   useEffect(() => {
     const vars = seedVars(theme, accent, density)
@@ -136,17 +136,29 @@ export default function Themes() {
     if (!saved.ok && wallpaper.startsWith('data:')) toast('图片太大，浏览器存不下。请改用较小的图或填 URL。', 'error')
   }, [wallpaper])
 
+  // 主题/主色一点就同步（applyTheme 里存）；壁纸和密度以前要手动点保存，忘了点就丢——改成停手 0.8 秒自动同步
+  const [syncState, setSyncState] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle')
+  const firstSync = useRef(true)
+  useEffect(() => {
+    if (firstSync.current) { firstSync.current = false; return }
+    setSyncState('saving')
+    const t = setTimeout(() => {
+      ThemeApi.save(theme, accent, wallpaper, densities).then(() => setSyncState('saved'), () => setSyncState('error'))
+    }, 800)
+    return () => clearTimeout(t)
+  }, [wallpaper, densities]) // eslint-disable-line react-hooks/exhaustive-deps
+
   const saveAll = async () => {
     try {
-      await ThemeApi.save(theme, accent, wallpaper)
-      toast('已保存到服务端（所有端同步）', 'ok')
-    } catch { toast('保存失败', 'error') }
+      await ThemeApi.save(theme, accent, wallpaper, densities)
+      setSyncState('saved')
+      toast('已同步到所有端', 'ok')
+    } catch { setSyncState('error'); toast('同步失败', 'error') }
   }
 
   const handleReset = () => {
-    const s = (SEEDS as any)[theme] as Seed
-    selectAccent(s.accent)
-    setDensity(s.step ?? 0.043)
+    selectAccent('')
+    setDensity(0)
     toast('已恢复该主题默认值')
   }
 
@@ -176,7 +188,7 @@ export default function Themes() {
         />
 
         <section data-slot="theme-gallery" className="mb-8">
-          <SectionHeader title="主题画廊" description="选择基底会立即应用，并将密度恢复为该主题的默认层级。" />
+          <SectionHeader title="主题画廊" description="选择基底会立即应用；每套主题的层级密度各自记住。" />
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
             {ids.map(id => (
               <ThemeCard
@@ -213,12 +225,12 @@ export default function Themes() {
           </div>
 
           <div>
-            <SectionHeader title="精调当前主题" description="调整主色、层级密度和工作台壁纸。" />
-            <div className="panel !p-3 space-y-5">
+            <SectionHeader title="精调当前主题" description="主色、层级密度和壁纸；改动即时生效，自动同步到所有端。" />
+            <div className="panel !p-4 space-y-5">
               <div>
                 <div className="text-[12px] text-pi-dim2 font-semibold mb-2">主色</div>
                 <div className="flex flex-wrap items-center gap-2">
-                  <button type="button" className={`w-8 h-8 rounded-full border-2 text-[11px] flex items-center justify-center ${!accent ? 'border-pi-accent' : 'border-pi-border'}`} style={{ background: (SEEDS as any)[theme]?.accent, color: 'var(--pi-on-accent)' }} onClick={() => selectAccent('')} title="主题默认主色">默认</button>
+                  <button type="button" className={`w-8 h-8 rounded-full border-2 text-[11px] flex items-center justify-center ${!accent ? 'border-pi-accent' : 'border-pi-border'}`} style={{ background: (SEEDS as any)[theme]?.accent, color: 'var(--pi-on-accent)' }} onClick={() => selectAccent('')} aria-pressed={!accent} title="主题默认主色">默认</button>
                   {ACCENT_SWATCHES.map(c => (
                     <button
                       type="button"
@@ -244,8 +256,9 @@ export default function Themes() {
               </div>
 
               <div>
-                <div className="text-[12px] text-pi-dim2 font-semibold mb-2">
-                  层级密度 <span className="text-[11px] text-pi-dim font-normal">step={density.toFixed(3)}，数值越大层级越明显</span>
+                <div className="flex items-baseline justify-between mb-2">
+                  <span className="text-[12px] text-pi-dim2 font-semibold">层级密度</span>
+                  <span className="text-[11px] text-pi-dim2 font-mono">{density.toFixed(3)}{densities[theme] ? '' : ' · 默认'}</span>
                 </div>
                 <input
                   type="range"
@@ -257,98 +270,7 @@ export default function Themes() {
                   onChange={e => setDensity(parseFloat(e.target.value))}
                   className="w-full accent-pi-accent"
                 />
-              </div>
-
-              <div>
-                <div className="text-[12px] text-pi-dim2 font-semibold mb-2">
-                  创作配色卡{' '}
-                  <span className="text-[11px] text-pi-dim font-normal">
-                    全局：选了之后所有出图/出片（绘画、视频、连续创作）都按它写「色调」
-                  </span>
-                </div>
-                <div className="flex flex-wrap items-center gap-1.5 mb-2">
-                  <button
-                    type="button"
-                    aria-pressed={!colorCardId}
-                    onClick={() => void saveColorCard('')}
-                    className={`px-2.5 py-1.5 rounded-pi-sm text-[12px] transition-colors ${!colorCardId ? 'bg-pi-accent-soft text-pi-accent' : 'hover:bg-pi-bg3 text-pi-dim'}`}
-                  >
-                    不指定
-                  </button>
-                  {Object.values(CARD_FAMILIES).map(family => (
-                    <button
-                      key={family.id}
-                      type="button"
-                      aria-pressed={cardFamily === family.id}
-                      onClick={() => setCardFamily(family.id)}
-                      className={`px-2.5 py-1.5 rounded-pi-sm text-[12px] transition-colors ${cardFamily === family.id ? 'bg-pi-bg3 text-pi-text' : 'text-pi-dim hover:bg-pi-bg3'}`}
-                    >
-                      {family.name}
-                    </button>
-                  ))}
-                  {colorCardId && <span className="ml-auto text-[11px] text-pi-dim">当前：{resolveColorCard(colorCardId)?.name}</span>}
-                </div>
-                <div className="text-[11px] text-pi-dim mb-2">{CARD_FAMILIES[cardFamily].rule}</div>
-                <div className="float-pill-list">
-                  {COLOR_CARDS.filter(c => c.family === cardFamily).map(card => (
-                    <FloatPill
-                      key={card.id}
-                      label={card.name}
-                      value={card.top}
-                      bg={card.top}
-                      fg={colorCardOn(card)}
-                      tint={card.top}
-                      active={colorCardId === card.id}
-                      title={`${card.top} → ${card.bottom}`}
-                      onClick={() => void saveColorCard(card.id)}
-                    />
-                  ))}
-                </div>
-              </div>
-
-              <div>
-                <div className="text-[12px] text-pi-dim2 font-semibold mb-2">
-                  配色卡壁纸{' '}
-                  <span className="text-[11px] text-pi-dim font-normal">
-                    点一下套成壁纸，点色点连同主色一起换
-                  </span>
-                </div>
-                <div className="grid grid-cols-3 gap-2">
-                  {COLOR_CARDS.filter(c => c.family === cardFamily).map(card => {
-                    const gradient = colorCardGradient(card)
-                    const active = wallpaper === gradient
-                    return (
-                      <div
-                        key={card.id}
-                        className={`relative rounded-pi-md border overflow-hidden transition-colors ${active ? 'border-pi-accent' : 'border-pi-border hover:border-pi-border-hi'}`}
-                      >
-                        <button
-                          type="button"
-                          onClick={() => setWallpaper(gradient)}
-                          aria-pressed={active}
-                          aria-label={`配色卡壁纸 ${card.name}：${card.top} 到 ${card.bottom}`}
-                          title={`原图标注 ${card.from} / ${card.to}；渐变从上到下`}
-                          className="block w-full text-left"
-                        >
-                          <span className="block h-12" style={{ background: gradient }} />
-                          <span className="block px-2 py-1.5 bg-pi-bg1">
-                            <span className="block text-[11px] text-pi-text truncate">{card.name}</span>
-                            <span className="block text-[11px] text-pi-dim2 font-mono truncate">{card.top}</span>
-                            <span className="block text-[11px] text-pi-dim2 font-mono truncate">{card.bottom}</span>
-                          </span>
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => selectAccent(card.top)}
-                          aria-label={`把主色换成 ${card.name} 的深端 ${card.top}`}
-                          title={`主色换成 ${card.top}`}
-                          className={`absolute top-1 right-1 w-4 h-4 rounded-full border border-white/70 shadow ${accent.toLowerCase() === card.top.toLowerCase() ? 'ring-2 ring-pi-accent' : ''}`}
-                          style={{ background: card.top }}
-                        />
-                      </div>
-                    )
-                  })}
-                </div>
+                <div className="flex justify-between text-[11px] text-pi-dim2 mt-0.5"><span>柔和</span><span>层级分明</span></div>
               </div>
 
               <div>
@@ -370,7 +292,7 @@ export default function Themes() {
                   <input
                     type="text"
                     value={wallpaper.startsWith('http') || wallpaper.startsWith('data:') || wallpaper.startsWith('linear') ? wallpaper : ''}
-                    placeholder="图片 URL 或渐变 CSS…"
+                    placeholder="图片 URL 或渐变 CSS…（下方配色卡也能一键套）"
                     onChange={e => setWallpaper(e.target.value)}
                     className="flex-1 text-[12px] font-mono bg-pi-field border border-pi-border rounded-pi-sm px-2.5 py-1.5 text-pi-text outline-none focus:border-pi-accent min-w-0"
                   />
@@ -404,14 +326,83 @@ export default function Themes() {
                 />
               </div>
 
-              <div className="flex flex-wrap gap-2 pt-1">
-                <button type="button" onClick={saveAll} className="btn-primary text-xs px-3.5 py-1.5 inline-flex items-center gap-1.5">
-                  <Check className="w-3.5 h-3.5" aria-hidden="true" />保存到服务端
-                </button>
+              <div className="flex flex-wrap items-center gap-2 pt-3 border-t border-pi-border-soft">
+                <span className={`mr-auto text-[11px] ${syncState === 'error' ? 'text-pi-danger' : 'text-pi-dim2'}`} aria-live="polite">
+                  {syncState === 'saving' ? '同步中…' : syncState === 'error' ? '同步失败，可点「立即同步」重试' : syncState === 'saved' ? '已同步到所有端' : '改动会自动同步到所有端'}
+                </span>
                 <button type="button" onClick={handleReset} className="btn-ghost text-xs px-3 py-1.5 inline-flex items-center gap-1.5">
                   <RotateCcw className="w-3.5 h-3.5" aria-hidden="true" />重置
                 </button>
+                <button type="button" onClick={saveAll} className="btn-primary text-xs px-3.5 py-1.5 inline-flex items-center gap-1.5">
+                  <Check className="w-3.5 h-3.5" aria-hidden="true" />立即同步
+                </button>
               </div>
+            </div>
+          </div>
+        </section>
+
+        {/* 创作配色卡单独一块（2026-11-17）：它是「全局出图色调」，点一下就存，和上面的主题精调不是一回事；
+            以前挤在精调里、同一组卡还列两遍（药丸一遍、壁纸网格一遍），整栏拉得老长。
+            现在每张卡只出现一次，卡上直接给「套成壁纸 / 取主色」。 */}
+        <section data-slot="color-card-studio" className="mb-8">
+          <SectionHeader title="创作配色卡" description="全局生效：选中后所有出图/出片（绘画、视频、连续创作）都按它写「色调」，左右栏也带上这套色纱。点一下即保存。" />
+          <div className="panel !p-4">
+            <div className="flex flex-wrap items-center gap-2 mb-1.5">
+              <div role="group" aria-label="配色卡系列" className="inline-flex p-0.5 rounded-pi-md bg-pi-bg3">
+                {Object.values(CARD_FAMILIES).map(family => (
+                  <button
+                    key={family.id}
+                    type="button"
+                    aria-pressed={cardFamily === family.id}
+                    onClick={() => setCardFamily(family.id)}
+                    className={`px-3 py-1 rounded-pi-sm text-[12px] transition-colors ${cardFamily === family.id ? 'bg-pi-bg1 text-pi-text shadow-sm' : 'text-pi-dim hover:text-pi-text'}`}
+                  >
+                    {family.name}
+                  </button>
+                ))}
+              </div>
+              <div className="ml-auto flex items-center gap-2">
+                {colorCardId && <span className="text-[11px] text-pi-dim">当前：{resolveColorCard(colorCardId)?.name}</span>}
+                <button
+                  type="button"
+                  aria-pressed={!colorCardId}
+                  onClick={() => void saveColorCard('')}
+                  className={`px-2.5 py-1 rounded-pi-sm text-[12px] transition-colors ${!colorCardId ? 'bg-pi-accent-soft text-pi-accent' : 'hover:bg-pi-bg3 text-pi-dim'}`}
+                >
+                  不指定
+                </button>
+              </div>
+            </div>
+            <div className="text-[11px] text-pi-dim2 mb-4">{CARD_FAMILIES[cardFamily].rule}</div>
+            <div className="float-pill-grid grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-x-4 gap-y-4">
+              {COLOR_CARDS.filter(c => c.family === cardFamily).map(card => {
+                const gradient = colorCardGradient(card)
+                const isWall = wallpaper === gradient
+                const isAccent = accent.toLowerCase() === card.top.toLowerCase()
+                const action = (on: boolean) => `px-2 py-1 rounded-pi-sm text-[11px] transition-colors ${on ? 'bg-pi-accent-soft text-pi-accent' : 'text-pi-dim hover:bg-pi-bg3 hover:text-pi-text'}`
+                return (
+                  <div key={card.id} className="min-w-0">
+                    <FloatPill
+                      label={card.name}
+                      value={card.top}
+                      bg={card.top}
+                      fg={colorCardOn(card)}
+                      tint={card.top}
+                      active={colorCardId === card.id}
+                      title={`用于创作：${card.top} → ${card.bottom}`}
+                      onClick={() => void saveColorCard(card.id)}
+                      className="w-full"
+                    />
+                    <div className="flex items-center gap-1 mt-2 px-1">
+                      <span className="w-4 h-4 rounded-pi-sm border border-pi-border-soft flex-shrink-0" style={{ background: gradient }} title={`${card.top} → ${card.bottom}`} aria-hidden="true" />
+                      <span className="text-[11px] text-pi-dim2 font-mono truncate">{card.bottom}</span>
+                      <span className="flex-1" />
+                      <button type="button" aria-pressed={isWall} onClick={() => setWallpaper(isWall ? '' : gradient)} aria-label={`${isWall ? '取消' : ''}把 ${card.name} 套成壁纸`} className={action(isWall)}>套成壁纸</button>
+                      <button type="button" aria-pressed={isAccent} onClick={() => selectAccent(isAccent ? '' : card.top)} aria-label={`${isAccent ? '取消' : ''}用 ${card.name} 的深端 ${card.top} 作主色`} className={action(isAccent)}>取主色</button>
+                    </div>
+                  </div>
+                )
+              })}
             </div>
           </div>
         </section>

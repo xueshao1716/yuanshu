@@ -8,6 +8,21 @@ import { persistWallpaper } from './wallpaper.mjs'
 
 export type ThemeSeed = { bg: string; text: string; accent: string; step: number; light?: boolean; overrides?: Record<string, string> }
 
+// 层级密度按主题分别记（2026-11-17）：{ 主题id: step }。没记的主题用种子默认值。
+// 以前密度只在主题页内存里，保存不带它，一刷新就回去了。
+const DENSITY_KEY = 'pi_densities'
+export function themeDensities(): Record<string, number> {
+  try { return JSON.parse(localStorage.getItem(DENSITY_KEY) || '{}') || {} } catch { return {} }
+}
+// step <= 0 表示恢复默认；返回新对象（给 React state 用）
+export function persistDensity(theme: string, step: number): Record<string, number> {
+  const d = { ...themeDensities() }
+  if (step > 0) d[theme] = step
+  else delete d[theme]
+  try { localStorage.setItem(DENSITY_KEY, JSON.stringify(d)) } catch {}
+  return d
+}
+
 export function applyThemeVars(theme: string, accent: string) {
   const el = document.documentElement as any
   if (['mist', 'ink', 'violet', 'kraft', 'shuimo', 'bamboo', 'wood', 'liquid-glass', 'bridge'].includes(theme)) el.dataset.theme = theme
@@ -15,7 +30,8 @@ export function applyThemeVars(theme: string, accent: string) {
 
   const seed: ThemeSeed = (SEEDS as any)[theme] || (SEEDS as any).mist
   const c = accent || seed.accent
-  const v = generateTheme({ ...seed, accent: c })
+  const step = themeDensities()[theme]
+  const v = generateTheme({ ...seed, accent: c, ...(step > 0 ? { step } : {}) })
   for (const [k, val] of Object.entries(v)) el.style.setProperty(k, val as string)
   // 2026-11-06：浏览器也要"主题覆盖状态栏"。
   // 手机浏览器的地址栏/状态栏区域由 theme-color 决定；桌面 PWA 用它决定窗口标题栏颜色。
@@ -48,9 +64,12 @@ export function applyTheme(theme: string, accent: string) {
   persistTheme(theme, accent)
 }
 
-export function restoreThemePreferences(preferences: { theme?: string; accent?: string; wallpaper?: string }) {
+export function restoreThemePreferences(preferences: { theme?: string; accent?: string; wallpaper?: string; densities?: Record<string, number> }) {
   const theme = preferences.theme || currentTheme().theme
   const accent = typeof preferences.accent === 'string' ? preferences.accent : currentTheme().accent
+  if (preferences.densities && typeof preferences.densities === 'object') {
+    try { localStorage.setItem(DENSITY_KEY, JSON.stringify(preferences.densities)) } catch {}
+  }
   applyThemeVars(theme, accent)
   try {
     localStorage.setItem('pi_theme', theme)

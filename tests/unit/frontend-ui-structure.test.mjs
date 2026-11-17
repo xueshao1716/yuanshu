@@ -267,7 +267,7 @@ test('主题页保留即时应用、精调、壁纸、保存与重置行为，�
     'seedVars(theme, accent, density)',
     'setWallpaper(reader.result as string)',
     "setWallpaper('')",
-    'await ThemeApi.save(theme, accent, wallpaper)',
+    'await ThemeApi.save(theme, accent, wallpaper, densities)',
     'onClick={handleReset}',
   ]) {
     assert.ok(themes.includes(behavior), `主题页必须保留行为：${behavior}`)

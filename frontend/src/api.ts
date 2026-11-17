@@ -609,11 +609,12 @@ export type SelfModel = {
 }
 export const SelfApi = { get: () => api<SelfModel>('/api/self') }
 export const ThemeApi = {
-  get: () => api<{ theme: string; accent: string; wallpaper: string }>('/api/theme-prefs', { timeoutMs: 2500 }),
-  save: (theme: string, accent: string, wallpaper?: string) => {
-    const body: { theme: string; accent: string; wallpaper?: string } = { theme, accent }
+  get: () => api<{ theme: string; accent: string; wallpaper: string; densities?: Record<string, number> }>('/api/theme-prefs', { timeoutMs: 2500 }),
+  save: (theme: string, accent: string, wallpaper?: string, densities?: Record<string, number>) => {
+    const body: { theme: string; accent: string; wallpaper?: string; densities?: Record<string, number> } = { theme, accent }
     if (wallpaper !== undefined) body.wallpaper = wallpaper
-    return api<{ theme: string; accent: string; wallpaper: string }>('/api/theme-prefs', { method: 'POST', body })
+    if (densities !== undefined) body.densities = densities
+    return api<{ theme: string; accent: string; wallpaper: string; densities: Record<string, number> }>('/api/theme-prefs', { method: 'POST', body })
   },
 }
 
