@@ -44,7 +44,7 @@ export function postSubagentReceipt({ wsRoot, record = {}, receipt = {}, at = Da
     meta: {
       subagentId: id,
       status: String(record.status || ""),
-      statusLabel: record.waitingInput ? "等你拍板" : statusLabel(record.status, { errorCode: record.errorCode }),
+      statusLabel: record.waitingInput ? (record.waitingInput.kind === "approval" ? "等你批准" : "等你拍板") : statusLabel(record.status, { errorCode: record.errorCode }),
       summary: String(receipt.summary || "").slice(0, 200),
       // 2026-11-17：给父会话的操作提示（怎么续、选项卡），摘要会被截到 200 字，单独放
       hint: String(receipt.hint || "").slice(0, 1500),

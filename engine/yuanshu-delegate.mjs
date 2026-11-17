@@ -23,6 +23,8 @@ export const DELEGATE_TASK_TOOL = {
         agent_id: { type: "string", description: "可选：改派给自己培养的个体（cultivation agents 里状态 ready 的 id）。个体是纯文本、无工具，用它自己的设计和模型作答，结果带独立验证结论；不填则派只读研究员" },
         criterion: { type: "string", description: "仅配合 agent_id：验收标准，写成可核对的句子；不填用通用标准" },
         // 2026-11-07：后台化。同步派要等结果回来才能继续，几分钟的活等于把主循环按住。
+        // 2026-11-18：执行员。能动手，但每一步有副作用的调用都先弹卡等伙伴批准。
+        worker: { type: "boolean", description: "true = 派执行员：除了查，还能写文件/改文件/跑命令（凭据、人格定义、危险命令仍禁）。每次要动手都会停下来，回执里带一张批准卡（批准这一步 / 这一轮都批准 / 拒绝），原样放给伙伴点，伙伴选了用 continue 把原话传回去。自动转后台。只查不改的活别用它。" },
         background: { type: "boolean", description: "true = 转后台：立刻返回 subagentId，**不等结果**；跑完（成功/失败/取消都算）由系统写进留言板，并在下一轮以【系统】子代理 … 已完成 注入给你。适合几分钟以上的活；一两步就能查完的还是同步派更快。转后台后别再派同一个任务，也不要 sleep 等它。" },
       },
     },

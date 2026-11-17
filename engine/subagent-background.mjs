@@ -16,6 +16,7 @@ import { assertTransition, buildReceipt, filterSubagents, statusLabel, shouldPus
 import { KEEP_RECORDS, readSubagentRegistry, writeSubagentRegistry } from "./subagent-registry.mjs";
 import { deliverSubagentReceipts, postSubagentReceipt, subagentUnreadCount, unreadBySubagent } from "./subagent-receipts.mjs";
 import { countSteps, readProgress, removeProgress, saveProgress } from "./subagent-progress.mjs";
+import { parseApproval, approvalReply } from "./subagent-worker.mjs";
 
 export const BACKGROUND_TIMEOUT_MS = 15 * 60_000;   // 后台不占单轮预算，允许比同步模式（180s）长得多
 export const MIN_PUSH_MS = 20_000;                  // 太短的成功不打扰人（与 notifier 的 LONG_RUN_MS 同向）
@@ -109,7 +110,9 @@ export function createSubagentBackground({
       const auto = autoCfg.enabled
         && resumable.length < autoCfg.limit
         && (Number(record.autoResumes) || 0) < autoCfg.maxPerRecord
-        && at - (Date.parse(record.createdAt) || at) < autoCfg.maxAgeMs;
+        && at - (Date.parse(record.createdAt) || at) < autoCfg.maxAgeMs
+        // 执行员点过「这一轮都批准」后不自动续：断在哪条命令上说不准，重跑可能把副作用做两遍，留给伙伴决定
+        && !(record.profile === "worker" && record.approveAll);
       if (auto) resumable.push(record.id);
       record.status = "interrupted";
       record.endedAt = iso(at);
@@ -155,7 +158,7 @@ export function createSubagentBackground({
   }
 
   // ── 执行 ──────────────────────────────────────────────────
-  function submitRun(record, { task, context, seed, resume = [], timeoutMs }) {
+  function submitRun(record, { task, context, seed, resume = [], pendingRound = null, timeoutMs }) {
     const job = pool.submit({ kind: "subagent", title: `子代理：${clip(task, 60)}` }, async (signal) => {
       if (record.status === "queued") applyTransition(record, "running");
       record.attempts = (Number(record.attempts) || 0) + 1;
@@ -191,7 +194,9 @@ export function createSubagentBackground({
             const out = saveProgress(root, record.id, messages);
             if (out.ok) record.progressSteps = out.steps;
           },
-          askUser: record.profile === "research",
+          askUser: record.profile === "research" || record.profile === "worker",
+          approveAll: !!record.approveAll,
+          pendingRound,
           // 关键：这里的 signal 只来自 job-pool（用户取消），**不是**父轮次的 signal——
           // 父轮次结束不该带走后台任务，所以 start() 从不接收调用方的 abort signal。
           signal,
@@ -257,14 +262,18 @@ export function createSubagentBackground({
     record.evidence = Array.isArray(outcome?.evidence) ? outcome.evidence.slice(0, 6).map((item) => String(item).slice(0, 300)) : [];
     record.traceId = String(outcome?.subagentRunId || record.traceId || "");
     const needsInput = completed && outcome?.needsInput?.question ? outcome.needsInput : null;
-    record.waitingInput = needsInput ? { question: String(needsInput.question), options: (needsInput.options || []).map(String) } : null;
+    record.waitingInput = needsInput ? { kind: needsInput.kind === "approval" ? "approval" : "question", question: String(needsInput.question), options: (needsInput.options || []).map(String) } : null;
+    // 等批准：停下的那一轮调用存着，伙伴点了以后按决定落地（不进进度存档——没回答的调用会被裁掉）
+    record.pendingRound = needsInput?.kind === "approval" && needsInput.pending ? needsInput.pending : null;
     // 进度：做完/取消就清；失败、等人拍板留着（续上从这里接）
     if ((completed && !needsInput) || cancelled) { removeProgress(root, record.id); record.progressSteps = 0; }
     let hint = "";
     if (record.waitingInput) {
       const card = JSON.stringify({ type: "choice", question: record.waitingInput.question, options: record.waitingInput.options });
       hint = [
-        "它停下来等伙伴拍板。把下面这张卡原样放进你的回复，让伙伴点选：",
+        record.waitingInput.kind === "approval"
+          ? "它要动手（写文件/改文件/跑命令），停下来等伙伴批准。不要替伙伴批，把下面这张卡原样放进你的回复，让伙伴点选："
+          : "它停下来等伙伴拍板。把下面这张卡原样放进你的回复，让伙伴点选：",
         "```dsh-ui", card, "```",
         `伙伴答了以后调用 delegate_task(action:"continue", subagent_id:"${record.id}", message:伙伴的原话)，它会带着之前的进度接着干。`,
       ].join("\n");
@@ -431,9 +440,21 @@ export function createSubagentBackground({
     const pending = Array.isArray(record.pendingMessages) ? record.pendingMessages : [];
     const text = [String(message || "").trim(), ...pending].filter(Boolean).join("\n");
     const progress = readProgress(root, record.id);
-    const run = progress.length
-      ? { task: record.task, seed: record.seed || [], resume: [...progress, { role: "user", content: resumeNote(record, reason, text) }] }
-      : { task: text || record.task, seed: text ? continuationSeed(record) : record.seed || [], resume: [] };
+    const approval = record.waitingInput?.kind === "approval" && record.pendingRound ? record.pendingRound : null;
+    let run;
+    if (approval) {
+      // 审批回话：进度原样接上，停下的那一轮按决定落地；回话里除了选项之外的话当补充说明带给它
+      const decision = parseApproval(text);
+      if (decision === "all") record.approveAll = true;
+      const note = clip(approvalReply(text).note, 300);
+      run = { task: record.task, seed: record.seed || [], resume: progress, pendingRound: { message: approval, decision, note } };
+      record.lastApproval = { at: iso(now()), decision };
+    } else {
+      run = progress.length
+        ? { task: record.task, seed: record.seed || [], resume: [...progress, { role: "user", content: resumeNote(record, reason, text) }] }
+        : { task: text || record.task, seed: text ? continuationSeed(record) : record.seed || [], resume: [] };
+    }
+    record.pendingRound = null;
     record.status = "queued";
     record.acceptedAt = iso(now());
     record.continueCount = (Number(record.continueCount) || 0) + 1;
@@ -450,7 +471,7 @@ export function createSubagentBackground({
     record.history = [...(Array.isArray(record.history) ? record.history : []), { at: now(), kind: reason, message: clip(text, 120) }].slice(-8);
     save(record);
     // 续聊复用同一条 run 通道（同一个 job-pool + 同一份 traces），只是多带一条消息
-    return submitRun(record, { task: run.task, context: record.context || [], seed: run.seed, resume: run.resume, timeoutMs });
+    return submitRun(record, { task: run.task, context: record.context || [], seed: run.seed, resume: run.resume, pendingRound: run.pendingRound || null, timeoutMs });
   }
 
   /** 一轮跑完之后：interrupt 的新指令马上重跑；enqueue 排着的消息接着做。 */

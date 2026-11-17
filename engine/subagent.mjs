@@ -4,8 +4,11 @@
 //             不写文件、不跑命令；delegate_task / delegate_fork 走这一种。
 //   team：天团成员——只读检索 + 团队共享看板（team_board，能领/完/放不能建），有轮次与总调用预算，
 //         每次工具调用写动作审计（标注 member / teamId）；仍然不能写文件、跑命令、生图生视频、再派活。
+//   worker：执行员（2026-11-18，只走后台）——研究员四件 + write/edit/bash（见 subagent-worker.mjs）；
+//           每一轮有副作用的调用先停下等伙伴批准，批准后从断点接着干。
 import { HttpModelAdapter } from "./model/adapter.mjs";
 import { RESEARCH_TOOLS, RESEARCH_MAX_STEPS, RESEARCH_TOOL_NAMES, createResearchExecutor } from "./subagent-research.mjs";
+import { WORKER_TOOLS, WORKER_TOOL_NAMES, WORKER_MAX_STEPS, createWorkerExecutor, isActCall, hardBlock, approvalCard } from "./subagent-worker.mjs";
 import { TEAM_BOARD_TOOL, executeTeamBoard } from "./team-board.mjs";
 import { auditPath, summarizeArgs } from "./tools/audit-gate.mjs";
 import { redactSecrets } from "./tools/secrets-guard.mjs";
@@ -29,6 +32,7 @@ let _getFlashModel = () => null;
 let _traceStore = configureSubagentTraces();
 let _ordinal = 0;
 let _research = null;
+let _worker = null;
 let _researchRoots = null;
 
 // ===== 天团成员工具权限表（2026-11-15）· 唯一判定处 =====
@@ -96,6 +100,9 @@ export function resolveToolPolicy(profile = "analysis", { outputFormat = "json",
   }
   if (profile === "research" && outputFormat === "json" && readTools) {
     return Object.freeze({ kind: "research", toolNames: RESEARCH_TOOL_NAMES, tools: RESEARCH_TOOLS, maxSteps: RESEARCH_MAX_STEPS, maxToolCalls: Infinity, longForm: false });
+  }
+  if (profile === "worker" && outputFormat === "json" && readTools) {
+    return Object.freeze({ kind: "worker", toolNames: WORKER_TOOL_NAMES, tools: WORKER_TOOLS, maxSteps: WORKER_MAX_STEPS, maxToolCalls: Infinity, longForm: false });
   }
   return NO_TOOL_POLICY;
 }
@@ -259,6 +266,7 @@ export function initSubagent(options = {}) {
   const { httpFetch, authReader, modelReader, resolveAuth, getDefaultModel, getFlashModel, traceDir, researchRoots, webSearch } = options;
   _researchRoots = researchRoots || null;
   _research = (typeof researchRoots === 'function' || (Array.isArray(researchRoots) && researchRoots.length)) ? createResearchExecutor({ roots: researchRoots, webSearch }) : null;
+  _worker = _research ? createWorkerExecutor({ roots: researchRoots, research: _research }) : null;
   _adapterOptions = { httpFetch, authReader, modelReader, resolveAuth };
   _adapter = new HttpModelAdapter(_adapterOptions);
   if (getDefaultModel) _getDefaultModel = getDefaultModel;
@@ -295,6 +303,10 @@ export async function spawnSubagent({
   resume = [],
   onCheckpoint = null,
   askUser = false,
+  // 执行员审批：approveAll = 伙伴已点「这一轮都批准」；pendingRound = 上次停下等批准的那一轮
+  // { message: 带 tool_calls 的 assistant 消息, decision: once|all|reject, note }，开跑前先按决定落地。
+  approveAll = false,
+  pendingRound = null,
 } = {}) {
   const normalizedRole = safeRole(role);
   const m = model || _getFlashModel() || _getDefaultModel();
@@ -352,7 +364,14 @@ export async function spawnSubagent({
     const modelDefinition = { ...m, ...(_adapterOptions.modelReader?.()?.[m.provider]?.models || []).find(item => item.id === m.id) };
     const ENVELOPE = "输出必须严格为 JSON 对象（不要输出任何其他文字）：\n" +
       "{\"result\": \"完整任务正文（字符串）\", \"evidence\": [\"关键证据1\", \"关键证据2\"], \"confidence\": 0到1的数字}";
-    const SYSTEM = policy.kind === "research"
+    const SYSTEM = policy.kind === "worker"
+      ? "你是执行员。只完成交给你的这一个任务，不扩展、不闲聊。\n" +
+        `你可以用 read / list / grep / web_search 查，用 write / edit / bash 动手（最多 ${WORKER_MAX_STEPS} 轮工具调用，同一轮可以并行调用多个）。` +
+        "写文件、改文件、跑命令都要伙伴批准：你照常发起调用，系统会自动停下来等批准，不用先问。被拒绝就换做法或在结论里说明，别原样重试。\n" +
+        "凭据文件、人格定义等受保护文件、删除/格式化/强推这类危险命令一律不能碰，批准也放不开。\n" +
+        "改完自己验证（读回文件、跑测试）。证据要具体：文件路径:行号、命令和退出码。\n" +
+        "做完后直接给最终答案，" + ENVELOPE
+      : policy.kind === "research"
       ? "你是只读研究员。只完成交给你的这一个子问题，不扩展、不闲聊。\n" +
         `你可以用 read / list / grep / web_search 自己找证据（最多 ${RESEARCH_MAX_STEPS} 轮工具调用，同一轮可以并行调用多个）。` +
         "你不能写文件、不能运行命令、不能看图片；需要这些就在结论里说明，交给主代理。\n" +
@@ -374,7 +393,7 @@ export async function spawnSubagent({
         "你只有文本分析能力，不联网、不读文件、不看图片，不得声称已检索、写文件、运行命令或生成真实产物。材料不足时明确指出缺口，请主代理补充。\n" +
         (outputFormat === 'text' ? '直接输出要求的正文，不输出隐藏思考。' : ENVELOPE);
     let messages = [
-      { role: "system", content: SYSTEM + (askUser && policy.kind === "research" ? ASK_USER_NOTE : "") },
+      { role: "system", content: SYSTEM + (askUser && ["research", "worker"].includes(policy.kind) ? ASK_USER_NOTE : "") },
       ...contextMessages(aibodyContext),
       // fork 型：先给继承来的父对话前缀（真实消息，不是短字符串摘要），
       // 再给 context（显式补充的最小事实），最后才是本轮子任务。
@@ -386,7 +405,7 @@ export async function spawnSubagent({
       if (typeof onCheckpoint !== "function") return;
       try { onCheckpoint(msgs.slice(baseLength)); } catch { /* 存档失败不影响干活 */ }
     };
-    const tools = askUser && policy.kind === "research" ? [...policy.tools, ASK_USER_TOOL] : policy.tools;
+    const tools = askUser && ["research", "worker"].includes(policy.kind) ? [...policy.tools, ASK_USER_TOOL] : policy.tools;
     let needsInput = null;
     diagnostics = subagentBudget(modelDefinition, messages, { longForm, reasoningEffort });
     const { outputBudget } = diagnostics;
@@ -395,6 +414,30 @@ export async function spawnSubagent({
     let response;
     let toolCalls = 0;
     let toolRounds = 0;
+    let approveRest = !!approveAll;
+    const rootsNow = () => (typeof _researchRoots === "function" ? _researchRoots() : _researchRoots) || [];
+    const runTool = async (tc, args) => {
+      const out = await _worker(tc.function.name, args, { signal: combined.signal });
+      emit(onEvent, "subagent_tool", { id: subagentRunId, agent: normalizedRole, tool: tc.function.name,
+        target: String(args.path || args.command || args.pattern || args.query || "").slice(0, 120), isError: !!out?.isError });
+      return out;
+    };
+    if (useTools && policy.kind === "worker" && pendingRound?.message?.tool_calls?.length) {
+      // 审批回来了：先把停下时那一轮按伙伴的决定落地（拒绝的回明确文本，不静默丢），再进循环
+      const { message: held, decision = "reject", note = "" } = pendingRound;
+      if (decision === "all") approveRest = true;
+      const results = await Promise.all(held.tool_calls.map(async (tc) => {
+        let args = {};
+        try { args = JSON.parse(tc.function.arguments || "{}"); } catch { /* invalid args reported by executor */ }
+        const out = isActCall(tc) && decision === "reject"
+          ? { text: `伙伴拒绝了这一步${note ? `（伙伴说：${note}）` : ""}。别原样重试，换个做法或在结论里说明。` }
+          : await runTool(tc, args);
+        return { role: "tool", tool_call_id: tc.id, content: out?.text ?? "" };
+      }));
+      toolCalls += results.length;
+      messages = [...messages, held, ...results];
+      checkpoint(messages);
+    }
     if (useTools) {
       // 有界工具循环（research / team 共用）：轮次或总调用数到顶后，最后一轮不给工具，逼它收口出稿。
       for (let step = 0; step <= policy.maxSteps; step++) {
@@ -421,6 +464,19 @@ export async function spawnSubagent({
           checkpoint(messages);
           break;
         }
+        const needApproval = policy.kind === "worker" && !approveRest
+          ? response.toolCalls.filter(tc => isActCall(tc) && !hardBlock(tc, rootsNow()))
+          : [];
+        if (needApproval.length) {
+          // 有副作用：这一轮整体先不执行，存档里也不留它；续上时由 pendingRound 带回来按决定落地。
+          // （批准也放不开的调用不用问，直接执行拿到拒绝原因）
+          const last = Array.isArray(response.history) ? response.history[response.history.length - 1] : null;
+          const held = { role: "assistant", content: typeof last?.content === "string" ? last.content : "",
+            tool_calls: response.toolCalls.map(tc => ({ id: tc.id, type: "function", function: { name: tc.function.name, arguments: tc.function.arguments || "{}" } })) };
+          needsInput = { ...approvalCard(needApproval), pending: held };
+          checkpoint(messages);
+          break;
+        }
         messages = response.history;
         // 同一轮并行调用按剩余总额度截断：超出预算的调用不执行，但都回明确文本（不静默丢）。
         const allowance = Math.max(0, policy.maxToolCalls - toolCalls);
@@ -432,6 +488,9 @@ export async function spawnSubagent({
           if (policy.kind === "team") {
             const run = await runAuditedTeamMemberTool(tc, args, { ctx: memberCtx, allowExecution: index < allowance, maxToolCalls: policy.maxToolCalls });
             out = run.out; executed = run.executed;
+          } else if (policy.kind === "worker") {
+            out = await runTool(tc, args);
+            return { message: { role: "tool", tool_call_id: tc.id, content: out?.text ?? "" }, executed };
           } else {
             out = await _research(tc.function.name, args);
           }
@@ -453,7 +512,7 @@ export async function spawnSubagent({
     combined.dispose();
     if (response?.aborted) throw abortError("子任务已取消");
     if (needsInput) {
-      const result = `需要你拍板：${needsInput.question}`;
+      const result = `${needsInput.kind === "approval" ? "等你批准" : "需要你拍板"}：${needsInput.question}`;
       await finish({ status: "completed", result, evidence: [], confidence: 0.5, diagnostics });
       return { done: true, result, evidence: [], confidence: 0.5, needsInput, model: m, subagentRunId, diagnostics };
     }

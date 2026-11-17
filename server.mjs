@@ -1778,7 +1778,7 @@ const extraToolExecutors = {
         if (action === "list") {
           const out = await subagentBg.list({ sessionId, limit: 10 });
           const rows = out.items.filter((row) => row.source === "registry").map((row) =>
-            `- ${row.id}（${row.name || String(row.task).slice(0, 40)}）${row.waitingInput ? "等你拍板" : row.status}${row.progressSteps ? ` · 存档 ${row.progressSteps} 轮` : ""}${row.pendingMessages ? ` · 排队 ${row.pendingMessages} 条` : ""}：${row.summary || ""}`);
+            `- ${row.id}（${row.name || String(row.task).slice(0, 40)}）${row.waitingInput ? (row.waitingInput.kind === "approval" ? "等你批准" : "等你拍板") : row.status}${row.progressSteps ? ` · 存档 ${row.progressSteps} 轮` : ""}${row.pendingMessages ? ` · 排队 ${row.pendingMessages} 条` : ""}：${row.summary || ""}`);
           return { text: rows.length ? rows.join("\n") : "这个会话没有后台子代理", isError: false };
         }
         const subagentId = String(args?.subagent_id || "").trim();
@@ -1790,7 +1790,9 @@ const extraToolExecutors = {
         if (!out.ok) return { text: `${action} 失败：${out.error || out.code}`, isError: true };
         return { text: `${action} 已受理：subagentId=${out.subagentId}${out.strategy ? `（${out.strategy}）` : ""}${out.note ? `；${out.note}` : ""}。结果会以【系统】子代理 … 注入，不要等、不要 sleep。`, isError: false, subagentId: out.subagentId };
       }
-      if (args?.background === true || args?.background === "true") {
+      // 2026-11-18：worker = 执行员（能写能跑，每步弹卡等伙伴批准）。同步派没有地方等人点卡，所以一律转后台。
+      const worker = args?.worker === true || args?.worker === "true";
+      if (args?.background === true || args?.background === "true" || worker) {
         const task = String(args?.task || args?.prompt || "").trim();
         if (!task) return { text: "delegate_task 需要 task", isError: true };
         if (args?.agent_id) return { text: "background 暂不支持 agent_id（培养个体只能同步派）；去掉 background 或去掉 agent_id 再试一次", isError: true };
@@ -1802,11 +1804,13 @@ const extraToolExecutors = {
           role: args?.role,
           sessionId: ctx?.sessionId || "",
           runId: ctx?.runId || "",
+          ...(worker ? { profile: "worker" } : {}),
         });
         if (!out.ok) return { text: `转后台失败：${out.error || out.code || "未知原因"}`, isError: true };
         return {
           text: [
-            `已转后台：subagentId=${out.subagentId}（${out.state === "queued" ? "在作业池里排队" : "已在跑"}）`,
+            `已转后台：subagentId=${out.subagentId}（${worker ? "执行员，" : ""}${out.state === "queued" ? "在作业池里排队" : "已在跑"}）`,
+            ...(worker ? ["它每次要写文件/改文件/跑命令都会停下来，回执里带一张批准卡——原样放给伙伴点，别替伙伴批。"] : []),
             "**不要等、不要 sleep、不要再派同一个任务**：跑完（成功/失败/取消都算）会写进留言板，",
             "下一轮你会看到一条【系统】子代理 … 已完成：…（未读 N 条）。",
             `要它接着干或中途改需求：delegate_task(action:"continue", subagent_id:"${out.subagentId}", message:"…", strategy:"interrupt"|"enqueue")；查状态：delegate_task(action:"list")。`,
@@ -6720,7 +6724,8 @@ const API_ROUTES = [
   ["POST", "/api/subagent", async (res, req) => {
     const b = await readBody(req);
     if (!b?.task) return json(res, 400, { error: "缺 task 参数" });
-    if (b.background === true || b.background === "true") {
+    const worker = b.worker === true || b.worker === "true";
+    if (b.background === true || b.background === "true" || worker) {
       if (!subagentBg) return json(res, 503, { error: "后台子代理未初始化（见启动日志）" });
       const out = subagentBg.start({
         task: b.task,
@@ -6729,6 +6734,7 @@ const API_ROUTES = [
         role: b.role,
         sessionId: b.sessionId || "",
         parentAgent: b.parentAgent,
+        ...(worker ? { profile: "worker" } : {}),
         timeoutMs: Number(b.timeoutMs) > 0 ? Number(b.timeoutMs) : BACKGROUND_TIMEOUT_MS,
       });
       return json(res, out.ok ? 200 : 400, out);
