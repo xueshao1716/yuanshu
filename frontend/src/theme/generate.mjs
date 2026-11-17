@@ -110,34 +110,8 @@ export const SEEDS = {
               '--pi-shadow-lg': '0 4px 16px rgba(0,0,0,.08), 0 2px 6px rgba(0,0,0,.04)',
             } },
   deep:   { bg: '#0e1116', text: '#e8eef8', accent: '#5468ff', step: 0.043 },
-  ink:    { bg: '#050508', text: '#eceef2', accent: '#5468ff', step: 0.045,
-            overrides: { '--pi-accent-glow': 'rgba(120,120,160,0.22)', '--pi-glow-purple': 'rgba(120,120,160,0.12)', '--pi-glow-cyan': 'rgba(100,140,180,0.06)' } },
-  violet: { bg: '#0a0818', text: '#f0eaff', accent: '#8b7cf6', step: 0.045,
-            overrides: { '--pi-accent-glow': 'rgba(139,92,246,0.32)', '--pi-accent2': '#a78bfa', '--pi-accent-deep': '#6d5bd0', '--pi-glow-purple': 'rgba(139,92,246,0.22)', '--pi-glow-cyan': 'rgba(120,100,200,0.08)' } },
   mist:   { bg: '#fdfdfd', text: '#23252a', accent: '#4356b8', light: true, step: 0.012,
             overrides: { '--pi-dim': '#62656b', '--pi-dim2': '#696c72', '--pi-green': '#21834c', '--pi-red': '#c4413b', '--pi-yellow': '#a36513', '--pi-accent-glow': 'rgba(67,86,184,0.10)', '--pi-glow-purple': 'transparent', '--pi-glow-cyan': 'transparent' } },
-  kraft:  { bg: '#e5d4aa', text: '#3b2c14', accent: '#b45309', light: true, step: 0.035,
-            overrides: {
-              '--pi-green': '#158039', '--pi-red': '#bb2c27', '--pi-yellow': '#a16207',
-              '--pi-accent2': '#d97706', '--pi-accent-deep': '#8f3f00',
-              '--pi-accent-glow': 'rgba(180,83,9,0.16)',
-              '--pi-glow-purple': 'rgba(146,98,10,0.07)', '--pi-glow-cyan': 'rgba(120,90,20,0.05)',
-              '--pi-border-hi': 'rgba(92,58,16,0.10)',
-              '--pi-shadow-sm': '0 1px 2px rgba(92,58,16,.16), 0 1px 0 rgba(255,244,214,.28)',
-              '--pi-shadow-md': '0 3px 8px rgba(92,58,16,.20), 0 1px 0 rgba(255,244,214,.22)',
-              '--pi-shadow-lg': '0 8px 18px rgba(80,50,12,.24), 0 1px 0 rgba(255,244,214,.18)',
-              '--pi-font-display': '"Iowan Old Style","Palatino Linotype","Songti SC","STSong",serif',
-            } },
-  // 08-29 主题系统专门页新增（threeui 色板气质：sepia/moss/azure）
-  sepia:  { bg: '#171310', text: '#ede4d8', accent: '#d97706', step: 0.042,
-            overrides: { '--pi-green': '#5fae6e', '--pi-red': '#e06c5f', '--pi-yellow': '#d9a441',
-                         '--pi-accent-glow': 'rgba(217,119,6,0.26)', '--pi-glow-purple': 'rgba(180,130,60,0.10)', '--pi-glow-cyan': 'rgba(150,120,60,0.05)',
-                         '--pi-shadow-sm': 'rgba(20,12,4,0.22)', '--pi-shadow-md': 'rgba(20,12,4,0.30)', '--pi-shadow-lg': 'rgba(16,10,2,0.40)' } },
-  moss:   { bg: '#0c120e', text: '#e2ece4', accent: '#3f9e6e', step: 0.040,
-            overrides: { '--pi-green': '#4ade80', '--pi-red': '#e07a6c', '--pi-yellow': '#d9b259',
-                         '--pi-accent-glow': 'rgba(63,158,110,0.28)', '--pi-glow-purple': 'rgba(90,140,110,0.10)', '--pi-glow-cyan': 'rgba(80,150,120,0.06)' } },
-  azure:  { bg: '#0a101c', text: '#e0eaff', accent: '#38bdf8', step: 0.041,
-            overrides: { '--pi-accent2': '#7dd3fc', '--pi-accent-deep': '#0284c7', '--pi-accent-glow': 'rgba(56,189,248,0.30)', '--pi-glow-purple': 'rgba(80,120,200,0.12)', '--pi-glow-cyan': 'rgba(56,189,248,0.10)' } },
   // 舰桥（10-06）：深海军蓝底 + 冰青信号色，细线框/角标/网格见 styles.css「舰桥·HUD」
   bridge: { bg: '#060a11', text: '#d6e4f0', accent: '#2fd3e6', step: 0.038,
             overrides: {
@@ -181,33 +155,8 @@ export const SEEDS = {
               '--pi-font-sans': '"Ma Shan Zheng","LXGW WenKai Screen","LXGW WenKai","Kaiti SC","STKaiti","KaiTi",serif',
               '--pi-font-display': '"Ma Shan Zheng","LXGW WenKai Screen","LXGW WenKai","Kaiti SC","STKaiti","KaiTi",serif',
             } },
-  // 竹影（09-03）：浅色自然绿——晨竹米白底 + 竹青主色 + 全绿化光斑
-  bamboo: { bg: '#F1F5EC', text: '#233024', accent: '#3F7A50', light: true, step: 0.032,
-            overrides: {
-              '--pi-green': '#2F7A4E', '--pi-red': '#B5504A', '--pi-yellow': '#A98B3D',
-              '--pi-accent2': '#5C9970', '--pi-accent-deep': '#2F6340',
-              '--pi-accent-glow': 'rgba(63,122,80,0.12)',
-              '--pi-glow-purple': 'rgba(110,140,90,0.06)', '--pi-glow-cyan': 'rgba(90,150,120,0.06)',
-              '--pi-border-hi': 'rgba(40,60,40,0.06)',
-              '--pi-shadow-sm': '0 1px 2px rgba(35,60,42,.06), 0 1px 4px rgba(35,60,42,.05)',
-              '--pi-shadow-md': '0 2px 8px rgba(35,60,42,.08), 0 1px 3px rgba(35,60,42,.05)',
-              '--pi-shadow-lg': '0 4px 16px rgba(35,60,42,.10), 0 2px 6px rgba(35,60,42,.06)',
-            } },
   // 拟态木（09-04）：枫木台面 + 翠绿镶嵌。木纹/斜面见 styles.css 手写特化区
   // 2026-09-16：主色从 #0B8A54 压深到 #007d4b——同一个绿在枫木底（#ddc9a8）上只有 2.72，
-  // 而主色到处被当**文字**用（芯片、链接、状态），2.72 就是"看得见但费劲"。
-  wood: { bg: '#E8D4B2', text: '#2A2118', accent: '#007d4b', light: true, step: 0.033,
-            overrides: {
-              '--pi-green': '#0B8A54', '--pi-red': '#B24A3A', '--pi-yellow': '#C4A046',
-              '--pi-accent2': '#2BB56E', '--pi-accent-deep': '#086B42',
-              '--pi-accent-glow': 'rgba(11,138,84,0.16)',
-              '--pi-glow-purple': 'rgba(140,90,40,0.06)', '--pi-glow-cyan': 'rgba(11,138,84,0.06)',
-              '--pi-border-hi': 'rgba(70,42,16,0.08)',
-              '--pi-shadow-sm': '0 1px 2px rgba(62,38,12,.14), 0 1px 0 rgba(255,244,220,.35)',
-              '--pi-shadow-md': '0 3px 8px rgba(62,38,12,.18), inset 0 1px 0 rgba(255,246,228,.4)',
-              '--pi-shadow-lg': '0 8px 20px rgba(50,30,10,.22), inset 0 1px 0 rgba(255,246,228,.35)',
-              '--pi-font-display': '"Palatino Linotype","Songti SC","STSong","SimSun",serif',
-            } },
   // 液态玻璃（09-11）：Apple 风格的浅色半透明界面，冷蓝紫光晕与高光边缘。
   // 实底 token 保证阅读性，透明质感由 styles.css 的组件特化层统一叠加。
   'liquid-glass': { bg: '#EEF4FB', text: '#1B2433', accent: '#4778D6', light: true, step: 0.018,
@@ -403,13 +352,17 @@ export function motionVars() {
 
 const fmtVars = vars => Object.entries(vars).map(([k, val]) => `  ${k}: ${val};`).join('\n')
 
+// 2026-11-17：主题收成 5 个（液态玻璃/晨雾/水墨/曜石/舰桥），被合并的旧 id 迁到最接近的那个
+export const THEME_ALIASES = { kraft: 'shuimo', bamboo: 'shuimo', wood: 'shuimo', ink: 'obsidian', violet: 'obsidian', sepia: 'obsidian', moss: 'obsidian', azure: 'obsidian' }
+export function resolveThemeId(id) { return THEME_ALIASES[id] || id }
+
 // 输出两段 CSS：:root 区（deep + 共享动效）与三套 data-theme 区
 export function emitCss() {
   const deep = { ...generateTheme(SEEDS.deep), ...motionVars(), ...globalVars() }
   const block = (sel, vars) => `${sel} {\n${fmtVars(vars)}\n}`
   return {
     root: block(':root', deep),
-    themes: ['ink', 'violet', 'mist', 'kraft', 'shuimo', 'bamboo', 'wood', 'liquid-glass', 'obsidian'].map(name =>
+    themes: ['mist', 'shuimo', 'liquid-glass', 'obsidian'].map(name =>
       block(`[data-theme="${name}"]`, generateTheme(SEEDS[name]))).join('\n'),
   }
 }

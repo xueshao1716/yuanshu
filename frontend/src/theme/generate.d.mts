@@ -17,3 +17,5 @@ export declare const Z_INDEX: [string, number][]
 export declare const EASINGS: Record<string, string>
 export declare function contrast(fg: string, bg: string): number
 export declare const wcagLum: (hex: string) => number
+export declare const THEME_ALIASES: Record<string, string>
+export declare function resolveThemeId(id: string): string

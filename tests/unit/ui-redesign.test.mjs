@@ -124,7 +124,7 @@ test('工作台最近会话：微信桥会话显示短名，不露原始 id', ()
 
 test('深色主题下 .panel 有可见卡片底（不再与页面同为 bg1）', () => {
   const css = read('styles.css')
-  for (const t of ['ink', 'violet']) {
+  for (const t of ['obsidian']) {
     assert.ok(css.includes(`:root[data-theme="${t}"] .panel`), `${t} 主题要给 .panel 叠底`)
   }
 })

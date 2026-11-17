@@ -1,4 +1,4 @@
-import { generateTheme, SEEDS } from './generate.mjs'
+import { generateTheme, SEEDS, resolveThemeId } from './generate.mjs'
 import { ThemeApi } from '../api'
 import { persistWallpaper } from './wallpaper.mjs'
 
@@ -24,8 +24,9 @@ export function persistDensity(theme: string, step: number): Record<string, numb
 }
 
 export function applyThemeVars(theme: string, accent: string) {
+  theme = resolveThemeId(theme)
   const el = document.documentElement as any
-  if (['mist', 'ink', 'violet', 'kraft', 'shuimo', 'bamboo', 'wood', 'liquid-glass', 'bridge', 'obsidian'].includes(theme)) el.dataset.theme = theme
+  if (['mist', 'shuimo', 'liquid-glass', 'bridge', 'obsidian'].includes(theme)) el.dataset.theme = theme
   else delete el.dataset.theme
 
   const seed: ThemeSeed = (SEEDS as any)[theme] || (SEEDS as any).mist
@@ -51,6 +52,7 @@ export function applyThemeVars(theme: string, accent: string) {
 }
 
 export function persistTheme(theme: string, accent: string) {
+  theme = resolveThemeId(theme)
   try {
     localStorage.setItem('pi_theme', theme)
     localStorage.setItem('pi_accent', accent)
@@ -65,7 +67,9 @@ export function applyTheme(theme: string, accent: string) {
 }
 
 export function restoreThemePreferences(preferences: { theme?: string; accent?: string; wallpaper?: string; densities?: Record<string, number> }) {
-  const theme = preferences.theme || currentTheme().theme
+  // 2026-11-17：服务端可能还存着已合并的旧主题（牛皮纸/墨黑…），换成新的并回写一次
+  const stored = preferences.theme || currentTheme().theme
+  const theme = resolveThemeId(stored)
   const accent = typeof preferences.accent === 'string' ? preferences.accent : currentTheme().accent
   if (preferences.densities && typeof preferences.densities === 'object') {
     try { localStorage.setItem(DENSITY_KEY, JSON.stringify(preferences.densities)) } catch {}
@@ -77,6 +81,7 @@ export function restoreThemePreferences(preferences: { theme?: string; accent?: 
   } catch {}
   // An explicit empty wallpaper clears a choice made on another client.
   if (typeof preferences.wallpaper === 'string') persistWallpaper(preferences.wallpaper)
+  if (stored !== theme) ThemeApi.save(theme, accent).catch(() => {})
   window.dispatchEvent(new CustomEvent('pi-theme-changed', { detail: { theme, accent } }))
 }
 
@@ -91,7 +96,7 @@ export function currentTheme(): { theme: string; accent: string } {
       localStorage.setItem('pi_theme_migrated', '1')
       return { theme: DEFAULT_THEME, accent }
     }
-    return { theme, accent }
+    return { theme: resolveThemeId(theme), accent }
   } catch { return { theme: DEFAULT_THEME, accent: '' } }
 }
 
