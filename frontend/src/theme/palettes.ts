@@ -22,6 +22,7 @@ export const THEME_CATALOG = [
   { id: 'moss', name: '苔原', desc: '深色 · 苔绿自然系', swatch: 'linear-gradient(135deg,#0c120e,#3f9e6e)' },
   { id: 'azure', name: '远岚', desc: '深色 · 天青蓝调', swatch: 'linear-gradient(135deg,#0a101c,#38bdf8)' },
   { id: 'bridge', name: '舰桥', desc: '深色 · 冰青 HUD 科幻', swatch: 'linear-gradient(135deg,#060a11 0%,#0d1b2a 55%,#2fd3e6 100%)' },
+  { id: 'obsidian', name: '曜石', desc: '深色 · 旗舰克制（Linear 风）', swatch: 'linear-gradient(135deg,#0f1117 0%,#1a1d27 60%,#5e6ad2 100%)' },
   { id: 'liquid-glass', name: '液态玻璃', desc: '浅色 · Apple 风格半透明', swatch: 'linear-gradient(135deg,#eef4fb 0%,#b9d6ff 48%,#d9c7ff 100%)', light: true },
 ] as const
 export const THEME_PRESETS = THEME_CATALOG

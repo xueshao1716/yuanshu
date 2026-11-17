@@ -72,3 +72,18 @@ test("舰桥：科幻主题进目录/种子/apply，有 HUD 特化且不破坏�
     assert.ok(/:not\(\.absolute, \.fixed, \.sticky\)/.test(m[1]), `舰桥给 ${m[1].trim()} 加 relative 必须排除已定位弹层`);
   }
 });
+
+test("曜石：旗舰深色进目录/种子/apply/生成区块，深色 color-scheme，主按钮白字够读", async () => {
+  const palettes = read("theme", "palettes.ts");
+  const apply = read("theme", "apply.ts");
+  const css = read("styles.css");
+  assert.ok(palettes.includes("id: 'obsidian'") && palettes.includes("name: '曜石'"), "色板缺少曜石");
+  assert.ok(apply.includes("'obsidian'"), "applyThemeVars 必须给 obsidian 写 data-theme");
+  assert.ok(css.includes('[data-theme="obsidian"] {\n  --pi-bg: #0F1117;'), "生成区块里要有曜石的令牌");
+  assert.match(css, /html\[data-theme="obsidian"\] \{ color-scheme: dark; \}/, "曜石要声明深色 color-scheme");
+  const { SEEDS, generateTheme, contrast } = await import("../../frontend/src/theme/generate.mjs");
+  const v = generateTheme(SEEDS.obsidian);
+  // 全站很多主按钮写的是白字：曜石主色必须让白字过 4.5
+  assert.ok(contrast("#ffffff", v["--pi-accent"]) >= 4.5, "曜石主色上的白字不够读");
+  assert.match(css, /--pi-ease-spring: linear\(/, "要有弹簧缓动令牌");
+});

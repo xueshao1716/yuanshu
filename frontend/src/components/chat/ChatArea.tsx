@@ -455,6 +455,7 @@ export default function ChatArea({ compactHeader, rightPanel, onRightPanel, onVo
     lastMessageKey: messages.length
       ? `${messages.length}:${lastMsg?.id ?? ''}:${streamingLen}`
       : (stream ? 'stream' : null),
+    paused: messages.length === 0 && !stream && !draftMsg,
   })
   const bindChatScroll = useCallback((el: HTMLDivElement | null) => {
     bindScroll(el)

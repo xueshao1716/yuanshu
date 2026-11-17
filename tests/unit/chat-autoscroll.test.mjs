@@ -48,3 +48,10 @@ test('贴底时图片撑高超过阈值也跟随，阅读中则不跟随', () =>
   el.scrollTop = 1000; el.fire('wheel', { deltaY: -80 }); el.fire('scroll');
   el.scrollHeight = 3100; h.resize(); h.flush(); h.flush(); assert.equal(el.scrollTop, 1000);
 });
+test('欢迎页（没有消息）内容撑高时不滚到底，标题要留在顶部', () => {
+  const h = hookRuntime(new URL('../../frontend/src/hooks/useAutoScroll.ts', import.meta.url), 'useAutoScroll');
+  const el = h.element(); h.render({ sessionKey: 'A', lastMessageKey: null, paused: true }, el); h.flush(); h.flush();
+  el.scrollTop = 0; el.scrollHeight = 2400;
+  h.result.scrollToBottom(); h.flush(); assert.equal(el.scrollTop, 0);
+  h.result.scrollToBottom(true); h.flush(); assert.equal(el.scrollTop, 2400, '显式回到底部仍然生效');
+});

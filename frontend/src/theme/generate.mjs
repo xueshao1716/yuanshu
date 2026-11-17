@@ -153,6 +153,20 @@ export const SEEDS = {
               '--pi-shadow-lg': '0 0 0 1px rgba(0,0,0,.45), 0 12px 32px rgba(0,0,0,.45)',
               '--pi-font-display': '"Bahnschrift","Segoe UI","PingFang SC","Microsoft YaHei",system-ui,sans-serif',
             } },
+  // 曜石（11-17）：旗舰深色。参照 Linear/Vercel 的克制做法——#0F1117 底、发丝亮边 rgba(255,255,255,.08)、
+  // 标题 600/1.2、8px 网格、弹簧动效；只用一种强调色，层级靠亮度和边，不靠彩光。特化层见 styles.css「曜石」
+  obsidian: { bg: '#0F1117', text: '#EDEEF2', accent: '#5E6AD2', step: 0.034,
+            overrides: {
+              '--pi-accent2': '#8B95F0', '--pi-accent-deep': '#4A55B8',
+              '--pi-accent-glow': 'rgba(94,106,210,0.24)',
+              '--pi-green': '#4CC38A', '--pi-red': '#F2555A', '--pi-yellow': '#F0B44C',
+              '--pi-glow-purple': 'rgba(94,106,210,0.08)', '--pi-glow-cyan': 'rgba(90,160,255,0.05)',
+              '--pi-border-hi': 'rgba(255,255,255,0.08)',
+              '--pi-shadow-sm': '0 1px 2px rgba(0,0,0,.32)',
+              '--pi-shadow-md': '0 4px 14px -2px rgba(0,0,0,.45), 0 1px 2px rgba(0,0,0,.3)',
+              '--pi-shadow-lg': '0 18px 48px -12px rgba(0,0,0,.6), 0 2px 6px rgba(0,0,0,.35)',
+              '--pi-font-display': '"Inter Display","Inter","Segoe UI Variable Display","Segoe UI","PingFang SC","Microsoft YaHei",system-ui,sans-serif',
+            } },
   // 中式水墨（09-03）：宣纸底 + 墨分五色灰阶 + 朱砂唯一强调；楷体 + 宣纸纹理见 styles.css 手写特化区
   shuimo: { bg: '#F7F4EC', text: '#2A2620', accent: '#B54334', light: true, step: 0.030,
             overrides: {
@@ -222,6 +236,8 @@ const FONT_SCALE = [['badge', 10], ['xs', 11], ['sm', 12], ['md', 13], ['lg', 15
 export const EASINGS = {
   '--pi-ease': 'cubic-bezier(0.2, 0.8, 0.2, 1)',
   '--pi-ease-sheet': 'cubic-bezier(0.32, 0.72, 0, 1)',
+  // 弹簧（stiffness 300 / damping 30 / mass 1，2026-11-17）：解析解采样，0.5s 内收敛，超调 0.4%——稳，不弹跳
+  '--pi-ease-spring': 'linear(0, 0.054, 0.175, 0.319, 0.463, 0.591, 0.699, 0.786, 0.853, 0.903, 0.939, 0.964, 0.981, 0.992, 0.998, 1.002, 1.004, 1.004, 1.004, 1.004, 1.003, 1.002, 1.002, 1.001, 1)',
 }
 
 // ── 全局（非主题）token：间距 + 层叠 z-index（08-26 收口：从手写区挪进生成器，消除多源漂移）──
@@ -393,7 +409,7 @@ export function emitCss() {
   const block = (sel, vars) => `${sel} {\n${fmtVars(vars)}\n}`
   return {
     root: block(':root', deep),
-    themes: ['ink', 'violet', 'mist', 'kraft', 'shuimo', 'bamboo', 'wood', 'liquid-glass'].map(name =>
+    themes: ['ink', 'violet', 'mist', 'kraft', 'shuimo', 'bamboo', 'wood', 'liquid-glass', 'obsidian'].map(name =>
       block(`[data-theme="${name}"]`, generateTheme(SEEDS[name]))).join('\n'),
   }
 }

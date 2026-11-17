@@ -9,6 +9,8 @@ interface AutoScrollOptions {
   lastMessageKey?: string | null
   /** History loading is not an explicit send gesture. */
   lastFromUser?: boolean
+  /** 欢迎页这类没有消息的视图：内容撑高不跟随到底（否则晨报一加载，标题就被滚出屏幕） */
+  paused?: boolean
 }
 
 export function useAutoScroll(opts: AutoScrollOptions) {
@@ -21,6 +23,8 @@ export function useAutoScroll(opts: AutoScrollOptions) {
   const [atBottom, setAtBottom] = useState(true)
   const sessionRef = useRef(opts.sessionKey)
   sessionRef.current = opts.sessionKey
+  const pausedRef = useRef(!!opts.paused)
+  pausedRef.current = !!opts.paused
 
   const cancelScroll = useCallback(() => {
     if (frameRef.current) cancelAnimationFrame(frameRef.current)
@@ -41,7 +45,7 @@ export function useAutoScroll(opts: AutoScrollOptions) {
       userScrolledRef.current = false
       layoutGuardUntilRef.current = 0
     }
-    if (userScrolledRef.current || Date.now() < layoutGuardUntilRef.current) return
+    if ((pausedRef.current && !force) || userScrolledRef.current || Date.now() < layoutGuardUntilRef.current) return
     const el = scrollRef.current, session = sessionRef.current
     if (!el || frameRef.current) return
     frameRef.current = requestAnimationFrame(() => {

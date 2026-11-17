@@ -118,6 +118,22 @@
 - 非 React 代码弹通知：`window.dispatchEvent(new CustomEvent('pi:toast', { detail: { msg, tone } }))`。
 - **「液态玻璃」主题 v2**：v1 只有毛玻璃 + 近乎纯色底，看不出是玻璃。v2 背景放 5 团彩光（玻璃得有东西可透）；输入框/命令卡/晨报/顶栏按钮/导航选中项 = 半透白 + 顶边亮线 + 底边反光 + 内发光；主按钮是彩色玻璃；主区和输入区底栏去掉白底。选中该主题时 `useThemeLiquidGlass` 给 `THEME_GLASS_SELECTORS` 里的控件自动挂折射（最多 48 个，新出现的补挂）。导航只挂选中项——未选中的挂了会糊成灰块。
 
+### v3.0（2026-11-17）曜石主题 + 弹簧缓动
+- **曜石 `obsidian`**：旗舰深色，参照 Linear / Vercel 的克制做法。令牌在 `generate.mjs` 的 `obsidian` 种子，特化层在 `styles.css`「曜石」区块。
+  - 底 `#0F1117`；rail / 会话列再深一档 `#0B0D12` / `#0D0F14`，分隔只用 `inset 1px rgba(255,255,255,.06)`。
+  - 卡片：`linear-gradient(白 3.5% → 1.5%)` + `1px rgba(255,255,255,.08)` 发丝亮边 + 顶边内高光 `inset 0 1px 0 白 4%`；悬停只把边提到 14%，不上浮。
+  - 主色 `#5E6AD2`（Linear 同款）：白字 4.70，当文字在面板上 3.74。**别换成更浅的**——全站很多主按钮写的是白字，浅主色会掉到 3 以下（试过 `#7C8CFF`，只有 3.0）。悬停用 `color-mix(主色 92%, #fff)`，不用 accent2。
+  - 导航选中 / 会话选中：不填色块，白 6% 底 + 1px 白 8% 内描边。
+  - 标题 600 + 字距 -0.025em（欢迎页大标题 -0.04em）。
+  - 不放彩光、不叠毛玻璃。
+- **全局标题减重**：`.page-title`、`.stat-num` 800 → 650。大标题靠字号和字距撑场，不靠粗。
+- **弹簧缓动 `--pi-ease-spring`**：stiffness 300 / damping 30 / mass 1 的解析解采样成 `linear()`，0.5s 收敛，超调 0.4%。用在状态切换的背景色和按压缩放上（`transition: … .5s var(--pi-ease-spring)`），别用在颜色/透明度这类短过渡上。
+- **修**：欢迎页一打开就被滚到底，「元枢」标题出了屏。原因是 `useAutoScroll` 的 ResizeObserver 在没有消息时也跟随到底（晨报一加载就触发）。现在传 `paused`，没消息时不跟随；显式 `scrollToBottom(true)` 仍有效。
+
+### 给 AI 改界面时的写法（v3.0 起）
+不要说「大气一点、高级一点」。写清五件事：参照对象、颜色变量、字体、间距、动效参数，最后加一句自查。例：
+> 按 DESIGN.md 的曜石主题改这张卡：底用 `--pi-bg1`，1px `rgba(255,255,255,.08)` 边 + 顶边内高光；标题 600 / 1.2 / -0.02em；内边距 16、元素间距 8 的倍数；展开用 `--pi-ease-spring` 0.5s。写完自查：焦点环 2px 主色 55%、减弱动画时关掉过渡、深浅主题都看一遍。
+
 ## 8. 验证方式
 
 - 无头 Chrome + CDP 截图（`D:\deepseek\shot-app.mjs`，需先向 localStorage 写 `yuanshu_access_token`）。
