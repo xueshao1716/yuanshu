@@ -218,7 +218,8 @@ import { readGeneralTeamDeliveries } from "./engine/team-general-delivery.mjs";
 import { initThemePrefs, loadThemePrefs, saveThemePrefs } from "./engine/theme-prefs.mjs";
 import { initColorPrefs, loadColorPrefs, saveColorPrefs } from "./engine/color-prefs.mjs";
 import { initEnginePair, loadEnginePair, saveEnginePair, swapEnginePair, resolveLead, describePair, leadNote } from "./engine/engine-pair.mjs";
-import { decorateEngineStatus, pluginFromBody, isCorePlugin } from "./engine/engine-panel.mjs";
+import { decorateEngineStatus, isCorePlugin } from "./engine/engine-panel.mjs";
+import { readPromptPlugins, savePromptPlugin, removePromptPlugin, promptPluginDef } from "./engine/prompt-plugins.mjs";
 import { initWorkspaceApi, WS_ROOT, findWorkspaceFiles, wsSafePath, saveArtifact, saveArtifactFromFile, handleWsTree, handleWsFile, handleWsRead, handleWsPreview, handleWsWrite, handleWsArtifacts, wsNextVersion, handleWsDeliver, handleWsPackage, handleWsDeliveries, handleWsRename, handleWsDelete, handleWsSearch, handleWsProjectCreate, handleWsConvert } from "./engine/workspace-api.mjs";
 import { configureMarkdownImages } from "./engine/media/markdown-images.mjs";
 
@@ -7475,7 +7476,7 @@ const API_ROUTES = [
   ["GET", "/api/engine/status", async (res) => {
     try {
       const gw = await initEngine();
-      json(res, 200, decorateEngineStatus(gw.status(), { gatewayReady: true, codeReady: !!getCodeRuntime() }));
+      json(res, 200, decorateEngineStatus(gw.status(), { gatewayReady: true, codeReady: !!getCodeRuntime(), userPlugins: readPromptPlugins(CONFIG.cwd) }));
     } catch (e) { json(res, 500, { error: String(e?.message || e) }); }
   }],
   // 真实工具集（主聊天 UNIFIED_TOOLS）：名字+描述+是否 dsh 注入，供引擎页「工具注册表」可视化
@@ -7491,10 +7492,11 @@ const API_ROUTES = [
   }],
   ["POST", "/api/engine/plugins/register", async (res, req) => {
     try {
-      const def = pluginFromBody(await readBody(req, 2));
+      const body = await readBody(req, 2);
       const gw = await initEngine();
-      const r = await gw.registerPlugin(def);
-      json(res, 200, r);
+      const p = savePromptPlugin(CONFIG.cwd, body);
+      try { json(res, 200, await gw.registerPlugin(promptPluginDef(p))); }
+      catch (e) { removePromptPlugin(CONFIG.cwd, p.id); throw e; }
     } catch (e) { json(res, 400, { error: String(e?.message || e) }); }
   }],
   ["POST", "/api/engine/plugins/unregister", async (res, req) => {
@@ -7503,7 +7505,8 @@ const API_ROUTES = [
       const id = String(body?.id || "");
       if (isCorePlugin(id)) return json(res, 400, { error: "核心底盘不能卸" });
       const gw = await initEngine();
-      json(res, 200, { removed: await gw.unregisterPlugin(id) });
+      const removed = await gw.unregisterPlugin(id);
+      json(res, 200, { removed: removePromptPlugin(CONFIG.cwd, id) || removed });
     } catch (e) { json(res, 400, { error: String(e?.message || e) }); }
   }],
   ["POST", "/api/engine/chat", async (res, req) => {

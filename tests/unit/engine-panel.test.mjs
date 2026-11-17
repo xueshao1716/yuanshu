@@ -7,7 +7,6 @@ import { fileURLToPath } from "node:url";
 import {
   CORE_PLUGIN_PREFIXES,
   isCorePlugin,
-  pluginFromBody,
   decorateEngineStatus,
 } from "../../engine/engine-panel.mjs";
 
@@ -19,13 +18,6 @@ test("核心底盘插件不能当普通插件卸", () => {
   assert.equal(isCorePlugin("model-adapter:http"), true);
   assert.equal(isCorePlugin("yuanshu:prompt:time"), true);
   assert.equal(isCorePlugin("echo-demo"), false);
-});
-
-test("网页只能挂预置插件，不能传 mount 函数", () => {
-  const def = pluginFromBody({ preset: "echo", name: "回声" });
-  assert.equal(typeof def.mount, "function");
-  assert.match(def.id, /echo/);
-  assert.throws(() => pluginFromBody({ id: "x", mount: "hack" }), /预置/);
 });
 
 test("status 必须带旁路说明、能力清单、插件是否核心", () => {
@@ -40,11 +32,11 @@ test("status 必须带旁路说明、能力清单、插件是否核心", () => {
   assert.equal(out.plugins[0].core, true);
 });
 
-test("引擎页下半必须探活、挂预置插件、画活能力、接代码模式", () => {
+test("引擎页下半必须探活、挂提示词插件、画活能力、接代码模式", () => {
   const src = engineSource();
   const server = readFileSync(join(ROOT, "server.mjs"), "utf8");
   assert.ok(src.includes("decorateEngineStatus") || server.includes("decorateEngineStatus"), "status 要带上面板装饰");
-  assert.ok(src.includes("preset") && src.includes("registerPlugin"), "插件必须能挂预置，不能只卸");
+  assert.ok(src.includes("section") && src.includes("registerPlugin"), "插件必须能写提示词挂上，不能只卸");
   assert.ok(src.includes("status.capabilities") || src.includes("data.capabilities") || src.includes("capabilities"), "能力清单走接口");
   assert.ok(!src.includes("const CAPABILITIES"), "不得再写死能力展览卡");
   assert.ok(src.includes("TerminalPanel") || src.includes("CodeApi"), "代码模式要回到引擎页");
@@ -61,7 +53,7 @@ test("文字按钮必须横向：btn-tool 不能锁死 28px 方块，引擎页�
   assert.ok(!/(^|[\s'])p-0([\s']|$)/.test(m[1]), "btn-tool 不得 p-0，文字没左右内边距");
   assert.ok(m[1].includes("whitespace-nowrap") && m[1].includes("w-auto"), "文字必须 nowrap 横向撑开");
   assert.ok(!/btn-tool[^>]*>[\s\n]*探活/.test(src), "探活不能再用图标钮");
-  assert.ok(src.includes("btn-ghost") && src.includes("挂回声预置"), "预置按钮用次级文字钮");
+  assert.ok(src.includes("btn-ghost") && src.includes("挂上"), "文字钮横向，插件用「挂上」提交");
   assert.ok(term.includes("whitespace-nowrap"), "代码模式 示例/清空输出必须横向");
 });
 

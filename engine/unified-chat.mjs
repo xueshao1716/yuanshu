@@ -27,6 +27,7 @@ import { env } from "./env.mjs";
 // 收尾观测：写盘次数/空写跳过次数从原子写层取（内容没变的那次不落盘）。
 import { jsonWriteStats } from "./atomic-io.mjs";
 import { createGateway } from "./gateway.mjs";
+import { loadPromptPlugins } from "./prompt-plugins.mjs";
 import { CodeRuntime } from "../code-mode/code-runtime.mjs";
 import { createCodeMode } from "../code-mode/code-mode.mjs";
 import { directMediaMode } from "./media/mode.mjs";
@@ -894,6 +895,8 @@ export async function initEngine() {
       section: "plan",
       contribute: (ctx) => formatPlanPrompt(ctx?.sessionId, { message: ctx?.message }),
     });
+    // 2026-11-17：引擎页写的提示词插件（落盘）挂回来，单个坏了不拖垮启动
+    await loadPromptPlugins(nextGateway.registry, _cwd);
     codeRuntime = nextCodeRuntime;
     codeMode = nextCodeMode;
     gateway = nextGateway;
