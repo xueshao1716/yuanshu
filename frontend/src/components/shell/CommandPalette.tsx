@@ -4,6 +4,7 @@ import { useRestoreFocus } from '../../hooks/useRestoreFocus'
 import { Film, MessagesSquare, BrainCircuit, ClipboardCheck, Images, Clock4, LayoutGrid, FolderClosed, Package, SquareTerminal, Settings2, Plus, CornerDownLeft, LayoutDashboard, Sparkles, Factory, Palette, Database, MonitorCog, Cpu, Activity, ChevronsLeftRight, ShieldCheck, Workflow, Download, Plug } from 'lucide-react'
 import { useApp } from '../../store'
 import { toast } from './Toast'
+import { useLiquidGlass } from './LiquidGlass'
 import { SessionsApi } from '../../api'
 import type { Route } from '../../hooks/useHashRoute'
 import type { UtilityPanelKey } from './MobileMoreMenu'
@@ -34,6 +35,8 @@ export default function CommandPalette({ open, onClose, nav, onRightPanel, onMod
   const [hi, setHi] = useState(0)
   const listRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLInputElement>(null)
+  const [glassEl, setGlassEl] = useState<HTMLDivElement | null>(null)
+  useLiquidGlass(glassEl, { radius: 12, strength: 0.6, blur: 16, active: open })
   useRestoreFocus(open)
 
   // 打开时重置状态并聚焦
@@ -110,7 +113,7 @@ export default function CommandPalette({ open, onClose, nav, onRightPanel, onMod
         <D.Content aria-label="命令面板"
           onOpenAutoFocus={e => { e.preventDefault(); setTimeout(() => inputRef.current?.focus(), 0) }}
           className="fixed left-1/2 top-[12vh] -translate-x-1/2 z-[var(--pi-z-palette-content)] w-full max-w-lg px-4 sm:px-0">
-          <div className="rounded-pi-xl glass-strong glass-hi overflow-hidden" style={{ animationDuration: '.18s' }}>
+          <div ref={setGlassEl} className="liquid-glass liquid-glass--panel rounded-pi-xl overflow-hidden" style={{ animationDuration: '.18s' }}>
             <input
               data-slot="command-input"
               ref={inputRef}

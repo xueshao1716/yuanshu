@@ -2894,3 +2894,73 @@ html.nav-tap-guard .mobile-tab-bar {
   background-color: color-mix(in srgb, var(--pi-text) 3.6%, var(--pi-bg1));
   border-color: color-mix(in srgb, var(--pi-text) 7%, transparent);
 }
+
+/* ══ 液态玻璃（2026-11-17）══
+   只用在浮在内容上的东西（通知胶囊、⌘K 面板）；大面板仍是实底，见 DESIGN.md。
+   这里是全浏览器都有的部分：半透明底 + 毛玻璃 + 顶部高光 + 菲涅尔亮边。
+   Chromium 上 useLiquidGlass 会把 backdrop-filter 换成「SVG 折射 + 色散 + 毛玻璃」。 */
+.liquid-glass {
+  position: relative;
+  isolation: isolate;
+  background:
+    linear-gradient(color-mix(in oklab, var(--lg-tint, transparent) 12%, transparent), color-mix(in oklab, var(--lg-tint, transparent) 12%, transparent)),
+    color-mix(in oklab, var(--pi-bg1) 68%, transparent);
+  -webkit-backdrop-filter: blur(14px) saturate(1.6);
+  backdrop-filter: blur(14px) saturate(1.6);
+  box-shadow:
+    inset 0 1px 0 color-mix(in srgb, #fff 38%, transparent),
+    inset 0 -1px 1px color-mix(in srgb, #000 10%, transparent),
+    0 12px 32px -10px rgba(0, 0, 0, .38),
+    0 2px 6px -2px rgba(0, 0, 0, .18);
+}
+.liquid-glass::before {
+  content: ""; position: absolute; inset: 0; border-radius: inherit; padding: 1px; pointer-events: none;
+  background: linear-gradient(135deg, rgba(255,255,255,.55), rgba(255,255,255,.06) 32%, rgba(255,255,255,0) 60%, rgba(255,255,255,.28));
+  -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor; mask-composite: exclude;
+}
+.liquid-glass::after {
+  content: ""; position: absolute; inset: 0; border-radius: inherit; pointer-events: none; z-index: -1;
+  background: radial-gradient(120% 70% at 28% -10%, rgba(255,255,255,.16), transparent 62%);
+}
+.liquid-glass--panel { background: color-mix(in oklab, var(--pi-bg1) 80%, transparent); }
+:root[data-theme="ink"] .liquid-glass, :root[data-theme="violet"] .liquid-glass {
+  box-shadow: inset 0 1px 0 rgba(255,255,255,.14), inset 0 -1px 1px rgba(0,0,0,.3), 0 14px 36px -10px rgba(0,0,0,.6);
+}
+@media (prefers-reduced-transparency: reduce) {
+  .liquid-glass { background: var(--pi-bg1) !important; -webkit-backdrop-filter: none !important; backdrop-filter: none !important; }
+}
+
+/* ══ 通知灵动胶囊（2026-11-17）：外壳宽高过渡 = 原地变形；弹簧感用回弹曲线 ══ */
+.pi-island {
+  overflow: hidden; color: var(--pi-text);
+  transition: width .42s cubic-bezier(.34, 1.36, .64, 1), height .42s cubic-bezier(.34, 1.36, .64, 1),
+    border-radius .42s ease, transform .32s cubic-bezier(.34, 1.36, .64, 1), opacity .22s ease;
+  transform-origin: 50% 100%;
+}
+.pi-island[data-open="false"] { opacity: 0; transform: scale(.6) translateY(8px); pointer-events: none; }
+.pi-island[data-open="true"] { animation: pi-island-in .38s cubic-bezier(.34, 1.36, .64, 1); }
+.pi-island__body {
+  display: flex; align-items: center; gap: 8px; width: max-content; max-width: min(80vw, 560px);
+  padding: 9px 16px 9px 12px; font-size: 13px; line-height: 1.5;
+  animation: pi-island-swap .26s ease;
+}
+.pi-island__icon { width: 16px; height: 16px; flex-shrink: 0; color: var(--lg-tint, var(--pi-accent)); }
+.pi-island__msg { min-width: 0; overflow-wrap: anywhere; }
+.pi-island[data-tone="error"] .pi-island__msg { color: color-mix(in oklab, var(--pi-danger) 70%, var(--pi-text)); }
+.pi-island__count, .pi-island__more {
+  flex-shrink: 0; font-size: 11px; font-variant-numeric: tabular-nums; padding: 0 6px; border-radius: 999px; line-height: 18px;
+  background: color-mix(in oklab, var(--lg-tint, var(--pi-accent)) 18%, transparent); color: var(--lg-tint, var(--pi-accent));
+}
+.pi-island__count { animation: pi-island-pop .3s cubic-bezier(.34, 1.8, .64, 1); }
+.pi-island__more { background: color-mix(in oklab, var(--pi-text) 10%, transparent); color: var(--pi-dim); }
+.pi-island__bar {
+  position: absolute; left: 0; right: 0; bottom: 0; height: 2px; transform-origin: 0 50%;
+  background: var(--lg-tint, var(--pi-accent)); transition: transform .4s ease;
+}
+@keyframes pi-island-in { from { opacity: 0; transform: scale(.55) translateY(10px); } }
+@keyframes pi-island-swap { from { opacity: 0; filter: blur(4px); } }
+@keyframes pi-island-pop { from { transform: scale(1.6); } }
+@media (prefers-reduced-motion: reduce) {
+  .pi-island, .pi-island__body, .pi-island__count, .pi-island__bar { transition: opacity .15s ease !important; animation: none !important; }
+}

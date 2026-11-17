@@ -110,6 +110,13 @@
   - 深色主题（ink / violet）的 `.panel` 全站叠 3.6% 文字色底，加发丝边。原因是 uno 的 `panel` 用的是 `bg-pi-bg1`，在深色主题里和内容区同色。
   - 事务台第一屏只留要拍板的和每天要看的。机制类区块放进底部 `<details data-gw-more>`「高级」里。以后新加的机制区块默认也放那里。
 
+### v2.9（2026-11-17）液态玻璃 + 通知灵动胶囊
+- **液态玻璃只给浮层**：通知胶囊、⌘K 面板。大面板仍是实底（长时间看字不累），别把 `.liquid-glass` 用到大块区域。
+- 做法：`.liquid-glass` = 68% 底 + 毛玻璃 + 顶部高光 + 菲涅尔亮边（全浏览器）；Chromium 上 `useLiquidGlass` 按元素像素尺寸生成 SVG 位移图，叠折射 + 三通道色散。没引 WebGPU 库（@glass-sdk/liquid-glass 才 0.0.2，依赖重）。
+- 系统开「减少透明度」→ 实底；开「减弱动画」→ 胶囊不弹。
+- **通知 = 一个胶囊**：新消息原地变形（量内容尺寸，外壳宽高过渡）；同一句话 ×N；带 key 的任务同一个胶囊里推进度（`toast(msg, tone, { key, progress, sticky })` / `toast.dismiss(key)`）；报错至少停 2.5 秒，后来的排队显示 +N；悬停不消失，点一下收起。排队逻辑在 `lib/toast-queue.mjs`（纯函数，有单测）。
+- 非 React 代码弹通知：`window.dispatchEvent(new CustomEvent('pi:toast', { detail: { msg, tone } }))`。
+
 ## 8. 验证方式
 
 - 无头 Chrome + CDP 截图（`D:\deepseek\shot-app.mjs`，需先向 localStorage 写 `yuanshu_access_token`）。

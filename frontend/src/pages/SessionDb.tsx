@@ -154,19 +154,19 @@ export default function SessionDb({ embedded = false }: { embedded?: boolean } =
     <div className={embedded ? "session-db-page" : "h-full overflow-y-auto session-db-page"}>
     <div className={embedded ? "session-db-reading" : "session-db-reading mx-auto px-4 sm:px-6 py-5 sm:py-7"}>
         {embedded
-          ? <div className="mb-3">{stats ? (
-            <div className="text-[11px] text-pi-dim2">
-              共 <b className="text-pi-text">{stats.total}</b> 条 · 占用 <b className="text-pi-text">{stats.totalMB}MB</b> · 正常 {stats.health.ok} / 偏大 {stats.health.large} / 超限 {stats.health.oversized}
-            </div>
+          ? <div className="mb-3">{stats ? (
+            <div className="text-[11px] text-pi-dim2">
+              共 <b className="text-pi-text">{stats.total}</b> 条 · 占用 <b className="text-pi-text">{stats.totalMB}MB</b> · 正常 {stats.health.ok} / 偏大 {stats.health.large} / 超限 {stats.health.oversized}
+            </div>
           ) : <span className="text-[11px] text-pi-dim2">加载中…</span>}</div>
-          : <PageHeader
-          title="会话数据库"
-          description="按稳定编号查看会话体量与健康状态，并对选中会话执行安全清理。"
-          meta={stats ? (
-            <div className="text-[11px] text-pi-dim2">
-              共 <b className="text-pi-text">{stats.total}</b> 条 · 占用 <b className="text-pi-text">{stats.totalMB}MB</b> · 正常 {stats.health.ok} / 偏大 {stats.health.large} / 超限 {stats.health.oversized}
-            </div>
-          ) : <span className="text-[11px] text-pi-dim2">加载中…</span>}
+          : <PageHeader
+          title="会话数据库"
+          description="按稳定编号查看会话体量与健康状态，并对选中会话执行安全清理。"
+          meta={stats ? (
+            <div className="text-[11px] text-pi-dim2">
+              共 <b className="text-pi-text">{stats.total}</b> 条 · 占用 <b className="text-pi-text">{stats.totalMB}MB</b> · 正常 {stats.health.ok} / 偏大 {stats.health.large} / 超限 {stats.health.oversized}
+            </div>
+          ) : <span className="text-[11px] text-pi-dim2">加载中…</span>}
         />}
 
         {/* 工具条 */}
@@ -208,16 +208,18 @@ export default function SessionDb({ embedded = false }: { embedded?: boolean } =
             try {
               const before = Object.keys(sums).length
               await RecallApi.summarize() // fire-and-forget：后台逐个生成，轮询看进度
-              toast('摘要生成已在后台开始（每次 5 个，约 3-5 分钟），完成后会话名下自动出现', 'ok')
+              // 同一个 key：开始 → 完成/超时都在一个通知胶囊里变形，不另弹
+              toast('摘要在后台生成（每次 5 个，约 3-5 分钟）', 'info', { key: 'gen-sums', progress: 0, sticky: true })
               const timer = setInterval(async () => {
                 const s = await RecallApi.summaries().catch(() => null)
                 if (s?.summaries && Object.keys(s.summaries).length > before) {
-                  clearInterval(timer); setSums(s.summaries); setSumBusy(false); toast('摘要批次完成', 'ok')
+                  clearInterval(timer); setSums(s.summaries); setSumBusy(false)
+                  toast('摘要批次完成，会话名下已出现', 'ok', { key: 'gen-sums' })
                 }
               }, 15000)
-              const stopSummaryPolling = () => { clearInterval(timer); setSumBusy(false) }
+              const stopSummaryPolling = () => { clearInterval(timer); setSumBusy(false); toast.dismiss('gen-sums') }
               setTimeout(stopSummaryPolling, 10 * 60_000) // 10 分钟兜底
-            } catch (e: any) { toast('启动失败：' + (e?.message || e), 'error'); setSumBusy(false) }
+            } catch (e: any) { toast('启动失败：' + (e?.message || e), 'error', { key: 'gen-sums' }); setSumBusy(false) }
           }} />
 
         {!visible.length ? (
