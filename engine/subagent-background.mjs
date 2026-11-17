@@ -16,7 +16,7 @@ import { assertTransition, buildReceipt, filterSubagents, statusLabel, shouldPus
 import { KEEP_RECORDS, readSubagentRegistry, writeSubagentRegistry } from "./subagent-registry.mjs";
 import { deliverSubagentReceipts, postSubagentReceipt, subagentUnreadCount, unreadBySubagent } from "./subagent-receipts.mjs";
 import { countSteps, readProgress, removeProgress, saveProgress } from "./subagent-progress.mjs";
-import { parseApproval, approvalReply } from "./subagent-worker.mjs";
+import { parseApproval, approvalReply, normalizeAbilities } from "./subagent-worker.mjs";
 
 export const BACKGROUND_TIMEOUT_MS = 15 * 60_000;   // 后台不占单轮预算，允许比同步模式（180s）长得多
 export const MIN_PUSH_MS = 20_000;                  // 太短的成功不打扰人（与 notifier 的 LONG_RUN_MS 同向）
@@ -196,6 +196,7 @@ export function createSubagentBackground({
           },
           askUser: record.profile === "research" || record.profile === "worker",
           approveAll: !!record.approveAll,
+          ...(record.profile === "worker" ? { abilities: record.abilities || ["写文件", "跑命令"] } : {}),
           pendingRound,
           // 关键：这里的 signal 只来自 job-pool（用户取消），**不是**父轮次的 signal——
           // 父轮次结束不该带走后台任务，所以 start() 从不接收调用方的 abort signal。
@@ -369,7 +370,7 @@ export function createSubagentBackground({
   }
 
   function start({ task, context = [], seed = [], role = "analyst", sessionId = "", runId = "", parentAgent = DEFAULT_PARENT_AGENT,
-    model = null, profile = "research", timeoutMs = BACKGROUND_TIMEOUT_MS, name = "" } = {}) {
+    model = null, profile = "research", timeoutMs = BACKGROUND_TIMEOUT_MS, name = "", abilities = null } = {}) {
     const text = String(task || "").trim();
     if (!text) return failure("invalid_input", "后台子代理需要非空 task");
     const at = now();
@@ -383,6 +384,8 @@ export function createSubagentBackground({
       parentRunId: String(runId || "").slice(0, 120),
       role: String(role || "analyst"),
       profile: String(profile || "research"),
+      // 执行员的能力在派活时定死，续上/自动续都沿用，伙伴批准也不会顺手加能力
+      ...(profile === "worker" ? { abilities: normalizeAbilities(abilities ?? ["写文件", "跑命令"]) } : {}),
       task: text.slice(0, 8000),
       context: Array.isArray(context) ? context.slice(0, 8).map((item) => String(item).slice(0, 2000)) : [],
       seed: Array.isArray(seed) ? seed.slice(-24).map((item) => ({ role: item?.role, content: String(item?.content || "").slice(0, 4000) })) : [],
@@ -566,6 +569,7 @@ export function createSubagentBackground({
       push: String(record.push || ""),
       queued: record.status === "queued",
       waitingInput: record.waitingInput || null,
+      abilities: record.abilities || null,
       progressSteps: Number(record.progressSteps) || 0,
       pendingMessages: Array.isArray(record.pendingMessages) ? record.pendingMessages.length : 0,
     };

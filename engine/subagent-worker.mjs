@@ -34,6 +34,33 @@ export const WORKER_TOOLS = Object.freeze([...RESEARCH_TOOLS, ...WORKER_ACT_TOOL
 export const WORKER_TOOL_NAMES = WORKER_TOOLS.map(t => t.function.name);
 const ACT_NAMES = new Set(WORKER_ACT_TOOLS.map(t => t.function.name));
 
+// 2026-11-18：能力按活给，不一把全给。主智能体派活时勾需要的能力，子代理只拿到对应的工具；
+// 「查」总是有（read/list/grep/web_search），动手的两项各管各的。
+export const ABILITIES = Object.freeze(["查", "写文件", "跑命令"]);
+const ABILITY_TOOLS = Object.freeze({ "写文件": ["write", "edit"], "跑命令": ["bash"] });
+const ABILITY_ALIASES = Object.freeze({ "查": "查", read: "查", research: "查", "写文件": "写文件", write: "写文件", edit: "写文件", "改文件": "写文件",
+  "跑命令": "跑命令", bash: "跑命令", run: "跑命令", command: "跑命令", "命令": "跑命令" });
+
+/** 模型给的能力清单 → 规范化后的去重列表（总含「查」）；不认识的丢掉。 */
+export function normalizeAbilities(list) {
+  const raw = Array.isArray(list) ? list : typeof list === "string" ? list.split(/[,，、\s]+/) : [];
+  const picked = new Set(["查"]);
+  for (const item of raw) {
+    const key = ABILITY_ALIASES[String(item || "").trim().toLowerCase()] || ABILITY_ALIASES[String(item || "").trim()];
+    if (key) picked.add(key);
+  }
+  return ABILITIES.filter(a => picked.has(a));
+}
+
+/** 需要动手吗（有写文件或跑命令）——没有就还是只读研究员。 */
+export const needsHands = (abilities) => normalizeAbilities(abilities).some(a => a !== "查");
+
+/** 按能力裁出本次的工具表。 */
+export function workerToolsFor(abilities) {
+  const allowed = new Set(normalizeAbilities(abilities).flatMap(a => ABILITY_TOOLS[a] || []));
+  return WORKER_TOOLS.filter(t => !ACT_NAMES.has(t.function.name) || allowed.has(t.function.name));
+}
+
 export const isActCall = (tc) => ACT_NAMES.has(String(tc?.function?.name || ""));
 
 const parseArgs = (tc) => { try { return JSON.parse(tc?.function?.arguments || "{}") || {}; } catch { return {}; } };
@@ -111,8 +138,12 @@ export function hardBlock(tc, roots = []) {
 
 export function createWorkerExecutor({ roots = [], research = null } = {}) {
   const list = () => [...new Set((typeof roots === "function" ? roots() : roots) || [])].filter(Boolean);
-  return async function executeWorkerTool(name, args = {}, { signal } = {}) {
+  return async function executeWorkerTool(name, args = {}, { signal, abilities = ABILITIES } = {}) {
     if (!ACT_NAMES.has(name)) return research ? research(name, args) : fail(`没有这个工具：${name}`);
+    // 工具表已经按能力裁过；模型硬调没给的工具（或续上时带回旧调用）也在这里挡住
+    if (!workerToolsFor(abilities).some(t => t.function.name === name)) {
+      return fail(`这次派活没给你「${name}」的能力（只给了：${normalizeAbilities(abilities).join("、")}）。需要就在结论里说明，交给主代理。`);
+    }
     const usable = list();
     const blocked = hardBlock({ function: { name, arguments: JSON.stringify(args) } }, usable);
     if (blocked) return fail(blocked);

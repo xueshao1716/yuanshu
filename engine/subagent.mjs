@@ -8,7 +8,7 @@
 //           每一轮有副作用的调用先停下等伙伴批准，批准后从断点接着干。
 import { HttpModelAdapter } from "./model/adapter.mjs";
 import { RESEARCH_TOOLS, RESEARCH_MAX_STEPS, RESEARCH_TOOL_NAMES, createResearchExecutor } from "./subagent-research.mjs";
-import { WORKER_TOOLS, WORKER_TOOL_NAMES, WORKER_MAX_STEPS, createWorkerExecutor, isActCall, hardBlock, approvalCard } from "./subagent-worker.mjs";
+import { WORKER_MAX_STEPS, createWorkerExecutor, isActCall, hardBlock, approvalCard, normalizeAbilities, workerToolsFor } from "./subagent-worker.mjs";
 import { TEAM_BOARD_TOOL, executeTeamBoard } from "./team-board.mjs";
 import { auditPath, summarizeArgs } from "./tools/audit-gate.mjs";
 import { redactSecrets } from "./tools/secrets-guard.mjs";
@@ -84,7 +84,7 @@ const TEAM_MEMBER_TOOL_DEFS = Object.freeze([
 const NO_TOOL_POLICY = Object.freeze({ kind: "none", toolNames: Object.freeze([]), tools: Object.freeze([]), maxSteps: 0, maxToolCalls: 0, longForm: false });
 
 /** 唯一工具权限判定：profile + 本宿主可用的执行器 → 本轮工具表与预算。 */
-export function resolveToolPolicy(profile = "analysis", { outputFormat = "json", readTools = false, board = false } = {}) {
+export function resolveToolPolicy(profile = "analysis", { outputFormat = "json", readTools = false, board = false, abilities } = {}) {
   if (profile === "team") {
     const toolNames = [...(readTools ? TEAM_MEMBER_READ_TOOLS : []), ...(board ? [TEAM_MEMBER_BOARD_TOOL] : [])];
     // 没有工具（例如没绑 teamId 的裸 team 调用）仍保持"长任务"预算语义，与旧行为一致。
@@ -102,7 +102,9 @@ export function resolveToolPolicy(profile = "analysis", { outputFormat = "json",
     return Object.freeze({ kind: "research", toolNames: RESEARCH_TOOL_NAMES, tools: RESEARCH_TOOLS, maxSteps: RESEARCH_MAX_STEPS, maxToolCalls: Infinity, longForm: false });
   }
   if (profile === "worker" && outputFormat === "json" && readTools) {
-    return Object.freeze({ kind: "worker", toolNames: WORKER_TOOL_NAMES, tools: WORKER_TOOLS, maxSteps: WORKER_MAX_STEPS, maxToolCalls: Infinity, longForm: false });
+    // 能力按活给：没传 abilities（旧的 worker:true）= 三样都给
+    const tools = workerToolsFor(abilities ?? ["写文件", "跑命令"]);
+    return Object.freeze({ kind: "worker", toolNames: Object.freeze(tools.map(t => t.function.name)), tools: Object.freeze(tools), maxSteps: WORKER_MAX_STEPS, maxToolCalls: Infinity, longForm: false });
   }
   return NO_TOOL_POLICY;
 }
@@ -307,6 +309,8 @@ export async function spawnSubagent({
   // { message: 带 tool_calls 的 assistant 消息, decision: once|all|reject, note }，开跑前先按决定落地。
   approveAll = false,
   pendingRound = null,
+  // 执行员这次被给了哪些能力（查 / 写文件 / 跑命令）；不传 = 三样都给
+  abilities,
 } = {}) {
   const normalizedRole = safeRole(role);
   const m = model || _getFlashModel() || _getDefaultModel();
@@ -315,7 +319,8 @@ export async function spawnSubagent({
   const gate = nextSubagentDepth(parentDepth, { maxDepth });
   const teamMember = String(member || normalizedRole || "member").slice(0, 60);
   const teamBoardId = String(teamId || "").trim().slice(0, 100);
-  const policy = resolveToolPolicy(profile, { outputFormat, readTools: !!_research, board: !!teamBoardId });
+  const granted = normalizeAbilities(abilities ?? ["写文件", "跑命令"]);
+  const policy = resolveToolPolicy(profile, { outputFormat, readTools: !!_research, board: !!teamBoardId, abilities: granted });
   const longForm = policy.longForm;
   const memberCtx = policy.kind === "team"
     ? { read: _research, wsRoot: String(wsRoot || "").trim(), teamId: teamBoardId, member: teamMember,
@@ -366,8 +371,9 @@ export async function spawnSubagent({
       "{\"result\": \"完整任务正文（字符串）\", \"evidence\": [\"关键证据1\", \"关键证据2\"], \"confidence\": 0到1的数字}";
     const SYSTEM = policy.kind === "worker"
       ? "你是执行员。只完成交给你的这一个任务，不扩展、不闲聊。\n" +
-        `你可以用 read / list / grep / web_search 查，用 write / edit / bash 动手（最多 ${WORKER_MAX_STEPS} 轮工具调用，同一轮可以并行调用多个）。` +
-        "写文件、改文件、跑命令都要伙伴批准：你照常发起调用，系统会自动停下来等批准，不用先问。被拒绝就换做法或在结论里说明，别原样重试。\n" +
+        `这次给你的能力：${granted.join("、")}。工具只有：${policy.toolNames.join(" / ")}（最多 ${WORKER_MAX_STEPS} 轮工具调用，同一轮可以并行调用多个）。` +
+        "没给的能力就是不能用；真需要就在结论里说明缺什么，交给主代理。\n" +
+        "动手的调用都要伙伴批准：你照常发起调用，系统会自动停下来等批准，不用先问。被拒绝就换做法或在结论里说明，别原样重试。\n" +
         "凭据文件、人格定义等受保护文件、删除/格式化/强推这类危险命令一律不能碰，批准也放不开。\n" +
         "改完自己验证（读回文件、跑测试）。证据要具体：文件路径:行号、命令和退出码。\n" +
         "做完后直接给最终答案，" + ENVELOPE
@@ -417,7 +423,7 @@ export async function spawnSubagent({
     let approveRest = !!approveAll;
     const rootsNow = () => (typeof _researchRoots === "function" ? _researchRoots() : _researchRoots) || [];
     const runTool = async (tc, args) => {
-      const out = await _worker(tc.function.name, args, { signal: combined.signal });
+      const out = await _worker(tc.function.name, args, { signal: combined.signal, abilities: granted });
       emit(onEvent, "subagent_tool", { id: subagentRunId, agent: normalizedRole, tool: tc.function.name,
         target: String(args.path || args.command || args.pattern || args.query || "").slice(0, 120), isError: !!out?.isError });
       return out;

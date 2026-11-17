@@ -262,6 +262,7 @@ import { MEDIA_TOOL_SCHEMAS, mediaExtraExecutors, formatSensitiveHint, listHostC
 import { TODO_TOOL_SCHEMAS, todoExtraExecutors } from "./engine/yuanshu-todo.mjs";
 import { PLAN_FILES_SCHEMA, planFilesExtraExecutors, initYuanshuWorkmem } from "./engine/yuanshu-workmem.mjs";
 import { DELEGATE_TASK_TOOL, execDelegateTask, DELEGATE_FORK_TOOL, execDelegateFork } from "./engine/yuanshu-delegate.mjs";
+import { needsHands, normalizeAbilities } from "./engine/subagent-worker.mjs";
 // 2026-11-07：后台子代理（后台起 + 跑完回传 + 可续聊 + 可查）。执行复用 jobPool，不自造调度器。
 import { createSubagentBackground, BACKGROUND_TIMEOUT_MS } from "./engine/subagent-background.mjs";
 import { deliverSubagentReceipts } from "./engine/subagent-receipts.mjs";
@@ -1791,7 +1792,10 @@ const extraToolExecutors = {
         return { text: `${action} 已受理：subagentId=${out.subagentId}${out.strategy ? `（${out.strategy}）` : ""}${out.note ? `；${out.note}` : ""}。结果会以【系统】子代理 … 注入，不要等、不要 sleep。`, isError: false, subagentId: out.subagentId };
       }
       // 2026-11-18：worker = 执行员（能写能跑，每步弹卡等伙伴批准）。同步派没有地方等人点卡，所以一律转后台。
-      const worker = args?.worker === true || args?.worker === "true";
+      // 能力按活给：abilities 里有写文件/跑命令就是执行员；旧的 worker:true = 三样全给
+      const legacyWorker = args?.worker === true || args?.worker === "true";
+      const abilities = legacyWorker && !args?.abilities ? ["写文件", "跑命令"] : args?.abilities;
+      const worker = needsHands(abilities);
       if (args?.background === true || args?.background === "true" || worker) {
         const task = String(args?.task || args?.prompt || "").trim();
         if (!task) return { text: "delegate_task 需要 task", isError: true };
@@ -1804,12 +1808,12 @@ const extraToolExecutors = {
           role: args?.role,
           sessionId: ctx?.sessionId || "",
           runId: ctx?.runId || "",
-          ...(worker ? { profile: "worker" } : {}),
+          ...(worker ? { profile: "worker", abilities } : {}),
         });
         if (!out.ok) return { text: `转后台失败：${out.error || out.code || "未知原因"}`, isError: true };
         return {
           text: [
-            `已转后台：subagentId=${out.subagentId}（${worker ? "执行员，" : ""}${out.state === "queued" ? "在作业池里排队" : "已在跑"}）`,
+            `已转后台：subagentId=${out.subagentId}（${worker ? `执行员，能力：${normalizeAbilities(abilities).join("、")}；` : ""}${out.state === "queued" ? "在作业池里排队" : "已在跑"}）`,
             ...(worker ? ["它每次要写文件/改文件/跑命令都会停下来，回执里带一张批准卡——原样放给伙伴点，别替伙伴批。"] : []),
             "**不要等、不要 sleep、不要再派同一个任务**：跑完（成功/失败/取消都算）会写进留言板，",
             "下一轮你会看到一条【系统】子代理 … 已完成：…（未读 N 条）。",
@@ -6724,7 +6728,8 @@ const API_ROUTES = [
   ["POST", "/api/subagent", async (res, req) => {
     const b = await readBody(req);
     if (!b?.task) return json(res, 400, { error: "缺 task 参数" });
-    const worker = b.worker === true || b.worker === "true";
+    const abilities = (b.worker === true || b.worker === "true") && !b.abilities ? ["写文件", "跑命令"] : b.abilities;
+    const worker = needsHands(abilities);
     if (b.background === true || b.background === "true" || worker) {
       if (!subagentBg) return json(res, 503, { error: "后台子代理未初始化（见启动日志）" });
       const out = subagentBg.start({
@@ -6734,7 +6739,7 @@ const API_ROUTES = [
         role: b.role,
         sessionId: b.sessionId || "",
         parentAgent: b.parentAgent,
-        ...(worker ? { profile: "worker" } : {}),
+        ...(worker ? { profile: "worker", abilities } : {}),
         timeoutMs: Number(b.timeoutMs) > 0 ? Number(b.timeoutMs) : BACKGROUND_TIMEOUT_MS,
       });
       return json(res, out.ok ? 200 : 400, out);

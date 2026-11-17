@@ -2,7 +2,7 @@ import { estimateHistoryTokens } from './context-headroom.mjs';
 import { clampOutputTokens } from './output-budget.mjs';
 
 export const RESULT_SCHEMA = '{"result":"完整任务正文（字符串）","evidence":["关键证据"],"confidence":0.8}';
-export const DELEGATE_CONTRACT = '派一个只读研究员去查一个独立子问题：它能自己 read / list / grep 工作区文件、web_search 联网（最多 8 轮工具），不写文件、不运行命令、不看图片、不生成真实媒体，改动和执行仍由你来做（delegate_task 另可加 worker:true 派执行员：能写文件/改文件/跑命令，每一步先弹卡等伙伴批准，自动转后台）。适合：多处代码/文档定位、资料调研、方案比对、独立复核。**同一轮里并列调用多个 delegate_task 会并行执行**，可分派 2–3 个互不依赖的子问题，再由你综合。简单的一两步查询自己做更快，不必派。内部返回 ' + RESULT_SCHEMA + '；需要列表或业务 JSON 时写入 result 字符串。task 最多8000字符，context 最多8条、每条2000字符；超限会明确拒绝，不会静默删尾。输出 token 按模型能力有界分配，不保证等量字符；长任务拆成独立子任务。';
+export const DELEGATE_CONTRACT = '派一个只读研究员去查一个独立子问题：它能自己 read / list / grep 工作区文件、web_search 联网（最多 8 轮工具），不写文件、不运行命令、不看图片、不生成真实媒体，改动和执行默认由你来做；要子代理动手就用 delegate_task 的 abilities 按活给能力（写文件 / 跑命令，只给需要的），它会变成执行员，每一步先弹卡等伙伴批准，自动转后台。适合：多处代码/文档定位、资料调研、方案比对、独立复核。**同一轮里并列调用多个 delegate_task 会并行执行**，可分派 2–3 个互不依赖的子问题，再由你综合。简单的一两步查询自己做更快，不必派。内部返回 ' + RESULT_SCHEMA + '；需要列表或业务 JSON 时写入 result 字符串。task 最多8000字符，context 最多8条、每条2000字符；超限会明确拒绝，不会静默删尾。输出 token 按模型能力有界分配，不保证等量字符；长任务拆成独立子任务。';
 
 export function subagentError(code, message) {
   return Object.assign(new Error(message), { code });

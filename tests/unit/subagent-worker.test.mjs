@@ -152,8 +152,60 @@ test("后台执行员：回执带批准卡；伙伴的原话经 continue 带回�
   assert.equal(bg.get(started.subagentId).pendingRound, null);
 });
 
-test("delegate_task 工具：worker 开关说清楚要弹卡", () => {
+test("delegate_task 工具：abilities 说清楚动手要弹卡；worker 留作旧写法", () => {
   const props = DELEGATE_TASK_TOOL.function.parameters.properties;
+  assert.match(props.abilities.description, /批准/);
   assert.equal(props.worker.type, "boolean");
-  assert.match(props.worker.description, /批准/);
+  assert.match(props.worker.description, /旧写法/);
+});
+
+// 2026-11-18：能力按活给——主智能体只勾需要的，子代理只拿到对应工具。
+import { normalizeAbilities, needsHands, workerToolsFor } from "../../engine/subagent-worker.mjs";
+
+test("能力清单：查总在；写文件 = write/edit，跑命令 = bash；别名与乱填都能处理", () => {
+  assert.deepEqual(normalizeAbilities(["写文件"]), ["查", "写文件"]);
+  assert.deepEqual(normalizeAbilities(["bash", "write", "瞎填"]), ["查", "写文件", "跑命令"]);
+  assert.deepEqual(normalizeAbilities(undefined), ["查"]);
+  assert.equal(needsHands(["查"]), false, "只查就还是只读研究员");
+  assert.equal(needsHands(["跑命令"]), true);
+  const names = (a) => workerToolsFor(a).map((t) => t.function.name);
+  assert.deepEqual(names(["写文件"]).filter((n) => ["write", "edit", "bash"].includes(n)), ["write", "edit"]);
+  assert.deepEqual(names(["跑命令"]).filter((n) => ["write", "edit", "bash"].includes(n)), ["bash"]);
+  assert.equal(resolveToolPolicy("worker", { readTools: true, abilities: ["写文件"] }).toolNames.includes("bash"), false);
+  assert.equal(resolveToolPolicy("worker", { readTools: true }).toolNames.includes("bash"), true, "不传 = 旧 worker:true，三样全给");
+});
+
+test("只给写文件：模型看不到 bash；硬调 bash 被挡住，不弹卡、不执行", async (t) => {
+  const root = await fsp.mkdtemp(path.join(os.tmpdir(), "worker-abilities-"));
+  t.after(() => fsp.rm(root, { recursive: true, force: true }));
+  const requests = fixtureModel(root, (n) => n === 1
+    ? reply({ content: "", tool_calls: [call("b1", "bash", { command: "node -e \"require('fs').writeFileSync('x.txt','1')\"" })] }, "tool_calls")
+    : final("没有跑命令的能力"));
+  const r = await spawnSubagent({ task: "t", profile: "worker", askUser: true, abilities: ["写文件"], approveAll: true });
+  assert.equal(r.done, true, r.error);
+  assert.ok(!requests[0].tools.some((tool) => tool.function.name === "bash"), "工具表里就没有 bash");
+  assert.match(requests[0].messages[0].content, /这次给你的能力：查、写文件/);
+  assert.equal(fs.existsSync(path.join(root, "x.txt")), false);
+  assert.match(requests[1].messages.find((m) => m.tool_call_id === "b1").content, /没给你「bash」/);
+});
+
+test("后台：能力在派活时定死，续上沿用；delegate_task 用 abilities 让主智能体按活给", async () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "worker-bg-abilities-"));
+  const calls = [];
+  const spawn = (params) => new Promise((resolve) => calls.push({ params, resolve }));
+  const pool = createJobPool({ file: path.join(root, "jobs.json"), concurrency: 2 });
+  const bg = createSubagentBackground({ wsRoot: root, pool, spawn });
+  const started = bg.start({ task: "改配置", sessionId: "a1", profile: "worker", abilities: ["写文件"] });
+  const until = async (fn) => { for (let i = 0; i < 400; i++) { const v = fn(); if (v) return v; await new Promise((r) => setTimeout(r, 5)); } throw new Error("timeout"); };
+  const first = await until(() => calls[0]);
+  assert.deepEqual(first.params.abilities, ["查", "写文件"]);
+  first.resolve({ done: true, result: "好了" });
+  await until(() => bg.get(started.subagentId).status === "done");
+  bg.continueSubagent({ subagentId: started.subagentId, message: "再改一处", sessionId: "a1" });
+  const second = await until(() => calls[1]);
+  assert.deepEqual(second.params.abilities, ["查", "写文件"], "续上不会顺手加能力");
+
+  const props = DELEGATE_TASK_TOOL.function.parameters.properties;
+  assert.deepEqual(props.abilities.items.enum, ["查", "写文件", "跑命令"]);
+  assert.match(props.abilities.description, /只勾需要的/);
 });
