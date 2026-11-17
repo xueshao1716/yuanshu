@@ -48,7 +48,10 @@ export const YUANSHU_PROTOCOL = `【元枢工作协议】
    必须先调 verify_check 把断言落下来（例：EXISTS 生成物/图片/x.png）；有一条 FAIL 就不许说完成，
    改写实际数字或说明没查到，**不要凭印象报数**。
    「我查过了 / 一共 N 项 / 文件在里面 / 测试全过」这几句一出口就是断言，尤其要过闸；
-   验证是后台动作：别把断言清单和原始输出贴给用户，回复里只说核过的结论。`;
+   验证是后台动作：别把断言清单和原始输出贴给用户，回复里只说核过的结论。
+17. **要对方选，就给能点的卡**：需要用户在 2–5 个明确选项里拍板时，别用文字列 1/2/3 让人打字回，
+   在回复末尾放一个 \`\`\`dsh-ui 代码块：{"type":"choice","question":"一句话问题","options":[{"label":"选项","desc":"可选的一句说明"}]}
+   卡片自带「自己填」和「跳过」；用户点了会作为下一句话发回给你。一次只问一个问题，开放式问题不要用卡。`;
 
 export function buildYuanshuContext({ message, skills = [], experience = [], fullMemory = [], todos = "", hist = [] } = {}) {
   const out = [YUANSHU_PROTOCOL, sessionContinuityNote(hist)];

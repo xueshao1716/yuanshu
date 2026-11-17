@@ -34,6 +34,7 @@ import { reconcileImageMessages } from '../../lib/image-identity'
 import { workRole, workTool } from '../../lib/work-explanation'
 import { createSessionViewOwner } from '../../realtime/session-owner.mjs'
 import MorningPanel from '../panels/MorningPanel'
+import { CHOICE_EVENT } from '../../lib/choice-reply.mjs'
 
 // 流式状态：覆盖服务端全部 SSE 事件（delta/think/think_end/tool/tool_output/
 // tool_end/turn_end/file/image/media/note/emotion/done/error）
@@ -1092,6 +1093,19 @@ export default function ChatArea({ compactHeader, rightPanel, onRightPanel, onVo
     }
     scroll()
   }
+  // 选项卡片（GenUI choice）点了 = 你的下一句话；流式中 send 自己会挡掉
+  const sendRef = useRef(send)
+  sendRef.current = send
+  useEffect(() => {
+    const onReply = (e: Event) => {
+      const text = String((e as CustomEvent).detail?.text || '')
+      if (!text) return
+      if (streamRef.current) { toast('小语还在回答，等这句说完再选'); return }
+      void sendRef.current(text)
+    }
+    window.addEventListener(CHOICE_EVENT, onReply)
+    return () => window.removeEventListener(CHOICE_EVENT, onReply)
+  }, [])
   const flushPendingSend = () => {
     const pending = pendingSendRef.current
     if (!pending) return

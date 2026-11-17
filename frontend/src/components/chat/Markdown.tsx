@@ -181,7 +181,8 @@ function Markdown({ text, shownImageKeys }: { text: string; shownImageKeys?: Rea
       <ReactMarkdown remarkPlugins={[remarkGfm]}
         components={{
           code({ className, children, ...props }: any) {
-            const match = /language-(\w+)/.exec(className || '')
+            // [\w-]：语言名带连字符（dsh-ui）。以前 \w+ 把它截成 dsh，GenUI 一直没渲染出来
+            const match = /language-([\w-]+)/.exec(className || '')
             const isBlock = (children as any)?.includes?.('\n') || match
             const content = String(children).replace(/\n$/, '')
             if (match?.[1] === 'mermaid') {
@@ -210,6 +211,12 @@ function Markdown({ text, shownImageKeys }: { text: string; shownImageKeys?: Rea
               )
             }
             return <code className="markdown-inline-code rounded px-1.5 py-0.5 text-[13px]" {...props}>{children}</code>
+          },
+          // dsh-ui 是卡片不是代码：去掉外层 <pre>，否则整张卡被套上代码块底色和等宽字
+          pre({ children, node, ...props }: any) {
+            const cls = node?.children?.[0]?.properties?.className
+            if ((Array.isArray(cls) ? cls : [cls]).includes('language-dsh-ui')) return <>{children}</>
+            return <pre {...props}>{children}</pre>
           },
           a({ children, href }) { return <FileLink href={href}>{children}</FileLink> },
           img({ src, alt }) {

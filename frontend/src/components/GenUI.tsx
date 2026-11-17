@@ -1,6 +1,47 @@
 // GenUI-lite（08-24）：模型在回答里输出 ```dsh-ui 围栏 + JSON spec → 渲染成结构化组件
 // 组件词汇对标 dsh-genui（精简版）：text/row/col/grid/card/stat/badge/list/table/keyvalue/callout/steps/divider/progress/timeline
+// choice（11-17，学 A2UI）：唯一能点的组件——选项/自己填/跳过，点了当作你的下一句话发给小语
+import { useState } from 'react'
+import { normalizeChoice, choiceReplyText, CHOICE_EVENT, type ChoiceSpec } from '../lib/choice-reply.mjs'
 type Spec = any
+
+function ChoiceCard({ c }: { c: ChoiceSpec }) {
+  const [answered, setAnswered] = useState<string | null>(null)
+  const [draft, setDraft] = useState('')
+  const reply = (a: { label?: string; custom?: string; skip?: boolean }, shown: string) => {
+    const text = choiceReplyText({ question: c.question, ...a })
+    if (!text || answered) return
+    setAnswered(shown)
+    window.dispatchEvent(new CustomEvent(CHOICE_EVENT, { detail: { text } }))
+  }
+  return (
+    <div className="rounded-pi-lg border border-pi-accent/25 bg-pi-accent/5 p-3 space-y-2">
+      <div className="text-[13px] font-semibold text-pi-text">{c.question}</div>
+      <div className="flex flex-col gap-1.5">
+        {c.options.map((o, i) => (
+          <button key={i} type="button" disabled={!!answered} onClick={() => reply({ label: o.label }, o.label)}
+            className={`text-left rounded-pi-md border px-3 py-2 transition-colors disabled:cursor-default ${answered === o.label ? 'border-pi-accent bg-pi-accent/15' : 'border-pi-border-soft bg-white/[0.03] enabled:hover:border-pi-accent/50 enabled:hover:bg-pi-accent/8'} ${answered && answered !== o.label ? 'opacity-45' : ''}`}>
+            <span className="text-[13px] text-pi-text">{o.label}</span>
+            {o.desc && <span className="block text-[11px] text-pi-dim mt-0.5">{o.desc}</span>}
+          </button>
+        ))}
+      </div>
+      {answered ? (
+        <div className="text-[11px] text-pi-dim">已回答：{answered}</div>
+      ) : (c.custom || c.skip) && (
+        <div className="flex items-center gap-1.5">
+          {c.custom && (
+            <input value={draft} onChange={e => setDraft(e.target.value)} placeholder="自己填…" aria-label="自己填答案"
+              onKeyDown={e => { if (e.key === 'Enter' && !e.nativeEvent.isComposing && draft.trim()) reply({ custom: draft }, draft.trim()) }}
+              className="flex-1 min-w-0 rounded-pi-md border border-pi-border-soft bg-white/[0.03] px-2.5 py-1.5 text-[13px] text-pi-text outline-none focus:border-pi-accent/60" />
+          )}
+          {c.custom && <button type="button" disabled={!draft.trim()} onClick={() => reply({ custom: draft }, draft.trim())} className="btn-primary px-2.5 py-1.5 text-[12px] rounded-pi-md disabled:opacity-40">发送</button>}
+          {c.skip && <button type="button" onClick={() => reply({ skip: true }, '跳过')} className="ml-auto px-2.5 py-1.5 text-[12px] text-pi-dim hover:text-pi-text rounded-pi-md">跳过</button>}
+        </div>
+      )}
+    </div>
+  )
+}
 
 const SIZES: Record<string, string> = { h1: 'text-[17px] font-extrabold', h2: 'text-[15px] font-bold', h3: 'text-[15px] font-semibold', body: 'text-[13px]', muted: 'text-[13px] text-pi-dim', caption: 'text-[11px] text-pi-dim2' }
 
@@ -84,6 +125,10 @@ function Node({ n, k }: { n: Spec; k?: string }) {
         ))}
       </div>
     )
+    case 'choice': {
+      const c = normalizeChoice(n)
+      return c ? <ChoiceCard key={k} c={c} /> : null
+    }
     default: return null
   }
 }
