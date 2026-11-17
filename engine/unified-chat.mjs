@@ -8,7 +8,7 @@ import path from "node:path";
 import { createHash } from "node:crypto";
 import { execFile } from "node:child_process";
 import { json, readBody } from "./http-utils.mjs";
-import { markModelBlocked, isAuthErrorStatus, pickFallbackDefault, pickFallbackExcluding, pickBudgetDowngrade, routeProCandidate, routeForAuto } from "./model/router.mjs";
+import { markModelBlocked, isAuthErrorStatus, isChannelLevelError, pickFallbackDefault, pickFallbackExcluding, pickBudgetDowngrade, routeProCandidate, routeForAuto } from "./model/router.mjs";
 import { classifyAnomaly, recordReply, lastAssistantReply } from "./output-guard.mjs";
 import { settleTurnMemory } from "./memory/autostore.mjs";
 import { clampOutputTokens, escalateOutputTokens, maxTokensFieldOf, declaredContextWindow, OUTPUT_TOKEN_FALLBACK } from "./output-budget.mjs";
@@ -1693,19 +1693,38 @@ export async function handleUnifiedChat(res, entry, message, sessionId, params, 
   }
   // channelRetryWrapped: 标记已接线（幂等）
   let result;
+  const channelFallback = () => {
+    let next = null;
+    try { next = pickFallbackExcluding(chatModel) } catch {}
+    if (!next) { try { next = pickFallbackDefault() } catch {} }
+    return next && !(next.provider === chatModel.provider && next.id === chatModel.id) ? next : null;
+  };
   try {
     result = await unifiedChat(chatModel, history, chatOpts);
   } catch (err) {
     const msg = String(err?.message || err || "");
-    const channelLevel = /(?:HTTP\s*)?(?:5\d\d|402|429|401|403)|fetch failed|ETIMEDOUT|ECONNRESET|overload|Insufficient Balance/i.test(msg);
-    if (_emitted.any || !channelLevel) throw err;
-    let next = null;
-    try { next = typeof pickFallbackExcluding === "function" ? pickFallbackExcluding(chatModel) : null } catch {}
-    if (!next) { try { next = pickFallbackDefault() } catch {} }
-    if (!next || (next.provider === chatModel.provider && next.id === chatModel.id)) throw err;
+    if (_emitted.any || !isChannelLevelError(msg)) throw err;
+    const next = channelFallback();
+    if (!next) throw err;
     console.log(`[model-failover] 主对话换通道：${chatModel.provider}/${chatModel.id} → ${next.provider}/${next.id}（${msg.slice(0, 60)}）`);
     result = await unifiedChat(next, history, chatOpts);
     chatModel = next;
+  }
+  // 2026-11-17：上游 HTTP 错误是 *返回* { error } 的（不抛），上面的 catch 接不到。
+  // deepseek 欠费 402 时微信端每条都回「出了点问题」，就是因为这里从没换过通道。
+  if (result?.error && !result.text && !_emitted.any && !signal?.aborted && isChannelLevelError(result.error)) {
+    const next = channelFallback();
+    if (next) {
+      console.log(`[model-failover] 主对话换通道：${chatModel.provider}/${chatModel.id} → ${next.provider}/${next.id}（${String(result.error).slice(0, 60)}）`);
+      const failed = chatModel;
+      const fb = await unifiedChat(next, history, chatOpts);
+      if (!fb?.error) {
+        chatModel = next;
+        switchedModel = { provider: next.provider, id: next.id, sameModel: false, reason: `主模型 ${failed.provider}/${failed.id} 不可用（${String(result.error).slice(0, 40)}），备用模型回答` };
+        writer.push('model_switched', { ...switchedModel, requestedModel });
+        result = fb;
+      }
+    }
   }
   const adoptReplacement = async (replacement, selected, reason) => {
     result = { ...replacement, streamed: true, usedModel: replacement.usedModel || { provider: selected.provider, id: selected.id } };

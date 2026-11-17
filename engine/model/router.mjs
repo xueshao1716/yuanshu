@@ -27,6 +27,8 @@ export function modelKey(m) { return m ? `${m.provider}/${m.id}` : ""; }
 // （401/402/403/429/529：无权限/余额不足/Access denied/额度耗尽/服务过载 → 一律冷却 30 分钟避开）
 export const AUTH_ERROR_CODES = [401, 402, 403, 429, 529];
 export function isAuthErrorStatus(status) { return AUTH_ERROR_CODES.includes(Number(status)); }
+// 通道级失败（欠费/鉴权/限流/上游 5xx/断网）：换个模型就可能好；400 之类参数/内容错误换了也没用
+export function isChannelLevelError(msg) { return /\b(?:5\d\d|40[123]|429)\b|fetch failed|ETIMEDOUT|ECONNRESET|overload|Insufficient Balance/i.test(String(msg || "")); }
 export function isModelBlocked(m) {
   if (!m) return false;
   if (m.provider === "opencode-go" && Date.now() < ocGoBlockedUntil) return true;
