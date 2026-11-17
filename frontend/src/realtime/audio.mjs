@@ -1,4 +1,5 @@
 import { createPlayback } from './playback.mjs'
+import { createMeter, ZERO_BANDS } from './levels.mjs'
 
 export async function createVoiceAudio({ onPacket, onFailure = () => {}, onStage = () => {}, onPlayback = () => {}, signal, workletUrl = new URL('./capture-worklet.mjs', import.meta.url).href }, env = globalThis) {
   if (env.isSecureContext === false) throw new Error('secure_context_required')
@@ -6,13 +7,13 @@ export async function createVoiceAudio({ onPacket, onFailure = () => {}, onStage
   let context
   try { context = new env.AudioContext({ latencyHint: 'interactive' }) }
   catch { throw new Error('audio_initialization_failed') }
-  let stream, source, capture, silent, playback, closed = false, muted = true, epoch = 0
+  let stream, source, capture, silent, playback, micMeter, outMeter, closed = false, muted = true, epoch = 0
   function close() {
     if (closed) return
     closed = true; context.onstatechange = null; signal?.removeEventListener('abort', close)
     stream?.getTracks().forEach(track => { track.onended = null; track.stop() }); playback?.close()
     if (capture) { capture.port.onmessage = null; capture.disconnect() }
-    source?.disconnect(); silent?.disconnect()
+    source?.disconnect(); silent?.disconnect(); micMeter?.node.disconnect(); outMeter?.node.disconnect()
     if (context.state !== 'closed') void context.close().catch(() => {})
   }
   signal?.addEventListener('abort', close, { once: true })
@@ -37,7 +38,12 @@ export async function createVoiceAudio({ onPacket, onFailure = () => {}, onStage
     capture = new env.AudioWorkletNode(context, 'yuanshu-voice-capture', { numberOfInputs: 1, numberOfOutputs: 1, outputChannelCount: [1] })
     source = context.createMediaStreamSource(stream); silent = context.createGain(); silent.gain.value = 0
     source.connect(capture); capture.connect(silent); silent.connect(context.destination)
-    playback = createPlayback(context, onPlayback)
+    // 声波用的两只音量计：麦克风（只旁听，不往外接）和回放（串在扬声器前）。老环境没有 createAnalyser 就不画音量。
+    if (context.createAnalyser) {
+      micMeter = createMeter(context); source.connect(micMeter.node)
+      outMeter = createMeter(context); outMeter.node.connect(context.destination)
+    }
+    playback = createPlayback(context, onPlayback, outMeter?.node || context.destination)
     context.onstatechange = () => { if (!closed && context.state !== 'running') onFailure('audio_interrupted') }
     capture.onprocessorerror = () => onFailure('audio_processing_failed')
     capture.port.onmessage = ({ data }) => { if (!closed && !muted && data.epoch === epoch) onPacket(data.bytes) }
@@ -47,6 +53,7 @@ export async function createVoiceAudio({ onPacket, onFailure = () => {}, onStage
         muted = value; epoch++; stream.getTracks().forEach(track => { track.enabled = !muted })
         capture.port.postMessage({ enabled: !muted, epoch })
       },
+      levels: () => ({ mic: !closed && !muted && micMeter ? micMeter.read() : ZERO_BANDS, out: !closed && outMeter ? outMeter.read() : ZERO_BANDS }),
       push: event => playback.push(event), interrupt: () => playback.interrupt(), close,
     }
   } catch (error) { close(); throw error }

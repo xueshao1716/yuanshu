@@ -1,7 +1,7 @@
 import { pcm16ToFloat } from '../lib/realtime-pcm.mjs'
 
 // AudioContext render time runs ahead of the speaker; truncate against the output clock.
-export function createPlayback(context, onPlaying = () => {}) {
+export function createPlayback(context, onPlaying = () => {}, output = context.destination) {
   let nextAt = 0, closed = false, last = null
   const segments = [], blocked = new Set(), offsets = new Map(), playing = new Set()
   function clock() {
@@ -31,7 +31,7 @@ export function createPlayback(context, onPlaying = () => {}) {
       if (!offsets.has(event.itemId) && offsets.size >= 256) throw new Error('response_limit')
       const offset = offsets.get(event.itemId) || 0
       const buffer = context.createBuffer(1, samples.length, 24000); buffer.copyToChannel(samples, 0)
-      const source = context.createBufferSource(); source.buffer = buffer; source.connect(context.destination)
+      const source = context.createBufferSource(); source.buffer = buffer; source.connect(output)
       source.onended = () => { source.disconnect(); if (playing.delete(source) && playing.size === 0) onPlaying(false) }
       const segment = { source, start: at, end: at + duration, offset, responseId: event.responseId, itemId: event.itemId }
       segments.push(segment); offsets.set(event.itemId, offset + duration); nextAt = segment.end

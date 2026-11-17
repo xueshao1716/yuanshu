@@ -1,12 +1,12 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { ArrowLeft, AudioLines, Check, ListTodo, MessageSquareText, Mic, MicOff, Phone, PhoneOff, Square } from 'lucide-react'
 import { callError } from '../../realtime/errors'
-import CallStage from './CallStage'
+import CallStage, { type CallLevels } from './CallStage'
 
 export type CallState = { phase: string; muted: boolean; error?: string; stage: string; activity: string; failureStage?: string | null
   readyAt: number | null; endedAt: number | null; stageStartedAt: number | null }
 type Props = { state: CallState; name?: string; consented: boolean; setConsented: (value: boolean) => void; disabled?: boolean
-  modelReady?: boolean; modelPicker?: ReactNode
+  modelReady?: boolean; modelPicker?: ReactNode; levels?: CallLevels
   transcripts: { role: string; text: string }[]; onTaskText: (text: string) => void; tasks: ReactNode
   pendingTasks: number; taskNotice: string; needsApproval?: boolean
   onStart: () => void; onMute: () => void; onInterrupt: () => void; onStop: () => void; onClose: () => void }
@@ -17,7 +17,7 @@ const stages: Record<string, string> = {
 function clock(seconds: number) { return `${Math.floor(seconds / 60).toString().padStart(2, '0')}:${(seconds % 60).toString().padStart(2, '0')}` }
 
 export default function CallScreen({ state, name = '小语', consented, setConsented, disabled, transcripts, onTaskText, tasks,
-  modelReady = true, modelPicker, pendingTasks, taskNotice, needsApproval, onStart, onMute, onInterrupt, onStop, onClose }: Props) {
+  modelReady = true, modelPicker, levels, pendingTasks, taskNotice, needsApproval, onStart, onMute, onInterrupt, onStop, onClose }: Props) {
   const [view, setView] = useState<'call' | 'transcript' | 'tasks'>('call')
   const [now, setNow] = useState(Date.now), titleRef = useRef<HTMLHeadingElement>(null), recordsRef = useRef<HTMLDivElement>(null)
   const active = state.phase !== 'idle', ready = state.phase === 'ready', ended = !active && state.readyAt !== null
@@ -49,7 +49,7 @@ export default function CallScreen({ state, name = '小语', consented, setConse
     </div>
     <div className="voice-body">
       {view === 'call' ? <div className="voice-main">
-        <CallStage state={visual} />
+        <CallStage state={visual} levels={levels} />
         <div className="voice-caption">
           <p className="voice-main-title">{ready ? state.activity === 'replying' ? '灵感，正在回应' : state.muted ? '安静听一会儿' : '此刻，专心说话' : active ? '马上就好' : ended ? '想法留在这里' : '从一句话开始'}</p>
           <p className="voice-secondary">{ready ? '需要看文字时，再打开下方记录' : active ? state.stage === 'microphone' ? '请查看浏览器或系统的授权提示' : '麦克风已授权，正在完成连接' : ended ? '已确认的任务会继续执行，结果回到原聊天' : '聊想法，也可以把事情交给元枢'}</p>

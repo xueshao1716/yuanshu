@@ -21,3 +21,9 @@
 @keyframes voice-orbit { from { transform: rotate(-24deg) scaleY(.92); } to { transform: rotate(336deg) scaleY(.92); } }
 @media (max-width: 600px) { .voice-stage { --orb-size: clamp(170px, 27vh, 240px); } }
 @media (max-height: 640px) { .voice-stage { --orb-size: 130px; width: 154px; height: 154px; } }
+/* 声波版（2026-11-17）：WebGL 声波画在深色球底上，玻璃高光盖在最上面；浅色主题也看得清。 */
+.voice-orb-wave { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
+.voice-orb:not([data-wave]) .voice-orb-wave { display: none; }
+.voice-orb[data-wave] { background: radial-gradient(circle at 50% 40%, color-mix(in srgb, var(--pi-accent) 26%, #0b1a3a), #050b1a 72%); animation: none !important; }
+.voice-orb[data-wave] .voice-orb-glass { background: radial-gradient(circle at 33% 22%, #ffffff30, transparent 38%), radial-gradient(circle at 50% 50%, transparent 60%, #0a173a90 98%); }
+.voice-stage[data-state="idle"] .voice-orb[data-wave] { opacity: 1; }

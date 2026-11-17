@@ -54,6 +54,7 @@ export default function RealtimeCall({ sessionId, ensureSession, disabled, open,
   return <CallScreen state={state} name={name} consented={consented} setConsented={setConsented} disabled={disabled}
     modelReady={!voiceModels.loading && !voiceModels.error && !!voiceModels.selectedModel}
     modelPicker={<VoiceModelPicker {...voiceModels} locked={state.phase !== 'idle'} />}
+    levels={() => call.current?.levels() ?? null}
     transcripts={transcripts} onTaskText={setDraft} needsApproval={needsApproval}
     pendingTasks={taskState.proposals.filter(p => p.status === 'pending').length}
     taskNotice={taskState.notice} onStart={start} onMute={() => call.current?.mute()}

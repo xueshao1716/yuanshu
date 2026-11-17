@@ -93,6 +93,7 @@ export function createChatCall({ wsUrl, requestTicket, onState, onEvent, worklet
     mute() { if (phase !== 'ready') return; muted = !muted; audio.setMuted(muted); if (muted) send({ type: 'mute' }); state() },
     propose(requestId, text) { return send({ type: 'task.propose', requestId, text }) },
     confirm(id, approved) { return send({ type: 'task.confirm', id, approved }) },
+    levels() { return audio?.levels?.() || null },
     interrupt, stop,
   }
 }
