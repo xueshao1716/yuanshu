@@ -18,16 +18,19 @@ export function createModelOnboarding({ read, write, authPath, modelsPath, refre
     const key = typeof suppliedKey === 'string' && suppliedKey.trim() ? suppliedKey.trim() : auth?.key;
     if (!key) throw invalid('请填写 API Key');
     if (/[^\x21-\x7E]/.test(key)) throw invalid('API Key 包含空格或特殊字符，请重新复制密钥');
-    const previousApi = cfg.api || cfg.models?.[0]?.api || presets[provider]?.api || (provider === 'anthropic' ? 'anthropic-messages' : 'openai-completions');
+    // 2026-11-19：OpenRouter 的旧目录是 SDK 内置的混合清单，第一个模型恰好是 anthropic-messages + https://openrouter.ai/api，
+    // 拿它当协议和地址去探测就是 404。预设服务商且不是元枢自己管的目录时，用预设，不看第一个模型。
+    const preset = presets[provider], firstModel = cfg.managedCatalog || !preset ? cfg.models?.[0] : null;
+    const previousApi = cfg.api || firstModel?.api || preset?.api || (provider === 'anthropic' ? 'anthropic-messages' : 'openai-completions');
     const api = body.api || previousApi;
     if (!['openai-completions', 'anthropic-messages'].includes(api)) throw invalid('接入支持 OpenAI Chat 和 Anthropic Messages 协议，请选择对应协议');
-    const rawBase = body.baseUrl?.trim() || cfg.baseUrl || cfg.models?.[0]?.baseUrl || auth?.baseUrl || presets[provider]?.baseUrl;
+    const rawBase = body.baseUrl?.trim() || cfg.baseUrl || firstModel?.baseUrl || auth?.baseUrl || preset?.baseUrl;
     const baseUrl = provider === 'cloudflare-ai' ? '' : normalizeModelBase(rawBase);
     const account_id = body.account_id || auth?.account_id;
     if (provider === 'cloudflare-ai' && !/^[a-zA-Z0-9]{16,64}$/.test(account_id || '')) throw invalid('Cloudflare 需要有效的 Account ID');
     const ids = body.modelIds;
     if (ids !== undefined && (!Array.isArray(ids) || ids.length > 200 || ids.some(id => typeof id !== 'string' || !id.trim() || id.length > 512))) throw invalid('模型 ID 必须是非空文本列表，最多 200 项');
-    return { provider, auth, cfg, key, api, previousApi, baseUrl, account_id, ids: [...new Set((ids || []).map(id => id.trim()))] };
+    return { provider, auth, cfg, key, api, previousApi, baseUrl, account_id, preset: Boolean(preset), ids: [...new Set((ids || []).map(id => id.trim()))] };
   }
   async function discover(s) {
     if (s.provider === 'cloudflare-ai') return [catalogModel('@cf/black-forest-labs/flux-1-schnell', '', s.api, 'FLUX.1 Schnell', 'manual')].map(m => ({ ...m, capabilities: { chat: false, image: true } }));
@@ -57,7 +60,8 @@ export function createModelOnboarding({ read, write, authPath, modelsPath, refre
       if (!s.ids?.length) {
         const catalogJson = JSON.stringify(discovered || []);
         const catalogKtokens = catalogJson.length / 4000; // 1 token ≈ 4 字符
-        if (catalogKtokens > 10) {
+        // 预设里的正规聚合平台（OpenRouter 四百多个模型、约 4 万 token）目录大是正常的，不当造假，只要求手动勾选
+        if (catalogKtokens > 10 && !s.preset) {
           throw invalid(`平台注入的模型目录过大（约 ${Math.round(catalogKtokens)} 千 token）——超过 10000 token 的实时注入目录疑似造假，已拒绝加入；详见 文档/平台注入检测教程.md`);
         }
         if (catalogKtokens > 1 || (discovered?.length || 0) > 60) {
@@ -66,7 +70,8 @@ export function createModelOnboarding({ read, write, authPath, modelsPath, refre
       }
       const auth = read(authPath), store = read(modelsPath);
       if (!same(auth[s.provider], s.auth) || !same(store[s.provider] || {}, s.cfg)) throw invalid('配置在探测期间已变更，请刷新后重试');
-      const old = new Map((s.cfg.models || []).map(m => [m.id, m]));
+      // 预设服务商的 SDK 内置旧目录（OpenRouter 四百多个）不并回来，只留这次勾选的
+      const old = new Map((s.cfg.managedCatalog || !s.preset ? s.cfg.models || [] : []).map(m => [m.id, m]));
       const oldBase = s.cfg.baseUrl || s.cfg.models?.[0]?.baseUrl || s.auth?.baseUrl;
       const sameBase = oldBase && normalizeModelBase(oldBase) === s.baseUrl;
       const sameCredentials = sameBase && s.auth?.key === s.key;

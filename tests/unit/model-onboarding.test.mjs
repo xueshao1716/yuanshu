@@ -83,3 +83,27 @@ test('false-returning persistence failure rolls back instead of reporting saved'
   assert.equal(res.body.saved, false);
   assert.deepEqual(files, before);
 });
+
+test('2026-11-19 OpenRouter：旧 SDK 混合目录不带偏探测地址；预设聚合平台目录大不当造假，只要求手动勾选', async t => {
+  const calls = [];
+  const big = Array.from({ length: 450 }, (_, i) => ({ id: `vendor/model-${i}-${'x'.repeat(300)}` }));
+  const server = http.createServer((req, res) => { calls.push(req.url); res.end(JSON.stringify({ data: big })); });
+  await new Promise(r => server.listen(0, '127.0.0.1', r));
+  t.after(() => new Promise(r => server.close(r)));
+  const base = `http://127.0.0.1:${server.address().port}/api/v1`;
+  const stale = { models: [{ id: 'anthropic/x', api: 'anthropic-messages', baseUrl: base.replace(/\/v1$/, '') }] };
+  const make = presets => {
+    const files = { auth: {}, models: { openrouter: structuredClone(stale) } };
+    return createModelOnboarding({ read: p => structuredClone(files[p]), write: (p, v) => { files[p] = structuredClone(v); }, authPath: 'auth', modelsPath: 'models',
+      presets, refresh: async () => {}, json: (res, status, body) => Object.assign(res, { status, body }) });
+  };
+  const res = {};
+  await make({ openrouter: { baseUrl: base } }).add(res, { provider: 'openrouter', key: 'sk-or-test' });
+  assert.equal(calls[0], '/api/v1/models', '按预设地址探测，不用旧目录第一个模型的 /api');
+  assert.equal(res.status, 400);
+  assert.match(res.body.error, /手动勾选/);
+  assert.doesNotMatch(res.body.error, /造假/);
+  const custom = {};
+  await make({}).add(custom, { provider: 'openrouter', key: 'sk-or-test', baseUrl: base });
+  assert.match(custom.body.error, /造假/, '非预设平台照旧硬拒');
+});
