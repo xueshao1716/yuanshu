@@ -7,6 +7,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { once } from 'node:events';
 import { json, readBody } from '../../engine/http-utils.mjs';
+import { verifyTicket, ticketScopeForPath } from '../../engine/media-ticket.mjs';
 import { observeHttpRequest, respondHttpError } from '../../engine/http-lifecycle.mjs';
 import { createWithCache } from '../../engine/resp-cache.mjs';
 import { createHistoryApi } from '../../engine/history-api.mjs';
@@ -21,7 +22,17 @@ const auth = source.slice(source.indexOf('function checkAuth(req)'), source.inde
 
 export async function serveProductionCallback(t, routes, overrides = {}) {
   const context = vm.createContext({
-    URL, observeHttpRequest, respondHttpError, console: { log() {} }, CONFIG: { token: 'route-test-token' },
+    URL, observeHttpRequest, respondHttpError, console: { log() {}, warn() {} }, CONFIG: { token: 'route-test-token' },
+    // AUTH-003：checkAuth 会查票据（ticketScopeForPath/verifyTicket 是 engine/media-ticket.mjs 的实测实现）
+    verifyTicket, ticketScopeForPath,
+    // 2026-11-13 预认证加固后，鉴权块要先问限流门；夹具给"一律放行"的替身，
+    // 否则 clientIpOf 未定义会直接 500，根本走不到 401/200 的断言。
+    clientIpOf: () => '127.0.0.1',
+    rateLimitGate: {
+      preAuth: () => ({ ok: true }), authSuccess() {},
+      chargeAuthFailure: () => ({ locked: false }), check: () => ({ ok: true }),
+    },
+    sendRateLimited(res) { json(res, 429, { error: 'limited' }); },
     __applyStaticCache() {}, corsPolicy: { headers: () => ({}) },
     WORKSHOP_PAGES: {}, reactStatic: null, API_ROUTES: routes, json, readBody,
     withCache: createWithCache(), boardApi: { bootstrap: res => json(res, 200, { ok: true }) },
@@ -100,7 +111,16 @@ test('extracted workbench routes preserve HTTP contracts, cache and rollback saf
   const knowledgeApi = { handle(req, res, url) { knowledgeCalls++; return json(res, 200, { method: req.method, path: url.pathname }); } };
   let cultivationCalls = 0;
   const cultivationApi = { handle(req, res, url) { cultivationCalls++; return json(res, 200, { method: req.method, path: url.pathname }); } };
-  vm.runInNewContext(source.slice(registrationStart, start), { ...deps, API_ROUTES: routes, createWorkbenchRoutes, knowledgeApi, cultivationApi });
+  // 2026-11-13 预认证加固后，注册段末尾多了限流门（createRateLimiter/WS_ROOT），
+  // 这段是"复刻启动注册"的切片，必须把这两个名字一起给它，否则切片求值就炸。
+  const rateLimitStub = () => ({
+    preAuth: () => ({ ok: true }), authSuccess() {},
+    chargeAuthFailure: () => ({ locked: false }), check: () => ({ ok: true }),
+  });
+  vm.runInNewContext(source.slice(registrationStart, start), {
+    ...deps, API_ROUTES: routes, createWorkbenchRoutes, knowledgeApi, cultivationApi,
+    WS_ROOT: os.tmpdir(), createRateLimiter: rateLimitStub,
+  });
   assert.equal(routes.length, 9);
   assert.equal(routes.filter(route => typeof route[1] === 'string').length, 4);
   assert.ok(Object.isFrozen(routes), 'startup freezes the complete route registry');

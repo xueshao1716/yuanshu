@@ -68,19 +68,20 @@ test("没给卡片就不编：card_* 全为 null，库不会凭空变大", () =>
 // 2. 读取：召回只给片段，全文按 id 取
 // ---------------------------------------------------------------------------
 
-test("召回带 card 片段（≤200 字）；提示词只注入摘要，不塞卡片", () => {
+test("召回带 card 片段（≤200 字）；提示词只注入摘要，不塞卡片", async () => {
   freshDb();
   const full = "【用户】" + "很长很长的原话".repeat(100);
   const item = db.addMemory({ memory_type: "fact", summary: "部署机用 8787 端口", source: "auto", card_text: full });
 
-  const r = recallMod.recallMemories({ query: "部署机 8787 端口", limit: 5, touch: false });
+  // 2026-11-15：召回改为异步（混合检索要对 query 调一次 embedding；未注入 embedding → 自动退回旧公式）
+  const r = await recallMod.recallMemories({ query: "部署机 8787 端口", limit: 5, touch: false });
   assert.equal(r.items.length, 1);
   assert.ok(r.items[0].card, "召回结果要带 card");
   assert.ok(r.items[0].card.length <= db.CARD_PREVIEW, `片段不能超过 200 字：${r.items[0].card.length}`);
   assert.ok(r.items[0].card.endsWith("…"), "截断要有省略号");
   assert.ok(r.items[0].card !== full, "召回默认不给全文");
 
-  const prompt = recallMod.recallPrompt({ query: "部署机 8787 端口" });
+  const prompt = await recallMod.recallPrompt({ query: "部署机 8787 端口" });
   assert.ok(prompt.includes("部署机用 8787 端口"), "摘要照旧进提示词");
   assert.ok(!prompt.includes("【用户】"), "提示词注入不塞卡片，避免上下文被撑爆");
 

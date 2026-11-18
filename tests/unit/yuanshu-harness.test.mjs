@@ -59,7 +59,7 @@ test("needsMidLoopCompact：中段够长才压，刚压过要歇几轮", () => {
   assert.equal(needsMidLoopCompact([{ role: "user", content: "hi" }], { turn: 20, lastCompactTurn: 0 }), false);
 });
 
-test("runYuanshuToolRound 卡住必须停，不要再空转", async () => {
+test("runYuanshuToolRound 重复同一调用不中止，只给内部自查", async () => {
   const history = [];
   const stuckEvents = [];
   let calls = 0;
@@ -72,13 +72,12 @@ test("runYuanshuToolRound 卡住必须停，不要再空转", async () => {
       policyDecide: () => ({ decision: "allow" }),
       jitForPath: () => [],
     });
-    if (r.stop) {
-      assert.match(String(r.stop.error), /循环|重复|卡住/);
-      assert.ok(calls <= 4);
-      return;
-    }
+    // 2026-11-13：用户明确不要"发现循环就停"，要"换路继续"。
+    assert.equal(r.stop, undefined, "重复调用不允许中断任务");
   }
-  assert.fail("4 次相同 read 必须停");
+  assert.equal(calls, 4, "四次都要真正执行，不空转也不掐断");
+  const selfChecks = history.filter(m => m.role === "system" && String(m.content).includes("内部自查"));
+  assert.equal(selfChecks.length, 1, "第 3 次开始给一次内部自查");
 });
 
 test("主工具表必须挂上 todo 和 delegate_task", () => {
@@ -93,10 +92,10 @@ test("handleUnifiedChat Auto 必须走 routeForAuto，循环中段必须能压�
   const start = src.indexOf("export async function handleUnifiedChat");
   const fn = src.slice(start, start + 9000);
   assert.ok(fn.includes("routeForAuto"), "元枢兑底不能只会 pickFallbackDefault");
-  const loop = src.slice(src.indexOf("export async function unifiedChat"), src.indexOf("export async function unifiedChat") + 12000);
+  const loop = src.slice(src.indexOf("export async function unifiedChat"), src.indexOf("export async function unifiedChat") + 16000);
   assert.ok(loop.includes("needsMidLoopCompact") || loop.includes("maybeCompactHistory"), "中段要压上下文，不能等开场那一次");
   assert.ok(loop.includes("compactKeepArchive"), "压缩必须留 archive，不能只换成摘要");
-  const handle = src.slice(src.indexOf("export async function handleUnifiedChat"), src.indexOf("export async function handleUnifiedChat") + 16000);
+  const handle = src.slice(src.indexOf("export async function handleUnifiedChat"), src.indexOf("export async function handleUnifiedChat") + 30000);
   assert.ok(handle.includes("assembleYuanshuSystem") || handle.includes("buildYuanshuSections"), "system 必须走命名区段");
   assert.ok(handle.includes("sandboxMode"), "规划只读要落到沙箱阶梯");
 });

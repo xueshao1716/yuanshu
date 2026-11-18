@@ -85,6 +85,7 @@ test("召回：相关性高的排前面，且限量", async (t) => {
 
 test("召回：拼接提示词有则给、无则空", async () => {
   const { recallPrompt } = await recallMod();
-  const p = recallPrompt({ query: "不可能匹配的词zzz", limit: 3, maxChars: 50 });
+  // 2026-11-15：召回改异步（混合检索要对 query 调一次 embedding；未注入实现时自动回旧公式）
+  const p = await recallPrompt({ query: "不可能匹配的词zzz", limit: 3, maxChars: 50 });
   assert.equal(typeof p, "string");
 });

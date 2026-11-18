@@ -427,7 +427,7 @@ test('接线：server 的 UNIFIED_TOOLS / 执行器表 / createTeamCompletion �
     '天团收尾读看板要用工作区根，不能靠 process.cwd()');
 });
 
-test('接线：team-launch 建团队就落一张空看板，续跑沿用同一 teamId 不丢任务', async t => {
+test('接线：team-launch 建团队就预建阶段任务，续跑沿用同一 teamId 不丢任务', async t => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'yuanshu-team-board-launch-'));
   t.after(() => fs.rmSync(root, { recursive: true, force: true }));
   const child = new EventEmitter();
@@ -443,7 +443,13 @@ test('接线：team-launch 建团队就落一张空看板，续跑沿用同一 t
   const launchId = (await pending).body.launch.id;
   const file = path.join(root, BOARD_REL_DIR, `${launchId}.json`);
   assert.ok(fs.existsSync(file), '建团队时就要有看板文件');
-  assert.deepEqual(JSON.parse(fs.readFileSync(file, 'utf8')).tasks, [], '新团队是空板');
+  const seeded = JSON.parse(fs.readFileSync(file, 'utf8')).tasks;
+  assert.deepEqual(seeded.map(task => task.status), ['pending', 'pending', 'pending', 'pending', 'pending'],
+    '开局由主控预建阶段任务，成员自己 claim');
+  assert.deepEqual(seeded.map(task => task.subject.split('：')[0]), ['ANALYST', 'VIDEO', 'GUARDIAN', 'ARBIT', 'REVIEWER']);
+  assert.ok(seeded.every(task => task.owner === null), '预建任务不预占负责人');
+  assert.ok(seeded.every(task => Array.isArray(task.writeScopes) && task.writeScopes.length === 0),
+    '成员不改文件，writeScopes 可空');
 
   // 往板上放一条任务，模拟成员还没做完就中断
   assert.equal(createTask(launchId, { subject: '别丢我' }, opts(root)).ok, true);
@@ -455,12 +461,13 @@ test('接线：team-launch 建团队就落一张空看板，续跑沿用同一 t
   assert.equal(result.status, 200);
   assert.notEqual(result.body.launch.id, launchId, '续跑是新 launch 编号');
   const board = readBoard(launchId, opts(root)); // teamId 沿用 checkpointId（= 原 launchId）
-  assert.equal(board.tasks.length, 1, '续跑不能把已认领的任务冲掉');
-  assert.equal(board.tasks[0].subject, '别丢我');
+  assert.equal(board.tasks.length, 6, '续跑不能把已认领的任务冲掉');
+  assert.equal(board.tasks.find(task => task.subject === '别丢我').subject, '别丢我');
+  assert.equal(board.tasks.filter(task => task.subject.startsWith('ANALYST')).length, 1, '预建任务幂等，不重复建');
   child.emit('exit', 1, null);
 });
 
-test('接线：team-subagents 把 boardSummary 注入每个成员的提示，收尾提示不阻断', async t => {
+test('接线：team-subagents 预建阶段任务、把 boardSummary 注入每个成员，收尾提示不阻断', async t => {
   const draft = '# 可拍脚本\n' + '具体镜头及口播。'.repeat(80);
   const { root, requests } = setupSubagent(t, ['方向要点', '质疑要点', draft, '{"pass":true,"issues":[]}']);
   createTask('parent', { subject: '改引擎入口', owner: '小语' }, opts(root));
@@ -469,10 +476,17 @@ test('接线：team-subagents 把 boardSummary 注入每个成员的提示，收
   const result = await executeTeam({ task: '做探店账号进三期脚本' }, { wsRoot: root, sessionId: 's', runId: 'parent' });
   assert.equal(result.isError, false, result.text);
   assert.equal(requests.length, 4);
+  // 主控预建了本趟四个阶段任务，成员提示里能看到（预建 + 手工共 6 项）。
+  const board = readBoard('parent', opts(root));
+  assert.equal(board.tasks.filter(task => /^(IDEA|CHALLENGE|EXEC|REVIEW)：/.test(task.subject)).length, 4,
+    '开局预建 IDEA/CHALLENGE/EXEC/REVIEW 四个阶段任务');
   assert.ok(requests.every(req => JSON.stringify(req.messages).includes('团队共享看板 · parent')),
     '每个成员都要看到共享看板');
   assert.ok(requests.every(req => JSON.stringify(req.messages).includes('改引擎入口')));
-  assert.match(result.text, /【看板】还有 2 项没收尾/);
+  // 成员提示里写死看板纪律（先 list、claim 带 expectedRevision、complete/release）。
+  assert.ok(requests.every(req => /开工前先 team_board/.test(JSON.stringify(req.messages))));
+  assert.ok(requests.every(req => /expectedRevision/.test(JSON.stringify(req.messages))));
+  assert.match(result.text, /【看板】还有 6 项没收尾/);
   assert.equal(result.artifact !== undefined, true, '提示不阻断交付');
 });
 

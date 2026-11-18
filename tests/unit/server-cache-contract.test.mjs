@@ -8,6 +8,7 @@ import vm from 'node:vm';
 import { once } from 'node:events';
 import { createStaticServer } from '../../lib/static.mjs';
 import { json } from '../../engine/http-utils.mjs';
+import { verifyTicket, ticketScopeForPath } from '../../engine/media-ticket.mjs';
 import { observeHttpRequest, respondHttpError } from '../../engine/http-lifecycle.mjs';
 
 // Exercise the production callback and its cache hook, not a reimplementation.
@@ -31,7 +32,16 @@ async function serve(t) {
     fs.writeFileSync(path.join(root, file), 'fixture');
   }
   const context = vm.createContext({
-    URL, observeHttpRequest, respondHttpError, console: { log() {} }, CONFIG: { token: 'cache-test-token' },
+    URL, observeHttpRequest, respondHttpError, console: { log() {}, warn() {} }, CONFIG: { token: 'cache-test-token' },
+    // AUTH-003：checkAuth 的票据分支（实测实现，不是替身）
+    verifyTicket, ticketScopeForPath,
+    // 鉴权块的前置限流门：夹具一律放行（详见 server-route-lifetime.test.mjs 同款注释）
+    clientIpOf: () => '127.0.0.1',
+    rateLimitGate: {
+      preAuth: () => ({ ok: true }), authSuccess() {},
+      chargeAuthFailure: () => ({ locked: false }), check: () => ({ ok: true }),
+    },
+    sendRateLimited(res) { json(res, 429, { error: 'limited' }); },
     corsPolicy: { headers: () => ({}) }, WORKSHOP_PAGES: {},
     reactStatic: createStaticServer({ publicDir: root }), json,
     API_ROUTES: [['GET', '/api/private.png', res => json(res, 200, { private: true })]],

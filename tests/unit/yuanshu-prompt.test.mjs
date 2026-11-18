@@ -71,7 +71,10 @@ test("buildYuanshuSections：协议常驻，闲聊不背经验", () => {
     experience: ["【经验】x"],
     fullMemory: ["【记忆】y"],
   });
-  assert.match(assemblePrompt(task), /【经验】/);
+  // 2026-11-13（任务 B）：闸门放行的经验/记忆不再进 system，改由 memoryNote 贴末尾。
+  assert.match(task.memoryNote, /【经验】/);
+  assert.match(task.memoryNote, /【记忆】/);
+  assert.ok(!/【经验】/.test(assemblePrompt(task)), "system 只留稳定记忆，经验索引不再进 system");
 });
 
 test("buildYuanshuSections：PPT 主题默认走快速生成并交付文件", () => {
@@ -79,7 +82,9 @@ test("buildYuanshuSections：PPT 主题默认走快速生成并交付文件", ()
     message: "做一个关于定西洋芋的宣传ppt",
     skills: [{ name: "ppt-generator", desc: "智能 PPT 幻灯片生成" }],
   });
-  assert.match(assemblePrompt(sections), /快速生成/);
-  assert.match(assemblePrompt(sections), /可下载的 \.pptx/);
-  assert.match(assemblePrompt(sections), /跳过可选的大纲确认/);
+  // 2026-11-13（任务 B）：PPT 交付指令属于"这轮用得上什么"，进末尾状态块（turnSkills），不进 system。
+  assert.match(sections.turnSkills, /快速生成/);
+  assert.match(sections.turnSkills, /可下载的 \.pptx/);
+  assert.match(sections.turnSkills, /跳过可选的大纲确认/);
+  assert.ok(!/\.pptx/.test(assemblePrompt(sections)), "system 里不该再带只跟本轮消息有关的交付指令");
 });

@@ -7,6 +7,7 @@ import http from 'node:http';
 import vm from 'node:vm';
 import { once } from 'node:events';
 import { json, readBody } from '../../engine/http-utils.mjs';
+import { verifyTicket, ticketScopeForPath } from '../../engine/media-ticket.mjs';
 import { observeHttpRequest, respondHttpError } from '../../engine/http-lifecycle.mjs';
 import { createBehaviorExperiments } from '../../engine/behavior-experiments.mjs';
 import { createRunStore } from '../../engine/run-store.mjs';
@@ -32,8 +33,17 @@ async function serve(t) {
   const run = store.create({ sessionId: 's1', clientRequestId: 'r1', message: 'fixture only', backgroundRecovery: { scope: wsRoot } });
   store.update(run.id, { status: 'failed', error: 'fixture failure' });
   const service = createBehaviorExperiments({ wsRoot, rootDir });
-  const context = vm.createContext({ URL, observeHttpRequest, respondHttpError, reactStatic: null, console: { log() {} },
+  const context = vm.createContext({ URL, observeHttpRequest, respondHttpError, reactStatic: null, console: { log() {}, warn() {} },
     CONFIG: { token: 'fixture-token' }, corsPolicy: { headers: () => ({}) }, WORKSHOP_PAGES: {}, json,
+    // AUTH-003：checkAuth 的票据分支用真实实现
+    verifyTicket, ticketScopeForPath,
+    // 鉴权块的前置限流门：夹具一律放行（详见 server-route-lifetime.test.mjs 同款注释）
+    clientIpOf: () => '127.0.0.1',
+    rateLimitGate: {
+      preAuth: () => ({ ok: true }), authSuccess() {},
+      chargeAuthFailure: () => ({ locked: false }), check: () => ({ ok: true }),
+    },
+    sendRateLimited(res) { json(res, 429, { error: 'limited' }); },
     API_ROUTES: routes.createBehaviorExperimentRoutes({ service, json, readBody }) });
   vm.runInContext(declaration('checkAuth') + '\n' + declaration('__applyStaticCache'), context);
   const server = http.createServer(vm.runInContext(`(${callback})`, context));
