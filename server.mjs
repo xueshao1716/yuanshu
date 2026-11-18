@@ -328,7 +328,7 @@ import { createStaticServer } from "./lib/static.mjs";
 import { CodeRuntime } from "./code-mode/code-runtime.mjs";
 import { createCodeMode } from "./code-mode/code-mode.mjs";
 import { createTimeEngine, localStamp } from "./engine/time-engine.mjs";
-import { createChatStreamHub } from "./engine/chat-stream.mjs";
+import { createChatStreamHub, closeHandlerFor } from "./engine/chat-stream.mjs";
 import { createJobPool } from "./engine/job-pool.mjs";
 // 2026-11-07：值班程序（她自己写的「盯梢」）——确定性检查长期值守，命中才唤醒。
 // 三件分开：duty 负责判定/限流/落盘，wake 负责命中后交 job-pool 跑一轮，api/tools 只做参数进出。
@@ -2820,7 +2820,9 @@ async function handleChat(req, res, body) {
       stream.attach(nativeRes);
       res = stream.wrapResponse(nativeRes);   // 后续所有 sseWrite/handle* 都写进流
       abortCtrl = { signal: stream.signal };
-      onClose = () => stream.detach(nativeRes); // 客户端走了，任务继续
+      // 客户端走了，任务继续；但 Run 管理器的请求被关 = 伙伴点了停止，要真的打断模型
+      const ownedByRun = Boolean(body.__runContext?.runId);
+      onClose = closeHandlerFor(stream, nativeRes, { ownedByRun });
     } else {
       abortCtrl = new AbortController();
       onClose = () => { try { abortCtrl.abort({ code: "CLIENT_DISCONNECTED" }); } catch {} };

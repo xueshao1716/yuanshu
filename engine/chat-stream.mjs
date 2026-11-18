@@ -9,6 +9,18 @@
 const MAX_EVENTS = 4000;
 const MAX_BYTES = 4 * 1024 * 1024;
 
+/**
+ * 请求关闭时的处理。浏览器断开（刷新/切后台）只 detach，任务继续；
+ * Run 管理器自己造的请求只会在「停止」时被关（run-manager io.close），那就必须真的 abort——
+ * 否则停止要等模型把这一段自己说完（2026-11-18 真机等了 4 分多钟）。
+ */
+export function closeHandlerFor(stream, nativeRes, { ownedByRun = false } = {}) {
+  return () => {
+    stream.detach(nativeRes);
+    if (ownedByRun) stream.abort('user_stop');
+  };
+}
+
 export function createChatStreamHub() {
   const streams = new Map();
 
