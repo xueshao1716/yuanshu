@@ -4,7 +4,7 @@ export function modelCapabilities(id = '') {
   const name = String(id);
   const caps = {
     chat: true,
-    image: /image|(?:^|[\/._-])flux(?:[\/._-]|$)|seedream|stable-diffusion|dall-e/i.test(name),
+    image: /image|(?:^|[\/._-])flux(?:[\/._-]|$)|seedream|stable-diffusion|dall-e|recraft/i.test(name),
     video: /video|(?:^|[\/._-])(?:wan\d|sora(?:[._-]|$)|veo(?:[._-]|$))|[ti]2v/i.test(name),
     tts: /tts/i.test(name),
     asr: /asr|whisper|transcribe/i.test(name),

@@ -5,6 +5,8 @@
 ### Added
 - 灵魂培养中心新增「桌面公仔」单独一页：总开关「在桌面显示公仔」（关掉后桌面上连收起的小圆钮也不留）、收起成小圆钮、陪伴免打扰、立绘选择。开关和立绘只影响本机；原来放在「声音与形象」里的公仔开关和立绘挪到这一页。
 
+- OpenRouter 能出图：它的出图模型（如免费的 Recraft V4.1 Flash V2）不走 `/images/generations`，走 chat/completions 加 `modalities:["image"]`，新增对应适配器，画幅按 `image_config.aspect_ratio` 传；Recraft 系列按出图模型识别，不再被当成对话模型。
+
 ### Changed
 - 主模型不可用时的兜底改为先用 Agnes 3.0 Flash，Agnes 2.5 Flash 退为下一顺位。
 

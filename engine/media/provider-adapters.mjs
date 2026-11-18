@@ -11,7 +11,7 @@ export function imageProviderSize(provider, modelId, size = '1024x1024') {
 
 export async function generateProviderImage({ provider, modelId, prompt, size, image, seed, negative,
   baseUrl, key, accountId, signal, onRequest }) {
-  const special = ['minimax', 'modelscope', 'cloudflare-ai'].includes(provider)
+  const special = ['minimax', 'modelscope', 'cloudflare-ai', 'openrouter'].includes(provider)
     || (provider === 'aliyun-bailian' && /^wan\d/.test(modelId));
   if (!special) return null;
   signal?.throwIfAborted();
@@ -56,6 +56,18 @@ export async function generateProviderImage({ provider, modelId, prompt, size, i
     if ([404, 405, 501].includes(r.status)) r = await post(`${base}/image_generation`, body);
     const data = await decode(r);
     return requireImage(data?.data?.image_urls?.[0]);
+  }
+  // 2026-11-19：OpenRouter 出图不走 /images/generations，走 chat/completions + modalities:["image"]，
+  // 图在 choices[0].message.images[0].image_url.url（data:image/webp;base64,…）。画幅用 image_config.aspect_ratio。
+  if (provider === 'openrouter') {
+    const [w, h] = String(size || '1024x1024').split('x').map(Number);
+    const gcd = (a, b) => (b ? gcd(b, a % b) : a);
+    const ratio = w > 0 && h > 0 ? `${w / gcd(w, h)}:${h / gcd(w, h)}` : '1:1';
+    const content = image ? [{ type: 'text', text: prompt }, { type: 'image_url', image_url: { url: image } }] : prompt;
+    const data = await decode(await post(`${base}/v1/chat/completions`, {
+      model: modelId, messages: [{ role: 'user', content }], modalities: ['image'], image_config: { aspect_ratio: ratio }, ...(seed != null ? { seed } : {}),
+    }));
+    return requireImage(data?.choices?.[0]?.message?.images?.[0]?.image_url?.url);
   }
   if (provider === 'modelscope') {
     const sizeMap = { '832x1472': '720x1280', '736x1312': '720x1280', '1920x1920': '1024x1024' };
