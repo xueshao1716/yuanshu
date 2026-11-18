@@ -28,6 +28,9 @@ export function knowledgeStorage(wsRoot) {
   };
   const transaction=work=>withCrossProcessLock(file('state.json'),async()=>{
     const data=readState(),before=JSON.stringify(data);const result=await work(data);
+    // 已提交任务的正文在 entries/ 和 journal/，candidate/validation 留着只会把 state.json 撑到上限、拖慢每次事务；
+    // 方法条目检索时要拿 candidate 重跑核验（runtime verifySource），只有它留着
+    for(const j of Object.values(data.jobs))if(j.state==='committed'){delete j.validation;if(j.candidate?.kind!=='method')delete j.candidate;}
     if(JSON.stringify(data)!==before)write('state.json',data);return clone(result);
   });
   return {root,workspace,file,read,write,readState,transaction};

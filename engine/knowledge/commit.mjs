@@ -14,7 +14,8 @@ export function knowledgeCommit(storage,now,fault=()=>{},sourceContext={}) {
     const existing=storage.read(`entries/${journal.entry.id}.json`);
     if(existing&&digest(existing)!==journal.hash)fail('knowledge_journal_invalid');
     if(!existing)storage.write(`entries/${journal.entry.id}.json`,journal.entry);
-    data.jobs[job.id]={...job,state:'committed',stage:'committed',lease:null,revision:job.revision+1,entryId:journal.entry.id,updatedAt:now()};
+    const {candidate,validation,...kept}=job;
+    data.jobs[job.id]={...kept,...candidate?.kind==='method'?{candidate}:{},state:'committed',stage:'committed',lease:null,revision:job.revision+1,entryId:journal.entry.id,updatedAt:now()};
     if(job.approval?.decision==='accept_source'){
       data.entryStates??={};for(const entryId of job.approval.conflicts||[])data.entryStates[entryId]={...data.entryStates[entryId],
         status:'superseded',replacementJobId:job.id,reviewedByJobId:job.id,at:now()};
