@@ -238,6 +238,22 @@ export function extractPlayableMedia(text) {
   return { videos: videos.filter(isLocalPlayableUrl), images, audios };
 }
 
+// 2026-11-18：模型用「📎 交付: 生成物/图片/x.png」交付本地截图/排版图时，聊天里一直只认视频，
+// 图片不出现（真机：千禧海报两轮都"交付"了，用户界面一张没看到）。只认 📎 行——这是模型的
+// 显式交付；正文里顺口提到的路径不算。文件必须在工作区里真实存在。
+export function deliveredImagesFromText(text, wsRoot = "", { exists = fs.existsSync } = {}) {
+  const out = [];
+  for (const m of String(text || "").matchAll(/📎\s*交付[:：]\s*(\S+)/g)) {
+    const hit = clipMediaPath(m[1].replace(/^[`"'<]+/, ""));
+    if (!IMAGE_EXT.test(hit)) continue;
+    const url = workspaceFileUrl(hit);
+    const file = url ? localMediaFile(url, wsRoot) : "";
+    if (!file || !exists(file) || out.some(x => x.url === url)) continue;
+    out.push({ type: "image", url, source: "delivery" });
+  }
+  return out;
+}
+
 function clipMediaPath(s) {
   const m = String(s || "").match(/^(.*?\.(?:mp4|webm|mov|png|jpe?g|gif|webp|mp3|wav|m4a))/i);
   return m ? m[1] : String(s || "");

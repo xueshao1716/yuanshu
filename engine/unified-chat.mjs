@@ -32,7 +32,7 @@ import { CodeRuntime } from "../code-mode/code-runtime.mjs";
 import { createCodeMode } from "../code-mode/code-mode.mjs";
 import { directMediaMode } from "./media/mode.mjs";
 import { detectMediaIntents, extractMediaPrompt, generateMediaAsync, mediaAwarePrompt, explainMediaError, assistantContentWithMedia, isPureImageRequest } from "./media/api.mjs";
-import { explicitToolMedia, mediaDeliveryKey, mediaDedupeKey, gateIncomingMedia, imageUnlocalizedNote } from "./media/embed.mjs";
+import { explicitToolMedia, mediaDeliveryKey, mediaDedupeKey, gateIncomingMedia, imageUnlocalizedNote, deliveredImagesFromText } from "./media/embed.mjs";
 import { localizeMarkdownImagesCached } from "./media/markdown-images.mjs";
 import { readOpenAIChatStream } from "./openai-stream.mjs";
 import { buildMessagesRequest, messagesEndpoint, messagesHeaders } from "./anthropic-messages.mjs";
@@ -1908,6 +1908,12 @@ export async function handleUnifiedChat(res, entry, message, sessionId, params, 
     text = localizedFinal;
     if (result.streamed) {
       try { writer.push("response_replace", { text, think: result.think || "" }); } catch {}
+    }
+  }
+  // 📎 交付的本地图片（截图/排版产物，不走出图工具）也要进对话，否则用户只看到一行路径。
+  if (!anomalyUnresolved) {
+    for (const m of deliveredImagesFromText(text, _cwd)) {
+      if (toolMediaSink.accept(m)) try { writer.push("media", m); } catch {}
     }
   }
   try {
