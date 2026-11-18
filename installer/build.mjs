@@ -408,7 +408,8 @@ const order = FULL ? ['node', 'app', 'python', 'ffmpeg', 'git', 'models', 'deskt
 if (!FULL && (!ONLY.length || ONLY.includes('nsis'))) for (const d of ['ffmpeg', 'models']) { rm(path.join(RT, d)); fs.rmSync(marker(d), { force: true }); }
 for (const step of order) {
   if (ONLY.length && !ONLY.includes(step)) continue;
-  const always = step === 'launcher' || step === 'nsis';
+  // app 每次都重做：它装的是当前源码，跳过就会把上次打包时的旧代码装进新版本号（2.215.0 全量包就带着 11-05 的代码）
+  const always = step === 'app' || step === 'launcher' || step === 'nsis';
   if (!always && !FORCE.includes(step) && !ONLY.includes(step) && fs.existsSync(marker(step))) { log('跳过（已完成）', step); continue; }
   log('==>', step);
   const t = Date.now();

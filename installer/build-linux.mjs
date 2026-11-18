@@ -220,7 +220,8 @@ exit $?
 
 mk(CACHE);
 for (const step of ['node', 'app', 'python', 'launcher']) {
-  const always = step === 'launcher';
+  // app 每次都重做：跳过会把上次打包时的旧源码装进新版本号
+  const always = step === 'app' || step === 'launcher';
   if (!always && !FORCE.includes(step) && fs.existsSync(marker(step))) { log('跳过（已完成）', step); continue; }
   log('==>', step);
   const t = Date.now();
