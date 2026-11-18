@@ -43,9 +43,9 @@ test("formatSensitiveHint 把翻密钥改成密文通道，不是死胡同拒绝
   assert.doesNotMatch(hint, /不允许通过对话通道访问/);
 });
 
-test("MEDIA_TOOL_SCHEMAS 必须有 list_channels 和三种宿主生成工具", () => {
+test("MEDIA_TOOL_SCHEMAS 必须有 list_channels、check_model 和三种宿主生成工具", () => {
   const names = MEDIA_TOOL_SCHEMAS.map(s => s.function.name);
-  assert.deepEqual(names.sort(), ["generate_image", "generate_tts", "generate_video", "list_channels"].sort());
+  assert.deepEqual(names.sort(), ["check_model", "generate_image", "generate_tts", "generate_video", "list_channels"].sort());
 });
 
 test("createMediaToolExecutor：list_channels 不回密钥；generate_video 走宿主注入", async () => {

@@ -1753,7 +1753,14 @@ const extraToolExecutors = {
         return { text: String(e?.message || e), isError: true };
       }
     }),
-    ...mediaExtraExecutors({ getModelList: () => modelList, generateMediaAsync: trackedMedia, wsRoot: WS_ROOT }),
+    ...mediaExtraExecutors({ getModelList: () => modelList, generateMediaAsync: trackedMedia, wsRoot: WS_ROOT,
+      // check_model：用已存密钥发一句极短的话；不计入模型健康（探测失败不该把通道拉黑）
+      probeModel: async (model) => {
+        try {
+          const r = await directChat(model, "ping", [], { maxTokens: 16, timeout: 30_000, throwOnError: true, trackModelHealth: false, allowPartial: true });
+          return { ok: true, usedModel: r?.usedModel?.id };
+        } catch (e) { return { ok: false, error: String(e?.message || e).slice(0, 200) }; }
+      } }),
     ...todoExtraExecutors(),
     ...planFilesExtraExecutors(),
     // 承诺销账：用户说"不用了"时模型要能立刻销账，否则账只能一直挂着当待办（2026-10-18）

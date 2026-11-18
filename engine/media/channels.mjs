@@ -15,6 +15,22 @@ export const MEDIA_TOOL_SCHEMAS = [
   {
     type: "function",
     function: {
+      name: "check_model",
+      // 2026-11-18：问"某模型通着没"时她没有能用已存密钥测模型的工具，翻了 310 次 auth.json/models-store、撞了 27 次密钥墙
+      description: "用宿主已存的密钥测文本模型通不通（发一句极短的话，看是否回复）。问「某模型/通道通着没、能不能用、余额」时直接用它，不要找密钥文件或自己 curl 上游。只传 provider 时测该通道下第一个模型。",
+      parameters: {
+        type: "object",
+        properties: {
+          provider: { type: "string", description: "通道名，如 openrouter、deepseek、zai-coding-cn" },
+          modelId: { type: "string", description: "模型 id；不传就测该通道第一个" },
+        },
+        required: ["provider"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
       name: "generate_video",
       description: "宿主代持密钥生成视频。写好脚本后直接调用。生成后对话里会播；要本机打开或复制到交付/分享目录，你判断并汇报。",
       parameters: {
@@ -74,8 +90,8 @@ export function listHostChannels({ getModelList } = {}) {
     }
   }
   return {
-    note: "密钥由宿主代持，调用 generate_image / generate_video / generate_tts，不要读 auth.json/.token/.env",
-    tools: ["list_channels", "generate_image", "generate_video", "generate_tts"],
+    note: "密钥由宿主代持，调用 check_model / generate_image / generate_video / generate_tts，不要读 auth.json/.token/.env",
+    tools: ["list_channels", "check_model", "generate_image", "generate_video", "generate_tts"],
     channels,
   };
 }
@@ -84,11 +100,11 @@ export function formatSensitiveHint(catalog) {
   const cat = catalog && typeof catalog === "object" ? catalog : listHostChannels();
   const tools = Array.isArray(cat.tools) && cat.tools.length
     ? cat.tools
-    : ["list_channels", "generate_video", "generate_image", "generate_tts"];
+    : ["list_channels", "check_model", "generate_video", "generate_image", "generate_tts"];
   const lines = (cat.channels || []).map((c) => `${c.provider}/${c.id}（${c.kind}）`);
   return [
     "凭据由宿主代持，对话通道不见明文。这是密文通道，不是死胡同。",
-    `请改调：${tools.join(" / ")}`,
+    `请改调：${tools.join(" / ")}（测文本模型通不通用 check_model）`,
     lines.length ? `当前可用：${lines.join("、")}` : "当前可用通道见 list_channels",
     "不要读 auth.json/.token/.env，也不要自己 curl 上游。",
   ].join("\n");
@@ -101,6 +117,7 @@ export function createMediaToolExecutor(deps = {}) {
     if (name === "list_channels") {
       return { text: JSON.stringify(listHostChannels({ getModelList }), null, 2) };
     }
+    if (name === "check_model") return checkModel(args, { getModelList, probe: deps.probeModel });
     // 2026-10-28：subject="self" → 用 persona-look 从人设文件拼提示词（她只决定"画自己"，不用记外观细节）
     let prompt = String(args.prompt || args.text || "").trim();
     if (name === "generate_image" && String(args.subject || "").toLowerCase() === "self") {
@@ -144,6 +161,29 @@ export function createMediaToolExecutor(deps = {}) {
       media: { type: mediaType, url: r.url, ...(r.model ? { model: r.model } : {}), ...(r.attempts ? { attempts: r.attempts } : {}), ...(v ? { verification: v } : {}) },
     };
   };
+}
+
+async function checkModel(args, { getModelList, probe }) {
+  const provider = String(args.provider || "").trim();
+  if (!provider) return { text: "缺少 provider", isError: true };
+  const models = (getModelList() || []).filter(m => m?.provider === provider);
+  if (!models.length) {
+    const providers = [...new Set((getModelList() || []).map(m => m?.provider).filter(Boolean))];
+    return { text: `没有配置通道 ${provider}。已配置：${providers.join("、") || "无"}`, isError: true };
+  }
+  const id = String(args.modelId || "").trim() || models[0].id;
+  if (!models.some(m => m.id === id)) return { text: `${provider} 下没有模型 ${id}。可选：${models.slice(0, 20).map(m => m.id).join("、")}`, isError: true };
+  if (typeof probe !== "function") return { text: "模型探测未初始化", isError: true };
+  const started = Date.now();
+  try {
+    const r = await probe({ provider, id });
+    const ms = Date.now() - started;
+    return r?.ok
+      ? { text: `✅ ${provider}/${id} 通着：${ms}ms 内回复${r.usedModel && r.usedModel !== id ? `（上游实际模型 ${r.usedModel}）` : ""}。` }
+      : { text: `❌ ${provider}/${id} 不通（${ms}ms）：${r?.error || "无回复"}`, isError: true };
+  } catch (e) {
+    return { text: `❌ ${provider}/${id} 不通：${String(e?.message || e).slice(0, 200)}`, isError: true };
+  }
 }
 
 export function mediaExtraExecutors(deps = {}) {

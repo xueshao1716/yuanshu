@@ -1710,6 +1710,7 @@ export async function handleUnifiedChat(res, entry, message, sessionId, params, 
     const next = channelFallback();
     if (!next) throw err;
     console.log(`[model-failover] 主对话换通道：${chatModel.provider}/${chatModel.id} → ${next.provider}/${next.id}（${msg.slice(0, 60)}）`);
+    writer.push('note', { text: `⚠️ ${chatModel.provider}/${chatModel.id} 不可用（${msg.slice(0, 60)}），本轮改用 ${next.provider}/${next.id}` });
     result = await unifiedChat(next, history, chatOpts);
     chatModel = next;
   }
@@ -1720,6 +1721,9 @@ export async function handleUnifiedChat(res, entry, message, sessionId, params, 
     if (next) {
       console.log(`[model-failover] 主对话换通道：${chatModel.provider}/${chatModel.id} → ${next.provider}/${next.id}（${String(result.error).slice(0, 60)}）`);
       const failed = chatModel;
+      // 2026-11-18：备用模型要把整轮工具循环跑完才返回（实测 30 分钟），model_switched 那时才发——
+      // 用户全程以为在用自己选的模型。换之前先说一声。
+      writer.push('note', { text: `⚠️ ${failed.provider}/${failed.id} 不可用（${String(result.error).slice(0, 60)}），本轮改用 ${next.provider}/${next.id}` });
       const fb = await unifiedChat(next, history, chatOpts);
       if (!fb?.error) {
         chatModel = next;

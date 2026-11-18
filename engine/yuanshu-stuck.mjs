@@ -11,6 +11,8 @@ export function recordStuckEvent(name, args = {}, out = {}) {
     err: out?.isError === true,
     fp: `${n}:${argKey}:${text}`,
     nameFp: n,
+    // 撞密钥墙：每次命令不同（换路径、换 shell），上面的指纹都抓不住
+    secret: /凭据由宿主代持|禁止回显\/导出\/读取 API 密钥/.test(text),
   };
 }
 
@@ -21,6 +23,13 @@ export function detectStuck(events) {
   }
   if (isAbAb(list)) {
     return { hint: "检测到 A/B 交替循环。换做法或直接交付，不要再在这两步之间空转。" };
+  }
+  // 2026-11-18：一轮里翻 310 次工具、撞 27 次密钥墙都没停（每次命令都不一样）。
+  // 撞墙 3 次提醒，6 次中断：密钥文件不会因为换个路径就能读到。
+  const secretHits = list.filter((e) => e.secret).length;
+  if (list.at(-1)?.secret && secretHits >= 3) {
+    const hard = secretHits >= 6;
+    return { hint: `已第 ${secretHits} 次去找密钥文件被拦。密钥文件你读不到，换路径也一样。测模型通不通用 check_model；其余照已有结果交付，说明还缺什么。`, soft: !hard };
   }
   if (isSameToolErrors(list)) {
     // 前 4~5 次只提醒（提示会拼进工具结果让模型自纠），连错 6 次才真正中断，避免一次校验误差就把整轮任务杀掉。
