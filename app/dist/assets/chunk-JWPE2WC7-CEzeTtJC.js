@@ -1,0 +1,1 @@
+import{n as e}from"./chunk-Y2CYZVJY-DsF7k-Jl.js";function t(e,t){if(e.accDescr){var n;(n=t.setAccDescription)==null||n.call(t,e.accDescr)}if(e.accTitle){var r;(r=t.setAccTitle)==null||r.call(t,e.accTitle)}if(e.title){var i;(i=t.setDiagramTitle)==null||i.call(t,e.title)}}e(t,`populateCommonDb`);export{t};
