@@ -23,12 +23,14 @@ export const sections = [
   ['cultivation','智能体培养','小语的设计、个体、运行与学习证据'],
   // 2026-11-10：关系 / 五维成长与世代 / 正向账本 / 教训复习——后台早就有只读接口，前端一直没出口。
   ['growth','成长与自省','关系进度、五维成长、做对过的事、教训复习'],
-  ['voice','声音与形象','外貌、服装、声音与现有立绘'], ['history','审批与回退','修订、人工确认与安全撤回'],
+  ['voice','声音与形象','外貌、服装、声音与现有立绘'],
+  // 2026-11-18：公仔开关和形象从「声音与形象」拆出来单独一页
+  ['pet','桌面公仔','是否显示在桌面、展开方式、主动打扰与立绘'], ['history','审批与回退','修订、人工确认与安全撤回'],
 ] as const
 export type Section = typeof sections[number][0]
 // 导航按 6 组呈现，组内用子标签切换；分区本身不变，草稿与确认逻辑照旧按分区判断。
 export const groups = [
-  ['overview','总览',['overview']], ['self','身份与形象',['identity','voice']],
+  ['overview','总览',['overview']], ['self','身份与形象',['identity','voice']], ['pet','桌面公仔',['pet']],
   ['nature','性格与情绪',['genes','rhythm']], ['mind','记忆与学习',['memory','learning']],
   ['growth','成长与自省',['growth']],
   ['cultivation','智能体培养',['cultivation']], ['records','记录与协作',['history','team','mother']],

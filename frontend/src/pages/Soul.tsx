@@ -7,6 +7,7 @@ import PersonaEditor from '../soul/PersonaEditor'
 import Genes from '../soul/Genes'
 import History from '../soul/History'
 import VoiceAppearance from '../soul/VoiceAppearance'
+import DesktopPet from '../soul/DesktopPet'
 import Memory from '../soul/Memory'
 import Cultivation from '../soul/cultivation/Panel'
 import Overview, { groupOf, groups, sections, type Section } from '../soul/Overview'
@@ -75,7 +76,7 @@ export default function Soul() {
           {message && <p role={failed?'alert':'status'} className="soul-notice">{message}</p>}
           {(visited.includes('identity') || visited.includes('voice')) && <div hidden={!(section === 'identity' || section === 'voice')}><PersonaEditor {...props} designMode={section === 'voice'} onDirtyChange={setDirty}/></div>}
           {visited.filter(id => id === section || draftSections.includes(id)).map(id=><div key={id} hidden={id!==section}>
-            {id==='overview'?<Overview open={open}/>:id==='growth'?<Growth/>:id==='identity'?null:id==='genes'?<Genes {...props}/>:id==='rhythm'?<Rhythm sessionId={sessionId}/>:id==='memory'?<Memory/>:id==='learning'?<Learning/>:id==='mother'?<Mother/>:id==='team'?<Team/>:id==='voice'?<VoiceAppearance/>:id==='cultivation'?<Cultivation sessionId={sessionId}/>:<History {...props}/>}
+            {id==='overview'?<Overview open={open}/>:id==='growth'?<Growth/>:id==='identity'?null:id==='genes'?<Genes {...props}/>:id==='rhythm'?<Rhythm sessionId={sessionId}/>:id==='memory'?<Memory/>:id==='learning'?<Learning/>:id==='mother'?<Mother/>:id==='team'?<Team/>:id==='voice'?<VoiceAppearance/>:id==='pet'?<DesktopPet/>:id==='cultivation'?<Cultivation sessionId={sessionId}/>:<History {...props}/>}
           </div>)}
         </main>
       </div>

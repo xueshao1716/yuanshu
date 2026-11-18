@@ -11,7 +11,7 @@ test('soul center is reachable through desktop, mobile and system', () => {
 });
 test('soul center reuses live settings and local human approval', () => {
   assert.ok(source('soul/VoiceAppearance.tsx').includes('<SpeechSettings'));
-  assert.ok(source('soul/VoiceAppearance.tsx').includes('useCompanionContext'));
+  assert.ok(source('soul/DesktopPet.tsx').includes('useCompanionContext'));
   assert.ok(source('soul/Confirmations.tsx').includes('ConfirmApi.answer'));
   assert.ok(source('soul/Confirmations.tsx').includes('canApprove'));
   assert.ok(source('soul/PersonaEditor.tsx').includes('expectedRevision'));
@@ -32,11 +32,18 @@ test('supporting sections summarize shared data and link to the real owning page
   assert.ok(source('hooks/useHashRoute.tsx').includes("'team'"));
   const voice = source('soul/VoiceAppearance.tsx');
   assert.ok(voice.includes('href="#/chat"'));
-  assert.ok(voice.includes('GALLERIES.map'));
-  assert.ok(voice.includes('companion.chooseSkin(g.id)'));
-  assert.ok(voice.includes('imageForSkin(g.id)'));
-  assert.ok(voice.includes('companion.setHidden(!e.target.checked)'));
-  assert.ok(!voice.includes('localStorage'), 'use the existing shared stores, not another settings copy');
+  assert.ok(voice.includes('href="#/soul?s=pet"'), '声音与形象页指向桌面公仔页');
+  // 2026-11-18：公仔开关与立绘拆到「桌面公仔」单独一页，并有总开关（关掉连收起按钮都不留）
+  const pet = source('soul/DesktopPet.tsx');
+  assert.ok(pet.includes('GALLERIES.map'));
+  assert.ok(pet.includes('c.chooseSkin(g.id)'));
+  assert.ok(pet.includes('imageForSkin(g.id)'));
+  assert.ok(pet.includes('c.setEnabled(e.target.checked)'));
+  assert.ok(pet.includes('c.setHidden(e.target.checked)'));
+  assert.ok(!pet.includes('localStorage'), 'use the existing shared stores, not another settings copy');
+  const provider = source('components/xiaoyu/CompanionProvider.tsx');
+  assert.match(provider, /\{enabled && <XiaoyuWidget/, '总开关关闭时不渲染公仔');
+  assert.ok(source('soul/Overview.tsx').includes("['pet','桌面公仔',['pet']]"), '左侧导航单独一项');
 });
 
 test('only editable sections stay mounted and confirmation polling follows active governance', () => {
