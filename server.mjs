@@ -5952,7 +5952,8 @@ const API_ROUTES = [
     if (!it) return json(res, 404, { error: "not_found" });
     json(res, 200, { ok: true, memory_id: it.memory_id, summary: it.summary, status: it.status, card: it.card_text, card_session: it.card_session, card_at: it.card_at, card_msg_id: it.card_msg_id });
   }],
-  ["GET", /^\/api\/memory\/([^/]+)$/, (res, req, url, m) => {
+  // 排除后面才登记的同级固定路由，否则 /api/memory/history、/snapshots 会被当成 id 吃掉返回 404
+  ["GET", /^\/api\/memory\/(?!(?:history|snapshots)$)([^/]+)$/, (res, req, url, m) => {
     // 按 id 取整行（含完整 card_text）；列表/召回只给片段
     const it = memoryDb.getMemory(m[1], { touch: url.searchParams.get("touch") === "1" });
     json(res, it ? 200 : 404, it || { error: "not_found" });

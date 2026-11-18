@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import useSWR from 'swr'
-import { WorkshopApi } from '../api'
+import { WorkshopApi, getToken } from '../api'
 import PptStudio, { type DeckPage } from './story/PptStudio'
 import ScaledSlide from './ScaledSlide'
 import { Presentation, ChevronDown } from 'lucide-react'
@@ -10,7 +10,7 @@ import { Presentation, ChevronDown } from 'lucide-react'
 
 function DeckCard({ item, onOpen }: { item: { id: string; dir: string; title: string; pages: number; themeKey: string; ts: number; cover: string }; onOpen: () => void }) {
   const { data } = useSWR(`gal-cover:${item.id}`, () =>
-    fetch(WorkshopApi.galleryDeckUrl(item.dir, item.cover)).then(r => r.ok ? r.text() : ''), { revalidateOnFocus: false })
+    fetch(WorkshopApi.galleryDeckUrl(item.dir, item.cover), { headers: { Authorization: `Bearer ${getToken()}` } }).then(r => r.ok ? r.text() : ''), { revalidateOnFocus: false })
   const date = new Date(item.ts).toLocaleDateString('zh-CN', { month: 'numeric', day: 'numeric' })
   return (
     <button className="group panel !p-2 text-left flex flex-col gap-1.5 card-hover" onClick={onOpen}>
