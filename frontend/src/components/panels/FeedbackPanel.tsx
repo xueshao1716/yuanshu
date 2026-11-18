@@ -20,8 +20,8 @@ type FeedbackItem = {
 
 const STATUS_LABEL: Record<string, string> = { open: '待处理', done: '已处理', wontfix: '不修' }
 
-// 回厂反馈通道：开发者的收集端点（与工作台地址无关，所有分发主机都能把反馈送回开发者）
-const DEV_FEEDBACK_URL = 'https://pi.myxinyu.xin/api/public/feedback'
+// 远程连接时发到所连服务器的公开收集端点；2026-11-18 起源码与构建产物里不写任何私人域名
+const feedbackUrl = () => `${getApiBase().replace(/\/+$/, '')}/api/public/feedback`
 const DEV_ISSUES_URL = 'https://github.com/xueshao1716/yuanshu/issues'
 const DRAFT_KEY = 'yuanshu.feedback.draft'
 
@@ -75,8 +75,8 @@ export default function FeedbackPanel() {
         // 本机就是工作台服务器：直接落自己的收件箱
         await api('/api/feedback', { method: 'POST', body: payload })
       } else {
-        // 回厂通道：发开发者的公开收集端点（text/plain 避免预检依赖；免令牌，服务端 IP 限频）
-        const res = await fetch(DEV_FEEDBACK_URL, { method: 'POST', headers: { 'Content-Type': 'text/plain;charset=UTF-8' }, body: payload })
+        // 发所连服务器的公开收集端点（text/plain 避免预检依赖；免令牌，服务端 IP 限频）
+        const res = await fetch(feedbackUrl(), { method: 'POST', headers: { 'Content-Type': 'text/plain;charset=UTF-8' }, body: payload })
         if (!res.ok) {
           const j = await res.json().catch(() => ({}))
           throw new Error(j?.error || `HTTP ${res.status}`)

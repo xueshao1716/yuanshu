@@ -10,7 +10,8 @@ import { buildCrashReport, triageLine, diagnosability } from "./crash-report-spe
 import { newTicket, withTicket, ticketLine } from "./feedback-ticket.mjs";
 
 const MAX_PER_DAY = 3;
-const DEV_FEEDBACK_URL = process.env.YUANSHU_FEEDBACK_URL || "https://pi.myxinyu.xin/api/public/feedback";
+// 2026-11-18：上报端点只从环境变量读，源码里不写任何私人域名；没配就不上报
+const DEV_FEEDBACK_URL = String(process.env.YUANSHU_FEEDBACK_URL || "").trim();
 
 function stateFile(agentDir) { return path.join(agentDir, "telemetry-state.json"); }
 
@@ -140,6 +141,7 @@ export function shouldReport(agentDir, incidents) {
 
 /** 整理并发送。返回 { sent, kind } 或 { sent: false, reason }。 */
 export async function reportIncidents(agentDir, incidents, { fetch: f = globalThis.fetch, endpoint = DEV_FEEDBACK_URL } = {}) {
+  if (!endpoint) return { sent: false, reason: "no_endpoint" };
   const gate = shouldReport(agentDir, incidents);
   if (!gate.ok) {
     recordReport(agentDir, { decision: "skipped", reason: gate.reason, kinds: (incidents.incidents || []).map(i => i.kind) });

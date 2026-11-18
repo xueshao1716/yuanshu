@@ -188,7 +188,7 @@ export function createRunApi({ manager, json, readContext = null, readDeliveries
         res.end()
         return
       }
-      // 2026-11-11：心跳 20s → 5s。pi.myxinyu.xin 走 cloudflared 隧道，移动网络会把响应体
+      // 2026-11-11：心跳 20s → 5s。公网域名走 cloudflared 隧道，移动网络会把响应体
       // 攒在缓冲区——手机端"字出完了状态还挂 20 秒"就是等下一记 ping。心跳快 4 倍，
       // 最坏等待从 20s 降到 5s；SSE 本身开销极小（一行注释），不值得为省这点字节让用户干等。
       const heartbeat = setInterval(() => {

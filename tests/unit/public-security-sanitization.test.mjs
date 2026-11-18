@@ -69,3 +69,18 @@ test("系统页区分连接失败、登记入口与服务端版本", () => {
   assert.equal(login.includes('本地安全连接'), false);
   assert.equal(login.includes('正在建立安全连接'), false);
 });
+
+// 2026-11-18：私人域名曾经写死在反馈面板里，跟着构建产物推上了公开仓库。
+// 不止查几个文件：所有被 git 跟踪的文件（源码、文档、dist）一个都不许带。
+test("仓库里任何被跟踪的文件都不含私人域名", async () => {
+  const { execFileSync } = await import("node:child_process");
+  let out = "";
+  try {
+    out = execFileSync("git", ["grep", "-l", "-i", "-I", "myxinyu", "--", ".",
+      ":!tests/unit/public-security-sanitization.test.mjs", ":!tests/unit/chat-voice-ui.test.mjs"], { cwd: ROOT, encoding: "utf8" });
+  } catch (e) {
+    if (e.status === 1) return; // git grep 没找到 = 退出码 1
+    throw e;
+  }
+  assert.equal(out.trim(), "", `这些文件带了私人域名：\n${out}`);
+});
