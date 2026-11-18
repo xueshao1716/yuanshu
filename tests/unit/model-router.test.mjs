@@ -182,7 +182,7 @@ test("兜底链不会落到 agnes 的视频/图像模型（模型清单里它们
   try {
     resetModelHealth();
     const excl = { provider: "zai-api", id: "glm-5.3-flashx" };
-    assert.equal(pickFallbackExcluding(excl).id, "agnes-2.5-flash");
+    assert.equal(pickFallbackExcluding(excl).id, "agnes-3.0-flash");
     assert.equal(pickFallbackDefault().id, "agnes-3.0-flash");
     markModelBlocked({ provider: "agnes", id: "agnes-2.5-flash" }, { reason: "t" });
     markModelBlocked({ provider: "agnes", id: "agnes-3.0-flash" }, { reason: "t" });

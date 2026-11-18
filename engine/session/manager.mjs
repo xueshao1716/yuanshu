@@ -117,8 +117,16 @@ export async function createSession(name, { group, id: fixedId, cwd } = {}) {
     if (!lifecycle.current(token, hasSessionFile(sm, file))) { disposeAgent(agent); throw conversationGone(); }
     _activeSessions.set(id, { agent, sm, busy: false, lastUsed: Date.now(), modelKey: _getDefaultModel() && _getDefaultModel().provider ? { provider: _getDefaultModel().provider, id: _getDefaultModel().id } : null, agentModel: _getDefaultModel() && _getDefaultModel().provider ? { provider: _getDefaultModel().provider, id: _getDefaultModel().id } : null });
     invalidateSessionCache(); // 新增会话 → 列表缓存失效
-    if (name) { try { sm.appendSessionInfo(name); } catch {} }
-    try { appendSessionGroup(file, g, name); } catch {}
+    // 2026-11-18：SDK 新会话先不落盘，appendSessionGroup 见文件不存在就跳过，微信会话因此丢了分组。
+    // 未落盘时把 group 挂在内存里的 session_info 上，随首次落盘一起写出。
+    let groupInMemory = false;
+    if (name) {
+      try {
+        const infoId = sm.appendSessionInfo(name);
+        if (!fs.existsSync(file)) { const e = sm.getEntry?.(infoId); if (e) { e.group = g; groupInMemory = true; } }
+      } catch {}
+    }
+    if (!groupInMemory) { try { appendSessionGroup(file, g, name); } catch {} }
     // 会话数据库编号在创建时立即落盘，避免必须手动点击“重建索引”才出现编号。
     try { await _onSessionCreated?.({ id, file, name: name || "新会话", group: g }); } catch {}
     if (!lifecycle.current(token, hasSessionFile(sm, file))) throw conversationGone();

@@ -49,16 +49,24 @@ export function findSimilarImage(missingPath, { roots = [], max = 4 } = {}) {
  * 从文本里抽图片路径；不存在的尝试救援，救不回来就剥掉标记。
  * @returns {{text:string, images:string[], rescued:Array<{missing:string, used:string}>, dropped:string[]}}
  */
-export function rescueImagePaths(text, { exists = fs.existsSync, roots = [], limit = 6 } = {}) {
+export function rescueImagePaths(text, { exists = fs.existsSync, roots = [], limit = 6, base = "" } = {}) {
   let t = String(text || "");
   const images = [];
   const rescued = [];
   const dropped = [];
 
+  // 2026-11-18：模型常写工作区相对路径（生成物/图片/…）或 /api/ws/file?path=… 预览地址，统一落到磁盘路径
+  const resolve = (raw) => {
+    let p = String(raw || "").trim().replace(/^["'“”`]+|["'“”`]+$/g, "");
+    const q = p.match(/^\/api\/ws\/file\?(?:[^#]*&)?path=([^&#]+)/);
+    if (q) { try { p = decodeURIComponent(q[1]) } catch { return p } }
+    if (base && p && !path.isAbsolute(p) && !/^[A-Za-z]:/.test(p) && !/^[a-z]+:\/\//i.test(p)) p = path.join(base, p);
+    return p;
+  };
   const take = (raw) => {
-    const p = String(raw || "").trim().replace(/^["'“”]+|["'“”]+$/g, "");
+    const p = resolve(raw);
     if (!p) return false;
-    if (exists(p)) { images.push(p); return true }
+    if (exists(p)) { if (!images.includes(p)) images.push(p); return true }
     const near = findSimilarImage(p, { roots, max: 2 });
     if (near.length) {
       for (const n of near) if (!images.includes(n)) images.push(n);
@@ -80,9 +88,18 @@ export function rescueImagePaths(text, { exists = fs.existsSync, roots = [], lim
     if (m) { if (!take(m[1])) dropped.push(m[1]); continue }
     kept.push(line);
   }
+  t = kept.join("\n");
+  // ④ 2026-11-18 真机：「📎 图在这里：`D:\…\x.png`」「📎 交付: `生成物/图片/x.png`」——夹在句子里的路径。
+  // 只认磁盘上真有的文件（行内路径也可能是在讲代码），认到就从正文里拿掉，免得对方只看到一串路径。
+  t = t.replace(/`([^`\n]+?\.(?:png|jpe?g|webp|gif))`|((?:[A-Za-z]:[\\/]|生成物[\\/])[^\s`"'<>|*?]+?\.(?:png|jpe?g|webp|gif))(?![\w.])/gi, (m, a, b) => {
+    const p = resolve(a || b);
+    if (!p || !exists(p)) return m;
+    if (!images.includes(p)) images.push(p);
+    return "";
+  });
 
   return {
-    text: kept.join("\n").replace(/\n{3,}/g, "\n\n").trim(),
+    text: t.replace(/[ \t]+$/gm, "").replace(/\n{3,}/g, "\n\n").trim(),
     images: images.slice(0, limit),
     rescued,
     dropped,

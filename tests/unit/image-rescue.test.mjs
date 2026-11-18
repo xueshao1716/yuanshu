@@ -60,3 +60,22 @@ test("多种写法都能认（全角括号/无感叹号/繁体）", () => {
     assert.equal(r.images.length, 1, `没认出来: ${s}`);
   }
 });
+
+test("2026-11-18 真机：句中反引号路径 / 工作区相对路径 / 预览地址都能认成图片", () => {
+  const { root, dir } = sandbox();
+  const abs = path.join(dir, "albedo-gpt-01.png");
+  const rel = "生成物/图片/albedo-gpt-16x9/albedo-gpt-02.png";
+  const api = `/api/ws/file?path=${encodeURIComponent(path.win32.join("生成物", "图片", "albedo-gpt-16x9", "albedo-gpt-03.png"))}`;
+  const r = rescueImagePaths(`📎 图在这里：\`${abs}\`\n📎 交付: \`${rel}\`\n![图片](${api})\n微信外链也发你了`, { base: root });
+  assert.equal(r.images.length, 3);
+  assert.ok(r.images.every((p) => fs.existsSync(p)));
+  assert.ok(!/albedo/.test(r.text), "路径不该留在正文里");
+  assert.match(r.text, /微信外链也发你了/);
+});
+
+test("行内路径文件不存在 → 原样保留（可能是在讲代码）", () => {
+  const { root } = sandbox();
+  const r = rescueImagePaths("改 `src/assets/logo.png` 这个文件", { base: root });
+  assert.equal(r.images.length, 0);
+  assert.match(r.text, /logo\.png/);
+});

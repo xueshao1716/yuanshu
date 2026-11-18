@@ -143,9 +143,9 @@ export function pickFallbackDefault() {
   if (defaultModel && isTextCapableModel(defaultModel) && !isModelBlocked(defaultModel)) return defaultModel;
   const fallback = (provider, re) => { const m = findLive(provider, re); return m && isTextCapableModel(m) ? m : undefined; };
   // 用户定（2026-09-04）：默认模型已指向 Agnes 旗舰；冷却时先落 agnes-flash，再走免费通道
-  // 2026-09-09：3.0-flash 发布，作为 2.5 后备位
-  return fallback("agnes", /^(?:agnes-)?2\.5-flash$/i)
-    || fallback("agnes", /^(?:agnes-)?3\.0-flash$/i)
+  // 2026-09-09：3.0-flash 发布，作为 2.5 后备位；2026-11-18 用户定：兜底首选改 3.0，2.5 退后备
+  return fallback("agnes", /^(?:agnes-)?3\.0-flash$/i)
+    || fallback("agnes", /^(?:agnes-)?2\.5-flash$/i)
     || fallback("sensenova", /flash-lite/i)
     || fallback("nvidia", /llama-3\.1-8b/i)
     || (isTextCapableModel(defaultModel) ? defaultModel : undefined)   // 媒体模型宁可没有，也不拿它跑文本
@@ -159,8 +159,8 @@ export function pickFallbackExcluding(excludeModel) {
   // 2026-08-27 调序：ox-alpha 已下架；小米不再优先——商汤 → 智谱glm-flash → 小米
   // （之前只有 flash-lite 兜底，mimo 复读时切去更弱的模型，体验差）
   const cands = [
+    findLive("agnes", /^(?:agnes-)?3\.0-flash$/i), // 2026-11-18 用户定：兜底首选 3.0
     findLive("agnes", /^(?:agnes-)?2\.5-flash$/i),
-    findLive("agnes", /^(?:agnes-)?3\.0-flash$/i),
     findLive("sensenova", /flash-lite/i),
     findLive("zai-coding-cn", /glm-5\.3-flash/i),
     findLive("xiaomi-token-plan-cn", /mimo-v2\.5$/i),

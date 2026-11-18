@@ -369,6 +369,7 @@ export function createWechatBridge({
   try { seedWechatRules(wsRootOfDir()); } catch {}
   try { seedFormatConfig(wsRootOfDir()); } catch {}
   try { seedSttConfig(wsRootOfDir()); } catch {}
+  const sentImages = new Map();
   const reply = (acc, to, text, contextToken, image, file) => {
     // 2026-10-28：对方要图、模型却没给路径 → 日志留痕（否则只能靠猜）
     try {
@@ -383,7 +384,7 @@ export function createWechatBridge({
       // 目录是它编的（真实文件在 albedo-gpt-16x9），用户只看到一串路径、没有图。
       // 现在：能按"同前缀+同序号"找回真图就用真图；找不回也把裸路径剥掉，绝不让它发出去。
       const wsRootHint = path.dirname(path.dirname(dir));   // dir = <ws>/.yuanshu/wechat
-      const ex = rescueImagePaths(text, { roots: [path.join(wsRootHint, "生成物", "图片"), path.join(wsRootHint, "生成物")] });
+      const ex = rescueImagePaths(text, { base: wsRootHint, roots: [path.join(wsRootHint, "生成物", "图片"), path.join(wsRootHint, "生成物")] });
       if (ex.images.length) autoImages = ex.images;
       if (ex.rescued.length) log(`[微信] 图片路径纠正 ${ex.rescued.length} 处：${ex.rescued[0].missing} → ${ex.rescued[0].used}`);
       if (ex.dropped.length) log(`[微信] 图片路径不存在，已剥掉：${ex.dropped.join(" | ")}`);
@@ -397,8 +398,13 @@ export function createWechatBridge({
       const label = parts.length > 1 ? `（${i + 1}/${parts.length}）\n` : "";
       queue.push({ to, text: label + part, contextToken });
     });
-    for (const p of autoImages) queue.push({ to, image: p, contextToken });
-    if (image) queue.push({ to, image, contextToken });
+    // 2026-11-18：notify_user 和最终回复常带同一张图，10 分钟内同一张只发一次
+    for (const p of [...autoImages, image].filter(Boolean)) {
+      const key = `${to}|${path.resolve(p)}`;
+      if (now() - (sentImages.get(key) || 0) < 600_000) continue;
+      sentImages.set(key, now());
+      queue.push({ to, image: p, contextToken });
+    }
     // 2026-10-27：文件走 sendFile（Hermes 证实 iLink 支持 file_item）
     if (file) queue.push({ to, file, contextToken });
     return flush(acc);
