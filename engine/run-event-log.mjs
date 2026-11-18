@@ -84,6 +84,21 @@ export function createRunEventLog({ rootDir, now = () => new Date().toISOString(
     return last
   }
 
+  // 每条事件（含每个流式 think 分片）都要过这里：只读末字节。曾经每次整文件同步读，
+  // 长 run 的事件文件到 15MB 时每个分片卡 ~100ms，DeepSeek 被压到 6–12 tok/s（2026-11-18）。
+  function endsWithNewline(file) {
+    let fd
+    try {
+      fd = fs.openSync(file, 'r')
+      const { size } = fs.fstatSync(fd)
+      if (!size) return true
+      const last = Buffer.alloc(1)
+      fs.readSync(fd, last, 0, 1, size - 1)
+      return last[0] === 0x0a
+    } catch { return true }
+    finally { if (fd !== undefined) try { fs.closeSync(fd) } catch {} }
+  }
+
   function repairIncompleteTail(file) {
     let raw
     try { raw = fs.readFileSync(file, 'utf8') }
@@ -104,7 +119,7 @@ export function createRunEventLog({ rootDir, now = () => new Date().toISOString(
       if (closed) throw new Error('run_event_log_closed')
       if (!runId || !sessionId || !type) throw new Error('invalid_run_event')
       const file = fileFor(runId)
-      repairIncompleteTail(file)
+      if (!endsWithNewline(file)) repairIncompleteTail(file)
       const liveData = sanitizeEventData(type, data ?? {}, false)
       const event = {
         v: 1,
