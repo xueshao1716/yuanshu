@@ -51,7 +51,7 @@ export function recoveryBlockReason(run, { effects, scope, reserved = false, now
 
 export function createBackgroundRecovery({ store, effects, workspaceScope, instanceId, append, resume, scheduleRecovery }) {
   const timers = new Map()
-  const schedule = scheduleRecovery || (callback => { const timer = setTimeout(callback, 1000); timer.unref?.(); return () => clearTimeout(timer) })
+  const schedule = scheduleRecovery || ((callback, delayMs = 1000) => { const timer = setTimeout(callback, delayMs); timer.unref?.(); return () => clearTimeout(timer) })
   const cancel = id => { timers.get(id)?.(); timers.delete(id) }
   const blocked = (run, reason, publish = false) => {
     const updated = store.update(run.id, { ...(publish ? { status: 'interrupted', resumeAvailable: true, pauseReason: 'recovery_blocked', error: null } : {}),
@@ -62,7 +62,9 @@ export function createBackgroundRecovery({ store, effects, workspaceScope, insta
   return {
     cancel,
     dispose() { for (const id of timers.keys()) cancel(id) },
-    trySchedule(run, cause) {
+    // 不自动续，直接落成"可手动继续"（重启熔断 / 超出单次重启的续跑名额）
+    hold(run, reason) { return blocked(run, reason, true) },
+    trySchedule(run, cause, { delayMs = 1000 } = {}) {
       if (!run.backgroundRecovery || !['execution_budget', 'server_restarted'].includes(cause)) return false
       const reserved = run.backgroundRecovery.state === 'scheduled'
       const reason = recoveryBlockReason(run, { effects, scope: workspaceScope(), reserved })
@@ -80,7 +82,7 @@ export function createBackgroundRecovery({ store, effects, workspaceScope, insta
         if (reason || other) { blocked(current, reason || 'session_busy', true); return }
         store.update(current.id, { status: 'interrupted', resumeAvailable: true, backgroundRecovery: { ...current.backgroundRecovery, state: 'running', reason: null } })
         try { resume(current.id) } catch { blocked(store.get(current.id), 'resume_failed', true) }
-      }))
+      }, delayMs))
       return true
     },
     disable(id) {

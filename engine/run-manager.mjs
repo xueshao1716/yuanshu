@@ -399,16 +399,20 @@ export function createRunManager({ store, eventLog, executeChat, instanceId, onS
       else if (!control) finish(runId, 'stopped', { reason: 'execution_missing' })
       return stopping
     },
-    recover() {
+    // 2026-11-18：重启后一起续会把机器再次拖垮（新电脑四五个会话卡死→重启→全部续上→又卡死）。
+    // autoResume=false 时全部留给手动继续；否则最多续 batch 个，彼此错开 staggerMs。
+    recover({ autoResume = true, batch = Infinity, staggerMs = 0, onAutoResume = null } = {}) {
       const stoppingIds = new Set(store.list().filter(run => run.status === 'stopping').map(run => run.id))
       const orphaned = store.markOrphanedInterrupted(instanceId)
+      let scheduled = 0
       return orphaned.map(run => {
         if (run.stopRequestedAt || stoppingIds.has(run.id)) {
           const stopped = store.update(run.id, { status: 'stopped', resumeAvailable: false, error: null, stoppedAt: new Date().toISOString() })
           append(stopped, 'stopped', { reason: 'user_stop_before_restart' })
           return stopped
         }
-        if (recovery.trySchedule(run, 'server_restarted')) return store.get(run.id)
+        if (run.backgroundRecovery?.enabled && (!autoResume || scheduled >= batch)) return recovery.hold(run, autoResume ? 'restart_batch_limit' : 'restart_loop')
+        if (recovery.trySchedule(run, 'server_restarted', { delayMs: 1000 + scheduled * staggerMs })) { scheduled++; onAutoResume?.(); return store.get(run.id) }
         append(run, 'interrupted', { reason: 'server_restarted' })
         return store.update(run.id, { observability: deriveRunObservability(run, eventLog.readAfter(run.id, 0)) })
       })

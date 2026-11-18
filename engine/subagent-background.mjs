@@ -24,7 +24,7 @@ export const DEFAULT_PARENT_AGENT = "小语";
 const MAX_STORED_RESULT = 3000;
 const MAX_MEMORY_RECORDS = 200;
 // 2026-11-17 开机自动续的上限：防止一条每次都把宿主搞崩的子代理被无限重跑
-export const AUTO_RESUME_DEFAULTS = Object.freeze({ enabled: false, delayMs: 20_000, maxPerRecord: 2, maxAgeMs: 48 * 3600_000, limit: 4 });
+export const AUTO_RESUME_DEFAULTS = Object.freeze({ enabled: false, delayMs: 20_000, maxPerRecord: 2, maxAgeMs: 48 * 3600_000, limit: 4, staggerMs: 0, allow: null, onResume: null });
 const MAX_PENDING_MESSAGES = 5;
 
 const iso = (ms) => new Date(ms).toISOString();
@@ -108,6 +108,8 @@ export function createSubagentBackground({
       const at = now();
       const steps = countSteps(readProgress(root, record.id));
       const auto = autoCfg.enabled
+        // 2026-11-18：重启熔断（上次启动刚自动续过又很快重启）时不续，免得再把机器拖垮
+        && (typeof autoCfg.allow !== "function" || autoCfg.allow())
         && resumable.length < autoCfg.limit
         && (Number(record.autoResumes) || 0) < autoCfg.maxPerRecord
         && at - (Date.parse(record.createdAt) || at) < autoCfg.maxAgeMs
@@ -147,14 +149,21 @@ export function createSubagentBackground({
     return `要它接着干：delegate_task(action:"continue", subagent_id:"${id}", message:"${message}")。`;
   }
 
+  // 2026-11-18：错开 staggerMs 一个一个续，别重启后同时拉起一批把机器拖垮
   function autoResumeAll(ids) {
-    for (const id of ids) {
-      const record = records.get(id);
-      // 这期间可能已经被手动续上/取消了：只续还停在 interrupted 的
-      if (!record || record.status !== "interrupted") continue;
+    const [id, ...rest] = ids;
+    if (!id) return;
+    const record = records.get(id);
+    // 这期间可能已经被手动续上/取消了：只续还停在 interrupted 的
+    if (record && record.status === "interrupted") {
       record.autoResumes = (Number(record.autoResumes) || 0) + 1;
-      try { resumeRun(record, "", { reason: "restart" }); } catch { /* 续不上就留在 interrupted，手动续 */ }
+      try { autoCfg.onResume?.(); resumeRun(record, "", { reason: "restart" }); } catch { /* 续不上就留在 interrupted，手动续 */ }
     }
+    if (!rest.length) return;
+    const gap = Math.max(0, Number(autoCfg.staggerMs) || 0);
+    if (!gap) return autoResumeAll(rest);
+    const timer = setTimeout(() => autoResumeAll(rest), gap);
+    timer.unref?.();
   }
 
   // ── 执行 ──────────────────────────────────────────────────

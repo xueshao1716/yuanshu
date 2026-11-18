@@ -210,6 +210,7 @@ import { createRunStore, runTitleOf } from "./engine/run-store.mjs";
 import { createInternalRounds } from "./engine/internal-rounds.mjs";
 import { createRunEventLog, pruneRunEvents } from "./engine/run-event-log.mjs";
 import { createRunManager } from "./engine/run-manager.mjs";
+import { createRestartGuard, RESTART_BATCH, RESTART_STAGGER_MS } from "./engine/restart-guard.mjs";
 import { isMotherExecutionCandidate } from "./engine/run-execution-identity.mjs";
 import { createRunEffects } from "./engine/run-effects.mjs";
 import { createRunApi } from "./engine/run-api.mjs";
@@ -1074,6 +1075,7 @@ const MODELS_PATH = path.join(AGENT_DIR, "models-store.json");
 // 后台子代理在下面 ~1170 就要拿到 internalRounds，所以三件东西必须在它之前就位；
 // 它们只依赖 AGENT_DIR/WS_ROOT，不依赖中间的任何模块，提前创建不改变启动语义。
 const RUNS_DIR = path.join(AGENT_DIR, "yuanshu-runs");
+const restartGuard = createRestartGuard(RUNS_DIR);
 const RUN_INSTANCE_ID = `${process.pid}-${Date.now().toString(36)}`;
 // 动作审计闸门（对应 OpenBot「没有记录就不许行动」）：每次工具调用先落一行，写不进去就拒绝执行。
 const auditGate = createAuditGate({ wsRoot: WS_ROOT });
@@ -1311,7 +1313,9 @@ const subagentBg = (() => {
       // 2026-11-07：每条后台子代理轮次建内部 run（id/title 进审计，看门狗可指认）。
       rounds: internalRounds,
       // 2026-11-17：宿主重启打断的后台子代理，开机后自动续上（有上限，见 AUTO_RESUME_DEFAULTS）
-      autoResume: { enabled: true, delayMs: 20_000 },
+      // 2026-11-18：一次重启最多续 2 个、相隔 20 秒；重启熔断时不续（见 engine/restart-guard.mjs）
+      autoResume: { enabled: true, delayMs: 20_000, limit: RESTART_BATCH, staggerMs: RESTART_STAGGER_MS,
+        allow: () => restartGuard.allowAutoResume(), onResume: () => restartGuard.markAutoResumed() },
       traceHistory: ({ limit }) => subagent.getSubagentHistory({ limit }),
       push: async (receipt, record) => {
         // 只推应用内/系统通知，不发微信：子代理回执多数是"干活中间态"，别拿它刷微信
@@ -8456,7 +8460,9 @@ function startServer() {
   // async：启动收尾里有需要 await 的清理（例如连续创作的孤儿运行）
   server.listen(CONFIG.port, CONFIG.host, async () => {
     // All services and approval boundaries are initialized before recovery can execute.
-    const recoveredRuns = runManager.recover();
+    const recoveredRuns = runManager.recover({ autoResume: restartGuard.allowAutoResume(), batch: RESTART_BATCH,
+      staggerMs: RESTART_STAGGER_MS, onAutoResume: () => restartGuard.markAutoResumed() });
+    if (!restartGuard.allowAutoResume()) console.log("[runs] 上次启动刚自动续过又很快重启，疑似续跑拖垮服务：本次不自动续，留给手动继续");
     voiceTaskRuntime.start();
     if (recoveredRuns.length) console.log(`[runs] 已检查 ${recoveredRuns.length} 个旧实例任务，仅安全检查点可后台接续`);
     listenAttempt = 0; // 监听成功 → 重置重试计数

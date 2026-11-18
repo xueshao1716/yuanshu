@@ -34,7 +34,7 @@ test('server binds recovery scope and waits for listening before recovering task
   const server = source('server.mjs')
   assert.ok(server.includes('workspaceScope: () => CONFIG.cwd'))
   assert.ok(server.includes('/recovery/disable'))
-  assert.ok(server.indexOf('runManager.recover()') > server.indexOf('server.listen(CONFIG.port'))
+  assert.ok(server.indexOf('runManager.recover(') > server.indexOf('server.listen(CONFIG.port'))
 })
 
 test('UI displays background policy and explicit disable without mislabelling it as stopping', () => {

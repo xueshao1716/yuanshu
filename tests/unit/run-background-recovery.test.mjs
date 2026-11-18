@@ -23,7 +23,7 @@ function fixture(executeChat) {
   const scheduled = []
   let scope = rootDir
   const options = { store, eventLog, effects, executeChat, instanceId: 'owner-a', workspaceScope: () => scope,
-    scheduleRecovery: callback => { const item = { callback, cancelled: false }; scheduled.push(item); return () => { item.cancelled = true } } }
+    scheduleRecovery: (callback, delayMs) => { const item = { callback, delayMs, cancelled: false }; scheduled.push(item); return () => { item.cancelled = true } } }
   const manager = createRunManager(options)
   const create = (extra = {}) => manager.create({ sessionId: 's1', clientRequestId: 'r1', message: 'finish this task', ...extra })
   return { rootDir, store, eventLog, effects, manager, options, create, scheduled,
@@ -225,4 +225,38 @@ test('model_request checkpoint with a paired snapshot is resumable; an unanswere
     const run = fx2.create(); await tick()
     assert.equal(fx2.store.get(run.id).backgroundRecovery.reason, 'checkpoint_invalid')
   } finally { fx2.cleanup() }
+})
+
+// 2026-11-18：新电脑挂了四五个会话卡死 → 重启后全部同时续上 → 又卡死。重启续跑要限量、错开、可熔断。
+test('restart resumes at most batch runs, staggered; the rest wait for manual continue', async () => {
+  const fx = fixture(pause)
+  try {
+    const ids = []
+    for (const n of [1, 2, 3]) { ids.push(fx.manager.create({ sessionId: `s${n}`, clientRequestId: `r${n}`, message: 'finish this task' }).id); await tick() }
+    fx.manager.dispose?.(); fx.scheduled.length = 0
+    const restarted = createRunManager({ ...fx.options, instanceId: 'owner-b' })
+    restarted.recover({ batch: 2, staggerMs: 20_000 })
+    assert.deepEqual(fx.scheduled.map(item => item.delayMs), [1000, 21_000])
+    const held = ids.map(id => fx.store.get(id)).filter(run => run.backgroundRecovery.state === 'blocked')
+    assert.equal(held.length, 1)
+    assert.equal(held[0].backgroundRecovery.reason, 'restart_batch_limit')
+    assert.equal(held[0].status, 'interrupted')
+    assert.equal(held[0].resumeAvailable, true)
+    restarted.dispose?.()
+  } finally { fx.cleanup() }
+})
+
+test('restart loop guard: autoResume=false holds every run for manual continue', async () => {
+  const fx = fixture(pause)
+  try {
+    const run = fx.create(); await tick()
+    fx.manager.dispose?.(); fx.scheduled.length = 0
+    const restarted = createRunManager({ ...fx.options, instanceId: 'owner-b' })
+    restarted.recover({ autoResume: false })
+    assert.equal(fx.scheduled.length, 0)
+    const held = fx.store.get(run.id)
+    assert.equal(held.backgroundRecovery.reason, 'restart_loop')
+    assert.equal(held.resumeAvailable, true)
+    restarted.dispose?.()
+  } finally { fx.cleanup() }
 })

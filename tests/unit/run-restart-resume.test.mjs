@@ -16,5 +16,5 @@ test("启动收尾不抢 runManager.recover() 的活：聊天运行不在顶层�
   const block = server.slice(start, server.indexOf("} catch (e) { console.log('[recover] 残留运行清理跳过", start));
   assert.match(block, /r\.kind [!=]== ['"]internal['"]/, "只收内部轮次");
   assert.doesNotMatch(block, /runStore\.update\(r\.id, \{ status: 'interrupted'/, "聊天运行不能在这里被标成中断（那样 recover() 就找不到它了）");
-  assert.ok(server.indexOf("runManager.recover()") > start, "聊天运行的孤儿由 listen 后的 recover 处理");
+  assert.ok(server.indexOf("runManager.recover(") > start, "聊天运行的孤儿由 listen 后的 recover 处理");
 });

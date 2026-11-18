@@ -2,6 +2,11 @@
 
 ## [Unreleased]
 
+## [Unreleased]
+
+### Fixed
+- 重启后自动续跑会把机器再次拖垮：同时挂着四五个会话时服务卡死，重启后这些会话在 1 秒内一起续上，子代理也 20 秒后一批拉起，于是又卡死，循环往复。现在一次重启最多自动续 2 个主对话、2 个子代理，彼此错开 20 秒，其余标成「可手动继续」；上一次启动刚自动续过、10 分钟内又重启的，判定为续跑拖垮服务，这次一个都不自动续（`engine/restart-guard.mjs`）。
+
 ## [2.221.0] - 2026-11-18
 
 ### Fixed
@@ -4449,7 +4454,8 @@ checkout@v4 → v5、setup-node@v4 → v5、upload-artifact@v4 → v5，消掉 N
 
 - **品味库**（借 dsh-mood 的"判断轨迹"，泛化原来的 design-prefs）：
   - engine/taste.mjs：记「主题 → 选定 / 否掉 / 为什么」，落 记忆/品味库.jsonl，最多 2000 条；
-  - 工具 ecord_taste（她自己判断后记一笔）+ GET/POST /api/taste + 灵魂页「品味库」列表；
+  - 工具 
+ecord_taste（她自己判断后记一笔）+ GET/POST /api/taste + 灵魂页「品味库」列表；
   - 提示词新增 	aste 段（最近 5 条判断），ssembleYuanshuSystem 自动注入，不占长篇。
 - **心情词表 10 → 33**：engine/mood-lexicon.mjs，30 个复合/当代心情各带 VAD 坐标，用最近邻映射；旧的 10 个基础码保留（loving → 恋慕）。情绪接口与快照多返回 label/labelCode/labelLayer。
 - **成本可见性（回答"咋这么费钱"）**：自己循环此前**丢弃 usage**，所以统计里今天成本一直是 0。现在 usage 累加并随 assistant 消息落盘（metadataFor → persistYuanshuAssistant），/api/stats 从此能看到自己循环的 token。
@@ -4459,7 +4465,8 @@ checkout@v4 → v5、setup-node@v4 → v5、upload-artifact@v4 → v5，消掉 N
 
 - **品味库**（借 dsh-mood 的"判断轨迹"，泛化原来的 design-prefs）：
   - engine/taste.mjs：记「主题 → 选定 / 否掉 / 为什么」，落 记忆/品味库.jsonl，最多 2000 条；
-  - 工具 ecord_taste（她自己判断后记一笔）+ GET/POST /api/taste + 灵魂页「品味库」列表；
+  - 工具 
+ecord_taste（她自己判断后记一笔）+ GET/POST /api/taste + 灵魂页「品味库」列表；
   - 提示词新增 	aste 段（最近 5 条判断），ssembleYuanshuSystem 自动注入，不占长篇。
 - **心情词表 10 → 33**：engine/mood-lexicon.mjs，30 个复合/当代心情各带 VAD 坐标，用最近邻映射；旧的 10 个基础码保留（loving → 恋慕）。情绪接口与快照多返回 label/labelCode/labelLayer。
 - **成本可见性（回答"咋这么费钱"）**：自己循环此前**丢弃 usage**，所以统计里今天成本一直是 0。现在 usage 累加并随 assistant 消息落盘（metadataFor → persistYuanshuAssistant），/api/stats 从此能看到自己循环的 token。
@@ -4469,7 +4476,8 @@ checkout@v4 → v5、setup-node@v4 → v5、upload-artifact@v4 → v5，消掉 N
 
 - **品味库**（借 dsh-mood 的"判断轨迹"，泛化原来的 design-prefs）：
   - engine/taste.mjs：记「主题 → 选定 / 否掉 / 为什么」，落 记忆/品味库.jsonl，最多 2000 条；
-  - 工具 ecord_taste（她自己判断后记一笔）+ GET/POST /api/taste + 灵魂页「品味库」列表；
+  - 工具 
+ecord_taste（她自己判断后记一笔）+ GET/POST /api/taste + 灵魂页「品味库」列表；
   - 提示词新增 	aste 段（最近 5 条判断），ssembleYuanshuSystem 自动注入，不占长篇。
 - **心情词表 10 → 33**：engine/mood-lexicon.mjs，30 个复合/当代心情各带 VAD 坐标，用最近邻映射；旧的 10 个基础码保留（loving → 恋慕）。情绪接口与快照多返回 label/labelCode/labelLayer。
 - **成本可见性（回答"咋这么费钱"）**：自己循环此前**丢弃 usage**，所以统计里今天成本一直是 0。现在 usage 累加并随 assistant 消息落盘（metadataFor → persistYuanshuAssistant），/api/stats 从此能看到自己循环的 token。
@@ -4479,7 +4487,8 @@ checkout@v4 → v5、setup-node@v4 → v5、upload-artifact@v4 → v5，消掉 N
 
 - **品味库**（借 dsh-mood 的"判断轨迹"，泛化原来的 design-prefs）：
   - engine/taste.mjs：记「主题 → 选定 / 否掉 / 为什么」，落 记忆/品味库.jsonl，最多 2000 条；
-  - 工具 ecord_taste（她自己判断后记一笔）+ GET/POST /api/taste + 灵魂页「品味库」列表；
+  - 工具 
+ecord_taste（她自己判断后记一笔）+ GET/POST /api/taste + 灵魂页「品味库」列表；
   - 提示词新增 	aste 段（最近 5 条判断），ssembleYuanshuSystem 自动注入，不占长篇。
 - **心情词表 10 → 33**：engine/mood-lexicon.mjs，30 个复合/当代心情各带 VAD 坐标，用最近邻映射；旧的 10 个基础码保留（loving → 恋慕）。情绪接口与快照多返回 label/labelCode/labelLayer。
 - **成本可见性（回答"咋这么费钱"）**：自己循环此前**丢弃 usage**，所以统计里今天成本一直是 0。现在 usage 累加并随 assistant 消息落盘（metadataFor → persistYuanshuAssistant），/api/stats 从此能看到自己循环的 token。
@@ -4489,7 +4498,8 @@ checkout@v4 → v5、setup-node@v4 → v5、upload-artifact@v4 → v5，消掉 N
 
 - **品味库**（借 dsh-mood 的"判断轨迹"，泛化原来的 design-prefs）：
   - engine/taste.mjs：记「主题 → 选定 / 否掉 / 为什么」，落 记忆/品味库.jsonl，最多 2000 条；
-  - 工具 ecord_taste（她自己判断后记一笔）+ GET/POST /api/taste + 灵魂页「品味库」列表；
+  - 工具 
+ecord_taste（她自己判断后记一笔）+ GET/POST /api/taste + 灵魂页「品味库」列表；
   - 提示词新增 	aste 段（最近 5 条判断），ssembleYuanshuSystem 自动注入，不占长篇。
 - **心情词表 10 → 33**：engine/mood-lexicon.mjs，30 个复合/当代心情各带 VAD 坐标，用最近邻映射；旧的 10 个基础码保留（loving → 恋慕）。情绪接口与快照多返回 label/labelCode/labelLayer。
 - **成本可见性（回答"咋这么费钱"）**：自己循环此前**丢弃 usage**，所以统计里今天成本一直是 0。现在 usage 累加并随 assistant 消息落盘（metadataFor → persistYuanshuAssistant），/api/stats 从此能看到自己循环的 token。

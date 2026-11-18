@@ -14,6 +14,8 @@ const reasons: Record<string, string> = {
   resume_failed: '未能启动接续，请检查后手动继续',
   user_stop: '用户已停止',
   disabled: '自动接续已关闭',
+  restart_batch_limit: '重启后只自动续前两个，其余请手动继续',
+  restart_loop: '上次自动续跑后服务很快又重启，疑似拖垮机器，本次不自动续',
 }
 
 export default function BackgroundRecoveryStatus({ run, onUpdated }: { run: RunSummary; onUpdated: () => void }) {

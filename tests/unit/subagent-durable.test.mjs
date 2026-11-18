@@ -118,6 +118,20 @@ test("开机自动续：中断的子代理自己续上；每条有次数上限",
   assert.equal(third.bg.get(started.subagentId).status, "interrupted");
 });
 
+test("重启熔断：allow 返回 false 时不自动续，只留可手动续的回执", async () => {
+  const root = tmpRoot();
+  const first = boot(root);
+  const started = first.bg.start({ task: "调研 C", sessionId: "s3" });
+  const call = await until(() => first.fake.calls[0]);
+  call.params.onCheckpoint(toolRound("c1"));
+
+  const second = boot(root, { autoResume: { enabled: true, delayMs: 0, allow: () => false } });
+  await new Promise((resolve) => setTimeout(resolve, 30));
+  assert.equal(second.fake.calls.length, 0, "熔断时不能再自动拉起");
+  assert.equal(second.bg.get(started.subagentId).status, "interrupted");
+  assert.doesNotMatch(second.bg.deliverReceipts({ agent: "s3" }).text, /自动续/);
+});
+
 test("改需求 enqueue：在跑时发的消息排队，跑完自动接着做", async () => {
   const root = tmpRoot();
   const { fake, bg } = boot(root);
