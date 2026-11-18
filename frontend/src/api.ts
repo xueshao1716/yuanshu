@@ -608,14 +608,18 @@ export type SelfModel = {
   section: string; markdown: string; file: string
 }
 export const SelfApi = { get: () => api<SelfModel>('/api/self') }
+export type ThemeAutoPrefs = { mode: 'off' | 'system' | 'time'; light: string; dark: string; from: string; to: string }
 export const ThemeApi = {
-  get: () => api<{ theme: string; accent: string; wallpaper: string; densities?: Record<string, number> }>('/api/theme-prefs', { timeoutMs: 2500 }),
+  get: () => api<{ theme: string; accent: string; wallpaper: string; densities?: Record<string, number>; auto?: ThemeAutoPrefs }>('/api/theme-prefs', { timeoutMs: 2500 }),
   save: (theme: string, accent: string, wallpaper?: string, densities?: Record<string, number>) => {
     const body: { theme: string; accent: string; wallpaper?: string; densities?: Record<string, number> } = { theme, accent }
     if (wallpaper !== undefined) body.wallpaper = wallpaper
     if (densities !== undefined) body.densities = densities
     return api<{ theme: string; accent: string; wallpaper: string; densities: Record<string, number> }>('/api/theme-prefs', { method: 'POST', body })
   },
+  // 2026-11-17 自动深色：只送 auto，不动 theme/accent（服务端按 prev 保留）
+  saveAuto: (auto: ThemeAutoPrefs) =>
+    api<{ ok: boolean; auto?: ThemeAutoPrefs }>('/api/theme-prefs', { method: 'POST', body: { auto } }),
 }
 
 // ── 全局创作配色卡（2026-09-16）：选一套，所有出图/出片入口都按它写「色调」──

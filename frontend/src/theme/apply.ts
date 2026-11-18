@@ -64,9 +64,12 @@ export function persistTheme(theme: string, accent: string) {
 export function applyTheme(theme: string, accent: string) {
   applyThemeVars(theme, accent)
   persistTheme(theme, accent)
+  // 2026-11-17 自动深色：手动选择要能被 auto.ts 识别（自动模式下记一次「覆盖」，
+  // 同时把这套主题存成对应方向——白天/夜间的代表）。这是用户点击，不是远程水合。
+  try { window.dispatchEvent(new CustomEvent('pi-theme-manual', { detail: { theme, accent } })) } catch {}
 }
 
-export function restoreThemePreferences(preferences: { theme?: string; accent?: string; wallpaper?: string; densities?: Record<string, number> }) {
+export function restoreThemePreferences(preferences: { theme?: string; accent?: string; wallpaper?: string; densities?: Record<string, number>; auto?: unknown }) {
   // 2026-11-17：服务端可能还存着已合并的旧主题（牛皮纸/墨黑…），换成新的并回写一次
   const stored = preferences.theme || currentTheme().theme
   const theme = resolveThemeId(stored)
@@ -83,6 +86,8 @@ export function restoreThemePreferences(preferences: { theme?: string; accent?: 
   if (typeof preferences.wallpaper === 'string') persistWallpaper(preferences.wallpaper)
   if (stored !== theme) ThemeApi.save(theme, accent).catch(() => {})
   window.dispatchEvent(new CustomEvent('pi-theme-changed', { detail: { theme, accent } }))
+  // 2026-11-17 自动深色：配置跨端同步（本端改了，另一端启动/水合时跟上）
+  try { window.dispatchEvent(new CustomEvent('pi-theme-prefs-restored', { detail: { auto: preferences.auto } })) } catch {}
 }
 
 const DEFAULT_THEME = 'mist'

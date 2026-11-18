@@ -7,6 +7,7 @@ import { COLOR_CARDS, CARD_FAMILIES, colorCardGradient, colorCardOn, resolveColo
 import { persistColorCardShell } from '../theme/colorcard-shell.mjs'
 import FloatPill from '../components/FloatPill'
 import { THEME_CATALOG } from '../theme/palettes'
+import { getAutoConfig, updateAutoConfig, autoState, themeDir, type AutoMode, type AutoConfig } from '../theme/auto'
 import { ThemeApi, ColorApi } from '../api'
 import PageHeader from '../components/PageHeader'
 import SectionHeader from '../components/SectionHeader'
@@ -92,6 +93,26 @@ export default function Themes() {
   const [cardFamily, setCardFamily] = useState<'morandi' | 'vivid'>('morandi')
   const fileRef = useRef<HTMLInputElement>(null)
 
+  // 自动深色（2026-11-17）：模式/浅深配对/时段存本地并同步服务端；手动选主题只覆盖当前方向，条件一变自动接管
+  const [autoCfg, setAutoCfg] = useState<AutoConfig>(() => getAutoConfig())
+  const [autoNow, setAutoNow] = useState(() => autoState())
+  useEffect(() => {
+    const sync = () => { setAutoCfg(getAutoConfig()); setAutoNow(autoState()) }
+    window.addEventListener('pi-theme-auto-changed', sync)
+    window.addEventListener('pi-theme-changed', sync)
+    const t = window.setInterval(sync, 60_000)
+    return () => {
+      window.removeEventListener('pi-theme-auto-changed', sync)
+      window.removeEventListener('pi-theme-changed', sync)
+      window.clearInterval(t)
+    }
+  }, [])
+  const setAuto = (patch: Partial<AutoConfig>) => {
+    const next = updateAutoConfig(patch)
+    setAutoCfg(next)
+    setAutoNow(autoState())
+  }
+
   useEffect(() => {
     ColorApi.get().then(r => setColorCardId(r?.colorCardId || '')).catch(() => {})
   }, [])
@@ -176,6 +197,14 @@ export default function Themes() {
   }
 
   const ids = THEME_CATALOG.map(t => t.id)
+  const lightIds = ids.filter(id => themeDir(id) === 'light')
+  const darkIds = ids.filter(id => themeDir(id) === 'dark')
+  const autoActive = !!autoNow
+  const AUTO_MODES: { v: AutoMode; label: string; hint: string }[] = [
+    { v: 'off', label: '关闭', hint: '只用手动选择的主题' },
+    { v: 'system', label: '跟随系统', hint: '系统切深色时自动跟着切' },
+    { v: 'time', label: '按时间段', hint: '到点自动切换' },
+  ]
   const tokens = seedVars(theme, accent, density)
 
   return (
@@ -186,6 +215,66 @@ export default function Themes() {
           description="选择一套外观基底，再精调主色、层级密度与壁纸；修改会即时应用，保存后同步到所有端。"
           meta={<span className="text-[11px] text-pi-dim2">当前：{THEME_BY_ID[theme]?.name || theme}</span>}
         />
+
+        <section data-slot="theme-auto" className="mb-8">
+          <SectionHeader title="自动深色" description="到点或跟随系统在浅色/深色之间切换。你手动挑的主题只覆盖当前这一档，条件一变就交回自动。" />
+          <div className="panel !p-4 space-y-4">
+            <div className="flex flex-wrap gap-2">
+              {AUTO_MODES.map(m => (
+                <button key={m.v} type="button" title={m.hint}
+                  aria-pressed={autoCfg.mode === m.v}
+                  onClick={() => { setAuto({ mode: m.v }); toast(`自动深色：${m.label}`, 'ok') }}
+                  className={`px-3 h-8 rounded-pi-md border text-[12px] transition-colors ${autoCfg.mode === m.v ? 'border-pi-accent text-pi-text' : 'border-pi-border text-pi-dim2 hover:text-pi-text'}`}
+                  style={autoCfg.mode === m.v ? { background: 'var(--pi-accent-soft)', color: 'var(--pi-accent-soft-fg)' } : undefined}>
+                  {m.label}
+                </button>
+              ))}
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <label className="block">
+                <span className="block text-[12px] text-pi-dim2 font-semibold mb-1.5">浅色用</span>
+                <select value={autoCfg.light} onChange={e => setAuto({ light: e.target.value })}
+                  className="w-full bg-pi-field border border-pi-border-soft rounded-pi-sm px-2 py-1.5 text-[12px] text-pi-text outline-none focus:border-pi-accent">
+                  {lightIds.map(id => <option key={id} value={id}>{THEME_BY_ID[id]?.name || id}</option>)}
+                </select>
+              </label>
+              <label className="block">
+                <span className="block text-[12px] text-pi-dim2 font-semibold mb-1.5">深色用</span>
+                <select value={autoCfg.dark} onChange={e => setAuto({ dark: e.target.value })}
+                  className="w-full bg-pi-field border border-pi-border-soft rounded-pi-sm px-2 py-1.5 text-[12px] text-pi-text outline-none focus:border-pi-accent">
+                  {darkIds.map(id => <option key={id} value={id}>{THEME_BY_ID[id]?.name || id}</option>)}
+                </select>
+              </label>
+            </div>
+
+            {autoCfg.mode === 'time' && (
+              <div className="grid grid-cols-2 gap-3">
+                <label className="block">
+                  <span className="block text-[12px] text-pi-dim2 font-semibold mb-1.5">深色从</span>
+                  <input type="time" value={autoCfg.from} onChange={e => setAuto({ from: e.target.value })}
+                    className="w-full bg-pi-field border border-pi-border-soft rounded-pi-sm px-2 py-1.5 text-[12px] text-pi-text outline-none focus:border-pi-accent" />
+                </label>
+                <label className="block">
+                  <span className="block text-[12px] text-pi-dim2 font-semibold mb-1.5">到</span>
+                  <input type="time" value={autoCfg.to} onChange={e => setAuto({ to: e.target.value })}
+                    className="w-full bg-pi-field border border-pi-border-soft rounded-pi-sm px-2 py-1.5 text-[12px] text-pi-text outline-none focus:border-pi-accent" />
+                </label>
+              </div>
+            )}
+
+            <div className="text-[11px]" style={{ color: 'var(--pi-dim2)' }}>
+              {!autoActive && '自动已关闭：工作台只用上方主题画廊里手选的那套。'}
+              {autoActive && !autoNow!.overridden && (
+                <>当前应由自动接管为<b className="mx-1" style={{ color: 'var(--pi-text)' }}>{autoNow!.dir === 'dark' ? '深色' : '浅色'}</b>
+                  （{autoNow!.mode === 'time' ? `${autoCfg.from}–${autoCfg.to}` : '跟随系统'}），主题「{THEME_BY_ID[autoNow!.theme]?.name || autoNow!.theme}」。</>
+              )}
+              {autoActive && autoNow!.overridden && (
+                <>现在是手动覆盖：你选了{autoNow!.dir === 'dark' ? '深色' : '浅色'}。等{autoNow!.mode === 'time' ? '时段' : '系统状态'}变化后，自动会重新接管。</>
+              )}
+            </div>
+          </div>
+        </section>
 
         <section data-slot="theme-gallery" className="mb-8">
           <SectionHeader title="主题画廊" description="选择基底会立即应用；每套主题的层级密度各自记住。" />

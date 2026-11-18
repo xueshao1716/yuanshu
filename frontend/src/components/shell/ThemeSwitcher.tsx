@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { Palette } from 'lucide-react'
 import { THEME_CATALOG, ACCENT_PRESETS as ACCENTS } from '../../theme/palettes'
 import { applyTheme, currentTheme } from '../../theme/apply'
+import { autoState } from '../../theme/auto'
 // 主题预设：data-theme 属性驱动（styles.css [data-theme] 变量覆盖）；色板定义在 theme/palettes.ts
 // ⚠️ 08-26 单一真源：主色自定义 = generateTheme(seed) 派生整套色板写 CSS 变量（非只改 3 个），
 //    与 WebglBackdrop 联动（派生后 --pi-accent/--pi-accent2 变化 → 背景自动跟随）
@@ -11,6 +12,19 @@ export default function ThemeSwitcher() {
   const [theme, setTheme] = useState(() => currentTheme().theme)
   const [accent, setAccent] = useState(() => currentTheme().accent)
   const [menuOpen, setMenuOpen] = useState(false)
+  // 自动深色（2026-11-17）：开关开着时这里显示「自动 · 深/浅」，手动点主题 = 覆盖当前这一档
+  const [auto, setAuto] = useState(() => autoState())
+  useEffect(() => {
+    const sync = () => setAuto(autoState())
+    window.addEventListener('pi-theme-auto-changed', sync)
+    window.addEventListener('pi-theme-changed', sync)
+    const t = window.setInterval(sync, 60_000)
+    return () => {
+      window.removeEventListener('pi-theme-auto-changed', sync)
+      window.removeEventListener('pi-theme-changed', sync)
+      window.clearInterval(t)
+    }
+  }, [])
   // 跨组件同步（08-29）：ThemesPage 改主题时广播 pi-theme-changed，这里同步 state 避免显示漂移
   useEffect(() => {
     const onExt = (e: Event) => {
@@ -27,7 +41,7 @@ export default function ThemeSwitcher() {
   return (
     <div className="relative">
       {/* rail 风格触发器：与导航按钮同尺寸同交互；色板圆点显示当前主题色 */}
-      <button aria-label="切换主题" title="主题"
+      <button aria-label="切换主题" title={auto ? `主题 · 自动${auto.dir === 'dark' ? '（深色）' : '（浅色）'}` : '主题'}
         className="w-9 h-9 rounded-pi-md flex items-center justify-center relative text-pi-dim2 hover:text-pi-text hover:bg-pi-bg3 transition-colors"
         onClick={() => setMenuOpen(!menuOpen)}>
         <Palette className="w-[18px] h-[18px]" strokeWidth={1.8} />
@@ -38,6 +52,14 @@ export default function ThemeSwitcher() {
         <>
           <div className="fixed inset-0 z-10" onClick={() => setMenuOpen(false)} />
           <div className="absolute left-0 bottom-11 z-20 panel p-2 flex flex-col gap-1 w-44">
+            {auto && (
+              <button className="flex items-center gap-2 px-2 py-1.5 mb-1 rounded-pi-sm hover:bg-pi-bg3 text-[10px] text-pi-dim2 w-full text-left transition-colors"
+                title="到主题页调整自动规则"
+                onClick={() => { location.hash = '#/themes'; setMenuOpen(false) }}>
+                <span className="w-1.5 h-1.5 rounded-full shrink-0" style={{ background: THEME_CATALOG.find(t => t.id === auto.theme)?.swatch }} />
+                自动 · {auto.dir === 'dark' ? '深色' : '浅色'}{auto.overridden ? '（手动覆盖）' : ''}
+              </button>
+            )}
             <div className="text-[10px] text-pi-dim2 px-2 pt-0.5 pb-1 font-semibold">主题</div>
             {THEME_CATALOG.map(t => (
               <button key={t.id} className={`flex items-center gap-2 px-2 py-1.5 rounded-pi-sm hover:bg-pi-bg3 text-xs ${theme === t.id ? 'text-pi-text' : 'text-pi-dim'}`} onClick={() => selectTheme(t.id)}>
