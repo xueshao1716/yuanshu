@@ -1,7 +1,7 @@
 // ══════════════════════════════════════════════════════════
 // ExternalAgentsPanel —— 设置页「外部智能体」开关（2026-11-19）
-// 元枢的 delegate_external 能把编码活派给本机的 Claude Code / Codex。
-// 默认关；这里一个开关 + 每天次数，并显示本机装没装、今天用了几次。
+// 元枢的 delegate_external 能把编码活派给本机的命令行智能体（Claude Code / Codex / 通义 Qwen Code 等）。
+// 总开关 + 每天次数 + 每个智能体单独勾选；没装的显示安装命令。
 // ══════════════════════════════════════════════════════════
 import { useEffect, useState } from 'react'
 import { CheckCircle2, AlertTriangle } from 'lucide-react'
@@ -14,12 +14,12 @@ export default function ExternalAgentsPanel() {
 
   useEffect(() => { SystemApi.externalAgents().then(setSt).catch(() => setSt(null)) }, [])
 
-  const save = async (patch: { enabled?: boolean; dailyCap?: number }) => {
+  const save = async (patch: { enabled?: boolean; dailyCap?: number; agents?: Record<string, boolean> }) => {
     setBusy(true)
     try {
       const next = await SystemApi.saveExternalAgents(patch)
       setSt(s => ({ ...next, agents: s?.agents }))
-      if (patch.enabled !== undefined) toast(patch.enabled ? '已开启：元枢可以把编码活派给 Claude Code / Codex' : '已关闭外部智能体', 'ok')
+      if (patch.enabled !== undefined) toast(patch.enabled ? '已开启：元枢可以把编码活派给勾选的外部智能体' : '已关闭外部智能体', 'ok')
     } catch (e: any) {
       toast(String(e?.message || e), 'error')
     } finally { setBusy(false) }
@@ -64,11 +64,18 @@ export default function ExternalAgentsPanel() {
       <div className="space-y-1">
         {Object.entries(st.agents || {}).map(([id, a]) => (
           <div key={id} className="flex items-center gap-2 text-[12px]">
+            <input
+              type="checkbox"
+              aria-label={`允许派给 ${a.label}`}
+              checked={!!st.on?.[id]}
+              disabled={busy || (!a.available && !st.on?.[id])}
+              onChange={e => save({ agents: { [id]: e.target.checked } })}
+            />
             {a.available
               ? <CheckCircle2 className="w-3.5 h-3.5 text-emerald-500" />
               : <AlertTriangle className="w-3.5 h-3.5 text-amber-500" />}
             <span className="text-pi-text">{a.label}</span>
-            <span className="text-pi-dim2 truncate">{a.available ? a.version : `未就绪：${a.reason}`}</span>
+            <span className="text-pi-dim2 truncate" title={a.available ? '' : a.install}>{a.available ? a.version : `${a.reason}${a.install ? `（安装：${a.install}）` : ''}`}</span>
           </div>
         ))}
       </div>

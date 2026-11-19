@@ -101,3 +101,22 @@ test('设置页开关：保存后状态可读，非法次数被拒', () => {
   assert.equal(saveExternalConfig(ws, { enabled: false }).usedToday, 1);
   assert.throws(() => saveExternalConfig(ws, { dailyCap: -1 }), /0–50/);
 });
+
+test('国产智能体：默认不开，单独勾上才派；不认识的名字被拒', async () => {
+  const ws = tmpWs();
+  writeCfg(ws, { enabled: true });
+  const run = createDelegateExternal({ wsRoot: ws, run: async (o) => ({ text: `ran ${o.agent}`, isError: false }) });
+  const off = await run({ agent: 'qwen', task: 'x' });
+  assert.match(off.text, /通义 Qwen Code 没在设置里打开/);
+  assert.equal(externalStatus(ws).usedToday, 0);
+  saveExternalConfig(ws, { agents: { qwen: true } });
+  assert.equal((await run({ agent: 'qwen', task: 'x' })).text, 'ran qwen');
+  assert.equal(externalStatus(ws).on.claude, true);
+  assert.equal((await run({ agent: 'doubao', task: 'x' })).isError, true);
+  assert.throws(() => saveExternalConfig(ws, { agents: { nope: true } }), /不认识/);
+});
+
+test('未安装时给出安装命令', async () => {
+  const r = await runExternalAgent({ agent: 'codebuddy', task: 't', cwd: '.', load: fakeLoad({ install: { kind: 'not_found' } }) });
+  assert.match(r.text, /codebuddy-code/);
+});

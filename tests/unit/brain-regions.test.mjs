@@ -99,6 +99,11 @@ test('工具档：低权重只留基础工具，高权重全给', () => {
   assert.equal(filterToolsByTier(tools, { tooling: 0.8 }).length, 4);
 });
 
+test('外部智能体工具不被裁（用户点名派活时模型得看得见）', () => {
+  const tools = [{ function: { name: 'read' } }, { function: { name: 'delegate_external' } }];
+  assert.equal(filterToolsByTier(tools, { tooling: 0.5 }).length, 2);
+});
+
 test('工具档：如果过滤后一个都不剩，就不过滤（保命）', () => {
   const onlyAdvanced = [{ function: { name: 'cultivation' } }];
   assert.equal(filterToolsByTier(onlyAdvanced, { tooling: 0 }).length, 1);

@@ -1,4 +1,4 @@
-// engine/external-agent.mjs —— 把活派给本机的 Claude Code / Codex（2026-11-19）
+// engine/external-agent.mjs —— 把活派给本机的命令行智能体（Claude Code / Codex / 通义 Qwen Code 等，2026-11-19）
 //
 // 借 OAR（@botiverse/oar）统一驱动外部编码智能体：它负责拉起 CLI、收事件、等这一轮结束。
 // OAR 还是 0.x，接口随时可能变，所以只在这一个文件里碰它；server.mjs 只认 delegate_external。
@@ -13,17 +13,28 @@ import path from 'node:path';
 export const EXTERNAL_AGENT_FILE = path.join('记忆', '运行时', '外部智能体.json');
 export const DEFAULT_DAILY_CAP = 5;
 export const DEFAULT_TIMEOUT_MS = 20 * 60_000;
-const AGENTS = { claude: 'Claude Code', codex: 'Codex' };
+// id → 显示名 / OAR 运行时导出名 / 没装时给用户的安装提示。默认只开前两个，其余要在设置页单独打开
+const AGENTS = {
+  claude: { label: 'Claude Code', exp: 'claudeRuntime', install: 'npm i -g @anthropic-ai/claude-code' },
+  codex: { label: 'Codex', exp: 'codexRuntime', install: 'npm i -g @openai/codex' },
+  qwen: { label: '通义 Qwen Code', exp: 'qwenRuntime', install: 'npm i -g @qwen-code/qwen-code' },
+  codebuddy: { label: '腾讯 CodeBuddy（WorkBuddy 的命令行版）', exp: 'codebuddyRuntime', install: 'npm i -g @tencent-ai/codebuddy-code，再运行 codebuddy 登录' },
+  kimi: { label: 'Kimi CLI', exp: 'kimiRuntime', install: 'uv tool install kimi-cli' },
+  qoder: { label: 'Qoder CLI', exp: 'qoderRuntime', install: '见 qoder.com 安装 qodercli' },
+  opencode: { label: 'opencode', exp: 'opencodeRuntime', install: 'npm i -g opencode-ai' },
+};
+export const DEFAULT_ON = ['claude', 'codex'];
+const labelOf = (id) => AGENTS[id]?.label || id;
 
 export const DELEGATE_EXTERNAL_TOOL = {
   type: 'function',
   function: {
     name: 'delegate_external',
-    description: '把一件编码/改文件的活派给本机的 Claude Code 或 Codex，同步等它做完并返回它的总结。默认关闭、每天有次数上限；只在用户明确要求用外部智能体时调用。',
+    description: '把一件编码/改文件的活派给本机的外部命令行智能体（Claude Code、Codex、通义 Qwen Code、CodeBuddy、Kimi、Qoder、opencode），同步等它做完并返回它的总结。用户点名要某个外部智能体去做时调用；每天有次数上限，没在设置里打开的会被拒绝。',
     parameters: {
       type: 'object',
       properties: {
-        agent: { type: 'string', enum: Object.keys(AGENTS), description: 'claude = Claude Code，codex = Codex' },
+        agent: { type: 'string', enum: Object.keys(AGENTS), description: 'claude=Claude Code，codex=Codex，qwen=通义 Qwen Code，codebuddy=腾讯 CodeBuddy/WorkBuddy，kimi=Kimi，qoder=Qoder，opencode=opencode' },
         task: { type: 'string', description: '完整、自足的任务说明（对方看不到当前对话）' },
         subdir: { type: 'string', description: '可选：工作区内的子目录，作为对方的工作目录' },
       },
@@ -38,8 +49,10 @@ export function readExternalConfig(wsRoot) {
   let raw = {};
   try { raw = JSON.parse(fs.readFileSync(path.join(wsRoot, EXTERNAL_AGENT_FILE), 'utf8')) || {} } catch {}
   const cap = Number(raw.dailyCap);
+  const on = raw.agents && typeof raw.agents === 'object' ? raw.agents : {};
   return {
     enabled: raw.enabled === true,
+    agents: Object.fromEntries(Object.keys(AGENTS).map((id) => [id, typeof on[id] === 'boolean' ? on[id] : DEFAULT_ON.includes(id)])),
     dailyCap: Number.isInteger(cap) && cap >= 0 ? cap : DEFAULT_DAILY_CAP,
     usage: raw.usage && typeof raw.usage === 'object' ? raw.usage : {},
     raw,
@@ -47,9 +60,10 @@ export function readExternalConfig(wsRoot) {
 }
 
 // 先记账再派：返回 { ok, used, cap } 或 { ok:false, reason }
-export function claimExternalSlot(wsRoot, now = Date.now()) {
+export function claimExternalSlot(wsRoot, now = Date.now(), agent = '') {
   const cfg = readExternalConfig(wsRoot);
   if (!cfg.enabled) return { ok: false, reason: 'disabled' };
+  if (agent && !cfg.agents[agent]) return { ok: false, reason: 'agent_off' };
   const day = today(now);
   const used = Number(cfg.usage[day]) || 0;
   if (used >= cfg.dailyCap) return { ok: false, reason: 'quota', used, cap: cfg.dailyCap };
@@ -76,11 +90,12 @@ export function resolveExternalCwd(wsRoot, subdir) {
 }
 
 async function defaultLoad(agent) {
+  if (!AGENTS[agent]) throw new Error(`unknown agent ${agent}`);
   const [rt, observe] = await Promise.all([
-    agent === 'codex' ? import('@botiverse/oar/runtimes/codex') : import('@botiverse/oar/runtimes/claude'),
+    import(`@botiverse/oar/runtimes/${agent}`),
     import('@botiverse/oar/observe'),
   ]);
-  return { runtime: agent === 'codex' ? rt.codexRuntime : rt.claudeRuntime, promptAndWait: observe.promptAndWait };
+  return { runtime: rt[AGENTS[agent].exp], promptAndWait: observe.promptAndWait };
 }
 
 const clip = (s, n) => { const t = String(s || '').trim(); return t.length > n ? t.slice(0, n) + '…' : t };
@@ -98,14 +113,14 @@ function outcomeText(outcome) {
  * @returns {Promise<{text:string, isError:boolean, tools?:string[]}>}
  */
 export async function runExternalAgent({ agent, task, cwd, signal, timeoutMs = DEFAULT_TIMEOUT_MS, load = defaultLoad, onEvent } = {}) {
-  const label = AGENTS[agent];
-  if (!label) return { text: `不认识的外部智能体：${agent}（只支持 claude / codex）`, isError: true };
+  if (!AGENTS[agent]) return { text: `不认识的外部智能体：${agent}（支持 ${Object.keys(AGENTS).join(' / ')}）`, isError: true };
+  const label = labelOf(agent);
   let mod;
   try { mod = await load(agent) }
   catch (e) { return { text: `外部智能体组件没装好（@botiverse/oar，需要 Node 24+）：${clip(e?.message || e, 160)}`, isError: true } }
   let inst;
   try { inst = await mod.runtime.installation() } catch (e) { inst = { kind: 'error', reason: e?.message } }
-  if (inst?.kind !== 'available') return { text: `本机没找到可用的 ${label}：${clip(inst?.reason || inst?.kind || '未安装', 160)}`, isError: true };
+  if (inst?.kind !== 'available') return { text: `本机没找到可用的 ${label}：${clip(inst?.reason || inst?.kind || '未安装', 160)}。安装：${AGENTS[agent].install}`, isError: true };
 
   const tools = [];
   let session;
@@ -156,13 +171,14 @@ export function createDelegateExternal({ wsRoot, run = runExternalAgent, now = (
   return async (args = {}, { signal } = {}) => {
     const agent = String(args.agent || '').trim().toLowerCase();
     const task = String(args.task || '').trim();
-    if (!AGENTS[agent]) return { text: 'agent 只能是 claude 或 codex', isError: true };
+    if (!AGENTS[agent]) return { text: `agent 只能是：${Object.keys(AGENTS).join(' / ')}`, isError: true };
     if (!task) return { text: '请给出任务说明', isError: true };
     const cwd = resolveExternalCwd(wsRoot, args.subdir);
     if (!cwd) return { text: `子目录不在工作区内或不存在：${clip(args.subdir, 80)}`, isError: true };
-    const slot = claimExternalSlot(wsRoot, now());
+    const slot = claimExternalSlot(wsRoot, now(), agent);
     if (!slot.ok) {
       if (slot.reason === 'disabled') return { text: '外部智能体没开启。需要用户在 系统设置 → 外部智能体 里打开开关。', isError: true };
+      if (slot.reason === 'agent_off') return { text: `${labelOf(agent)} 没在设置里打开。需要用户在 系统设置 → 外部智能体 里勾上它。`, isError: true };
       if (slot.reason === 'quota') return { text: `今天的外部智能体次数用完了（${slot.used}/${slot.cap}），明天再派。`, isError: true };
       return { text: '外部智能体台账写不进去，这次不派。', isError: true };
     }
@@ -171,10 +187,15 @@ export function createDelegateExternal({ wsRoot, run = runExternalAgent, now = (
 }
 
 // 设置页用：开关、次数、今天用了几次、本机装没装
-export function saveExternalConfig(wsRoot, { enabled, dailyCap } = {}) {
+export function saveExternalConfig(wsRoot, { enabled, dailyCap, agents } = {}) {
   const cfg = readExternalConfig(wsRoot);
   const next = { ...cfg.raw };
   if (typeof enabled === 'boolean') next.enabled = enabled;
+  if (agents && typeof agents === 'object') {
+    const bad = Object.keys(agents).find((id) => !AGENTS[id]);
+    if (bad) throw Object.assign(new Error(`不认识的外部智能体：${bad}`), { localStatus: 400 });
+    next.agents = { ...cfg.agents, ...Object.fromEntries(Object.entries(agents).map(([k, v]) => [k, v === true])) };
+  }
   const cap = Number(dailyCap);
   if (dailyCap !== undefined) {
     if (!Number.isInteger(cap) || cap < 0 || cap > 50) throw Object.assign(new Error('每天次数只能是 0–50 的整数'), { localStatus: 400 });
@@ -188,16 +209,19 @@ export function saveExternalConfig(wsRoot, { enabled, dailyCap } = {}) {
 
 export function externalStatus(wsRoot, now = Date.now()) {
   const cfg = readExternalConfig(wsRoot);
-  return { enabled: cfg.enabled, dailyCap: cfg.dailyCap, usedToday: Number(cfg.usage[today(now)]) || 0 };
+  return { enabled: cfg.enabled, dailyCap: cfg.dailyCap, usedToday: Number(cfg.usage[today(now)]) || 0, on: cfg.agents };
 }
 
 export async function detectExternalAgents(load = defaultLoad) {
   const out = {};
-  for (const [id, label] of Object.entries(AGENTS)) {
+  // 并行探测：一个个来要十几秒（每个都要拉起 CLI 问版本）
+  await Promise.all(Object.entries(AGENTS).map(async ([id, a]) => {
+    const base = { label: a.label, install: a.install };
     try {
       const inst = await (await load(id)).runtime.installation();
-      out[id] = { label, available: inst?.kind === 'available', version: inst?.version || '', reason: inst?.kind === 'available' ? '' : clip(inst?.reason || inst?.kind, 120) };
-    } catch (e) { out[id] = { label, available: false, version: '', reason: clip(e?.message || e, 120) } }
-  }
-  return out;
+      const ok = inst?.kind === 'available';
+      out[id] = { ...base, available: ok, version: inst?.version || '', reason: ok ? '' : (inst?.kind === 'not_found' ? '未安装' : clip(inst?.reason || inst?.kind, 120)) };
+    } catch (e) { out[id] = { ...base, available: false, version: '', reason: clip(e?.message || e, 120) } }
+  }));
+  return Object.fromEntries(Object.keys(AGENTS).filter((id) => out[id]).map((id) => [id, out[id]]));
 }

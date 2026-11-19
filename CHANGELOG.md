@@ -3,6 +3,8 @@
 ## [Unreleased]
 
 ### Added
+- 外部智能体扩到 7 个：除 Claude Code、Codex 外，新增通义 Qwen Code、腾讯 CodeBuddy（WorkBuddy 的命令行版）、Kimi、Qoder、opencode。设置页每个单独勾选，新加的默认不开；没装的显示安装命令。
+- 修复：会话里点名让外部智能体干活时元枢调不动——`delegate_external` 被普通聊天的工具裁剪去掉了，模型根本看不到它。现在和其他派活工具一样始终保留。
 - 灵魂培养中心新增「桌面公仔」单独一页：总开关「在桌面显示公仔」（关掉后桌面上连收起的小圆钮也不留）、收起成小圆钮、陪伴免打扰、立绘选择。开关和立绘只影响本机；原来放在「声音与形象」里的公仔开关和立绘挪到这一页。
 
 - OpenRouter 能出图：它的出图模型（如免费的 Recraft V4.1 Flash V2）不走 `/images/generations`，走 chat/completions 加 `modalities:["image"]`，新增对应适配器，画幅按 `image_config.aspect_ratio` 传；Recraft 系列按出图模型识别，不再被当成对话模型。

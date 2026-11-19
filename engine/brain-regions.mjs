@@ -146,6 +146,8 @@ const isAdvancedTool = (name) => ADVANCED_TOOLS.has(name) || ADVANCED_PREFIXES.s
  */
 export const PROTOCOL_KEEP_TOOLS = new Set([
   "delegate_task", "delegate_fork", "delegate_team", "dsh_task", "plan_files", "job_status",
+  // 2026-11-19：用户点名「让 Claude Code/Codex 去做」时它必须在表里；以前被裁，模型只能自己干
+  "delegate_external",
 ]);
 
 /** 按工具档过滤 schema 列表（保留函数名与结构，不认识的工具默认保留）。 */
