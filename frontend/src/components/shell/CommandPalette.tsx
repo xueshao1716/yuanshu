@@ -60,7 +60,7 @@ export default function CommandPalette({ open, onClose, nav, onRightPanel, onMod
       page('tv', '打开影视', Film),
       page('apps', '打开知识', LayoutGrid),
       page('engine', '打开能力', Cpu),
-      page('agents', '打开外部智能体（Claude Code / Codex）', Bot),
+      page('agents', '打开协作 agent（Claude Code / Codex）', Bot),
       page('themes', '打开主题', Palette),
       page('sessiondb', '打开会话库（工作台 · 会话库）', Database),
       page('downloads', '打开下载记录（资产 · 下载记录）', Download),

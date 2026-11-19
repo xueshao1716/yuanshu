@@ -519,10 +519,10 @@ test('工坊选择芯片：选中=主色投影，未选中安静，触摸目标�
   }
 })
 
-test('外部智能体是主栏一级入口，设置不再在系统页重复；省电显示在主题页', () => {
+test('协作 agent 独立成页放在更多里，设置不再在系统页重复；省电显示在主题页', () => {
   const nav = read('nav.ts')
-  const primary = nav.split('export const RAIL_PRIMARY = [')[1]?.split(']')[0] || ''
-  assert.ok(primary.includes("'agents'"), '外部智能体必须在桌面主栏')
+  const more = nav.split('export const RAIL_MORE = [')[1]?.split(']')[0] || ''
+  assert.ok(more.includes("'agents'"), '协作 agent 必须在桌面「更多」里')
   assert.ok(read('AppLayout.tsx').includes("route: 'agents'"), '必须注册 #/agents 路由')
   const sys = read('pages', 'System.tsx')
   assert.ok(!sys.includes('ExternalAgentsPanel') && !sys.includes('AppearancePanel'), '系统页不再放外部智能体/外观')

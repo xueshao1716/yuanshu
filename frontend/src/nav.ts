@@ -26,7 +26,7 @@ export const ROUTE_LABELS = {
   autopatch: '自动补丁',
   gateway: '事务台',
   plugins: '插件商店',
-  agents: '外部智能体',
+  agents: '协作 agent',
 } as const
 
 // 桌面主栏只放用户每天会找的工作入口；引擎从“更多”提升为一等入口。
@@ -34,13 +34,13 @@ export const ROUTE_LABELS = {
 // 已并入工作台作为页内视图；#/review 仍保留为深链别名。
 // 连续创作同理：它是创作的一条产线，已并入创作作为页内视图；#/story 保留为深链别名。
 // 附带修复：手机「更多」菜单里从来没有连续创作入口，并入创作后手机端才到得了。
-// 2026-11-19：外部智能体从系统页提为主栏入口（派活给本机 Claude Code / Codex）
-export const RAIL_PRIMARY = ['chat', 'board', 'workshop', 'assets', 'tasks', 'engine', 'agents', 'gateway'] as const
+export const RAIL_PRIMARY = ['chat', 'board', 'workshop', 'assets', 'tasks', 'engine', 'gateway'] as const
 
 // 2026-10 功能板块整理：相近页面并入同一板块，旧深链保留为别名（见 RAIL_OWNER）。
 //   资产 ⊃ 下载记录；工作台 ⊃ 改动验收 / 天团 / 会话库；知识 ⊃ 灵感；能力 ⊃ MCP；创作 ⊃ 连续创作 / 画布。
 //   沙箱 / 超维模式只在授权中心（本会话执行权限）；系统页不再重复放一份。
-export const RAIL_MORE = ['soul', 'grants', 'tv', 'apps', 'plugins', 'health', 'system'] as const
+// 2026-11-19：协作 agent（派活给本机 Claude Code / Codex）独立成页，放在更多里
+export const RAIL_MORE = ['soul', 'grants', 'tv', 'apps', 'plugins', 'agents', 'health', 'system'] as const
 
 // 别名路由 → 它所属的导航板块；导航高亮、手机「更多」激活态都按板块算。
 export const RAIL_OWNER: Record<string, string> = {
