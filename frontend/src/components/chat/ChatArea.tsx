@@ -976,7 +976,8 @@ export default function ChatArea({ compactHeader, rightPanel, onRightPanel, onVo
       if (!alive || !isCurrentView() || activeRunRef.current || streamRef.current) return
       // 2026-10-24：快照可能不完整（localStorage 配额、字段裁剪），恢复时从 0 重放事件日志重建正文。
       // 之前只用 record.lastSeq，快照一旦缺失就只剩空白，用户以为任务丢了。
-      if (!isTerminalRunStatus(run.status)) record = { ...record, lastSeq: 0, stream: { ...record.stream, text: record.stream?.text || '' } };
+      // 2026-11-19：从 0 重放就得从空白开始——以前留着快照里的半段正文再重放一遍，前半段会出现两次。
+      if (!isTerminalRunStatus(run.status)) record = { ...record, lastSeq: 0, stream: emptyStream() };
       // 恢复/切会话只补正文，不把持久化事件重放变成自动朗读历史。
       speech.skipReply(record.assistantMessageId)
       if (isTerminalRunStatus(run.status) && run.lastSeq <= record.lastSeq) {

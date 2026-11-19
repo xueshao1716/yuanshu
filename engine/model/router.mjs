@@ -101,8 +101,8 @@ export function isTextCapableModel(model) {
 // 这种代理变体（实测）。所以：① 既有链 → ② 单价升序且排除代理变体 → ③ 兜底。
 // 硬约束：只选能做文本的、没在冷却里的、且不是当前这个模型。
 const BUDGET_CHAIN = [
+  ["agnes", /^(?:agnes-)?3\.0-flash$/i], // 2026-11-19：和故障兜底一致，3.0 在前
   ["agnes", /^(?:agnes-)?2\.5-flash$/i],
-  ["agnes", /^(?:agnes-)?3\.0-flash$/i],
   ["sensenova", /flash-lite/i],
   ["zai-coding-cn", /flash|highspeed/i],
   ["stepfun-plan", /flash/i],
