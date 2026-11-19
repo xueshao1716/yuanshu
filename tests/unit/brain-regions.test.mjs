@@ -104,6 +104,11 @@ test('外部智能体工具不被裁（用户点名派活时模型得看得见�
   assert.equal(filterToolsByTier(tools, { tooling: 0.5 }).length, 2);
 });
 
+test('协议点名的配音、分享外链工具不被裁', () => {
+  const tools = [{ function: { name: 'read' } }, { function: { name: 'generate_tts' } }, { function: { name: 'share_project' } }];
+  assert.equal(filterToolsByTier(tools, { tooling: 0.5 }).length, 3);
+});
+
 test('工具档：如果过滤后一个都不剩，就不过滤（保命）', () => {
   const onlyAdvanced = [{ function: { name: 'cultivation' } }];
   assert.equal(filterToolsByTier(onlyAdvanced, { tooling: 0 }).length, 1);

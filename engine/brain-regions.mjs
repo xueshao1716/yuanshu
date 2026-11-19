@@ -148,6 +148,11 @@ export const PROTOCOL_KEEP_TOOLS = new Set([
   "delegate_task", "delegate_fork", "delegate_team", "dsh_task", "plan_files", "job_status",
   // 2026-11-19：用户点名「让 Claude Code/Codex 去做」时它必须在表里；以前被裁，模型只能自己干
   "delegate_external",
+  // 2026-11-19：与上面同一类 bug 的第二批。协议第 2 条写「出片/出图/配音优先 generate_video /
+  // generate_image / generate_tts」，但 generate_tts 在 ADVANCED_TOOLS 里被裁 → 提示词让她配音，
+  // 工具表里没有，她只能用 bash 找别的路。图/视频没被裁，所以只有配音这一个"注册不上"。
+  // share_project 同理：红线写「外链唯一做法 = share_project」，裁掉等于把唯一的门焊死。
+  "generate_tts", "share_project",
 ]);
 
 /** 按工具档过滤 schema 列表（保留函数名与结构，不认识的工具默认保留）。 */

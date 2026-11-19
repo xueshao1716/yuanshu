@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import {
-  Activity, Film, BrainCircuit, ClipboardCheck, Cpu, Factory, FolderKanban,
-  Globe2, LayoutDashboard, LayoutGrid, LogOut, MonitorCog, Package, PackageCheck, Layers, Palette, PanelRight, ShieldCheck, Sparkles, Workflow,
+  Activity, Film, BrainCircuit, ClipboardCheck, Cpu, Factory, FolderKanban, GitCompare,
+  Globe2, LayoutDashboard, LayoutGrid, UserRound, MonitorCog, Package, PackageCheck, Layers, Palette, PanelRight, ShieldCheck, Sparkles, Workflow,
   TerminalSquare, X,
 } from 'lucide-react'
 import ProfileManager from '../onboarding/ProfileManager'
@@ -19,6 +19,8 @@ const MORE_ROUTES: { route: Route; icon: typeof Sparkles; label: string }[] = [
   { route: 'tv', icon: Film, label: ROUTE_LABELS.tv },
   { route: 'board', icon: LayoutDashboard, label: ROUTE_LABELS.board },
   { route: 'workshop', icon: Factory, label: ROUTE_LABELS.workshop },
+  // 2026-11-19：对比台、自动补丁是独立页面，桌面有入口，手机以前到不了
+  { route: 'canvas', icon: Workflow, label: ROUTE_LABELS.canvas },
   { route: 'models', icon: BrainCircuit, label: ROUTE_LABELS.models },
   { route: 'apps', icon: LayoutGrid, label: ROUTE_LABELS.apps },
   { route: 'engine', icon: Cpu, label: ROUTE_LABELS.engine },
@@ -26,6 +28,7 @@ const MORE_ROUTES: { route: Route; icon: typeof Sparkles; label: string }[] = [
   { route: 'gateway', icon: Layers, label: ROUTE_LABELS.gateway },
   { route: 'plugins', icon: Package, label: ROUTE_LABELS.plugins },
   { route: 'health', icon: Activity, label: ROUTE_LABELS.health },
+  { route: 'autopatch', icon: GitCompare, label: ROUTE_LABELS.autopatch },
   { route: 'system', icon: MonitorCog, label: ROUTE_LABELS.system },
 ]
 
@@ -127,6 +130,13 @@ export default function MobileMoreMenu({ open, onClose, route, nav, onOpenPanel,
                 <span>{item.label}</span>
               </button>
             ))}
+            <button
+              className="mobile-more-action flex-col gap-1 rounded-pi-md px-1 text-xs text-pi-dim hover:bg-pi-bg3 hover:text-pi-text"
+              onClick={() => { setAccountsOpen(true) }}
+            >
+              <UserRound className="h-5 w-5" strokeWidth={1.8} />
+              <span>账号管理</span>
+            </button>
           </div>
 
           <div className="my-3 border-t border-pi-border-soft" />
@@ -144,14 +154,6 @@ export default function MobileMoreMenu({ open, onClose, route, nav, onOpenPanel,
             ))}
           </div>
 
-          <div className="my-3 border-t border-pi-border-soft" />
-          <button
-            className="mobile-more-action w-full justify-start gap-2 rounded-pi-md px-3 text-xs text-pi-text hover:bg-pi-bg3"
-            onClick={() => { setAccountsOpen(true) }}
-          >
-            <LogOut className="h-[18px] w-[18px]" strokeWidth={1.8} />
-            <span>账号管理</span>
-          </button>
           {accountsOpen && <ProfileManager open onClose={() => setAccountsOpen(false)} onLogout={onLogout} />}
         </div>
       </section>

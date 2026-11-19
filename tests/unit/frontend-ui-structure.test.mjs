@@ -102,6 +102,9 @@ test('更多菜单承载设置路由和辅助面板，并提供可访问状态',
   for (const route of ['board', 'workshop', 'models', 'apps', 'engine', 'themes', 'system']) {
     assert.ok(menu.includes(`route: '${route}'`), `更多菜单缺少 ${route} 路由`)
   }
+  // 2026-11-19：功能格凑满 4×4（15 个页面 + 账号管理），对比台/自动补丁手机也能到
+  assert.equal((menu.match(/route: '/g) || []).length, 15, '更多菜单应为 15 个页面 + 账号管理 = 16 格')
+  for (const route of ['canvas', 'autopatch']) assert.ok(menu.includes(`route: '${route}'`), `更多菜单缺少 ${route}`)
   for (const panel of ['workspace', 'deliveries', 'terminal', 'activity', 'tui']) {
     assert.ok(menu.includes(`panel: '${panel}'`), `更多菜单缺少 ${panel} 面板入口`)
   }
