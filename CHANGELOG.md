@@ -2,6 +2,9 @@
 
 ## [Unreleased]
 
+### Added
+- read 工具直接读 Word / Excel / PPT / PDF：.docx/.xlsx/.xls/.pptx/.pdf 自动转成文本（标题、段落、Markdown 表格、按页输出），Excel 每个工作表最多 200 行并注明总行数。以前 docx 等被当文本读成乱码，PDF 只给一句提示，智能体只好每次自己写脚本。旧版 .doc/.ppt 会提示另存为新格式。
+
 ## [2.222.0] - 2026-11-19
 
 ### Added

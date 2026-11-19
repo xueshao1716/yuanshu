@@ -15,6 +15,7 @@ import {
 import { readOnlyOn, allowInReadOnly } from "./readonly-mode.mjs";
 import { isSensitivePath, commandTouchesSensitive, redactSecrets } from "./secrets-guard.mjs";
 import { withFileLock, FileLockTimeoutError } from "../file-lock.mjs";
+import { DOC_EXTS, extractDocText } from "../doc-extract.mjs";
 
 /** 命令里是否出现受保护文件。返回命中片段，没命中返回空串。 */
 export function protectedHit(cmd) {
@@ -82,7 +83,7 @@ export const BASE_TOOL_SCHEMAS = [
   // 2026-10-25：Windows 原生 PowerShell。有这条就尽量别用 bash 拼 Unix 命令——
   // git-bash 的路径/引号/编码语义和 Windows 不是一套，真机上会把工具调用次数翻倍。
   { type: "function", function: { name: "pwsh", get description() { return pwshToolDescription(); }, parameters: { type: "object", properties: { command: { type: "string", description: "要运行的 PowerShell 命令（脚本级也行，可多行）" } }, required: ["command"] } } },
-  { type: "function", function: { name: "read", description: "读取文件内容（工作空间内相对路径，或磁盘上的绝对路径）", parameters: { type: "object", properties: { path: { type: "string", description: "文件路径" } }, required: ["path"] } } },
+  { type: "function", function: { name: "read", description: "读取文件内容（工作空间内相对路径，或磁盘上的绝对路径）。Word/Excel/PPT/PDF（.docx .xlsx .xls .pptx .pdf）会自动转成文本和表格，不用自己写脚本", parameters: { type: "object", properties: { path: { type: "string", description: "文件路径" } }, required: ["path"] } } },
   { type: "function", function: { name: "write", description: "写入文件（自动创建目录）。文件很大时**必须分块**：第一块不带 append，后面的块带 append:true 追加（一次写太大的文件会被单次输出上限截断，整轮白费）", parameters: { type: "object", properties: { path: { type: "string", description: "文件路径（相对工作空间）" }, content: { type: "string", description: "文件内容（分块时是这一块的内容）" }, append: { type: "boolean", description: "true = 追加到文件末尾（分块写后续块用）；不传 = 覆盖写" } }, required: ["path", "content"] } } },
   { type: "function", function: { name: "edit", description: "用精确文本替换修改文件（先 read 再 edit）", parameters: { type: "object", properties: { path: { type: "string" }, oldText: { type: "string" }, newText: { type: "string" } }, required: ["path", "oldText", "newText"] } } },
   // 2026-11-05：读网页正文（公众号这类正文在 HTML 里的直接抓；需要 JS 的用 headless 渲染）
@@ -774,8 +775,18 @@ export function createUnifiedToolExecutor(deps = {}) {
         // 二进制/图片文件不能按 utf8 硬读（2026-08-24 修复"read 一直失败"）
         const ext = path.extname(p).toLowerCase();
         const IMG = [".png", ".jpg", ".jpeg", ".webp", ".gif", ".bmp", ".ico"];
-        const BIN = [".pdf", ".wasm", ".zip", ".gz", ".mp3", ".mp4", ".wav", ".webm", ".exe", ".dll", ".apk", ".ttf", ".woff2"];
         const kb = Math.round(fs.statSync(p).size / 1024);
+        // 2026-11-19：Word / Excel / PPT / PDF 直接转文本（engine/doc-extract.mjs），以前 docx 等被当 utf8 读成乱码
+        if (DOC_EXTS.has(ext)) {
+          const r = await extractDocText(p);
+          if (!r.ok) return { text: `[文档] ${path.basename(p)} · ${kb}KB，转文本失败：${r.error}。可改用 bash + python 读取`, isError: true };
+          const head = `[文档] ${path.basename(p)} · ${kb}KB（${ext}，已转为文本${r.truncated ? "，超过 5 万字已截断" : ""}）\n\n`;
+          return { text: head + (r.text || "（没有可提取的文字）"), isError: false };
+        }
+        if (ext === ".doc" || ext === ".ppt") {
+          return { text: `[旧版 Office 文件] ${path.basename(p)} · ${kb}KB（${ext}）。暂不能直接读：请用户另存为 ${ext}x，或在本机装了 Office/LibreOffice 时先转换`, isError: false };
+        }
+        const BIN = [".wasm", ".zip", ".gz", ".mp3", ".mp4", ".wav", ".webm", ".exe", ".dll", ".apk", ".ttf", ".woff2"];
         if (IMG.includes(ext)) {
           return { text: `[图片文件] ${path.basename(p)} · ${kb}KB。文本通道无法读取像素内容；如需看图：①让用户直接在界面看；②换支持视觉的模型后以附件方式传入；③用 bash + python PIL 提取尺寸/主色等元信息`, isError: false };
         }
