@@ -1,5 +1,5 @@
 import { Suspense, lazy, useCallback, useEffect, useRef, useState, type ComponentType, type LazyExoticComponent, type ReactNode } from 'react'
-import { Puzzle, Film, MessagesSquare, BrainCircuit, Images, Clock4, Download, LayoutGrid, LayoutDashboard, Settings2, FolderClosed, PanelLeftOpen, Sparkles, Factory, MonitorCog, Cpu, Palette, Database, GitCompare, LogOut, Ellipsis, Globe2, ShieldCheck, Workflow, PenLine, LayoutTemplate, UserRound, Plug, Network, Activity } from 'lucide-react'
+import { Bot, Puzzle, Film, MessagesSquare, BrainCircuit, Images, Clock4, Download, LayoutGrid, LayoutDashboard, Settings2, FolderClosed, PanelLeftOpen, Sparkles, Factory, MonitorCog, Cpu, Palette, Database, GitCompare, LogOut, Ellipsis, Globe2, ShieldCheck, Workflow, PenLine, LayoutTemplate, UserRound, Plug, Network, Activity } from 'lucide-react'
 import { useApp } from './store'
 import { useIsMobile } from './hooks/useIsMobile'
 import { useHashRoute, PageErrorBoundary, type Route } from './hooks/useHashRoute'
@@ -36,6 +36,7 @@ const BoardPage = lazy(() => import('./pages/Board'))
 const SystemPage = lazy(() => import('./pages/System'))
 // 2026-11-10：运行健康——机制新鲜度 / 退化自评 / 定时审计 / 自证与旁路，全部只读
 const HealthPage = lazy(() => import('./pages/Health'))
+const ExternalAgentsPage = lazy(() => import('./pages/ExternalAgents'))
 const SoulPage = lazy(() => import('./pages/Soul'))
 const AutoPatchesPage = lazy(() => import('./pages/AutoPatches'))
 const GatewayPage = lazy(() => import('./pages/Gateway'))
@@ -116,6 +117,7 @@ const PAGE_ROUTES: PageRoute[] = [
   { route: 'downloads', icon: Download, label: ROUTE_LABELS.downloads, Page: AssetsDownloadsPage, nav: false },
   { route: 'apps', icon: LayoutGrid, label: ROUTE_LABELS.apps, Page: Apps },
   { route: 'engine', icon: Cpu, label: ROUTE_LABELS.engine, Page: EnginePage },
+  { route: 'agents', icon: Bot, label: ROUTE_LABELS.agents, Page: ExternalAgentsPage },
   { route: 'themes', icon: Palette, label: ROUTE_LABELS.themes, Page: ThemesPage, nav: false },
   { route: 'sessiondb', icon: Database, label: ROUTE_LABELS.sessiondb, Page: BoardSessionsPage, nav: false },
   { route: 'mcp', icon: Plug, label: ROUTE_LABELS.mcp, Page: EngineMcpPage, nav: false },

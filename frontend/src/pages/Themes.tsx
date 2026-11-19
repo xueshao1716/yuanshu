@@ -12,6 +12,7 @@ import { ThemeApi, ColorApi } from '../api'
 import PageHeader from '../components/PageHeader'
 import SectionHeader from '../components/SectionHeader'
 import { toast } from '../components/shell/Toast'
+import LiteModePanel from '../components/panels/LiteModePanel'
 
 type Seed = { bg: string; text: string; accent: string; step: number; light?: boolean; overrides?: Record<string, string> }
 
@@ -273,6 +274,13 @@ export default function Themes() {
                 <>现在是手动覆盖：你选了{autoNow!.dir === 'dark' ? '深色' : '浅色'}。等{autoNow!.mode === 'time' ? '时段' : '系统状态'}变化后，自动会重新接管。</>
               )}
             </div>
+          </div>
+        </section>
+
+        <section data-slot="theme-lite" className="mb-8">
+          <SectionHeader title="省电显示" description="关掉毛玻璃、液态玻璃折射和常驻动画。没有显卡加速的电脑上（如没装显卡驱动），这些效果全靠 CPU 硬算，会让界面和后端一起卡。" />
+          <div className="panel !p-4">
+            <LiteModePanel />
           </div>
         </section>
 

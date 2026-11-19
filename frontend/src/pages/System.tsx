@@ -14,8 +14,6 @@ import EmailPanel from '../components/panels/EmailPanel'
 import PairLoginCard from '../components/cards/PairLoginCard'
 import ServiceStatusCard from '../components/cards/ServiceStatusCard'
 import JobsCard from '../components/cards/JobsCard'
-import AppearancePanel from '../components/panels/AppearancePanel'
-import ExternalAgentsPanel from '../components/panels/ExternalAgentsPanel'
 
 type DomainRow = { domain: string; desc: string }
 
@@ -368,21 +366,6 @@ export default function System() {
           </div>
         </section>
 
-        {/* ── 外观 · 自动深色（2026-11-19）：设置页就有开关，不必先进主题画廊 ── */}
-        <section>
-          <SectionHeader title="外观 · 自动深色" description="到点自动切深色、白天自动切回浅色；深浅两套用哪套主题在主题画廊里选。" />
-          <div className="panel !p-4">
-            <AppearancePanel />
-          </div>
-        </section>
-
-        {/* ── 外部智能体（2026-11-19）：允许元枢把编码活派给本机 Claude Code / Codex ── */}
-        <section>
-          <SectionHeader title="外部智能体" description="允许元枢把编码活派给本机的 Claude Code 或 Codex（只在工作区里改，定时任务不能用）。会消耗它们各自的额度。" />
-          <div className="panel !p-4">
-            <ExternalAgentsPanel />
-          </div>
-        </section>
 
         {/* ── 关于元枢（2026-10-20：系统介绍与声明，之前这块是缺的）── */}
         <section>

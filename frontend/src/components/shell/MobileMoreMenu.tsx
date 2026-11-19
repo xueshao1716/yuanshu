@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import {
-  Activity, Film, BrainCircuit, ClipboardCheck, Cpu, Factory, FolderKanban, GitCompare,
+  Activity, Bot, Film, BrainCircuit, ClipboardCheck, Cpu, Factory, FolderKanban, GitCompare,
   Globe2, LayoutDashboard, LayoutGrid, UserRound, MonitorCog, Package, PackageCheck, Layers, Palette, PanelRight, ShieldCheck, Sparkles, Workflow,
   TerminalSquare, X,
 } from 'lucide-react'
@@ -24,6 +24,7 @@ const MORE_ROUTES: { route: Route; icon: typeof Sparkles; label: string }[] = [
   { route: 'models', icon: BrainCircuit, label: ROUTE_LABELS.models },
   { route: 'apps', icon: LayoutGrid, label: ROUTE_LABELS.apps },
   { route: 'engine', icon: Cpu, label: ROUTE_LABELS.engine },
+  { route: 'agents', icon: Bot, label: ROUTE_LABELS.agents },
   { route: 'themes', icon: Palette, label: ROUTE_LABELS.themes },
   { route: 'gateway', icon: Layers, label: ROUTE_LABELS.gateway },
   { route: 'plugins', icon: Package, label: ROUTE_LABELS.plugins },
@@ -111,7 +112,11 @@ export default function MobileMoreMenu({ open, onClose, route, nav, onOpenPanel,
             <h2 id="mobile-more-title" className="text-[15px] font-semibold text-pi-text">更多功能</h2>
             <p className="text-xs text-pi-dim">功能页面与辅助工具</p>
           </div>
-          <button ref={closeButtonRef} className="mobile-more-action ml-auto !min-w-11 rounded-pi-md text-pi-dim hover:bg-pi-bg3 hover:text-pi-text" aria-label="关闭更多菜单" onClick={onClose}>
+          {/* 账号管理挪到标题栏（2026-11-19），功能格让给外部智能体，仍保持 4×4 */}
+          <button className="mobile-more-action ml-auto !min-w-11 rounded-pi-md text-pi-dim hover:bg-pi-bg3 hover:text-pi-text" aria-label="账号管理" title="账号管理" onClick={() => setAccountsOpen(true)}>
+            <UserRound className="h-[18px] w-[18px]" />
+          </button>
+          <button ref={closeButtonRef} className="mobile-more-action !min-w-11 rounded-pi-md text-pi-dim hover:bg-pi-bg3 hover:text-pi-text" aria-label="关闭更多菜单" onClick={onClose}>
             <X className="h-[18px] w-[18px]" />
           </button>
         </header>
@@ -130,13 +135,6 @@ export default function MobileMoreMenu({ open, onClose, route, nav, onOpenPanel,
                 <span>{item.label}</span>
               </button>
             ))}
-            <button
-              className="mobile-more-action flex-col gap-1 rounded-pi-md px-1 text-xs text-pi-dim hover:bg-pi-bg3 hover:text-pi-text"
-              onClick={() => { setAccountsOpen(true) }}
-            >
-              <UserRound className="h-5 w-5" strokeWidth={1.8} />
-              <span>账号管理</span>
-            </button>
           </div>
 
           <div className="my-3 border-t border-pi-border-soft" />

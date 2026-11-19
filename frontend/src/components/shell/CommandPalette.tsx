@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import * as D from '@radix-ui/react-dialog'
 import { useRestoreFocus } from '../../hooks/useRestoreFocus'
-import { Film, MessagesSquare, BrainCircuit, ClipboardCheck, Images, Clock4, LayoutGrid, FolderClosed, Package, SquareTerminal, Settings2, Plus, CornerDownLeft, LayoutDashboard, Sparkles, Factory, Palette, Database, MonitorCog, Cpu, Activity, ChevronsLeftRight, ShieldCheck, Workflow, Download, Plug } from 'lucide-react'
+import { Bot, Film, MessagesSquare, BrainCircuit, ClipboardCheck, Images, Clock4, LayoutGrid, FolderClosed, Package, SquareTerminal, Settings2, Plus, CornerDownLeft, LayoutDashboard, Sparkles, Factory, Palette, Database, MonitorCog, Cpu, Activity, ChevronsLeftRight, ShieldCheck, Workflow, Download, Plug } from 'lucide-react'
 import { useApp } from '../../store'
 import { toast } from './Toast'
 import { useLiquidGlass } from './LiquidGlass'
@@ -60,6 +60,7 @@ export default function CommandPalette({ open, onClose, nav, onRightPanel, onMod
       page('tv', '打开影视', Film),
       page('apps', '打开知识', LayoutGrid),
       page('engine', '打开能力', Cpu),
+      page('agents', '打开外部智能体（Claude Code / Codex）', Bot),
       page('themes', '打开主题', Palette),
       page('sessiondb', '打开会话库（工作台 · 会话库）', Database),
       page('downloads', '打开下载记录（资产 · 下载记录）', Download),
