@@ -84,6 +84,7 @@ import { resolveAuth } from "./dsh-keys.mjs";
 import { runYuanshuToolRound, attachYuanshuCodeTool, toolCallLoopKey } from "./yuanshu-loop.mjs";
 import { withTeamToolContext } from "./team-tool-context.mjs";
 import { readRegions, maxToolTurns, planBatchFactor, filterToolsByTier } from "./brain-regions.mjs";
+import { composeTools, unlockedFor } from "./tool-unlock.mjs";
 // 2026-11-14：每轮工具表快照（诊断盲区：这一轮到底下发了哪些工具）+ 工具硬失败落失败台账。
 import { recordToolSurface, recordToolFailure, TOOL_FAILURE_TURN_CAP } from "./tool-surface-log.mjs";
 
@@ -373,7 +374,24 @@ async function _unifiedChatCore(model, messages, opts = {}) {
   const toolWeights = brainNow();
   const tierValue = toolWeights?.tooling === null || toolWeights?.tooling === undefined ? null : Number(toolWeights.tooling);
   const rawToolDefs = opts.tools === false || noTools ? undefined : (opts.tools || _unifiedTools);
-  const toolDefs = rawToolDefs === undefined ? undefined : slimToolDefs(filterToolsByTier(rawToolDefs, toolWeights));
+  // 2026-11-19：被工具档收起的工具不再"消失"——给一行目录 + request_tool，点名后本会话一直带着（engine/tool-unlock.mjs）
+  const unlockKey = String(opts.sessionId || opts.executionContext?.sessionId || opts.executionContext?.runId || "");
+  const keptToolDefs = rawToolDefs === undefined ? undefined : filterToolsByTier(rawToolDefs, toolWeights);
+  let toolCatalog = "";
+  let unlockSig = "";
+  const composeToolDefs = () => {
+    if (rawToolDefs === undefined) return undefined;
+    const r = composeTools(rawToolDefs, keptToolDefs, unlockKey);
+    toolCatalog = r.catalog;
+    unlockSig = unlockedFor(unlockKey).join(",");
+    return slimToolDefs(r.tools);
+  };
+  let toolDefs = composeToolDefs();
+  const pinToolFacts = () => {
+    history = history.filter(message => !(message.role === 'system' && typeof message.content === 'string' && (message.content.startsWith('【本轮工具事实】') || message.content.startsWith('【收起的工具】'))));
+    if (toolCatalog) history.unshift({ role: 'system', content: toolCatalog });
+    history.unshift({ role: 'system', content: toolAvailabilityPrompt(toolDefs?.map(tool => tool.function?.name || tool.name) || []) });
+  };
   if (toolDefs !== undefined) {
     try {
       recordToolSurface({
@@ -386,8 +404,7 @@ async function _unifiedChatCore(model, messages, opts = {}) {
     } catch { /* 快照失败绝不阻断这一轮 */ }
   }
   // Refresh our own capability note on continuation; never infer permission from history.
-  history = history.filter(message => !(message.role === 'system' && typeof message.content === 'string' && message.content.startsWith('【本轮工具事实】')));
-  history.unshift({ role: 'system', content: toolAvailabilityPrompt(toolDefs?.map(tool => tool.function?.name || tool.name) || []) });
+  pinToolFacts();
   // 2026-11-07：后台子代理回执。照 media/api 的【系统】写法，只在这一轮出现一次：
   // 有未读才注入；注入后立刻标已读，否则同一条会在每轮反复占上下文。
   try {
@@ -589,6 +606,11 @@ async function _unifiedChatCore(model, messages, opts = {}) {
       // for correction. Abort, elapsed budget and loop guards remain active.
       batchLimit += maxTurns;
       opts.onNote?.(`本次已执行 ${turn - continuation.startTurn} 轮，正在保留已有结果自动接续；剩余自动执行时间约 ${Math.ceil((continuation.deadline - Date.now()) / 60000)} 分钟。`);
+    }
+    // request_tool 取回了新工具 → 从这一步起下发（工具事实与目录同步刷新）
+    if (toolDefs && unlockKey && unlockedFor(unlockKey).join(",") !== unlockSig) {
+      toolDefs = composeToolDefs();
+      pinToolFacts();
     }
     turn++;
     outputBudget = budgetWithinWindow({ declaredMaxTokens: outputBudget, contextWindow: declaredContextWindow(mdef), usedTokens: estimateHistoryTokens(history), fallback: OUTPUT_TOKEN_FALLBACK });

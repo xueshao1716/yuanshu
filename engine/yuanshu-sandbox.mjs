@@ -13,6 +13,7 @@ export const BASH_DANGER_RE = /(rm\s+-rf|del\s+\/f|rd\s+\/s|git\s+push\s+--force
 
 const READ_ONLY_TOOLS = new Set([
   "read", "web_search", "search_files", "activate_skill", "list_channels",
+  "request_tool", // 只改本会话工具可见性，不碰文件；取回的工具照常按各自档位审
 ]);
 
 export function sandboxRank(mode) {

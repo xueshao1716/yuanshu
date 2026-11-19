@@ -52,6 +52,7 @@ import { createMaintenanceApi } from "./engine/maintenance-api.mjs";
 import { sweepInterruptedRuns } from "./engine/story/store.mjs";
 import { extractPromises, recordPromises, loadPromises, pendingPromises, closePromise, pendingPromiseText, PROMISE_TOOL_SCHEMAS, promiseExtraExecutors, expireStalePromises } from "./engine/promises.mjs";
 import { MUSIC_TOOL_SCHEMA, musicExtraExecutors } from "./engine/music.mjs";
+import { requestToolExec } from "./engine/tool-unlock.mjs";
 import { DELEGATE_EXTERNAL_TOOL, createDelegateExternal, runExternalAgent, externalStatus, saveExternalConfig, detectExternalAgents } from "./engine/external-agent.mjs";
 import { musicLoginView, resetMusicLogin } from "./engine/music-login.mjs";
 import { createPairing, getPairing, claimPairing, approvePairing, takePairingToken, verifyDeviceToken, listDevices, revokeDevice } from "./engine/pairing.mjs";
@@ -1649,6 +1650,8 @@ const toolExecutorDeps = {
 // 用晚绑定容器：这里先建壳，初始化完成后把实例挂进来。
 const lateRefs = {};
 const extraToolExecutors = {
+    // 2026-11-19：取回被工具档收起的工具（只改可见性，取回后照样过审核/开关）
+    request_tool: (args, ctx) => requestToolExec(args, ctx),
     computer_use: (args, ctx) => computerTool(computerUse, args, ctx),
     cultivation: (args, ctx) => {
       // 不能展开 ctx：培养身份是**非枚举属性**，展开复制会把它丢掉，工具就变成"没有母体身份"。
