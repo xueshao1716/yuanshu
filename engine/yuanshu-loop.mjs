@@ -186,7 +186,7 @@ export function attachYuanshuCodeTool(tools, codeMode) {
 
 function exclusiveDef(name) {
   // delegate_task 现在是只读研究员（不写不跑命令），同一轮多个可并行；写类工具仍是屏障
-  if (name === "write" || name === "edit" || name === "bash" || name === "run_code" || name === "dsh_task") {
+  if (name === "write" || name === "edit" || name === "bash" || name === "run_code" || name === "dsh_task" || name === "delegate_external") {
     return { parallel: false };
   }
   return { parallel: true };

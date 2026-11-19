@@ -52,6 +52,7 @@ import { createMaintenanceApi } from "./engine/maintenance-api.mjs";
 import { sweepInterruptedRuns } from "./engine/story/store.mjs";
 import { extractPromises, recordPromises, loadPromises, pendingPromises, closePromise, pendingPromiseText, PROMISE_TOOL_SCHEMAS, promiseExtraExecutors, expireStalePromises } from "./engine/promises.mjs";
 import { MUSIC_TOOL_SCHEMA, musicExtraExecutors } from "./engine/music.mjs";
+import { DELEGATE_EXTERNAL_TOOL, createDelegateExternal, runExternalAgent } from "./engine/external-agent.mjs";
 import { musicLoginView, resetMusicLogin } from "./engine/music-login.mjs";
 import { createPairing, getPairing, claimPairing, approvePairing, takePairingToken, verifyDeviceToken, listDevices, revokeDevice } from "./engine/pairing.mjs";
 import { renderPairPage, PAIR_JS } from "./engine/pair-page.mjs";
@@ -1559,6 +1560,7 @@ const UNIFIED_TOOLS = [
   PLAN_FILES_SCHEMA,
   ...PROMISE_TOOL_SCHEMAS,
   MUSIC_TOOL_SCHEMA,
+  DELEGATE_EXTERNAL_TOOL,
   CANVAS_TOOL_SCHEMA,
   COMMISSION_TOOL_SCHEMA,
   RESEARCH_TOOL_SCHEMA,
@@ -1753,6 +1755,23 @@ const extraToolExecutors = {
         return { text: String(e?.message || e), isError: true };
       }
     }),
+    // 2026-11-19：派给本机 Claude Code / Codex（OAR）。默认关、每天限次；登记成后台作业，时间线能看见
+    delegate_external: async (args, ctx) => withClaim({ task: String(args?.task || "外部智能体任务"), agent: String(args?.agent || "external") }, () =>
+      createDelegateExternal({
+        wsRoot: WS_ROOT,
+        run: async (opts) => {
+          let out = null;
+          const job = jobPool.submit({ kind: "delegate_external", title: `${opts.agent}：${opts.task}`.slice(0, 90) }, async (signal) => {
+            out = await runExternalAgent({ ...opts, signal: signal || ctx?.signal });
+            if (out.isError) throw new Error(out.text);
+            return out.text;
+          });
+          try {
+            const done = await waitJob(job.id, 25 * 60_000);
+            return out || { text: done.error || done.resultPreview, isError: done.status !== "done" };
+          } catch (e) { return { text: String(e?.message || e), isError: true }; }
+        },
+      })(args, ctx)),
     ...mediaExtraExecutors({ getModelList: () => modelList, generateMediaAsync: trackedMedia, wsRoot: WS_ROOT,
       // check_model：用已存密钥发一句极短的话；不计入模型健康（探测失败不该把通道拉黑）
       probeModel: async (model) => {

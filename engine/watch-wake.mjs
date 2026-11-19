@@ -36,7 +36,7 @@ export const DEFAULT_WAKE_TOOLS = Object.freeze([
 
 /** 与默认只读集对照用的「明确不给」清单（文档/测试可引用）。 */
 export const DEFAULT_WAKE_DENY = Object.freeze([
-  "write", "edit", "bash", "pwsh", "dsh_task", "run_detached",
+  "write", "edit", "bash", "pwsh", "dsh_task", "delegate_external", "run_detached",
   "generate_image", "generate_video", "generate_tts", "computer_use",
 ]);
 

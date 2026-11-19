@@ -1,0 +1,171 @@
+// engine/external-agent.mjs —— 把活派给本机的 Claude Code / Codex（2026-11-19）
+//
+// 借 OAR（@botiverse/oar）统一驱动外部编码智能体：它负责拉起 CLI、收事件、等这一轮结束。
+// OAR 还是 0.x，接口随时可能变，所以只在这一个文件里碰它；server.mjs 只认 delegate_external。
+//
+// 三道闸：
+//   1) 默认关闭——记忆/运行时/外部智能体.json 里 enabled:true 才放行；
+//   2) 每天最多 dailyCap 次（默认 5），按派出次数算，失败也算；
+//   3) 工作目录只能是工作区或它下面的子目录，Codex 用 workspace-write 沙箱。
+import fs from 'node:fs';
+import path from 'node:path';
+
+export const EXTERNAL_AGENT_FILE = path.join('记忆', '运行时', '外部智能体.json');
+export const DEFAULT_DAILY_CAP = 5;
+export const DEFAULT_TIMEOUT_MS = 20 * 60_000;
+const AGENTS = { claude: 'Claude Code', codex: 'Codex' };
+
+export const DELEGATE_EXTERNAL_TOOL = {
+  type: 'function',
+  function: {
+    name: 'delegate_external',
+    description: '把一件编码/改文件的活派给本机的 Claude Code 或 Codex，同步等它做完并返回它的总结。默认关闭、每天有次数上限；只在用户明确要求用外部智能体时调用。',
+    parameters: {
+      type: 'object',
+      properties: {
+        agent: { type: 'string', enum: Object.keys(AGENTS), description: 'claude = Claude Code，codex = Codex' },
+        task: { type: 'string', description: '完整、自足的任务说明（对方看不到当前对话）' },
+        subdir: { type: 'string', description: '可选：工作区内的子目录，作为对方的工作目录' },
+      },
+      required: ['agent', 'task'],
+    },
+  },
+};
+
+const today = (now) => new Date(now).toISOString().slice(0, 10);
+
+export function readExternalConfig(wsRoot) {
+  let raw = {};
+  try { raw = JSON.parse(fs.readFileSync(path.join(wsRoot, EXTERNAL_AGENT_FILE), 'utf8')) || {} } catch {}
+  const cap = Number(raw.dailyCap);
+  return {
+    enabled: raw.enabled === true,
+    dailyCap: Number.isInteger(cap) && cap >= 0 ? cap : DEFAULT_DAILY_CAP,
+    usage: raw.usage && typeof raw.usage === 'object' ? raw.usage : {},
+    raw,
+  };
+}
+
+// 先记账再派：返回 { ok, used, cap } 或 { ok:false, reason }
+export function claimExternalSlot(wsRoot, now = Date.now()) {
+  const cfg = readExternalConfig(wsRoot);
+  if (!cfg.enabled) return { ok: false, reason: 'disabled' };
+  const day = today(now);
+  const used = Number(cfg.usage[day]) || 0;
+  if (used >= cfg.dailyCap) return { ok: false, reason: 'quota', used, cap: cfg.dailyCap };
+  const file = path.join(wsRoot, EXTERNAL_AGENT_FILE);
+  // 只留当天的计数，文件不会越写越长
+  const next = { ...cfg.raw, usage: { [day]: used + 1 } };
+  try {
+    fs.mkdirSync(path.dirname(file), { recursive: true });
+    fs.writeFileSync(file, JSON.stringify(next, null, 2), 'utf8');
+  } catch { return { ok: false, reason: 'ledger' } }
+  return { ok: true, used: used + 1, cap: cfg.dailyCap };
+}
+
+// 工作目录必须落在工作区里：拒绝绝对路径、.. 越界和不存在的目录
+export function resolveExternalCwd(wsRoot, subdir) {
+  const root = path.resolve(wsRoot);
+  const rel = String(subdir || '').trim();
+  if (!rel) return root;
+  if (path.isAbsolute(rel) || /^[A-Za-z]:/.test(rel)) return null;
+  const full = path.resolve(root, rel);
+  if (full !== root && !full.startsWith(root + path.sep)) return null;
+  try { if (!fs.statSync(full).isDirectory()) return null } catch { return null }
+  return full;
+}
+
+async function defaultLoad(agent) {
+  const [rt, observe] = await Promise.all([
+    agent === 'codex' ? import('@botiverse/oar/runtimes/codex') : import('@botiverse/oar/runtimes/claude'),
+    import('@botiverse/oar/observe'),
+  ]);
+  return { runtime: agent === 'codex' ? rt.codexRuntime : rt.claudeRuntime, promptAndWait: observe.promptAndWait };
+}
+
+const clip = (s, n) => { const t = String(s || '').trim(); return t.length > n ? t.slice(0, n) + '…' : t };
+
+function outcomeText(outcome) {
+  if (!outcome) return '';
+  if (outcome.kind === 'completed') return '';
+  if (outcome.kind === 'aborted') return '被中止';
+  const why = { auth: '登录/凭据有问题', quota: '额度用完了', rate_limited: '被限流', billing: '账单问题', model_unavailable: '模型不可用', overloaded: '服务繁忙' }[outcome.failure];
+  return clip([why || outcome.failure, outcome.reason].filter(Boolean).join('：'), 200);
+}
+
+/**
+ * 跑一次外部智能体。
+ * @returns {Promise<{text:string, isError:boolean, tools?:string[]}>}
+ */
+export async function runExternalAgent({ agent, task, cwd, signal, timeoutMs = DEFAULT_TIMEOUT_MS, load = defaultLoad, onEvent } = {}) {
+  const label = AGENTS[agent];
+  if (!label) return { text: `不认识的外部智能体：${agent}（只支持 claude / codex）`, isError: true };
+  let mod;
+  try { mod = await load(agent) }
+  catch (e) { return { text: `外部智能体组件没装好（@botiverse/oar，需要 Node 24+）：${clip(e?.message || e, 160)}`, isError: true } }
+  let inst;
+  try { inst = await mod.runtime.installation() } catch (e) { inst = { kind: 'error', reason: e?.message } }
+  if (inst?.kind !== 'available') return { text: `本机没找到可用的 ${label}：${clip(inst?.reason || inst?.kind || '未安装', 160)}`, isError: true };
+
+  const tools = [];
+  let session;
+  const prevSandbox = process.env.OAR_CODEX_SANDBOX;
+  try {
+    // Codex 默认是 danger-full-access，这里收到只能写工作目录
+    if (agent === 'codex') process.env.OAR_CODEX_SANDBOX = 'workspace-write';
+    session = await mod.runtime.session(inst, { cwd, ...(agent === 'claude' ? { userConfiguration: 'exclude' } : {}) });
+  } catch (e) {
+    return { text: `${label} 启动失败：${clip(e?.message || e, 200)}`, isError: true };
+  } finally {
+    if (agent === 'codex') { if (prevSandbox === undefined) delete process.env.OAR_CODEX_SANDBOX; else process.env.OAR_CODEX_SANDBOX = prevSandbox }
+  }
+  try {
+    try {
+      session.events?.((ev) => {
+        if (ev?.kind === 'tool_call_started') {
+          const name = String(ev.toolName || ev.tool || '工具');
+          tools.push(name);
+          onEvent?.({ type: 'tool', name });
+        }
+      }, { coalesceText: true });
+    } catch {}
+    const r = await mod.promptAndWait(session, String(task), { timeoutMs, ...(signal ? { signal } : {}) });
+    const body = clip(r?.text, 6000);
+    const used = tools.length ? `\n\n（${label} 调用了 ${tools.length} 次工具）` : '';
+    if (r?.kind === 'rejected') return { text: `${label} 拒收了任务：${clip(r.reason || r.code, 200)}`, isError: true, tools };
+    if (r?.kind === 'interrupted') {
+      const why = r.by === 'timeout' ? `超过 ${Math.round(timeoutMs / 60000)} 分钟没做完` : '被取消';
+      return { text: `${label} ${why}，已停下。${body ? `\n已有输出：\n${body}` : ''}${used}`, isError: true, tools };
+    }
+    if (r?.kind === 'ended') {
+      const bad = outcomeText(r.outcome);
+      if (bad) return { text: `${label} 这一轮没成功：${bad}${body ? `\n${body}` : ''}${used}`, isError: true, tools };
+      return { text: `${body || `（${label} 没有文字输出）`}${used}`, isError: false, tools };
+    }
+    return { text: `${label} 返回了意外结果：${clip(r?.kind, 60)}`, isError: true, tools };
+  } catch (e) {
+    return { text: `${label} 运行出错：${clip(e?.message || e, 200)}`, isError: true, tools };
+  } finally {
+    try { if (signal?.aborted) await session.abort?.() } catch {}
+    try { await session.dispose?.() } catch {}
+  }
+}
+
+/** 工具执行器：闸门 → 记账 → 跑。submit 由调用方注入（server 里是作业池 + 认领）。 */
+export function createDelegateExternal({ wsRoot, run = runExternalAgent, now = () => Date.now() } = {}) {
+  return async (args = {}, { signal } = {}) => {
+    const agent = String(args.agent || '').trim().toLowerCase();
+    const task = String(args.task || '').trim();
+    if (!AGENTS[agent]) return { text: 'agent 只能是 claude 或 codex', isError: true };
+    if (!task) return { text: '请给出任务说明', isError: true };
+    const cwd = resolveExternalCwd(wsRoot, args.subdir);
+    if (!cwd) return { text: `子目录不在工作区内或不存在：${clip(args.subdir, 80)}`, isError: true };
+    const slot = claimExternalSlot(wsRoot, now());
+    if (!slot.ok) {
+      if (slot.reason === 'disabled') return { text: `外部智能体没开启。需要用户在 ${EXTERNAL_AGENT_FILE.replace(/\\/g, '/')} 里把 enabled 设为 true。`, isError: true };
+      if (slot.reason === 'quota') return { text: `今天的外部智能体次数用完了（${slot.used}/${slot.cap}），明天再派。`, isError: true };
+      return { text: '外部智能体台账写不进去，这次不派。', isError: true };
+    }
+    return run({ agent, task, cwd, signal });
+  };
+}

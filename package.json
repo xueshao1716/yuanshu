@@ -46,5 +46,8 @@
     "@capacitor/cli": "8.5.1",
     "playwright": "^1.62.1",
     "typescript": "^7.0.2"
+  },
+  "optionalDependencies": {
+    "@botiverse/oar": "0.120.0"
   }
 }
