@@ -2709,3 +2709,16 @@ html[data-theme="obsidian"] body {
   :root[data-theme="obsidian"] .workstart-command,
   :root[data-theme="obsidian"] .btn-primary { transition-duration: .01s; }
 }
+
+/* ══ 省电显示（2026-11-19）：html[data-lite] 由 lib/lite-mode.mjs 在软件渲染时打上 ══
+   没显卡驱动的机器上，毛玻璃每帧都要 CPU 把底下重新模糊一遍，是 webview 吃满 CPU 的大头。
+   这里一律去模糊、去常驻动画；半透明底色保持不变（只是不再模糊），状态点保留颜色只停闪烁。 */
+html[data-lite] *, html[data-lite] *::before, html[data-lite] *::after {
+  -webkit-backdrop-filter: none !important;
+  backdrop-filter: none !important;
+  animation-iteration-count: 1 !important;
+  scroll-behavior: auto !important;
+}
+html[data-lite] .glass, html[data-lite] .glass-strong, html[data-lite] .glass-hi,
+html[data-lite] .liquid-glass, html[data-lite] .col-sidebar, html[data-lite] .col-right { background-color: var(--pi-bg1); }
+html[data-lite] .animate-spin { animation-iteration-count: infinite !important; } /* 加载转圈要留着，否则看着像卡死 */

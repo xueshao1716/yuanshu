@@ -42,7 +42,19 @@ mod tests {
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    tauri::Builder::default()
+    let builder = tauri::Builder::default();
+    // 2026-11-19 单实例：新电脑上离线包内置一套、又单独装了一套客户端，两个窗口各跑一份 WebView，
+    // CPU 翻倍。按 identifier 判重（两套安装同一个 identifier），再次打开只把已有窗口拉到前面。
+    // 必须是第一个注册的插件。
+    #[cfg(desktop)]
+    let builder = builder.plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
+        if let Some(w) = app.get_webview_window("main") {
+            let _ = w.unminimize();
+            let _ = w.show();
+            let _ = w.set_focus();
+        }
+    }));
+    builder
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_notification::init())
         .invoke_handler(tauri::generate_handler![open_download_folder, startup::ensure_local_service, startup::enter_local_workspace,

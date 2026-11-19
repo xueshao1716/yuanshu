@@ -1,4 +1,5 @@
 import { useEffect, type RefObject } from 'react'
+import { isLite } from '../../lib/lite-mode.mjs'
 import { buildLiquidFilter, refractionSupported, THEME_GLASS_SELECTORS, THEME_GLASS_MAX } from '../../lib/liquid-glass.mjs'
 
 // 给一个元素挂上液态玻璃折射（2026-11-17）。元素本身要带 .liquid-glass（毛玻璃 + 高光，全浏览器）；
@@ -18,7 +19,7 @@ function defs(): SVGSVGElement {
 }
 
 const reducedTransparency = () => typeof matchMedia === 'function' && matchMedia('(prefers-reduced-transparency: reduce)').matches
-const canRefract = () => refractionSupported() && !reducedTransparency()
+const canRefract = () => refractionSupported() && !reducedTransparency() && !isLite()
 
 interface GlassOpts { radius?: number; strength?: number; blur?: number }
 

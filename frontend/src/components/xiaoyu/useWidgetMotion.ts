@@ -3,6 +3,7 @@ import type { PointerEvent } from 'react'
 import { clampPosition, movedEnough, normalizeMode } from './widget-state.mjs'
 import * as widgetState from './widget-state.mjs'
 import type { Point } from './widget-state.mjs'
+import { lessMotion } from '../../lib/lite-mode.mjs'
 
 // The state module is JavaScript; keep the new compact bounds available to
 // TypeScript builds that only infer its legacy named exports.
@@ -24,7 +25,7 @@ export function useWidgetMotion(paused: boolean, compact = false) {
   const bound = (point: Point, view: { width: number; height: number }) => compact ? clampFloatingPosition(point, view) : clampPosition(point, view)
   const [view, setView] = useState(viewport)
   const [mode, setModeState] = useState(() => normalizeMode(readPreference('xiaoyu_mode')))
-  const [reduced, setReduced] = useState(() => window.matchMedia('(prefers-reduced-motion: reduce)').matches)
+  const [reduced, setReduced] = useState(() => lessMotion())
   const [position, setPosition] = useState(() => {
     try { const p = JSON.parse(readPreference(positionKey) || 'null'); return p ? bound(p, viewport()) : (compact ? floatingHome() : home()) } catch { return compact ? floatingHome() : home() }
   })
@@ -38,7 +39,7 @@ export function useWidgetMotion(paused: boolean, compact = false) {
 
   useEffect(() => {
     const mq = window.matchMedia('(prefers-reduced-motion: reduce)')
-    const change = () => setReduced(mq.matches)
+    const change = () => setReduced(lessMotion())
     const resize = () => { setView(viewport()); move(bound(point.current, viewport())) }
     mq.addEventListener('change', change)
     window.addEventListener('resize', resize)

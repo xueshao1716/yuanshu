@@ -169,9 +169,25 @@ Section "桌面客户端" SecDesktop
       MessageBox MB_OK|MB_ICONEXCLAMATION "桌面客户端安装失败（错误码 $0）。$\n元枢主服务已安装完成，可通过浏览器访问。"
     ${Else}
       DetailPrint "桌面客户端安装成功"
-      ; Tauri 实际装到 %LOCALAPPDATA%\元枢\yuanshu.exe，快捷方式指向实际位置
-      CreateShortcut "$DESKTOP\元枢.lnk" "$LOCALAPPDATA\元枢\yuanshu.exe" "" "$INSTDIR\launcher\yuanshu.ico"
-      CreateShortcut "$SMPROGRAMS\元枢\元枢（桌面端）.lnk" "$LOCALAPPDATA\元枢\yuanshu.exe" "" "$INSTDIR\launcher\yuanshu.ico"
+      ; 2026-11-19 快捷方式指向客户端"实际"位置：Tauri 安装器会沿用上次的安装目录
+      ; （用户先单独装过客户端到 D 盘，就装回 D 盘）。以前写死 %LOCALAPPDATA%\元枢，会指向另一份副本，
+      ; 新电脑上两套客户端同时开、CPU 翻倍。从卸载注册表读 InstallLocation（带引号要去掉），读不到退回默认位置。
+      ReadRegStr $1 HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\元枢" "InstallLocation"
+      ${If} $1 == ""
+        ReadRegStr $1 HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\元枢" "InstallLocation"
+      ${EndIf}
+      StrCpy $3 $1 1
+      ${If} $3 == '"'
+        StrCpy $1 $1 "" 1
+        StrCpy $1 $1 -1
+      ${EndIf}
+      ${If} $1 == ""
+      ${OrIfNot} ${FileExists} "$1\yuanshu.exe"
+        StrCpy $1 "$LOCALAPPDATA\元枢"
+      ${EndIf}
+      DetailPrint "桌面客户端位置：$1"
+      CreateShortcut "$DESKTOP\元枢.lnk" "$1\yuanshu.exe" "" "$INSTDIR\launcher\yuanshu.ico"
+      CreateShortcut "$SMPROGRAMS\元枢\元枢（桌面端）.lnk" "$1\yuanshu.exe" "" "$INSTDIR\launcher\yuanshu.ico"
       CreateShortcut "$SMPROGRAMS\元枢\元枢（浏览器）.lnk" "$INSTDIR\launcher\yuanshu.exe" "" "$INSTDIR\launcher\yuanshu.ico"
     ${EndIf}
   !endif

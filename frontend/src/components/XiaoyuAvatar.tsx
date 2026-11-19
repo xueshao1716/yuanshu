@@ -11,6 +11,7 @@
 import { useEffect, useRef } from 'react'
 import { vadVisual, type MoodVisual } from '../lib/emotion'
 import { hsla, tickRingAlpha, readoutLines, particleSphere, dustField } from '../lib/avatar-lang'
+import { lessMotion } from '../lib/lite-mode.mjs'
 
 const EASE_K = 3.2 // 目标参数追赶：时间常数约 0.31s
 const DT_MAX = 0.1
@@ -47,7 +48,7 @@ export function XiaoyuAvatar({ state, label = '小语', className }: { state?: a
     ro?.observe(canvas)
     window.addEventListener('resize', resize)
 
-    const reduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches
+    const reduced = lessMotion()
     let cur: MoodVisual = { ...targetRef.current }
     let spin = 0
     let scan = Math.random() * SCAN_PERIOD

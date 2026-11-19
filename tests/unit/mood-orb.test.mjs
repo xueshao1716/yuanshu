@@ -55,7 +55,7 @@ test('MoodOrb 组件契约：积分相位、缓动、reduced-motion 静态、隐
   const src = read('components', 'MoodOrb.tsx')
   assert.match(src, /phase \+= dt \* Math\.PI \* 2 \* cur\.tempo/, '必须用积分相位驱动呼吸（tempo 变化不跳帧）')
   assert.match(src, /1 - Math\.exp\(-EASE_K \* dt\)/, '参数必须指数缓动追赶目标（murmur 0.6s 过渡同量级）')
-  assert.match(src, /prefers-reduced-motion/, 'reduced-motion 必须静态化')
+  assert.match(src, /prefers-reduced-motion|lessMotion\(\)/, 'reduced-motion 必须静态化（lessMotion 含省电显示）')
   assert.match(src, /visibilitychange/, '隐藏页签必须暂停动画')
   assert.match(src, /Math\.min\(.*devicePixelRatio.*,\s*2\)/, 'DPR 必须设上限')
   assert.match(src, /cancelAnimationFrame/, '卸载必须取消 rAF')
@@ -97,7 +97,7 @@ test('对话右上角灵珠和工作台潮汐必须共用同一份情绪快照',
 test('GradientField：欢迎页氛围层——懒加载拆块、深色限定、WebGL 预检、纯装饰', () => {
   const src = read('components', 'GradientField.tsx')
   assert.match(src, /lazy\(\(\) => import\('\.\/ShaderGradientInner'\)\)/, 'three 必须经 React.lazy 拆块，不进主包')
-  assert.match(src, /prefers-reduced-motion/, 'reduced-motion 必须静态回退')
+  assert.match(src, /prefers-reduced-motion|lessMotion\(\)/, 'reduced-motion 必须静态回退（lessMotion 含省电显示）')
   assert.match(src, /isDarkTheme/, '浅色主题不得渲染深色渐变')
   assert.match(src, /getContext\('webgl2'\)/, '必须预检 WebGL，失败静默回退')
   assert.match(src, /pointer-events-none/, '纯装饰不拦交互')

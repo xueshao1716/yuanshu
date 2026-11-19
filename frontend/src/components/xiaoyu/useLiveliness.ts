@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import type { CompanionAction } from './companion-state.mjs'
+import { lessMotion } from '../../lib/lite-mode.mjs'
 
 /**
  * 让人物"活起来"（2026-11-06）
@@ -32,7 +33,7 @@ export function useLiveliness(action: CompanionAction, enabled = true) {
   useEffect(() => {
     if (!enabled) return
     if (typeof window === 'undefined') return
-    try { reduced.current = window.matchMedia?.('(prefers-reduced-motion: reduce)')?.matches === true } catch {}
+    reduced.current = lessMotion()
     const onMove = (e: PointerEvent) => {
       const w = window.innerWidth || 1
       const h = window.innerHeight || 1

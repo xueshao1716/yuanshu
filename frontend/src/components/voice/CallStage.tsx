@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { createSiriWave } from '../../realtime/siri-wave.mjs'
 import { smoothBands, ZERO_BANDS } from '../../realtime/levels.mjs'
+import { lessMotion } from '../../lib/lite-mode.mjs'
 
 type Bands = { level: number; low: number; mid: number; high: number }
 export type CallLevels = () => { mic: Bands; out: Bands } | null
@@ -15,7 +16,7 @@ export default function CallStage({ state, levels }: { state: string; levels?: C
   const [wave, setWave] = useState(false)
   useEffect(() => {
     const canvas = canvasRef.current
-    if (!canvas || window.matchMedia?.('(prefers-reduced-motion: reduce)').matches) return
+    if (!canvas || lessMotion()) return
     const renderer = createSiriWave(canvas)
     if (!renderer) return
     setWave(true)

@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import useSWR from 'swr'
 import { api } from '../api'
 import { LoadState } from './shared'
+import { lessMotion } from '../lib/lite-mode.mjs'
 
 // 灵魂图谱：小语在中间，性格/情绪/记忆/技能/学习五个枢纽围着她。
 // 点枢纽 → 它退到左边，叶子扇形展开；点叶子 → 右侧看详情；Esc 或面包屑逐层返回。
@@ -14,7 +15,7 @@ type Graph = { nodes: GNode[]; links: GLink[]; at: string }
 type Pose = { x: number; y: number; o: number; s: number }
 
 const TAU = Math.PI * 2
-const reducedMotion = () => typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches
+const reducedMotion = () => lessMotion()
 
 function targets(g: Graph, W: number, H: number, focus: string | null): Record<string, Pose> {
   const out: Record<string, Pose> = {}

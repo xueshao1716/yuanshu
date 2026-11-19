@@ -7,6 +7,7 @@
 // · WebGL 预检，失败静默回退（欢迎页没有背景也成立）
 // · pointer-events-none / aria-hidden，纯装饰不拦交互
 import { Component, lazy, Suspense, useEffect, useState, type ReactNode } from 'react'
+import { lessMotion } from '../lib/lite-mode.mjs'
 
 const Field = lazy(() => import('./ShaderGradientInner'))
 
@@ -43,7 +44,7 @@ function webglOk(): boolean {
 export default function GradientField() {
   const [on, setOn] = useState(false)
   useEffect(() => {
-    if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) return // 动效敏感用户：静态欢迎页
+    if (lessMotion()) return // 动效敏感用户：静态欢迎页
     if (!isDarkTheme() || !webglOk()) return
     setOn(true)
   }, [])

@@ -16,6 +16,7 @@
 
 import { useEffect, useRef } from 'react'
 import { vadVisual, type MoodVisual } from '../lib/emotion'
+import { lessMotion } from '../lib/lite-mode.mjs'
 
 // 缓动速率（每秒）：时间常数约 0.31s，主要过渡 ≈0.6s 走完，同 murmur TRANSITION_DURATION 量级
 const EASE_K = 3.2
@@ -41,7 +42,7 @@ export function MoodOrb({ state, size = 20, label }: { state?: any; size?: numbe
     const dpr = Math.min(window.devicePixelRatio || 1, 2)
     canvas.width = Math.max(1, Math.round(size * dpr))
     canvas.height = Math.max(1, Math.round(size * dpr))
-    const reduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches
+    const reduced = lessMotion()
 
     let cur: MoodVisual = { ...targetRef.current }
     let phase = Math.random() * Math.PI * 2 // 起始相位随机，多颗球不同步

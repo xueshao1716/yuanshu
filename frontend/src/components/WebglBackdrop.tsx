@@ -6,6 +6,7 @@
 // · 克制：uDim 控制强度；prefers-reduced-motion → 静态单帧；WebGL 不可用 → return null（CSS 渐变回退）
 // ══════════════════════════════════════════════════════════
 import { useEffect, useRef } from 'react'
+import { lessMotion } from '../lib/lite-mode.mjs'
 
 const VERT = `attribute vec2 p;void main(){gl_Position=vec4(p,0.,1.);}`
 const FRAG = `
@@ -94,7 +95,7 @@ export default function WebglBackdrop({ dim = 0.16, className = '', staticMode =
     const el = document.documentElement
     let raf = 0
     let t = 0
-    const reduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches
+    const reduced = lessMotion()
 
     const resize = () => {
       const dpr = Math.min(window.devicePixelRatio || 1, 2)
@@ -119,7 +120,10 @@ export default function WebglBackdrop({ dim = 0.16, className = '', staticMode =
       gl.drawArrays(gl.TRIANGLES, 0, 3)
     }
 
-    const loop = (now: number) => { draw(now); raf = requestAnimationFrame(loop) }
+    // 页签隐藏/最小化时停帧（以前一直画，软件渲染机器上白吃 CPU）
+    const loop = (now: number) => { if (document.hidden) { raf = 0; return } draw(now); raf = requestAnimationFrame(loop) }
+    const onVis = () => { if (!document.hidden && !raf && !reduced && !staticMode) raf = requestAnimationFrame(loop) }
+    document.addEventListener('visibilitychange', onVis)
 
     resize(); setColors(); draw(0)
     if (!reduced && !staticMode) raf = requestAnimationFrame(loop)
@@ -130,7 +134,7 @@ export default function WebglBackdrop({ dim = 0.16, className = '', staticMode =
     const mo = new MutationObserver(() => { setColors(); if (reduced || staticMode) draw(0) })
     mo.observe(el, { attributes: true, attributeFilter: ['style', 'data-theme'] })
 
-    return () => { cancelAnimationFrame(raf); ro.disconnect(); mo.disconnect(); gl.deleteBuffer(buf); gl.deleteProgram(prog) }
+    return () => { cancelAnimationFrame(raf); document.removeEventListener('visibilitychange', onVis); ro.disconnect(); mo.disconnect(); gl.deleteBuffer(buf); gl.deleteProgram(prog) }
   }, [dim, staticMode])
 
   return <canvas ref={canvasRef} aria-hidden className={`w-full h-full ${className}`} style={{ display: 'block' }} />

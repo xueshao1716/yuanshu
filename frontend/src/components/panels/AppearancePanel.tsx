@@ -8,6 +8,7 @@ import { Moon, Sun, Clock } from 'lucide-react'
 import { getAutoConfig, updateAutoConfig, autoState, type AutoConfig, type AutoMode } from '../../theme/auto'
 import { THEME_CATALOG } from '../../theme/palettes'
 import { toast } from '../shell/Toast'
+import { getLitePref, setLitePref, detectSoftwareRender, isLite, type LitePref } from '../../lib/lite-mode.mjs'
 
 const NAME = Object.fromEntries(THEME_CATALOG.map(t => [t.id, t.name]))
 
@@ -27,6 +28,13 @@ export default function AppearancePanel() {
     }
   }, [])
 
+  const [lite, setLite] = useState<LitePref>(() => getLitePref())
+  const pickLite = (v: LitePref) => {
+    setLite(v)
+    const on = setLitePref(v)
+    toast(on ? '已开启省电显示：毛玻璃与动画已关，刷新后完全生效' : '已关闭省电显示，刷新后动画恢复', 'ok')
+  }
+
   const set = (patch: Partial<AutoConfig>) => {
     const next = updateAutoConfig(patch)
     setCfg(next)
@@ -42,6 +50,19 @@ export default function AppearancePanel() {
 
   return (
     <div className="space-y-3">
+      <div className="flex flex-wrap items-center gap-2">
+        <span className="text-[13px] text-pi-text">省电显示</span>
+        {([['auto', '自动'], ['on', '开'], ['off', '关']] as [LitePref, string][]).map(([v, label]) => (
+          <button key={v} onClick={() => pickLite(v)} aria-pressed={lite === v}
+            className={`px-2.5 h-7 rounded-pi-sm border text-[11px] transition-colors ${lite === v ? 'border-pi-accent text-pi-text' : 'border-pi-border text-pi-dim2 hover:text-pi-text'}`}
+            style={lite === v ? { background: 'var(--pi-accent-soft)', color: 'var(--pi-accent-soft-fg)' } : undefined}>
+            {label}
+          </button>
+        ))}
+        <span className="text-[11px] text-pi-dim2 basis-full">
+          关掉毛玻璃和常驻动画。自动 = 检测到没有显卡加速（软件渲染）时开启{detectSoftwareRender() ? '，本机是软件渲染' : ''}；当前{isLite() ? '已开启' : '未开启'}。
+        </span>
+      </div>
       <div className="flex items-center gap-3">
         <button
           role="switch"

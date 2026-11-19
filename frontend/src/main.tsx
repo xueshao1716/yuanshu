@@ -10,6 +10,7 @@ import './premium.css'
 import App from './App'
 import { bootTheme } from './theme/apply'
 import { startThemeAuto } from './theme/auto'
+import { applyLiteMode } from './lib/lite-mode.mjs'
 
 // 非阻塞字体：由同源模块激活，兼容 CSP 禁止内联事件以及缓存命中。
 const fonts = document.querySelector<HTMLLinkElement>('link[data-deferred-fonts]')
@@ -19,6 +20,8 @@ if (fonts) {
   if (fonts.sheet) applyFonts()
 }
 
+// 省电显示：软件渲染（没显卡驱动）时关毛玻璃和常驻动画；必须在首次渲染前定，组件挂载时会读
+applyLiteMode()
 bootTheme()
 // 自动深色（2026-11-17）：bootTheme 恢复出手动主题后再接管——顺序不能反，
 // 否则自动决策会被随后的 bootTheme 覆盖成手动主题
