@@ -7,6 +7,7 @@
 
 - OpenRouter 能出图：它的出图模型（如免费的 Recraft V4.1 Flash V2）不走 `/images/generations`，走 chat/completions 加 `modalities:["image"]`，新增对应适配器，画幅按 `image_config.aspect_ratio` 传；Recraft 系列按出图模型识别，不再被当成对话模型。
 - 系统设置页新增「外观 · 自动深色」开关：开启后到点自动切深色，可选按时段（默认 19:00–07:00）或跟随系统，不用先进主题画廊。
+- 模型中心新增「默认设置」：可选默认模型（写入 `settings.json`，新会话和后台任务用它）、排兜底模型顺序（最多 10 个，故障、限流和超预算换模型时先按这个顺序，再走内置顺序）、改每日 token 预算和「超预算自动换便宜模型」开关。改完立即生效，不用重启。
 - 新增 `delegate_external` 工具：经 OAR（`@botiverse/oar`，可选依赖，需 Node 24+）把编码活派给本机的 Claude Code 或 Codex，同步等结果。默认关闭，在「系统设置 → 外部智能体」打开（页面同时显示本机有没有装、今天用了几次）；每天最多 5 次（页面上可调）；工作目录只能是工作区或其子目录，Codex 用 `workspace-write` 沙箱；每次登记成后台作业，单次最长 20 分钟。定时任务不许调用，值班唤醒也不给。
 
 ### Changed

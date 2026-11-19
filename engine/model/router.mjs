@@ -73,6 +73,18 @@ export function ocGoCandidate(re) {
 }
 
 // 按 provider+正则找模型，跳过冷却中的（候选链统一走这个，健康过滤不再散落各处）
+// 2026-11-19：用户在模型中心排的兜底顺序（"provider/id" 列表）。排了就先走它，再走下面写死的链。
+let _userFallbacks = [];
+export function setUserFallbacks(list) {
+  _userFallbacks = (Array.isArray(list) ? list : []).map(String).filter((k) => k.includes("/")).slice(0, 10);
+}
+export function getUserFallbacks() { return _userFallbacks.slice(); }
+function userFallbackModels() {
+  const list = _getModelList();
+  return _userFallbacks
+    .map((k) => list.find((m) => `${m.provider}/${m.id}` === k))
+    .filter((m) => m && isTextCapableModel(m) && !isModelBlocked(m));
+}
 function findLive(provider, re) {
   const m = _getModelList().find(x => x.provider === provider && re.test(x.id));
   return m && !isModelBlocked(m) ? m : undefined;
@@ -117,6 +129,7 @@ export function pickBudgetDowngrade(excludeModel) {
   if (!list.length) return null;
 
   // ① 既有降级链
+  for (const m of userFallbackModels()) if (ok(m)) return m;
   for (const [provider, re] of BUDGET_CHAIN) {
     const hit = list.find((m) => m.provider === provider && re.test(String(m.id || "")) && ok(m));
     if (hit) return hit;
@@ -144,7 +157,8 @@ export function pickFallbackDefault() {
   const fallback = (provider, re) => { const m = findLive(provider, re); return m && isTextCapableModel(m) ? m : undefined; };
   // 用户定（2026-09-04）：默认模型已指向 Agnes 旗舰；冷却时先落 agnes-flash，再走免费通道
   // 2026-09-09：3.0-flash 发布，作为 2.5 后备位；2026-11-18 用户定：兜底首选改 3.0，2.5 退后备
-  return fallback("agnes", /^(?:agnes-)?3\.0-flash$/i)
+  return userFallbackModels()[0]
+    || fallback("agnes", /^(?:agnes-)?3\.0-flash$/i)
     || fallback("agnes", /^(?:agnes-)?2\.5-flash$/i)
     || fallback("sensenova", /flash-lite/i)
     || fallback("nvidia", /llama-3\.1-8b/i)
@@ -159,6 +173,7 @@ export function pickFallbackExcluding(excludeModel) {
   // 2026-08-27 调序：ox-alpha 已下架；小米不再优先——商汤 → 智谱glm-flash → 小米
   // （之前只有 flash-lite 兜底，mimo 复读时切去更弱的模型，体验差）
   const cands = [
+    ...userFallbackModels(),
     findLive("agnes", /^(?:agnes-)?3\.0-flash$/i), // 2026-11-18 用户定：兜底首选 3.0
     findLive("agnes", /^(?:agnes-)?2\.5-flash$/i),
     findLive("sensenova", /flash-lite/i),

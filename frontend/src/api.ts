@@ -1201,8 +1201,17 @@ export interface MediaObservationSnapshot {
   items: { id: number; at: string; kind: 'image' | 'video' | 'tts'; provider: string; model: string;
     phase: string; status: number | null; code: string; message: string }[]
 }
+export type ModelDefaults = {
+  defaultModel: string
+  fallbacks: string[]
+  budget: { enabled: boolean; dailyTokens: number; downgrade: boolean; usedToday: number }
+}
+
 export const KeysApi = {
   manage: () => api<any>('/api/models/manage'),
+  // 2026-11-19：模型中心「默认设置」
+  defaults: () => api<ModelDefaults>('/api/models/defaults'),
+  saveDefaults: (body: { defaultModel?: string; fallbacks?: string[]; dailyTokens?: number; downgrade?: boolean; budgetEnabled?: boolean }) => api<ModelDefaults>('/api/models/defaults', { method: 'POST', body }),
   mediaObservations: () => api<MediaObservationSnapshot>('/api/models/media-observations'),
   presets: () => api<any>('/api/keys/presets'),
   status: () => api<any>('/api/keys/status'),

@@ -192,6 +192,9 @@ import { createDshTool } from "./engine/dsh-tool.mjs";
 import { handleDshChat } from "./engine/dsh-chat.mjs";
 
 // ── 模型路由层（拆模块）：429 降级 / 复杂度分类 / Auto 路由 / pro 候选 ──
+import { setUserFallbacks } from "./engine/model/router.mjs";
+import { createModelDefaults, readUserFallbacks } from "./engine/model/defaults.mjs";
+import { todayUsage as todayTokenUsage } from "./engine/token-budget.mjs";
 import { initModelRouter, isOcGoBlocked, isModelBlocked, markModelBlocked, markOcGoBlocked, ocGoCandidate, pickFallbackDefault, pickFallbackExcluding, isTextCapableModel, resetModelHealth, isAutoModel, routeForAuto, routeProCandidate, flashCandidate, markSticky, ROUTER_AUTO, isAuthErrorStatus } from "./engine/model/router.mjs";
 // ── 辅助模型路由（2026-11-15）：非对话主链的一次性判断走便宜模型（记忆审核/会话摘要/输出质检）──
 import { initAuxModel, callAux, auxStatus } from "./engine/model/auxiliary.mjs";
@@ -1145,6 +1148,7 @@ console.log(`[元枢] 可用模型: ${modelList.length} 个（含 ${Object.keys(
 
 // 模型路由层依赖注入（engine/model-router.mjs）：getter 动态读取，避免值拷贝 stale
 initModelRouter({ getModelList: () => modelList, getDefaultModel: () => defaultModel, configModel: CONFIG.model });
+setUserFallbacks(readUserFallbacks(AGENT_DIR));
 // 辅助模型路由（2026-11-15）：非对话主链的一次性判断从这里出去。解析/超时/fail-open/记账
 // 都在 engine/model/auxiliary.mjs；本行只注入"模型清单 + 默认模型 + 统一通道"。WS_ROOT 在上方 686 行已注入。
 initAuxModel({
@@ -7876,6 +7880,19 @@ const boardApi = createBoardApi({
     } catch (e) { return json(res, 500, { error: String(e?.message || e).slice(0, 200) }); }
   }]);
 
+  // 2026-11-19：模型中心「默认设置」——默认模型 / 兜底顺序 / 每日预算，改完立即生效
+  const modelDefaults = createModelDefaults({
+    agentDir: AGENT_DIR, wsRoot: WS_ROOT,
+    getModelList: () => modelList, getDefaultModel: () => defaultModel,
+    setDefaultModel: (m) => { defaultModel = m; CONFIG.model = `${m.provider}/${m.id}`; },
+    setFallbacks: setUserFallbacks,
+    todayUsage: () => { try { return todayTokenUsage(WS_ROOT); } catch { return { total: 0 }; } },
+  });
+  API_ROUTES.push(["GET", "/api/models/defaults", async (res) => json(res, 200, modelDefaults.get())]);
+  API_ROUTES.push(["POST", "/api/models/defaults", async (res, req) => {
+    try { return json(res, 200, modelDefaults.save((await readBody(req, 1)) || {})); }
+    catch (e) { return json(res, e.localStatus || 500, { error: String(e?.message || e).slice(0, 200) }); }
+  }]);
   // 2026-10-24：每日 token 预算（超了就降级/提醒，不等充值才发现）
   API_ROUTES.push(["GET", "/api/budget/today", async (res) => {
     try {

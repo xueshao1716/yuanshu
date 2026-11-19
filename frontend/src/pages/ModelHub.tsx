@@ -7,6 +7,7 @@ import EmptyState from '../components/EmptyState'
 import ModelChannels from '../components/models-ui/ModelChannels'
 import PageHeader from '../components/PageHeader'
 import ActiveModelHero from '../components/models/ActiveModelHero'
+import ModelDefaultsCard from '../components/models/ModelDefaultsCard'
 import ModelCard from '../components/models/ModelCard'
 import ModelFilterBar from '../components/models/ModelFilterBar'
 import type { ModelFacets, ModelTypeFilter } from '../components/models/ModelFilterBar'
@@ -129,6 +130,7 @@ export default function ModelHub() {
         />
 
         <ActiveModelHero currentModel={currentModel} model={activeModel} />
+        <ModelDefaultsCard models={models} />
         <ModelChannels />
         {error && <p role="alert" className="text-sm text-pi-danger mb-4">{error}</p>}
         <p className="text-sm text-pi-dim mb-4">目录不代表可调用。点击「验证文本」会发起一次真实短文本请求，可能产生少量费用；不会验证工具、视觉或生成媒体。</p>
