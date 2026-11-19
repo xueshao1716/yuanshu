@@ -7,6 +7,7 @@
 
 - OpenRouter 能出图：它的出图模型（如免费的 Recraft V4.1 Flash V2）不走 `/images/generations`，走 chat/completions 加 `modalities:["image"]`，新增对应适配器，画幅按 `image_config.aspect_ratio` 传；Recraft 系列按出图模型识别，不再被当成对话模型。
 - 系统设置页新增「外观 · 自动深色」开关：开启后到点自动切深色，可选按时段（默认 19:00–07:00）或跟随系统，不用先进主题画廊。
+- 新增 `delegate_external` 工具：经 OAR（`@botiverse/oar`，可选依赖，需 Node 24+）把编码活派给本机的 Claude Code 或 Codex，同步等结果。默认关闭，在 `记忆/运行时/外部智能体.json` 写 `"enabled": true` 才放行；每天最多 5 次（`dailyCap` 可调）；工作目录只能是工作区或其子目录，Codex 用 `workspace-write` 沙箱；每次登记成后台作业，单次最长 20 分钟。定时任务不许调用，值班唤醒也不给。
 
 ### Changed
 - 主模型不可用时的兜底改为先用 Agnes 3.0 Flash，Agnes 2.5 Flash 退为下一顺位。
