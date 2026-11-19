@@ -17,6 +17,7 @@ export function matchSkillsForTask(message, skills = [], limit = 3, weights = MA
   if (!msg.trim() || msg.length < 2 || /^(嗯|好|哦|哈|啊|继续|谢谢)$/.test(msg.trim())) return [];
   const scored = [];
   for (const s of skills || []) {
+    if (s?.hidden) continue; // 2026-11-19：用户在能力页收起的技能不主动推
     const name = String(s.name || "");
     const desc = String(s.desc || "");
     let score = 0;
@@ -39,12 +40,15 @@ export function matchSkillsForTask(message, skills = [], limit = 3, weights = MA
     if (/验证|实测|证据|先跑一遍|真的能用|别忽悠|别吹/.test(msg) && /verify-before-delivery|验证|证据/.test(`${name}${desc}`)) score += W.discipline.verify;
     if (/排障|排查|报错|起不来|错误信息|误导/.test(msg) && /misleading-error|排障|错误信息/.test(`${name}${desc}`)) score += W.discipline.diag;
     if (/沉淀|收尾|漏了什么|登记产物|经验没留/.test(msg) && /closeout|沉淀|收尾/.test(`${name}${desc}`)) score += W.discipline.settle;
+    // 2026-11-19：热度加分（usage-heat.rankSkills 附的 boost）只加在本来就命中的技能上，免得常用技能什么都配
+    if (score && Number(s.boost) > 0) score += Number(s.boost);
     if (score) scored.push({ name, desc, score });
   }
   return scored.sort((a, b) => b.score - a.score).slice(0, limit);
 }
 
 export function formatSkillIndexPrompt(list) {
+  if (Array.isArray(list)) list = list.filter((s) => !s?.hidden);
   if (!Array.isArray(list) || !list.length) return "";
   const header = `技能库（${list.length} 个）：对得上就 activate_skill 加载全文，对不上按你的判断做。\n`;
   const rows = list.map(s => {

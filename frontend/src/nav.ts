@@ -25,7 +25,7 @@ export const ROUTE_LABELS = {
   tv: '影视',
   autopatch: '自动补丁',
   gateway: '事务台',
-  plugins: '插件商店',
+  plugins: '技能商店',
   agents: '协作 agent',
 } as const
 
@@ -40,7 +40,8 @@ export const RAIL_PRIMARY = ['chat', 'board', 'workshop', 'assets', 'tasks', 'en
 //   资产 ⊃ 下载记录；工作台 ⊃ 改动验收 / 天团 / 会话库；知识 ⊃ 灵感；能力 ⊃ MCP；创作 ⊃ 连续创作 / 画布。
 //   沙箱 / 超维模式只在授权中心（本会话执行权限）；系统页不再重复放一份。
 // 2026-11-19：协作 agent（派活给本机 Claude Code / Codex）独立成页，放在更多里
-export const RAIL_MORE = ['soul', 'grants', 'tv', 'apps', 'plugins', 'agents', 'health', 'system'] as const
+// 2026-11-19：技能商店并入能力（页内分区），#/plugins 留作深链别名
+export const RAIL_MORE = ['soul', 'grants', 'tv', 'apps', 'agents', 'health', 'system'] as const
 
 // 别名路由 → 它所属的导航板块；导航高亮、手机「更多」激活态都按板块算。
 export const RAIL_OWNER: Record<string, string> = {
@@ -48,6 +49,6 @@ export const RAIL_OWNER: Record<string, string> = {
   story: 'workshop', canvas: 'workshop',
   downloads: 'assets',
   lingxi: 'apps',
-  mcp: 'engine',
+  mcp: 'engine', plugins: 'engine',
 }
 export const railOwner = (route: string): string => RAIL_OWNER[route] ?? route

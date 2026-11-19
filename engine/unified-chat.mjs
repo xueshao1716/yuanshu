@@ -83,7 +83,8 @@ import { effectiveSandboxMode } from "./sandbox-session.mjs";
 import { resolveAuth } from "./dsh-keys.mjs";
 import { runYuanshuToolRound, attachYuanshuCodeTool, toolCallLoopKey } from "./yuanshu-loop.mjs";
 import { withTeamToolContext } from "./team-tool-context.mjs";
-import { readRegions, maxToolTurns, planBatchFactor, filterToolsByTier } from "./brain-regions.mjs";
+import { readRegions, maxToolTurns, planBatchFactor, filterToolsByTier, PROTOCOL_KEEP_TOOLS } from "./brain-regions.mjs";
+import { recordUse, applyToolHeat, rankSkills } from "./usage-heat.mjs";
 import { composeTools, unlockedFor } from "./tool-unlock.mjs";
 // 2026-11-14：每轮工具表快照（诊断盲区：这一轮到底下发了哪些工具）+ 工具硬失败落失败台账。
 import { recordToolSurface, recordToolFailure, TOOL_FAILURE_TURN_CAP } from "./tool-surface-log.mjs";
@@ -376,7 +377,8 @@ async function _unifiedChatCore(model, messages, opts = {}) {
   const rawToolDefs = opts.tools === false || noTools ? undefined : (opts.tools || _unifiedTools);
   // 2026-11-19：被工具档收起的工具不再"消失"——给一行目录 + request_tool，点名后本会话一直带着（engine/tool-unlock.mjs）
   const unlockKey = String(opts.sessionId || opts.executionContext?.sessionId || opts.executionContext?.runId || "");
-  const keptToolDefs = rawToolDefs === undefined ? undefined : filterToolsByTier(rawToolDefs, toolWeights);
+  // 2026-11-19：热度——常用工具不再被收起（额外最多 8 个），用户在能力页收起的拿掉（engine/usage-heat.mjs）
+  const keptToolDefs = rawToolDefs === undefined ? undefined : applyToolHeat(rawToolDefs, filterToolsByTier(rawToolDefs, toolWeights), { protect: PROTOCOL_KEEP_TOOLS });
   let toolCatalog = "";
   let unlockSig = "";
   const composeToolDefs = () => {
@@ -1528,6 +1530,7 @@ export async function handleUnifiedChat(res, entry, message, sessionId, params, 
     try { antiPatternEvents.push({ at: new Date().toISOString(), type: "tool", name, args, ok: out?.isError !== true, error: out?.isError ? text.slice(0, 200) : "" }); } catch {}
     const startedAt = toolStartedAt.get(id);
     toolStartedAt.delete(id);
+    try { recordUse("tool", name, { ok: out?.isError !== true, ms: startedAt ? Date.now() - startedAt : null }); } catch {}
     writer.push("tool_end", { name, id, durationMs: startedAt ? Date.now() - startedAt : null, effectKey: context.effectKey || null, turn: context.turn ?? null, ordinal: context.ordinal ?? null, isError: out?.isError === true, uncertain: out?.uncertain === true, reused: out?.reused === true, output: text.slice(0, 2000) });
     // 事件驱动情绪（2026-11-09）：工具成败必须落在情绪上；旁路信号，异常一律吞掉。
     try {
@@ -1581,7 +1584,7 @@ export async function handleUnifiedChat(res, entry, message, sessionId, params, 
   bindWorkmemSession(sessionId);
   const sections = assembleYuanshuSystem({
     message,
-    skills: loadSkillIndex(),
+    skills: rankSkills(loadSkillIndex()),
     experience: loadExperienceIndex(),
     fullMemory: shouldInjectFullMemory(message) ? loadMemory() : [],
     todos: formatTodoPrompt(sessionId),

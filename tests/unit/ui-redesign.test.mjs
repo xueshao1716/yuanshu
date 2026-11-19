@@ -57,7 +57,8 @@ test('引擎控制台首屏是摘要优先，详细诊断默认折叠', () => {
   assert.ok(engine.includes('data-slot="engine-overview"'), '引擎页必须有首屏摘要区域')
   assert.ok(engine.includes('data-slot="engine-sections"'), '引擎页必须有详细区块容器')
   assert.match(engine, /<details[\s\S]*引擎配置/, '引擎配置必须进入可折叠详细区')
-  assert.match(engine, /<details[\s\S]*工具目录/, '工具目录必须进入可折叠详细区')
+  // 2026-11-19：工具目录 / MCP 移到「技能与工具」分区（按热度分组），引擎分区不再重复
+  assert.ok(engine.includes('<CapabilityBoard'), '能力页首个分区是技能与工具')
   assert.match(engine, /<details[\s\S]*Gateway 与旁路/, 'Gateway 必须进入可折叠详细区')
   assert.doesNotMatch(engine, /<details[^>]*\sopen(?:=|\s|>)/, '详细区默认不得全部展开')
 })

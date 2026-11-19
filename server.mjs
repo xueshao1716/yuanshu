@@ -183,7 +183,7 @@ import { readUrl } from "./engine/read-url.mjs";
 import { runAndSave, loadResults, saveResults } from "./engine/learning/case-runner.mjs";
 import { appendEvent as appendEvoEvent, readEvents as readEvoEvents, summarizeCapability as summarizeEvoCapability, createProposal as createEvoProposal, readProposals as readEvoProposals, recordGateVerdict } from "./engine/evolution/index.mjs";
 import { countExperience, distillExperience, gatherEvidence, latestReflectionReport } from "./engine/reflection-experience.mjs";
-import { readRegions, writeRegions, REGIONS, deliveryStrictness, distillLimit, nudgeCooldownMs, ideaCap, maxToolTurns, planBatchFactor, toolTier } from "./engine/brain-regions.mjs";
+import { readRegions, writeRegions, REGIONS, deliveryStrictness, distillLimit, nudgeCooldownMs, ideaCap, maxToolTurns, planBatchFactor, toolTier, isAdvancedTool, PROTOCOL_KEEP_TOOLS } from "./engine/brain-regions.mjs";
 import { runDoctor } from "./engine/install-doctor.mjs";
 import { listAddons, startAddonJob, addonJobs, ensureAddonPaths } from "./engine/addons.mjs";
 ensureAddonPaths();
@@ -460,6 +460,7 @@ import { promoteReflectionLessons, buildLessonProposal, loadLessonLedger } from 
 import { buildLastNight } from "./engine/last-night.mjs";
 import { planReflectionExecution, recordActionAttempt, summarizeExecution, runOnTheSpotFix, executeReflectionAction, REFLECTION_EXEC_BUDGET_MS } from "./engine/reflection-exec.mjs";
 import { loadEpisodes, dream, writeDreamLog, dreamPaths, currentWeights, promoteWeights, resetWeights, recordSkillChoice } from "./engine/dream.mjs";
+import { initUsageHeat, backfillUsageHeat, recordUse, heatSnapshot, setHeatPref } from "./engine/usage-heat.mjs";
 import { createDreamCollector } from "./engine/dream-collector.mjs";
 import { createLearningIntake } from "./engine/learning-intake.mjs";
 import { createKnowledgeRuntime } from "./engine/knowledge/runtime.mjs";
@@ -1638,7 +1639,9 @@ const toolExecutorDeps = {
         const msg = lastUserBySession.get(sid) || "";
         if (msg) recordSkillChoice(WS_ROOT, { input: msg, skill: name, sessionId: sid });
       } catch {}
-      return execActivateSkill(name);
+      const out = execActivateSkill(name);
+      try { recordUse("skill", name, { ok: out?.isError !== true }); } catch {}
+      return out;
     },
   timeEngine: () => timeEngine,
   sensitiveHint: () => formatSensitiveHint(listHostChannels({ getModelList: () => modelList })),
@@ -4140,6 +4143,9 @@ const pruneRunEventsQuietly = async () => {
   } catch {}
 };
 setTimeout(() => { void pruneRunEventsQuietly() }, 6 * 60_000).unref?.();
+// 2026-11-19：技能 / 工具热度。首次启动从技能流水与运行事件流回填（事件流 14 天就删，先抢在清理前）
+initUsageHeat({ wsRoot: WS_ROOT });
+setTimeout(() => { void backfillUsageHeat({ episodesFile: dreamPaths(WS_ROOT).episodes, eventsDir: path.join(RUNS_DIR, "events") }).then((r) => { if (!r?.skipped) console.log(`[heat] 回填技能 ${r.skills} 次、工具 ${r.tools} 次`); }).catch(() => {}); }, 90_000).unref?.();
 setInterval(() => { void pruneRunEventsQuietly() }, 24 * 3600_000).unref?.();
 const runEffects = createRunEffects({ rootDir: RUNS_DIR });
 const teamLauncher = createTeamLauncher({ wsRoot: CONFIG.cwd, repoRoot: __dirname, port: CONFIG.port, token: () => CONFIG.token });
@@ -7583,7 +7589,10 @@ const API_ROUTES = [
     try {
       const tools = (UNIFIED_TOOLS || []).map(t => {
         const f = t?.function || t;
-        return { name: f?.name || t?.name || "?", description: (f?.description || t?.description || "").slice(0, 160) };
+        const name = f?.name || t?.name || "?";
+        // 2026-11-19：能力页按来源分组、标出「默认收起」（普通聊天不下发，要 request_tool 取回或热度带回）
+        const group = name.startsWith("mcp_") ? "mcp" : name.startsWith("tp_") ? "toolpack" : "builtin";
+        return { name, description: (f?.description || t?.description || "").slice(0, 160), group, folded: isAdvancedTool(name) && !PROTOCOL_KEEP_TOOLS.has(name) };
       });
       const names = tools.map(t => t.name);
       json(res, 200, { tools, count: tools.length, dsh: names.includes("dsh_task"), skill: names.includes("activate_skill") });
@@ -7855,6 +7864,16 @@ const boardApi = createBoardApi({
 
   // 2026-10-24：记忆召回台账（ORM）——哪几条被注入、哪几条真被用上、谁在提权/沉底
   // 注意路径不能叫 /api/memory/recall：会被 /^\/api\/memory\/([^/]+)$/ 那条路由接走返回 not_found
+  // 2026-11-19：技能 / 工具热度（能力页按热度分组用）
+  API_ROUTES.push(["GET", "/api/usage-heat", async (res) => json(res, 200, heatSnapshot())]);
+  API_ROUTES.push(["POST", "/api/usage-heat", async (res, req) => {
+    try {
+      const body = await readBody(req, 1);
+      if (body.action && !["pin", "hide", "reset"].includes(body.action)) return json(res, 400, { error: "action 只能是 pin / hide / reset" });
+      if (body.kind && !["tool", "skill"].includes(body.kind)) return json(res, 400, { error: "kind 只能是 tool / skill" });
+      return json(res, 200, setHeatPref(body));
+    } catch (e) { return json(res, 500, { error: String(e?.message || e).slice(0, 200) }); }
+  }]);
   API_ROUTES.push(["GET", "/api/memory-recall", async (res, req) => {
     try {
       const u = new URL(req.url, "http://x");

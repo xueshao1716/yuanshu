@@ -102,8 +102,9 @@ test('更多菜单承载设置路由和辅助面板，并提供可访问状态',
   for (const route of ['board', 'workshop', 'models', 'apps', 'engine', 'themes', 'system']) {
     assert.ok(menu.includes(`route: '${route}'`), `更多菜单缺少 ${route} 路由`)
   }
-  // 2026-11-19：功能格 4×4 = 16 个页面（账号管理挪到标题栏），对比台/自动补丁/外部智能体手机也能到
-  assert.equal((menu.match(/route: '/g) || []).length, 16, '更多菜单应为 16 个页面')
+  // 2026-11-19：账号管理挪到标题栏；技能商店并入能力（页内分区）→ 15 个页面
+  assert.equal((menu.match(/route: '/g) || []).length, 15, '更多菜单应为 15 个页面')
+  assert.ok(!menu.includes("route: 'plugins'"), '技能商店已并入能力，不再单列')
   for (const route of ['canvas', 'autopatch', 'agents']) assert.ok(menu.includes(`route: '${route}'`), `更多菜单缺少 ${route}`)
   assert.ok(menu.includes('aria-label="账号管理"'), '账号管理入口必须保留（在标题栏）')
   for (const panel of ['workspace', 'deliveries', 'terminal', 'activity', 'tui']) {
@@ -351,7 +352,9 @@ test('应用中心使用公共页头、桌面分组侧栏与移动单一选择�
   assert.match(apps, /<ThemedSelect[^>]*aria-label="选择应用工具"[^>]*className="[^"]*md:hidden/, '移动端必须使用单一紧凑工具选择器')
   assert.match(apps, /<ThemedSelect[^>]*aria-label="选择应用工具"[^>]*className="[^"]*min-h-11/, '移动端工具选择器触控高度不得小于 44px')
   for (const group of ['知识资产', '系统改进']) assert.ok(apps.includes(group), `应用导航缺少分组：${group}`)
-  for (const view of ['<RefineView', '<SkillsView', '<PromptsView', '<ImproveView', '<EvolutionView', '<GardenerView']) {
+  // 2026-11-19：技能库移到能力页「技能与工具」
+  assert.ok(!apps.includes('<SkillsView'), '技能库已并入能力页')
+  for (const view of ['<RefineView', '<PromptsView', '<ImproveView', '<EvolutionView', '<GardenerView']) {
     assert.ok(apps.includes(view), `应用中心必须保留内部 View：${view}`)
   }
   assert.ok(apps.includes('进化引擎'), '应用中心必须提供进化引擎入口')
@@ -528,4 +531,15 @@ test('协作 agent 独立成页放在更多里，设置不再在系统页重复�
   assert.ok(!sys.includes('ExternalAgentsPanel') && !sys.includes('AppearancePanel'), '系统页不再放外部智能体/外观')
   const themes = read('pages', 'Themes.tsx')
   assert.ok(themes.includes('<LiteModePanel />'), '主题页必须有省电显示')
+})
+
+test('能力页统一技能 / 工具 / MCP / 技能商店，并按热度分组', () => {
+  const engine = read('pages', 'Engine.tsx')
+  for (const t of ['技能与工具', '技能商店', '<CapabilityBoard', '<Plugins embedded']) assert.ok(engine.includes(t), `能力页缺 ${t}`)
+  const board = read('components', 'engine', 'CapabilityBoard.tsx')
+  for (const t of ['HeatApi.get()', 'SkillsApi.list()', 'EngineApi.tools()', "'hot'", "'warm'", "'cold'", "'idle'", '<McpPanel', "action: h?.pinned ? 'reset' : 'pin'", 'enabled: e.target.checked']) assert.ok(board.includes(t), `能力总览缺 ${t}`)
+  const nav = read('nav.ts')
+  assert.ok(!(nav.split('export const RAIL_MORE = [')[1]?.split(']')[0] || '').includes("'plugins'"), '技能商店不再单列在更多里')
+  assert.match(nav, /plugins: 'engine'/, '#/plugins 归属能力')
+  assert.ok(read('AppLayout.tsx').includes('EngineStorePage'), '#/plugins 深链落到能力 · 技能商店')
 })

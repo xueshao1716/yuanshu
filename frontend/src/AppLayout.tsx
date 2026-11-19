@@ -40,7 +40,6 @@ const ExternalAgentsPage = lazy(() => import('./pages/ExternalAgents'))
 const SoulPage = lazy(() => import('./pages/Soul'))
 const AutoPatchesPage = lazy(() => import('./pages/AutoPatches'))
 const GatewayPage = lazy(() => import('./pages/Gateway'))
-const PluginsPage = lazy(() => import('./pages/Plugins'))
 const GrantsPage = lazy(() => import('./pages/Grants'))
 const TvPage = lazy(() => import('./pages/Tv'))
 const ThemesPage = lazy(() => import('./pages/Themes'))
@@ -75,6 +74,10 @@ function AppsLingxiPage() {
 function EngineMcpPage() {
   return <EnginePage openMcp />
 }
+// 技能商店并入能力（2026-11-19）：#/plugins 落到能力页的「技能商店」分区
+function EngineStorePage() {
+  return <EnginePage initialTab="store" />
+}
 
 // 深链别名：#/story 渲染创作并把 tab 预设为「连续创作」
 function WorkshopStoryPage() {
@@ -99,7 +102,7 @@ const PAGE_ROUTES: PageRoute[] = [
   { route: 'autopatch', icon: GitCompare, label: ROUTE_LABELS.autopatch, Page: AutoPatchesPage },
   // 2026-10-27：接口台——入站事件 / 出站投递 / 在盯的事
   { route: 'gateway', icon: Network, label: ROUTE_LABELS.gateway, Page: GatewayPage },
-  { route: 'plugins', icon: Puzzle, label: ROUTE_LABELS.plugins, Page: PluginsPage },
+  { route: 'plugins', icon: Puzzle, label: ROUTE_LABELS.plugins, Page: EngineStorePage, nav: false },
   // 改动验收已并入工作台（页内视图）。保留 review 路由作为深链别名，
   // 让 #/review、手机「更多」和聊天右栏的「打开验收」继续可用。
   { route: 'review', icon: GitCompare, label: ROUTE_LABELS.review, Page: BoardReviewPage },

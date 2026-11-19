@@ -20,7 +20,8 @@ type Toolpack = { id: string; name: string; version: string; tools: { name: stri
 const typeLabel = (t: string) => (t === 'skill' ? '技能包' : t === 'mcp' ? 'MCP 连接' : t === 'toolpack' ? '工具包' : t)
 const date = (n?: number) => (n ? new Date(n).toLocaleDateString('zh-CN') : '—')
 
-export default function Plugins() {
+// 2026-11-19：并入「能力 → 技能商店」（embedded 时不再画整页外框和大标题）；#/plugins 仍可直达
+export default function Plugins({ embedded = false }: { embedded?: boolean } = {}) {
   const { data, mutate, isValidating } = useSWR<Payload>('plugins-store', () => api('/api/plugins'), { refreshInterval: 30000 })
   const reg = useSWR<Registry>('plugins-registry', () => api('/api/plugins/registry'), { refreshInterval: 60000 })
   const packs = useSWR<{ packs: Toolpack[] }>('plugins-toolpacks', () => api('/api/plugins/toolpacks'), { refreshInterval: 30000 })
@@ -83,10 +84,10 @@ export default function Plugins() {
   }
 
   return (
-    <div className="page-enter mx-auto max-w-5xl px-4 py-6 sm:px-6">
+    <div className={embedded ? 'page-enter' : 'page-enter mx-auto max-w-5xl px-4 py-6 sm:px-6'}>
       <div className="mb-5 flex flex-wrap items-end justify-between gap-3">
         <div>
-          <h1 className="page-title mb-1">插件商店</h1>
+          {embedded ? <h2 className="text-[15px] font-semibold text-pi-text mb-1">技能商店</h2> : <h1 className="page-title mb-1">技能商店</h1>}
           <p className="text-xs text-pi-dim2">技能包 / MCP 连接 / 工具包。工具包在隔离环境里跑，权限逐项核对。</p>
         </div>
         <button className="btn-tool min-h-10 px-3 text-[12px]" onClick={() => void mutate()} disabled={isValidating}>

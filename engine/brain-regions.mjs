@@ -135,7 +135,7 @@ const ADVANCED_PREFIXES = [
   /^mcp_/, /^tp_/,
 ];
 
-const isAdvancedTool = (name) => ADVANCED_TOOLS.has(name) || ADVANCED_PREFIXES.some((re) => re.test(name));
+export const isAdvancedTool = (name) => ADVANCED_TOOLS.has(name) || ADVANCED_PREFIXES.some((re) => re.test(name));
 
 /**
  * 2026-11-14 修复：协议点名要求调用的工具，永远不裁。
