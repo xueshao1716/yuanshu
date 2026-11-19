@@ -282,9 +282,11 @@ test("长任务超过时限先回一句在处理，答完再回正文", async ()
   let release;
   const gate = new Promise((r) => { release = r; });
   const origAsk = w.chat.ask;
+  const asked = [];
+  // 快速回执走 quickAck，不进会话；主任务等 gate
+  w.chat.quickAck = async () => "在看，做完回你。";
   w.chat.ask = async (t, sid, o) => {
-    // ack 快速调用的提示词以「你正在处理」开头，立即返回简短文本；主任务等 gate。
-    if (t.startsWith("你正在处理")) return "在看，做完回你。";
+    asked.push(t);
     await gate;
     return origAsk(t, sid, o);
   };
@@ -299,6 +301,7 @@ test("长任务超过时限先回一句在处理，答完再回正文", async ()
   assert.ok(w.sent[1].text.endsWith("查一下"));
   await tick(40);
   assert.equal(w.sent.length, 2, "只提醒一次");
+  assert.deepEqual(asked, ["查一下"], "回执不能写进对话会话");
   await b.stop(); await b._waitIdle();
 });
 

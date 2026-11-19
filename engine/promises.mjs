@@ -197,6 +197,38 @@ export function recordPromises(wsRoot, list, fsMod = fs) {
   } catch (e) { return { ok: false, error: String(e?.message || e).slice(0, 80) }; }
 }
 
+/**
+ * 2026-11-19：自动判定（harness 对照判「变差」等）落一条 kind:"fix" 的账。
+ * 起因：外部评审查出 harness-试验.md 里 19 次「建议回退」、0 次执行——判定只写进日志，
+ * 从没进待办；唯一一条手记的也被 3 天保鲜期自动搁置了。
+ * 规则：同一个 fixKey 账上已有未结的，只累计次数、更新最近一次，不新开（以前同一件事登记 6 次）；
+ * fix 账不受保鲜期影响，只能显式结清或由用户销账。
+ */
+export function recordFixPromise(wsRoot, { fixKey, text, recheck = "", at = new Date() } = {}, fsMod = fs) {
+  try {
+    const key = String(fixKey || "").trim();
+    if (!key || !String(text || "").trim()) return { ok: false, error: "缺少 fixKey 或 text" };
+    const list = loadPromises(wsRoot, fsMod);
+    const atIso = (at instanceof Date ? at : new Date(at)).toISOString();
+    const open = list.find((p) => p.kind === "fix" && p.fixKey === key && p.status === "pending");
+    if (open) {
+      open.hits = (Number(open.hits) || 1) + 1;
+      open.lastAt = atIso;
+      open.text = String(text).slice(0, 160);
+      const saved = savePromises(wsRoot, list, fsMod);
+      return saved.ok ? { ok: true, added: 0, merged: open.id } : { ok: false, error: saved.error };
+    }
+    const p = {
+      id: `f_${new Date(atIso).getTime().toString(36)}`,
+      at: atIso, sessionId: "auto", kind: "fix", fixKey: key,
+      text: String(text).slice(0, 160), recheck: String(recheck).slice(0, 160),
+      hits: 1, lastAt: atIso, due: null, status: "pending", evidence: null, closedAt: null,
+    };
+    const saved = savePromises(wsRoot, [...list, p], fsMod);
+    return saved.ok ? { ok: true, added: 1, id: p.id } : { ok: false, error: saved.error };
+  } catch (e) { return { ok: false, error: String(e?.message || e).slice(0, 80) }; }
+}
+
 /** 结清/作废。**必须显式调用**——本模块没有任何自动结清路径。 */
 export function closePromise(wsRoot, id, { status = "kept", evidence = null, now = new Date() } = {}, fsMod = fs) {
   try {
@@ -255,6 +287,7 @@ export function expireStalePromises(wsRoot, { days = PROMISE_STALE_DAYS, now = n
     let expired = 0;
     for (const p of list) {
       if (p.status !== "pending") continue;
+      if (p.kind === "fix") continue; // 自动判定出的修复账不过期：要么做，要么由用户裁决
       const at = new Date(p.at).getTime();
       if (!Number.isFinite(at)) continue;
       if (nowMs - at <= days * 86400_000) continue;
@@ -314,7 +347,8 @@ export function pendingPromises(wsRoot, { now = new Date(), limit = 0, fsMod = f
   const list = loadPromises(wsRoot, fsMod)
     .filter((p) => p.status === "pending")
     .map((p) => ({ ...p, age: promiseAge(p, now) }))
-    .sort((a, b) => (Number(b.age.overdue) - Number(a.age.overdue)) || (b.age.ms - a.age.ms));
+    // fix 账置顶：系统判出来该改的，比随口答应的更不能沉底
+    .sort((a, b) => (Number(b.kind === "fix") - Number(a.kind === "fix")) || (Number(b.age.overdue) - Number(a.age.overdue)) || (b.age.ms - a.age.ms));
   return limit > 0 ? list.slice(0, limit) : list;
 }
 
@@ -326,7 +360,9 @@ export function pendingPromiseText(wsRoot, { now = new Date(), limit = 5, fsMod 
   const list = pendingPromises(wsRoot, { now, limit, fsMod });
   if (!list.length) return "";
   // 带 id：不给编号，模型没法调用 promise_close 销账（2026-10-18）
-  const lines = list.map((p) => `- [${p.id}] ${p.age.phrase}：${p.text}${p.age.overdue ? "（已逾期）" : ""}`);
+  const lines = list.map((p) => p.kind === "fix"
+    ? `- [${p.id}] 【系统判定·待处理】${p.age.phrase}起：${p.text}${Number(p.hits) > 1 ? `（已判 ${p.hits} 次）` : ""}${p.recheck ? `；复测：${p.recheck}` : ""}。做不了或不该改，就问用户要不要保留，别搁着`
+    : `- [${p.id}] ${p.age.phrase}：${p.text}${p.age.overdue ? "（已逾期）" : ""}`);
   return [
     "【待兑现承诺】以下是你自己此前说过要做的事，账上还没结清。",
     "主动交代进度：做完了就给出可核查的证据并说明；没做就说没做。",

@@ -371,7 +371,7 @@ import { createMemWatch } from "./engine/mem-watch.mjs";
 import { installTimerWatch } from './engine/timer-watch.mjs';
 import { PerformanceObserver } from "node:perf_hooks";
 import { buildSelfModel, renderSelfSection, renderSelfMarkdown, writeSelfFile } from "./engine/self-model.mjs";
-import { shouldProbe, markProbed, splitBeforeAfter, abCompare, appendProbeLog, appendLesson } from "./engine/harness-probe.mjs";
+import { shouldProbe, markProbed, splitBeforeAfter, abCompare, appendProbeLog, appendLesson, probeFixPromise } from "./engine/harness-probe.mjs";
 import { collectEvidence, buildProposePrompt, parseCandidates, writeCandidates, listCandidates, markCandidate, localDate } from "./engine/harness-propose.mjs";
 import { withModelFailover } from "./engine/model/failover.mjs";
 // 守护阈值与 watchdog 共用一个真源（CJS，Node 互操作取 default）。
@@ -5753,6 +5753,14 @@ const API_ROUTES = [
       return json(res, 500, { ok: false, error: msg });
     }
   }],
+  // 2026-11-19：微信长任务的快速回执——不进任何会话，轻量模型一句话
+  ["POST", "/api/wechat/quick-ack", async (res, req) => {
+    const text = String((await readBody(req, 1))?.text || "").slice(0, 120);
+    try {
+      const out = await routeThink(`对方发来一条消息，你还要处理一会儿。先回一句简短的中文，贴着消息内容，15字以内，不要解释，不要说「好的」，不要说已经做完：${text}`);
+      return json(res, 200, { text: out.replace(/s+/g, " ").slice(0, 60) });
+    } catch { return json(res, 200, { text: "" }); }
+  }],
   ["POST", "/api/wechat/test", async (res) => {
     try {
       await wechat.notifyOwner('元枢通道自检：收到这条说明微信推送可用。');
@@ -8982,6 +8990,8 @@ ${rows.map((r) => `- [${r.status}${r.closed ? "/已结清" : ""}] ${r.text}\n  �
                 console.log(`[harness-probe] ${t.id} → ${verdict.verdict}（${verdict.reason}）`);
                 // 变差 = 最值得提候选的时刻；带上是哪条失败，别让模型空想。
                 if (verdict.verdict === "worse") {
+                  // 2026-11-19：判定要进待办，不能只写日志（19 次建议回退、0 次执行）
+                  try { const fx = probeFixPromise(WS_ROOT, { taskId: t.id, ...probeRow }); if (fx?.ok) console.log(`[harness-probe] 已记修复账 ${fx.id || fx.merged}`); } catch {}
                   // 2026-10-22：变动之后开一个封存窗口 —— 窗口内的运行只用于评测，不再拿来调参
                   void (async () => {
                     try {

@@ -211,6 +211,14 @@ export function createLoopbackChat({ base, token, fetch: f = globalThis.fetch, n
       }
       return readChatStream(res);
     },
+    // 2026-11-19：快速回执不进会话。以前走 ask(同一会话)：主任务占着会话时它排队，
+    // 等主任务答完才跑，结果把「你正在处理…」和一句现编的「搞定」写进了历史。
+    async quickAck(text) {
+      const res = await f(`${base()}/api/wechat/quick-ack`, { method: "POST", headers: headers(), body: JSON.stringify({ text }) });
+      if (!res.ok) return "";
+      const j = await res.json().catch(() => ({}));
+      return String(j.text || "");
+    },
   };
 }
 
@@ -447,12 +455,8 @@ export function createWechatBridge({
       quickAckTimer = setTimeout(async () => {
         if (done) return;
         try {
-          // 轻量调用：只要一句话，走非 owner 路径，不建 run
-          const quickSession = await sessionFor(m.sender);
-          const hint = await chat.ask(
-            `你正在处理这条消息，还需要一段时间。先回一句简短的中文，贴着消息内容，15字以内，不要解释，不要说「好的」：${m.text.slice(0, 120)}`,
-            quickSession, { owner: false }
-          ).catch(() => null);
+          // 轻量调用：只要一句话，不进会话（没有 quickAck 的旧实现就用固定话术）
+          const hint = typeof chat.quickAck === "function" ? await chat.quickAck(m.text.slice(0, 120)).catch(() => "") : "";
           if (!done) await reply(acc, m.sender, hint && hint.length < 60 ? hint : "在看，做完回你。", m.contextToken);
         } catch {}
       }, ackAfterMs);

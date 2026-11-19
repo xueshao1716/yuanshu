@@ -13,6 +13,7 @@
 // 边界：本模块只读历史 + 写一条试验记录，不改任何 harness。采纳与否由人（或自主执行通道）决定。
 import fs from 'node:fs';
 import path from 'node:path';
+import { recordFixPromise } from './promises.mjs';
 
 export const PROBE_LOG_FILE = '文档/harness-试验.md';
 export const PROBE_LESSON_FILE = '工程/经验库/harness-lessons.md';
@@ -118,6 +119,20 @@ export function appendProbeLog(wsRoot, row, { fsMod = fs } = {}) {
     fsMod.appendFileSync(target, renderProbeRow(row) + '\n', 'utf8');
     return true;
   } catch { return false }
+}
+
+// 2026-11-19：判「变差」就同轮记一条修复账（同一任务只挂一条，再判只累计次数）。
+// 注意这里的对照没有具体改动点（只是同一任务前 3 次 vs 后 3 次），所以账上写的是
+// 「先找出这段时间改了什么，再决定回退还是保留」，不假装知道该回退哪一处。
+export function probeFixPromise(wsRoot, row = {}, { fsMod = fs } = {}) {
+  if (row.verdict !== 'worse') return { ok: false, skipped: true };
+  const task = row.task || row.taskId || '定时任务';
+  return recordFixPromise(wsRoot, {
+    fixKey: `harness:${row.taskId || task}`,
+    text: `harness 对照判「${task}」变差（${row.reason || '指标恶化'}）：查这段时间改了什么，回退那处改动，或向用户说明为什么保留`,
+    recheck: `下一次「${task}」跑完后看 ${PROBE_LOG_FILE} 的新对照`,
+    at: row.at ? new Date(row.at) : new Date(),
+  }, fsMod);
 }
 
 // 节流：同一任务每天最多做一次对照，免得每次跑完都往日志里写一遍

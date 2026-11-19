@@ -74,3 +74,22 @@ test('结论回写经验：变差写该回退、变好写可保留、中性不�
   assert.match(md, /不推广/);
   assert.match(md, /回退到改动前的版本/);
 });
+// 2026-11-19：判「变差」要进待办，不能只写日志；同一任务只挂一条，且不被 3 天保鲜期搁置
+test('变差 → 修复账：同任务合并计数、不过期、置顶进提示词', async () => {
+  const { probeFixPromise } = await import('../../engine/harness-probe.mjs');
+  const { loadPromises, expireStalePromises, pendingPromiseText } = await import('../../engine/promises.mjs');
+  const ws = fs.mkdtempSync(path.join(os.tmpdir(), 'probe-fix-'));
+  assert.equal(probeFixPromise(ws, { verdict: 'better', task: '自我反思' }).skipped, true);
+  const r1 = probeFixPromise(ws, { verdict: 'worse', taskId: 't1', task: '自我反思', reason: '平均耗时 1→3', at: '2026-11-01T00:00:00Z' });
+  assert.equal(r1.added, 1);
+  const r2 = probeFixPromise(ws, { verdict: 'worse', taskId: 't1', task: '自我反思', reason: '平均耗时 1→4', at: '2026-11-02T00:00:00Z' });
+  assert.equal(r2.merged, r1.id);
+  let list = loadPromises(ws);
+  assert.equal(list.length, 1);
+  assert.equal(list[0].hits, 2);
+  assert.equal(list[0].kind, 'fix');
+  assert.equal(expireStalePromises(ws, { now: new Date('2026-11-19T00:00:00Z') }).expired, 0);
+  const text = pendingPromiseText(ws, { now: new Date('2026-11-19T00:00:00Z') });
+  assert.match(text, /系统判定·待处理/);
+  assert.match(text, /已判 2 次/);
+});
