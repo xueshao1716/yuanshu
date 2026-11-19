@@ -73,12 +73,17 @@ export function inDarkWindow(now: Date, from: string, to: string): boolean {
   return f < t ? m >= f && m < t : m >= f || m < t
 }
 
+// 可注入时钟：生产恒为真实时间；用例里钉住"现在几点"才能测跨时段接管。
+// （2026-11-19：手动选择走事件回调、拿不到调用方传的时间，默认参数里必须能注入）
+let _now: () => Date = () => new Date()
+export function setAutoClock(fn?: () => Date) { _now = fn || (() => new Date()) }
+
 function prefersDark(): boolean {
   try { return typeof window !== 'undefined' && !!window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches } catch { return false }
 }
 
 // 按配置算"此刻应该是亮还是暗"
-export function naturalDir(cfg: AutoConfig, now = new Date()): AutoDir {
+export function naturalDir(cfg: AutoConfig, now = _now()): AutoDir {
   if (cfg.mode === 'system') return prefersDark() ? 'dark' : 'light'
   return inDarkWindow(now, cfg.from, cfg.to) ? 'dark' : 'light'
 }
@@ -86,7 +91,7 @@ export function naturalDir(cfg: AutoConfig, now = new Date()): AutoDir {
 export type AutoState = { mode: AutoMode; dir: AutoDir; theme: string; overridden: boolean; cfg: AutoConfig }
 
 // 应用一次自动决策；off 模式返回 null（表示不该接管）
-export function evaluateAuto(now = new Date()): AutoState | null {
+export function evaluateAuto(now = _now()): AutoState | null {
   const cfg = getAutoConfig()
   if (cfg.mode === 'off') { writeOverride(null); return null }
   const natural = naturalDir(cfg, now)
@@ -103,7 +108,7 @@ export function evaluateAuto(now = new Date()): AutoState | null {
 }
 
 // UI 用：当前自动状态（不应用、不产生副作用）
-export function autoState(now = new Date()): AutoState | null {
+export function autoState(now = _now()): AutoState | null {
   const cfg = getAutoConfig()
   if (cfg.mode === 'off') return null
   const natural = naturalDir(cfg, now)

@@ -4546,13 +4546,21 @@ setInterval(() => {
         else {
         const budget = readBudget(WS_ROOT, day, { cap: 3 });
         if (budget.remaining <= 0) console.log("[watchdog] 该提醒，但今天的主动预算用完了");
-        else if (spendBudget(WS_ROOT, day, { cap: budget.cap, kind: "watchdog_drift" }).ok) {
-          recordNotified(WS_ROOT, esc.key);
-          void notifier.notify({
-            kind: "watchdog", title: "元枢 · 有一轮活可能跑偏",
-            body: composeDriftNotice(res.issues, { incidentId }), key: `watchdog-drift:${esc.key}:${day}`, toWechat: true,
-          }).catch(() => {});
-          console.log(`[watchdog] 已提醒（${esc.key}）：${esc.reason}`);
+        else {
+          // 先记账再发：通知落盘 + 预算扣减必须原子完成；预算扣了没记通知就会绕过去重再推。
+          // 2026-11-19 收紧：台账必须带「这件事」的身份（会话/run/task）+ 签名，
+          // 否则同一件事换个签名（failing → failing+loop+no_gate）就被当成新问题重复喊。
+          recordNotified(WS_ROOT, esc.key, { incident: esc.incident, sig: esc.key });
+          const spent = spendBudget(WS_ROOT, day, { cap: budget.cap, kind: "watchdog_drift" });
+          if (!spent.ok) {
+            console.log(`[watchdog] 该提醒，但今天的主动预算用完了（${esc.key} 已记账，不再重试）`);
+          } else {
+            void notifier.notify({
+              kind: "watchdog", title: "元枢 · 有一轮活可能跑偏",
+              body: composeDriftNotice(res.issues, { incidentId }), key: `watchdog-drift:${esc.incident}:${esc.key}:${day}`, toWechat: true,
+            }).catch(() => {});
+            console.log(`[watchdog] 已提醒（${esc.key}）：${esc.reason}`);
+          }
         }
         }
       }

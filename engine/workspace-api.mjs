@@ -215,6 +215,21 @@ export function looksLikeImageBytes(buf) {
   return false;
 }
 
+// 图片产物的真实扩展名：按字节判断，不按"产物类型"猜。
+// 为什么必须嗅探（2026-11-19，recraft 实测）：OpenRouter 系出图走 chat/completions，
+// 返回的是 data:image/webp;base64 —— 类型只有 image 这一层信息，
+// 以前 artifactExtension("image") 一律给 .png，于是 WebP 字节被存成 .png，
+// 文件能打开、HTTP 层也按内容嗅探成 image/webp，但名字与内容不一致，
+// 归档/交付复核（delivery_probe）会把它判成不可交付，用户也分不清拿到的到底是什么格式。
+export function imageExtensionFromBytes(buf) {
+  const b = Buffer.isBuffer(buf) ? buf : Buffer.from(buf || []);
+  if (b.length >= 8 && b[0] === 0x89 && b[1] === 0x50 && b[2] === 0x4e && b[3] === 0x47) return ".png";
+  if (b.length >= 3 && b[0] === 0xff && b[1] === 0xd8 && b[2] === 0xff) return ".jpg";
+  if (b.length >= 6 && /^GIF8[79]a$/.test(b.toString("latin1", 0, 6))) return ".gif";
+  if (b.length >= 12 && b.toString("latin1", 0, 4) === "RIFF" && b.toString("latin1", 8, 12) === "WEBP") return ".webp";
+  return "";
+}
+
 export function localDayStamp(now = new Date()) {
   const d = now instanceof Date ? now : new Date(now);
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
@@ -497,7 +512,8 @@ export async function saveArtifact(artifact) {
     const dir = path.join(WS_ROOT, "生成物", typeDir, date);
     fs.mkdirSync(dir, { recursive: true });
     // 类型表统一由 artifactExtension 提供，别在这里再写一份内联三元——两处判断迟早漂移。
-    const ext = artifactExtension(artifact.type) || ".mp4";
+    // 图片例外：拿到字节后按真实格式改扩展名（见下方 imageExtensionFromBytes 的注释）。
+    let ext = artifactExtension(artifact.type) || ".mp4";
     const baseName = artifactBaseName({ prompt: artifact.prompt, now, type: artifact.type });
     const limits = artifactDownloadLimits(artifact.type, artifact.limits);
     const isVideo = String(artifact.type || "").toLowerCase() === "video";
@@ -569,6 +585,14 @@ export async function saveArtifact(artifact) {
       return { url: remote, local: true, reason: "" };
     }
     signal?.throwIfAborted();
+    // 图片按字节定扩展名：上游给 WebP 就叫 .webp，不沿用类型表的 .png（名字必须和内容一致）。
+    if (dataBuf && String(artifact.type).toLowerCase() === "image") {
+      const sniffed = imageExtensionFromBytes(dataBuf);
+      if (sniffed && sniffed !== ext) {
+        console.log(`[元枢] 图片实际格式 ${sniffed}，扩展名按内容改（原定 ${ext}）`);
+        ext = sniffed;
+      }
+    }
     if (isVideo && !dataBuf) {
       // 流式下载收尾：.part 非空才算真的下到了，再按命名契约定名并原子改名成最终产物。
       const partSize = fs.existsSync(partFile) ? fs.statSync(partFile).size : 0;

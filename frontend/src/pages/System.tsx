@@ -14,6 +14,7 @@ import EmailPanel from '../components/panels/EmailPanel'
 import PairLoginCard from '../components/cards/PairLoginCard'
 import ServiceStatusCard from '../components/cards/ServiceStatusCard'
 import JobsCard from '../components/cards/JobsCard'
+import AppearancePanel from '../components/panels/AppearancePanel'
 
 type DomainRow = { domain: string; desc: string }
 
@@ -363,6 +364,14 @@ export default function System() {
           <SectionHeader title="手机扫码登录" description="手机或微信「扫一扫」即可登录；每台设备一个令牌，可单独撤销。" />
           <div className="panel !p-4">
             <PairLoginCard />
+          </div>
+        </section>
+
+        {/* ── 外观 · 自动深色（2026-11-19）：设置页就有开关，不必先进主题画廊 ── */}
+        <section>
+          <SectionHeader title="外观 · 自动深色" description="到点自动切深色、白天自动切回浅色；深浅两套用哪套主题在主题画廊里选。" />
+          <div className="panel !p-4">
+            <AppearancePanel />
           </div>
         </section>
 

@@ -131,6 +131,31 @@ test("data URL 与非 http 输入的行为不变（本来就本地）", async ()
   } finally { fs.rmSync(root, { recursive: true, force: true }); }
 });
 
+// 2026-11-19 recraft（OpenRouter 系 chat/completions 出图）实测：返回 data:image/webp。
+// 以前扩展名只按"产物类型"给 .png，于是 WebP 字节被叫成 .png —— 名字和内容对不上，
+// 交付复核会判成不可交付。扩展名必须按字节定。
+test("图片扩展名按真实字节定：WebP 内容存成 .webp，不沿用类型表的 .png", async () => {
+  // 最小 WebP 头（RIFF....WEBP + VP8L 段头，足够让字节嗅探认出格式）
+  const WEBP = Buffer.concat([
+    Buffer.from("RIFF", "ascii"), Buffer.from([0x1a, 0, 0, 0]),
+    Buffer.from("WEBP", "ascii"), Buffer.from("VP8L", "ascii"), Buffer.from([0x0d, 0, 0, 0, 0x2f, 0, 0, 0, 0, 0]),
+  ]);
+  for (const [name, url, fetchImpl] of [
+    ["data URL", `data:image/webp;base64,${WEBP.toString("base64")}`, okFetch(WEBP)],
+    ["外站下载（文件名写 .png 也骗不过）", `${FAKE_UPSTREAM}/x.png`, okFetch(WEBP)],
+  ]) {
+    const { result, root } = await save({ type: "image", url, prompt: "webp 图" }, fetchImpl);
+    try {
+      assert.equal(result.local, true, `${name}：应当落盘成功`);
+      const dir = path.join(root, "生成物", "图片", localDayStamp());
+      const files = fs.readdirSync(dir).filter(n => !n.endsWith(".json"));
+      assert.equal(files.length, 1, `${name}：只能有一个产物文件`);
+      assert.ok(files[0].endsWith(".webp"), `${name}：WebP 内容必须叫 .webp，实际 ${files[0]}`);
+      assert.ok(!files.some(n => n.endsWith(".png")), `${name}：不能留 .png 假名`);
+    } finally { fs.rmSync(root, { recursive: true, force: true }); }
+  }
+});
+
 test("saveArtifactUrl 是只取地址的薄封装", async () => {
   const { root } = await save({ type: "image", url: `${FAKE_UPSTREAM}/x.png`, prompt: "薄封装" }, okFetch(PNG));
   try {

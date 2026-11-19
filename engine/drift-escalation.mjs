@@ -6,7 +6,8 @@
 import fs from "node:fs";
 import path from "node:path";
 
-export const DEFAULT_COOLDOWN_MS = 4 * 60 * 60 * 1000; // 同类问题 4 小时内只喊一次
+export const DEFAULT_COOLDOWN_MS = 4 * 60 * 60 * 1000; // 同一件事 4 小时内只喊一次
+export const STORM_WINDOW_MS = 30 * 60 * 1000; // 同一签名全域 30 分钟防洪
 export const NOTIFY_REL = path.join("记忆", "运行时", "看门狗通知.json");
 
 export function notifyFile(wsRoot) {
@@ -20,17 +21,70 @@ export function signatureOf(issues = []) {
 }
 
 /**
- * 要不要把这次 drift 推给人。
- * @returns {{ escalate:boolean, key:string, reason:string }}
+ * 「这件事」的身份：优先会话，其次 run/task；一个都没有就用 none。
+ * 2026-11-19 收紧：重复提醒的根因不是签名不够细，而是签名**没带身份**——
+ * 同一个会话的问题组合一变（failing → failing+loop+no_gate）就被当成新问题再喊一遍。
  */
-export function shouldEscalate({ drift = false, issues = [], now = Date.now(), last = {}, cooldownMs = DEFAULT_COOLDOWN_MS } = {}) {
-  const key = signatureOf(issues);
-  if (!drift || !issues.length) return { escalate: false, key, reason: "没有偏离" };
-  const prev = Number(last?.[key] || 0);
-  if (prev && now - prev < cooldownMs) {
-    return { escalate: false, key, reason: `同类问题 ${Math.round((now - prev) / 60000)} 分钟前刚报过` };
+export function incidentKeyOf(issues = []) {
+  const list = Array.isArray(issues) ? issues : [];
+  for (const i of list) {
+    const s = String(i?.sessionId || "").trim();
+    if (s) return `s:${s}`;
   }
-  return { escalate: true, key, reason: "新出现或已过冷却窗口" };
+  for (const i of list) {
+    const r = String(i?.runId || "").trim();
+    if (r) return `r:${r}`;
+  }
+  for (const i of list) {
+    const t = String(i?.taskId || "").trim();
+    if (t) return `t:${t}`;
+  }
+  return "none";
+}
+
+/** 台账里的一条记录可能是新格式对象，也可能是旧格式数字（老文件兼容）。 */
+function normalizeEntry(key, raw) {
+  if (raw && typeof raw === "object") {
+    return { at: Number(raw.at || 0), incident: String(raw.incident || ""), sig: String(raw.sig || key || "drift") };
+  }
+  return { at: Number(raw || 0), incident: "", sig: String(key || "drift") };
+}
+
+/**
+ * 要不要把这次 drift 推给人。
+ *
+ * 2026-11-19 收紧后的三条规则（按顺序判定，命中即不推）：
+ * ① 同一件事（会话/run/task）在冷却窗内已经提醒过 → 不再提醒，**签名变化也不再提醒**；
+ * ② 同一签名（问题组合）全 30 分钟内已经提醒过 → 不再提醒（一次系统性故障别同时轰十几个会话）；
+ * ③ 其余情况 → 提醒。
+ *
+ * @returns {{ escalate:boolean, key:string, incident:string, reason:string }}
+ */
+export function shouldEscalate({
+  drift = false, issues = [], now = Date.now(), last = {},
+  cooldownMs = DEFAULT_COOLDOWN_MS, stormWindowMs = STORM_WINDOW_MS,
+} = {}) {
+  const key = signatureOf(issues);
+  const incident = incidentKeyOf(issues);
+  if (!drift || !issues.length) return { escalate: false, key, incident, reason: "没有偏离" };
+  const entries = Object.entries(last || {}).map(([k, v]) => [k, normalizeEntry(k, v)]);
+
+  // ① 同一件事：签名变了也算同一件事，冷却窗内只喊一次。
+  for (const [, e] of entries) {
+    if (e.incident && e.incident === incident && now - e.at < cooldownMs) {
+      const same = e.sig === key ? "同类问题" : `同一件事换了签名（上次 ${e.sig}）`;
+      return { escalate: false, key, incident, reason: `${same} ${Math.round((now - e.at) / 60000)} 分钟前刚报过` };
+    }
+  }
+
+  // ② 同一签名全域防洪：不同会话但是同一种问题，30 分钟内只喊一次。
+  for (const [, e] of entries) {
+    if (e.sig === key && now - e.at < stormWindowMs) {
+      return { escalate: false, key, incident, reason: `同一签名 ${Math.round((now - e.at) / 60000)} 分钟前刚报过（防洪窗口）` };
+    }
+  }
+
+  return { escalate: true, key, incident, reason: "新出现或已过冷却窗口" };
 }
 
 /** 本地时区的 HH:mm（只给人看）。 */
@@ -108,19 +162,30 @@ export function composeDriftNotice(issues = [], { limit = 3, incidentId = "" } =
   ].join("\n");
 }
 
-/** 读上次通知时间表（{签名: 时间戳}）。 */
+/** 读上次通知台账。新格式 `{ "<身份>|<签名>": {at,incident,sig} }`，旧格式 `{ 签名: 时间戳 }` 同样能读。 */
 export function readLastNotified(wsRoot) {
   try { return JSON.parse(fs.readFileSync(notifyFile(wsRoot), "utf8"))?.last || {} } catch { return {} }
 }
 
-/** 记一次已通知（只留最近 50 个签名）。 */
-export function recordNotified(wsRoot, key, { now = Date.now() } = {}) {
-  const last = { ...readLastNotified(wsRoot), [String(key || "drift")]: now };
-  const keys = Object.keys(last).sort((a, b) => last[b] - last[a]).slice(0, 50);
+/** 记一次已通知（只留最近 50 条；按时间倒序裁剪，新旧两种格式都按 at 排序）。 */
+export function recordNotified(wsRoot, key, { now = Date.now(), incident = "", sig = "" } = {}) {
+  const prev = readLastNotified(wsRoot);
+  const raw = String(key || "drift");
+  const [keyIncident, keySig] = raw.includes("|") ? raw.split("|") : ["", raw];
+  const entry = {
+    at: Number(now),
+    incident: String(incident || keyIncident || ""),
+    sig: String(sig || keySig || "drift"),
+  };
+  const storeKey = entry.incident ? `${entry.incident}|${entry.sig}` : entry.sig;
+  const last = { ...prev, [storeKey]: entry };
+  const keys = Object.keys(last)
+    .sort((a, b) => normalizeEntry(b, last[b]).at - normalizeEntry(a, last[a]).at)
+    .slice(0, 50);
   const kept = Object.fromEntries(keys.map((k) => [k, last[k]]));
   try {
     fs.mkdirSync(path.dirname(notifyFile(wsRoot)), { recursive: true });
     fs.writeFileSync(notifyFile(wsRoot), JSON.stringify({ last: kept, updatedAt: new Date(now).toISOString() }, null, 2), "utf8");
-    return { ok: true, last: kept };
+    return { ok: true, last: kept, key: storeKey };
   } catch (e) { return { ok: false, error: String(e?.message || e).slice(0, 120) } }
 }

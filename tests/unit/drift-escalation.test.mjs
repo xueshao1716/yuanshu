@@ -61,7 +61,7 @@ test("通知时间表：写入后能读回，最多留 50 个签名", async () =
   const ws = tmp();
   assert.deepEqual(readLastNotified(ws), {});
   recordNotified(ws, "loop", { now: 1000 });
-  assert.equal(readLastNotified(ws).loop, 1000);
+  assert.equal(readLastNotified(ws).loop.at, 1000);
   for (let i = 0; i < 60; i += 1) recordNotified(ws, `k${i}`, { now: 2000 + i });
   assert.equal(Object.keys(readLastNotified(ws)).length, 50);
 });
