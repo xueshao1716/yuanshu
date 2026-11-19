@@ -52,7 +52,7 @@ import { createMaintenanceApi } from "./engine/maintenance-api.mjs";
 import { sweepInterruptedRuns } from "./engine/story/store.mjs";
 import { extractPromises, recordPromises, loadPromises, pendingPromises, closePromise, pendingPromiseText, PROMISE_TOOL_SCHEMAS, promiseExtraExecutors, expireStalePromises } from "./engine/promises.mjs";
 import { MUSIC_TOOL_SCHEMA, musicExtraExecutors } from "./engine/music.mjs";
-import { DELEGATE_EXTERNAL_TOOL, createDelegateExternal, runExternalAgent } from "./engine/external-agent.mjs";
+import { DELEGATE_EXTERNAL_TOOL, createDelegateExternal, runExternalAgent, externalStatus, saveExternalConfig, detectExternalAgents } from "./engine/external-agent.mjs";
 import { musicLoginView, resetMusicLogin } from "./engine/music-login.mjs";
 import { createPairing, getPairing, claimPairing, approvePairing, takePairingToken, verifyDeviceToken, listDevices, revokeDevice } from "./engine/pairing.mjs";
 import { renderPairPage, PAIR_JS } from "./engine/pair-page.mjs";
@@ -6675,6 +6675,12 @@ const API_ROUTES = [
   ["GET", "/api/system/check-update", async (res) => json(res, 200, await checkUpdate(__dirname))],
   // 可选组件：基本安装包不带 ffmpeg/抠图/pandas/PDF，按需联网安装（后台任务，轮询进度）
   ["GET", "/api/system/addons", async (res) => json(res, 200, { addons: await listAddons(), jobs: addonJobs() })],
+  // 2026-11-19：外部智能体（Claude Code / Codex）开关，设置页用
+  ["GET", "/api/system/external-agents", async (res) => json(res, 200, { ...externalStatus(WS_ROOT), agents: await detectExternalAgents() })],
+  ["POST", "/api/system/external-agents", async (res, req) => {
+    try { json(res, 200, saveExternalConfig(WS_ROOT, (await readBody(req, 1)) || {})); }
+    catch (e) { json(res, e.localStatus || 500, { error: String(e?.message || e) }); }
+  }],
   ["POST", /^\/api\/system\/addons\/([a-z]+)\/install$/, async (res, req, url, m) => {
     try { const j = startAddonJob(m[1]); json(res, 202, { id: j.id, state: j.state }); }
     catch (e) { json(res, 400, { error: e?.message || String(e) }); }

@@ -162,10 +162,42 @@ export function createDelegateExternal({ wsRoot, run = runExternalAgent, now = (
     if (!cwd) return { text: `子目录不在工作区内或不存在：${clip(args.subdir, 80)}`, isError: true };
     const slot = claimExternalSlot(wsRoot, now());
     if (!slot.ok) {
-      if (slot.reason === 'disabled') return { text: `外部智能体没开启。需要用户在 ${EXTERNAL_AGENT_FILE.replace(/\\/g, '/')} 里把 enabled 设为 true。`, isError: true };
+      if (slot.reason === 'disabled') return { text: '外部智能体没开启。需要用户在 系统设置 → 外部智能体 里打开开关。', isError: true };
       if (slot.reason === 'quota') return { text: `今天的外部智能体次数用完了（${slot.used}/${slot.cap}），明天再派。`, isError: true };
       return { text: '外部智能体台账写不进去，这次不派。', isError: true };
     }
     return run({ agent, task, cwd, signal });
   };
+}
+
+// 设置页用：开关、次数、今天用了几次、本机装没装
+export function saveExternalConfig(wsRoot, { enabled, dailyCap } = {}) {
+  const cfg = readExternalConfig(wsRoot);
+  const next = { ...cfg.raw };
+  if (typeof enabled === 'boolean') next.enabled = enabled;
+  const cap = Number(dailyCap);
+  if (dailyCap !== undefined) {
+    if (!Number.isInteger(cap) || cap < 0 || cap > 50) throw Object.assign(new Error('每天次数只能是 0–50 的整数'), { localStatus: 400 });
+    next.dailyCap = cap;
+  }
+  const file = path.join(wsRoot, EXTERNAL_AGENT_FILE);
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  fs.writeFileSync(file, JSON.stringify(next, null, 2), 'utf8');
+  return externalStatus(wsRoot);
+}
+
+export function externalStatus(wsRoot, now = Date.now()) {
+  const cfg = readExternalConfig(wsRoot);
+  return { enabled: cfg.enabled, dailyCap: cfg.dailyCap, usedToday: Number(cfg.usage[today(now)]) || 0 };
+}
+
+export async function detectExternalAgents(load = defaultLoad) {
+  const out = {};
+  for (const [id, label] of Object.entries(AGENTS)) {
+    try {
+      const inst = await (await load(id)).runtime.installation();
+      out[id] = { label, available: inst?.kind === 'available', version: inst?.version || '', reason: inst?.kind === 'available' ? '' : clip(inst?.reason || inst?.kind, 120) };
+    } catch (e) { out[id] = { label, available: false, version: '', reason: clip(e?.message || e, 120) } }
+  }
+  return out;
 }

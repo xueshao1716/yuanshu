@@ -923,6 +923,11 @@ export const MaintenanceApi = {
 }
 
 // ── 系统面板：说明 / 检测更新 ──
+export type ExternalAgentsStatus = {
+  enabled: boolean; dailyCap: number; usedToday: number
+  agents?: Record<string, { label: string; available: boolean; version: string; reason: string }>
+}
+
 export const SystemApi = {
   info: () => api<any>('/api/system/info'),
   checkUpdate: () => api<any>('/api/system/check-update'),
@@ -932,6 +937,9 @@ export const SystemApi = {
   applyUpdate: (body?: { engine?: boolean }) => api<any>('/api/update/apply', { method: 'POST', body: body || {}, timeoutMs: 190000 }),
   rollbackUpdate: () => api<{ ok?: true; message?: string; error?: string }>('/api/update/rollback', { method: 'POST', body: {}, timeoutMs: 190000 }),
   token: () => api<{ token: string; tokenFile: string }>('/api/system/token'),
+  // 2026-11-19：外部智能体（Claude Code / Codex）开关
+  externalAgents: () => api<ExternalAgentsStatus>('/api/system/external-agents'),
+  saveExternalAgents: (body: { enabled?: boolean; dailyCap?: number }) => api<ExternalAgentsStatus>('/api/system/external-agents', { method: 'POST', body }),
   // 首启向导：status 免鉴权、只回布尔值；soul/done 需要登录且仅在新装 pending 期间有效
   setupStatus: async (): Promise<{ needsSetup: boolean }> => {
     // 5 秒超时：远程地址不通时别卡在「检查中」，按非新装处理 → 走登录页

@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { EXTERNAL_AGENT_FILE, claimExternalSlot, resolveExternalCwd, runExternalAgent, createDelegateExternal } from '../../engine/external-agent.mjs';
+import { EXTERNAL_AGENT_FILE, claimExternalSlot, resolveExternalCwd, runExternalAgent, createDelegateExternal, saveExternalConfig, externalStatus } from '../../engine/external-agent.mjs';
 
 const tmpWs = () => fs.mkdtempSync(path.join(os.tmpdir(), 'ext-agent-'));
 const writeCfg = (ws, v) => { const f = path.join(ws, EXTERNAL_AGENT_FILE); fs.mkdirSync(path.dirname(f), { recursive: true }); fs.writeFileSync(f, JSON.stringify(v)) };
@@ -89,4 +89,15 @@ test('失败、超时、未安装都报错', async () => {
   assert.match(none.text, /没找到可用的 Codex/);
   const broken = await runExternalAgent({ agent: 'codex', task: 't', cwd: '.', load: async () => { throw new Error('no module') } });
   assert.match(broken.text, /没装好/);
+});
+
+test('设置页开关：保存后状态可读，非法次数被拒', () => {
+  const ws = tmpWs();
+  assert.equal(externalStatus(ws).enabled, false);
+  const st = saveExternalConfig(ws, { enabled: true, dailyCap: 3 });
+  assert.deepEqual([st.enabled, st.dailyCap, st.usedToday], [true, 3, 0]);
+  claimExternalSlot(ws);
+  assert.equal(externalStatus(ws).usedToday, 1);
+  assert.equal(saveExternalConfig(ws, { enabled: false }).usedToday, 1);
+  assert.throws(() => saveExternalConfig(ws, { dailyCap: -1 }), /0–50/);
 });
