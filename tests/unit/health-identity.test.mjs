@@ -11,7 +11,7 @@ test('/api/health 带版本和实例指纹，指纹=代码目录小写的 sha256
   const s = read('server.mjs');
   assert.match(s, /APP_DIR_ID = crypto\.createHash\("sha256"\)\.update\(__dirname\.toLowerCase\(\)\)\.digest\("hex"\)\.slice\(0, 12\)/);
   assert.match(s, /"\/api\/health", \(res\) => json\(res, 200, \{ ok: true, version: APP_VERSION, instance: APP_DIR_ID \}\)/);
-  assert.equal(crypto.createHash('sha256').update('d:\pi-web').digest('hex').slice(0, 12), 'b4ca2c87525b');
+  assert.equal(crypto.createHash('sha256').update('d:\\pi-web').digest('hex').slice(0, 12), 'd2c5c28b43e4');
 });
 
 test('重启脚本不再只看 200：指纹对不上就报另一份元枢在响应', () => {
