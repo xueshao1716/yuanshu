@@ -28,11 +28,29 @@ function Get-ListenerPids {
   } | Sort-Object -Unique)
 }
 
+# 2026-11-20：只看 200 会把「别人占着端口」当成自己就绪（安装版服务抢了 8787，手机连的一直是旧版）。
+# 现在比对 /api/health 里的实例指纹（代码目录小写的 sha256 前 12 位，与 server.mjs 同算法）。
+$sha = [Security.Cryptography.SHA256]::Create()
+$expectedId = (-join ($sha.ComputeHash([Text.Encoding]::UTF8.GetBytes($root.ToLower())) | ForEach-Object { $_.ToString('x2') })).Substring(0, 12)
+$expectedVersion = (Get-Content -Raw -Encoding UTF8 (Join-Path $root 'version.json') | ConvertFrom-Json).version
+$script:impostor = $null
+
 function Test-Health {
   try {
     $response = Invoke-WebRequest -UseBasicParsing -Uri $healthUrl -TimeoutSec 3
-    return $response.StatusCode -eq 200
+    if ($response.StatusCode -ne 200) { return $false }
+    $body = $response.Content | ConvertFrom-Json
+    if ($body.instance -eq $expectedId) { $script:impostor = $null; return $true }
+    $script:impostor = if ($body.version) { "v$($body.version)" } else { '旧版本（健康接口不带指纹）' }
+    return $false
   } catch { return $false }
+}
+
+function Get-RivalService {
+  # 安装版的 Windows 服务会守护它自己的 server.mjs，开发仓库重启时它会抢先占端口
+  Get-CimInstance Win32_Service -ErrorAction SilentlyContinue |
+    Where-Object { $_.State -eq 'Running' -and $_.PathName -match 'Yuanshu' -and $_.PathName -notmatch [regex]::Escape($root) } |
+    Select-Object -First 1
 }
 
 if (-not (Test-Path -LiteralPath $server)) {
@@ -68,10 +86,15 @@ Start-Process -FilePath $node -ArgumentList @('server.mjs') -WorkingDirectory $r
 $readyDeadline = (Get-Date).AddSeconds(30)
 do {
   if (Test-Health) {
-    Write-Host '元枢已就绪：8787 /api/health = 200' -ForegroundColor Green
+    Write-Host "元枢已就绪：8787 由 $root 提供（v$expectedVersion）" -ForegroundColor Green
     exit 0
   }
   Start-Sleep -Milliseconds 500
 } while ((Get-Date) -lt $readyDeadline)
 
+if ($script:impostor) {
+  $rival = Get-RivalService
+  $hint = if ($rival) { "多半是安装版服务 $($rival.Name) 抢的：它守护的是安装目录里的副本。处理：sc stop $($rival.Name) 并改为手动启动，或给它设 YUANSHU_DEV_APP=$root 让它守护本仓库。" } else { '先停掉占用者再重启。' }
+  throw "8787 正在响应的是另一份元枢（$script:impostor），不是 $root（v$expectedVersion）——本仓库启动时端口被它抢了，所有改动都没生效。$hint"
+}
 throw '元枢启动后 30 秒内健康检查未通过，请查看 watchdog.log 和控制台输出。'

@@ -14,6 +14,7 @@
 //   node scripts/release-restart.mjs --skip-import-preflight  # 仅排障：跳过符号级导入预检
 //   node scripts/release-restart.mjs --root <dir>    # 预检对象目录（默认装机目录）
 import fs from "node:fs";
+import crypto from "node:crypto";
 import { execFileSync } from "node:child_process";
 import { preflightImports } from "./lib/import-preflight.mjs";
 
@@ -103,12 +104,18 @@ async function waitPortFree(port, timeoutMs) {
   return portOwners(port).length === 0;
 }
 
+// 与 server.mjs 的 APP_DIR_ID 同算法：代码目录小写的 sha256 前 12 位
+const EXPECTED_ID = crypto.createHash("sha256").update(INSTALL_DIR.toLowerCase()).digest("hex").slice(0, 12);
+let impostor = "";
 async function waitHealth(port, timeoutMs) {
   const started = Date.now();
   while (Date.now() - started < timeoutMs) {
     try {
       const res = await fetch(`http://127.0.0.1:${port}/api/health`, { signal: AbortSignal.timeout(3000) });
-      if (res.ok) return true;
+      // 2026-11-20：200 不等于「是我们刚起的那份」——比对实例指纹，别把别的副本当成功
+      const body = res.ok ? await res.json().catch(() => ({})) : null;
+      if (body && (!body.instance || body.instance === EXPECTED_ID)) return true;
+      if (body?.instance) impostor = `v${body.version || "?"}（指纹 ${body.instance}）`;
     } catch {}
     await sleep(2000);
   }
@@ -200,7 +207,7 @@ sh("sc.exe", ["start", SERVICE], { timeout: 60000 });
 let healthy = false;
 try {
   healthy = await waitHealth(PORT, 90000);
-  if (!healthy) log("⛔ 90 秒内没等到 /api/health 200，去看 记忆/运行时/服务日志-*.log");
+  if (!healthy) log(impostor ? `⛔ 8787 回应的是另一份元枢 ${impostor}，不是 ${INSTALL_DIR}` : "⛔ 90 秒内没等到 /api/health 200，去看 记忆/运行时/服务日志-*.log");
   else log("health 200");
 } finally {
   // ── 5. 盖章（无条件执行）──

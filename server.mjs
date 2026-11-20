@@ -4684,6 +4684,8 @@ const APP_VERSION = (() => {
   try { return String(JSON.parse(fs.readFileSync(path.join(__dirname, "version.json"), "utf8")).version || ""); }
   catch { return ""; }
 })();
+// 实例指纹：代码目录（小写）的 sha256 前 12 位。重启脚本用同样算法比对，认出端口上是不是自己。
+const APP_DIR_ID = crypto.createHash("sha256").update(__dirname.toLowerCase()).digest("hex").slice(0, 12);
 
 // 分镜轨迹要落在工作区（不是进程 cwd）：显式注入，免得又写进产品仓库
 try { initStoryTrace({ wsRoot: WS_ROOT }); } catch {}
@@ -7115,7 +7117,10 @@ const API_ROUTES = [
   ["POST", "/api/ws/convert", async (res, req) => handleWsConvert(res, await readBody(req))],
   // ── 系统 ──
   ["GET", "/api/notices", (res) => handleNotices(res)],
-  ["GET", "/api/health", (res) => json(res, 200, { ok: true })],
+  // 2026-11-20：真假李鬼——安装版服务抢占了 8787，开发仓库启动失败，/api/health 照样 200，
+  // 重启脚本就报「就绪」，手机连的其实是旧版。现在带上版本和实例目录指纹（不暴露路径），
+  // 调用方据此确认「回应的就是我刚启动的那份代码」。
+  ["GET", "/api/health", (res) => json(res, 200, { ok: true, version: APP_VERSION, instance: APP_DIR_ID })],
   // 2026-11-20 直连握手（免令牌）：手机试局域网/Tailscale 地址时先要这个证明，对得上才把令牌发过来
   ["GET", "/api/net/hello", (res, _req, url) => {
     const proof = routeProof(WS_ROOT, CONFIG.token, url.searchParams.get("kid"), url.searchParams.get("nonce"));
