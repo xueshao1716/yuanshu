@@ -37,6 +37,7 @@ public class YuanshuPhone {
                 .put("screenshot", Build.VERSION.SDK_INT >= 30)
                 .put("device", PhoneControl.deviceName())
                 .put("android", Build.VERSION.RELEASE)
+                .put("batteryFree", batteryFree())
                 .toString();
         } catch (Exception e) { return "{}"; }
     }
@@ -71,6 +72,19 @@ public class YuanshuPhone {
     public void openAssistantSettings() {
         Intent i = new Intent(Settings.ACTION_VOICE_INPUT_SETTINGS);
         if (i.resolveActivity(activity.getPackageManager()) == null) i = new Intent(Settings.ACTION_SETTINGS);
+        open(i);
+    }
+
+    private boolean batteryFree() {
+        android.os.PowerManager pm = (android.os.PowerManager) activity.getSystemService(android.content.Context.POWER_SERVICE);
+        return pm != null && pm.isIgnoringBatteryOptimizations(activity.getPackageName());
+    }
+
+    /** 关掉电池优化：荣耀/华为等系统会在元枢切后台时冻结它、掐断指令通道。 */
+    @JavascriptInterface
+    public void openBatterySettings() {
+        Intent i = new Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS, Uri.parse("package:" + activity.getPackageName()));
+        if (batteryFree() || i.resolveActivity(activity.getPackageManager()) == null) i = new Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS);
         open(i);
     }
 

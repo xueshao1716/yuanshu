@@ -62,6 +62,7 @@ public class PushService extends Service {
         super.onCreate();
         prefs = getSharedPreferences(PREFS, Context.MODE_PRIVATE);
         commands = new PhoneCommands(this);
+        PhoneControl.installCrashCatcher(this);
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             NotificationManager nm = getSystemService(NotificationManager.class);
             nm.createNotificationChannel(channel(CH_KEEP, "保持连接", NotificationManager.IMPORTANCE_LOW, "元枢在后台保持连接，任务完成才能及时提醒你"));
@@ -174,6 +175,7 @@ public class PushService extends Service {
                 c.setReadTimeout(60000);
                 if (c.getResponseCode() != 200) throw new IllegalStateException("HTTP " + c.getResponseCode());
                 backoff = 2000;
+                if (PhoneControl.hasCrash(this)) hello(base, token); // 上次崩溃的堆栈报给服务器
                 try (BufferedReader reader = new BufferedReader(new InputStreamReader(c.getInputStream(), StandardCharsets.UTF_8))) {
                     String type = "message";
                     StringBuilder data = new StringBuilder();
@@ -200,9 +202,19 @@ public class PushService extends Service {
         }
     }
 
+    // 断线重连后服务器会重发没拿到结果的指令：执行中的不重复做，做完的直接补发结果
+    private final java.util.Set<String> running = java.util.Collections.newSetFromMap(new java.util.concurrent.ConcurrentHashMap<>());
+    private final java.util.Map<String, JSONObject> finished = java.util.Collections.synchronizedMap(new java.util.LinkedHashMap<String, JSONObject>() {
+        @Override protected boolean removeEldestEntry(java.util.Map.Entry<String, JSONObject> e) { return size() > 50; }
+    });
+
     private void dispatch(String base, String token, String data) {
         final JSONObject j;
         try { j = new JSONObject(data); } catch (Exception e) { return; }
+        String cid = j.optString("id");
+        JSONObject prev = finished.get(cid);
+        if (prev != null) { workers.submit(() -> postResult(base, token, prev)); return; }
+        if (!running.add(cid)) return;
         workers.submit(() -> {
             String id = j.optString("id");
             JSONObject out = new JSONObject();
@@ -214,21 +226,34 @@ public class PushService extends Service {
             } catch (Throwable e) {
                 try { out.put("ok", false).put("error", e.getMessage() == null ? e.toString() : e.getMessage()); } catch (Exception ignored) { }
             }
-            post(base, token, "/api/phone/result", out);
+            finished.put(id, out);
+            running.remove(id);
+            postResult(base, token, out);
         });
+    }
+
+    /** 回传结果；网络刚切换时可能失败，重试几次。 */
+    private static void postResult(String base, String token, JSONObject out) {
+        for (int i = 0; i < 4; i++) {
+            if (post(base, token, "/api/phone/result", out)) return;
+            try { Thread.sleep(1500L * (i + 1)); } catch (InterruptedException e) { return; }
+        }
     }
 
     /** 能力开关变了：告诉服务器（不用断开重连）。 */
     private void hello(String base, String token) {
         workers.submit(() -> {
             try {
-                post(base, token, "/api/phone/hello", new JSONObject().put("deviceId", PhoneControl.deviceId(this))
-                    .put("caps", new org.json.JSONArray(PhoneControl.activeCaps(this))));
+                JSONObject b = new JSONObject().put("deviceId", PhoneControl.deviceId(this))
+                    .put("caps", new org.json.JSONArray(PhoneControl.activeCaps(this)));
+                String crash = PhoneControl.takeCrash(this);
+                if (!crash.isEmpty()) b.put("lastError", crash);
+                post(base, token, "/api/phone/hello", b);
             } catch (Exception ignored) { }
         });
     }
 
-    private static void post(String base, String token, String path, JSONObject body) {
+    private static boolean post(String base, String token, String path, JSONObject body) {
         try {
             HttpURLConnection c = (HttpURLConnection) new URL(base + path).openConnection();
             c.setRequestMethod("POST");
@@ -238,9 +263,10 @@ public class PushService extends Service {
             c.setRequestProperty("Authorization", "Bearer " + token);
             c.setRequestProperty("Content-Type", "application/json; charset=utf-8");
             try (OutputStream os = c.getOutputStream()) { os.write(body.toString().getBytes(StandardCharsets.UTF_8)); }
-            c.getResponseCode();
+            int code = c.getResponseCode();
             c.disconnect();
-        } catch (Exception ignored) { }
+            return code < 500;
+        } catch (Exception ignored) { return false; }
     }
 
     private static String enc(String s) {

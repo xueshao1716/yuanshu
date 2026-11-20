@@ -42,16 +42,59 @@ test('没开的能力不下发，提示去 App 打开', async () => {
   assert.match((await job).text, /拒绝/);
 });
 
-test('断线让未完成指令立即失败；没有手机时明确报错', async () => {
-  const hub = createPhoneHub();
+test('断线后宽限期内没连回来才失败；没有手机时明确报错', async () => {
+  const hub = createPhoneHub({ graceMs: 20 });
   assert.match((await phoneTool(hub, { action: 'open_url', url: 'https://a.com' })).text, /没有在线的手机/);
   const c = fakeConn();
   hub.connect(c.res, c.req, { deviceId: 'p1', caps: 'apps' });
   const job = phoneTool(hub, { action: 'open_url', url: 'https://a.com' });
   await new Promise(r => setImmediate(r));
   c.req.emit('close');
-  assert.match((await job).text, /断开/);
+  assert.match((await job).text, /断开.*没有连回来/);
   assert.equal(hub.online, 0);
+});
+
+test('切后台掉线：手机连回来后补发没拿到结果的指令，下一步也会等它连回来', async () => {
+  const hub = createPhoneHub({ graceMs: 2000 });
+  const c1 = fakeConn();
+  hub.connect(c1.res, c1.req, { deviceId: 'p1', caps: 'apps,screen' });
+  const job = phoneTool(hub, { action: 'screen_read' }, { sessionId: 's1' });
+  await new Promise(r => setImmediate(r));
+  const [sent] = c1.cmds();
+  c1.req.emit('close');
+  const c2 = fakeConn();
+  hub.connect(c2.res, c2.req, { deviceId: 'p1', caps: 'apps,screen' });
+  const [again] = c2.cmds();
+  assert.equal(again.id, sent.id, '同一个 id 补发，手机端据此去重');
+  hub.result({ deviceId: 'p1', id: sent.id, ok: true, data: { elements: [] } });
+  assert.equal((await job).text, '{"elements":[]}');
+
+  // 下一步发出时手机正好不在线：等它连回来再发
+  c2.req.emit('close');
+  const next = phoneTool(hub, { action: 'screen_read' }, { sessionId: 's1' });
+  await new Promise(r => setTimeout(r, 10));
+  const c3 = fakeConn();
+  hub.connect(c3.res, c3.req, { deviceId: 'p1', caps: 'apps,screen' });
+  await new Promise(r => setImmediate(r));
+  const [third] = c3.cmds();
+  hub.result({ deviceId: 'p1', id: third.id, ok: true, data: { ok: 1 } });
+  assert.equal((await next).text, '{"ok":1}');
+  assert.ok(hub.status().events.some(e => e.type === 'close'));
+});
+
+test('旧连接被同一台手机的新连接顶替时，不影响在等的指令', async () => {
+  const hub = createPhoneHub({ graceMs: 20 });
+  const c1 = fakeConn();
+  hub.connect(c1.res, c1.req, { deviceId: 'p1', caps: 'apps' });
+  const c2 = fakeConn();
+  hub.connect(c2.res, c2.req, { deviceId: 'p1', caps: 'apps' });
+  const job = phoneTool(hub, { action: 'list_apps' });
+  await new Promise(r => setImmediate(r));
+  c1.req.emit('close'); // 旧连接晚到的 close
+  await new Promise(r => setTimeout(r, 40));
+  hub.result({ deviceId: 'p1', id: c2.cmds()[0].id, ok: true, data: { apps: [] } });
+  assert.equal((await job).text, '{"apps":[]}');
+  assert.equal(hub.online, 1);
 });
 
 test('参数校验与过滤', () => {

@@ -6,8 +6,8 @@ import SectionHeader from '../SectionHeader'
 
 // 2026-11-20 手机控制：元枢 App 里逐项打开能力（默认全关）；电脑/网页上只看哪些手机在线、开了什么。
 type CapState = { cap: string; on: boolean; permitted: boolean }
-type NativeState = { caps: CapState[]; accessibility: boolean; notificationAccess: boolean; screenshot: boolean; device: string; android: string }
-type PhoneBridge = { state: () => string; setCap: (cap: string, on: boolean) => void; openAccessibility: () => void; openNotificationAccess: () => void; openAppSettings: () => void; openAssistantSettings: () => void }
+type NativeState = { caps: CapState[]; accessibility: boolean; notificationAccess: boolean; screenshot: boolean; device: string; android: string; batteryFree?: boolean }
+type PhoneBridge = { state: () => string; setCap: (cap: string, on: boolean) => void; openAccessibility: () => void; openNotificationAccess: () => void; openAppSettings: () => void; openAssistantSettings: () => void; openBatterySettings?: () => void }
 type Device = { id: string; name: string; model: string; android: string; caps: string[]; lastSeen: number }
 
 const LABEL: Record<string, [string, string]> = {
@@ -67,7 +67,9 @@ export default function PhoneControlPanel() {
             <button type="button" className="btn-ghost min-h-11 px-3" onClick={() => bridge()?.openNotificationAccess()}>通知使用权{native.notificationAccess ? '（已开）' : ''}</button>
             <button type="button" className="btn-ghost min-h-11 px-3" onClick={() => bridge()?.openAppSettings()}>应用权限</button>
             <button type="button" className="btn-ghost min-h-11 px-3" onClick={() => bridge()?.openAssistantSettings()}>设为默认助理</button>
+            {bridge()?.openBatterySettings && <button type="button" className="btn-ghost min-h-11 px-3" onClick={() => bridge()?.openBatterySettings?.()}>后台保活{native.batteryFree ? '（已关电池优化）' : ''}</button>}
           </div>
+          {native.batteryFree === false && <p className="text-sm text-pi-danger leading-relaxed">电池优化还开着：元枢一切到后台（比如替你打开别的应用时），系统可能把它冻住，指令就断了。点「后台保活」关掉；荣耀/华为手机还要到 设置 → 应用 → 应用启动管理 → 元枢，改成手动管理并打开「允许后台活动」。</p>}
           <p className="text-sm text-pi-dim leading-relaxed">设为默认数字助理后，长按电源键或主页键会直接打开元枢语音。屏幕操作时顶部有「元枢正在操作」浮条，点停止立刻收回；打电话、发短信，以及点发送/付款/删除这类按钮前都会在手机上问你。{!native.screenshot && '这台手机低于 Android 11，不支持截图（读界面文字不受影响）。'}</p>
         </div> : <p className="text-sm text-pi-dim border-t border-pi-border-soft pt-4">能力开关在手机上：用元枢安卓 App 打开「授权中心 → 手机控制」。</p>}
       </div>

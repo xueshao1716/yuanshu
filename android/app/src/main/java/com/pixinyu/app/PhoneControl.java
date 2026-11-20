@@ -40,6 +40,36 @@ public final class PhoneControl {
 
     static SharedPreferences prefs(Context c) { return c.getApplicationContext().getSharedPreferences(PREFS, Context.MODE_PRIVATE); }
 
+    /** 进程崩溃时把堆栈存下来，下次连上服务器时随 hello 上报（真机掉线没法接 adb 看日志）。 */
+    static void installCrashCatcher(Context c) {
+        Thread.UncaughtExceptionHandler prev = Thread.getDefaultUncaughtExceptionHandler();
+        if (prev instanceof CrashCatcher) return;
+        Thread.setDefaultUncaughtExceptionHandler(new CrashCatcher(c.getApplicationContext(), prev));
+    }
+
+    static boolean hasCrash(Context c) { return !prefs(c).getString("lastCrash", "").isEmpty(); }
+
+    static String takeCrash(Context c) {
+        String s = prefs(c).getString("lastCrash", "");
+        if (!s.isEmpty()) prefs(c).edit().remove("lastCrash").apply();
+        return s;
+    }
+
+    private static final class CrashCatcher implements Thread.UncaughtExceptionHandler {
+        private final Context ctx;
+        private final Thread.UncaughtExceptionHandler prev;
+        CrashCatcher(Context ctx, Thread.UncaughtExceptionHandler prev) { this.ctx = ctx; this.prev = prev; }
+        @Override public void uncaughtException(Thread t, Throwable e) {
+            try {
+                java.io.StringWriter sw = new java.io.StringWriter();
+                e.printStackTrace(new java.io.PrintWriter(sw));
+                String s = "线程 " + t.getName() + "：" + sw;
+                prefs(ctx).edit().putString("lastCrash", s.length() > 2000 ? s.substring(0, 2000) : s).commit();
+            } catch (Throwable ignored) { }
+            if (prev != null) prev.uncaughtException(t, e);
+        }
+    }
+
     static String deviceId(Context c) {
         SharedPreferences p = prefs(c);
         String id = p.getString("deviceId", "");
