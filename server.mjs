@@ -226,6 +226,7 @@ import { initColorPrefs, loadColorPrefs, saveColorPrefs } from "./engine/color-p
 import { initEnginePair, loadEnginePair, saveEnginePair, swapEnginePair, resolveLead, describePair, leadNote } from "./engine/engine-pair.mjs";
 import { decorateEngineStatus, isCorePlugin } from "./engine/engine-panel.mjs";
 import { readPromptPlugins, savePromptPlugin, removePromptPlugin, promptPluginDef } from "./engine/prompt-plugins.mjs";
+import { createAppReleaseRoutes } from "./engine/app-release.mjs";
 import { initWorkspaceApi, WS_ROOT, findWorkspaceFiles, wsSafePath, saveArtifact, saveArtifactFromFile, handleWsTree, handleWsFile, handleWsRead, handleWsPreview, handleWsWrite, handleWsArtifacts, wsNextVersion, handleWsDeliver, handleWsPackage, handleWsDeliveries, handleWsRename, handleWsDelete, handleWsSearch, handleWsProjectCreate, handleWsConvert } from "./engine/workspace-api.mjs";
 import { configureMarkdownImages } from "./engine/media/markdown-images.mjs";
 
@@ -4805,6 +4806,7 @@ function currentContextWindow() {
 const API_ROUTES = [
   ...createComputerRoutes({service:computerUse,json,readBody}),
   ...createPhoneRoutes({ hub: phoneHub, json, readBody }),
+  ...createAppReleaseRoutes(path.join(WS_ROOT, "安装包")),
   ...createBehaviorExperimentRoutes({ service: behaviorExperiments, json, readBody }),
   ...websiteRoutes(websites,{json,readBody,root:WS_ROOT}),
   ["GET", "/api/workshop-ui/projects", async res => handleUiDesign(uiDesigns, json, res, 'list')],

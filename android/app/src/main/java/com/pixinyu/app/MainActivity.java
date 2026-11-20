@@ -25,6 +25,7 @@ public class MainActivity extends BridgeActivity {
     // 必须在 Activity 构造期注册系统保存窗口的回调（STARTED 之后注册会抛异常）
     private final YuanshuDownloads downloads = new YuanshuDownloads(this);
     private final YuanshuPhone phone = new YuanshuPhone(this);
+    private final YuanshuUpdate update = new YuanshuUpdate(this);
 
     @Override
     public void onStart() {
@@ -39,6 +40,8 @@ public class MainActivity extends BridgeActivity {
         webView.addJavascriptInterface(downloads, "YuanshuDownloads");
         webView.addJavascriptInterface(new YuanshuPush(getApplicationContext()), "YuanshuPush");
         webView.addJavascriptInterface(phone, "YuanshuPhone");
+        update.attach(webView);
+        webView.addJavascriptInterface(update, "YuanshuUpdate");
         ViewCompat.setOnApplyWindowInsetsListener(webView, (view, insets) -> {
             int imeBottom = insets.getInsets(WindowInsetsCompat.Type.ime()).bottom;
             float density = view.getResources().getDisplayMetrics().density;
