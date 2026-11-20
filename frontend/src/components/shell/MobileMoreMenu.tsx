@@ -57,7 +57,7 @@ export default function MobileMoreMenu({ open, onClose, route, nav, onOpenPanel,
   const closeButtonRef = useRef<HTMLButtonElement>(null)
 
   useEffect(() => {
-    if (!open) return
+    if (!open || accountsOpen) return
     closeButtonRef.current?.focus()
 
     const onKeyDown = (e: KeyboardEvent) => {
@@ -86,9 +86,12 @@ export default function MobileMoreMenu({ open, onClose, route, nav, onOpenPanel,
     }
     window.addEventListener('keydown', onKeyDown)
     return () => window.removeEventListener('keydown', onKeyDown)
-  }, [open, onClose])
+  }, [open, onClose, accountsOpen])
 
   if (!open) return null
+  // 2026-11-21 账号管理原来渲染在菜单的滚动区里：被带 transform 的面板和 overflow 裁掉，点了看不见。
+  // 打开时换成只显示账号管理，关掉回到菜单。
+  if (accountsOpen) return <ProfileManager open onClose={() => setAccountsOpen(false)} onLogout={onLogout} />
 
   const openRoute = (nextRoute: Route) => {
     onClose()
@@ -151,7 +154,16 @@ export default function MobileMoreMenu({ open, onClose, route, nav, onOpenPanel,
             ))}
           </div>
 
-          {accountsOpen && <ProfileManager open onClose={() => setAccountsOpen(false)} onLogout={onLogout} />}
+          <div className="my-3 border-t border-pi-border-soft" />
+          <p className="mb-2 text-[11px] font-medium text-pi-dim">账号</p>
+          <button
+            className="mobile-more-action w-full justify-start gap-2 rounded-pi-md bg-pi-bg2 px-3 text-xs text-pi-text hover:bg-pi-bg3"
+            onClick={() => setAccountsOpen(true)}
+          >
+            <UserRound className="h-[18px] w-[18px] text-pi-accent" strokeWidth={1.8} />
+            <span>账号管理</span>
+            <span className="ml-auto text-pi-dim">切换 / 添加登录账号</span>
+          </button>
         </div>
       </section>
     </div>

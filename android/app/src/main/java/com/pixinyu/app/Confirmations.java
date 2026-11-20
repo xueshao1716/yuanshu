@@ -88,6 +88,12 @@ public final class Confirmations {
             .addAction(0, "允许", allow)
             .build();
         try { NotificationManagerCompat.from(ctx).notify(nid, n); } catch (SecurityException ignored) { }
+        // 2026-11-21 只发通知太容易错过（用户以为卡住了）：直接把确认框弹到眼前。
+        // 无障碍服务在跑时用它的 Context 启动，不受后台弹界面限制；弹不出来就退回只靠通知。
+        try {
+            Context launcher = YuanshuAccess.instance != null ? YuanshuAccess.instance : ctx;
+            launcher.startActivity(new Intent(open));
+        } catch (Exception ignored) { }
     }
 
     private static PendingIntent action(Context ctx, String id, boolean allow, int code) {

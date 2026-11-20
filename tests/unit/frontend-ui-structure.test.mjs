@@ -107,6 +107,9 @@ test('更多菜单承载设置路由和辅助面板，并提供可访问状态',
   assert.ok(!menu.includes("route: 'plugins'"), '技能商店已并入能力，不再单列')
   for (const route of ['canvas', 'autopatch', 'agents']) assert.ok(menu.includes(`route: '${route}'`), `更多菜单缺少 ${route}`)
   assert.ok(menu.includes('aria-label="账号管理"'), '账号管理入口必须保留（在标题栏）')
+  // 2026-11-21：账号管理不能再渲染在带 transform/overflow 的菜单面板里（被裁掉看不见），菜单里也要有看得见的一行入口
+  assert.match(menu, /if \(accountsOpen\) return <ProfileManager/)
+  assert.match(menu, /<span>账号管理<\/span>/)
   for (const panel of ['workspace', 'deliveries', 'terminal', 'activity', 'tui']) {
     assert.ok(menu.includes(`panel: '${panel}'`), `更多菜单缺少 ${panel} 面板入口`)
   }
