@@ -11,7 +11,7 @@ import { createIlinkClient, normalizeMessage, splitForWechat, stripMarkdownForWe
 // 2026-10-27：文字 → SILK 语音条（系统语音 + pilk 编码）
 import { textToMp3 } from "./voice.mjs";
 // 2026-10-27：微信图片收发
-import { downloadImage, downloadVoice, extractImagePaths, voiceItemsOf } from "./media.mjs";
+import { downloadFile, downloadImage, downloadVoice, extractImagePaths, fileItemsOf, voiceItemsOf } from "./media.mjs";
 // 2026-10-28：语音转文字（不信腾讯的 voice_item.text，自己转）
 import { transcribe, seedSttConfig } from "./stt.mjs";
 import { execFileSync } from "node:child_process";
@@ -583,6 +583,23 @@ export function createWechatBridge({
               m.text = [m.text, `[用户发来 ${saved.length} 张图片，已保存：\n${saved.join("\n")}]`].filter(Boolean).join("\n");
             }
           }
+          // 2026-11-20：文件 / 视频——以前没解析，只发文件的消息被当空白消息丢掉
+          try {
+            const files = fileItemsOf(raw);
+            if (files.length) {
+              const day = new Date(now()).toISOString().slice(0, 10);
+              const saved = [];
+              for (const fi of files) {
+                try {
+                  const out = await downloadFile({ item: fi, outDir: `${dir}/../../收发文件/${day}` });
+                  saved.push(out.file);
+                  log(`[微信] 收到${fi.kind === "video" ? "视频" : "文件"} ${path.basename(out.file)}（${out.bytes} 字节）`);
+                } catch (e) { log(`[微信] 文件保存失败：${String(e?.message || e).slice(0, 100)}`); }
+              }
+              if (saved.length) m.text = [m.text, `[用户发来 ${saved.length} 个文件，已保存：\n${saved.join("\n")}]`].filter(Boolean).join("\n");
+              else m.text = [m.text, `[用户发来 ${files.length} 个文件，但下载失败了，请让用户重发]`].filter(Boolean).join("\n");
+            }
+          } catch {}
           // 2026-10-28：语音——下载原始音频自己转写（腾讯的 voice_item.text 对非中文是垃圾）
           try {
             const voices = voiceItemsOf(raw);

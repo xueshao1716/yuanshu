@@ -73,3 +73,32 @@ test("出站：不存在的路径不误发", () => {
 function mkdtemp() {
   return fs.mkdtempSync(path.join(os.tmpdir(), "wx-path-"));
 }
+
+// 2026-11-20：文件 / 视频入站（以前只发文件的消息被当空白丢掉）
+test("fileItemsOf 认文件(4)和视频(5)，按原名解密落盘，重名不覆盖", async () => {
+  const { fileItemsOf, downloadFile, safeFileName } = await import("../../engine/wechat/media.mjs");
+  const hex = "0123456789abcdef0123456789abcdef";
+  const items = fileItemsOf({ item_list: [
+    { type: 1, text_item: { text: "x" } },
+    { type: 4, file_item: { media: { encrypt_query_param: "F", aes_key: Buffer.from(hex).toString("base64") }, file_name: "报告.docx", len: "10" } },
+    { type: 5, video_item: { media: { encrypt_query_param: "V" }, aeskey: hex } },
+    { type: 4, file_item: { media: {} } },
+  ] });
+  assert.equal(items.length, 2);
+  assert.deepEqual([items[0].kind, items[0].fileName, items[0].size], ["file", "报告.docx", 10]);
+  assert.equal(items[1].kind, "video");
+  assert.equal(parseAesKey(items[1].aesKey).toString("hex"), hex);
+  assert.equal(safeFileName("../a:b?.txt", "z"), "a_b_.txt");
+  assert.equal(safeFileName("", "z"), "z");
+
+  const plain = Buffer.from("hello 文件");
+  const c = crypto.createCipheriv("aes-128-ecb", Buffer.from(hex, "hex"), null);
+  const enc = Buffer.concat([c.update(plain), c.final()]);
+  const fakeFetch = async () => ({ ok: true, arrayBuffer: async () => enc.buffer.slice(enc.byteOffset, enc.byteOffset + enc.length) });
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "wxfile-"));
+  const a = await downloadFile({ item: items[0], outDir: dir, fetch: fakeFetch });
+  const b = await downloadFile({ item: items[0], outDir: dir, fetch: fakeFetch });
+  assert.equal(path.basename(a.file), "报告.docx");
+  assert.equal(path.basename(b.file), "报告(1).docx");
+  assert.equal(fs.readFileSync(a.file, "utf8"), "hello 文件");
+});
