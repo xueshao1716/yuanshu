@@ -102,3 +102,24 @@ test("fileItemsOf 认文件(4)和视频(5)，按原名解密落盘，重名不�
   assert.equal(path.basename(b.file), "报告(1).docx");
   assert.equal(fs.readFileSync(a.file, "utf8"), "hello 文件");
 });
+
+// 2026-11-20 真机：她说「微信这边只能发图」，xlsx 只给了分享链接；链接里的空格让微信截断成 404
+test("出站：回复里单独一行的文件路径当文件发，图片和不存在的不管", async () => {
+  const { extractFilePaths } = await import("../../engine/wechat/media.mjs");
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "wxout-"));
+  const xlsx = path.join(dir, "流水账 左右对比.xlsx");
+  fs.writeFileSync(xlsx, "x");
+  const png = path.join(dir, "a.png");
+  fs.writeFileSync(png, "x");
+  const r = extractFilePaths(`表格整理好了：\n📎 交付: \`${xlsx}\`\n${png}\nD:\没有\这个.pdf\n说明里提到 \`${xlsx}\` 也算`);
+  assert.deepEqual(r.files, [xlsx]);
+  assert.ok(!r.text.includes("交付"));
+  assert.ok(r.text.includes("这个.pdf"));
+  assert.ok(r.text.includes(png), "图片交给图片通路");
+});
+
+test("链接里的中文和空格转义，微信不再截断", async () => {
+  const { encodeLinks } = await import("../../engine/wechat/media.mjs");
+  assert.equal(encodeLinks("下载 https://share.x.y/流水账.xlsx 就行"), "下载 https://share.x.y/%E6%B5%81%E6%B0%B4%E8%B4%A6.xlsx 就行");
+  assert.equal(encodeLinks("https://a.b/%E6%B5%81%20x"), "https://a.b/%E6%B5%81%20x", "已转义的不重复转义");
+});

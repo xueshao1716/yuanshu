@@ -166,7 +166,8 @@ export async function executeShareProject(args = {}, options = {}) {
     return { text: `⛔ 分享服务未运行（本机 ${port} 端口不可达），暂未生成外链。请先启动外网分享入口后重试。`, isError: true };
   }
   const shareDir = options.shareDir || path.join(cwd, "外网分享");
-  const base = path.basename(safe);
+  // 2026-11-20：名字里的空格换成 -——模型转述链接常把 %20 还原成空格，微信在空格处截断，点开 404
+  const base = path.basename(safe).replace(/\s+/g, "-");
   const target = path.join(shareDir, base);
   try {
     fs.mkdirSync(shareDir, { recursive: true });

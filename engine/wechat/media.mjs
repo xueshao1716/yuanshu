@@ -193,3 +193,40 @@ export async function downloadFile({ item, outDir, fetch: f = globalThis.fetch, 
   fs.writeFileSync(file, plain);
   return { ok: true, file, bytes: plain.length };
 }
+
+// ===== 微信出站文件（2026-11-20）=====
+// 规矩一直写着「发文件同理单独一行写绝对路径」，但出站只认图片路径，非图片文件从来没发出去过，
+// 她只能说「微信这边发不了」或者甩一串路径。这里补上：回复里指向磁盘上真实文件的路径 → 当文件发。
+export const MAX_SEND_FILE_BYTES = 100 * 1024 * 1024;
+const FILE_LINE = /^(?:📎\s*)?(?:交付[:：]\s*)?[`"'“]?((?:[A-Za-z]:[\\/]|\/)[^`"'”<>|*?\n]+?)[`"'”]?\s*$/;
+
+/**
+ * 从回复里找出要当文件发的本地路径（图片不管，交给图片通路）。
+ * 认：单独一行的绝对路径（可带「📎 交付:」前缀、反引号）；行内反引号包着的绝对路径。
+ * 单独一行的从正文去掉，行内的保留（那是句子的一部分）。
+ */
+export function extractFilePaths(text, { exists = fs.existsSync, statSize = (p) => fs.statSync(p).size, isFile = (p) => fs.statSync(p).isFile(), limit = 5 } = {}) {
+  const files = [];
+  const ok = (p) => {
+    const f = String(p || "").trim();
+    if (!f || IMAGE_EXT.has(path.extname(f).toLowerCase())) return false;
+    try { return exists(f) && isFile(f) && statSize(f) <= MAX_SEND_FILE_BYTES; } catch { return false; }
+  };
+  const add = (p) => { if (!files.includes(p) && files.length < limit) files.push(p); };
+  const kept = [];
+  for (const line of String(text || "").split(/\r?\n/)) {
+    const m = line.trim().match(FILE_LINE);
+    if (m && ok(m[1])) { add(m[1].trim()); continue; }
+    kept.push(line);
+  }
+  let t = kept.join("\n");
+  for (const m of t.matchAll(/`((?:[A-Za-z]:[\\/]|\/)[^`\n]+)`/g)) if (ok(m[1])) add(m[1].trim());
+  return { text: t.replace(/\n{3,}/g, "\n\n").trim(), files };
+}
+
+/** 链接里的中文 / 空格转成 %xx：微信识别链接遇到空格就断，点开是截断地址（2026-11-20 真机 404）。 */
+export function encodeLinks(text) {
+  return String(text || "").replace(/https?:\/\/[^\s<>"'`（）()\]]+/g, (u) => {
+    try { return encodeURI(decodeURI(u)); } catch { return u; }
+  });
+}

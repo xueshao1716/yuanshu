@@ -11,7 +11,7 @@ import { createIlinkClient, normalizeMessage, splitForWechat, stripMarkdownForWe
 // 2026-10-27：文字 → SILK 语音条（系统语音 + pilk 编码）
 import { textToMp3 } from "./voice.mjs";
 // 2026-10-27：微信图片收发
-import { downloadFile, downloadImage, downloadVoice, extractImagePaths, fileItemsOf, voiceItemsOf } from "./media.mjs";
+import { downloadFile, downloadImage, downloadVoice, encodeLinks, extractFilePaths, extractImagePaths, fileItemsOf, voiceItemsOf } from "./media.mjs";
 // 2026-10-28：语音转文字（不信腾讯的 voice_item.text，自己转）
 import { transcribe, seedSttConfig } from "./stt.mjs";
 import { execFileSync } from "node:child_process";
@@ -347,7 +347,8 @@ export function createWechatBridge({
         if (r?.ret === RATE_LIMITED) { await sleep(3000); try { r = await send(); err = null; } catch (e) { err = e; } }
         if (err) { stats.failed++; failed++; if (!job.image) failedText++; error = `发送异常 ${String(err?.message || err).slice(0, 120)}`; stats.lastError = error; if (sendCircuit.recordFailure()) log(`[微信] 连续失败，熔断 ${Math.round(sendCircuit.remainingMs() / 1000)} 秒`); }
         else if (r?.ret && r.ret !== 0) { stats.failed++; failed++; if (!job.image) failedText++; if (sendCircuit.recordFailure()) log(`[微信] 连续失败，熔断 ${Math.round(sendCircuit.remainingMs() / 1000)} 秒`); error = `发送失败 ret=${r.ret} ${r.errmsg || ""}`.trim(); stats.lastError = error; }
-        else { stats.replied++; sent++; sendCircuit.recordSuccess(); note("out", job.to, job.image ? `[图片 ${job.image.split(/[\\/]/).pop()}]` : job.text); }
+        else { stats.replied++; sent++; sendCircuit.recordSuccess(); note("out", job.to, job.image ? `[图片 ${job.image.split(/[\\/]/).pop()}]` : job.file ? `[文件 ${job.file.split(/[\\/]/).pop()}]` : job.text); }
+        if ((err || (r?.ret && r.ret !== 0)) && job.file) log(`[微信] 文件发送失败：${job.file.split(/[\\/]/).pop()} ${String(error || "").slice(0, 100)}`);
         if (queue.length) await sleep(REPLY_GAP_MS);
       }
     } finally { flushing = false; }
@@ -398,6 +399,15 @@ export function createWechatBridge({
       if (ex.dropped.length) log(`[微信] 图片路径不存在，已剥掉：${ex.dropped.join(" | ")}`);
       text = ex.text;
     } catch (e) { log("[微信] 图片路径处理失败（忽略）：" + String(e?.message || e).slice(0, 80)) }
+    // 2026-11-20：非图片文件的路径 → 当文件发（以前只认图片，xlsx/pdf 从没发出去过）
+    let autoFiles = [];
+    try {
+      const ex = extractFilePaths(text);
+      autoFiles = ex.files;
+      text = ex.text || (autoFiles.length ? "" : text);
+    } catch (e) { log("[微信] 文件路径处理失败（忽略）：" + String(e?.message || e).slice(0, 80)) }
+    // 2026-11-20 真机：分享链接带中文和空格，微信在空格处截断，点开 404
+    text = encodeLinks(text);
     // 2026-10-24：长回答被切成多条时标出 (i/n)，否则微信里看起来像刷屏
     // 2026-10-28：排版可配置（默认 keep，跟 Hermes 一致：保留 Markdown）
     const fmtMode = readFormatMode(wsRootOfDir());
@@ -414,7 +424,12 @@ export function createWechatBridge({
       queue.push({ to, image: p, contextToken });
     }
     // 2026-10-27：文件走 sendFile（Hermes 证实 iLink 支持 file_item）
-    if (file) queue.push({ to, file, contextToken });
+    for (const f of [...new Set([...autoFiles, file].filter(Boolean))]) {
+      const key = `${to}|${path.resolve(f)}`;
+      if (now() - (sentImages.get(key) || 0) < 600_000) continue;
+      sentImages.set(key, now());
+      queue.push({ to, file: f, contextToken });
+    }
     return flush(acc);
   };
 
