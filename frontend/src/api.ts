@@ -207,6 +207,26 @@ export async function downloadApiFile(path: string, filename?: string, onProgres
 
 const TIMEOUT = 30000
 
+// 2026-11-20 手机直连：安卓壳验证过的局域网/Tailscale 地址（几毫秒），没有就走域名（隧道 1~2 秒）。
+// 只用于普通请求；直连连不上（不是 HTTP 错误）就作废这条路、立刻改走域名重发一次。
+type DirectBridge = { directBase?: () => string; directFailed?: () => void }
+const directBridge = (): DirectBridge | undefined => (globalThis as { YuanshuPush?: DirectBridge }).YuanshuPush
+function directBase(path: string): string {
+  if (/^https?:\/\//i.test(path) || !getApiBase()) return ''
+  try { return (directBridge()?.directBase?.() || '').replace(/\/+$/, '') } catch { return '' }
+}
+async function fetchViaDirect(path: string, init: RequestInit): Promise<Response> {
+  const direct = directBase(path)
+  if (!direct) return fetch(apiUrl(path), init)
+  try {
+    return await fetch(`${direct}/${path.replace(/^\/+/, '')}`, init)
+  } catch (e: any) {
+    if (e?.name === 'AbortError' || init.signal?.aborted) throw e
+    try { directBridge()?.directFailed?.() } catch {}
+    return fetch(apiUrl(path), init)
+  }
+}
+
 export async function api<T = any>(path: string, opts: any = {}): Promise<T> {
   const sentToken = _token
   const headers: any = { ...(opts.headers || {}), Authorization: `Bearer ${sentToken}` }
@@ -217,7 +237,7 @@ export async function api<T = any>(path: string, opts: any = {}): Promise<T> {
   const ctrl = new AbortController()
   const timer = setTimeout(() => ctrl.abort(new Error('请求超时')), opts.timeoutMs || TIMEOUT)
   try {
-    const r = await fetch(apiUrl(path), { ...opts, headers, signal: opts.signal || ctrl.signal })
+    const r = await fetchViaDirect(path, { ...opts, headers, signal: opts.signal || ctrl.signal })
     const ct = r.headers.get('content-type') || ''
     const data = ct.includes('json') ? await r.json() : null
     if (!r.ok) {

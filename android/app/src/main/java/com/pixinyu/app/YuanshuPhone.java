@@ -38,6 +38,7 @@ public class YuanshuPhone {
                 .put("device", PhoneControl.deviceName())
                 .put("android", Build.VERSION.RELEASE)
                 .put("batteryFree", batteryFree())
+                .put("route", Routes.label())
                 .toString();
         } catch (Exception e) { return "{}"; }
     }

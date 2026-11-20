@@ -125,3 +125,28 @@ test('uiautomator XML 解析：编号、跳过密码框与无用节点', () => {
   assert.deepEqual(els.map(e => [e.id, e.text]), [['1', '登录'], ['2', '搜索']]);
   assert.equal(els[0].cx, 200);
 });
+
+test('直连握手：只有拿着令牌的一方能验证，未知 kid 不回证明', async () => {
+  const crypto = await import('node:crypto');
+  const { routeProof } = await import('../../engine/pairing.mjs');
+  const fs = await import('node:fs'); const os = await import('node:os'); const path = await import('node:path');
+  const ws = fs.mkdtempSync(path.join(os.tmpdir(), 'route-'));
+  const token = 'master-token-for-test-1234567890';
+  const h = crypto.createHash('sha256').update(token).digest('hex');
+  const nonce = 'n'.repeat(20);
+  assert.equal(routeProof(ws, token, h.slice(0, 16), nonce), crypto.createHmac('sha256', h).update(nonce).digest('hex'));
+  assert.equal(routeProof(ws, token, '0'.repeat(16), nonce), null);
+  assert.equal(routeProof(ws, token, h.slice(0, 16), 'short'), null);
+});
+
+test('电量/设备信息不需要开关，读短信要「读短信」', async () => {
+  const hub = createPhoneHub();
+  const c = fakeConn();
+  hub.connect(c.res, c.req, { deviceId: 'p1', caps: '' });
+  const job = phoneTool(hub, { action: 'battery' });
+  await new Promise(r => setImmediate(r));
+  assert.equal(c.cmds()[0].cmd, 'battery');
+  hub.result({ id: c.cmds()[0].id, ok: true, data: { percent: 80 } });
+  assert.match((await job).text, /80/);
+  assert.match((await phoneTool(hub, { action: 'sms_list' })).text, /读短信/);
+});

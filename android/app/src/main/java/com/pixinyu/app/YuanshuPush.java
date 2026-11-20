@@ -33,6 +33,23 @@ public class YuanshuPush {
         context.stopService(new Intent(context, PushService.class));
     }
 
+    /**
+     * 页面请求也走直连（2026-11-20）：返回已验证可用的局域网/Tailscale 地址，没有就返回空串（继续用域名）。
+     * 不阻塞：没选过路就在后台选，页面下次再问。
+     */
+    @JavascriptInterface
+    public String directBase() {
+        String base = prefs.getString("baseUrl", ""), token = prefs.getString("token", "");
+        if (base.isEmpty() || token.isEmpty()) return "";
+        String cur = Routes.peek(base);
+        if (cur == null) { new Thread(() -> Routes.pick(context, base, token), "yuanshu-route").start(); return ""; }
+        return cur.equals(base) ? "" : cur;
+    }
+
+    /** 页面直连失败：作废这条路，下次重选。 */
+    @JavascriptInterface
+    public void directFailed() { Routes.invalidate(); }
+
     @JavascriptInterface
     public void ack(double seq) {
         if ((long) seq > PushService.acked) PushService.acked = (long) seq;

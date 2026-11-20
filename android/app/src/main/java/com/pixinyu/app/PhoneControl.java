@@ -33,6 +33,7 @@ public final class PhoneControl {
         CAPS.put("contacts", new String[]{Manifest.permission.READ_CONTACTS});
         CAPS.put("call", new String[]{Manifest.permission.CALL_PHONE});
         CAPS.put("sms", new String[]{Manifest.permission.SEND_SMS});
+        CAPS.put("sms_read", new String[]{Manifest.permission.READ_SMS});
         CAPS.put("screen", new String[]{});
     }
 

@@ -6,7 +6,7 @@ import SectionHeader from '../SectionHeader'
 
 // 2026-11-20 手机控制：元枢 App 里逐项打开能力（默认全关）；电脑/网页上只看哪些手机在线、开了什么。
 type CapState = { cap: string; on: boolean; permitted: boolean }
-type NativeState = { caps: CapState[]; accessibility: boolean; notificationAccess: boolean; screenshot: boolean; device: string; android: string; batteryFree?: boolean }
+type NativeState = { caps: CapState[]; accessibility: boolean; notificationAccess: boolean; screenshot: boolean; device: string; android: string; batteryFree?: boolean; route?: string }
 type PhoneBridge = { state: () => string; setCap: (cap: string, on: boolean) => void; openAccessibility: () => void; openNotificationAccess: () => void; openAppSettings: () => void; openAssistantSettings: () => void; openBatterySettings?: () => void }
 type Device = { id: string; name: string; model: string; android: string; caps: string[]; lastSeen: number }
 
@@ -20,6 +20,7 @@ const LABEL: Record<string, [string, string]> = {
   contacts: ['通讯录', '按名字查号码'],
   call: ['打电话', '每次都会在手机上弹确认，你点允许才拨'],
   sms: ['发短信', '每次都会在手机上弹确认，你点允许才发'],
+  sms_read: ['读短信', '直接读最近的短信（不用开「信息」App 读屏，快得多）'],
   screen: ['屏幕操作', '读界面、点按、输入、滑动、截图（需要系统无障碍设置里启用元枢）。每个对话第一次操作要你允许，支付/银行类应用不碰'],
 }
 
@@ -70,6 +71,7 @@ export default function PhoneControlPanel() {
             {bridge()?.openBatterySettings && <button type="button" className="btn-ghost min-h-11 px-3" onClick={() => bridge()?.openBatterySettings?.()}>后台保活{native.batteryFree ? '（已关电池优化）' : ''}</button>}
           </div>
           {native.batteryFree === false && <p className="text-sm text-pi-danger leading-relaxed">电池优化还开着：元枢一切到后台（比如替你打开别的应用时），系统可能把它冻住，指令就断了。点「后台保活」关掉；荣耀/华为手机还要到 设置 → 应用 → 应用启动管理 → 元枢，改成手动管理并打开「允许后台活动」。</p>}
+          <p className="text-sm text-pi-dim leading-relaxed">当前线路：{native.route || '域名'}。和电脑连同一个 Wi-Fi，或手机装上 Tailscale 并登录和电脑同一个账号，会自动改走直连（快几百倍）；连不上自动回到域名。电量、网络这些不用开关，随时能查。</p>
           <p className="text-sm text-pi-dim leading-relaxed">设为默认数字助理后，长按电源键或主页键会直接打开元枢语音。屏幕操作时顶部有「元枢正在操作」浮条，点停止立刻收回；打电话、发短信，以及点发送/付款/删除这类按钮前都会在手机上问你。{!native.screenshot && '这台手机低于 Android 11，不支持截图（读界面文字不受影响）。'}</p>
         </div> : <p className="text-sm text-pi-dim border-t border-pi-border-soft pt-4">能力开关在手机上：用元枢安卓 App 打开「授权中心 → 手机控制」。</p>}
       </div>

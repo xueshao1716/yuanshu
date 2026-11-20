@@ -55,7 +55,7 @@ import { MUSIC_TOOL_SCHEMA, musicExtraExecutors } from "./engine/music.mjs";
 import { requestToolExec } from "./engine/tool-unlock.mjs";
 import { DELEGATE_EXTERNAL_TOOL, createDelegateExternal, runExternalAgent, externalStatus, saveExternalConfig, detectExternalAgents } from "./engine/external-agent.mjs";
 import { musicLoginView, resetMusicLogin } from "./engine/music-login.mjs";
-import { createPairing, getPairing, claimPairing, approvePairing, takePairingToken, verifyDeviceToken, listDevices, revokeDevice } from "./engine/pairing.mjs";
+import { createPairing, getPairing, claimPairing, approvePairing, takePairingToken, verifyDeviceToken, listDevices, revokeDevice, routeProof } from "./engine/pairing.mjs";
 import { renderPairPage, PAIR_JS } from "./engine/pair-page.mjs";
 import { renderMusicLoginPage } from "./engine/music-login-page.mjs";
 import { handleMusicStream } from "./engine/music-stream.mjs";
@@ -7116,6 +7116,11 @@ const API_ROUTES = [
   // ── 系统 ──
   ["GET", "/api/notices", (res) => handleNotices(res)],
   ["GET", "/api/health", (res) => json(res, 200, { ok: true })],
+  // 2026-11-20 直连握手（免令牌）：手机试局域网/Tailscale 地址时先要这个证明，对得上才把令牌发过来
+  ["GET", "/api/net/hello", (res, _req, url) => {
+    const proof = routeProof(WS_ROOT, CONFIG.token, url.searchParams.get("kid"), url.searchParams.get("nonce"));
+    return proof ? json(res, 200, { ok: true, proof }) : json(res, 404, { ok: false });
+  }],
   // ── 退化自评（2026-11-09）──
   // 只读：读工作区台账算 5 维子分 → 等级 → 动作建议；附带闸状态和最近动作记录。
   // **不在这里动手**：要执行动作走 POST /api/degradation/actions（写闸/落账都在那一刻发生）。
@@ -8350,7 +8355,7 @@ const server = http.createServer(async (req, res) => {
       res.setHeader("X-Frame-Options", "SAMEORIGIN");
       res.setHeader("Content-Security-Policy", "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com https://fonts.loli.net; img-src 'self' data: blob: https:; media-src 'self' data: blob: https:; connect-src 'self' https://fonts.googleapis.com https://fonts.gstatic.com; worker-src 'self' blob:; font-src 'self' data: https://fonts.gstatic.com https://fonts.googleapis.com https://fonts.loli.net https://gstatic.loli.net; frame-ancestors 'self'");
     }
-    const isStatic = ((req.method === "GET" || req.method === "HEAD") && (url.pathname === "/" || url.pathname === "/index.html" || url.pathname === "/sw.js" || url.pathname === "/api/health" || WORKSHOP_PAGES[url.pathname])) ||
+    const isStatic = ((req.method === "GET" || req.method === "HEAD") && (url.pathname === "/" || url.pathname === "/index.html" || url.pathname === "/sw.js" || url.pathname === "/api/health" || url.pathname === "/api/net/hello" || WORKSHOP_PAGES[url.pathname])) ||
                      ((req.method === "GET" || req.method === "HEAD") && (url.pathname.startsWith("/static/") || url.pathname.startsWith("/assets/") || url.pathname.startsWith("/legacy/") || url.pathname === "/vite.svg" || url.pathname === "/manifest.webmanifest" || url.pathname === "/boot-check.js" || url.pathname.startsWith("/icons/")));
     // 健康探活接口免 token（只返回 {ok:true}，无敏感信息）：安卓客户端连接页需在没有 token 时也能探地址是否可达（2026-08-31 修：之前需鉴权导致探活永远 401，客户端误判为连不上）
     // 签名文件链接（filebox 签名）免 token：签名本身是凭证

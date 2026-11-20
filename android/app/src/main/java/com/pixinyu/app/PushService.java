@@ -63,6 +63,7 @@ public class PushService extends Service {
         prefs = getSharedPreferences(PREFS, Context.MODE_PRIVATE);
         commands = new PhoneCommands(this);
         PhoneControl.installCrashCatcher(this);
+        watchNetwork();
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             NotificationManager nm = getSystemService(NotificationManager.class);
             nm.createNotificationChannel(channel(CH_KEEP, "保持连接", NotificationManager.IMPORTANCE_LOW, "元枢在后台保持连接，任务完成才能及时提醒你"));
@@ -106,6 +107,7 @@ public class PushService extends Service {
     public void onDestroy() {
         stopListening();
         stopPhone();
+        if (netWatch != null) { try { ((android.net.ConnectivityManager) getSystemService(Context.CONNECTIVITY_SERVICE)).unregisterNetworkCallback(netWatch); } catch (Exception ignored) { } }
         workers.shutdownNow();
         super.onDestroy();
     }
@@ -158,20 +160,47 @@ public class PushService extends Service {
         if (c != null) c.disconnect();
     }
 
+    static String routeLabel() { return Routes.label(); }
+
+    /** 网络变了（换 Wi-Fi / 切流量 / 开关 Tailscale）：重新选路，断开指令通道让它马上按新路连。 */
+    private android.net.ConnectivityManager.NetworkCallback netWatch;
+
+    private void watchNetwork() {
+        android.net.ConnectivityManager cm = (android.net.ConnectivityManager) getSystemService(Context.CONNECTIVITY_SERVICE);
+        if (cm == null || netWatch != null) return;
+        netWatch = new android.net.ConnectivityManager.NetworkCallback() {
+            private String last = "";
+            @Override public void onLinkPropertiesChanged(android.net.Network n, android.net.LinkProperties lp) { changed(String.valueOf(lp.getLinkAddresses())); }
+            @Override public void onLost(android.net.Network n) { changed("lost"); }
+            private void changed(String sig) {
+                if (sig.equals(last)) return;
+                boolean first = last.isEmpty();
+                last = sig;
+                if (first) return;
+                Routes.invalidate();
+                HttpURLConnection c = phoneConn;
+                if (c != null) c.disconnect();
+            }
+        };
+        try { cm.registerDefaultNetworkCallback(netWatch); } catch (Exception ignored) { netWatch = null; }
+    }
+
     private boolean phoneMine() { return Thread.currentThread() == phoneThread; }
 
     private void phoneLoop(String base, String token) {
         long backoff = 2000;
         while (phoneMine()) {
+            // 能直连电脑（局域网 / Tailscale）就不绕域名；连不上回到域名
+            final String via = Routes.pick(this, base, token);
             try {
                 String q = "?device=" + enc(PhoneControl.deviceId(this)) + "&name=" + enc(PhoneControl.deviceName())
                     + "&model=" + enc(Build.MODEL) + "&android=" + enc(Build.VERSION.RELEASE)
                     + "&caps=" + enc(String.join(",", PhoneControl.activeCaps(this)));
-                HttpURLConnection c = (HttpURLConnection) new URL(base + "/api/phone/stream" + q).openConnection();
+                HttpURLConnection c = (HttpURLConnection) new URL(via + "/api/phone/stream" + q).openConnection();
                 phoneConn = c;
                 c.setRequestProperty("Authorization", "Bearer " + token);
                 c.setRequestProperty("Accept", "text/event-stream");
-                c.setConnectTimeout(15000);
+                c.setConnectTimeout(via.equals(base) ? 15000 : 3000);
                 c.setReadTimeout(60000);
                 if (c.getResponseCode() != 200) throw new IllegalStateException("HTTP " + c.getResponseCode());
                 backoff = 2000;
@@ -182,7 +211,7 @@ public class PushService extends Service {
                     String line;
                     while (phoneMine() && (line = reader.readLine()) != null) {
                         if (line.isEmpty()) {
-                            if (data.length() > 0 && type.equals("cmd")) dispatch(base, token, data.toString());
+                            if (data.length() > 0 && type.equals("cmd")) dispatch(via, base, token, data.toString());
                             type = "message";
                             data.setLength(0);
                         } else if (line.startsWith("event:")) {
@@ -194,7 +223,8 @@ public class PushService extends Service {
                     }
                 }
             } catch (Exception e) {
-                // 断线/超时/服务器重启：退避重连
+                // 断线/超时/服务器重启：退避重连；直连断了下次先重新选路，并立刻重试
+                if (!via.equals(base)) { Routes.invalidate(); backoff = 500; }
             }
             if (!phoneMine()) return;
             try { Thread.sleep(backoff); } catch (InterruptedException e) { return; }
@@ -208,12 +238,12 @@ public class PushService extends Service {
         @Override protected boolean removeEldestEntry(java.util.Map.Entry<String, JSONObject> e) { return size() > 50; }
     });
 
-    private void dispatch(String base, String token, String data) {
+    private void dispatch(String via, String base, String token, String data) {
         final JSONObject j;
         try { j = new JSONObject(data); } catch (Exception e) { return; }
         String cid = j.optString("id");
         JSONObject prev = finished.get(cid);
-        if (prev != null) { workers.submit(() -> postResult(base, token, prev)); return; }
+        if (prev != null) { workers.submit(() -> postResult(via, base, token, prev)); return; }
         if (!running.add(cid)) return;
         workers.submit(() -> {
             String id = j.optString("id");
@@ -228,14 +258,14 @@ public class PushService extends Service {
             }
             finished.put(id, out);
             running.remove(id);
-            postResult(base, token, out);
+            postResult(via, base, token, out);
         });
     }
 
     /** 回传结果；网络刚切换时可能失败，重试几次。 */
-    private static void postResult(String base, String token, JSONObject out) {
+    private static void postResult(String via, String base, String token, JSONObject out) {
         for (int i = 0; i < 4; i++) {
-            if (post(base, token, "/api/phone/result", out)) return;
+            if (post(i == 0 ? via : base, token, "/api/phone/result", out)) return; // 直连失败后改走域名
             try { Thread.sleep(1500L * (i + 1)); } catch (InterruptedException e) { return; }
         }
     }

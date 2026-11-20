@@ -201,3 +201,20 @@ export function revokeDevice(wsRoot, id) {
   writeDevices(wsRoot, next);
   return { ok: true, id };
 }
+
+/**
+ * 2026-11-20 直连握手：手机想绕开域名直连（局域网 / Tailscale）前，先确认对面真是这台元枢，
+ * 再把令牌发过去（换了 Wi-Fi 碰上同一个内网地址的别的机器，就拿不到令牌）。
+ * kid = sha256(令牌) 前 16 位；证明 = HMAC-SHA256(key = sha256(令牌) 的十六进制, nonce)。
+ * 服务器只存令牌哈希也能算：主令牌现场算，设备令牌用落盘的 tokenHash。
+ */
+export function routeProof(wsRoot, masterToken, kid, nonce) {
+  const k = String(kid || '').toLowerCase();
+  const n = String(nonce || '');
+  if (!/^[0-9a-f]{16}$/.test(k) || n.length < 16 || n.length > 128) return null;
+  const hashes = [];
+  if (masterToken) hashes.push(sha256(masterToken));
+  for (const d of readDevices(wsRoot)) if (d.tokenHash) hashes.push(d.tokenHash);
+  const hit = hashes.find((h) => h.startsWith(k));
+  return hit ? crypto.createHmac('sha256', hit).update(n).digest('hex') : null;
+}
