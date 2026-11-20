@@ -228,6 +228,12 @@ export default function AppLayout() {
     if (authed && token) { pushArmedRef.current = true; syncNativePush(getApiBase() || window.location.origin, token) }
     else if (!authed && pushArmedRef.current) { pushArmedRef.current = false; clearNativePush() }
   }, [authed, token])
+  // 助理唤起（2026-11-20）：先切到聊天页，ChatArea 挂上后再派发一次让它开语音
+  useEffect(() => {
+    const onAssist = () => { if (!location.hash.startsWith('#/chat')) { location.hash = '#/chat'; setTimeout(() => window.dispatchEvent(new Event('yuanshu-assist')), 500) } }
+    window.addEventListener('yuanshu-assist', onAssist)
+    return () => window.removeEventListener('yuanshu-assist', onAssist)
+  }, [])
   const [route, nav] = useHashRoute(APP_ROUTES)
   // 桌面会话栏折叠（08-26）：持久化到 localStorage
   const [sidebarCollapsed, setSidebarCollapsed] = useState(() => {

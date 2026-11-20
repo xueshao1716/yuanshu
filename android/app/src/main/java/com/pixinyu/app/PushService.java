@@ -21,6 +21,10 @@ import java.io.InputStreamReader;
 import java.net.HttpURLConnection;
 import java.net.URL;
 import java.nio.charset.StandardCharsets;
+import java.io.OutputStream;
+import java.net.URLEncoder;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 import org.json.JSONObject;
 
 /**
@@ -46,11 +50,18 @@ public class PushService extends Service {
     private Thread thread;
     private String signature = "";
     private volatile HttpURLConnection conn;
+    // 2026-11-20 手机控制：第二条连接 /api/phone/stream 收指令（只在「手机控制」里开了至少一项时连）
+    private Thread phoneThread;
+    private String phoneSignature = "";
+    private volatile HttpURLConnection phoneConn;
+    private final ExecutorService workers = Executors.newFixedThreadPool(3);
+    private PhoneCommands commands;
 
     @Override
     public void onCreate() {
         super.onCreate();
         prefs = getSharedPreferences(PREFS, Context.MODE_PRIVATE);
+        commands = new PhoneCommands(this);
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             NotificationManager nm = getSystemService(NotificationManager.class);
             nm.createNotificationChannel(channel(CH_KEEP, "保持连接", NotificationManager.IMPORTANCE_LOW, "元枢在后台保持连接，任务完成才能及时提醒你"));
@@ -93,6 +104,8 @@ public class PushService extends Service {
     @Override
     public void onDestroy() {
         stopListening();
+        stopPhone();
+        workers.shutdownNow();
         super.onDestroy();
     }
 
@@ -103,7 +116,8 @@ public class PushService extends Service {
     private synchronized void ensureRunning() {
         final String base = prefs.getString("baseUrl", "");
         final String token = prefs.getString("token", "");
-        if (base.isEmpty() || token.isEmpty()) { stopListening(); stopSelf(); return; }
+        if (base.isEmpty() || token.isEmpty()) { stopListening(); stopPhone(); stopSelf(); return; }
+        ensurePhone(base, token);
         if (thread != null && thread.isAlive() && signature.equals(base + "\n" + token)) return;
         stopListening();
         signature = base + "\n" + token;
@@ -121,6 +135,117 @@ public class PushService extends Service {
     }
 
     private boolean mine() { return Thread.currentThread() == thread; }
+
+    // ================= 手机控制通道 =================
+
+    private synchronized void ensurePhone(String base, String token) {
+        if (!PhoneControl.anyOn(this)) { stopPhone(); return; }
+        String sig = base + "\n" + token;
+        if (phoneThread != null && phoneThread.isAlive() && phoneSignature.equals(sig)) { hello(base, token); return; }
+        stopPhone();
+        phoneSignature = sig;
+        phoneThread = new Thread(() -> phoneLoop(base, token), "yuanshu-phone");
+        phoneThread.setDaemon(true);
+        phoneThread.start();
+    }
+
+    private synchronized void stopPhone() {
+        if (phoneThread != null) phoneThread.interrupt();
+        phoneThread = null;
+        phoneSignature = "";
+        HttpURLConnection c = phoneConn;
+        if (c != null) c.disconnect();
+    }
+
+    private boolean phoneMine() { return Thread.currentThread() == phoneThread; }
+
+    private void phoneLoop(String base, String token) {
+        long backoff = 2000;
+        while (phoneMine()) {
+            try {
+                String q = "?device=" + enc(PhoneControl.deviceId(this)) + "&name=" + enc(PhoneControl.deviceName())
+                    + "&model=" + enc(Build.MODEL) + "&android=" + enc(Build.VERSION.RELEASE)
+                    + "&caps=" + enc(String.join(",", PhoneControl.activeCaps(this)));
+                HttpURLConnection c = (HttpURLConnection) new URL(base + "/api/phone/stream" + q).openConnection();
+                phoneConn = c;
+                c.setRequestProperty("Authorization", "Bearer " + token);
+                c.setRequestProperty("Accept", "text/event-stream");
+                c.setConnectTimeout(15000);
+                c.setReadTimeout(60000);
+                if (c.getResponseCode() != 200) throw new IllegalStateException("HTTP " + c.getResponseCode());
+                backoff = 2000;
+                try (BufferedReader reader = new BufferedReader(new InputStreamReader(c.getInputStream(), StandardCharsets.UTF_8))) {
+                    String type = "message";
+                    StringBuilder data = new StringBuilder();
+                    String line;
+                    while (phoneMine() && (line = reader.readLine()) != null) {
+                        if (line.isEmpty()) {
+                            if (data.length() > 0 && type.equals("cmd")) dispatch(base, token, data.toString());
+                            type = "message";
+                            data.setLength(0);
+                        } else if (line.startsWith("event:")) {
+                            type = line.substring(6).trim();
+                        } else if (line.startsWith("data:")) {
+                            if (data.length() > 0) data.append('\n');
+                            data.append(line.substring(5).trim());
+                        }
+                    }
+                }
+            } catch (Exception e) {
+                // 断线/超时/服务器重启：退避重连
+            }
+            if (!phoneMine()) return;
+            try { Thread.sleep(backoff); } catch (InterruptedException e) { return; }
+            backoff = Math.min(backoff * 2, 60000);
+        }
+    }
+
+    private void dispatch(String base, String token, String data) {
+        final JSONObject j;
+        try { j = new JSONObject(data); } catch (Exception e) { return; }
+        workers.submit(() -> {
+            String id = j.optString("id");
+            JSONObject out = new JSONObject();
+            try {
+                out.put("deviceId", PhoneControl.deviceId(this)).put("id", id);
+                JSONObject args = j.optJSONObject("args");
+                Object r = commands.run(id, j.optString("cmd"), args == null ? new JSONObject() : args);
+                out.put("ok", true).put("data", r);
+            } catch (Throwable e) {
+                try { out.put("ok", false).put("error", e.getMessage() == null ? e.toString() : e.getMessage()); } catch (Exception ignored) { }
+            }
+            post(base, token, "/api/phone/result", out);
+        });
+    }
+
+    /** 能力开关变了：告诉服务器（不用断开重连）。 */
+    private void hello(String base, String token) {
+        workers.submit(() -> {
+            try {
+                post(base, token, "/api/phone/hello", new JSONObject().put("deviceId", PhoneControl.deviceId(this))
+                    .put("caps", new org.json.JSONArray(PhoneControl.activeCaps(this))));
+            } catch (Exception ignored) { }
+        });
+    }
+
+    private static void post(String base, String token, String path, JSONObject body) {
+        try {
+            HttpURLConnection c = (HttpURLConnection) new URL(base + path).openConnection();
+            c.setRequestMethod("POST");
+            c.setDoOutput(true);
+            c.setConnectTimeout(15000);
+            c.setReadTimeout(30000);
+            c.setRequestProperty("Authorization", "Bearer " + token);
+            c.setRequestProperty("Content-Type", "application/json; charset=utf-8");
+            try (OutputStream os = c.getOutputStream()) { os.write(body.toString().getBytes(StandardCharsets.UTF_8)); }
+            c.getResponseCode();
+            c.disconnect();
+        } catch (Exception ignored) { }
+    }
+
+    private static String enc(String s) {
+        try { return URLEncoder.encode(s == null ? "" : s, "UTF-8"); } catch (Exception e) { return ""; }
+    }
 
     private long cursor(String base) {
         return base.equals(prefs.getString("cursorBase", "")) ? prefs.getLong("cursor", -1) : -1;

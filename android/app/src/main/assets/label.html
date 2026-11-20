@@ -1,0 +1,44 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>小语木偶 · 部件标注</title>
+<link rel="stylesheet" href="/static/label.css">
+</head>
+<body>
+<div id="side">
+  <h1>小语木偶 · 部件标注</h1>
+  <p class="hint">拖框＝移动，右下角小方块＝缩放。<b>框要盖住整个部件</b>（含边缘），相邻部件允许重叠——重叠由绘制顺序处理。</p>
+  <div class="row">
+    <button id="reset">重置框</button>
+    <button id="auto">自动猜一次</button>
+    <button id="copy">复制 JSON</button>
+    <button class="primary" id="save">保存到工作区</button>
+  </div>
+  <div class="row">
+    <label>图：
+      <select id="imgSel">
+        <option value="xiaoyu-stand">Q版小语（站立）</option>
+        <option value="doll-stand">盲盒公仔（站立）</option>
+        <option value="xiaoyu-open-t">Q版小语（半身）</option>
+      </select>
+    </label>
+  </div>
+  <ul>
+    <li><span class="dot" style="background:#7dd3fc"></span>头（含耳机） <code>head</code></li>
+    <li><span class="dot" style="background:#fca5a5"></span>左臂（画面左） <code>armL</code></li>
+    <li><span class="dot" style="background:#fdba74"></span>右臂（画面右） <code>armR</code></li>
+    <li><span class="dot" style="background:#86efac"></span>躯干（连帽卫衣） <code>torso</code></li>
+    <li><span class="dot" style="background:#c4b5fd"></span>左腿（画面左） <code>legL</code></li>
+    <li><span class="dot" style="background:#f9a8d4"></span>右腿（画面右） <code>legR</code></li>
+  </ul>
+  <textarea id="out" readonly placeholder="JSON 会显示在这里"></textarea>
+  <div id="msg"></div>
+  <p class="hint" style="margin-top:10px">保存后我这边跑一条命令就能切成件、生成骨骼并接进挂件：
+    <code>node scripts/puppet-build.mjs</code></p>
+</div>
+<div id="stage"><div class="wrap" id="wrap"><img id="pic" alt="立绘"></div></div>
+<script src="/static/label.js"></script>
+</body>
+</html>

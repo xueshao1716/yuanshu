@@ -12,7 +12,7 @@ function fixture() {
   const adapter = { supported:true, windows:async()=>[window], observe:async()=>({window, elements:[{id:'1.2',name:changed?'Changed':'Body',type:'Edit',value:'before',actions:['type','click']}] }),
     act:async(args)=>{calls.push(args); return {ok:true};} };
   const service = createComputerUse({adapter,registry,now:()=>now,sessionExists:s=>s==='s1'||s==='s2'});
-  return {service,adapter,calls,change:()=>{changed=true;},advance:()=>{now+=700000;},async enable(){ const list=await service.windows(); await service.grant({windowId:list[0].id,sessionId:'s1'});return service.observe('s1');}};
+  return {service,adapter,calls,change:()=>{changed=true;},advance:()=>{now+=7300000;},async enable(opts={}){ const list=await service.windows(); await service.grant({windowId:list[0].id,sessionId:'s1',...opts});return service.observe('s1');}};
 }
 
 test('stop invalidates both displayed candidates and window requests already in flight',async()=>{
@@ -77,6 +77,20 @@ test('denied, cancelled and stale actions never reach desktop adapter',async()=>
     else {if(mode==='stale') f.change();registry.settle('s1',p.id,mode==='stale');}
     await check;assert.equal(f.calls.length,0);assert.equal(registry.list().filter(x=>x.toolName==='computer-use').length,0);
   }
+});
+test('放权：滚动不弹确认；授权时选免逐步确认则点击直接执行（仍比对窗口）',async()=>{
+  const f=fixture(), seen=await f.enable({trust:true});
+  assert.equal(f.service.status().grant.trust,true);
+  await f.service.act('s1',{action:'click',observationId:seen.observationId,elementId:'1.2'});
+  assert.equal(f.calls.length,1);
+  assert.equal(registry.list().filter(x=>x.toolName==='computer-use').length,0);
+  const again=await f.service.observe('s1'); f.change();
+  await assert.rejects(()=>f.service.act('s1',{action:'click',observationId:again.observationId,elementId:'1.2'}),/变化/);
+  const g=fixture(), s2=await g.enable();
+  g.adapter.observe=async()=>({window:s2.window,elements:[{id:'1.2',name:'Body',type:'Edit',value:'before',actions:['scroll']}]});
+  const s3=await g.service.observe('s1');
+  await g.service.act('s1',{action:'scroll',observationId:s3.observationId,elementId:'1.2',direction:'down'});
+  assert.equal(g.calls.length,1);
 });
 test('unknown target, missing session, password and oversized text fail closed',async()=>{
   const f=fixture(), seen=await f.enable();

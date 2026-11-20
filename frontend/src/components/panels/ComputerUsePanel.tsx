@@ -9,7 +9,7 @@ import { useApp } from '../../store'
 type DesktopWindow = { id: string; title: string; process: string }
 type Status = {
   supported: boolean; enabled: boolean; busy: boolean
-  grant: { scope?: 'desktop'; sessionId: string; window: DesktopWindow; expiresAt: number } | null
+  grant: { scope?: 'desktop'; sessionId: string; window: DesktopWindow; trust?: boolean; expiresAt: number } | null
   pending: { id: string; sessionId: string; reason: string }[]
 }
 
@@ -30,6 +30,8 @@ export default function ComputerUsePanel() {
   const [error, setError] = useState('')
   const [message, setMessage] = useState('')
   const [choosingTarget, setChoosingTarget] = useState(false)
+  const [minutes, setMinutes] = useState(30)
+  const [trust, setTrust] = useState(false)
   const mounted = useRef(true)
   useEffect(() => { mounted.current = true; return () => { mounted.current = false } }, [])
 
@@ -48,8 +50,8 @@ export default function ComputerUsePanel() {
     setWindows(desktop.windows); setSessions(chats.sessions); setWindowId(''); setLoaded(true)
   }
   async function grant() {
-    await api('/api/computer/grant', { method: 'POST', body: { windowId, sessionId } })
-    if (mounted.current) setMessage('本次桌面操作已授权。目标窗口只是观察位置；真正改变内容时，聊天里只确认那一步。')
+    await api('/api/computer/grant', { method: 'POST', body: { windowId, sessionId, minutes, trust } })
+    if (mounted.current) setMessage(trust ? '本次桌面操作已授权，点击和输入不再逐步确认；随时可以立即停止。' : '本次桌面操作已授权。目标窗口只是观察位置；真正改变内容时只确认那一步（手机上也能点）。')
   }
   async function chooseTarget() {
     if (!active || !windowId) return
@@ -89,7 +91,7 @@ export default function ComputerUsePanel() {
           <p className="break-words">授权范围：本次受控桌面会话（普通应用）</p>
           <p className="break-words">应用与窗口无需另开权限；下面只选择当前观察目标。</p>
           <p className="break-words">当前观察窗口：{active.window.title} · {active.window.process}</p>
-          <p>授权截至 {new Date(active.expiresAt).toLocaleTimeString()}，离开本页不会立即撤销。</p>
+          <p>授权截至 {new Date(active.expiresAt).toLocaleTimeString()}，离开本页不会立即撤销。{active.trust ? '点击和输入不逐步确认。' : '点击和输入逐步确认（手机上也能批准）。'}</p>
           <button type="button" className="btn-ghost min-h-11 px-3" disabled={busy} onClick={() => perform(async () => { setChoosingTarget(true); await loadTargets() })}>切换目标窗口</button>
           {choosingTarget && <div className="space-y-3">
             <label className="text-sm text-pi-text space-y-2">新的观察窗口
@@ -120,7 +122,15 @@ export default function ComputerUsePanel() {
             </div>
             {!windows.length && <p className="text-sm text-pi-dim">没有找到可观察的桌面窗口。请确认桌面已登录，并重新读取；某些应用不提供可操作控件。</p>}
             {!sessions.length && <p className="text-sm text-pi-dim">请先创建一个聊天会话，再回来授权。</p>}
-            <button type="button" className="btn-primary min-h-11 px-4" disabled={busy || !windowId || !sessionId} onClick={() => perform(grant)}>授权本次桌面操作 10 分钟</button>
+            <div className="flex flex-wrap items-center gap-4 text-sm text-pi-text">
+              <label className="inline-flex items-center gap-2">时长
+                <ThemedSelect aria-label="授权时长" className="input-pi min-h-11" value={String(minutes)} onChange={e => setMinutes(Number(e.target.value))}>
+                  {[10, 30, 60, 120].map(m => <option key={m} value={m}>{m} 分钟</option>)}
+                </ThemedSelect>
+              </label>
+              <label className="inline-flex items-center gap-2 min-h-11"><input type="checkbox" checked={trust} onChange={e => setTrust(e.target.checked)} />免逐步确认（点击/输入直接执行）</label>
+            </div>
+            <button type="button" className="btn-primary min-h-11 px-4" disabled={busy || !windowId || !sessionId} onClick={() => perform(grant)}>授权本次桌面操作 {minutes} 分钟</button>
           </div>}
         </>}
         {status?.pending.map(p => <div key={p.id} className="border-t border-pi-border-soft pt-4 space-y-3">

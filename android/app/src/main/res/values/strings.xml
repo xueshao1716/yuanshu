@@ -4,4 +4,5 @@
     <string name="title_activity_main">元枢</string>
     <string name="package_name">com.pixinyu.app</string>
     <string name="custom_url_scheme">com.pixinyu.app</string>
+    <string name="access_desc">让元枢在你同意后读取当前界面、替你点按和输入。操作时屏幕顶部会显示「元枢正在操作」，随时点停止。支付、银行、密码类应用一律不碰；发送、付款、删除前会先问你。</string>
 </resources>

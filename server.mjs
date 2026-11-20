@@ -304,7 +304,7 @@ import { frontendVersionPayload } from "./engine/frontend-version.mjs";
 import { withSamplingParams } from './engine/sampling-params.mjs';
 import { initImproveApi, analyzeImprovements, openImprovements, getImprovementDiagnostics, setImprovementStatus } from "./engine/improve-api.mjs";
 import { initEvolutionApi, proposeEvolution, applyEvolution, listEvolution, dismissEvolution, nudgeSkill, applySkillNudge, dismissSkillNudge, listSkillNudges, startEvolutionEvaluation, proposeMemoryNudge, proposeLessonPromotion, listMemoryNudges, applyMemoryNudge, dismissMemoryNudge, analyzeMemoryCompress, proposeMemoryCompress, listMemoryCompress, applyMemoryCompress, dismissMemoryCompress } from "./engine/evolution-api.mjs";
-import { initSessionManager, initComputerTool, createSession, cloneSessionFromEntry, evictInactiveSessions, slimSessionImages, compactSession, openSession, initSearchTool, initShareTool, createSessionAgent, ensureAgent, isFirstTurn, deleteSession, setOnTheSpotFixRunner, ensureContextHeadroom, canAccessSessionOrigin, withIdleSession, compactSessionAgent } from "./engine/session/manager.mjs";
+import { initSessionManager, initComputerTool, initPhoneTool, createSession, cloneSessionFromEntry, evictInactiveSessions, slimSessionImages, compactSession, openSession, initSearchTool, initShareTool, createSessionAgent, ensureAgent, isFirstTurn, deleteSession, setOnTheSpotFixRunner, ensureContextHeadroom, canAccessSessionOrigin, withIdleSession, compactSessionAgent } from "./engine/session/manager.mjs";
 import { initUnifiedChat, unifiedChat, engineCurrentModel, initEngine, getCodeRuntime, getCodeMode, toolBindingDesc, toolBindingArgs, toolBindingArgsObj, handleNotices, handleUnifiedChat, touchTask, clearTask, taskProgress, handleAgentEventIn, handleAgentEventOut } from "./engine/unified-chat.mjs";
 import { completedTaskText } from "./engine/task-continuation.mjs";
 import { createApprovalInterceptor } from "./engine/tools/approval.mjs";
@@ -324,6 +324,10 @@ import { createComputerUse } from './engine/computer-use/controller.mjs';
 import { createWindowsAdapter } from './engine/computer-use/windows.mjs';
 import { createComputerRoutes } from './engine/computer-use/routes.mjs';
 import { COMPUTER_TOOL_SCHEMA, computerTool, createPiComputerTool } from './engine/computer-use/tools.mjs';
+import { createPhoneHub } from './engine/phone/hub.mjs';
+import { createAdbAdapter } from './engine/phone/adb.mjs';
+import { createPhoneRoutes } from './engine/phone/routes.mjs';
+import { PHONE_TOOL_SCHEMA, phoneTool, createPiPhoneTool } from './engine/phone/tools.mjs';
 import { completeGeneTurn } from './engine/gene-turn.mjs';
 import { initRefineApi, readRefineJson, runRefineScript, handleRefineStatus, handleRefineList, detectSkillDomain, handleRefineFeedback, handleRefineGenes, handleRefinePlan, handleRefineApprove, handleRefineReject, handleRefineRollback } from "./engine/refine-api.mjs";
 import { initMcpServer, handleMcp } from "./engine/mcp-server.mjs";
@@ -1558,6 +1562,8 @@ const OUTPUT_CHECK_TOOL = {
 const UNIFIED_TOOLS = [
   ...BASE_TOOL_SCHEMAS,
   COMPUTER_TOOL_SCHEMA,
+  // 2026-11-20：手机控制（手机 App 在线时可用，能力由手机上逐项开关）
+  PHONE_TOOL_SCHEMA,
   CULTIVATION_TOOL_SCHEMA,
   TIME_TASK_SCHEMA,
   SHARE_PROJECT_SCHEMA,
@@ -1656,6 +1662,7 @@ const extraToolExecutors = {
     // 2026-11-19：取回被工具档收起的工具（只改可见性，取回后照样过审核/开关）
     request_tool: (args, ctx) => requestToolExec(args, ctx),
     computer_use: (args, ctx) => computerTool(computerUse, args, ctx),
+    phone: (args, ctx) => phoneTool(phoneHub, args, ctx, { wsRoot: WS_ROOT }),
     cultivation: (args, ctx) => {
       // 不能展开 ctx：培养身份是**非枚举属性**，展开复制会把它丢掉，工具就变成"没有母体身份"。
       // 用 defineProperty 挂一个隐藏的 requestApproval；ctx 被冻结时退化成原型继承（属性读取仍可见）。
@@ -4743,6 +4750,10 @@ const websites = createWebsiteService({root: WS_ROOT, getModelList: () => modelL
 const maintenanceSessionExists = sid => activeSessions.has(sid) || !!findSession(sid);
 const computerUse = createComputerUse({adapter:createWindowsAdapter(),registry:confirmRegistry,sessionExists:maintenanceSessionExists,push:busPush});
 initComputerTool((Type, sessionId) => createPiComputerTool(Type, () => computerUse, sessionId));
+// 2026-11-20 手机控制通道。USB 调试回落是开发捷径：记忆/运行时/手机控制.json 写 {"adb":true} 才启用。
+const phoneAdbEnabled = () => { try { return JSON.parse(fs.readFileSync(path.join(WS_ROOT, '记忆', '运行时', '手机控制.json'), 'utf8'))?.adb === true; } catch { return false; } };
+const phoneHub = createPhoneHub({ adb: createAdbAdapter({ enabled: phoneAdbEnabled }) });
+initPhoneTool((Type, sessionId) => createPiPhoneTool(Type, () => phoneHub, { sessionId, wsRoot: WS_ROOT }));
 initCultivationTool(Type => createPiCultivationTool(Type, () => cultivationRuntime));
 initMemoryTool(Type => createPiMemoryTool(Type, {
   db: memoryDb, vectors: memoryVectors, embedding: memoryEmbedding,
@@ -4791,6 +4802,7 @@ function currentContextWindow() {
 }
 const API_ROUTES = [
   ...createComputerRoutes({service:computerUse,json,readBody}),
+  ...createPhoneRoutes({ hub: phoneHub, json, readBody }),
   ...createBehaviorExperimentRoutes({ service: behaviorExperiments, json, readBody }),
   ...websiteRoutes(websites,{json,readBody,root:WS_ROOT}),
   ["GET", "/api/workshop-ui/projects", async res => handleUiDesign(uiDesigns, json, res, 'list')],
@@ -7551,7 +7563,7 @@ const API_ROUTES = [
       if (!sid || !id) return json(res, 400, { error: "缺少 sessionId/id" });
       const pending = confirmRegistry.list().find(item => item.sessionId === sid && item.id === id);
       if (pending?.toolName === 'cultivation-policy' && !canAccessSessionOrigin(sid)) return json(res, 403, {error:'培养确认所属会话已不可用，请重新选择会话。'});
-      if (ok && pending?.toolName === 'computer-use' && !isLocalMaintenanceApproval(req)) return json(res, 403, {error:'电脑操作须在本机系统页逐次人工确认，远程不能批准。'});
+      // 2026-11-20 放权：电脑操作单步确认允许手机/远程批准（开授权本身仍只在本机），不再拦 computer-use。
       if (ok && pending?.toolName === 'maintenance' && !isLocalMaintenanceApproval(req)) return json(res, 403, { error: '请在运行元枢的电脑上，通过 http://127.0.0.1:8787 的超维面板人工确认。远程入口不能批准。' });
       if (ok && ['gene-governance', 'persona-governance'].includes(pending?.toolName) && !isLocalMaintenanceApproval(req)) return json(res, 403, { error: '人格及基线批准与回退须在运行元枢的电脑上，通过本地人工确认。' });
       // 2026-11-09：换代/回滚同属人格级变化，同样只许本机确认（远程入口不能批准）。

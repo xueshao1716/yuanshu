@@ -145,6 +145,12 @@ export default function ChatArea({ compactHeader, rightPanel, onRightPanel, onVo
   const isCurrentView = () => viewOwnerRef.current === viewOwner
   const [voiceOpen, setVoiceOpen] = useState(false)
   useEffect(() => { setVoiceOpen(false) }, [sessionViewKey])
+  // 2026-11-20：安卓上设为默认数字助理后，长按电源/主页键唤起 → 原生派发 yuanshu-assist，直接进语音
+  useEffect(() => {
+    const onAssist = () => setVoiceOpen(true)
+    window.addEventListener('yuanshu-assist', onAssist)
+    return () => window.removeEventListener('yuanshu-assist', onAssist)
+  }, [])
   useEffect(() => { onVoiceViewChange?.(voiceOpen) }, [voiceOpen, onVoiceViewChange])
   useEffect(() => () => { onVoiceViewChange?.(false) }, [onVoiceViewChange])
   const closeVoiceView = () => {

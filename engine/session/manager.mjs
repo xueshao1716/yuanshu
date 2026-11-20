@@ -38,6 +38,8 @@ export const {
 let _runOnTheSpotFix = null;
 let computerToolFactory = null;
 export function initComputerTool(factory) { computerToolFactory = factory; }
+let phoneToolFactory = null;
+export function initPhoneTool(factory) { phoneToolFactory = factory; }
 let cultivationToolFactory = null;
 export function initCultivationTool(factory) { cultivationToolFactory = factory; }
 let memoryToolFactory = null;
@@ -527,6 +529,7 @@ export async function createSessionAgent(sm, model) {
   const { createRequire: teamRequire } = await import('node:module');
   customTools.push(createPiTeamTool(teamRequire(_piPackage)('typebox').Type));
   if (computerToolFactory) customTools.push(computerToolFactory(teamRequire(_piPackage)('typebox').Type, () => sm.getSessionId()));
+  if (phoneToolFactory) customTools.push(phoneToolFactory(teamRequire(_piPackage)('typebox').Type, () => sm.getSessionId()));
   if (cultivationToolFactory) customTools.push(cultivationToolFactory(teamRequire(_piPackage)('typebox').Type));
   if (memoryToolFactory) customTools.push(memoryToolFactory(teamRequire(_piPackage)('typebox').Type));
   const st = await initSearchTool();
@@ -560,7 +563,7 @@ export async function createSessionAgent(sm, model) {
   // 首个文本/工具事件后 promote 恢复完整集。PI_TWO_PHASE=0 关闭。
   const MIN_BOOTSTRAP = ["read", "write", "edit", "bash"].filter(t => _tools.includes(t));
   // 2026-10-28：首轮就把联网能力给她——不然微信第一条消息里她会说"我不会联网"
-  const FIRST_TURN_EXTRA = ["web_search", "search_files", "list_channels", "generate_video", "generate_image", "generate_tts", "share_project", "activate_skill", "delegate_team", "computer_use", "cultivation"];
+  const FIRST_TURN_EXTRA = ["web_search", "search_files", "list_channels", "generate_video", "generate_image", "generate_tts", "share_project", "activate_skill", "delegate_team", "computer_use", "phone", "cultivation"];
   const bootstrap = isFirstTurn(sm) && MIN_BOOTSTRAP.length >= 2 && process.env.PI_TWO_PHASE !== "0";
   const allowedTools = bootstrap
     ? [...new Set([...MIN_BOOTSTRAP, ...customTools.map(t => t.name).filter(n => MIN_BOOTSTRAP.includes(n) || FIRST_TURN_EXTRA.includes(n))])]

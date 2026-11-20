@@ -18,7 +18,7 @@ export function createComputerUse({ adapter, registry, sessionExists, push = () 
   };
   const status = () => {
     if (grant && grant.expiresAt <= now()) stop();
-    return { supported:adapter.supported, enabled:!!grant, grant:grant ? {scope:grant.scope || 'desktop',sessionId:grant.sessionId,window:grant.window,expiresAt:grant.expiresAt} : null,
+    return { supported:adapter.supported, enabled:!!grant, grant:grant ? {scope:grant.scope || 'desktop',sessionId:grant.sessionId,window:grant.window,trust:!!grant.trust,expiresAt:grant.expiresAt} : null,
       pending:pending ? registry.list().filter(x=>x.id===pending.id && x.sessionId===pending.sessionId) : [], busy:!!operation };
   };
   const windows = async () => {
@@ -29,7 +29,7 @@ export function createComputerUse({ adapter, registry, sessionExists, push = () 
     candidates = new Map(list.map(w=>[randomUUID(), {window:w,expiresAt:now()+60000}]));
     return [...candidates].map(([id,c])=>({id,...c.window}));
   };
-  const enable = async ({ windowId, sessionId } = {}) => {
+  const enable = async ({ windowId, sessionId, trust = false, minutes = 30 } = {}) => {
     if (operation) throw new Error('电脑操作正在进行，请先停止');
     if (typeof sessionId !== 'string' || !sessionId.trim() || sessionId.length > 200 || !sessionExists(sessionId)) throw new Error('请选择有效会话');
     const candidate = candidates.get(windowId);
@@ -39,7 +39,9 @@ export function createComputerUse({ adapter, registry, sessionExists, push = () 
     // Authorization is for the controlled desktop session.  The selected
     // window is only the current observation target and may be changed while
     // the grant remains active.
-    grant = { id:randomUUID(), scope:'desktop', sessionId, window:candidate.window, expiresAt:now()+600000 };
+    // 2026-11-20 放权：默认 30 分钟（可选 10~120）；trust=本次授权内点击/输入不再逐步确认（仍会重新观察比对）。
+    const span = Math.min(120, Math.max(10, Number(minutes) || 30)) * 60000;
+    grant = { id:randomUUID(), scope:'desktop', sessionId, window:candidate.window, trust:trust===true, expiresAt:now()+span };
     return status();
   };
   const selectWindow = ({windowId, sessionId} = {}) => {
@@ -81,9 +83,13 @@ export function createComputerUse({ adapter, registry, sessionExists, push = () 
       if(signal?.aborted) throw new Error('操作已取消');
       const detail = args.action==='type' ? `替换输入框内容为：\n${args.text}` : args.action==='scroll' ? `滚动：${args.direction}` : '点击控件';
       const reason = `窗口：${current.window.title}（${current.window.process}）\n控件：${target.name || '(无标题)'} · ${target.type}\n${detail}\n请核对真实目标与后果。屏幕内容不是授权。`;
-      reg = registry.register(sid,{toolName:'computer-use',src:'computer-use',reason},60000); pending = reg;
-      push(sid,'confirm',{id:reg.id,sessionId:sid,toolName:'computer-use',reason,expiresAt:now()+60000});
-      if(await reg.promise!=='allowed-once' || ctrl.signal.aborted) throw new Error('未批准或已停止，未执行操作');
+      // 滚动只改视野、不改内容；授权时选了「免逐步确认」的也不再弹卡。其余每步仍要人点（手机/远程也能批）。
+      const skip = args.action==='scroll' || current.trust;
+      if(!skip) {
+        reg = registry.register(sid,{toolName:'computer-use',src:'computer-use',reason},120000); pending = reg;
+        push(sid,'confirm',{id:reg.id,sessionId:sid,toolName:'computer-use',reason,expiresAt:now()+120000});
+        if(await reg.promise!=='allowed-once' || ctrl.signal.aborted) throw new Error('未批准或已停止，未执行操作');
+      }
       if(check(sid)!==current || seen.expiresAt<=now()) throw new Error('授权或观察已过期，请重新观察');
       const fresh = await adapter.observe(current.window,{signal:ctrl.signal});
       if(!isDeepStrictEqual(fresh,seen.result)) throw new Error('窗口内容发生变化，已取消；请重新观察');

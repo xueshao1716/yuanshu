@@ -10,7 +10,7 @@ const KINDS = new Map([
   ['gene-governance', ['性格基因变更', true]],
   ['cultivation-policy', ['培养策略（一次性）', false]],
   ['maintenance', ['超维模式', true]],
-  ['computer-use', ['电脑操作', true]],
+  ['computer-use', ['电脑操作', false]], // 2026-11-20 放权：单步可在手机/远程批准
 ]);
 
 export function pendingKind(toolName) {

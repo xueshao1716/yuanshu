@@ -1,0 +1,9377 @@
+// 元枢 —— 个人智能系统 Web 服务（Codex 风格多会话）
+import http from "node:http";
+import https from "node:https";
+import net from "node:net";
+import tls from "node:tls";
+import fs from "node:fs";
+import crypto from "node:crypto";
+import os from "node:os";
+import path from "node:path";
+import { createTeamLauncher } from "./engine/team-launch.mjs";
+import { createTeamChat, isTeamRequest } from "./engine/team-chat.mjs";
+import { createTeamApi } from "./engine/team-api.mjs";
+import { createTeamRunRead } from "./engine/team-run-read.mjs";
+import { monitorEventLoopDelay } from "node:perf_hooks";
+import { execFile, execFileSync, spawn } from "node:child_process";
+import { pathToFileURL } from "node:url";
+import { fileURLToPath } from "node:url";
+
+// ── 输出质量守卫（Output Guard）：模型不可靠是默认假设（借鉴 dsh repeat-tool-reminder）──
+import { bindOutputGuardDeps, classifyAnomaly, isRepeatReply, normReply, recordReply, sanitizeUndefined, lastAssistantReply } from "./engine/output-guard.mjs";
+import { initOutputInspector, inspectOutput } from "./engine/output-inspector.mjs";
+import { initModelProbe, probeModel, pickHealthyModel } from "./engine/model/health.mjs";
+import { rateLimit, rateLimitKey, createRateLimiter } from "./engine/rate-limit.mjs";
+import { createMiscApi } from "./engine/misc-api.mjs";
+import { createModelKeys } from "./engine/model/keys.mjs";
+import { createSessionBus } from "./engine/session/bus.mjs";
+import { createNotifier, NOTIFY_USER_TOOL, execNotifyUser } from "./engine/notifier.mjs";
+import { createHeartbeat } from "./engine/heartbeat.mjs";
+import { createModelSessionApi } from "./engine/model/session.mjs";
+import { buildModelCatalog } from './engine/model/catalog.mjs';
+// ── Reasonix 机制（esengine/DeepSeek-Reasonix 借鉴）：工具结果压缩 / NEEDS_PRO 自报升级 / scavenge 捞回 ──
+import { shrinkToolResult, NEEDS_PRO_RE, scavengeToolCalls } from "./engine/reasonix-tools.mjs";
+import { initToolResultArchive } from "./engine/tool-result-archive.mjs";
+import { initFileLock, usingSharedFileQueue } from "./engine/file-lock.mjs";
+import { promptTimeText } from "./engine/yuanshu-seams.mjs";
+import { readActivityRhythm } from "./engine/activity-rhythm.mjs";
+import { settleTurnMemory } from "./engine/turn-memory.mjs";
+// 连续失败计数（2026-09-16）：pi 通道的失败不抛异常，只落一条 stopReason=error 的记录；
+// 没有状态码的失败（TypeError、协议不兼容）此前没人管，用户只看到"它不说话"。
+import { noteModelFailure, clearModelFailures, modelFailureState } from "./engine/model/failures.mjs";
+// 会话里 assistant 消息的落盘统一要"SDK 安全化"：image/audio/video 块会让 pi 通道重放历史时
+// 抛 TypeError（estimate.js:42 把它们当工具调用读 block.name.length）。
+// 2026-09-16 复查发现：出图兜底交付那条（下面 settledMedia 的 appendMessage）**绕过了**这道闸，
+// 于是"这一轮出了图 → 切到 deepseek → 下一句就不回"——这才是残留的第二处来源。
+import { sdkSafeAssistantBlocks, sdkSafeUserBlocks } from "./engine/yuanshu-session.mjs";
+import { resolveChatSelection, runSelectedMedia } from './engine/chat-media-selection.mjs';
+// @文件引用里的二进制文件不能内联（2026-09-16，外部机器安装检查第 4 个 bug）：见 engine/file-inline.mjs
+import { isBinaryReference, binaryReferenceNote } from "./engine/file-inline.mjs";
+import { advanceGoalTurn, noteGoalError, goalPrompt, listGoals, createGoal, armGoal, pauseGoal, settleGoal, disarmAllGoals } from "./engine/goals.mjs";
+import { createSandboxApi } from "./engine/sandbox-api.mjs";
+import { createMaintenanceApi } from "./engine/maintenance-api.mjs";
+import { sweepInterruptedRuns } from "./engine/story/store.mjs";
+import { extractPromises, recordPromises, loadPromises, pendingPromises, closePromise, pendingPromiseText, PROMISE_TOOL_SCHEMAS, promiseExtraExecutors, expireStalePromises } from "./engine/promises.mjs";
+import { MUSIC_TOOL_SCHEMA, musicExtraExecutors } from "./engine/music.mjs";
+import { musicLoginView, resetMusicLogin } from "./engine/music-login.mjs";
+import { createPairing, getPairing, claimPairing, approvePairing, takePairingToken, verifyDeviceToken, listDevices, revokeDevice } from "./engine/pairing.mjs";
+import { renderPairPage, PAIR_JS } from "./engine/pair-page.mjs";
+import { renderMusicLoginPage } from "./engine/music-login-page.mjs";
+import { handleMusicStream } from "./engine/music-stream.mjs";
+import { createRequest, settleRequest, findRequest } from "./engine/cultivation/approval-requests.mjs";
+import { createApprovalFlow } from "./engine/cultivation/approval-flow.mjs";
+import { runCompanionNudge } from "./engine/companion-nudge.mjs";
+// 2026-10-30：主动推送的话由她自己写（人设名 + 说清什么事）
+import { composeNotice, personaName, noticeEnvelope } from "./engine/notice-voice.mjs";
+import { COMMISSION_TOOL_SCHEMA, commissionExtraExecutors, createCommission, dueCommissions, listCommissions, removeCommission, runCommission as runDesignCommission, setStatus as setCommissionStatus, pickDirection } from "./engine/design-commission.mjs";
+import { RESEARCH_TOOL_SCHEMA, listResearch, readResearch, researchExtraExecutors, runResearch } from "./engine/design-research.mjs";
+import { modelSearchRows } from "./engine/model/research.mjs";
+import { DESIGN_PREFS_TOOL_SCHEMA, designPrefsExecutors } from "./engine/design-prefs.mjs";
+import { createDesignRoutes } from "./engine/design-api.mjs";
+
+// ── 培养越线申请（授权中心「等我确认」）──────────────────────────────
+// 链路细节在 engine/cultivation/approval-flow.mjs：申请落盘 30 分钟 + 挂卡；
+// 批准时用会话授权（60 秒/单次/绑定会话）拿一次性凭证再执行那条命令。
+// 惰性创建：cultivationRuntime 在模块后面才初始化，顶层直接取会 TDZ 崩掉整个服务。
+let cultivationApprovalFlow = null;
+function approvalFlow() {
+  cultivationApprovalFlow ??= createApprovalFlow({
+    registry: confirmRegistry,
+    wsRoot: WS_ROOT,
+    runtime: cultivationRuntime,
+  });
+  return cultivationApprovalFlow;
+}
+
+function requestCultivationApproval(ctx, { command, reason } = {}) {
+  // 执行器 ctx 不保证带 sessionId（不同引擎略有差异）：回落到"当前会话"，
+  // 否则这张卡会挂到一个空会话上、授权中心看不到。
+  const sessionId = String(ctx?.sessionId || globalThis.__yuanshuLastSessionKey || "");
+  return approvalFlow().request({ sessionId, command, reason });
+}
+
+// ── 后台调研：优先用模型自带的联网搜索（在厂商服务器上跑，不吃本机出口），再逐条验活 ──
+function researchModelSearch() {
+  try {
+    const file = path.join(os.homedir(), '.pi', 'agent', 'auth.json');
+    const auth = JSON.parse(fs.readFileSync(file, 'utf8'));
+    const cfg = auth['zai-api'] || auth.zai;
+    if (!cfg?.key || !cfg?.baseUrl) return null;
+    return (topic) => modelSearchRows({ topic, model: 'glm-4.5', baseUrl: cfg.baseUrl, key: cfg.key }).then((r) => r.rows);
+  } catch { return null }
+}
+
+// ── 设计委托：出图并落盘（复用 /api/image 同一条通道，返回本地地址）──────────
+// 2026-11-08：本地存档是图片唯一交付路径。没落盘就报错，绝不把厂商地址当成品返回。
+async function generateImageSaved({ provider, modelId, prompt, size } = {}) {  let payload = null;
+  const fakeRes = { writeHead() {}, end(d) { try { payload = JSON.parse(String(d)) } catch { payload = {} } } };
+  await handleImage(fakeRes, { provider, modelId, prompt, size });
+  if (!payload?.image) throw new Error(String(payload?.error || '接口没有返回图片').slice(0, 160));
+  const saved = await saveArtifact({ type: 'image', url: payload.image, prompt });
+  if (!saved?.local || !saved.url) throw new Error(String(saved?.reason || '图片落盘失败；原图在厂商侧可能随时失效').slice(0, 160));
+  return { url: saved.url };
+}
+import { CANVAS_TOOL_SCHEMA, canvasExtraExecutors, readCanvasDoc, writeCanvasDoc, normalizeCanvasDoc } from "./engine/canvas.mjs";
+import { auditCanvas, formatAudit } from "./engine/canvas-audit.mjs";
+import { createSoilReader } from "./engine/aibody-soil.mjs";
+// ── 会话解析纯函数（拆模块）：消息/文本/图片/文件提取 ──
+import { extractMessages, extractText, extractImages, extractFiles, resolveLeafId, windowMessages } from "./engine/session/utils.mjs";
+import { initSessionFiles, scanSessionFiles, parseSessionFile, parseSessionFileCached, readEntriesFromFile, getSessionList, findSession, invalidateSessionCache, extractMessageFiles, extractMessageImages } from "./engine/session/files.mjs";
+// ── 统一 HTTP 客户端（拆模块）：原生 fetch + 自动系统代理（env → Windows 注册表），替代 python 子进程 ──
+import { httpJsonFetch, httpBufferFetch } from "./engine/http.mjs";
+import { createReplyTts } from './engine/reply-tts.mjs';
+// ── 统一工具集（拆模块）：schema + 执行器；安全线（deny/危险命令/受保护路径/路径越权）在 engine/tools/security.mjs ──
+import { BASE_TOOL_SCHEMAS, TIME_TASK_SCHEMA, SHARE_PROJECT_SCHEMA, createUnifiedToolExecutorGuarded, webSearchTool, detectBashShell } from "./engine/tools/unified-tools.mjs";
+import { createAuditGate, withAuditGate } from "./engine/tools/audit-gate.mjs";
+import { routeEvent, recentDecisions } from "./engine/router.mjs";
+// 2026-11-07：订阅直通（Super-agent 的 Fast Path）——判定归谁、直通收件箱、下一轮合并消费
+import { planDelivery, acceptDirect, takePendingBlock, taskLabelFor, threadKeyOfLabel, readDirectSettings } from "./engine/thread-delivery.mjs";
+import { subscribe as subscribeThread, unsubscribe as unsubscribeThread, snapshot as threadSnapshot, threadKeyOf } from "./engine/thread-router.mjs";
+import { listInboxes } from "./engine/thread-inbox.mjs";
+// 2026-11-07：工单级授权——授权跟着这张活走，记依据、期限与失效条件
+import { createMandate, closeMandate, revokeMandate, activeMandates, listMandates, pruneMandates, getMandate, filterToolsByScope } from "./engine/mandate.mjs";
+// 2026-11-07：relay——直通吞掉的后续，结果要回到问的人那里（原文：Worker 不对外说话，Router 统一回）
+import { relayToThread } from "./engine/thread-relay.mjs";
+// 2026-11-07：派活各用一棵 worktree（借 worktrunk 的做法，主树不碰）
+import { startTicketWorktree, closeTicketWorktree, ticketWorktreeStatus, branchOf } from "./engine/ticket-worktree.mjs";
+import { parseOpenIntent, navPayload } from "./engine/intent-router.mjs";
+import { filterTasks } from "./engine/task-filter.mjs";
+import { compareCandidates, recordCompare } from "./engine/candidate-compare.mjs";
+import { pickColdSession, readBudget, spendBudget, isQuietHours, withJitter } from "./engine/proactive.mjs";
+import { savePlan, listPlans, readPlan, exportPlanFile, planStats } from "./engine/scene3d.mjs";
+import { createAsk, listAsks, handleReply, quietHours, pickAsk, resolveAsk } from "./engine/router-pending.mjs";
+import { judgeRun, describeVerdict } from "./engine/delivery-gate.mjs";
+import { runWithInitiator, DEFAULT_RULES } from "./engine/tools/initiator.mjs";
+import { getTeamToolContext } from "./engine/team-tool-context.mjs";
+import { createPolicyProvider, readPolicy, writePolicy, rollbackPolicy } from "./engine/tools/policy-store.mjs";
+import { syncActionRights, readRights } from "./engine/action-rights.mjs";
+import { syncPluginReceipt } from "./engine/plugin-receipt.mjs";
+import { applyNudges, readAutoState, writeAutoState } from "./engine/brain-auto.mjs";
+import { makeProposal, recordProposal, listProposals, checkChange, POLICY } from "./engine/self-change.mjs";
+import { validateReal } from "./engine/self-change-validate.mjs";
+import { shouldPropose, makeShadowProposal } from "./engine/self-change-trigger.mjs";
+import { applyChange, rollbackChange, listBackups as listSelfChangeBackups } from "./engine/self-change-apply.mjs";
+import { startSession, finishSession, abortSession, wtPath } from "./engine/self-change-session.mjs";
+// 2026-11-08：自证 → 准入——她自己做的改动，必须先自证通过才允许进仓库（默认不 push）
+import { verifyChange, resolveChangeFiles } from "./engine/self-change-verify.mjs";
+import { admit as admitSelfChange, recordVerification, listLedger as listSelfChangeLedger } from "./engine/self-change-admit.mjs";
+// 2026-11-08：旁路留痕——默认路径走闸，四条还绕得过去的路不堵，但每次绕过都落一行记录（可审计、不阻断）
+import { recordBypass, listBypasses, countBypasses } from "./engine/admission-bypass.mjs";
+import { detectDrift, recordDriftCheck, recentDrift } from "./engine/watchdog-drift.mjs";
+// 2026-11-07：偏离从「记账」到「介入」——同类问题 4 小时冷却，不自动杀任务
+import { shouldEscalate, composeDriftNotice, readLastNotified, recordNotified } from "./engine/drift-escalation.mjs";
+// 2026-11-07：带 id 的跑偏事件（通知 / 接口 / watchdog_read 都查同一份）
+import { recordDriftIncident, latestDriftIncident, getDriftIncident } from "./engine/watchdog-incidents.mjs";
+import { setSelfChangeRoot, getSelfChangeRoot } from "./engine/tools/unified-tools.mjs";
+import { setSelfChangeWriteRoot } from "./engine/workspace-api.mjs";
+import { beginSnapshot, finishSnapshot, rollbackSnapshot, beginFsSnapshot, finishFsSnapshot } from "./engine/self-change-main.mjs";
+import { clusterFromDisk, toProposalInput } from "./engine/learning/failure-cluster.mjs";
+import { saveSealed, loadSealed, canUseAsBenchmark } from "./engine/learning/sealed-cases.mjs";
+import { recordExperience, readExperiences, summarizeExperiences } from "./engine/learning/experience.mjs";
+import { judgeWithSealed, compareResults } from "./engine/learning/benchmark.mjs";
+import { installSkill, validateSkillMd, listAuthoredSkills, buildAuthorPrompt } from "./engine/learning/skill-author.mjs";
+import { replayFromDisk, estimateAction, buildHistory } from "./engine/anticipation.mjs";
+import { recordPush, recordReaction, reactionStats, shouldThrottle, markRecentActivity, expirePushes } from "./engine/notice-reactions.mjs";
+// 2026-11-09 三档主动触达：主动推送台账（「连续 3 条没回复暂停」的恢复开关接在用户动作上）
+import { markOutreachReplied } from "./engine/proactive-journal.mjs";
+import { describeFailure } from "./engine/failure-note.mjs";
+import { distillTurn, distillCandidates } from "./engine/memory/distill.mjs";
+import { runForgetCycle } from "./engine/memory/forget.mjs";
+import { recallMemories, recallPrompt, compareRecall, initRecallEmbedding } from "./engine/memory/recall.mjs";
+import { readUrl } from "./engine/read-url.mjs";
+import { runAndSave, loadResults, saveResults } from "./engine/learning/case-runner.mjs";
+import { appendEvent as appendEvoEvent, readEvents as readEvoEvents, summarizeCapability as summarizeEvoCapability, createProposal as createEvoProposal, readProposals as readEvoProposals, recordGateVerdict } from "./engine/evolution/index.mjs";
+import { countExperience, distillExperience, gatherEvidence, latestReflectionReport } from "./engine/reflection-experience.mjs";
+import { readRegions, writeRegions, REGIONS, deliveryStrictness, distillLimit, nudgeCooldownMs, ideaCap, maxToolTurns, planBatchFactor, toolTier } from "./engine/brain-regions.mjs";
+import { runDoctor } from "./engine/install-doctor.mjs";
+import { listAddons, startAddonJob, addonJobs, ensureAddonPaths } from "./engine/addons.mjs";
+ensureAddonPaths();
+import { safeJoin } from "./engine/tools/security.mjs";
+// ── dsh 执行臂工具（拆模块）：双引擎派单/并发控制/结构化回传解析 ──
+import { createDshTool } from "./engine/dsh-tool.mjs";
+import { handleDshChat } from "./engine/dsh-chat.mjs";
+
+// ── 模型路由层（拆模块）：429 降级 / 复杂度分类 / Auto 路由 / pro 候选 ──
+import { initModelRouter, isOcGoBlocked, isModelBlocked, markModelBlocked, markOcGoBlocked, ocGoCandidate, pickFallbackDefault, pickFallbackExcluding, isTextCapableModel, resetModelHealth, isAutoModel, routeForAuto, routeProCandidate, flashCandidate, markSticky, ROUTER_AUTO, isAuthErrorStatus } from "./engine/model/router.mjs";
+// ── 辅助模型路由（2026-11-15）：非对话主链的一次性判断走便宜模型（记忆审核/会话摘要/输出质检）──
+import { initAuxModel, callAux, auxStatus } from "./engine/model/auxiliary.mjs";
+// ── 模型能力探测与发现（拆模块）：能力推断 / 真实API探测(24h缓存) / 自定义 provider 发现 ──
+import { modelCapabilities, probeModelCapabilities, discoverCustomModels } from "./engine/model/probe.mjs";
+import { CONFIG } from "./config.mjs";
+// ── Gateway 2.0 插件化引擎 + Code Mode（dsh 设计沉淀）──
+import { createGateway } from "./engine/gateway.mjs";
+import { sseWrite, createSseWriter, startSseHeartbeat } from "./engine/sse.mjs";
+import { json, readBody } from "./engine/http-utils.mjs";
+import { observeHttpRequest, respondHttpError, appendSlowLog } from "./engine/http-lifecycle.mjs";
+import { watchAgentIdle, DEFAULT_CHAT_IDLE_MS } from "./engine/agent-idle-watchdog.mjs";
+// 2026-11-13 AUTH-003：短时媒体票据（长期令牌不再出现在 <img>/<audio>/<video>/SSE 的 URL 里）
+import { configureTicketKey, issueTicket, verifyTicket, ticketScopeForPath, isTicketScopeAllowed, ALLOWED_TICKET_SCOPE_PREFIXES } from "./engine/media-ticket.mjs";
+import { mediaObservations } from "./engine/media/observations.mjs";
+import { createRunStore, runTitleOf } from "./engine/run-store.mjs";
+import { createInternalRounds } from "./engine/internal-rounds.mjs";
+import { createRunEventLog, pruneRunEvents } from "./engine/run-event-log.mjs";
+import { createRunManager } from "./engine/run-manager.mjs";
+import { createRestartGuard, RESTART_BATCH, RESTART_STAGGER_MS } from "./engine/restart-guard.mjs";
+import { isMotherExecutionCandidate } from "./engine/run-execution-identity.mjs";
+import { createRunEffects } from "./engine/run-effects.mjs";
+import { createRunApi } from "./engine/run-api.mjs";
+import { deriveRunTitle } from "./engine/run-title.mjs";
+import { readGeneralTeamDeliveries } from "./engine/team-general-delivery.mjs";
+import { initThemePrefs, loadThemePrefs, saveThemePrefs } from "./engine/theme-prefs.mjs";
+import { initColorPrefs, loadColorPrefs, saveColorPrefs } from "./engine/color-prefs.mjs";
+import { initEnginePair, loadEnginePair, saveEnginePair, swapEnginePair, resolveLead, describePair, leadNote } from "./engine/engine-pair.mjs";
+import { decorateEngineStatus, isCorePlugin } from "./engine/engine-panel.mjs";
+import { readPromptPlugins, savePromptPlugin, removePromptPlugin, promptPluginDef } from "./engine/prompt-plugins.mjs";
+import { initWorkspaceApi, WS_ROOT, findWorkspaceFiles, wsSafePath, saveArtifact, saveArtifactFromFile, handleWsTree, handleWsFile, handleWsRead, handleWsPreview, handleWsWrite, handleWsArtifacts, wsNextVersion, handleWsDeliver, handleWsPackage, handleWsDeliveries, handleWsRename, handleWsDelete, handleWsSearch, handleWsProjectCreate, handleWsConvert } from "./engine/workspace-api.mjs";
+import { configureMarkdownImages } from "./engine/media/markdown-images.mjs";
+
+// 2026-11-02：自改作用于代码仓库（引擎/前端源码在这），不是工作区。
+const SELF_CHANGE_ROOT = process.env.PI_CODE_ROOT || "D:\\pi-web";
+// 2026-11-09：自改提案的四前提证据（进化闸门 evolution-gate.mjs 用）——
+// 台账取统一事件流，工具链取 UNIFIED_TOOLS 的真名字；不传这份 ctx 就只做边界校验（旧行为）。
+function selfChangeLoopCtx(files = []) {
+  let events = [];
+  try { events = readEvoEvents(WS_ROOT, { limit: 2000 }); } catch {}
+  let tools = [];
+  try { tools = UNIFIED_TOOLS.map((t) => t?.function?.name || t?.name).filter(Boolean); } catch {}
+  return {
+    wsRoot: SELF_CHANGE_ROOT,
+    repoRoot: SELF_CHANGE_ROOT,
+    events,
+    tools,
+    files: Array.isArray(files) ? files : [],
+  };
+}
+import { initContextLoader, makeLoader, loadExperience, readRulesWithImports, loadContextRules, jitRulesForPath, loadProjectRules, loadSkillIndex, execActivateSkill, ACTIVATE_SKILL_TOOL, WORK_PROTOCOL, loadMemory, loadMemoryIndex, loadExperienceIndex, shouldInjectFullMemory, setLastUserQuery } from "./engine/context-loader.mjs";
+import { directMediaMode, seedMediaMode } from "./engine/media/mode.mjs";
+// 2026-10-28：模型指纹（服务端快照变化要能被归因）
+import { noteFingerprint, listFingerprints, fingerprintLine } from "./engine/model/fingerprint.mjs";
+// 2026-10-29：插件商店（技能包 / MCP 包）
+import {
+  listInstalled as listPlugins, readCatalog, installFromCatalog, installPlugin,
+  uninstallPlugin, setEnabled as setPluginEnabled, validateManifest,
+  readRegistryConfig, writeRegistryConfig, fetchRemoteCatalog, remoteCatalogItems,
+  installFromRemote, versionHistory, rollbackPlugin, listToolpacks, readToolpack,
+} from "./engine/plugin-store.mjs";
+import { runToolpackTool } from "./engine/toolpack-runtime.mjs";
+import { syncToolpacks, toolpacksInChat, setToolpacksInChat } from "./engine/toolpack-chat.mjs";
+import { listRuns as listBenchRuns, loadCases as loadBenchCases } from "./engine/behavior-bench.mjs";
+import { pruneBackups, listBackups, listVersions } from "./engine/plugin-store.mjs";
+import { initMediaApi, findMediaModel, detectMediaIntents, extractMediaPrompt, mediaAwarePrompt, mediaReadyNotice, explainMediaError, generateMediaAsync, generateTTS, generateImage, handleImage, handleImageWithSave, generateVideo, startVideoJob, checkVideoJob, handleMedia, assistantContentWithMedia } from "./engine/media/api.mjs";
+import { extractPlayableMedia, gateIncomingMedia } from "./engine/media/embed.mjs";
+import { formatSkillIndexPrompt, matchSkillsForTask } from "./engine/yuanshu-protocol.mjs";
+import { MEDIA_TOOL_SCHEMAS, mediaExtraExecutors, formatSensitiveHint, listHostChannels } from "./engine/media/channels.mjs";
+import { TODO_TOOL_SCHEMAS, todoExtraExecutors } from "./engine/yuanshu-todo.mjs";
+import { PLAN_FILES_SCHEMA, planFilesExtraExecutors, initYuanshuWorkmem } from "./engine/yuanshu-workmem.mjs";
+import { DELEGATE_TASK_TOOL, execDelegateTask, DELEGATE_FORK_TOOL, execDelegateFork } from "./engine/yuanshu-delegate.mjs";
+import { needsHands, normalizeAbilities } from "./engine/subagent-worker.mjs";
+// 2026-11-07：后台子代理（后台起 + 跑完回传 + 可续聊 + 可查）。执行复用 jobPool，不自造调度器。
+import { createSubagentBackground, BACKGROUND_TIMEOUT_MS } from "./engine/subagent-background.mjs";
+import { deliverSubagentReceipts } from "./engine/subagent-receipts.mjs";
+import { DELEGATE_TEAM_TOOL, executeTeam, TEAM_DELIVERY_RULES } from './engine/team-subagents.mjs';
+import { withTeamToolContext } from './engine/team-tool-context.mjs';
+import { createTeamCompletion } from './engine/team-completion.mjs';
+// 2026-11-15：团队共享任务看板——成员之间声明「这块我占了」「这块依赖你」（一个工具带 6 个动作）。
+import { TEAM_BOARD_TOOL, executeTeamBoard } from './engine/team-board.mjs';
+import { createGeneralTeamChat } from './engine/team-general-chat.mjs';
+import { initAsrApi, handleAsr } from "./engine/asr-api.mjs";
+import { gardenMemory, scanMemoryHealth, markReviewed, unmarkReviewed, dedupeLog, reviewedKeys, pruneLogBackups } from "./engine/memory/gardener.mjs";
+import { upsertMemoryFact } from "./engine/memory/facts.mjs";
+import { readSubscriptionText } from "./engine/subscription-reminder.mjs";
+import { systemInfo as buildSystemInfo, loadNetworkConfig, saveNetworkConfig, checkUpdate } from "./engine/system-panel.mjs";
+import { recordPreUpdate, createRollbackHandler } from "./engine/update-rollback.mjs";
+import { initTuiBridge } from "./engine/tui-bridge.mjs";
+import { createVoiceSessionReader } from './engine/chat-voice-context.mjs';
+import { createVoiceAdmission } from './engine/chat-voice-admission.mjs';
+import { createVoiceTicketHandler, createVoiceModelsHandler } from './engine/chat-voice-api.mjs';
+import { createVoiceModelRegistry } from './engine/media/model-registry.mjs';
+import { attachChatVoice } from './engine/chat-voice-bridge.mjs';
+import { createVoiceDiagnostics } from './engine/chat-voice-diagnostics.mjs';
+import { createVoiceTaskRuntime } from './engine/media/task-runtime.mjs';
+import { createVoiceTaskApi } from './engine/media/task-api.mjs';
+import { createVoiceTaskAuthorizer } from './engine/media/task-auth.mjs';
+import { connectVoiceProvider } from './engine/chat-voice-provider.mjs';
+import { listLingXi, addLingXi, setLingXi, removeLingXi } from "./engine/lingxi.mjs";
+import { initDshKeys, dshResolveBin, handleDshStatus, handleDshWebStart, handleKeysStatus, loadPolicies, toolMatch, policyDecide, handleKeysApply, handleKeysPresets, refreshModelList, handleModelsManage, handleModelsAdd, handleModelsDiscover, handleModelsVerify, KNOWN_PROVIDERS, PROVIDER_PRESETS, resolveAuth } from "./engine/dsh-keys.mjs";
+import { initStatsApi, handleGlobalStats, handleProviderStats, handleDailyStats, handleSubagentRuns, handleSubagentHistory, safeSessionStats, handleStats, handleCompact, listBuiltinSkills, handleSkills, listSkills, handleSkillRead, handleParseFile, escHtml, handleExport, resolveFsPath, handleFsList, handleFsRead, handleRename } from "./engine/stats-api.mjs";
+import { initModelClient, directChat, handleThink, handleDirectChat, maybeCompactHistory } from "./engine/model/client.mjs";
+import { initSelfHeal, createRepairCheckpoint, handleUpdateCheck, handleUpdateApply, handleRepair, handleDesignerGenerate, handleDesignerSave, handleCompare } from "./engine/self-heal.mjs";
+import { frontendVersionPayload } from "./engine/frontend-version.mjs";
+import { withSamplingParams } from './engine/sampling-params.mjs';
+import { initImproveApi, analyzeImprovements, openImprovements, getImprovementDiagnostics, setImprovementStatus } from "./engine/improve-api.mjs";
+import { initEvolutionApi, proposeEvolution, applyEvolution, listEvolution, dismissEvolution, nudgeSkill, applySkillNudge, dismissSkillNudge, listSkillNudges, startEvolutionEvaluation, proposeMemoryNudge, proposeLessonPromotion, listMemoryNudges, applyMemoryNudge, dismissMemoryNudge, analyzeMemoryCompress, proposeMemoryCompress, listMemoryCompress, applyMemoryCompress, dismissMemoryCompress } from "./engine/evolution-api.mjs";
+import { initSessionManager, initComputerTool, createSession, cloneSessionFromEntry, evictInactiveSessions, slimSessionImages, compactSession, openSession, initSearchTool, initShareTool, createSessionAgent, ensureAgent, isFirstTurn, deleteSession, setOnTheSpotFixRunner, ensureContextHeadroom, canAccessSessionOrigin, withIdleSession, compactSessionAgent } from "./engine/session/manager.mjs";
+import { initUnifiedChat, unifiedChat, engineCurrentModel, initEngine, getCodeRuntime, getCodeMode, toolBindingDesc, toolBindingArgs, toolBindingArgsObj, handleNotices, handleUnifiedChat, touchTask, clearTask, taskProgress, handleAgentEventIn, handleAgentEventOut } from "./engine/unified-chat.mjs";
+import { completedTaskText } from "./engine/task-continuation.mjs";
+import { createApprovalInterceptor } from "./engine/tools/approval.mjs";
+import * as confirmRegistry from "./engine/tools/confirm-registry.mjs";
+import { pendingOverview } from "./engine/agent-pending.mjs";
+import { createSandboxAskFactory } from "./engine/sandbox-ask.mjs";
+import { isLocalMaintenanceApproval } from "./engine/maintenance-approval.mjs";
+import { createGeneApproval } from './engine/gene-approval.mjs';
+import { createPersonaGovernance } from './engine/persona-governance.mjs';
+// 2026-11-09 GRN 最后一层：5 维成长 + 换代（人批准/拒绝/回滚）。
+// 换代是人格级变化，所以写接口复用 confirmRegistry 的人工确认，不采信请求体里的 approvedBy。
+import * as growth from './engine/genome-growth.mjs';
+import { createGrowthApproval } from './engine/growth-approval.mjs';
+import { isSetupPending, clearSetupPending, applySetupSoul, isLocalSetupRequest } from './engine/setup-state.mjs';
+import { createPersonaApproval } from './engine/persona-approval.mjs';
+import { createComputerUse } from './engine/computer-use/controller.mjs';
+import { createWindowsAdapter } from './engine/computer-use/windows.mjs';
+import { createComputerRoutes } from './engine/computer-use/routes.mjs';
+import { COMPUTER_TOOL_SCHEMA, computerTool, createPiComputerTool } from './engine/computer-use/tools.mjs';
+import { completeGeneTurn } from './engine/gene-turn.mjs';
+import { initRefineApi, readRefineJson, runRefineScript, handleRefineStatus, handleRefineList, detectSkillDomain, handleRefineFeedback, handleRefineGenes, handleRefinePlan, handleRefineApprove, handleRefineReject, handleRefineRollback } from "./engine/refine-api.mjs";
+import { initMcpServer, handleMcp } from "./engine/mcp-server.mjs";
+import { initMcpChat } from "./engine/mcp-chat.mjs";
+import { initStoryTrace, handleStoryProjects, handleStoryProject, handleStoryProjectPatch, handleStoryProjectDelete, handleStoryRunPreview, handleStoryRun, handleStoryRunCheck, handleStoryRunCheckMany, handleStoryAssist, handleStoryPortrait, handleStoryAssetRef, handleStoryLint, handleStoryStoryboard, handleStoryAdapt, handleStoryFilm, handleStoryFilmPlan, handleStoryRunDelete, handleStoryRunLocalize, handleStoryLocalizeAll, handleStoryDialogueAudit, handleStoryDialogueDoctor, handleStoryEngine, handleStoryCraftSave, handleStoryCraftAudit, handleStoryEpisodeMapApply, handleStoryEpisodes, handleStoryEpisodeAdd, handleStoryEpisodeUpdate, handleStoryEpisodeRemove, handleStorySceneAssign, handleStoryScriptStats, handleStoryExportScript, handleStoryPlayground, handleStoryPlaygroundClear, handleStoryMethods, handleStoryMethodDelete, handleStoryMethodCapture, handleStoryMethodApply, handleStoryRecipes, handleStoryRecipesExport, handleStoryRecipesImport, handleStoryRecipeDelete } from "./engine/story/orchestrator.mjs";
+import { startShare, stopShareSync, handleShare, handleShareStatus, handleShareStop } from "./engine/share-api.mjs";
+import { createStaticServer } from "./lib/static.mjs";
+import { CodeRuntime } from "./code-mode/code-runtime.mjs";
+import { createCodeMode } from "./code-mode/code-mode.mjs";
+import { createTimeEngine, localStamp } from "./engine/time-engine.mjs";
+import { createChatStreamHub, closeHandlerFor } from "./engine/chat-stream.mjs";
+import { createJobPool } from "./engine/job-pool.mjs";
+// 2026-11-07：值班程序（她自己写的「盯梢」）——确定性检查长期值守，命中才唤醒。
+// 三件分开：duty 负责判定/限流/落盘，wake 负责命中后交 job-pool 跑一轮，api/tools 只做参数进出。
+import { createWatchDuty } from "./engine/watch-duty.mjs";
+import { createWatchWake } from "./engine/watch-wake.mjs";
+import { createWatchRoutes } from "./engine/watch-api.mjs";
+import { WATCH_TOOLS, createWatchToolExecutors } from "./engine/tools/watch-tools.mjs";
+// 2026-11-07：用户追问「刚才哪件事跑偏了」时，模型用这个只读工具接话
+import { WATCHDOG_READ_TOOL, createWatchdogReadExecutors } from "./engine/tools/watchdog-read.mjs";
+// 2026-11-09：断言闸门（verify-gate）——报数之前先把话落成断言，逐条比对事实。
+// 交付门管"改动的验证覆盖"，这里管"话里的数字和事实"（存在性/数量/路径/大小/测试结果）。
+import { VERIFY_CHECK_TOOL, VERIFY_CHECK_STATUS, executeVerifyCheck } from "./engine/tools/verify-check.mjs";
+// 2026-11-14：一次确认交付。出图/出片后，她为了确认"用户到底看不看得见"会跑十几条 bash
+// （grep serve.log 的状态码分布、读 PNG 头、翻 server.mjs 与 workspace-api.mjs、verify_check、
+// delivery_check），而图其实是好的。这个工具把那条自证链收成一次调用，并给一行结论。
+import { DELIVERY_PROBE_TOOL, executeDeliveryProbe } from "./engine/tools/delivery-probe.mjs";
+// 2026-11-09：反模式台账（移植林心语 anti_patterns.json）。prompt 只注入最相关 2 条，
+// 这个工具是她主动把台账取回来对一遍的入口；纯读，不拦任何动作。
+// 2026-11-10：装配分级补只读观测口——loadAntiPatterns/statsOf 给 GET /api/anti-patterns 用。
+import {
+  ANTI_PATTERN_CHECK_TOOL, runAntiPatternCheck, loadAntiPatterns, statsOf as antiPatternStats,
+  LEDGER_REL as ANTI_PATTERN_LEDGER_REL, HIT_REL as ANTI_PATTERN_HIT_REL, SEVERITIES as ANTI_PATTERN_SEVERITIES,
+} from "./engine/anti-patterns.mjs";
+// 2026-11-10：装配分级——关系层 / 教训复习 / 正向账本 / 产出新鲜度的只读状态口。
+// 全部只调读函数；写开关要人批准，本轮不做（下面这些路由一个写操作都没有）。
+import { current as relationshipCurrent, summary as relationshipSummary, stage as relationshipStage } from "./engine/relationship.mjs";
+import {
+  readReplayState, selectDueLessons, lessonId,
+  REPLAY_STATE_REL, REPLAY_LOG_REL, DEFAULT_MAX_PER_DAY as REPLAY_MAX_PER_DAY,
+} from "./engine/lesson-replay.mjs";
+import { loadLedger as loadPraiseLedger, stats as praiseStats, readState as readPraiseState, topPositive } from "./engine/praise-ledger.mjs";
+import { auditVitality, summarize as summarizeVitality } from "./engine/vitality.mjs";
+import { createTurnProfiler } from "./engine/turn-profile.mjs";
+import { createMemWatch } from "./engine/mem-watch.mjs";
+import { installTimerWatch } from './engine/timer-watch.mjs';
+import { PerformanceObserver } from "node:perf_hooks";
+import { buildSelfModel, renderSelfSection, renderSelfMarkdown, writeSelfFile } from "./engine/self-model.mjs";
+import { shouldProbe, markProbed, splitBeforeAfter, abCompare, appendProbeLog, appendLesson } from "./engine/harness-probe.mjs";
+import { collectEvidence, buildProposePrompt, parseCandidates, writeCandidates, listCandidates, markCandidate, localDate } from "./engine/harness-propose.mjs";
+import { withModelFailover } from "./engine/model/failover.mjs";
+// 守护阈值与 watchdog 共用一个真源（CJS，Node 互操作取 default）。
+// 2026-10-25：之前通知文案硬编码 180 秒、watchdog 实际是 300 秒，用户照着一个错的数字在等。
+import watchdogLimits from "./lib/watchdog-limits.cjs";
+const WATCHDOG_LIMITS = watchdogLimits.LIMITS;
+// 2026-10-25：脱链长任务（渲染/编码/下载）——进程逃出服务 Job，重启不连带杀
+import * as detachedRun from "./engine/detached-run.mjs";
+// 2026-10-26：作业目录是运行期草稿，启动时清理陈旧残留
+import { pruneOldJobs, cleanupLegacyJobDir } from "./engine/detached-run.mjs";
+// 2026-10-27：记忆 Git 版本化（抄 A5：记忆要能 diff、能回滚）
+import { commitMemory, memoryHistory, rollbackMemory } from "./engine/memory/versioning.mjs";
+// 2026-10-27：记忆 Wiki（把记忆/经验/知识渲染成人能读的主题页）
+import { buildWiki, listWiki, readWiki } from "./engine/memory/wiki.mjs";
+// 2026-10-27：工作区文档变化感知（Diff Engine）
+import { diffDocs, readManifest as readDocManifest, resetManifest as resetDocManifest } from "./engine/doc-diff.mjs";
+// 2026-10-27：源文档变了 → 标出要人复核的 Wiki 页
+import { markStaleForPaths, clearStaleForGenerated, staleSummary } from "./engine/wiki-stale.mjs";
+// 2026-10-27：自动补丁收尾（状态机 + 提醒 + 可选自动合并）
+import { syncPatches, patchLine, readPatchState, readConfig as readMergeConfig } from "./engine/autopatch-track.mjs";
+// 2026-10-27：主动管理（在盯什么、追什么、催几次就闭嘴）
+import { sweepProactive, addWatch, stopWatch, listProactive, proactiveLine } from "./engine/proactive-manager.mjs";
+// 2026-10-27：推送通道界面化（保存 token / 测试 / 清除），不用再手写文件
+import { channelStatus, saveToken, clearToken, sendTest, openConsole } from "./engine/notify-channel.mjs";
+// 2026-10-27：向外发的统一口子（降级链 + 投递账本）
+import { sendOut, recentDeliveries, outboundLine } from "./engine/outbound.mjs";
+// 2026-11-09：退化自评 + 自救阶梯 + 全局暂停闸（外发/主动触达/媒体入口都会读它写的闸）
+// applyLowRiskOnly：只自动执行 low 档动作（10 分钟循环里跑，每轮最多一个）
+import { degradationSnapshot, assessAndApply, setPauseGate, readPauseGate, applyLowRiskOnly } from "./engine/degradation.mjs";
+// 2026-11-09：定时任务双模式 + 静默失败告警（连续 3 次没产出 → 定时任务告警.jsonl + /api/degradation）
+// 规范与审计名单在 engine/scheduled-policy.mjs（纯函数）。
+// 2026-11-10：auditJobs/planJob 也接上了——10 分钟循环里只读审计一次（不执行任何作业），
+// GET /api/scheduled/audit 看同一份快照；作业的实际行为一点没改。
+import { recordJobRun, auditJobs, planJob, JOB_INVENTORY } from "./engine/scheduled-policy.mjs";
+// 2026-10-27：向内管——外部事件入口
+import { recvEvent, listEvents, inboundLine } from "./engine/inbound.mjs";
+// 2026-10-28：承诺到点自动干活
+import { runDuePromises, duePromises, reapPromises } from "./engine/promise-runner.mjs";
+// 2026-10-28：高危动作走一次性凭据（设计借鉴 Inalpha 的 order approval）
+import { issueToken, consumeToken, listTokens } from "./engine/approval-token.mjs";
+// 2026-10-28：只读模式（面板开关）
+import { readOnlyOn as readOnlyState, setReadOnly } from "./engine/tools/readonly-mode.mjs";
+
+// 2026-10-27：认领板（谁在做什么；抄 Agensh 的第一块砖）
+import { claimTask, releaseClaim, renewClaim, listClaims, reapExpired } from "./engine/claim-board.mjs";
+// 2026-10-27：agent 之间的留言（Agensh 第二件套）
+import { postMessage, inboxFor, markRead, recentMessages } from "./engine/agent-mailbox.mjs";
+// 2026-10-27：失败台账（共享"这条路走不通"）
+import { recordFailure, recallFailures, recentFailures, failureLine, failureAttribution } from "./engine/failure-ledger.mjs";
+// 2026-11-14：每轮工具表快照（GET /api/tools/surface；只读诊断面）
+import { handleToolSurfaceRoute } from "./engine/tool-surface-log.mjs";
+import { docChangesLine } from "./engine/doc-diff.mjs";
+// 2026-10-25：后台作业状态机（做完没汇报、坏在哪一步）
+import { collectJobs, summarizeJobs, syncReports, pendingReports, ackReports, autoAckByText, urgentReports } from "./engine/job-state.mjs";
+// 2026-10-25：自己找活——从承诺/牵挂/久未推进的任务/随口提过的事里长出候选目标
+import { curateIdeas, readIdeas, acceptIdea, dismissIdea, readGoals, completeStep } from "./engine/idea-curator.mjs";
+// 2026-10-25：交付前证据检查（响度/峰值/音画同步/时长），灵感来自 earshot
+import { checkOutput, measureAudio, evidenceNote, probeMedia, avDriftSec } from "./engine/output-qa.mjs";
+// 2026-10-26：知识摄入 / 自动上报也进作业状态机（停摆了要能看见）
+import { knowledgeJob } from "./engine/knowledge/job.mjs";
+import { feedbackJob } from "./engine/feedback-job.mjs";
+// 2026-10-26：知识长能力——从结构化信号挖代码级提案（带证据/测试/收益）
+import { readProposals, writeProposals, refreshProposals, markProposal, mineSignals } from "./engine/capability-proposal.mjs";
+// 2026-10-26：accepted 之后自动产出改动计划 + 测试骨架（人只审阅和跑测试）
+import { planFor, materializeProposal } from "./engine/capability-plan.mjs";
+import { reconcileDanglingSessions } from "./engine/patch-guard.mjs";
+// 2026-10-26：自动补丁面板（用户在界面上看 diff / 合并 / 丢弃，不碰命令行）
+import { listPatchBranches, diffOfBranch, mergeBranch, discardBranch } from "./engine/autopatch-branch.mjs";
+// 2026-10-26：无人值守补丁（生成 → 白名单 → 门禁 → 建分支提交；永不并 main）
+import { runQueue, pickEligible } from "./engine/patch-runner.mjs";
+// 2026-10-26：自动补丁必须在源码仓跑（服务本身从安装目录启动，__dirname 不是源码）
+import { resolveRepoRoot } from "./engine/repo-root.mjs";
+// 2026-10-26：计划细化（失败样本 / 调用点 / 最小复现）
+import { buildRefinement, applyRefinementToPlanFile } from "./engine/plan-refine.mjs";
+import { pickGenerator } from "./engine/patch-generator.mjs";
+// 2026-10-26：未捕获异常的去留策略（偶发不退出，同签名反复才退出）
+import { decideCrashAction, crashSignature } from "./engine/crash-policy.mjs";
+// 2026-10-26：收件箱自动研判（对不上号要说清为什么）
+import { triageReport } from "./engine/crash-triage.mjs";
+import { readReportLedger } from "./engine/telemetry.mjs";
+import { setEnvWorkspace } from "./engine/runtime-env.mjs";
+import { loadSelfPolicy, selfTools, recordSelfAction, withinDailyLimit } from "./engine/self-agency.mjs";
+import { composeTimeTaskMessages, timeTaskReadTools, recordReflectionActions, parseReflectionActions, yesterdayYmd } from "./engine/time-task-run.mjs";
+import { promoteReflectionLessons, buildLessonProposal, loadLessonLedger } from "./engine/lesson-promotion.mjs";
+import { buildLastNight } from "./engine/last-night.mjs";
+import { planReflectionExecution, recordActionAttempt, summarizeExecution, runOnTheSpotFix, executeReflectionAction, REFLECTION_EXEC_BUDGET_MS } from "./engine/reflection-exec.mjs";
+import { loadEpisodes, dream, writeDreamLog, dreamPaths, currentWeights, promoteWeights, resetWeights, recordSkillChoice } from "./engine/dream.mjs";
+import { createDreamCollector } from "./engine/dream-collector.mjs";
+import { createLearningIntake } from "./engine/learning-intake.mjs";
+import { createKnowledgeRuntime } from "./engine/knowledge/runtime.mjs";
+import { createKnowledgeOverview } from "./engine/knowledge/overview.mjs";
+import { knowledgeChatContext, deliverKnowledgeContext } from "./engine/knowledge/chat.mjs";
+import { withKnowledgeRequest, knowledgeRequestStopped } from "./engine/knowledge/chat-request.mjs";
+import { cultivationChatContext } from "./engine/cultivation/chat.mjs";
+import { createKnowledgeApi } from "./engine/knowledge/api.mjs";
+import { createCultivationRuntime } from "./engine/cultivation/runtime.mjs";
+import { createCultivationHostIdentity } from "./engine/cultivation/host-identity.mjs";
+import { createCultivationApi } from "./engine/cultivation/api.mjs";
+import { optionalCultivationHumanConfig } from './engine/cultivation/human-config.mjs';
+import { ownerConfigProvider } from './engine/cultivation/owner-config.mjs';
+import { createCultivationProvider } from './engine/cultivation/provider.mjs';
+import { delegateToCultivatedAgent } from './engine/cultivation/delegate.mjs';
+import { CULTIVATION_TOOL_SCHEMA, cultivationTool, createPiCultivationTool } from './engine/cultivation/tool.mjs';
+import { createPiMemoryTool } from './engine/memory/tool.mjs';
+import { initMemoryAutoStore, autoStoreStats } from './engine/memory/autostore.mjs';
+const beliefAuditModule = await import("./engine/belief-audit.mjs"); // ToM 信念层（2026-10-13）
+import { initCultivationTool, initMemoryTool } from './engine/session/manager.mjs';
+import { buildPersistentActivity } from "./engine/persistent-activity.mjs";
+import { runEvolutionCycle, evolutionStatus, revertEvolution } from './engine/evolution-cycle.mjs';
+import { createTaskEvidence } from './engine/task-evidence.mjs';
+import { createTaskEvidenceApi } from './engine/task-evidence-api.mjs';
+import { loadSkillEvidence } from './engine/evolution-progress.mjs';
+import { mechanismStatus, runMechanismExperiment } from './engine/mechanism-experiment.mjs';
+import { verifiedSkillEpisode } from './engine/trace-evidence.mjs';
+import { grant, revoke, loadCharter, autoUsedToday, loadLedger } from "./engine/autonomy.mjs";
+import { listTraces, loadTrace, replayAcrossTraces, candidatePolicies, recordDelegation } from "./engine/trace.mjs";
+import { heartbeat, liveInstances, portOwner, recordStartup, recentStartups, selfCheck, reconcileInstances } from "./engine/runtime-registry.mjs";
+import { currentExplorePolicy, promoteExplorePolicy, resetExplorePolicy, replayExploreAcross, exploreCandidates } from "./engine/explore-policy.mjs";
+import { MATCH_WEIGHTS } from "./engine/yuanshu-protocol.mjs";
+import { sanitizeSessionFile } from "./engine/session/sanitize.mjs";
+import { createCorsPolicy } from "./engine/cors-policy.mjs";
+import { initSessionDb, sessionPinnedIds, handleDbList, handleDbRebuild, handleDbSanitize, handleDbMeta, handleDbStats, handleDbSweep, sweepSessionsNow, ensureSessionSequence, hasSessionSequence } from "./engine/session/db.mjs";
+import { repairSessionFile, repairSessionDir } from "./engine/session/repair.mjs";
+import { outputRoomTokens, headroomNote } from "./engine/context-headroom.mjs";
+import { loadPersonaDefinition, renderPersonaSection, syncAppendSystemPersona, syncAllSurfaces } from "./engine/persona-def.mjs";
+// 2026-11-07：人格块要同时写 agentDir 与工作区 .pi/——两边都可能被 pi 通道读到。
+// 只写 agentDir 就会出现"灵魂培养里改了外貌、她在微信里仍读旧形象"。
+const syncPersonaAppendAll = (def) => {
+  const targets = [];
+  try { targets.push(getAgentDir()); } catch {}
+  try {
+    const wsPi = path.join(CONFIG.cwd, ".pi");
+    if (fs.existsSync(path.join(wsPi, "APPEND_SYSTEM.md"))) targets.push(wsPi);
+  } catch {}
+  const out = [];
+  for (const dir of [...new Set(targets)]) {
+    const r = syncAppendSystemPersona(def, { agentDir: dir });
+    out.push({ dir, ok: r?.ok, changed: !!r?.changed, error: r?.error });
+  }
+  return out;
+};
+// 2026-10-25：人格段唯一解析点（定义 → 灵魂 → 自我 → 会话语气）。界面与注入同源。
+import { resolvePersona, personaMeta, personaPartText, setWorkspaceExpression, setSessionExpression, listExpressionHistory, rollbackExpression, EXPRESSION_PRESETS, MAX_EXPRESSION_CHARS } from "./engine/persona-resolve.mjs";
+import { voiceAllowedOrigins } from "./engine/network-endpoints.mjs";
+import { isListedGroup, normalizeCreateGroup } from "./engine/session/groups.mjs";
+import { createAIBodyRuntime } from "./engine/aibody-runtime.mjs";
+import { createAIBodyHost } from "./engine/aibody-host.mjs";
+import { initRecallApi, rebuildIndex, handleRecall, handleRecallAsk, handleSummaries, buildSummaries, recallStats } from "./engine/recall-api.mjs";
+import { createPiCompatFallback, defaultFallbackAgentDir } from "./engine/pi-compat-fallback.mjs";
+const memoryApi = await import("./engine/memory.mjs");
+const { initMemorySync } = await import("./engine/memory/sync.mjs");
+initMemorySync({ wsRoot: CONFIG.cwd, watch: true }); // 启动及源文件变化时更新生成的 TUI 共享记忆
+const emotion = await import("./engine/emotion.mjs");
+const { createEmotionDisplay } = await import('./engine/emotion-display.mjs');
+const { createCompanionFacts } = await import('./engine/companion-facts.mjs');
+const { createCompanionStore } = await import('./engine/companion-store.mjs');
+const { createWechatBridge, createLoopbackChat } = await import('./engine/wechat/bridge.mjs');
+const emailBridge = await import('./engine/email-bridge.mjs');
+const { createMcpManager, mcpToolToSchema, mcpToolName } = await import('./engine/mcp-client.mjs');
+const mcpManager = createMcpManager({ wsRoot: () => WS_ROOT }); // 延迟求值：WS_ROOT 在 initWorkspaceApi 后才有值
+
+// 反馈收集收件箱（2026-10-13）：分发出去的主机提交 bug/改进意见 → 服务器落盘，系统页查看
+let shellVersion = CONFIG.version || "";
+if (!shellVersion) { try { shellVersion = JSON.parse(fs.readFileSync(path.join(__dirname, "version.json"), "utf8")).version || ""; } catch {} }
+const { createFeedbackStore } = await import("./engine/feedback.mjs");
+
+// 记忆库存储层（2026-10-13，Phase 1 地基）：中长期记忆（偏好/任务记录/事实），
+// 惰性打开（路径依赖运行时注入的 WS_ROOT）；增删改查全走 /api/memory，元枢后端直接读写
+const memoryDb = await import("./engine/memory/db.mjs");
+memoryDb.initMemoryDb(() => WS_ROOT);
+const memoryVectors = await import("./engine/vector-store.mjs");
+memoryVectors.initVectorStore(() => WS_ROOT);
+const memoryEmbedding = await import("./engine/embedding.mjs");
+memoryEmbedding.initEmbedding(() => WS_ROOT);
+// 2026-11-15：把 embedding 注入召回（engine/memory/recall.mjs 自己绝不偷偷发请求——测试/脚本不注入即降级）。
+// 只注入"算 query 向量"这一个能力；算出来的向量与库里 memory_vectors 的 model 必须一致（见 resolveEmbedModel）。
+initRecallEmbedding(memoryEmbedding.embed);
+
+// 写入管线（伙伴定稿）：摘要条目 → 向量化拿 vector_id → 多维表格建行绑定。embedding 失败降级：行照建 vector_id 空。
+// 顺序：先建行（校验失败此处抛，零副作用）→ 再向量化 → 成功后回写绑定，杜绝孤儿向量。
+// 2026-11-15：向量同时写一份到 memory_vectors（混合召回的 BLOB 层）；vector_id/vectors.json 保持旧口径不动，
+// 双写只是让召回能读到，不破坏任何已有调用方。
+async function memoryIngest(body) {
+  const item = memoryDb.addMemory({ ...body, vector_id: null });
+  let vector_id = null, embedNote = "";
+  try {
+    const vec = await memoryEmbedding.embed(body?.summary || "");
+    vector_id = memoryVectors.add(null, vec, { memory_type: body?.memory_type || "fact", user_id: body?.user_id || "owner" });
+    memoryDb.updateMemory(item.memory_id, { vector_id });
+    try {
+      const model = memoryEmbedding.configInfo()?.model || "unknown";
+      memoryDb.setMemoryVector(item.memory_id, { model, vec });
+    } catch (e) { embedNote = `向量层写入失败：${String(e.message || e).slice(0, 80)}`; }
+  } catch (e) { embedNote = String(e.message || e).slice(0, 100); }
+  return { item: memoryDb.getMemory(item.memory_id), vector_id, embedNote };
+}
+
+// 召回管线：提问 → 向量检索拿 vector_id 列表 → 表格回查完整记忆 → 重要性加权排序
+// 卡片层（2026-11-13）：每条结果带 card（原话片段的头 200 字），全文按 id 走 /api/memory/:id/card。
+async function memoryRecall(query, opts = {}) {
+  const user_id = opts.user_id || "owner";
+  const topK = opts.topK || 5;
+  const qvec = await memoryEmbedding.embed(query);
+  const hits = memoryVectors.search(qvec, Math.max(topK * 3, 12));
+  const byId = new Map(hits.map(h => [h.id, h]));
+  const rows = memoryDb.listByVectorIds(hits.map(h => h.id), user_id);
+  return rows.map(r => {
+    const h = byId.get(r.vector_id);
+    return { memory_id: r.memory_id, summary: r.summary, memory_type: r.memory_type, importance_score: r.importance_score, source: r.source, similarity: h ? Number(h.score.toFixed(4)) : 0, weight: Number((h.score * (0.5 + r.importance_score)).toFixed(4)), card: memoryDb.cardPreview(r.card_text), card_at: r.card_at || null };
+  }).sort((a, b) => b.weight - a.weight).slice(0, topK);
+}
+const feedbackStore = createFeedbackStore({
+  wsRoot: () => WS_ROOT,
+  version: shellVersion,
+  readCrashTail: () => {
+    try { return fs.readFileSync(path.join(__dirname, "crash.log"), "utf8").slice(-4000); } catch { return ""; }
+  },
+});
+
+// 自动问题上报（2026-10-13）：分发主机的元枢自动把 crash/重启/模型连败整理成报告发回开发者。
+// 开发机自己（D 盘工作空间）不发——开发者知道自己出了什么问题。
+import { defaultWorkspace } from "./engine/workspace-default.mjs";
+const { collectIncidents, reportIncidents, isEnabled, setEnabled } = await import("./engine/telemetry.mjs");
+const WATCHDOG_LOG = path.join(process.env.YUANSHU_CWD || defaultWorkspace(), "watchdog.log");
+async function telemetrySweep(manual = false) {
+  try {
+    if (!isEnabled(WS_ROOT)) return { sent: false, reason: "disabled" };
+        if (/^d:\/(pi-workspace|yuanshu-space)$/.test(String(WS_ROOT).split(path.sep).join("/").toLowerCase())) return { sent: false, reason: "dev_machine" };
+    let watchdogRestarts = 0, crashTail = "";
+    let restartRecent = 0;
+    try {
+      const tail = fs.readFileSync(WATCHDOG_LOG, "utf8").slice(-20000);
+      watchdogRestarts = (tail.match(/检测到 server 掉线/g) || []).length;
+      // 2026-10-28：累计值不能当事故——按行首时间只数最近 30 分钟
+      const nowMs = Date.now();
+      for (const line of tail.split(/\r?\n/)) {
+        if (!/检测到 server 掉线/.test(line)) continue;
+        // watchdog.log 的行首是 [2026/10/28 21:11:38]（斜杠），两种分隔都认
+        const m = line.match(/(\d{4})[-/](\d{2})[-/](\d{2})[ T](\d{2}:\d{2}:\d{2})/);
+        if (!m) continue;   // 没时间戳的旧行：宁可漏计，不要把历史一律算成近期
+        const t = Date.parse(`${m[1]}-${m[2]}-${m[3]}T${m[4]}`);
+        if (Number.isFinite(t) && nowMs - t <= 30 * 60000) restartRecent += 1;
+      }
+    } catch {}
+    try { crashTail = fs.readFileSync(path.join(__dirname, "crash.log"), "utf8").slice(-4000); } catch {}
+    // 2026-10-26：崩溃报告必须带**构建号**——行号会随版本漂移，commit 才是唯一可靠锚点
+    // （真机收到的两条外地报告就因为缺这个，只能猜行号）。
+    try {
+      if (!process.env.YUANSHU_BUILD_COMMIT) {
+        const info = JSON.parse(fs.readFileSync(path.join(__dirname, ".yuanshu-build.json"), "utf8"));
+        if (/^[0-9a-f]{7,40}$/i.test(String(info?.commit || ""))) process.env.YUANSHU_BUILD_COMMIT = String(info.commit).slice(0, 12);
+      }
+    } catch {}
+    const incidents = collectIncidents({ crashTail, watchdogRestarts, restartRecent, modelFailStreak: 0, version: shellVersion });
+    if (!manual && !incidents.incidents.length) return { sent: false, reason: "nothing" };
+    return await reportIncidents(WS_ROOT, incidents);
+  } catch (e) { return { sent: false, reason: String(e.message || e).slice(0, 80) }; }
+}
+// 启动 5 分钟后首查，之后每小时一查；掉线计数按 watchdog.log 近 2 万字符窗口
+setTimeout(() => { void telemetrySweep(); }, 5 * 60000);
+setInterval(() => { void telemetrySweep(); }, 60 * 60000);
+const { buildSoulGraph, readMemoryFiles } = await import('./engine/soul-graph.mjs');
+const { soulContextPrompt } = await import('./engine/soul-context.mjs');
+const { createCompanionDecision } = await import('./engine/companion-decision.mjs');
+const { createCompanionSessionReader } = await import('./engine/companion-session.mjs');
+const { createCompanionRoutes } = await import('./engine/companion-api.mjs');
+const { appearanceCatalog, planAppearanceInjection } = await import('./engine/companion-appearance.mjs');
+const companionEmotion = createEmotionDisplay({ peek: emotion.peekLatestObservation });
+emotion.init(CONFIG.cwd); // 基因系统：加载人格基因 + 提案池
+emotion.setMemoryNudgeHook((info) => { try { proposeMemoryNudge(info); } catch {} }); // 情绪→记忆联动（09-03）：residue 跨阈值自动提案记忆写入
+// 隔离子任务执行器（P2）：注入模型适配依赖（复用系统代理栈）
+const subagent = await import("./engine/subagent.mjs");
+const workshop = await import("./engine/workshop.mjs");
+const { handleWorkshopUiChat } = await import("./engine/workshop-ui-chat.mjs");
+const { createUiDesignService, handleUiDesign } = await import("./engine/ui-design-service.mjs");
+const { createWebsiteService } = await import('./engine/website-service.mjs');
+const { websiteRoutes } = await import('./engine/website-routes.mjs');
+const { createBehaviorExperiments } = await import('./engine/behavior-experiments.mjs');
+const { createBehaviorExperimentRoutes } = await import('./engine/behavior-experiment-routes.mjs');
+const { handleExpandPrompt } = await import("./engine/workshop-prompt-expand.mjs");
+const gallery = await import("./engine/gallery.mjs");
+const distill = await import("./engine/distill-theme.mjs");
+const { WORKSHOP_PAGES } = workshop;
+const novelStudio = await import("./engine/workshop-novel.mjs");
+const novelRun = await import("./engine/workshop-novel-run.mjs");
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const PUBLIC_DIR = path.join(__dirname, "public");
+
+// 时间引擎实例（启动时初始化；未初始化时相关 API 返回友好错误）
+let timeEngine = null;
+// 值班程序实例（启动时初始化；工具与 /api/watches 都通过它读写）
+let watchDuty = null;
+
+// ── 加载兼容适配器 SDK ─────────────────────────────────────────────
+// piPackage 为空时 pathToFileURL("") 会解析成启动目录，报出
+// "Directory import 'D:\pi-web' is not supported" 这种完全不指向真因的错误
+// （2026-09-14 事故：NPM_CONFIG_PREFIX 缺失导致全局包探测全 miss，排查耗时很久）。
+// 这里显式拦截，并给出可执行指引；错误信息里带 "Cannot find module" 特征串，
+// 好让 watchdog 的回滚归因把它判为环境类崩溃而不是 server.mjs 的锅。
+let piSdk = null;
+let piSdkAvailable = false;
+if (!CONFIG.piPackage) {
+  console.error("[元枢] 未能解析兼容适配器引擎：Cannot find module '@earendil-works/pi-coding-agent'。");
+  console.error("[元枢] 可选修复：npm i -g @earendil-works/pi-coding-agent ；或用 PI_PACKAGE 指定其 dist/index.js。当前继续以元枢统一引擎启动。");
+} else {
+  try {
+    piSdk = await import(pathToFileURL(CONFIG.piPackage).href);
+    piSdkAvailable = typeof piSdk?.ModelRuntime?.create === "function" && typeof piSdk?.SessionManager?.create === "function";
+    if (!piSdkAvailable) CONFIG.piPackage = "";
+  } catch (e) {
+    console.error(`[元枢] 兼容适配器加载失败：${String(e?.message || e).slice(0, 180)}`);
+    console.error("[元枢] 当前继续以元枢统一引擎启动，Pi 原生会话将自动让路。");
+    CONFIG.piPackage = "";
+  }
+}
+if (!piSdkAvailable) piSdk = createPiCompatFallback({ agentDir: defaultFallbackAgentDir() });
+const { createAgentSession, createAgentSessionServices, createAgentSessionFromServices, SettingsManager, ModelRuntime, SessionManager, DefaultResourceLoader, getAgentDir, withFileMutationQueue } = piSdk;
+if (!piSdkAvailable) console.log(`[元枢] Pi SDK 不可用，使用统一引擎兼容层；agent 目录 ${getAgentDir()}`);
+// ⚠️ initFileLock 必须放到 AGENT_DIR 声明之后（锁目录锚在 AGENT_DIR 上），
+// 放在这里会 TDZ 崩：Cannot access 'AGENT_DIR' before initialization（2026-09-14 踩过）。
+
+// ── 会话目录：复用本机 Agent 会话文件（~/.pi/agent/sessions/<encoded-cwd>/）──
+function encodeCwdDir(cwd) {
+  const r = path.resolve(cwd);
+  const safe = r.replace(/^[\\/]/, "").replace(/[\\/:]/g, "-");
+  return `--${safe}--`;
+}
+const SESSIONS_DIR = path.join(getAgentDir(), "sessions", encodeCwdDir(CONFIG.cwd));
+initSessionFiles({ sessionsDir: SESSIONS_DIR, workspaceCwd: CONFIG.cwd }); // 会话文件层外部依赖注入
+initWorkspaceApi({ wsRoot: path.resolve(CONFIG.cwd) }); // 工作空间根注入
+// 正文外链图归档缓存（记忆/运行时/外链图归档.json）也以工作区根定位：
+// 读历史时只查这份缓存，写消息时才下载并回写。
+configureMarkdownImages({ wsRoot: path.resolve(CONFIG.cwd) });
+initContextLoader({ cwd: CONFIG.cwd, DefaultResourceLoader }); // 上下文加载层注入
+console.log(`[元枢] 会话目录: ${SESSIONS_DIR}`);
+
+console.log("[元枢] 正在初始化模型运行时…");
+// OpenCode Go：pi runtime 从环境变量 OPENCODE_API_KEY 读 key——必须在 ModelRuntime.create() 前注入
+// （auth.json 在 AGENT_DIR 下，从文件读，不依赖启动 shell 环境）
+try {
+  if (!process.env.OPENCODE_API_KEY) {
+    const authPath0 = require("node:path").join(getAgentDir(), "auth.json");
+    const fs0 = require("node:fs");
+    if (fs0.existsSync(authPath0)) {
+      const auth0 = JSON.parse(fs0.readFileSync(authPath0, "utf8"));
+      const ocKey = auth0["opencode-go"]?.key || auth0["opencode"]?.key;
+      if (ocKey) process.env.OPENCODE_API_KEY = ocKey;
+    }
+  }
+} catch {}
+let modelRuntime = await ModelRuntime.create();
+console.log(`[元枢] 模型运行时加载完成`);
+// agent 通道扩展入口在 AUTH_PATH/MODELS_PATH 就绪后注册（见下），注册逻辑：engine/sdk-providers.mjs
+// 诊断：确认 opencode-go provider 是否被 pi runtime 识别
+try {
+  const ogCount = modelRuntime.getModels().filter(m => m.provider === "opencode-go").length;
+  console.log(`[元枢] opencode-go 模型数: ${ogCount}`);
+} catch {}
+
+// ── 模型列表（从 models-store.json 构建：白名单精选 + 用户后添加的 provider 全部显示）──
+let modelList = [];
+// 精选白名单：只保留真正常用的模型（一眼看完）
+const KEEP_MODELS = new Set([
+  // deepseek（默认）
+  "deepseek/deepseek-v4-flash",
+  "deepseek/deepseek-v4-pro",
+  // openai 主流（去旧版/去 pro 高价版）
+  "openai/gpt-5",
+  "openai/gpt-5-mini",
+  "openai/gpt-5.2",
+  "openai/gpt-5.4",
+  "openai/gpt-5.6-luna",
+  "openai/gpt-5.6-sol",
+  "openai/gpt-5.6-terra",
+  "openai/o3",
+  "openai/o4-mini",
+  // openrouter 各家族旗舰
+  "openrouter/anthropic/claude-opus-5",
+  "openrouter/anthropic/claude-sonnet-5",
+  "openrouter/anthropic/claude-haiku-4.5",
+  "openrouter/anthropic/claude-fable-5",
+  "openrouter/google/gemini-3.6-flash",
+  "openrouter/google/gemini-2.5-pro",
+  "openrouter/google/gemma-3-27b-it",
+  "openrouter/deepseek/deepseek-v4-pro",
+  "openrouter/stealth/ox-alpha",
+  "zai-coding-cn/glm-5.3-flash",
+  "zai-coding-cn/glm-5.3",
+  "zai-coding-cn/glm-4.7",
+  "openrouter/deepseek/deepseek-r1",
+  "openrouter/qwen/qwen3-max",
+  "openrouter/qwen/qwen3.7-max",
+  "openrouter/qwen/qwen3-coder-plus",
+  "openrouter/x-ai/grok-4.5",
+  "openrouter/moonshotai/kimi-k3",
+  "openrouter/z-ai/glm-5.2",
+  "openrouter/z-ai/glm-4.6",
+  "openrouter/mistralai/mistral-large",
+  "openrouter/meta-llama/llama-4-maverick",
+  "openrouter/nvidia/nemotron-3-super-120b-a12b",
+]);
+
+// 兼容适配器原生 provider 表（agent 官方管线能直接跑通的通道）。外部中转/自定义通道
+// （bigmodel/claude-relay/sensenova/volces-ark/whatstoken 等）不在表内，agent 路径会静默兑底，
+// 必须走 unifiedChat 直连。此集合用于 /api/chat 通道策略判定（见 useAgent）。
+const NATIVE_PROVIDERS = new Set([
+  "deepseek", "openai", "openrouter", "anthropic", "google", "qwen", "xai", "moonshotai",
+  "moonshotai-cn", "together", "mistral", "nvidia", "opencode-go", "opencode", "openai-codex",
+  "zai", "zai-coding-cn", "xiaomi", "xiaomi-token-plan-cn", "xiaomi-token-plan-ams",
+  "xiaomi-token-plan-sgp", "qwen-token-plan-cn", "qwen-token-plan-individual", "qwen-token-plan",
+  "minimax", "minimax-cn", "kimi-coding", "github-copilot", "groq", "fireworks", "cerebras",
+  "huggingface", "baseten", "amazon-bedrock", "google-vertex", "azure-openai-responses",
+  "vercel-ai-gateway", "cloudflare-ai-gateway", "cloudflare-workers-ai", "cloudflare-auth",
+  "cloudflare-stream", "radius", "radius-config", "ant-ling", "faux",
+]);
+
+let defaultModel = undefined; // 在启动模型列表构建后初始化（见下）
+
+// 2026-10-21 Propose：拿已有证据提两条候选（不落地、不改组件）。
+// 放在模块层是因为路由与夜间任务都要用；它只读日志 + 一次无工具模型调用，成本固定。
+async function draftHarnessCandidates(extraEvidence = null, source = "manual") {
+  try {
+    const evidence = collectEvidence(WS_ROOT);
+    if (extraEvidence) evidence.probeRows = [...evidence.probeRows, extraEvidence];
+    if (!evidence.hasEvidence && !extraEvidence) return { ok: false, reason: "no-evidence" };
+    const prompt = buildProposePrompt(evidence);
+    // 同一类"无人看着跑"的调用：也走通道切换，别因为主通道没额度就整天不产候选
+    const r = await chatWithFailover(defaultModel, [{ role: "user", content: prompt }], { tools: [] });
+    const text = completedTaskText(r);
+    const candidates = parseCandidates(text);
+    if (!candidates.length) return { ok: false, reason: "unparsed" };
+    const date = localDate();
+    const written = writeCandidates(WS_ROOT, { date, candidates, source });
+    console.log(`[harness-propose] 写入 ${written.count} 条候选（${source}）→ ${written.file}`);
+    return written;
+  } catch (e) {
+    console.log("[harness-propose] 跳过:", String(e?.message || e).slice(0, 120));
+    return { ok: false, reason: "error" };
+  }
+}
+// ④ 会话级的"上一轮出过什么图、提示词是什么"（续画用；不落盘，重启即忘，够用且不污染会话文件）
+const lastMediaBySession = new Map();
+// ── 会话管理 ───────────────────────────────────────────────────────
+const activeSessions = new Map();   // id -> { agent, sm, busy }
+// 2026-10-23：聊天执行脱离 HTTP —— 刷新/断线不取消，重连按游标补发
+const chatStreams = createChatStreamHub();
+// 2026-10-23：后台作业池。先接 dsh_task（长活），让界面能看见"后台在跑什么"。
+function waitJob(id, timeoutMs = 30 * 60_000) {
+  return new Promise((resolve, reject) => {
+    const t0 = Date.now();
+    const tick = () => {
+      const j = jobPool.get(id);
+      if (!j) return reject(new Error("作业不存在"));
+      if (j.status === "done" || j.status === "failed" || j.status === "cancelled") return resolve(j);
+      if (Date.now() - t0 > timeoutMs) return reject(new Error("作业超时未完成"));
+      setTimeout(tick, 500);
+    };
+    tick();
+  });
+}
+// 环境事实里要用它读"未汇报"台账（2026-10-25）
+try { setEnvWorkspace(WS_ROOT); } catch {}
+const jobPool = createJobPool({ file: path.join(WS_ROOT, "记忆", "运行时", "后台任务.json"), concurrency: Number(process.env.PI_JOB_CONCURRENCY) || 6 });
+
+// 2026-10-28：出图/出片这类长活以前不登记，后台任务面板永远是空的。
+// 这里包一层：跑的时候在池子里挂一条 running，结束登记结果或失败（不占并发槽）。
+const trackedMedia = (intent, prompt, observations) => {
+  const kind = intent?.type === "image" ? "image" : intent?.type === "video" ? "video" : intent?.type || "media";
+  const label = `${kind === "image" ? "出图" : kind === "video" ? "出片" : kind}：${String(prompt || "").slice(0, 40)}`;
+  const t = jobPool.track({ kind, title: label });
+  return Promise.resolve()
+    .then(() => generateMediaAsync(intent, prompt, observations))
+    .then((r) => {
+      if (r?.error && !r?.url) t.fail(r.error);
+      else t.done(r?.url ? `产物：${String(r.url).slice(0, 160)}` : "完成");
+      return r;
+    })
+    .catch((e) => { t.fail(e); throw e });
+};
+// 2026-10-28：脱链任务的「后台任务」登记（只在本次服务生命期内可见）
+const detachedJobs = new Map();
+
+// 2026-10-29：插件目录首启播种——没网也能先看到两三个能装的
+const seedPluginCatalog = () => {
+  try {
+    const dir = path.join(WS_ROOT, "插件");
+    fs.mkdirSync(dir, { recursive: true });
+    const target = path.join(dir, "catalog.json");
+    if (fs.existsSync(target)) return;
+    const seed = path.join(__dirname, "assets", "plugins-catalog.json");
+    if (fs.existsSync(seed)) fs.copyFileSync(seed, target);
+  } catch {}
+};
+function toolPermissions(wsRoot, id) {
+  try {
+    const raw = JSON.parse(fs.readFileSync(path.join(wsRoot, "插件", id, "plugin.json"), "utf8"));
+    return Array.isArray(raw?.permissions) ? raw.permissions.map(String) : [];
+  } catch { return [] }
+}
+function readStateForPlugins(wsRoot) {
+  try { return JSON.parse(fs.readFileSync(path.join(wsRoot, "记忆", "运行时", "插件.json"), "utf8")) } catch { return { installed: {} } }
+}
+
+// 2026-10-31：行动权清单写进 APPEND_SYSTEM（她写好了文件，但之前没人读它）
+const rightsSync = () => { try { return syncActionRights({ wsRoot: WS_ROOT, agentDir: getAgentDir() }) } catch (e) { return { ok: false, error: String(e?.message || e).slice(0, 120) } } };
+try { const r = rightsSync(); if (r?.changed) console.log("  [rights] 行动权清单已同步进 APPEND_SYSTEM"); } catch {}
+// 2026-11-02：内置插件目录播种——工作区没有 catalog.json 就拷一份，商店才有东西可装
+const seedPluginCatalogDir = () => {
+  try {
+    const dst = path.join(WS_ROOT, "插件", "catalog.json");
+    if (fs.existsSync(dst)) return { ok: true, seeded: false };
+    const src = path.join(__dirname, "assets", "plugins-catalog.json");
+    if (!fs.existsSync(src)) return { ok: false, error: "没有内置目录" };
+    fs.mkdirSync(path.dirname(dst), { recursive: true });
+    fs.copyFileSync(src, dst);
+    console.log("  [plugins] 已播种内置插件目录");
+    return { ok: true, seeded: true };
+  } catch (e) { return { ok: false, error: String(e?.message || e).slice(0, 120) } }
+};
+try { seedPluginCatalogDir() } catch {}
+// 2026-11-02：装了什么让她自己知道——把已装插件渲染进系统提示
+// 2026-11-02：本机已沉淀的技能/工具包也要算进来——否则商店里「一个都没装」是假象
+// 2026-11-02：和元枢内置能力重叠的技能——装了也要知道该用哪个
+const BUILTIN_OVERLAP = [
+  { label: "公众号排版", re: /gzh|公众号|wechat.*post|公众号排版/i },
+  { label: "出图/海报", re: /poster|海报|image-gen|出图|绘图|illustrat/i },
+  { label: "视频抽帧/剪辑", re: /video-frame|抽帧|ffmpeg|剪辑|render.?video/i },
+  { label: "语音合成", re: /tts|语音合成|voice.?synth/i },
+  { label: "PPT 生成", re: /ppt|slide|presentation/i },
+  { label: "网页抓取", re: /fetch|scrap|crawl|url-to-markdown|网页转/i },
+  { label: "小说/长文写作", re: /novel|小说|长文|content-research/i },
+];
+const localSkills = () => {
+  const out = [];
+  const dirs = [
+    path.join(WS_ROOT, "技能"),
+    path.join(AGENT_DIR, "skills"),
+    // 2026-11-02：技能库真实位置（工程下多套 + Cursor 技能），原来只扫前两个所以"一个都没装"
+    path.join(WS_ROOT, "工程", "skill-study", "skills"),
+    path.join(WS_ROOT, "工程", "anthropic-skills", "skills"),
+    path.join(WS_ROOT, "工程", "headlong", "skills"),
+    path.join("C:\\Users\\xuexiaofeng\\.cursor", "skills-cursor"),
+    path.join("C:\\Users\\xuexiaofeng\\.pi", "agent", "skills"),
+  ];
+  for (const dir of dirs) {
+    let names = [];
+    try { names = fs.readdirSync(dir, { withFileTypes: true }).filter((d) => d.isDirectory()).map((d) => d.name) } catch { continue }
+    for (const name of names) {
+      const skillFile = path.join(dir, name, "SKILL.md");
+      let desc = "";
+      let version = "";
+      try {
+        const md = fs.readFileSync(skillFile, "utf8");
+        const lines = md.split(/\r?\n/);
+        // ① frontmatter：description / version / name
+        if (lines[0]?.trim() === "---") {
+          const end = lines.findIndex((l, i) => i > 0 && l.trim() === "---");
+          const fm = end > 0 ? lines.slice(1, end) : [];
+          for (const l of fm) {
+            const m = l.match(/^\s*(description|version|name)\s*:\s*(.+)$/i);
+            if (!m) continue;
+            const val = m[2].replace(/^["']|["']$/g, "").trim();
+            if (m[1].toLowerCase() === "description" && !desc) desc = val;
+            if (m[1].toLowerCase() === "version" && !version) version = val;
+          }
+        }
+        // ② 没有就取正文第一句（跳过标题、分隔线、空行）
+        if (!desc) {
+          const body = lines[0]?.trim() === "---" ? lines.slice(lines.findIndex((l, i) => i > 0 && l.trim() === "---") + 1) : lines;
+          const line = body.find((l) => l.trim() && !l.startsWith("#") && l.trim() !== "---");
+          desc = String(line || "").replace(/\s+/g, " ").slice(0, 80);
+        }
+      } catch { continue }
+      let hash = "";
+      let mtime = 0;
+      try { hash = crypto.createHash("sha1").update(fs.readFileSync(skillFile)).digest("hex").slice(0, 12); mtime = fs.statSync(skillFile).mtimeMs } catch {}
+      // 装于：用 SKILL.md 的修改时间，卡片就不会显示"—"
+      const overlap = BUILTIN_OVERLAP.find((r) => r.re.test(`${name} ${desc}`));
+      const descOut = (desc || "（这个技能没写描述）") + (overlap ? ` ｜ 与元枢内置「${overlap.label}」重叠，优先用内置` : "");
+      out.push({ id: name, name, version: version || "1.0.0", type: "skill", description: descOut, overlap: overlap?.label || "", enabled: true, exists: true, source: "local", dir: path.join(dir, name), hash, mtime, installedAt: mtime || Date.now() });
+    }
+  }
+  // 去重：同一份内容（hash）或同名只留一条；每多一个来源优先级更低
+  const rank = (d) => (String(d).includes("工作区") || String(d).startsWith(WS_ROOT + path.sep + "技能") ? 0 : String(d).includes(".pi") ? 1 : String(d).includes("skill-study") ? 2 : String(d).includes("anthropic") ? 3 : String(d).includes("headlong") ? 4 : 5);
+  out.sort((a, b) => rank(a.dir) - rank(b.dir) || (b.mtime || 0) - (a.mtime || 0));
+  const seenHash = new Set();
+  const seenName = new Set();
+  const kept = [];
+  for (const it of out) {
+    const h = it.hash || it.id;
+    if (seenHash.has(h) || seenName.has(it.id)) continue;
+    seenHash.add(h);
+    seenName.add(it.id);
+    kept.push(it);
+  }
+  return kept;
+};
+
+const syncReceipt = () => {
+  try { return syncPluginReceipt({ agentDir: getAgentDir(), installed: listPlugins(WS_ROOT) }) }
+  catch (e) { return { ok: false, error: String(e?.message || e).slice(0, 120) } }
+};
+try { const r = syncReceipt(); if (r?.changed) console.log("  [plugins] 已把已装能力写进系统提示") } catch {}
+seedPluginCatalog();
+// 2026-10-28：脱链任务靠 status 才收尾会留假 running——每 20 秒自己对一次账。
+const reapDetachedJobs = () => {
+  for (const [id, t] of detachedJobs) {
+    try {
+      const r = detachedRun.readDetached({ wsRoot: WS_ROOT, id });
+      if (r?.done === true) { t.done(`退出码 ${r.exitCode}`); detachedJobs.delete(id) }
+      else if (r?.alive === false) { t.fail("进程已不在（可能被杀）"); detachedJobs.delete(id) }
+    } catch { detachedJobs.delete(id) }
+  }
+};
+const detachedReaper = setInterval(reapDetachedJobs, 20000);
+if (typeof detachedReaper.unref === "function") detachedReaper.unref();// 2026-10-24：每轮耗时拆解（request / context / firstDelta / tool / end）
+const turnProfiler = createTurnProfiler({ wsRoot: WS_ROOT, log: (m) => console.log(m) });
+// 2026-10-24：当前轮的 profile 与响应，供 unified-chat 上报 usage 时使用
+let currentTurnProfile = null;
+let currentTurnRes = null;
+// 2026-10-24：内存采样（每 60s 一条，查 GC 长停顿用）
+// 2026-10-24：定时器探针，点名「卡住事件循环的后台任务」
+installTimerWatch({ thresholdMs: 300, log: (m) => console.log(m) });
+const memWatch = createMemWatch({ wsRoot: WS_ROOT, log: (m) => console.log(m) });
+// 2026-10-24：心情日记到点自己写（23:30 之后写当天；启动时补昨天，防漏跑）
+const writeMoodDiaryQuietly = async () => {
+  try {
+    const { maybeWriteDaily } = await import("./engine/mood-diary.mjs");
+    const { readWeather } = await import("./engine/weather.mjs");
+    let weather = null;
+    try { weather = await readWeather(WS_ROOT, {}); } catch {}
+    const done = maybeWriteDaily(WS_ROOT, { weather });
+    for (const d of done) console.log(`[mood] 心情日记已写：${d.file}（感受 ${d.feelings} 条）`);
+  } catch (e) { console.log("[mood] 心情日记写入失败:", String(e?.message || e).slice(0, 120)); }
+};
+setTimeout(() => { void writeMoodDiaryQuietly() }, 3 * 60_000).unref?.();
+setInterval(() => { void writeMoodDiaryQuietly() }, 30 * 60_000).unref?.();
+// 2026-11-16：每日对话摘要——补写过去 7 天缺的（今天不写）；摘要走辅助模型，失败落规则版
+const writeDayDigestsQuietly = async () => {
+  try {
+    const { maybeWriteDigests } = await import("./engine/day-digest.mjs");
+    const { callAux } = await import("./engine/model/auxiliary.mjs");
+    const summarize = async (source, { date }) => {
+      const r = await callAux({
+        kind: "day-digest",
+        messages: [
+          { role: "system", content: "下面是某一天的对话片段（按会话分组）。用 3–6 条中文要点概括这天做了什么、定了什么、还没完成什么，每条一行、以「- 」开头、不超过 40 字。只输出要点。" },
+          { role: "user", content: `日期：${date}\n${source}` },
+        ],
+        maxTokens: 400,
+        timeoutMs: 5000,
+        mainModel: defaultModel,
+        chat: unifiedChat,
+      });
+      return r && r.ok ? r.text : "";
+    };
+    const done = await maybeWriteDigests(WS_ROOT, { sessions: getSessionList() || [], summarize });
+    for (const d of done) console.log(`[digest] ${d.date} 每日摘要已写（${d.sessions} 个会话 ${d.messages} 条${d.fallback ? "，规则版" : ""}）`);
+  } catch (e) { console.log("[digest] 每日摘要写入失败:", String(e?.message || e).slice(0, 120)); }
+};
+setTimeout(() => { void writeDayDigestsQuietly() }, 4 * 60_000).unref?.();
+setInterval(() => { void writeDayDigestsQuietly() }, 30 * 60_000).unref?.();
+// 2026-10-24：记忆卫生——每天一次，经验库/记忆日志超限就把最老条目归档（先备份，移动不删除）
+const runMemoryHygieneQuietly = async () => {
+  try {
+    const { runHygieneDaily } = await import("./engine/memory/hygiene.mjs");
+    const r = runHygieneDaily(WS_ROOT);
+    if (r && !r.skipped) {
+      for (const a of r.applied || []) {
+        if (a.action === "archived") console.log(`[memory] 归档 ${a.file}：${a.archived} 条 → .archive.md（备份 ${a.backup}）`);
+      }
+    }
+  } catch (e) { console.log("[memory] 记忆卫生失败:", String(e?.message || e).slice(0, 120)); }
+};
+setTimeout(() => { void runMemoryHygieneQuietly() }, 5 * 60_000).unref?.();
+setInterval(() => { void runMemoryHygieneQuietly() }, 6 * 3600_000).unref?.();
+memWatch.start(() => ({ runs: runStore.list().length, sessions: activeSessions.size, streams: chatStreams.size(), jobs: jobPool.summary().running }));
+// 2026-10-24：GC 观测。长停顿到底是 GC 还是别的，用它把话说死：
+// 超过 50ms 的 GC 会打一行 [gc] <kind> <ms>，和 loop-lag 的时间轴对得上就能确认。
+try {
+  const gcObserver = new PerformanceObserver((list) => {
+    for (const e of list.getEntries()) {
+      if (e.duration >= 50) {
+        console.log(`[gc] ${e.detail?.kind ?? ""} ${Math.round(e.duration)}ms（heap ${Math.round(process.memoryUsage().heapUsed / 1048576)}MB）`);
+      }
+    }
+  });
+  gcObserver.observe({ entryTypes: ["gc"] });
+} catch {}
+const skillCatalogSent = new Set(); // 已注入过「元枢内置技能库」目录的会话（每会话一次，别每轮灌一遍）
+const pushedArtifacts = new Map();  // sessionId -> Set(已推送文件路径)，防止重复推"本轮产物"
+let lastUnnamedId = null;           // 最近创建/复用的未命名会话（打断时复用同一会话）
+let lastUnnamedEntry = null;
+
+// 带中文偏好系统提示的资源加载器
+// 输出质量守卫依赖注入（engine/output-guard.mjs 需要读会话文件做复读基准恢复）
+try { bindOutputGuardDeps({ readEntriesFromFile, extractText }); } catch {}
+
+// ── 模型管理（前端手动添加 API + 测试识别）────────────────────────
+const AGENT_DIR = getAgentDir();
+const AUTH_PATH = path.join(AGENT_DIR, "auth.json");
+const MODELS_PATH = path.join(AGENT_DIR, "models-store.json");
+// ── 运行存储 / 动作审计 / 内部轮次（2026-11-07 提前到这里）──
+// 后台子代理在下面 ~1170 就要拿到 internalRounds，所以三件东西必须在它之前就位；
+// 它们只依赖 AGENT_DIR/WS_ROOT，不依赖中间的任何模块，提前创建不改变启动语义。
+const RUNS_DIR = path.join(AGENT_DIR, "yuanshu-runs");
+const restartGuard = createRestartGuard(RUNS_DIR);
+const RUN_INSTANCE_ID = `${process.pid}-${Date.now().toString(36)}`;
+// 动作审计闸门（对应 OpenBot「没有记录就不许行动」）：每次工具调用先落一行，写不进去就拒绝执行。
+const auditGate = createAuditGate({ wsRoot: WS_ROOT });
+const runStore = createRunStore({ rootDir: RUNS_DIR });
+// 她自己发起的轮次（定时任务/后台子代理/值班唤醒）复用 run-store（kind:'internal'，默认不进用户列表）。
+const internalRounds = createInternalRounds({ runStore, auditGate, ownerId: RUN_INSTANCE_ID });
+// AIBody 是全系统运行协调层：它观察主任务、记忆、角色和子任务的真实事件，
+// 不替代既有基因/情绪/记忆实现，也不把文件存在性当作运行证据。
+const aibodyRuntime = createAIBodyRuntime({
+  rootDir: path.join(AGENT_DIR, "yuanshu-aibody"),
+  readState: createSoilReader({ agentDir: AGENT_DIR, cwd: CONFIG.cwd, emotion }),
+});
+const aibodyHost = createAIBodyHost(aibodyRuntime);
+// 启用 agent 通道扩展注册（2026-08-27 补 compat/thinkingLevelMap 后启用）：把 store 里
+// 「已配 key + SDK 不认识」的自定义通道（bigmodel/商汤/新雷等）注册进兼容适配器，
+// 使 agent 会话（专项工作台/终端/TUI）与聊天同通道同凭据可用。
+try {
+  const { registerStoreProviders } = await import("./engine/sdk-providers.mjs");
+  const reg = registerStoreProviders(modelRuntime, { storePath: MODELS_PATH, authPath: AUTH_PATH });
+  if (reg?.length) console.log(`[sdk-providers] agent 通道已注册: ${reg.join(", ")}`);
+} catch (e) { console.log(`[sdk-providers] 注册失败: ${String(e?.message || e).slice(0, 150)}`); }
+initThemePrefs(path.join(AGENT_DIR, "theme-prefs.json")); // 主题偏好跨端同步
+initColorPrefs(path.join(AGENT_DIR, "color-prefs.json")); // 全局创作配色卡：所有出图/出片入口共用一份
+initEnginePair(path.join(AGENT_DIR, "engine-pair.json")); // 主次引擎对，下一条消息生效
+initYuanshuWorkmem(path.join(AGENT_DIR, "yuanshu-work")); // 每会话 task_plan/findings/progress
+initMediaApi({ resolveAuth, readJsonFile, modelsPath: MODELS_PATH, authPath: AUTH_PATH, getModelList: () => modelList }); // 媒体生成层注入
+const replyTts = createReplyTts({ resolveAuth, readStore: () => readJsonFile(MODELS_PATH), getModelList: () => modelList });
+initAsrApi({ resolveAuth, readJsonFile, modelsPath: MODELS_PATH, httpJsonFetch }); // 语音转文字（mimo-v2.5-asr 免费通道）
+initDshKeys({ dshWebPort: 3080, readJsonFile, writeJsonFile, authPath: AUTH_PATH, modelsPath: MODELS_PATH, ModelRuntime, refreshModelList, setModelList: (l) => { modelList = l; }, getDefaultModel: () => defaultModel, setDefaultModel: (m) => { defaultModel = m; }, setModelRuntime: (r) => { modelRuntime = r; }, getModelRuntime: () => modelRuntime, keepModels: KEEP_MODELS, resetModelHealth }); // dsh/keys/模型管理注入
+initStatsApi({ getAgentDir, cwd: CONFIG.cwd, DefaultResourceLoader, openSession, compactSessionAgent, getDefaultModel: () => defaultModel, subagentHistoryProvider: (scope) => subagent.getSubagentHistory(scope) }); // 统计/技能/导出注入
+// 2026-10-24：预热技能清单缓存——模型侧 activate_skill 读的就是这份（engine/skill-cache.mjs）。
+// 不预热的话，服务刚起的头一两轮里它只能看到内置技能，线上技能要等有人打开技能页才出现。
+try { await listSkills(); } catch (e) { console.log(`[skills] 预热失败（不影响启动）：${String(e?.message || e).slice(0, 120)}`); }
+initSessionDb({ agentDir: getAgentDir(), cwd: CONFIG.cwd, deleteSession }); // 会话数据库（编号/健康度/标签/空会话清扫）
+initRecallApi({ agentDir: getAgentDir(), chat: unifiedChat, getDefaultModel: () => defaultModel }); // 跨会话回忆（09-04，Hermes FTS5 思想）
+initModelClient({ readJsonFile, writeJsonFile, authPath: AUTH_PATH, modelsPath: MODELS_PATH, noteFingerprint: (fp) => { try { const r = noteFingerprint({ wsRoot: WS_ROOT, ...fp }); if (r.changed) console.log(`[模型指纹] ${fp.provider}/${fp.requested} 变化：${r.from} → ${r.to}`); } catch {} }, resolveAuth, getModelList: () => modelList, getDefaultModel: () => defaultModel, unifiedChat, detectMediaIntents, generateMediaAsync, extractMediaPrompt, readEntriesFromFile, createSseWriter }); // 直调模型客户端注入
+initSelfHeal({ directChat, runGit: (...args) => runGit(...args), cwd: CONFIG.cwd, getModelList: () => modelList, getDefaultModel: () => defaultModel, piPackage: CONFIG.piPackage, SessionManager, sessionsDir: SESSIONS_DIR }); // 自愈/更新/设计器注入（REPAIR_BACKUP_FILES 已随块迁入模块）
+initImproveApi({ root: CONFIG.cwd, statsProvider: null, healProvider: null }); // 自我改进提案（2026-08-21）
+initEvolutionApi({ root: CONFIG.cwd, prompts: path.join(getAgentDir(), "prompts"), skills: path.join(__dirname, "skills"), chat: unifiedChat, getDefaultModel: () => defaultModel }); // 进化引擎（09-03，Hermes GEPA 思想：反思式进化+人工审批红线）
+// 启动和刷新共用分类与停用规则，防止重启后恢复已停用模型。
+{
+  const store = readJsonFile(MODELS_PATH);
+  const authed = new Set(Object.keys(readJsonFile(AUTH_PATH)));
+  let runtimeModels = [];
+  try { runtimeModels = modelRuntime.getModels?.() || []; } catch {}
+  modelList = buildModelCatalog({ store, authed, runtimeModels, keepModels: KEEP_MODELS });
+}
+// 默认模型：优先 CONFIG.model，其次商汤 flash-lite（2026-08-20 千问下架后主力，免费实测可用），
+// 再回退小米/火山等免费通道，最后第一个
+if (CONFIG.model) {
+  defaultModel = modelList.find(m => `${m.provider}/${m.id}` === CONFIG.model) || undefined;
+}
+if (!defaultModel) {
+  // 用户定（2026-09-04）：Agnes 旗舰 agnes-2.5-pro 作为默认模型（付费套餐要用起来），
+  // 降级链保留商汤/火山/智谱免费通道。
+  defaultModel = modelList.find(m => m.provider === "agnes" && /2\.5-pro$/i.test(m.id))
+    || modelList.find(m => m.provider === "agnes" && /3\.0-flash$|2\.5-flash$/i.test(m.id))
+    || modelList.find(m => m.provider === "sensenova" && /flash-lite/i.test(m.id))
+    || modelList.find(m => m.provider === "volces-ark" && /ark-code/i.test(m.id))
+    || modelList.find(m => m.provider === "zai-coding-cn" && /glm-5\.3-flash/i.test(m.id))
+    || modelList.find(m => m.provider === "deepseek" && /v4-flash/i.test(m.id))
+    || modelList[0];
+}
+console.log(`[元枢] 默认模型: ${defaultModel?.provider}/${defaultModel?.id}`);
+console.log(`[元枢] 可用模型: ${modelList.length} 个（含 ${Object.keys(readJsonFile(MODELS_PATH)).join(", ")}）`);
+
+// 模型路由层依赖注入（engine/model-router.mjs）：getter 动态读取，避免值拷贝 stale
+initModelRouter({ getModelList: () => modelList, getDefaultModel: () => defaultModel, configModel: CONFIG.model });
+// 辅助模型路由（2026-11-15）：非对话主链的一次性判断从这里出去。解析/超时/fail-open/记账
+// 都在 engine/model/auxiliary.mjs；本行只注入"模型清单 + 默认模型 + 统一通道"。WS_ROOT 在上方 686 行已注入。
+initAuxModel({
+  getModelList: () => modelList,
+  getDefaultModel: () => defaultModel,
+  chat: (model, messages, opts) => unifiedChat(model, messages, opts),
+  wsRoot: () => WS_ROOT,
+});
+// 2026-08-21 AI 检测员 + 模型通断探测（用户理念：复读引导修正/故障主动探测）
+initOutputInspector({
+  // 2026-11-15：质检员是典型辅助判断（规则先命中才跑、失败由规则兜底）→ 走 aux 路由：
+  // 免费 flash 优先 + 独立 2.5s 超时，失败 fail-open 回它原来的检测员模型一次，调用量在
+  // GET /api/model-routing 里可查。输出契约不变（仍是 { verdict, suggestion } 的 JSON）。
+  directChat: (m, msg) => callAux({
+    kind: "output-inspector",
+    messages: [{ role: "user", content: String(msg || "") }],
+    maxTokens: 200, timeoutMs: 2500, json: true, mainModel: m,
+  }),
+  getInspectorModel: () => modelList.find((x) => x.provider === "sensenova" && /flash-lite/i.test(x.id)) || null,
+});
+initModelProbe({
+  httpFetch: httpJsonFetch,
+  authReader: () => { try { return JSON.parse(fs.readFileSync(AUTH_PATH, "utf8")); } catch { return {}; } },
+  modelsReader: () => { try { return JSON.parse(fs.readFileSync(MODELS_PATH, "utf8")); } catch { return {}; } },
+  getModelList: () => modelList,
+});
+
+// ══ Cursor Router 简化版（2026-08-17，对标 Cursor Router Auto / Windsurf Adaptive）══
+// 理念：默认 Auto 路由——规则分类器按任务复杂度选模型：简单→flash（日常主力），复杂→pro（强推理，带上限）。
+// 策略保守：flash vs pro 实测（2026-08-13）——pro 慢 2.4-7×、贵 3×、过度思考烧 token、偶发篡改数据，
+// 所以 99% 的日常任务走 flash；只有明确复杂任务（长任务/多步骤/深度分析/代码库级）才升级 pro。
+// 用户手动选择具体模型 → 不干预（与 Cursor "手动覆盖 Auto" 同构）。环境变量 PI_AUTO_ROUTE=0 可关闭。
+// ⚠️ 实现已拆到 engine/model-router.mjs（2026-08-19）：
+//   pro/flash 同源问题修正——千问只作 flash 主力，pro = ocGo deepseek-v4-pro → mimo-pro → ark；
+//   ocGo 429 期间 pro 无可用 → 回落 flash 并播报真实原因（不假装升级）。
+
+// ── 会话近期历史提取（2026-08-24 修复"失忆回复"）──
+// 现象：复读守卫/降级重试走 directChat 时传空历史 → 替补模型只看到最后一句裸消息，
+// 回出"您的消息不完整/我没有工具"这类失忆话术。修复：统一从会话树取最近 N 轮真实历史。
+import { withModelProvenance } from './engine/model/provenance-writer.mjs';
+
+function recentHistory(entry, limit = 10, maxChars = 1600) {
+  try {
+    const roots = entry?.sm?.getTree?.() || [];
+    const msgs = [];
+    for (const n of roots) {
+      const m = n?.entry?.message;
+      if (!m || !["user", "assistant"].includes(m.role)) continue;
+      const t = extractText(m).trim();
+      if (!t) continue;
+      msgs.push({ role: m.role, content: t.length > maxChars ? t.slice(0, maxChars) + "…[截断]" : t });
+    }
+    return msgs.slice(-limit);
+  } catch { return []; }
+}
+
+// ══ 复读检测与降级重试（2026-08-19 加固）══
+// 判定逻辑已迁移到 engine/output-guard.mjs（输出质量守卫，纯判定模块）：
+//   复读/空回复/纯思考 统一 classifyAnomaly；这里只保留"重试执行"（换 fallback 模型直调 + 播报）。
+async function retryRepeatWithFallback(message, sessionKey, writer, busEmit, currentModel, inspectorSuggestion = "", history = [], entry = null) {
+  // 2026-08-21 用户理念：复读是行为跑偏 → 植入修正话语引导方向（同模型重生成），不终止不换模型；
+  // 只有真正的模型链接/资源问题（429/400/403）才主动告知用户原因并切换可用模型。
+  const note = "⚠️ 检测到回复与上一条完全相同，正在引导模型修正表达…";
+  try { writer.push("note", { text: note }); if (busEmit) busEmit("note", { text: note }); } catch {}
+  // 修正提示：同模型重生成，明确要求换表达/推进（不终止会话、不换模型）
+  const hint = inspectorSuggestion
+    ? `AI 质检员发现你的上一条回复异常（${inspectorSuggestion}）。请重新回答这条用户消息，按此指引修正。`
+    : "你刚才的回复与上一条完全相同（复读）。请重新回答这条消息：换一种表达、补充更多内容、或继续推进对话，绝不能重复上一条回复。";
+  const corrected = await directChat(currentModel, message, history, { systemHint: hint });
+  if (corrected?.text) {
+    const actual = corrected.usedModel || currentModel;
+    const switchedModel = { provider: actual.provider, id: actual.id, sameModel: actual.provider === currentModel?.provider && actual.id === currentModel?.id, reason: "复读判定成立，同模型重写了一遍" };
+    const add = `
+
+（复读修正后的新回复）
+${corrected.text}`;
+    try { writer.push("delta", { text: add }); if (busEmit) busEmit("delta", { text: add }); } catch {}
+    // 让用户看得见"这段是重写来的"（2026-09-16）：以前只在正文里塞一行小字，气泡上的模型角标还是原模型
+    try { writer.push("model_switched", switchedModel); } catch {}
+    recordReply(sessionKey, corrected.text);
+    // #229 修复：修正文本此前不落盘，会话历史里仍是旧异常回复，下轮模型看着旧回复继续复读
+    // 2026-09-16 补：落盘时**带上"这是重写来的"标记**——只推前端不落盘的话，刷新/换设备就变回"静默"了。
+    try { entry?.sm?.appendMessage({ role: "assistant", provider: actual.provider, model: actual.id, requestedModel: entry?.modelKey || currentModel, switchedModel, engine: 'pi', content: [{ type: "text", text: `（复读修正后的新回复）\n${corrected.text}` }] }); } catch {}
+    console.log(`[元枢] 复读引导修正成功（同模型 ${currentModel?.provider}/${currentModel?.id}）`);
+    return corrected.text;
+  }
+  // 同模型修正失败 → 才切可用模型（真正的异常才换）
+  const fbModel = pickFallbackExcluding(currentModel);
+  if (fbModel) {
+    const note2 = `⚠️ 同模型修正仍失败，已切换 ${fbModel.provider}/${fbModel.id} 重新生成…`;
+    try { writer.push("note", { text: note2 }); if (busEmit) busEmit("note", { text: note2 }); } catch {}
+    const fb = await directChat(fbModel, message, history);
+    if (fb?.text) {
+      const actual = fb.usedModel || fbModel;
+      const switchedModel = { provider: actual.provider, id: actual.id, sameModel: false, reason: "复读判断成立且同模型修正失败，已换模型重生成" };
+      // #229 修复：换模型分支此前只 recordReply 不推前端，用户看到的仍是旧异常回复；同样落盘修正文本
+      const add = `\n\n（已切换 ${fbModel.provider}/${fbModel.id} 重新生成的回复）\n${fb.text}`;
+      try { writer.push("delta", { text: add }); if (busEmit) busEmit("delta", { text: add }); } catch {}
+      // 静默换模型是用户最直接的"乱做"体感（他原话："静默换成 agnes 3.0"）——现在显式推一条事件，
+      // 界面会在气泡上标出「兜底 <模型>（你选的是 X）」
+      try { writer.push("model_switched", switchedModel); } catch {}
+      recordReply(sessionKey, fb.text);
+      // 同上：落盘也要带标记，刷新后仍然看得到"这段是兜底模型写的"（用户原话："静默换成 agnes 3.0"）
+      try { entry?.sm?.appendMessage({ role: "assistant", provider: actual.provider, model: actual.id, requestedModel: entry?.modelKey || currentModel, switchedModel, engine: 'pi', content: [{ type: "text", text: `（已切换 ${actual.provider}/${actual.id} 重新生成的回复）\n${fb.text}` }] }); } catch {}
+      return fb.text;
+    }
+  }
+  try { writer.push("note", { text: "⚠️ 复读修正失败且备用模型无回复（请重试或手动切换模型）" }); } catch {}
+  return null;
+}
+
+// ══ 会话级模型选择持久化（2026-08-19 修复 A）════
+// 现象：模型切换只存内存 entry.modelKey，会话 LRU 淘汰/服务重启后丢失 → 悄悄回 Auto → 429 场景下持续报错。
+// Plan 模式只读工具集（工具级硬限制）：读文件 + 搜索，不给写/执行工具
+const PLAN_READONLY_SET = ["read", "search_files"];
+
+function readJsonFile(p) { try { return JSON.parse(fs.readFileSync(p, "utf8")); } catch { return {}; } }
+function writeJsonFile(p, obj) { try { fs.mkdirSync(path.dirname(p), { recursive: true }); fs.writeFileSync(p, JSON.stringify(obj, null, 2), "utf8"); return true; } catch { return false; } }
+const CRLF = "\r\n";
+
+// ── 模块化拆分接线（2026-08-29 #7 红线治理）：workspace杂项API / model-keys / session-bus / model-session ──
+const modelKeysApi = createModelKeys({ readJsonFile, getAgentDir, getModelList: () => modelList });
+const { saveSessionModelKey, loadSessionModelKey, saveLastModel } = modelKeysApi;
+// 在线更新回滚（2026-10-12）：recordPreUpdate 在 apply 前记锚点；回滚=reset+依赖重装+安全重启
+const handleUpdateRollback = createRollbackHandler({ root: __dirname });
+
+const miscApi = createMiscApi({ json, readJsonFile, writeJsonFile, getAgentDir, authPath: AUTH_PATH, modelsPath: MODELS_PATH, openSession, ensureAgent, cloneSessionFromEntry, getDefaultModel: () => defaultModel, refreshModelList, scanSessionFiles, extractText, parseSessionFile, cwd: CONFIG.cwd, gitCwd: __dirname, scanExclude: /(^|[\\/])(node_modules|\.git|\.cache|backups?|temp|tmp|\.token)([\\/]|$)/i });
+const { scanRecentArtifacts, handlePrompts, handleSessionTree, handleSessionBranch, handleSessionBranchSession, handleModelsRemove, handleSearch, handleAIBody, runGit, handleGitStatus, handleGitDiff, handleGitReview } = miscApi;
+const sessionBusApi = createSessionBus({ json });
+const { busGet, busPush, busReset, handleSessionStream } = sessionBusApi;
+// 主动通知中枢：wechat 在后面才创建，这里用闭包延迟取。
+let agentBeat = null;
+const notifier = createNotifier({ file: path.join(AGENT_DIR, "notifications.json"), wsRoot: WS_ROOT, wechat: { notifyOwner: (...a) => wechat.notifyOwner(...a) } });
+const { handleModels, handleSwitchModel } = createModelSessionApi({ json, readJsonFile, resolveAuth, modelCapabilities, modelsPath: MODELS_PATH, getModelList: () => modelList, getDefaultModel: () => defaultModel, getModelRuntime: () => modelRuntime, getConfig: () => CONFIG, activeSessions, createSessionAgent, saveLastModel, saveSessionModelKey });
+
+// ── 隔离子任务执行器初始化（P2）──
+// 复用系统代理栈 + 模型配置；flash 候选走千问（成本优先，子任务不值得 pro）
+try {
+  subagent.initSubagent({
+    httpFetch: httpJsonFetch,
+    authReader: () => readJsonFile(AUTH_PATH),
+    modelReader: () => readJsonFile(MODELS_PATH),
+    resolveAuth,
+    getDefaultModel: () => defaultModel,
+    getFlashModel: () => modelList.find(m => m.provider === "sensenova" && /flash-lite/i.test(m.id))
+      || modelList.find(m => m.provider === "xiaomi-token-plan-cn" && /mimo-v2\.5$/i.test(m.id))
+      || defaultModel,
+    traceDir: path.join(AGENT_DIR, "yuanshu-subagents"),
+    // 只读研究员（delegate_task / delegate_fork）：可读工作区 + 系统本体目录，可联网搜索
+    researchRoots: () => [WS_ROOT, __dirname],
+    webSearch: (q) => webSearchTool(q),
+  });
+} catch (e) { console.log("[元枢] subagent 初始化失败: " + String(e?.message || e).slice(0, 80)); }
+
+// ── 后台子代理（2026-11-07）──
+// 四条链路各归各家，别在这里重新发明：
+//   · 执行：jobPool.submit（排队/限并发/可取消/落盘近况都已有）；
+//   · 回传：agent-mailbox（父会话下一轮能看到【系统】子代理 … 已完成）；
+//   · 推送：notifier，但先过主动预算（免打扰时段 + 每天 3 条，超了就不硬推）；
+//   · 查证：登记表 + traces 合并成一张表。
+const subagentBg = (() => {
+  try {
+    return createSubagentBackground({
+      wsRoot: WS_ROOT,
+      pool: jobPool,
+      spawn: (params) => subagent.spawnSubagent(params),
+      // 2026-11-07：每条后台子代理轮次建内部 run（id/title 进审计，看门狗可指认）。
+      rounds: internalRounds,
+      // 2026-11-17：宿主重启打断的后台子代理，开机后自动续上（有上限，见 AUTO_RESUME_DEFAULTS）
+      // 2026-11-18：一次重启最多续 2 个、相隔 20 秒；重启熔断时不续（见 engine/restart-guard.mjs）
+      autoResume: { enabled: true, delayMs: 20_000, limit: RESTART_BATCH, staggerMs: RESTART_STAGGER_MS,
+        allow: () => restartGuard.allowAutoResume(), onResume: () => restartGuard.markAutoResumed() },
+      traceHistory: ({ limit }) => subagent.getSubagentHistory({ limit }),
+      push: async (receipt, record) => {
+        // 只推应用内/系统通知，不发微信：子代理回执多数是"干活中间态"，别拿它刷微信
+        await notifier.notify({
+          kind: "subagent", title: receipt.title, body: receipt.body,
+          sessionId: record?.parentSessionId || "", key: `subagent:${receipt.id}`, toWechat: false,
+        });
+      },
+      budgetGate: async () => {
+        // 主动预算：与冷会话唤醒共用同一个账本（记忆/运行时/主动预算.json）
+        if (isQuietHours(Date.now())) return { allowed: false, reason: "quiet_hours" };
+        const day = new Date().toISOString().slice(0, 10);
+        const budget = readBudget(WS_ROOT, day, { cap: 3 });
+        if (budget.remaining <= 0) return { allowed: false, reason: "budget" };
+        const spent = spendBudget(WS_ROOT, day, { cap: budget.cap, kind: "subagent_receipt" });
+        return spent.ok ? { allowed: true, used: spent.used, cap: spent.cap } : { allowed: false, reason: spent.reason || "budget" };
+      },
+    });
+  } catch (e) {
+    console.log("[元枢] 后台子代理初始化失败: " + String(e?.message || e).slice(0, 100));
+    return null;
+  }
+})();
+// P3 资产路由：技能库摘要索引注入（任务→技能自动匹配）
+try { emotion.bindSkillIndex(() => loadSkillIndex()); } catch {}
+
+// 模型能力档案：根据 id 推断（chat 默认 + image/video/tts/asr 标记）
+// 找到已配置的媒体能力模型（查档案，不靠正则猜）
+
+// POST /api/models/remove {provider}
+// 内置 provider（走兼容 agent）；其余自定义 provider 走直调通道
+// GET /api/prompts —— 提示词模板列表（本机 Agent prompts 目录）
+// ── 鉴权 ───────────────────────────────────────────────────────────
+// 本机直连判定：扫码登录页只在本机可开（它会把登录态写进本机 cookie 文件）
+function isLoopbackReq(req) {
+  const ip = String(req.socket?.remoteAddress || "").replace(/^::ffff:/, "");
+  return ip === "127.0.0.1" || ip === "::1" || ip === "";
+}
+// 2026-10-22 扫码登录：设备令牌与主令牌同等有效（可单独撤销）。
+// 缓存 5 秒，避免每个请求都读一次设备文件。
+const _deviceTokenCache = new Map(); // token -> { device, at }
+function verifyDeviceTokenCached(token) {
+  if (!token || token.length < 16) return null;
+  const now = Date.now();
+  const hit = _deviceTokenCache.get(token);
+  if (hit && now - hit.at < 5000) return hit.device;
+  let device = null;
+  try { device = verifyDeviceToken(WS_ROOT, token); } catch {}
+  _deviceTokenCache.set(token, { device, at: now });
+  if (_deviceTokenCache.size > 200) _deviceTokenCache.clear();
+  return device;
+}
+
+// ── AUTH-003（2026-11-13）：URL 凭据收敛为"短时票据" ──────────────────
+// <img>/<audio>/<video>/SSE 带不了 Authorization 头，以前只能把 ?token=<长期令牌> 拼进 URL，
+// 于是长期令牌会进浏览器历史、代理访问日志和 Referer。现在：
+//   1) POST /api/ticket（必须 Bearer）换一张 60 秒票据，URL 里只出现 ?ticket=；
+//   2) ?ticket= 只在"媒体/流"白名单路径上生效，且必须验签 + 未过期 + scope 匹配；
+//   3) ?token= 保留为 deprecated 兼容分支（老客户端），每命中一次打一行 warn（同进程 60 秒一行），
+//      计划在 2.216 删除——删掉后 AUTH-003 才会在安全审计里转绿。
+// 票据密钥由 CONFIG.token 派生（HMAC-SHA256，不落盘）；换令牌时下面的 POST /api/system/token 会重新派生。
+try { configureTicketKey(CONFIG.token); } catch (e) { console.log("[元枢] 票据密钥初始化失败: " + String(e?.message || e).slice(0, 120)); }
+
+function checkAuth(req) {
+  const h = req.headers.authorization || "";
+  if (h === `Bearer ${CONFIG.token}`) return true;
+  if (h.startsWith("Bearer ")) {
+    const device = verifyDeviceTokenCached(h.slice(7).trim());
+    if (device) return true;
+  }
+  const url = new URL(req.url, `http://${req.headers.host || "localhost"}`);
+  // 短时票据分支：只有白名单路径（/api/ws/file、/api/media/*、/api/*/stream）才看 ticket 参数。
+  // 其余路径带了 ticket 也当没带——票据能进日志/历史，使用面必须小。
+  const ticketScope = ticketScopeForPath(url.pathname);
+  const ticket = ticketScope ? url.searchParams.get("ticket") : "";
+  if (ticket) {
+    // 带了票据但无效：直接拒，不回落 ?token=（否则无效票据等于白带，客户端 bug 被掩盖）
+    return verifyTicket(ticket, { scope: ticketScope }).ok;
+  }
+  // deprecated（AUTH-003 过渡期）：老客户端/第三方脚本仍把长期令牌放 URL，兼容期照旧放行，只记 warn。
+  const legacyToken = url.searchParams.get("token");
+  if (legacyToken && legacyToken === CONFIG.token) {
+    const at = Date.now();
+    if (!(at - Number(checkAuth.legacyWarnAt || 0) < 60_000)) {
+      checkAuth.legacyWarnAt = at;
+      console.warn(`[元枢] AUTH-003 deprecated: URL 查询串里出现长期令牌（${url.pathname}）。请升级客户端改用 POST /api/ticket 的短时票据；该兼容分支计划在 2.216 删除。`);
+    }
+    return true;
+  }
+  return false;
+}
+
+// POST /api/ticket {scope} → {ticket, exp, scope}
+// 只认 Authorization: Bearer（URL 里的 ?token= 不能换票，否则票据就成了绕过 AUTH-003 的后门）。
+async function handleTicketRoute(res, req) {
+  const auth = String(req.headers.authorization || "");
+  if (!auth.startsWith("Bearer ")) {
+    return json(res, 401, { error: "换取票据必须使用 Authorization: Bearer", code: "TICKET_NEEDS_BEARER" });
+  }
+  let body;
+  try {
+    body = await readBody(req, 2);
+  } catch (e) {
+    return json(res, Number(e?.statusCode) || 400, { error: String(e?.message || e).slice(0, 160), code: "TICKET_BAD_BODY" });
+  }
+  const scope = String(body?.scope || "").trim();
+  if (!isTicketScopeAllowed(scope)) {
+    return json(res, 400, { error: `scope 不受支持，允许前缀：${ALLOWED_TICKET_SCOPE_PREFIXES.join("、")}`, code: "TICKET_SCOPE_UNSUPPORTED" });
+  }
+  try {
+    const { ticket, exp } = issueTicket({ scope });
+    return json(res, 200, { ticket, exp, scope });
+  } catch (e) {
+    return json(res, 400, { error: String(e?.message || e).slice(0, 160), code: "TICKET_ISSUE_FAILED" });
+  }
+}
+
+
+// ── 路由 ───────────────────────────────────────────────────────────
+const MIME = {
+  ".html": "text/html; charset=utf-8",
+  ".js": "text/javascript; charset=utf-8",
+  ".css": "text/css; charset=utf-8",
+  ".svg": "image/svg+xml",
+  ".png": "image/png",
+  ".webp": "image/webp",
+  ".ico": "image/x-icon",
+  ".wasm": "application/wasm",
+  ".json": "application/json",
+};
+
+const staticServer = createStaticServer({ publicDir: PUBLIC_DIR, mime: MIME });
+// ══ UI 入口：React 版为默认，vanilla 通过 ?vanilla=1 保留为兼容入口 ══
+// React 构建源为 frontend/dist；dist 缺失时自动回落 public，保证新 clone 尚未构建时仍可启动。
+const REACT_DIST = path.join(__dirname, "frontend", "dist");
+const reactStatic = (() => {
+  try { return fs.existsSync(path.join(REACT_DIST, "index.html")) ? createStaticServer({ publicDir: REACT_DIST, mime: MIME }) : null; }
+  catch { return null; }
+})();
+// 旧 sw.js 注销器：React 版不用 service worker；老用户浏览器里残留的 sw 会用旧缓存劫持新界面，
+// 用一个自毁 sw 覆盖注册位：清空全部 Cache + 注销自己。
+const SW_UNREGISTER = "self.addEventListener('install',()=>self.skipWaiting());self.addEventListener('activate',e=>{e.waitUntil(caches.keys().then(ks=>Promise.all(ks.map(k=>caches.delete(k)))).then(()=>self.registration.unregister()))});";
+
+async function handleStatic(req, res) {
+  return staticServer.handle(req, res);
+}
+
+// POST /api/chat —— SSE 流式
+// ══ 工作空间：产物落盘 + 文件服务 ══
+// ══ 统一模型接入层：所有模型一视同仁（对话 + 工具循环 + 思考提取）══
+// 基础工具 schema（bash/read/write/edit/web_search）已抽到 engine/tools/unified-tools.mjs；
+// 此处组合 server 特有的工具（技能激活 + 外部思考）
+// ══ 当场修（fix_problem，2026-09-17）══
+// 用户的原话："任务中的自我反思，是抓了一堆问题，但是没有主动执行能力了"。
+// 复盘那条链是"事后"的（定时任务到点才跑）；这个工具把同一套规则搬到**任务过程中**：
+// agent 干活时发现当场能修的问题，调一次，就派一个执行轮真去修，拿到证据回到它手里。
+// 边界与复盘那条完全一致：红线不碰、每会话 10 分钟最多 3 次、必须交证据、做不了就说做不了。
+// 声明必须在 UNIFIED_TOOLS **之前**：那个数组是模块求值时立刻构造的，写反了就是
+// `Cannot access 'FIX_PROBLEM_TOOL' before initialization`（进程根本起不来，我已经踩过一次，
+// 现在由 tests/unit/module-scope-order.test.mjs 盯着）。
+const FIX_PROBLEM_TOOL = {
+  type: "function",
+  function: {
+    name: "fix_problem",
+    // 2026-11-08 真事故：伙伴让"核实截图里微信搜索是否搜到某人"，模型把它包成 fix_problem。
+    // 这个工具不是"看一眼图"，而是派一个完整执行轮（带工具、进工作目录）。
+    // 描述里必须写清适用边界，观察类任务给出替代做法，否则它还会被当成"看图的接口"。
+    description: "只用来修一个**已经定位到、能当场改代码/配置/文档修掉**的问题：派一个完整执行轮去改、跑验证、拿证据回来。**观察类任务不要用**——「看一眼/核实/确认截图或图片里是什么、有没有、是不是」不是修，是看：直接看那张图（或读文件）后在同一轮里回答，不要派执行轮；误用会被前置拒绝，白耗一次调用。需要人拍板的事（权限/密钥/部署/推送/删数据/花钱）也不要碰，写进结论交给用户。同一会话 10 分钟内最多 3 次。",
+    parameters: {
+      type: "object",
+      properties: { problem: { type: "string", description: "要当场修什么，一句话，具体到可核查（≤60 字）。必须是能动手改的问题；观察/核实类（截图里有没有、图里是什么）不要用这个工具。" } },
+      required: ["problem"],
+    },
+  },
+};
+// 2026-10-25：脱链长任务工具。起因是那次 45 秒影片渲染——外部进程挂在服务的 Job Object 里，
+// 我重启服务就把它连带杀了；而小语为了等它，在单轮里 sleep 90/120 把执行预算等光。
+// 两条都在这一个工具里解决：start 立刻返回，进程由 WMI 创建（逃出 Job），下一轮 status 查。
+const RUN_DETACHED_TOOL = {
+  type: "function",
+  function: {
+    name: "run_detached",
+    description: "启动/查看/停止**脱链**的后台长任务（渲染、编码、下载、批处理）。脱链 = 进程不在本服务的 Windows Job 里，服务重启不会连带杀掉它。start 立刻返回 id 与日志路径；之后每一轮用 status 查一次（读日志尾巴 + 探活）就够，**不要用 sleep 等**——sleep 会吃光单轮执行预算。",
+    parameters: {
+      type: "object",
+      properties: {
+        action: { type: "string", enum: ["start", "status", "stop", "list"], description: "start 启动 / status 查一次 / stop 结束 / list 最近作业" },
+        command: { type: "string", description: "要跑的命令（bash 语法；start 必填）。长命令自己保证退出后不再阻塞" },
+        cwd: { type: "string", description: "工作目录，默认当前工作区" },
+        id: { type: "string", description: "作业 id（status / stop 必填，start 的返回里会给）" },
+        label: { type: "string", description: "作业名，一句话，便于以后辨认" },
+      },
+      required: ["action"],
+    },
+  },
+};
+
+// 2026-10-25：后台作业状态机。用户原话："我先忙，她做完汇报，结果没有汇报"——
+// 缺的不是提醒，是"有没有做完、坏在哪一步、报没报过"这个状态。
+const JOB_STATUS_TOOL = {
+  type: "function",
+  function: {
+    name: "job_status",
+    description: "查后台作业的状态机：脱链长任务 / 会话 run / 定时任务各自到哪一步、有没有坏、有没有汇报过。actions：list 列出（默认）、ack 标记已汇报。**长任务做完或跑挂后，先调它，再向用户汇报**。",
+    parameters: {
+      type: "object",
+      properties: {
+        action: { type: "string", enum: ["list", "ack"], description: "list 查状态 / ack 标记已汇报" },
+        ids: { type: "array", items: { type: "string" }, description: "ack 用：要标记为已汇报的作业 id" },
+        note: { type: "string", description: "ack 用：一句话汇报内容（备查）" },
+        kind: { type: "string", enum: ["all", "detached", "run", "task"], description: "只看某一类，默认 all" },
+      },
+      required: ["action"],
+    },
+  },
+};
+// 2026-10-25：交付前预筛。先测量、再判断——别再说「渲染成功」却不知道响度和同步对不对。
+const OUTPUT_CHECK_TOOL = {
+  type: 'function',
+  function: {
+    name: 'output_check',
+    description: '交付前检查产出物（视频/音频/图片/文档）：是否真的存在、时长/分辨率/帧率、整体响度 LUFS、真峰值 dBTP、音画时长差。返回硬门槛是否通过 + 一行可直接写进交付说明的证据。**渲染/导出完成后先跑它，再向用户说「完成了」**。',
+    parameters: {
+      type: 'object',
+      properties: {
+        path: { type: 'string', description: '文件路径（工作区内相对或绝对）' },
+        kind: { type: 'string', enum: ['auto', 'video', 'audio', 'image', 'doc'], description: 'auto 按扩展名判断' },
+      },
+      required: ['path'],
+    },
+  },
+};
+const UNIFIED_TOOLS = [
+  ...BASE_TOOL_SCHEMAS,
+  COMPUTER_TOOL_SCHEMA,
+  CULTIVATION_TOOL_SCHEMA,
+  TIME_TASK_SCHEMA,
+  SHARE_PROJECT_SCHEMA,
+  ...MEDIA_TOOL_SCHEMAS,
+  ...TODO_TOOL_SCHEMAS,
+  PLAN_FILES_SCHEMA,
+  ...PROMISE_TOOL_SCHEMAS,
+  MUSIC_TOOL_SCHEMA,
+  CANVAS_TOOL_SCHEMA,
+  COMMISSION_TOOL_SCHEMA,
+  RESEARCH_TOOL_SCHEMA,
+  DESIGN_PREFS_TOOL_SCHEMA,
+  ACTIVATE_SKILL_TOOL,
+  DELEGATE_TASK_TOOL,
+  DELEGATE_FORK_TOOL,
+  DELEGATE_TEAM_TOOL,
+  // 2026-11-15：团队共享看板。一个工具（6 个动作）而不是六个工具，避免工具表膨胀。
+  TEAM_BOARD_TOOL,
+  FIX_PROBLEM_TOOL,
+  NOTIFY_USER_TOOL,
+  // 2026-11-07：值班程序的四个工具（watch_create/watch_list/watch_pause/watch_delete）
+  ...WATCH_TOOLS,
+  // 2026-11-07：查最近一次看门狗跑偏事件（回答「刚才哪件事跑偏了」）
+  WATCHDOG_READ_TOOL,
+  RUN_DETACHED_TOOL,
+  JOB_STATUS_TOOL,
+  OUTPUT_CHECK_TOOL,
+  // 2026-11-09：断言闸门。交付门之后还有一道「话对不对」的闸：
+  // 数量/存在性/路径/大小/测试结果必须先落成断言，有一条 FAIL 就不许说完成。
+  VERIFY_CHECK_TOOL,
+  // 2026-11-14：交付探测。出图/出片后先调它一次，替代"翻日志 + 读源码 + 反复 verify_check"。
+  DELIVERY_PROBE_TOOL,
+  // 2026-11-09：反模式对照。注入的 2 条之外，她主动查全台账用这个。
+  ANTI_PATTERN_CHECK_TOOL,
+];
+// ══ 外部思考工具（externalThinking 调试开关，默认关）══
+// 思路：关闭模型原生隐藏思考后，给它一张外部"草稿纸"（think 工具），
+// 模型会把分析过程写进工具参数返回给开发者——用于调试"模型为什么这么干"。
+// 安全：think 内容只在内存/SSE 流中传向前端展示，不落盘、不进会话文件。
+const THINK_TOOL = { type: "function", function: { name: "think", description: "（调试用）动手之前，先把你的分析、推理、计划写在 content 里。这段内容仅供开发者调试查看，不会展示给用户。", parameters: { type: "object", properties: { content: { type: "string", description: "你的思考草稿（推理过程/计划/待办检查）" } }, required: ["content"] } } };
+const THINK_PROMPT = "你可以调用 think 工具，在动手之前写下你的分析过程（理解、步骤、计划、可能的坑）。写完后再执行任务。think 的内容仅供调试，不展示给用户，可以放心写。";
+const isExternalThinking = () => !!(CONFIG.externalThinking || globalThis.__yuanshuExternalThinking || globalThis.__piWebExternalThinking);
+
+// 2026-10-27：派活工具的统一「认领 → 干活 → 释放」。
+// 板子不靠人填：谁在派活，就自动占一个坑；干完/失败都释放（失败记 abandoned，可追溯）。
+async function withClaim({ task, agent = "小语", scope = [] }, fn) {
+  const name = String(task || "未命名任务").slice(0, 100);
+  const c = claimTask({ wsRoot: WS_ROOT, task: name, agent, scope });
+  if (!c.ok) {
+    return {
+      text: `这件事现在不能接：${c.error}。换一件不重叠的，或等对方释放（接口台"谁在做什么"能看到）。`,
+      isError: true,
+    };
+  }
+  let r;
+  try {
+    r = await fn();
+  } catch (e) {
+    try { releaseClaim({ wsRoot: WS_ROOT, id: c.claim.id, done: false, note: String(e?.message || "").slice(0, 120) }); } catch {}
+    throw e;
+  }
+  try { releaseClaim({ wsRoot: WS_ROOT, id: c.claim.id, done: !r?.isError }); } catch {}
+  return r;
+}
+// 统一工具执行器：实现已抽到 engine/tools/unified-tools.mjs（大脑可移植第一步）。
+// server 侧注入：工作目录 / 工作空间路径安全 / 技能激活 / 时间引擎。
+// 2026-10-30：提取成变量，便于工具包在运行时挂载/摘除执行器。
+const toolExecutorDeps = {
+  cwd: () => CONFIG.cwd,
+  agentDir: AGENT_DIR,
+  systemDir: __dirname, // 双根白名单：系统本体目录（自进化可写）
+  safePath: wsSafePath,
+  activateSkill: (name) => {
+      // 在线记一条技能选择 episode：做梦/授权状全靠这个喂数据，不然机制建好了也永远没证据。
+      // 输入 = 该会话最后一条用户消息；真值 = 这次真的激活了哪个技能。
+      try {
+        const sid = globalThis.__yuanshuLastSessionKey || "";
+        const msg = lastUserBySession.get(sid) || "";
+        if (msg) recordSkillChoice(WS_ROOT, { input: msg, skill: name, sessionId: sid });
+      } catch {}
+      return execActivateSkill(name);
+    },
+  timeEngine: () => timeEngine,
+  sensitiveHint: () => formatSensitiveHint(listHostChannels({ getModelList: () => modelList })),
+  // 外部自定义工具执行器：dsh_task（pi 格式 execute → unified 结果格式）+ 宿主媒体密文通道
+};
+
+// 2026-10-30：工具包执行器（运行时挂载/摘除）
+// 2026-10-30：执行器表在顶层求值，不能直接引用后面才初始化的运行时（TDZ）。
+// 用晚绑定容器：这里先建壳，初始化完成后把实例挂进来。
+const lateRefs = {};
+const extraToolExecutors = {
+    computer_use: (args, ctx) => computerTool(computerUse, args, ctx),
+    cultivation: (args, ctx) => {
+      // 不能展开 ctx：培养身份是**非枚举属性**，展开复制会把它丢掉，工具就变成"没有母体身份"。
+      // 用 defineProperty 挂一个隐藏的 requestApproval；ctx 被冻结时退化成原型继承（属性读取仍可见）。
+      // 2026-10-31：排查"工具说没身份"——只记一次，带 ctx 的键与身份来源
+      if (!ctx?.executionIdentity && !globalThis.__cultivationNoIdentityLogged) {
+        globalThis.__cultivationNoIdentityLogged = true;
+        if (process.env.YUANSHU_IDENTITY_DIAG === "1") { console.log(`[cultivation] 工具 ctx 无 executionIdentity，键=${Object.keys(ctx || {}).slice(0, 12).join(",")}`) }
+      }
+      const ask = ({ command, reason }) => requestCultivationApproval(ctx, { command, reason });
+      let host = ctx;
+      try {
+        Object.defineProperty(host, 'requestApproval', { value: ask, configurable: true, enumerable: false });
+      } catch {
+        host = Object.create(ctx);
+        Object.defineProperty(host, 'requestApproval', { value: ask, enumerable: false });
+      }
+      // 2026-10-31：pi 通道传给工具的 ctx 只有 signal/model/turn，
+      // 母体执行身份挂在 team-tool-context（非枚举）上，这里兜底取一次。
+      if (ctx && !ctx.executionIdentity) {
+        try {
+          const teamCtx = getTeamToolContext();
+          if (teamCtx?.executionIdentity) {
+            Object.defineProperty(ctx, "executionIdentity", { value: teamCtx.executionIdentity, enumerable: false, configurable: true });
+          }
+        } catch {}
+      }
+      if (!lateRefs.cultivation) {
+        return { text: JSON.stringify({ error: "cultivation_not_ready", retryable: true,
+          nextAction: "培养运行时还没就绪（服务刚启动或初始化失败），过一会儿再用同一个 requestId 重试。" }), isError: true };
+      }
+      if (!globalThis.__callDiag) {
+        globalThis.__callDiag = true;
+        try {
+          const t = getTeamToolContext();
+          if (process.env.YUANSHU_IDENTITY_DIAG === "1") console.log(`[cultivation] 调用时 hostIdentity=${host?.executionIdentity ? "有" : "无"} teamIdentity=${t?.executionIdentity ? "有" : "无"} hostKeys=${Object.keys(host || {}).join(",")}`);
+        } catch {}
+      }
+      return cultivationTool(lateRefs.cultivation, args, host);
+    },
+    read_url: async (args) => {
+      // 2026-11-05：她读网页（公众号正文在 HTML 里，普通抓取就够；需要 JS 才起浏览器）
+      const out = await readUrl(String(args?.url || ""), { force: String(args?.force || "") });
+      if (!out.ok) return { text: `读不到这个网址：${out.error}`, isError: true };
+      const body = out.text.length > 12000 ? `${out.text.slice(0, 12000)}\n\n…（后略，共 ${out.text.length} 字）` : out.text;
+      return { text: `# ${out.title || out.url}\n（来源：${out.via}，${out.chars} 字）\n\n${body}`, isError: false };
+    },
+    candidate_compare: (args) => {
+      // 2026-11-01：候选 vs 基线；退化了就让她别交付
+      const kind = String(args?.kind || "image");
+      const base = String(args?.baseline || "").trim();
+      const cand = String(args?.candidate || "").trim();
+      if (!base || !cand) return { text: "需要 baseline 和 candidate 两个路径", isError: true };
+      try {
+        const abs = (x) => (path.isAbsolute(x) ? x : path.resolve(WS_ROOT, x));
+        const r = compareCandidates({ kind, baseline: abs(base), candidate: abs(cand) });
+        recordCompare(WS_ROOT, { kind, baseline: base, candidate: cand, verdict: r.verdict, degraded: r.degraded, note: String(args?.note || "").slice(0, 120) });
+        return { text: JSON.stringify({
+          verdict: r.verdict, degraded: r.degraded, improved: r.improved,
+          baseline: r.baseline, candidate: r.candidate,
+          nextAction: r.verdict === "rollback"
+            ? "候选退化了：不要交付这一版，回到基线；把退化项如实告诉伙伴，并说明打算怎么修。"
+            : "这版没有退化，可以交付。",
+        }, null, 1), isError: false };
+      } catch (e) { return { text: `对比失败：${String(e?.message || e).slice(0, 160)}`, isError: true } }
+    },
+    delivery_check: (args, ctx) => {
+      const r = checkDelivery({ runId: ctx?.runId || "",
+        changedFiles: Array.isArray(args?.files) ? args.files.map(String) : [],
+        verified: Array.isArray(args?.verified) ? args.verified.map(String) : [],
+        blockers: args?.note ? [String(args.note)] : [] });
+      return { text: JSON.stringify({
+        verdict: r.verdict, summary: r.summary,
+        // 2026-11-08：RED 要能看懂"卡在哪"——失败命令数 + 前 3 条命令及输出摘要 + 未覆盖总数。
+        failedCount: r.failedCount || 0,
+        failedCommands: r.failedCommands || [],
+        uncoveredTotal: r.uncoveredTotal ?? r.uncovered.length,
+        uncovered: r.uncovered.slice(0, 10), reasons: r.reasons, conditions: r.conditions,
+        nextAction: r.verdict === "RED"
+          ? "先补验证（node --test / npm run build / node --check 等），再调一次；不要报完成。命令连续失败多半是环境/目录问题——先修环境或换目录，别在同一处反复重试。"
+          : r.verdict === "YELLOW" ? "可以报完成，但要把附带条件说清楚。" : "可以报完成。",
+      }, null, 1), isError: false };
+    },
+    record_taste: async (args) => {
+      try {
+        const { recordTaste } = await import("./engine/taste.mjs");
+        const r = recordTaste(WS_ROOT, args || {});
+        return r.ok ? { text: `已记入品味库：${args?.topic} → ${args?.chose}` } : { text: `记入失败：${r.error}`, isError: true };
+      } catch (e) { return { text: `记入失败：${String(e?.message || e).slice(0, 120)}`, isError: true } }
+    },
+    dsh_task: async (args, ctx) => withClaim({ task: String(args?.task || args?.prompt || "dsh 任务"), agent: "dsh" }, async () => {
+      const t = globalThis.__yuanshuDshTool || globalThis.__piWebDshTool;
+      if (!t?.execute) return { text: "[dsh] 执行臂未初始化", isError: true };
+      // 2026-10-23：登记成后台作业，界面/晨报能看见它在跑（对模型仍是同步等待）
+      const job = jobPool.submit(
+        { kind: "dsh_task", title: String(args?.task || args?.prompt || "dsh 任务").slice(0, 90) },
+        async (signal) => {
+          const r = await t.execute("unified-" + Date.now(), args || {}, signal || ctx?.signal);
+          const text = (r?.content || []).map((c) => c.text || "").join("\n").trim();
+          if (r?.isError) throw new Error(text || "dsh 任务失败");
+          return text || "（dsh 无输出）";
+        },
+      );
+      try {
+        const done = await waitJob(job.id);
+        return { text: done.resultPreview || "（dsh 无输出）", isError: done.status !== "done" };
+      } catch (e) {
+        return { text: String(e?.message || e), isError: true };
+      }
+    }),
+    ...mediaExtraExecutors({ getModelList: () => modelList, generateMediaAsync: trackedMedia, wsRoot: WS_ROOT,
+      // check_model：用已存密钥发一句极短的话；不计入模型健康（探测失败不该把通道拉黑）
+      probeModel: async (model) => {
+        try {
+          const r = await directChat(model, "ping", [], { maxTokens: 16, timeout: 30_000, throwOnError: true, trackModelHealth: false, allowPartial: true });
+          return { ok: true, usedModel: r?.usedModel?.id };
+        } catch (e) { return { ok: false, error: String(e?.message || e).slice(0, 200) }; }
+      } }),
+    ...todoExtraExecutors(),
+    ...planFilesExtraExecutors(),
+    // 承诺销账：用户说"不用了"时模型要能立刻销账，否则账只能一直挂着当待办（2026-10-18）
+    ...promiseExtraExecutors(WS_ROOT),
+    // 对话里听歌：免费源搜索（Deezer → iTunes），只给 30 秒试听直链（2026-10-18）
+    ...musicExtraExecutors(),
+    // 画布：让模型能自己搭节点链（读/建/连/改），前端画布与它共享同一份文档（2026-10-18）
+    ...canvasExtraExecutors(WS_ROOT),
+    // 设计委托：可试跑、可周期、有积分熔断与执行报告（2026-10-19）
+    ...commissionExtraExecutors(WS_ROOT, {
+      generate: generateImageSaved,
+      audit: (doc, opts) => auditCanvas(doc, { ...opts, wsRoot: WS_ROOT }),
+    }),
+    // 后台调研：模型自带联网搜索 + 逐条验活，交带溯源链接的报告（2026-10-19）
+    ...researchExtraExecutors(WS_ROOT, { modelSearch: researchModelSearch() }),
+    // 设计偏好台账：用户口述的长期取舍，下次委托生成前自动带上（2026-10-19）
+    ...designPrefsExecutors(WS_ROOT),
+    // 派活 = 元枢里真正的"多路探索"：一次派几个子任务、哪个失败、花了多久。
+    // 记成轨迹节点后，"该怎么探索"才有可回放的对象（当场修那条是单线的）。
+    delegate_task: async (args, ctx) => runWithInitiator("subagent", () => withClaim({ task: String(args?.task || args?.prompt || "派活"), agent: "delegate" }, async () => {
+      // 2026-11-07：background:true 不阻塞主循环——立刻回一个 subagentId，结果走回传（mailbox + 下一轮注入）。
+      // 注意：这里刻意**不**把父轮次的 ctx.signal 传下去，父轮次结束不该把后台任务带走。
+      const action = String(args?.action || "start");
+      if (action !== "start") {
+        if (!subagentBg) return { text: "后台子代理未初始化；请查启动日志", isError: true };
+        const sessionId = ctx?.sessionId || "";
+        if (action === "list") {
+          const out = await subagentBg.list({ sessionId, limit: 10 });
+          const rows = out.items.filter((row) => row.source === "registry").map((row) =>
+            `- ${row.id}（${row.name || String(row.task).slice(0, 40)}）${row.waitingInput ? (row.waitingInput.kind === "approval" ? "等你批准" : "等你拍板") : row.status}${row.progressSteps ? ` · 存档 ${row.progressSteps} 轮` : ""}${row.pendingMessages ? ` · 排队 ${row.pendingMessages} 条` : ""}：${row.summary || ""}`);
+          return { text: rows.length ? rows.join("\n") : "这个会话没有后台子代理", isError: false };
+        }
+        const subagentId = String(args?.subagent_id || "").trim();
+        const out = action === "cancel"
+          ? subagentBg.cancel({ subagentId, sessionId })
+          : action === "continue"
+            ? subagentBg.continueSubagent({ subagentId, message: args?.message, sessionId, strategy: args?.strategy === "interrupt" ? "interrupt" : "" })
+            : { ok: false, error: `不认识的 action：${action}` };
+        if (!out.ok) return { text: `${action} 失败：${out.error || out.code}`, isError: true };
+        return { text: `${action} 已受理：subagentId=${out.subagentId}${out.strategy ? `（${out.strategy}）` : ""}${out.note ? `；${out.note}` : ""}。结果会以【系统】子代理 … 注入，不要等、不要 sleep。`, isError: false, subagentId: out.subagentId };
+      }
+      // 2026-11-18：worker = 执行员（能写能跑，每步弹卡等伙伴批准）。同步派没有地方等人点卡，所以一律转后台。
+      // 能力按活给：abilities 里有写文件/跑命令就是执行员；旧的 worker:true = 三样全给
+      const legacyWorker = args?.worker === true || args?.worker === "true";
+      const abilities = legacyWorker && !args?.abilities ? ["写文件", "跑命令"] : args?.abilities;
+      const worker = needsHands(abilities);
+      if (args?.background === true || args?.background === "true" || worker) {
+        const task = String(args?.task || args?.prompt || "").trim();
+        if (!task) return { text: "delegate_task 需要 task", isError: true };
+        if (args?.agent_id) return { text: "background 暂不支持 agent_id（培养个体只能同步派）；去掉 background 或去掉 agent_id 再试一次", isError: true };
+        if (!subagentBg) return { text: "后台子代理未初始化，无法转后台；请用同步方式派或查启动日志", isError: true };
+        const out = subagentBg.start({
+          task,
+          name: String(args?.name || "").slice(0, 60),
+          context: Array.isArray(args?.context) ? args.context : [],
+          role: args?.role,
+          sessionId: ctx?.sessionId || "",
+          runId: ctx?.runId || "",
+          ...(worker ? { profile: "worker", abilities } : {}),
+        });
+        if (!out.ok) return { text: `转后台失败：${out.error || out.code || "未知原因"}`, isError: true };
+        return {
+          text: [
+            `已转后台：subagentId=${out.subagentId}（${worker ? `执行员，能力：${normalizeAbilities(abilities).join("、")}；` : ""}${out.state === "queued" ? "在作业池里排队" : "已在跑"}）`,
+            ...(worker ? ["它每次要写文件/改文件/跑命令都会停下来，回执里带一张批准卡——原样放给伙伴点，别替伙伴批。"] : []),
+            "**不要等、不要 sleep、不要再派同一个任务**：跑完（成功/失败/取消都算）会写进留言板，",
+            "下一轮你会看到一条【系统】子代理 … 已完成：…（未读 N 条）。",
+            `要它接着干或中途改需求：delegate_task(action:"continue", subagent_id:"${out.subagentId}", message:"…", strategy:"interrupt"|"enqueue")；查状态：delegate_task(action:"list")。`,
+          ].join("\n"),
+          isError: false,
+          subagentId: out.subagentId,
+        };
+      }
+      const t0 = Date.now();
+      const r = args?.agent_id ? await delegateToCultivatedAgent(lateRefs.cultivation, args, ctx) : await execDelegateTask(args, ctx);
+      try {
+        const text = typeof r === "string" ? r : (r?.text || "");
+        recordDelegation(WS_ROOT, { kind: "delegate_task", task: args?.task || args?.prompt || "", durationMs: Date.now() - t0, ok: !r?.isError, digest: text });
+      } catch {}
+      return r;
+    })),
+    // 2026-10-27：agent ↔ agent 留言（Agensh 的消息接口）
+    // 2026-10-27：开工前先查「这块之前踩过吗」
+    failure_recall: (args) => {
+      try {
+        const files = Array.isArray(args?.files) ? args.files : (args?.file ? [args.file] : []);
+        const hits = recallFailures({ wsRoot: WS_ROOT, text: String(args?.text || ''), files, limit: 5 });
+        if (!hits.length) return { text: '没有相关失败记录。' };
+        return { text: hits.map((h) => `[${h.entry.source}] ${h.entry.area}：${h.entry.attempt} → ${h.entry.why}`).join('\n') };
+      } catch (e) { return { text: String(e?.message || e).slice(0, 120), isError: true } }
+    },
+    agent_send: (args) => {
+      try {
+        const out = postMessage({ wsRoot: WS_ROOT, from: String(args?.from || '小语'), to: String(args?.to || ''), text: String(args?.text || ''), kind: String(args?.kind || 'note'), replyTo: String(args?.replyTo || '') });
+        return out.ok ? { text: out.message.to ? `已发给 ${out.message.to}` : '已广播' } : { text: out.error || '发送失败', isError: true };
+      } catch (e) { return { text: String(e?.message || e).slice(0, 120), isError: true } }
+    },
+    agent_inbox: (args) => {
+      try {
+        const who = String(args?.agent || '小语');
+        const rows = inboxFor(WS_ROOT, who, { limit: 10, unreadOnly: args?.unread !== false });
+        if (!rows.length) return { text: '没有未读留言。' };
+        return { text: rows.map((m) => `[${m.kind}] ${m.from}${m.to ? ` → ${m.to}` : '（广播）'}：${m.text}`).join('\n') };
+      } catch (e) { return { text: String(e?.message || e).slice(0, 120), isError: true } }
+    },
+    agent_read: (args) => {
+      try { return { text: `已标记 ${markRead({ wsRoot: WS_ROOT, agent: String(args?.agent || '小语'), ids: Array.isArray(args?.ids) ? args.ids : [] }).marked} 条已读` } }
+      catch (e) { return { text: String(e?.message || e).slice(0, 120), isError: true } }
+    },
+    notify_user: (args, ctx) => execNotifyUser(notifier, args, ctx),
+    // 2026-11-07：值班程序（晚绑定：实例在启动阶段才创建，这里只挂执行器）
+    ...createWatchToolExecutors({ getDuty: () => watchDuty }),
+    // 2026-11-07：看门狗事件只读查询（工作区固定，直接注入）
+    ...createWatchdogReadExecutors({ wsRoot: WS_ROOT }),
+    delegate_team: (args, ctx) => executeTeam(args, { ...ctx, wsRoot: WS_ROOT, model: ctx?.model || defaultModel }),
+    // 2026-11-15：团队共享看板。teamId 缺省用当前运行编号（与 delegate_team 注入成员提示时同一个编号）。
+    team_board: (args, ctx) => executeTeamBoard(args, { wsRoot: CONFIG.cwd, teamId: ctx?.runId }),
+    // 2026-10-08 MCP 外部工具转发：mcp_ 前缀的工具调用路由到对应 MCP server
+    ...Object.fromEntries(
+      mcpManager.allTools().map(t => [`mcp_${t.exposedName}`, (args) => mcpManager.callTool(t.exposedName, args)])
+    ),
+    delegate_fork: async (args, ctx) => withClaim({ task: String(args?.task || args?.prompt || "分叉"), agent: "fork" }, async () => {
+      const t0 = Date.now();
+      const r = await execDelegateFork(args, ctx);
+      try {
+        const text = typeof r === "string" ? r : (r?.text || "");
+        recordDelegation(WS_ROOT, { kind: "delegate_fork", task: args?.task || args?.prompt || "", durationMs: Date.now() - t0, ok: !r?.isError, digest: text });
+      } catch {}
+      return r;
+    }),
+    // 脱链长任务（2026-10-25）：渲染/编码/下载这类"跑几分钟"的活走这里，别用 sleep 等。
+    run_detached: (args) => {
+      const action = String(args?.action || "").trim();
+      try {
+        if (action === "start") {
+          const out = detachedRun.launchDetached({
+            wsRoot: WS_ROOT,
+            command: args?.command,
+            cwd: args?.cwd || CONFIG.cwd,
+            label: args?.label || "job",
+          });
+          if (!out.ok) return { text: `启动失败：${out.error}`, isError: true };
+          if (!out.ok) return { text: `启动失败：${out.error}`, isError: true };
+          // 登记到后台任务，方便面板上看得见
+          try {
+            const t = jobPool.track({ kind: "detached", title: `脱链：${String(args?.label || "job").slice(0, 40)}` });
+            detachedJobs.set(String(out.id), t);
+          } catch {}
+          return {
+            text: [
+              `已脱链启动：id=${out.id}${out.pid ? ` pid=${out.pid}` : ""}`,
+              `日志：${out.logPath}`,
+              `这个进程不在服务的 Job 里，服务重启也不会带走它。`,
+              `**下一轮**用 run_detached {action:"status", id:"${out.id}"} 查一次就够，不要 sleep 等。`,
+            ].join("\n"),
+          };
+        }
+        if (action === "status") {
+          const r = detachedRun.readDetached({ wsRoot: WS_ROOT, id: args?.id });
+          if (!r.ok) return { text: r.error || "查不到", isError: true };
+          const state = r.done ? `已结束（退出码 ${r.exitCode}）` : r.alive ? "还在跑" : "进程已不在、但没写完成标记（可能被杀）";
+          // 2026-10-28：顺手把后台任务那条收尾，别一直挂着 running
+          try {
+            const t = detachedJobs.get(String(args?.id));
+            if (t && r.done) { r.exitCode === 0 ? t.done(`退出码 0`) : t.fail(`退出码 ${r.exitCode}`); detachedJobs.delete(String(args?.id)); }
+            else if (t && !r.alive) { t.fail("进程已不在（可能被杀）"); detachedJobs.delete(String(args?.id)); }
+          } catch {}
+          return {
+            text: [
+              `作业 ${r.id}（${r.label}）：${state}，已过 ${Math.round(r.elapsedMs / 1000)}s`,
+              `日志：${r.logPath}`,
+              r.logTail ? `\n--- 日志尾部 ---\n${r.logTail.slice(-1200)}` : "",
+            ].filter(Boolean).join("\n"),
+          };
+        }
+        if (action === "stop") {
+          const r = detachedRun.stopDetached({ wsRoot: WS_ROOT, id: args?.id });
+          if (!r.ok) return { text: r.error || "停止失败", isError: true };
+          return { text: r.alreadyStopped ? `作业 ${args?.id} 已经不在跑了` : `已停止作业 ${args?.id}（含子进程树）` };
+        }
+        if (action === "list") {
+          const rows = detachedRun.listDetached({ wsRoot: WS_ROOT, limit: 8 });
+          if (!rows.length) return { text: "最近没有脱链作业。" };
+          return { text: rows.map((r) => `- ${r.id} ${r.label}｜${r.done ? `结束(${r.exitCode})` : r.alive ? "跑着" : "失联"}｜${Math.round(r.elapsedMs / 1000)}s`).join("\n") };
+        }
+        return { text: `未知 action：${action}（可用 start/status/stop/list）`, isError: true };
+      } catch (e) {
+        return { text: `run_detached 出错：${String(e?.message || e).slice(0, 200)}`, isError: true };
+      }
+    },
+    // 后台作业状态机（2026-10-25）：列状态 / 标记已汇报
+    job_status: (args) => {
+      const action = String(args?.action || "list");
+      try {
+        const all = collectJobs({
+          wsRoot: WS_ROOT,
+          detached: detachedRun.listDetached({ wsRoot: WS_ROOT, limit: 20 }),
+          runs: (() => { try { return runManager.list() } catch { return [] } })(),
+          tasks: (() => { try { return timeEngine ? timeEngine.list() : [] } catch { return [] } })(),
+        });
+        // 知识摄入：周期性 worker，停摆过（10/22 租约卡死），现在也归这里看
+        try { all.push(knowledgeJob({ wsRoot: WS_ROOT })); } catch {}
+        // 收到外部报回来的 bug，有没有人理——也归这里看（不然就等用户想起来）
+        try { all.push(feedbackJob({ wsRoot: WS_ROOT })); } catch {}
+        // 自动上报：把最近的决定做成一条"作业"（sent/skipped/failed 都看得到）
+        try {
+          const led = readReportLedger(AGENT_DIR, { limit: 50 });
+          if (led.length) {
+            const sent = led.filter((x) => x.decision === "sent").length;
+            const skipped = led.filter((x) => x.decision === "skipped").length;
+            const failed = led.filter((x) => x.decision === "failed").length;
+            all.push({
+              id: "report:ledger",
+              kind: "report",
+              label: "自动上报台账",
+              state: failed ? "failed" : "done",
+              step: `最近 ${led.length} 次决定：发出 ${sent} / 跳过 ${skipped} / 失败 ${failed}`,
+              startedAt: led[led.length - 1]?.at || null,
+              updatedAt: led[0]?.at || null,
+              elapsedMs: 0,
+              error: failed ? `${failed} 次发送失败` : "",
+            });
+          }
+        } catch {}
+        if (action === "ack") {
+          const ids = Array.isArray(args?.ids) ? args.ids : [];
+          if (!ids.length) return { text: "ack 需要 ids", isError: true };
+          const out = ackReports(WS_ROOT, ids, { note: args?.note || "" });
+          return { text: `已标记 ${out.acked} 条为已汇报：${ids.join(", ")}` };
+        }
+        syncReports(WS_ROOT, all);
+        const kind = String(args?.kind || "all");
+        // 2026-10-26：异常优先排序。原来按时间排再 slice(0,12)，刚加的知识/上报条目
+        // 落后就被挤出视野（真机：模型说"清单里没有这两行"）。
+        const order = { failed: 0, stalled: 1, running: 2, done: 3 };
+        const sorted = [...all].sort((a, b) => (order[a.state] ?? 9) - (order[b.state] ?? 9) || (b.updatedAt || 0) - (a.updatedAt || 0));
+        const rows = kind === "all" ? sorted : sorted.filter((j) => j.kind === kind);
+        if (!rows.length) return { text: "当前没有后台作业。" };
+        const s = summarizeJobs(rows);
+        const pend = new Set(pendingReports(WS_ROOT).map((x) => x.id));
+        const icon = { done: "✅", failed: "❌", running: "⏳", stalled: "⚠️" };
+        const fmt = (j) => `${icon[j.state] || "·"} [${j.kind}] ${j.label} — ${j.state}${j.step ? `（${j.step}）` : ""}${pend.has(j.id) ? " · 未汇报" : ""}${j.error ? ` · ${j.error}` : ""}`;
+        // 2026-10-26：知识摄入 / 上报台账这两条**不参与截断**——它们是"系统自己有没有在转"，
+        // 被一堆失败作业挤掉就等于没接（真机：模型连说两轮"没有这两行"）。
+        const extras = rows.filter((j) => j.kind === "knowledge" || j.kind === "report" || j.kind === "feedback");
+        const normal = rows.filter((j) => j.kind !== "knowledge" && j.kind !== "report" && j.kind !== "feedback");
+        const lines = normal.slice(0, 10).map(fmt).concat(extras.map(fmt));
+        return {
+          text: `后台作业 ${s.total} 个：完成 ${s.done} / 失败 ${s.failed} / 在跑 ${s.running} / 卡住 ${s.stalled}\n` + lines.join("\n")
+            + (normal.length > 10 ? `\n…另有 ${normal.length - 10} 条未列出（kind 过滤可缩小范围）` : "")
+            + (pend.size ? `\n\n有 ${pend.size} 条还没汇报——先用一两句话说清结果，再调 job_status {action:"ack", ids:[...], note:"..."} 标记。` : ""),
+        };
+      } catch (e) {
+        return { text: `job_status 出错：${String(e?.message || e).slice(0, 200)}`, isError: true };
+      }
+    },
+    // 主动管理：登记「盯着这件事」
+    proactive_watch: (args) => {
+      try {
+        const out = addWatch({ wsRoot: WS_ROOT, title: String(args?.title || ''), keywords: Array.isArray(args?.keywords) ? args.keywords.map(String) : [] });
+        if (!out.ok) return { text: out.error || '登记失败', isError: true };
+        return { text: out.existed ? `已经在盯「${args.title}」了。` : `好，我盯着「${args.title}」。有变化我会主动说。` };
+      } catch (e) { return { text: '登记失败：' + String(e?.message || e).slice(0, 120), isError: true } }
+    },
+    // 交付前预筛（2026-10-25）：客观测量 + 硬门槛，不合格先说原因
+    output_check: (args) => {
+      try {
+        const p = resolveToolPath(args?.path) || String(args?.path || '');
+        const kind = String(args?.kind || 'auto');
+        const r = checkOutput(p, { kind });
+        return { text: evidenceNote(r) + (r.fails.length ? '\n不合格项：' + r.fails.join('；') : '') + (r.warnings.length ? '\n注意：' + r.warnings.join('；') : ''), isError: !r.pass };
+      } catch (e) {
+        return { text: 'output_check 出错：' + String(e?.message || e).slice(0, 200), isError: true };
+      }
+    },
+    // 断言闸门（2026-11-09）：报数之前把话落成断言，逐条比对事实。
+    // 允许根 = 工作区 + 系统本体（与 read/write 的双根白名单同口径），越界直接判失败；
+    // 命令走注入的 run（默认 execFile）并过宪法红线。结果只回给模型，不推聊天。
+    verify_check: (args) => executeVerifyCheck(args, {
+      cwd: () => CONFIG.cwd,
+      roots: () => [CONFIG.cwd, __dirname],
+    }),
+    // 一次确认交付（2026-11-14）：路径归一/越界边界走 workspace-api（与 /api/ws/file 同口径，
+    // 所以不传 roots——保留"同机其它工作区根"的回落），HTTP 探测打自己监听的端口。
+    delivery_probe: (args) => executeDeliveryProbe(args, {
+      baseUrl: `http://127.0.0.1:${CONFIG.port}`,
+    }),
+    // 反模式对照（2026-11-09）：读台账，返回匹配条目全文；不拦动作、不改状态。
+    anti_pattern_check: (args) => runAntiPatternCheck({
+      wsRoot: CONFIG.cwd,
+      context: args?.context || "",
+      limit: args?.limit || 3,
+    }),
+    // 当场修：把"发现问题"接到"动手做掉"（逻辑在 engine/reflection-exec.mjs，与复盘那条共用规则）。    // 执行轮用完整工具集（这一步才发可写工具），一轮只做这一条，必须交证据。
+    fix_problem: async (args, ctx) => {
+      const sessionKey = ctx?.sessionKey || ctx?.sessionId || "anon";
+      const fixStartedAt = Date.now();
+      const out = await runOnTheSpotFix({
+        problem: args?.problem,
+        sessionKey,
+        runTurn: runFixTurn,
+        // 2026-11-08：失败时把**这一轮执行轮**产生的审计行交给交付门判一次。
+        // RED 的失败命令与未覆盖文件要带回给模型，不能只回一句"不能交付"。
+        // 只取本次调用之后的行，避免把历史遗留问题算到这次头上。
+        deliveryCheck: () => checkDelivery({
+          rows: auditGate.tail(400).filter((r) => Number(r?.at || 0) >= fixStartedAt),
+        }),
+      });
+      return { text: out.text, isError: !out.ok };
+    },
+};
+
+const _rawExecuteUnifiedTool = createUnifiedToolExecutorGuarded({
+  ...toolExecutorDeps,
+  extraExecutors: extraToolExecutors,
+});
+
+// 2026-10-30：动作审计闸门（对应 OpenBot「没有记录就不许行动」）。
+// 每次工具调用先落一行，写不进去就拒绝执行——除非显式 YUANSHU_AUDIT_SOFT=1。
+// （闸门实例在文件上部与 runStore/internalRounds 一起创建，后台子代理也要用。）
+// 2026-10-30：带上默认策略——定时任务不许删东西/对外发消息，人让做的照常
+// 2026-10-30：策略从文件读（记忆/运行时/动作策略.json），改完立刻生效，不用重启。
+
+// 2026-10-31：交付门台账（天枢的 deliver_task 思路：没有证据不算完成）
+
+// 2026-11-02：冷会话唤醒（借 dsh-proactive）——会话挂了几小时没人说话，主动问一句。
+// 三道闸：免打扰时段、每日主动预算、只挑够久没动且不是探针的真实会话。
+const maybeColdWake = async (now = new Date()) => {
+  try {
+    if (isQuietHours(now.getTime())) return { ok: false, reason: "quiet" };
+    const day = now.toISOString().slice(0, 10);
+    const budget = readBudget(WS_ROOT, day, { cap: 3 });
+    if (budget.remaining <= 0) return { ok: false, reason: "budget" };
+    const sessions = (typeof getSessionList === "function" ? getSessionList() : []) || [];
+    const hit = pickColdSession(sessions, { now: now.getTime(), idleMs: 3 * 60 * 60 * 1000 });
+    if (!hit) return { ok: false, reason: "nothing_cold" };
+    const hours = Math.max(1, Math.min(12, Math.round(hit.idleMs / 3600000)));
+    // 这段时间到底发生了什么：完成的定时任务 / 卡住的交付 / 等拍板的事
+    const since = now.getTime() - hours * 3600000;
+    const doneList = (timeEngine ? timeEngine.list() : [])
+      .filter((t) => Date.parse(String(t.lastRun || t.lastStart || "")) >= since)
+      .map((t) => String(t.label || "任务").slice(0, 12));
+    const blockedList = (() => {
+      try {
+        return readDeliveryLedger()
+          .filter((x) => Date.parse(String(x.at || "")) >= since && String(x.verdict || "").toUpperCase() === "RED")
+          .map((x) => String(x.runId || "一次交付").slice(0, 10));
+      } catch { return [] }
+    })();
+    const asks = (() => { try { return listAsks().length } catch { return 0 } })();
+    if (!doneList.length && !blockedList.length && asks === 0) {
+      return { ok: false, reason: "nothing_to_report" };
+    }
+    const what = `「${String(hit.session.name || "那个会话").slice(0, 18)}」停了 ${hours} 小时`;
+    const made = await composeNoticeFor("away", { away: `${hours} 小时`, done: doneList, blocked: blockedList, asks, what, source: "定时任务 + 交付台账" });
+    if (!made?.text) return { ok: false, reason: "empty_text" };
+    const env = noticeEnvelope({ kind: "away", facts: { done: doneList, blocked: blockedList, asks }, text: made.text });
+    // 2026-11-03：预判闸门——期望损失不够就不打扰
+    try {
+      const hist = buildHistory(readEvoEvents(WS_ROOT, { limit: 800 }), { now: Date.now() });
+      const st = reactionStats(WS_ROOT, { days: 30 });
+      const tot = st.reduce((a, x) => a + x.sent, 0);
+      const eng = st.reduce((a, x) => a + x.opened + x.replied, 0);
+      const engageRate = tot >= 5 ? Number((eng / tot).toFixed(2)) : 0.5;
+      const [dec] = estimateAction({ candidates: [{ id: hit.session.id, taskType: "未分类", severityMinutes: 15 }], history: hist, engageRate, threshold: 2 });
+      if (!dec?.shouldAct) { console.log(`[anticipation] 不出手：${dec?.reason || "无结论"}`); return { ok: false, reason: "anticipation" } }
+      console.log(`[anticipation] 出手：${dec.reason}`);
+    } catch {}
+    const thr = shouldThrottle(WS_ROOT, "away", { threshold: 3 });
+    if (thr.throttle) return { ok: false, reason: "throttled" };
+    const pushKey = `away:${hit.session.id}:${Date.now()}`;
+    const spent = spendBudget(WS_ROOT, day, { cap: budget.cap, kind: "cold_wake" });
+    if (!spent.ok) return { ok: false, reason: spent.reason || "budget" };
+    const r = await notifier.notify({
+      kind: "companion", title: env.head, body: made.text, sender: personaName(WS_ROOT),
+      summary: env.summary, facts: [`今天已主动 ${spent.used}/${spent.cap} 次`],
+      toWechat: true, key: pushKey,
+    });
+    try { recordPush(WS_ROOT, { key: pushKey, kind: "away" }) } catch {}
+    console.log(`[proactive] 冷会话唤醒：${what}（wechat=${r?.wechat || "?"}）`);
+    return { ok: true, sessionId: hit.session.id, used: spent.used };
+  } catch (e) {
+    console.log(`[proactive] 冷会话唤醒异常：${String(e?.message || e).slice(0, 120)}`);
+    return { ok: false, error: "exception" };
+  }
+};
+// 2026-11-01：最小路由器——事件要不要处理，由轻量模型判；派活走定时引擎（+1 分钟）
+let routerSeen = new Set();
+const routeThink = async (prompt) => {
+  const isText = (m) => !/image|video|tts|asr|speech|embed|rerank/i.test(String(m.id || ""));
+  const light = (modelList || []).find((m) => m.provider === "agnes" && isText(m) && /^agnes-?3\.0-flash$/i.test(String(m.id)))
+    || (modelList || []).find((m) => m.provider === "agnes" && isText(m) && /flash/i.test(String(m.id)))
+    || defaultModel;
+  const r = await directChat(light, prompt, [], { maxTokens: 300, timeout: 45000 });
+  return String(r?.text || "").trim();
+};
+// 2026-11-01：破坏性动作即使被批准，也只派"核对 + 方案"，不派"直接删/发/付"
+const DESTRUCTIVE_TASK = /(删|清空|移除|格式化|覆盖|发布|上线|支付|打款|转账|rm |del )/i;
+// 2026-11-07：派活的任务标签里带上话题键——下一轮执行时据此合并积压的后续事件
+// 这张活拿到多少自主权，就记多少——记录取自「自主执行」策略，不凭空许诺
+const mandateScopeNow = () => {
+  try { return loadSelfPolicy(CONFIG.cwd)?.enabled ? ["read", "write", "shell", "git"] : ["read"] } catch { return ["read"] }
+};
+const dispatchByRouter = (task, reason = "", threadKey = "") => {
+  const raw = String(task || "").trim();
+  const guarded = DESTRUCTIVE_TASK.test(raw)
+    ? `【只核对不执行】列出这项操作会动到的具体文件/对象清单和风险，等我二次确认后再执行：${raw}`
+    : raw;
+  const when = localStamp(new Date(Date.now() + 60 * 1000));
+  const dateStr = when.slice(0, 10);
+  const timeStr = when.slice(11, 16);
+  const label = taskLabelFor(threadKey);
+  // 2026-11-07：给这张活一个「人读得懂的名字」——看门狗/任务中心报 run 或任务时，
+  // 伙伴要能认出是哪件事，而不是只有 id。派生规则统一在 run-title.mjs。
+  const title = deriveRunTitle({ task: guarded, label });
+  const r = timeEngine.register({ type: "once", date: dateStr, at: timeStr, prompt: guarded, label, title, notify: true });
+  if (r?.error) console.log(`[router] 派活失败：${r.error}`);
+  else {
+    console.log(`[router] 已派活（${when}）：${String(guarded).slice(0, 60)}`);
+    // 订阅直通：这个任务从此是这条话题的主人，后续事件进收件箱而不是回主会话
+    if (threadKey && r?.id) subscribeThread(threadKey, { workerId: r.id });
+    // 工单级授权：记下这张活的依据与范围（目前只记录，不接管审批）
+    if (r?.id) {
+      const m = createMandate(WS_ROOT, {
+        ticketId: r.id, threadKey, taskId: r.id, scope: mandateScopeNow(), basis: "explicit",
+        note: String(guarded).slice(0, 160),
+      });
+      if (m.ok) console.log(`[mandate] ${r.id} 授权 ${m.mandate.scope.join("/")}，${threadKey || "无话题"}`);
+    }
+    // 2026-11-07：派活任务各用一棵独立 worktree（借 worktrunk 的做法），
+    // 由 runner 在开跑时创建（那里才知道最终 task.id），这里只留痕。
+    if (r?.id) console.log(`[worktree] ${r.id} 开跑时建独立树`);
+  }
+  return r;
+};
+const askPush = async (event, reason) => {
+  try {
+    // 2026-11-01：先建待办（回执闭环），再决定推不推
+    const fallbackTask = `按伙伴的意思处理这件事：${String(event?.text || "").slice(0, 200)}`;
+    const ask = createAsk(WS_ROOT, { source: event?.source || "", text: event?.text || "", reason, task: event?.task || fallbackTask });
+    if (quietHours(Date.now(), brainWeights().social)) {
+      console.log(`[router] ask 待办 ${ask.id} 已记，但现在是免打扰时段，不推`);
+      return { ok: true, quiet: true, id: ask.id };
+    }
+    const what = String(event?.text || "").replace(/\s+/g, " ").trim().slice(0, 120);
+    const made = await composeNoticeFor("ask", { what, source: String(event?.source || "未知") });
+    const env = noticeEnvelope({ kind: "ask", facts: { what }, text: made.text });
+    const r = await notifier.notify({
+      kind: "ask", title: env.head, body: made.text,
+      sender: personaName(WS_ROOT), summary: env.summary,
+      facts: [`来源 ${String(event?.source || "未知")}`, `回「可以」或「不用」就行`],
+      toWechat: true, key: `router-ask:${ask.id}`,
+    });
+    console.log(`[router] ask 已推送（wechat=${r?.wechat || "?"}）：${env.summary}`.slice(0, 200));
+    return r;
+  } catch (e) {
+    console.log(`[router] ask 推送失败：${String(e?.message || e).slice(0, 120)}`);
+    return null;
+  }
+};
+
+const routerOnEvent = (event) => {
+  // 2026-11-07：先看是不是别人已经在跟的话题——是就直通收件箱，不再让主会话重判一遍。
+  // 微信要不要直通由「直通设置」决定（默认关；开了以后靠 relay 把结果回给那个会话）。
+  try {
+    const plan = planDelivery(event, readDirectSettings(WS_ROOT));
+    if (plan.mode === "direct") {
+      const got = acceptDirect(WS_ROOT, event, readDirectSettings(WS_ROOT));
+      console.log(`[thread] 直通 ${plan.threadKey}：收件箱 ${got.queued} 条（订阅 ${plan.targets.length} 个），主会话不介入`);
+      return { ok: true, queued: true, direct: true, threadKey: plan.threadKey };
+    }
+  } catch (e) {
+    console.log(`[thread] 直通判定失败，退回主会话：${String(e?.message || e).slice(0, 80)}`);
+  }
+  void (async () => {
+    try {
+      const out = await routeEvent({ event, wsRoot: WS_ROOT, think: routeThink, seen: routerSeen });
+      if (out.key) routerSeen.add(out.key);
+      if (!out.ok) { console.log(`[router] 判断失败：${out.error}`); return }
+      if (out.action === "dispatch") dispatchByRouter(out.task, out.reason, threadKeyOf(event));
+      else if (out.action === "ask") { console.log(`[router] 需要人拍板：${String(out.reason || "").slice(0, 80)}`); void askPush(event, out.reason); }
+    } catch (e) { console.log(`[router] 异常：${String(e?.message || e).slice(0, 120)}`) }
+  })();
+  return { ok: true, queued: true };
+};
+// 2026-11-01：脑区旋钮（2 秒缓存，改完即时生效）
+let brainCache = { at: 0, weights: null };
+const brainWeights = () => {
+  const t = Date.now();
+  if (brainCache.weights && t - brainCache.at < 2000) return brainCache.weights;
+  const r = readRegions(WS_ROOT);
+  brainCache = { at: t, weights: r.weights };
+  return r.weights;
+};
+
+const DELIVERY_LEDGER = path.join(WS_ROOT, "记忆", "运行时", "交付门.json");
+const readDeliveryLedger = () => { try { const j = JSON.parse(fs.readFileSync(DELIVERY_LEDGER, "utf8")); return Array.isArray(j?.items) ? j.items : [] } catch { return [] } };
+const writeDeliveryLedger = (items) => { try { fs.mkdirSync(path.dirname(DELIVERY_LEDGER), { recursive: true }); fs.writeFileSync(DELIVERY_LEDGER, JSON.stringify({ items: items.slice(-100) }, null, 2), "utf8") } catch {} };
+const checkDelivery = ({ runId = "", rows = null, changedFiles = [], verified = [], blockers = [] } = {}) => {
+  const auditRows = rows || auditGate.tail(400);
+  // 脑区 verification 权重决定严格度：高=声明已验证不算数，低=声明即算数
+  const result = judgeRun({ rows: auditRows, runId, changedFiles, verified, strictness: deliveryStrictness(brainWeights()) });
+  const item = { at: Date.now(), runId, verdict: result.verdict, uncovered: result.uncovered.slice(0, 20), reasons: result.reasons, conditions: [...result.conditions, ...blockers], summary: describeVerdict(result) };
+  if (runId) { const items = readDeliveryLedger().filter((x) => x.runId !== runId); items.push(item); writeDeliveryLedger(items) }
+  // 2026-11-08：RED 日志不再只截 220 字（那会把"哪条命令失败"切掉）。结构化的前 3 条命令
+  // 与未覆盖文件要能直接看，900 字足够覆盖；仍设上限避免异常长路径灌日志。
+  if (result.verdict === "RED") console.log(`[deliver] RED：${item.summary}`.slice(0, 900));
+  return { ...result, summary: item.summary };
+};
+const policyProvider = createPolicyProvider({ wsRoot: WS_ROOT });
+const executeUnifiedTool = withAuditGate(_rawExecuteUnifiedTool, { gate: auditGate, rules: () => policyProvider.rules() });
+
+// 2026-10-30：开机按设置把工具包工具挂进对话工具表（默认关）
+const syncToolpackTools = () => {
+  try {
+    const out = syncToolpacks({ wsRoot: WS_ROOT, tools: UNIFIED_TOOLS, executors: extraToolExecutors });
+    if (out?.enabled) console.log(`[plugins] 工具包已挂进对话工具表：${out.tools} 个工具`);
+    return out;
+  } catch (e) { return { ok: false, error: String(e?.message || e).slice(0, 160) } }
+};
+syncToolpackTools();
+
+initSessionManager({ cwd: CONFIG.cwd, sessionsDir: SESSIONS_DIR, tools: CONFIG.tools, piPackage: CONFIG.piPackage, isModelBlocked, createAgentSessionServices, createAgentSessionFromServices, getModelRuntime: () => modelRuntime, loadSessionModelKey, getModelList: () => modelList, getDefaultModel: () => defaultModel, activeSessions, SessionManager, SettingsManager, DefaultResourceLoader, getAgentDir, readJsonFile, writeJsonFile, isExternalThinking, THINK_TOOL, modelCapabilities, bindOutputGuardDeps, extractMessages, createSseWriter, unifiedChat, generateMediaAsync, onSessionCreated: ensureSessionSequence, repairSessionFile }); // 会话管理注入
+// 维护 API 在下方完成初始化；沙箱确认闭包延迟读取它，避免启动顺序改变。
+let maintenanceApi = null;
+// 当场修的执行器：Pi 会话里的 fix_problem 与统一引擎里的同名工具走**同一套规则**
+// （engine/reflection-exec.mjs：红线不碰 / 每会话 10 分钟最多 3 次 / 必须交证据）。
+setOnTheSpotFixRunner(({ problem, sessionKey }) => {
+  // 2026-11-08：与统一引擎那条一致——失败时把本轮审计行交给交付门，RED 要带失败项回来。
+  const fixStartedAt = Date.now();
+  return runOnTheSpotFix({
+    problem,
+    sessionKey,
+    runTurn: runFixTurn,
+    deliveryCheck: () => checkDelivery({
+      rows: auditGate.tail(400).filter((r) => Number(r?.at || 0) >= fixStartedAt),
+    }),
+  });
+});
+
+/**
+ * 当场修/自动执行的执行轮：**必须走通道切换**。
+ *
+ * 2026-10-25 的真事故：三条自动执行任务全部 `[failed] 执行轮异常：HTTP 402 Insufficient Balance`。
+ * 查下来不是任务做不了，而是这里原来直接 `unifiedChat(defaultModel, …)` —— 主通道（deepseek 官方）
+ * 余额只剩 ¥2.43，一个大提示词就 402；而**外层**反思轮因为用了 withModelFailover 换到了活着的通道，
+ * 所以日志看起来像"修不动"，其实是"只有这一小步在裸奔"。
+ *
+ * 用函数声明是有意的：它在上面两个调用点之后才出现，靠提升生效——
+ * 这样不用把 helper 提到很远的地方，两个调用点都看得见它。
+ */
+async function runFixTurn(prompt) {
+  const r = await chatWithFailover(defaultModel, [{ role: "user", content: prompt }], { tools: UNIFIED_TOOLS });
+  return completedTaskText(r);
+}
+
+/**
+ * 文本轮 + 通道切换。给"无人看着跑"的那些调用用（自动执行/当场修/候选生成）。
+ *
+ * 为什么要有它：这些路径原来全是 `unifiedChat(defaultModel, …)` —— 主通道一没额度，
+ * 整批任务的结论就变成「执行轮异常：HTTP 402 Insufficient Balance」，
+ * 看起来像"事情做不了"，实际只是"这一小步死在一个通道上"。
+ * 外层时间引擎有 withModelFailover，内层这些执行轮却没有，所以从日志上完全看不出来。
+ */
+async function chatWithFailover(model, messages, opts = {}) {
+  // 注意：withModelFailover 返回的是 {result, model, attempts, tried} 包装。
+  // 这里必须拆出 result 再交给调用方——否则 completedTaskText 会拿到包装对象，
+  // 表现成"执行轮没有按契约给出结果"，看起来又像模型不行。
+  const wrapped = await withModelFailover({
+    initial: isTextCapableModel(model) ? model : pickFallbackDefault(),
+    call: (m) => unifiedChat(m, messages, opts),
+    pickNext: (tried) => {
+      const seen = new Set(tried.map((x) => `${x.provider}/${x.id}`));
+      let next = pickFallbackExcluding(tried[tried.length - 1]);
+      if (next && seen.has(`${next.provider}/${next.id}`)) next = pickFallbackExcluding(next);
+      return next;
+    },
+    onSwitch: ({ from, to, kind, why }) => console.log(`[model-failover] ${from.provider}/${from.id} → ${to.provider}/${to.id}（${kind}：${why}）`),
+  });
+  return wrapped?.result;
+}
+initUnifiedChat({
+  executeUnifiedTool, findKeyByEntry, readJsonFile,
+  getModelList: () => modelList, getDefaultModel: () => defaultModel,
+  authPath: AUTH_PATH, modelsPath: MODELS_PATH, cwd: CONFIG.cwd, sessionDir: SESSIONS_DIR,
+  piPackage: CONFIG.piPackage, UNIFIED_TOOLS, getAgentDir, THINK_TOOL,
+  // 2026-11-07：后台子代理回执在统一引擎里也要能注入（父会话的 unread 从工作区留言板取）
+  wsRoot: WS_ROOT,
+  // 元枢沙箱升级与 pi 共用同一人工确认注册表；没有前端应答时由注册表超时并 fail-closed。
+  createSandboxAsk: createSandboxAskFactory({ registry: confirmRegistry, hasLease: (q) => !!maintenanceApi?.hasLease(q) }),
+}); // 统一对话通道注入
+initRefineApi({ cwd: CONFIG.cwd }); // 经验沉淀台注入
+initMcpServer({ modelRouter: (await import("./engine/model/router.mjs")), memoryApi: memoryApi, emotion, getDefaultModel: () => defaultModel, wsRoot: () => CONFIG.cwd, getToken: () => CONFIG.token, json }); // MCP 认知层注入
+initMcpChat({ handleChat }); // MCP 对话注入
+
+
+// ── 双引擎：dsh（DeepSeek Harness）执行臂工具 —— 实现已抽到 engine/dsh-tool.mjs ──
+// 模式：pi 主引擎（规划/对话/验收）→ 派单 dsh 执行（代码/沙箱/工作流）→ 结果回 pi 验收交付。
+const { initDshTool } = createDshTool({
+  cwd: CONFIG.cwd,
+  piPackage: CONFIG.piPackage,
+  loadSkillIndex,
+  skillsDir: path.join(__dirname, "skills"),
+});
+// 2026-08-21 注入 dsh 执行臂到统一工具集（此前只初始化未注入——双引擎名存实亡）
+// 全局引用：unified 兜底路径执行 dsh_task 用（2026-08-22）。也写旧键名，避免外部集成还在读它。
+globalThis.__yuanshuDshTool = null;
+globalThis.__piWebDshTool = null;
+try {
+  const dshTool = await initDshTool();
+  globalThis.__yuanshuDshTool = dshTool;
+  globalThis.__piWebDshTool = dshTool;
+  if (dshTool && !UNIFIED_TOOLS.some((t) => t?.name === dshTool.name || t?.function?.name === dshTool.name)) {
+    // ⚠️ 2026-08-22 修复 400 "`function` is not set"：dsh_tool 返回 pi 自定义工具格式（扁平 name/description），
+    // UNIFIED_TOOLS 是 OpenAI 格式（{type,function}）——原样 push 导致上游解析 tools[i].function=undefined 必 400，
+    // 且只要降级到 unifiedChat 兜底就稳定复现（所有模型、所有触发工具的消息）。
+    const openaiDef = dshTool.function ? dshTool : {
+      type: "function",
+      function: {
+        name: dshTool.name,
+        description: dshTool.description || "",
+        parameters: dshTool.parameters || { type: "object", properties: {} },
+      },
+    };
+    UNIFIED_TOOLS.push(openaiDef);
+    console.log(`[dsh] 执行臂已注入统一工具集（${dshTool.name}，OpenAI 格式已转换，并发上限 ${process.env.PI_DSH_MAX || 6}）`);
+  }
+} catch (e) {
+  console.log(`[dsh] 工具注入失败: ${String(e?.message || e).slice(0, 80)}`);
+}
+
+// ══ Reasonix 三大机制落地（2026-08-19，esengine/DeepSeek-Reasonix 借鉴）══
+// 实现已抽到 engine/reasonix-tools.mjs（纯逻辑模块）：
+//   ① shrinkToolResult 工具结果压缩（P3） ② NEEDS_PRO_RE 自报升级（P3） ③ scavengeToolCalls 捞回（P2）
+
+// ══ 记忆结算：引擎无关，实现见 engine/turn-memory.mjs ══
+// 它必须在**所有**产生助手回复的引擎路径上跑。原先这段代码只写在下面 Pi 分支的
+// try 里，而 Pi 分支位于 early-return 之后 → yuanshu(unified) 与 dsh 静默不写记忆，
+// Pi 失败降级时也被跳过；而引擎目录声明的恰恰相反。现在由两个分支的 finally 各调一次。
+
+// 统一对话循环：openai 兼容 API → tool_calls 循环 → 思考提取
+// 本轮上游到底失败没有？pi 通道的失败**不抛异常**：它落成一条
+// { role:"assistant", content:[], stopReason:"error", errorMessage } 的记录。
+//
+// ⚠️ 必须**先看 SDK 的内存树**再看文件：失败记录是这一轮结束才落盘的，
+// 只读文件会读到上一轮的旧消息（第一版就是这么漏判的，于是又走了无历史兜底）。
+function lastTurnUpstreamError(entry) {
+  const pick = (m) => (m && m.role === "assistant" && m.stopReason === "error")
+    ? { errorMessage: String(m.errorMessage || m.error || "未给出原因"), model: m.model || "", provider: m.provider || "" }
+    : null;
+  try {
+    const roots = entry?.sm?.getTree?.();
+    if (Array.isArray(roots) && roots.length) {
+      const flat = [];
+      const walk = (node) => {
+        if (!node) return;
+        if (node.entry) flat.push(node.entry);
+        const kids = node.children instanceof Map ? [...node.children.values()] : node.children;
+        if (Array.isArray(kids)) for (const c of kids) walk(c);
+      };
+      for (const r of roots) walk(r);
+      for (let i = flat.length - 1; i >= 0; i--) {
+        const m = flat[i]?.message;
+        if (!m || m.role !== "assistant") continue;
+        return pick(m);   // 最近一条 assistant：报错就报错，没报错就是本轮正常
+      }
+    }
+  } catch {}
+  try {
+    const sf = entry?.sm?.getSessionFile?.() || entry?.sm?.sessionFile;
+    if (!sf || !fs.existsSync(sf)) return null;
+    const entries = parseSessionFile(sf) || [];
+    for (let i = entries.length - 1; i >= 0; i--) {
+      const m = entries[i]?.message;
+      if (!m || m.role !== "assistant") continue;
+      return pick(m);
+    }
+  } catch {}
+  return null;
+}
+
+async function handleChat(req, res, body) {
+  let message = typeof body.message === "string" ? body.message.trim() : "";
+  const emotionInput = { turnId: crypto.randomUUID(), message };
+  const sessionId = typeof body.sessionId === "string" ? body.sessionId : null;
+  // 限速（2026-08-29）：公网暴露下防脚本刷模型接口烧钱，30 次/分钟 per token+IP
+  if (!rateLimit(rateLimitKey(req, "chat"), 30, 60000)) {
+    return json(res, 429, { error: "请求过于频繁（30次/分钟），请稍后再试" });
+  }
+  if (isTeamRequest(body)) {
+    if (!body.__runContext) return json(res, 400, { error: '天团请通过会话任务入口 /api/runs 启动' });
+    return body.workflow === 'team-video' ? teamChat(req, res, body) : generalTeamChat(req, res, body);
+  }
+  // 外部思考调试开关：请求级 body.think=true 或全局 CONFIG.externalThinking
+  const thinkOn = body.think === true || isExternalThinking();
+  // 记录对话开始时会话行数（基线）：交付时只提取本轮新增的文件，避免历史文件重复推
+  let chatBaseline = 0;
+  console.log(`[chat] msg="${message.slice(0, 20)}" sid=${sessionId} model=${defaultModel?.provider}/${defaultModel?.id} agent=${body.model || ""}`);
+  if (!message) return json(res, 400, { error: "消息不能为空" });
+
+  // @ 文件引用：把文件内容拼入消息上下文
+  if (Array.isArray(body.files) && body.files.length) {
+    const parts = [];
+    for (const f of body.files.slice(0, 20)) {
+      if (!f?.path || typeof f.content !== "string") continue;
+      // 二进制文件不内联（2026-09-16，外部机器安装检查的第 4 个 bug）：
+      // xlsx/docx/pdf/zip/图片的字节拼进 prompt 就是一堆乱码——费 token、污染对话，
+      // 模型还会照着乱码猜内容。换成一条"按路径解析"的提示（/api/parse-file 支持 docx/xlsx/pptx）。
+      if (isBinaryReference(f)) {
+        console.log(`[chat] 跳过二进制参考文件内联: ${f.path}`);
+        parts.push(binaryReferenceNote(f.path));
+        continue;
+      }
+      if (f.content.length > 150000) f.content = f.content.slice(0, 150000) + "\n…[已截断]";
+      parts.push(`参考文件 ${f.path}：\n\`\`\`\n${f.content}\n\`\`\``);
+    }
+    if (parts.length) message = message + "\n\n" + parts.join("\n\n");
+  }
+
+  // 图片附件：转给模型的 images 参数
+  let images = [];
+  if (Array.isArray(body.images) && body.images.length) {
+    images = body.images
+      .slice(0, 3)
+      .filter(i => i?.data && i?.mimeType && i.data.length < 3 * 1024 * 1024)
+      .map(i => ({ type: "image", data: i.data, mimeType: i.mimeType }));
+  }
+
+  let entry;
+  if (sessionId) {
+    entry = await openSession(sessionId);
+    // 懒落盘的新会话首轮失败/服务重启后只剩编号没有文件：前端仍沿用这个 id，按原 id 重建而不是 404
+    if (!entry && hasSessionSequence(sessionId)) {
+      try { await createSession(undefined, { group: "workspace", id: sessionId }); entry = await openSession(sessionId); } catch (e) { console.log(`[元枢] 重建未落盘会话 ${sessionId} 失败: ${e?.message || e}`); }
+    }
+    if (!entry) return json(res, 404, { error: "会话不存在" });
+  } else {
+    // 未命名会话：body.fresh=true 表示用户点了「新建会话」→ 新建；否则复用上一个（打断续发同一会话）
+    // 测试标记（2026-08-29）：x-pi-test 头 → 总是新建独立会话（不复用 lastUnnamed，防污染用户对话流），名字加 [真测] 前缀归入真测分组
+    const isTest = String(req.headers?.["x-pi-test"] || "") === "1";
+    if (isTest || body.fresh || !lastUnnamedEntry || activeSessions.get(lastUnnamedId) !== lastUnnamedEntry) {
+      const id = await createSession(isTest ? `[真测] ${message.slice(0, 30) || "API测试"}` : undefined, { group: isTest ? "test" : "workspace" });
+      lastUnnamedId = id;
+      lastUnnamedEntry = activeSessions.get(id);
+      entry = lastUnnamedEntry;
+    } else {
+      entry = lastUnnamedEntry;
+      // 用户可能切换过模型：同步最新默认模型（用完整 runtime 模型，保证 compat 生效）
+      try {
+        if (defaultModel) {
+          let fm = defaultModel;
+          try { fm = modelRuntime.getModels().find(x => x.provider === defaultModel.provider && x.id === defaultModel.id) || defaultModel; } catch {}
+          const ag = await ensureAgent(entry, fm);
+          await ag.setModel(fm);
+        }
+      } catch {}
+    }
+  }
+  // 记录对话开始时会话行数（交付去重基线：只推本轮新增文件）
+  try {
+    const sf = entry.sm.sessionFile;
+    if (sf && fs.existsSync(sf)) chatBaseline = fs.readFileSync(sf, "utf8").split("\n").filter(Boolean).length;
+  } catch {}
+  // 通道策略：主次引擎对（engine-pair）决定本轮主驾。默认仍是 pi 主驾、元枢兑底。
+  // PI_USE_AGENT=0 → 强制元枢。非 SDK 原生通道只让兼容 agent 兑底（dsh 有自己的通道）。
+  // ⚠️ 这段是纯计算，必须放在 AIBody attach **之前**：attach 会把 engine 写进观测记录，
+  // 原先硬编码 "yuanshu"，主驾是 pi 时记录就是错的。留在这里又用 observedEngine 会 TDZ。
+  const reqProv = (typeof body.model === "string" && body.model.includes("/"))
+    ? body.model.split("/")[0]
+    : null;
+  const engineDecision = resolveLead(loadEnginePair(), {
+    forceYuanshu: process.env.PI_USE_AGENT === "0",
+    piAvailable: piSdkAvailable,
+    nativeChannel: !reqProv || NATIVE_PROVIDERS.has(reqProv),
+  });
+  // 恢复任务必须走带 effects ledger 的统一工具循环；SDK agent 无法在
+  // 内置 write/edit/bash 执行前可靠拦截，因此不能让恢复请求盲目重放。
+  const forceResumeUnified = body.__runContext?.resume === true;
+  const useAgent = piSdkAvailable && !!defaultModel && engineDecision.lead === "pi" && !forceResumeUnified;
+  const observedEngine = forceResumeUnified ? "yuanshu" : engineDecision.lead === "dsh" ? "dsh" : useAgent ? "pi" : defaultModel ? "yuanshu" : "pi";
+  // 在主聊天 SSE 外层接入 AIBody：同一条流观察计划、工具、子任务、记忆与产物，
+  // 结束时自动持久化本轮状态；不会改变 SSE 内容或背压行为。
+  const aibodyTurn = aibodyHost.attach({
+    res,
+    runId: body.__runContext?.runId || undefined,
+    sessionId: sessionId || findKeyByEntry(entry),
+    engine: observedEngine,
+    source: "chat",
+    message,
+    signals: body.__runContext?.signal,
+  });
+  const knowledgeNote = text => res.write(`event: note\ndata: ${JSON.stringify({ text })}\n\n`);
+  const knowledgeContext = await withKnowledgeRequest(req, res, signal => knowledgeChatContext(knowledgeRuntime, { signal,
+    query: emotionInput.message || message,
+    runId: body.__runContext?.runId || aibodyTurn.runId, sessionId: sessionId || findKeyByEntry(entry) }, knowledgeNote));
+  if (knowledgeRequestStopped(req, res)) return res.end();
+  // 2026-10-19 修：网页直连对话没有 run 上下文 → 培养工具拿不到「母体执行身份」。
+  // 本机直连 + 母亲候选（无 origin/workflow、非 /team）时，为这一轮签发短时身份；
+  // chatRunContext 紧接着构造，会带上它，下面的 cultivationHostIdentity.bind 再把它绑到活会话。
+  // 本人发起的会话：记下来，培养身份绑定放行用
+  if (isLoopbackReq(req) && isMotherExecutionCandidate(body)) markOwnerInitiated(sessionId || findKeyByEntry(entry));
+  if (!body.__runContext && isLoopbackReq(req) && isMotherExecutionCandidate(body)) {
+    try {
+      const identity = runManager.mintChatIdentity({ sessionId: sessionId || findKeyByEntry(entry), ttlMs: 30 * 60 * 1000 });
+      if (identity) body.__runContext = { executionIdentity: identity };
+    } catch { /* 签发失败就按原样走：不加身份，培养工具会如实拒绝 */ }
+  }
+  const chatRunContext = {
+    ...(body.__runContext || {}),
+    emotionInput,
+    runId: body.__runContext?.runId || aibodyTurn.runId,
+    sessionId: sessionId || findKeyByEntry(entry),
+    onEvent: (type, data) => res.write(`event: ${type}\ndata: ${JSON.stringify(data)}\n\n`),
+    aibodyContext: { goal: aibodyTurn.topic, strategy: aibodyTurn.directive },
+    knowledgeContext,
+    surface: String(body?.surface || ""), // 微信桥带 "wechat"：主链按它注入微信规矩
+  };
+  // Keep the live execution authority available to both chat engines without
+  // making it enumerable. This prevents accidental prompt/event/persistence
+  // leakage while allowing unifiedChat to forward it to its tool scheduler.
+  Object.defineProperty(chatRunContext, 'executionIdentity', {
+    value: body.__runContext?.executionIdentity,
+    enumerable: false,
+    configurable: false,
+    writable: false,
+  });
+  // 诊断（临时）：身份到底有没有到这一层的上下文里
+  if (!globalThis.__identityDiag) {
+    globalThis.__identityDiag = true;
+    if (process.env.YUANSHU_IDENTITY_DIAG === "1") { console.log(`[identity] chatRunContext.executionIdentity=${chatRunContext.executionIdentity ? "有" : "无"} body.__runContext=${body.__runContext ? "有" : "无"} keys=${Object.keys(body.__runContext || {}).join(",")}`) }
+  }
+  // 2026-11-01：如果这句是在回某个待拍板的事（「可以」/「不用」），先结单；
+  // 批准就把当初记下的 task 派出去，别让她再问一遍。
+  try {
+    const reply = handleReply(WS_ROOT, String(message || ""));
+    if (reply.handled) {
+      if (reply.kind === "approve" && reply.ask?.task) {
+        dispatchByRouter(reply.ask.task, `伙伴点头：${String(message || "").slice(0, 40)}`);
+        console.log(`[router] 伙伴批准 ${reply.ask.id}，已按原任务派活`);
+      } else {
+        console.log(`[router] 伙伴${reply.kind === "deny" ? "拒绝" : "处理"} ${reply.ask?.id || ""}`);
+      }
+    }
+  } catch (e) { console.log(`[router] 回执处理异常：${String(e?.message || e).slice(0, 100)}`) }
+  // 2026-11-01：一句话打开页面（"打开任务清单" → 前端直接切到任务页）
+  // 微信那边没有页面可跳：改成给她一条"直接把内容说清楚"的提示。
+  let navHint = "";
+  try {
+    const intent = parseOpenIntent(message);
+    const payload = navPayload(intent);
+    if (payload) {
+      const sid = sessionId || (typeof findKeyByEntry === "function" ? findKeyByEntry(entry) : "") || "";
+      let meta = {};
+      try { meta = (typeof getSessionList === "function" ? (getSessionList() || []).find((x) => x.id === sid) : null) || (findSession(sid) || {}) } catch {}
+      const sessLabel = String(meta.name || "");
+      const isWechat = String(body?.surface || "") === "wechat" || String(meta.group || "") === "wechat" || /微信/.test(sessLabel);
+      if (isWechat) {
+        navHint = `对方说的是"打开${payload.label}"，但微信里没有页面可跳。直接用一两句话把「${payload.label}」现在的内容说清楚（需要明细就调用工具查），不要回答"正在打开"。`;
+        console.log(`[nav] 微信场景 → 改为给内容：${payload.label}`);
+      } else {
+        sseWrite(res, "nav", payload);
+        console.log(`[nav] ${String(message).slice(0, 30)} → ${payload.route}`);
+      }
+    }
+  } catch {}
+  const refreshCultivationContext = async () => {
+    const learned = await withKnowledgeRequest(req, res, signal => cultivationChatContext(cultivationRuntime, knowledgeRuntime, { signal,
+      executionIdentity: body.__runContext?.executionIdentity,
+      query: emotionInput.message || message, runId: chatRunContext.runId,
+      sessionId: sessionId || findKeyByEntry(entry),
+    }, knowledgeNote));
+    chatRunContext.knowledgeContext = [knowledgeContext, learned].filter(Boolean).join('\n');
+  };
+  // busy → 打断当前任务（对标 TUI interrupt：同一会话上处理新消息）
+  if (entry.busy) {
+    try { entry.mediaAbort?.(); } catch {}
+    const curAgent = entry.agent;
+    try { await curAgent.abort(); } catch {}
+    // 等待当前任务释放 busy（abort 生效通常 2-3s）
+    let waited = 0;
+    while (entry.busy && waited < 8000) {
+      await new Promise(r => setTimeout(r, 200));
+      waited += 200;
+    }
+    if (entry.busy) {
+      // abort 未生效（LLM 流卡死）→ 销毁旧 agent 重建，彻底释放
+      try { curAgent.dispose(); } catch {}
+      entry.busy = false;
+      for (const [id, e] of activeSessions) if (e === entry) activeSessions.delete(id);
+      console.log(`[元枢] 会话 ${sessionId || "new"} 打断失败，已销毁卡住 agent 并重建`);
+      if (sessionId) {
+        entry = await openSession(sessionId);
+        if (!entry) return json(res, 404, { error: "会话不存在" });
+      } else {
+        const id = await createSession();
+        lastUnnamedId = id;
+        lastUnnamedEntry = activeSessions.get(id);
+        entry = lastUnnamedEntry;
+      }
+    }
+  }
+  // 代次机制：每次请求递增，旧请求 finally 只在代次未变时释放 busy（防快速重发竞态）
+
+  entry.gen = (entry.gen || 0) + 1;
+  const thisGen = entry.gen;
+  entry.busy = true;
+  entry.busySince = Date.now();
+  cultivationHostIdentity.bind(body.__runContext?.executionIdentity, {
+    sessionId: sessionId || findKeyByEntry(entry), entry, generation: thisGen,
+  });
+  // 复读守卫的基准：**必须在动笔之前取**（2026-09-16 修首轮误判）。
+  // pi 通道会在本轮中途就把回复写进会话文件；事后读文件当基准 = 拿自己跟自己比 → 全新会话首轮必判复读，
+  // 然后静默换模型重写。取不到就是 null：首轮没有"上一条"，不可能复读。
+  const replyBaseline = (() => {
+    try { return lastAssistantReply({ sessionFile: entry.sm?.sessionFile, tree: entry.sm?.getTree?.() }); } catch { return null; }
+  })();
+
+  // /compact 手动压缩命令（Claude Code /compact 借鉴）：强制对早前历史生成结构化摘要，不消耗模型回合
+  // 用法：/compact 或 /compact focus on <主题>；压缩结果写入会话（compaction 条目），返回摘要供前端展示
+  const compactCmd = typeof message === "string" && message.trim().match(/^\/compact(?:\s+(?:focus\s+on\s+)?(.+))?$/i);
+  if (compactCmd) {
+    const compactFocus = (compactCmd[1] || "").trim();
+    const sf = entry.sm.sessionFile;
+    try {
+      if (!sf || !fs.existsSync(sf)) return json(res, 400, { error: "会话文件不存在，无法压缩" });
+      entry.busy = false;
+      const r = await compactSession(sf, defaultModel, true, compactFocus);
+      if (!r || r.skip) return json(res, 200, { compact: "skip", reason: r?.reason || "没有可压缩的内容（消息过少或摘要生成失败）" });
+      console.log(`[元枢] 手动 /compact 完成: focus=${compactFocus || "-"} retained=${r.retained}`);
+      return json(res, 200, { compact: "done", focus: compactFocus, retained: r.retained, summary: String(r.summary || "").slice(0, 500) });
+    } catch (e) {
+      console.log(`[元枢] 手动 /compact 失败: ${String(e?.message || e).slice(0, 120)}`);
+      return json(res, 500, { error: "压缩失败：" + String(e?.message || e).slice(0, 120) });
+    } finally {
+      entry.busy = false;
+    }
+  }
+
+  // Plan Mode v2（Cursor/Claude Code 借鉴，工具级硬限制）：/plan <需求> → 只读调研+输出分步计划
+  // v2 用 agent.setActiveToolsByName 把工具集硬切为只读集（read/search_files）——模型目录里没有写工具，
+  // 无法调用 write/edit/bash/dsh/share，结构性杜绝违规（v1 仅指令约束靠模型自觉）；accept 时恢复全量。
+  // unifiedChat 兑底路径在 handleUnifiedChat 内做工具定义层过滤（见下）。
+  const planCmd = typeof message === "string" && message.trim().match(/^\/plan(?:\s+(accept|cancel|execute)\b)?\s*(.*)$/i);
+  if (planCmd) {
+    const pAct = (planCmd[1] || "").toLowerCase();
+    const pRest = (planCmd[2] || "").trim();
+    const applyPlanTools = async (readonly) => {
+      if (!entry.agent) return; // agent 尚未创建（新会话首条 /plan），ensureAgent 后统一应用
+      try {
+        const names = readonly ? PLAN_READONLY_SET : entry.agent.getAllTools().map(t => t.name);
+        entry.agent.setActiveToolsByName(names);
+        console.log(`[plan] ${readonly ? "工具级限制生效（只读）" : "工具集已恢复全量"} → ${names.join(", ")}`);
+      } catch (e) { console.log(`[plan] 工具集设置失败: ${String(e?.message || e).slice(0, 80)}`); }
+    };
+    if (!pAct) {
+      if (!pRest) return json(res, 400, { error: "/plan 用法：/plan <需求> 进入规划模式；/plan accept 批准执行；/plan cancel 取消" });
+      entry.planPending = true;
+      await applyPlanTools(true);
+      message = `【规划模式】请先只读调研（你的工具已被系统限制为只读，仅能读取/搜索文件，无法修改/创建/删除任何文件、无法运行写入或测试命令），然后输出一份分步实施计划：目标 / 实施步骤 / 涉及文件 / 风险点。计划用编号列表清晰输出，最后询问用户是否批准。\n\n需求：${pRest}`;
+    } else if (pAct === "accept" || pAct === "execute") {
+      entry.planPending = false;
+      await applyPlanTools(false);
+      message = `【批准规划】用户已批准你上一步输出的计划。请现在按计划开始执行（你的工具已恢复，可以正常读写文件、运行命令）。`;
+    } else {
+      entry.planPending = false;
+      await applyPlanTools(false);
+      return json(res, 200, { plan: "cancelled" });
+    }
+  }
+
+  // ── 会话事件总线（2026-10-25 提前到"流开始"之前）──────────────────────────
+  // 原来总线建在下面 1700 行附近，可 1610 行就把响应整个交给了 handleUnifiedChat（它自己开 writer），
+  // 那条早退路径**永远走不到总线** → 别的终端整轮收不到任何事件（实测 subscribed.lastSeq 恒为 0）。
+  // 现在：建立在任何流式输出之前，并且所有 writer 都经过 wrapWriter 收口，任何 push 都会进总线。
+  const busTaskId = body.taskKey || sessionId || findKeyByEntry(entry) || "new";
+  const busKeys = [busTaskId, ...(sessionId && sessionId !== busTaskId ? [sessionId] : [])];
+  // 每轮开始清掉上一轮的残留事件：被中断的那一轮没有 turn_end，缓冲里会留着半截 delta，
+  // 迟到订阅者（after=0）就会把它拼进这一轮的回答里（用户反馈的"旧消息流被拉进来"）。
+  for (const k of busKeys) { try { busReset(k); } catch {} }
+  const busSeenAt = new Map();
+  // 本轮她说出来的正文（只用于"汇报完自动 ack"的判断，不落盘）
+  const turnText = { buf: "" };
+  const busEmit = (type, data) => {
+    const sig = `${type}:${String(JSON.stringify(data || {})).slice(0, 160)}`;
+    const now = Date.now();
+    const prev = busSeenAt.get(sig);
+    if (prev && now - prev < 250) return;   // 显式 busEmit 与自动广播撞同一事件时只发一次
+    busSeenAt.set(sig, now);
+    if (busSeenAt.size > 300) busSeenAt.clear();
+    for (const k of busKeys) busPush(k, type, data);
+    // 2026-10-25：一轮结束就按"她实际说的话"给未汇报的作业自动 ack。
+    // 只在回复里真的提到了作业名字时才 ack（见 autoAckByText 的保守判定），
+    // 免得把"提醒一次"变成"以后再也不提醒"。
+    if (type === "done" || type === "turn_end") {
+      try {
+        if (turnText.buf.length >= 12) {
+          const r = autoAckByText(WS_ROOT, turnText.buf);
+          if (r.acked.length) console.log(`[jobs] 回复里提到了作业，自动标记已汇报: ${r.acked.join(", ")}`);
+        }
+      } catch {}
+    }
+  };
+  // 收口：给 writer 打上"每条事件都广播"的包装（幂等，重复包装不会叠加）
+  const wrapWriter = (w) => {
+    if (!w || w.__busWrapped) return w;
+    const raw = w.push.bind(w);
+    w.push = (type, data) => {
+      try {
+        // 攒正文：delta / text 两种都是"她说的内容"
+        if ((type === "delta" || type === "text") && data && typeof data.text === "string" && turnText.buf.length < 20000) {
+          turnText.buf += data.text;
+        }
+        busEmit(type, data);
+      } catch {}
+      return raw(type, data);
+    };
+    w.__busWrapped = true;
+    return w;
+  };
+
+  res.writeHead(200, {
+    "Content-Type": "text/event-stream",
+    "Cache-Control": "no-cache",
+    Connection: "keep-alive",
+    "X-Accel-Buffering": "no",
+  });
+
+  let chatSelection;
+  try {
+    chatSelection = resolveChatSelection({ models: modelList, requested: body.model, modelKey: entry.modelKey });
+    if (chatSelection.key && (entry.modelKey?.provider !== chatSelection.key.provider || entry.modelKey?.id !== chatSelection.key.id)) {
+      entry.modelKey = chatSelection.key;
+      if (sessionId) saveSessionModelKey(sessionId, entry.modelKey);
+    }
+  } catch (error) {
+    try { sseWrite(res, 'error', { message: describeFailure(error) }); } finally {
+      if (entry.gen === thisGen) entry.busy = false;
+      res.end();
+    }
+    return;
+  }
+  if (chatSelection.kind === 'image' || chatSelection.kind === 'video') {
+    let entries = [];
+    try { if (entry.sm.sessionFile) entries = readEntriesFromFile(entry.sm.sessionFile); } catch {}
+    await runSelectedMedia({ req, res, entry, generation: thisGen, model: chatSelection.model,
+      kind: chatSelection.kind, message, runContext: chatRunContext, entries,
+      generateImage, generateVideo, saveArtifact, invalidate: invalidateSessionCache });
+    return;
+  }
+  try { sseWrite(res, "engine_selected", { engine: observedEngine, reason: forceResumeUnified ? "恢复任务使用元枢循环，承接已保存的步骤。" : ({ primary: "使用系统配置的主引擎。", force: "启动配置指定使用元枢引擎。", "non-native": "当前模型通道由元枢自建循环承接。", "cannot-lead": "配置主引擎无法承担此任务，由可执行的引擎接替。" }[engineDecision.reason] || "使用本轮可用的执行通道。") }); } catch {}
+  // 跨轮目标：本轮推进一轮（闸门在 advanceGoalTurn 里：到顶/重放/revision 不匹配一律不放行）。
+  // 必须在分支之前认领，这样 pi 与 yuanshu 两条路径看到的是同一个轮号。
+  const goalTurn = advanceGoalTurn(CONFIG.cwd);
+  // 本轮开始前的会话文件大小：收尾结算时按这个偏移切片，只认本轮新追加的助手回复
+  let sessionBytesBefore = (() => { try { return fs.statSync(entry.sm.sessionFile).size; } catch { return 0; } })();
+  if (forceResumeUnified || engineDecision.lead === "dsh" || (defaultModel && !useAgent)) {
+    const hb2 = startSseHeartbeat(res);
+    // 2026-10-23：聊天执行脱钩（YUANSHU_DETACH_CHAT=0 可回退到"断开即取消"）
+    const detachChat = process.env.YUANSHU_DETACH_CHAT !== "0";
+    let abortCtrl;
+    let onClose;
+    if (detachChat) {
+      const streamKey = sessionId || findKeyByEntry(entry) || `anon-${thisGen}`;
+      const prior = chatStreams.get(streamKey);
+      if (prior) prior.abort("superseded");
+      const stream = chatStreams.create(streamKey);
+      const nativeRes = res;
+      stream.attach(nativeRes);
+      res = stream.wrapResponse(nativeRes);   // 后续所有 sseWrite/handle* 都写进流
+      abortCtrl = { signal: stream.signal };
+      // 客户端走了，任务继续；但 Run 管理器的请求被关 = 伙伴点了停止，要真的打断模型
+      const ownedByRun = Boolean(body.__runContext?.runId);
+      onClose = closeHandlerFor(stream, nativeRes, { ownedByRun });
+    } else {
+      abortCtrl = new AbortController();
+      onClose = () => { try { abortCtrl.abort({ code: "CLIENT_DISCONNECTED" }); } catch {} };
+    }
+    req.on("close", onClose);
+    // 2026-10-24：本轮耗时探针（挂在最终 res 上，能认 SSE 事件名）
+    const turnProfile = turnProfiler.begin({
+      sessionId: sessionId || findKeyByEntry(entry) || "",
+      runId: chatRunContext?.runId || "",
+      model: `${defaultModel?.provider || ""}/${defaultModel?.id || ""}`,
+      messageChars: String(message || "").length,
+    });
+    turnProfile.instrument(res);
+    // 2026-10-24：本轮 usage 归到 profile；同时推给前端（状态栏 tok/s、缓存命中、上下文占用）
+    currentTurnProfile = turnProfile;
+    currentTurnRes = res;
+    try {
+      try { sseWrite(res, "note", { text: leadNote(engineDecision) }); } catch {}
+      if (engineDecision.lead === "dsh" && !forceResumeUnified) {
+        await handleDshChat(res, entry, message, sessionId || findKeyByEntry(entry), abortCtrl.signal, { cwd: CONFIG.cwd });
+      } else {
+        await refreshCultivationContext();
+        turnProfile.mark("context");
+        if (knowledgeRequestStopped(req, res)) return res.end();
+        // 2026-10-25：把 writer 交进去（原来是 undefined → 它自己另开一个不进总线的流，
+        // 这就是"别的终端收不到回复"的根）。wrapWriter 保证每条事件同时进会话总线。
+        await handleUnifiedChat(res, entry, message, sessionId || findKeyByEntry(entry), body.params, abortCtrl.signal, wrapWriter(createSseWriter(res)), thinkOn, body.taskKey, (entry.modelKey && !isAutoModel(entry.modelKey)) ? entry.modelKey : null, null, chatRunContext);
+      }
+    } catch (e) {
+      try { sseWrite(res, "error", { message: describeFailure(e) }); } catch {}
+      // 闸门③：一轮出错就解除目标，不带着错误继续转
+      if (goalTurn?.ok) noteGoalError(CONFIG.cwd, goalTurn.goal.id, e?.message || e);
+    } finally {
+      clearInterval(hb2);
+      req.removeListener("close", onClose);
+      try { turnProfile.end({ engine: observedEngine }) } catch {}
+      currentTurnProfile = null; currentTurnRes = null;
+      // 代次匹配才释放（快速重发时新请求已占 busy，旧请求不得干扰）
+      if (entry.gen === thisGen) entry.busy = false;
+      try { res.end(); } catch {}
+      if (entry.gen === thisGen) invalidateSessionCache(); // 消息写入会话文件 → 列表缓存失效
+      // 记忆结算：放在 res.end() 之后，不拖慢客户端收尾。
+      // dsh 按引擎目录声明的边界（「不接记忆 / 出图 / 规划主循环」）跳过；
+      // 被新请求顶掉的轮次也跳过——那时按偏移切片会切到新轮次的回复，属于错误归因。
+      const ranUnifiedLoop = !(engineDecision.lead === "dsh" && !forceResumeUnified);
+      if (ranUnifiedLoop && entry.gen === thisGen) {
+        await settleTurnMemory({ wsRoot: CONFIG.cwd, entry, message, sessionId, bytesBefore: sessionBytesBefore });
+      }
+    }
+    return;
+  }
+  // 会话级模型：切过模型则用会话的；未切（默认）→ Auto 路由（Cursor Router 简化版：按任务复杂度选 flash/pro）
+  let autoRoute = null;
+  const effModel = (() => {
+    if (entry.modelKey && isAutoModel(entry.modelKey)) {
+      autoRoute = routeForAuto(message, sessionId);
+      return autoRoute.model;
+    }
+    if (entry.modelKey) {
+      const picked = modelList.find(m => m.provider === entry.modelKey.provider && m.id === entry.modelKey.id) || defaultModel;
+      // 主动避让：用户显式选中的模型已在冷却中(之前撞过 401/402/403/429/529) → 不进 SDK 重试循环，直接换备选
+      // （上游错误文本常是中文（如智谱/opencode-go 的额度提醒），兼容 SDK 内部可重试判定用英文关键词正则匹配不上不可重试模式，
+      // 会把额度耗尽误判成可重试，平白多等 3 次退避（共 ~14s）才降级）
+      if (isModelBlocked(picked)) {
+        const alt = pickFallbackExcluding(picked);
+        console.log(`[元枢] 主动避让冷却模型: ${picked?.provider}/${picked?.id} 已冷却 → 换 ${alt?.provider}/${alt?.id}`);
+        return alt || picked;
+      }
+      return picked;
+    }
+    // 未设置会话模型：默认走 Auto 路由（对标 Cursor 默认 Auto；PI_AUTO_ROUTE=0 可关闭）
+    autoRoute = routeForAuto(message, sessionId);
+    return autoRoute.model;
+  })();
+  if (autoRoute?.auto && autoRoute.model) markSticky(sessionId, autoRoute.model); // 会话粘性：10min 内 simple 轮不降档
+  entry.autoRoute = autoRoute; // 供 SSE 播报与日志
+  // ⚠️ 上下文余量闸门必须放在"agent 重建"之前（2026-09-18 真机事故）：
+  //   会话涨到 195k/200k 时，SDK 按 min(模型声明, 窗口−输入−安全余量) 只肯给模型 ~400 token 输出，
+  //   答案在 387 token 处被 length 截断，SDK 又删掉半截答案压缩重试（重试只吐 1 token）——
+  //   用户看到"说到一半被打断"。这里先压缩+重开会话，让本轮就有输出余量。
+  let headroom = null;
+  if (sessionId && (entry.sm?.sessionFile || entry.sm?.getSessionFile?.())) {
+    try {
+      const h = await ensureContextHeadroom(sessionId, entry, effModel);
+      if (h?.entry && h.entry !== entry) entry = h.entry;
+      headroom = h;
+    } catch (e) { console.log(`[headroom] 闸门失败(不阻断): ${String(e?.message || e).slice(0, 100)}`); }
+  }
+  // 压缩改写会让基线错位（chatBaseline/sessionBytesBefore 都用行数/字节数当锚）→ 重算
+  if (headroom?.compacted) {
+    try {
+      const sf = entry.sm.sessionFile;
+      if (sf && fs.existsSync(sf)) {
+        chatBaseline = fs.readFileSync(sf, "utf8").split("\n").filter(Boolean).length;
+        sessionBytesBefore = fs.statSync(sf).size;
+      }
+    } catch {}
+  }
+  // agent 绑定模型与本次生效模型（会话级切换 或 Auto 路由实时决策）不一致 → 重建 agent
+  // ⚠️ 2026-08-19：原来只在 entry.modelKey 存在时重建，Auto 路由下 agent 仍绑创建时的 defaultModel（429 中）
+  //    → 主请求失败、兕底文本回复、无思考无工具。改为与 effModel 全量对齐。
+  if (entry.agent && effModel &&
+      (!entry.agentModel || entry.agentModel.provider !== effModel.provider || entry.agentModel.id !== effModel.id)) {
+    try { entry.agent.dispose(); } catch {}
+    entry.agent = null;
+    console.log(`[元枢] 生效模型变化，重建 agent → ${effModel.provider}/${effModel.id}`);
+  }
+  const agent = await ensureAgent(entry, effModel);
+  // Plan 模式工具级限制：agent 就绪后统一应用一次（覆盖新会话首条 /plan / 模型切换重建后的 agent）
+  if (entry.planPending) {
+    try {
+      agent.setActiveToolsByName(PLAN_READONLY_SET);
+      console.log(`[plan] 工具级限制生效（只读）→ ${PLAN_READONLY_SET.join(", ")}`);
+    } catch (e) { console.log(`[plan] 工具集设置失败: ${String(e?.message || e).slice(0, 80)}`); }
+  }
+  // agentModel 由 ensureAgent/createSessionAgent 设置真实值，这里不覆盖
+  const sm = entry.sm;
+  // 两阶段引导：本次请求是否新会话首轮（首轮锚定后 promote 完整工具集）
+  let bootstrapTurn = isFirstTurn(entry.sm) && process.env.PI_TWO_PHASE !== "0";
+  const hbTimer = startSseHeartbeat(res); // 心跳保活（公网隧道不因 idle 断开）
+  const requestedModel = entry.modelKey?.id && entry.modelKey.id !== 'auto' ? { provider: entry.modelKey.provider, id: entry.modelKey.id } : null;
+  const writer = wrapWriter(withModelProvenance(createSseWriter(res), requestedModel)); // 背压与实际模型归属（同时进总线）
+  try { const selected = entry.agentModel || effModel; writer.push("model_selected", { model: { provider: selected?.provider, id: selected?.id } }); } catch {}
+  try { writer.push("note", { text: leadNote(engineDecision) }); } catch {}
+  // 上下文余量如实播报：真腾出余量就报"压完还剩多少"；没腾出来就直说，别拿 🧹 糊弄
+  try {
+    if (headroom?.after?.contextWindow) {
+      const used = headroom.after.usedTokens || headroom.before?.usedTokens || 0;
+      const room = Number.isFinite(headroom.roomAfter) ? headroom.roomAfter : outputRoomTokens({ contextWindow: headroom.after.contextWindow, usedTokens: used });
+      const modelName = `${effModel?.provider}/${effModel?.id}`;
+      if (headroom.compacted && room >= 8192) {
+        writer.push("note", { text: headroomNote({ contextWindow: headroom.after.contextWindow, usedTokens: used, room, compressed: true, model: modelName }) });
+      } else if (room < 8192) {
+        const why = !headroom.compacted && headroom.reason ? `（压缩没成功：${headroom.reason}）` : "";
+        writer.push("note", { text: headroomNote({ contextWindow: headroom.after.contextWindow, usedTokens: used, room, model: modelName }) + why });
+      }
+    }
+  } catch {}
+  // Cursor Router 播报：Auto 路由决策对用户透明（取 Cursor 可用性长板，可解释）
+  if (autoRoute && autoRoute.auto && effModel) {
+    const routeBadge = autoRoute.level === "complex" ? "🛰️ 复杂任务" : "⚡ 日常任务";
+    const routeNote = `${routeBadge} · Auto 路由 → ${effModel.id}${autoRoute.reasons?.length ? "（" + autoRoute.reasons.join("/") + "）" : ""}`;
+    writer.push("note", { text: routeNote });
+    console.log(`[router] ${routeNote}`);
+  }
+  touchTask(busTaskId, { stage: "处理中" });
+
+  // ── 危险操作确认（dsh user-approval seam）：命中危险 cmd → 弹框等人工 ──
+  // 包装底层 agent 的 beforeToolCall：命中危险 → 发 confirm 事件 → 等前端回答 → 放行/阻断
+  // ⚠️ 只挂一次：entry.agent 会话级复用，若每次 handleChat 都包装会层层叠加（重复确认刷屏）
+  try {
+    const innerAgent = agent?.agent || agent; // AgentSession.agent(底层) 优先
+    if (innerAgent && typeof innerAgent.beforeToolCall === "function" && !innerAgent.__approvalWrapped) {
+      innerAgent.__approvalWrapped = true;
+      const origBefore = innerAgent.beforeToolCall;
+      const approval = createApprovalInterceptor({
+        policyDecide, // dsh-keys 策略引擎（安全红线仍直接拒绝，不弹框）
+        ask: async (toolName, args, reason) => {
+          const sid = sessionId || findKeyByEntry(entry) || taskId;
+          const reg = confirmRegistry.register(sid, { toolName, reason, src: "ask" });
+          // 推给前端：确认框
+          writer.push("confirm", { id: reg.id, toolName, reason, args: args || {}, sessionId: sid });
+          busEmit("confirm", { id: reg.id, toolName, reason, args: args || {}, sessionId: sid });
+          const outcome = await reg.promise; // 等前端/超时 （cancelled / allowed-once / rejected）
+          return outcome;
+        },
+        enabled: process.env.PI_APPROVAL !== "0", // 默认开；PI_APPROVAL=0 关
+        log: (m) => console.log(m),
+      });
+      innerAgent.beforeToolCall = approval.wrapBeforeToolCall(origBefore);
+    }
+  } catch (e) {
+    console.log(`[approval] 注入失败(不阻断正常流): ${String(e?.message || e)}`);
+  }
+
+  let sawDelta = false; // 是否产生过文本输出（用于空回复兜底）
+  let collected = "";   // 收集主模型输出（用于媒体路由的配图/配音内容）
+  // ④ 续画上下文（2026-09-16）：用户上一轮在出图，这一轮只说"再换个词的出一下"——
+  // 关键词检测必然漏，宿主旁路不出图、模型又不主动调工具 → 表现就是"经常不画"。
+  const mediaKey = sessionId || findKeyByEntry(entry) || "new";
+  const lastMedia = lastMediaBySession.get(mediaKey) || null;
+  // 2026-10-28：默认**不抢跑**——让模型自己调 generate_image（她驱动）。
+  // 只有 记忆/运行时/出图.json {"direct":true} 才回到"关键词直接出图"的旧行为。
+  const mediaIntents = directMediaMode(WS_ROOT)
+    ? detectMediaIntents(message, { lastMediaType: lastMedia?.type, lastPrompt: lastMedia?.prompt })
+    : [];
+  const mediaPromptOf = (it) => extractMediaPrompt(message, { wsRoot: WS_ROOT, followUp: it.followUp, lastPrompt: lastMedia?.prompt });
+  // 并行启动全部媒体生成（不阻塞主模型文字流式）
+  let mediaPromise = mediaIntents.length
+    ? Promise.all(mediaIntents.map(it => trackedMedia(it, mediaPromptOf(it), { requestText: message })))
+    : Promise.resolve([]);
+  let settledMedia = [];
+  const mediaDelivered = mediaIntents.length
+    ? mediaPromise.then(async (results) => {
+        const items = [];
+        const errors = [];
+        for (const mr of results || []) {
+          if (!mr) continue;
+          if (mr.error && !mr.url) { errors.push(mr.error); continue; }
+          if (!mr.url) continue;
+          // 本地化契约：外站临时链接必须先落本地；没落成要标记出来，
+          // 不能再 try/catch 一吞了事——那样界面分辨不出"已存"和"没存"。
+          const saved = await saveArtifact(mr);
+          if (!saved.local && mr.type === "image") {
+            // 2026-11-08：图片本地存档是唯一交付路径。没落盘就不发图（也不发厂商地址）——
+            // 厂商随时可能把地址关掉，发了也只是"只有生成它的那台终端能看到"。
+            mr.localizeError = saved.reason;
+            mr.unlocalized = true;
+            console.log(`[元枢] 聊天图片未落盘，不交付: ${saved.reason || ""}`);
+            errors.push(`有一张图没能存到本地（${saved.reason || "下载失败"}），已不展示；原图在厂商侧可能随时失效`);
+            try {
+              const miss = `有一张图没能存到本地（${saved.reason || "下载失败"}），已不展示；原图在厂商侧可能随时失效。`;
+              writer.push("note", { text: miss }); busEmit("note", { text: miss });
+            } catch {}
+            continue;
+          }
+          mr.url = saved.url;
+          mr.localized = saved.local;
+          if (!saved.local) {
+            mr.localizeError = saved.reason;
+            errors.push(`产物没能存到本地（${saved.reason}）：当前用的是外站临时链接，过期会失效`);
+          }
+          items.push(mr);
+          try { writer.push("media", mr); busEmit("media", mr); } catch {}
+        }
+        settledMedia = items;
+        // ④ 记住"这个会话上一轮出过图、用的是什么提示词"，供续画（"再换个词"）使用
+        if (items.some(i => i.type === "image")) {
+          const used = mediaIntents[0]?.followUp ? (lastMedia?.prompt || extractMediaPrompt(message, { wsRoot: WS_ROOT })) : extractMediaPrompt(message);
+          lastMediaBySession.set(mediaKey, { type: "image", prompt: used, at: Date.now() });
+        }
+        if (items.length && mediaIntents.some(i => i.followUp)) {
+          const why = "按你上一张的要求又画了一张（宿主旁路出图：不依赖模型自己想起来调工具）";
+          try { writer.push("note", { text: why }); busEmit("note", { text: why }); } catch {}
+        }
+        const notice = mediaReadyNotice(items);
+        if (notice) {
+          try {
+            await entry.agent?.sendCustomMessage?.(
+              { customType: "context", content: [{ type: "text", text: notice }] },
+              { deliverAs: "nextTurn" }
+            );
+          } catch {}
+        } else if (mediaIntents.some(i => i.type === "image")) {
+          const miss = `图像模型这次没出成图${errors.length ? "：" + explainMediaError(errors[0]) : ""}。你可以继续用工具画 SVG 或其他成品交出来。`;
+          try { writer.push("note", { text: miss }); busEmit("note", { text: miss }); } catch {}
+        }
+        return items;
+      }).catch((e) => {
+        const miss = `出图未成功：${explainMediaError(e)}。思考和工具不受影响。`;
+        try { writer.push("note", { text: miss }); busEmit("note", { text: miss }); } catch {}
+        return [];
+      })
+    : Promise.resolve([]);
+  const unsubscribe = agent.subscribe((event) => {
+    try {
+      // 两阶段引导 promote：首轮产生首个文本/工具事件 → 恢复完整工具集（下个 turn 生效，零成本）
+      // turn_end 兜底：首轮无论是否产生文本/工具事件（纯思考/空回复/报错），结束时也强制 promote，杜绝工具集永久残缺
+      // Plan 模式例外：规划期间保持只读硬限制，不 promote（否则工具级限制被绕过）
+      if (bootstrapTurn && !entry.planPending && (event.type === "message_update" || event.type === "tool_execution_start" || event.type === "turn_end")) {
+        try {
+          const allNames = agent.getAllTools().map(t => t.name);
+          if (allNames.length) {
+            agent.setActiveToolsByName(allNames);
+            console.log(`[agent] 两阶段引导：首轮锚定完成，promote → 完整工具集 ${allNames.join(", ")}`);
+          }
+        } catch (e) { console.log(`[agent] 两阶段引导 promote 失败: ${String(e?.message || e).slice(0, 80)}`); }
+        bootstrapTurn = false;
+      }
+      if (event.type === "message_update" && event.assistantMessageEvent?.type === "text_delta") {
+        const actual = event.message || event.assistantMessageEvent?.partial;
+        if (!sawDelta) writer.push('model_used', { model: { provider: actual?.provider || effModel?.provider, id: actual?.model || effModel?.id } });
+        sawDelta = true;
+        const delta = event.assistantMessageEvent.delta || "";
+        collected += delta;
+        // 过滤模型复述/泄漏的内部指令（情绪语境等），避免显示给用户
+        const cleaned = delta.replace(/【内部指令·情绪语境】[\s\S]*?(?=【|\n\n|$)/, "").replace(/【当前情绪语境】[\s\S]*?(?=【|\n\n|$)/, "");
+        if (cleaned) { writer.push("delta", { text: cleaned }); busEmit("delta", { text: cleaned }); }
+      } else if (event.type === "message_update" && event.assistantMessageEvent?.type === "thinking_delta") {
+        writer.push("think", { text: event.assistantMessageEvent.delta });
+        busEmit("think", { text: event.assistantMessageEvent.delta });
+      } else if (event.type === "message_update" && event.assistantMessageEvent?.type === "thinking_end") {
+        writer.push("think_end", {});
+        busEmit("think_end", {});
+      } else if (event.type === "tool_execution_start") {
+        touchTask(taskId, { stage: "执行工具", toolName: event.toolName });
+        writer.push("tool", { name: event.toolName, args: event.args, id: event.toolCallId });
+        busEmit("tool", { name: event.toolName, args: event.args, id: event.toolCallId });
+      } else if (event.type === "tool_execution_end") {
+        touchTask(taskId, { stage: "工具完成", toolName: event.toolName });
+        const text = Array.isArray(event.result?.content)
+          ? event.result.content.map(c => c.text || "").join("")
+          : "";
+        writer.push("tool_end", { name: event.toolName, id: event.toolCallId, isError: !!event.isError, output: text });
+        busEmit("tool_end", { name: event.toolName, id: event.toolCallId, isError: !!event.isError, output: text });
+        const media = event.result?.details?.media;
+        if (media?.url) {
+          // 2026-11-07 / 2026-11-08：第三方工具/扩展直传的 details.media 统一过闸门。
+          // 视频：只有本地/同源产物才发播放块，远端临时链接改成一行说明 + 原链接；
+          // 图片：远端先 saveArtifact 落盘，落不下来这一条就不进聊天（图片没有远端退路）。
+          // 内置 generate_video / generate_image 已落盘，直接放行。
+          void (async () => {
+            try {
+              const gated = await gateIncomingMedia(media, { saveArtifact });
+              if (gated.media) { writer.push("media", gated.media); busEmit("media", gated.media); }
+              else if (gated.note) { writer.push("note", { text: gated.note }); busEmit("note", { text: gated.note }); }
+            } catch {}
+          })();
+        } else if (text) {
+          try {
+            const scraped = extractPlayableMedia(text);
+            // 2026-09-16：从工具输出里刮出来的媒体也要走**本地化契约**。
+            // 以前是原样推给前端：真机验证时就看到一条 platform-outputs.agnes-ai.space 的外站链接
+            // 直接进了对话——那种链接会过期，图和视频迟早变裂图。这里统一 saveArtifact 后再推。
+            // 2026-11-08：图片更硬——没落盘就**不推**（连厂商地址都不发），只留一行说明。
+            const pushScraped = async (type, url) => {
+              let finalUrl = "";
+              let localizeError = "";
+              try {
+                const saved = await saveArtifact({ type, url });
+                if (saved?.local && saved.url) finalUrl = saved.url;
+                else localizeError = saved?.reason || "下载失败";
+              } catch (e) { localizeError = String(e?.message || e).slice(0, 120); }
+              if (!finalUrl) {
+                if (type === "image") {
+                  const miss = `有一张图没能存到本地（${localizeError}），已不展示；原图在厂商侧可能随时失效。`;
+                  try { writer.push("note", { text: miss }); busEmit("note", { text: miss }); } catch {}
+                  return;
+                }
+                finalUrl = url;   // 视频/音频保留旧行为：至少留个能点的地址
+              }
+              const payload = { type, url: finalUrl, ...(localizeError ? { localizeError } : {}) };
+              try { writer.push("media", payload); busEmit("media", payload); } catch {}
+            };
+            for (const url of scraped.videos) void pushScraped("video", url);
+            for (const url of scraped.images) void pushScraped("image", url);
+            for (const url of scraped.audios) void pushScraped("audio", url);
+          } catch {}
+        }
+      } else if (event.type === "turn_end") {
+        writer.push("turn_end", {});
+        busEmit("turn_end", {});
+        // P1 活跃会话按轮卫生：turn_end 时检查文件大小，超阈值先 sanitize 再 compact
+        try {
+          const sf = entry.sm?.getSessionFile?.();
+          if (sf && fs.existsSync(sf)) {
+            const sz = fs.statSync(sf).size;
+            if (sz > 5 * 1024 * 1024) { // >5MB 触发 sanitize
+              sanitizeSessionFile(sf);
+              if (sz > 10 * 1024 * 1024) { // >10MB 额外触发 compact
+                compactSession(sf, effModel || defaultModel, true).catch(() => {});
+              }
+            }
+          }
+        } catch {}
+        // 情绪实时推送：每轮结束把最新情绪快照推给前端（emo 指示器实时跳动，不再是只发/收时更新）
+        try {
+          const esKey = sessionId || findKeyByEntry(entry) || "new";
+          emotion.updateFromOutput(esKey, collected); // 曦系⑥：输出侧感知，回复长短也影响唤醒（09-04）
+          emotion.recordFeeling(esKey, message); // 曦系二期：真实感受存档（事+感+强度）
+          try { emotion.flushPersonaAttribution(esKey); } catch {}
+          completeGeneTurn(esKey);
+          const es = emotion.getSnapshot(esKey);
+          if (es) { writer.push("emotion", { state: es }); busEmit("emotion", { state: es }); }
+        } catch {}
+      } else if (event.type === "auto_retry_start") {
+        writer.push("note", { text: `⚠️ 自动重试中（第 ${event.attempt} 次）：${event.errorMessage}` });
+        busEmit("note", { text: `⚠️ 自动重试中（第 ${event.attempt} 次）：${event.errorMessage}` });
+        // 主动避让：重试事件带真实错误文本，命中额度/权限错误码提前标冷却，下一轮进入 effModel 选择时就能直接避开
+        // （中文额度错误文本 SDK 重试判定正则匹配不上不可重试模式，重试耗尽后不抛异常 catch 块无机会标冷却，事件里的 errorMessage 是唯一可靠信号源）
+        try {
+          const st = String(event.errorMessage || "").match(/HTTP\s*(\d{3})|status.?(\d{3})|^(\d{3}):/);
+          const code = st ? parseInt(st[1] || st[2] || st[3], 10) : 0;
+          if ([401, 402, 403, 429, 529].includes(code) && effModel) {
+            markModelBlocked(effModel, { reason: `HTTP ${code} (重试中提前标冷却)` });
+          }
+        } catch {}
+      } else if (event.type === "compaction_start") {
+        writer.push("note", { text: "🧹 上下文压缩中…" });
+        busEmit("note", { text: "🧹 上下文压缩中…" });
+      }
+    } catch {}
+  });
+
+  let aborted = false;
+  req.on("close", () => {
+    if (!res.writableEnded && !aborted) {
+      aborted = true;
+      try { agent.abort(); } catch {}
+      // 兜底：abort 未及时生效时（如 LLM 流卡住），2.5s 后销毁 agent 并释放 busy，避免会话被永久锁定
+      setTimeout(() => {
+        if (entry.busy && entry.gen === thisGen) {
+          entry.busy = false;
+          try { agent.dispose(); } catch {}
+          for (const [id, e] of activeSessions) if (e === entry) activeSessions.delete(id);
+          console.log(`[元枢] 会话 ${sessionId || "new"} 连接断开，已销毁卡住 agent`);
+        }
+      }, 2500);
+    }
+  });
+
+  try {
+    // 情绪感知：更新会话情绪状态，注入行为指令（用 nextTurn 机制，不写入会话历史）
+    const sessKey = sessionId || findKeyByEntry(entry) || "new";
+    // 记下这条消息与当前会话：activate_skill 发生时用它当 episode 的输入（工具执行器没有对话上下文）
+    globalThis.__yuanshuLastSessionKey = sessKey;
+    if (message) lastUserBySession.set(sessKey, String(message).slice(0, 500));
+    // ⚠️ 必须在 updateEmotion **之前**取：它会把 lastTalk 刷成本轮，之后差值恒为 0
+    const prevTalkAt = (() => { try { return Number(emotion.getSnapshot(sessKey)?.lastTalk) || 0; } catch { return 0; } })();
+    emotion.updateEmotion(sessKey, emotionInput.message, emotionInput);
+    const emoPrompt = emotion.emotionPrompt(sessKey, message);
+    // 公仔自我认知：模型没有视觉输入，必须把形象事实显式交给它。
+    // 2026-11-08：原来只在命中「公仔|立绘|形象|长什么样|外观|姿态」时才注入，
+    // 普通轮次她拿不到任何外貌事实——于是改了 人格定义.json 的外貌，前台对话里仍"看不到最新形象"。
+    // 现在拆两条：① 每条消息都注入的精简事实（≤60 字）；② 命中关键词时照旧给完整块
+    // （母提示词 + 立绘动作说明）。两条内容不冲突：精简事实给"她现在什么样"，完整块给"立绘/母提示词从哪来"。
+    try {
+      const def = (() => { try { return loadPersonaDefinition(CONFIG.cwd)?.def || {}; } catch { return {}; } })();
+      // 母提示词同源：主（人格定义四项）在前，辅（记忆/外观.md）只补细节——见 engine/appearance-merge.mjs
+      const plan = planAppearanceInjection(message, def, { catalog: appearanceCatalog(), wsRoot: CONFIG.cwd });
+      if (plan.fact) {
+        await entry.agent?.sendCustomMessage?.(
+          { customType: 'context', content: [{ type: 'text', text: plan.fact }] },
+          { deliverAs: 'nextTurn' }
+        );
+      }
+      if (plan.full) {
+        await entry.agent?.sendCustomMessage?.(
+          { customType: 'context', content: [{ type: 'text', text: plan.full }] },
+          { deliverAs: 'nextTurn' }
+        );
+      }
+    } catch {}
+    // 自我认知：仅当用户问"你是谁/介绍自己"等身份问题时注入固定答案（不主动开场白）
+    let promptMsg = message;
+    if (navHint) promptMsg = `${message}\n\n【导航提示】${navHint}`;
+    const isIdentityAsk = /^(你是谁|你叫什么|你叫啥|你是谁啊|介绍一下你|介绍下你自己|自我介绍|你是做什么|你是干什么|干嘛的|干什么的|什么身份|你.{0,3}(?:多大|几岁)|(?:多大|几岁)了|年龄|生日|出生|你有哪.{0,4}能力|你能.{0,6}做.{0,4}什么)/.test(message) && message.length < 80;
+    if (isIdentityAsk) {
+      const m = effModel || defaultModel;
+      const features = [];
+      if (m?.reasoning) features.push("推理型");
+      if (m?.contextWindow) features.push(`上下文 ${Math.round(m.contextWindow / 1000)}k`);
+      if (Array.isArray(m?.input) && m.input.includes("image")) features.push("支持图片");
+      const featText = features.length ? features.join(" · ") : "标准模型";
+      const modelName = m?.name || m?.id || "未知";
+      const providerName = m?.provider ? `（${m.provider}）` : "";
+      // 2026-08-24 修复：不再替换 promptMsg（模型看不到原始问题），改 context 注入
+      try {
+        const pd = loadPersonaDefinition(CONFIG.cwd);
+        const d = pd.def;
+        const genderText = String(d.gender || "").trim();
+        const bondText = String(d.bond || "").trim();
+        const calledText = String(d.called || "伙伴");
+        const kindText = String(d.kind || "AI 工作伙伴");
+        const sep = /^[A-Za-z]/.test(kindText) ? " " : "";
+        const self = `${d.name}，${Number(d.age)} 岁的${genderText}${sep}${kindText}${bondText ? `，也是${calledText}的${bondText}` : ""}`;
+        const innerText = Array.isArray(d.inner) && d.inner.length ? d.inner.join("；") : "";
+        // ⚠️ 身份格式与其它同轮注入（时间/待兑现承诺/AIBody）走的是同一个 nextTurn 口，而且没有互斥。
+        // 所以硬性要求必须**限定作用域**：原来写的"不要追加任何内容"会和同轮的"主动交代进度"当场打架
+        // （2026-09-20 真机暴露：身份轮收到两条相反的硬指令，模型只能二选一）。
+        const identityAnswer = `（自我认知指令）用户问了身份类问题。请按固定格式回答。硬性要求：①自我介绍**只用**下面这段格式，写完就停，不展开、不另起话头；但本轮若另有系统注入要求你交代的事（例如【待兑现承诺】），在那段之后另起一段简短交代即可，不算违反本条；②回答身份本身时禁止调用任何工具/搜索/读文件（若同轮另有交代要求，只做最小必要核对）；③不要输出过程性文字（如"我去查"）；④**身份事实以人格定义为准**：名字/年龄/性别/关系/称呼照抄下面这段，不要用记忆时间线、系统运行时长、建号天数自行推断年龄；⑤不许把自己讲成只会干活的工具或没有立场的应答器，人格定义里的判断与内心要算数。格式如下：\n"我叫${self}。我能干：写代码、做设计、整理文档、分析数据，并直接操作工作空间完成交付。${innerText ? `${innerText}。` : ""}由元枢工作台驱动。当前使用模型是：${modelName}${providerName}。模型特色：${featText}。"\n回答完直接等用户下一步指令。`;
+        await entry.agent?.sendCustomMessage?.(
+          { customType: "context", content: [{ type: "text", text: identityAnswer }] },
+          { deliverAs: "nextTurn" }
+        );
+      } catch {}
+      // promptMsg 保持原始消息不变
+    } else if (emoPrompt) {
+      // 非身份类：情绪指令通过 nextTurn 注入（不污染会话历史）
+      try {
+        await entry.agent?.sendCustomMessage?.(
+          { customType: "context", content: [{ type: "text", text: emoPrompt }] },
+          { deliverAs: "nextTurn" }
+        );
+      } catch {}
+    }
+    // 灵魂快照：纠正与关系记忆每轮都给（不再指望模型自己去 read 记忆文件）
+    try {
+      const soul = soulContextPrompt(CONFIG.cwd);
+      if (soul) await entry.agent?.sendCustomMessage?.(
+        { customType: "context", content: [{ type: "text", text: soul }] },
+        { deliverAs: "nextTurn" }
+      );
+    } catch {}
+    // 时间上下文：统一由 promptTimeText 产出（含"距上次对话多久" + 观测到的作息/节律）
+    try {
+      const rhythm = readActivityRhythm(CONFIG.cwd, { now: new Date(), sessionDir: SESSIONS_DIR });
+      await entry.agent?.sendCustomMessage?.(
+        { customType: "context", content: [{ type: "text", text: `【时间上下文】${promptTimeText(new Date(), { since: prevTalkAt, rhythm })}` }] },
+        { deliverAs: "nextTurn" }
+      );
+    } catch {}
+    // 跨轮目标：把"进行到第几轮"和纪律交给模型（未武装时为空，不占上下文）
+    if (goalTurn?.prompt) {
+      try {
+        await entry.agent?.sendCustomMessage?.(
+          { customType: "context", content: [{ type: "text", text: goalTurn.prompt }] },
+          { deliverAs: "nextTurn" }
+        );
+      } catch {}
+    }
+    // 待兑现承诺：模型自己许下但没结清的事，主动交代；账上为空时不占上下文
+    try {
+      const owed = pendingPromiseText(CONFIG.cwd, { now: new Date(), limit: 5 });
+      if (owed) {
+        await entry.agent?.sendCustomMessage?.(
+          { customType: "context", content: [{ type: "text", text: owed }] },
+          { deliverAs: "nextTurn" }
+        );
+      }
+    } catch {}
+    // AIBody 运行协调：模式策略 + 状态提供者摘要。
+    // 之前这份 directive 只进了 executionContext 给子智能体用，**主角色收不到**；
+    // 而 directiveFor 里写的正是"母体协调身份、记忆与角色治理""主角色负责综合和交付"。
+    // 用 nextTurn 注入，与情绪/时间同一个口子，不污染会话历史。
+    if (aibodyTurn?.directive) {
+      try {
+        await entry.agent?.sendCustomMessage?.(
+          { customType: "context", content: [{ type: "text", text: aibodyTurn.directive }] },
+          { deliverAs: "nextTurn" }
+        );
+      } catch {}
+    }
+    await entry.agent?.sendCustomMessage?.(
+      { customType: 'context', content: [{ type: 'text', text: TEAM_DELIVERY_RULES }] },
+      { deliverAs: 'nextTurn' }
+    );
+    // PPT 任务专用执行护栏：交付类请求不能停在“我会做/大纲已列”或伪造文件。
+    // 通过 nextTurn 注入，不改人格文件，也不污染会话历史；真正的工具由 Pi SDK customTools 提供。
+    if (/\b(?:pptx?|powerpoint)\b|幻灯片|演示文稿|宣传ppt/i.test(message)) {
+      try {
+        await entry.agent?.sendCustomMessage?.(
+          { customType: "context", content: [{ type: "text", text: "【PPT 任务执行约束】这是直接交付任务。先调用 activate_skill 加载匹配的 ppt-generator 或 ppt-html 技能全文，再立刻用 read/write/bash/edit 完成内容与构建；不要只输出计划、伪造 <tool_call> 文本或声称文件已生成。必须实际检查 .pptx/设计稿文件存在且大小有效，回复末尾写出真实相对路径并使用“📎 交付: <路径>”。工具参数过长请分段执行。" }] },
+          { deliverAs: "nextTurn" }
+        );
+      } catch {}
+    }
+    // 大文件分块写（2026-09-18）：Pi 通道用的是 SDK 内置 write（元枢拦不到它的参数），
+    // 只能把写法写进每轮上下文；元枢自制循环那边有硬闸门（engine/tools/unified-tools.mjs）。
+    try {
+      await entry.agent?.sendCustomMessage?.(
+        { customType: "context", content: [{ type: "text", text: "【大文件分块写】一次 write 的内容就是你的输出，超过约 2 万 token 会被单次输出上限截断（参数断在 JSON 中间，整轮白费）。要写长文件就分块：第一块 write，后续块在同一路径上用 bash 追加重定向（>>）或 edit 续写；每块控制在 1.5 万 token 以内。" }] },
+        { deliverAs: "nextTurn" }
+      );
+    } catch {}
+    // 元枢内置技能库（仓库根 skills/）：Pi SDK 会话的技能发现只看 `cwd/skills` 与
+    // `agentDir/skills` 两个根，**仓库里的 skills/ 不在它的扫描范围内**——于是「元枢技能」
+    // 页面上列得出来、模型却看不见，`activate_skill` 也就永远等不到调用。
+    // 2026-09-15 实测：问"用提示词架构师的办法…"，模型回"列表里没有 prompt-architect 技能"，
+    // 转身去读了 SDK 自己那份目录里的 multi-agent-meeting。
+    // 修法：每个会话注入一次目录（不重复占上下文），命中匹配时再补一句"本轮可能匹配"。
+    try {
+      const builtinSkills = loadSkillIndex();
+      if (!skillCatalogSent.has(sessKey)) {
+        const catalog = formatSkillIndexPrompt(builtinSkills);
+        if (catalog) {
+          skillCatalogSent.add(sessKey);
+          await entry.agent?.sendCustomMessage?.(
+            { customType: "context", content: [{ type: "text", text: `【元枢内置技能库】这是元枢自带的技能（与 SDK 自己扫描到的那份是**两个来源**，两边都可能有用）。对得上就先 activate_skill 加载全文再做，对不上按你的判断做。\n${catalog}` }] },
+            { deliverAs: "nextTurn" }
+          );
+        }
+      }
+    // 当场修护栏（2026-09-17）：Pi 会话的提示词不是统一引擎那份协议，工具光注册了模型不会用。
+    // 每会话注入一次（与技能目录同一个口子、同一个 Set），把"发现问题就当场修"讲清楚。
+    if (!skillCatalogSent.has(`${sessKey}::fix`)) {
+      skillCatalogSent.add(`${sessKey}::fix`);
+      try {
+        await entry.agent?.sendCustomMessage?.(
+          { customType: "context", content: [{ type: "text", text: "【发现问题就当场修】干活时发现**当场能修**的小毛病（代码/测试/配置/文档/脚本），别只在结论里写一条「建议修复」——用 fix_problem 当场派一轮修掉、拿回证据再继续（同一会话 10 分钟内最多 3 次）。它是「修」不是「看」：看一眼/核实/确认截图或图片里有什么、有没有、是不是，这类观察任务直接看图后回答，不要调 fix_problem。需要人拍板的（权限/密钥/部署/推送/删数据/花钱）不要碰，写进结论说清等谁做哪一步。修不成如实说卡在哪。" }] },
+          { deliverAs: "nextTurn" }
+        );
+      } catch {}
+    }
+    const matchedSkills = matchSkillsForTask(message, builtinSkills, 3, currentWeights(WS_ROOT).weights || undefined);
+      if (matchedSkills.length) {
+        await entry.agent?.sendCustomMessage?.(
+          { customType: "context", content: [{ type: "text", text: `本轮任务可能匹配元枢内置技能：${matchedSkills.map(s => s.name).join("、")}。对得上就 activate_skill 加载全文，对不上按你的判断继续。` }] },
+          { deliverAs: "nextTurn" }
+        );
+      }
+    } catch {}
+    // 条件注入全量记忆（任务型消息才带）：人格保底用常驻索引（agent 创建时已注入），干活时全量
+    if (shouldInjectFullMemory(message)) {
+      setLastUserQuery(message);
+      try {
+        const fullMem = loadMemory();
+        console.log(`[tiered] 任务型注入: msg="${message.slice(0, 30)}" mem=${fullMem.length ? fullMem.reduce((a, c) => a + c.length, 0) : 0}c`);
+        if (fullMem.length) {
+          await entry.agent?.sendCustomMessage?.(
+            { customType: "context", content: [{ type: "text", text: fullMem.join("\n\n") }] },
+            { deliverAs: "nextTurn" }
+          );
+        }
+      } catch {}
+    } else {
+      console.log(`[tiered] 闲聊不注入: msg="${message.slice(0, 30)}"`);
+    }
+    await refreshCultivationContext();
+    if (knowledgeRequestStopped(req, res)) return res.end();
+    await deliverKnowledgeContext(entry.agent, chatRunContext.knowledgeContext, knowledgeNote);
+    // 外部思考调试：注入 think 引导（nextTurn，不污染会话历史）
+    if (thinkOn) {
+      try {
+        await entry.agent?.sendCustomMessage?.(
+          { customType: "context", content: [{ type: "text", text: THINK_PROMPT }] },
+          { deliverAs: "nextTurn" }
+        );
+      } catch {}
+    }
+    // 出图与主模型真正并行：先注入「正在出图、照常思考、允许交 SVG」，立刻 prompt。
+    // 图若在注入 context 的几百毫秒里已经回来，settledMedia 会带上路径；否则 nextTurn 再告知。
+    if (mediaIntents.length && !settledMedia.length) {
+      const drawingNote = mediaIntents.some(i => i.type === "video")
+        ? "视频模型正在出片，完成后会显示在对话里。"
+        : "图像模型正在出图，完成后会显示在对话里。";
+      try { writer.push("note", { text: drawingNote }); busEmit("note", { text: drawingNote }); } catch {}
+    }
+    // 2026-10-28：宿主不抢跑时明确告诉她「图要自己调工具出」
+  promptMsg = mediaAwarePrompt(promptMsg, settledMedia, { herDriven: !directMediaMode(WS_ROOT) });
+    // 图像兜底：当前模型不支持图片且消息带图 → 临时切套餐内图像模型识别，处理完恢复原模型
+    let visionSwitched = false, origAgentModel = null, visionModel = null;
+    if (images.length) {
+      const curM = entry.agentModel || (defaultModel ? { provider: defaultModel.provider, id: defaultModel.id } : null);
+      const curSupportsVision = curM && (modelList.find(m => m.provider === curM.provider && m.id === curM.id)?.input?.includes("image"));
+      if (!curSupportsVision) {
+        // 兜底优先级：⚠️ 2026-08-20 修正——原 fallbackIds（mimo-v2.5/minimax-m3/qwen3.8-max/kimi-k3/gpt-5.6-luna）全是 opencode-go 套餐模型，
+        // 清单瘦身(464→22)后已不存在，第一层永远落空。改为直接候选支持 image 的免费通道：xiaomi mimo-v2.5 → 商汤 flash-lite
+        // （默认主力商汤本身就支持 image，一般不会走到这里）
+        visionModel = modelList.find(m => m.provider === "xiaomi-token-plan-cn" && m.input?.includes("image"))
+          || modelList.find(m => m.provider === "sensenova" && m.input?.includes("image"));
+        if (visionModel) {
+          try {
+            origAgentModel = entry.agentModel || (defaultModel ? { provider: defaultModel.provider, id: defaultModel.id } : null);
+            if (entry.agent) { try { entry.agent.dispose(); } catch {} entry.agent = null; }
+            entry.agentModel = { provider: visionModel.provider, id: visionModel.id };
+            await ensureAgent(entry, visionModel);
+            visionSwitched = true;
+            console.log(`[元枢] 图像兜底：${curM?.provider}/${curM?.id} → ${visionModel.provider}/${visionModel.id}`);
+          } catch (e) {
+            console.log(`[元枢] 图像兜底切换失败: ${String(e?.message || e).slice(0, 80)}`);
+          }
+        }
+      }
+    }
+    // P0 卫生防线：agent.prompt 前截断会话里的超大 thinkingSignature/thinking/工具结果
+    // 防止 reasoning 模型签名膨胀导致上游 400/502（10MiB 单字段限制+200k 上下文超限）
+    try {
+      const sf = entry.sm?.getSessionFile?.();
+      if (sf) {
+        const sr = sanitizeSessionFile(sf);
+        if (sr.truncated) console.log(`[sanitize] 会话 ${sessionId || "new"}: 截断 ${sr.truncated} 条超大消息`);
+      }
+    } catch (e) { console.log(`[sanitize] 预处理失败(不阻断): ${String(e?.message || e).slice(0, 80)}`); }
+    try {
+      // executionIdentity is deliberately non-enumerable on __runContext so it cannot
+      // leak into prompts, events, or persisted run data. Object spread would therefore
+      // drop it before the Pi cultivation tool sees the request; carry it across this
+      // in-memory boundary with the same opaque, non-enumerable semantics.
+      const piTeamToolContext = { ...chatRunContext, wsRoot: WS_ROOT, model: entry.agentModel || defaultModel,
+        history: extractMessages(entry.sm.fileEntries, entry.sm.getLeafId?.() || resolveLeafId(entry.sm.fileEntries))
+          .map(m => ({ role: m.role, content: m.text })),
+      };
+      Object.defineProperty(piTeamToolContext, 'executionIdentity', {
+        value: body.__runContext?.executionIdentity,
+        enumerable: false,
+        configurable: false,
+        writable: false,
+      });
+      // 中途插话走 SDK 原生 steer()：当前助手轮工具跑完、下一次模型调用前送达。先排空启动前已排队的。
+      const steering = body.__runContext?.steering;
+      if (steering && typeof agent.steer === 'function') {
+        const deliver = text => {
+          try { sseWrite(res, "note", { text: `收到插话，下一步按它调整：${String(text).slice(0, 120)}` }); } catch {}
+          Promise.resolve(agent.steer(`【伙伴中途插话】${text}`)).catch(() => {});
+        };
+        steering.sink = deliver;
+        for (const text of steering.take()) deliver(text);
+      }
+      // 2026-11-07：后台子代理回执注入。与技能目录/当场修同一条口子（sendCustomMessage + nextTurn）：
+      // 不写进会话历史，只在这一轮的系统上下文里出现一次；注入即标记已读，下一条子代理完成才再来。
+      try {
+        const receipt = subagentBg?.deliverReceipts({ agent: chatRunContext.sessionId || sessionId || "" });
+        if (receipt?.text) {
+          await entry.agent?.sendCustomMessage?.(
+            { customType: "context", content: [{ type: "text", text: receipt.text }] },
+            { deliverAs: "nextTurn" }
+          );
+        }
+      } catch (e) { console.log(`[subagent] 回执注入失败(不阻断): ${String(e?.message || e).slice(0, 80)}`); }
+      const stopIdleWatch = watchAgentIdle(agent, {
+        ms: Number(process.env.YUANSHU_CHAT_IDLE_MS) || DEFAULT_CHAT_IDLE_MS,
+        onIdle: ms => {
+          const text = `模型 ${Math.round(ms / 1000)} 秒没有任何新动静，已中止这一轮（已有内容保留，可以让她继续）。`;
+          console.log(`[元枢] 会话 ${sessionId || "new"} 空闲超时，已 abort`);
+          try { writer.push("note", { text }); busEmit("note", { text }); } catch {}
+        },
+      });
+      try {
+        await withTeamToolContext(piTeamToolContext, () => withSamplingParams(agent, body.params, () => agent.prompt(promptMsg, { images })));
+      } finally { stopIdleWatch(); if (steering) steering.sink = null; }
+    } finally {
+      // 处理完恢复原模型（避免把会话默认模型悄悄改掉）
+      if (visionSwitched && origAgentModel) {
+        try {
+          if (entry.agent) { try { entry.agent.dispose(); } catch {} entry.agent = null; }
+          entry.agentModel = origAgentModel;
+          await ensureAgent(entry, modelList.find(m => m.provider === origAgentModel.provider && m.id === origAgentModel.id) || origAgentModel);
+          console.log(`[元枢] 图像兜底已恢复: ${origAgentModel.provider}/${origAgentModel.id}`);
+        } catch (e) { console.log(`[元枢] 图像兜底恢复失败: ${String(e?.message || e).slice(0, 80)}`); }
+      }
+    }
+    // 空回复兜底：agent 完成但无任何文本输出（部分推理模型偶发把回答全放 <think>）→ 直调模型接口补一次
+    // ⚠️ 2026-09-16：先分清"上游**报错**"和"模型真的空回复"——这两件事此前的处理一样，
+    // 于是上游报错时走了 directChat 无历史兜底，用户看到一句没有上下文的回答，
+    // 只能得出"它失忆了、变傻了"（真机上就是这么被误解的）。
+    const upstream = lastTurnUpstreamError(entry);
+    if (sawDelta) {
+      clearModelFailures(effModel);
+    } else if (upstream) {
+      console.log(`[元枢] 本轮上游失败 ${effModel?.provider}/${effModel?.id} → ${upstream.errorMessage}`);
+      const f = noteModelFailure(effModel, upstream.errorMessage);
+      const st = modelFailureState(effModel);
+      if (f.blocked) {
+        try { markModelBlocked(effModel, { reason: `连续 ${st?.count || f.count} 次上游失败：${f.reason}` }); } catch {}
+        console.log(`[元枢] ${f.key} 连续失败 ${st?.count || f.count} 次 → 已标冷却，后续轮次自动避开`);
+      }
+      const label = effModel ? `${effModel.provider}/${effModel.id}` : "当前模型";
+      const why = String(upstream.errorMessage || "未给出原因").slice(0, 300);
+      const note = f.blocked
+        ? `本轮 ${label} 调用失败：${why}。已连续 ${st?.count || f.count} 次失败，**已把这条路标冷却**，下一轮会自动避开它。`
+        : `本轮 ${label} 调用失败：${why}。再失败一次就会自动避开这条路。`;
+      try { writer.push("error", { message: note, retryable: true, model: label, reason: why, blocked: !!f.blocked }); busEmit("error", { message: note }); } catch {}
+    }
+    if (!sawDelta && !upstream) {
+      // （重试中提前标冷却已在 auto_retry_start 事件里处理，这里只负责换备选提供回答）
+      // 修复 B：空回复兕底用安全模型（避开 opencode-go 429 且排除当前模型，不再死磕 defaultModel）
+      const fbModel = pickFallbackExcluding(effModel);
+      const fallback = fbModel ? await directChat(fbModel, message, recentHistory(entry)) : null;
+      if (fallback?.text) {
+        writer.push("delta", { text: fallback.text });
+        console.log(`[元枢] 空回复兜底成功: ${fbModel.provider}/${fbModel.id}`);
+        // 兜底承接最近历史，同时报告实际回答模型。
+        const actual = fallback.usedModel || fbModel;
+        try { writer.push("note", { text: `本轮主模型空回复，已由 ${actual.provider}/${actual.id} 结合最近对话历史回答` }); } catch {}
+        try { writer.push("model_switched", { provider: actual.provider, id: actual.id, sameModel: false, reason: "主模型空回复，备用通道承接最近对话" }); } catch {}
+        try { entry.sm.appendMessage({ role: 'assistant', provider: actual.provider, model: actual.id, requestedModel, engine: 'pi', content: [{ type: 'text', text: fallback.text }] }); } catch {}
+      } else {
+        console.log(`[元枢] 空回复兜底失败: ${fbModel?.provider}/${fbModel?.id}`);
+        // 明确提示：报用户选定的模型（兜底链模型只是替死鬼，报它会让用户莫名其妙）
+        try { writer.push("error", { message: `模型 ${effModel?.provider}/${effModel?.id} 无回复（已自动尝试备用通道 ${fbModel?.provider}/${fbModel?.id} 也失败）——可能是 API Key 失效/额度不足/网络代理问题，请到模型管理检查配置`, retryable: true, model: `${effModel?.provider}/${effModel?.id}` }); } catch {}
+      }
+    }
+    // 输出质量守卫：主模型输出异常（复读/纯标记/空回复）→ 自动切 fallback 重试
+    //（空回复/纯思考由 sawDelta 兜底处理；此处统一 classifyAnomaly 判定，避免双重兜底）
+    const rk = sessionId || findKeyByEntry(entry) || "new";
+    if (sawDelta && collected) {
+      const anom = classifyAnomaly({ sessionKey: rk, text: collected, think: "", sessionFile: entry.sm?.sessionFile, baseline: replyBaseline });
+      if (anom.type === "undefined-leak") {
+        // undefined 污染：直接清理后接受（内容大部分正常，只清占位符，不打断）
+        const clean = sanitizeUndefined(collected);
+        if (clean && clean !== collected) {
+          console.log(`[元枢] 清理 undefined 污染: ${collected.length} → ${clean.length} 字符`);
+          collected = clean;
+          try { writer.push("text", { text: clean }); } catch {}
+        }
+        recordReply(rk, collected);
+      } else if (anom.type === "repeat" || anom.type === "marker" || anom.type === "amnesia") {
+        // 2026-08-21 AI 检测员复核：规则判异常后，检测员语义级确认 + 给针对性修正建议
+        console.log(`[元枢] 输出守卫(${anom.type}): ${effModel?.provider}/${effModel?.id} ${anom.reason} → 检测员复核`);
+        const insp = await inspectOutput({ userMessage: message, output: collected, history: recentHistory(entry) }).catch(() => null);
+        if (insp && insp.verdict === "ok") {
+          // 检测员判定正常（规则误报）→ 接受原输出
+          recordReply(rk, collected);
+          console.log(`[元枢] 检测员判定 ok（规则误报），接受原输出`);
+        } else {
+          // 确认异常：用检测员的修正建议（或默认）引导同模型修正
+          await retryRepeatWithFallback(message, rk, writer, busEmit, effModel, insp?.suggestion, recentHistory(entry), entry);
+        }
+      } else if (anom.type === "none") {
+        recordReply(rk, collected);
+      }
+    }
+    // 自动命名：尚无名称时用首条消息
+    if (!entry.sm.getSessionName()) {
+      try { entry.sm.appendSessionInfo(message.slice(0, 24)); } catch {}
+    }
+    // 文件交付：优先解析模型回复里的「📎 交付:」标记（精准交付，AI 按任务针对性选文件）
+    // 解析不到才兜底扫描最近产物（兼容模型不按标记回复的情况）
+    try {
+      let files = extractMessageFiles(entry.sm, chatBaseline);
+      // 识别用户请求的文件类型（"发图片/图/照片"→只要图；"ppt"→只要演示文件）
+      const wantImg = /图片|图[片片]?|照片|画|生成图|配图/i.test(message) && !/ppt|文档|pdf/.test(message);
+      const wantPpt = /ppt|pptx|演示|幻灯片/i.test(message);
+      const wantDoc = /文档|docx?|pdf|word/i.test(message);
+      if (!files.length) {
+        // 1. 解析交付标记：读取会话最新 assistant 回复，找 📎 交付: 行
+        const marked = (() => {
+          try {
+            const entries = readEntriesFromFile(entry.sm.sessionFile);
+            // 只扫本轮新增的 assistant 回复（chatBaseline 之后）——历史交付标记不得重复触发
+            for (let i = entries.length - 1; i >= Math.max(chatBaseline, 0); i--) {
+              const e = entries[i];
+              if (e?.type !== "message" || e?.message?.role !== "assistant") continue;
+              const text = extractText(e.message.content) || "";
+              const hits = [];
+              // 识别多种交付表达：📎 交付: / 交付物：/ 交付文件：/ 已交付 / 生成文件：
+              const pats = [
+                /📎\s*交付[:：]\s*(.+)/,
+                /交付物[:：]?\s*`?([^`\n，。]+\.[a-z0-9]{1,6})`?/i,
+                /交付文件[:：]?\s*`?([^`\n，。]+\.[a-z0-9]{1,6})`?/i,
+                /(?:已)?交付[:：]?\s*`?([^`\n，。]+\.[a-z0-9]{1,6})`?/i,
+              ];
+              const seenPaths = new Set();
+              for (const line of text.split("\n")) {
+                for (const re of pats) {
+                  const m = line.match(re);
+                  if (!m || !m[1]) continue;
+                  let rel = m[1].trim().replace(/[`"'，。、]/g, "").trim();
+                  if (!rel) continue;
+                  if (seenPaths.has(rel)) continue;
+                  seenPaths.add(rel);
+                  const safe = wsSafePath(rel);
+                  if (safe && fs.existsSync(safe)) {
+                    hits.push({
+                      name: path.basename(safe),
+                      path: rel,
+                      size: fs.statSync(safe).size,
+                      mime: "",
+                      mtimeMs: Date.now(),
+                    });
+                  }
+                }
+              }
+              if (hits.length) return hits;
+            }
+            return [];
+          } catch { return []; }
+        })();
+        // 模型有明确交付标记 → 直接用；否则按用户请求关键词+类型智能查找工作空间；再无兜底最近产物
+        if (!marked.length) {
+          // 用户是否明确要文件（发/给/看/发一下/要文件/找文件）——创作指令（做个/帮我写）不推文件
+          const wantFile = /发(个|一下|给我|我)|发我|给我|传我|发文件|找.*文件|要文件|文件.*(发|给|看)|发.*(图片|文件|图|照片)|(?:把|将).*(发|传|给).*我/.test(message);
+          if (wantFile) {
+          // 从用户请求提取关键词（去掉"发/给/我/一下/的/个/看"等虚词，保留"酒店/ppt/图片"等实词）
+          const kwRaw = message.replace(/[发给我你它他她们一下看个这那张张那些最最近做的的了的地得把请帮忙]/g, " ");
+          const typeExts = wantImg ? [".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp", ".svg"] : wantPpt ? [".ppt", ".pptx"] : wantDoc ? [".doc", ".docx", ".pdf", ".md", ".txt"] : null;
+            const found = findWorkspaceFiles({ keyword: kwRaw, types: typeExts });
+            files = found.length ? found : scanRecentArtifacts();
+          }
+          // 不明确要文件（创作/对话）→ 不推任何文件
+        } else {
+          files = marked;
+        }
+        // 按用户请求类型过滤（要图只给图，要 ppt 只给 ppt，避免"要图给 PPT"）
+        if (files.length && (wantImg || wantPpt || wantDoc)) {
+          const extOf = (n) => path.extname(n || "").toLowerCase();
+          files = files.filter(f => {
+            const e = extOf(f.name);
+            if (wantImg) return /^\.(png|jpe?g|gif|webp|bmp|svg)$/.test(e);
+            if (wantPpt) return /^\.pptx?$/.test(e);
+            if (wantDoc) return /^\.(docx?|pdf|md|txt)$/.test(e);
+            return true;
+          });
+        }
+        if (files.length) {
+          const sessKey = sessionId || "new";
+    globalThis.__yuanshuLastSessionKey = sessKey;
+    if (message) lastUserBySession.set(sessKey, String(message).slice(0, 500));
+          const pushedSet = pushedArtifacts.get(sessKey) || new Set();
+          const fresh = files.filter(f => !pushedSet.has(f.path));
+          // 同名去重：同名文件只保留最新一份（避免同一文件从不同目录重复交付）
+          {
+            const seenName = new Set();
+            const deduped = [];
+            for (const f of fresh.sort((a, b) => (b.mtimeMs || 0) - (a.mtimeMs || 0))) {
+              if (seenName.has(f.name)) continue;
+              seenName.add(f.name);
+              deduped.push(f);
+            }
+            fresh.length = 0;
+            fresh.push(...deduped);
+          }
+          if (fresh.length) {
+            fresh.forEach(f => pushedSet.add(f.path));
+            pushedArtifacts.set(sessKey, pushedSet);
+            try {
+              const fw = fresh.slice(0, 5).map(f => ({ type: "file", name: f.name, path: f.path, size: f.size, mime: f.mime }));              // ⚠️ 2026-08-19 修复：不再写"（交付文件）"文本标记——模型会把它当回复模板复读（正文全空）；
+              //    file 块本身前端就能识别渲染（extractFiles → m.files），无需占位文本。
+              await entry.sm.appendMessage({ role: "assistant", content: sdkSafeAssistantBlocks(fw) });
+            } catch {}
+            files = fresh;
+          } else {
+            files = [];
+          }
+        }
+      }
+      for (const f of files.slice(0, 5)) writer.push("file", f);
+    } catch {}
+    try {
+      // 图片附件：会话里 read 的图直接推给前端渲染（窗口内直接显示）
+      const imgs = extractMessageImages(entry.sm);
+      for (const img of imgs.slice(0, 3)) writer.push("image", img);
+    } catch {}
+    // 记忆结算（流水账 / 承诺 / 纠正 / 关系 / 每-N-轮快照计数）已抽成 settleTurnMemory，
+    // 在 finally 里对 pi 与 yuanshu 统一执行。原先就写在这个 try 里，于是
+    // yuanshu / dsh 路径静默不写记忆，Pi 失败降级到 unified 时也被一起跳过。
+    clearTask(taskId, "done");
+    try { await mediaDelivered; } catch {}
+    if (settledMedia.length) {
+      try {
+        entry.sm.appendMessage({
+          role: "assistant",
+          // ⚠️ 必须过 sdkSafeAssistantBlocks：settledMedia 会产出 {type:"image",url} 块，
+          // 直接落盘就等于亲手写一条"下次走 pi 通道必崩"的记录（复现见 CHANGELOG 2026-09-16）。
+          content: sdkSafeAssistantBlocks(assistantContentWithMedia("", settledMedia)),
+        });
+      } catch {}
+    }
+    writer.push("done", { sessionId: sessionId || findKeyByEntry(entry) });
+  } catch (e) {
+    // 官方 agent 管线异常 → 降级到自制 unifiedChat 兑底（避免任务静默失败）
+    const agentErr = String(e?.message || e);
+    // 闸门③：一轮出错就解除目标，不带着错误继续转（降级重试属于同一轮）
+    if (goalTurn?.ok) noteGoalError(CONFIG.cwd, goalTurn.goal.id, agentErr);
+    try { await mediaDelivered; } catch {}
+    if (/fetch failed|Failed to fetch/i.test(agentErr)) {
+      const netNote = `⚠️ ${explainMediaError(agentErr)}。思考和工具若已开始会保留；出图走旁路，失败不会再挡住主模型。`;
+      try { writer.push("note", { text: netNote }); busEmit("note", { text: netNote }); } catch {}
+    }
+    // 429/额度检测（修复 B）：agent 管线错误里出现 opencode-go 额度耗尽 → 标记降级，后续 Auto 路由避开
+    // 2026-08-21 用户理念：429/400 等链接/资源错误 → 主动告知原因 + 通断探测拿好模型顶上
+    const briefErr = agentErr.slice(0, 80);
+    let fallbackModel = null;
+    if (/GoUsageLimit|HTTP 429|status.?429/i.test(agentErr) && effModel?.provider === "opencode-go") {
+      markOcGoBlocked(agentErr);
+      try { writer.push("note", { text: `⚠️ opencode-go 额度耗尽（429），正在探测可用模型…` }); } catch {}
+      // 主动探测：候选链里拿第一个可用的顶上（不靠冷却跳过）
+      const cands = [flashCandidate(), routeProCandidate(), defaultModel].filter(Boolean);
+      const healthy = await pickHealthyModel(cands).catch(() => null);
+      if (healthy) {
+        fallbackModel = healthy;
+        try { writer.push("note", { text: `探测到可用模型 ${healthy.provider}/${healthy.id}，准备重试` }); } catch {}
+        console.log(`[元枢] 通断探测 → 好模型顶上: ${healthy.provider}/${healthy.id}`);
+      }
+    } else if (effModel) {
+      // ⚙️ 2026-08-28 修复：原正则只识 "HTTP 429"/"status 429" 格式，漏掉上游直接抛 "429: {...}" 的情况
+      // （实测智谱 zai-coding-cn 套餐额度耗尽的真实错误格式）——code=0 永远不命中，冷却一直没被标记，每轮都白撞
+      const st = agentErr.match(/HTTP\s*(\d{3})|status.?(\d{3})|^(\d{3}):/);
+      const code = st ? parseInt(st[1] || st[2] || st[3], 10) : 0;
+      if ([401, 402, 403, 429, 529].includes(code)) {
+        markModelBlocked(effModel, { reason: `HTTP ${code} (agent管线)` });
+        const reason = code === 429 ? "额度/限流" : code === 400 ? "请求被拒" : "权限/服务问题";
+        try { writer.push("note", { text: `⚠️ ${effModel.provider}/${effModel.id} 报 HTTP ${code}（${reason}），正在探测可用模型…` }); } catch {}
+        // 主动探测候选链（排除当前坏的），拿到好模型播报
+        const cands = [flashCandidate(), routeProCandidate(), pickFallbackExcluding(effModel)].filter(Boolean);
+        const healthy = await pickHealthyModel(cands).catch(() => null);
+        if (healthy) {
+          fallbackModel = healthy;
+          try { writer.push("note", { text: `探测到可用模型 ${healthy.provider}/${healthy.id}，准备重试` }); } catch {}
+          console.log(`[元枢] 通断探测 → 好模型顶上: ${healthy.provider}/${healthy.id}`);
+        }
+      }
+    }
+    console.log(`[元枢] agent 通道异常，降级 unifiedChat: ${agentErr.slice(0, 120)}`);
+    try { unsubscribe(); } catch {}
+    try {
+      // 降级前先释放 busy（unifiedChat 会重新接管），并用同代次避免竞态
+      await refreshCultivationContext();
+      if (knowledgeRequestStopped(req, res)) return res.end();
+      if (entry.gen === thisGen) entry.busy = false;
+      const abortCtrl2 = new AbortController();
+      const onClose2 = () => { try { abortCtrl2.abort({ code: 'CLIENT_DISCONNECTED' }); } catch {} };
+      req.on("close", onClose2);
+      writer.push('engine_selected', { engine: 'yuanshu', reason: 'pi 调用失败，切换执行通道' });
+      await handleUnifiedChat(res, entry, message, sessionId || findKeyByEntry(entry), body.params, abortCtrl2.signal, writer, undefined, body.taskKey, fallbackModel || effModel, null, chatRunContext);
+      req.removeListener("close", onClose2);
+    } catch (e2) {
+      try { writer.push("error", { message: `降级通道也失败: ${explainMediaError(e2)}` }); } catch {}
+    }
+  } finally {
+    clearTask(taskId, "done"); // 兜底：任何路径结束都清快照，防残留 running
+    clearInterval(hbTimer);
+    try { unsubscribe(); } catch {}
+    // 代次匹配才释放（快速重发时新请求已占 busy，旧请求不得干扰）
+    if (entry.gen === thisGen) entry.busy = false;
+    try { await writer.flush(); } catch {} // 背压：确保排队事件写完再关连接，不丢尾事件
+    try { writer.close(); } catch {}
+    try { res.end(); } catch {}
+    if (entry.gen === thisGen) invalidateSessionCache(); // 消息写入会话文件 → 列表缓存失效
+    // 记忆结算：pi 成功、以及 pi 失败降级到 unified 之后（此时助手回复由 unified 落盘），
+    // 都在这里统一结算一次。放在 res.end() 之后，不拖慢客户端收尾。
+    if (entry.gen === thisGen) {
+      await settleTurnMemory({ wsRoot: CONFIG.cwd, entry, message, sessionId, bytesBefore: sessionBytesBefore });
+    }
+  }
+}
+
+function findKeyByEntry(entry) {
+  for (const [id, e] of activeSessions) if (e === entry) return id;
+  return null;
+}
+
+/** 台前没带 sessionId 时用它：最近一个会话。单用户桌面下够用。 */
+function latestSessionId() {
+  try {
+    const list = getSessionList() || [];
+    const first = list[0] || {};
+    return String(first.id || first.sessionId || "");
+  } catch { return ""; }
+}
+
+// GET /api/sessions/:id/messages
+async function handleMessages(res, id, req, url) {
+  // findSession 而不是 getSessionList().find：新建会话的文件是懒落盘的，列表缓存可能比它早，
+  // 直接查缓存会 404"会话不存在"——前端上传后刷新消息就卡在这里（真机 bug：卡片不显示）。
+  const found = findSession(id);
+  if (!found || !found.file || !fs.existsSync(found.file)) return json(res, 404, { error: "会话不存在" });
+  const entries = readEntriesFromFile(found.file);
+  const leafId = resolveLeafId(entries, url?.searchParams?.get("leafId") || null);
+  // 带上模型窗口：这样"被上限截断"的提示能说清"上下文占了多少 / 模型声明多少"（2026-09-18）
+  const all = extractMessages(entries, leafId, {
+    // 正文外链图只查 记忆/运行时/外链图归档.json（不在这里下载）；写路径负责把新图归档。
+    wsRoot: CONFIG.cwd,
+    resolveWindow: (id, provider) => {
+      // 必须带上 provider：同一个 id 可能挂在多个通道下（glm-5.3-flash 在 zhipu-paid 是 200k 窗口、
+      // 在 opencode-go 是 1000k），只按 id 找会说错占比（核对时踩过）。
+      const m = modelList.find(x => x.id === id && provider && x.provider === provider)
+        || modelList.find(x => x.id === id);
+      return m ? { contextWindow: m.contextWindow, maxOutputTokens: m.maxTokens } : null;
+    },
+  });
+  const tailRaw = url?.searchParams?.get("tail");
+  const tail = tailRaw == null || tailRaw === "" ? 80 : parseInt(tailRaw, 10);
+  const win = windowMessages(all, Number.isFinite(tail) ? tail : 80);
+  json(res, 200, { messages: win.messages, leafId, truncated: win.truncated, total: win.total });
+}
+
+// POST /api/sessions/:id/messages —— 持久化用户消息到 JSONL（防 network error 丢消息）
+async function handleAppendMessage(res, id, body) {
+  const found = findSession(id);
+  if (!found || !found.file) return json(res, 404, { error: "会话不存在" });
+  const file = found.file;
+  let parentId = "";
+  try {
+    const lines = fs.readFileSync(file, "utf8").split("\n").filter(Boolean);
+    for (let i = lines.length - 1; i >= 0; i--) {
+      try {
+        const e = JSON.parse(lines[i]);
+        if (e.type === "message" && e.id) { parentId = e.id; break; }
+      } catch {}
+    }
+  } catch {}
+  const entry = {
+    type: "message",
+    id: Math.random().toString(16).slice(2, 10),
+    parentId,
+    timestamp: new Date().toISOString(),
+    message: { role: "user", content: [{ type: "text", text: String(body.text || body.content || "") }] }
+  };
+  try {
+    fs.appendFileSync(file, JSON.stringify(entry) + "\n");
+    invalidateSessionCache();
+    json(res, 200, { ok: true, id: entry.id });
+  } catch (e) {
+    json(res, 500, { error: e.message });
+  }
+}
+
+// GET /api/stats/global —— 所有会话的 token/成本汇总（直接从会话文件读取 usage）
+// ── HTTP 服务器 ────────────────────────────────────────────────────
+// 全局错误兜底：未捕获的异步异常不静默退出进程（watchdog 之外的保命层）
+process.on("unhandledRejection", (reason) => {
+  console.error("[元枢] unhandledRejection:", String(reason?.stack || reason || "").slice(0, 500));
+});
+// 2026-10-26：分发的 Linux 用户报回两条 `Timeout._onTimeout` 崩溃——
+// 一个定时器里的 bug 让整台服务「记日志 → 退出 → watchdog 拉起 → 再炸 → 再退出」，
+// 他们看到的是"服务反复重启"（报告里写着 watchdog 重启 3 次）。
+// 现在：偶发一次只记账、**继续服务**；同一签名 60 秒内 3 次才退出让 watchdog 干净重启；
+// 内存耗尽这类明显致命的仍然立刻退。
+const crashHistory = new Map(); // signature -> 最近的时间戳
+process.on("uncaughtException", (err) => {
+  const stack = String(err?.stack || err || "");
+  const sig = crashSignature(err);
+  const now = Date.now();
+  const hist = (crashHistory.get(sig) || []).filter((t) => now - t <= 90_000);
+  const verdict = decideCrashAction({ history: hist, now, err });
+  hist.push(now);
+  crashHistory.set(sig, hist);
+  if (crashHistory.size > 50) crashHistory.delete(crashHistory.keys().next().value);
+
+  try {
+    fs.appendFileSync(path.join(__dirname, "crash.log"),
+      `[${new Date().toLocaleString("zh-CN")}] uncaughtException(${verdict.action}/${verdict.reason}): ${stack}\n`);
+  } catch {}
+  console.error(`[元枢] uncaughtException(${verdict.action}/${verdict.reason}):`, stack.slice(0, 500));
+  if (verdict.action !== "exit") {
+    console.error("[元枢] 这是偶发异常：坏的只是那一处，服务继续跑（同一错误 60 秒内 3 次才会重启）");
+    return;
+  }
+  // 已经在坏死循环里：不再接新请求，2s 后退出（watchdog 会拉起一个干净的）
+  try { server?.close?.(); } catch {}
+  setTimeout(() => process.exit(1), 2000).unref();
+});
+// 2026-10-07 真机：10-06 23:29 服务以 code=1 退出，无 crash.log、无 stderr，分不清是内部 exit 还是被外部结束。
+// 记下谁调了 process.exit 与退出码/运行时长；若下次退出 crash.log 里没有 [exit] 行，就是被外部强杀（不触发 exit 事件）。
+let exitCaller = "";
+const rawExit = process.exit.bind(process);
+process.exit = (code) => {
+  exitCaller = String(new Error("process.exit").stack || "").split("\n").slice(2, 7).map(s => s.trim()).join(" <- ");
+  return rawExit(code);
+};
+process.on("exit", (code) => {
+  try {
+    const up = Math.round(process.uptime());
+    fs.appendFileSync(path.join(__dirname, "crash.log"),
+      `[${new Date().toLocaleString("zh-CN")}] [exit] code=${code} uptime=${up}s pid=${process.pid} caller=${exitCaller || "(无 process.exit 调用：事件循环自然结束或 exitCode)"}\n`);
+  } catch {}
+});
+
+// ── 路由表（声明式：method + 匹配器 + handler，替代 if/else 链）──
+// 匹配器：字符串=精确 pathname；正则=捕获组传给 handler（$1 $2 ...）
+// handler 签名：(res, req, url, match, body) => Promise|void
+// 工作台独立页映射（workshop.mjs 导出）
+// 专项工作台依赖注入：把 server.mjs 内部依赖打包给 workshop.mjs（无反向 import）
+function wsCtx() {
+  return { CONFIG, SESSIONS_DIR, defaultModel, createSessionAgent, SessionManager, scanRecentArtifacts, sseWrite, json, getAgentDir, DefaultResourceLoader, WS_ROOT, getModelList: () => modelList };
+}
+
+// 情绪指示器：返回当前会话情绪快照（前端展示用）
+function handleEmotion(res, url) {
+  const key = url.searchParams.get("session");
+  json(res, 200, key ? emotion.getSnapshot(key) : emotion.getLatestSnapshot());
+}
+
+
+// 全局执行状态：哪些会话的 agent 正在跑（前端状态灯轮询用，含后台/他端发起的执行）
+function handleAgentStatus(res) {
+  const busy = [];
+  for (const [id, e] of activeSessions) {
+    if (e.busy) busy.push({ id, since: e.busySince || null });
+  }
+  json(res, 200, { busy, anyBusy: busy.length > 0 });
+}
+
+// 被压缩掉的工具结果原件归档到 agent 目录（与 pi-web-runs 同级）——
+// 不进用户工作区、不污染生成物，但给出的是**可执行的**回读路径。
+initToolResultArchive({ root: path.join(AGENT_DIR, "yuanshu-tool-results") });
+// 与 Pi 的写工具共用同一把按文件队列：Pi 的 edit 走 fs/promises，读写之间有真 await，
+// 不共用时"元枢 edit"与"Pi edit"打同一文件会交错、后写覆盖前写。
+// 外层再套跨进程锁文件（锚在 AGENT_DIR，所有元枢进程默认落到同一处，不 init 也一致）。
+initFileLock({ withFileMutationQueue, dir: path.join(AGENT_DIR, "yuanshu-locks") });
+console.log(`  🔒 文件写队列: ${usingSharedFileQueue() ? "与 Pi 共用" : "自带实现（未拿到 Pi 的队列）"} · 跨进程锁目录 ${path.join(AGENT_DIR, "yuanshu-locks")}`);
+// 2026-11-07：看门狗只拿到 runId，伙伴认不出是哪件事。这里给判断层注入一个只读查询：
+// 新 run（含定时任务/子代理/值班这三类内部轮次）直接用存下的 title；
+// 老 run 按同一套规则从消息预览补一个；内部轮次则从 internal 元数据补（label/name/task）。
+// 查不到/读盘失败 → 空串（不猜），通知里会明说「这轮没带名字」。
+const runTitleForWatchdog = (runId) => runTitleOf(runStore, runId);
+// 2026-10-22：服务被强杀后，run 记录会停在 queued/running/stopping，
+// 新消息被判 session_busy（前端只看到"执行中/状态待同步"），实际后台什么都没跑。
+// 启动时把"重启前就在跑、且 90 秒没更新"的记录收成 interrupted，避免假占用。
+try {
+  // 2026-10-22 修正：按"归属实例"判定，而不是按时间。
+  // 进程刚启动，任何"属于别的实例"的活跃运行都是上一次进程的遗留（哪怕几秒前还在写），
+  // 必须立刻收尾——否则用户更新/重启后马上发消息，会被一条刚断气的运行挡住 90 秒甚至更久。
+  // 2026-11-07：内部轮次（定时任务/子代理/值班）也要一起收尾，否则会永远停在 running。
+  const stale = runStore.list({ includeInternal: true }).filter((r) => {
+    if (!['queued', 'running', 'stopping'].includes(String(r.status))) return false;
+    return String(r.ownerId || '') !== RUN_INSTANCE_ID;
+  });
+  for (const r of stale) {
+    // 2026-11-17：这里只收内部轮次。聊天运行留给 listen 后 runManager 的 recover——
+    // 它会补 resumeAvailable + 检查点并安排自动续；以前在这里先改成 interrupted，
+    // recover 就再也找不到它，重启后的自动接续从没触发过。recover 在 listen 回调里同步先跑，
+    // 用户的新消息进不来之前就已收尾，不会被断气的运行挡住。
+    if (r.kind !== 'internal') continue;
+    // 内部轮次走同一套终态收尾（带 endedAt/durationMs），不再只改 status。
+    runStore.finishInternal(r.id, { status: 'interrupted', error: 'server_restarted' });
+    console.log(`[recover] 残留运行收尾 ${r.id.slice(0, 8)}（${r.status}）→ interrupted`);
+  }
+} catch (e) { console.log('[recover] 残留运行清理跳过:', String(e?.message || e).slice(0, 100)); }
+const learningIntake = createLearningIntake({ wsRoot: WS_ROOT, store: runStore });
+const knowledgeRuntime = createKnowledgeRuntime({ wsRoot: WS_ROOT, runRoot: RUNS_DIR, runStore,
+  catalog: () => modelList, directChat,
+  foregroundBusy: () => [...activeSessions.values()].some(entry => entry.busy) || voiceAdmission.isActive(),
+});
+// 2026-10-26：源码仓根（自动补丁与门禁都在这里跑；不是 git 仓就明确拒绝，而不是在安装包里瞎跑）
+const PATCH_REPO = resolveRepoRoot({ dirname: __dirname });
+// 2026-10-28：服务是 SYSTEM，git 会因"仓库属主不是自己"拒绝工作（dubious ownership）。
+// 只在**本进程**的子 git 上放行这两个目录，不动系统全局 git 配置。
+try {
+  const safeDirs = [PATCH_REPO.root, (() => { try { return CONFIG.cwd } catch { return "" } })()].filter(Boolean);
+  if (safeDirs.length) {
+    process.env.GIT_CONFIG_COUNT = String(safeDirs.length);
+    safeDirs.forEach((dir, i) => {
+      process.env[`GIT_CONFIG_KEY_${i}`] = "safe.directory";
+      process.env[`GIT_CONFIG_VALUE_${i}`] = dir;
+    });
+    console.log("[git] 已放行 safe.directory:", safeDirs.join(", "));
+  }
+} catch {}
+console.log("[autopatch] 源码仓:", PATCH_REPO.root || `未找到（试过 ${PATCH_REPO.tried.join(", ")}）`);
+
+// 2026-10-26：无人值守补丁的运行状态（异步，避免 HTTP 超时）
+let autopatchRunning = false;
+let autopatchState = {};
+const knowledgeApi = createKnowledgeApi({ runtime: knowledgeRuntime, readBody, json,
+  requireAuth: req => !!CONFIG.token && req.headers.authorization === `Bearer ${CONFIG.token}`,
+});
+const knowledgeOverview = createKnowledgeOverview({ aibodyRuntime, knowledgeRuntime });
+
+// 2026-10-31：培养工具的身份绑定要过 canAccessSessionOrigin（会话来源校验），
+// 刚建/未落盘的会话过不了 → bind 失败 → 工具一律报 identity_denied。
+// 伙伴拍板：本人发起的会话（本机回环请求、本人微信转发）放行，其余仍然拒。
+const OWNER_SESSION_TTL_MS = 12 * 60 * 60 * 1000;
+const ownerInitiatedSessions = new Map();
+const markOwnerInitiated = (id) => {
+  const key = String(id || "");
+  if (key) ownerInitiatedSessions.set(key, Date.now());
+};
+const canAccessForCultivation = (id) => {
+  const key = String(id || "");
+  try { if (canAccessSessionOrigin(key)) return true } catch {}
+  const at = ownerInitiatedSessions.get(key);
+  if (!at || Date.now() - at > OWNER_SESSION_TTL_MS) return false;
+  // 只放行一次日志，避免刷屏
+  if (!globalThis.__ownerRelaxLogged?.has?.(key)) {
+    globalThis.__ownerRelaxLogged ||= new Set();
+    globalThis.__ownerRelaxLogged.add(key);
+    if (process.env.YUANSHU_IDENTITY_DIAG === "1") { console.log(`[cultivation] 放行本人会话 ${key.slice(0, 8)}（来源校验未通过，但本轮是本人发起的）`) }
+  }
+  return true;
+};
+const cultivationHostIdentity = createCultivationHostIdentity({ wsRoot: WS_ROOT,
+  resolveExecution: source => runManager.resolveExecutionIdentity(source),
+  getEntry: id => activeSessions.get(id), canAccess: canAccessForCultivation,
+});
+const cultivationRuntime = createCultivationRuntime({ wsRoot: WS_ROOT,
+  learning:knowledgeRuntime.cultivationLearning,learningJob:id=>knowledgeRuntime.store.get(id),
+  identityAdapters: { resolveMother: cultivationHostIdentity.resolveMother },
+  sessionApproval: {registry:confirmRegistry, canAccess:canAccessForCultivation, push:busPush},
+  humanConfig: optionalCultivationHumanConfig(),
+  // 2026-10-11：ownerConfigProvider 已支持 Linux/macOS（XDG 配置目录），不再按平台关死；
+  // 显式 env（公钥文件/actor）仍优先于文件凭据
+  ownerProvider: process.env.YUANSHU_CULTIVATION_HUMAN_PUBLIC_KEY_FILE||process.env.YUANSHU_CULTIVATION_HUMAN_ACTOR?undefined:
+    workspace=>ownerConfigProvider({workspace}),
+  execution: { knowledge: knowledgeRuntime.store, budget: knowledgeRuntime.budget, admission: knowledgeRuntime.admission,
+    provider: createCultivationProvider({catalog: () => modelList, directChat,learning:knowledgeRuntime.cultivationLearning}),
+    // 2026-10-07 真机：伙伴「互相等」——培养跑自己的模型，前台聊天忙不再让它停；只给实时语音让路。
+    foregroundBusy: () => voiceAdmission.isActive(),
+    // 培养任务跑完/失败主动告诉主人：失败带原因码，不让人去授权页瞎查。
+    onRunFinished: run => {
+      const c = run.cultivation || {}, ok = run.status === "completed";
+      notifier.notify({ kind: "cultivation", toWechat: true, key: `cultivation:${run.id}`,
+        title: ok ? "元枢 · 培养任务完成" : "元枢 · 培养任务未完成",
+        body: ok ? String(c.output || "").replace(/\s+/g, " ").slice(0, 120) || "已完成" : `${run.status}${c.reason ? `：${c.reason}` : ""}` })?.catch?.(() => {});
+    },
+  },
+});
+
+// 2026-10-31：cultivation 工具通过 lateRefs 取运行时（声明顺序早于本节），
+// 这一行原来错放在 onRunFinished 回调里 —— 只有培养任务跑完才赋值，
+// 结果平时调用工具时拿到 undefined，一律返回 cultivation_unavailable。
+try { lateRefs.cultivation = cultivationRuntime } catch {}
+const cultivationApi = createCultivationApi({ runtime: cultivationRuntime, readBody, json,
+  requireAuth: req => !!CONFIG.token && req.headers.authorization === `Bearer ${CONFIG.token}`,
+});
+const dreamCollector = createDreamCollector({ wsRoot: WS_ROOT, sessionsDir: SESSIONS_DIR });
+const taskEvidence = createTaskEvidence({ wsRoot: WS_ROOT, rootDir: RUNS_DIR });
+const behaviorExperiments = createBehaviorExperiments({ wsRoot: WS_ROOT, rootDir: RUNS_DIR });
+const taskEvidenceApi = createTaskEvidenceApi({ service: taskEvidence, json, onReview: () => runDreamCycle(true) });
+const runEventLog = createRunEventLog({ rootDir: RUNS_DIR });
+// 2026-11-16：事件流保留 14 天（只删事件文件，run 记录留着）；启动 6 分钟后一次，之后每天一次
+const pruneRunEventsQuietly = async () => {
+  try {
+    const r = await pruneRunEvents({ rootDir: RUNS_DIR, isActive: (id) => ["queued", "running", "stopping"].includes(runStore.get(id)?.status) });
+    if (r.removed) console.log(`[runs] 清掉 ${r.removed} 个过期事件文件，${(r.bytes / 1e6).toFixed(0)}MB`);
+  } catch {}
+};
+setTimeout(() => { void pruneRunEventsQuietly() }, 6 * 60_000).unref?.();
+setInterval(() => { void pruneRunEventsQuietly() }, 24 * 3600_000).unref?.();
+const runEffects = createRunEffects({ rootDir: RUNS_DIR });
+const teamLauncher = createTeamLauncher({ wsRoot: CONFIG.cwd, repoRoot: __dirname, port: CONFIG.port, token: () => CONFIG.token });
+const teamRunRead = createTeamRunRead({ wsRoot: CONFIG.cwd, json, getLaunch: () => teamLauncher.status() });
+const teamChat = createTeamChat({ launcher: teamLauncher, wsRoot: CONFIG.cwd, openSession, aibodyHost,
+  readMessages: entry => extractMessages(entry.sm.fileEntries, entry.sm.getLeafId?.() || resolveLeafId(entry.sm.fileEntries))
+    .map(message => ({ role: message.role, content: message.text })),
+});
+const generalTeamChat = createGeneralTeamChat({ wsRoot: CONFIG.cwd, openSession, aibodyHost,
+  getModel: entry => (entry.modelKey && !isAutoModel(entry.modelKey) ? entry.modelKey : defaultModel),
+  readMessages: entry => extractMessages(entry.sm.fileEntries, entry.sm.getLeafId?.() || resolveLeafId(entry.sm.fileEntries))
+    .map(message => ({ role: message.role, content: message.text })),
+});
+const runManager = createRunManager({
+  store: runStore,
+  eventLog: runEventLog,
+  executeChat: handleChat,
+  instanceId: RUN_INSTANCE_ID,
+  effects: runEffects,
+  workspaceScope: () => CONFIG.cwd,
+  onRunFinished: run => {
+    try { const d = checkDelivery({ runId: run?.id || "" }); if (d.verdict !== "GREEN") console.log(`[deliver] ${run?.id?.slice(0, 8)} ${d.verdict}：${d.summary}`.slice(0, 220)) } catch {}
+    // 2026-10-31：她说要"做完自动推到手机/微信"——之前只发应用内，微信收不到，这次补上。
+    const composeDone = async ({ run: r, secs, failed }) => {
+      // 2026-11-03：人就在旁边（10 分钟内有消息）时，不推"长任务完成"——太吵
+      const lastHuman = Number(globalThis.__lastUserMsgAt || 0);
+      if (lastHuman && Date.now() - lastHuman < 10 * 60 * 1000) {
+        console.log("[notice] 跳过完成推送：你正在会话里");
+        return null;
+      }
+      const name = String(findSession(String(r.sessionId || ""))?.name || "").trim();
+      const what = name || "手头的活";
+      const minutes = Math.max(1, Math.round(secs / 60));
+      // 2026-10-31：交付门回灌——RED 时这条推送不许说做完了
+      const gate = checkDelivery({ runId: r.id });
+      // 2026-11-03：把这次任务的真实结局写进事件流——画像/脑区自调都靠它
+      try {
+        const files = gate.changedFiles || [];
+        recordGateVerdict(WS_ROOT, { verdict: gate.verdict, changedFiles: files, blockers: gate.blockers || [], runId: r.id, text: String(what || "") });
+        appendEvoEvent(WS_ROOT, {
+          kind: "task", target: "run", targetId: String(r.id || "").slice(0, 12),
+          taskType: files.length ? undefined : "未分类",
+          verdict: failed ? "failed" : (String(gate.verdict || "").toUpperCase() === "GREEN" ? "pass" : String(gate.verdict || "").toLowerCase()),
+          by: "run-finished",
+        });
+      } catch {}
+      const made = await composeNoticeFor("done", { what, minutes, failed, files: gate.changedFiles || [], source: `交付门 ${String(gate.verdict || "").toUpperCase()}`, gate: { verdict: gate.verdict, summary: gate.summary } });
+      const env = noticeEnvelope({ kind: "done", facts: { what }, text: made.text });
+      return { title: env.head, body: made.text, sender: personaName(WS_ROOT), summary: failed ? "任务失败" : "长任务完成", facts: [`用时 ${Math.round(secs / 60) || 1} 分钟`] };
+    };
+    notifier.runFinished(run, { toWechat: true, compose: composeDone })?.catch?.(() => {});
+    knowledgeRuntime.enqueueFinished(run);
+    return learningIntake.enqueue(run);
+  },
+  // handleChat 返回时 JSONL 已提交；通知会话订阅者刷新侧栏与多端状态。
+  onSessionUpdated: ({ run }) => busPush(run.sessionId, "session_updated", { sessionId: run.sessionId }),
+});
+const runApi = createRunApi({ manager: runManager, json,
+  readDeliveries: (run, events) => readGeneralTeamDeliveries({ wsRoot: CONFIG.cwd, run, events }),
+  readContext: async (run) => ({
+  bodyRun: aibodyRuntime.getRun(run.id),
+  subagents: await subagent.getSubagentHistory({ sessionId: run.sessionId, runId: run.id, limit: 50 }),
+}) });
+const teamApi = createTeamApi({ launcher: teamLauncher, runApi, json });
+const voiceTaskRuntime = createVoiceTaskRuntime({ rootDir: RUNS_DIR, manager: runManager,
+  sessionsDir: SESSIONS_DIR, cwd: CONFIG.cwd, canAccess: canAccessSessionOrigin, withSession: withIdleSession,
+  taskEvidence, getModel: () => defaultModel, invalidate: invalidateSessionCache,
+  notify: sessionId => busPush(sessionId, 'session_updated', { sessionId }),
+  onError: () => console.warn('[voice-tasks] 任务恢复暂不可用，稍后重试'),
+});
+const companionFacts = createCompanionFacts({ manager: runManager, serverEpoch: RUN_INSTANCE_ID,
+  activeSessions: () => [...activeSessions].filter(([, entry]) => entry.busy).map(([id]) => id) });
+const companionStore = createCompanionStore({ root: CONFIG.cwd });
+// 微信接入（2026-10-06，小语自己接通后收编进来）：凭证与游标在工作区 .yuanshu/wechat，对话走本机 /api/chat。
+const wechat = createWechatBridge({
+  // 2026-10-27：掉线/过期不再只在日志里，进收件箱（用户能在面板看到）
+  onAlert: (text) => {
+    try {
+      enqueueReport(WS_ROOT, {
+        id: `wechat-${Math.floor(Date.now() / 60000)}`,
+        kind: "wechat", label: "微信接入", state: "needs_attention",
+        step: String(text).slice(0, 160), priority: "high",
+      });
+    } catch {}
+  },
+  // 2026-10-28：微信消息也算"人在这儿"，否则深夜推送会把在线的人当成"走了很久"
+  // 2026-11-09：微信回话也是"有回复"——主动推送台账的暂停靠它解除（只认真实动作，不认心跳）
+  onUserActivity: () => {
+    try { companionStore.touchSeen({ throttleMs: 0 }); } catch {}
+    try { markOutreachReplied(WS_ROOT); } catch {}
+  },
+  dir: path.join(CONFIG.cwd, '.yuanshu', 'wechat'),
+  legacyDir: path.join(CONFIG.cwd, '工程'),
+  chat: createLoopbackChat({ base: () => `http://127.0.0.1:${CONFIG.port}`, token: () => CONFIG.token }),
+  // 2026-11-16：会话文件过大且安静了 → 桥换新会话（判断在 bridge 里）
+  sessionInfo: (id) => {
+    const file = findSession(id)?.file;
+    if (!file) return null;
+    const st = fs.statSync(file);
+    return { bytes: st.size, mtimeMs: st.mtimeMs };
+  },
+  log: (m) => console.log(m),
+});
+const wechatAction = (fn) => async (res, req) => {
+  try { json(res, 200, { ...(await fn(req)), status: wechat.status() }); }
+  catch (e) { json(res, e.status || 500, { error: String(e.message || e) }); }
+};
+const companionReadSession = createCompanionSessionReader({ activeSessions, findSession, readEntriesFromFile,
+  extractMessages, resolveLeafId, isAutoModel, getModels: () => modelList, getDefaultModel: () => defaultModel });
+const companionDecisions = createCompanionDecision({ store: companionStore, facts: companionFacts,
+  emotion: companionEmotion, readSession: companionReadSession, callModel: directChat });
+
+// 久不互动推送：每 5 分钟看一眼（45 分钟没来才推、3 小时冷却；unref 不阻止进程退出）
+  // 2026-10-30：她写短消息的通道（模型直调，失败就退回兜底话术）
+// 2026-10-31：反思要写长一点（经验条目），比短消息宽松但同样优先用不啰嗦的文本模型
+const writeReflectionExperience = async (prompt) => {
+  const isText = (m) => !/image|video|tts|asr|speech|embed|rerank/i.test(String(m.id || ""));
+  const agnes = (modelList || []).find((m) => m.provider === "agnes" && isText(m) && /^agnes-?3\.0-flash$/i.test(String(m.id)))
+    || (modelList || []).find((m) => m.provider === "agnes" && isText(m) && /flash/i.test(String(m.id)));
+  for (const m of [agnes, defaultModel].filter(Boolean)) {
+    try {
+      const r = await directChat(m, prompt, [], { maxTokens: 1200, timeout: 90000 });
+      const t = String(r?.text || "").trim();
+      if (t) return t;
+    } catch {}
+  }
+  return "";
+};
+
+// 今天的证据：动过的会话 + 交付门判定 + 失败账本
+const reflectionEvidence = (day) => {
+  try {
+    const sessions = (getSessionList() || []).filter((x) => String(x.updatedAt || x.createdAt || "").startsWith(day));
+    const delivery = readDeliveryLedger().filter((d) => new Date(Number(d.at) || 0).toISOString().slice(0, 10) === day);
+    let failures = [];
+    try { failures = (recentFailures?.(WS_ROOT, 10) || []).map((f) => ({ text: failureLine?.(f) || f?.reason || f?.text || "" })) } catch {}
+    return gatherEvidence({ sessions, delivery, failures, day });
+  } catch { return gatherEvidence({ day }) }
+};
+const writeShortNotice = async (prompt) => {
+  // 2026-10-30：默认模型偶尔只回思考/空正文，短消息再试一个干净的 flash，别动不动就掉兜底
+  // 2026-10-30：不能只按 /flash/ 挑——agnes 的视频/图片模型也叫 flash，选了它们写不出话。
+  const isTextModel = (m) => !/image|video|tts|asr|speech|embed|rerank/i.test(String(m.id || ""));
+  const agnesText = (modelList || []).find((m) => m.provider === "agnes" && isTextModel(m) && /^agnes-?3\.0-flash$/i.test(String(m.id)))
+    || (modelList || []).find((m) => m.provider === "agnes" && isTextModel(m) && /flash/i.test(String(m.id)));
+  const tries = [agnesText, defaultModel].filter(Boolean);
+  for (const m of tries) {
+    try {
+      const r = await directChat(m, prompt, [], { maxTokens: 300, timeout: 45000 });
+      const t = String(r?.text || "").trim();
+      if (t) return t;
+    } catch {}
+  }
+  return "";
+};
+// 2026-10-30：两种调用形状都接（(kind, facts) 与 ({kind, facts})）——真机上后者传成了前者，
+// 结果 kind 变成对象、facts 变 undefined，兜底句渲染出「undefined，弄完了」。
+const composeNoticeFor = (a, b) => {
+  const opts = a && typeof a === "object" ? a : { kind: a, facts: b };
+  return composeNotice({ ...opts, wsRoot: WS_ROOT, write: writeShortNotice });
+};
+const BRIEF_STATE = path.join(WS_ROOT, "记忆", "运行时", "简报.json");
+const readBriefState = () => { try { return JSON.parse(fs.readFileSync(BRIEF_STATE, "utf8")) } catch { return {} } };
+const writeBriefState = (v) => { try { fs.mkdirSync(path.dirname(BRIEF_STATE), { recursive: true }); fs.writeFileSync(BRIEF_STATE, JSON.stringify(v, null, 2), "utf8") } catch {} };
+
+// 夜间反思：复盘今天 + 沉淀多少条，推一条。只在 23:00 后、当天没发过时发。
+async function maybeNightBrief(now = new Date(), { force = false } = {}) {
+  const h = now.getHours();
+  if (!force && h < 23 && h > 4) return { ok: false, reason: "not_night" };
+  const day = now.toISOString().slice(0, 10);
+  const st = readBriefState();
+  if (!force && st.night === day) return { ok: false, reason: "already" };
+  let facts = { events: 0, learned: 0 };
+  try {
+    // 2026-10-30：口径改成"今天真正动过的会话数"。
+    // 数 run 会把探针/重试/并行全算进去（真机报出「102 件事」，没人信）；一个会话 = 一件事。
+    const NOISE = /(探针|题库|验证|测试|probe|bench|smoke|baseline|judges?)/i;
+    const sessions = (typeof getSessionList === "function" ? getSessionList() : []) || [];
+    const today = sessions.filter((x) => {
+      const name = String(x?.name || "").trim();
+      if (!name || NOISE.test(name)) return false;
+      const t = String(x.updatedAt || x.createdAt || "");
+      return t.startsWith(day) || (Number.isFinite(Date.parse(t)) && new Date(t).toDateString() === new Date().toDateString());
+    });
+    facts.events = today.length;
+    // 2026-10-31：条目是 "### 2026-10-30 标题"，原来用 startsWith(day) 数，永远 0。
+    facts.learned = countExperience(WS_ROOT, day);
+  } catch {}
+  // 2026-10-31：反思要产出经验——今天一条都没有就先蒸馏，再报数字
+  if (!facts.learned) {
+    try {
+      const d = await distillExperience({ wsRoot: WS_ROOT, day, evidence: reflectionEvidence(day), write: writeReflectionExperience, maxEntries: distillLimit(brainWeights()) });
+      if (d.written) console.log(`[learn] 晚间蒸馏写入 ${d.written} 条：${(d.titles || []).join("、").slice(0, 120)}`);
+      else if (d.error) console.log(`[learn] 晚间蒸馏未写入：${d.error}`);
+      facts.learned = countExperience(WS_ROOT, day);
+    } catch (e) { console.log(`[learn] 晚间蒸馏异常：${String(e?.message || e).slice(0, 120)}`) }
+  }
+  const made = await composeNoticeFor("night", facts);
+  const env = noticeEnvelope({ kind: "night", facts, text: made.text });
+  const nightFacts = [`今天 ${facts.events} 件事`, `沉淀 ${facts.learned} 条`];
+  await notifier.notify({ kind: "night", title: env.head, body: made.text, sender: personaName(WS_ROOT), summary: env.summary, facts: nightFacts, toWechat: true, key: `night:${day}` });
+  writeBriefState({ ...st, night: day });
+  return { ok: true, text: made.text, source: made.source };
+}
+
+// 2026-10-30：0 点后的反思（进化/做梦）跑完，把结果推一条。
+// 平时的周期是每 6 小时一次，这里专门在 0~1 点补一次"今天回头看了什么"。
+async function maybeReflectionBrief(now = new Date(), { force = false } = {}) {
+  const h = now.getHours();
+  if (!force && (h < 0 || h >= 2)) return { ok: false, reason: "not_midnight" };
+  const day = now.toISOString().slice(0, 10);
+  const st = readBriefState();
+  if (!force && st.reflection === day) return { ok: false, reason: "already" };
+
+  let facts = { events: 0, learned: 0, winner: "" };
+  let report = "";
+  // 2026-11-01：合并——她 0 点已经有一份「自我反思」任务在跑，这里不再自己跑一遍回放，
+  // 直接读那份报告（读不到才回退跑一次）。
+  const tasksFile = path.join(AGENT_DIR, "time-tasks.json");
+  const got = latestReflectionReport({ tasksFile, now: now.getTime() });
+  if (got.ok) {
+    report = got.text || "";
+    console.log(`[brief] 反思简报读的是她 0 点任务 ${got.taskId} 的报告（${Math.round((now.getTime() - got.at) / 60000)} 分钟前）`);
+  } else {
+    console.log(`[brief] 没有可用的复盘报告（${got.reason || "未知"}），回退自己跑一次回放`);
+    try {
+      const r = await runDreamCycle(true);
+      facts.events = Number(r?.episodes || r?.traces || 0);
+      facts.winner = String(r?.winner || r?.gate?.chosen?.id || "").slice(0, 24);
+      if (!r?.ok) console.log(`[brief] 反思回放没有结果：${r?.reason || "无数据"}`);
+    } catch (e) { console.log(`[brief] 反思回放异常：${String(e?.message || e).slice(0, 120)}`) }
+  }
+
+  // 报告里能数出昨天动过几个会话；数不出就退回 0，不编
+  try {
+    const sessions = (getSessionList() || []).filter((x) => String(x.updatedAt || x.createdAt || "").startsWith(day));
+    facts.events = Math.max(facts.events, sessions.length);
+  } catch {}
+
+  // 蒸馏经验：优先从她自己的复盘报告里提炼
+  try {
+    facts.learned = countExperience(WS_ROOT, day);
+    if (!facts.learned) {
+      const d = await distillExperience({ wsRoot: WS_ROOT, day, evidence: reflectionEvidence(day), write: writeReflectionExperience, maxEntries: distillLimit(brainWeights()), report });
+      if (d.written) console.log(`[learn] 反思蒸馏写入 ${d.written} 条：${(d.titles || []).join("、").slice(0, 120)}`);
+      else if (d.error) console.log(`[learn] 反思蒸馏未写入：${d.error}`);
+      facts.learned = countExperience(WS_ROOT, day);
+    }
+  } catch (e) { console.log(`[learn] 反思蒸馏异常：${String(e?.message || e).slice(0, 120)}`) }
+
+  if (!facts.events && !facts.learned && !report && !force) {
+    writeBriefState({ ...st, reflection: day });
+    return { ok: false, reason: "nothing" };
+  }
+  const made = await composeNoticeFor("reflection", { ...facts, report: report ? 1 : 0 });
+  const env = noticeEnvelope({ kind: "reflection", facts, text: made.text });
+  const lines = [report ? "读了你 0 点的复盘" : `回放 ${facts.events} 条`, facts.learned ? `沉淀 ${facts.learned} 条` : ""].filter(Boolean);
+  await notifier.notify({ kind: "reflection", title: env.head, body: made.text, sender: personaName(WS_ROOT), summary: env.summary, facts: lines, toWechat: true, key: `reflection:${day}` });
+  writeBriefState({ ...st, reflection: day });
+  return { ok: true, text: made.text, source: made.source };
+}
+// 晨报：今天待办几件、先做哪件、昨天复盘几条。08:00 后、当天没发过时发。
+async function maybeMorningBrief(now = new Date(), { force = false } = {}) {
+  const h = now.getHours();
+  if (!force && (h < 8 || h > 11)) return { ok: false, reason: "not_morning" };
+  const day = now.toISOString().slice(0, 10);
+  const st = readBriefState();
+  if (!force && st.morning === day) return { ok: false, reason: "already" };
+  let facts = { pending: 0, first: "", learned: 0 };
+  try {
+    const items = readJsonFile(path.join(WS_ROOT, "记忆", "运行时", "待办.json"))?.items || [];
+    const open = items.filter((x) => !x.done);
+    facts.pending = open.length;
+    facts.first = String(open[0]?.text || open[0]?.title || "").slice(0, 30);
+  } catch {}
+  const made = await composeNoticeFor("morning", facts);
+  const env = noticeEnvelope({ kind: "morning", facts, text: made.text });
+  const morningFacts = [`待办 ${facts.pending} 件`, facts.learned ? `昨天沉淀 ${facts.learned} 条` : ""].filter(Boolean);
+  await notifier.notify({ kind: "morning", title: env.head, body: made.text, sender: personaName(WS_ROOT), summary: env.summary, facts: morningFacts, toWechat: true, key: `morning:${day}` });
+  writeBriefState({ ...st, morning: day });
+  return { ok: true, text: made.text, source: made.source };
+}
+
+// ── 装配分级补的两件只读审计（2026-11-10）────────────────────────────────────
+// 为什么挂进循环：auditJobs 只导出没人调＝规范写了却没人拿它校对；新鲜度体检只有 CLI 在跑＝
+// 没人手动跑就等于没有体检。两件都**只读**：不执行任何作业、不改任何能力的行为，
+// 出问题只打一行日志，不推送、不打扰。
+
+const SCHEDULED_AUDIT_REL = path.join("记忆", "运行时", "定时任务审计.json");
+const VITALITY_AUDIT_REL = path.join("记忆", "运行时", "体检.json");
+const VITALITY_EVERY_MS = 6 * 60 * 60 * 1000; // 低频：6 小时一次（新鲜度阈值是天级，跑太勤只是浪费盘）
+let lastScheduledKinds = null; // 上一拍的分类；只在内存里，重启后从新的一拍重新起算
+let lastVitalityAt = 0;
+
+/**
+ * 双模式审计快照（纯读，路由直接用）。
+ * auditJobs() 的统计 + 每个作业的分类与理由 + planJob() 的两步计划。
+ * 注意：planJob 只是**算计划**，不执行——这里没有任何东西会让作业真跑起来。
+ */
+function scheduledAuditSnapshot({ now = Date.now() } = {}) {
+  const audit = auditJobs();
+  const plans = new Map(JOB_INVENTORY.map((job) => [String(job?.id || ""), planJob(job)]));
+  const jobs = audit.rows.map((row) => {
+    const plan = plans.get(row.id) || null;
+    return {
+      ...row,
+      planOk: plan ? plan.ok === true : false,
+      plan: plan
+        ? { ok: plan.ok === true, steps: plan.steps, violation: plan.violation || null, blocked: plan.blocked || null }
+        : null,
+    };
+  });
+  return {
+    at: now,
+    ok: audit.ok === true,
+    total: audit.total,
+    counts: {
+      deterministic: audit.deterministicCount,
+      needsJudgement: audit.needsJudgementCount,
+      violations: (audit.violations || []).length,
+    },
+    deterministicJobs: audit.noModelNeeded,
+    needsJudgementJobs: audit.needsJudgement,
+    violations: audit.violations,
+    jobs,
+  };
+}
+
+/**
+ * 10 分钟循环里跑一次：只读审计 + 分类漂移检查 + 落一份快照。
+ * 连续两拍同一作业分类不一致 → console.log 一行（防规范悄悄漂：改了 classify 规则没人发现）。
+ * @returns {Array<{id:string, from:string, to:string}>} 这一拍发现的漂移项
+ */
+function runScheduledAuditTick({ now = Date.now() } = {}) {
+  const snapshot = scheduledAuditSnapshot({ now });
+  const kinds = Object.fromEntries(snapshot.jobs.map((j) => [j.id, j.kind]));
+  const drift = lastScheduledKinds
+    ? snapshot.jobs
+      .filter((j) => lastScheduledKinds[j.id] && lastScheduledKinds[j.id] !== j.kind)
+      .map((j) => ({ id: j.id, from: lastScheduledKinds[j.id], to: j.kind }))
+    : [];
+  lastScheduledKinds = kinds;
+  writeJsonFile(path.join(WS_ROOT, SCHEDULED_AUDIT_REL), { ...snapshot, drift });
+  if (drift.length) {
+    console.log(`[scheduled] 作业分类漂移 ${drift.length} 项：${drift.map((d) => `${d.id} ${d.from}→${d.to}`).join("；")}（规范可能改过，先看 engine/scheduled-policy.mjs）`);
+  }
+  return drift;
+}
+
+/**
+ * 新鲜度体检：6 小时一次（低频）。有 stale/never 只打一行日志，不推送、不打扰。
+ * 结果落 记忆/运行时/体检.json，GET /api/vitality 可以随时看最新一次。
+ */
+function runVitalityAuditTick({ now = Date.now(), force = false } = {}) {
+  if (!force && now - lastVitalityAt < VITALITY_EVERY_MS) return null;
+  lastVitalityAt = now;
+  const audit = auditVitality({ wsRoot: WS_ROOT, now });
+  const verdict = summarizeVitality(audit);
+  writeJsonFile(path.join(WS_ROOT, VITALITY_AUDIT_REL), {
+    at: now,
+    line: verdict.line,
+    counts: verdict.counts,
+    healthy: verdict.ok,
+    needsAttention: verdict.needsAttention,
+    issues: verdict.issues,
+    unknown: verdict.unknown,
+    flags: verdict.flags,
+  });
+  if (verdict.needsAttention > 0) {
+    const names = verdict.issues.slice(0, 3).map((i) => `${i.name}(${i.label})`).join("、");
+    console.log(`[vitality] ${verdict.counts.stale} 停更 / ${verdict.counts.never} 从未产出：${names}${verdict.issues.length > 3 ? ` 等 ${verdict.issues.length} 项` : ""}（明细见 ${VITALITY_AUDIT_REL}）`);
+  }
+  return verdict;
+}
+
+try {
+setInterval(() => {
+  runWithInitiator("scheduler", () => maybeNightBrief().catch(() => {}));
+  runWithInitiator("scheduler", () => maybeMorningBrief().catch(() => {}));
+  runWithInitiator("scheduler", () => maybeReflectionBrief().catch(() => {}));
+  runWithInitiator("scheduler", () => maybeColdWake().catch(() => {}));
+  // 2026-11-02：自改触发（影子）——只记拟议，不改代码
+  try {
+    const evs = readEvoEvents(WS_ROOT, { limit: 800 });
+    const lastBy = (listProposals(SELF_CHANGE_ROOT) || []).reduce((acc, x) => { if (x?.target && x?.targetId) acc[`${x.target}:${x.targetId}`] = Date.parse(x.at) || 0; return acc }, {});
+    const verdict = shouldPropose({ events: evs, lastByTarget: lastBy });
+    if (verdict.should) {
+      const prop = makeShadowProposal(verdict.spot, { reason: verdict.reason });
+      recordProposal(WS_ROOT, prop);
+      console.log(`[selfchange] 影子提案：${verdict.reason}`);
+    }
+  } catch {}
+  // 2026-11-03：推送超时未反应 → 标 ignore（降频的真实分母）
+  try { const r = expirePushes(WS_ROOT); if (r.expired) console.log(`[notice] ${r.expired} 条推送超时未反应，已标忽略`) } catch {}
+  // 2026-11-07：授权记录只留有用的（过期超 7 天且没有结局的清掉）
+  try { const r = pruneMandates(WS_ROOT); if (r.removed) console.log(`[mandate] 清理过期授权 ${r.removed} 条`) } catch {}
+  // 2026-11-07：人格定义 → 各端注入面的闭环（形象四项尤其容易断）
+  // 断点在：任何绕过治理链直接改 记忆/人格定义.json 的写入（脚本/补字段/手工），
+  // 都不会刷新 pi 通道读的 APPEND_SYSTEM.md 人格块，于是"改了外貌她不认，直到重启"。
+  // 这里每 10 分钟做一次幂等核对，只在该刷新时写盘并留一行日志。
+  try {
+    const pd = loadPersonaDefinition(CONFIG.cwd);
+    if (!pd?.problems?.length) {
+      // pi 通道读的是 agentDir 下的 APPEND_SYSTEM.md（人格块）；其余端由 syncAllSurfaces 管。
+      const append = syncPersonaAppendAll(pd.def);
+      const surfaces = syncAllSurfaces(pd.def, { wsRoot: CONFIG.cwd }) || [];
+      const changed = [...(append.some((x) => x.changed) ? ["append"] : []), ...surfaces.filter((x) => x.changed).map((x) => x.surface)].filter(Boolean);
+      if (changed.length) console.log(`[persona] 人格块落后于定义，已同步 ${changed.join("、")}`);
+    }
+  } catch (e) { console.log(`[persona] 同步核对失败（不阻塞）：${String(e?.message || e).slice(0, 100)}`) }
+  // 2026-11-02：看门狗判偏——空转/连续失败/只改不验
+  try {
+    const rows = (auditGate?.tail ? auditGate.tail(300) : []) || [];
+    const res = detectDrift(rows, { now: Date.now(), titleOf: runTitleForWatchdog });
+    recordDriftCheck(WS_ROOT, res);
+    // 2026-11-07：每次真判出偏离都落一条带 id 的事件——通知正文、接口、watchdog_read 查的是同一件事。
+    const incidentOut = res.drift ? recordDriftIncident(WS_ROOT, res, { rows }) : null;
+    const incidentId = incidentOut?.ok ? incidentOut.incident.id : "";
+    if (res.drift) {
+      console.log(`[watchdog] 偏离：${res.issues.map((i) => i.detail).join('；')}${incidentId ? `（事件 ${incidentId}）` : ""}`);
+      // 2026-11-07：从「记账」到「介入」——同类问题 4 小时冷却，而且必须花主动预算，不额外打扰。
+      // 只提醒、不动任务：误伤长任务的代价高于多等一轮。
+      const esc = shouldEscalate({ drift: true, issues: res.issues, last: readLastNotified(WS_ROOT) });
+      if (!esc.escalate) {
+        console.log(`[watchdog] 先不提醒：${esc.reason}`);
+      } else {
+        const day = new Date().toISOString().slice(0, 10);
+        // 2026-11-09：看门狗提醒此前只查预算与冷却，凌晨照样推；补上与冷唤醒/watch 一致的静默闸。
+        if (isQuietHours(Date.now())) console.log("[watchdog] 该提醒，但现在是免打扰时段");
+        else {
+        const budget = readBudget(WS_ROOT, day, { cap: 3 });
+        if (budget.remaining <= 0) console.log("[watchdog] 该提醒，但今天的主动预算用完了");
+        else {
+          // 先记账再发：通知落盘 + 预算扣减必须原子完成；
+          // 否则预算扣了没记通知，冷却窗口读不到，下一轮同签名会绕过去重再推（2026-11-18 复盘：14 条里 4 条重复）。
+          recordNotified(WS_ROOT, esc.key);
+          const spent = spendBudget(WS_ROOT, day, { cap: budget.cap, kind: "watchdog_drift" });
+          if (!spent.ok) {
+            console.log(`[watchdog] 该提醒，但今天的主动预算用完了（${esc.key} 已记账，不再重试）`);
+          } else {
+            void notifier.notify({
+              kind: "watchdog", title: "元枢 · 有一轮活可能跑偏",
+              body: composeDriftNotice(res.issues, { incidentId }), key: `watchdog-drift:${esc.key}:${day}`, toWechat: true,
+            }).catch(() => {});
+            console.log(`[watchdog] 已提醒（${esc.key}）：${esc.reason}`);
+          }
+        }
+        }
+      }
+    }
+  } catch {}
+  // 2026-11-02：脑区自调（内部 12h 冷却 + 边界 + 审计）
+  try { const r = applyNudges(WS_ROOT); if (r?.applied?.length) console.log(`[brain] 自调：${r.applied.map((x) => `${x.id}${x.delta > 0 ? "+" : ""}${x.delta}`).join(" ")}`) } catch {}
+  // 2026-11-09：退化自评的 low 档动作**自动执行**——挂在同一个 10 分钟循环里，
+  // 每轮最多一个动作（limit:1），同一条动作 30 分钟内不重复；text-only(medium) 与
+  // global-pause(high) 永远不会走到这里（applyLowRiskOnly 里直接跳过记 requires-human）。
+  // 顺带把这一拍记成心跳：连续 3 次没产出 → 定时任务告警.jsonl + /api/degradation 的 reasons。
+  try {
+    const deg = applyLowRiskOnly({ wsRoot: WS_ROOT, now: Date.now(), contextWindow: currentContextWindow(), limit: 1 });
+    try {
+      recordJobRun(WS_ROOT, {
+        jobId: "degradation-auto", at: Date.now(), produced: deg?.ok === true,
+        note: deg?.ok === true
+          ? `level=${deg.level} 执行 ${deg.executed.length} / 待人工 ${deg.pendingHuman.length}`
+          : String(deg?.error || "返回不正常"),
+      });
+    } catch {}
+    if (deg?.executed?.length) {
+      console.log(`[degradation] 自动执行 ${deg.executed.map((x) => `${x.action}(${x.effect})`).join("、")}${deg.pendingHuman.length ? `；待人工确认 ${deg.pendingHuman.map((x) => x.action).join("、")}` : ""}`);
+    }
+  } catch (e) {
+    try { recordJobRun(WS_ROOT, { jobId: "degradation-auto", at: Date.now(), produced: false, note: String(e?.message || e).slice(0, 120) }); } catch {}
+    console.log(`[degradation] 自动执行失败（不阻塞循环）：${String(e?.message || e).slice(0, 120)}`);
+  }
+  // 2026-11-10：装配分级——定时任务双模式审计（每拍一次）与产出新鲜度体检（6 小时一次）。
+  // 两件都只读：不执行作业、不改行为；失败只打日志，不阻塞循环。
+  try { runScheduledAuditTick(); } catch (e) { console.log(`[scheduled] 只读审计失败（不阻塞循环）：${String(e?.message || e).slice(0, 120)}`); }
+  try { runVitalityAuditTick(); } catch (e) { console.log(`[vitality] 体检失败（不阻塞循环）：${String(e?.message || e).slice(0, 120)}`); }
+}, withJitter(10 * 60 * 1000, { ratio: 0.08 })).unref?.();
+setInterval(() => { runWithInitiator("scheduler", () => runCompanionNudge({ store: companionStore, notifier, compose: composeNoticeFor, persona: personaName(WS_ROOT), cooldownMs: nudgeCooldownMs(brainWeights()), wsRoot: WS_ROOT, budgetRemaining: readBudget(WS_ROOT, new Date().toISOString().slice(0, 10), { cap: 3 }).remaining }).catch(() => {})) }, 5 * 60 * 1000).unref?.();
+} catch {}
+
+// 设计委托：每 60 秒看一眼到期的周期委托（一次只跑一单，出错不影响后面的）
+let commissionBusy = false;
+try {
+  setInterval(() => {
+    if (commissionBusy) return;
+    commissionBusy = true;
+    void (async () => {
+      try {
+        for (const c of dueCommissions(WS_ROOT, { now: Date.now })) {
+          await runDesignCommission(WS_ROOT, c.id, {
+            generate: generateImageSaved,
+            audit: (doc, opts) => auditCanvas(doc, { ...opts, wsRoot: WS_ROOT }),
+          });
+        }
+      } catch { /* 单次失败不影响下一轮 */ } finally { commissionBusy = false }
+    })();
+  }, 60 * 1000).unref?.();
+} catch {}
+
+// 连续创作「原著改编」按书导入：从小说工坊读指定章节（不给就是全书）。
+// 放在 server 层而不是编排层：编排层不该知道小说工坊的文件布局，
+// 它只要一份 {title, chapters:[{file,title,chars,content}]} 的纯数据。
+function readStoryNovelBook({ bookId, files } = {}) {
+  const id = String(bookId || '').trim();
+  const detail = novelStudio.bookDetail(id);
+  if (detail?.error) throw Object.assign(new Error(`读不到这本书：${detail.error}`), { statusCode: 404 });
+  const available = Array.isArray(detail.chapters) ? detail.chapters : [];
+  if (!available.length) throw Object.assign(new Error('这本书还没有章节，先在小说工坊写一章'), { statusCode: 400 });
+  const want = Array.isArray(files) && files.length ? files.map(String) : null;
+  const picked = want ? available.filter(c => want.includes(c.file)) : available;
+  if (!picked.length) throw Object.assign(new Error('选中的章节不在这本书里'), { statusCode: 400 });
+  const chapters = picked.map(c => {
+    const read = novelStudio.readChapter(id, c.file);
+    const content = read?.error ? '' : String(read.content || '');
+    return { file: c.file, title: c.title || c.file, chars: content.length, content };
+  });
+  return { bookId: id, title: String(detail.meta?.title || ''), chapters };
+}
+
+// 每个会话最后一条用户消息（2026-09-18 第二轮）：activate_skill 发生时要知道"这是在回答哪个任务"，
+// 而工具执行器拿不到对话上下文——所以在收到消息时就记下来，键与会话一致。
+const lastUserBySession = new Map();
+
+// 版本号唯一来源：仓库根 version.json（与系统页同源，别再各读各的）。
+const APP_VERSION = (() => {
+  try { return String(JSON.parse(fs.readFileSync(path.join(__dirname, "version.json"), "utf8")).version || ""); }
+  catch { return ""; }
+})();
+
+// 分镜轨迹要落在工作区（不是进程 cwd）：显式注入，免得又写进产品仓库
+try { initStoryTrace({ wsRoot: WS_ROOT }); } catch {}
+
+// 做梦用的候选策略表（2026-09-18）：现役 = 当前 MATCH_WEIGHTS；候选只动**权重数字**，
+// 不动匹配规则本身（规则是行为契约，改它要人拍板；调权重才是可回放、可比较的部分）。
+const DREAM_POLICIES = {
+  incumbent: "matcher-current",
+  candidates: [
+    { id: "matcher-domainx1.5", weights: { ...MATCH_WEIGHTS, video: 6, image: 4.5, ppt: 6, novel: 4.5 } },
+    { id: "matcher-name-hit-up", weights: { ...MATCH_WEIGHTS, nameHit: 8, nameToken: 3 } },
+    { id: "matcher-concept-up", weights: { ...MATCH_WEIGHTS, concept: 8, discipline: { retro: 8, verify: 7, diag: 7, settle: 7 } } },
+    { id: "matcher-desc-down", weights: { ...MATCH_WEIGHTS, descToken: 1 } },
+  ],
+};
+
+/**
+ * 做梦周期（2026-09-18 第三轮）：不再等人点接口。
+ * 你上次说得对——"全让我回答，我不是给她打工了吗"：自决的意义就是**它自己会跑**。
+ * 这个函数由启动后延迟 + 每 6 小时定时调用一次；有赢家就走授权状（A/B 自决 / C 转人话提案）。
+ */
+async function runDreamCycle(fresh = false) {
+  await learningIntake.reconcile();
+  const collection = await dreamCollector.collect();
+  if (!collection.ok) console.warn(`[dream] 采集待重试：${collection.failed} 个文件，原因 ${collection.reason}`);
+  const skills = loadSkillIndex();
+  return runEvolutionCycle({ wsRoot: WS_ROOT, taskEvidence, fresh: fresh === true,
+    candidates: [{ id: DREAM_POLICIES.incumbent, weights: null }, ...DREAM_POLICIES.candidates],
+    matcherContext: JSON.stringify(skills.map(s => [s.name, s.desc])),
+    rank: (ep, policy) => matchSkillsForTask(ep.input, skills, 3, policy.weights).map(s => s.name),
+  });
+}
+
+import { createPendingApi } from "./engine/pending-api.mjs";
+import { createBoardApi } from "./engine/board-api.mjs";
+import { createHistoryApi } from "./engine/history-api.mjs";
+import { createWorkbenchRoutes } from "./engine/workbench-routes.mjs";
+import { createWithCache } from "./engine/resp-cache.mjs";
+
+// 2026-10-28：读分支 HEAD 的 commit sha —— 审批凭据绑它，防止"批准 A、合并 B"
+function reviewSha(repoRoot, branch) {
+  try {
+    const out = execFileSync(
+      "git", ["-C", repoRoot, "-c", "core.quotePath=false", "rev-parse", `${branch}^{commit}`],
+      { encoding: "utf8", windowsHide: true, timeout: 15000 },
+    ).trim();
+    const ok = /^[0-9a-f]{7,40}$/i.test(out);
+    if (!ok) console.log("[review-sha] 输出不像 sha:", JSON.stringify(String(out).slice(0, 120)), "| repo:", repoRoot, "| branch:", branch);
+    return ok ? out : "";
+  } catch (e) {
+    const err = String(e?.stderr || "").trim().slice(0, 240) || String(e?.message || e).slice(0, 240);
+    console.log("[review-sha] git 调用失败:", err, "| repo:", repoRoot, "| branch:", branch);
+    return "";
+  }
+}
+
+
+// 聚合接口的响应级 TTL 缓存。**必须在 API_ROUTES 之前创建**：下面那个数组字面量在模块求值期
+// 就会调用 withCache(...)，放到数组之后就成"先用后声明"了（tests/unit/module-scope-order 守着这条）。
+const withCache = createWithCache();
+
+const uiDesigns = createUiDesignService({root: WS_ROOT, getModelList: () => modelList, getDefaultModel: () => defaultModel, directChat});
+const websites = createWebsiteService({root: WS_ROOT, getModelList: () => modelList, getDefaultModel: () => defaultModel, directChat});
+const maintenanceSessionExists = sid => activeSessions.has(sid) || !!findSession(sid);
+const computerUse = createComputerUse({adapter:createWindowsAdapter(),registry:confirmRegistry,sessionExists:maintenanceSessionExists,push:busPush});
+initComputerTool((Type, sessionId) => createPiComputerTool(Type, () => computerUse, sessionId));
+initCultivationTool(Type => createPiCultivationTool(Type, () => cultivationRuntime));
+initMemoryTool(Type => createPiMemoryTool(Type, {
+  db: memoryDb, vectors: memoryVectors, embedding: memoryEmbedding,
+  ingest: memoryIngest, recall: memoryRecall,
+}));
+// 记忆自循环第 1/2 步自动化（伙伴授权 2026-10-13）：轮次结束自动判断+沉淀，fire-and-forget
+initMemoryAutoStore({
+  wsRoot: () => WS_ROOT,
+  ingest: memoryIngest,
+  recall: memoryRecall,
+  chat: (model, messages) => {
+    const m = model || defaultModel;
+    if (!m) throw new Error("no-judge-model");
+    // 2026-11-15：这一步是"辅助判断"——只要一个 {"store":true/false}。改走 aux 路由：
+    // 便宜 flash 优先（本机探测到 agnes-2.5-flash，免费）、独立 5s 超时（上限）、失败 fail-open
+    // 回 m 一次（m 仍是 memory/autostore.json 配的模型，没配就是主模型）。tools:false 语义不变——
+    // aux 的 callOnce 固定下发 { tools: false }，绝不背着几十 KB 工具表做判断。
+    // 调用量与耗时见 GET /api/model-routing；enabled:false 即恢复"直接用 m"。
+    return callAux({ kind: "memory-judge", messages, maxTokens: 300, timeoutMs: 5000, json: true, mainModel: m });
+  },
+  getModel: () => defaultModel || undefined,
+});
+const requestGeneApproval = createGeneApproval({ api: emotion, registry: confirmRegistry, sessionExists: maintenanceSessionExists, push: busPush });
+const requestGrowthApproval = createGrowthApproval({ api: growth, registry: confirmRegistry, sessionExists: maintenanceSessionExists, push: busPush });
+const personaGovernance = createPersonaGovernance({ wsRoot: CONFIG.cwd, agentDir: getAgentDir() });
+const requestPersonaApproval = createPersonaApproval({ api: personaGovernance, registry: confirmRegistry, sessionExists: maintenanceSessionExists, push: busPush });
+const sandboxApi = createSandboxApi({ agentDir: AGENT_DIR });
+maintenanceApi = createMaintenanceApi({
+  sessionExists: maintenanceSessionExists,
+  requestApproval: async ({ sessionId, taskId, runId, durationMs }) => {
+    const reg = confirmRegistry.register(sessionId, { toolName: "maintenance", reason: `请求超维模式（${durationMs / 3600000} 小时）`, src: "maintenance", taskId, runId });
+    busPush(sessionId, "confirm", { id: reg.id, toolName: "maintenance", reason: `请求超维模式（${durationMs / 3600000} 小时）`, sessionId, taskId, runId, maintenance: true });
+    return reg.promise;
+  },
+});
+// 2026-11-09：退化自评的上下文压力要用**真窗口**（models.json 里每个模型都声明了 contextWindow）。
+// 拿不到就返回 0，degradation 会按默认窗口估并在 evidence 里标 estimated —— 不假装知道。
+function currentContextWindow() {
+  try {
+    const m = defaultModel;
+    if (!m) return 0;
+    const id = String(m.id || m.model || "");
+    const hit = (modelList || []).find((x) => x && String(x.provider || "") === String(m.provider || "") && String(x.id || "") === id);
+    return Math.max(0, Number(hit?.contextWindow || m.contextWindow) || 0);
+  } catch { return 0; }
+}
+const API_ROUTES = [
+  ...createComputerRoutes({service:computerUse,json,readBody}),
+  ...createBehaviorExperimentRoutes({ service: behaviorExperiments, json, readBody }),
+  ...websiteRoutes(websites,{json,readBody,root:WS_ROOT}),
+  ["GET", "/api/workshop-ui/projects", async res => handleUiDesign(uiDesigns, json, res, 'list')],
+  ["POST", "/api/workshop-ui/projects", async (res, req) => handleUiDesign(uiDesigns, json, res, 'create', null, await readBody(req, 1))],
+  ["GET", /^\/api\/workshop-ui\/projects\/([^/]+)$/, async (res, req, url, m) => handleUiDesign(uiDesigns, json, res, 'get', m[1])],
+  ["POST", /^\/api\/workshop-ui\/projects\/([^/]+)\/(versions|select|generate)$/, async (res, req, url, m) => handleUiDesign(uiDesigns, json, res, m[2] === 'versions' ? 'save' : m[2], m[1], await readBody(req, 1))],
+  // 待审改动（2026-09-20，借 openwriter 的"agent 写字、人审阅"）：改文件先落待审区，接受才写盘。
+  ["GET", "/api/pending", (res) => pendingApi.list(res)],
+  ["POST", "/api/pending", async (res, req) => pendingApi.create(res, await readBody(req, 12))],
+  ["GET", /^\/api\/pending\/([^/]+)$/, (res, req, url, m) => pendingApi.get(res, m[1])],
+  ["POST", /^\/api\/pending\/([^/]+)\/accept$/, (res, req, url, m) => pendingApi.accept(res, m[1])],
+  ["POST", /^\/api\/pending\/([^/]+)\/reject$/, async (res, req, url, m) => pendingApi.reject(res, m[1], await readBody(req, 4))],
+  // ── 连续创作编排（阶段一：项目/Story Bible/镜头运行记录）──
+  ["GET", "/api/story/projects", (res) => handleStoryProjects({ root: WS_ROOT }, res)],
+  ["POST", "/api/story/projects", async (res, req) => handleStoryProjects({ root: WS_ROOT }, res, await readBody(req, 4))],
+  ["GET", /^\/api\/story\/projects\/([^/]+)$/, (res, req, url, m) => handleStoryProject({ root: WS_ROOT }, res, m[1])],
+  ["PATCH", /^\/api\/story\/projects\/([^/]+)$/, async (res, req, url, m) => handleStoryProjectPatch({ root: WS_ROOT }, res, m[1], await readBody(req, 8))],
+  // 删项目：先留一份副本到 story-projects/.trash/（手滑删掉整部戏不可逆）；
+  // 产物文件默认不动，deleteFiles=true 时才清，且只清"没有被别处引用"的
+  ["DELETE", /^\/api\/story\/projects\/([^/]+)$/, async (res, req, url, m) => handleStoryProjectDelete({ root: WS_ROOT }, res, m[1], await readBody(req, 4))],
+  ["POST", /^\/api\/story\/projects\/([^/]+)\/run-preview$/, async (res, req, url, m) => handleStoryRunPreview({ root: WS_ROOT, getDefaultModel: () => defaultModel, getModelList: () => modelList }, res, m[1], await readBody(req, 8))],
+  ["POST", /^\/api\/story\/projects\/([^/]+)\/run$/, async (res, req, url, m) => handleStoryRun({ root: WS_ROOT, generateImage, generateVideo, startVideoJob, checkVideoJob, saveArtifact, directChat, getDefaultModel: () => defaultModel, getModelList: () => modelList }, res, m[1], await readBody(req, 8))],
+  // 收尾一次（查上游任务号）：视频是异步的，创建与收尾必须分开，不能让一个请求干等
+  ["POST", /^\/api\/story\/projects\/([^/]+)\/run-check$/, async (res, req, url, m) => handleStoryRunCheck({ root: WS_ROOT, startVideoJob, checkVideoJob, saveArtifact }, res, m[1], await readBody(req, 8))],
+  // 一次收尾多个运行：批量生成挂着 N 个视频任务号，逐个查就是 N 个请求 + N 轮上游问答。
+  // 读接口本该比写接口宽松（Lovart 就是这么分档的），合并成一次最省事也最不容易撞限流。
+  ["POST", /^\/api\/story\/projects\/([^/]+)\/run-check-many$/, async (res, req, url, m) => handleStoryRunCheckMany({ root: WS_ROOT, startVideoJob, checkVideoJob, saveArtifact }, res, m[1], await readBody(req, 8))],
+  ["POST", /^\/api\/story\/projects\/([^/]+)\/assist$/, async (res, req, url, m) => handleStoryAssist({ root: WS_ROOT, directChat, getDefaultModel: () => defaultModel, getModelList: () => modelList }, res, m[1], await readBody(req, 8))],
+  // 角色定妆照 / 场景参考图 / 道具参考图：产出可复用的形象与场景资产，写回 bible 对应条目；
+  // 后续镜头生成会按"名字出现在提示词里"把参考图当作真实输入注入。
+  ["POST", /^\/api\/story\/projects\/([^/]+)\/portrait$/, async (res, req, url, m) => handleStoryPortrait({ root: WS_ROOT, generateImage, saveArtifact, getDefaultModel: () => defaultModel, getModelList: () => modelList }, res, m[1], await readBody(req, 8))],
+  ["POST", /^\/api\/story\/projects\/([^/]+)\/asset-ref$/, async (res, req, url, m) => handleStoryAssetRef({ root: WS_ROOT, generateImage, saveArtifact, getDefaultModel: () => defaultModel, getModelList: () => modelList }, res, m[1], await readBody(req, 8))],
+  // 连续性体检：只读，把"这次生成能不能保住人物一致性"的条件提前摊开
+  ["POST", /^\/api\/story\/projects\/([^/]+)\/lint$/, async (res, req, url, m) => handleStoryLint({ root: WS_ROOT }, res, m[1], await readBody(req, 8))],
+  // 一键分镜：从梗概一次生成整场分镜表并追加进项目
+  ["POST", /^\/api\/story\/projects\/([^/]+)\/storyboard$/, async (res, req, url, m) => handleStoryStoryboard({ root: WS_ROOT, directChat, getDefaultModel: () => defaultModel, getModelList: () => modelList }, res, m[1], await readBody(req, 16))],
+  // 成片合成：按分镜顺序把成功的视频片段拼成长片并落盘为正式产物。
+  // 传 saveArtifact 是因为**外链片段要先下载到本地**（本地化契约），ffmpeg 只认本地文件。
+  ["POST", /^\/api\/story\/projects\/([^/]+)\/film$/, async (res, req, url, m) => handleStoryFilm({ root: WS_ROOT, saveArtifact, saveArtifactFromFile }, res, m[1], await readBody(req, 8))],
+  // 合成前的候选清单（只读）：同一段生成过好几版镜头时，挑哪一版、要哪几段、什么顺序。
+  // 带 durations=1 时额外探每一版的时长（要 spawn ffprobe，所以只在时间轴要合计时带上）
+  ["GET", /^\/api\/story\/projects\/([^/]+)\/film-plan$/, (res, req, url, m) => handleStoryFilmPlan({ root: WS_ROOT }, res, m[1], { durations: url.searchParams.get('durations') === '1' })],
+  // 删掉某一版产出：记录必删，文件只在**没有别处引用**时才删（删文件不可逆，宁可多留）
+  ["POST", /^\/api\/story\/projects\/([^/]+)\/run-delete$/, async (res, req, url, m) => handleStoryRunDelete({ root: WS_ROOT }, res, m[1], await readBody(req, 8))],
+  // 把某一版还挂在外站的产物下载到本地（本地化契约的重试入口：只补下载，不重新生成）
+  ["POST", /^\/api\/story\/projects\/([^/]+)\/run-localize$/, async (res, req, url, m) => handleStoryRunLocalize({ root: WS_ROOT, saveArtifact }, res, m[1], await readBody(req, 8))],
+  // 全项目补下载：参考图（定妆照/场景/道具）与每一次生成的产出，一次把外站的东西拉到本地
+  ["POST", /^\/api\/story\/projects\/([^/]+)\/localize$/, async (res, req, url, m) => handleStoryLocalizeAll({ root: WS_ROOT, saveArtifact }, res, m[1], await readBody(req, 4))],
+  // 原著改编：小说原文/小说工坊章节 → 分集大纲（集+场+段）一次落进项目。
+  // preview=true 只读书报字数，不调模型——先看清要花多少钱再决定。
+  ["POST", /^\/api\/story\/projects\/([^/]+)\/adapt$/, async (res, req, url, m) => handleStoryAdapt({ root: WS_ROOT, directChat, getDefaultModel: () => defaultModel, getModelList: () => modelList, readNovelBook: readStoryNovelBook }, res, m[1], await readBody(req, 64))],
+  // ── 台词与深度构思（用户："人物场景搭上了，对话和构思还是不行"）──
+  // 台词体检：纯机检（语速/时长/拆镜），不花模型钱
+  ["POST", /^\/api\/story\/projects\/([^/]+)\/dialogue-audit$/, async (res, req, url, m) => handleStoryDialogueAudit({ root: WS_ROOT }, res, m[1], await readBody(req, 4))],
+  // 台词诊断与重构：出草稿不落盘（照七维 + 语速标准，每条要 ≥3 条维度依据）
+  ["POST", /^\/api\/story\/projects\/([^/]+)\/dialogue-doctor$/, async (res, req, url, m) => handleStoryDialogueDoctor({ root: WS_ROOT, directChat, getDefaultModel: () => defaultModel, getModelList: () => modelList }, res, m[1], await readBody(req, 16))],
+  // 深度构思：情绪契约 / 人物四件套 / 矛盾单元 / 分集地图 / 因果节拍 / 四账台账（出草稿不落盘）
+  ["POST", /^\/api\/story\/projects\/([^/]+)\/story-engine$/, async (res, req, url, m) => handleStoryEngine({ root: WS_ROOT, directChat, getDefaultModel: () => defaultModel, getModelList: () => modelList }, res, m[1], await readBody(req, 16))],
+  ["POST", /^\/api\/story\/projects\/([^/]+)\/craft$/, async (res, req, url, m) => handleStoryCraftSave({ root: WS_ROOT }, res, m[1], await readBody(req, 64))],
+  // 构思体检（只读）：已保存的构思也要能随时体检，而不是只在生成/保存之后
+  ["POST", /^\/api\/story\/projects\/([^/]+)\/craft-audit$/, async (res, req, url, m) => handleStoryCraftAudit({ root: WS_ROOT }, res, m[1], await readBody(req, 4))],
+  ["POST", /^\/api\/story\/projects\/([^/]+)\/episode-map$/, async (res, req, url, m) => handleStoryEpisodeMapApply({ root: WS_ROOT }, res, m[1], await readBody(req, 16))],
+  // 分集：短剧/系列内容的组织单位（场用 episodeId 归属；删集只解绑不删场）
+  ["GET", /^\/api\/story\/projects\/([^/]+)\/episodes$/, (res, req, url, m) => handleStoryEpisodes({ root: WS_ROOT }, res, m[1])],
+  ["POST", /^\/api\/story\/projects\/([^/]+)\/episodes$/, async (res, req, url, m) => handleStoryEpisodeAdd({ root: WS_ROOT }, res, m[1], await readBody(req, 8))],
+  ["PATCH", /^\/api\/story\/projects\/([^/]+)\/episodes$/, async (res, req, url, m) => handleStoryEpisodeUpdate({ root: WS_ROOT }, res, m[1], await readBody(req, 8))],
+  ["POST", /^\/api\/story\/projects\/([^/]+)\/episodes\/remove$/, async (res, req, url, m) => handleStoryEpisodeRemove({ root: WS_ROOT }, res, m[1], await readBody(req, 8))],
+  ["POST", /^\/api\/story\/projects\/([^/]+)\/scene-assign$/, async (res, req, url, m) => handleStorySceneAssign({ root: WS_ROOT }, res, m[1], await readBody(req, 8))],
+  // 剧本要素统计 + 导出（中文剧本 / Fountain / Final Draft FDX）
+  ["GET", /^\/api\/story\/projects\/([^/]+)\/script-stats$/, (res, req, url, m) => handleStoryScriptStats({ root: WS_ROOT }, res, m[1])],
+  ["POST", /^\/api\/story\/projects\/([^/]+)\/script-export$/, async (res, req, url, m) => handleStoryExportScript({ root: WS_ROOT }, res, m[1], await readBody(req, 4))],
+  // 与角色对台词（Laper 的 Playground）：检验台词像不像这个人
+  ["POST", /^\/api\/story\/projects\/([^/]+)\/playground$/, async (res, req, url, m) => handleStoryPlayground({ root: WS_ROOT, directChat, getDefaultModel: () => defaultModel, getModelList: () => modelList }, res, m[1], await readBody(req, 8))],
+  ["POST", /^\/api\/story\/projects\/([^/]+)\/playground-clear$/, async (res, req, url, m) => handleStoryPlaygroundClear({ root: WS_ROOT }, res, m[1], await readBody(req, 4))],
+  // 创作方法包（Skill）：程序性知识，跨项目共用（与配方同级，所以挂在 /api/story/methods）
+  ["GET", "/api/story/methods", (res) => handleStoryMethods({ root: WS_ROOT }, res)],
+  ["POST", "/api/story/methods", async (res, req) => handleStoryMethods({ root: WS_ROOT }, res, await readBody(req, 16))],
+  ["DELETE", /^\/api\/story\/methods\/([^/]+)$/, (res, req, url, m) => handleStoryMethodDelete({ root: WS_ROOT }, res, m[1])],
+  // 把这个项目跑通的打法存成方法包 / 把某个方法包套用到项目
+  ["POST", /^\/api\/story\/projects\/([^/]+)\/method-capture$/, async (res, req, url, m) => handleStoryMethodCapture({ root: WS_ROOT }, res, m[1], await readBody(req, 16))],
+  ["POST", /^\/api\/story\/projects\/([^/]+)\/method$/, async (res, req, url, m) => handleStoryMethodApply({ root: WS_ROOT }, res, m[1], await readBody(req, 8))],
+  // 生成配方（可存/可套用/可导出导入的生成设置）——挂在 /api/story/recipes，与项目平级，因为它跨项目
+  ["GET", "/api/story/recipes", (res) => handleStoryRecipes({ root: WS_ROOT }, res)],
+  ["GET", "/api/story/recipes/export", (res) => handleStoryRecipesExport({ root: WS_ROOT }, res)],
+  ["POST", "/api/story/recipes", async (res, req) => handleStoryRecipes({ root: WS_ROOT }, res, await readBody(req, 4))],
+  ["POST", "/api/story/recipes/import", async (res, req) => handleStoryRecipesImport({ root: WS_ROOT }, res, await readBody(req, 4))],
+  ["DELETE", /^\/api\/story\/recipes\/([^/]+)$/, (res, req, url, m) => handleStoryRecipeDelete({ root: WS_ROOT }, res, m[1])],
+  // ── 会话数据库（08-29 真落地：编号/健康度/批量清理；必须先于 :id 正则路由）──
+  ["GET", "/api/sessions/db/list", (res) => handleDbList(res)],
+  ["GET", "/api/sessions/db/stats", (res) => handleDbStats(res)],
+  ["POST", "/api/sessions/db/rebuild", (res) => handleDbRebuild(res)],
+  // ── 跨会话回忆（Hermes 闭环第三件）──
+  ["POST", "/api/recall/rebuild", (res) => json(res, 200, rebuildIndex())],
+  ["GET", "/api/recall", (res, req, url) => handleRecall(res, url)],
+  ["POST", "/api/recall/ask", async (res, req) => { const b = await readBody(req); return handleRecallAsk(res, b); }],
+  ["GET", "/api/recall/summaries", (res) => handleSummaries(res)],
+  ["POST", "/api/recall/summarize", (res) => { buildSummaries({ count: 5 }).catch(() => {}); return json(res, 200, { ok: true, started: true }); }],
+  ["GET", "/api/recall/stats", (res) => json(res, 200, recallStats())],
+  ["POST", "/api/sessions/db/sanitize", async (res, req) => handleDbSanitize(res, await readBody(req))],
+  ["PATCH", "/api/sessions/db/meta", async (res, req) => handleDbMeta(res, await readBody(req))],
+  ["POST", "/api/sessions/db/sweep", async (res, req) => handleDbSweep(res, await readBody(req))],
+  // ── 会话 ──
+  // 灵魂图谱（2026-10-06）：性格/情绪/记忆/技能/学习一次汇总，灵魂页总览画成神经网络图。只读。
+  // 2026-10-20：她的「自我描述」——人格回答"我是什么样的人"，这里回答"我是谁"。
+  // 同一个 composer 既喂 prompt（yuanshu-seams）也喂这页，保证她说的和自己看到的一致。
+  ["GET", "/api/self", (res) => {
+    try {
+      const model = buildSelfModel({ wsRoot: WS_ROOT });
+      // 2026-11-08：这里顺手把磁盘那份刷新。以前 记忆/自我.md 只在聊天拼 prompt 时才写，
+      // 改了 self-model 模板/重启后只要没聊天，文件就一直是旧的（真机：重启后仍是改动前的版本）。
+      // writeSelfFile 只差生成时间时不重写，所以 GET 的副作用是幂等的，不会反复改 mtime。
+      let written = { changed: false, path: '' };
+      try { written = writeSelfFile(WS_ROOT, model); } catch {}
+      json(res, 200, { ...model, section: renderSelfSection(model), markdown: renderSelfMarkdown(model), file: '记忆/自我.md', written });
+    } catch (e) { json(res, 500, { error: String(e?.message || e).slice(0, 120) }); }
+  }],
+  ["GET", "/api/soul/graph", async (res) => {
+    const safe = async (fn, fallback) => { try { return await fn(); } catch { return fallback; } };
+    const [skills, knowledge] = await Promise.all([safe(listSkills, { skills: [] }), safe(() => knowledgeRuntime.status(), null)]);
+    json(res, 200, buildSoulGraph({
+      persona: await safe(() => personaGovernance.read().definition, {}),
+      genome: await safe(() => emotion.getGenome(), {}),
+      emotion: await safe(() => emotion.getLatestSnapshot(), {}),
+      memory: await safe(() => readMemoryFiles(WS_ROOT), []),
+      skills: skills.skills || [],
+      knowledge,
+      learning: await safe(() => learningIntake.status().entries || [], []),
+    }));
+  }],
+  // 2026-10-27：微信状态 + PushPlus 推送通道状态（读 notify.py 落的状态文件）
+  // 2026-10-27：推送通道（PushPlus）——面板里粘贴 token、一键测试，不再手写文件
+  // 2026-11-01：创作台 3D 空间（户型保存 / 读取 / 导出单文件）
+  ["GET", "/api/scene3d/list", (res) => json(res, 200, { ok: true, items: listPlans(WS_ROOT) })],
+  ["GET", "/api/scene3d/plan", (res, req, url) => {
+    const name = String(url.searchParams.get("name") || "");
+    const plan = readPlan(WS_ROOT, name);
+    return plan ? json(res, 200, { ok: true, plan, stats: planStats(plan) }) : json(res, 404, { ok: false, error: "没有这个空间" });
+  }],
+  ["POST", "/api/scene3d/save", async (res, req) => {
+    const b = await readBody(req);
+    const out = savePlan(WS_ROOT, b?.plan || {});
+    return json(res, out.ok ? 200 : 400, out);
+  }],
+  ["POST", "/api/scene3d/export", async (res, req) => {
+    const b = await readBody(req);
+    const price = Number(b?.pricePerSqm) || 0;
+    const out = exportPlanFile(WS_ROOT, b?.plan || {}, { pricePerSqm: price });
+    return json(res, out.ok ? 200 : 400, out);
+  }],
+  // 2026-11-02：血缘——某个提案或某个目标的全过程
+  ["GET", "/api/evolution/lineage", (res, req, url) => {
+    try {
+      const pid = String(url.searchParams.get("proposal") || "");
+      const tid = String(url.searchParams.get("targetId") || "");
+      const all = readEvoEvents(WS_ROOT, { limit: 2000 });
+      if (pid) {
+        const prop = readEvoProposals(WS_ROOT).find((x) => x.id === pid);
+        if (!prop) return json(res, 404, { ok: false, error: "没有这个提案" });
+        const ids = new Set(prop.parentEventIds || []);
+        const events = all.filter((e) => ids.has(e.id) || e.proposalId === pid || (e.meta && e.meta.proposalId === pid));
+        return json(res, 200, { ok: true, proposal: prop, events });
+      }
+      const events = tid ? all.filter((e) => e.targetId === tid) : all;
+      return json(res, 200, { ok: true, targetId: tid, events });
+    } catch (e) { return json(res, 500, { ok: false, error: "lineage_failed", detail: String(e?.message || e).slice(0, 200) }) }
+  }],
+  // 2026-11-02：进化中心——能力画像与事件流（只读；提案走已有 evolution-api 审批链）
+  ["GET", "/api/evolution/summary", (res) => {
+    const events = readEvoEvents(WS_ROOT, { limit: 2000 });
+    const cap = summarizeEvoCapability(events, { minN: 3 });
+    return json(res, 200, { ok: true, events: events.length, capability: cap.rows.slice(0, 20), minN: cap.minN, proposals: readEvoProposals(WS_ROOT).slice(0, 20) });
+  }],
+  ["GET", "/api/evolution/events", (res, req, url) => json(res, 200, { ok: true, events: readEvoEvents(WS_ROOT, { kind: String(url.searchParams.get("kind") || ""), limit: Math.min(500, Number(url.searchParams.get("limit")) || 100) }) })],
+  ["POST", "/api/evolution/proposal", async (res, req) => {
+    const b = await readBody(req);
+    const out = createEvoProposal(WS_ROOT, b || {});
+    return json(res, out.ok ? 200 : 400, out);
+  }],
+  // 2026-11-01：候选对比（基线与候选，判 keep/rollback）
+  ["POST", "/api/compare/candidates", async (res, req) => {
+    const b = await readBody(req);
+    const kind = String(b?.kind || "image");
+    const base = String(b?.baseline || "").trim();
+    const cand = String(b?.candidate || "").trim();
+    if (!base || !cand) return json(res, 400, { ok: false, error: "需要 baseline 和 candidate" });
+    try {
+      const abs = (x) => (path.isAbsolute(x) ? x : path.resolve(WS_ROOT, x));
+      const r = compareCandidates({ kind, baseline: abs(base), candidate: abs(cand) });
+      recordCompare(WS_ROOT, { kind, baseline: base, candidate: cand, verdict: r.verdict, degraded: r.degraded });
+      return json(res, 200, { ok: true, ...r });
+    } catch (e) { return json(res, 500, { ok: false, error: String(e?.message || e).slice(0, 160) }) }
+  }],
+  // 2026-11-01：路由器（事件 → 判断 → 派活）
+  ["GET", "/api/router/decisions", (res, req, url) => json(res, 200, { ok: true, items: recentDecisions(WS_ROOT, Number(url.searchParams.get("limit")) || 20) })],
+  ["GET", "/api/router/pending", (res, req, url) => json(res, 200, { ok: true, items: listAsks(WS_ROOT, { state: String(url.searchParams.get("state") || "pending") }) })],
+  // 2026-11-07：订阅直通的可观测面——谁订了哪条话题、各话题还积压多少
+  ["GET", "/api/threads", (res) => {
+    try {
+      const subs = threadSnapshot();
+      const inboxes = listInboxes(WS_ROOT);
+      return json(res, 200, { ok: true, subscriptions: subs, inboxes, backlog: inboxes.reduce((n, x) => n + (x.size || 0), 0) });
+    } catch (e) { return json(res, 500, { ok: false, error: String(e?.message || e).slice(0, 160) }) }
+  }],
+  // 2026-11-07：工单级授权（目前只记录与展示，不接管审批链路）
+  ["GET", "/api/mandates", (res, req, url) => {
+    try {
+      const items = url.searchParams.get("all") === "1" ? listMandates(WS_ROOT) : activeMandates(WS_ROOT);
+      return json(res, 200, { ok: true, items, count: items.length });
+    } catch (e) { return json(res, 500, { ok: false, error: String(e?.message || e).slice(0, 160) }) }
+  }],
+  ["POST", "/api/router/confirm", async (res, req) => {
+    const b = await readBody(req);
+    const id = String(b?.id || "").trim();
+    const approve = b?.approve !== false;
+    const hit = pickAsk(WS_ROOT, "") || null;
+    const target = id || hit?.id || "";
+    const out = resolveAsk(WS_ROOT, target, { state: approve ? "approved" : "denied", note: String(b?.note || "手动确认").slice(0, 120) });
+    if (out.ok && approve && out.ask?.task) dispatchByRouter(out.ask.task, "伙伴在事务台点头");
+    return json(res, out.ok ? 200 : 400, out);
+  }],
+  ["POST", "/api/router/judge", async (res, req) => {
+    const b = await readBody(req);
+    const event = { source: String(b?.source || "manual"), kind: String(b?.kind || "text"), text: String(b?.text || ""), at: Date.now() };
+    const out = await routeEvent({ event, wsRoot: WS_ROOT, think: routeThink, seen: new Set() });
+    if (out.action === "ask") void askPush(event, out.reason);
+    return json(res, 200, { ok: true, ...out });
+  }],
+  // 2026-11-01：脑区旋钮（8 个区，改完即时生效）
+  ["GET", "/api/brain/regions", (res) => {
+    const r = readRegions(WS_ROOT);
+    return json(res, 200, { ok: true, regions: REGIONS, weights: r.weights, source: r.source, updatedAt: r.updatedAt, effects: {
+      strictness: deliveryStrictness(r.weights), distillLimit: distillLimit(r.weights),
+      nudgeCooldownHours: Math.round(nudgeCooldownMs(r.weights) / 3600000),
+      maxToolTurns: maxToolTurns(r.weights), planBatchFactor: planBatchFactor(r.weights),
+      toolTier: toolTier(r.weights), ideaCap: ideaCap(r.weights),
+    } });
+  }],
+  // 2026-11-02：脑区自调开关（默认开；关了就只按手调值跑）
+  // 2026-11-02：L2 自改提案（只记录与校验；分支由她的 agent 循环创建）
+  ["GET", "/api/selfchange/proposals", (res) => json(res, 200, { ok: true, items: listProposals(SELF_CHANGE_ROOT), policy: POLICY })],
+  // 2026-11-03：结构化经验（可追溯，成功与否来自交付门）
+  ["GET", "/api/learning/experiences", (res, req, url) => {
+    const list = readExperiences(WS_ROOT, { limit: Math.min(500, Number(url.searchParams.get("limit")) || 100) });
+    return json(res, 200, { ok: true, total: list.length, byType: summarizeExperiences(list), items: list.slice(-20).reverse() });
+  }],
+  ["POST", "/api/learning/experience", async (res, req) => {
+    const b = await readBody(req);
+    const out = recordExperience(WS_ROOT, { runId: b?.runId, goal: b?.goal, success: b?.success, taskType: b?.taskType, plan: b?.plan, actions: b?.actions, errors: b?.errors, userFeedback: b?.userFeedback, lessons: b?.lessons, minutes: b?.minutes, agentId: b?.agentId });
+    return json(res, out.ok ? 200 : 400, out);
+  }],
+  // 2026-11-03：预判回放——过去 N 天如果按这个模型出手，会打断你几次
+  ["GET", "/api/anticipation/replay", (res, req, url) => {
+    const days = Math.min(90, Number(url.searchParams.get("days")) || 30);
+    const threshold = Number(url.searchParams.get("threshold")) || 2;
+    const out = replayFromDisk(WS_ROOT, { days, threshold, now: Date.now() });
+    return json(res, 200, { ok: true, ...out });
+  }],
+  // 2026-11-03：让她自己写技能——建会话（cwd=工作区）+ 给提示词
+  ["POST", "/api/learning/skill/author", async (res, req) => {
+    const b = await readBody(req);
+    const goal = String(b?.goal || "").trim();
+    if (!goal) return json(res, 400, { ok: false, error: "缺 goal" });
+    const name = String(b?.name || "").trim() || `skill-${Date.now().toString(36)}`;
+    const prompt = buildAuthorPrompt({ goal }) + `\n\n把文件写到：技能/${name}/SKILL.md（用 write 工具，写完就跑一次 node --check 不需要，直接用 write 保存即可）。`;
+    let sessionId = "";
+    try { sessionId = await createSession(`造技能·${name}`, { group: "workspace" }); } catch (e) {
+      return json(res, 500, { ok: false, error: "建会话失败：" + String(e?.message || e).slice(0, 120) });
+    }
+    return json(res, 200, { ok: true, name, sessionId, prompt, targetFile: `技能/${name}/SKILL.md` });
+  }],
+  // 收口：等她写完，校验工作区里那份文件，合格才登记为已装
+  ["POST", "/api/learning/skill/adopt", async (res, req) => {
+    const b = await readBody(req);
+    const name = String(b?.name || "").trim();
+    if (!name) return json(res, 400, { ok: false, error: "缺 name" });
+    const file = path.join(WS_ROOT, "技能", name.replace(/[\\/:*?"<>|]/g, "_"), "SKILL.md");
+    if (!fs.existsSync(file)) return json(res, 404, { ok: false, error: "她还没写出这个文件", file });
+    const content = fs.readFileSync(file, "utf8");
+    const v = validateSkillMd(content);
+    if (!v.ok) return json(res, 400, { ok: false, errors: v.errors, file });
+    try { appendEvoEvent(WS_ROOT, { kind: "observation", target: "skill", targetId: name, verdict: "applied", by: "skill-author" }) } catch {}
+    return json(res, 200, { ok: true, name, file, bytes: content.length });
+  }],
+  // 2026-11-03：一句话造技能——她写 SKILL.md，这里校验并安装
+  ["GET", "/api/learning/skills", (res) => json(res, 200, { ok: true, items: listAuthoredSkills(WS_ROOT), host: "/api/selfchange/run" })],
+  ["POST", "/api/learning/skill/validate", async (res, req) => {
+    const b = await readBody(req);
+    const v = validateSkillMd(String(b?.content || ""));
+    return json(res, 200, v);
+  }],
+  ["POST", "/api/learning/skill/install", async (res, req) => {
+    const b = await readBody(req);
+    const out = installSkill(WS_ROOT, { name: String(b?.name || ""), content: String(b?.content || ""), backupRoot: path.join(SELF_CHANGE_ROOT, "记忆", "运行时", "自改备份") });
+    if (out.ok) { try { appendEvoEvent(WS_ROOT, { kind: "observation", target: "skill", targetId: String(b?.name || ""), verdict: "applied", by: "skill-author" }) } catch {} }
+    return json(res, out.ok ? 200 : 400, out);
+  }],
+  ["GET", "/api/learning/skill/prompt", (res, req, url) => json(res, 200, { ok: true, prompt: buildAuthorPrompt({ goal: String(url.searchParams.get("goal") || "") }) })],
+  // 2026-11-06：用量面板——今天花了多少、每轮花在哪、每个模型吃多少
+  ["GET", "/api/usage/report", (res, req, url) => {
+    const limit = Math.min(200, Math.max(1, Number(url.searchParams.get("limit")) || 40));
+    const file = path.join(WS_ROOT, "记忆", "运行时", "每轮耗时.jsonl");
+    const today = new Date().toLocaleDateString("sv-SE");
+    const rounds = [];
+    try {
+      const lines = fs.readFileSync(file, "utf8").split("\n").filter(Boolean);
+      for (const line of lines.slice(-4000)) {
+        let r; try { r = JSON.parse(line); } catch { continue }
+        const at = String(r.at || "");
+        const day = at ? new Date(at).toLocaleDateString("sv-SE") : "";
+        const u = r.usage || {};
+        const input = Number(u.input) || 0;
+        const output = Number(u.output) || 0;
+        const cacheRead = Number(u.cacheRead) || 0;
+        rounds.push({
+          at, day,
+          sessionId: String(r.sessionId || "").slice(0, 8),
+          runId: String(r.runId || "").slice(0, 8),
+          model: r.model ? `${r.model.provider}/${r.model.id}` : "",
+          engine: r.engine || "",
+          input, output, cacheRead,
+          total: input + output,
+          calls: Number(u.calls) || 0,
+          lastCtx: Number(u.lastCtx) || 0,
+          totalMs: Number(r.totalMs) || 0,
+          messageChars: Number(r.messageChars) || 0,
+        });
+      }
+    } catch {}
+    const todayRounds = rounds.filter(r => r.day === today);
+    const byModel = new Map();
+    for (const r of todayRounds) {
+      const k = r.model || "(未知)";
+      const cur = byModel.get(k) || { model: k, rounds: 0, calls: 0, input: 0, output: 0, cacheRead: 0, total: 0 };
+      cur.rounds += 1; cur.calls += r.calls;
+      cur.input += r.input; cur.output += r.output; cur.cacheRead += r.cacheRead; cur.total += r.total;
+      byModel.set(k, cur);
+    }
+    const sum = (arr, key) => arr.reduce((n, r) => n + (r[key] || 0), 0);
+    const models = [...byModel.values()].sort((a, b) => b.total - a.total);
+    return json(res, 200, {
+      today,
+      roundsToday: todayRounds.length,
+      total: sum(todayRounds, "total"),
+      input: sum(todayRounds, "input"),
+      output: sum(todayRounds, "output"),
+      cacheRead: sum(todayRounds, "cacheRead"),
+      calls: sum(todayRounds, "calls"),
+      models,
+      rounds: todayRounds.slice(-limit).reverse(),
+    });
+  }],
+  // 2026-11-06：长期记忆三件套——主动蒸馏 / 遗忘 / 召回
+  ["POST", "/api/memory/distill", async (res, req) => {
+    const body = await readBody(req);
+    const messages = Array.isArray(body?.messages) ? body.messages : [];
+    const dryRun = body?.dryRun === true;
+    try {
+      const out = distillTurn({ messages, dryRun });
+      return json(res, 200, { ok: true, ...out });
+    } catch (e) { return json(res, 500, { ok: false, error: String(e?.message || e).slice(0, 200) }); }
+  }],
+  ["GET", "/api/memory/distill/preview", (res, req, url) => {
+    const text = String(url.searchParams.get("text") || "");
+    return json(res, 200, { ok: true, candidates: distillCandidates([{ role: "user", content: text }]) });
+  }],
+  ["POST", "/api/memory/forget", async (res, req) => {
+    const body = await readBody(req);
+    try {
+      const out = runForgetCycle({ dryRun: body?.dryRun !== false });
+      return json(res, 200, { ok: true, ...out });
+    } catch (e) { return json(res, 500, { ok: false, error: String(e?.message || e).slice(0, 200) }); }
+  }],
+  ["GET", "/api/memory/recall", async (res, req, url) => {
+    const q = String(url.searchParams.get("q") || "");
+    const limit = Math.min(30, Math.max(1, Number(url.searchParams.get("limit")) || 8));
+    try {
+      // 2026-11-15：召回改混合检索（向量 + 关键词），embedding 失败/未配置自动退回旧公式；
+      // debug=1 时额外给 scoreParts（默认不给，避免把内部调试字段带到普通调用方）。
+      const debug = url.searchParams.get("debug") === "1";
+      const out = await recallMemories({ query: q, limit, touch: url.searchParams.get("touch") !== "0", debug });
+      const prompt = await recallPrompt({ query: q, limit });
+      return json(res, 200, { ok: true, ...out, prompt });
+    } catch (e) { return json(res, 500, { ok: false, error: String(e?.message || e).slice(0, 200) }); }
+  }],
+  // 2026-11-15：混合召回的新旧对照（只读，鉴权同 /api）。同一条 q 跑旧公式与新混合分两种排序，
+  // 每条给 scoreParts{kw,vec,imp,fresh} 与 cos——判断"接向量后到底有没有变好"用，不进提示词。
+  ["GET", "/api/memory/recall/debug", async (res, req, url) => {
+    const q = String(url.searchParams.get("q") || "").trim();
+    if (!q) return json(res, 400, { ok: false, error: "缺 q" });
+    const limit = Math.min(30, Math.max(1, Number(url.searchParams.get("limit")) || 8));
+    try {
+      return json(res, 200, { ok: true, ...(await compareRecall({ query: q, limit })) });
+    } catch (e) { return json(res, 500, { ok: false, error: String(e?.message || e).slice(0, 200) }); }
+  }],
+  // 2026-11-06：手机该用哪个地址连——把本机的 IPv4/IPv6 和可用 URL 一次给全
+  ["GET", "/api/net/reachability", async (res) => {
+    const port = CONFIG.port;
+    const nets = os.networkInterfaces();
+    const ipv4 = [], ipv6 = [], tailscale = [];
+    // Tailscale 用 100.64.0.0/10（CGNAT 段）作为节点地址，形如 100.x.y.z
+    const isTailscale = (addr, iface) => /^100\.(6[4-9]|[7-9]\d|1[0-1]\d|12[0-7])\./.test(addr)
+      || /tailscale/i.test(String(iface || ""));
+    for (const [name, list] of Object.entries(nets || {})) {
+      for (const n of list || []) {
+        if (n.internal) continue;
+        if (n.family === "IPv4") {
+          const url = `http://${n.address}:${port}`;
+          if (isTailscale(n.address, name)) tailscale.push({ iface: name, address: n.address, url });
+          else ipv4.push({ iface: name, address: n.address, url });
+        } else if (n.family === "IPv6") {
+          const global = !/^(fe80|fc|fd)/i.test(n.address);
+          ipv6.push({ iface: name, address: n.address, global, url: `http://[${n.address}]:${port}` });
+        }
+      }
+    }
+    // 推荐顺序：Tailscale（外网也能连、地址固定）> 局域网 IPv4 > 公网 IPv6
+    const recommended = tailscale[0]?.url || ipv4[0]?.url || ipv6.find(x => x.global)?.url || "";
+    return json(res, 200, {
+      port,
+      boundHost: CONFIG.host,
+      dualStack: CONFIG.host === "::",
+      ipv4, ipv6, tailscale,
+      recommended,
+      hint: CONFIG.host === "127.0.0.1"
+        ? "当前只监听回环，手机连不上：用 LAN=1 或 HOST=:: 启动"
+        : CONFIG.host === "0.0.0.0"
+          ? "只监听 IPv4；要公网 IPv6 直连请改成 HOST=::"
+          : "双栈监听中：IPv4/IPv6 都能连（IPv6 需要路由器放行端口）",
+    });
+  }],
+  // 2026-11-03：统一待办——待拍板 / 进化提案 / 自改提案 合成一处
+  ["GET", "/api/inbox/pending", (res) => {
+    const out = { ok: true, total: 0, groups: [] };
+    const push = (id, label, items, where) => {
+      out.groups.push({ id, label, count: items.length, where, items: items.slice(0, 10) });
+      out.total += items.length;
+    };
+    try {
+      const asks = (typeof listAsks === "function" ? listAsks() : []) || [];
+      push("asks", "等你拍板", asks.map((a) => ({ id: a.id, title: String(a.question || a.text || "一件事").slice(0, 60), at: a.at })), "#/gateway");
+    } catch {}
+    try {
+      const props = (readEvoProposals(SELF_CHANGE_ROOT) || []).filter((x) => x.status === "PROPOSED" || x.status === "AWAITING_APPROVAL");
+      push("evolution", "进化提案", props.map((x) => ({ id: x.id, title: String(x.reason || x.targetId || "提案").slice(0, 60), at: x.at })), "#/gateway");
+    } catch {}
+    try {
+      const self = (listProposals(SELF_CHANGE_ROOT) || []).filter((x) => x.shadow || x.status === undefined);
+      push("selfchange", "自改提案", self.map((x) => ({ id: x.id, title: String(x.reason || x.targetId || "自改").slice(0, 60), at: x.at })), "#/gateway");
+    } catch {}
+    return json(res, 200, out);
+  }],
+  // 2026-11-03：推送反应——open/ignore/reply，喂给降频与 Adaptation
+  ["POST", "/api/notice/reaction", async (res, req) => {
+    const b = await readBody(req);
+    const out = recordReaction(WS_ROOT, { key: String(b?.key || ""), action: String(b?.action || "ignore") });
+    // 2026-11-09：人点了推送就是"有反应"——主动推送台账里的待回复条目跟着清掉，暂停才能解除
+    if (out.ok) { try { markOutreachReplied(WS_ROOT) } catch {} }
+    return json(res, out.ok ? 200 : 400, out);
+  }],
+  ["GET", "/api/notice/reactions", (res, req, url) => {
+    const days = Math.min(60, Number(url.searchParams.get("days")) || 14);
+    const stats = reactionStats(WS_ROOT, { days });
+    const throttle = stats.map((x) => ({ kind: x.kind, ...shouldThrottle(WS_ROOT, x.kind, { threshold: Number(url.searchParams.get("threshold")) || 3 }) }));
+    return json(res, 200, { ok: true, days, stats, throttle });
+  }],
+  // 2026-11-03：跑封存用例并落盘（executor=shell 时用用例里的 cmd 执行；否则只收现成结果）
+  ["POST", "/api/learning/cases/run", async (res, req) => {
+    const b = await readBody(req);
+    const skill = String(b?.skill || "");
+    const version = String(b?.version || "");
+    if (!skill || !version) return json(res, 400, { ok: false, reason: "缺 skill 或 version" });
+    if (Array.isArray(b?.results)) {
+      const saved = saveResults(WS_ROOT, { skill, version, results: b.results });
+      return json(res, saved.ok ? 200 : 400, saved);
+    }
+    if (String(b?.executor || "") !== "shell") return json(res, 400, { ok: false, reason: "需要 results 数组，或 executor=shell（用例里带 cmd）" });
+    const { execFile } = await import("node:child_process");
+    const runOne = (c) => new Promise((resolve) => {
+      const cmd = String(c?.cmd || "");
+      if (!cmd) return resolve({ ok: false, detail: "用例没写 cmd" });
+      execFile("cmd.exe", ["/c", cmd], { cwd: SELF_CHANGE_ROOT, timeout: 60000, windowsHide: true }, (err) => resolve({ ok: !err }));
+    });
+    const out = await runAndSave(WS_ROOT, { skill, version, runCase: runOne, concurrency: 2, timeoutMs: 60000 });
+    return json(res, out.ok ? 200 : 409, out);
+  }],
+  ["GET", "/api/learning/cases/results", (res, req, url) => {
+    const skill = String(url.searchParams.get("skill") || "");
+    const version = String(url.searchParams.get("version") || "");
+    const doc = loadResults(WS_ROOT, skill, version);
+    return json(res, doc ? 200 : 404, doc || { ok: false, error: "没有这版结果" });
+  }],
+  // 2026-11-03：新旧版本对比——有回归直接拒，提升不足也拒
+  ["POST", "/api/learning/compare", async (res, req) => {
+    const b = await readBody(req);
+    const skill = String(b?.skill || "");
+    if (!skill) return json(res, 400, { ok: false, reason: "缺 skill" });
+    const out = judgeWithSealed(WS_ROOT, skill, { baseline: b?.baseline || [], candidate: b?.candidate || [], minDelta: Number(b?.minDelta) || 0.05 });
+    // 判定结果也记一条事件，便于审计
+    try { appendEvoEvent(WS_ROOT, { kind: "observation", target: "benchmark", targetId: skill, verdict: out.verdict === "promote" ? "passed" : (out.verdict || "rejected"), by: "benchmark", meta: { delta: out.delta, regressions: (out.regressions || []).length } }) } catch {}
+    return json(res, 200, out);
+  }],
+  // 2026-11-03：封存用例——人挑的考卷，Agent 只能读
+  ["GET", "/api/learning/sealed", (res, req, url) => {
+    const skill = String(url.searchParams.get("skill") || "");
+    if (!skill) return json(res, 400, { ok: false, error: "缺 skill" });
+    const loaded = loadSealed(WS_ROOT, skill);
+    const bench = canUseAsBenchmark(WS_ROOT, skill);
+    return json(res, 200, { ok: loaded.ok, count: loaded.count || 0, sealedAt: loaded.sealedAt || null, error: loaded.error || null, benchmark: bench });
+  }],
+  ["POST", "/api/learning/sealed", async (res, req) => {
+    const b = await readBody(req);
+    // 只允许人建：请求必须带 by="human"（前端按钮触发），Agent 调用会被拒
+    const out = saveSealed(WS_ROOT, { skill: b?.skill, cases: b?.cases, by: String(b?.by || "agent") });
+    return json(res, out.ok ? 200 : 400, out);
+  }],
+  // 2026-11-03：失败聚类（M1 切片）——短板列表 + 可直接提交的提案草稿
+  ["GET", "/api/learning/failures", (res, req, url) => {
+    const minCount = Math.max(2, Number(url.searchParams.get("min")) || 3);
+    const out = clusterFromDisk(WS_ROOT, { minCount, now: Date.now() });
+    return json(res, 200, { ok: true, ...out, drafts: out.clusters.slice(0, 5).map((c) => toProposalInput(c)) });
+  }],
+  // 2026-11-02：看门狗判偏结果（只读）
+  ["GET", "/api/watchdog/drift", (res, req, url) => json(res, 200, { ok: true, items: recentDrift(WS_ROOT, Math.min(100, Number(url.searchParams.get("limit")) || 20)) })],
+  // 2026-11-07：带 id 的跑偏事件——最新一条 / 按 id 取（只读，和推送正文里的链接一致）
+  ["GET", "/api/watchdog/drift/latest", (res) => {
+    const item = latestDriftIncident(WS_ROOT);
+    return item
+      ? json(res, 200, { ok: true, ...item })
+      : json(res, 404, { ok: false, error: "还没有看门狗事件（可能还没判出过偏离）" });
+  }],
+  ["GET", /^\/api\/watchdog\/drift\/([^/]+)$/, (res, req, url, m) => {
+    const id = decodeURIComponent(String(m?.[1] || ""));
+    const item = getDriftIncident(WS_ROOT, id);
+    return item
+      ? json(res, 200, { ok: true, ...item })
+      : json(res, 404, { ok: false, error: `没有这条看门狗事件：${id}` });
+  }],
+  // 2026-11-03：把她在工作区写好的文件搬进代码仓库（先备份仓库原文，可回滚）
+  ["POST", "/api/selfchange/promote", async (res, req) => {
+    const b = await readBody(req);
+    const files = Array.isArray(b?.files) ? b.files : [];
+    const id = String(b?.id || `promote${Date.now().toString(36)}`);
+    if (!files.length) return json(res, 400, { ok: false, error: "没有文件" });
+    // 旁路留痕：promote 只备份不验证（绕过自证准入），写之前先记一行；不拦、不改返回值
+    try { recordBypass({ wsRoot: WS_ROOT, route: "selfchange.promote", files, note: `从 WS_ROOT 拷入主树，只备份不验证（未走自证准入）${b?.reason ? "：" + String(b.reason).slice(0, 150) : ""}`, extra: { id } }) } catch {}
+    const backupDir = path.join(SELF_CHANGE_ROOT, "记忆", "运行时", "自改备份", id);
+    fs.mkdirSync(backupDir, { recursive: true });
+    const manifest = { id, at: new Date().toISOString(), files: [] };
+    const done = [];
+    for (const f of files) {
+      const src = path.join(WS_ROOT, f);
+      const dst = path.join(SELF_CHANGE_ROOT, f);
+      if (!fs.existsSync(src)) continue;
+      const existed = fs.existsSync(dst);
+      const bak = `${f.replace(/[\\/]/g, "__")}.bak`;
+      if (existed) fs.writeFileSync(path.join(backupDir, bak), fs.readFileSync(dst));
+      manifest.files.push({ path: f, existed, backup: existed ? bak : "" });
+      fs.mkdirSync(path.dirname(dst), { recursive: true });
+      fs.copyFileSync(src, dst);
+      done.push(f);
+    }
+    fs.writeFileSync(path.join(backupDir, "manifest.json"), JSON.stringify(manifest, null, 2), "utf8");
+    return json(res, 200, { ok: true, id, promoted: done, backupDir });
+  }],
+  // 2026-11-03：主树快照模式——记录基线 → 她干活 → 对比出改动 → 备份 → 可回滚
+  ["POST", "/api/selfchange/snapshot/begin", async (res) => {
+    // 旁路留痕：快照模式让主树先被直接改、事后才对比/备份（绕过自证准入）。此处只有基线快照，files 未知
+    try { recordBypass({ wsRoot: WS_ROOT, route: "selfchange.snapshot", files: [], note: "快照模式：直接改主树，只做快照/备份（未走自证准入）；files 未知（finish 对比后才得出）", extra: { stage: "begin" } }) } catch {}
+    const snap = beginFsSnapshot({ root: WS_ROOT });
+    if (snap.ok) globalThis.__selfChangeBaseline = snap.files;
+    return json(res, snap.ok ? 200 : 500, { ok: snap.ok, count: (snap.files || []).length, at: snap.at });
+  }],
+  ["POST", "/api/selfchange/snapshot/finish", async (res, req) => {
+    const b = await readBody(req);
+    const base = globalThis.__selfChangeBaseline || [];
+    const out = finishFsSnapshot({ root: WS_ROOT, baseline: base });
+    return json(res, out.ok ? 200 : 409, out);
+  }],
+  ["POST", "/api/selfchange/snapshot/rollback", async (res, req) => {
+    const b = await readBody(req);
+    const out = await rollbackSnapshot({
+      root: WS_ROOT,
+      backupRoot: path.join(SELF_CHANGE_ROOT, "记忆", "运行时", "自改备份"),
+      id: String(b?.id || ""),
+    });
+    return json(res, out.ok ? 200 : 409, out);
+  }],
+  // 2026-11-03：自主自改——建一个跑在隔离工作区里的会话，然后把活派给她
+  ["POST", "/api/selfchange/run", async (res, req) => {
+    const b = await readBody(req);
+    const goal = String(b?.goal || "").trim();
+    if (!goal) return json(res, 400, { ok: false, error: "缺 goal" });
+    const id = String(b?.id || `auto${Date.now().toString(36)}`);
+    const started = await startSession({ wsRoot: SELF_CHANGE_ROOT, id });
+    if (!started.ok) return json(res, 409, started);
+    let sessionId = "";
+    try { sessionId = await createSession(`自改·${goal.slice(0, 18)}`, { group: "workspace", cwd: SELF_CHANGE_ROOT }); } catch (e) {
+      return json(res, 500, { ok: false, error: "建会话失败：" + String(e?.message || e).slice(0, 120), dir: started.dir });
+    }
+    const prompt = [
+      "【自主改进任务】",
+      goal,
+      "必须用 write 工具直接创建文件（不要只用 bash 试探，也不要先问我）。",
+      "约束：只能改 engine/、frontend/src/、tests/ 下；最多 5 个文件；不许改 server.mjs 与 package.json；",
+      "必须补一条对应测试（tests/unit/ 下同名 .test.mjs）；不要 git commit；最后用一句话说明你改了什么。",
+    ].join("\n");
+    try { setSelfChangeRoot(started.dir); setSelfChangeWriteRoot(started.dir) } catch {}
+    return json(res, 200, { ok: true, id, dir: started.dir, branch: started.branch, sessionId, prompt, writeRoot: started.dir });
+  }],
+  ["POST", "/api/selfchange/collect", async (res, req) => {
+    const b = await readBody(req);
+    try { setSelfChangeRoot(null); setSelfChangeWriteRoot(null) } catch {}
+    const out = await finishSession({
+      wsRoot: SELF_CHANGE_ROOT, id: String(b?.id || ""),
+      validate: ({ files }) => validateReal({ wsRoot: SELF_CHANGE_ROOT, files, runGate: async () => ({ verdict: String(b?.verdict || "GREEN") }) }),
+      apply: ({ id: cid, edits }) => applyChange({ wsRoot: SELF_CHANGE_ROOT, id: cid, edits }),
+    });
+    return json(res, out.ok ? 200 : 409, out);
+  }],
+  // 2026-11-02：隔离会话——她在这里改，主树不碰
+  ["POST", "/api/selfchange/session/start", async (res, req) => {
+    const b = await readBody(req);
+    const id = String(b?.id || "");
+    const out = await startSession({ wsRoot: SELF_CHANGE_ROOT, id });
+    return json(res, out.ok ? 200 : 409, out);
+  }],
+  ["POST", "/api/selfchange/session/finish", async (res, req) => {
+    const b = await readBody(req);
+    const id = String(b?.id || "");
+    const out = await finishSession({
+      wsRoot: SELF_CHANGE_ROOT, id,
+      validate: ({ files }) => validateReal({ wsRoot: SELF_CHANGE_ROOT, files, runGate: async () => { try { return checkDelivery({ runId: String(b?.runId || "") }) } catch { return { verdict: "RED" } } } }),
+      apply: ({ id: cid, edits }) => applyChange({ wsRoot: SELF_CHANGE_ROOT, id: cid, edits }),
+    });
+    try { appendEvoEvent(WS_ROOT, { kind: "observation", target: "selfchange", targetId: id, verdict: out.ok ? "session_applied" : `session_${out.stage || "failed"}`, by: "self-change" }) } catch {}
+    return json(res, out.ok ? 200 : 409, out);
+  }],
+  ["POST", "/api/selfchange/session/abort", async (res, req) => {
+    const b = await readBody(req);
+    const out = await abortSession({ wsRoot: SELF_CHANGE_ROOT, id: String(b?.id || "") });
+    return json(res, 200, out);
+  }],
+  // 2026-11-02：自改落地与回滚（改前备份、原子写、可一键还原）
+  ["GET", "/api/selfchange/backups", (res) => json(res, 200, { ok: true, items: listSelfChangeBackups(SELF_CHANGE_ROOT) })],
+  ["POST", "/api/selfchange/apply", async (res, req) => {
+    const b = await readBody(req);
+    // 旁路留痕：apply 直接写主树（绕过自证准入），在 applyChange 之前先记一行；不拦、不改返回值
+    try { recordBypass({ wsRoot: WS_ROOT, route: "selfchange.apply", files: (Array.isArray(b?.edits) ? b.edits : []).map((e) => e?.path).filter(Boolean), note: `直接 applyChange 写主树（未走自证准入）${b?.reason ? "：" + String(b.reason).slice(0, 150) : ""}`, extra: { id: String(b?.id || "") } }) } catch {}
+    const out = applyChange({ wsRoot: SELF_CHANGE_ROOT, id: String(b?.id || ""), edits: Array.isArray(b?.edits) ? b.edits : [] });
+    if (!out.ok) return json(res, 400, out);
+    try { appendEvoEvent(WS_ROOT, { kind: "observation", target: "selfchange", targetId: out.id, verdict: "applied", by: "self-change", meta: { files: out.manifest.files.length } }) } catch {}
+    return json(res, 200, { ok: true, id: out.id, backupDir: out.backupDir, files: out.manifest.files.length });
+  }],
+  ["POST", "/api/selfchange/rollback", async (res, req) => {
+    const b = await readBody(req);
+    const out = rollbackChange({ wsRoot: SELF_CHANGE_ROOT, id: String(b?.id || "") });
+    try { appendEvoEvent(WS_ROOT, { kind: "observation", target: "selfchange", targetId: String(b?.id || ""), verdict: out.ok ? "rolled_back" : "rollback_failed", by: "self-change", meta: { conflicts: out.conflicts || [] } }) } catch {}
+    return json(res, out.ok ? 200 : 409, out);
+  }],
+  // 2026-11-02（方案 B）：改完先自证——边界 → 测试 → 交付门，全过才进面板
+  ["POST", "/api/selfchange/validate", async (res, req) => {
+    const b = await readBody(req);
+    const files = Array.isArray(b?.files) ? b.files : [];
+    const out = await validateReal({
+      wsRoot: WS_ROOT,
+      files,
+      runGate: async () => { try { return checkDelivery({ runId: String(b?.runId || "") }) } catch (e) { return { verdict: "RED", error: String(e?.message || e).slice(0, 120) } } },
+    });
+    if (!out.ok) return json(res, 409, { ok: false, ...out });
+    const made = makeProposal({ files, verdict: out.gate?.verdict, reason: String(b?.reason || "自证通过"), hypothesis: String(b?.hypothesis || ""), ctx: selfChangeLoopCtx(files) });
+    if (!made.ok) return json(res, 400, made);
+    recordProposal(SELF_CHANGE_ROOT, made.proposal);
+    return json(res, 200, { ok: true, stage: out.stage, proposal: made.proposal });
+  }],
+  ["POST", "/api/selfchange/proposal", async (res, req) => {
+    const b = await readBody(req);
+    const out = makeProposal({ files: b?.files, verdict: b?.verdict, reason: b?.reason, hypothesis: b?.hypothesis, ctx: selfChangeLoopCtx(b?.files) });
+    if (!out.ok) return json(res, 400, out);
+    recordProposal(SELF_CHANGE_ROOT, out.proposal);
+    return json(res, 200, out);
+  }],
+  // ===== 2026-11-08：自证 → 准入（自进化缺的最后一环）=====
+  // 她改完 → verify 出五步证据并落账本 → admit 只认还对的上的那份证据 → 只 commit 这套文件（默认不 push）。
+  // 两个写接口都走现有 POLICY（自改边界）与 security.mjs（受保护路径 / 命令红线），不另开旁路。
+  ["POST", "/api/self-change/verify", async (res, req) => {
+    let b;
+    try { b = await readBody(req, 1); }
+    catch (e) { return json(res, Number(e?.statusCode) || 400, { ok: false, error: String(e?.message || e).slice(0, 200) }); }
+    let files = Array.isArray(b?.files) ? b.files : [];
+    let repoRoot = SELF_CHANGE_ROOT;
+    const changeId = String(b?.changeId || "").trim();
+    if (!files.length) {
+      if (!changeId) return json(res, 400, { ok: false, error: "缺 files 或 changeId" });
+      const resolved = await resolveChangeFiles({ repoRoot: SELF_CHANGE_ROOT, changeId });
+      if (!resolved.ok) return json(res, 404, { ok: false, error: resolved.error });
+      files = resolved.files;
+      repoRoot = resolved.repoRoot;
+    }
+    const bound = checkChange({ files });
+    if (!bound.ok) return json(res, 400, { ok: false, stage: "policy", errors: bound.errors });
+    const verdict = await verifyChange({ repoRoot, files: bound.files });
+    // 账本放运行时根（WS_ROOT/记忆/运行时），不写进代码仓，免得自证记录自己变成"夹带改动"
+    const recorded = recordVerification(WS_ROOT, verdict);
+    try {
+      appendEvoEvent(WS_ROOT, {
+        kind: "observation", target: "selfchange", targetId: String(verdict.filesetHash || "").slice(0, 16),
+        verdict: verdict.ok ? "self_verified" : "self_verify_failed", by: "self-change",
+        meta: { files: bound.files.length, reason: String(verdict.reason || "").slice(0, 120) },
+      });
+    } catch {}
+    return json(res, 200, { ok: true, repoRoot, verdict, recorded: recorded.ok === true });
+  }],
+  ["POST", "/api/self-change/admit", async (res, req) => {
+    let b;
+    try { b = await readBody(req, 1); }
+    catch (e) { return json(res, Number(e?.statusCode) || 400, { ok: false, error: String(e?.message || e).slice(0, 200) }); }
+    const files = Array.isArray(b?.files) ? b.files : [];
+    if (!files.length) return json(res, 400, { ok: false, error: "缺 files" });
+    const out = await admitSelfChange({
+      repoRoot: SELF_CHANGE_ROOT,
+      wsRoot: WS_ROOT,
+      files,
+      note: String(b?.note || ""),
+    });
+    try {
+      appendEvoEvent(WS_ROOT, {
+        kind: "observation", target: "selfchange", targetId: String(out.filesetHash || "").slice(0, 16),
+        verdict: out.ok ? "admitted" : `admit_${out.code || "failed"}`, by: "self-change",
+        meta: { commit: out.commit || "", files: Array.isArray(out.files) ? out.files.length : files.length, reason: String(out.reason || "").slice(0, 120) },
+      });
+    } catch {}
+    if (!out.ok) return json(res, 409, out);
+    return json(res, 200, out);
+  }],
+  ["GET", "/api/self-change/admissions", (res, req, url) => {
+    const n = Number(url.searchParams.get("limit") || 50);
+    const limit = Math.max(1, Math.min(200, Number.isFinite(n) ? Math.trunc(n) : 50));
+    return json(res, 200, { ok: true, items: listSelfChangeLedger(WS_ROOT, { limit }) });
+  }],
+  // 2026-11-08：旁路留痕查询——"哪次绕过了自证准入"（只读；没走闸的路由各留一行）
+  ["GET", "/api/self-change/bypasses", (res, req, url) => {
+    const n = Number(url.searchParams.get("limit") || 50);
+    const limit = Math.max(1, Math.min(200, Number.isFinite(n) ? Math.trunc(n) : 50));
+    return json(res, 200, { ok: true, items: listBypasses(WS_ROOT, { limit }), total: countBypasses(WS_ROOT) });
+  }],
+  ["GET", "/api/brain/auto", (res) => json(res, 200, { ok: true, ...readAutoState(WS_ROOT) })],
+  ["POST", "/api/brain/auto", async (res, req) => {
+    const b = await readBody(req);
+    const st = writeAutoState(WS_ROOT, { on: b?.on !== false });
+    return json(res, 200, { ok: true, ...st });
+  }],
+  ["POST", "/api/brain/regions", async (res, req) => {
+    const body = await readBody(req);
+    const out = writeRegions(WS_ROOT, body?.patch || body || {});
+    brainCache = { at: 0, weights: null };
+    return json(res, out.ok ? 200 : 400, out.ok ? { ok: true, weights: out.weights } : out);
+  }],
+  // 2026-10-31：交付门（GREEN/YELLOW/RED + 未覆盖文件）
+  ["GET", "/api/delivery/check", (res, req, url) => {
+    // 不传 runId 时只看最近一次带 runId 的动作，别把历史清理算进这次交付
+    let runId = String(url.searchParams.get("runId") || "");
+    if (!runId) { const rows = auditGate.tail(400); const last = [...rows].reverse().find((r) => r.runId); runId = last ? String(last.runId) : ""; }
+    const out = checkDelivery({ runId });
+    // 2026-11-02：判决进统一事件流（绿/黄/红都记）
+    try { recordGateVerdict(WS_ROOT, { verdict: out?.verdict, changedFiles: out?.changedFiles || [], blockers: out?.blockers || [], runId, text: "" }) } catch {}
+    return json(res, 200, { ok: true, ...out, ledger: readDeliveryLedger().slice(-10).reverse() });
+  }],
+  ["GET", "/api/delivery/ledger", (res) => json(res, 200, { ok: true, items: readDeliveryLedger().slice(-30).reverse() })],
+  // 2026-10-31：行动权清单（同步进系统提示）
+  ["GET", "/api/action-rights", (res) => {
+    const r = readRights(WS_ROOT);
+    return json(res, 200, { ok: r.ok, text: r.text, error: r.error || "", bytes: r.bytes || 0 });
+  }],
+  ["POST", "/api/action-rights/sync", (res) => {
+    const r = rightsSync();
+    return json(res, r.ok ? 200 : 400, r);
+  }],
+  // 2026-10-30：动作策略（可改，改完即时生效）
+  ["GET", "/api/policy", (res) => json(res, 200, { ok: true, ...policyProvider.status() })],
+  ["POST", "/api/policy", async (res, req) => {
+    const body = await readBody(req);
+    const out = writePolicy(WS_ROOT, body?.rules);
+    return json(res, out.ok ? 200 : 400, out.ok ? { ok: true, ...policyProvider.status() } : out);
+  }],
+  ["GET", "/api/policy/history", (res) => {
+    const p = readPolicy(WS_ROOT);
+    return json(res, 200, { ok: true, history: (p.history || []).map((h) => ({ id: h.id, at: h.at, rules: h.rules })) });
+  }],
+  ["POST", "/api/policy/rollback", async (res, req) => {
+    const body = await readBody(req);
+    const out = rollbackPolicy(WS_ROOT, body?.id || body?.at);
+    return json(res, out.ok ? 200 : 400, out.ok ? { ok: true, ...policyProvider.status() } : out);
+  }],
+  ["POST", "/api/policy/reset", async (res) => {
+    const out = writePolicy(WS_ROOT, DEFAULT_RULES);
+    return json(res, out.ok ? 200 : 400, out.ok ? { ok: true, ...policyProvider.status() } : out);
+  }],
+  // 2026-10-30：最近的动作审计（先记账再执行的证据）
+  ["GET", "/api/audit/tail", (res, req, url) => json(res, 200, { ok: true, rows: auditGate.tail(Number(url.searchParams.get("limit")) || 40) })],
+  // 2026-10-30：晨报 / 夜间反思手动触发（平时由定时器在 23:00 / 08:00 后发一次）
+  ["POST", "/api/brief/night", async (res, req) => {
+    const body = await readBody(req).catch(() => ({}));
+    const out = await maybeNightBrief(new Date(), { force: body?.force === true });
+    return json(res, out.ok ? 200 : 409, out);
+  }],
+  ["POST", "/api/brief/reflection", async (res, req) => {
+    const body = await readBody(req).catch(() => ({}));
+    const out = await maybeReflectionBrief(new Date(), { force: body?.force === true });
+    return json(res, out.ok ? 200 : 409, out);
+  }],
+  ["POST", "/api/brief/morning", async (res, req) => {
+    const body = await readBody(req).catch(() => ({}));
+    const out = await maybeMorningBrief(new Date(), { force: body?.force === true });
+    return json(res, out.ok ? 200 : 409, out);
+  }],
+  ["GET", "/api/notify/status", (res) => {
+    try { return json(res, 200, { ok: true, ...channelStatus(WS_ROOT) }); }
+    catch (e) { return json(res, 500, { ok: false, error: String(e?.message || e).slice(0, 160) }); }
+  }],
+  ["POST", "/api/notify/token", async (res, req) => {
+    try {
+      const b = await readBody(req, 4e3);
+      const out = saveToken(WS_ROOT, b?.token);
+      return json(res, out.ok ? 200 : 400, out);
+    } catch (e) { return json(res, 500, { ok: false, error: String(e?.message || e).slice(0, 160) }); }
+  }],
+  ["DELETE", "/api/notify/token", (res) => json(res, 200, clearToken(WS_ROOT))],
+  ["POST", "/api/notify/test", async (res) => {
+    try { return json(res, 200, await sendTest(WS_ROOT)); }
+    catch (e) { return json(res, 500, { ok: false, error: String(e?.message || e).slice(0, 160) }); }
+  }],
+  ["POST", "/api/notify/open", (res) => json(res, 200, openConsole())],
+  // 2026-10-27：发一句试试——把 iLink 的真实错误原样带回面板（不再只写日志）
+  // 2026-10-27：发一条语音条（文字 → SILK）
+  // 2026-10-27：向外发——一个口子管所有出站（微信/邮件/Webhook/PushPlus），失败自动降级并落账
+  // 2026-10-27：向内管——外部事件（群消息/邮件/告警/价格）统一入口
+  // 2026-10-27：认领板——多 agent 协作的第一块砖（谁在做什么、范围冲突、TTL 回收）
+  // 2026-10-27：agent ↔ agent 留言（广播/定向/未读/已读）
+  // 2026-10-27：失败台账——谁试过什么、为什么不行
+  ["GET", "/api/failure", (res, req, url) => {
+    try {
+      const q = String(url.searchParams.get('q') || '');
+      const file = String(url.searchParams.get('file') || '');
+      if (q || file) return json(res, 200, { ok: true, hits: recallFailures({ wsRoot: WS_ROOT, text: q, files: file ? [file] : [], limit: 10 }) });
+      return json(res, 200, { ok: true, items: recentFailures(WS_ROOT, { limit: 20 }) });
+    } catch (e) { return json(res, 500, { ok: false, error: String(e?.message || e).slice(0, 160) }); }
+  }],
+  ["POST", "/api/failure", async (res, req) => {
+    try {
+      const b = await readBody(req, 8e3);
+      const out = recordFailure({ wsRoot: WS_ROOT, agent: b?.agent, area: b?.area, attempt: b?.attempt, why: b?.why, files: b?.files, source: b?.source });
+      return json(res, out.ok ? 200 : 400, out);
+    } catch (e) { return json(res, 500, { ok: false, error: String(e?.message || e).slice(0, 160) }); }
+  }],
+  // 2026-11-09：失败归因看板——四类分布 + 最近条目 + 改进队列（只有 skill_* 两类是改进信号）
+  ["GET", "/api/failures/attribution", (res, req, url) => {
+    try {
+      const limit = Math.min(100, Math.max(1, Number(url.searchParams.get('limit')) || 20));
+      return json(res, 200, failureAttribution({ wsRoot: WS_ROOT, limit }));
+    } catch (e) { return json(res, 500, { ok: false, error: String(e?.message || e).slice(0, 160) }); }
+  }],
+  ["GET", "/api/agent/msg", (res, req, url) => {
+    try {
+      const who = String(url.searchParams.get('for') || '小语');
+      const unreadOnly = url.searchParams.get('unread') === '1';
+      const limit = Math.min(100, Math.max(1, Number(url.searchParams.get('limit')) || 20));
+      const inbox = inboxFor(WS_ROOT, who, { limit, unreadOnly });
+      return json(res, 200, { ok: true, inbox, recent: recentMessages(WS_ROOT, { limit }) });
+    } catch (e) { return json(res, 500, { ok: false, error: String(e?.message || e).slice(0, 160) }); }
+  }],
+  ["POST", "/api/agent/msg", async (res, req) => {
+    try {
+      const b = await readBody(req, 8e3);
+      const out = postMessage({ wsRoot: WS_ROOT, from: b?.from, to: b?.to, text: b?.text, kind: b?.kind, replyTo: b?.replyTo });
+      return json(res, out.ok ? 200 : 400, out);
+    } catch (e) { return json(res, 500, { ok: false, error: String(e?.message || e).slice(0, 160) }); }
+  }],
+  ["POST", "/api/agent/msg/read", async (res, req) => {
+    try {
+      const b = await readBody(req, 8e3);
+      return json(res, 200, markRead({ wsRoot: WS_ROOT, agent: b?.agent, ids: Array.isArray(b?.ids) ? b.ids : [] }));
+    } catch (e) { return json(res, 500, { ok: false, error: String(e?.message || e).slice(0, 160) }); }
+  }],
+  ["GET", "/api/claim", (res, req, url) => {
+    try {
+      reapExpired({ wsRoot: WS_ROOT });
+      const limit = Math.min(100, Math.max(1, Number(url.searchParams.get('limit')) || 30));
+      const includeClosed = url.searchParams.get('all') === '1';
+      return json(res, 200, { ok: true, items: listClaims(WS_ROOT, { limit, includeClosed }) });
+    } catch (e) { return json(res, 500, { ok: false, error: String(e?.message || e).slice(0, 160) }); }
+  }],
+  ["POST", "/api/claim", async (res, req) => {
+    try {
+      const b = await readBody(req, 8e3);
+      const out = claimTask({
+        wsRoot: WS_ROOT, task: b?.task, agent: b?.agent, scope: b?.scope, branch: b?.branch,
+        ttlMs: Number(b?.ttlMs) || undefined,
+      });
+      return json(res, out.ok ? 200 : 409, out);
+    } catch (e) { return json(res, 500, { ok: false, error: String(e?.message || e).slice(0, 160) }); }
+  }],
+  ["POST", "/api/claim/release", async (res, req) => {
+    try {
+      const b = await readBody(req, 4e3);
+      return json(res, 200, releaseClaim({ wsRoot: WS_ROOT, id: String(b?.id || ''), done: b?.done === true, note: b?.note }));
+    } catch (e) { return json(res, 500, { ok: false, error: String(e?.message || e).slice(0, 160) }); }
+  }],
+  ["POST", "/api/claim/renew", async (res, req) => {
+    try {
+      const b = await readBody(req, 4e3);
+      return json(res, 200, renewClaim({ wsRoot: WS_ROOT, id: String(b?.id || ''), ttlMs: Number(b?.ttlMs) || undefined }));
+    } catch (e) { return json(res, 500, { ok: false, error: String(e?.message || e).slice(0, 160) }); }
+  }],
+  ["POST", "/api/inbound/event", async (res, req) => {
+    try {
+      const b = await readBody(req, 8e3);
+      const out = recvEvent({
+        wsRoot: WS_ROOT,
+        source: b?.source, kind: b?.kind, text: b?.text,
+        severity: b?.severity, at: Number(b?.at) || Date.now(), meta: b?.meta,
+      });
+      // 2026-11-01：进收件箱的事件自动过一遍路由器（异步，不拖慢接收）
+      if (out.ok && out.event) routerOnEvent(out.event);
+      return json(res, out.ok ? 200 : 400, out);
+    } catch (e) { return json(res, 500, { ok: false, error: String(e?.message || e).slice(0, 160) }); }
+  }],
+  ["GET", "/api/inbound/events", (res, req, url) => {
+    try {
+      const limit = Math.min(100, Math.max(1, Number(url.searchParams.get('limit')) || 20));
+      const source = String(url.searchParams.get('source') || '');
+      return json(res, 200, { ok: true, items: listEvents(WS_ROOT, { limit, source }), line: inboundLine(WS_ROOT) });
+    } catch (e) { return json(res, 500, { ok: false, error: String(e?.message || e).slice(0, 160) }); }
+  }],
+  ["POST", "/api/outbound/send", async (res, req) => {
+    try {
+      const b = await readBody(req, 8e3);
+      const out = await sendOut({
+        wsRoot: WS_ROOT,
+        text: b?.text, image: b?.image, file: b?.file, voice: b?.voice,
+        channel: b?.channel, fallback: Array.isArray(b?.fallback) ? b.fallback : undefined,
+        deps: {
+          wechat: { notifyOwner: (...a) => wechat.notifyOwner(...a), sendVoice: (t) => wechat.sendVoice(t) },
+          pushplus: async (body) => {
+            const { sendTest: st } = await import('./engine/notify-channel.mjs');
+            const r = await st(WS_ROOT, { text: body.text || '元枢通报' });
+            return r.ok ? { ok: true, detail: r.detail } : { ok: false, error: r.error };
+          },
+        },
+      });
+      return json(res, out.ok ? 200 : 502, out);
+    } catch (e) { return json(res, 500, { ok: false, error: String(e?.message || e).slice(0, 160) }); }
+  }],
+  ["GET", "/api/outbound/deliveries", (res, req, url) => {
+    try {
+      const limit = Math.min(100, Math.max(1, Number(url.searchParams.get('limit')) || 20));
+      return json(res, 200, { ok: true, items: recentDeliveries(WS_ROOT, { limit }), line: outboundLine(WS_ROOT) });
+    } catch (e) { return json(res, 500, { ok: false, error: String(e?.message || e).slice(0, 160) }); }
+  }],
+  ["POST", "/api/wechat/voice", async (res, req) => {
+    try {
+      const b = await readBody(req, 4e3);
+      const text = String(b?.text || '').trim();
+      if (!text) return json(res, 400, { ok: false, error: 'text 不能为空' });
+      const out = await wechat.sendVoice(text);
+      return json(res, 200, out);
+    } catch (e) {
+      const msg = String(e?.message || e).slice(0, 200);
+      try { enqueueReport(WS_ROOT, { id: `wechat-voice-${Math.floor(Date.now() / 60000)}`, kind: 'wechat', label: '微信语音发送失败', state: 'needs_attention', step: msg.slice(0, 160), priority: 'normal' }); } catch {}
+      return json(res, 500, { ok: false, error: msg });
+    }
+  }],
+  ["POST", "/api/wechat/test", async (res) => {
+    try {
+      await wechat.notifyOwner('元枢通道自检：收到这条说明微信推送可用。');
+      return json(res, 200, { ok: true });
+    } catch (e) {
+      const msg = String(e?.message || e).slice(0, 200);
+      const hint = /prepare failed|ret=-2/i.test(msg)
+        ? 'iLink 会话能收不能发（prepare failed）。先在微信里给机器人随便发一句话；还不行就重新扫码登录。'
+        : /没打开/.test(msg) ? '面板里把「交付通知也发到我的微信」勾上。' : '';
+      try {
+        enqueueReport(WS_ROOT, {
+          id: `wechat-send-${Math.floor(Date.now() / 60000)}`, kind: 'wechat', label: '微信发送失败',
+          state: 'needs_attention', step: msg.slice(0, 160), priority: 'high',
+        });
+      } catch {}
+      return json(res, 502, { ok: false, error: msg, hint });
+    }
+  }],
+  // 2026-10-28：一眼看出「我打开的是不是新版本」——前端 bundle 名 + 版本 + 构建时间
+  // 2026-10-29：插件商店 v2（远程源 / 回滚 / 工具包）
+  ["GET", "/api/plugins/registry", (res) => {
+    const cfg = readRegistryConfig(WS_ROOT);
+    return json(res, 200, { ok: true, ...cfg, cached: undefined, remoteItems: remoteCatalogItems(WS_ROOT) });
+  }],
+  ["POST", "/api/plugins/registry", async (res, req) => {
+    const body = await readBody(req);
+    const cfg = writeRegistryConfig(WS_ROOT, body || {});
+    return json(res, 200, { ok: true, ...cfg, cached: undefined });
+  }],
+  ["POST", "/api/plugins/remote-refresh", async (res) => {
+    const out = await fetchRemoteCatalog(WS_ROOT);
+    return json(res, out.ok ? 200 : 502, out);
+  }],
+  ["POST", "/api/plugins/install-remote", async (res, req) => {
+    const body = await readBody(req);
+    const out = installFromRemote(WS_ROOT, String(body?.id || ""));
+    return json(res, out.ok ? 200 : 400, out);
+  }],
+  ["GET", "/api/plugins/history", (res, req, url) => {
+    const id = String(url.searchParams.get("id") || "");
+    return json(res, 200, { ok: true, history: versionHistory(WS_ROOT, id) });
+  }],
+  ["POST", "/api/plugins/rollback", async (res, req) => {
+    const body = await readBody(req);
+    const out = rollbackPlugin(WS_ROOT, String(body?.id || ""));
+    return json(res, out.ok ? 200 : 400, out);
+  }],
+  ["GET", "/api/plugins/versions", (res, req, url) => json(res, 200, { ok: true, versions: listVersions(WS_ROOT, String(url.searchParams.get("id") || "")) })],
+  ["GET", "/api/plugins/chat-toolpacks", (res) => json(res, 200, { ok: true, on: toolpacksInChat(WS_ROOT) })],
+  ["POST", "/api/plugins/chat-toolpacks", async (res, req) => {
+    const body = await readBody(req);
+    const out = setToolpacksInChat(WS_ROOT, body?.on === true);
+    const synced = syncToolpackTools();
+    return json(res, 200, { ok: true, on: out.on, tools: synced?.tools || 0 });
+  }],
+  ["GET", "/api/plugins/backups", (res, req, url) => json(res, 200, { ok: true, backups: listBackups(WS_ROOT, String(url.searchParams.get("id") || "")) })],
+  ["POST", "/api/plugins/prune", async (res, req) => {
+    const body = await readBody(req);
+    const out = pruneBackups(WS_ROOT, String(body?.id || ""), { keep: Number(body?.keep) || 3 });
+    return json(res, out.ok ? 200 : 400, out);
+  }],
+  ["GET", "/api/plugins/toolpacks", (res) => json(res, 200, { ok: true, packs: listToolpacks(WS_ROOT).map((x) => ({ id: x.id, name: x.name, version: x.version, tools: x.tools.map((t) => ({ name: t.name, description: t.description })) })) })],
+  ["POST", "/api/plugins/run-tool", async (res, req) => {
+    const body = await readBody(req);
+    const id = String(body?.id || "");
+    const pack = readToolpack(WS_ROOT, id);
+    if (!pack) return json(res, 404, { ok: false, error: "没有这个工具包（或已停用）" });
+    const tool = pack.tools.find((t) => String(t.name) === String(body?.tool || ""));
+    if (!tool) return json(res, 404, { ok: false, error: "这个工具包里没有该工具" });
+    const st = readStateForPlugins(WS_ROOT);
+    const perms = st.installed?.[id]?.permissions || toolPermissions(WS_ROOT, id);
+    const out = await runToolpackTool({ tool, args: body?.args || {}, permissions: perms, wsRoot: WS_ROOT, timeoutMs: 20000 });
+    return json(res, out.ok ? 200 : 400, out);
+  }],
+  // 2026-10-29：插件商店
+  ["GET", "/api/plugins", (res) => json(res, 200, { ok: true, installed: [...listPlugins(WS_ROOT), ...localSkills()], catalog: readCatalog(WS_ROOT) })],
+  ["POST", "/api/plugins/install", async (res, req) => {
+    const body = await readBody(req);
+    const id = String(body?.id || "");
+    const out = body?.manifest ? installPlugin(WS_ROOT, body.manifest) : installFromCatalog(WS_ROOT, id, String(body?.version || ""));
+    if (!out.ok) return json(res, 400, { ok: false, error: out.error });
+    try { syncToolpackTools() } catch {}
+    try { syncReceipt() } catch {}
+    return json(res, 200, { ok: true, plugin: out.plugin });
+  }],
+  ["POST", "/api/plugins/uninstall", async (res, req) => {
+    const body = await readBody(req);
+    const out = uninstallPlugin(WS_ROOT, String(body?.id || ""));
+    try { syncToolpackTools() } catch {}
+    try { syncReceipt() } catch {}
+    return json(res, out.ok ? 200 : 400, out);
+  }],
+  ["POST", "/api/plugins/toggle", async (res, req) => {
+    const body = await readBody(req);
+    const out = setPluginEnabled(WS_ROOT, String(body?.id || ""), body?.on !== false);
+    try { syncToolpackTools() } catch {}
+    return json(res, out.ok ? 200 : 400, out);
+  }],
+  ["POST", "/api/plugins/validate", async (res, req) => {
+    const body = await readBody(req);
+    const out = validateManifest(body?.manifest || {});
+    return json(res, out.ok ? 200 : 400, out);
+  }],
+  // 2026-10-28：模型指纹（服务端实际回的版本串 + 变化历史）
+  ["GET", "/api/model/fingerprints", (res) => {
+    try { return json(res, 200, { ok: true, ...listFingerprints(WS_ROOT, { limit: 50 }), line: fingerprintLine(WS_ROOT) }); }
+    catch (e) { return json(res, 500, { ok: false, error: String(e?.message || e).slice(0, 160) }); }
+  }],
+  ["GET", "/api/build", (res) => {
+    try {
+      const ver = (() => { try { return JSON.parse(fs.readFileSync(path.join(__dirname, 'version.json'), 'utf8')).version || '' } catch { return '' } })();
+      let stamp = null;
+      try { stamp = JSON.parse(fs.readFileSync(path.join(__dirname, '.yuanshu-build.json'), 'utf8')) } catch {}
+      let indexBundle = '';
+      try {
+        const html = fs.readFileSync(path.join(__dirname, 'public', 'index.html'), 'utf8');
+        indexBundle = (html.match(/assets\/(index-[A-Za-z0-9_-]+\.js)/) || [])[1] || '';
+      } catch {}
+      return json(res, 200, { ok: true, version: ver, indexBundle, build: stamp, node: process.version });
+    } catch (e) { return json(res, 500, { ok: false, error: String(e?.message || e).slice(0, 160) }); }
+  }],
+  // 2026-10-28：语音转写自测（给本地音频路径，返回转写文本）
+  ["POST", "/api/wechat/stt", async (res, req) => {
+    try {
+      const b = await readBody(req, 4e3);
+      const file = String(b?.file || '');
+      if (!file || !fs.existsSync(file)) return json(res, 400, { ok: false, error: '文件不存在' });
+      const { transcribe } = await import('./engine/wechat/stt.mjs');
+      const out = await transcribe({ file, wsRoot: WS_ROOT, model: b?.model || undefined });
+      return json(res, out.ok ? 200 : 500, out);
+    } catch (e) { return json(res, 500, { ok: false, error: String(e?.message || e).slice(0, 160) }); }
+  }],
+  // 2026-10-28：只读模式开关（普通人不用改 json）
+  ["GET", "/api/guard/readonly", (res) => {
+    try {
+      const m = readOnlyState(WS_ROOT);
+      return json(res, 200, { ok: true, ...m });
+    } catch (e) { return json(res, 500, { ok: false, error: String(e?.message || e).slice(0, 160) }); }
+  }],
+  ["POST", "/api/guard/readonly", async (res, req) => {
+    try {
+      const b = await readBody(req, 2e3);
+      const on = b?.on === true;
+      const out = setReadOnly(WS_ROOT, on);
+      return json(res, 200, { ok: true, on: out.on, note: on ? '已开启：她只能看，不能改/删/写' : '已关闭：恢复可写' });
+    } catch (e) { return json(res, 500, { ok: false, error: String(e?.message || e).slice(0, 160) }); }
+  }],
+  ["GET", "/api/wechat/status", (res) => {
+    const push = channelStatus(WS_ROOT);
+    return json(res, 200, { ...wechat.status(), push });
+  }],
+  ["POST", "/api/wechat/login", wechatAction(() => wechat.startLogin())],
+  ["POST", "/api/wechat/login/cancel", wechatAction(() => wechat.cancelLogin())],
+  ["POST", "/api/wechat/start", wechatAction(() => wechat.start())],
+  ["POST", "/api/wechat/stop", wechatAction(() => wechat.stop())],
+  ["POST", "/api/wechat/logout", wechatAction(() => wechat.logout())],
+  ["POST", "/api/wechat/settings", wechatAction(async (req) => wechat.setNotify((await readBody(req, 1)).notify))],
+  ["GET", "/api/notify/stream", (res, req, url) => notifier.subscribe(res, req, url.searchParams.has("after") ? parseInt(url.searchParams.get("after"), 10) : undefined)],
+  ["GET", "/api/agent-heartbeat", (res) => json(res, 200, agentBeat ? agentBeat.status() : { running: false })],
+  ["POST", "/api/agent-heartbeat/beat", async (res) => json(res, 200, agentBeat ? await agentBeat.beat() : { error: "心跳未启用" })],
+  ["GET", "/api/notify/recent", (res, req, url) => json(res, 200, { events: notifier.list(parseInt(url.searchParams.get("after") || "0", 10) || 0), lastSeq: notifier.lastSeq })],
+  ["POST", "/api/wechat/notify", wechatAction(async (req) => { const b = await readBody(req, 1); return wechat.notifyOwner(String(b.text || '').slice(0, 2000), String(b.image || '').slice(0, 500), String(b.file || '').slice(0, 500)); })],
+  // 邮件接入：Gmail + Outlook，2026-10-08
+  ["GET", "/api/email/status", (res) => json(res, 200, emailBridge.status())],
+  ["GET", "/api/email/config", (res) => {
+    const cfg = emailBridge.getConfig();
+    // 脱敏：clientSecret 和 refreshToken 不返回给前端
+    // IMAP 授权码（password）同样不回显；只告诉前端「已配置」
+    const safe = { ...(cfg), accounts: (cfg.accounts||[]).map(a => ({ email: a.email, provider: a.provider, enabled: a.enabled, clientId: a.clientId, preset: a.preset, host: a.host, port: a.port, hasRefreshToken: !!(a.refreshToken || a.password) })) };
+    return json(res, 200, safe);
+  }],
+  ["POST", "/api/email/config", async (res, req) => {
+    const body = await readBody(req, 4);
+    emailBridge.saveConfig(body);
+    return json(res, 200, { ok: true });
+  }],
+  ["POST", "/api/email/start", (res) => { emailBridge.startPolling(60_000); return json(res, 200, emailBridge.status()); }],
+  ["POST", "/api/email/stop", (res) => { emailBridge.stopPolling(); return json(res, 200, emailBridge.status()); }],
+  ["POST", "/api/email/poll", async (res) => {
+    try { const mails = await emailBridge.pollNow(); return json(res, 200, { mails }); }
+    catch (e) { return json(res, 500, { error: String(e.message) }); }
+  }],
+  // MCP 外部 server 管理，2026-10-08
+  ["GET", "/api/mcp/status", (res) => json(res, 200, { servers: mcpManager.status() })],
+  // ── 反馈收集（2026-10-13）：bug 报告 / 改进意见，分发出去的主机提交到工作台服务器 ──
+  ["POST", "/api/feedback", async (res, req) => {
+    const b = await readBody(req, 8);
+    const r = feedbackStore.add({ type: b?.type, title: b?.title, detail: b?.detail, contact: b?.contact, withDiagnostics: !!b?.withDiagnostics, env: b?.env || null,
+        ticketId: b?.ticketId || "", installId: b?.installId || "", replyTo: b?.replyTo || "" });
+    if (r.error) return json(res, 400, { error: r.error });
+    json(res, 200, { ok: true, id: r.item.id });
+  }],
+  ["GET", "/api/feedback", (res) => json(res, 200, { items: feedbackStore.list() })],
+  ["PATCH", /^\/api\/feedback\/([^/]+)$/, async (res, req, url, m) => {
+    const b = await readBody(req, 1);
+    const r = feedbackStore.mark(m[1], String(b?.status || ""));
+    json(res, r.error ? (r.error === "not_found" ? 404 : 400) : 200, r.error ? { error: r.error } : { ok: true });
+  }],
+  // ── 记忆库 CRUD（2026-10-13）：中长期记忆（偏好/任务记录/事实），增删改查全 API ──
+  // 身份模型：MVP 单用户 owner（user_id 自声明）；小程序/Agent 多用户接入时此参数改由认证态解析，存储层已按 user_id 隔离
+  ["GET", "/api/memory", (res, req, url) => {
+    const q = Object.fromEntries(url.searchParams);
+    const out = memoryDb.listMemories({ user_id: q.user_id || "owner", memory_type: q.memory_type || "", status: q.status || "active", q: q.q || "", view: q.view || "", limit: q.limit, offset: q.offset });
+    // 卡片层：列表默认只给 200 字片段，全文按 id 取（GET /api/memory/:id 或 /api/memory/:id/card），
+    // 否则整表 600 字/条的卡片会把列表响应和调用方上下文一起撑大。
+    json(res, 200, { ...out, items: out.items.map(({ card_text, ...rest }) => ({ ...rest, card: memoryDb.cardPreview(card_text) })) });
+  }],
+  ["POST", "/api/memory", async (res, req) => {
+    const b = await readBody(req, 8);
+    try {
+      const r = await memoryIngest(b || {});
+      json(res, 200, { ok: true, item: r.item, vector_id: r.vector_id, embedded: !!r.vector_id, embedNote: r.embedNote });
+    } catch (e) { json(res, 400, { error: String(e.message || e) }); }
+  }],
+  ["POST", "/api/memory/sweep", (res) => json(res, 200, memoryDb.sweepExpired())],
+  ["GET", "/api/memory/recall", async (res, req, url) => {
+    const q = url.searchParams.get("q") || "";
+    if (!q) return json(res, 400, { error: "缺少 q" });
+    try { json(res, 200, { ok: true, results: await memoryRecall(q, { user_id: url.searchParams.get("user_id") || "owner", topK: Number(url.searchParams.get("topK")) || 5 }) }); }
+    catch (e) { json(res, 502, { error: String(e.message || e).slice(0, 150) }); }
+  }],
+  ["GET", "/api/memory/embedding", (res) => json(res, 200, memoryEmbedding.configInfo())],
+  ["GET", "/api/belief-audit", (res, req, url) => {
+    // 信念体检：默认只读预览；?run=1 真跑并落盘复核清单（同夜间逻辑）
+    try {
+      const ba = beliefAuditModule;
+      const run = url.searchParams.get("run") === "1";
+      if (run) {
+        const out = ba.runBeliefAudit({ wsRoot: WS_ROOT, listMemories: memoryDb.listMemories, now: new Date() });
+        return json(res, 200, { ...out.report, reportPath: out.reportPath });
+      }
+      return json(res, 200, ba.scanBeliefs({ wsRoot: WS_ROOT, listMemories: memoryDb.listMemories, now: new Date() }));
+    } catch (e) { return json(res, 502, { error: String(e?.message || e).slice(0, 150) }); }
+  }],
+  // 卡片层（2026-11-13）：按 memory id 取**完整**卡片。召回/列表默认只给 200 字片段，
+  // 全文只在这里给——避免每轮注入/列表响应被卡片撑爆。
+  ["GET", /^\/api\/memory\/([^/]+)\/card$/, (res, req, url, m) => {
+    const it = memoryDb.getMemoryCard(m[1]);
+    if (!it) return json(res, 404, { error: "not_found" });
+    json(res, 200, { ok: true, memory_id: it.memory_id, summary: it.summary, status: it.status, card: it.card_text, card_session: it.card_session, card_at: it.card_at, card_msg_id: it.card_msg_id });
+  }],
+  // 排除后面才登记的同级固定路由，否则 /api/memory/history、/snapshots 会被当成 id 吃掉返回 404
+  ["GET", /^\/api\/memory\/(?!(?:history|snapshots)$)([^/]+)$/, (res, req, url, m) => {
+    // 按 id 取整行（含完整 card_text）；列表/召回只给片段
+    const it = memoryDb.getMemory(m[1], { touch: url.searchParams.get("touch") === "1" });
+    json(res, it ? 200 : 404, it || { error: "not_found" });
+  }],
+  ["PATCH", /^\/api\/memory\/([^/]+)$/, async (res, req, url, m) => {
+    const b = await readBody(req, 8);
+    try { json(res, 200, { ok: true, item: memoryDb.updateMemory(m[1], b || {}) }); }
+    catch (e) { json(res, 400, { error: String(e.message || e) }); }
+  }],
+  ["POST", /^\/api\/memory\/([^/]+)\/confirm$/, (res, req, url, m) => {
+    // ToM 信念层（Phase 2）：伙伴复核过这条信念仍是现行意愿 → 推确认时间（refresh 保鲜期）
+    const it = memoryDb.confirmMemory(m[1]);
+    json(res, it ? 200 : 404, it ? { ok: true, item: it } : { error: "not_found" });
+  }],
+  ["POST", /^\/api\/memory\/([^/]+)\/restore$/, (res, req, url, m) => {
+    // 归档优先于删除（2026-11-13）：被归档的记忆能救回来——archived → active，并记 restored_at
+    const r = memoryDb.restoreMemory(m[1]);
+    if (r.ok) return json(res, 200, { ok: true, item: r.item });
+    json(res, r.error === "not_found" ? 404 : 409, { error: r.error, status: r.status ?? null });
+  }],
+  ["DELETE", /^\/api\/memory\/([^/]+)$/, (res, req, url, m) => {
+    const r = memoryDb.deleteMemory(m[1]);
+    if (r.ok && r.vector_id) { try { memoryVectors.remove(r.vector_id); } catch { } } // 联动清向量，防孤儿
+    json(res, r.ok ? 200 : 404, r.ok ? { ok: true, vector_id: r.vector_id } : { error: "not_found" });
+  }],
+  // 2026-10-26：自动研判每条反馈能不能对上号，并给一段可直接发给对方的回信
+  // 2026-10-26：按原路回信（两段式：triage 收到时的研判 / resolved 修好后的交代）
+  ["POST", /^\/api\/feedback\/([^/]+)\/reply$/, async (res, req, url, m) => {
+    try {
+      const id = decodeURIComponent(m[1]);
+      const body = await readBody(req, 2e4);
+      const kind = body?.kind === 'resolved' ? 'resolved' : 'triage';
+      let text = String(body?.text || '');
+      if (kind === 'resolved' && !text.trim()) {
+        const { resolutionReply } = await import('./engine/crash-triage.mjs');
+        const item = (() => { try { return feedbackStore.list().find((x) => x.id === id) } catch { return null } })();
+        const ver = String((JSON.parse(fs.readFileSync(path.join(__dirname, 'version.json'), 'utf8')) || {}).version || '');
+        const built = resolutionReply({ item, fix: { version: body?.version || ver, commit: process.env.YUANSHU_BUILD_COMMIT || '', change: body?.change || '', verify: body?.verify || '' } });
+        if (!built.ok) return json(res, 400, { error: built.error });
+        text = built.text;
+      }
+      if (!text.trim()) return json(res, 400, { error: '回信内容为空' });
+      const target = feedbackStore.replyAddress(id);
+      let relay = { ok: false, error: 'local_only' };
+      if (target && target.replyTo) {
+        const { relayReply } = await import('./engine/feedback-relay.mjs');
+        relay = await relayReply({ replyTo: target.replyTo, threadId: target.threadId, itemId: id }, { kind, text });
+      }
+      const saved = feedbackStore.addReply(id, { text, kind, relayed: relay.ok, relayError: relay.ok ? '' : String(relay.error || '') });
+      if (saved.error) return json(res, 404, { error: saved.error });
+      return json(res, 200, { ok: true, reply: saved.reply, relay });
+    } catch (e) { return json(res, 500, { error: String(e?.message || e).slice(0, 200) }); }
+  }],
+  // 2026-10-26：能力提案（第二层：知识作用到代码，而不是只当记忆）
+  ["GET", "/api/capability", (res) => {
+    try { return json(res, 200, readProposals(WS_ROOT)); }
+    catch (e) { return json(res, 500, { error: String(e?.message || e).slice(0, 160) }); }
+  }],
+  // 2026-10-26：无人值守补丁（默认 dryRun，真跑要显式 live:true）
+  // 2026-10-26：异步触发——同步跑会一次模型调用等 5 分钟，客户端必然超时（真机踩到）。
+  // 触发后立刻返回；结果写 记忆/运行时/自动补丁状态.json，用 GET 查。
+  ["POST", "/api/capability/autopatch", async (res, req) => {
+    try {
+      if (autopatchRunning) return json(res, 200, { ok: true, already: true, state: autopatchState });
+      const b = await readBody(req, 2e3);
+      const dryRun = b?.live !== true;
+      autopatchRunning = true;
+      autopatchState = { at: Date.now(), dryRun, running: true, stage: 'started' };
+      const token = (() => { try { return fs.readFileSync(path.join(__dirname, '.token'), 'utf8').trim() } catch { return '' } })();
+      const gen = pickGenerator({ token });
+      autopatchState.generator = gen.kind;
+      // 后台跑，不阻塞响应
+      void (async () => {
+        try {
+          if (!PATCH_REPO.root) {
+            autopatchState = { ...autopatchState, running: false, finishedAt: Date.now(), ok: false, error: PATCH_REPO.reason };
+            return;
+          }
+          const out = await runQueue({ wsRoot: WS_ROOT, repoRoot: PATCH_REPO.root, generate: gen.generate, limit: 1, dryRun, ignoreRateLimit: true, log: (m) => console.log('[autopatch]', m) });
+          autopatchState = { ...autopatchState, running: false, finishedAt: Date.now(), ok: true, ...out };
+        } catch (e) {
+          autopatchState = { ...autopatchState, running: false, finishedAt: Date.now(), ok: false, error: String(e?.message || e).slice(0, 200) };
+        } finally {
+          autopatchRunning = false;
+          try { fs.writeFileSync(path.join(WS_ROOT, '记忆', '运行时', '自动补丁状态.json'), JSON.stringify(autopatchState, null, 2), 'utf8'); } catch {}
+        }
+      })();
+      return json(res, 200, { ok: true, started: true, dryRun, generator: gen.kind });
+    } catch (e) { return json(res, 500, { error: String(e?.message || e).slice(0, 200) }); }
+  }],
+  ["GET", "/api/capability/autopatch", (res) => json(res, 200, { ok: true, running: autopatchRunning, state: autopatchState })],
+  ["POST", "/api/capability/refresh", (res) => {
+    try { const out = refreshProposals(WS_ROOT); return json(res, 200, { ok: true, stats: out.stats, items: readProposals(WS_ROOT).items }); }
+    catch (e) { return json(res, 500, { error: String(e?.message || e).slice(0, 160) }); }
+  }],
+  // 2026-10-26：计划预览（不写盘）与落地（写 PLAN.md + 测试骨架，绝不覆盖已有测试）
+  // 2026-10-26：计划细化——把「失败 5 次」补成「哪一行、什么错、怎么复现」
+  // 2026-10-26：自动补丁面板
+  // 2026-10-27：记忆版本（只读历史 + 受控回滚）
+  // 2026-10-27：记忆 Wiki（人读的主题页）
+  // 2026-10-27：文档变化（近 50 条，含与目标的相关性）
+  // 2026-10-27：主动管理
+  ["GET", "/api/proactive", (res) => {
+    try { return json(res, 200, { ok: true, ...listProactive(WS_ROOT) }); }
+    catch (e) { return json(res, 500, { ok: false, error: String(e?.message || e).slice(0, 160) }); }
+  }],
+  ["POST", "/api/proactive/watch", async (res, req) => {
+    try {
+      const b = await readBody(req, 2e3);
+      const out = addWatch({ wsRoot: WS_ROOT, title: String(b?.title || ''), keywords: Array.isArray(b?.keywords) ? b.keywords : [] });
+      return json(res, out.ok ? 200 : 400, out);
+    } catch (e) { return json(res, 500, { ok: false, error: String(e?.message || e).slice(0, 160) }); }
+  }],
+  ["POST", "/api/proactive/stop", async (res, req) => {
+    try {
+      const b = await readBody(req, 2e3);
+      return json(res, 200, stopWatch({ wsRoot: WS_ROOT, id: String(b?.id || '') }));
+    } catch (e) { return json(res, 500, { ok: false, error: String(e?.message || e).slice(0, 160) }); }
+  }],
+  // 2026-11-07：值班程序（她自己写的盯梢）——增删查暂停；值守本体在 engine/watch-duty.mjs
+  ...createWatchRoutes({ duty: () => watchDuty, json, readBody }),
+  ["GET", "/api/docs/changes", (res) => {
+    try {
+      const data = readDocManifest(WS_ROOT);
+      return json(res, 200, { ok: true, baselineAt: data.baselineAt || 0, files: Object.keys(data.files || {}).length, changes: data.changes || [] });
+    } catch (e) { return json(res, 500, { ok: false, error: String(e?.message || e).slice(0, 160) }); }
+  }],
+  ["POST", "/api/docs/reset", (res) => {
+    try { return json(res, 200, { ok: true, ...resetDocManifest(WS_ROOT) }); }
+    catch (e) { return json(res, 500, { ok: false, error: String(e?.message || e).slice(0, 160) }); }
+  }],
+  ["GET", "/api/wiki", (res) => {
+    try {
+      const items = listWiki({ wsRoot: WS_ROOT });
+      const index = readWiki({ wsRoot: WS_ROOT, topic: 'index' });
+      const stale = staleSummary(WS_ROOT);
+      // 前端要按主题名取值，这里转成 map（否则 Object.keys 变成 0,1,2...）
+      const staleMap = Object.fromEntries(stale.pages.map((x) => [x.topic, x]));
+      return json(res, 200, { ok: true, items, index: index.ok ? index.content : '', stale: staleMap });
+    } catch (e) { return json(res, 500, { ok: false, error: String(e?.message || e).slice(0, 160), items: [] }); }
+  }],
+  ["GET", /^\/api\/wiki\/([^/]+)$/, (res, req, url, m) => {
+    try {
+      const out = readWiki({ wsRoot: WS_ROOT, topic: decodeURIComponent(m[1]) });
+      return json(res, out.ok ? 200 : 404, out);
+    } catch (e) { return json(res, 500, { ok: false, error: String(e?.message || e).slice(0, 160) }); }
+  }],
+  ["POST", "/api/wiki/rebuild", (res) => {
+    try {
+      const out = buildWiki({ wsRoot: WS_ROOT });
+      const cleared = clearStaleForGenerated({ wsRoot: WS_ROOT, topics: out.written });
+      try { commitMemory({ wsRoot: WS_ROOT, message: 'Wiki 重建' }); } catch {}
+      return json(res, 200, { ...out, clearedStale: cleared.cleared, staleLeft: cleared.left });
+      return json(res, 200, out);
+    } catch (e) { return json(res, 500, { ok: false, error: String(e?.message || e).slice(0, 160) }); }
+  }],
+  ["GET", "/api/memory/history", (res, req, url) => {
+    try {
+      const limit = Math.min(50, Math.max(1, Number(url.searchParams.get('limit')) || 10));
+      const out = memoryHistory({ wsRoot: WS_ROOT, limit });
+      return json(res, out.ok ? 200 : 500, out);
+    } catch (e) { return json(res, 500, { ok: false, reason: String(e?.message || e).slice(0, 160) }); }
+  }],
+  ["POST", "/api/memory/rollback", async (res, req) => {
+    try {
+      const b = await readBody(req, 2e3);
+      const out = rollbackMemory({ wsRoot: WS_ROOT, commit: String(b?.commit || '') });
+      return json(res, out.ok ? 200 : 400, out);
+    } catch (e) { return json(res, 500, { ok: false, error: String(e?.message || e).slice(0, 160) }); }
+  }],
+  ["GET", "/api/autopatch/patches", (res) => {
+    try {
+      if (!PATCH_REPO.root) return json(res, 200, { ok: false, error: PATCH_REPO.reason, items: [] });
+      const out = listPatchBranches(PATCH_REPO.root);
+      const state = readPatchState(WS_ROOT);
+      return json(res, 200, { ok: out.ok, error: out.error, items: out.items || [], state: state.branches || {}, config: readMergeConfig(WS_ROOT) });
+    } catch (e) { return json(res, 500, { ok: false, error: String(e?.message || e).slice(0, 160), items: [] }); }
+  }],
+  ["GET", "/api/autopatch/diff", (res, req, url) => {
+    try {
+      const branch = String(url.searchParams.get('branch') || '');
+      if (!/^auto\/capability-[\w-]+$/.test(branch)) return json(res, 400, { ok: false, error: '分支名不合法' });
+      const out = diffOfBranch(PATCH_REPO.root, branch);
+      return json(res, out.ok ? 200 : 500, out);
+    } catch (e) { return json(res, 500, { ok: false, error: String(e?.message || e).slice(0, 160) }); }
+  }],
+  // 2026-10-28：先领一张一次性凭据（绑分支 HEAD 的 commit sha），再凭它合并
+  ["POST", "/api/autopatch/approve", async (res, req) => {
+    try {
+      const b = await readBody(req, 2e3);
+      const branch = String(b?.branch || '');
+      if (!/^auto\/capability-[\w-]+$/.test(branch)) return json(res, 400, { ok: false, error: '分支名不合法' });
+      const sha = reviewSha(PATCH_REPO.root, branch);
+      if (!sha) return json(res, 400, { ok: false, error: '读不到分支 HEAD（分支不存在？）' });
+      const out = issueToken({ wsRoot: WS_ROOT, action: 'merge_patch', payload: { branch, sha }, issuedBy: '伙伴' });
+      if (!out.ok) return json(res, 500, { ok: false, error: out.error });
+      return json(res, 200, { ok: true, token: out.token, branch, sha, expiresInSec: 600 });
+    } catch (e) { return json(res, 500, { ok: false, error: String(e?.message || e).slice(0, 160) }); }
+  }],
+  ["GET", "/api/autopatch/tokens", (res) => {
+    try { return json(res, 200, { ok: true, items: listTokens(WS_ROOT, { limit: 10 }) }); }
+    catch (e) { return json(res, 500, { ok: false, error: String(e?.message || e).slice(0, 160) }); }
+  }],
+  ["POST", "/api/autopatch/merge", async (res, req) => {
+    try {
+      const b = await readBody(req, 2e3);
+      const branch = String(b?.branch || '');
+      if (!/^auto\/capability-[\w-]+$/.test(branch)) return json(res, 400, { ok: false, error: '分支名不合法' });
+      // 2026-10-28：必须凭"绑定 commit sha"的一次性凭据才能合。
+      // 防的是「批准的是 A，合并时分支上已经是 B」——有人又提交了新东西。
+      const sha = reviewSha(PATCH_REPO.root, branch);
+      const gate = consumeToken({ wsRoot: WS_ROOT, token: b?.token, action: 'merge_patch', payload: { branch, sha } });
+      if (!gate.ok) return json(res, 409, { ok: false, error: gate.error, reason: gate.reason, need: 'approve' });
+      // 旁路留痕：merge 只校验一次性 token，不读自证记录（绕过自证准入）；合之前先记一行，文件尽量从分支 diff 里取
+      let bypassFiles = [];
+      try { bypassFiles = (listPatchBranches(PATCH_REPO.root).items || []).find((x) => x.branch === branch)?.files || [] } catch {}
+      try { recordBypass({ wsRoot: WS_ROOT, route: "autopatch.merge", files: bypassFiles, note: `凭一次性 token 合入 auto 分支，只校验 token（未走自证准入）${bypassFiles.length ? "" : "；files 未知"}`, extra: { branch, sha } }) } catch {}
+      const out = mergeBranch(PATCH_REPO.root, branch, { message: b?.message });
+      return json(res, out.ok ? 200 : 409, out);
+    } catch (e) { return json(res, 500, { ok: false, error: String(e?.message || e).slice(0, 160) }); }
+  }],
+  ["POST", "/api/autopatch/discard", async (res, req) => {
+    try {
+      const b = await readBody(req, 2e3);
+      const branch = String(b?.branch || '');
+      if (!/^auto\/capability-[\w-]+$/.test(branch)) return json(res, 400, { ok: false, error: '分支名不合法' });
+      const out = discardBranch(PATCH_REPO.root, branch);
+      return json(res, out.ok ? 200 : 400, out);
+    } catch (e) { return json(res, 500, { ok: false, error: String(e?.message || e).slice(0, 160) }); }
+  }],
+  ["POST", "/api/capability/refine", async (res, req) => {
+    try {
+      const b = await readBody(req, 4e3);
+      const data = readProposals(WS_ROOT);
+      const p = (data.items || []).find((x) => x.id === String(b?.id || ''));
+      if (!p) return json(res, 404, { error: 'not_found' });
+      if (!p.planPath || !fs.existsSync(p.planPath)) return json(res, 400, { error: '先 materialize（生成 PLAN.md）再细化' });
+      const ref = buildRefinement({ wsRoot: WS_ROOT, repoRoot: __dirname, proposal: p });
+      applyRefinementToPlanFile(p.planPath, ref);
+      p.plan = p.plan || {}; p.plan.refinement = ref;
+      p.refinedAt = Date.now();
+      p.note = ref.complete
+        ? `计划已细化：失败样本 ${ref.samples.length} 条、调用点 ${ref.sites.length} 处，可以尝试自动补丁`
+        : `计划细化不完整（缺${ref.samples.length ? '' : '失败样本'}${ref.sites.length ? '' : (ref.samples.length ? '调用点' : '、调用点')}）——先补事实，再谈改代码`;
+      writeProposals(WS_ROOT, data);
+      return json(res, 200, { ok: true, complete: ref.complete, samples: ref.samples.length, sites: ref.sites.length, planPath: p.planPath });
+    } catch (e) { return json(res, 500, { error: String(e?.message || e).slice(0, 200) }); }
+  }],
+  ["POST", "/api/capability/plan", async (res, req) => {
+    try {
+      const b = await readBody(req, 4e3);
+      const items = readProposals(WS_ROOT).items || [];
+      const p = items.find((x) => x.id === String(b?.id || ''));
+      if (!p) return json(res, 404, { error: 'not_found' });
+      const plan = planFor(p);
+      return json(res, 200, { ok: true, plan });
+    } catch (e) { return json(res, 500, { error: String(e?.message || e).slice(0, 160) }); }
+  }],
+  ["POST", "/api/capability/materialize", async (res, req) => {
+    try {
+      const b = await readBody(req, 4e3);
+      const data = readProposals(WS_ROOT);
+      const p = (data.items || []).find((x) => x.id === String(b?.id || ''));
+      if (!p) return json(res, 404, { error: 'not_found' });
+      const out = materializeProposal(WS_ROOT, p);
+      if (!out.ok) return json(res, 400, out);
+      p.planPath = out.planPath; p.testPath = out.testPath; p.materializedAt = Date.now();
+      // 2026-10-26：把结构化 plan（files/accept/evidence）存回提案——
+      // 否则自动补丁的提示词里没有验收标准，模型会合理拒绝（真机踩到）。
+      p.plan = planFor(p);
+      // 顺手把事实补上（失败不影响 materialize）
+      try {
+        const { buildRefinement: br, applyRefinementToPlanFile: apply2 } = await import('./engine/plan-refine.mjs');
+        const ref = br({ wsRoot: WS_ROOT, repoRoot: __dirname, proposal: p });
+        apply2(out.planPath, ref);
+        p.plan.refinement = ref;
+        p.refinedAt = Date.now();
+      } catch {}
+      if (p.state === 'proposed') { p.state = 'accepted'; p.acceptedAt = Date.now(); }
+      const { writeProposals } = await import('./engine/capability-proposal.mjs');
+      writeProposals(WS_ROOT, data);
+      return json(res, 200, { ok: true, ...out });
+    } catch (e) { return json(res, 500, { error: String(e?.message || e).slice(0, 160) }); }
+  }],
+  ["POST", "/api/capability/mark", async (res, req) => {
+    try {
+      const b = await readBody(req, 4e3);
+      const r = markProposal(WS_ROOT, String(b?.id || ''), b || {});
+      return json(res, r.error ? (r.error === 'not_found' ? 404 : 400) : 200, r.error ? { error: r.error } : { ok: true, item: r.item });
+    } catch (e) { return json(res, 500, { error: String(e?.message || e).slice(0, 160) }); }
+  }],
+  ["GET", "/api/feedback/triage", (res) => {
+    try {
+      const items = (() => { try { return feedbackStore.list() } catch { return [] } })();
+      const self = { platform: process.platform, version: String(APP_VERSION), commit: process.env.YUANSHU_BUILD_COMMIT || "" };
+      const out = items.map((it) => {
+        let v;
+        try { v = triageReport({ item: it, self }); } catch (e) { v = { matchable: false, kind: "triage_error", reasons: [String(e?.message || e).slice(0, 80)], reply: "", triage: "unusable" }; }
+        return { id: it.id, status: it.status, ...v };
+      });
+      return json(res, 200, { items: out, summary: { matchable: out.filter((x) => x.matchable).length, unmatched: out.filter((x) => !x.matchable).length, total: out.length } });
+    } catch (e) { return json(res, 500, { error: String(e?.message || e).slice(0, 200) }); }
+  }],
+  ["GET", "/api/feedback/summary", (res) => json(res, 200, { groups: feedbackStore.summary() })],
+  ["GET", "/api/telemetry", (res) => json(res, 200, isEnabled(WS_ROOT))],
+  ["POST", "/api/telemetry", async (res, req) => {
+    const b = await readBody(req, 1);
+    if (b?.action === "sweep") return json(res, 200, await telemetrySweep(true));
+    json(res, 200, setEnabled(WS_ROOT, !!b?.enabled));
+  }],
+  // ── 回厂反馈通道（2026-10-13）：免令牌，给 GitHub 下载的陌生用户；IP 限频防滥用 ──
+  ["POST", "/api/public/feedback", async (res, req) => {
+    const b = await readBody(req, 8);
+    const ip = String(req.headers["cf-connecting-ip"] || req.socket?.remoteAddress || "").replace(/^::ffff:/, "");
+    const r = feedbackStore.add({ type: b?.type, title: b?.title, detail: b?.detail, contact: b?.contact, withDiagnostics: !!b?.withDiagnostics, env: b?.env || null, source: "public", ip });
+    if (r.error) return json(res, r.error === "rate_limited" ? 429 : 400, { error: r.error === "rate_limited" ? "提交太频繁，请稍后再试" : r.error });
+    json(res, 200, { ok: true, id: r.item.id });
+  }],
+  ["GET", "/api/mcp/config", (res) => json(res, 200, { servers: mcpManager.load() })],
+  ["POST", "/api/mcp/config", async (res, req) => {
+    const body = await readBody(req, 4);
+    mcpManager.save(body.servers || []);
+    return json(res, 200, { ok: true });
+  }],
+  ["POST", "/api/mcp/connect", async (res, req) => {
+    const body = await readBody(req, 1);
+    try {
+      globalThis.__yuanshuMcpManager = mcpManager;
+      const tools = await mcpManager.connect(body);
+      // 将新工具动态注入 UNIFIED_TOOLS（执行走 globalThis.__yuanshuMcpManager 兜底）
+      for (const t of tools) {
+        const schema = mcpToolToSchema(t);
+        if (!UNIFIED_TOOLS.some(u => u?.function?.name === schema.function.name)) {
+          UNIFIED_TOOLS.push(schema);
+        }
+      }
+      return json(res, 200, { ok: true, tools: tools.length });
+    } catch (e) { return json(res, 500, { error: String(e.message) }); }
+  }],
+  ["POST", "/api/mcp/disconnect", async (res, req) => {
+    const { name } = await readBody(req, 0.1);
+    mcpManager.disconnect(name);
+    // 从 UNIFIED_TOOLS 移除对应工具
+    const before = UNIFIED_TOOLS.length;
+    const idx = [];
+    UNIFIED_TOOLS.forEach((t, i) => { if (t?._mcpServer === name) idx.push(i); });
+    for (let i = idx.length - 1; i >= 0; i--) UNIFIED_TOOLS.splice(idx[i], 1);
+    return json(res, 200, { ok: true, removed: before - UNIFIED_TOOLS.length });
+  }],
+  ["POST", "/api/mcp/reconnect", async (res, req) => {
+    const { name } = await readBody(req, 0.1);
+    try {
+      const tools = await mcpManager.reconnect(name);
+      return json(res, 200, { ok: true, tools: tools.length });
+    } catch (e) { return json(res, 500, { error: String(e.message) }); }
+  }],
+  ["GET", "/api/emotion", (res, req, url) => handleEmotion(res, url)],
+  ["GET", "/api/companion/emotion", (res) => json(res, 200, companionEmotion.read())],
+  ["GET", "/api/run/overview", withCache(60000, "run-overview", (res, req, url) => runApi.overview(res, req, url), { bypass: (_req, url) => url.searchParams.has("session") })],
+  ["GET", "/api/emotion/curve", (res, req, url) => {
+    // 灵魂曲线 + 讨好曲线（2026-10-11）：情绪潮汐按日聚合；讨好=安抚触发密度，附带承诺账本待兑现数
+    const q = Object.fromEntries(url.searchParams);
+    const sessionId = String(q.sessionId || "").slice(0, 64);
+    const days = Math.min(Math.max(parseInt(String(q.days || "14"), 10) || 14, 3), 90);
+    const curve = emotion.emotionCurves({ sessionId, days });
+    curve.pendingPromises = pendingPromises(WS_ROOT, {}).length;
+    json(res, 200, curve);
+  }],
+  ["GET", "/api/emotion/tide", (res) => json(res, 200, { tide: emotion.getTide(300) })],
+  ["GET", "/api/emotion/feelings", (res) => json(res, 200, { feelings: emotion.getFeelings(50) })],
+  ["GET", "/api/agent-status", (res) => handleAgentStatus(res)],
+  // ── 记忆园丁：只报告记忆健康（重复/过时/膨胀），不自动写记忆（防污染）──
+  ["GET", "/api/memory-gardener", (res) => json(res, 200, { ...gardenMemory(WS_ROOT), report: { ...scanMemoryHealth(WS_ROOT), reviewed: reviewedKeys(WS_ROOT) }, rhythm: readActivityRhythm(WS_ROOT, { now: new Date(), sessionDir: SESSIONS_DIR }) })],
+  // ── 承诺兑现：模型自己许下但没结清的事。台前与提示词读同一份账 ──
+  ["GET", "/api/promises", (res) => {
+    const now = new Date();
+    const pending = pendingPromises(WS_ROOT, { now }).map(({ id, text, at, due, sessionId, age }) => ({
+      id, text, at, due, sessionId, agePhrase: age.phrase, overdue: age.overdue,
+    }));
+    const closed = loadPromises(WS_ROOT)
+      .filter((p) => p.status !== "pending")
+      .slice(-20).reverse()
+      .map(({ id, text, at, status, evidence, closedAt }) => ({ id, text, at, status, evidence, closedAt }));
+    // 承诺账本是实时状态：浏览器/代理不得复用销账前的快照。
+    json(res, 200, { ok: true, pending, closed }, { "Cache-Control": "no-store, no-cache, must-revalidate" });
+  }],
+  ["POST", "/api/promises/close", async (res, req) => {
+    const b = await readBody(req);
+    if (!b?.id) return json(res, 400, { error: "缺少 id" });
+    // 结清只能由人给结论；这里不接受任何自动判定，也没有定时任务会调它
+    const r = closePromise(WS_ROOT, String(b.id), { status: b.status === "dropped" ? "dropped" : "kept", evidence: b.evidence || null });
+    json(res, r?.ok ? 200 : 400, r);
+  }],
+  // 做梦用的候选策略表（2026-09-18）：现役 = 当前 MATCH_WEIGHTS；候选只动**权重数字**，
+  // 不动匹配规则本身（规则是行为契约，改它要人拍板；调权重才是可回放、可比较的部分）。
+  // 表本身声明在文件顶部（DREAM_POLICIES），这里只挂路由。
+
+// ── 做梦（2026-09-18）：拿历史当模拟器，离线评估"要不要改" ──
+  // 第一片可做梦的搜索空间是技能匹配器的权重表（输入=当时的任务句，真值=当时真的 activate 了哪个技能）。
+  ["GET", "/api/dream/status", (res) => {
+    const skillEps = loadSkillEvidence(WS_ROOT, taskEvidence);
+    let logTail = "";
+    try { logTail = fs.readFileSync(dreamPaths(WS_ROOT).log, "utf8").split("\n").slice(-40).join("\n"); } catch {}
+    json(res, 200, {
+      ok: true,
+      kinds: [{ kind: "skill-match", episodes: skillEps.length, eligibleEpisodes: skillEps.filter(verifiedSkillEpisode).length,
+        incumbent: currentWeights(WS_ROOT).id || DREAM_POLICIES.incumbent, candidates: DREAM_POLICIES.candidates.map((c) => c.id) }],
+      evolution: evolutionStatus(WS_ROOT, { taskEvidence }),
+      collection: dreamCollector.status(),
+      lastEpisodes: skillEps.slice(-5).map((e) => ({ at: e.at, input: String(e.input).slice(0, 60), choice: e.choice })),
+      logTail,
+    });
+  }],
+  // 灵魂页「昨夜」卡：复盘/自动执行/教训晋升/做梦的只读汇总（engine/last-night.mjs）
+  ["GET", "/api/soul/last-night", (res) => {
+    const skillEps = loadSkillEvidence(WS_ROOT, taskEvidence);
+    json(res, 200, { ok: true, ...buildLastNight({ wsRoot: WS_ROOT, tasks: timeEngine ? timeEngine.list() : [], nudges: listMemoryNudges(),
+      dream: { observed: skillEps.length, eligible: skillEps.filter(verifiedSkillEpisode).length } }) }, { "Cache-Control": "no-store" });
+  }],
+  ["GET", "/api/dream/evidence", (res) => taskEvidenceApi.list(res)],
+  ["GET", /^\/api\/dream\/evidence\/([a-zA-Z0-9_-]{1,100})$/, (res, req, url, m) => taskEvidenceApi.get(res, m[1])],
+  ["POST", /^\/api\/dream\/evidence\/([a-zA-Z0-9_-]{1,100})$/, async (res, req, url, m) => {
+    await taskEvidenceApi.review(res, m[1], await readBody(req, 0.02));
+  }],
+  ["GET", "/api/dream/experiment", (res) => json(res, 200, mechanismStatus(WS_ROOT))],
+  ["POST", "/api/dream/experiment", async (res) => {
+    // Fixed offline experiment only. No client-supplied code, conclusions or policy changes.
+    json(res, 200, await runMechanismExperiment(WS_ROOT));
+  }],
+  ["POST", "/api/dream/collect", async (res) => {
+    const result = await dreamCollector.collect();
+    json(res, result.ok ? 200 : 503, result);
+  }],
+  ["GET", "/api/learning-intake/status", res => json(res, 200, { candidates: learningIntake.status(), collection: dreamCollector.status() })],
+  ["POST", "/api/dream/run", async (res) => {
+    // 与定时器共用同一份逻辑（runDreamCycle），不重复实现第二遍
+    json(res, 200, await runDreamCycle());
+  }],
+  // ── 运行时实例（2026-09-18）：有几份在跑、谁持有端口、最近几次启动成没成 ──
+  ["GET", "/api/system/instances", (res) => {
+    // 用"这次请求落在谁身上"校正心跳里的自称——登记不许说谎（详见 reconcileInstances）
+    const rec = reconcileInstances(liveInstances(WS_ROOT, {}), { servingPid: process.pid });
+    json(res, 200, {
+      ok: true,
+      me: { pid: process.pid, version: String(APP_VERSION), port: CONFIG.port },
+      live: rec.list.map((x) => ({ pid: x.pid, version: x.version, port: x.port, ownsPort: x.ownsPort, staleClaim: x.staleClaim, startedAt: x.startedAt, ageMs: x.ageMs })),
+      owner: rec.owner,
+      ownerNote: rec.note,
+      staleClaims: rec.staleClaims,
+      recentStartups: recentStartups(WS_ROOT, { limit: 10 }),
+    });
+  }],
+  // ── 探索轨迹（2026-09-18）：把"试了哪些路、花了多少、结果如何"记成可回放的树 ──
+  // 做梦的头一版只能回放"选哪个技能"，因为探索过程没留下结构化轨迹；这一版补上那一半。
+  ["GET", "/api/trace/status", (res) => {
+    const traces = listTraces(WS_ROOT, { limit: 50 });
+    json(res, 200, { ok: true, count: traces.length, recent: traces.slice(0, 10) });
+  }],
+  ["POST", "/api/trace/replay", async (res, req) => {
+    // 在**已记录的轨迹**上回放候选探索策略（现役 = 当时真这么做的那条）：
+    // 只有"每条轨迹都不更差、且至少一条更省"才算赢——与技能那版同一套规矩。
+    const b = await readBody(req).catch(() => ({}));
+    const ids = Array.isArray(b?.ids) ? b.ids : listTraces(WS_ROOT, { limit: 50 }).map((t) => t.id);
+    const traces = ids.map((id) => loadTrace(WS_ROOT, id)).filter(Boolean);
+    const result = replayAcrossTraces(traces, candidatePolicies(), { incumbentId: "recorded" });
+    json(res, 200, { ...result, tracesUsed: traces.length });
+  }],
+  // ── 授权状（2026-09-18）：元枢自己判断"这件事我能不能自己定" ──
+  ["GET", "/api/autonomy", (res) => {
+    json(res, 200, {
+      ok: true,
+      charter: loadCharter(WS_ROOT),
+      usedToday: autoUsedToday(WS_ROOT),
+      activeWeights: currentWeights(WS_ROOT),
+      explorePolicy: currentExplorePolicy(WS_ROOT),
+      recent: loadLedger(WS_ROOT).slice(-10).reverse(),
+    });
+  }],
+  ["POST", "/api/autonomy/revoke", async (res, req) => {
+    const b = await readBody(req);
+    const r = await revoke(WS_ROOT, {
+      at: b?.at || null,
+      revert: async (row) => {
+        // 撤销点：优先回到记录里的上一版；没有就清掉覆盖，回到代码里的默认。
+        // undo 有两类前缀：weights:* 是技能权重，explore:* 是探索策略（"失败后再试几次"）。
+        const raw = String(row?.undo || "");
+        if (raw.startsWith('evolution:')) return revertEvolution(WS_ROOT, raw.slice('evolution:'.length), row.at);
+        const back = raw.replace(/^(weights|explore):/, "");
+        const cand = raw.startsWith("explore:") ? null : DREAM_POLICIES.candidates.find((c) => c.id === back);
+        if (cand) return promoteWeights(WS_ROOT, cand.id, cand.weights);
+        const ex = exploreCandidates().find((c) => c.id === back);
+        if (ex) return promoteExplorePolicy(WS_ROOT, ex.id, ex);
+        return raw.startsWith("explore:") ? resetExplorePolicy(WS_ROOT) : resetWeights(WS_ROOT);
+      },
+    });
+    json(res, r.ok ? 200 : 400, r);
+  }],
+  // ── 全局沙箱模式：append-only 日志 + fold，收紧随时可以、放宽必须给理由 ──
+  ["GET", "/api/sandbox/mode", (res, req, url) => {
+    const r = sandboxApi.get();
+    json(res, r.status, r.body);
+  }],
+  ["POST", "/api/sandbox/mode", async (res, req) => {
+    const r = sandboxApi.set(await readBody(req));
+    json(res, r.status, r.body);
+  }],
+  ["GET", "/api/maintenance/status", (res, req, url) => {
+    const r = maintenanceApi.status(url.searchParams.get("session"));
+    if (r.status === 200) {
+      r.body.canConfirm = isLocalMaintenanceApproval(req);
+      r.body.pending = confirmRegistry.list().filter(item => item.sessionId === r.body.sessionId && item.toolName === 'maintenance').map(({ id, taskId, runId, reason, expiresAt }) => ({ id, taskId, runId, reason, expiresAt }));
+    }
+    json(res, r.status, r.body);
+  }],
+  ["POST", "/api/maintenance/requests", async (res, req) => {
+    const r = await maintenanceApi.request(await readBody(req));
+    json(res, r.status, r.body);
+  }],
+  ["POST", /^\/api\/maintenance\/leases\/([^/]+)\/revoke$/, async (res, req, url, m) => {
+    const r = maintenanceApi.revoke(m[1], await readBody(req));
+    json(res, r.status, r.body);
+  }],
+  // ── 跨轮目标：三重闸门在 engine/goals.mjs；台前只做"人类给结论"这一侧 ──
+  ["GET", "/api/goals", (res) => {
+    const all = listGoals(WS_ROOT);
+    const active = all.find((g) => g.status === "active") || null;
+    json(res, 200, { ok: true, active, goals: all.map(({ id, objective, status, round, maxRounds, autoAdvance, evidence, blockedReason, updatedAt }) => ({ id, objective, status, round, maxRounds, autoAdvance, evidence, blockedReason, updatedAt })) });
+  }],
+  ["POST", "/api/goals/create", async (res, req) => {
+    const b = await readBody(req);
+    const r = createGoal(WS_ROOT, { objective: b?.objective, maxRounds: b?.maxRounds, autoAdvance: b?.autoAdvance });
+    json(res, r?.ok ? 200 : 400, r);
+  }],
+  ["POST", "/api/goals/action", async (res, req) => {
+    const b = await readBody(req);
+    if (!b?.id || !b?.action) return json(res, 400, { error: "缺少 id/action" });
+    // 武装与结清都标记 origin: "human"——它们只可能来自台前的人工点击，
+    // 没有任何服务端路径会自己调这两个（模型要结清必须由人确认）。
+    const map = {
+      arm: () => armGoal(WS_ROOT, String(b.id), { origin: "human", autoAdvance: b.autoAdvance ?? null }),
+      pause: () => pauseGoal(WS_ROOT, String(b.id), { origin: "human" }),
+      complete: () => settleGoal(WS_ROOT, String(b.id), { status: "complete", origin: "human", evidence: b.evidence }),
+      block: () => settleGoal(WS_ROOT, String(b.id), { status: "blocked", origin: "human", reason: b.reason, evidence: b.evidence }),
+    };
+    const fn = map[String(b.action)];
+    if (!fn) return json(res, 400, { error: "action 只能是 arm/pause/complete/block" });
+    const r = fn();
+    json(res, r?.ok ? 200 : 400, r);
+  }],
+  ["POST", "/api/memory-gardener/reviewed", async (res, req) => {
+    const b = await readBody(req);
+    if (!b?.kind || !b?.key) return json(res, 400, { error: "缺少 kind/key" });
+    const items = b.unmark ? unmarkReviewed(WS_ROOT, b.kind, b.key) : markReviewed(WS_ROOT, b.kind, b.key);
+    json(res, 200, { ok: true, items });
+  }],
+  ["POST", "/api/memory-gardener/dedupe", (res) => {
+    const r = dedupeLog(WS_ROOT);
+    json(res, 200, { ok: true, ...r });
+  }],
+  ["POST", "/api/memory/upsert", async (res, req) => {
+    const b = await readBody(req);
+    return json(res, 200, upsertMemoryFact(WS_ROOT, b || {}));
+  }],
+  // ── 记忆快照：此前只有写入方、没有任何读取方（restoreSnapshot 零调用、无端点、前端零引用），
+  //    攒了 98.7MB 却一份都回退不了。补上列表 + 回退，让快照真正成为可用的安全网。──
+  ["GET", "/api/memory/snapshots", (res) => {
+    const names = memoryApi.listSnapshots(WS_ROOT);
+    const dir = memoryApi.snapshotPaths(WS_ROOT).dir;
+    const items = names.slice(0, 50).map((f) => {
+      let reason = "", timestamp = "", bytes = 0;
+      try {
+        const full = path.join(dir, f);
+        bytes = fs.statSync(full).size;
+        // id/reason/timestamp 排在 JSON 最前面，读文件头即可；列表不能把上百 MB 全读进来
+        const fd = fs.openSync(full, "r");
+        const buf = Buffer.alloc(320);
+        const n = fs.readSync(fd, buf, 0, 320, 0);
+        fs.closeSync(fd);
+        const head = buf.subarray(0, n).toString("utf8");
+        reason = (head.match(/"reason"\s*:\s*"([^"]*)"/) || [])[1] || "";
+        timestamp = (head.match(/"timestamp"\s*:\s*"([^"]*)"/) || [])[1] || "";
+      } catch {}
+      return { id: f.replace(/\.json$/, ""), reason, timestamp, bytes };
+    });
+    json(res, 200, { ok: true, total: names.length, items });
+  }],
+  ["POST", "/api/memory/snapshot/restore", async (res, req) => {
+    const b = await readBody(req);
+    if (!b?.id) return json(res, 400, { error: "缺少 id" });
+    // 回退本身就是危险动作：先把现状留一份，避免"回退错了再也回不来"
+    try { memoryApi.saveSnapshot(WS_ROOT, "pre-restore"); } catch {}
+    const r = memoryApi.restoreSnapshot(WS_ROOT, String(b.id));
+    try { memoryApi.pruneSnapshots(WS_ROOT); } catch {}
+    json(res, r?.ok ? 200 : 400, r);
+  }],
+  ["GET", "/api/theme-prefs", (res) => json(res, 200, loadThemePrefs())],
+  ["POST", "/api/theme-prefs", async (res, req) => { const b = await readBody(req, 12); return json(res, 200, saveThemePrefs(b || {})) }],
+  ["GET", "/api/color-prefs", (res) => json(res, 200, loadColorPrefs())],
+  ["POST", "/api/color-prefs", async (res, req) => { const b = await readBody(req, 12); return json(res, 200, saveColorPrefs(b || {})) }],
+  ["GET", "/api/system/info", (res) => json(res, 200, buildSystemInfo(WS_ROOT, AGENT_DIR))],
+  // 2026-10-07 真机：安装包首页没有令牌管理入口，安装好了改不了令牌。
+  // 2026-10-28：本机一键登录——只允许回环地址调用，把令牌交给同机浏览器（免手抄）
+  ["GET", "/api/auth/local-token", (res, req) => {
+    try {
+      const addr = String(req?.socket?.remoteAddress || "");
+      const local = addr === "127.0.0.1" || addr === "::1" || addr === "::ffff:127.0.0.1";
+      if (!local) return json(res, 403, { ok: false, error: "只允许本机访问" });
+      return json(res, 200, { ok: true, token: CONFIG.token, apiBase: `http://127.0.0.1:${CONFIG.port}` });
+    } catch (e) { return json(res, 500, { ok: false, error: String(e?.message || e).slice(0, 160) }); }
+  }],
+  ["GET", "/api/system/token", (res) => json(res, 200, { token: CONFIG.token, tokenFile: CONFIG.tokenFile })],
+  // AUTH-003：Bearer 换短时媒体票据（只给 <img>/<audio>/<video>/SSE 这类带不了头的请求用）
+  ["POST", "/api/ticket", (res, req) => handleTicketRoute(res, req)],
+  // 2026-11-13：安全审计（只读，鉴权后可用）。与 CLI 同源：scripts/security-audit.mjs。
+  // 检查项：AUTH-001/002/003/004、NET-001、RATE-001、SECRET-001、PATH-001、SSE-001、CORS-001。
+  ["GET", "/api/security/audit", async (res) => {
+    try {
+      const { auditSecurity } = await import("./engine/security-audit.mjs");
+      return json(res, 200, auditSecurity({
+        wsRoot: WS_ROOT,
+        config: { token: CONFIG.token, host: CONFIG.host, port: CONFIG.port, corsOrigins: CONFIG.corsOrigins, repoRoot: __dirname },
+      }));
+    } catch (e) {
+      return json(res, 500, { error: String(e?.message || e).slice(0, 200) });
+    }
+  }],
+  // ── 首启向导（令牌 → 模型 → 灵魂）──
+  // status 免鉴权（登录页要用来提示「用桌面快捷方式打开」），只回布尔值，不含令牌
+  ["GET", "/api/setup/status", (res) => json(res, 200, { needsSetup: isSetupPending(path.dirname(CONFIG.tokenFile)) })],
+  // ── 认证自检（2026-11-14）：未鉴权，只回布尔值与重试秒数，不含任何令牌 ──
+  // 用途：换了令牌之后 App 先问这里——needsToken=true 说明该重新填令牌；locked=true 说明这个 IP
+  // 还在锁定里（此时带旧令牌的请求会拿 401 TOKEN_STALE_OR_INVALID，而不是 429）。
+  // 预认证预算照旧扣（防扫描）；锁定不挡它自己，否则客户端连"我为什么连不上"都问不到。
+  ["GET", "/api/auth/state", (res, req, url) => {
+    const ip = clientIpOf(req);
+    const hasCredential = !!(req.headers.authorization || url.searchParams.get("token") || url.searchParams.get("ticket"));
+    const pre = rateLimitGate.preAuth(ip, { credential: hasCredential, pathname: url.pathname, method: req.method });
+    if (!pre.ok) return sendRateLimited(res, pre);
+    const st = rateLimitGate.authStateOf(ip);
+    const body = { needsToken: !checkAuth(req), locked: st.locked };
+    if (st.locked) body.retryAfter = st.retryAfter;
+    return json(res, 200, body, { "Cache-Control": "no-store" });
+  }],
+  ["POST", "/api/setup/soul", async (res, req) => {
+    if (!isSetupPending(path.dirname(CONFIG.tokenFile))) return json(res, 409, { error: "初始化已完成，请到「灵魂」页修改人格", code: "setup_done" });
+    const body = await readBody(req);
+    const raw = typeof body === "string" ? JSON.parse(body || "{}") : (body || {});
+    try {
+      const r = applySetupSoul(personaGovernance, { ...(raw.name !== undefined ? { name: raw.name } : {}), ...(raw.called !== undefined ? { called: raw.called } : {}) });
+      return json(res, 200, { ok: true, unchanged: r.unchanged, name: r.definition?.name, called: r.definition?.called });
+    } catch (e) { return json(res, 400, { error: String(e?.message || e).slice(0, 300) }); }
+  }],
+  // 仅首启 pending 期间、仅本机直连（排除隧道/局域网/DNS rebinding）可领取令牌，供 Tauri 桌面端免输令牌进入向导
+  ["POST", "/api/setup/claim", (res, req) => {
+    if (!isSetupPending(path.dirname(CONFIG.tokenFile))) return json(res, 403, { error: "仅首启向导期间可用" });
+    if (!isLocalSetupRequest(req, CONFIG.port)) return json(res, 403, { error: "仅限本机直接访问" });
+    return json(res, 200, { token: CONFIG.token });
+  }],
+  ["POST", "/api/setup/done", (res) => {
+    try { clearSetupPending(path.dirname(CONFIG.tokenFile)); return json(res, 200, { ok: true }); }
+    catch (e) { return json(res, 500, { error: String(e?.message || e).slice(0, 200) }); }
+  }],
+  ["POST", "/api/system/token", async (res, req) => {
+    const body = await readBody(req);
+    const raw = typeof body === "string" ? JSON.parse(body) : body;
+    const newToken = String(raw?.token || "").trim();
+    if (!newToken || newToken.length < 8) return json(res, 400, { error: "令牌至少 8 个字符" });
+    const fs2 = (await import("node:fs")).default;
+    fs2.writeFileSync(CONFIG.tokenFile, newToken, { mode: 0o600 });
+    CONFIG.token = newToken;
+    // AUTH-003：票据密钥跟令牌一起换，旧票据立即失效（不给"换了令牌旧票还能用"留缝）
+    try { configureTicketKey(newToken); } catch {}
+    return json(res, 200, { ok: true });
+  }],
+  ["POST", "/api/system/network", async (res, req) => {
+    const b = await readBody(req);
+    const r = saveNetworkConfig(AGENT_DIR, b);
+    if (r.error) return json(res, 400, { error: r.error });
+    json(res, 200, { ok: true, domains: r.domains });
+  }],
+  ["GET", "/api/system/check-update", async (res) => json(res, 200, await checkUpdate(__dirname))],
+  // 可选组件：基本安装包不带 ffmpeg/抠图/pandas/PDF，按需联网安装（后台任务，轮询进度）
+  ["GET", "/api/system/addons", async (res) => json(res, 200, { addons: await listAddons(), jobs: addonJobs() })],
+  ["POST", /^\/api\/system\/addons\/([a-z]+)\/install$/, async (res, req, url, m) => {
+    try { const j = startAddonJob(m[1]); json(res, 202, { id: j.id, state: j.state }); }
+    catch (e) { json(res, 400, { error: e?.message || String(e) }); }
+  }],
+  ["GET", "/api/system/doctor", async (res) => json(res, 200, await runDoctor({ wsRoot: WS_ROOT, agentDir: AGENT_DIR, piPackage: CONFIG.piPackage, bashPath: detectBashShell(), port: CONFIG.port }))],
+  // ── 灵犀：双向灵感池（user/xiaoyu 分源记录，攒着一起过）──
+  ["GET", "/api/lingxi", (res, req, url) => {
+    const source = url.searchParams.get("source") || undefined;
+    const status = url.searchParams.get("status") || undefined;
+    return json(res, 200, { entries: listLingXi(WS_ROOT, { source, status }) });
+  }],
+  ["POST", "/api/lingxi", async (res, req) => {
+    const b = await readBody(req);
+    const r = addLingXi(WS_ROOT, { text: b?.text, source: b?.source, note: b?.note });
+    if (r.error) return json(res, 400, { error: r.error });
+    json(res, 200, r);
+  }],
+  ["PATCH", /^\/api\/lingxi\/([\w-]+)$/, async (res, req, url, m) => {
+    const b = await readBody(req);
+    const e = setLingXi(WS_ROOT, m[1], { status: b?.status, note: b?.note, target: b?.target, artifact: b?.artifact });
+    if (!e) return json(res, 404, { error: "灵感不存在或状态非法" });
+    json(res, 200, { ok: true, entry: e });
+  }],
+  ["DELETE", /^\/api\/lingxi\/([\w-]+)$/, (res, req, url, m) => {
+    const ok = removeLingXi(WS_ROOT, m[1]);
+    if (!ok) return json(res, 404, { error: "灵感不存在" });
+    json(res, 200, { ok: true });
+  }],
+  // ── 人格基因 + 提案制进化 ──
+  ["GET", "/api/genome", (res) => json(res, 200, emotion.getGenome())],
+  ["POST", "/api/genome/propose", async (res, req) => {
+    const b = await readBody(req);
+    const p = emotion.proposeBaselineChange(b?.gene, b?.value, b?.reason, b?.evidence);
+    if (!p) return json(res, 400, { error: "提案无效（基因不存在或变化太小）" });
+    if (p.error) return json(res, 503, p);
+    json(res, 200, { ok: true, proposal: p });
+  }],
+  ["POST", "/api/genome/approve", async (res, req) => {
+    const b = await readBody(req);
+    const result = await requestGeneApproval('approve', b);
+    json(res, result.error ? 409 : 200, result);
+  }],
+  ["POST", "/api/genome/reject", async (res, req) => {
+    const b = await readBody(req);
+    const result = emotion.rejectProposal(b?.proposal_id, b?.reviewer || "operator", b?.reason);
+    json(res, result.error ? 409 : 200, result);
+  }],
+  ["POST", "/api/genome/rollback", async (res, req) => {
+    const b = await readBody(req);
+    const result = await requestGeneApproval('rollback', b);
+    json(res, result.error ? 409 : 200, result);
+  }],
+  ["POST", "/api/genome/auto", async (res) => {
+    const result = emotion.autoProposeFromDrift();
+    json(res, result?.error ? 503 : 200, result?.error ? result : { proposals: result });
+  }],
+  // ── 5 维成长 + 换代（2026-11-09 GRN 最后一层）──
+  // 读：只读快照（5 维 / 世代 / 待批提案 / 每维来源与归一化上限）。
+  ["GET", "/api/genome/growth", (res) => json(res, 200, growth.status())],
+  // 写：换代/回滚必须人确认（confirmRegistry 一次性 allowed-once）+ 仅限本机；
+  //     approvedBy 由服务端铸，请求体里的 approvedBy 一律不采信。
+  ["POST", "/api/genome/growth/promote", async (res, req) => {
+    if (!isLocalMaintenanceApproval(req)) return json(res, 403, { error: "换代须在运行元枢的电脑上人工确认，远程入口不能批准。" });
+    const b = await readBody(req, 1);
+    const result = await requestGrowthApproval("promote", b);
+    json(res, result.error ? 409 : 200, result);
+  }],
+  ["POST", "/api/genome/growth/reject", async (res, req) => {
+    const b = await readBody(req, 1);
+    const result = growth.reject({ by: b?.by || "operator", reason: b?.reason });
+    json(res, result.error ? 409 : 200, result);
+  }],
+  ["POST", "/api/genome/growth/rollback", async (res, req) => {
+    if (!isLocalMaintenanceApproval(req)) return json(res, 403, { error: "回滚换代须在运行元枢的电脑上人工确认，远程入口不能批准。" });
+    const b = await readBody(req, 1);
+    const result = await requestGrowthApproval("rollback", b);
+    json(res, result.error ? 409 : 200, result);
+  }],
+  // ── 技能基因 ──
+  ["GET", "/api/skill-genes", (res) => json(res, 200, emotion.getSkillGenes())],
+  ["POST", "/api/skill-genes/feedback", async (res, req) => {
+    const b = await readBody(req);
+    const domain = b?.domain || emotion.detectSkillDomain(b?.text || "");
+    const updated = emotion.updateSkillGene(domain, { success: b?.success, efficiency: b?.efficiency, reliability: b?.reliability, adaptability: b?.adaptability });
+    json(res, 200, { ok: true, domain, genes: updated });
+  }],
+  // ── P3 资产路由：任务 → 技能自动匹配 ──
+  ["GET", "/api/skill-router", (res, req, url) => json(res, 200, { skills: emotion.routerSkill(url.searchParams.get("text") || "", 3) })],
+  // ── P2 隔离子任务执行器（多 agent）──
+  // 2026-11-07：加 background。`background:true` 立刻返回 {subagentId,status:'running',startedAt}，
+  // 不阻塞调用方；同步模式（不带 background）保持原来的行为不变。
+  ["POST", "/api/subagent", async (res, req) => {
+    const b = await readBody(req);
+    if (!b?.task) return json(res, 400, { error: "缺 task 参数" });
+    const abilities = (b.worker === true || b.worker === "true") && !b.abilities ? ["写文件", "跑命令"] : b.abilities;
+    const worker = needsHands(abilities);
+    if (b.background === true || b.background === "true" || worker) {
+      if (!subagentBg) return json(res, 503, { error: "后台子代理未初始化（见启动日志）" });
+      const out = subagentBg.start({
+        task: b.task,
+        name: String(b.name || "").slice(0, 60),
+        context: Array.isArray(b.context) ? b.context : [],
+        role: b.role,
+        sessionId: b.sessionId || "",
+        parentAgent: b.parentAgent,
+        ...(worker ? { profile: "worker", abilities } : {}),
+        timeoutMs: Number(b.timeoutMs) > 0 ? Number(b.timeoutMs) : BACKGROUND_TIMEOUT_MS,
+      });
+      return json(res, out.ok ? 200 : 400, out);
+    }
+    const r = await subagent.spawnSubagent({ task: b.task, context: b.context || [] });
+    json(res, 200, r);
+  }],
+  // 续聊：对已结束的子代理再发一条消息，保留它的任务/上下文/上一轮结论。
+  // 内部复用同一条 run 通道（job-pool + traces），状态 done → queued → running。
+  ["POST", "/api/subagent/continue", async (res, req) => {
+    const b = await readBody(req);
+    if (!subagentBg) return json(res, 503, { error: "后台子代理未初始化（见启动日志）" });
+    const out = subagentBg.continueSubagent({
+      subagentId: b?.subagentId, message: b?.message, sessionId: b?.sessionId || "",
+      strategy: b?.strategy === "interrupt" ? "interrupt" : "",
+      timeoutMs: Number(b?.timeoutMs) > 0 ? Number(b.timeoutMs) : BACKGROUND_TIMEOUT_MS,
+    });
+    if (out.ok) return json(res, 200, out);
+    const status = out.code === "subagent_not_found" ? 404 : out.code === "not_your_subagent" ? 403 : out.code === "subagent_cancelled" ? 409 : 400;
+    return json(res, status, out);
+  }],
+  // 可查：id / 父会话 / 状态 / 起止时间 / 最近摘要 / 未读回执数（数据来自 traces + mailbox）
+  ["GET", "/api/subagent/list", async (res, req, url) => {
+    if (!subagentBg) return json(res, 503, { error: "后台子代理未初始化（见启动日志）" });
+    const out = await subagentBg.list({
+      status: url.searchParams.get("status") || "",
+      sessionId: url.searchParams.get("sessionId") || "",
+      limit: Number(url.searchParams.get("limit")) || 50,
+    });
+    return json(res, 200, out);
+  }],
+  // 取消：排队中的直接收尾，在跑的走 job-pool 的 abort，回执在它退出时补上
+  ["POST", "/api/subagent/cancel", async (res, req) => {
+    const b = await readBody(req);
+    if (!subagentBg) return json(res, 503, { error: "后台子代理未初始化（见启动日志）" });
+    const out = subagentBg.cancel({ subagentId: b?.subagentId, sessionId: b?.sessionId || "" });
+    return json(res, out.ok ? 200 : out.code === "subagent_not_found" ? 404 : 400, out);
+  }],
+  ["GET", /^\/api\/sessions\/([^/]+)\/tree$/, (res, req, url, m) => handleSessionTree(res, decodeURIComponent(m[1]))],
+  ["POST", /^\/api\/sessions\/([^/]+)\/branch$/, async (res, req, url, m) => handleSessionBranch(res, decodeURIComponent(m[1]), await readBody(req))],
+  ["POST", /^\/api\/sessions\/([^/]+)\/branch-session$/, async (res, req, url, m) => handleSessionBranchSession(res, decodeURIComponent(m[1]), await readBody(req))],
+  ["GET", /^\/api\/sessions\/([^/]+)\/messages$/, (res, req, url, m) => handleMessages(res, decodeURIComponent(m[1]), req, url)],
+  ["POST", /^\/api\/sessions\/([^/]+)\/messages$/, async (res, req, url, m) => handleAppendMessage(res, decodeURIComponent(m[1]), await readBody(req))],
+  // 2026-10-25：今日建议（自己找活）
+  ["GET", "/api/ideas", (res) => json(res, 200, readIdeas(WS_ROOT))],
+  ["POST", "/api/ideas/accept", async (res, req) => {
+    const body = await readBody(req, 1e4);
+    const out = acceptIdea({ wsRoot: WS_ROOT, id: String(body?.id || ""), addLingXi });
+    return json(res, out.ok ? 200 : 400, out);
+  }],
+  // 2026-10-25：已采纳目标（带可勾的步骤）
+  ["GET", "/api/ideas/goals", (res) => json(res, 200, { items: readGoals(WS_ROOT) })],
+  ["POST", "/api/ideas/goals/step", async (res, req) => {
+    const body = await readBody(req, 1e4);
+    const out = completeStep({ wsRoot: WS_ROOT, goalId: String(body?.goalId || ""), stepId: body?.stepId });
+    return json(res, out.ok ? 200 : 400, out);
+  }],
+  ["POST", "/api/ideas/dismiss", async (res, req) => {
+    const body = await readBody(req, 1e4);
+    const out = dismissIdea({ wsRoot: WS_ROOT, id: String(body?.id || "") });
+    return json(res, out.ok ? 200 : 400, out);
+  }],
+  ["GET", /^\/api\/sessions\/([^/]+)\/stream$/, (res, req, url, m) => handleSessionStream(res, req, url, m[1])],
+  ["GET", /^\/api\/sessions\/([^/]+)\/stats$/, (res, req, url, m) => handleStats(res, decodeURIComponent(m[1]))],
+  // 2026-10-24：分层压缩显式入口。与另一棵树（compact-12-keep）的契约对齐：
+  // 200 {compact:"skip", reason} 或 {ok, summary, retained}。以前我们只有 /compact（pi SDK 那条），
+  // 前端/外部调用 compact-layered 直接 404 —— 别人报的"压缩失败"就是这里。
+  ["POST", /^\/api\/sessions\/([^/]+)\/compact-layered$/, async (res, req, url, m) => {
+    const id = decodeURIComponent(m[1]);
+    const found = typeof findSession === "function" ? findSession(id) : null;
+    if (!found?.file) return json(res, 200, { compact: "skip", reason: "conversation_gone" });
+    try {
+      const r = await compactSession(found.file, defaultModel, true, "");
+      if (!r) return json(res, 200, { compact: "skip", reason: "below_threshold" });
+      if (r.skip) return json(res, 200, { compact: "skip", reason: r.reason || "skip" });
+      return json(res, 200, { ok: true, compact: "done", summary: String(r.summary || "").slice(0, 2000), retained: r.retained, before: r.before });
+    } catch (e) {
+      return json(res, 500, { error: String(e?.message || e).slice(0, 200) });
+    }
+  }],
+  ["POST", /^\/api\/sessions\/([^/]+)\/compact$/, (res, req, url, m) => handleCompact(res, decodeURIComponent(m[1]))],
+  ["POST", /^\/api\/sessions\/([^/]+)\/rename$/, async (res, req, url, m) => handleRename(res, decodeURIComponent(m[1]), await readBody(req))],
+  ["DELETE", /^\/api\/sessions\/([^/]+)$/, async (res, req, url, m) => { await deleteSession(decodeURIComponent(m[1])); return json(res, 200, { ok: true }); }],
+  ["GET", /^\/api\/sessions\/([^/]+)\/export$/, (res, req, url, m) => handleExport(res, decodeURIComponent(m[1]), url.searchParams.get("format") || "html")],
+  ["GET", "/api/stats/global", (res) => handleGlobalStats(res)],
+  ["GET", "/api/improvements", (res) => json(res, 200, { improvements: openImprovements(), diagnostics: getImprovementDiagnostics() })],
+  ["POST", "/api/improvements/analyze", (res) => json(res, 200, { improvements: analyzeImprovements(), diagnostics: getImprovementDiagnostics() })],
+  ["POST", /^\/api\/improvements\/([^/]+)\/status$/, async (res, req, url, m) => json(res, 200, setImprovementStatus(decodeURIComponent(m[1]), (await readBody(req)).status || "dismissed"))],
+  ["GET", "/api/stats/providers", withCache(60000, "stats-providers", (res) => handleProviderStats(res))],
+  ["GET", "/api/stats/daily", (res) => handleDailyStats(res)],
+  ["GET", "/api/subagent/runs", (res) => handleSubagentRuns(res)],
+  ["GET", "/api/subagent/history", (res) => handleSubagentHistory(res)],
+  // ── 进化引擎（09-03）：反思式进化提案 + 人工审批写回 ──
+  ["GET", "/api/evolution/proposals", (res, req, url) => {
+    const all = (listEvolution() || []).map((x) => ({ ...x, status: String(x?.state || "pending") }));
+    // 默认只给「还能点的」：pending / evaluated；已应用或已忽略的不再出现
+    const onlyPending = String(url.searchParams.get("all") || "") !== "1";
+    const items = onlyPending ? all.filter((x) => x.status === "pending" || x.status === "evaluated") : all;
+    return json(res, 200, { proposals: items, total: all.length });
+  }],
+  ["POST", "/api/evolution/propose", async (res, req) => { const b = await readBody(req); return json(res, 200, await proposeEvolution({ name: b.name, model: defaultModel })); }],
+  ["POST", "/api/evolution/apply", async (res, req) => { const b = await readBody(req); const r = applyEvolution(b.id, b.variantIndex ?? 0, b.review); return json(res, r?.ok ? 200 : 409, r); }],
+  ["POST", "/api/evolution/dismiss", async (res, req) => { const b = await readBody(req); const r = dismissEvolution(b.id); return json(res, r?.ok ? 200 : 409, r); }],
+  ["POST", "/api/evolution/evaluate", async (res, req) => { const b = await readBody(req); const { completion, ...result } = startEvolutionEvaluation(b.id, defaultModel); return json(res, 200, result); }],
+  // ── 技能自主沉淀（Hermes 闭环）──
+  ["GET", "/api/skillnudge/list", (res) => json(res, 200, { nudges: listSkillNudges() })],
+  ["POST", "/api/skillnudge/apply", async (res, req) => { const b = await readBody(req); return json(res, 200, applySkillNudge(b.id)); }],
+  ["POST", "/api/skillnudge/dismiss", async (res, req) => { const b = await readBody(req); return json(res, 200, dismissSkillNudge(b.id)); }],
+  // ── 记忆 nudge（情绪→记忆联动）──
+  ["GET", "/api/memorynudge/list", (res) => json(res, 200, { nudges: listMemoryNudges() })],
+  ["POST", "/api/memorynudge/apply", async (res, req) => { const b = await readBody(req); return json(res, 200, applyMemoryNudge(b.id)); }],
+  ["POST", "/api/memorynudge/dismiss", async (res, req) => { const b = await readBody(req); return json(res, 200, dismissMemoryNudge(b.id)); }],
+  // ── 记忆进化压缩（EvoX MemoryOptimizer 思想）──
+  ["GET", "/api/memcompress/analyze", (res) => json(res, 200, analyzeMemoryCompress())],
+  ["POST", "/api/memcompress/propose", async (res) => json(res, 200, await proposeMemoryCompress(defaultModel))],
+  ["GET", "/api/memcompress/list", (res) => json(res, 200, { proposals: listMemoryCompress() })],
+  ["POST", "/api/memcompress/apply", async (res, req) => { const b = await readBody(req); return json(res, 200, applyMemoryCompress(b.id)); }],
+  ["POST", "/api/memcompress/dismiss", async (res, req) => { const b = await readBody(req); return json(res, 200, dismissMemoryCompress(b.id)); }],
+  ["GET", "/api/sessions", (res) => {
+    const pinned = sessionPinnedIds();
+    return json(res, 200, { sessions: getSessionList().filter(s => isListedGroup(s.group)).map(s => (pinned.has(s.id) ? { ...s, pinned: true } : s)) });
+  }],
+  // 编辑与回退共用有效会话、本机单次确认、版本检查与不可变修订记录。
+  ...['apply', 'rollback'].map(action => ['POST', `/api/persona/${action}`, async (res, req) => {
+    const result = await requestPersonaApproval(action, await readBody(req, 2));
+    return json(res, result.error ? 409 : 200, result);
+  }]),
+  ['GET', '/api/persona/confirmations', (res, req, url) => {
+    const sid = url.searchParams.get('sessionId');
+    if (!sid || !maintenanceSessionExists(sid)) return json(res, 400, { error: '请先选择有效会话' });
+    const items = confirmRegistry.list().filter(item => item.sessionId === sid && ['persona-governance', 'gene-governance', 'growth-governance'].includes(item.toolName))
+      .map(({ id, sessionId, toolName, reason, expiresAt }) => ({ id, sessionId, toolName, reason, expiresAt }));
+    return json(res, 200, { items, canApprove: isLocalMaintenanceApproval(req) });
+  }],
+
+  // 木偶部件标注存盘（2026-09-19）：标注页 /static/label.html 点"保存"走这里，
+  // 落到 工程/小语木偶/labels.json，随后 `node scripts/puppet-build.mjs` 切成件 + 生成骨骼。
+  ["POST", "/api/puppet/labels", async (res, req) => {
+    const body = await readBody(req);
+    const parts = Array.isArray(body?.parts) ? body.parts : null;
+    if (!parts || !parts.length) return json(res, 400, { error: "缺 parts" });
+    const dir = path.join(CONFIG.cwd, "工程", "小语木偶");
+    const file = path.join(dir, "labels.json");
+    try {
+      fs.mkdirSync(dir, { recursive: true });
+      fs.writeFileSync(file, JSON.stringify({ ...body, savedAt: new Date().toISOString() }, null, 2), "utf8");
+    } catch (e) { return json(res, 500, { error: String(e?.message || e).slice(0, 120) }); }
+    return json(res, 200, { ok: true, file, parts: parts.length });
+  }],
+  // 视频角色与通用天团复用独立子任务执行器，父任务身份由启动器绑定。
+  ["POST", "/api/team/complete", async (res, req) => {
+    const body = await readBody(req, 12);
+    const provider = String((body && body.provider) || "");
+    const modelId = String((body && body.modelId) || "");
+    const message = String((body && body.message) || "");
+    if (!provider || !modelId || !message) return json(res, 400, { error: "provider/modelId/message 必填" });
+    const controller = new AbortController();
+    const onClose = () => { if (!res.writableEnded) controller.abort(); };
+    res.once('close', onClose);
+    try {
+      const r = await createTeamCompletion({ launcher: teamLauncher, wsRoot: CONFIG.cwd })(body, controller.signal);
+      return json(res, 200, r);
+    } catch (e) { if (!res.destroyed) return json(res, e.statusCode || 500, { error: String(e && e.message || e).slice(0, 120) }); }
+    finally { res.off('close', onClose); }
+  }],
+
+  // 天团触发（2026-09-20）：**只允许**跑白名单里的那一个脚本（不接任意命令），带单实例锁。
+  // 这样"她自己开天团"是可控的一条路，而不是一个万能后门。
+  ["POST", "/api/team/run", async (res, req) => {
+    const body = await readBody(req, 4);
+    return teamApi.start(res, req, body);
+  }],
+
+  // 天团运行态（2026-09-19）：只读暴露 工程/多AI角色扮演系统/team-run.json（工作台「天团」视图的数据源）。
+  ["GET", "/api/team/run", (res) => teamRunRead(res)],
+  ["POST", "/api/team/stop", async (res, req) => {
+    const body = await readBody(req, 4);
+    return teamApi.stop(res, req, body);
+  }],
+  ["POST", "/api/team/resume", async (res, req) => {
+    const body = await readBody(req, 4);
+    return teamApi.resume(res, req, body);
+  }],
+
+  // 人格定义（2026-09-18）：一份定义决定人格——把定义与渲染结果如实暴露出来，便于核对。
+  ["GET", "/api/persona", (res, req, url) => {
+    const pd = personaGovernance.read();
+    const genes = (() => { try { return emotion.getGenome().genes; } catch { return null; } })();
+    // 2026-10-25：附上这次**真正注入**的那份元数据（与提示词同源，不是另渲染一份）
+    let resolution = null;
+    try {
+      resolution = personaMeta(resolvePersona({ wsRoot: WS_ROOT, genes }));
+    } catch {}
+    json(res, 200, {
+      ...pd,
+      rendered: renderPersonaSection(pd.definition, { genes }),
+      resolution,
+      expressionPresets: Object.entries(EXPRESSION_PRESETS).map(([id, v]) => ({ id, label: v.label })),
+      maxExpressionChars: MAX_EXPRESSION_CHARS,
+    });
+  }],
+  // 2026-11-07：人格定义 → 注入面的同步（幂等）。改完定义立刻可刷，不用等重启。
+  ["POST", "/api/persona/sync", (res) => {
+    try {
+      const pd = loadPersonaDefinition(CONFIG.cwd);
+      if (pd?.problems?.length) return json(res, 400, { ok: false, error: pd.problems.join("；") });
+      const append = syncPersonaAppendAll(pd.def);
+      const surfaces = syncAllSurfaces(pd.def, { wsRoot: CONFIG.cwd }) || [];
+      const changed = [...(append.some((x) => x.changed) ? ["append"] : []), ...surfaces.filter((x) => x.changed).map((x) => x.surface)].filter(Boolean);
+      if (changed.length) console.log(`[persona] 手工同步：${changed.join("、")}`);
+      return json(res, 200, { ok: true, changed, append, surfaces });
+    } catch (e) { return json(res, 500, { ok: false, error: String(e?.message || e).slice(0, 160) }) }
+  }],
+  // 2026-10-25：人格段正文按需取（界面「查看全文」用；状态接口不再背全文）
+  ["GET", "/api/persona/part", (res, req, url) => {
+    try {
+      const id = url?.searchParams?.get("id") || "";
+      const genes = (() => { try { return emotion.getGenome().genes; } catch { return null; } })();
+      const part = personaPartText({ wsRoot: WS_ROOT, id, genes });
+      return part ? json(res, 200, part) : json(res, 404, { error: "没有这一段", id });
+    } catch (e) { return json(res, 500, { error: String(e?.message || e).slice(0, 200) }); }
+  }],
+  // 2026-10-25：表达微调（机制抄插件，权限压低）。只改表达方式，不改身份——
+  // 注入时自带硬约束行，且 validateExpression 会拒掉改名/换人格/忽略规则这类内容。
+  ["POST", "/api/persona/expression", async (res, req) => {
+    try {
+      const body = await readBody(req, 1e4);
+      const out = setWorkspaceExpression(WS_ROOT, body?.style ?? null);
+      if (!out.ok) return json(res, 400, { error: out.error });
+      const genes = (() => { try { return emotion.getGenome().genes; } catch { return null; } })();
+      return json(res, 200, { ok: true, resolution: personaMeta(resolvePersona({ wsRoot: WS_ROOT, genes })) });
+    } catch (e) { return json(res, 500, { error: String(e?.message || e).slice(0, 200) }); }
+  }],
+  ["POST", "/api/persona/expression/session", async (res, req) => {
+    try {
+      const body = await readBody(req, 1e4);
+      const sid = String(body?.sessionId || "").trim();
+      const out = setSessionExpression(WS_ROOT, sid, body?.style ?? null);
+      if (!out.ok) return json(res, 400, { error: out.error });
+      const genes = (() => { try { return emotion.getGenome().genes; } catch { return null; } })();
+      return json(res, 200, { ok: true, resolution: personaMeta(resolvePersona({ wsRoot: WS_ROOT, sessionId: sid, genes })) });
+    } catch (e) { return json(res, 500, { error: String(e?.message || e).slice(0, 200) }); }
+  }],
+  // 2026-10-25：表达微调的变更历史与回滚（独立台账，不混进人格修订事务）
+  ["GET", "/api/persona/expression/history", (res, req, url) => {
+    try {
+      const limit = Math.min(50, Math.max(1, Number(url?.searchParams?.get("limit")) || 10));
+      return json(res, 200, { items: listExpressionHistory(WS_ROOT, { limit }) });
+    } catch (e) { return json(res, 500, { error: String(e?.message || e).slice(0, 200) }); }
+  }],
+  ["POST", "/api/persona/expression/rollback", async (res, req) => {
+    try {
+      const body = await readBody(req, 1e4);
+      const out = rollbackExpression(WS_ROOT, { id: body?.id || "", key: body?.key || "workspace" });
+      if (!out.ok) return json(res, 400, { error: out.error });
+      const genes = (() => { try { return emotion.getGenome().genes; } catch { return null; } })();
+      return json(res, 200, { ok: true, restored: out.restored, rolledBack: out.rolledBack, resolution: personaMeta(resolvePersona({ wsRoot: WS_ROOT, genes })) });
+    } catch (e) { return json(res, 500, { error: String(e?.message || e).slice(0, 200) }); }
+  }],
+  ["POST", "/api/sessions", async (res, req) => {
+    const body = await readBody(req);
+    const group = normalizeCreateGroup(body.group);
+    const id = await createSession(body.name, { group });
+    return json(res, 200, { id, name: body.name || "新会话", group });
+  }],
+  // 存量会话 SDK 安全化：手动触发（启动时也会自动扫一遍）。body.sessionId 只修一个会话。
+  ["POST", "/api/sessions/repair", async (res, req) => {
+    const body = await readBody(req);
+    const sid = String(body.sessionId || "");
+    if (sid) {
+      const found = findSession(sid);
+      if (!found) return json(res, 404, { error: "会话不存在" });
+      return json(res, 200, { ok: true, result: repairSessionFile(found.file) });
+    }
+    return json(res, 200, { ok: true, summary: repairSessionDir(SESSIONS_DIR) });
+  }],
+  // ── 工作空间 ──
+  ["GET", "/api/prompts", (res) => handlePrompts(res)],
+  ["GET", "/api/ws/tree", (res, req, url) => handleWsTree(res, url.searchParams.get("path") || "")],
+  ["GET", "/api/ws/file", (res, req, url) => handleWsFile(res, req, url)],
+  ["HEAD", "/api/ws/file", (res, req, url) => handleWsFile(res, req, url)],
+  ["GET", "/api/ws/read", (res, req, url) => handleWsRead(res, url.searchParams.get("path") || "")],
+  ["POST", "/api/ws/preview", async (res, req) => handleWsPreview(res, await readBody(req))],
+  ["GET", "/api/ws/artifacts", (res) => handleWsArtifacts(res)],
+  ["POST", "/api/ws/write", async (res, req) => handleWsWrite(res, await readBody(req))],
+  ["POST", "/api/ws/deliver", async (res, req) => handleWsDeliver(res, await readBody(req))],
+  ["POST", "/api/ws/deliver/package", async (res, req) => handleWsPackage(res, await readBody(req))],
+  ["GET", "/api/ws/deliveries", (res) => handleWsDeliveries(res)],
+  ["GET", "/api/ws/search", (res, req, url) => handleWsSearch(res, url.searchParams.get("q") || "")],
+  ["POST", "/api/ws/rename", async (res, req) => handleWsRename(res, await readBody(req))],
+  ["POST", "/api/ws/delete", async (res, req) => handleWsDelete(res, await readBody(req))],
+  ["POST", "/api/ws/projects", async (res, req) => handleWsProjectCreate(res, await readBody(req))],
+  ["POST", "/api/ws/convert", async (res, req) => handleWsConvert(res, await readBody(req))],
+  // ── 系统 ──
+  ["GET", "/api/notices", (res) => handleNotices(res)],
+  ["GET", "/api/health", (res) => json(res, 200, { ok: true })],
+  // ── 退化自评（2026-11-09）──
+  // 只读：读工作区台账算 5 维子分 → 等级 → 动作建议；附带闸状态和最近动作记录。
+  // **不在这里动手**：要执行动作走 POST /api/degradation/actions（写闸/落账都在那一刻发生）。
+  ["GET", "/api/degradation", (res) => {
+    try {
+      return json(res, 200, degradationSnapshot(WS_ROOT, { now: Date.now(), limit: 20, contextWindow: currentContextWindow() }));
+    } catch (e) {
+      return json(res, 500, { ok: false, error: String(e?.message || e).slice(0, 240) });
+    }
+  }],
+  // 执行阶梯：按当前评估推荐的动作执行（写闸 / 落账），同一状态 30 分钟内不重复追加。
+  ["POST", "/api/degradation/actions", async (res, req) => {
+    try {
+      const body = await readBody(req, 8);
+      // by 缺省用 "degradation"：这样分项闸（pause-proactive / text-only）健康后能被自动放回；
+      // 人想让它一直挂着就显式传 by:"user"（人挂的闸系统一律不动）。
+      const { assessment, result } = assessAndApply(WS_ROOT, { now: Date.now(), by: String(body?.by || "degradation"), contextWindow: currentContextWindow() });
+      return json(res, result?.ok === false ? 500 : 200, {
+        ok: result?.ok !== false, result,
+        score: assessment.score, level: assessment.level, actions: assessment.actions,
+        evaluated: assessment.evaluated, unevaluated: assessment.unevaluated,
+      });
+    } catch (e) {
+      return json(res, 500, { ok: false, error: String(e?.message || e).slice(0, 240) });
+    }
+  }],
+  // 读/写暂停闸：on:true 只接受 high 风险动作（global-pause）；分项停用走 scope。
+  ["GET", "/api/degradation/pause", (res) => json(res, 200, { ok: true, gate: readPauseGate(WS_ROOT) })],
+  ["POST", "/api/degradation/pause", async (res, req) => {
+    try {
+      const body = await readBody(req, 8);
+      const out = setPauseGate(WS_ROOT, {
+        on: body?.on === true,
+        reason: body?.reason, by: body?.by || "api",
+        action: body?.action, scope: body?.scope || "global",
+      });
+      return json(res, out.ok ? 200 : 400, out);
+    } catch (e) {
+      return json(res, 500, { ok: false, error: String(e?.message || e).slice(0, 240) });
+    }
+  }],
+  // ── 装配分级补的只读观测口（2026-11-10）────────────────────────────────
+  // 纪律：全是 GET、全不写状态（快照由 10 分钟循环负责写，路由只读）；
+  // **没有可写开关**——写开关要人批准，本轮只做"看得见"。
+  // 鉴权和其它 /api 一样：Authorization: Bearer <token>。
+  ["GET", "/api/scheduled/audit", (res) => {
+    try {
+      return json(res, 200, { ok: true, ...scheduledAuditSnapshot() });
+    } catch (e) {
+      return json(res, 500, { ok: false, error: String(e?.message || e).slice(0, 240) });
+    }
+  }],
+  ["GET", "/api/vitality", (res, _req, url) => {
+    try {
+      const limit = Math.min(20, Math.max(1, Number(url?.searchParams?.get("limit")) || 20));
+      const audit = auditVitality({ wsRoot: WS_ROOT, now: Date.now() });
+      const verdict = summarizeVitality(audit);
+      const last = readJsonFile(path.join(WS_ROOT, VITALITY_AUDIT_REL));
+      return json(res, 200, {
+        ok: true,
+        at: audit.now,
+        line: verdict.line,
+        counts: verdict.counts,
+        healthy: verdict.ok,
+        needsAttention: verdict.needsAttention,
+        issues: verdict.issues.slice(0, limit),   // 最多 20 条：红项点名，不堆全量
+        unknown: verdict.unknown.slice(0, limit),
+        flags: verdict.flags.slice(0, limit),
+        // 循环每 6 小时落一次盘；这里只读最近一次，用来看"体检到底还在不在跑"
+        lastTick: Number.isFinite(Number(last?.at))
+          ? { at: Number(last.at), line: String(last.line || ""), needsAttention: Number(last.needsAttention) || 0 }
+          : null,
+      });
+    } catch (e) {
+      return json(res, 500, { ok: false, error: String(e?.message || e).slice(0, 240) });
+    }
+  }],
+  ["GET", "/api/relationship", (res) => {
+    try {
+      const st = relationshipCurrent();
+      return json(res, 200, {
+        ok: true,
+        summary: relationshipSummary(),
+        stage: relationshipStage(st),
+        trust: st.trust,
+        intimacy: st.intimacy,
+        interactions: st.interactions,
+        firstSeen: st.firstSeen,
+        lastAt: st.lastAt,
+        notes: st.notes.slice(-20), // 关系层自己只留 20 条备注，这里照原样给
+      });
+    } catch (e) {
+      return json(res, 500, { ok: false, error: String(e?.message || e).slice(0, 240) });
+    }
+  }],
+  ["GET", "/api/anti-patterns", (res, _req, url) => {
+    try {
+      const limit = Math.min(20, Math.max(1, Number(url?.searchParams?.get("limit")) || 20));
+      const patterns = loadAntiPatterns(WS_ROOT);
+      const rank = (s) => Math.max(0, ANTI_PATTERN_SEVERITIES.indexOf(String(s)));
+      const items = [...patterns]
+        .sort((a, b) => rank(b?.severity) - rank(a?.severity) || String(a?.id || "").localeCompare(String(b?.id || "")))
+        .slice(0, limit);
+      return json(res, 200, {
+        ok: true,
+        total: patterns.length,
+        stats: antiPatternStats(patterns),
+        ledgerFile: ANTI_PATTERN_LEDGER_REL,
+        hitLog: ANTI_PATTERN_HIT_REL,  // 命中记录由 recordViolation 追加，这里只报路径不读全量
+        patterns: items,
+      });
+    } catch (e) {
+      return json(res, 500, { ok: false, error: String(e?.message || e).slice(0, 240) });
+    }
+  }],
+  ["GET", "/api/lesson-replay", (res) => {
+    try {
+      const ledger = loadLessonLedger(WS_ROOT);
+      const state = readReplayState(WS_ROOT);
+      const due = selectDueLessons({
+        lessons: ledger.lessons, now: new Date(), maxPerDay: REPLAY_MAX_PER_DAY, avoidTopics: state.lastTopics,
+      });
+      const recent = ledger.lessons
+        .filter((l) => l && l.lastReplayed)
+        .sort((a, b) => (Date.parse(b.lastReplayed) || 0) - (Date.parse(a.lastReplayed) || 0))
+        .slice(0, 20)
+        .map((l) => ({
+          id: lessonId(l), text: String(l.text || "").slice(0, 200), topic: String(l.topic || ""),
+          lastReplayed: String(l.lastReplayed || ""), replayCount: Number(l.replayCount) || 0,
+          replayEscalated: l.replayEscalated === true,
+        }));
+      return json(res, 200, {
+        ok: true,
+        total: ledger.lessons.length,
+        promoted: ledger.promoted.length,
+        maxPerDay: REPLAY_MAX_PER_DAY,
+        stateFile: REPLAY_STATE_REL,
+        logFile: REPLAY_LOG_REL,
+        state,
+        // 今天这一轮"该念哪几条"：和开轮注入同一套挑法，只算不记（selectDueLessons 是纯函数）
+        due: due.map((l) => ({ id: lessonId(l), text: String(l.text || "").slice(0, 200), topic: String(l.topic || "") })),
+        recent,
+      });
+    } catch (e) {
+      return json(res, 500, { ok: false, error: String(e?.message || e).slice(0, 240) });
+    }
+  }],
+  ["GET", "/api/praise-ledger", (res) => {
+    try {
+      const ledger = loadPraiseLedger(WS_ROOT);
+      const items = Array.isArray(ledger.items) ? ledger.items : [];
+      const recent = [...items]
+        .sort((a, b) => (Number(b?.at) || 0) - (Number(a?.at) || 0))
+        .slice(0, 20);
+      return json(res, 200, {
+        ok: true,
+        total: items.length,
+        updatedAt: Number(ledger.updatedAt) || 0,
+        stats: praiseStats({ wsRoot: WS_ROOT }),   // 正/负比、失衡判定（只读）
+        state: readPraiseState(WS_ROOT),
+        top: topPositive({ limit: 5, wsRoot: WS_ROOT }),
+        recent,
+      });
+    } catch (e) {
+      return json(res, 500, { ok: false, error: String(e?.message || e).slice(0, 240) });
+    }
+  }],
+  ["GET", "/api/tools/verify-check", (res) => {
+    try {
+      return json(res, 200, {
+        ok: true,
+        ...VERIFY_CHECK_STATUS,
+        // 边界写死在 engine/claim-verify.mjs（允许根 + 危险命令拦截），这里只报口径
+        note: "常开工具：没有可写开关；核对结果只回给模型、不落盘，所以没有历史条目可读。",
+      });
+    } catch (e) {
+      return json(res, 500, { ok: false, error: String(e?.message || e).slice(0, 240) });
+    }
+  }],
+  // 2026-11-14：每轮工具表快照（只读）——"这一轮到底下发了哪些工具"不用再翻会话原文反推。
+  // 鉴权走 server 统一的 needsAuth（和别的 /api 一样，不在白名单里）。
+  ["GET", "/api/tools/surface", (res, req, url) => handleToolSurfaceRoute(res, req, url, { wsRoot: WS_ROOT, json })],
+  // 网易云扫码登录页（仅本机）：二维码服务端自刷新，解决"5 分钟就过期、扫到的是死码"
+  ["GET", "/api/music/login", async (res) => {
+    try { json(res, 200, await musicLoginView()) } catch (e) { json(res, 500, { ok: false, error: String(e?.message || e).slice(0, 120) }) }
+  }],
+  // 音乐流同源代理：CDN 要 Referer、地址会过期，浏览器直接引用放不出来
+  ["GET", "/api/music/stream", (res, req) => handleMusicStream(req, res)],
+  // 画布文档：前端读写同一份，模型通过 canvas 工具改它
+  ["GET", "/api/canvas", (res) => json(res, 200, { ok: true, doc: readCanvasDoc(WS_ROOT) })],
+  ["PUT", "/api/canvas", async (res, req) => {
+    try {
+      const r = writeCanvasDoc(WS_ROOT, await readBody(req));
+      json(res, 200, { ok: true, doc: r.doc, warnings: r.errors.slice(0, 5) });
+    } catch (e) { json(res, 400, { ok: false, error: String(e?.message || e).slice(0, 160) }) }
+  }],
+  // 画布巡检 / 设计委托 / 后台调研 三组路由已抽到 engine/design-api.mjs（2026-10-19）
+  // 服务端渲染、零 JS：全站 CSP 是 script-src 'self'，内联脚本根本跑不起来
+  ["GET", "/music-login", async (res, req) => {
+    try {
+      const url = new URL(req.url, "http://127.0.0.1");
+      if (url.searchParams.has("reset")) resetMusicLogin();
+      const view = await musicLoginView();
+      // 访问留痕：排查"到底有没有人打开这个页面、看到什么状态"（2026-10-18）
+      try {
+        const logDir = path.join(os.homedir(), ".yuanshu");
+        fs.mkdirSync(logDir, { recursive: true });
+        fs.appendFileSync(path.join(logDir, "music-login.log"),
+          `${new Date().toISOString()} ${req.socket?.remoteAddress || "?"} ${url.search} state=${view.state} loggedIn=${view.loggedIn} hasQr=${!!view.qrimg}\n`, "utf8");
+      } catch {}
+      res.writeHead(200, { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-store" });
+      res.end(renderMusicLoginPage(view));
+    } catch (e) {
+      res.writeHead(500, { "Content-Type": "text/plain; charset=utf-8" });
+      res.end("登录页出错：" + String(e?.message || e).slice(0, 120));
+    }
+  }],
+  ["POST", "/api/repair", async (res, req) => handleRepair(res, await readBody(req))],
+  ["GET", "/api/update/check", (res) => handleUpdateCheck(res)],
+  // 前端版本号：优先兼容旧 index.html 的 ?v=，同时用产品版本兜底。
+  // Vite 产物使用 hash 文件名，不带 ?v=；只扫 query 会让更新接口永久返回 0。
+  ["GET", "/api/frontend-version", async (res) => {
+    try {
+      const html = fs.readFileSync(path.join(__dirname, "public", "index.html"), "utf8");
+      json(res, 200, frontendVersionPayload({ appVersion: APP_VERSION, html }));
+    } catch { json(res, 200, frontendVersionPayload({ appVersion: APP_VERSION })); }
+  }],
+  ["POST", "/api/update/apply", async (res, req) => {
+      // 动代码前先记"上一个好版本"，给 /api/update/rollback 留锚点（记录失败不拦更新）
+      try { recordPreUpdate(__dirname) } catch {}
+      return handleUpdateApply(res, await readBody(req));
+    }],
+  ["POST", "/api/update/rollback", async (res, req) => handleUpdateRollback(res, await readBody(req, 2).catch(() => ({})))],
+  // ── 设计器 ──
+  ["POST", "/api/designer/generate", async (res, req) => handleDesignerGenerate(res, await readBody(req))],
+  ["POST", "/api/designer/save", async (res, req) => handleDesignerSave(res, await readBody(req))],
+  // ── 对外分享 ──
+  ["POST", "/api/share", async (res, req) => handleShare(res, await readBody(req))],
+  ["GET", "/api/share/status", (res) => handleShareStatus(res)],
+  ["POST", "/api/share/stop", (res) => handleShareStop(res)],
+  // ── 文件传输：上传任意文件到工作空间，写入会话 file 消息（聊天界面可见可下载）──
+  ["POST", "/api/files/upload", async (res, req) => {
+    // 限速（2026-08-29）：20MB 上传端点防灌盘，10 次/分钟
+    if (!rateLimit(rateLimitKey(req, "upload"), 10, 60000)) {
+      return json(res, 429, { error: "上传过于频繁（10次/分钟），请稍后再试" });
+    }
+    const body = await readBody(req, 24);
+    const name = String(body.name || "").slice(0, 120);
+    // 路径穿越防护（2026-08-29）：拒绝路径分隔符与 ..，防止写入任意路径
+    if (!name || /[\\/:*?"<>|]/.test(name) || name.includes("..")) return json(res, 400, { error: "文件名不合法" });
+    const data = String(body.data || "");
+    const sessionId = String(body.sessionId || "");
+    if (!name || !data) return json(res, 400, { error: "name 和 data 必填" });
+    try {
+      const buf = Buffer.from(data, "base64");
+      if (buf.length > 20 * 1024 * 1024) return json(res, 400, { error: "文件过大（限 20MB）" });
+      const date = localDate();
+      const dir = path.join(WS_ROOT, "收发文件", date);
+      fs.mkdirSync(dir, { recursive: true });
+      let fp = path.join(dir, name);
+      if (fs.existsSync(fp)) { const pp = path.parse(name); fp = path.join(dir, `${pp.name}-${Date.now().toString(36)}${pp.ext}`); }
+      fs.writeFileSync(fp, buf);
+      const rel = path.relative(WS_ROOT, fp).replace(/\\/g, "/");
+      // 挂到有效会话：优先指定会话（含从磁盘打开的），其次最近未命名会话，否则自动新建（保证界面可显示）
+      let entry = sessionId && activeSessions.has(sessionId) ? activeSessions.get(sessionId) : null;
+      if (!entry && sessionId) {
+        // 会话文件存在但不在内存（如 CLI 会话 / 重启后）→ 从磁盘打开，挂到正确会话
+        try {
+          const opened = await openSession(sessionId);
+          if (opened) { entry = opened; activeSessions.set(sessionId, opened); }
+        } catch {}
+      }
+      if (!entry && lastUnnamedId && activeSessions.get(lastUnnamedId)) entry = activeSessions.get(lastUnnamedId);
+      if (!entry) { try { const nid = await createSession(); entry = activeSessions.get(nid); } catch {} }
+      if (entry) {
+        try {
+          // ⚠️ 2026-09-18 真机事故：这里原先落 {type:"file"} 块 → SDK 的 openai-completions
+          //   把用户消息里的非 text 块无条件写成 image_url(data:;base64,undefined) →
+          //   上游 400「unsupported image」，且此后每轮重放都 400（会话作废）。
+          //   必须过 sdkSafeUserBlocks：文件附件落成一行文本标记，界面靠 extractFiles 照样出卡片。
+          await entry.sm.appendMessage({ role: "user", content: sdkSafeUserBlocks([{ type: "file", name, path: rel, size: buf.length, mime: body.mime || "" }]) });
+          // 触发落盘：兼容适配器在出现 assistant 消息前不写文件，追加一条空 assistant 强制 flush（空消息渲染时被过滤，不影响显示）
+          await entry.sm.appendMessage({ role: "assistant", content: sdkSafeAssistantBlocks([]) });
+          // 会话文件刚刚才真正落盘（SDK 懒写），列表缓存里可能还没有这个会话 →
+          // 不失效的话前端按 id 拉消息会 404「会话不存在」，卡片就永远不显示。
+          invalidateSessionCache();
+        } catch {}
+      }
+      // 2026-09-18：没带 sessionId 时服务端只能"猜"挂到哪个会话（最近未命名 / 新建一个），
+      // 猜错的后果就是**文件卡片落进用户没看的那个会话**——真机 bug"传上去聊天界面不显示"。
+      // 猜的规则不能改（TUI 等调用方依赖它），但要把"挂到哪儿、是不是猜的"如实返回，
+      // 让调用方能判断"这不是我这个会话的附件"，而不是靠猜。
+      return json(res, 200, { ok: true, name, path: rel, size: buf.length, url: `/api/ws/file?path=${encodeURIComponent(rel)}`, sessionId: entry?.sm?.getSessionId() || null, attachedTo: entry?.sm?.getSessionId() || null, guessedSession: !sessionId });
+    } catch (e) { return json(res, 500, { error: String(e.message || e).slice(0, 100) }); }
+  }],
+  // ── 技能/搜索/Git/文件 ──
+  ["GET", "/api/skills", (res) => handleSkills(res)],
+  ["GET", "/api/skills/read", (res, req, url) => handleSkillRead(res, url.searchParams.get("path") || "")],
+  ["GET", "/api/search", (res, req, url) => handleSearch(res, url.searchParams.get("q") || "")],
+  ["GET", "/api/git/status", (res) => handleGitStatus(res)],
+  ["GET", "/api/git/diff", (res) => handleGitDiff(res)],
+  ["GET", "/api/git/review", (res) => handleGitReview(res)],
+  ["GET", "/api/aibody", async (res, req, url) => json(res, 200, await knowledgeOverview({ sessionId: url?.searchParams?.get("session") || undefined, runId: url?.searchParams?.get("run") || undefined }))],
+  ["GET", "/api/aibody/overview", async (res, req, url) => json(res, 200, await knowledgeOverview({ sessionId: url?.searchParams?.get("session") || undefined, runId: url?.searchParams?.get("run") || undefined }))],
+  // ── 浏览器操作（CDP 控制 Chrome）──
+  // ── 外链图片代理（2026-10-12）：替代内置浏览器的图片通路，防盗链/混合内容/CSP 一次消除 ──
+  ["GET", "/api/proxy/image", async (res, req, url) => {
+    try {
+      const b = await import("./engine/media/proxy.mjs");
+      const { body, contentType } = await b.fetchProxiedImage(url.searchParams.get("url"));
+      res.writeHead(200, { "Content-Type": contentType, "Cache-Control": "public, max-age=3600", "Content-Length": body.byteLength, "X-Content-Type-Options": "nosniff" });
+      res.end(Buffer.from(body));
+    } catch (e) { json(res, 502, { error: String(e.message || e) }); }
+  }],
+  // ── 影视：采集站聚合搜索 + 同源 HLS/MP4 代理（片源由用户配置，仓库不内置）──
+  ["GET", "/api/tv/sources", async (res) => {
+    const tv = await import("./engine/tv.mjs");
+    json(res, 200, { sources: tv.loadSources(WS_ROOT).map(({ name, url, key }) => ({ name, url, key })) });
+  }],
+  ["POST", "/api/tv/sources", async (res, req) => {
+    const tv = await import("./engine/tv.mjs");
+    try {
+      const body = await readBody(req);
+      json(res, 200, { sources: tv.saveSources(WS_ROOT, body?.sources ?? body?.import) });
+    } catch (e) { json(res, 400, { error: String(e.message || e).slice(0, 120) }); }
+  }],
+  ["GET", "/api/tv/search", async (res, req, url) => {
+    const tv = await import("./engine/tv.mjs");
+    const sources = tv.loadSources(WS_ROOT);
+    if (!sources.length) return json(res, 200, { results: [], failed: [], needSources: true });
+    json(res, 200, await tv.searchTv(sources, url.searchParams.get("q") || ""));
+  }],
+  ["GET", "/api/tv/detail", async (res, req, url) => {
+    const tv = await import("./engine/tv.mjs");
+    try { json(res, 200, await tv.tvDetail(tv.loadSources(WS_ROOT), url.searchParams.get("source") || "", url.searchParams.get("id") || "")); }
+    catch (e) { json(res, 502, { error: String(e.message || e).slice(0, 120) }); }
+  }],
+  ["GET", "/api/tv/media", async (res, req, url) => {
+    const tv = await import("./engine/tv.mjs");
+    await tv.handleTvMedia(req, res, url.searchParams.get("url") || "", { token: url.searchParams.get("token") || "" });
+  }],
+  ["GET", "/api/fs", (res, req, url) => handleFsList(res, url.searchParams.get("path") || ".")],
+  ["GET", "/api/fs/read", (res, req, url) => handleFsRead(res, url.searchParams.get("path") || "")],
+  // ── 模型 ──
+  ["GET", "/api/models", (res) => handleModels(res)],
+  ["GET", "/api/models/manage", (res) => handleModelsManage(res)],
+  ["GET", "/api/models/media-observations", (res) => json(res, 200, mediaObservations.snapshot(), { "Cache-Control": "no-store" })],
+  ["POST", "/api/models/add", async (res, req) => handleModelsAdd(res, await readBody(req))],
+  ["POST", "/api/models/discover", async (res, req) => handleModelsDiscover(res, await readBody(req))],
+  ["POST", "/api/models/verify", async (res, req) => handleModelsVerify(res, await readBody(req))],
+  ["GET", "/api/keys/status", (res) => handleKeysStatus(res)],
+  ["GET", "/api/dsh/status", (res) => handleDshStatus(res)],
+  ["POST", "/api/dsh/web/start", (res) => handleDshWebStart(res)],
+  ["GET", "/api/keys/presets", (res) => handleKeysPresets(res)],
+  ["POST", "/api/keys/apply", async (res, req) => handleKeysApply(res, await readBody(req))],
+  ["POST", "/api/models/remove", async (res, req) => handleModelsRemove(res, await readBody(req))],
+  ["POST", "/api/model", async (res, req) => handleSwitchModel(req, res, await readBody(req))],
+  // ── 媒体/对话 ──
+  // 2026-10-30：行为题库面板
+  ["GET", "/api/bench/latest", (res) => {
+    const files = listBenchRuns(WS_ROOT, { limit: 5 });
+    const read = (f) => { try { return JSON.parse(fs.readFileSync(f.path, "utf8")) } catch { return null } };
+    const latest = files[0] ? read(files[0]) : null;
+    const previous = files[1] ? read(files[1]) : null;
+    return json(res, 200, { ok: true, cases: loadBenchCases(WS_ROOT).map((c) => ({ id: c.id, title: c.title })), latest, previous, runs: files.map((f) => f.name) });
+  }],
+  ["POST", "/api/bench/run", async (res, req) => {
+    const body = await readBody(req);
+    const tag = String(body?.tag || "panel").replace(/[^a-z0-9_-]/gi, "").slice(0, 24) || "panel";
+    const only = String(body?.only || "").replace(/[^a-z0-9_-]/gi, "").slice(0, 64);
+    const script = path.join(__dirname, "scripts", "bench-run.mjs");
+    if (!fs.existsSync(script)) return json(res, 404, { ok: false, error: "找不到 scripts/bench-run.mjs（部署时未同步）" });
+    const t = jobPool.track({ kind: "bench", title: `行为题库跑分（${tag}${only ? " · " + only : ""}）` });
+    const { spawn } = await import("node:child_process");
+    const args = [script, "--tag", tag];
+    if (only) args.push("--only", only);
+    const child = spawn(process.execPath, args, { cwd: __dirname, env: { ...process.env, YUANSHU_WS: WS_ROOT }, windowsHide: true });
+    let out = "";
+    child.stdout?.on("data", (b) => { out += String(b).slice(0, 4000) });
+    child.stderr?.on("data", (b) => { out += String(b).slice(0, 4000) });
+    child.on("close", (code) => { code === 0 ? t.done(out.slice(-400)) : t.fail(`退出码 ${code}：${out.slice(-200)}`) });
+    return json(res, 202, { ok: true, jobId: t.job?.id || null });
+  }],
+  // 2026-10-30：评分/判定专用——只回正文，不要把思考内容混进来（judge 需要干净的输出）
+  ["POST", "/api/judge", async (res, req) => {
+    const { provider, modelId, message, maxTokens } = await readBody(req);
+    if (!provider || !modelId || !message) return json(res, 400, { error: "缺少 provider / modelId / message" });
+    try {
+      const store = readJsonFile(MODELS_PATH);
+      const resolved = resolveAuth(provider);
+      if (!resolved) return json(res, 400, { error: `${provider} 未配置 API Key` });
+      const mdef = (store[provider]?.models || []).find((m) => m.id === modelId);
+      if (!mdef) return json(res, 404, { error: `模型 ${provider}/${modelId} 未找到` });
+      const r = await directChat({ ...mdef, provider, id: modelId }, message, [], { maxTokens: Number(maxTokens) || 2000, timeout: 120000, allowPartial: true, throwOnError: true });
+      const text = String(r?.text || "").trim();
+      return json(res, 200, { text: text || String(r?.think || "").trim() });
+    } catch (e) {
+      return json(res, e?.statusCode || 500, { error: String(e?.message || e).slice(0, 200) });
+    }
+  }],
+  ["POST", "/api/think", async (res, req) => handleThink(res, await readBody(req))],
+  ["POST", "/api/asr", async (res, req) => handleAsr(res, await readBody(req, 16))], // 语音转文字
+  ['GET', '/api/tts/capabilities', res => json(res, 200, replyTts.capabilities())],
+  ['POST', '/api/tts', async (res, req) => replyTts.handle(res, await readBody(req, 1))],
+  ['POST', '/api/tts/stream', async (res, req) => replyTts.handleStream(res, await readBody(req, 0.01))],
+  ["POST", "/api/image", async (res, req) => handleImageWithSave(res, req, await readBody(req))],
+  ["POST", "/api/media", async (res, req) => handleMedia(res, await readBody(req))],
+  ["GET", "/api/tasks/active", async (res, req) => {
+    const u = new URL(req.url, `http://${req.headers.host || "localhost"}`);
+    const sid = u.searchParams.get("sessionId") || "";
+    const tk = u.searchParams.get("taskKey") || "";
+    const key = tk || sid;
+    const t = key ? taskProgress.get(key) : null;
+    if (!t || t.status !== "running") return json(res, 200, { active: false, taskKey: tk || null, sessionId: sid || null });
+    return json(res, 200, { active: true, taskKey: tk || null, sessionId: sid || null, stage: t.stage, toolName: t.toolName || null, startedAt: t.startedAt, updatedAt: t.updatedAt });
+  }],
+  ["POST", "/api/runs", async (res, req) => { try { globalThis.__lastUserMsgAt = Date.now(); markRecentActivity(WS_ROOT); markOutreachReplied(WS_ROOT) } catch {} return runApi.create(res, await readBody(req, 12), req) }],
+  ["POST", new RegExp('^/api/runs/([^/]+)/recovery/disable$'), (res, req, url, m) => runApi.disableRecovery(res, decodeURIComponent(m[1]))],
+  ["GET", /^\/api\/runs\/([^/]+)$/, (res, req, url, m) => runApi.get(res, decodeURIComponent(m[1]))],
+  ["GET", /^\/api\/runs\/([^/]+)\/state$/, (res, req, url, m) => runApi.state(res, decodeURIComponent(m[1]))],
+  ["GET", /^\/api\/runs\/([^/]+)\/events$/, (res, req, url, m) => runApi.events(res, req, url, decodeURIComponent(m[1]))],
+  ["POST", /^\/api\/runs\/([^/]+)\/steer$/, async (res, req, url, m) => runApi.steer(res, decodeURIComponent(m[1]), await readBody(req, 1))],
+  ["POST", /^\/api\/runs\/([^/]+)\/stop$/, (res, req, url, m) => runApi.stop(res, decodeURIComponent(m[1]))],
+  ["POST", /^\/api\/runs\/([^/]+)\/resume$/, (res, req, url, m) => runApi.resume(res, decodeURIComponent(m[1]), req)],
+  ["POST", "/api/chat", async (res, req) => { try { globalThis.__lastUserMsgAt = Date.now(); markRecentActivity(WS_ROOT); markOutreachReplied(WS_ROOT) } catch {} return handleChat(req, res, await readBody(req, 12)) }],
+  ["POST", "/api/compare", async (res, req) => handleCompare(res, await readBody(req))],
+  // ── Agent 活动事件（pi 事件广播扩展 → 前端实时显示小语在干嘛）──
+  ["POST", "/api/agent/events", async (res, req) => handleAgentEventIn(req, res, await readBody(req, 2))],
+  ["GET", "/api/agent/events", async (res) => handleAgentEventOut(res, buildPersistentActivity(await runStore.listAsync(), WS_ROOT))],
+  // 未决确认总览（2026-10-11 授权中心/确认归属改造）：全部会话的确认卡一次摊开，
+  // 卡片自带"属于哪条对话"，不用人挑会话。批准/拒绝仍走 /api/agent/confirm，本机受限在那里拦。
+  ["GET", "/api/agent/pending", (res, req) => {
+    return json(res, 200, pendingOverview({ registry: confirmRegistry, localApprovalOk: isLocalMaintenanceApproval(req) }));
+  }],
+  // 危险操作确认回传：前端弹框后调这里（ok=true 放行 / ok=false 拒绝）
+  // ── 培养越线申请：批准只执行这一次 ──
+  // 内部走会话授权（challenge→confirm）拿一次性凭证再执行命令；
+  // 会话授权本身仍是 60 秒、单次、绑定会话的既有边界，这里只是把"等人"的时间挪到卡片上。
+  ["POST", "/api/agent/confirm", async (res, req) => {
+    try {
+      const b = await readBody(req, 1);
+      const sid = String(b?.sessionId || "");
+      const id = String(b?.id || "");
+      const ok = b?.ok === true;
+      if (!sid || !id) return json(res, 400, { error: "缺少 sessionId/id" });
+      const pending = confirmRegistry.list().find(item => item.sessionId === sid && item.id === id);
+      if (pending?.toolName === 'cultivation-policy' && !canAccessSessionOrigin(sid)) return json(res, 403, {error:'培养确认所属会话已不可用，请重新选择会话。'});
+      if (ok && pending?.toolName === 'computer-use' && !isLocalMaintenanceApproval(req)) return json(res, 403, {error:'电脑操作须在本机系统页逐次人工确认，远程不能批准。'});
+      if (ok && pending?.toolName === 'maintenance' && !isLocalMaintenanceApproval(req)) return json(res, 403, { error: '请在运行元枢的电脑上，通过 http://127.0.0.1:8787 的超维面板人工确认。远程入口不能批准。' });
+      if (ok && ['gene-governance', 'persona-governance'].includes(pending?.toolName) && !isLocalMaintenanceApproval(req)) return json(res, 403, { error: '人格及基线批准与回退须在运行元枢的电脑上，通过本地人工确认。' });
+      // 2026-11-09：换代/回滚同属人格级变化，同样只许本机确认（远程入口不能批准）。
+      if (ok && pending?.toolName === 'growth-governance' && !isLocalMaintenanceApproval(req)) return json(res, 403, { error: '换代与回滚须在运行元枢的电脑上，通过本地人工确认。' });
+      const r = confirmRegistry.settle(sid, id, ok);
+      // 培养越线申请：批准→执行那一次（内部一次性凭证）；拒绝→记下来，她下次能看到原因
+      const requestId = pending?.meta?.requestId;
+      if (r?.ok && requestId) {
+        if (ok) {
+          const out = await approvalFlow().approve(requestId, sid).catch((e) => ({ ok: false, error: String(e?.message || e).slice(0, 160) }));
+          return json(res, 200, { ...r, cultivation: out });
+        }
+        settleRequest(WS_ROOT, requestId, 'rejected', { by: '授权中心' });
+        return json(res, 200, { ...r, cultivation: { ok: true, rejected: true } });      }
+      json(res, 200, r);
+    } catch (e) { json(res, 500, { error: String(e?.message || e) }); }
+  }],
+  // ── Gateway 2.0 插件化引擎（dsh 设计沉淀）──
+  ["GET", "/api/engine/pair", async (res) => json(res, 200, await describePair(undefined, { piAvailable: piSdkAvailable }))],
+  ["POST", "/api/engine/pair", async (res, req) => {
+    try {
+      const b = await readBody(req, 1);
+      if (b?.swap) return json(res, 200, await describePair(swapEnginePair(), { piAvailable: piSdkAvailable }));
+      json(res, 200, await describePair(saveEnginePair(b || {}), { piAvailable: piSdkAvailable }));
+    } catch (e) { json(res, 400, { error: String(e?.message || e).slice(0, 120) }); }
+  }],
+  ["GET", "/api/engine/status", async (res) => {
+    try {
+      const gw = await initEngine();
+      json(res, 200, decorateEngineStatus(gw.status(), { gatewayReady: true, codeReady: !!getCodeRuntime(), userPlugins: readPromptPlugins(CONFIG.cwd) }));
+    } catch (e) { json(res, 500, { error: String(e?.message || e) }); }
+  }],
+  // 真实工具集（主聊天 UNIFIED_TOOLS）：名字+描述+是否 dsh 注入，供引擎页「工具注册表」可视化
+  ["GET", "/api/engine/tools", async (res) => {
+    try {
+      const tools = (UNIFIED_TOOLS || []).map(t => {
+        const f = t?.function || t;
+        return { name: f?.name || t?.name || "?", description: (f?.description || t?.description || "").slice(0, 160) };
+      });
+      const names = tools.map(t => t.name);
+      json(res, 200, { tools, count: tools.length, dsh: names.includes("dsh_task"), skill: names.includes("activate_skill") });
+    } catch (e) { json(res, 500, { error: String(e?.message || e) }); }
+  }],
+  ["POST", "/api/engine/plugins/register", async (res, req) => {
+    try {
+      const body = await readBody(req, 2);
+      const gw = await initEngine();
+      const p = savePromptPlugin(CONFIG.cwd, body);
+      try { json(res, 200, await gw.registerPlugin(promptPluginDef(p))); }
+      catch (e) { removePromptPlugin(CONFIG.cwd, p.id); throw e; }
+    } catch (e) { json(res, 400, { error: String(e?.message || e) }); }
+  }],
+  ["POST", "/api/engine/plugins/unregister", async (res, req) => {
+    try {
+      const body = await readBody(req, 1);
+      const id = String(body?.id || "");
+      if (isCorePlugin(id)) return json(res, 400, { error: "核心底盘不能卸" });
+      const gw = await initEngine();
+      const removed = await gw.unregisterPlugin(id);
+      json(res, 200, { removed: removePromptPlugin(CONFIG.cwd, id) || removed });
+    } catch (e) { json(res, 400, { error: String(e?.message || e) }); }
+  }],
+  ["POST", "/api/engine/chat", async (res, req) => {
+    try {
+      const body = await readBody(req, 12);
+      const gw = await initEngine();
+      // model 字符串 "provider/id" → 拆成 {provider, id}（engine/chat 端点此前传字符串导致 provider undefined）
+      const modelStr = String(body?.model || "");
+      const slashIdx = modelStr.indexOf("/");
+      const model = slashIdx > 0 ? { provider: modelStr.slice(0, slashIdx), id: modelStr.slice(slashIdx + 1) } : (body?.model || undefined);
+      const r = await gw.chat(String(body?.message || ""), { history: body?.history || [], sessionId: body?.sessionId, model, tools: body?.tools !== false, params: body?.params, system: body?.system });
+      json(res, r.error ? 400 : 200, r);
+    } catch (e) { json(res, 500, { error: String(e?.message || e) }); }
+  }],
+  // ── Code Mode（PTC 模式：模型写程序编排工具）──
+  ["GET", "/api/code/tools", async (res) => {
+    try {
+      const gw = await initEngine();
+      const rt = getCodeRuntime(), cm = getCodeMode();
+      if (!rt || !cm) return json(res, 503, { error: "引擎未初始化，请先发一条消息或稍后重试" });
+      json(res, 200, { bindings: Object.entries(rt.bindings).map(([n, b]) => ({ name: n, args: b.args, description: b.description })), sdk: cm.buildSdkText() });
+    } catch (e) { json(res, 500, { error: String(e?.message || e) }); }
+  }],
+  ["POST", "/api/code/run", async (res, req) => {
+    try {
+      const body = await readBody(req, 4);
+      await initEngine();
+      const rt = getCodeRuntime();
+      if (!rt) return json(res, 503, { error: "代码运行时未就绪" });
+      const r = await rt.run({ program: String(body?.program || ""), timeoutMs: body?.timeoutMs });
+      json(res, r.error ? 400 : 200, r);
+    } catch (e) { json(res, 500, { error: String(e?.message || e) }); }
+  }],
+  ["POST", "/api/code/chat", async (res, req) => {
+    try {
+      const body = await readBody(req, 12);
+      const gw = await initEngine();
+      const r = await gw.chat(String(body?.message || ""), { history: body?.history || [], tools: true, params: body?.params, system: (body?.system || "") + "\n\n你可以用 run_code 工具写程序编排多步操作。" });
+      json(res, r.error ? 400 : 200, r);
+    } catch (e) { json(res, 500, { error: String(e?.message || e) }); }
+  }],
+  ["POST", "/api/parse-file", async (res, req) => handleParseFile(res, await readBody(req, 12))],
+  // ── 专项工作台 ──
+  ["POST", "/api/workshop/ppt", async (res, req) => workshop.handleWorkshopPpt({ ...wsCtx(), req }, res, await readBody(req))],
+  ["POST", "/api/workshop/expand-prompt", async (res, req) => handleExpandPrompt({ ...wsCtx(), getDefaultModel: () => defaultModel, directChat }, res, await readBody(req))],
+  ["POST", "/api/workshop-ui/v1/chat/completions", async (res, req) => handleWorkshopUiChat({ ...wsCtx(), req, directChat }, res, await readBody(req))],
+  // PPT 设计干预：大纲编辑后本地重建 .pptx（2026-09-03）
+  ["POST", "/api/workshop/pptx/rebuild", async (res, req) => workshop.rebuildPptx(wsCtx(), res, await readBody(req))],
+  ["GET", "/api/workshop/ppt/history", (res) => workshop.listPptHistory(wsCtx(), res)],
+  // 作品集（扫描式：聊天/工坊产出落进 workshop-out 即收录）
+  ["GET", "/api/gallery", (res) => gallery.handleGalleryList(wsCtx(), res)],
+  ["GET", "/api/gallery/deck", (res, req) => gallery.handleGalleryDeck(wsCtx(), res, req)],
+  ["GET", "/api/gallery/page", (res, req) => gallery.handleGalleryPage(wsCtx(), res, req)],
+  // 主题蒸馏（网址/本地HTML → theme CSS 入库 ppt-html templates）
+  ["GET", "/api/workshop/ppt/themes", (res) => distill.handlePptThemes(wsCtx(), res)],
+  ["POST", "/api/workshop/ppt/distill", async (res, req) => distill.handlePptDistill(wsCtx(), res, await readBody(req))],
+  ["POST", "/api/workshop/ppt-html/refine", async (res, req) => workshop.handlePptRefine({ ...wsCtx(), req }, res, await readBody(req))],
+  // PPT 设计稿模式（HTML 路线，2026-09-03）
+  ["POST", "/api/workshop/ppt/html", async (res, req) => workshop.handleWorkshopPptHtml({ ...wsCtx(), req }, res, await readBody(req))],
+  ["POST", "/api/workshop/ppt-html/save", async (res, req) => workshop.savePptHtmlPage(wsCtx(), res, await readBody(req))],
+  // ── 小说工坊（书架式：作品沉淀/真相文件/第N章递进，收编自 novel-studio）──
+  ["GET", "/api/novel/books", (res) => json(res, 200, { books: novelStudio.listBooks() })],
+  ["POST", "/api/novel/books", async (res, req) => {
+    const b = await readBody(req);
+    const r = novelStudio.createBook(b);
+    json(res, r.error ? 400 : 200, r);
+  }],
+  ["PATCH", "/api/novel/books", async (res, req) => {
+    const b = await readBody(req);
+    const r = novelStudio.updateBook(b?.id || "", b);
+    json(res, r.error ? 400 : 200, r);
+  }],
+  ["DELETE", "/api/novel/books", async (res, req, url) => {
+    const r = novelStudio.deleteBook(url.searchParams.get("id") || "");
+    json(res, r.error ? 400 : 200, r);
+  }],
+  ["GET", "/api/novel/detail", (res, req, url) => json(res, 200, novelStudio.bookDetail(url.searchParams.get("id") || ""))],
+  ["GET", "/api/novel/chapter", (res, req, url) => json(res, 200, novelStudio.readChapter(url.searchParams.get("id") || "", url.searchParams.get("file") || ""))],
+  ["POST", "/api/novel/chapter", async (res, req) => {
+    const b = await readBody(req);
+    const r = novelStudio.writeChapter(b?.id || "", b?.file || "", b?.content);
+    json(res, r.error ? 400 : 200, r);
+  }],
+  ["GET", "/api/novel/node", (res, req, url) => json(res, 200, novelStudio.readNode(url.searchParams.get("id") || "", url.searchParams.get("node") || ""))],
+  ["POST", "/api/novel/node", async (res, req) => {
+    const b = await readBody(req);
+    const r = novelStudio.writeNode(b?.id || "", b?.node || "", b?.content);
+    json(res, r.error ? 400 : 200, r);
+  }],
+  ["GET", "/api/novel/export", (res, req, url) => json(res, 200, novelStudio.exportBook(url.searchParams.get("id") || ""))],
+  ["POST", "/api/novel/write", async (res, req) => novelRun.handleBookWrite({ ...wsCtx(), req }, res, await readBody(req))],
+  ["POST", "/api/novel/advance", async (res, req) => novelRun.handleBookAdvance({ ...wsCtx(), req }, res, await readBody(req))],
+  ["POST", "/api/novel/revise", async (res, req) => novelRun.handleBookRevise({ ...wsCtx(), req }, res, await readBody(req))],
+  ["POST", "/api/novel/studio", async (res, req) => novelRun.handleBookStudio({ ...wsCtx(), req }, res, await readBody(req))],
+  ["POST", "/api/novel/notes", async (res, req) => {
+    const b = await readBody(req);
+    const r = novelStudio.writeNotes(b?.id || "", b?.notes ?? b?.note ?? "");
+    json(res, r.error ? 400 : 200, r);
+  }],
+  // ── 经验沉淀台（refine 提案制，Prime Agent 移植）──
+  ["GET", "/api/refine/status", (res) => handleRefineStatus(res)],
+  ["GET", "/api/refine/list", (res) => handleRefineList(res)],
+  ["GET", "/api/refine/genes", (res) => handleRefineGenes(res)],
+  ["POST", "/api/refine/feedback", async (res, req) => handleRefineFeedback(res, await readBody(req))],
+  ["POST", "/api/refine/plan", async (res, req) => handleRefinePlan(res, await readBody(req))],
+  ["POST", "/api/refine/approve", async (res, req) => handleRefineApprove(res, await readBody(req))],
+  ["POST", "/api/refine/reject", async (res, req) => handleRefineReject(res, await readBody(req))],
+  ["POST", "/api/refine/rollback", async (res, req) => handleRefineRollback(res, await readBody(req))],
+  // ── 时间引擎 API ──
+  // 2026-11-01：任务列表可按 day/q 过滤（跳页带条件时由前端透传）
+  ["GET", "/api/time/tasks", (res, req, url) => {
+    const tasks = timeEngine ? timeEngine.list() : [];
+    const day = String(url.searchParams.get("day") || "");
+    const q = String(url.searchParams.get("q") || "");
+    const out = filterTasks(tasks, { day, q });
+    return json(res, 200, { tasks: out, total: tasks.length, filtered: { day, q } });
+  }],
+  ["POST", "/api/time/tasks/model", async (res, req) => {
+    try {
+      const body = await readBody(req);
+      if (!timeEngine) return json(res, 500, { error: "时间引擎未初始化" });
+      const r = timeEngine.setModel(String(body?.id || ""), String(body?.model || ""));
+      return json(res, r.error ? 400 : 200, r);
+    } catch (e) { return json(res, 500, { error: String(e?.message || e).slice(0, 120) }); }
+  }],
+  ["POST", "/api/time/tasks", async (res, req) => {
+    try {
+      const body = await readBody(req);
+      if (!timeEngine) return json(res, 500, { error: "时间引擎未初始化" });
+      const r = timeEngine.register(body);
+      json(res, r.error ? 400 : 200, r);
+    } catch (e) { json(res, 500, { error: String(e?.message || e).slice(0, 120) }); }
+  }],
+  ["DELETE", "/api/time/tasks", async (res, req) => {
+    const u = new URL(req.url, "http://x");
+    json(res, 200, timeEngine ? timeEngine.remove(u.searchParams.get("id") || "") : { removed: false });
+  }],
+
+  // 任务中心 v2（08-25）：状态机 / 手动执行 / 运行历史 / 停止
+  ["PATCH", "/api/time/tasks", async (res, req) => {
+    if (!timeEngine) return json(res, 500, { error: "时间引擎未初始化" });
+    const body = await readBody(req);
+    const fn = { pause: "pause", resume: "resume", archive: "archive" }[body?.action];
+    if (!fn || !body?.id) return json(res, 400, { error: "需要 id + action(pause|resume|archive)" });
+    return json(res, 200, timeEngine[fn](body.id));
+  }],
+  ["POST", "/api/time/tasks/run", async (res, req) => {
+    if (!timeEngine) return json(res, 500, { error: "时间引擎未初始化" });
+    const body = await readBody(req);
+    if (!body?.id) return json(res, 400, { error: "需要 id" });
+    const r = await timeEngine.runNow(body.id);
+    return json(res, 200, r);
+  }],
+  ["GET", "/api/time/tasks/history", (res, req) => {
+    const u = new URL(req.url, "http://x");
+    if (!timeEngine) return json(res, 500, { error: "时间引擎未初始化" });
+    const t = u.searchParams.get("id") ? timeEngine.find(u.searchParams.get("id")) : null;
+    return json(res, 200, { history: t?.history || [] });
+  }],
+  ["POST", "/api/time/tasks/stop", async (res, req) => {
+    if (!timeEngine) return json(res, 500, { error: "时间引擎未初始化" });
+    const body = await readBody(req);
+    if (!body?.id) return json(res, 400, { error: "需要 id" });
+    return json(res, 200, timeEngine.stopRun(body.id));
+  }],
+  // ── MCP 认知层（NomiFun 等客户端接入，2026-08-20）──
+  ["POST", "/mcp", async (res, req) => {
+    const ctx = {
+      api: async (path, opts = {}) => {
+        const r = await fetch("http://127.0.0.1:" + CONFIG.port + path, {
+          ...opts,
+          headers: { Authorization: "Bearer " + CONFIG.token, "Content-Type": "application/json", ...(opts.headers || {}) },
+        });
+        return r;
+      },
+    };
+    return handleMcp(req, res, ctx);
+  }],
+];
+
+const corsPolicy = createCorsPolicy(CONFIG.corsOrigins);
+
+// 聚合接口的响应级 TTL 缓存（2026-09-20）：/api/stats/providers 要扫全部会话文件（实测 5.3s）、
+// /api/run/overview 9.5s，而前端每 8 秒轮一次 → 页面永远在等。这里把"同样的聚合结果"缓存 TTL 秒，
+// 只对**明确列出的只读 GET** 生效（不碰流式/写接口），并且带上 X-Cache: HIT/MISS 便于核对。
+// 实现搬到 engine/resp-cache.mjs（那里有 2026-09-20 那次缓存键事故的完整说明），
+// withCache 的实例在 API_ROUTES 之前创建。
+//
+const pendingApi = createPendingApi({ wsRoot: WS_ROOT, json, readBody });
+const historyApi = createHistoryApi({ wsRoot: WS_ROOT, json, readBody });
+const boardApi = createBoardApi({
+  json,
+  handlers: { handleProviderStats, handleDailyStats, handleSubagentRuns, handleWsDeliveries },
+  runApi, emotion, getSessionList, isListedGroup,
+});
+
+// Register after dependencies exist, never inside the per-request callback.
+  // 2026-10-20 harness 组件清单（只读）：每个组件来自文件还是内置、多大、谁能改。
+  // 组件化的意义不在"拆得漂亮"，而在"改的时候知道改的是哪一份、能不能回退"。
+  // Propose 的两条入口：手动提一次 / 看候选与状态。
+  API_ROUTES.push(["POST", "/api/harness/propose", async (res) => {
+    const r = await draftHarnessCandidates(null, "manual");
+    return json(res, r.ok ? 200 : 409, r);
+  }]);
+  API_ROUTES.push(["GET", "/api/harness/candidates", async (res) => {
+    try {
+      const { listCandidates } = await import("./engine/harness-propose.mjs");
+      return json(res, 200, { items: listCandidates(WS_ROOT) });
+    } catch (e) {
+      return json(res, 500, { error: String(e?.message || e).slice(0, 200) });
+    }
+  }]);
+  API_ROUTES.push(["POST", "/api/harness/candidates/mark", async (res, req) => {
+    try {
+      const body = await readBody(req, 0.016);
+      const id = String(body?.id || "").slice(0, 60);
+      const status = String(body?.status || "");
+      if (!id || !["draft", "verified", "rejected", "adopted"].includes(status)) {
+        return json(res, 400, { error: "invalid" });
+      }
+      const { markCandidate } = await import("./engine/harness-propose.mjs");
+      const r = markCandidate(WS_ROOT, id, status, String(body?.note || ""));
+      return json(res, r.ok ? 200 : 404, r);
+    } catch (e) {
+      return json(res, 500, { error: String(e?.message || e).slice(0, 200) });
+    }
+  }]);
+  // 2026-10-21 服务日志：这是服务自己的 stdout/stderr（watchdog 落盘），
+  // 排查"为什么慢/为什么报错"不用再靠复现。
+  // 2026-10-22 封存窗口：看状态 + 到期自动评测（窗口内数据不参与调参）
+  API_ROUTES.push(["GET", "/api/sealed/status", async (res) => {
+    try {
+      const sw = await import("./engine/sealed-window.mjs");
+      const runsByTask = {};
+      for (const task of (timeEngine?.list?.() || [])) runsByTask[task.id] = task.history || [];
+      sw.evaluateSealed(WS_ROOT, { runsByTask });
+      return json(res, 200, sw.sealedSummary(WS_ROOT));
+    } catch (e) {
+      return json(res, 500, { error: String(e?.message || e).slice(0, 200) });
+    }
+  }]);
+
+  // 2026-11-15：辅助模型路由可见性——当前解析结果（配置>探测>主模型）+ 探测依据 +
+  // 最近 20 次辅助调用统计（次数/平均耗时/失败率/估算 token/模型分布）。
+  // 鉴权走统一的 /api 鉴权（checkAuth），只读，前端暂不做。
+  API_ROUTES.push(["GET", "/api/model-routing", (res) => json(res, 200, auxStatus())]);
+
+  // 2026-10-24：记忆召回台账（ORM）——哪几条被注入、哪几条真被用上、谁在提权/沉底
+  // 注意路径不能叫 /api/memory/recall：会被 /^\/api\/memory\/([^/]+)$/ 那条路由接走返回 not_found
+  API_ROUTES.push(["GET", "/api/memory-recall", async (res, req) => {
+    try {
+      const u = new URL(req.url, "http://x");
+      const { recallSummary } = await import("./engine/recall-journal.mjs");
+      const { goldFacts } = await import("./engine/gold-facts.mjs");
+      const limit = Math.max(1, Math.min(50, Number(u.searchParams.get("limit")) || 12));
+      return json(res, 200, { ...recallSummary(WS_ROOT, limit), gold: goldFacts(WS_ROOT) });
+    } catch (e) { return json(res, 500, { error: String(e?.message || e).slice(0, 200) }); }
+  }]);
+  // 黄金事实：读 / 写（人工维护的那几条）
+  API_ROUTES.push(["POST", "/api/gold-facts", async (res, req) => {
+    try {
+      const body = await readBody(req, 2e4);
+      const { writeGoldFacts } = await import("./engine/gold-facts.mjs");
+      const out = writeGoldFacts(WS_ROOT, body?.facts || []);
+      return json(res, out.ok ? 200 : 500, out);
+    } catch (e) { return json(res, 500, { error: String(e?.message || e).slice(0, 200) }); }
+  }]);
+
+  // 2026-10-24：记忆卫生报告（增长惩罚 + 写入自检）
+  API_ROUTES.push(["GET", "/api/memory-hygiene", async (res, req) => {
+    try {
+      const u = new URL(req.url, "http://x");
+      const { planGrowth } = await import("./engine/memory/hygiene.mjs");
+      const file = path.join(WS_ROOT, "记忆", "运行时", "记忆卫生.json");
+      let last = null;
+      try { last = JSON.parse(fs.readFileSync(file, "utf8")) } catch {}
+      const probes = (() => {
+        try {
+          return fs.readFileSync(path.join(WS_ROOT, "记忆", "记忆自检.jsonl"), "utf8").split("\n").filter(Boolean).slice(-20).map((l) => JSON.parse(l));
+        } catch { return [] }
+      })();
+      return json(res, 200, { plan: planGrowth(WS_ROOT), last, probes, skip: u.searchParams.get("plan") === "1" });
+    } catch (e) { return json(res, 500, { error: String(e?.message || e).slice(0, 200) }); }
+  }]);
+
+  // 2026-10-24：每日 token 预算（超了就降级/提醒，不等充值才发现）
+  API_ROUTES.push(["GET", "/api/budget/today", async (res) => {
+    try {
+      const { checkBudget } = await import("./engine/token-budget.mjs");
+      return json(res, 200, checkBudget(WS_ROOT));
+    } catch (e) { return json(res, 500, { error: String(e?.message || e).slice(0, 200) }); }
+  }]);
+  // 写预算（默认 300 万 token/天）
+  API_ROUTES.push(["POST", "/api/budget/config", async (res, req) => {
+    try {
+      const body = await readBody(req, 1e4);
+      const file = path.join(WS_ROOT, "记忆", "运行时", "token预算.json");
+      const cur = (() => { try { return JSON.parse(fs.readFileSync(file, "utf8")) } catch { return {} } })();
+      const next = { ...cur, ...(body || {}) };
+      fs.mkdirSync(path.dirname(file), { recursive: true });
+      fs.writeFileSync(file, JSON.stringify(next, null, 2), "utf8");
+      return json(res, 200, { ok: true, budget: next });
+    } catch (e) { return json(res, 500, { error: String(e?.message || e).slice(0, 200) }); }
+  }]);
+
+  // 2026-10-24：品味库（判断轨迹：选了哪个、否了哪个、为什么）
+  API_ROUTES.push(["GET", "/api/taste", async (res, req) => {
+    try {
+      const u = new URL(req.url, "http://x");
+      const limit = Math.min(200, Math.max(1, Number(u.searchParams.get("limit") || 20)));
+      const q = u.searchParams.get("q") || "";
+      const { listTaste, searchTaste } = await import("./engine/taste.mjs");
+      return json(res, 200, { items: q ? searchTaste(WS_ROOT, q, limit) : listTaste(WS_ROOT, limit) });
+    } catch (e) { return json(res, 500, { error: String(e?.message || e).slice(0, 200) }); }
+  }]);
+  API_ROUTES.push(["POST", "/api/taste", async (res, req) => {
+    try {
+      const body = await readBody(req, 1e5);
+      const { recordTaste } = await import("./engine/taste.mjs");
+      const r = recordTaste(WS_ROOT, body || {});
+      return json(res, r.ok ? 200 : 400, r);
+    } catch (e) { return json(res, 500, { error: String(e?.message || e).slice(0, 200) }); }
+  }]);
+
+  // 2026-10-24：心情日记（数据来自 情绪感受.jsonl / 情绪潮汐.jsonl，不调模型）
+  API_ROUTES.push(["GET", "/api/mood/diaries", async (res, req) => {
+    try {
+      const u = new URL(req.url, "http://x");
+      const limit = Math.min(60, Math.max(1, Number(u.searchParams.get("limit") || 7)));
+      const { listDiaries } = await import("./engine/mood-diary.mjs");
+      return json(res, 200, { items: listDiaries(WS_ROOT, limit) });
+    } catch (e) { return json(res, 500, { error: String(e?.message || e).slice(0, 200) }); }
+  }]);
+  API_ROUTES.push(["GET", "/api/mood/diary", async (res, req) => {
+    try {
+      const u = new URL(req.url, "http://x");
+      const date = u.searchParams.get("date") || new Date().toLocaleDateString("sv-SE");
+      const { readDiary } = await import("./engine/mood-diary.mjs");
+      const got = readDiary(WS_ROOT, date);
+      return got ? json(res, 200, got) : json(res, 404, { error: "这一天还没有日记" });
+    } catch (e) { return json(res, 500, { error: String(e?.message || e).slice(0, 200) }); }
+  }]);
+  API_ROUTES.push(["POST", "/api/mood/diary/write", async (res, req) => {
+    try {
+      const body = await readBody(req, 1e5);
+      const { writeDiary } = await import("./engine/mood-diary.mjs");
+      const date = String(body?.date || "").trim() || new Date().toLocaleDateString("sv-SE");
+      return json(res, 200, writeDiary(WS_ROOT, { date, force: body?.force === true }));
+    } catch (e) { return json(res, 500, { error: String(e?.message || e).slice(0, 200) }); }
+  }]);
+
+  // 2026-10-24：首页天气（Open-Meteo，免 key；失败返回 error 不阻塞页面）
+  API_ROUTES.push(["GET", "/api/weather", async (res, req) => {
+    try {
+      const u = new URL(req.url, "http://x");
+      const { readWeather } = await import("./engine/weather.mjs");
+      const data = await readWeather(WS_ROOT, { force: u.searchParams.get("force") === "1" });
+      return json(res, 200, data || { error: "暂无天气数据" });
+    } catch (e) {
+      return json(res, 200, { error: String(e?.message || e).slice(0, 120) });
+    }
+  }]);
+
+  // 2026-10-24：单会话用量（tok/s、缓存命中率、上下文占用）——对标 DSH 状态栏那三个数
+  // 2026-10-24：单会话用量（tok/s、缓存命中率、上下文占用）——对标 DSH 状态栏那三个数
+  // 2026-10-25：口径抽到 engine/usage-view.mjs（可单测）。单轮也算得出 tok/s，之前"单轮不显示"
+  // 的真相是生成窗口只有几十毫秒，算出几百 tok/s 是假数；短窗口改由前端显示"首字 Xs"。
+  API_ROUTES.push(["GET", "/api/usage/session", async (res, req) => {
+    try {
+      const u = new URL(req.url, "http://x");
+      const id = u.searchParams.get("sessionId") || "";
+      if (!id) return json(res, 400, { error: "缺 sessionId" });
+      const { readTurnProfile, usageView } = await import("./engine/usage-view.mjs");
+      const file = path.join(WS_ROOT, "记忆", "运行时", "每轮耗时.jsonl");
+      const rows = readTurnProfile(file);
+      const found = typeof findSession === "function" ? findSession(id) : null;
+      const model = (found?.modelKey && modelList.find((m) => m.provider === found.modelKey.provider && m.id === found.modelKey.id)) || defaultModel || null;
+      const view = usageView(rows, {
+        sessionId: id,
+        contextWindow: Number(model?.contextWindow) || 0,
+        model: model ? `${model.provider}/${model.id}` : "",
+      });
+      return json(res, 200, view);
+    } catch (e) {
+      return json(res, 500, { error: String(e?.message || e).slice(0, 200) });
+    }
+  }]);
+
+  // 2026-10-24：内存诊断（采样序列 + 各缓存的规模）
+  API_ROUTES.push(["GET", "/api/diag/memory", (res, req) => {
+    const u = new URL(req.url, "http://x");
+    const limit = Math.min(2000, Math.max(1, Number(u.searchParams.get("limit") || 60)));
+    const m = process.memoryUsage();
+    return json(res, 200, {
+      now: { rssMB: Math.round(m.rss / 1048576), heapUsedMB: Math.round(m.heapUsed / 1048576), heapTotalMB: Math.round(m.heapTotal / 1048576), externalMB: Math.round(m.external / 1048576) },
+      counts: { runs: runStore.list().length, sessions: activeSessions.size, streams: chatStreams.size(), jobs: jobPool.summary().running },
+      samples: memWatch.recent(limit),
+    });
+  }]);
+
+  // 2026-10-24：每轮耗时拆解（阶段中位数，回答"慢在哪"）
+  API_ROUTES.push(["GET", "/api/turn/profile", (res, req) => {
+    const u = new URL(req.url, "http://x");
+    const limit = Math.min(500, Math.max(1, Number(u.searchParams.get("limit") || 50)));
+    return json(res, 200, turnProfiler.summarize(limit));
+  }]);
+
+  // 2026-10-23：后台作业表（看得到、能取消）
+  API_ROUTES.push(["GET", "/api/jobs", (res) => json(res, 200, { ...jobPool.summary(), jobs: jobPool.list().slice(0, 20) })]);
+  API_ROUTES.push(["POST", "/api/jobs/cancel", async (res, req) => {
+    const body = await readBody(req, 1e5);
+    json(res, 200, jobPool.cancel(String(body?.id || "")));
+  }]);
+
+  // 2026-10-23：聊天流重连（刷新/断网后按 after 游标补发，然后继续实时流）
+  API_ROUTES.push(["GET", "/api/chat/stream", (res, req) => {
+    const u = new URL(req.url, "http://x");
+    const key = u.searchParams.get("session") || "";
+    const after = Number(u.searchParams.get("after") || 0);
+    const stream = chatStreams.get(key);
+    if (!stream) return json(res, 200, { running: false, streams: chatStreams.list().length });
+    stream.attach(res, Number.isFinite(after) ? after : 0);
+    const onClose = () => stream.detach(res);
+    req.on("close", onClose);
+  }]);
+
+  // 2026-10-22 今日晨报：不调模型，全部由已落盘事实拼出来（成本 0、可复现）
+  API_ROUTES.push(["GET", "/api/brief/today", async (res, _req, url) => {
+    try {
+      const mod = await import("./engine/morning-brief.mjs");
+      const now = new Date();
+      const date = (() => { try { return now.toLocaleDateString("sv-SE") } catch { return now.toISOString().slice(0, 10) } })();
+      const refresh = url.searchParams.get("refresh") === "1";
+      if (!refresh) {
+        const cached = mod.readCachedBrief(WS_ROOT, date);
+        const age = cached ? Date.now() - Date.parse(cached.generatedAt || 0) : Infinity;
+        if (cached && age < 10 * 60_000) return json(res, 200, { ...cached, cached: true });
+      }
+      const brief = mod.buildMorningBrief(WS_ROOT, { agentDir: AGENT_DIR, now });
+      mod.writeCachedBrief(WS_ROOT, brief);
+      return json(res, 200, brief);
+    } catch (e) {
+      return json(res, 500, { error: String(e?.message || e).slice(0, 200) });
+    }
+  }]);
+
+  // 2026-10-22 守护形态：Windows 服务优先，计划任务回退；系统页据此显示状态与操作。
+  API_ROUTES.push(["GET", "/api/service/status", async (res) => {
+    try {
+      const { watchdogStatus } = await import("./engine/service-control.mjs");
+      return json(res, 200, await watchdogStatus());
+    } catch (e) {
+      return json(res, 500, { error: String(e?.message || e).slice(0, 200) });
+    }
+  }]);
+  API_ROUTES.push(["POST", "/api/service/control", async (res, req) => {
+    try {
+      const body = await readBody(req, 0.016).catch(() => ({}));
+      const action = String(body?.action || "");
+      const mod = await import("./engine/service-control.mjs");
+      const cmd = mod.controlCommand(action);
+      if (!cmd) return json(res, 400, { error: "invalid-action" });
+      const status = await mod.watchdogStatus();
+      // 只有"服务"形态可以停/重启；任务是当前进程的父级，停了就没人拉起来
+      if (status.mode !== "service" && action !== "start") {
+        return json(res, 409, { error: "task-mode", message: "当前用计划任务守护：请用「重启服务」按钮（会结束并重新拉起任务）" });
+      }
+      if (action === "restart" && status.mode === "task") {
+        // 任务模式：结束当前任务实例再触发一次（不依赖 sc）
+        const { spawn } = await import("node:child_process");
+        const p = spawn("cmd.exe", ["/c", "schtasks /end /tn yuanshu-watchdog & ping -n 3 127.0.0.1 > nul & schtasks /run /tn yuanshu-watchdog"], { detached: true, stdio: "ignore", windowsHide: true });
+        p.unref();
+        return json(res, 200, { ok: true, mode: "task", action });
+      }
+      // 服务模式下 stop/restart 会掐断当前连接：先回响应，再 detached 执行
+      setImmediate(() => { try { mod.runDetached(cmd); } catch {} });
+      return json(res, 200, { ok: true, mode: status.mode, action });
+    } catch (e) {
+      return json(res, 500, { error: String(e?.message || e).slice(0, 200) });
+    }
+  }]);
+
+  // 2026-10-22 扫码配对：匿名接口按 IP 限频（60 次/分钟），避免被暴力猜码
+  const _pairHits = new Map();
+  const pairRateOk = (req) => {
+    const ip = String(req.socket?.remoteAddress || "?").replace(/^::ffff:/, "");
+    const now = Date.now();
+    const rec = _pairHits.get(ip);
+    if (!rec || now > rec.resetAt) { _pairHits.set(ip, { count: 1, resetAt: now + 60_000 }); return true; }
+    rec.count += 1;
+    return rec.count <= 60;
+  };
+  const clientIp = (req) => String(req.socket?.remoteAddress || "").replace(/^::ffff:/, "");
+
+  API_ROUTES.push(["POST", "/api/pair/create", async (res, req) => {
+    // 手机要能访问：host 是回环时自动换成局域网 IPv4，否则二维码里的 127.0.0.1 手机打不开。
+    const host = String(req.headers.host || "");
+    const isLoop = /^(127\.0\.0\.1|localhost|\[::1\])(:\d+)?$/i.test(host);
+    const port = (host.match(/:(\d+)$/) || [])[1] || String(CONFIG.port || 8787);
+    let lanHint = host;
+    if (isLoop) {
+      const nets = os.networkInterfaces();
+      const pick = [];
+      for (const list of Object.values(nets)) {
+        for (const n of list || []) {
+          if (n.family === "IPv4" && !n.internal) pick.push(n.address);
+        }
+      }
+      // 优先常见私网段，避免选到虚拟网卡（VirtualBox/Hyper-V 之类）
+      const priv = pick.find(a => /^192\.168\./.test(a)) || pick.find(a => /^10\./.test(a)) || pick.find(a => /^172\.(1[6-9]|2\d|3[01])\./.test(a)) || pick[0] || "";
+      lanHint = priv ? priv + ":" + port : "";
+    }
+    const p = createPairing({ baseUrl: lanHint ? "http://" + lanHint : "" });
+    return json(res, 200, p);
+  }]);
+  API_ROUTES.push(["GET", "/api/pair/status", async (res, req, url) => {
+    if (!pairRateOk(req)) return json(res, 429, { error: "too-many-requests" });
+    return json(res, 200, getPairing(url.searchParams.get("code")));
+  }]);
+  API_ROUTES.push(["POST", "/api/pair/claim", async (res, req) => {
+    if (!pairRateOk(req)) return json(res, 429, { error: "too-many-requests" });
+    const body = await readBody(req, 0.016).catch(() => ({}));
+    const r = claimPairing(body?.code, { deviceName: body?.deviceName, ip: clientIp(req), wsRoot: WS_ROOT });
+    return json(res, r.ok ? 200 : 400, r);
+  }]);
+  API_ROUTES.push(["POST", "/api/pair/token", async (res, req) => {
+    if (!pairRateOk(req)) return json(res, 429, { error: "too-many-requests" });
+    const body = await readBody(req, 0.016).catch(() => ({}));
+    const r = takePairingToken(body?.code, { claimToken: body?.claimToken, ip: clientIp(req), wsRoot: WS_ROOT });
+    return json(res, r.ok ? 200 : 400, r);
+  }]);
+  API_ROUTES.push(["POST", "/api/pair/approve", async (res, req) => {
+    const body = await readBody(req, 0.016).catch(() => ({}));
+    const r = approvePairing(WS_ROOT, body?.code, { ua: String(req.headers["user-agent"] || "") });
+    return json(res, r.ok ? 200 : 400, r);
+  }]);
+  API_ROUTES.push(["GET", "/api/pair/devices", async (res) => json(res, 200, { items: listDevices(WS_ROOT) })]);
+  API_ROUTES.push(["POST", "/api/pair/revoke", async (res, req) => {
+    const body = await readBody(req, 0.016).catch(() => ({}));
+    const r = revokeDevice(WS_ROOT, String(body?.id || ""));
+    // 撤销必须立刻生效：清掉 5 秒的校验缓存，否则刚撤销的令牌还能再用几秒
+    if (r.ok) _deviceTokenCache.clear();
+    return json(res, r.ok ? 200 : 404, r);
+  }]);
+
+  API_ROUTES.push(["GET", "/api/logs/tail", async (res, _req, url) => {
+    try {
+      const { tailServiceLog } = await import("./engine/service-log.mjs");
+      const lines = Number(url.searchParams.get("lines") || 200);
+      return json(res, 200, tailServiceLog(WS_ROOT, { lines: Number.isFinite(lines) ? lines : 200 }));
+    } catch (e) {
+      return json(res, 500, { error: String(e?.message || e).slice(0, 200) });
+    }
+  }]);
+  API_ROUTES.push(["GET", "/api/logs/list", async (res) => {
+    try {
+      const { listServiceLogs } = await import("./engine/service-log.mjs");
+      return json(res, 200, { items: listServiceLogs(WS_ROOT) });
+    } catch (e) {
+      return json(res, 500, { error: String(e?.message || e).slice(0, 200) });
+    }
+  }]);
+  API_ROUTES.push(["GET", "/api/harness", async (res) => {
+    try {
+      const { harnessManifest } = await import("./engine/harness-components.mjs");
+      return json(res, 200, harnessManifest(WS_ROOT));
+    } catch (e) {
+      return json(res, 500, { error: String(e?.message || e).slice(0, 200) });
+    }
+  }]);
+API_ROUTES.push(...createCompanionRoutes({ exists: id => activeSessions.has(id) || !!findSession(id),
+  facts: companionFacts, store: companionStore, decisions: companionDecisions, json, readBody,
+  // 久不互动把人叫回来：notifier 自带应用内事件，toWechat 时同时推微信
+  nudge: { run: (opts = {}) => runCompanionNudge({ store: companionStore, notifier, force: opts?.force === true, compose: composeNoticeFor, persona: personaName(WS_ROOT), wsRoot: WS_ROOT, budgetRemaining: readBudget(WS_ROOT, new Date().toISOString().slice(0, 10), { cap: 3 }).remaining }) } }));
+
+// 设计三组路由（巡检 / 委托 / 调研）在 engine/design-api.mjs；这里只负责注入依赖
+API_ROUTES.push(...createDesignRoutes({
+  wsRoot: WS_ROOT, json, readBody,
+  readCanvasDoc, normalizeCanvasDoc, auditCanvas, formatAudit,
+  createCommission, listCommissions, removeCommission, runCommission: runDesignCommission, setCommissionStatus, pickDirection,
+  listResearch, readResearch, runResearch,
+  modelSearch: researchModelSearch,
+  generateImageSaved,
+}));
+const voiceOrigins = voiceAllowedOrigins({ agentDir: AGENT_DIR, configured: CONFIG.corsOrigins, port: CONFIG.port });const readVoiceSession = createVoiceSessionReader({ activeSessions, findSession, readEntriesFromFile, extractMessages, resolveLeafId });
+const voiceModels = createVoiceModelRegistry({ readAuth: () => readJsonFile(AUTH_PATH), getModels: () => Object.entries(readJsonFile(MODELS_PATH) || {}).flatMap(([provider, cfg]) => (Array.isArray(cfg?.models) ? cfg.models : []).map(model => ({ ...model, provider }))) });
+const voiceAdmission = createVoiceAdmission({ getToken: () => CONFIG.token, readSession: readVoiceSession, resolveModel: voiceModels.resolve });
+const voiceTicket = createVoiceTicketHandler({ admission: voiceAdmission, origins: voiceOrigins });
+const authorizeVoiceTask = createVoiceTaskAuthorizer({ getToken: () => CONFIG.token, origins: voiceOrigins });
+const voiceModelList = createVoiceModelsHandler({ registry: voiceModels, authorize: authorizeVoiceTask });
+const voiceTaskApi = createVoiceTaskApi({ runtime: voiceTaskRuntime, authorize: authorizeVoiceTask, readBody, json });
+API_ROUTES.push(['POST', '/api/voice/tasks', (res, req) => voiceTaskApi.submit(res, req)]);
+API_ROUTES.push(['GET', '/api/voice/tasks', (res, req, url) => voiceTaskApi.list(res, req, url)]);
+API_ROUTES.push(['POST', /^\/api\/voice\/tasks\/([^/]+)\/stop$/, (res, req, url, m) => voiceTaskApi.stop(res, req, decodeURIComponent(m[1]))]);
+API_ROUTES.push(['POST', '/api/voice/ticket', (res, req) => voiceTicket(req, res)]);
+API_ROUTES.push(['GET', '/api/voice/models', (res, req) => voiceModelList(req, res)]);
+API_ROUTES.push(...createWorkbenchRoutes({ withCache, boardApi, historyApi, handleEmotion, emotion, json, readBody }));
+for (const method of ['GET', 'POST']) API_ROUTES.push([method, /^\/api\/knowledge(?:\/|$)/,
+  (res, req, url) => knowledgeApi.handle(req, res, url)]);
+for (const method of ['GET', 'POST', 'PUT']) API_ROUTES.push([method, /^\/api\/cultivation(?:\/|$)/,
+  (res, req, url) => cultivationApi.handle(req, res, url)]);
+Object.freeze(API_ROUTES);
+
+// ── 公网暴露防护：预认证预算 / 失败锁定 / 路由级限流（2026-11-13）──
+// 顺序固定：preAuth（鉴权前）→ chargeAuthFailure（401 之前）→ authSuccess + check（通过之后）。
+// 配置在 记忆/运行时/限流.json（可缺省），命中写 记忆/运行时/限流命中.jsonl（最多 2000 行）。
+const rateLimitGate = createRateLimiter({ wsRoot: WS_ROOT });
+function clientIpOf(req) {
+  const socketIp = String(req.socket?.remoteAddress || "").replace(/^::ffff:/, "");
+  // frp/反代从回环转发时，真实客户端在 X-Forwarded-For；只信回环来源，防直连伪造。
+  if (isLoopbackReq(req)) {
+    const forwarded = String(req.headers["x-forwarded-for"] || "").split(",")[0].trim()
+      || String(req.headers["x-real-ip"] || "").trim();
+    if (forwarded) return forwarded.replace(/^::ffff:/, "").slice(0, 64);
+  }
+  return socketIp;
+}
+function sendRateLimited(res, guard) {
+  const retryAfter = Math.max(1, Math.ceil(Number(guard?.retryAfter) || 1));
+  const locked = guard?.reason === "auth_locked";
+  const scope = String(guard?.category || (guard?.reason === "preauth_budget" ? "preauth" : "auth"));
+  return json(res, 429, {
+    error: locked ? "认证失败次数过多，请稍后再试" : "请求过于频繁，请稍后再试",
+    code: locked ? "AUTH_RATE_LIMITED" : "RATE_LIMITED",
+    reason: String(guard?.reason || "rate_limited"),
+    retryAfter,
+    retryAfterMs: retryAfter * 1000,
+    scope,
+    limit: Number(guard?.limit) || 0,
+  }, {
+    "Retry-After": String(retryAfter),
+    "X-RateLimit-Limit": String(Number(guard?.limit) || 0),
+    "X-RateLimit-Remaining": "0",
+    "X-RateLimit-Scope": scope,
+    "X-RateLimit-Reason": String(guard?.reason || "rate_limited"),
+  });
+}
+// 2026-11-14 紧急修复（真实故障：换 48 位令牌后 App 用旧令牌，5 次失败锁死 IP）：
+// 锁定期间**带凭据**的请求回 401 而不是 429。429 的语义是"过一会儿再试"，
+// 但真实原因多半是"令牌换了、客户端还是旧的"——用户要的是重新填令牌，不是等 15 分钟。
+const TOKEN_STALE_HINT = "令牌可能已更换，请重新填写";
+function sendTokenStale(res, guard) {
+  const retryAfter = Math.max(1, Math.ceil(Number(guard?.retryAfter) || 1));
+  const limit = Number(guard?.limit) || 0;
+  return json(res, 401, {
+    error: TOKEN_STALE_HINT,
+    code: "TOKEN_STALE_OR_INVALID",
+    hint: TOKEN_STALE_HINT,
+    reason: String(guard?.reason || "auth_locked"),
+    retryAfter,
+    retryAfterMs: retryAfter * 1000,
+    scope: "auth",
+    limit,
+  }, {
+    "Retry-After": String(retryAfter),
+    "X-RateLimit-Limit": String(limit),
+    "X-RateLimit-Remaining": "0",
+    "X-RateLimit-Scope": "auth",
+    "X-RateLimit-Reason": "auth_locked",
+  });
+}
+
+
+const server = http.createServer(async (req, res) => {
+  // 默认不落浏览器/代理缓存；成功静态资源由 lib/static.mjs 明确覆盖。
+  // 不再包裹 writeHead，避免文件后缀把鉴权失败、404 或私有 API 变成一年强缓存。
+  res.setHeader("Cache-Control", "no-store");
+
+  // 请求级 request-id：排查并发问题时能关联同一次请求的日志（小米 4.13）
+  const reqId = Date.now().toString(36) + "-" + Math.random().toString(36).slice(2, 8);
+  res.setHeader("X-Request-Id", reqId);
+  const lifecycle = observeHttpRequest(req, res, reqId, line => console.log(line), { slowMs: 1500, onSlow: entry => recordSlowRequest(entry) });
+  // 2026-10-23：卡顿排查。记录在途请求，停顿发生时能说清"当时在跑什么"。
+  try {
+    const pathname = (() => { try { return new URL(req.url, 'http://x').pathname } catch { return req.url } })();
+    (globalThis.__inflight ||= new Map()).set(reqId, { path: pathname, at: Date.now() });
+    const done = () => { try { globalThis.__inflight?.delete(reqId) } catch {} };
+    res.once('finish', done);
+    res.once('close', done);
+  } catch {}
+  // CORS：只允许已知本地壳 origin 和显式配置的远程前端，不能反射任意 Origin。
+  for (const [name, value] of Object.entries(corsPolicy.headers(req.headers.origin))) res.setHeader(name, value);
+  if (req.method === "OPTIONS") { res.writeHead(204); res.end(); return; }
+  try {
+    // 安全响应头（CSP 限制脚本来源，防止第三方注入执行；禁 MIME 嗅探；防 clickjacking）
+    // OMEGA 页需连 OpenIM(10002/10001) 与 Gateway(9000)，connect-src/worker-src 已放行本地服务
+    // P2 CSP 加固：React 版无内联脚本 → 去掉 script-src unsafe-inline；vanilla 版保留（有内联 <script>）
+    const isVanillaReq = req.url?.includes("vanilla=");
+    const scriptSrc = isVanillaReq ? "script-src 'self' 'unsafe-inline'" : "script-src 'self'";
+    res.setHeader("Content-Security-Policy", `default-src 'self'; ${scriptSrc}; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com https://fonts.loli.net; img-src 'self' data: blob: https:; media-src 'self' data: blob: https:; connect-src 'self' ws: wss: http://127.0.0.1:10002 http://127.0.0.1:9000 ws://127.0.0.1:10001 ws://127.0.0.1:9000 https://fastly.jsdelivr.net https://cubism.live2d.com https://v1.hitokoto.cn; worker-src 'self' blob:; font-src 'self' data: https://fonts.gstatic.com https://fonts.googleapis.com https://fonts.loli.net https://gstatic.loli.net; frame-ancestors 'none'`);
+    res.setHeader("X-Content-Type-Options", "nosniff");
+    res.setHeader("X-Frame-Options", "DENY");
+    res.setHeader("Referrer-Policy", "no-referrer");
+    res.setHeader("Permissions-Policy", "camera=(), microphone=(self), geolocation=(), payment=(), usb=()");
+    const url = new URL(req.url, `http://${req.headers.host || "localhost"}`);
+    // 官方 M3E Canvas（Next 静态导出）需要内联脚本；本路径允许同源 iframe，其余仍 DENY
+    if (url.pathname.startsWith("/static/workshop-ui")) {
+      res.setHeader("X-Frame-Options", "SAMEORIGIN");
+      res.setHeader("Content-Security-Policy", "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com https://fonts.loli.net; img-src 'self' data: blob: https:; media-src 'self' data: blob: https:; connect-src 'self' https://fonts.googleapis.com https://fonts.gstatic.com; worker-src 'self' blob:; font-src 'self' data: https://fonts.gstatic.com https://fonts.googleapis.com https://fonts.loli.net https://gstatic.loli.net; frame-ancestors 'self'");
+    }
+    const isStatic = ((req.method === "GET" || req.method === "HEAD") && (url.pathname === "/" || url.pathname === "/index.html" || url.pathname === "/sw.js" || url.pathname === "/api/health" || WORKSHOP_PAGES[url.pathname])) ||
+                     ((req.method === "GET" || req.method === "HEAD") && (url.pathname.startsWith("/static/") || url.pathname.startsWith("/assets/") || url.pathname.startsWith("/legacy/") || url.pathname === "/vite.svg" || url.pathname === "/manifest.webmanifest" || url.pathname === "/boot-check.js" || url.pathname.startsWith("/icons/")));
+    // 健康探活接口免 token（只返回 {ok:true}，无敏感信息）：安卓客户端连接页需在没有 token 时也能探地址是否可达（2026-08-31 修：之前需鉴权导致探活永远 401，客户端误判为连不上）
+    // 签名文件链接（filebox 签名）免 token：签名本身是凭证
+    let isSignedFile = false;
+    try {
+      if (url.pathname === "/api/ws/file" && url.searchParams.get("sig")) {
+        const fb = await import("./engine/filebox.mjs");
+        isSignedFile = fb.verifySigned(req).ok;
+      }
+    } catch {}
+    // 首启向导状态免鉴权：只回 needsSetup 布尔值。令牌本身永远要鉴权（旧的 isTokenCheck 旁路会泄露令牌，已删）
+    const isSetupStatus = (url.pathname === "/api/setup/status" && req.method === "GET")
+      || (url.pathname === "/api/setup/claim" && req.method === "POST"); // claim 在路由内做 pending + 本机直连校验
+    // 公开反馈端点免令牌：分发出去的主机没有本机令牌，回厂通道走 IP 限频防滥用（引擎内 12h/8 条）
+    const isPublicFeedback = url.pathname === "/api/public/feedback" && req.method === "POST";
+    // 影院分享页免令牌媒体代理：GET only + 响应面收紧（tv.mjs 内非媒体 content-type 一律 403），防开放代理
+    const isPublicTvMedia = url.pathname === "/api/tv/media" && req.method === "GET";
+    // 手机扫码配对：页面与"认领/查状态/取令牌"三个匿名接口必须免令牌（手机还没有凭据）。
+    // 安全性靠：一次性 8 位码 + 120 秒过期 + 云端批准 + 取令牌绑定认领 IP + IP 限频。
+    const isPairPage = req.method === "GET" && (url.pathname === "/pair.js" || url.pathname.startsWith("/pair/"));
+    const isPairPublic = (req.method === "POST" && ["/api/pair/claim", "/api/pair/token"].includes(url.pathname))
+      || (req.method === "GET" && url.pathname === "/api/pair/status");
+    // 网易云扫码登录页：仅本机直连可开（它只写本机 cookie 文件，不碰账号密码）
+    const isMusicLogin = (url.pathname === "/music-login" || url.pathname === "/api/music/login") && req.method === "GET" && isLoopbackReq(req);
+    // 2026-10-28：本机一键登录（只回环，令牌含 # 手抄易错）
+    const isLocalLogin = url.pathname === "/api/auth/local-token" && req.method === "GET" && isLoopbackReq(req);
+    // 2026-11-14：未鉴权的认证自检端点（只回布尔/重试秒数，不含令牌）——App 用它区分
+    // "令牌已更换"和"被限流"，否则换令牌后连登录入口都拿 429（锁定把自救路也锁死了）。
+    const isAuthState = url.pathname === "/api/auth/state" && req.method === "GET";
+    // 2026-11-13 公网暴露防护：预认证预算（拦扫描）→ 鉴权失败锁定 → 通过后按路由类别限流。
+    const needsAuth = !isStatic && !isSignedFile && !isSetupStatus && !isPublicFeedback && !isPublicTvMedia && !isMusicLogin && !isPairPage && !isPairPublic && !isLocalLogin && !isAuthState;
+    if (needsAuth) {
+      const clientIp = clientIpOf(req);
+      const hasCredential = !!(req.headers.authorization || url.searchParams.get("token") || url.searchParams.get("ticket"));
+      const pre = rateLimitGate.preAuth(clientIp, { credential: hasCredential, pathname: url.pathname, method: req.method });
+      if (!pre.ok) {
+        // 锁定期间带凭据 → 401「令牌可能已更换」；不带凭据才是 429（等锁到期）。
+        if (pre.reason === "auth_locked" && pre.credential) return sendTokenStale(res, pre);
+        return sendRateLimited(res, pre);
+      }
+      if (!checkAuth(req)) {
+        const fail = rateLimitGate.chargeAuthFailure(clientIp, url.pathname, req.method);
+        if (fail.locked) {
+          // 第 5 次失败当场上锁：带凭据的请求同样回 401（这次不是"稍后再试"，是"令牌不对"）
+          if (hasCredential) return sendTokenStale(res, { reason: "auth_locked", retryAfter: fail.retryAfter, limit: fail.failures });
+          return sendRateLimited(res, { reason: "auth_locked", retryAfter: fail.retryAfter, limit: fail.failures, category: "auth" });
+        }
+        return json(res, 401, { error: "未授权，请提供访问令牌" });
+      }
+      rateLimitGate.authSuccess(clientIp);
+      const routeGuard = rateLimitGate.check(clientIp, url.pathname, req.method);
+      if (!routeGuard.ok) return sendRateLimited(res, routeGuard);
+    }
+
+    // 扫码配对页：手机上打开 /pair/<code>，脚本走同源 /pair.js（全站 CSP 禁内联脚本）
+    if (req.method === "GET" && url.pathname.startsWith("/pair/") && url.pathname.length > 6) {
+      const pairCode = url.pathname.slice(6);
+      res.writeHead(200, { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-store" });
+      return res.end(renderPairPage(pairCode));
+    }
+    if (req.method === "GET" && url.pathname === "/pair.js") {
+      res.writeHead(200, { "Content-Type": "text/javascript; charset=utf-8", "Cache-Control": "no-store" });
+      return res.end(PAIR_JS);
+    }
+
+    // 静态资源
+    // 主界面转正：默认 → React 版（今日大改后已成熟）；?vanilla=1 → 旧版 vanilla（保底）；?react=1 向后兼容
+    if (req.method === "GET" && (url.pathname === "/" || url.pathname === "/index.html")) {
+      const wantVanilla = url.searchParams.has("vanilla");
+      const wantReact = reactStatic && (!wantVanilla || url.searchParams.has("react"));
+      if (reactStatic && !wantVanilla) { req.url = "/index.html"; return await reactStatic.handle(req, res); }
+      return await handleStatic(req, res);
+    }
+    // sw.js：默认反应版下发自毁脚本（React 不用 service worker）；?vanilla=1 下发原版缓存
+    if (req.method === "GET" && url.pathname === "/sw.js") {
+      if (reactStatic && !url.searchParams.has("vanilla")) {
+        res.writeHead(200, { "Content-Type": "application/javascript", "Cache-Control": "no-cache" });
+        return res.end(SW_UNREGISTER);
+      }
+      return await handleStatic(req, res);
+    }
+    // Vite 指纹资产 + PWA 资源（manifest/图标无敏感内容，免 token 供安装器拉取）
+    if (reactStatic && req.method === "GET" && (url.pathname.startsWith("/assets/") || url.pathname === "/vite.svg" || url.pathname === "/manifest.webmanifest" || url.pathname === "/boot-check.js" || url.pathname.startsWith("/icons/"))) return await reactStatic.handle(req, res);
+    // 旧版入口：/legacy/* → public/*
+    if (req.method === "GET" && url.pathname.startsWith("/legacy/")) {
+      req.url = url.pathname.slice("/legacy".length) || "/index.html";
+      if (!req.url.includes("?") && url.search) req.url += url.search;
+      return await handleStatic(req, res);
+    }
+    if (req.method === "GET" && url.pathname.startsWith("/static/")) {
+      req.url = url.pathname.replace(/^\/static/, "") + (url.search || "");
+      return await handleStatic(req, res);
+    }
+
+    // 工作台独立页（页面本身无敏感数据，鉴权由页面 JS 调 API 时执行；可直达 URL：/workshop /workshop/ppt 等）
+    if (req.method === "GET" && WORKSHOP_PAGES[url.pathname]) {
+      req.url = "/" + WORKSHOP_PAGES[url.pathname] + (url.search || "");
+      return await handleStatic(req, res);
+    }
+
+    // API（只匹配启动时注册的固定路由表，不在请求期间追加）
+    for (const [method, matcher, handler] of API_ROUTES) {
+      if (req.method !== method) continue;
+      let m = null;
+      if (typeof matcher === "string") {
+        if (url.pathname !== matcher) continue;
+      } else {
+        m = url.pathname.match(matcher);
+        if (!m) continue;
+      }
+      return await handler(res, req, url, m);
+    }
+    // 2026-11-07：/api/* 没有匹配到路由时，必须回 404 JSON。
+    // 之前会掉进下面的 SPA 兜底、回 index.html，前端 r.json() 就报 "Unexpected token '<'"，
+    // 看起来像"读取失败"，其实是"这个接口不存在"。
+    if (url.pathname.startsWith("/api/")) {
+      return json(res, 404, { error: `未知接口 ${req.method} ${url.pathname}` });
+    }
+    // 路由表无匹配 → SPA fallback（GET 请求返回 index.html，让前端路由处理；非 GET 才 404）
+    if (req.method === "GET") {
+      if (reactStatic) { req.url = "/index.html"; return await reactStatic.handle(req, res); }
+      return await handleStatic(req, res);
+    }
+    return json(res, 404, { error: "not found" });
+  } catch (e) {
+    lifecycle.fail();
+    respondHttpError(res, e, reqId);
+  }
+});
+
+// ── 启动时每日备份配置 ─────────────────────────────────────────────
+try {
+  const bkDir = path.join(__dirname, "backups");
+  fs.mkdirSync(bkDir, { recursive: true });
+  const today = new Date().toISOString().slice(0, 10);
+  const bkServer = path.join(bkDir, `server-${today}.mjs`);
+  const bkConfig = path.join(bkDir, `config-${today}.mjs`);
+  if (!fs.existsSync(bkServer)) {
+    fs.copyFileSync(__filename, bkServer);
+    fs.copyFileSync(path.join(__dirname, "config.mjs"), bkConfig);
+    console.log(`[元枢] 配置已备份: ${bkDir}`);
+  }
+} catch {}
+
+// 端口占用时等待释放（自愈重启后旧进程可能未退出）
+let listenAttempt = 0;
+// error listener 只挂一次（避免重试时叠加，MaxListenersExceededWarning 根因）
+server.on("error", (err) => {
+  if (err.code === "EADDRINUSE") {
+    // 被占用时先问一句"谁在服务"：同版本实例在服务 → 这份是重复实例，干净退出（别空转 30×2 秒）。
+    // 版本不同 → 也说清楚，但**绝不替用户杀进程**（那是红线）；空转等待交回给原来的重试逻辑。
+    try {
+      const chk = selfCheck(WS_ROOT, { myPid: process.pid, myVersion: String(APP_VERSION) });
+      console.log(`  [实例自检] ${chk.note}`);
+      recordStartup(WS_ROOT, { version: String(APP_VERSION), port: CONFIG.port, ownsPort: false, duplicate: chk.duplicate, reason: chk.note, listening: false });
+      if (chk.duplicate && process.env.YUANSHU_ALLOW_DUPLICATE !== "1") {
+        console.log("  [实例自检] 重复实例：退出（已有同版本在服务；要强制并跑请设 YUANSHU_ALLOW_DUPLICATE=1）");
+        process.exit(0);
+      }
+    } catch {}
+    // 2026-10-25：端口被**另一个版本**的实例占着时，原来会空转 30×2s（60 秒）再失败退出——
+    // 这 60 秒里它是一个"活着但服务不了"的子进程，看门狗的健康检查必然失败，
+    // 于是被当僵死重拉；旧实例还没走，新实例继续撞墙 → 就是 19:32 那个假死-拉起循环。
+    // 现在：立刻用专用退出码 78 说清楚，让看门狗去退避，而不是把它当崩溃。
+    if (err.code === "EADDRINUSE") {
+      const owner = describePortOwner(CONFIG.port);
+      console.error(`[元枢] 端口 ${CONFIG.port} 被另一个实例占用，本实例无法提供服务，退出（code 78）。`);
+      if (owner) console.error(`[元枢] 占用者：${owner}`);
+      console.error("[元枢] 处理：停掉占用者再启动（不是重启本进程能解决的）。看门狗会退避，不会反复拉起。");
+      process.exit(78);
+    }
+  }
+  if (err.code === "EADDRINUSE" && listenAttempt < 30) {
+    listenAttempt++;
+    console.log(`[元枢] 端口 ${CONFIG.port} 占用，等待释放 (${listenAttempt}/30)…`);
+    setTimeout(() => { try { server.close(); } catch {}
+    startServer(); }, 2000);
+  } else {
+    console.error("[元枢] 启动失败:", err.message);
+    process.exit(1);
+  }
+});
+server.on('close', () => voiceTaskRuntime.close());
+server.on('close', () => { void knowledgeRuntime.close(); });
+server.on('close', () => { void cultivationRuntime.close().catch(() => {}); });
+/**
+ * 端口被谁占着（EADDRINUSE 报错时用）。**只读探查，绝不杀进程**。
+ * 2026-10-25：真机上"服务又重启了"其实常常是上一版实例没退干净、占着 8787，
+ * 新实例撞墙被看门狗当僵死重拉。报错时直接把占用者打出来，人一眼就知道该停谁。
+ */
+function describePortOwner(port) {
+  try {
+    const out = execFileSync("netstat", ["-ano"], { timeout: 4000, windowsHide: true, encoding: "utf8" });
+    const line = out.split(/\r?\n/).find((l) => new RegExp(`[:.]${port}\\s+\\S+\\s+\\S+\\s+LISTENING`, "i").test(l));
+    if (!line) return "";
+    const pid = line.trim().split(/\s+/).pop();
+    let name = "";
+    try {
+      name = execFileSync("tasklist", ["/FI", `PID eq ${pid}`, "/FO", "CSV", "/NH"], { timeout: 4000, windowsHide: true, encoding: "utf8" })
+        .split(",")[0].replace(/"/g, "").trim();
+    } catch {}
+    return `pid ${pid}${name ? ` (${name})` : ""}`;
+  } catch { return ""; }
+}
+function startServer() {
+  // async：启动收尾里有需要 await 的清理（例如连续创作的孤儿运行）
+  server.listen(CONFIG.port, CONFIG.host, async () => {
+    // All services and approval boundaries are initialized before recovery can execute.
+    const recoveredRuns = runManager.recover({ autoResume: restartGuard.allowAutoResume(), batch: RESTART_BATCH,
+      staggerMs: RESTART_STAGGER_MS, onAutoResume: () => restartGuard.markAutoResumed() });
+    if (!restartGuard.allowAutoResume()) console.log("[runs] 上次启动刚自动续过又很快重启，疑似续跑拖垮服务：本次不自动续，留给手动继续");
+    voiceTaskRuntime.start();
+    if (recoveredRuns.length) console.log(`[runs] 已检查 ${recoveredRuns.length} 个旧实例任务，仅安全检查点可后台接续`);
+    listenAttempt = 0; // 监听成功 → 重置重试计数
+    // 实例登记（2026-09-18）：此刻起"这份就是持有端口的那一份"，写进心跳让外面看得见。
+    try {
+      const startedAt = new Date().toISOString();
+      heartbeat(WS_ROOT, { pid: process.pid, version: String(APP_VERSION), port: CONFIG.port, ownsPort: true, startedAt });
+      const others = liveInstances(WS_ROOT, {}).filter((x) => x.pid !== process.pid);
+      console.log(`  [实例自检] pid ${process.pid} · v${APP_VERSION} · 持有端口 ${CONFIG.port} · 其它存活实例 ${others.length}${others.length ? "（" + others.map((o) => `pid ${o.pid} v${o.version}`).join("、") + "）" : ""}`);
+      // 2026-10-25：每天长出一批候选目标（承诺优先，久未推进的任务其次，随口提过的垫底）。
+      // 注意：这是「自己找活」那一块，不是随机建议——种子全部来自真实记录。
+      let lastCurateDay = "";
+      function recentSessionText(n = 3, limit = 120) {
+        const out = [];
+        try {
+          const files = fs.readdirSync(SESSIONS_DIR)
+            .filter((f) => f.endsWith(".jsonl") || f.endsWith(".json"))
+            .map((f) => ({ f, m: fs.statSync(path.join(SESSIONS_DIR, f)).mtimeMs }))
+            .sort((a, b) => b.m - a.m).slice(0, n);
+          for (const { f, m } of files) {
+            const lines = fs.readFileSync(path.join(SESSIONS_DIR, f), "utf8").split(/\r?\n/).filter(Boolean).slice(-200);
+            for (const line of lines) {
+              try {
+                const row = JSON.parse(line);
+                const text = row?.message?.content || row?.content || row?.text;
+                if (typeof text === "string" && text.length > 8) out.push({ text, at: m });
+              } catch {}
+              if (out.length >= limit) return out;
+            }
+          }
+        } catch {}
+        return out;
+      }
+      async function maybeCurateIdeas() {
+        try {
+          const today = new Date().toISOString().slice(0, 10);
+          if (lastCurateDay === today) return;
+          const promises = (() => { try { return pendingPromises(WS_ROOT, {}) } catch { return [] } })();
+          const lingxi = (() => { try { return listLingXi(WS_ROOT, {}) } catch { return [] } })();
+          const tasks = (() => { try { return timeEngine ? timeEngine.list() : [] } catch { return [] } })();
+          const texts = recentSessionText(3, 120);
+          const doc = curateIdeas({ wsRoot: WS_ROOT, promises, lingxi, tasks, texts, limit: ideaCap(brainWeights()) });
+          lastCurateDay = today;
+          if (!doc?.skipped) console.log(`[ideas] 今日建议已生成 ${doc.items.length} 条`);
+        } catch (e) {
+          console.log(`[ideas] 生成失败: ${String(e?.message || e).slice(0, 120)}`);
+        }
+      }
+      // 2026-10-25：每分钟把"做完了但没人汇报"的后台作业记进台账，
+      // 下一轮开头会作为环境事实提醒她（没做完的不记，避免刷屏）。
+      // ② 事件驱动汇报：high 级未汇报 + 空闲 → 她自己写一两句推给用户，不等用户开口。
+      let lastAutoReportAt = 0;
+      let autoReportInFlight = false;
+      const AUTO_REPORT_COOLDOWN_MS = 20 * 60 * 1000;
+      async function maybeAutoReport() {
+        if (autoReportInFlight) return;   // 上一轮还没写完就别再起一轮（模型调用可能超过 60s）
+        if (process.env.YUANSHU_AUTO_REPORT === "0") return;
+        if (Date.now() - lastAutoReportAt < AUTO_REPORT_COOLDOWN_MS) return;
+        // 用户在对话中就别打断（有 active run 就跳过，下一轮开头会提醒）
+        try {
+          const busy = (runManager.list() || []).some((r) => !["completed", "failed", "stopped", "interrupted"].includes(String(r.status || "").toLowerCase()));
+          if (busy) return;
+        } catch {}
+        const urgent = urgentReports(WS_ROOT);
+        if (!urgent.length) return;
+        const lines = urgent.slice(0, 5).map((u) => `- ${u.label}：${u.state === "failed" ? "失败" : u.state === "stalled" ? "卡住" : "完成"}${u.step ? `（${u.step}）` : ""}`).join("\n");
+        autoReportInFlight = true;
+        try {
+          const out = await chatWithFailover(defaultModel, [
+            { role: "system", content: "你是元枢的搭档小语。用一两句话向对方汇报后台作业结果：先说结论，需要的话给你的判断或下一步建议。不要客套，不要列举工具名，不要道歉。" },
+            { role: "user", content: `后台作业情况：\n${lines}\n\n请用一两句话汇报。` },
+          ], { maxTokens: 220 });
+          const text = String(out?.text || out?.content || (typeof out === "string" ? out : "")).trim();
+          if (!text) return;
+          lastAutoReportAt = Date.now();
+          await notifier.notify({ kind: "task", title: "元枢 · 后台作业有结果了", body: text, key: `auto-report:${urgent[0].id}` });
+          ackReports(WS_ROOT, urgent.map((u) => u.id), { note: "事件驱动自动汇报" });
+          console.log(`[jobs] 主动汇报已推送（${urgent.length} 条 high）: ${text.slice(0, 60)}`);
+        } catch (e) {
+          console.log(`[jobs] 主动汇报失败: ${String(e?.message || e).slice(0, 120)}`);
+        } finally {
+          autoReportInFlight = false;
+        }
+      }
+      setInterval(() => {
+        try {
+    syncReports(WS_ROOT, collectJobs({
+      wsRoot: WS_ROOT,
+      detached: detachedRun.listDetached({ wsRoot: WS_ROOT, limit: 20 }),
+      runs: (() => { try { return runManager.list() } catch { return [] } })(),
+      tasks: (() => { try { return timeEngine ? timeEngine.list() : [] } catch { return [] } })(),
+    }));
+  } catch {}
+  // ② 事件驱动汇报（2026-10-25）：high 级（失败/卡住）且有 20 分钟冷却、当前没任务在跑时，
+  // 用最便宜的模型写一两句，直接推到用户端——不用等用户先开口。
+  // 对标 Muse/dots："活干完了自己回来汇报"，而不是记一笔等下次对话。
+  void maybeAutoReport();
+        // 自己找活：每天一次，从真实记录里挑候选目标（内部按日期幂等）
+        try { void maybeCurateIdeas(); } catch (e) { console.log("[ideas] 调用失败:", String(e?.message || e).slice(0, 100)); }
+}, 60000).unref?.();
+setInterval(() => heartbeat(WS_ROOT, { pid: process.pid, version: String(APP_VERSION), port: CONFIG.port, ownsPort: true, startedAt }), 30000).unref?.();
+    } catch (e) { console.log("  [实例自检] 登记失败:", String(e?.message || e).slice(0, 100)); }
+    attachChatVoice({ server, admission: voiceAdmission, readSession: readVoiceSession, origins: voiceOrigins,
+      runtime: voiceTaskRuntime, canAccess: canAccessSessionOrigin,
+      onDiagnostic: createVoiceDiagnostics({ rootDir: RUNS_DIR }),
+      connect: modelKey => { const model = voiceModels.resolve(modelKey); return connectVoiceProvider(model.key, model.modelKey); } });
+    try { initTuiBridge(server, { token: () => CONFIG.token, cwd: WS_ROOT }); console.log("  TUI 桥接: ws://…/ws/tui 已就绪"); } catch {}
+    try { wechat.boot(); const w = wechat.status(); if (w.loggedIn) console.log(`  微信接入: ${w.running ? '收发中' : '已登录，未开启'}`); } catch (e) { console.log('  微信接入: 启动失败', String(e?.message || e).slice(0, 80)); }
+    // 邮件桥：把微信通知函数传进去，按配置决定是否自动启动轮询
+    try {
+      emailBridge.setNotifyFn((msg) => wechat.notifyOwner(msg));
+  // 2026-10-27：新邮件也进「外部事件」流，这样「我在盯的事」能匹配到邮件
+  emailBridge.setEventFn((e) => { try { recvEvent({ wsRoot: WS_ROOT, ...e }); } catch {} });
+      const emailCfg = emailBridge.getConfig();
+      if ((emailCfg.accounts || []).some(a => a.enabled)) {
+        emailBridge.startPolling(60_000);
+        console.log('  邮件桥: 轮询已启动');
+      }
+    } catch (e) { console.log('  邮件桥: 启动失败', String(e?.message || e).slice(0, 80)); }
+    // MCP 外部 server 连接：把已连接工具动态注入 UNIFIED_TOOLS，2026-10-08
+    // 后台连接，不能 await：MCP 串行连接可能耗时数分钟，期间知识库/心跳/培养恢复都启动不了，对话会报「知识检索暂不可用」。
+    void (async () => { try {
+      globalThis.__yuanshuMcpManager = mcpManager;
+      const mcpResults = await mcpManager.bootAll();
+      for (const r of mcpResults) {
+        if (r.ok) {
+          const conn = mcpManager.status().find(s => s.name === r.name);
+          const tools = mcpManager.allTools().filter(t => t.serverName === r.name);
+          for (const t of tools) {
+            const schema = mcpToolToSchema(t);
+            if (!UNIFIED_TOOLS.some(u => u?.function?.name === schema.function.name)) {
+              UNIFIED_TOOLS.push(schema);
+            }
+          }
+          console.log(`  MCP [${r.name}]: 已连接，${r.tools} 个工具`);
+        } else {
+          console.log(`  MCP [${r.name}]: 连接失败 — ${String(r.error).slice(0, 60)}`);
+        }
+      }
+      if (mcpResults.length === 0) console.log('  MCP: 无已配置 server');
+    } catch (e) { console.log('  MCP: 启动失败', String(e?.message || e).slice(0, 80)); } })();
+    console.log("");
+    console.log("╭──────────────────────────────────────────────╮");
+    console.log("│                元枢已启动                    │");
+    console.log("╰──────────────────────────────────────────────╯");
+    console.log(`  本地地址: http://${CONFIG.host}:${CONFIG.port}`);
+    console.log("  访问令牌: 已配置（请在本机 .token 文件中查看）");
+    console.log(`  工作目录: ${CONFIG.cwd}`);
+    // 2026-11-08：重启后立即按当前模板重算一次 记忆/自我.md。
+    // 以前这份文件只在聊天拼 prompt 时才写，所以"重启过了"并不等于文件被重算——
+    // 真机上模板改了、服务也重启了，文件还停在改动前。启动时补一次，幂等（只差生成时间不重写）。
+    try {
+      const selfFile = writeSelfFile(WS_ROOT, buildSelfModel({ wsRoot: WS_ROOT }));
+      if (selfFile?.changed) console.log(`  自我文件: 已重算 ${selfFile.path}`);
+    } catch (e) { console.log("  自我文件: 重算失败", String(e?.message || e).slice(0, 80)); }
+    // 承诺账超期搁置：挂着超过 3 天（PROMISE_STALE_DAYS=3）、用户也没再提的 pending 转 expired，不再进提示词当待办。
+    try {
+      const ex = expireStalePromises(WS_ROOT, {});
+      if (ex.ok && ex.expired) console.log(`  承诺账  : ${ex.expired} 条超期未结清，已自动搁置`);
+    } catch {}
+    console.log(`  工具集  : ${CONFIG.tools.join(", ")}`);
+    console.log(`  默认模型: ${defaultModel ? defaultModel.provider + "/" + defaultModel.id : "(未设置)"}`);
+    // 启动预探测 opencode-go（修复 B）：周额度 429 时启动即标记，Auto 路由全程避开，不浪费首轮请求；8/23 额度恢复后探测通过自动回到 opencode-go 优先
+    setTimeout(async () => {
+      try {
+        const oc = modelList.find(m => m.provider === "opencode-go" && /deepseek-v4-flash/i.test(m.id));
+        const ocKey = readJsonFile(AUTH_PATH)["opencode-go"]?.key;
+        if (!oc || !ocKey) return;
+        const ocBase = (oc.baseUrl || "https://opencode.ai/zen/go/v1").replace(/\/+$/, "");
+        const probe = await httpJsonFetch(`${ocBase}/chat/completions`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json", Authorization: `Bearer ${ocKey}` },
+          body: JSON.stringify({ model: oc.id, messages: [{ role: "user", content: "hi" }], max_tokens: 1 }),
+          timeout: 25000,
+        });
+        // 2026-08-20 加固：403(Access denied)/401/402/429 都标记——opencode-go 账号无资格也是不可用态，Auto 路由应全程避开（此前只认 429，403 时每次请求都撞墙）
+        if ([401, 402, 403, 429].includes(probe.status) || /GoUsageLimit/i.test(await probe.text().catch(() => ""))) markOcGoBlocked(`启动预探测 HTTP ${probe.status}`);
+      } catch {}
+    }, 3000);
+    // 记忆自维护（启动后后台执行，不阻塞）：归档过期状态节；偏好提炼走提案制不自动写（改记忆需审批）
+    try {
+      const a = memoryApi.archiveStateSections(CONFIG.cwd, 5);
+      if (a?.archived) console.log(`[memory] 归档 ${a.archived} 个过期状态节（固定记忆瘦身）`);
+      else console.log(`[memory] 固定记忆状态节 ${a?.ok ? "无需归档" : "检查失败"}`);
+      // 快照现在只在"真要改记忆"时才产生；这里再兜一次保留上限。
+      // 旧版在每次 server 启动时无条件写一份（每份内嵌记忆日志全文），攒到 521 份 / 98.7MB 且无人读取。
+      const pr = memoryApi.pruneSnapshots(CONFIG.cwd);
+      if (pr?.removed) console.log(`[memory] 快照收敛：删除 ${pr.removed} 份旧快照，保留 ${pr.kept} 份 / ${(pr.bytes / 1048576).toFixed(1)}MB`);
+      // 日志 .bak 同理：每次"去重"都落一份全量日志副本，保留最近几份即可
+      const pb = pruneLogBackups(CONFIG.cwd);
+      if (pb?.removed) console.log(`[memory] 日志备份收敛：删除 ${pb.removed} 份旧 .bak，保留 ${pb.kept} 份`);
+      // 跨轮目标：重启后一律回到未武装态，必须人类重新确认——重启不该自动续跑
+      const dg = disarmAllGoals(CONFIG.cwd, { reason: "服务重启后需人类重新确认" });
+      if (dg?.disarmed) console.log(`[goals] ${dg.disarmed} 个进行中的目标已解除武装（重启不自动续跑）`);
+      // 连续创作的孤儿运行：状态还是 running、但没有 finishedAt 的那些，持有它的进程已经没了，
+      // 不清理就会永远显示「正在生成」（既不会成功也不会失败）。启动这一刻判它，是确定的。
+      const sw = await sweepInterruptedRuns(WS_ROOT);
+      if (sw?.swept) console.log(`[story] 清理 ${sw.swept} 条被中断的运行（${sw.touched.map(t => `${t.id.slice(0, 8)}×${t.runs}`).join(', ')}）`);
+      // 带任务号的 running 留着：上游任务还在跑，随时能用任务号问一次（界面上的「查一次」）
+      if (sw?.resumable) console.log(`[story] 保留 ${sw.resumable} 条可续查的运行（有上游任务号，可在连续创作里点「查一次」）`);
+    } catch {}
+    // 时间引擎：定时任务调度（触发时跑 unifiedChat + 结果落盘 文档/时间引擎日志.md）
+    try {
+      timeEngine = createTimeEngine(async (task, signal) => {
+        let out = "(无输出)";
+        try {
+          console.log(`[time-engine] 触发任务 ${task.id}(${task.queueId}): ${String(task.prompt).slice(0, 60)}`);
+          try { invalidateSessionCache(); } catch {}
+          const messages = composeTimeTaskMessages(task, {
+            wsRoot: CONFIG.cwd,
+            sessions: getSessionList(),
+            now: new Date(),
+          });
+          // 2026-11-07：派活任务先开一棵独立 worktree（有授权 = 派活），
+          // 让它在自己的树里改，主工作区一根手指都不碰。
+          try {
+            if (getMandate(WS_ROOT, task.id)) {
+              const wt = startTicketWorktree(CONFIG.cwd, task.id);
+              if (wt.ok) {
+                messages.push({ role: "user", content: `【工作目录】这次活请在 ${wt.dir}（独立 worktree，分支 ${branchOf(task.id)}）里做，不要改主工作区；改完在那边提交，并说明改了哪些文件。` });
+                console.log(`[worktree] ${task.id} 本轮在 ${wt.dir}`);
+              } else console.log(`[worktree] ${task.id} 开树失败（照旧在主干做）：${wt.error}`);
+            }
+          } catch (e) { console.log(`[worktree] 开树异常（照旧）：${String(e?.message || e).slice(0, 100)}`) }
+          // 2026-11-07：订阅直通——这个话题在上次动手之后积压的后续，合并进这一轮（批处理），
+          // 而不是让它们各自去打断主会话
+          try {
+            const tk = threadKeyOfLabel(task.label);
+            if (tk) {
+              const block = takePendingBlock(WS_ROOT, tk);
+              if (block.count) {
+                messages.push({ role: "user", content: block.text });
+                console.log(`[thread] ${tk} 合并 ${block.count} 条积压进本轮`);
+              }
+            }
+          } catch (e) { console.log(`[thread] 合并积压失败：${String(e?.message || e).slice(0, 100)}`) }
+          const tReflect0 = Date.now();
+          // 2026-10-20：她自己这一轮不再只有只读工具。按「自主执行」策略放开动手能力，
+          // 越线动作（对外发布/花钱）默认仍关，且每条动作写 文档/自主执行审计.md。
+          const selfPolicy = loadSelfPolicy(CONFIG.cwd);
+          const selfToolDefs = selfTools(UNIFIED_TOOLS, selfPolicy);
+          const selfRun = withinDailyLimit(CONFIG.cwd, selfPolicy)
+            ? selfToolDefs.filter(t => (t?.function?.name || t?.name) !== 'read')   // 已含 read
+            : [];
+          console.log(`[time-engine] 自主执行：${selfPolicy.enabled ? '开' : '关'} · 工具 ${selfRun.map(t => t?.function?.name).join(',') || '（只读）'}`);
+          // 2026-11-07：工单授权开始管工具面——只有派活（有授权）的任务才按授权裁，
+          // 定时复盘/做梦这类没有授权对象，维持原样。只裁写/命令/git/发布/花钱，读类永远放行。
+          let taskTools = selfToolDefs;
+          try {
+            const ticket = getMandate(WS_ROOT, task.id);
+            if (ticket) {
+              const cut = filterToolsByScope(selfToolDefs, ticket.scope);
+              taskTools = cut.tools;
+              if (cut.dropped.length) console.log(`[mandate] ${task.id} 按授权裁掉 ${cut.dropped.join(',')}`);
+            }
+          } catch (e) { console.log(`[mandate] 裁工具失败，维持原样：${String(e?.message || e).slice(0, 100)}`) }
+          // 2026-10-20：按失败类型处理——额度/鉴权换通道，网络同模型退避重试，其它如实抛。
+          const failover = await withModelFailover({
+            // 2026-10-22：任务可以钉模型（例如夜间反思走有额度的通道）
+            initial: (() => {
+              const pinned = String(task?.model || "").trim();
+              if (pinned) {
+                const hit = modelList.find(m => `${m.provider}/${m.id}` === pinned) || modelList.find(m => m.id === pinned);
+                // 2026-11-06：钉住的模型如果已被判失败（套餐到期/额度耗尽），继续拿它开局只是白等一次超时。
+                // 这时直接走兜底路由，让这一轮复盘尽可能跑成。
+                let blocked = false;
+                try { blocked = !!hit && isModelBlocked(hit) } catch {}
+                if (hit && isTextCapableModel(hit) && !blocked) return hit;
+                if (hit && blocked) console.log(`[time-engine] 钉住的模型 ${pinned} 已被判失败，改用兜底路由`);
+              }
+              return isTextCapableModel(defaultModel) ? defaultModel : pickFallbackDefault();
+            })(),
+            call: (model) => unifiedChat(model, messages, { tools: taskTools, signal }),
+            pickNext: (tried) => {
+              const seen = new Set(tried.map(m => `${m.provider}/${m.id}`));
+              let next = pickFallbackExcluding(tried[tried.length - 1]);
+              if (next && seen.has(`${next.provider}/${next.id}`)) next = pickFallbackExcluding(next);
+              return next;
+            },
+            onSwitch: ({ from, to, kind, why }) => console.log(`[time-engine] 通道切换 ${from.provider}/${from.id} → ${to.provider}/${to.id}（${kind}：${why}）`),
+          });
+          const r = failover.result;
+          const completed = signal?.aborted || r?.aborted ? null : completedTaskText(r);
+          console.log(`[time-engine] 任务 ${task.id} 复盘轮用时 ${Math.round((Date.now() - tReflect0) / 60000)} 分钟`);
+          if (signal?.aborted || r?.aborted) return { aborted: true };
+          out = completed || "(无输出)";
+          // 留痕：她这一轮做了什么（只读动作不记，动手才记）
+          try {
+            recordSelfAction(CONFIG.cwd, { task: `定时任务 ${task.id}`, action: '自主轮次完成',
+              detail: selfPolicy.scopes.join('/'), result: String(out).slice(0, 160) });
+          } catch {}
+          if (signal?.aborted) return { aborted: true };
+          const logDir = path.join(CONFIG.cwd, "文档");
+          try { fs.mkdirSync(logDir, { recursive: true }); } catch {}
+          const logFile = path.join(logDir, "时间引擎日志.md");
+          const entry = `
+### ${task.firedAt} [${task.id}/${task.queueId}] ${String(task.prompt).slice(0, 40)}
+${String(out).slice(0, 16000)}
+`;
+          if (signal?.aborted) return { aborted: true };
+          try { fs.appendFileSync(logFile, entry); } catch {}
+          // 复盘的行动清单落成承诺：这样"今天要做的"才可追踪——下一轮复盘会看到它、
+          // 台前「待兑现承诺」会列它，结清仍只能由人给结论。没有 JSON 块的任务是无操作。
+          if (signal?.aborted) return { aborted: true };
+          try {
+            const rec = recordReflectionActions(CONFIG.cwd, out, { taskId: task.id });
+            if (rec?.ok) console.log(`[time-engine] 任务 ${task.id} 的行动清单 → 承诺账：解析 ${rec.parsed} 条，新增 ${rec.added} 条`);
+            // 信念体检（ToM 信念层 Phase 1）：复盘后离线跑一次，纯读+报告不碰源文件（文档/ToM信念层设计-20261013.md）
+            try {
+              const ba = await import("./engine/belief-audit.mjs");
+              const audit = ba.runBeliefAudit({ wsRoot: CONFIG.cwd, listMemories: memoryDb.listMemories });
+              console.log(`[time-engine] ${ba.beliefAuditSummary(audit.report)} → ${audit.reportPath}`);
+            } catch (e) { console.log(`[time-engine] 信念体检静默失败: ${String(e?.message || e).slice(0, 120)}`); }
+            // 2026-09-17：清单不再止于清单——kind=fix 且不碰红线的，当场派一个执行轮做掉，
+            // 做完带证据结清；做不了就 blocked/failed 留在账上（下一轮复盘会带着"上次试过什么"追问）。
+            // 复盘那轮只有只读工具（这是刻意的），执行轮才发可写工具，且一次只做一条、最多 3 条。
+            const { executable, deferred } = planReflectionExecution(rec?.actions || []);
+            if (deferred.length) {
+              console.log(`[time-engine] 留给跟踪/人工 ${deferred.length} 条：${deferred.map((a) => `${a.kind}(${a.reason || "-"})`).join('、').slice(0, 160)}`);
+            }
+            const rows = [];
+            // 2026-10-07：夜间反思常跑 45–100 分钟，大头在复盘后的执行轮（每条 fix＝执行+重试+独立验证），以前没有总上限。
+            // 超过预算就不再开新的一条（正在跑的不打断），没轮到的仍在承诺账上，下一轮复盘会看到。
+            const execStartedAt = Date.now();
+            for (const action of executable) {
+              if (Date.now() - execStartedAt >= REFLECTION_EXEC_BUDGET_MS) {
+                const left = executable.length - rows.length;
+                console.log(`[time-engine] 执行轮已用 ${Math.round((Date.now() - execStartedAt) / 60000)} 分钟，超过预算；剩 ${left} 条留在承诺账，下一轮再做`);
+                break;
+              }
+              const tAction0 = Date.now();
+              // 2026-10-07：执行轮/重试/独立验证/落 fix-attempt 轨迹统一走 executeReflectionAction，
+              // 做梦回放「失败后再试几次」从此有夜间样本（以前这里不落轨迹，那条回放一直饿着）。
+              // 任务钉的模型（外层已按它起步；内层执行/验证轮也要照它走）
+              const taskModel = (() => {
+                const pinned = String(task?.model || "").trim();
+                if (!pinned) return null;
+                const hit = modelList.find(m => `${m.provider}/${m.id}` === pinned) || modelList.find(m => m.id === pinned);
+                return hit && isTextCapableModel(hit) ? hit : null;
+              })();
+              const turn = (tools) => async (prompt) => {
+                // 2026-10-25：这一行原来裸调 defaultModel，主通道余额不足时整个"自动执行"
+                // 全部记成失败（HTTP 402），而外层反思轮因为切换过通道其实还活着。
+                // 内层也尊重任务钉的模型（外层 4770 那处一直有，内层漏了）。
+                const rr = await chatWithFailover(taskModel || defaultModel, [{ role: "user", content: prompt }], { tools, signal });
+                return signal?.aborted || rr?.aborted ? null : completedTaskText(rr);
+              };
+              const ex = await executeReflectionAction(action, { wsRoot: CONFIG.cwd, ymd: yesterdayYmd(),
+                runTurn: turn(UNIFIED_TOOLS), verifyTurn: turn(timeTaskReadTools(UNIFIED_TOOLS)), isAborted: () => !!signal?.aborted });
+              if (ex.aborted) break;
+              const result = ex.result;
+              if (ex.verification) console.log(`[time-engine] 独立验证「${String(action.text).slice(0, 30)}」→ ${ex.verification.verdict}`);
+              if (signal?.aborted) break;
+              const rec2 = recordActionAttempt(CONFIG.cwd, action, result);
+              rows.push({ text: action.text, status: result?.status || "failed", closed: rec2?.closed, evidence: result?.evidence || "" });
+              console.log(`[time-engine] 自动执行「${String(action.text).slice(0, 40)}」→ ${result?.status || "failed"}${rec2?.closed ? "（已结清）" : ""}（${Math.round((Date.now() - tAction0) / 60000)} 分钟）：${String(result?.evidence || "").slice(0, 100)}`);
+            }
+            if (rows.length && !signal?.aborted) {
+              const logLine = `
+#### 自动执行（${summarizeExecution(rows)}）
+${rows.map((r) => `- [${r.status}${r.closed ? "/已结清" : ""}] ${r.text}\n  证据：${r.evidence || "（无）"}`).join("\n")}
+`;
+              try { fs.appendFileSync(logFile, logLine); } catch (e) { console.log(`[time-engine] 自动执行小节写入日志失败: ${String(e?.message || e).slice(0, 120)}`); }
+            }
+          } catch (e) {
+            // 不要静默：这条链上任何一步失败（派发/执行/回账/写日志）都必须留下痕迹，
+            // 否则"复盘说要做、实际没做"会以"什么都没发生"的形式藏起来——正是这个项目在治的病。
+            console.log(`[time-engine] 复盘→执行阶段异常: ${String(e?.stack || e?.message || e).slice(0, 300)}`);
+          }
+          // 2026-10-07：教训晋升——今晚的 lessons 落账；与别的日子复现的，出一条写进经验库的提案（只提案）。
+          if (!signal?.aborted) {
+            try {
+              const today = new Date().toISOString().slice(0, 10);
+              const lp = promoteReflectionLessons(CONFIG.cwd, out, { ymd: yesterdayYmd(),
+                propose: (c) => proposeLessonPromotion(buildLessonProposal(c, today)) });
+              if (lp.recorded) console.log(`[lesson] 教训落账 ${lp.recorded} 条，复现出提案 ${lp.proposed.length} 条${lp.proposed.length ? `：${lp.proposed.map((x) => x.topic || x.text.slice(0, 12)).join("、")}` : ""}`);
+            } catch (e) { console.log(`[lesson] 晋升异常: ${String(e?.message || e).slice(0, 120)}`); }
+          }
+          // 2026-10-06：复盘之后顺手做「整理」——日志太胖就出一份带出处的压缩提案（只提案，应用仍要人点）。
+          // 只在真正的复盘（产出了行动清单）之后触发；已有待审提案时 proposeMemoryCompress 自己会跳过。
+          if (!signal?.aborted && parseReflectionActions(out).length && analyzeMemoryCompress()?.worthIt) {
+            proposeMemoryCompress(defaultModel)
+              .then((p) => console.log(`[memcompress] ${p?.ok ? `已出压缩提案 ${p.id}：归档 ${p.archiveCount} 条，待伙伴审` : `未出提案：${p?.error || "未知"}`}`))
+              .catch((e) => console.log(`[memcompress] 提案异常: ${String(e?.message || e).slice(0, 120)}`));
+          }
+          console.log(`[time-engine] 任务 ${task.id} 完成，已记录到 ${logFile}`);
+        } catch (e) {
+          console.log(`[time-engine] 任务 ${task.id} 异常: ${String(e?.message || e).slice(0, 100)}`);
+          throw e; // 上抛给任务中心记 error 历史
+        }
+        return String(out);
+      }, {
+        // 2026-11-07：定时任务也是她自己的轮次——每跑一次建内部 run，审计行带 id+label 标题。
+        rounds: internalRounds,
+        onTaskDone: (info) => nudgeSkill(info),
+        // 定时任务失败一定告诉用户；成功只在任务本身标了 notify 时才打扰（内部复盘/做梦天天跑，不该刷屏）
+        onTaskFinished: (t) => {
+          // 2026-11-07：任务名优先用 title（派活=任务文本、定时任务=label 推导），
+          // 通知里先说「是哪件事」，而不是只有 label/id。
+          const taskName = String(t.title || t.label || "定时任务").slice(0, 40);
+          // 2026-11-07：这张活收尾了——退订话题、结掉授权（被停 = 撤销，不是完成）
+          try {
+            const tk = threadKeyOfLabel(t.label);
+            if (tk) unsubscribeThread(tk, t.id);
+            if (getMandate(WS_ROOT, t.id)) {
+              if (t.status === "stopped") revokeMandate(WS_ROOT, t.id, { by: "person", reason: "任务被叫停" });
+              else closeMandate(WS_ROOT, t.id, { outcome: t.status === "ok" ? "completed" : String(t.status || "ended") });
+            }
+          } catch (e) { console.log(`[mandate] 收尾失败：${String(e?.message || e).slice(0, 100)}`) }
+          // 2026-11-07：工单树收尾——干净的删掉；有改动就留着等人审（不硬删、不自动合）
+          try {
+            if (getMandate(WS_ROOT, t.id) || ticketWorktreeStatus(CONFIG.cwd, t.id).exists) {
+              const wt = closeTicketWorktree(CONFIG.cwd, t.id);
+              if (wt.kept) {
+                console.log(`[worktree] ${t.id} ${wt.detail}：${wt.dir}`);
+                void notifier.notify({
+                  kind: "worktree", title: "元枢 · 工单有改动待审",
+                  body: `${wt.detail}\n${wt.dir}`, key: `worktree:${t.id}`, toWechat: true,
+                }).catch(() => {});
+              } else if (wt.removed) console.log(`[worktree] ${t.id} ${wt.detail}`);
+            }
+          } catch (e) { console.log(`[worktree] 收尾失败：${String(e?.message || e).slice(0, 100)}`) }
+          // 2026-11-07：结果回到「问这件事的人」那里——直通吞掉的后续，不能让结果也跟着消失。
+          // 回不去（微信没登录/熔断/通道没接）就转给主人，宁可多打扰一次，不要已读不回。
+          try {
+            const tk = threadKeyOfLabel(t.label);
+            const body = String(t.result || "").trim();
+            if (tk && t.status === "ok" && body) {
+              void (async () => {
+                const sent = await relayToThread({
+                  threadKey: tk, text: body, head: "【同一话题的后续】",
+                  send: ({ channel, to, body }) => (channel === "wechat"
+                    ? wechat.sendTo(to, body)
+                    : Promise.resolve({ ok: false, detail: `${channel} 通道还没接` })),
+                });
+                if (sent.ok) console.log(`[relay] ${tk} 已回到 ${sent.channel}`);
+                else {
+                  console.log(`[relay] ${tk} 回话失败（${sent.detail}），转给主人`);
+                  void notifier.notify({
+                    kind: "thread", title: "元枢 · 话题结果", body: sent.body || body.slice(0, 600),
+                    key: `relay:${t.id}`, toWechat: true,
+                  }).catch(() => {});
+                }
+              })();
+            }
+          } catch (e) { console.log(`[relay] 异常：${String(e?.message || e).slice(0, 100)}`) }
+          // 2026-10-20：Harness² 的 Probe——用同一任务的历史运行做前后对照，判断改动到底有没有变好。
+          // 只比失败率与耗时，不让模型自评；每任务每天最多一次。
+          try {
+            if (shouldProbe(WS_ROOT, t.id)) {
+              const history = timeEngine?.find?.(t.id)?.history || [];
+              const { before, after } = splitBeforeAfter(history);
+              const verdict = abCompare(before, after);
+              if (verdict.verdict !== "insufficient") {
+                const probeRow = { at: new Date().toISOString(), task: t.label || t.id, verdict: verdict.verdict,
+                  a: verdict.a, b: verdict.b, reason: verdict.reason };
+                appendProbeLog(WS_ROOT, probeRow);
+                appendLesson(WS_ROOT, probeRow);
+                markProbed(WS_ROOT, t.id);
+                console.log(`[harness-probe] ${t.id} → ${verdict.verdict}（${verdict.reason}）`);
+                // 变差 = 最值得提候选的时刻；带上是哪条失败，别让模型空想。
+                if (verdict.verdict === "worse") {
+                  // 2026-10-22：变动之后开一个封存窗口 —— 窗口内的运行只用于评测，不再拿来调参
+                  void (async () => {
+                    try {
+                      const sw = await import("./engine/sealed-window.mjs");
+                      sw.openSealed(WS_ROOT, {
+                        taskId: t.id,
+                        label: t.label || t.id,
+                        change: verdict.reason || "",
+                        days: 7,
+                        baseline: { rate: verdict.a?.failRate != null ? 1 - verdict.a.failRate : null, samples: verdict.a?.runs ?? 0 },
+                      });
+                    } catch {}
+                  })();
+                  void draftHarnessCandidates(
+                    `- ${new Date().toISOString()} · ${t.label || t.id} · 变差 · ${verdict.reason}`,
+                    "probe-worse",
+                  );
+                }
+              }
+            }
+          } catch (e) { console.log("[harness-probe] 跳过:", String(e?.message || e).slice(0, 100)); }
+          if (t.status === "error") return notifier.notify({ kind: "task", title: "元枢 · 定时任务失败", body: `${taskName}：${t.result}`, key: `task:${t.id}` });
+          if (t.status === "ok" && t.notify) return notifier.notify({ kind: "task", title: `元枢 · ${taskName} 已完成`, body: t.result || "任务已完成", key: `task:${t.id}`, toWechat: true });
+        },
+      }); // 技能自主沉淀钩子（09-03，Hermes 闭环）
+      timeEngine.start();
+    } catch (e) { console.log("[time-engine] 启动失败:", String(e?.message || e).slice(0, 100)); }
+    // 2026-11-07：值班程序——她自己写的「盯梢」：长期盯一件事，只有真的命中才唤醒她。
+    // 值守是确定性检查（命令/HTTP/文件/到点），不花模型；命中后走 jobPool 跑一轮 prompt（复用排队/限并发/取消），
+    // 结果经 notifier 推送、agent-mailbox 回执，日志按天切分到 记忆/运行时/值班日志-YYYYMMDD.jsonl（2MB 滚动归档、留 30 天）。
+    // 唤醒轮**不再给整张 UNIFIED_TOOLS**：传入 allTools 后，watch-wake 只发默认最小只读集（或 watch.allowTools 白名单）。
+    try {
+      const watchWake = createWatchWake({
+        wsRoot: WS_ROOT,
+        jobPool,
+        notifier,
+        postMessage,
+        logFile: path.join(WS_ROOT, "记忆", "运行时", "值班日志.jsonl"),
+        allTools: UNIFIED_TOOLS,
+        // 2026-11-07：唤醒轮建内部 run，审计行带 watchId 与 watch 名字。
+        rounds: internalRounds,
+        runTurn: (messages, opts = {}) => chatWithFailover(defaultModel, messages, { tools: UNIFIED_TOOLS, ...opts }),
+      });
+      watchDuty = createWatchDuty({ wsRoot: WS_ROOT, wake: watchWake, log: console });
+      watchDuty.start();
+      const wsum = watchDuty.summary();
+      console.log(`[watch-duty] 值班程序已启动：${wsum.active} 条在盯 / 共 ${wsum.total} 条（每 ${Math.round(wsum.tickMs / 1000)}s 检查一次，未命中零模型调用）`);
+    } catch (e) { console.log("[watch-duty] 启动失败:", String(e?.message || e).slice(0, 160)); }
+    // 2026-10-26：崩在半路的自动补丁要还原——进程一死 rollback 就不会跑，补丁会留在工作树里
+    try {
+      const rb = reconcileDanglingSessions({ wsRoot: WS_ROOT });
+      if (rb.restored) console.log("[autopatch] 启动对账：还原了", rb.restored, "个未收尾的补丁会话");
+    } catch (e) { console.log("[autopatch] 启动对账失败:", String(e?.message || e).slice(0, 100)); }
+    // 作业目录是运行期草稿：启动时清掉 7 天前的残留，避免无限堆积
+    try {
+      const pruned = pruneOldJobs({ wsRoot: WS_ROOT });
+      if (pruned.removed) console.log("[jobs] 清理旧作业文件", pruned.removed, "个");
+      // 旧版本把作业草稿写到 C:\ProgramData\Yuanshu（SYSTEM 属主，用户删不掉）；
+      // 服务本身是 SYSTEM，启动时顺手清掉。
+      const legacy = cleanupLegacyJobDir({});
+      if (legacy.removed) console.log("[jobs] 已清理旧的系统级作业目录 C:\\ProgramData\\Yuanshu");
+      else if (legacy.reason && legacy.reason !== "not_exists") console.log("[jobs] 清理旧目录未完成:", legacy.reason);
+    } catch {}
+    // 2026-10-27：记忆版本化——启动后与每 30 分钟，若有变化就提交一次（fail-open）
+    const memoryVersionSweep = () => {
+      try {
+        const r = commitMemory({ wsRoot: WS_ROOT, message: "定时快照" });
+        if (r.committed) console.log("[memory] 版本提交", r.commit, "（", r.files, "个文件）");
+      } catch (e) { console.log("[memory] 版本提交失败（忽略）：", String(e?.message || e).slice(0, 100)) }
+    };
+    setTimeout(memoryVersionSweep, 90 * 1000);
+    setInterval(memoryVersionSweep, 30 * 60 * 1000);
+    // 2026-10-27：启动后建一次 Wiki（人读的主题页），之后每 6 小时刷新
+    const wikiSweep = () => {
+      try {
+        const out = buildWiki({ wsRoot: WS_ROOT });
+        if (out.written.length) console.log("[wiki] 更新主题页", out.written.length, "个（手写保留", out.kept.length, "个）");
+      } catch (e) { console.log("[wiki] 生成失败（忽略）：", String(e?.message || e).slice(0, 100)) }
+    };
+    setTimeout(wikiSweep, 2 * 60000);
+    setInterval(wikiSweep, 6 * 60 * 60000);
+    // 2026-10-27：文档变化扫描——第一次只建基线，之后每 10 分钟对比一次。
+    // 和"正在做的事"对上号（memory 的目标 + 建议）后再进环境事实，避免噪音。
+    const docSweep = () => {
+      try {
+        const targets = (() => {
+          try {
+            const goals = JSON.parse(fs.readFileSync(path.join(WS_ROOT, "记忆", "运行时", "目标执行.json"), "utf8"));
+            const items = Array.isArray(goals?.items) ? goals.items : [];
+            return items.map((g) => ({ id: g.id, text: `${g.title || ""} ${g.text || ""}` }));
+          } catch { return [] }
+        })();
+        const r = diffDocs({ wsRoot: WS_ROOT, targets });
+        if (r.baseline) console.log("[docs] 已建基线，跟踪", r.total, "个文件");
+        else if (r.changes?.length) {
+          console.log("[docs] 检测到变化：", r.changes.slice(0, 3).map((c) => c.path).join("、"));
+          // 源文档变了 → 相关 Wiki 页标"待复核"（手写页没人会自动更新它）
+          const st = markStaleForPaths({ wsRoot: WS_ROOT, paths: r.changes.map((c) => c.path) });
+          if (st.marked.length) console.log("[wiki] 待复核：", st.marked.join("、"));
+        }
+      } catch (e) { console.log("[docs] 扫描失败（忽略）：", String(e?.message || e).slice(0, 100)) }
+    };
+    setTimeout(docSweep, 60 * 1000);
+    setInterval(docSweep, 10 * 60 * 1000);
+    // 2026-10-27：补丁状态同步——启动后 2 分钟与每 30 分钟。
+    // 默认**不自动合并**（红线）；只有 记忆/运行时/自动合并.json 里 autoMerge=true 才动手。
+    const patchTrackSweep = () => {
+      try {
+        const out = syncPatches({ wsRoot: WS_ROOT, repoRoot: PATCH_REPO });
+        if (out.awaiting || out.stale) console.log("[patch] 待处理补丁", out.awaiting, "个，过期", out.stale, "个");
+        if (out.autoMerged?.length) console.log("[patch] 已自动合并：", out.autoMerged.join("、"));
+      } catch (e) { console.log("[patch] 同步失败（忽略）：", String(e?.message || e).slice(0, 100)) }
+    };
+    setTimeout(patchTrackSweep, 2 * 60000);
+    setInterval(patchTrackSweep, 30 * 60000);
+    // 2026-10-27：主动管理——每 10 分钟看一遍"有没有事在等我"。
+    // 节奏由 proactive-manager 控制：同一件事 6h 内只催一次，最多两次，然后升级一次，再之后闭嘴。
+    const proactiveSweep = () => {
+      try {
+        let detached = [];
+        try { detached = detachedRun.listDetached({ wsRoot: WS_ROOT, limit: 20 }) || [] } catch {}
+        let docChanges = [];
+        try { docChanges = (readDocManifest(WS_ROOT).changes || []).slice(0, 20) } catch {}
+        let patches = {};
+        try { patches = readPatchState(WS_ROOT).branches || {} } catch {}
+        const out = sweepProactive({ wsRoot: WS_ROOT, detached, docChanges, patches });
+        if (out.nudged.length || out.escalated.length) {
+          console.log("[proactive] 催", out.nudged.length, "升级", out.escalated.length, "跳过", out.skipped);
+        }
+      } catch (e) { console.log("[proactive] 扫描失败（忽略）：", String(e?.message || e).slice(0, 100)) }
+    };
+    setTimeout(proactiveSweep, 3 * 60000);
+    setInterval(proactiveSweep, 10 * 60000);
+    // 2026-10-28：承诺到点自动干活。
+    // 之前只记「欠了什么事」，到点也没人去干；现在到点自己开跑，结果从出站层推给伙伴。
+    const promiseChat = createLoopbackChat({ base: () => `http://127.0.0.1:${CONFIG.port}`, token: () => CONFIG.token });
+    const promiseSweep = async () => {
+      try {
+        try { reapPromises({ wsRoot: WS_ROOT }); } catch {}
+        const due = duePromises({ wsRoot: WS_ROOT, limit: 1 });
+        if (!due.length) return;
+        const sid = await promiseChat.createSession("承诺执行").catch(() => null);
+        const out = await runDuePromises({
+          wsRoot: WS_ROOT,
+          limit: 1,
+          log: (m) => console.log(m),
+          run: async (text) => promiseChat.ask(`这是你之前答应过的事，现在到点了，请直接把它做完，然后把结果给我：${text}`, sid, { owner: true }),
+          send: async (payload) => sendOut({ wsRoot: WS_ROOT, text: payload.text, deps: { wechat: { notifyOwner: (...a) => wechat.notifyOwner(...a), sendVoice: (t) => wechat.sendVoice(t) } } }),
+        });
+        if (out.fired || out.failed) console.log("[承诺] 本轮执行：完成", out.fired, "失败", out.failed);
+      } catch (e) { console.log("[承诺] 扫描失败（忽略）：", String(e?.message || e).slice(0, 100)) }
+    };
+    setTimeout(promiseSweep, 30 * 1000);
+    setInterval(promiseSweep, 60 * 1000);
+    knowledgeRuntime.start();
+    // 2026-10-26：无人值守补丁调度器。默认**关**（要显式 YUANSHU_AUTOPATCH=1）。
+    // 即使开着，也只建 auto/ 分支、绝不并 main；每小时最多一个；失败即停、不连撞。
+    const autopatchSweep = async () => {
+      try {
+        if (process.env.YUANSHU_AUTOPATCH !== "1") return;
+        const pick = pickEligible(WS_ROOT);
+        if (!pick.proposal) return;
+        const token = (() => { try { return fs.readFileSync(path.join(__dirname, ".token"), "utf8").trim() } catch { return "" } })();
+        const gen = pickGenerator({ token });
+        if (!PATCH_REPO.root) { console.log("[autopatch] 跳过：", PATCH_REPO.reason); return; }
+        const out = await runQueue({ wsRoot: WS_ROOT, repoRoot: PATCH_REPO.root, generate: gen.generate, limit: 1, dryRun: false, log: (m) => console.log("[autopatch]", m) });
+        console.log("[autopatch] 一轮结束:", JSON.stringify(out.results?.[0] ? { ok: out.results[0].ok, stage: out.results[0].stage, branch: out.results[0].branch } : out.skip));
+      } catch (e) { console.log("[autopatch] 出错:", String(e?.message || e).slice(0, 120)); }
+    };
+    if (process.env.YUANSHU_AUTOPATCH === "1") {
+      setTimeout(() => { void autopatchSweep(); }, 3 * 60000);
+      setInterval(() => { void autopatchSweep(); }, 60 * 60000);
+      console.log("[autopatch] 已启用（每小时最多一个；只建 auto/ 分支，不并 main）");
+    }
+    // 2026-10-25 真机：知识板块从 10/22 起再没新增——后台摄入被一个**死进程留下的租约**卡住。
+    // background-admission 的设计是对的（"时间过去不等于进程死了，必须拿宿主的死亡证据才能清"），
+    // 但**没有任何地方会去调 reconcile**，于是一次崩溃 = 知识摄入永久停摆。
+    // 这里在启动时做一次对账：只清"pid 在本机确实已不存在"的租约，并且留下审计行。
+    try {
+      const adm = knowledgeRuntime.admission;
+      const st = await adm.status();
+      if (st?.state === "held" && st.recoveryRequired) {
+        const ok = await adm.reconcile({ expectedId: st.id, reason: "startup: owner pid is gone" });
+        console.log(`[knowledge] 后台租约对账：${st.consumer} 的死进程租约 ${ok ? "已清理" : "未清理（证据不足，保留）"}`);
+      }
+    } catch (e) {
+      console.log("[knowledge] 租约对账失败:", String(e?.message || e).slice(0, 120));
+    }
+    // 心跳：不调模型，只巡检确定性事实；同一件事只提醒一次，夜里不打扰。YUANSHU_HEARTBEAT=0 可关。
+    if (process.env.YUANSHU_HEARTBEAT !== "0") {
+      agentBeat = createHeartbeat({ notifier, file: path.join(AGENT_DIR, "heartbeat.json"),
+        intervalMs: (Number(process.env.YUANSHU_HEARTBEAT_MIN) || 30) * 60_000,
+        sources: [
+          () => pendingPromises(WS_ROOT, { now: new Date() }).filter((p) => p.age?.overdue).map((p) => ({ key: `promise:${p.id}`, text: `答应过「${String(p.text).slice(0, 40)}」，已逾期（${p.age.phrase}）` })),
+          () => confirmRegistry.list().map((c) => ({ key: `confirm:${c.key}`, text: `有一项操作等你确认：${String(c.toolName || c.reason || "").slice(0, 40)}` })),
+          async () => { const s = await knowledgeRuntime.admission.status(); return s.state === "held" && s.recoveryRequired ? [{ key: `slot:${s.id}`, text: "后台名额被卡住了，后台任务都在排队。授权中心 → 智能体培养 → 点「核对并申请恢复」。" }] : []; },
+        ] });
+      agentBeat.start();
+    }
+    await cultivationRuntime.start().catch(() => console.warn('[cultivation] 培养任务恢复失败，调度保持关闭'));
+    // 做梦周期：自己跑，不等用户点接口（自决的意义就在这）。失败不影响服务。
+    try {
+      const DREAM_EVERY_MS = 6 * 60 * 60 * 1000;
+      const kickDream = () => runWithInitiator("scheduler", () => runDreamCycle()).then((r) => {
+        if (r?.ok) console.log(`[dream] 周期完成：回放 ${r.episodes} 条，赢家 ${r.winner || "无"}`);
+        else console.log(`[dream] 周期跳过：${r?.reason || "无可用数据"}`);
+      }).catch((e) => console.log(`[dream] 周期异常: ${String(e?.message || e).slice(0, 120)}`));
+      setTimeout(kickDream, 120000).unref?.();
+      setInterval(kickDream, DREAM_EVERY_MS).unref?.();
+      console.log("  [dream] 做梦周期已挂上（启动 2 分钟后首跑，之后每 6 小时）");
+    } catch (e) { console.log("[dream] 周期挂载失败:", String(e?.message || e).slice(0, 100)); }
+    console.log(`  会话目录: ${SESSIONS_DIR}`);
+    // 人格定义 → 人格化（2026-09-18）：把定义的渲染结果同步进 pi 通道读的 APPEND_SYSTEM.md
+    // （幂等，只替换标记块），这样两条通道上"她是谁"来自同一份定义。
+    try {
+      const pd = personaGovernance.read();
+      if (pd.source !== 'file' || pd.problems.length || fs.existsSync(path.join(CONFIG.cwd, '记忆', '人格修订', 'write.lock'))) {
+        console.log('  [persona] 来源不可靠或有未恢复事务，保留现有 APPEND_SYSTEM.md，跳过启动同步');
+      } else {
+        const r = syncPersonaAppendAll(pd.definition);
+        console.log(`  [persona] 来源 ${pd.source} → APPEND_SYSTEM.md ${r.error ? '同步失败：' + r.error : r.changed ? '已同步' : '已是最新'}`);
+      }
+    } catch (e) { console.log(`  [persona] 同步失败（不阻断启动）: ${String(e?.message || e).slice(0, 100)}`); }
+    // 存量会话 SDK 安全化（2026-09-18）：上传文件曾经给用户消息落 {type:"file"} 块，
+    // pi 的 provider 适配会把它写成 image_url(data:;base64,undefined) → 该会话此后每轮都
+    // 400「unsupported image」。修写入路径救不回已经在盘上的会话，所以启动时扫一遍。
+    // 放 listen 之后异步跑：修会话不是启动前提，不能拖慢或拖挂服务。
+    setTimeout(() => {
+      try {
+        const t0 = Date.now();
+        const r = repairSessionDir(SESSIONS_DIR);
+        if (r.repaired) console.log(`[session-repair] 修复 ${r.repaired} 个会话（${r.lines} 条消息，扫描 ${r.scanned} 个文件，${Date.now() - t0}ms）`);
+        else console.log(`[session-repair] 无需修复（扫描 ${r.scanned} 个文件，${Date.now() - t0}ms）`);
+      } catch (e) { console.log(`[session-repair] 扫描异常: ${String(e?.message || e).slice(0, 120)}`); }
+    }, 3000).unref?.();
+    // 机器可读的启动事实：不受重定向日志 GBK 乱码影响，验证时直接读 jsonl（今天就是在这栽的）
+    try {
+      recordStartup(WS_ROOT, { version: String(APP_VERSION), port: CONFIG.port, ownsPort: true, listening: true, dreamTimerMounted: true, sessionsDir: String(SESSIONS_DIR) });
+    } catch {}
+    // 发现文件：写入运行时目录，让本机 Agent 会话能发现元枢入口
+    try {
+      const discoverDir = path.join(getAgentDir());
+      fs.mkdirSync(discoverDir, { recursive: true });
+      const disc = `# 元枢（个人智能系统）
+\n这是本机已安装的元枢 Web 工作台。\n\n- 访问地址: http://${CONFIG.host}:${CONFIG.port}\n- 访问令牌: 见服务器 .token 文件\n- 工作目录: ${CONFIG.cwd}\n- 一键打开: 运行 \`yuanshu\` 命令\n- 目录: ${__dirname}\n`;
+      fs.writeFileSync(path.join(discoverDir, "元枢.md"), disc, "utf8");
+      console.log(`  📍 已写入发现文件: ${path.join(discoverDir, "元枢.md")}`);
+    } catch (e) {
+      console.log(`  ⚠️ 发现文件写入失败: ${String(e?.message || e).slice(0, 60)}`);
+    }
+  });
+}
+
+// ══ 订阅到期提醒：每天检查追踪文档，到期前 7 天/3 天/当天打印提醒 ══
+function checkSubscriptions() {
+  try {
+    const f = path.join(CONFIG.cwd, "文档", "平台订阅费用追踪.md");
+    const raw = readSubscriptionText(f);
+    if (!raw) return;
+    const today = new Date();
+    const rows = raw.split("\n").filter(l => l.includes("|") && l.includes("2026-"));
+    for (const line of rows) {
+      const cols = line.split("|").map(c => c.trim());
+      // 只匹配表格（行首是 | 且含到期日列）；排除说明段（无到期日格式）
+      if (!line.trim().startsWith("|")) continue;
+      // 到期日在第 4 列（平台|key|计费|到期日|...）；余额查询日期在备注列不应匹配
+      const expCell = cols[4] || "";
+      const m = expCell.match(/(\d{4})-(\d{2})-(\d{2})/);
+      if (!m || expCell.includes("待确认")) continue;
+      const name = cols[1].replace(/[★*()]/g, "").trim();
+      const exp = new Date(+m[1], +m[2] - 1, +m[3]);
+      const days = Math.ceil((exp - today) / 86400000);
+      if (days === 0) console.log(`[订阅提醒] ⚠️ ${name} 今天到期！记得处理续费/退订`);
+      else if (days === 3) console.log(`[订阅提醒] ⚠️ ${name} 还有 3 天到期（${m[1]}-${m[2]}-${m[3]}），如需退订请提前操作`);
+      else if (days === 7) console.log(`[订阅提醒] ⚠️ ${name} 还有 7 天到期（${m[1]}-${m[2]}-${m[3]}）`);
+    }
+  } catch {}
+}
+checkSubscriptions();
+setInterval(checkSubscriptions, 6 * 3600 * 1000); // 每 6 小时查一次
+
+// 空会话定期清扫：冷却 6 小时，进回收站，不碰置顶/外部联系/有实质内容的会话
+const SWEEP_MS = 6 * 3600 * 1000;
+async function sweepSessionsQuietly() {
+  try {
+    const r = await sweepSessionsNow({ minAgeMs: SWEEP_MS });
+    if (r.swept) console.log(`[session-sweep] 定期清理 ${r.swept} 条空会话`);
+  } catch (e) {
+    console.log("[session-sweep]", String(e.message || e).slice(0, 120));
+  }
+}
+setTimeout(sweepSessionsQuietly, 2 * 60 * 1000);
+setInterval(sweepSessionsQuietly, SWEEP_MS);
+
+// ── 跨会话回忆索引定时增量重建（2026-10-05）──────────────────────────────────
+// 背景：rebuildIndex 只挂在 POST /api/recall/rebuild 上，没人点就一直停在 09-04。
+// 增量按 mtime+size 只重提取变过的会话，实测 0.25s；每小时一次，启动 5 分钟后先跑一次。
+const RECALL_REBUILD_MS = 60 * 60 * 1000;
+function rebuildRecallQuietly() {
+  try {
+    const r = rebuildIndex();
+    if (r?.rebuilt) console.log(`[recall] 增量重建 ${r.rebuilt}/${r.total} 个会话`);
+  } catch (e) {
+    console.log("[recall]", String(e?.message || e).slice(0, 120));
+  }
+}
+setTimeout(rebuildRecallQuietly, 5 * 60 * 1000).unref?.();
+setInterval(rebuildRecallQuietly, RECALL_REBUILD_MS).unref?.();
+
+// 慢请求留证据（>1.5s，不含事件流）：和 事件循环停顿.jsonl 对时间戳，就能看出卡的那一刻是谁在占线。
+function recordSlowRequest(entry) {
+  appendSlowLog(path.join(WS_ROOT, "记忆", "运行时", "慢请求.jsonl"), entry);
+}
+
+// ── 事件循环停顿监测（2026-09-19）────────────────────────────────────────────
+// 背景：真机实测服务端出现过一次 ~90 秒的整段阻塞（/api/health 连续三次 30s 超时，之后恢复 12ms）。
+// 阻塞时任何接口都会跟着卡（"电脑感觉卡"里有一部分就是它）。先装仪表，卡了留证据，再修。
+try {
+  const lag = monitorEventLoopDelay({ resolution: 20 });
+  lag.enable();
+  const lagFile = path.join(WS_ROOT, "记忆", "运行时", "事件循环停顿.jsonl");
+  try { fs.appendFileSync(lagFile, JSON.stringify({ at: new Date().toISOString(), pid: process.pid, mounted: true, note: "loop-lag 监测已挂上（>500ms 记一条）" }) + "\n"); } catch {}
+  setInterval(() => {
+    const maxMs = Math.round(lag.max / 1e6);
+    // 2026-10-20：阈值 500ms 太敏感——实测一天写 29741 行 / 2.7MB，噪声盖住真问题。
+    // 抬到 2000ms 才落盘；真正要看的 5s/10s 级停顿不会漏。
+    if (maxMs > 2000) {
+      const line = JSON.stringify({
+        at: new Date().toISOString(), pid: process.pid, maxMs,
+        // 2026-10-20：只记"窗口内最大值"定位不到肇事请求，补一个停顿起点，
+        // 事后能拿它去对服务日志里那个时间点之前最后几条请求。
+        stallFrom: new Date(Date.now() - maxMs).toISOString(),
+        // 停顿期间在途的请求（最老的 3 条）：区分"某个请求卡死"还是"整机被拖住/GC"
+        inflightTop: (() => {
+          try {
+            const now = Date.now();
+            return [...(globalThis.__inflight || new Map())].map(([id, v]) => ({ id, path: v.path, ms: now - v.at }))
+              .sort((a, b) => b.ms - a.ms).slice(0, 3);
+          } catch { return []; }
+        })(),
+        meanMs: Math.round(lag.mean / 1e6), p99Ms: Math.round(lag.percentile(99) / 1e6),
+        rssMB: Math.round(process.memoryUsage().rss / 1048576),
+      });
+      try {
+        // 超过 5MB 轮转一份，避免无限增长
+        try { const st = fs.statSync(lagFile); if (st.size > 5 * 1024 * 1024) fs.renameSync(lagFile, lagFile + ".1"); } catch {}
+        fs.appendFileSync(lagFile, line + "\n");
+      } catch {}
+      console.log("[loop-lag]", line);
+      if (maxMs > 5000) console.log(`[loop-stall] 事件循环停了 ${maxMs}ms（起点 ${new Date(Date.now() - maxMs).toISOString()}，rss ${Math.round(process.memoryUsage().rss / 1048576)}MB）`);
+      // 2026-10-22：卡顿 >30s 可能触发 watchdog 强杀，事后没人知道。
+      // 卡顿当口用系统通知留一条（一小时内只提醒一次，避免刷屏）。
+      // 2026-10-25：文案里原来写死"180 秒"——阈值早在 10-23 就调到 300 了，用户照着一个不存在的
+      // 数字在等。改成读 lib/watchdog-limits.cjs 的单一真源；并且说清"有对话在跑时会再等一段"，
+      // 因为这个提示讲的是进程，你那条消息能不能保住取决于心跳里的活动轮次。
+      if (maxMs > 30_000) {
+        try {
+          const last = globalThis.__lastStallNotify || 0;
+          if (Date.now() - last > 3600_000) {
+            globalThis.__lastStallNotify = Date.now();
+            const stuckSec = Math.round(WATCHDOG_LIMITS.STUCK_MIN_MS / 1000);
+            const graceSec = Math.round(WATCHDOG_LIMITS.ACTIVE_RUN_GRACE_MS / 1000);
+            const active = (() => {
+              try { return (runManager.list() || []).filter(r => r && !["completed", "failed", "stopped", "interrupted"].includes(String(r.status))).length; } catch { return 0; }
+            })();
+            notifier.notify({
+              kind: "system",
+              title: "元枢服务卡顿",
+              body: active > 0
+                ? `事件循环停了 ${Math.round(maxMs / 1000)} 秒（rss ${Math.round(process.memoryUsage().rss / 1048576)}MB）。你有 ${active} 个轮次在跑：守护会先等它们，最迟 ${stuckSec + graceSec} 秒才考虑重启。`
+                : `事件循环停了 ${Math.round(maxMs / 1000)} 秒（rss ${Math.round(process.memoryUsage().rss / 1048576)}MB）。持续 ${stuckSec} 秒会被守护重启。`,
+              key: "stall",
+            });
+          }
+        } catch {}
+      }
+    }
+    lag.reset();
+  }, 30000).unref?.();
+  console.log("  [loop-lag] 事件循环停顿监测已挂上（>500ms 记一条：记忆/运行时/事件循环停顿.jsonl）");
+} catch (e) { console.log("[loop-lag] 挂载失败:", String(e?.message || e).slice(0, 100)); }
+
+// ── 守护心跳（2026-10-25）────────────────────────────────────────────
+// watchdog 判"僵死"前会读它。为什么要这个：事件循环卡死时健康检查一定失败，
+// 但**正在跑的对话也一起卡住了**——只看"失败够久"就杀，会把用户跑到一半的轮次杀掉。
+// 心跳回答的是"冻住之前它有没有在干活"：有，就多等一段（见 lib/watchdog-limits.cjs）。
+// 只在有活动轮次时写（空闲不刷盘），活动归零时补写一条 0。
+try {
+  const HEARTBEAT_FILE = path.join(CONFIG.cwd, "记忆", "运行时", "守护心跳.json");
+  const TERMINAL_STATUS = ["completed", "failed", "stopped", "interrupted"];
+  let lastBeatRuns = -1;
+  const writeHeartbeat = () => {
+    try {
+      const runs = typeof runManager?.list === "function" ? runManager.list() : [];
+      const active = (runs || []).filter(r => r && !TERMINAL_STATUS.includes(String(r.status))).length;
+      // 启动时先写一条 0（lastBeatRuns 初值 -1），让 watchdog 至少有个基准；
+      // 之后空闲就不刷盘了（写盘每 5 秒一次、天天 1.7 万次，没必要）
+      if (active === 0 && lastBeatRuns === 0) return;
+      fs.mkdirSync(path.dirname(HEARTBEAT_FILE), { recursive: true });
+      fs.writeFileSync(HEARTBEAT_FILE, JSON.stringify({ at: Date.now(), activeRuns: active, pid: process.pid }), "utf8");
+      lastBeatRuns = active;
+    } catch {}
+  };
+  writeHeartbeat();
+  setInterval(writeHeartbeat, 5000).unref?.();
+  console.log("  [watchdog] 守护心跳已挂上（有轮次在跑时每 5s 写一次，供守护理性判死）");
+} catch (e) { console.log("[watchdog] 心跳挂载失败:", String(e?.message || e).slice(0, 100)); }
+
+// 预热重接口（2026-09-20）：/api/run/overview 与 /api/stats/providers 第一次算要 5–9 秒
+//（要扫全部会话文件/运行日志），原来这笔开销由"第一屏"承担。启动后延迟几秒在本机自己打一遍，
+// 把响应缓存填上；预热失败只记一行日志，绝不影响启动。
+setTimeout(() => {
+  const paths = ["/api/run/overview", "/api/stats/providers", "/api/sessions"];
+  for (const p of paths) {
+    const req = http.request({ host: "127.0.0.1", port: CONFIG.port, path: p, method: "GET", headers: { Authorization: `Bearer ${CONFIG.token}` } }, (r) => { r.resume(); });
+    req.on("error", () => {});
+    req.end();
+  }
+  console.log("[预热重接口] 已触发 /api/run/overview · /api/stats/providers · /api/sessions");
+}, 4000).unref?.();
+
+startServer();
+
+// 2026-11-06：遗忘机制的执行者。只归档不删除，归档后仍可召回。
+try {
+  const forgetOnce = () => {
+    try {
+      const r = runForgetCycle({ dryRun: false });
+      if (r.expiredArchived || r.staleArchived) {
+        console.log(`[memory] 遗忘：过期归档 ${r.expiredArchived} 条，久未访问归档 ${r.staleArchived} 条`);
+      }
+    } catch (e) { console.log("[memory] 遗忘失败（不影响服务）:", String(e?.message || e).slice(0, 120)); }
+  };
+  setTimeout(forgetOnce, 60_000).unref?.();
+  setInterval(forgetOnce, 24 * 3600_000).unref?.();
+} catch {}

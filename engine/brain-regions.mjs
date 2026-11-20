@@ -117,7 +117,7 @@ export function toolTier(weights) {
 
 /** 高级工具：基础档里不出现。 */
 export const ADVANCED_TOOLS = new Set([
-  "computer_use", "cultivation", "generate_music",
+  "computer_use", "phone", "cultivation", "generate_music",
   "share_project", "run_detached", "dsh_task", "delegate_external", "delegate_team", "delegate_task", "delegate_fork",
   "design_commission", "website_build", "ui_design", "design_prefs", "design_research",
   "story_project", "story_run", "story_storyboard", "story_adapt", "story_film",

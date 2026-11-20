@@ -870,6 +870,8 @@ export async function initEngine() {
     nextGateway.tools.register(nextCodeMode.runCodeToolDef());
     const computerSchema = _unifiedTools.find(t => t.function?.name === 'computer_use');
     if (computerSchema) nextGateway.tools.register({...computerSchema.function,parallel:false,executor:(args,ctx)=>_executeUnifiedTool('computer_use',args,ctx)});
+    const phoneSchema = _unifiedTools.find(t => t.function?.name === 'phone');
+    if (phoneSchema) nextGateway.tools.register({...phoneSchema.function,parallel:false,executor:(args,ctx)=>_executeUnifiedTool('phone',args,ctx)});
     const cultivationSchema = _unifiedTools.find(t => t.function?.name === 'cultivation');
     if (cultivationSchema) nextGateway.tools.register({...cultivationSchema.function,parallel:false,executor:(args,ctx)=>_executeUnifiedTool('cultivation',args,ctx)});
     attachYuanshuCodeTool(_unifiedTools, nextCodeMode);

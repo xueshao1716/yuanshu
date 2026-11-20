@@ -1,0 +1,50 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>元枢 · 连接工作台</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { height: 100%; }
+  body {
+    font-family: "Segoe UI", "Microsoft YaHei", system-ui, sans-serif;
+    background: #0e1116; color: #e7eaf0;
+    display: flex; align-items: center; justify-content: center;
+  }
+  .card { width: min(460px, 92vw); padding: 36px 32px; border-radius: 16px;
+    background: #151a22; border: 1px solid #232a35; box-shadow: 0 8px 40px rgba(0,0,0,.45); }
+  .brand { display: flex; align-items: center; gap: 10px; margin-bottom: 6px; }
+  .dot { width: 10px; height: 10px; border-radius: 50%; background: #4f8cff; box-shadow: 0 0 12px #4f8cff88; }
+  h1 { font-size: 20px; font-weight: 600; letter-spacing: .5px; }
+  .sub { font-size: 12.5px; color: #8b93a3; margin: 10px 0 24px; line-height: 1.7; }
+  label { display: block; font-size: 12.5px; color: #aab2c0; margin-bottom: 8px; }
+  input { width: 100%; padding: 11px 13px; font-size: 14px; border-radius: 10px;
+    border: 1px solid #2b3442; background: #0e1116; color: #e7eaf0; outline: none;
+    transition: border-color .15s; font-family: inherit; }
+  input:focus { border-color: #4f8cff; }
+  .hint { font-size: 11.5px; color: #6b7484; margin-top: 14px; line-height: 1.7; }
+  .err { font-size: 12.5px; color: #ff7a7a; margin-top: 10px; min-height: 18px; }
+  button { width: 100%; margin-top: 18px; padding: 11px; font-size: 14.5px; font-weight: 600;
+    border: none; border-radius: 10px; background: #2f6bff; color: #fff; cursor: pointer;
+    transition: background .15s; font-family: inherit; }
+  button:hover { background: #4f8cff; }
+  button:disabled { opacity: .5; cursor: default; }
+  .foot { margin-top: 22px; font-size: 11px; color: #525b6b; text-align: center; }
+</style>
+</head>
+<body>
+  <div class="card">
+    <div class="brand"><span class="dot"></span><h1>元枢 · 连接工作台</h1></div>
+    <p class="sub">首次使用请填写元枢服务器地址。地址会记住，下次自动填好；令牌在跳转后的登录页输入。</p>
+    <label for="addr">工作台地址</label>
+    <input id="addr" type="text" spellcheck="false" autocomplete="off"
+      placeholder="例如 https://your.domain  或  http://192.168.1.10:8787">
+    <div class="err" id="err"></div>
+    <button id="go">连接</button>
+    <p class="hint">公网域名走 https；局域网/本机地址通常以 http:// 开头。填写服务器所在电脑的地址即可，账号与令牌由该服务器验证。</p>
+    <p class="foot">元枢壳客户端 · 连接页由壳内置，不依赖任何固定服务器</p>
+  </div>
+  <script src="connect.js"></script>
+</body>
+</html>

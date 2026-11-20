@@ -17,6 +17,7 @@ import KnowledgePolicy from '../knowledge/KnowledgePolicy'
 import SandboxModePanel from '../components/engine/SandboxModePanel'
 import MaintenanceModePanel from '../components/engine/MaintenanceModePanel'
 import ComputerUsePanel from '../components/panels/ComputerUsePanel'
+import PhoneControlPanel from '../components/panels/PhoneControlPanel'
 import '../soul/soul.css'
 import '../soul/cultivation/cultivation.css'
 
@@ -29,6 +30,7 @@ const AREAS = [
   ['knowledge', '知识自动积累', '允许读取的目录与网址、能否联网、可用模型与每日额度。'],
   ['session', '执行权限', '沙箱模式全局生效，一处设置所有会话共用；超维授权按任务单独批准，需选会话。'],
   ['desktop', '桌面操作', '让小语看屏幕、操作窗口的限时授权，默认关闭。'],
+  ['phone', '手机控制', '让小语用你的安卓手机办事，每项能力在手机上单独开，默认全关。'],
 ] as const
 type Area = typeof AREAS[number][0]
 
@@ -116,6 +118,7 @@ export default function Grants() {
             <MaintenanceModePanel sessionId={sessionId} />
           </div>}
           {area === 'desktop' && <ComputerUsePanel />}
+          {area === 'phone' && <PhoneControlPanel />}
         </main>
       </div>
     </div>

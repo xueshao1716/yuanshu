@@ -1,6 +1,7 @@
 package com.pixinyu.app;
 
 import android.Manifest;
+import android.content.Intent;
 import android.content.pm.PackageManager;
 import android.os.Build;
 import android.os.Bundle;
@@ -23,6 +24,7 @@ import com.getcapacitor.BridgeActivity;
 public class MainActivity extends BridgeActivity {
     // 必须在 Activity 构造期注册系统保存窗口的回调（STARTED 之后注册会抛异常）
     private final YuanshuDownloads downloads = new YuanshuDownloads(this);
+    private final YuanshuPhone phone = new YuanshuPhone(this);
 
     @Override
     public void onStart() {
@@ -36,6 +38,7 @@ public class MainActivity extends BridgeActivity {
         downloads.attach(webView);
         webView.addJavascriptInterface(downloads, "YuanshuDownloads");
         webView.addJavascriptInterface(new YuanshuPush(getApplicationContext()), "YuanshuPush");
+        webView.addJavascriptInterface(phone, "YuanshuPhone");
         ViewCompat.setOnApplyWindowInsetsListener(webView, (view, insets) -> {
             int imeBottom = insets.getInsets(WindowInsetsCompat.Type.ime()).bottom;
             float density = view.getResources().getDisplayMetrics().density;
@@ -51,6 +54,41 @@ public class MainActivity extends BridgeActivity {
             return insets;
         });
         ViewCompat.requestApplyInsets(webView);
+    }
+
+    @Override
+    public void onResume() {
+        super.onResume();
+        // 从系统设置（无障碍/通知使用权/权限）回来：把最新能力告诉服务器，并刷新设置页
+        if (PhoneControl.anyOn(this)) phone.kick();
+        WebView wv = this.bridge == null ? null : this.bridge.getWebView();
+        if (wv != null) wv.evaluateJavascript("window.dispatchEvent(new Event('yuanshu-phone-state'))", null);
+        handleAssist(getIntent());
+    }
+
+    @Override
+    protected void onNewIntent(Intent intent) {
+        super.onNewIntent(intent);
+        setIntent(intent);
+        handleAssist(intent);
+    }
+
+    @Override
+    public void onRequestPermissionsResult(int requestCode, String[] permissions, int[] grantResults) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults);
+        if (requestCode == 2001) {
+            phone.kick();
+            WebView wv = this.bridge == null ? null : this.bridge.getWebView();
+            if (wv != null) wv.evaluateJavascript("window.dispatchEvent(new Event('yuanshu-phone-state'))", null);
+        }
+    }
+
+    /** 被设为默认数字助理后，长按电源/主页键会以 ACTION_ASSIST 打开：直接进语音对话。 */
+    private void handleAssist(Intent intent) {
+        if (intent == null || !Intent.ACTION_ASSIST.equals(intent.getAction()) && !Intent.ACTION_VOICE_COMMAND.equals(intent.getAction())) return;
+        intent.setAction(Intent.ACTION_MAIN);
+        WebView wv = this.bridge == null ? null : this.bridge.getWebView();
+        if (wv != null) wv.postDelayed(() -> wv.evaluateJavascript("window.dispatchEvent(new Event('yuanshu-assist'))", null), 600);
     }
 
     @Override

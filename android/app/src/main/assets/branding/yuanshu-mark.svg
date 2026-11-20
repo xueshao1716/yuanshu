@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" fill="none">
+  <!-- 元枢 · 枢轴（A2）：断口环 + 轴心 + 断口处的紫点
+       枢 = 轴/门枢；断口表示可开合、可转向；紫点是轴心之外的「她」。
+       小尺寸（<24px）用 yuanshu-mark-simple.svg：去掉紫点、环加粗。 -->
+  <circle cx="32" cy="32" r="21.5" stroke="#5468ff" stroke-width="3.4" stroke-linecap="round"
+          stroke-dasharray="104 31" transform="rotate(-52 32 32)"/>
+  <circle cx="32" cy="32" r="7.6" fill="#5468ff"/>
+  <circle cx="48.8" cy="15.2" r="4.4" fill="#8b7cf6"/>
+</svg>
