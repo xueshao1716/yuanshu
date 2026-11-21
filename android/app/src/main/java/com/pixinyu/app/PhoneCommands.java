@@ -51,7 +51,7 @@ final class PhoneCommands {
         switch (cmd) {
             case "open_url": case "open_app": case "list_apps": return "apps";
             case "clipboard_get": case "clipboard_set": return "clipboard";
-            case "notifications": return "notifications";
+            case "notifications": case "notif_reply": return "notifications";
             case "location": return "location";
             case "calendar_list": case "calendar_add": return "calendar";
             case "alarm_set": case "timer_set": return "alarm";
@@ -74,7 +74,13 @@ final class PhoneCommands {
             case "battery": return battery();
             case "device_info": return deviceInfo();
             case "sms_list": return smsList(a.optInt("limit", 10), a.optString("query", ""), a.optString("number", ""));
-            case "open_url": return launch(new Intent(Intent.ACTION_VIEW, Uri.parse(a.getString("url"))), "打开链接");
+            case "open_url": {
+                String url = a.getString("url");
+                // intent: 链接（系统设置页等）按 Intent 解析；其余按普通链接交给能打开的应用
+                Intent it = url.startsWith("intent:") ? Intent.parseUri(url, Intent.URI_INTENT_SCHEME) : new Intent(Intent.ACTION_VIEW, Uri.parse(url));
+                if (url.startsWith("intent:")) { it.setComponent(null); it.setSelector(null); }
+                return launch(it, "打开链接");
+            }
             case "open_app": return openApp(a.getString("app"));
             case "list_apps": return listApps();
             case "clipboard_get": return clipboardGet();
@@ -83,6 +89,15 @@ final class PhoneCommands {
                 YuanshuNotifs n = YuanshuNotifs.instance;
                 if (n == null) throw new Exception("通知使用权未连接，请在系统设置里重新打开元枢的通知使用权");
                 return new JSONObject().put("notifications", n.recent(a.optInt("limit", 20)));
+            }
+            case "notif_reply": {
+                YuanshuNotifs n = YuanshuNotifs.instance;
+                if (n == null) throw new Exception("通知使用权未连接，请在系统设置里重新打开元枢的通知使用权");
+                String key = a.getString("key"), text = a.getString("text");
+                JSONObject t = n.replyTarget(key);
+                Confirmations.ask(ctx, id, "元枢想回复" + t.optString("app"), "回复「" + t.optString("title") + "」：\n" + text, null, 85000);
+                n.reply(ctx, key, text);
+                return new JSONObject().put("ok", true).put("to", t);
             }
             case "location": return location();
             case "calendar_list": return calendarList(a.optInt("days", 7));
@@ -101,6 +116,7 @@ final class PhoneCommands {
     /** 前台、或无障碍服务在线时可直接启动界面；否则 Android 不允许后台弹界面，改发一条「点一下打开」的通知。 */
     private JSONObject launch(Intent intent, String what) throws Exception {
         intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+        if (intent.resolveActivity(ctx.getPackageManager()) == null) throw new Exception("手机上没有能打开这个链接的应用");
         if (PushService.visible || YuanshuAccess.instance != null) {
             ctx.startActivity(intent);
             return new JSONObject().put("ok", true);
