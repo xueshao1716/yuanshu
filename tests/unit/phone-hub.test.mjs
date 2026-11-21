@@ -66,8 +66,8 @@ test('切后台掉线：手机连回来后补发没拿到结果的指令，下�
   hub.connect(c2.res, c2.req, { deviceId: 'p1', caps: 'apps,screen' });
   const [again] = c2.cmds();
   assert.equal(again.id, sent.id, '同一个 id 补发，手机端据此去重');
-  hub.result({ deviceId: 'p1', id: sent.id, ok: true, data: { elements: [] } });
-  assert.equal((await job).text, '{"elements":[]}');
+  hub.result({ deviceId: 'p1', id: sent.id, ok: true, data: { elements: [{ id: '1' }] } });
+  assert.equal((await job).text, '{"elements":[{"id":"1"}]}');
 
   // 下一步发出时手机正好不在线：等它连回来再发
   c2.req.emit('close');

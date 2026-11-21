@@ -423,7 +423,7 @@ final class PhoneCommands {
             }
             case "swipe": s.swipe(a.getString("direction")); return new JSONObject().put("ok", true);
             case "key": s.key(a.getString("key")); return new JSONObject().put("ok", true);
-            case "screenshot": return new JSONObject().put("png", s.screenshot());
+            case "screenshot": { String png = s.screenshot(); return new JSONObject().put("png", png).put("scale", s.lastShotScale); }
             default: throw new Exception("手机端不认识这个动作：" + cmd + "（App 可能需要升级）");
         }
     }
