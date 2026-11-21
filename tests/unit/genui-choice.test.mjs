@@ -67,3 +67,8 @@ test("dsh-ui 卡片不套代码块 <pre>（否则整卡变代码底色+等宽字
   assert.match(md, /pre\(\{ children, node/);
   assert.match(md, /includes\('language-dsh-ui'\)\) return <>\{children\}<\/>/);
 });
+
+test("选项按钮文字要换行（全局 button 是 nowrap，手机上会撑出屏幕）", () => {
+  const g = read("frontend", "src", "components", "GenUI.tsx");
+  assert.match(g, /w-full min-w-0 text-left whitespace-normal break-words/);
+});

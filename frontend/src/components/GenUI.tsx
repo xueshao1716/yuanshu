@@ -14,13 +14,14 @@ function ChoiceCard({ c }: { c: ChoiceSpec }) {
     setAnswered(shown)
     window.dispatchEvent(new CustomEvent(CHOICE_EVENT, { detail: { text } }))
   }
+  // 全局 button 是 nowrap（premium.css），选项按钮里的长文字不换行会把卡片撑出手机屏幕
   return (
-    <div className="rounded-pi-lg border border-pi-accent/25 bg-pi-accent/5 p-3 space-y-2">
-      <div className="text-[13px] font-semibold text-pi-text">{c.question}</div>
+    <div className="min-w-0 rounded-pi-lg border border-pi-accent/25 bg-pi-accent/5 p-3 space-y-2">
+      <div className="text-[13px] font-semibold text-pi-text break-words">{c.question}</div>
       <div className="flex flex-col gap-1.5">
         {c.options.map((o, i) => (
           <button key={i} type="button" disabled={!!answered} onClick={() => reply({ label: o.label }, o.label)}
-            className={`text-left rounded-pi-md border px-3 py-2 transition-colors disabled:cursor-default ${answered === o.label ? 'border-pi-accent bg-pi-accent/15' : 'border-pi-border-soft bg-white/[0.03] enabled:hover:border-pi-accent/50 enabled:hover:bg-pi-accent/8'} ${answered && answered !== o.label ? 'opacity-45' : ''}`}>
+            className={`w-full min-w-0 text-left whitespace-normal break-words rounded-pi-md border px-3 py-2 transition-colors disabled:cursor-default ${answered === o.label ? 'border-pi-accent bg-pi-accent/15' : 'border-pi-border-soft bg-white/[0.03] enabled:hover:border-pi-accent/50 enabled:hover:bg-pi-accent/8'} ${answered && answered !== o.label ? 'opacity-45' : ''}`}>
             <span className="text-[13px] text-pi-text">{o.label}</span>
             {o.desc && <span className="block text-[11px] text-pi-dim mt-0.5">{o.desc}</span>}
           </button>
