@@ -19,7 +19,6 @@ import android.view.WindowManager;
 import android.view.accessibility.AccessibilityEvent;
 import android.view.accessibility.AccessibilityNodeInfo;
 import android.view.accessibility.AccessibilityWindowInfo;
-import android.widget.LinearLayout;
 import android.widget.TextView;
 import java.io.ByteArrayOutputStream;
 import java.util.ArrayList;
@@ -35,7 +34,7 @@ import org.json.JSONObject;
  * 屏幕操作（2026-11-20）：读当前界面的控件树并编号，按编号点/填字，滑动、返回/主页，截图（Android 11+）。
  * 安全边界：
  *   - 只有用户在系统无障碍设置里启用本服务、并在手机控制页打开「屏幕操作」才可用；
- *   - 操作期间屏幕顶部有「元枢正在操作」浮条，点「停止」立刻收回本次授权；
+ *   - 操作期间屏幕右侧有紫色「停」小圆按钮（可上下拖），点一下立刻收回本次授权；
  *   - 每个会话第一次操作屏幕要在手机上点允许（授权按会话，换会话要重新允许）；
  *   - 银行/支付/密码管理类应用直接拒绝；密码框不读也不填；
  *   - 点「发送/支付/付款/转账/删除/确认购买」这类按钮要在手机上确认。
@@ -72,29 +71,45 @@ public class YuanshuAccess extends AccessibilityService {
     private void showOverlay() {
         main.post(() -> {
             if (overlay != null) return;
+            // 2026-11-21 原来是顶部居中的横条，正好压住聊天标题（群名），截图识字读不出来。
+            // 改成贴右边的小圆按钮：可上下拖，点一下停止；截图那一瞬间隐藏（见 screenshot）。
             WindowManager wm = (WindowManager) getSystemService(WINDOW_SERVICE);
-            LinearLayout bar = new LinearLayout(this);
-            bar.setOrientation(LinearLayout.HORIZONTAL);
-            bar.setBackgroundColor(Color.argb(220, 92, 70, 200));
-            int pad = (int) (8 * getResources().getDisplayMetrics().density);
-            bar.setPadding(pad * 2, pad, pad, pad);
-            TextView label = new TextView(this);
-            label.setText("元枢正在操作手机");
-            label.setTextColor(Color.WHITE);
-            TextView stop = new TextView(this);
-            stop.setText("   停止 ✕");
-            stop.setTextColor(Color.WHITE);
-            stop.setOnClickListener(v -> revoke());
-            bar.addView(label);
-            bar.addView(stop);
-            WindowManager.LayoutParams lp = new WindowManager.LayoutParams(
-                WindowManager.LayoutParams.WRAP_CONTENT, WindowManager.LayoutParams.WRAP_CONTENT,
+            float dp = getResources().getDisplayMetrics().density;
+            TextView btn = new TextView(this);
+            btn.setText("停");
+            btn.setTextColor(Color.WHITE);
+            btn.setTextSize(13);
+            btn.setGravity(Gravity.CENTER);
+            btn.setContentDescription("元枢正在操作手机，点这里停止");
+            android.graphics.drawable.GradientDrawable bg = new android.graphics.drawable.GradientDrawable();
+            bg.setShape(android.graphics.drawable.GradientDrawable.OVAL);
+            bg.setColor(Color.argb(200, 92, 70, 200));
+            bg.setStroke((int) (2 * dp), Color.argb(230, 255, 255, 255));
+            btn.setBackground(bg);
+            int size = (int) (40 * dp);
+            WindowManager.LayoutParams lp = new WindowManager.LayoutParams(size, size,
                 WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY,
                 WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE | WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN,
                 PixelFormat.TRANSLUCENT);
-            lp.gravity = Gravity.TOP | Gravity.CENTER_HORIZONTAL;
-            lp.y = (int) (28 * getResources().getDisplayMetrics().density);
-            try { wm.addView(bar, lp); overlay = bar; } catch (Exception ignored) { }
+            lp.gravity = Gravity.TOP | Gravity.END;
+            lp.x = (int) (4 * dp);
+            lp.y = getResources().getDisplayMetrics().heightPixels / 3;
+            int slop = (int) (8 * dp);
+            btn.setOnTouchListener(new View.OnTouchListener() {
+                float downY; int startY; boolean moved;
+                @Override public boolean onTouch(View v, android.view.MotionEvent e) {
+                    switch (e.getActionMasked()) {
+                        case android.view.MotionEvent.ACTION_DOWN: downY = e.getRawY(); startY = lp.y; moved = false; return true;
+                        case android.view.MotionEvent.ACTION_MOVE:
+                            if (Math.abs(e.getRawY() - downY) > slop) moved = true;
+                            if (moved) { lp.y = Math.max(0, startY + (int) (e.getRawY() - downY)); try { wm.updateViewLayout(v, lp); } catch (Exception ignored) { } }
+                            return true;
+                        case android.view.MotionEvent.ACTION_UP: if (!moved) revoke(); return true;
+                        default: return false;
+                    }
+                }
+            });
+            try { wm.addView(btn, lp); overlay = btn; } catch (Exception ignored) { }
         });
     }
 
@@ -275,6 +290,8 @@ public class YuanshuAccess extends AccessibilityService {
         CountDownLatch done = new CountDownLatch(1);
         AtomicReference<String> out = new AtomicReference<>(null);
         AtomicReference<String> err = new AtomicReference<>("截图失败");
+        overlayVisible(false); // 别把自己的停止按钮截进去挡住内容
+        try {
         takeScreenshot(Display.DEFAULT_DISPLAY, getMainExecutor(), new TakeScreenshotCallback() {
             @Override public void onSuccess(ScreenshotResult result) {
                 try {
@@ -294,5 +311,17 @@ public class YuanshuAccess extends AccessibilityService {
         });
         if (!done.await(10, TimeUnit.SECONDS) || out.get() == null) throw new Exception(err.get());
         return out.get();
+        } finally { overlayVisible(true); }
+    }
+
+    /** 在主线程切换停止按钮的可见性，并等到下一帧画完（隐藏后才截图）。 */
+    private void overlayVisible(boolean show) throws InterruptedException {
+        CountDownLatch done = new CountDownLatch(1);
+        main.post(() -> {
+            if (overlay != null) overlay.setVisibility(show ? View.VISIBLE : View.INVISIBLE);
+            done.countDown();
+        });
+        done.await(1, TimeUnit.SECONDS);
+        if (!show) Thread.sleep(120);
     }
 }

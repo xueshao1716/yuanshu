@@ -28,7 +28,7 @@ export function ocrElements(result, scale = 1) {
   const statusBar = (Number(result?.height) || 0) * 0.035; // 顶部状态栏（时间、网速、电量）没用
   for (const l of result?.lines || []) {
     const text = String(l?.text || "").trim();
-    if (!text || /元枢正在操作/.test(text) || Number(l?.bounds?.[3]) < statusBar) continue;
+    if (!text || /元枢正在操作/.test(text) /* 2.227 及以前的顶部浮条 */ || Number(l?.bounds?.[3]) < statusBar) continue;
     const b = (l.bounds || []).map((v) => Math.round(Number(v) / s));
     if (b.length !== 4 || b.some((v) => !Number.isFinite(v))) continue;
     out.push({ text, bounds: b });

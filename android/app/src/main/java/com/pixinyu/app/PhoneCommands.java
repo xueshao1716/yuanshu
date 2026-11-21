@@ -415,7 +415,7 @@ final class PhoneCommands {
         if (s == null) throw new Exception("元枢的无障碍服务没有启用：请用户在系统设置 → 无障碍 → 元枢 里打开");
         String sid = a.optString("sessionId", "");
         if (!s.sessionGranted(sid.isEmpty() ? "default" : sid)) {
-            Confirmations.ask(ctx, id + "-grant", "允许元枢操作这台手机？", "元枢要读屏幕并替你点按/输入。本次对话内有效，屏幕顶部会显示「元枢正在操作」，随时点「停止」收回。支付和银行类应用一律不碰。", null, 85000);
+            Confirmations.ask(ctx, id + "-grant", "允许元枢操作这台手机？", "元枢要读屏幕并替你点按/输入。本次对话内有效，屏幕右侧会出现紫色「停」小圆按钮，随时点它收回。支付和银行类应用一律不碰。", null, 85000);
             s.grant(sid);
         }
         switch (cmd) {
