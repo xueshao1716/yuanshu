@@ -12,6 +12,11 @@ html[data-theme="mist"], html[data-theme="shuimo"] { color-scheme: light; }
 html[data-theme="obsidian"] { color-scheme: dark; }
 html, body, #root { height: 100%; }
 :root { --pi-viewport-height: 100dvh; }
+/* 界面缩放（主题页「字体排版」，2026-11-22）：整个工作台 zoom。zoom 会把 vh/dvh 也放大，
+   所以撑满屏幕的几处高度除回去；手机 App 不走这里，用 WebView 原生文字缩放。 */
+html[data-zoom] body { zoom: var(--pi-ui-zoom, 1); }
+html[data-zoom] .mobile-app-root, html[data-zoom] .mobile-app-root > .utility-panel { height: calc(var(--pi-viewport-height) / var(--pi-ui-zoom, 1)); }
+html[data-zoom] .min-h-\[100dvh\] { min-height: calc(100dvh / var(--pi-ui-zoom, 1)); }
 .mobile-app-root {
   --pi-native-keyboard-inset: 0px;
   height: 100vh;

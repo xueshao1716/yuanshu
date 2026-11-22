@@ -327,7 +327,7 @@ export default function Message({ msg, onEdit, onRetry, onBranch, onNotice }: { 
               <Attachments msg={msg} />
               {(msg.text || !msg.files?.length) && (
                 <div className="relative msg-bubble msg-bubble-user rounded-[20px] rounded-br-lg px-3.5 py-2 mt-0.5">
-                  <span className="whitespace-pre-wrap text-[13px] text-pi-text leading-relaxed">{msg.text}</span>
+                  <span className="msg-user-text whitespace-pre-wrap text-pi-text">{msg.text}</span>
                 </div>
               )}
               <div className="flex items-center gap-2 mt-0.5 px-1">

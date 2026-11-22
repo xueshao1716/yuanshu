@@ -126,7 +126,10 @@ input:focus-visible,
    v1 的问题：1440 宽下身份块挤在左，右边一大片死空；命令卡横向拉到 400px+。
    v2：宽屏分成「身份 / 能力清单」两栏，能力改成单列行式；窄屏回落单列。
    对话正文仍保持 860px 阅读宽，只有欢迎页放到 1000px。 */
-@media (min-width: 1100px) {
+/* 2026-11-22：按欢迎区自身宽度切两栏（容器查询），不按窗口宽——侧栏展开、界面缩放时窗口宽≠可用宽，
+   两栏最小要 260+420+gap ≈ 740px，正文区不够时右栏被裁掉。 */
+.chat-workstart { container-type: inline-size; }
+@container (min-width: 740px) {
   .chat-workstart > .chat-reading-column {
     display: grid;
     grid-template-columns: minmax(260px, 0.85fr) minmax(420px, 1.15fr);
@@ -204,9 +207,10 @@ input:focus-visible,
    原文：13px / 1.72，段落 8px，代码 pre 贴边。长对话读起来发紧。
    现在：14px / 1.76，段落 12px，标题有级差，代码/引用/表格各自成块。 */
 .markdown-body {
-  font-size: 14px;
-  line-height: 1.76;
-  letter-spacing: 0.002em;
+  /* 字号/字间距/行高可在主题页「字体排版」里调（typography.mjs 写变量） */
+  font-size: var(--pi-chat-size, 14px);
+  line-height: var(--pi-chat-leading, 1.76);
+  letter-spacing: var(--pi-chat-tracking, 0.002em);
   color: color-mix(in srgb, var(--pi-text) 94%, var(--pi-dim));
 }
 .markdown-body p { margin: 12px 0; }
@@ -759,3 +763,5 @@ html[data-theme="dark"] .markdown-body-wrapper .markdown-body pre code .hljs-com
 .tone-sources-grid li { font-size: 12.5px; line-height: 1.6; color: var(--pi-text); }
 .tone-sources-dim { font-size: 12px; color: var(--pi-dim2); }
 
+/* 用户气泡跟对话正文同一套排版设置；默认比正文小 1px，与原来 13px 一致 */
+.msg-user-text { font-size: calc(var(--pi-chat-size, 14px) - 1px); line-height: var(--pi-chat-leading, 1.625); letter-spacing: var(--pi-chat-tracking, 0); }

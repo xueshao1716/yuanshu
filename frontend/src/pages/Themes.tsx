@@ -13,6 +13,7 @@ import PageHeader from '../components/PageHeader'
 import SectionHeader from '../components/SectionHeader'
 import { toast } from '../components/shell/Toast'
 import LiteModePanel from '../components/panels/LiteModePanel'
+import TypographyPanel from '../components/panels/TypographyPanel'
 
 type Seed = { bg: string; text: string; accent: string; step: number; light?: boolean; overrides?: Record<string, string> }
 
@@ -213,7 +214,7 @@ export default function Themes() {
       <div className="max-w-6xl mx-auto px-4 sm:px-6 py-6">
         <PageHeader
           title="主题系统"
-          description="选择一套外观基底，再精调主色、层级密度与壁纸；修改会即时应用，保存后同步到所有端。"
+          description="选择一套外观基底，再精调主色、层级密度、壁纸与字体排版；修改会即时应用，保存后同步到所有端。"
           meta={<span className="text-[11px] text-pi-dim2">当前：{THEME_BY_ID[theme]?.name || theme}</span>}
         />
 
@@ -274,6 +275,13 @@ export default function Themes() {
                 <>现在是手动覆盖：你选了{autoNow!.dir === 'dark' ? '深色' : '浅色'}。等{autoNow!.mode === 'time' ? '时段' : '系统状态'}变化后，自动会重新接管。</>
               )}
             </div>
+          </div>
+        </section>
+
+        <section data-slot="theme-typography" className="mb-8">
+          <SectionHeader title="字体排版" description="调字号、字间距和行高，拖动即时生效。" />
+          <div className="panel !p-4">
+            <TypographyPanel />
           </div>
         </section>
 

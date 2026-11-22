@@ -26,6 +26,7 @@ public class MainActivity extends BridgeActivity {
     private final YuanshuDownloads downloads = new YuanshuDownloads(this);
     private final YuanshuPhone phone = new YuanshuPhone(this);
     private final YuanshuUpdate update = new YuanshuUpdate(this);
+    private final YuanshuDisplay display = new YuanshuDisplay();
 
     @Override
     public void onStart() {
@@ -42,6 +43,8 @@ public class MainActivity extends BridgeActivity {
         webView.addJavascriptInterface(phone, "YuanshuPhone");
         update.attach(webView);
         webView.addJavascriptInterface(update, "YuanshuUpdate");
+        display.attach(webView);
+        webView.addJavascriptInterface(display, "YuanshuDisplay");
         ViewCompat.setOnApplyWindowInsetsListener(webView, (view, insets) -> {
             int imeBottom = insets.getInsets(WindowInsetsCompat.Type.ime()).bottom;
             float density = view.getResources().getDisplayMetrics().density;
