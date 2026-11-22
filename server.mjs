@@ -227,6 +227,7 @@ import { initEnginePair, loadEnginePair, saveEnginePair, swapEnginePair, resolve
 import { decorateEngineStatus, isCorePlugin } from "./engine/engine-panel.mjs";
 import { readPromptPlugins, savePromptPlugin, removePromptPlugin, promptPluginDef } from "./engine/prompt-plugins.mjs";
 import { createAppReleaseRoutes } from "./engine/app-release.mjs";
+import { createAutoUpdater, checkWithImportance, runsIdle, applyViaHandler } from "./engine/auto-update.mjs";
 import { initWorkspaceApi, WS_ROOT, findWorkspaceFiles, wsSafePath, saveArtifact, saveArtifactFromFile, handleWsTree, handleWsFile, handleWsRead, handleWsPreview, handleWsWrite, handleWsArtifacts, wsNextVersion, handleWsDeliver, handleWsPackage, handleWsDeliveries, handleWsRename, handleWsDelete, handleWsSearch, handleWsProjectCreate, handleWsConvert } from "./engine/workspace-api.mjs";
 import { configureMarkdownImages } from "./engine/media/markdown-images.mjs";
 
@@ -4806,7 +4807,7 @@ function currentContextWindow() {
 const API_ROUTES = [
   ...createComputerRoutes({service:computerUse,json,readBody}),
   ...createPhoneRoutes({ hub: phoneHub, json, readBody }),
-  ...createAppReleaseRoutes(path.join(WS_ROOT, "安装包")),
+  ...createAppReleaseRoutes(path.join(WS_ROOT, "安装包"), () => { try { return JSON.parse(fs.readFileSync(path.join(__dirname, "version.json"), "utf8")).notify || "" } catch { return "" } }),
   ...createBehaviorExperimentRoutes({ service: behaviorExperiments, json, readBody }),
   ...websiteRoutes(websites,{json,readBody,root:WS_ROOT}),
   ["GET", "/api/workshop-ui/projects", async res => handleUiDesign(uiDesigns, json, res, 'list')],
@@ -6709,7 +6710,7 @@ const API_ROUTES = [
     if (r.error) return json(res, 400, { error: r.error });
     json(res, 200, { ok: true, domains: r.domains });
   }],
-  ["GET", "/api/system/check-update", async (res) => json(res, 200, await checkUpdate(__dirname))],
+  ["GET", "/api/system/check-update", async (res) => json(res, 200, await checkWithImportance(() => checkUpdate(__dirname), APP_VERSION))],
   // 可选组件：基本安装包不带 ffmpeg/抠图/pandas/PDF，按需联网安装（后台任务，轮询进度）
   ["GET", "/api/system/addons", async (res) => json(res, 200, { addons: await listAddons(), jobs: addonJobs() })],
   // 2026-11-19：外部智能体（Claude Code / Codex）开关，设置页用
@@ -9425,6 +9426,30 @@ try {
 // 但**正在跑的对话也一起卡住了**——只看"失败够久"就杀，会把用户跑到一半的轮次杀掉。
 // 心跳回答的是"冻住之前它有没有在干活"：有，就多等一段（见 lib/watchdog-limits.cjs）。
 // 只在有活动轮次时写（空闲不刷盘），活动归零时补写一条 0。
+// 小更新静默装（2026-11-23）：每小时查一次；远端没标「要提醒」的小版本，等空闲（没对话在跑、10 分钟没动静）
+// 自动拉取并重启，页面自己刷新。大更新仍由界面弹窗让用户点。源码目录有未提交改动（开发机）不自动拉。
+// 关掉：环境变量 YUANSHU_AUTO_UPDATE=0。
+try {
+  const autoUpdater = createAutoUpdater({
+    check: () => checkWithImportance(() => checkUpdate(__dirname), APP_VERSION),
+    apply: async () => {
+      try { recordPreUpdate(__dirname) } catch {}
+      return applyViaHandler(handleUpdateApply, {});
+    },
+    isIdle: () => runsIdle(typeof runManager?.list === "function" ? runManager.list() : []),
+    dirty: async () => {
+      try { return execFileSync("git", ["status", "--porcelain", "-uno"], { cwd: __dirname, timeout: 5000, windowsHide: true }).toString().trim() !== "" }
+      catch { return false }
+    },
+    log: m => console.log(m),
+  });
+  const loop = async () => {
+    const r = await autoUpdater.tick();
+    setTimeout(loop, r?.retryMs || 60 * 60_000).unref?.();
+  };
+  setTimeout(loop, 3 * 60_000).unref?.();
+} catch {}
+
 try {
   const HEARTBEAT_FILE = path.join(CONFIG.cwd, "记忆", "运行时", "守护心跳.json");
   const TERMINAL_STATUS = ["completed", "failed", "stopped", "interrupted"];

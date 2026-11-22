@@ -6,10 +6,16 @@ import { api } from '../../api'
 // 2026-11-20 手机端新版本提醒：UpdateNotice 只管电脑上的代码，APK 有没有新版 App 自己不知道。
 // 只在元枢安卓 App 里出现（有 window.YuanshuUpdate）；版本比对用电脑「安装包」目录里最新的 APK。
 type UpdateBridge = { version: () => string; install: () => void }
-type Latest = { android: { version: string; size: number; builtAt: string } | null }
+type Latest = { notify?: string; android: { version: string; size: number; builtAt: string } | null }
 type Progress = { state: 'downloading' | 'installing' | 'failed'; percent: number; error: string }
 
 const DISMISSED_KEY = 'yuanshu_apk_dismissed_version'
+// 2026-11-23 更新太勤有人嫌烦：只有中间夹着「大更新」（服务端 notify）才弹窗；
+// 小版本不弹，只告诉「更多」菜单有新版（事件 yuanshu-apk-available），用户想装自己点（事件 yuanshu-apk-show）
+export const APK_AVAILABLE_EVENT = 'yuanshu-apk-available'
+export const APK_SHOW_EVENT = 'yuanshu-apk-show'
+let available = ''
+export const availableApk = () => available
 const bridge = () => (globalThis as { YuanshuUpdate?: UpdateBridge }).YuanshuUpdate
 
 export function newerVersion(a: string, b: string): boolean {
@@ -30,6 +36,9 @@ export default function AppUpdateNotice() {
       const r = await api<Latest>('/api/app/latest')
       const mine = b.version()
       if (!r.android || !mine || !newerVersion(r.android.version, mine)) return setLatest(null)
+      available = r.android.version
+      try { window.dispatchEvent(new CustomEvent(APK_AVAILABLE_EVENT, { detail: available })) } catch {}
+      if (!r.notify || !newerVersion(r.notify, mine)) return // 小更新：不打扰
       let dismissed = ''
       try { dismissed = localStorage.getItem(DISMISSED_KEY) || '' } catch {}
       if (dismissed !== r.android.version) setLatest(r.android)
@@ -43,7 +52,16 @@ export default function AppUpdateNotice() {
     document.addEventListener('visibilitychange', onVisible)
     const onProgress = (e: Event) => setProgress((e as CustomEvent<Progress>).detail)
     window.addEventListener('yuanshu-update', onProgress)
-    return () => { document.removeEventListener('visibilitychange', onVisible); window.removeEventListener('yuanshu-update', onProgress) }
+    // 「更多」菜单里点了「安装新版」：不管大小更新都直接弹出来
+    const onShow = async () => {
+      try { const r = await api<Latest>('/api/app/latest'); if (r.android) setLatest(r.android) } catch {}
+    }
+    window.addEventListener(APK_SHOW_EVENT, onShow)
+    return () => {
+      document.removeEventListener('visibilitychange', onVisible)
+      window.removeEventListener('yuanshu-update', onProgress)
+      window.removeEventListener(APK_SHOW_EVENT, onShow)
+    }
   }, [check])
 
   if (!latest) return null

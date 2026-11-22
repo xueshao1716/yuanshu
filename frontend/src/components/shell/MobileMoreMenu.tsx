@@ -2,9 +2,10 @@ import { useEffect, useRef, useState } from 'react'
 import {
   Activity, Bot, Film, BrainCircuit, ClipboardCheck, Cpu, Factory, FolderKanban, GitCompare,
   Globe2, LayoutDashboard, LayoutGrid, UserRound, MonitorCog, PackageCheck, Layers, Palette, PanelRight, ShieldCheck, Sparkles, Workflow,
-  TerminalSquare, X,
+  TerminalSquare, X, Download,
 } from 'lucide-react'
 import ProfileManager from '../onboarding/ProfileManager'
+import { APK_AVAILABLE_EVENT, APK_SHOW_EVENT, availableApk } from './AppUpdateNotice'
 import type { Route } from '../../hooks/useHashRoute'
 import { ROUTE_LABELS, railOwner } from '../../nav'
 
@@ -53,6 +54,12 @@ export default function MobileMoreMenu({ open, onClose, route, nav, onOpenPanel,
   onLogout: () => void
 }) {
   const [accountsOpen, setAccountsOpen] = useState(false)
+  const [apk, setApk] = useState(() => availableApk())
+  useEffect(() => {
+    const on = (e: Event) => setApk(String((e as CustomEvent).detail || ''))
+    window.addEventListener(APK_AVAILABLE_EVENT, on)
+    return () => window.removeEventListener(APK_AVAILABLE_EVENT, on)
+  }, [])
   const sheetRef = useRef<HTMLElement>(null)
   const closeButtonRef = useRef<HTMLButtonElement>(null)
 
@@ -164,6 +171,17 @@ export default function MobileMoreMenu({ open, onClose, route, nav, onOpenPanel,
             <span>账号管理</span>
             <span className="ml-auto text-pi-dim">切换 / 添加登录账号</span>
           </button>
+          {/* 小版本不弹窗（2026-11-23），新版入口放这里 */}
+          {apk && (
+            <button
+              className="mobile-more-action mt-2 w-full justify-start gap-2 rounded-pi-md bg-pi-bg2 px-3 text-xs text-pi-text hover:bg-pi-bg3"
+              onClick={() => { onClose(); window.dispatchEvent(new CustomEvent(APK_SHOW_EVENT)) }}
+            >
+              <Download className="h-[18px] w-[18px] text-pi-accent" strokeWidth={1.8} />
+              <span>安装新版 App</span>
+              <span className="ml-auto text-pi-dim">v{apk}</span>
+            </button>
+          )}
         </div>
       </section>
     </div>

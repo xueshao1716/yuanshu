@@ -2,6 +2,8 @@ import { useCallback, useEffect, useState } from 'react'
 import { AlertTriangle, Download, RefreshCw, X } from 'lucide-react'
 import { useApp } from '../../store'
 import { SystemApi } from '../../api'
+import { PRODUCT_VERSION } from '../../lib/artifact-name'
+import { toast } from './Toast'
 
 const CHECK_KEY = 'yuanshu_update_notice_check_at'
 const DISMISSED_KEY = 'yuanshu_update_notice_dismissed_sha'
@@ -13,11 +15,52 @@ type UpdateInfo = {
   remote?: { sha?: string; message?: string; date?: string }
   upToDate?: boolean
   checkable?: boolean
+  relation?: string
+  remoteVersion?: string
+  important?: boolean // 2026-11-23：中间有没有标了「大更新」的版本；false = 小更新，服务端空闲时自己装
 }
 
-/** 全局更新提醒：只提醒，不静默拉取；更新和重启始终由用户确认。 */
+const SILENT_KEY = 'yuanshu_silent_updated_from'
+// 手机 App 的页面打包在 APK 里，刷新也换不了代码，不参与静默刷新
+const bundledShell = () => !!(globalThis as { Capacitor?: { isNativePlatform?: () => boolean } }).Capacitor?.isNativePlatform?.()
+
+/** 服务端静默更新后，页面里还是旧代码：找个不打扰的时机（切到后台、或 3 分钟没操作）自己刷新 */
+function useSilentReload() {
+  useEffect(() => {
+    if (bundledShell()) return
+    try {
+      const from = sessionStorage.getItem(SILENT_KEY)
+      if (from && from !== PRODUCT_VERSION) toast(`已在后台更新到 v${PRODUCT_VERSION}`, 'ok')
+      sessionStorage.removeItem(SILENT_KEY)
+    } catch {}
+    let stale = false, lastInput = Date.now()
+    const reload = () => { try { sessionStorage.setItem(SILENT_KEY, PRODUCT_VERSION) } catch {}; window.location.reload() }
+    const typing = () => { const a = document.activeElement as HTMLInputElement | null; return !!a && /^(INPUT|TEXTAREA)$/.test(a.tagName) && !!a.value }
+    const maybe = () => { if (stale && !typing() && (document.visibilityState === 'hidden' || Date.now() - lastInput > 3 * 60_000)) reload() }
+    const poll = async () => {
+      try {
+        const h = await fetch('/api/health', { cache: 'no-store', signal: AbortSignal.timeout(4000) })
+        const v = h.ok ? String((await h.json())?.version || '') : ''
+        if (v && /^\d+\.\d+\.\d+/.test(PRODUCT_VERSION) && v !== PRODUCT_VERSION) stale = true
+      } catch {}
+      maybe()
+    }
+    const onInput = () => { lastInput = Date.now() }
+    const timer = window.setInterval(() => void poll(), 60_000)
+    document.addEventListener('visibilitychange', maybe)
+    for (const ev of ['pointerdown', 'keydown']) window.addEventListener(ev, onInput, { passive: true })
+    return () => {
+      window.clearInterval(timer)
+      document.removeEventListener('visibilitychange', maybe)
+      for (const ev of ['pointerdown', 'keydown']) window.removeEventListener(ev, onInput)
+    }
+  }, [])
+}
+
+/** 全局更新提醒：大更新才弹窗让用户确认；小更新由服务端空闲时静默装（engine/auto-update.mjs），页面自己刷新。 */
 export default function UpdateNotice() {
   const { authed } = useApp()
+  useSilentReload()
   const [update, setUpdate] = useState<UpdateInfo | null>(null)
   const [busy, setBusy] = useState(false)
   const [message, setMessage] = useState('')
@@ -37,7 +80,9 @@ export default function UpdateNotice() {
     }
     try {
       const result = await SystemApi.checkUpdate() as UpdateInfo
-      if (!result?.upToDate && result?.checkable !== false && result?.remote?.sha) {
+      // 小更新且确实落后：服务端会挑空闲时自己装，这里不打扰
+      const quiet = result?.important === false && result?.relation === 'behind'
+      if (!quiet && !result?.upToDate && result?.checkable !== false && result?.remote?.sha) {
         let dismissed = ''
         try { dismissed = localStorage.getItem(DISMISSED_KEY) || '' } catch {}
         if (dismissed !== result.remote.sha) setUpdate(result)

@@ -35,11 +35,15 @@ export function latestApk(dir) {
   return best;
 }
 
-export function createAppReleaseRoutes(dir) {
+// notify：最近一个标了「大更新」的版本（version.json，见 auto-update.mjs）。App 只在
+// 自己比它旧时弹窗；更小的版本不打扰，只在「更多」菜单里留个入口。
+export function createAppReleaseRoutes(dir, readNotify = () => "") {
   return [
     ["GET", "/api/app/latest", (res) => {
       const apk = latestApk(dir);
-      return json(res, 200, apk ? { ok: true, android: { ...apk, url: "/api/app/apk" } } : { ok: true, android: null });
+      let notify = "";
+      try { notify = String(readNotify() || ""); } catch {}
+      return json(res, 200, apk ? { ok: true, notify, android: { ...apk, url: "/api/app/apk" } } : { ok: true, notify, android: null });
     }],
     // 只给最新那一个，不接受文件名参数：不会被拿来读目录里别的文件
     ["GET", "/api/app/apk", async (res) => {

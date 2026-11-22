@@ -7,6 +7,8 @@
 //   npm run version:bump 3.1.4     # 直接指定
 //   npm run version:bump sync      # 把所有声明对齐到 version.json（不递增、不动 CHANGELOG）
 //   npm run version:bump minor --dry   # 只看会改什么，不落盘
+//   npm run version:bump minor --notify  # 标成「大更新」：用户会收到更新提醒（2026-11-23）
+//                                         不加 = 小更新：电脑端空闲时静默装，手机 App 不弹窗
 //
 // 为什么需要它：版本号此前散在 9 个文件里各写各的，两条线（产品 2.7.1 / 壳 0.2.4）
 // 互不相干，壳版本甚至倒退过一次，而且没有任何机制强制推进——2026-09-12 到 09-14
@@ -61,8 +63,9 @@ function nextVersion(current, arg) {
   fail(`用法: version:bump <major|minor|patch|x.y.z|sync>，收到 "${arg}"`);
 }
 
-const args = process.argv.slice(2).filter(a => a !== "--dry");
+const args = process.argv.slice(2).filter(a => a !== "--dry" && a !== "--notify");
 const dry = process.argv.includes("--dry");
+const notify = process.argv.includes("--notify");
 const bump = args[0];
 if (!bump) fail("用法: version:bump <major|minor|patch|x.y.z|sync>");
 
@@ -128,6 +131,15 @@ for (const file of ['package-lock.json', 'frontend/package-lock.json', 'app/pack
   const updated = raw.replace(codeRe, (_a, p) => `${p}${code}`).replace(nameRe, (_a, p, _o, s) => `${p}${next}${s}`);
   if (!dry) fs.writeFileSync(full, updated, 'utf8');
   results.push({ file: `${file} (versionCode ${code})`, from: current, changed: updated !== raw });
+}
+
+// 大更新标记：version.json 的 notify = 最近一个要提醒用户的版本（engine/auto-update.mjs 读它）
+if (notify && !isSync) {
+  const meta = JSON.parse(fs.readFileSync(VERSION_FILE, "utf8"));
+  const from = meta.notify || "(无)";
+  meta.notify = next;
+  if (!dry) fs.writeFileSync(VERSION_FILE, JSON.stringify(meta, null, 2) + "\n", "utf8");
+  results.push({ file: "version.json (notify 大更新)", from, changed: true });
 }
 
 // CHANGELOG：把 [Unreleased] 收成正式版本，并留一个空的 [Unreleased] 在上面。
