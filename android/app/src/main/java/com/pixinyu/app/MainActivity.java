@@ -27,6 +27,7 @@ public class MainActivity extends BridgeActivity {
     private final YuanshuPhone phone = new YuanshuPhone(this);
     private final YuanshuUpdate update = new YuanshuUpdate(this);
     private final YuanshuDisplay display = new YuanshuDisplay();
+    private final YuanshuFlash flash = new YuanshuFlash();
 
     @Override
     public void onStart() {
@@ -45,6 +46,7 @@ public class MainActivity extends BridgeActivity {
         webView.addJavascriptInterface(update, "YuanshuUpdate");
         display.attach(webView);
         webView.addJavascriptInterface(display, "YuanshuDisplay");
+        webView.addJavascriptInterface(flash, "YuanshuFlash");
         ViewCompat.setOnApplyWindowInsetsListener(webView, (view, insets) -> {
             int imeBottom = insets.getInsets(WindowInsetsCompat.Type.ime()).bottom;
             float density = view.getResources().getDisplayMetrics().density;
@@ -92,13 +94,14 @@ public class MainActivity extends BridgeActivity {
     /** 磁贴/桌面卡片/长按快捷方式统一用这个 extra 唤起卡片；系统助理走 ACTION_ASSIST。 */
     public static final String EXTRA_ASSIST = "com.pixinyu.app.ASSIST";
     public static final String EXTRA_NEW_CHAT = "com.pixinyu.app.NEW_CHAT";
-    private static final int ASSIST_RETRY = 24;   // 250ms × 24 ≈ 6s，够冷启动把 WebView 拉起来
+    private static final int ASSIST_RETRY = 40;   // 250ms × 40 = 10s；超过这个时长就只靠前端补拉
 
     /** 被设为默认数字助理后，长按电源/主页键会以 ACTION_ASSIST 打开：直接进语音卡片。 */
     private void handleAssist(Intent intent) {
         if (intent == null) return;
         if (intent.getBooleanExtra(EXTRA_NEW_CHAT, false)) {
             intent.removeExtra(EXTRA_NEW_CHAT);
+            flash.setPending("new-chat");
             deliver("yuanshu-new-chat", 0);
             return;
         }
@@ -109,26 +112,28 @@ public class MainActivity extends BridgeActivity {
         // 消费掉，避免 onResume 反复触发
         intent.removeExtra(EXTRA_ASSIST);
         if (Intent.ACTION_ASSIST.equals(intent.getAction()) || Intent.ACTION_VOICE_COMMAND.equals(intent.getAction())) intent.setAction(Intent.ACTION_MAIN);
+        flash.setPending("assist");
         deliver("yuanshu-assist", 0);
     }
 
     /**
      * 2026-11-23 修：冷启动时 WebView 里的 JS 监听还没挂上，原来单次 600ms 派发直接丢进空气，
-     * 表现就是「点了没反应」。改成轮询派发，前端收到后把 window.__ysEventHandled 加一收工。
+     * 表现就是「点了没反应」。这里只做暖启动的推送（快），冷启动交给前端主动补拉：
+     * Activity 里留了一份待办意图（YuanshuFlash），页面挂好后 takePending() 取走，先后顺序无关紧要。
+     * 前端挂好后把 window.__ysAssistReady 置 true，本循环随即收工；取走后 hasPending 也变空。
      */
     private void deliver(String event, int attempt) {
+        if (!flash.hasPending()) return;
         WebView wv = this.bridge == null ? null : this.bridge.getWebView();
         if (wv == null) {
             if (attempt < ASSIST_RETRY) new android.os.Handler(getMainLooper()).postDelayed(() -> deliver(event, attempt + 1), 250);
             return;
         }
-        // 用计数器对账而不是布尔锁：卡片关掉后再唤一次也要能响（前端收到事件把 Handled 加一）
-        String js = "(function(){try{window.__ysEventFired=(window.__ysEventFired||0)+1;"
-            + "window.dispatchEvent(new Event('" + event + "'));"
-            + "return ((window.__ysEventHandled||0)>=window.__ysEventFired)?'done':'sent';}catch(e){return 'err';}})();";
+        String js = "(function(){try{window.dispatchEvent(new Event('" + event + "'));"
+            + "return window.__ysAssistReady?'ready':'wait';}catch(e){return 'err';}})();";
         wv.postDelayed(() -> wv.evaluateJavascript(js, value -> {
-            boolean done = value != null && value.contains("done");
-            if (!done && attempt < ASSIST_RETRY) deliver(event, attempt + 1);
+            boolean ready = value != null && value.contains("ready");
+            if (!ready && attempt < ASSIST_RETRY) deliver(event, attempt + 1);
         }), 250);
     }
 
