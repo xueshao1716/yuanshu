@@ -25,6 +25,7 @@ import { installVisualViewportHeight } from './lib/viewport'
 import { useThemePreferences } from './hooks/useThemePreferences'
 import { useThemeLiquidGlass } from './components/shell/LiquidGlass'
 import BrandMark from './components/BrandMark'
+import AssistCard from './components/assist/AssistCard'
 
 // 页面 lazy（路线图：每路由 lazy + ErrorBoundary）
 const ModelHub = lazy(() => import('./pages/ModelHub'))
@@ -228,11 +229,21 @@ export default function AppLayout() {
     if (authed && token) { pushArmedRef.current = true; syncNativePush(getApiBase() || window.location.origin, token) }
     else if (!authed && pushArmedRef.current) { pushArmedRef.current = false; clearNativePush() }
   }, [authed, token])
-  // 助理唤起（2026-11-20）：先切到聊天页，ChatArea 挂上后再派发一次让它开语音
+  // 助理唤起（2026-11-23 改为轻量卡片）：通知栏磁贴 / 桌面卡片 / 长按图标 / 系统助理
+  // 都走 yuanshu-assist，弹底部卡片，不再强制切页。原生侧会轮询派发直到 event handled，
+  // 所以这里每收到一次就把计数加一，原生据此停发（冷启动页面还没挂载也不会丢）。
+  const [assistOpen, setAssistOpen] = useState(false)
   useEffect(() => {
-    const onAssist = () => { if (!location.hash.startsWith('#/chat')) { location.hash = '#/chat'; setTimeout(() => window.dispatchEvent(new Event('yuanshu-assist')), 500) } }
+    const ack = () => { const w = window as any; w.__ysEventHandled = (w.__ysEventHandled || 0) + 1 }
+    const onAssist = () => { ack(); setAssistOpen(true) }
+    const onNewChat = () => {
+      ack()
+      if (!location.hash.startsWith('#/chat')) { location.hash = '#/chat'; setTimeout(() => window.dispatchEvent(new Event('yuanshu-new-chat-open')), 500) }
+      else window.dispatchEvent(new Event('yuanshu-new-chat-open'))
+    }
     window.addEventListener('yuanshu-assist', onAssist)
-    return () => window.removeEventListener('yuanshu-assist', onAssist)
+    window.addEventListener('yuanshu-new-chat', onNewChat)
+    return () => { window.removeEventListener('yuanshu-assist', onAssist); window.removeEventListener('yuanshu-new-chat', onNewChat) }
   }, [])
   const [route, nav] = useHashRoute(APP_ROUTES)
   // 桌面会话栏折叠（08-26）：持久化到 localStorage
@@ -440,6 +451,7 @@ export default function AppLayout() {
         {modelOpen && <LazyModelManager visible onClose={() => setModelOpen(false)} />}
         {accountsOpen && <ProfileManager open onClose={() => setAccountsOpen(false)} onLogout={logout} />}
       {palette}
+      <AssistCard open={assistOpen} onClose={() => setAssistOpen(false)} />
       </div>
     )
   }
@@ -520,6 +532,7 @@ export default function AppLayout() {
       {modelOpen && <LazyModelManager visible onClose={() => setModelOpen(false)} />}
       {accountsOpen && <ProfileManager open onClose={() => setAccountsOpen(false)} onLogout={logout} />}
       {palette}
+      <AssistCard open={assistOpen} onClose={() => setAssistOpen(false)} />
     </div>
     </ShellFrame>
   )

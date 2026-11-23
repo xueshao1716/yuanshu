@@ -32,8 +32,37 @@
                 <action android:name="android.intent.action.VOICE_COMMAND" />
                 <category android:name="android.intent.category.DEFAULT" />
             </intent-filter>
+            <!-- 2026-11-23 长按图标快捷方式：问小语 / 新会话 -->
+            <meta-data
+                android:name="android.app.shortcuts"
+                android:resource="@xml/shortcuts" />
 
         </activity>
+
+        <!-- 2026-11-23 通知栏磁贴「问小语」：不依赖 ROM 允许第三方当数字助理 -->
+        <service
+            android:name=".AssistTileService"
+            android:label="@string/assist_tile_label"
+            android:icon="@drawable/ic_assist"
+            android:permission="android.permission.BIND_QUICK_SETTINGS_TILE"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.service.quicksettings.action.QS_TILE" />
+            </intent-filter>
+        </service>
+
+        <!-- 2026-11-23 桌面 2×1 卡片「问小语」 -->
+        <receiver
+            android:name=".AssistWidgetProvider"
+            android:label="@string/assist_widget_title"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+            </intent-filter>
+            <meta-data
+                android:name="android.appwidget.provider"
+                android:resource="@xml/assist_widget_info" />
+        </receiver>
 
         <provider
             android:name="androidx.core.content.FileProvider"

@@ -146,11 +146,11 @@ export default function ChatArea({ compactHeader, rightPanel, onRightPanel, onVo
   const isCurrentView = () => viewOwnerRef.current === viewOwner
   const [voiceOpen, setVoiceOpen] = useState(false)
   useEffect(() => { setVoiceOpen(false) }, [sessionViewKey])
-  // 2026-11-20：安卓上设为默认数字助理后，长按电源/主页键唤起 → 原生派发 yuanshu-assist，直接进语音
+  // 2026-11-23：助理唤起改为 AppLayout 的轻量卡片（AssistCard）；这里只接「新会话」快捷方式
   useEffect(() => {
-    const onAssist = () => setVoiceOpen(true)
-    window.addEventListener('yuanshu-assist', onAssist)
-    return () => window.removeEventListener('yuanshu-assist', onAssist)
+    const onNewChat = () => { void newSession() }
+    window.addEventListener('yuanshu-new-chat-open', onNewChat)
+    return () => window.removeEventListener('yuanshu-new-chat-open', onNewChat)
   }, [])
   useEffect(() => { onVoiceViewChange?.(voiceOpen) }, [voiceOpen, onVoiceViewChange])
   useEffect(() => () => { onVoiceViewChange?.(false) }, [onVoiceViewChange])

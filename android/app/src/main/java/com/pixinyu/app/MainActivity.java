@@ -89,12 +89,47 @@ public class MainActivity extends BridgeActivity {
         }
     }
 
-    /** 被设为默认数字助理后，长按电源/主页键会以 ACTION_ASSIST 打开：直接进语音对话。 */
+    /** 磁贴/桌面卡片/长按快捷方式统一用这个 extra 唤起卡片；系统助理走 ACTION_ASSIST。 */
+    public static final String EXTRA_ASSIST = "com.pixinyu.app.ASSIST";
+    public static final String EXTRA_NEW_CHAT = "com.pixinyu.app.NEW_CHAT";
+    private static final int ASSIST_RETRY = 24;   // 250ms × 24 ≈ 6s，够冷启动把 WebView 拉起来
+
+    /** 被设为默认数字助理后，长按电源/主页键会以 ACTION_ASSIST 打开：直接进语音卡片。 */
     private void handleAssist(Intent intent) {
-        if (intent == null || !Intent.ACTION_ASSIST.equals(intent.getAction()) && !Intent.ACTION_VOICE_COMMAND.equals(intent.getAction())) return;
-        intent.setAction(Intent.ACTION_MAIN);
+        if (intent == null) return;
+        if (intent.getBooleanExtra(EXTRA_NEW_CHAT, false)) {
+            intent.removeExtra(EXTRA_NEW_CHAT);
+            deliver("yuanshu-new-chat", 0);
+            return;
+        }
+        boolean assist = Intent.ACTION_ASSIST.equals(intent.getAction())
+            || Intent.ACTION_VOICE_COMMAND.equals(intent.getAction())
+            || intent.getBooleanExtra(EXTRA_ASSIST, false);
+        if (!assist) return;
+        // 消费掉，避免 onResume 反复触发
+        intent.removeExtra(EXTRA_ASSIST);
+        if (Intent.ACTION_ASSIST.equals(intent.getAction()) || Intent.ACTION_VOICE_COMMAND.equals(intent.getAction())) intent.setAction(Intent.ACTION_MAIN);
+        deliver("yuanshu-assist", 0);
+    }
+
+    /**
+     * 2026-11-23 修：冷启动时 WebView 里的 JS 监听还没挂上，原来单次 600ms 派发直接丢进空气，
+     * 表现就是「点了没反应」。改成轮询派发，前端收到后把 window.__ysEventHandled 加一收工。
+     */
+    private void deliver(String event, int attempt) {
         WebView wv = this.bridge == null ? null : this.bridge.getWebView();
-        if (wv != null) wv.postDelayed(() -> wv.evaluateJavascript("window.dispatchEvent(new Event('yuanshu-assist'))", null), 600);
+        if (wv == null) {
+            if (attempt < ASSIST_RETRY) new android.os.Handler(getMainLooper()).postDelayed(() -> deliver(event, attempt + 1), 250);
+            return;
+        }
+        // 用计数器对账而不是布尔锁：卡片关掉后再唤一次也要能响（前端收到事件把 Handled 加一）
+        String js = "(function(){try{window.__ysEventFired=(window.__ysEventFired||0)+1;"
+            + "window.dispatchEvent(new Event('" + event + "'));"
+            + "return ((window.__ysEventHandled||0)>=window.__ysEventFired)?'done':'sent';}catch(e){return 'err';}})();";
+        wv.postDelayed(() -> wv.evaluateJavascript(js, value -> {
+            boolean done = value != null && value.contains("done");
+            if (!done && attempt < ASSIST_RETRY) deliver(event, attempt + 1);
+        }), 250);
     }
 
     @Override

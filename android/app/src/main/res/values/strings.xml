@@ -5,4 +5,12 @@
     <string name="package_name">com.pixinyu.app</string>
     <string name="custom_url_scheme">com.pixinyu.app</string>
     <string name="access_desc">让元枢在你同意后读取当前界面、替你点按和输入。操作时屏幕顶部会显示「元枢正在操作」，随时点停止。支付、银行、密码类应用一律不碰；发送、付款、删除前会先问你。</string>
+    <string name="assist_tile_label">问小语</string>
+    <string name="assist_card_title">问小语</string>
+    <string name="assist_widget_title">问小语</string>
+    <string name="assist_widget_sub">点一下，直接说</string>
+    <string name="shortcut_assist">问小语</string>
+    <string name="shortcut_assist_long">问小语（语音卡片）</string>
+    <string name="shortcut_new_chat">新会话</string>
+    <string name="shortcut_new_chat_long">和元枢开个新会话</string>
 </resources>

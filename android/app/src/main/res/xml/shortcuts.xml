@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 2026-11-23 长按桌面图标：语音对话 / 新会话 -->
+<shortcuts xmlns:android="http://schemas.android.com/apk/res/android">
+    <shortcut
+        android:shortcutId="assist"
+        android:enabled="true"
+        android:shortcutShortLabel="@string/shortcut_assist"
+        android:shortcutLongLabel="@string/shortcut_assist_long">
+        <intent
+            android:action="android.intent.action.ASSIST"
+            android:targetPackage="com.pixinyu.app"
+            android:targetClass="com.pixinyu.app.MainActivity" />
+        <categories android:name="android.shortcut.conversation" />
+    </shortcut>
+    <shortcut
+        android:shortcutId="new_chat"
+        android:enabled="true"
+        android:shortcutShortLabel="@string/shortcut_new_chat"
+        android:shortcutLongLabel="@string/shortcut_new_chat_long">
+        <intent
+            android:action="android.intent.action.MAIN"
+            android:targetPackage="com.pixinyu.app"
+            android:targetClass="com.pixinyu.app.MainActivity">
+            <extra android:name="com.pixinyu.app.NEW_CHAT" android:value="true" />
+        </intent>
+        <categories android:name="android.shortcut.conversation" />
+    </shortcut>
+</shortcuts>
