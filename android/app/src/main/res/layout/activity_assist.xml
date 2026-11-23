@@ -39,6 +39,7 @@
             android:orientation="horizontal">
 
             <TextView
+                android:id="@+id/assist_title"
                 android:layout_width="0dp"
                 android:layout_height="wrap_content"
                 android:layout_weight="1"
@@ -75,14 +76,29 @@
             android:layout_marginTop="8dp"
             android:visibility="gone">
 
-            <TextView
-                android:id="@+id/assist_reply"
+            <LinearLayout
+                android:id="@+id/assist_reply_body"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:lineSpacingExtra="4dp"
-                android:textColor="#E6EAF0"
-                android:textIsSelectable="true"
-                android:textSize="15sp" />
+                android:orientation="vertical">
+
+                <TextView
+                    android:id="@+id/assist_reply"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:lineSpacingExtra="4dp"
+                    android:textColor="#E6EAF0"
+                    android:textIsSelectable="true"
+                    android:textSize="15sp" />
+
+                <!-- 回答里画的图（![](...)）在这里一张张显示，点图打开元枢看大图 -->
+                <LinearLayout
+                    android:id="@+id/assist_images"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="vertical"
+                    android:visibility="gone" />
+            </LinearLayout>
         </ScrollView>
 
         <TextView

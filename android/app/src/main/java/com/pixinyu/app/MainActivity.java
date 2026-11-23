@@ -46,6 +46,7 @@ public class MainActivity extends BridgeActivity {
         webView.addJavascriptInterface(update, "YuanshuUpdate");
         display.attach(webView);
         webView.addJavascriptInterface(display, "YuanshuDisplay");
+        flash.attach(this);
         webView.addJavascriptInterface(flash, "YuanshuFlash");
         ViewCompat.setOnApplyWindowInsetsListener(webView, (view, insets) -> {
             int imeBottom = insets.getInsets(WindowInsetsCompat.Type.ime()).bottom;

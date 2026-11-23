@@ -6,6 +6,13 @@ import android.content.Context;
 import android.content.Intent;
 import android.content.SharedPreferences;
 import android.content.pm.PackageManager;
+import android.content.res.ColorStateList;
+import android.graphics.Bitmap;
+import android.graphics.BitmapFactory;
+import android.graphics.Color;
+import android.graphics.Outline;
+import android.graphics.drawable.GradientDrawable;
+import android.graphics.drawable.StateListDrawable;
 import android.media.AudioFormat;
 import android.media.AudioRecord;
 import android.media.MediaRecorder;
@@ -19,11 +26,13 @@ import android.view.KeyEvent;
 import android.view.MotionEvent;
 import android.view.View;
 import android.view.ViewGroup;
+import android.view.ViewOutlineProvider;
 import android.view.WindowManager;
 import android.view.inputmethod.EditorInfo;
 import android.view.inputmethod.InputMethodManager;
 import android.widget.EditText;
 import android.widget.ImageView;
+import android.widget.LinearLayout;
 import android.widget.ScrollView;
 import android.widget.FrameLayout;
 import android.widget.TextView;
@@ -40,6 +49,12 @@ import java.net.URL;
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
 import java.nio.charset.StandardCharsets;
+import java.util.ArrayList;
+import java.util.HashSet;
+import java.util.List;
+import java.util.Set;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 import java.util.UUID;
 import org.json.JSONObject;
 
@@ -67,7 +82,10 @@ public class AssistActivity extends Activity {
     private TextView send, reply, status;
     private ImageView mic;
     private ScrollView replyScroll;
-    private View root, sheet;
+    private View root, sheet, replyBody;
+    private LinearLayout images;
+    /** 已经放进卡片的图（只在主线程读写）。 */
+    private final Set<String> shownImages = new HashSet<>();
 
     private volatile boolean recording = false;
     private volatile boolean busy = false;
@@ -91,6 +109,9 @@ public class AssistActivity extends Activity {
         status = findViewById(R.id.assist_status);
         mic = findViewById(R.id.assist_mic);
         replyScroll = findViewById(R.id.assist_reply_scroll);
+        replyBody = findViewById(R.id.assist_reply_body);
+        images = findViewById(R.id.assist_images);
+        applyTheme();
 
         findViewById(R.id.assist_scrim).setOnClickListener(v -> finish());
         findViewById(R.id.assist_close).setOnClickListener(v -> finish());
@@ -122,6 +143,7 @@ public class AssistActivity extends Activity {
     @Override
     protected void onNewIntent(Intent intent) {
         super.onNewIntent(intent);
+        applyTheme();
         input.requestFocus();
     }
 
@@ -252,6 +274,9 @@ public class AssistActivity extends Activity {
         hideKeyboard();
         replyScroll.setVisibility(View.VISIBLE);
         reply.setText("");
+        images.removeAllViews();
+        images.setVisibility(View.GONE);
+        shownImages.clear();
         showStatus("「" + clip(text, 40) + "」 · 正在想…");
         new Thread(() -> runChat(text), "assist-chat").start();
     }
@@ -339,17 +364,18 @@ public class AssistActivity extends Activity {
             case "message": {
                 String t = d.optString("text", "");
                 if (t.isEmpty()) { JSONObject dd = d.optJSONObject("delta"); if (dd != null) t = dd.optString("text", ""); }
-                if (!t.isEmpty()) { acc.append(t); String snap = plain(acc.toString()); ui.post(() -> showReply(snap)); }
+                if (!t.isEmpty()) { acc.append(t); String snap = plain(acc.toString()); ui.post(() -> showReply(snap)); postImages(acc.toString()); }
                 return false;
             }
             case "response_replace": {
                 String t = d.optString("text", "");
-                if (!t.isEmpty()) { acc.setLength(0); acc.append(t); String snap = plain(t); ui.post(() -> showReply(snap)); }
+                if (!t.isEmpty()) { acc.setLength(0); acc.append(t); String snap = plain(t); ui.post(() -> showReply(snap)); postImages(t); }
                 return false;
             }
             case "tool": {
                 String name = d.optString("label", d.optString("name", d.optString("toolName", "")));
                 ui.post(() -> showStatus(name.isEmpty() ? "正在处理…" : "正在用 " + name + "…"));
+                postImages(unslash(d.toString()));   // 出图工具的输出里就带图片地址
                 return false;
             }
             case "confirm":
@@ -365,10 +391,11 @@ public class AssistActivity extends Activity {
             case "stopped":
             case "interrupted": {
                 boolean ok = !"failed".equals(type) && !"stopped".equals(type) && !"interrupted".equals(type);
+                postImages(unslash(d.toString()));
                 ui.post(() -> {
                     if (ok) hideStatus();
                     else showStatus("failed".equals(type) ? "这次没答上来，可以点「打开元枢」看详情。" : "已停止。");
-                    if (ok && acc.length() == 0) showStatus("做完了（没有文字回复，去元枢里看结果）。");
+                    if (ok && acc.length() == 0 && shownImages.isEmpty()) showStatus("做完了（没有文字回复，去元枢里看结果）。");
                     input.requestFocus();
                 });
                 return true;
@@ -532,20 +559,218 @@ public class AssistActivity extends Activity {
         return out.toString("UTF-8");
     }
 
+    // ── 回答里的图 ───────────────────────────────────────────
+    //
+    // 2026-11-23 v2.235.0：真机反馈「卡片上让她画图了，没有展示出来」。
+    // 出的图在回答里是 ![图片](/api/ws/file?path=…png&exp=…&sig=…)，以前 plain() 直接换成「[图片]」字样。
+    // 现在从回答正文和出图工具的输出里把图片地址捞出来，下载后缩到卡片宽度，显示在文字下面。
+
+    private static final Pattern MD_IMAGE = Pattern.compile("!\\[[^\\]]*\\]\\(([^)\\s]+)\\)");
+    private static final Pattern WS_FILE = Pattern.compile("/api/ws/file\\?[^\\s\"'<>)\\]（）]+");
+    private static final Pattern IMAGE_EXT = Pattern.compile("(?i)\\.(png|jpe?g|webp|gif|bmp)$");
+
+    private static String unslash(String json) { return json.replace("\\/", "/"); }
+
+    /** 后台线程调用：找出新出现的图片地址，交给主线程加载。 */
+    private void postImages(String text) {
+        List<String> found = new ArrayList<>();
+        Matcher m = MD_IMAGE.matcher(text);
+        while (m.find()) found.add(m.group(1));
+        m = WS_FILE.matcher(text);
+        while (m.find()) if (isImagePath(m.group())) found.add(m.group());
+        if (!found.isEmpty()) ui.post(() -> { for (String u : found) addImage(u); });
+    }
+
+    private static String pathParam(String url) {
+        int q = url.indexOf("path=");
+        if (q < 0) return null;
+        String p = url.substring(q + 5);
+        int amp = p.indexOf('&');
+        return amp >= 0 ? p.substring(0, amp) : p;
+    }
+
+    private static boolean isImagePath(String url) {
+        String p = pathParam(url);
+        if (p == null) return false;
+        try { p = java.net.URLDecoder.decode(p, "UTF-8"); } catch (Exception ignored) { }
+        return IMAGE_EXT.matcher(p).find();
+    }
+
+    private void addImage(String url) {
+        // 同一张图去重：文件路径一样就算同一张（签名参数每次可能不同）
+        String key = pathParam(url);
+        if (isFinishing() || !shownImages.add(key == null ? url : key)) return;
+        int width = Math.max(replyScroll.getWidth(), (int) (240 * getResources().getDisplayMetrics().density));
+        new Thread(() -> {
+            Bitmap bmp = null;
+            try { bmp = fetchBitmap(url, width); } catch (Exception ignored) { }
+            Bitmap shown = bmp;
+            ui.post(() -> {
+                if (isFinishing()) return;
+                if (shown == null) showStatus("图已画好，但卡片里没加载出来，点「打开元枢」看。");
+                else showImage(shown);
+            });
+        }, "assist-image").start();
+    }
+
+    private Bitmap fetchBitmap(String url, int maxWidth) throws Exception {
+        HttpURLConnection c;
+        if (url.startsWith("/")) c = open(url, "GET", 30_000);
+        else { c = (HttpURLConnection) new URL(url).openConnection(); c.setConnectTimeout(10_000); c.setReadTimeout(30_000); }
+        byte[] bytes;
+        try {
+            if (c.getResponseCode() >= 400) throw new HttpError(c.getResponseCode(), "");
+            java.io.InputStream in = c.getInputStream();
+            ByteArrayOutputStream out = new ByteArrayOutputStream();
+            byte[] b = new byte[16384];
+            int n;
+            while ((n = in.read(b)) > 0) {
+                out.write(b, 0, n);
+                if (out.size() > 25 * 1024 * 1024) throw new IllegalStateException("图片太大");
+            }
+            in.close();
+            bytes = out.toByteArray();
+        } finally {
+            c.disconnect();
+        }
+        // 先只读尺寸，按卡片宽度算缩小倍数，免得大图把内存撑爆
+        BitmapFactory.Options o = new BitmapFactory.Options();
+        o.inJustDecodeBounds = true;
+        BitmapFactory.decodeByteArray(bytes, 0, bytes.length, o);
+        int sample = 1;
+        while (o.outWidth / (sample * 2) >= maxWidth) sample *= 2;
+        o = new BitmapFactory.Options();
+        o.inSampleSize = sample;
+        return BitmapFactory.decodeByteArray(bytes, 0, bytes.length, o);
+    }
+
+    private void showImage(Bitmap bmp) {
+        float dp = getResources().getDisplayMetrics().density;
+        ImageView iv = new ImageView(this);
+        iv.setAdjustViewBounds(true);
+        iv.setScaleType(ImageView.ScaleType.FIT_CENTER);
+        iv.setImageBitmap(bmp);
+        iv.setOutlineProvider(new ViewOutlineProvider() {
+            @Override public void getOutline(View v, Outline o) { o.setRoundRect(0, 0, v.getWidth(), v.getHeight(), 12 * dp); }
+        });
+        iv.setClipToOutline(true);
+        iv.setContentDescription("回答里的图片");
+        iv.setOnClickListener(v -> openApp());   // 点图去元枢里看大图、保存、分享
+        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        lp.topMargin = (int) (8 * dp);
+        images.addView(iv, lp);
+        images.setVisibility(View.VISIBLE);
+        replyScroll.setVisibility(View.VISIBLE);
+        if (status.getText().toString().startsWith("做完了")) hideStatus();
+        fitReply();
+    }
+
+    // ── 主题：跟主程序同色 ───────────────────────────────────
+    //
+    // 2026-11-23 v2.235.0：主程序每次换主题都通过 YuanshuFlash.setTheme 存一份关键颜色（#AARRGGBB），
+    // 卡片打开时按它重新上色。没存过（还没用新版主程序打开过）就保持布局里的默认深色。
+
+    private void applyTheme() {
+        JSONObject t;
+        try { t = new JSONObject(prefs.getString(YuanshuFlash.KEY_THEME, "")); } catch (Exception e) { return; }
+        float dp = getResources().getDisplayMetrics().density;
+        int text = color(t, "text", 0xFFF2F5F8);
+        int dim = color(t, "dim", 0xFF8A94A1);
+        int accent = color(t, "accent", 0xFF8B7CF6);
+        int onAccent = color(t, "onAccent", 0xFFFFFFFF);
+        // 卡片浮在别的 App 上，底色必须不透明：玻璃类主题的半透明面板色先垫一层深/浅底
+        int bg = solid(color(t, "bg", 0xFF161B21), luminance(text) > 0.5 ? 0xFF101317 : 0xFFFAFAFA);
+        int field = solid(color(t, "field", bg), bg);
+        int btn = solid(color(t, "btn", field), bg);
+
+        sheet.setBackground(shape(bg, 22 * dp, color(t, "border", 0x26FFFFFF), dp));
+        input.setBackground(shape(field, 14 * dp, color(t, "fieldBorder", 0x1FFFFFFF), dp));
+        input.setTextColor(text);
+        input.setHintTextColor(withAlpha(dim, 0xB0));
+        input.setHighlightColor(withAlpha(accent, 0x55));
+        if (android.os.Build.VERSION.SDK_INT >= 29) {
+            GradientDrawable cursor = new GradientDrawable();
+            cursor.setColor(accent);
+            cursor.setSize((int) (2 * dp), (int) (20 * dp));
+            input.setTextCursorDrawable(cursor);
+        }
+        ((TextView) findViewById(R.id.assist_title)).setTextColor(text);
+        reply.setTextColor(text);
+        reply.setHighlightColor(withAlpha(accent, 0x55));
+        status.setTextColor(dim);
+        ((TextView) findViewById(R.id.assist_open_app)).setTextColor(dim);
+        ((TextView) findViewById(R.id.assist_close)).setTextColor(dim);
+        findViewById(R.id.assist_handle).setBackground(shape(withAlpha(dim, 0x80), 2 * dp, 0, 0));
+
+        StateListDrawable sendBg = new StateListDrawable();
+        sendBg.addState(new int[]{-android.R.attr.state_enabled}, shape(withAlpha(accent, 0x40), 22 * dp, 0, 0));
+        sendBg.addState(new int[]{}, shape(accent, 22 * dp, 0, 0));
+        send.setBackground(sendBg);
+        send.setTextColor(new ColorStateList(
+            new int[][]{{-android.R.attr.state_enabled}, {}},
+            new int[]{withAlpha(onAccent, 0x99), onAccent}));
+
+        GradientDrawable micOn = new GradientDrawable();
+        micOn.setShape(GradientDrawable.OVAL);
+        micOn.setColor(color(t, "danger", 0xFFE5484D));
+        GradientDrawable micOff = new GradientDrawable();
+        micOff.setShape(GradientDrawable.OVAL);
+        micOff.setColor(btn);
+        StateListDrawable micBg = new StateListDrawable();
+        micBg.addState(new int[]{android.R.attr.state_selected}, micOn);
+        micBg.addState(new int[]{}, micOff);
+        mic.setBackground(micBg);
+        mic.setImageTintList(new ColorStateList(
+            new int[][]{{android.R.attr.state_selected}, {}},
+            new int[]{0xFFFFFFFF, text}));
+    }
+
+    private static int color(JSONObject t, String key, int fallback) {
+        try { return Color.parseColor(t.optString(key, "")); } catch (Exception e) { return fallback; }
+    }
+
+    private static int withAlpha(int c, int a) { return (c & 0x00FFFFFF) | (a << 24); }
+
+    private static double luminance(int c) {
+        return (0.299 * Color.red(c) + 0.587 * Color.green(c) + 0.114 * Color.blue(c)) / 255.0;
+    }
+
+    /** 半透明颜色铺到不透明底色上，得到实色。 */
+    private static int solid(int c, int under) {
+        float a = Color.alpha(c) / 255f;
+        if (a >= 0.99f) return c | 0xFF000000;
+        return Color.rgb(
+            Math.round(Color.red(c) * a + Color.red(under) * (1 - a)),
+            Math.round(Color.green(c) * a + Color.green(under) * (1 - a)),
+            Math.round(Color.blue(c) * a + Color.blue(under) * (1 - a)));
+    }
+
+    private static GradientDrawable shape(int fill, float radius, int stroke, float dp) {
+        GradientDrawable g = new GradientDrawable();
+        g.setColor(fill);
+        g.setCornerRadius(radius);
+        if (stroke != 0 && dp > 0) g.setStroke(Math.max(1, (int) dp), stroke);
+        return g;
+    }
+
     // ── 界面小工具 ───────────────────────────────────────────
 
     private void showReply(String text) {
         replyScroll.setVisibility(View.VISIBLE);
         reply.setText(text);
-        // 回答太长时卡片别顶满屏：滚动区封顶约 45% 屏高
+        fitReply();
+        hideStatus();
+    }
+
+    /** 回答太长时卡片别顶满屏：滚动区（文字 + 图）封顶约 45% 屏高。 */
+    private void fitReply() {
         int cap = (int) (getResources().getDisplayMetrics().heightPixels * 0.45f);
-        reply.post(() -> {
+        replyBody.post(() -> {
             ViewGroup.LayoutParams lp = replyScroll.getLayoutParams();
-            int want = reply.getHeight() > cap ? cap : ViewGroup.LayoutParams.WRAP_CONTENT;
+            int want = replyBody.getHeight() > cap ? cap : ViewGroup.LayoutParams.WRAP_CONTENT;
             if (lp.height != want) { lp.height = want; replyScroll.setLayoutParams(lp); }
             replyScroll.fullScroll(View.FOCUS_DOWN);
         });
-        hideStatus();
     }
 
     private void showStatus(String s) { status.setText(s); status.setVisibility(View.VISIBLE); }
@@ -570,7 +795,7 @@ public class AssistActivity extends Activity {
             .replace("**", "")
             .replaceAll("(?m)^```.*$", "")
             .replaceAll("`([^`]+)`", "$1")
-            .replaceAll("!\\[[^\\]]*\\]\\([^)]*\\)", "[图片]")
+            .replaceAll("!\\[[^\\]]*\\]\\([^)]*\\)", "")   // 图在文字下面单独显示
             .replaceAll("\\[([^\\]]+)\\]\\([^)]*\\)", "$1")
             .trim();
     }

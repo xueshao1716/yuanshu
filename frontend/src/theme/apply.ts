@@ -1,6 +1,7 @@
 import { generateTheme, SEEDS, resolveThemeId } from './generate.mjs'
 import { ThemeApi } from '../api'
 import { persistWallpaper } from './wallpaper.mjs'
+import { syncNativeTheme } from './native-sync'
 
 // ── 主题应用单一真源（08-29 从 ThemeSwitcher 抽出，ThemesPage/ThemeSwitcher 共用）──
 // 流程：seed(+accent 覆盖) → generateTheme 派生全量变量 → 写 CSS 变量 + data-theme + localStorage
@@ -49,6 +50,7 @@ export function applyThemeVars(theme: string, accent: string) {
       meta.content = String(bg).trim()
     }
   } catch {}
+  syncNativeTheme()
 }
 
 export function persistTheme(theme: string, accent: string) {
