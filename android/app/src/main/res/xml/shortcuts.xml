@@ -9,7 +9,7 @@
         <intent
             android:action="android.intent.action.ASSIST"
             android:targetPackage="com.pixinyu.app"
-            android:targetClass="com.pixinyu.app.MainActivity" />
+            android:targetClass="com.pixinyu.app.AssistActivity" />
         <categories android:name="android.shortcut.conversation" />
     </shortcut>
     <shortcut

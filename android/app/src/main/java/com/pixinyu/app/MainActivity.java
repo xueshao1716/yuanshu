@@ -94,11 +94,20 @@ public class MainActivity extends BridgeActivity {
     /** 磁贴/桌面卡片/长按快捷方式统一用这个 extra 唤起卡片；系统助理走 ACTION_ASSIST。 */
     public static final String EXTRA_ASSIST = "com.pixinyu.app.ASSIST";
     public static final String EXTRA_NEW_CHAT = "com.pixinyu.app.NEW_CHAT";
+    /** 问小语浮层点「打开元枢」：带上它那个会话的 id，进 App 直接落在那段对话上。 */
+    public static final String EXTRA_OPEN_SESSION = "com.pixinyu.app.OPEN_SESSION";
     private static final int ASSIST_RETRY = 40;   // 250ms × 40 = 10s；超过这个时长就只靠前端补拉
 
     /** 被设为默认数字助理后，长按电源/主页键会以 ACTION_ASSIST 打开：直接进语音卡片。 */
     private void handleAssist(Intent intent) {
         if (intent == null) return;
+        String openSid = intent.getStringExtra(EXTRA_OPEN_SESSION);
+        if (openSid != null && !openSid.isEmpty()) {
+            intent.removeExtra(EXTRA_OPEN_SESSION);
+            flash.setPending("session:" + openSid);
+            deliver("yuanshu-native-pending", 0);
+            return;
+        }
         if (intent.getBooleanExtra(EXTRA_NEW_CHAT, false)) {
             intent.removeExtra(EXTRA_NEW_CHAT);
             flash.setPending("new-chat");

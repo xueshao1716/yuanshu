@@ -23,7 +23,24 @@
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
-            <!-- 2026-11-20 可设为默认数字助理：长按电源/主页键唤起元枢语音 -->
+            <!-- 2026-11-23 长按图标快捷方式：问小语 / 新会话 -->
+            <meta-data
+                android:name="android.app.shortcuts"
+                android:resource="@xml/shortcuts" />
+
+        </activity>
+
+        <!-- 2026-11-23 问小语浮层：透明 Activity，盖在当前 App 上，不拉起元枢主界面。
+             独立 taskAffinity + 不进最近任务：收起后回到原来的 App，元枢主程序不受影响。
+             系统助理（ASSIST / VOICE_COMMAND）也落到这里。 -->
+        <activity
+            android:name=".AssistActivity"
+            android:theme="@style/AssistOverlay"
+            android:taskAffinity="com.pixinyu.app.assist"
+            android:launchMode="singleTask"
+            android:excludeFromRecents="true"
+            android:windowSoftInputMode="adjustResize|stateVisible"
+            android:exported="true">
             <intent-filter>
                 <action android:name="android.intent.action.ASSIST" />
                 <category android:name="android.intent.category.DEFAULT" />
@@ -32,11 +49,6 @@
                 <action android:name="android.intent.action.VOICE_COMMAND" />
                 <category android:name="android.intent.category.DEFAULT" />
             </intent-filter>
-            <!-- 2026-11-23 长按图标快捷方式：问小语 / 新会话 -->
-            <meta-data
-                android:name="android.app.shortcuts"
-                android:resource="@xml/shortcuts" />
-
         </activity>
 
         <!-- 2026-11-23 通知栏磁贴「问小语」：不依赖 ROM 允许第三方当数字助理 -->
@@ -118,6 +130,8 @@
     <!-- Permissions -->
 
     <uses-permission android:name="android.permission.INTERNET" />
+    <!-- 问小语浮层说话（首次按麦克风时才申请） -->
+    <uses-permission android:name="android.permission.RECORD_AUDIO" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />

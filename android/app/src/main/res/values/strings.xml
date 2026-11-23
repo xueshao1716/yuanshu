@@ -13,4 +13,8 @@
     <string name="shortcut_assist_long">问小语（语音卡片）</string>
     <string name="shortcut_new_chat">新会话</string>
     <string name="shortcut_new_chat_long">和元枢开个新会话</string>
+    <string name="assist_open_app">打开元枢</string>
+    <string name="assist_hint">问点什么，或按麦克风说一句</string>
+    <string name="assist_send">发送</string>
+    <string name="assist_mic">语音输入</string>
 </resources>

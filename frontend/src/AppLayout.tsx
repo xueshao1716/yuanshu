@@ -244,11 +244,21 @@ export default function AppLayout() {
       if (!location.hash.startsWith('#/chat')) { location.hash = '#/chat'; setTimeout(() => window.dispatchEvent(new Event('yuanshu-new-chat-open')), 500) }
       else window.dispatchEvent(new Event('yuanshu-new-chat-open'))
     }
+    // 原生「问小语」浮层点「打开元枢」：落到它那段会话上
+    const openSession = (id: string) => {
+      const go = () => window.dispatchEvent(new CustomEvent('yuanshu-open-session', { detail: { id } }))
+      if (!location.hash.startsWith('#/chat')) { location.hash = '#/chat'; setTimeout(go, 500) } else go()
+    }
+    const runPending = (p: string) => {
+      if (p === 'assist') openAssist()
+      else if (p === 'new-chat') onNewChat()
+      else if (p.startsWith('session:')) openSession(p.slice(8))
+    }
+    const onNativePending = () => { runPending(takeNativePending()); markNativeConsumed() }
     window.addEventListener('yuanshu-assist', onAssist)
     window.addEventListener('yuanshu-new-chat', onNewChat)
-    const pending = takeNativePending()
-    if (pending === 'assist') openAssist()
-    else if (pending === 'new-chat') onNewChat()
+    window.addEventListener('yuanshu-native-pending', onNativePending)
+    runPending(takeNativePending())
     // 页面已经挂好，原生可以停止重发了（派发先于挂载的那些已经落在上面补拉里）
     w.__ysAssistReady = true
     return () => {
@@ -256,6 +266,7 @@ export default function AppLayout() {
       w.__ysAssistReady = false
       window.removeEventListener('yuanshu-assist', onAssist)
       window.removeEventListener('yuanshu-new-chat', onNewChat)
+      window.removeEventListener('yuanshu-native-pending', onNativePending)
     }
   }, [])
   const [route, nav] = useHashRoute(APP_ROUTES)

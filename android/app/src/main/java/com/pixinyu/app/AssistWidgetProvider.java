@@ -9,7 +9,7 @@ import android.widget.RemoteViews;
 
 /**
  * 2026-11-23 桌面 2×1 卡片「问小语」。
- * 点一下 → ACTION_ASSIST → MainActivity → 前端轻量卡片。桌面入口比长按图标更显眼，
+ * 点一下 → AssistActivity 浮层卡片（不拉起整个 App）。桌面入口比长按图标更显眼，
  * 也不依赖 ROM 的助理授权。只做静态卡片，不跑常驻更新，省电。
  */
 public class AssistWidgetProvider extends AppWidgetProvider {
@@ -17,9 +17,8 @@ public class AssistWidgetProvider extends AppWidgetProvider {
     public void onUpdate(Context context, AppWidgetManager mgr, int[] ids) {
         for (int id : ids) {
             RemoteViews views = new RemoteViews(context.getPackageName(), R.layout.widget_assist);
-            Intent intent = new Intent(context, MainActivity.class)
+            Intent intent = new Intent(context, AssistActivity.class)
                 .setAction(Intent.ACTION_ASSIST)
-                .putExtra(MainActivity.EXTRA_ASSIST, true)
                 .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_SINGLE_TOP);
             PendingIntent pi = PendingIntent.getActivity(context, 0, intent,
                 PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);

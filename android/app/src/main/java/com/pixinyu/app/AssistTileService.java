@@ -27,10 +27,9 @@ public class AssistTileService extends TileService {
     @Override
     public void onClick() {
         super.onClick();
-        Intent intent = new Intent(this, MainActivity.class)
+        Intent intent = new Intent(this, AssistActivity.class)
             .setAction(Intent.ACTION_ASSIST)
-            .putExtra(MainActivity.EXTRA_ASSIST, true)
-            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_SINGLE_TOP | Intent.FLAG_ACTIVITY_CLEAR_TOP);
+            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_SINGLE_TOP);
         if (isLocked()) {
             // 锁屏状态下先解锁再唤起；unlockAndRun 在 API 24+ 可用
             unlockAndRun(() -> startActivityAndCollapseCompat(intent));

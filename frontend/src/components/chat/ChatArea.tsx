@@ -146,11 +146,20 @@ export default function ChatArea({ compactHeader, rightPanel, onRightPanel, onVo
   const isCurrentView = () => viewOwnerRef.current === viewOwner
   const [voiceOpen, setVoiceOpen] = useState(false)
   useEffect(() => { setVoiceOpen(false) }, [sessionViewKey])
-  // 2026-11-23：助理唤起改为 AppLayout 的轻量卡片（AssistCard）；这里只接「新会话」快捷方式
+  // 2026-11-23：助理唤起改为 AppLayout 的轻量卡片（AssistCard）；这里只接「新会话」快捷方式，
+  // 以及原生问小语浮层「打开元枢」带过来的会话 id
   useEffect(() => {
     const onNewChat = () => { void newSession() }
+    const onOpen = (e: Event) => {
+      const id = (e as CustomEvent).detail?.id
+      if (typeof id === 'string' && id) { sessionIdRef.current = id; selectSession(id); void refreshSessions() }
+    }
     window.addEventListener('yuanshu-new-chat-open', onNewChat)
-    return () => window.removeEventListener('yuanshu-new-chat-open', onNewChat)
+    window.addEventListener('yuanshu-open-session', onOpen)
+    return () => {
+      window.removeEventListener('yuanshu-new-chat-open', onNewChat)
+      window.removeEventListener('yuanshu-open-session', onOpen)
+    }
   }, [])
   useEffect(() => { onVoiceViewChange?.(voiceOpen) }, [voiceOpen, onVoiceViewChange])
   useEffect(() => () => { onVoiceViewChange?.(false) }, [onVoiceViewChange])
