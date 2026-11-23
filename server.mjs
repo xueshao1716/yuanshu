@@ -228,6 +228,7 @@ import { decorateEngineStatus, isCorePlugin } from "./engine/engine-panel.mjs";
 import { readPromptPlugins, savePromptPlugin, removePromptPlugin, promptPluginDef } from "./engine/prompt-plugins.mjs";
 import { createAppReleaseRoutes } from "./engine/app-release.mjs";
 import { createAutoUpdater, checkWithImportance, runsIdle, applyViaHandler } from "./engine/auto-update.mjs";
+import { readLoopGoals, writeLoopGoals, createLoopGoal, updateLoopGoal, resolveInsight, executionPrompt, dueGoals, publicGoal, runLoopGoal, MAX_ACTIVE as GOAL_LOOP_MAX } from "./engine/goal-loop.mjs";
 import { initWorkspaceApi, WS_ROOT, findWorkspaceFiles, wsSafePath, saveArtifact, saveArtifactFromFile, handleWsTree, handleWsFile, handleWsRead, handleWsPreview, handleWsWrite, handleWsArtifacts, wsNextVersion, handleWsDeliver, handleWsPackage, handleWsDeliveries, handleWsRename, handleWsDelete, handleWsSearch, handleWsProjectCreate, handleWsConvert } from "./engine/workspace-api.mjs";
 import { configureMarkdownImages } from "./engine/media/markdown-images.mjs";
 
@@ -2369,7 +2370,14 @@ async function chatWithFailover(model, messages, opts = {}) {
   // 表现成"执行轮没有按契约给出结果"，看起来又像模型不行。
   const wrapped = await withModelFailover({
     initial: isTextCapableModel(model) ? model : pickFallbackDefault(),
-    call: (m) => unifiedChat(m, messages, opts),
+    // 2026-11-23：unifiedChat 出错是「返回 {error}」不是抛异常，切换逻辑看不到——deepseek 欠费 402 时
+    // 后台调用直接失败、从不换通道。不带工具的调用没有副作用，把 error 抛出来让它换；
+    // 带工具的不动（可能已经执行过工具，换通道重跑会重复动作）。
+    call: async (m) => {
+      const r = await unifiedChat(m, messages, opts);
+      if (r?.error && !opts.tools?.length) throw new Error(String(r.error));
+      return r;
+    },
     pickNext: (tried) => {
       const seen = new Set(tried.map((x) => `${x.provider}/${x.id}`));
       let next = pickFallbackExcluding(tried[tried.length - 1]);
@@ -8109,6 +8117,50 @@ const boardApi = createBoardApi({
     }
   }]);
 
+  // 2026-11-23 长期目标（engine/goal-loop.mjs）：首页洞察卡的增删改查 + 手动跑一轮
+  const goalLoopErr = (res, e) => json(res, e?.status || 500, { error: String(e?.message || e).slice(0, 200) });
+  API_ROUTES.push(["GET", "/api/goal-loop", async (res) => {
+    json(res, 200, { goals: readLoopGoals(WS_ROOT).filter(g => g.status !== "done").map(publicGoal), maxActive: GOAL_LOOP_MAX });
+  }]);
+  API_ROUTES.push(["POST", "/api/goal-loop", async (res, req) => {
+    try {
+      const b = await readBody(req);
+      const goals = createLoopGoal(readLoopGoals(WS_ROOT), { title: b?.title, detail: b?.detail });
+      writeLoopGoals(WS_ROOT, goals);
+      const g = goals[goals.length - 1];
+      // 新目标立刻跑第一轮，别让人设完对着空卡片
+      void runGoalLoopRound(g.id).catch(() => {});
+      json(res, 200, { ok: true, goal: publicGoal(g) });
+    } catch (e) { goalLoopErr(res, e) }
+  }]);
+  API_ROUTES.push(["PATCH", /^\/api\/goal-loop\/([^/]+)$/, async (res, req, _url, m) => {
+    try {
+      const goals = updateLoopGoal(readLoopGoals(WS_ROOT), m[1], await readBody(req));
+      writeLoopGoals(WS_ROOT, goals);
+      json(res, 200, { ok: true, goal: publicGoal(goals.find(g => g.id === m[1])) });
+    } catch (e) { goalLoopErr(res, e) }
+  }]);
+  API_ROUTES.push(["DELETE", /^\/api\/goal-loop\/([^/]+)$/, async (res, _req, _url, m) => {
+    const goals = readLoopGoals(WS_ROOT);
+    if (!goals.some(g => g.id === m[1])) return json(res, 404, { error: "目标不存在" });
+    writeLoopGoals(WS_ROOT, goals.filter(g => g.id !== m[1]));
+    json(res, 200, { ok: true });
+  }]);
+  API_ROUTES.push(["POST", /^\/api\/goal-loop\/([^/]+)\/run$/, async (res, _req, _url, m) => {
+    try {
+      const r = await runGoalLoopRound(m[1]);
+      json(res, r.ok ? 200 : 502, r.ok ? { ok: true, goal: publicGoal(r.goal), added: r.added } : r);
+    } catch (e) { goalLoopErr(res, e) }
+  }]);
+  API_ROUTES.push(["POST", /^\/api\/goal-loop\/([^/]+)\/insights\/([^/]+)$/, async (res, req, _url, m) => {
+    try {
+      const b = await readBody(req);
+      const r = resolveInsight(readLoopGoals(WS_ROOT), m[1], m[2], { action: b?.action, optionId: b?.optionId });
+      writeLoopGoals(WS_ROOT, r.goals);
+      json(res, 200, { ok: true, goal: publicGoal(r.goal), prompt: r.option ? executionPrompt(r.goal, r.insight, r.option) : "" });
+    } catch (e) { goalLoopErr(res, e) }
+  }]);
+
   // 2026-10-22 守护形态：Windows 服务优先，计划任务回退；系统页据此显示状态与操作。
   API_ROUTES.push(["GET", "/api/service/status", async (res) => {
     try {
@@ -9448,6 +9500,38 @@ try {
     setTimeout(loop, r?.retryMs || 60 * 60_000).unref?.();
   };
   setTimeout(loop, 3 * 60_000).unref?.();
+} catch {}
+
+// 长期目标每日一轮（2026-11-23）：每小时看一次，今天还没跑过的进行中目标挨个跑；夜里 0–7 点不跑。
+const goalLoopRunning = new Set();
+async function runGoalLoopRound(gid) {
+  if (goalLoopRunning.has(gid)) return { ok: false, error: "这个目标正在跑，稍等" };
+  goalLoopRunning.add(gid);
+  try {
+    return await runLoopGoal(WS_ROOT, gid, {
+      // 无人看着跑：走通道切换，主通道没额度也能出结果
+      chat: async (prompt) => completedTaskText(await chatWithFailover(defaultModel, [{ role: "user", content: prompt }], { tools: [] })),
+      facts: async () => {
+        const mod = await import("./engine/morning-brief.mjs");
+        return JSON.stringify(mod.buildMorningBrief(WS_ROOT, { agentDir: AGENT_DIR, now: new Date() }));
+      },
+    });
+  } finally { goalLoopRunning.delete(gid); }
+}
+try {
+  const goalLoop = async () => {
+    try {
+      const now = new Date();
+      if (now.getHours() >= 7) {
+        for (const g of dueGoals(readLoopGoals(WS_ROOT), now)) {
+          const r = await runGoalLoopRound(g.id).catch(e => ({ ok: false, error: e?.message }));
+          console.log(`[长期目标] ${g.title}：${r.ok ? `新增 ${r.added} 条洞察` : `没跑成（${r.error}）`}`);
+        }
+      }
+    } catch (e) { console.log(`[长期目标] 定时轮出错：${String(e?.message || e).slice(0, 120)}`) }
+    setTimeout(goalLoop, 60 * 60_000).unref?.();
+  };
+  setTimeout(goalLoop, 5 * 60_000).unref?.();
 } catch {}
 
 try {

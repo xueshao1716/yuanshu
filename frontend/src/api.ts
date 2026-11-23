@@ -1290,6 +1290,36 @@ export const BriefApi = {
   today: (refresh = false) => api<MorningBrief>(`/api/brief/today${refresh ? '?refresh=1' : ''}`),
 }
 
+// ── 长期目标（2026-11-23）：小语每天围绕目标跑一轮，出洞察卡 + 可选方案 ──
+export type GoalInsight = {
+  id: string
+  at: string
+  problem: string
+  evidence: string
+  confidence: 'high' | 'medium' | 'low'
+  options: { id: string; label: string; detail: string }[]
+}
+export type LoopGoal = {
+  id: string
+  title: string
+  detail: string
+  status: 'active' | 'paused' | 'done'
+  createdAt: string
+  lastRunAt: string
+  pending: GoalInsight[]
+  log: { at: string; text: string }[]
+}
+const goalPath = (id: string) => `/api/goal-loop/${encodeURIComponent(id)}`
+export const GoalLoopApi = {
+  list: () => api<{ goals: LoopGoal[]; maxActive: number }>('/api/goal-loop'),
+  create: (title: string, detail = '') => api<{ ok: boolean; goal: LoopGoal }>('/api/goal-loop', { method: 'POST', body: { title, detail } }),
+  update: (id: string, patch: Partial<Pick<LoopGoal, 'title' | 'detail' | 'status'>>) => api<{ ok: boolean; goal: LoopGoal }>(goalPath(id), { method: 'PATCH', body: patch }),
+  remove: (id: string) => api<{ ok: boolean }>(goalPath(id), { method: 'DELETE' }),
+  run: (id: string) => api<{ ok: boolean; goal: LoopGoal; added: number }>(`${goalPath(id)}/run`, { method: 'POST', timeoutMs: 180_000 }),
+  resolve: (id: string, insightId: string, action: 'choose' | 'skip', optionId?: string) =>
+    api<{ ok: boolean; goal: LoopGoal; prompt: string }>(`${goalPath(id)}/insights/${encodeURIComponent(insightId)}`, { method: 'POST', body: { action, optionId } }),
+}
+
 // ── 后台作业池（2026-10-23）──
 export type BackgroundJob = {
   id: string

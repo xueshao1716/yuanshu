@@ -717,6 +717,55 @@ html[data-theme="dark"] .markdown-body-wrapper .markdown-body pre code .hljs-com
   margin-bottom: 0;
 }
 
+/* ── 长期目标（2026-11-23）：首页洞察卡 + 可选方案 ── */
+.goal-loop {
+  margin: 0 0 18px; padding: 14px 18px 14px;
+  border: 1px solid color-mix(in srgb, var(--pi-border) 55%, transparent);
+  border-radius: 14px;
+  background: color-mix(in srgb, var(--pi-bg2) 55%, var(--pi-bg));
+}
+.chat-workstart > .chat-reading-column > .goal-loop { grid-column: 1 / -1; grid-row: 3; margin: 14px 0 0; }
+.gl-empty { display: grid; gap: 10px; margin-top: 10px; }
+.gl-empty p { display: flex; align-items: center; gap: 8px; margin: 0; font-size: 12.8px; line-height: 1.6; color: var(--pi-dim); }
+.gl-empty p svg { flex: none; color: var(--pi-accent); }
+.gl-form { display: flex; align-items: center; gap: 8px; }
+.gl-form input {
+  flex: 1; min-width: 0; height: 34px; padding: 0 12px; font-size: 13px;
+  border: 1px solid color-mix(in srgb, var(--pi-border) 70%, transparent); border-radius: 9px;
+  background: var(--pi-bg); color: var(--pi-text);
+}
+.gl-form input:focus { outline: none; border-color: var(--pi-accent); }
+.gl-form .btn-primary { height: 34px; padding: 0 14px; font-size: 12.5px; white-space: nowrap; }
+.gl-icon { display: inline-flex; align-items: center; justify-content: center; width: 28px; height: 28px; border-radius: 7px; color: var(--pi-dim2); }
+.gl-list { display: grid; gap: 12px; margin-top: 10px; }
+.gl-goal + .gl-goal { padding-top: 12px; border-top: 1px solid color-mix(in srgb, var(--pi-border) 40%, transparent); }
+.gl-goal.is-paused { opacity: .6; }
+.gl-goal-head { display: flex; align-items: center; gap: 10px; min-width: 0; }
+.gl-goal-head h3 { margin: 0; font-size: 14px; font-weight: 600; color: var(--pi-text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.gl-since { flex: none; font-size: 11.5px; color: var(--pi-dim2); }
+.gl-insights { display: grid; gap: 10px; margin-top: 10px; }
+.gl-insight { padding: 10px 12px; border-radius: 10px; background: color-mix(in srgb, var(--pi-text) 3%, transparent); }
+.gl-problem { margin: 0; font-size: 13px; line-height: 1.6; color: var(--pi-text); }
+.gl-conf { display: inline-block; margin-right: 6px; padding: 0 6px; border-radius: 999px; font-size: 10.5px; line-height: 18px; vertical-align: 1px; }
+.gl-conf-high { color: #12805c; background: color-mix(in srgb, #12b76a 12%, transparent); }
+.gl-conf-medium { color: var(--pi-accent); background: color-mix(in srgb, var(--pi-accent) 12%, transparent); }
+.gl-conf-low { color: #b45309; background: color-mix(in srgb, #f59e0b 12%, transparent); }
+.gl-evidence { margin: 4px 0 0; font-size: 12px; line-height: 1.55; color: var(--pi-dim); }
+.gl-options { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+.gl-option {
+  display: grid; gap: 2px; max-width: 100%; padding: 6px 10px; text-align: left;
+  border: 1px solid color-mix(in srgb, var(--pi-accent) 35%, transparent); border-radius: 9px;
+  background: var(--pi-bg); color: var(--pi-text); font-size: 12.5px;
+}
+.gl-option small { font-size: 11px; line-height: 1.45; color: var(--pi-dim2); white-space: normal; overflow-wrap: anywhere; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.gl-more { justify-self: start; padding: 2px 4px; font-size: 11.5px; color: var(--pi-accent); }
+.gl-more:hover { text-decoration: underline; }
+.gl-option:hover:not(:disabled) { border-color: var(--pi-accent); background: color-mix(in srgb, var(--pi-accent) 7%, var(--pi-bg)); }
+.gl-option:disabled, .gl-skip:disabled { opacity: .5; }
+.gl-skip { align-self: center; padding: 4px 8px; font-size: 11.5px; color: var(--pi-dim2); }
+.gl-skip:hover { color: var(--pi-text); }
+@media (max-width: 720px) { .gl-option { flex: 1 1 100%; } }
+
 /* ── 心情日记（2026-10-24）── */
 .mood-diary { display: grid; gap: 6px; }
 .md-hint { font-size: 12.5px; color: var(--pi-dim2); }

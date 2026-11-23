@@ -34,6 +34,7 @@ import { reconcileImageMessages } from '../../lib/image-identity'
 import { workRole, workTool } from '../../lib/work-explanation'
 import { createSessionViewOwner } from '../../realtime/session-owner.mjs'
 import MorningPanel from '../panels/MorningPanel'
+import GoalLoopPanel from '../panels/GoalLoopPanel'
 import { CHOICE_EVENT } from '../../lib/choice-reply.mjs'
 
 // 流式状态：覆盖服务端全部 SSE 事件（delta/think/think_end/tool/tool_output/
@@ -1307,6 +1308,7 @@ export default function ChatArea({ compactHeader, rightPanel, onRightPanel, onVo
           </div>
         </div>
         <MorningPanel />
+        <GoalLoopPanel />
         <section className="workstart-actions" aria-labelledby="quick-actions-title">
           <div className="chat-section-head workstart-head">
             <h2 id="quick-actions-title">开始工作</h2>
