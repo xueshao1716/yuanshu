@@ -17,9 +17,22 @@
         android:clickable="true"
         android:focusable="true"
         android:orientation="vertical"
-        android:padding="16dp">
+        android:paddingStart="16dp"
+        android:paddingEnd="16dp"
+        android:paddingBottom="16dp"
+        android:paddingTop="6dp">
+
+        <!-- 拖动把手：按住标题栏这一带可以把卡片拖到屏幕任意位置 -->
+        <View
+            android:id="@+id/assist_handle"
+            android:layout_width="36dp"
+            android:layout_height="4dp"
+            android:layout_gravity="center_horizontal"
+            android:layout_marginBottom="6dp"
+            android:background="@drawable/assist_handle_bg" />
 
         <LinearLayout
+            android:id="@+id/assist_head"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:gravity="center_vertical"

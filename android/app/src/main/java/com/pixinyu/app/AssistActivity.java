@@ -16,6 +16,7 @@ import android.text.Editable;
 import android.text.TextWatcher;
 import android.util.Base64;
 import android.view.KeyEvent;
+import android.view.MotionEvent;
 import android.view.View;
 import android.view.ViewGroup;
 import android.view.WindowManager;
@@ -24,7 +25,12 @@ import android.view.inputmethod.InputMethodManager;
 import android.widget.EditText;
 import android.widget.ImageView;
 import android.widget.ScrollView;
+import android.widget.FrameLayout;
 import android.widget.TextView;
+import androidx.core.graphics.Insets;
+import androidx.core.view.ViewCompat;
+import androidx.core.view.WindowCompat;
+import androidx.core.view.WindowInsetsCompat;
 import java.io.BufferedReader;
 import java.io.ByteArrayOutputStream;
 import java.io.InputStreamReader;
@@ -53,6 +59,7 @@ public class AssistActivity extends Activity {
     private static final int REQ_MIC = 3101;
     private static final int RATE = 16000;
     private static final int MAX_REC_MS = 60_000;
+    private static final String KEY_POS_X = "assistPosX", KEY_POS_Y = "assistPosY";
 
     private final Handler ui = new Handler(Looper.getMainLooper());
     private SharedPreferences prefs;
@@ -60,6 +67,7 @@ public class AssistActivity extends Activity {
     private TextView send, reply, status;
     private ImageView mic;
     private ScrollView replyScroll;
+    private View root, sheet;
 
     private volatile boolean recording = false;
     private volatile boolean busy = false;
@@ -73,6 +81,9 @@ public class AssistActivity extends Activity {
         getWindow().setLayout(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT);
         getWindow().setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE | WindowManager.LayoutParams.SOFT_INPUT_STATE_VISIBLE);
         prefs = getSharedPreferences(PushService.PREFS, Context.MODE_PRIVATE);
+        root = findViewById(R.id.assist_scrim);
+        sheet = findViewById(R.id.assist_sheet);
+        setupFloating();
 
         input = findViewById(R.id.assist_input);
         send = findViewById(R.id.assist_send);
@@ -120,6 +131,101 @@ public class AssistActivity extends Activity {
         HttpURLConnection c = stream;
         if (c != null) try { c.disconnect(); } catch (Exception ignored) { }
         super.onDestroy();
+    }
+
+    // ── 浮动与键盘避让 ───────────────────────────────────────
+    //
+    // 2026-11-23 v2.234.0：真机反馈「不会浮动、被输入法挡住」。
+    // targetSdk 36 下系统强制 edge-to-edge，adjustResize 不再替我们缩窗口——键盘直接盖在卡片上。
+    // 所以自己接管：读 IME / 导航栏 / 状态栏 inset 作为根布局内边距，卡片永远在键盘上方；
+    // 按住顶部把手或标题栏可以把卡片拖到任意位置（位置记住，下次还在那儿），
+    // 键盘弹出把可用区域压扁时，再把卡片夹回可见范围。
+
+    private void setupFloating() {
+        WindowCompat.setDecorFitsSystemWindows(getWindow(), false);
+        float dp = getResources().getDisplayMetrics().density;
+        int screenW = getResources().getDisplayMetrics().widthPixels;
+        // 宽度封顶 440dp：平板/横屏上像一张卡，而不是一条横幅
+        FrameLayout.LayoutParams lp = (FrameLayout.LayoutParams) sheet.getLayoutParams();
+        lp.width = Math.min(screenW - (int) (20 * dp), (int) (440 * dp));
+        lp.gravity = android.view.Gravity.BOTTOM | android.view.Gravity.CENTER_HORIZONTAL;
+        sheet.setLayoutParams(lp);
+
+        ViewCompat.setOnApplyWindowInsetsListener(root, (v, insets) -> {
+            Insets bars = insets.getInsets(WindowInsetsCompat.Type.systemBars() | WindowInsetsCompat.Type.displayCutout());
+            Insets ime = insets.getInsets(WindowInsetsCompat.Type.ime());
+            v.setPadding(bars.left, bars.top, bars.right, Math.max(ime.bottom, bars.bottom));
+            v.post(this::clampSheet);
+            return WindowInsetsCompat.CONSUMED;
+        });
+        ViewCompat.requestApplyInsets(root);
+
+        sheet.setTranslationX(prefs.getFloat(KEY_POS_X, 0f) * dp);
+        sheet.setTranslationY(prefs.getFloat(KEY_POS_Y, 0f) * dp);
+        // 回答变长、键盘起落都会改尺寸：卡片或根布局一变就重新夹一次
+        View.OnLayoutChangeListener reclamp = (v, l, t, r, b, ol, ot, or, ob) -> clampSheet();
+        root.addOnLayoutChangeListener(reclamp);
+        sheet.addOnLayoutChangeListener(reclamp);
+
+        View.OnTouchListener drag = new View.OnTouchListener() {
+            float downX, downY, startTX, startTY;
+            boolean moved;
+            long lastTap;
+            @Override public boolean onTouch(View v, MotionEvent e) {
+                switch (e.getActionMasked()) {
+                    case MotionEvent.ACTION_DOWN:
+                        downX = e.getRawX(); downY = e.getRawY();
+                        startTX = sheet.getTranslationX(); startTY = sheet.getTranslationY();
+                        moved = false;
+                        return true;
+                    case MotionEvent.ACTION_MOVE: {
+                        float dx = e.getRawX() - downX, dy = e.getRawY() - downY;
+                        if (!moved && Math.hypot(dx, dy) < 6 * dp) return true;
+                        moved = true;
+                        sheet.setTranslationX(startTX + dx);
+                        sheet.setTranslationY(startTY + dy);
+                        clampSheet();
+                        return true;
+                    }
+                    case MotionEvent.ACTION_UP:
+                    case MotionEvent.ACTION_CANCEL:
+                        if (moved) {
+                            prefs.edit()
+                                .putFloat(KEY_POS_X, sheet.getTranslationX() / dp)
+                                .putFloat(KEY_POS_Y, sheet.getTranslationY() / dp).apply();
+                        } else if (e.getActionMasked() == MotionEvent.ACTION_UP) {
+                            long now = System.currentTimeMillis();
+                            if (now - lastTap < 320) { resetPosition(); lastTap = 0; } else lastTap = now;
+                        }
+                        return true;
+                }
+                return false;
+            }
+        };
+        findViewById(R.id.assist_handle).setOnTouchListener(drag);
+        findViewById(R.id.assist_head).setOnTouchListener(drag);
+        // 双击标题栏回到默认位置（拖丢了能找回来）——判断写在上面 ACTION_UP 里
+    }
+
+    /** 把卡片夹在根布局的内边距（状态栏/键盘/导航栏之间）里，任何时候都整张可见。 */
+    private void clampSheet() {
+        if (root == null || sheet == null || sheet.getHeight() == 0) return;
+        int minLeft = root.getPaddingLeft(), maxRight = root.getWidth() - root.getPaddingRight();
+        int minTop = root.getPaddingTop(), maxBottom = root.getHeight() - root.getPaddingBottom();
+        float tx = sheet.getTranslationX(), ty = sheet.getTranslationY();
+        float left = sheet.getLeft() + tx, top = sheet.getTop() + ty;
+        if (left < minLeft) tx += minLeft - left;
+        if (left + sheet.getWidth() > maxRight) tx -= left + sheet.getWidth() - maxRight;
+        if (top + sheet.getHeight() > maxBottom) ty -= top + sheet.getHeight() - maxBottom;
+        top = sheet.getTop() + ty;
+        if (top < minTop) ty += minTop - top;   // 卡片比可用高度还高时，优先保证顶部（标题栏）可见
+        sheet.setTranslationX(tx);
+        sheet.setTranslationY(ty);
+    }
+
+    private void resetPosition() {
+        prefs.edit().remove(KEY_POS_X).remove(KEY_POS_Y).apply();
+        sheet.animate().translationX(0).translationY(0).setDuration(180).withEndAction(this::clampSheet).start();
     }
 
     // ── 配置 ─────────────────────────────────────────────────
