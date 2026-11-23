@@ -2,6 +2,7 @@ package com.pixinyu.app;
 
 import android.Manifest;
 import android.app.Activity;
+import android.content.ActivityNotFoundException;
 import android.content.Context;
 import android.content.Intent;
 import android.content.SharedPreferences;
@@ -19,9 +20,11 @@ import android.media.MediaRecorder;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
+import android.speech.RecognizerIntent;
 import android.text.Editable;
 import android.text.TextWatcher;
 import android.util.Base64;
+import android.view.Gravity;
 import android.view.KeyEvent;
 import android.view.MotionEvent;
 import android.view.View;
@@ -72,18 +75,31 @@ import org.json.JSONObject;
 public class AssistActivity extends Activity {
     private static final String KEY_SESSION = "assistSessionId";
     private static final int REQ_MIC = 3101;
+    private static final int REQ_VOICE = 3102;
     private static final int RATE = 16000;
     private static final int MAX_REC_MS = 60_000;
     private static final String KEY_POS_X = "assistPosX", KEY_POS_Y = "assistPosY";
+    private static final String KEY_W = "assistWidth", KEY_REPLY_H = "assistReplyHeight";
+    /** 卡片里最多留这么多轮对话，再多就把最早的挪掉。 */
+    private static final int MAX_TURNS = 20;
 
     private final Handler ui = new Handler(Looper.getMainLooper());
     private SharedPreferences prefs;
     private EditText input;
-    private TextView send, reply, status;
+    private TextView send, status;
     private ImageView mic;
     private ScrollView replyScroll;
-    private View root, sheet, replyBody;
+    private View root, sheet;
+    private LinearLayout replyBody;
+    /** 当前这一轮的回答和它的图（每发一句换一组，只在主线程读写）。 */
+    private TextView reply;
     private LinearLayout images;
+    /** 用户拉出来的消息区高度（px），0 = 没拉过，随内容长。 */
+    private int replyH;
+    private boolean fitPosted;
+    private float dp;
+    // 对话记录的配色，applyTheme 会覆盖成主程序主题色
+    private int cText = 0xFFE6EAF0, cAccent = 0xFF8B7CF6;
     /** 已经放进卡片的图（只在主线程读写）。 */
     private final Set<String> shownImages = new HashSet<>();
 
@@ -99,18 +115,16 @@ public class AssistActivity extends Activity {
         getWindow().setLayout(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT);
         getWindow().setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE | WindowManager.LayoutParams.SOFT_INPUT_STATE_VISIBLE);
         prefs = getSharedPreferences(PushService.PREFS, Context.MODE_PRIVATE);
+        dp = getResources().getDisplayMetrics().density;
         root = findViewById(R.id.assist_scrim);
         sheet = findViewById(R.id.assist_sheet);
-        setupFloating();
-
         input = findViewById(R.id.assist_input);
         send = findViewById(R.id.assist_send);
-        reply = findViewById(R.id.assist_reply);
         status = findViewById(R.id.assist_status);
         mic = findViewById(R.id.assist_mic);
         replyScroll = findViewById(R.id.assist_reply_scroll);
         replyBody = findViewById(R.id.assist_reply_body);
-        images = findViewById(R.id.assist_images);
+        setupFloating();
         applyTheme();
 
         findViewById(R.id.assist_scrim).setOnClickListener(v -> finish());
@@ -118,6 +132,7 @@ public class AssistActivity extends Activity {
         findViewById(R.id.assist_open_app).setOnClickListener(v -> openApp());
         send.setOnClickListener(v -> submit());
         mic.setOnClickListener(v -> toggleMic());
+        mic.setOnLongClickListener(v -> { if (!recording) builtInMic(); return true; });
         input.addTextChangedListener(new TextWatcher() {
             public void beforeTextChanged(CharSequence s, int a, int b, int c) { }
             public void onTextChanged(CharSequence s, int a, int b, int c) { }
@@ -165,29 +180,28 @@ public class AssistActivity extends Activity {
 
     private void setupFloating() {
         WindowCompat.setDecorFitsSystemWindows(getWindow(), false);
-        float dp = getResources().getDisplayMetrics().density;
-        int screenW = getResources().getDisplayMetrics().widthPixels;
-        // 宽度封顶 440dp：平板/横屏上像一张卡，而不是一条横幅
         FrameLayout.LayoutParams lp = (FrameLayout.LayoutParams) sheet.getLayoutParams();
-        lp.width = Math.min(screenW - (int) (20 * dp), (int) (440 * dp));
-        lp.gravity = android.view.Gravity.BOTTOM | android.view.Gravity.CENTER_HORIZONTAL;
+        lp.width = sheetWidth(prefs.getFloat(KEY_W, 0f) * dp);
+        lp.gravity = Gravity.BOTTOM | Gravity.CENTER_HORIZONTAL;
         sheet.setLayoutParams(lp);
+        replyH = (int) (prefs.getFloat(KEY_REPLY_H, 0f) * dp);
 
         ViewCompat.setOnApplyWindowInsetsListener(root, (v, insets) -> {
             Insets bars = insets.getInsets(WindowInsetsCompat.Type.systemBars() | WindowInsetsCompat.Type.displayCutout());
             Insets ime = insets.getInsets(WindowInsetsCompat.Type.ime());
             v.setPadding(bars.left, bars.top, bars.right, Math.max(ime.bottom, bars.bottom));
-            v.post(this::clampSheet);
+            refit();
             return WindowInsetsCompat.CONSUMED;
         });
         ViewCompat.requestApplyInsets(root);
 
         sheet.setTranslationX(prefs.getFloat(KEY_POS_X, 0f) * dp);
         sheet.setTranslationY(prefs.getFloat(KEY_POS_Y, 0f) * dp);
-        // 回答变长、键盘起落都会改尺寸：卡片或根布局一变就重新夹一次
-        View.OnLayoutChangeListener reclamp = (v, l, t, r, b, ol, ot, or, ob) -> clampSheet();
+        // 回答变长、键盘起落都会改尺寸：任何一处一变就重新排一次消息区高度、再夹回可见范围
+        View.OnLayoutChangeListener reclamp = (v, l, t, r, b, ol, ot, or, ob) -> refit();
         root.addOnLayoutChangeListener(reclamp);
         sheet.addOnLayoutChangeListener(reclamp);
+        replyBody.addOnLayoutChangeListener(reclamp);
 
         View.OnTouchListener drag = new View.OnTouchListener() {
             float downX, downY, startTX, startTY;
@@ -227,6 +241,105 @@ public class AssistActivity extends Activity {
         findViewById(R.id.assist_handle).setOnTouchListener(drag);
         findViewById(R.id.assist_head).setOnTouchListener(drag);
         // 双击标题栏回到默认位置（拖丢了能找回来）——判断写在上面 ACTION_UP 里
+
+        // 右下角拉手改大小（2026-11-23 v2.236.0）：往右拉变宽、往下拉消息区变高，大小记住；双击拉手恢复默认
+        findViewById(R.id.assist_resize).setOnTouchListener(new View.OnTouchListener() {
+            float downX, downY, startTX, startTY;
+            int startW, startH;
+            boolean moved;
+            long lastTap;
+            @Override public boolean onTouch(View v, MotionEvent e) {
+                switch (e.getActionMasked()) {
+                    case MotionEvent.ACTION_DOWN:
+                        downX = e.getRawX(); downY = e.getRawY();
+                        startTX = sheet.getTranslationX(); startTY = sheet.getTranslationY();
+                        startW = sheet.getWidth();
+                        startH = replyScroll.getVisibility() == View.VISIBLE ? replyScroll.getHeight() : 0;
+                        moved = false;
+                        return true;
+                    case MotionEvent.ACTION_MOVE: {
+                        float dx = e.getRawX() - downX, dy = e.getRawY() - downY;
+                        if (!moved && Math.hypot(dx, dy) < 6 * dp) return true;
+                        moved = true;
+                        // 左上角不动：卡片是底部居中排的，宽高一变就用平移补回来
+                        int w = sheetWidth(startW + dx);
+                        FrameLayout.LayoutParams p = (FrameLayout.LayoutParams) sheet.getLayoutParams();
+                        if (p.width != w) { p.width = w; sheet.setLayoutParams(p); }
+                        sheet.setTranslationX(startTX + (w - startW) / 2f);
+                        int h = Math.min(Math.max((int) (80 * dp), startH + (int) dy), root.getHeight());
+                        replyH = h;
+                        sheet.setTranslationY(startTY + (h - startH));
+                        refit();
+                        return true;
+                    }
+                    case MotionEvent.ACTION_UP:
+                    case MotionEvent.ACTION_CANCEL:
+                        if (moved) {
+                            prefs.edit()
+                                .putFloat(KEY_W, sheet.getLayoutParams().width / dp)
+                                .putFloat(KEY_REPLY_H, replyH / dp)
+                                .putFloat(KEY_POS_X, sheet.getTranslationX() / dp)
+                                .putFloat(KEY_POS_Y, sheet.getTranslationY() / dp).apply();
+                        } else if (e.getActionMasked() == MotionEvent.ACTION_UP) {
+                            long now = System.currentTimeMillis();
+                            if (now - lastTap < 320) { resetSize(); lastTap = 0; } else lastTap = now;
+                        }
+                        return true;
+                }
+                return false;
+            }
+        });
+    }
+
+    /** 卡片宽度：没拉过默认 440dp（平板/横屏上像一张卡，而不是一条横幅）；最窄 260dp，最宽到屏幕两边各留 10dp。 */
+    private int sheetWidth(float want) {
+        int max = getResources().getDisplayMetrics().widthPixels - (int) (20 * dp);
+        int w = want > 0 ? (int) want : (int) (440 * dp);
+        return Math.max(Math.min(w, max), Math.min((int) (260 * dp), max));
+    }
+
+    private void resetSize() {
+        prefs.edit().remove(KEY_W).remove(KEY_REPLY_H).apply();
+        replyH = 0;
+        FrameLayout.LayoutParams p = (FrameLayout.LayoutParams) sheet.getLayoutParams();
+        p.width = sheetWidth(0);
+        sheet.setLayoutParams(p);
+        refit();
+    }
+
+    /** 合并同一帧里的多次请求，下一帧统一排一次。 */
+    private void refit() {
+        if (fitPosted) return;
+        fitPosted = true;
+        ui.post(() -> { fitPosted = false; fitReply(); });
+    }
+
+    /**
+     * 消息区高度（2026-11-23 v2.236.0）：真机反馈「有上条消息时，输入框还是被消息板挡住」。
+     * 以前消息区固定封顶 45% 屏高，键盘一弹卡片总高就超过可用区域，夹位置时又优先保标题栏，
+     * 输入框被挤到键盘底下。现在按「可用高度 − 卡片其它部分」给消息区封顶：
+     * 不管有多少消息、拉多大，输入框和按钮永远露在键盘上方，消息区自己滚。
+     */
+    private void fitReply() {
+        if (root == null || sheet == null || isFinishing()) return;
+        boolean show = replyBody.getChildCount() > 0 || replyH > 0;
+        if (show != (replyScroll.getVisibility() == View.VISIBLE)) replyScroll.setVisibility(show ? View.VISIBLE : View.GONE);
+        if (show && sheet.getHeight() > 0) {
+            FrameLayout.LayoutParams slp = (FrameLayout.LayoutParams) sheet.getLayoutParams();
+            int avail = root.getHeight() - root.getPaddingTop() - root.getPaddingBottom() - slp.topMargin - slp.bottomMargin;
+            int rest = sheet.getHeight() - replyScroll.getHeight();
+            int want = replyH > 0 ? replyH
+                : Math.min(replyBody.getHeight(), (int) (getResources().getDisplayMetrics().heightPixels * 0.45f));
+            want = Math.max(0, Math.min(want, avail - rest));
+            ViewGroup.LayoutParams lp = replyScroll.getLayoutParams();
+            if (lp.height != want) { lp.height = want; replyScroll.setLayoutParams(lp); }
+        }
+        clampSheet();
+    }
+
+    /** 滚到对话最底下。不用 fullScroll：它会把焦点抢到回答文字上，键盘跟着收起。 */
+    private void scrollToEnd() {
+        replyScroll.post(() -> replyScroll.scrollTo(0, Math.max(0, replyBody.getHeight() - replyScroll.getHeight())));
     }
 
     /** 把卡片夹在根布局的内边距（状态栏/键盘/导航栏之间）里，任何时候都整张可见。 */
@@ -240,7 +353,7 @@ public class AssistActivity extends Activity {
         if (left + sheet.getWidth() > maxRight) tx -= left + sheet.getWidth() - maxRight;
         if (top + sheet.getHeight() > maxBottom) ty -= top + sheet.getHeight() - maxBottom;
         top = sheet.getTop() + ty;
-        if (top < minTop) ty += minTop - top;   // 卡片比可用高度还高时，优先保证顶部（标题栏）可见
+        if (top < minTop) ty += minTop - top;   // 万一还是比可用高度高（极矮的横屏），保证标题栏可见
         sheet.setTranslationX(tx);
         sheet.setTranslationY(ty);
     }
@@ -272,12 +385,9 @@ public class AssistActivity extends Activity {
         send.setEnabled(false);
         input.setText("");
         hideKeyboard();
-        replyScroll.setVisibility(View.VISIBLE);
-        reply.setText("");
-        images.removeAllViews();
-        images.setVisibility(View.GONE);
         shownImages.clear();
-        showStatus("「" + clip(text, 40) + "」 · 正在想…");
+        newTurn(text);
+        showStatus("正在想…");
         new Thread(() -> runChat(text), "assist-chat").start();
     }
 
@@ -407,7 +517,42 @@ public class AssistActivity extends Activity {
 
     // ── 说话 ─────────────────────────────────────────────────
 
+    // 2026-11-23 v2.236.0：点麦克风优先交给手机系统的语音输入（系统/语音助手提供的识别界面），
+    // 识别完直接发出去；手机上没有可用的系统识别就退回元枢自带识别。长按麦克风 = 元枢自带识别。
+
     private void toggleMic() {
+        if (recording) { stopRecording(true); return; }
+        if (busy) return;
+        if (systemVoice()) return;
+        builtInMic();
+    }
+
+    private boolean systemVoice() {
+        Intent i = new Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH)
+            .putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
+            .putExtra(RecognizerIntent.EXTRA_LANGUAGE, "zh-CN")
+            .putExtra(RecognizerIntent.EXTRA_PROMPT, "说吧，我在听")
+            .putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 1);
+        try {
+            startActivityForResult(i, REQ_VOICE);
+            return true;
+        } catch (ActivityNotFoundException | SecurityException e) {
+            return false;
+        }
+    }
+
+    @Override
+    protected void onActivityResult(int code, int result, Intent data) {
+        super.onActivityResult(code, result, data);
+        if (code != REQ_VOICE || result != RESULT_OK || data == null) return;
+        java.util.ArrayList<String> said = data.getStringArrayListExtra(RecognizerIntent.EXTRA_RESULTS);
+        if (said == null || said.isEmpty() || said.get(0).trim().isEmpty()) { showStatus("没听清，再说一次？"); return; }
+        input.setText(said.get(0).trim());
+        input.setSelection(input.getText().length());
+        submit();
+    }
+
+    private void builtInMic() {
         if (recording) { stopRecording(true); return; }
         if (busy) return;
         if (checkSelfPermission(Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
@@ -600,7 +745,9 @@ public class AssistActivity extends Activity {
         // 同一张图去重：文件路径一样就算同一张（签名参数每次可能不同）
         String key = pathParam(url);
         if (isFinishing() || !shownImages.add(key == null ? url : key)) return;
-        int width = Math.max(replyScroll.getWidth(), (int) (240 * getResources().getDisplayMetrics().density));
+        int width = Math.max(replyScroll.getWidth(), (int) (240 * dp));
+        LinearLayout target = images;
+        if (target == null) return;
         new Thread(() -> {
             Bitmap bmp = null;
             try { bmp = fetchBitmap(url, width); } catch (Exception ignored) { }
@@ -608,7 +755,7 @@ public class AssistActivity extends Activity {
             ui.post(() -> {
                 if (isFinishing()) return;
                 if (shown == null) showStatus("图已画好，但卡片里没加载出来，点「打开元枢」看。");
-                else showImage(shown);
+                else showImage(shown, target);
             });
         }, "assist-image").start();
     }
@@ -644,8 +791,7 @@ public class AssistActivity extends Activity {
         return BitmapFactory.decodeByteArray(bytes, 0, bytes.length, o);
     }
 
-    private void showImage(Bitmap bmp) {
-        float dp = getResources().getDisplayMetrics().density;
+    private void showImage(Bitmap bmp, LinearLayout target) {
         ImageView iv = new ImageView(this);
         iv.setAdjustViewBounds(true);
         iv.setScaleType(ImageView.ScaleType.FIT_CENTER);
@@ -658,11 +804,11 @@ public class AssistActivity extends Activity {
         iv.setOnClickListener(v -> openApp());   // 点图去元枢里看大图、保存、分享
         LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
         lp.topMargin = (int) (8 * dp);
-        images.addView(iv, lp);
-        images.setVisibility(View.VISIBLE);
-        replyScroll.setVisibility(View.VISIBLE);
+        target.addView(iv, lp);
+        target.setVisibility(View.VISIBLE);
         if (status.getText().toString().startsWith("做完了")) hideStatus();
-        fitReply();
+        refit();
+        scrollToEnd();
     }
 
     // ── 主题：跟主程序同色 ───────────────────────────────────
@@ -673,7 +819,6 @@ public class AssistActivity extends Activity {
     private void applyTheme() {
         JSONObject t;
         try { t = new JSONObject(prefs.getString(YuanshuFlash.KEY_THEME, "")); } catch (Exception e) { return; }
-        float dp = getResources().getDisplayMetrics().density;
         int text = color(t, "text", 0xFFF2F5F8);
         int dim = color(t, "dim", 0xFF8A94A1);
         int accent = color(t, "accent", 0xFF8B7CF6);
@@ -695,8 +840,9 @@ public class AssistActivity extends Activity {
             input.setTextCursorDrawable(cursor);
         }
         ((TextView) findViewById(R.id.assist_title)).setTextColor(text);
-        reply.setTextColor(text);
-        reply.setHighlightColor(withAlpha(accent, 0x55));
+        cText = text;
+        cAccent = accent;
+        ((ImageView) findViewById(R.id.assist_resize)).setImageTintList(ColorStateList.valueOf(withAlpha(dim, 0xC0)));
         status.setTextColor(dim);
         ((TextView) findViewById(R.id.assist_open_app)).setTextColor(dim);
         ((TextView) findViewById(R.id.assist_close)).setTextColor(dim);
@@ -755,22 +901,54 @@ public class AssistActivity extends Activity {
 
     // ── 界面小工具 ───────────────────────────────────────────
 
-    private void showReply(String text) {
-        replyScroll.setVisibility(View.VISIBLE);
-        reply.setText(text);
-        fitReply();
-        hideStatus();
+    /**
+     * 每发一句开一段（2026-11-23 v2.236.0，真机反馈「新的消息发出去了，上条消息就不见了」）：
+     * 问句小气泡靠右 + 回答 + 回答里的图，之前的对话都留在上面，往上滚能看到。
+     */
+    private void newTurn(String question) {
+        while (replyBody.getChildCount() >= MAX_TURNS * 3) {
+            for (int k = 0; k < 3; k++) replyBody.removeViewAt(0);
+        }
+        TextView q = new TextView(this);
+        q.setText(question);
+        q.setTextColor(cText);
+        q.setTextSize(14);
+        q.setTextIsSelectable(true);
+        q.setHighlightColor(withAlpha(cAccent, 0x55));
+        q.setBackground(shape(withAlpha(cAccent, 0x2E), 14 * dp, 0, 0));
+        q.setPadding((int) (12 * dp), (int) (7 * dp), (int) (12 * dp), (int) (7 * dp));
+        LinearLayout.LayoutParams qlp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        qlp.gravity = Gravity.END;
+        qlp.leftMargin = (int) (40 * dp);
+        qlp.topMargin = replyBody.getChildCount() > 0 ? (int) (18 * dp) : 0;
+        replyBody.addView(q, qlp);
+
+        reply = new TextView(this);
+        reply.setTextColor(cText);
+        reply.setTextSize(15);
+        reply.setLineSpacing(4 * dp, 1f);
+        reply.setTextIsSelectable(true);
+        reply.setHighlightColor(withAlpha(cAccent, 0x55));
+        reply.setVisibility(View.GONE);
+        LinearLayout.LayoutParams rlp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        rlp.topMargin = (int) (8 * dp);
+        replyBody.addView(reply, rlp);
+
+        images = new LinearLayout(this);
+        images.setOrientation(LinearLayout.VERTICAL);
+        images.setVisibility(View.GONE);
+        replyBody.addView(images, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+        refit();
+        scrollToEnd();
     }
 
-    /** 回答太长时卡片别顶满屏：滚动区（文字 + 图）封顶约 45% 屏高。 */
-    private void fitReply() {
-        int cap = (int) (getResources().getDisplayMetrics().heightPixels * 0.45f);
-        replyBody.post(() -> {
-            ViewGroup.LayoutParams lp = replyScroll.getLayoutParams();
-            int want = replyBody.getHeight() > cap ? cap : ViewGroup.LayoutParams.WRAP_CONTENT;
-            if (lp.height != want) { lp.height = want; replyScroll.setLayoutParams(lp); }
-            replyScroll.fullScroll(View.FOCUS_DOWN);
-        });
+    private void showReply(String text) {
+        if (reply == null) return;
+        reply.setText(text);
+        reply.setVisibility(text.isEmpty() ? View.GONE : View.VISIBLE);
+        refit();
+        scrollToEnd();
+        hideStatus();
     }
 
     private void showStatus(String s) { status.setText(s); status.setVisibility(View.VISIBLE); }

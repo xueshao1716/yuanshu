@@ -16,5 +16,6 @@
     <string name="assist_open_app">打开元枢</string>
     <string name="assist_hint">问点什么，或按麦克风说一句</string>
     <string name="assist_send">发送</string>
+    <string name="assist_resize">拖动调整卡片大小</string>
     <string name="assist_mic">语音输入</string>
 </resources>
