@@ -44,9 +44,10 @@ test('结构：SendBox 按会话所有者 remount（仅接纳自身新建的初�
 
 test('结构：样式缓动必须收敛到 token（styles.css 除 :root 定义外无裸 cubic-bezier）', () => {
   const css = read('styles.css')
+  // 2026-11-23 允许 --pi-ease-* 的具名变体（bounce/pop），只要定义在 :root 里
   for (const line of css.split('\n')) {
     if (/cubic-bezier/.test(line)) {
-      assert.match(line.trim(), /^--pi-(ease|ease-sheet):/, `裸缓动曲线必须收敛到 token：${line.trim().slice(0, 60)}`)
+      assert.match(line.trim(), /^--pi-ease(-[a-z-]+)?:/, `裸缓动曲线必须收敛到 token：${line.trim().slice(0, 60)}`)
     }
   }
 })

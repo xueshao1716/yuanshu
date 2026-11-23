@@ -430,6 +430,9 @@ ul[class], ol[class] { list-style: none; margin: 0; padding: 0; }
   --pi-ease: cubic-bezier(0.2, 0.8, 0.2, 1);
   --pi-ease-sheet: cubic-bezier(0.32, 0.72, 0, 1);
   --pi-ease-spring: linear(0, 0.054, 0.175, 0.319, 0.463, 0.591, 0.699, 0.786, 0.853, 0.903, 0.939, 0.964, 0.981, 0.992, 0.998, 1.002, 1.004, 1.004, 1.004, 1.004, 1.003, 1.002, 1.002, 1.001, 1);
+  /* 2026-11-23 灵动胶囊的过冲曲线收进 token（原来裸写在 .pi-island 里，结构测试拦下） */
+  --pi-ease-bounce: cubic-bezier(.34, 1.36, .64, 1);
+  --pi-ease-pop: cubic-bezier(.34, 1.8, .64, 1);
   --pi-motion-fast: .14s var(--pi-ease);
   --pi-motion-base: .2s var(--pi-ease);
   --pi-motion-slow: .3s var(--pi-ease-sheet);
@@ -2537,12 +2540,12 @@ html.nav-tap-guard .mobile-tab-bar {
 /* ══ 通知灵动胶囊（2026-11-17）：外壳宽高过渡 = 原地变形；弹簧感用回弹曲线 ══ */
 .pi-island {
   overflow: hidden; color: var(--pi-text);
-  transition: width .42s cubic-bezier(.34, 1.36, .64, 1), height .42s cubic-bezier(.34, 1.36, .64, 1),
-    border-radius .42s ease, transform .32s cubic-bezier(.34, 1.36, .64, 1), opacity .22s ease;
+  transition: width .42s var(--pi-ease-bounce), height .42s var(--pi-ease-bounce),
+    border-radius .42s ease, transform .32s var(--pi-ease-bounce), opacity .22s ease;
   transform-origin: 50% 100%;
 }
 .pi-island[data-open="false"] { opacity: 0; transform: scale(.6) translateY(8px); pointer-events: none; }
-.pi-island[data-open="true"] { animation: pi-island-in .38s cubic-bezier(.34, 1.36, .64, 1); }
+.pi-island[data-open="true"] { animation: pi-island-in .38s var(--pi-ease-bounce); }
 .pi-island__body {
   display: flex; align-items: center; gap: 8px; width: max-content; max-width: min(80vw, 560px);
   padding: 9px 16px 9px 12px; font-size: 13px; line-height: 1.5;
@@ -2555,7 +2558,7 @@ html.nav-tap-guard .mobile-tab-bar {
   flex-shrink: 0; font-size: 11px; font-variant-numeric: tabular-nums; padding: 0 6px; border-radius: 999px; line-height: 18px;
   background: color-mix(in oklab, var(--lg-tint, var(--pi-accent)) 18%, transparent); color: var(--lg-tint, var(--pi-accent));
 }
-.pi-island__count { animation: pi-island-pop .3s cubic-bezier(.34, 1.8, .64, 1); }
+.pi-island__count { animation: pi-island-pop .3s var(--pi-ease-pop); }
 .pi-island__more { background: color-mix(in oklab, var(--pi-text) 10%, transparent); color: var(--pi-dim); }
 .pi-island__bar {
   position: absolute; left: 0; right: 0; bottom: 0; height: 2px; transform-origin: 0 50%;
