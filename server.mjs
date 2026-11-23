@@ -8157,7 +8157,7 @@ const boardApi = createBoardApi({
       const b = await readBody(req);
       const r = resolveInsight(readLoopGoals(WS_ROOT), m[1], m[2], { action: b?.action, optionId: b?.optionId });
       writeLoopGoals(WS_ROOT, r.goals);
-      json(res, 200, { ok: true, goal: publicGoal(r.goal), prompt: r.option ? executionPrompt(r.goal, r.insight, r.option) : "" });
+      json(res, 200, { ok: true, goal: publicGoal(r.goal), prompt: r.option ? executionPrompt(r.goal, r.insight, r.option, { workspace: WS_ROOT, repo: __dirname }) : "" });
     } catch (e) { goalLoopErr(res, e) }
   }]);
 

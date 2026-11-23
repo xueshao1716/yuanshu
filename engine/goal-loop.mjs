@@ -145,12 +145,20 @@ export function resolveInsight(goals, gid, iid, { action, optionId } = {}, now =
   return { goals: goals.map(x => x.id === gid ? goal : x), goal, insight: next, option };
 }
 
-/** 点了方案后发进对话的那句话 */
-export function executionPrompt(goal, insight, option) {
+/** 点了方案后发进对话的那句话。
+ *  ctx 带上工作区/代码仓路径：2026-11-23 第一次实测，小语在工作区里用相对路径找
+ *  frontend/package.json 连报 6 条「文件不存在」，才想起要说清楚这两个根在哪。 */
+export function executionPrompt(goal, insight, option, ctx = {}) {
+  const env = [
+    `环境：工作区 ${ctx.workspace || ""}`.trim(),
+    ctx.repo ? `代码仓 ${ctx.repo}` : "",
+    "改代码请用绝对路径，别在工作区根下按相对路径找源码。",
+  ].filter(Boolean).join("；");
   return [
     `围绕我的长期目标「${goal.title}」，执行这个方案：${option.label}`,
     option.detail ? `具体：${option.detail}` : "",
     `背景：${insight.problem}`,
+    env,
     `做完告诉我结果和下一步建议。`,
   ].filter(Boolean).join("\n");
 }
