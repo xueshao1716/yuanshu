@@ -311,7 +311,11 @@ import { initSessionManager, initComputerTool, initPhoneTool, createSession, clo
 import { initUnifiedChat, unifiedChat, engineCurrentModel, initEngine, getCodeRuntime, getCodeMode, toolBindingDesc, toolBindingArgs, toolBindingArgsObj, handleNotices, handleUnifiedChat, touchTask, clearTask, taskProgress, handleAgentEventIn, handleAgentEventOut } from "./engine/unified-chat.mjs";
 import { completedTaskText } from "./engine/task-continuation.mjs";
 import { createApprovalInterceptor } from "./engine/tools/approval.mjs";
-import * as confirmRegistry from "./engine/tools/confirm-registry.mjs";
+import * as rawConfirmRegistry from "./engine/tools/confirm-registry.mjs";
+import { configureFullAuthority, wrapRegistry, fullAuthorityState, fullAuthorityLedger, enableFullAuthority, disableFullAuthority, boldMode, setBoldMode } from "./engine/full-authority.mjs";
+// 全权模式（2026-11-24）：所有确认都走这一个注册表，包一层就能限时全部自动批准
+const confirmRegistry = wrapRegistry(rawConfirmRegistry);
+configureFullAuthority({ wsRoot: () => WS_ROOT });
 import { pendingOverview } from "./engine/agent-pending.mjs";
 import { createSandboxAskFactory } from "./engine/sandbox-ask.mjs";
 import { isLocalMaintenanceApproval } from "./engine/maintenance-approval.mjs";
@@ -7570,6 +7574,23 @@ const API_ROUTES = [
   // 卡片自带"属于哪条对话"，不用人挑会话。批准/拒绝仍走 /api/agent/confirm，本机受限在那里拦。
   ["GET", "/api/agent/pending", (res, req) => {
     return json(res, 200, pendingOverview({ registry: confirmRegistry, localApprovalOk: isLocalMaintenanceApproval(req) }));
+  }],
+  // ── 全权模式 / 大胆模式（2026-11-24）──
+  // 全权：限时自动批准所有确认卡。开启只许本机（它解锁了原本只能本机批准的人格/超维，令牌泄露时远程不能一键夺权）；收回哪里都行。
+  ["GET", "/api/authority/full", (res, req) => json(res, 200, { ...fullAuthorityState(), local: isLocalMaintenanceApproval(req), ledger: fullAuthorityLedger(50) })],
+  ["POST", "/api/authority/full", async (res, req) => {
+    try {
+      const b = await readBody(req, 1);
+      if (b?.off === true) return json(res, 200, disableFullAuthority());
+      if (!isLocalMaintenanceApproval(req)) return json(res, 403, { error: "全权模式只能在运行元枢的电脑上开启（http://127.0.0.1:8787 的授权中心）" });
+      json(res, 200, enableFullAuthority(b?.hours, b?.reason, "local"));
+    } catch (e) { json(res, 400, { error: String(e?.message || e) }); }
+  }],
+  // 大胆模式：只改提示词，不跳过任何确认，开关不限本机
+  ["GET", "/api/authority/bold", (res) => json(res, 200, { on: boldMode() })],
+  ["POST", "/api/authority/bold", async (res, req) => {
+    try { const b = await readBody(req, 1); json(res, 200, { on: setBoldMode(b?.on === true) }); }
+    catch (e) { json(res, 400, { error: String(e?.message || e) }); }
   }],
   // 危险操作确认回传：前端弹框后调这里（ok=true 放行 / ok=false 拒绝）
   // ── 培养越线申请：批准只执行这一次 ──

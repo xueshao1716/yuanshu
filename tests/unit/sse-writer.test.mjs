@@ -13,6 +13,8 @@ const serverSrc = fs.readFileSync(
 );
 const fnMatch = serverSrc.match(/function createSseWriter[\s\S]*?\n}/);
 if (!fnMatch) throw new Error("engine/sse.mjs 中未找到 createSseWriter");
+// 2026-11-24：push 里会过一道全权模式的确认卡改写，这里给个原样返回的替身
+globalThis.rewriteAutoConfirm = (t, d) => [t, d];
 // ESM 里 eval 不进模块作用域 → 用 indirect eval（global scope）定义
 (0, eval)(fnMatch[0] + "\nglobalThis.__createSseWriter = createSseWriter;");
 const createSseWriter = globalThis.__createSseWriter;

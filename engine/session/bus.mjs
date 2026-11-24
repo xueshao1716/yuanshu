@@ -1,6 +1,8 @@
 // engine/session-bus.mjs —— 会话事件总线（2026-08-29 从 server.mjs 拆出）
 // 任务事件统一入缓冲 + 广播给所有订阅者（多端实时观看）。环形缓冲 500，turn_end 清空。
 
+import { rewriteAutoConfirm } from "../full-authority.mjs";
+
 export function createSessionBus(deps) {
   const { json } = deps;
   const sessionBus = new Map(); // key: taskId/sessionId → { seq, events: [], subs: Set }
@@ -12,6 +14,7 @@ export function createSessionBus(deps) {
   }
 
   function busPush(key, type, data) {
+    [type, data] = rewriteAutoConfirm(type, data); // 全权模式自动放行的确认卡 → 一条 note
     const b = busGet(key);
     if (!b) return null;
     const ev = { type, seq: ++b.seq, data: data || {}, ts: Date.now() };

@@ -930,6 +930,19 @@ export const SandboxApi = {
     api<{ ok: boolean; reason?: string; view?: SandboxView }>('/api/sandbox/mode', { method: 'POST', body: { preset, reason, sessionId } }),
 }
 
+// 全权模式 / 大胆模式（2026-11-24）
+export interface FullAuthorityView {
+  on: boolean; until: number; remainingMs: number; hours?: number; reason?: string; local?: boolean
+  ledger?: { at: string; sessionId: string; toolName: string; reason: string; src: string }[]
+}
+export const AuthorityApi = {
+  full: () => api<FullAuthorityView>('/api/authority/full'),
+  enable: (hours: number, reason?: string) => api<FullAuthorityView>('/api/authority/full', { method: 'POST', body: { hours, reason } }),
+  disable: () => api<FullAuthorityView>('/api/authority/full', { method: 'POST', body: { off: true } }),
+  bold: () => api<{ on: boolean }>('/api/authority/bold'),
+  setBold: (on: boolean) => api<{ on: boolean }>('/api/authority/bold', { method: 'POST', body: { on } }),
+}
+
 export interface MaintenanceView {
   canConfirm?: boolean
   pending?: { id: string; taskId: string; runId: string; reason: string; expiresAt: number }[]

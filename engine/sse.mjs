@@ -1,5 +1,6 @@
 // engine/sse.mjs —— SSE 流式响应工具（2026-08-20 从 server.mjs 拆出：sseWrite/createSseWriter/startSseHeartbeat）
 // 纯函数：只依赖 node res 对象，无外部状态
+import { rewriteAutoConfirm } from "./full-authority.mjs";
 
 export function sseWrite(res, event, data) {
   res.write(`event: ${event}\n`);
@@ -37,6 +38,7 @@ export function createSseWriter(res) {
   return {
     push(event, data) {
       if (closed) return;
+      [event, data] = rewriteAutoConfirm(event, data); // 全权模式自动放行的确认卡 → 一条 note
       const chunk = `event: ${event}\ndata: ${JSON.stringify(data)}\n\n`;
       if (draining) { pending.push(chunk); return; }
       let ok = true;

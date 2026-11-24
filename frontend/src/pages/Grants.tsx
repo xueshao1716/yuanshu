@@ -18,6 +18,7 @@ import SandboxModePanel from '../components/engine/SandboxModePanel'
 import MaintenanceModePanel from '../components/engine/MaintenanceModePanel'
 import ComputerUsePanel from '../components/panels/ComputerUsePanel'
 import PhoneControlPanel from '../components/panels/PhoneControlPanel'
+import PowerModePanel, { remainText, useFullAuthority } from '../components/panels/PowerModePanel'
 import '../soul/soul.css'
 import '../soul/cultivation/cultivation.css'
 
@@ -25,6 +26,7 @@ import '../soul/cultivation/cultivation.css'
 // 各面板仍是原来那一份组件（同一套判据与确认流程），这里只负责把它们放到一起，
 // 原页面上的入口保留——就近操作还在，找不到时来这里。
 const AREAS = [
+  ['power', '全权与大胆', '限时全部自动批准，到点收回；大胆模式让她敢拿主意。'],
   ['pending', '等我确认', '全部会话的越线确认都排在这里；常规培养开关她自己执行，不进这里。'],
   ['cultivation', '智能体培养', '开没开、用了多少、怎么收回。开关与额度小语自己管，你随时可以收回。'],
   ['knowledge', '知识自动积累', '允许读取的目录与网址、能否联网、可用模型与每日额度。'],
@@ -86,7 +88,9 @@ export default function Grants() {
   useEffect(() => { if (!sessionId && currentSessionId) setSessionId(currentSessionId) }, [currentSessionId, sessionId])
   const cultivation = useSWR('cultivation-overview', CultivationApi.overview, cultivationPolling)
   const knowledge = useSWR('knowledge-policy', KnowledgeApi.policy, knowledgePolling)
+  const full = useFullAuthority()
   const badge: Partial<Record<Area, string>> = {
+    power: full.data?.on ? `全权 · 剩 ${remainText(full.data.until - Date.now())}` : '',
     cultivation: cultivationState(cultivation.data),
     knowledge: knowledge.data ? (knowledge.data.paused ? '已暂停' : '运行中') : '',
   }
@@ -119,6 +123,7 @@ export default function Grants() {
           </div>}
           {area === 'desktop' && <ComputerUsePanel />}
           {area === 'phone' && <PhoneControlPanel />}
+          {area === 'power' && <PowerModePanel />}
         </main>
       </div>
     </div>

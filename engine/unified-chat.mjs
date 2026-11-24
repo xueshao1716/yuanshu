@@ -1,6 +1,7 @@
 // engine/unified-chat.mjs —— 统一对话通道（2026-08-20 从 server.mjs 拆出）
 // unifiedChat/handleUnifiedChat：对话 + 工具循环 + 思考 + 媒体 + 压缩 + 重试 + 任务进度
 // 依赖注入：initUnifiedChat({ executeUnifiedTool, findKeyByEntry, readJsonFile, getModelList, getDefaultModel, authPath, modelsPath, cwd })
+import { boldMode, BOLD_PROMPT } from "./full-authority.mjs";
 import { modelEndpoint } from './model/endpoints.mjs';
 import fs from "node:fs";
 import os from "node:os";
@@ -894,6 +895,13 @@ export async function initEngine() {
       name: "提到那天的摘要",
       section: "memory",
       contribute: (ctx) => dayDigestNote(ctx?.cwd, ctx?.message, ctx?.now),
+    });
+    // 2026-11-24：大胆模式——开着时追加到 protocol 段（system 内，开关不变则字节稳定，不破坏缓存）
+    await registerPromptSection(nextGateway.registry, {
+      id: "yuanshu:prompt:bold",
+      name: "大胆模式",
+      section: "protocol",
+      contribute: () => (boldMode() ? BOLD_PROMPT : ""),
     });
     // 2026-11-16：微信规矩按来源注入本轮记忆段（以前拼在消息正文里，跟着存进历史，窗口里重复十份）
     await registerPromptSection(nextGateway.registry, {
