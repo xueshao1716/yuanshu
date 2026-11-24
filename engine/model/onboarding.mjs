@@ -56,7 +56,7 @@ export function createModelOnboarding({ read, write, authPath, modelsPath, refre
       if (String(s.key || '').length > 10000) {
         throw invalid('API Key 超过 10000 字符，正常平台不会发这种长度的令牌（疑似实时注入代理），已拒绝加入；详见 文档/平台注入检测教程.md');
       }
-      // 2) 自动发现目录按 token 分档：>10000 token（40KB）硬拒；1000~10000 token 不自动收，必须手动勾选模型（“该查”档）；手动勾选不受限
+      // 2) 自动发现目录按 token 分档：>10000 token（40KB）硬拒；3000~10000 token 不自动收，必须手动勾选模型（“该查”档；2026-11-24 用户令由 1000 放宽到 3000）；手动勾选不受限
       if (!s.ids?.length) {
         const catalogJson = JSON.stringify(discovered || []);
         const catalogKtokens = catalogJson.length / 4000; // 1 token ≈ 4 字符
@@ -64,8 +64,8 @@ export function createModelOnboarding({ read, write, authPath, modelsPath, refre
         if (catalogKtokens > 10 && !s.preset) {
           throw invalid(`平台注入的模型目录过大（约 ${Math.round(catalogKtokens)} 千 token）——超过 10000 token 的实时注入目录疑似造假，已拒绝加入；详见 文档/平台注入检测教程.md`);
         }
-        if (catalogKtokens > 1 || (discovered?.length || 0) > 60) {
-          throw invalid(`平台注入目录 ${discovered?.length || 0} 个模型（约 ${Math.round(catalogKtokens * 1000)} token，超过 1000）——这类目录不自动收录，请回到添加页手动勾选你实际要用的模型再保存`);
+        if (catalogKtokens > 3 || (discovered?.length || 0) > 60) {
+          throw invalid(`平台注入目录 ${discovered?.length || 0} 个模型（约 ${Math.round(catalogKtokens * 1000)} token，超过 3000）——这类目录不自动收录，请回到添加页手动勾选你实际要用的模型再保存`);
         }
       }
       const auth = read(authPath), store = read(modelsPath);
