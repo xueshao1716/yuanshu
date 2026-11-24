@@ -425,7 +425,10 @@ final class PhoneCommands {
                 if (a.has("elementId")) {
                     AccessibilityNodeInfo n = s.node(a.getString("elementId"));
                     String danger = YuanshuAccess.sensitiveLabel(n);
-                    if (danger != null) Confirmations.ask(ctx, id, "元枢要点「" + YuanshuNotifs.clip(danger, 20) + "」", "这一下可能会发送、付款或删除东西。确认是你要的再允许。", null, 85000);
+                    // v2.238.0：默认「只在花钱前问我」——发送/删除直接点，付款/下单/转账仍要确认
+                    boolean money = danger != null && YuanshuAccess.MONEY_TEXT.matcher(danger).find();
+                    if (danger != null && (money || !YuanshuAccess.moneyOnly(ctx))) Confirmations.ask(ctx, id, "元枢要点「" + YuanshuNotifs.clip(danger, 20) + "」",
+                        money ? "这一下可能会付款、下单或转账。确认是你要的再允许。" : "这一下可能会发送、付款或删除东西。确认是你要的再允许。", null, 85000);
                     s.tapNode(n);
                 } else {
                     s.tapAt((float) a.getDouble("x"), (float) a.getDouble("y"));

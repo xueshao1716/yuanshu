@@ -18,6 +18,7 @@ import org.json.JSONObject;
  *   state()            → JSON：每项能力 {cap, on, permitted}，以及无障碍/通知使用权是否已开
  *   setCap(cap, on)    打开/关闭一项；打开时顺带申请系统权限，并通知服务器
  *   openAccessibility() / openNotificationAccess() / openAppSettings()  跳系统设置
+ *   setBubble(on)      问小语悬浮球（v2.238.0）；setMoneyOnly(on) 点按只在付款/下单/转账前确认
  */
 public class YuanshuPhone {
     private final Activity activity;
@@ -39,6 +40,8 @@ public class YuanshuPhone {
                 .put("android", Build.VERSION.RELEASE)
                 .put("batteryFree", batteryFree())
                 .put("route", Routes.label())
+                .put("bubble", YuanshuBubble.enabled(activity))
+                .put("moneyOnly", YuanshuAccess.moneyOnly(activity))
                 .toString();
         } catch (Exception e) { return "{}"; }
     }
@@ -58,6 +61,16 @@ public class YuanshuPhone {
         }
         kick();
     }
+
+    @JavascriptInterface
+    public void setBubble(boolean on) {
+        PhoneControl.prefs(activity).edit().putBoolean(YuanshuBubble.PREF_ON, on).apply();
+        if (on && YuanshuAccess.instance == null) openAccessibility();
+        YuanshuAccess.syncBubble();
+    }
+
+    @JavascriptInterface
+    public void setMoneyOnly(boolean on) { PhoneControl.prefs(activity).edit().putBoolean(YuanshuAccess.PREF_MONEY_ONLY, on).apply(); }
 
     @JavascriptInterface
     public void openAccessibility() { open(new Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS)); }

@@ -82,6 +82,8 @@ public class AssistActivity extends Activity {
     private static final String KEY_W = "assistWidth", KEY_REPLY_H = "assistReplyHeight";
     /** 卡片里最多留这么多轮对话，再多就把最早的挪掉。 */
     private static final int MAX_TURNS = 20;
+    /** 悬浮球带来的（2026-11-24 v2.238.0）：长按 = 打开就开始说话；双击 = 当前屏幕文字（JSON）随下一句一起发。 */
+    static final String EXTRA_VOICE = "com.pixinyu.app.ASSIST_VOICE", EXTRA_SCREEN = "com.pixinyu.app.ASSIST_SCREEN";
 
     private final Handler ui = new Handler(Looper.getMainLooper());
     private SharedPreferences prefs;
@@ -107,6 +109,8 @@ public class AssistActivity extends Activity {
     private volatile boolean busy = false;
     private volatile HttpURLConnection stream;
     private Thread recThread;
+    /** 双击悬浮球读来的屏幕文字，下一句发出时附上，发完清掉。 */
+    private String pendingScreen;
 
     @Override
     protected void onCreate(Bundle state) {
@@ -148,6 +152,7 @@ public class AssistActivity extends Activity {
             showStatus("还没连上元枢：先打开一次元枢 App 并登录，之后这里就能直接用。");
         }
         input.requestFocus();
+        handleExtras(getIntent());
         // 预热直连选路：第一次可能要几秒，放后台做，这次发话先用域名
         String b = base(), t = token();
         if (!b.isEmpty() && !t.isEmpty() && Routes.peek(b) == null) {
@@ -160,6 +165,23 @@ public class AssistActivity extends Activity {
         super.onNewIntent(intent);
         applyTheme();
         input.requestFocus();
+        handleExtras(intent);
+    }
+
+    private void handleExtras(Intent i) {
+        if (i == null) return;
+        String screen = i.getStringExtra(EXTRA_SCREEN);
+        if (screen != null) {
+            pendingScreen = screen;
+            String pkg = "";
+            try { pkg = new JSONObject(screen).optString("app", ""); } catch (Exception ignored) { }
+            showStatus("已带上当前屏幕" + (pkg.isEmpty() ? "" : "（" + pkg + "）") + "，问吧，比如「这条怎么回」");
+            if (input.getText().toString().trim().isEmpty()) { input.setText("这个怎么回？"); input.selectAll(); }
+        }
+        boolean voice = i.getBooleanExtra(EXTRA_VOICE, false);
+        i.removeExtra(EXTRA_SCREEN);
+        i.removeExtra(EXTRA_VOICE);
+        if (voice && !busy) ui.postDelayed(() -> { if (!systemVoice()) builtInMic(); }, 150);
     }
 
     @Override
@@ -386,9 +408,21 @@ public class AssistActivity extends Activity {
         input.setText("");
         hideKeyboard();
         shownImages.clear();
-        newTurn(text);
+        newTurn(pendingScreen != null ? text + "  ·  📱 带上了当前屏幕" : text);
         showStatus("正在想…");
-        new Thread(() -> runChat(text), "assist-chat").start();
+        String message = withScreen(text, pendingScreen);
+        pendingScreen = null;
+        new Thread(() -> runChat(message), "assist-chat").start();
+    }
+
+    /** 把屏幕文字拼在问题后面，让小语知道「这条」指的是什么。 */
+    private static String withScreen(String text, String screen) {
+        if (screen == null) return text;
+        try {
+            JSONObject s = new JSONObject(screen);
+            return text + "\n\n[我手机当前屏幕，应用 " + s.optString("app", "未知") + "，以下是屏幕上的文字，从上到下]\n"
+                + clip(s.optString("text", ""), 6000);
+        } catch (Exception e) { return text; }
     }
 
     private void runChat(String text) {
