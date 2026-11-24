@@ -6,7 +6,7 @@ import SectionHeader from '../SectionHeader'
 
 // 2026-11-20 手机控制：元枢 App 里逐项打开能力（默认全关）；电脑/网页上只看哪些手机在线、开了什么。
 type CapState = { cap: string; on: boolean; permitted: boolean }
-type NativeState = { caps: CapState[]; accessibility: boolean; notificationAccess: boolean; screenshot: boolean; device: string; android: string; batteryFree?: boolean; route?: string; bubble?: boolean; moneyOnly?: boolean }
+type NativeState = { caps: CapState[]; accessibility: boolean; notificationAccess: boolean; screenshot: boolean; device: string; android: string; batteryFree?: boolean; route?: string; bubble?: boolean; moneyOnly?: boolean; restricted?: 'yes' | 'no' | 'unknown' }
 type PhoneBridge = { state: () => string; setCap: (cap: string, on: boolean) => void; openAccessibility: () => void; openNotificationAccess: () => void; openAppSettings: () => void; openAssistantSettings: () => void; openBatterySettings?: () => void; setBubble?: (on: boolean) => void; setMoneyOnly?: (on: boolean) => void }
 type Device = { id: string; name: string; model: string; android: string; caps: string[]; lastSeen: number }
 
@@ -63,6 +63,7 @@ export default function PhoneControlPanel() {
               <span className="block text-pi-dim">{LABEL[c.cap]?.[1]}</span>
             </span>
           </label>)}
+          {!native.accessibility && <AccessGuide native={native} />}
           {/* v2.238.0 参考 Mika：悬浮球 + 只在花钱前确认（老版本 App 没有这两个桥方法就不显示） */}
           {bridge()?.setBubble && <label className="flex items-start gap-3 text-sm min-h-11">
             <input type="checkbox" className="mt-1" checked={!!native.bubble} onChange={e => { bridge()?.setBubble?.(e.target.checked); setTimeout(refresh, 300) }} />
@@ -92,4 +93,29 @@ export default function PhoneControlPanel() {
       </div>
     </section>
   )
+}
+
+// 2026-11-24 v2.239.0 开无障碍引导：屏幕操作和悬浮球都靠它。Android 13+ 从网页下载装的 App 会被「受限制的设置」拦一道，
+// 按系统要求的顺序带着走：先试开一次（被拦后菜单里才出现放开选项）→ 应用信息 ⋮ 允许受限制的设置 → 再开。
+function AccessGuide({ native }: { native: NativeState }) {
+  const restricted = native.restricted === 'yes' || native.restricted === 'unknown'
+  const steps: [string, string, (() => void) | null][] = restricted ? [
+    ['先试着打开一次', '点下面按钮，在无障碍里找到「元枢」打开。如果直接打开了，后面两步就不用做了。如果开关是灰的或提示「受限制的设置」，点确定，回到这里做第 2 步。', () => bridge()?.openAccessibility()],
+    ['允许受限制的设置', '在打开的「应用信息」页面，点右上角「⋮」→「允许受限制的设置」，按提示验证一下。这个选项要先在第 1 步被拦过一次才会出现。', () => bridge()?.openAppSettings()],
+    ['再打开无障碍', '回到无障碍设置，找到「元枢」，打开开关并确认。', () => bridge()?.openAccessibility()],
+  ] : [
+    ['打开无障碍', '点下面按钮，找到「元枢」（有的手机在「已下载的应用」或「更多服务」里），打开开关并确认。', () => bridge()?.openAccessibility()],
+  ]
+  return <div data-slot="access-guide" className="rounded-lg border border-pi-border-soft p-3 space-y-3">
+    <p className="text-sm font-medium text-pi-text">还差一步：在系统里打开元枢的无障碍</p>
+    <p className="text-sm text-pi-dim">「屏幕操作」和「问小语悬浮球」都要用它。只需要开一次，做完回到这一页，这块提示会自己消失。</p>
+    <ol className="space-y-3">
+      {steps.map(([title, desc, act], i) => <li key={i} className="text-sm space-y-1">
+        <span className="block text-pi-text">{steps.length > 1 ? `${i + 1}. ` : ''}{title}</span>
+        <span className="block text-pi-dim leading-relaxed">{desc}</span>
+        {act && <button type="button" className="btn-ghost min-h-11 px-3" onClick={act}>{i === 1 && restricted ? '打开应用信息' : '去无障碍设置'}</button>}
+      </li>)}
+    </ol>
+    <p className="text-sm text-pi-dim">找不到时，在系统设置顶部搜索「无障碍」或「受限制的设置」。开了之后过一阵又被关掉，一般是系统在省电，去点下面的「后台保活」。</p>
+  </div>
 }

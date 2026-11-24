@@ -41,6 +41,7 @@ public class YuanshuPhone {
                 .put("batteryFree", batteryFree())
                 .put("route", Routes.label())
                 .put("bubble", YuanshuBubble.enabled(activity))
+                .put("restricted", restrictedSettings())
                 .put("moneyOnly", YuanshuAccess.moneyOnly(activity))
                 .toString();
         } catch (Exception e) { return "{}"; }
@@ -72,8 +73,33 @@ public class YuanshuPhone {
     @JavascriptInterface
     public void setMoneyOnly(boolean on) { PhoneControl.prefs(activity).edit().putBoolean(YuanshuAccess.PREF_MONEY_ONLY, on).apply(); }
 
+    /** 优先直接跳到「元枢」这一项的无障碍详情页（Android 11+ 多数系统支持），不支持就打开无障碍列表。 */
     @JavascriptInterface
-    public void openAccessibility() { open(new Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS)); }
+    public void openAccessibility() {
+        Intent i = new Intent("android.settings.ACCESSIBILITY_DETAILS_SETTINGS")
+            .putExtra(Intent.EXTRA_COMPONENT_NAME, new android.content.ComponentName(activity, YuanshuAccess.class).flattenToString());
+        if (Build.VERSION.SDK_INT < 30 || i.resolveActivity(activity.getPackageManager()) == null) i = new Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS);
+        open(i);
+    }
+
+    /**
+     * 「受限制的设置」（2026-11-24 v2.239.0）：Android 13+ 对不是从应用商店装的 App，第一次开无障碍会被系统拦，
+     * 要先到 应用信息 → ⋮ → 允许受限制的设置。返回 "yes" 还没放开 / "no" 不受限或已放开 / "unknown" 读不出来（各家系统不一样）。
+     */
+    private String restrictedSettings() {
+        if (Build.VERSION.SDK_INT < 33) return "no";
+        try {
+            android.app.AppOpsManager ops = (android.app.AppOpsManager) activity.getSystemService(android.content.Context.APP_OPS_SERVICE);
+            int mode = ops.unsafeCheckOpNoThrow("android:access_restricted_settings", activity.getApplicationInfo().uid, activity.getPackageName());
+            if (mode == android.app.AppOpsManager.MODE_ALLOWED) return "no";
+        } catch (Exception ignored) { }
+        try {
+            int src = activity.getPackageManager().getInstallSourceInfo(activity.getPackageName()).getPackageSource();
+            if (src == android.content.pm.PackageInstaller.PACKAGE_SOURCE_STORE) return "no";
+            if (src == android.content.pm.PackageInstaller.PACKAGE_SOURCE_DOWNLOADED_FILE || src == android.content.pm.PackageInstaller.PACKAGE_SOURCE_LOCAL_FILE) return "yes";
+        } catch (Exception ignored) { }
+        return "unknown";
+    }
 
     @JavascriptInterface
     public void openNotificationAccess() { open(new Intent("android.settings.ACTION_NOTIFICATION_LISTENER_SETTINGS")); }
