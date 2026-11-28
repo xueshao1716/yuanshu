@@ -1322,6 +1322,9 @@ export type LoopGoal = {
   pending: GoalInsight[]
   log: { at: string; text: string }[]
 }
+// 目标页：全部洞察（含已选、已跳过、已过期）和全部进展，新的在前
+export type GoalInsightFull = GoalInsight & { status: 'pending' | 'chosen' | 'skipped' | 'expired'; choice: string }
+export type LoopGoalDetail = Omit<LoopGoal, 'pending'> & { pending: GoalInsight[]; insights: GoalInsightFull[] }
 const goalPath = (id: string) => `/api/goal-loop/${encodeURIComponent(id)}`
 export const GoalLoopApi = {
   list: () => api<{ goals: LoopGoal[]; maxActive: number }>('/api/goal-loop'),
@@ -1329,6 +1332,7 @@ export const GoalLoopApi = {
   update: (id: string, patch: Partial<Pick<LoopGoal, 'title' | 'detail' | 'status'>>) => api<{ ok: boolean; goal: LoopGoal }>(goalPath(id), { method: 'PATCH', body: patch }),
   remove: (id: string) => api<{ ok: boolean }>(goalPath(id), { method: 'DELETE' }),
   run: (id: string) => api<{ ok: boolean; goal: LoopGoal; added: number }>(`${goalPath(id)}/run`, { method: 'POST', timeoutMs: 180_000 }),
+  history: () => api<{ goals: LoopGoalDetail[]; maxActive: number }>('/api/goal-loop/history'),
   resolve: (id: string, insightId: string, action: 'choose' | 'skip', optionId?: string) =>
     api<{ ok: boolean; goal: LoopGoal; prompt: string }>(`${goalPath(id)}/insights/${encodeURIComponent(insightId)}`, { method: 'POST', body: { action, optionId } }),
 }

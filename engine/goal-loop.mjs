@@ -163,6 +163,11 @@ export function executionPrompt(goal, insight, option, ctx = {}) {
   ].filter(Boolean).join("\n");
 }
 
+/** 目标页用：带全部洞察（含已选、已跳过、已过期）和全部进展，新的在前 */
+export function detailGoal(g) {
+  return { ...publicGoal(g), insights: [...(g.insights || [])].reverse(), log: [...(g.log || [])].reverse() };
+}
+
 /** 今天还没跑过的进行中目标 */
 export function dueGoals(goals, now = new Date()) {
   const today = localDate(now);

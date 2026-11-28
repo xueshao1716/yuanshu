@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import {
   Activity, Bot, Film, BrainCircuit, ClipboardCheck, Cpu, Factory, FolderKanban, GitCompare,
   Globe2, LayoutDashboard, LayoutGrid, UserRound, MonitorCog, PackageCheck, Layers, Palette, PanelRight, ShieldCheck, Sparkles, Workflow,
-  TerminalSquare, X, Download,
+  TerminalSquare, X, Download, Target,
 } from 'lucide-react'
 import ProfileManager from '../onboarding/ProfileManager'
 import { APK_AVAILABLE_EVENT, APK_SHOW_EVENT, availableApk } from './AppUpdateNotice'
@@ -16,6 +16,7 @@ export type UtilityPanelKey = 'workspace' | 'deliveries' | 'terminal' | 'activit
 // 和「工作台」并列就是同一个页面出现两次。
 const MORE_ROUTES: { route: Route; icon: typeof Sparkles; label: string }[] = [
   { route: 'soul', icon: Sparkles, label: ROUTE_LABELS.soul },
+  { route: 'goals', icon: Target, label: ROUTE_LABELS.goals },
   { route: 'grants', icon: ShieldCheck, label: ROUTE_LABELS.grants },
   { route: 'tv', icon: Film, label: ROUTE_LABELS.tv },
   { route: 'board', icon: LayoutDashboard, label: ROUTE_LABELS.board },

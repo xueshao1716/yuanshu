@@ -6,7 +6,7 @@ import os from 'node:os'
 import path from 'node:path'
 import {
   createLoopGoal, updateLoopGoal, parseInsights, addInsights, resolveInsight, executionPrompt,
-  dueGoals, publicGoal, runLoopGoal, readLoopGoals, writeLoopGoals, buildInsightPrompt, MAX_ACTIVE,
+  dueGoals, publicGoal, detailGoal, runLoopGoal, readLoopGoals, writeLoopGoals, buildInsightPrompt, MAX_ACTIVE,
 } from '../../engine/goal-loop.mjs'
 
 const SAMPLE = '好的：\n```json\n[{"problem":"文章更新太慢","evidence":"近两周只发了 1 篇","confidence":"high","options":[{"label":"列 10 个选题","detail":"按热度排"},{"label":"写一篇初稿"}]},{"problem":"只有一个方案","options":["做 A"]}]\n```'
@@ -93,4 +93,21 @@ test('runLoopGoal：落盘洞察；模型没给可用结果时不动 lastRunAt',
     assert.equal(readLoopGoals(ws)[0].insights.length, 1)
     await assert.rejects(runLoopGoal(ws, 'nope', { chat: async () => SAMPLE }), /不存在/)
   } finally { fs.rmSync(ws, { recursive: true, force: true }) }
+})
+
+test('detailGoal：带全部洞察和进展，新的在前，不改原数据', () => {
+  let goals = createLoopGoal([], { title: '做公众号' })
+  let g = addInsights(goals[0], parseInsights(SAMPLE))
+  g = addInsights(g, parseInsights(SAMPLE))
+  goals = [g]
+  const first = g.insights[0]
+  const r = resolveInsight(goals, g.id, first.id, { action: 'choose', optionId: 'o1' })
+  const d = detailGoal(r.goal)
+  assert.equal(d.insights.length, 2)
+  assert.equal(d.insights[1].id, first.id)
+  assert.equal(d.insights[1].status, 'chosen')
+  assert.equal(d.insights[1].choice, 'o1')
+  assert.equal(d.pending.length, 1)
+  assert.equal(d.log.length, 1)
+  assert.equal(r.goal.insights[0].id, first.id)
 })

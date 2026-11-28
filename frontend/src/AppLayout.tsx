@@ -1,5 +1,5 @@
 import { Suspense, lazy, useCallback, useEffect, useRef, useState, type ComponentType, type LazyExoticComponent, type ReactNode } from 'react'
-import { Bot, Puzzle, Film, MessagesSquare, BrainCircuit, Images, Clock4, Download, LayoutGrid, LayoutDashboard, Settings2, FolderClosed, PanelLeftOpen, Sparkles, Factory, MonitorCog, Cpu, Palette, Database, GitCompare, LogOut, Ellipsis, Globe2, ShieldCheck, Workflow, PenLine, LayoutTemplate, UserRound, Plug, Network, Activity } from 'lucide-react'
+import { Bot, Puzzle, Film, MessagesSquare, BrainCircuit, Images, Clock4, Download, LayoutGrid, LayoutDashboard, Settings2, FolderClosed, PanelLeftOpen, Sparkles, Factory, MonitorCog, Cpu, Palette, Database, GitCompare, LogOut, Ellipsis, Globe2, ShieldCheck, Workflow, PenLine, LayoutTemplate, UserRound, Plug, Network, Activity, Target } from 'lucide-react'
 import { useApp } from './store'
 import { useIsMobile } from './hooks/useIsMobile'
 import { useHashRoute, PageErrorBoundary, type Route } from './hooks/useHashRoute'
@@ -43,6 +43,8 @@ const SoulPage = lazy(() => import('./pages/Soul'))
 const AutoPatchesPage = lazy(() => import('./pages/AutoPatches'))
 const GatewayPage = lazy(() => import('./pages/Gateway'))
 const GrantsPage = lazy(() => import('./pages/Grants'))
+// 2026-11-29：目标页——长期目标的完整时间线（每轮想了什么、选了哪个方案、跳过了什么）
+const GoalsPage = lazy(() => import('./pages/Goals'))
 const TvPage = lazy(() => import('./pages/Tv'))
 const ThemesPage = lazy(() => import('./pages/Themes'))
 const WorkshopPage = lazy(() => import('./pages/Workshop'))
@@ -97,6 +99,7 @@ type PageRoute = {
 // 页面注册表是路由、页面渲染和桌面导航的单一来源；移动端导航是刻意不同的信息架构。
 const PAGE_ROUTES: PageRoute[] = [
   { route: 'soul', icon: Sparkles, label: ROUTE_LABELS.soul, Page: SoulPage },
+  { route: 'goals', icon: Target, label: ROUTE_LABELS.goals, Page: GoalsPage },
   { route: 'grants', icon: ShieldCheck, label: ROUTE_LABELS.grants, Page: GrantsPage },
   { route: 'tv', icon: Film, label: ROUTE_LABELS.tv, Page: TvPage },
   { route: 'board', icon: LayoutDashboard, label: ROUTE_LABELS.board, Page: BoardPage },

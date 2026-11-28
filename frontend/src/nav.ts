@@ -27,6 +27,7 @@ export const ROUTE_LABELS = {
   gateway: '事务台',
   plugins: '技能商店',
   agents: '协作 agent',
+  goals: '目标',
 } as const
 
 // 桌面主栏只放用户每天会找的工作入口；引擎从“更多”提升为一等入口。
@@ -41,7 +42,7 @@ export const RAIL_PRIMARY = ['chat', 'board', 'workshop', 'assets', 'tasks', 'en
 //   沙箱 / 超维模式只在授权中心（本会话执行权限）；系统页不再重复放一份。
 // 2026-11-19：协作 agent（派活给本机 Claude Code / Codex）独立成页，放在更多里
 // 2026-11-19：技能商店并入能力（页内分区），#/plugins 留作深链别名
-export const RAIL_MORE = ['soul', 'grants', 'tv', 'apps', 'agents', 'health', 'system'] as const
+export const RAIL_MORE = ['soul', 'goals', 'grants', 'tv', 'apps', 'agents', 'health', 'system'] as const
 
 // 别名路由 → 它所属的导航板块；导航高亮、手机「更多」激活态都按板块算。
 export const RAIL_OWNER: Record<string, string> = {

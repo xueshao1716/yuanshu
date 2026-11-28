@@ -228,7 +228,7 @@ import { decorateEngineStatus, isCorePlugin } from "./engine/engine-panel.mjs";
 import { readPromptPlugins, savePromptPlugin, removePromptPlugin, promptPluginDef } from "./engine/prompt-plugins.mjs";
 import { createAppReleaseRoutes } from "./engine/app-release.mjs";
 import { createAutoUpdater, checkWithImportance, runsIdle, applyViaHandler } from "./engine/auto-update.mjs";
-import { readLoopGoals, writeLoopGoals, createLoopGoal, updateLoopGoal, resolveInsight, executionPrompt, dueGoals, publicGoal, runLoopGoal, MAX_ACTIVE as GOAL_LOOP_MAX } from "./engine/goal-loop.mjs";
+import { readLoopGoals, writeLoopGoals, createLoopGoal, updateLoopGoal, resolveInsight, executionPrompt, dueGoals, publicGoal, detailGoal, runLoopGoal, MAX_ACTIVE as GOAL_LOOP_MAX } from "./engine/goal-loop.mjs";
 import { initWorkspaceApi, WS_ROOT, findWorkspaceFiles, wsSafePath, saveArtifact, saveArtifactFromFile, handleWsTree, handleWsFile, handleWsRead, handleWsPreview, handleWsWrite, handleWsArtifacts, wsNextVersion, handleWsDeliver, handleWsPackage, handleWsDeliveries, handleWsRename, handleWsDelete, handleWsSearch, handleWsProjectCreate, handleWsConvert } from "./engine/workspace-api.mjs";
 import { configureMarkdownImages } from "./engine/media/markdown-images.mjs";
 
@@ -8142,6 +8142,10 @@ const boardApi = createBoardApi({
   const goalLoopErr = (res, e) => json(res, e?.status || 500, { error: String(e?.message || e).slice(0, 200) });
   API_ROUTES.push(["GET", "/api/goal-loop", async (res) => {
     json(res, 200, { goals: readLoopGoals(WS_ROOT).filter(g => g.status !== "done").map(publicGoal), maxActive: GOAL_LOOP_MAX });
+  }]);
+  // 2026-11-29 目标页：含已完成的目标，带全部洞察和进展（新的在前）
+  API_ROUTES.push(["GET", "/api/goal-loop/history", async (res) => {
+    json(res, 200, { goals: readLoopGoals(WS_ROOT).map(detailGoal), maxActive: GOAL_LOOP_MAX });
   }]);
   API_ROUTES.push(["POST", "/api/goal-loop", async (res, req) => {
     try {

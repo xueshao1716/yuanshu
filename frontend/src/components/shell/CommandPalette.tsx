@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import * as D from '@radix-ui/react-dialog'
 import { useRestoreFocus } from '../../hooks/useRestoreFocus'
-import { Bot, Film, MessagesSquare, BrainCircuit, ClipboardCheck, Images, Clock4, LayoutGrid, FolderClosed, Package, SquareTerminal, Settings2, Plus, CornerDownLeft, LayoutDashboard, Sparkles, Factory, Palette, Database, MonitorCog, Cpu, Activity, ChevronsLeftRight, ShieldCheck, Workflow, Download, Plug } from 'lucide-react'
+import { Bot, Film, MessagesSquare, BrainCircuit, ClipboardCheck, Images, Clock4, LayoutGrid, FolderClosed, Package, SquareTerminal, Settings2, Plus, CornerDownLeft, LayoutDashboard, Sparkles, Factory, Palette, Database, MonitorCog, Cpu, Activity, ChevronsLeftRight, ShieldCheck, Workflow, Download, Plug, Target } from 'lucide-react'
 import { useApp } from '../../store'
 import { toast } from './Toast'
 import { useLiquidGlass } from './LiquidGlass'
@@ -69,6 +69,7 @@ export default function CommandPalette({ open, onClose, nav, onRightPanel, onMod
       page('system', '打开系统', MonitorCog),
       page('health', '打开运行健康（机制新鲜度 / 退化 / 审计）', Activity),
       page('grants', '打开授权中心（放权 / 提权 / 批准）', ShieldCheck),
+      page('goals', '打开目标（长期目标的完整时间线）', Target),
       { key: 'rp-inspect', icon: ClipboardCheck, label: '右栏 · 任务检查', hint: '对话页', run: () => { onRightPanel('inspect'); nav('chat'); onClose() } },
       { key: 'rp-workspace', icon: FolderClosed, label: '右栏 · 工作空间', hint: '对话页', run: () => { onRightPanel('workspace'); nav('chat'); onClose() } },
       { key: 'rp-deliveries', icon: Package, label: '右栏 · 交付物', hint: '对话页', run: () => { onRightPanel('deliveries'); nav('chat'); onClose() } },
